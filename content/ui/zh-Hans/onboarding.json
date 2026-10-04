@@ -1,5 +1,10 @@
 {
   "adviceNotice": "角色建议与警告仅供参考；最终选择仍由你决定。",
+  "autoInvestigator.age": "年龄 {age}",
+  "autoInvestigator.entering": "正在安排你的调查员入座，开场资料就绪后即可开始游戏。",
+  "autoInvestigator.hint": "跳过建卡对话：所选现成调查员将直接入座，开场资料准备就绪后立即开始游戏。",
+  "autoInvestigator.list": "现成调查员",
+  "autoInvestigator.toggle": "自动创建调查员",
   "back": "← 返回选择剧本",
   "backgroundNote": "建卡背景就绪后即可开始对话，开场资料会在后台继续准备。",
   "cancelUpload": "取消上传",

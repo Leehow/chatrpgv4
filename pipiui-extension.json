@@ -51,6 +51,11 @@
             "title": "Fast model reasoning effort",
             "description": "The reasoning effort the fast model's tool-running lanes use. Absent means the lane's own level (low), never the table's (contract §37.11). Read each time a lane runs."
           },
+          "ext.coc-keeper.autoInvestigator": {
+            "type": "object",
+            "title": "Auto-create investigator",
+            "description": "{enabled, template}: when enabled, choosing a scenario seats the chosen shipped investigator template and opens play without a character-creation conversation (contract §174). Absent means off: only the player's own toggle turns it on."
+          },
           "ext.coc-keeper.beginnerHints": {
             "type": "object",
             "title": "Beginner hints",

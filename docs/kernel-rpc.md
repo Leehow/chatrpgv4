@@ -26212,6 +26212,21 @@ builds the two-argument `TextGraph`.
 - **Size.** The table fit the old 2048/1536 budgets and still does; `tests/kernel/test_capsule_nine.py` asserts no `truncated: style` for a legacy lock in both forms.
 
 
+### 137.10 Environment craft and pacing (2026-10-03)
+
+**Scope.** This is a craft-only upgrade to PipiCOC Narration Craft: environment description and sentence/paragraph pacing. It is informed by the completed [local prose study](</Users/haoli/Documents/TRPG/小说/文笔研究-20261003/文笔与环境张力总报告.md>). It does not add a lane, template bank, stylistic gate, review/rewrite step, runtime schema, imitation rule, or source-story fact.
+
+Version 2.2.1. This version-frozen package is authored by the craft writer. The reader is the kernel `buildCapsule/styleSection` plus context policy: it carries full instruction/style on entry, then the compact reminder plus axes, directives and floor. The actor is the live Keeper, writing and delivering through ordinary narrate/ask/apply under the one-pass policy. No receipt proves literary quality. Existing campaign locks stay frozen; explicit upgrade uses ordinary `mods.configure`. Core/host/state/settings/capabilities remain unchanged; only this versioned craft package text changes.
+
+**Boundaries and adoption.** The existing package, state model, tools, receipts, interfaces and read-only sources are unchanged. This is a versioned author draft/addendum: adopt it only as the corresponding package version, with existing validation and deployment controls. It guides positive craft rather than enforcing metre, quotas, adjective bans, dramatic endings, hidden information, or a fixed scene recipe.
+
+**Evidence separation.** Wiring checks establish only that the package is connected and within its declared limits. Real live play is separate evidence about actual turns and agency. An installed App is a further deployment state, not proof of either. No claim about literary improvement is made here.
+
+**Rationale and limits.** The local study’s 54 sampled scenes (48 distributed source windows plus 6 opening supplements) are a bounded reading sample, not exhaustive or statistically representative; the report also notes that reader interpretation was not a measured audience response and NPC live-play acceptance was not performed. Its useful transfer is conditional: let station, material, movement, sensory contact and environmental feedback connect; keep public actionable evidence available; allow ordinary detail and waiting without compulsory omen; let sentence and paragraph turns follow linked action, inspection, waiting and release. The study does not establish sentence-length causality.
+
+The primary precedents already read by root are Ursula K. Le Guin’s authorized chapter on rhythm as physical movement (https://lithub.com/a-writing-lesson-from-ursula-k-leguin/) and Delatorre et al.’s experiment (https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2018.01392/full). They support avoiding rigid metre and treating suspense as more than concealed outcomes; they do not validate this Mod or prove sentence-length causality. No novel quotation is copied into runtime instructions.
+
+
 ## 138. Band then roll: a rules row named instead of a number, rolled by the kernel (2026-09-26, BR-01 of `docs/specs/band-then-roll.md`; amends §135.28 and §136.22, extends §5's `table.apply` `time` and `damage`)
 
 §136.22 lets the Keeper name the book's amount instead of writing its own. Where the book prints only a scale — how
@@ -32601,3 +32616,64 @@ Owner-run probes on 2026-10-03 (owner's ChatGPT Pro account, `experiments/codex-
 **Actor.** Tool-Pi writes the candidate prose in the supplied play language and writing system; Jev never writes. The actor preserves identity, listener, source facts, agency, secrets, and current state, and invents none. A repeated subject is not automatically defective: the actor answers the actual present question rather than banning a topic because it appeared earlier. No card mask may force a catchphrase, topic, agenda, refusal, agreement, question, sentence length, or rhythm. Existing one-repair and cancellation/publication guards remain. All prose/live/fallback review uses the configured `flapcode/gpt-6-luna low`; bounded judgments use `Jev1.13.0`; Astra and Grok are never used. No model output alone authorizes an action or publishes a card.
 
 **Authority and single pass.** The turn is processed once through the existing interfaces; there is no migration, retry loop, post-prose judge, or hidden second pass that changes state. A structural pass proves only shape and wiring. Acceptance additionally requires the specified focused regressions, correction-budget and atomicity coverage, card clean/reject/uncertain/cancel coverage, actual provider payload inspection, and a real-driver table on final-source versions. Report each gate honestly and distinguish code, delivery, dialogue quality, and complete ending receipt; an unrun gate is not successful.
+
+## 174. Auto-create investigator: a template card seats the table without a setup conversation (owner request, 2026-10-03; amends §14.4's setup lane, §21.2's receipt sources and §23's start screen)
+
+Creating a character on every test run is slow and spends a model conversation, which is a cost when the run is about play. With the auto-investigator setting on, the start screen ("Start from a scenario") lists a few shipped template cards; choosing a source then lands the session in play with the chosen card, without one setup-guide model turn. With the setting off nothing changes.
+
+**Off by default, everywhere** (owner ruling, 2026-10-03): the product, test boxes and drivers alike. Character creation still surfaces many bugs, and ordinary runs must keep walking through it so those bugs are found and fixed; a default that skipped it would hide them. A tester turns it on by hand on the start screen when a run is about play, and that choice is stored so it persists for the app.
+
+### 174.1 Templates are shipped content
+
+- `content/investigator-templates/<id>/character.json`: one fixed, complete sheet per folder, in the schema of the starter pregens (`content/starters/<id>/pregens/<id>/character.json`: `schema_version`, `name`, `occupation`, `era`, `age`, `sex`, `characteristics`, `derived`, `skills`, `weapons`, `equipment`, `backstory`, `credit_rating`, `cash`, …). `<id>` is a slug (`[a-z0-9][a-z0-9-]{0,63}`); a folder whose file is not a JSON object with a string `name` is not a template.
+- Templates are fixed sheets, not seeds generated per era (owner ruling). An era that differs from the module's is accepted and recorded exactly as `investigator.load` records it (§21.3: `campaign.json.era_mismatch: {sheet, module}`); there is no converter.
+- A template belongs to no book. A sheet copied from a starter's pregen drops `backstory.scenario_id` and `backstory.scenario_bound.description` (which names that book's hook); the personal fields that rode inside `scenario_bound` (`significant_people`, `meaningful_locations`) move up to `backstory` unchanged. No sentence is rewritten. A template made fresh is a kernel chargen result -- `setup.draft` then `setup.confirm` on a scratch campaign with no difficulty setting (rulebook standard) -- frozen into the file with its `creation` trace and seed; its numbers are never hand-written. Shipped: `eleanor-reed` and `thomas-hayes` (from The Haunting's pregens) and `margaret-winslow` (kernel-generated).
+- Names and occupations are authored content, like the pregens'. No language table, no per-language name list.
+
+### 174.2 Two kernel methods
+
+- `setup.templates {}` → `{templates: [{id, name, occupation, era, age, sex}], unreadable?: [<id>]}`, ordered by `id`. The first row is the default template.
+- `setup.template {campaign, template}` → `{receipt, investigator, sheet, template, era_mismatch, replayed?}`.
+  - The campaign must be `setting_up` (`campaign_not_ready` otherwise), except for the replay below.
+  - `template` that names no template → `unknown_entity`, `details: {query, candidates: [<ids>]}`, `fix: "call setup.templates and pass one of its ids"`.
+  - Replay: when the campaign already holds an investigator receipt with `source: "template"`, the call writes nothing and answers that card with `replayed: true`, whatever the campaign's status — a host that retries its converse never seats a second card.
+  - A party that already holds a card from another lane (a draft confirmed, a library load) → `invalid_params`, `code_detail: "party_not_empty"`. A template never stacks onto a card the player made.
+  - Effect: the sheet is copied whole into `<campaign>/party/<id>.json`; only `id` is minted (`defaultInvestigatorId(name, party size + 1)`, made unique), `current_hp/san/mp/luck` are filled from `derived`/`characteristics` when the sheet carries none, and `origin: {template: <id>}` is written. No `origin.library_id`, so §21.4's write-back never mirrors a template into the library. `campaign.json.investigators` is rewritten, `era_mismatch` recorded, and one setup receipt appended: `{id: "investigator:<id>", kind: "investigator", investigator, name, occupation, source: "template", template: <id>, at}`.
+
+### 174.3 What the receipt source changes in setup
+
+- `setup.complete`: a campaign whose investigator receipts are all `library` or `template` skips the completeness check and the draft-confirm check (as `library` alone did, §21). The opening gate is unchanged: when the opening is not ready, `waiting_for_opening` is set and `campaign_not_ready` / `opening_preparing` is thrown with the card retained.
+- `setup.steps`: a `template` receipt books the load-an-existing-sheet lane (`browse-library`, `load-investigator`), so the setup extension sees an investigator seated and `complete` reachable.
+
+### 174.4 The setting
+
+- Key `ext.coc-keeper.autoInvestigator` in the host's app-scope extension settings document, value `{enabled: boolean, template?: string}`. Declared in `pipiui-extension.json`'s schema; written by the start screen through the host's ordinary `updateExtensionSettings` (the same path the settings sections use).
+- Read by the host only. It is on only when the stored value says `enabled: true`; with nothing stored it is **off**. No environment variable, launcher flag or renderer field turns it on: only the player's own toggle does.
+- The renderer is not trusted for on/off: the host drops any `auto_investigator` the renderer put on a request and injects its own. The renderer may name `template` on `converse`; it reaches the kernel only as a template id, and the kernel refuses any id that is not shipped (`unknown_entity`). With no template named anywhere, the first listed template is used.
+
+### 174.5 Host and worker flow
+
+- `onboarding {action: "catalog"}` answers, beside `presets`/`modules`/`occupations`, `templates` (from `setup.templates`) and `auto_investigator: {enabled, template}` (the host's reading of §174.4; `template` is the stored choice or `null`).
+- `onboarding {action: "converse"}` with the setting on carries `auto_investigator: {template}` into the worker input (never into the import job file). After `campaign.create` (or on a campaign that already exists and is still `setting_up`), the worker calls `setup.template` and then `setup.complete`. `campaign_not_ready` with `details.reason: "opening_preparing"` is not a failure: `waiting_for_opening` stays set and the existing handoff polling finishes setup when the opening is ready. Any other refusal fails the converse the way any worker refusal does.
+- The host then binds the session exactly as before (`mode: "setup"`) and starts it. The setup extension's autostart either finds `complete` already booked (nothing is shown) or, while the opening prepares, shows the prepared prologue as a host message (`triggerTurn: false`). Neither path runs a guide model turn.
+- Handoff to play reuses the existing path and nothing parallel: the preparation panel (`pipicoc/preparation.js`) sees `canHandoff` and runs `onboarding {action:"start"}` → `setup-handoff` → `onboarding {action:"start"}`; `setup-handoff` calls `setup.complete` (a replay when it already completed), appends the play binding and exits the setup process; the play session's first turn is the Keeper's opening.
+- `CocOnboardingHost.snapshot()` reports `character.state: "confirmed"` when `confirmed_revision` or `handoff` is set (unchanged) **or** when the campaign's investigator receipts are non-empty and all `source: "template"`. That is what lets `canHandoff` fire for a template card waiting on its opening.
+- With the setting off, `converse` carries no `auto_investigator`, the worker never calls `setup.template`, and the campaign stays `setting_up` with an empty party: the setup conversation is the one it was.
+
+### 174.6 Start screen
+
+- Near the play-language field, a checkbox "auto-create investigator" whose state is the catalog's `auto_investigator.enabled`. Toggling writes the setting (§174.4) with the current template.
+- When on, the template cards are listed under it (name, occupation, era, age). The selected card is the stored `template` when it is still listed, else the first. Clicking a card selects it and writes the setting. Clicking a source card and choosing a scenario then starts as before; the `converse` request names the selected `template`.
+- Captions come from `content/ui/en/onboarding.json` (`autoInvestigator.*`); other languages are projected by the ui-words lane (§23), never hand-written.
+
+### 174.7 Three ends (§31)
+
+- **`setup.template` receipt** — *writer:* the onboarding worker's converse (`setup.template`). *Readers:* `setup.complete` (skips draft confirm), `setup.steps` (books the existing-sheet lane), `CocOnboardingHost.snapshot()` (`character: confirmed`). *Actor:* the preparation panel's handoff, which needs `canHandoff`, and the kernel's `setup:handoff` receipt that follows.
+- **`ext.coc-keeper.autoInvestigator`** — *writer:* the start screen's checkbox and template cards. *Reader:* the host's onboarding handler (catalog answer, converse injection). *Actor:* the worker's converse, whose `setup.template` / `setup.complete` calls land as the receipts above.
+- **`origin.template` on the sheet** — *writer:* `setup.template`. *Reader:* none in play; it is provenance for evidence and the reason §21.4's write-back skips the card (it reads only `origin.library_id`).
+
+### 174.8 Implementation decisions
+
+- The template is loaded by a new `setup.template`, not a `template` source on `investigator.load`: `investigator.load` reads library rows under the home, has a `turn_state` gate for mid-play joins and mints library forks; a content template has none of that, and a second reading lane inside that method would have to switch on its parameters.
+- `setup.steps` books the `library` lane for a template rather than adding a third investigator source to `content/setup/steps.json`: the setup guide never walks a template (the host does it before the session exists), and a third lane would add steps nobody can take.
+- The auto path records no prologue of its own. When setup completes inside the converse (the opening was already ready), the setup session finds `complete` booked and shows nothing, so `handoff.prologue` is `null` and the play opening treats it as "no setup meeting" (as for `--pregen`) -- the truth. When the opening is still preparing, the setup session's ordinary autostart shows the prologue and records it through `setup.prologue`, so the handoff carries a prologue the player really saw. Recording one the player never read would make the Keeper skip words nobody was shown.

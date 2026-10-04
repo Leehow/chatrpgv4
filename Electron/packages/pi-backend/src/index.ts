@@ -9568,6 +9568,19 @@ export class PiHostBackend implements HostBackend {
     const value = values["ext.coc-keeper.difficulty"];
     return isRecord(value) ? value : {mode: "preset", preset: "normal"};
   }
+  /**
+   * The auto-create investigator setting (contract §174.4): on only when the player stored
+   * `enabled: true` from the start screen. Nothing else turns it on -- no environment, no renderer
+   * field -- because ordinary runs must keep exercising character creation, where the bugs still are.
+   * `template` is the stored choice, or null for the first listed.
+   */
+  private async cocAutoInvestigatorSetting(): Promise<{enabled: boolean; template: string | null}> {
+    const values = readAppExtensionSettingsValues(await this.readSettings(), "coc-keeper", new Set());
+    const value = values["ext.coc-keeper.autoInvestigator"];
+    const stored = isRecord(value) && typeof value.enabled === "boolean" ? value.enabled : undefined;
+    const template = isRecord(value) && typeof value.template === "string" && value.template.trim() ? value.template.trim() : null;
+    return {enabled: stored === true, template};
+  }
   /** The campaign's generated portrait as a data URL, when the live lane already saved one (contract §22.7). */
   private async cocCampaignPortrait(context:CocBinding):Promise<string|undefined> {
     for(const [ext,mime] of [["png","image/png"],["jpg","image/jpeg"],["webp","image/webp"]] as const) {
@@ -9798,6 +9811,13 @@ export class PiHostBackend implements HostBackend {
           const difficulty = await this.cocDifficultySetting();
           if (difficulty) request.difficulty = difficulty;
           else delete request.difficulty;
+          // Contract §174.4: on/off is the host's setting alone; the renderer may only name which
+          // shipped template, and the kernel refuses an id that is not one.
+          const named = typeof request.template === "string" && request.template.trim() ? request.template.trim() : null;
+          delete request.auto_investigator;
+          delete request.template;
+          const auto = await this.cocAutoInvestigatorSetting();
+          if (auto.enabled) request.auto_investigator = {template: named ?? auto.template};
         }
         if (sid && ["begin", "select"].includes(String(request.action))) {
           const selected = await this.locate(sid);
@@ -9806,6 +9826,8 @@ export class PiHostBackend implements HostBackend {
         const data = await this.cocOnboarding.invoke(request, sid, {
           id: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel, vision: state.model.supportsImages !== false,
         });
+        // The start screen draws its auto-create toggle from the host's reading of the setting (§174.5).
+        if (request.action === "catalog") data.auto_investigator = await this.cocAutoInvestigatorSetting();
         if (sid && ["begin", "select", "converse"].includes(String(request.action)) && state.model.provider !== "unknown") {
           await this.setModel(sid, state.model.provider, state.model.id);
           await this.setThinking(sid, state.thinkingLevel);

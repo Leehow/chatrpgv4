@@ -1,5 +1,9 @@
 # Narration Craft
 
+## 2.2.1
+- Revised environment integration and pacing guidance. Removed rigid long/short alternation and five-sense checklist behavior. Added viewpoint, movement, material continuity, actionable-information, urgency-order, quiet-scene, and non-gratuitous-repetition guidance.
+- Preserved NPC speech guidance and interface/settings facts. Existing locks and prior deliveries remain frozen; explicit adoption uses the ordinary Mod upgrade. Contract section 137.10.
+
 ## 2.1.18
 - Integration evidence records a mixed live result: the first real table observed a successful key return, while the other actor did not reliably represent the already chosen ending correction. Strictly preserve source facts, listener/identity boundaries, declared acts versus receipts, and unknown factual claims; unknown or unsupported past/negative claims remain unknown rather than becoming canon. This is an observed reason for the quality trial not being accepted, not a new runtime feature.
 
