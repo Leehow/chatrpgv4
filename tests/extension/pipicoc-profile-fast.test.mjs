@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {runtimeEntrypoints} from '../../runtime/deployment.mjs';
+import {build} from 'esbuild';
 
 const source=fileURLToPath(new URL('../..',import.meta.url));
 test('compiled profile installation mounts Fast App assets and agent without changing account configuration',async()=>{
@@ -13,14 +14,15 @@ test('compiled profile installation mounts Fast App assets and agent without cha
  try {
   const home=join(root,'home'),profile=join(home,'agent');
   await mkdir(join(root,'build/runtime'),{recursive:true});
-  await mkdir(join(root,'runtime'),{recursive:true});
   await mkdir(join(root,'node/bin'),{recursive:true});
   await mkdir(profile,{recursive:true});
   await symlink(process.execPath,join(root,'node/bin/node'));
   await writeFile(join(root,'deployment.json'),'{}');
-  await cp(join(source,'runtime/deployment.mjs'),join(root,'runtime/deployment.mjs'));
   // The context supplies deployment paths only; the real installer owns every file operation.
-  await writeFile(join(root,'build/runtime/host.mjs'),"import {runtimeEntrypoints} from '../../runtime/deployment.mjs'; export function composeRuntimeContext(_owner,{resourceRoot,agentHome}){return {agentHome,entrypoints:runtimeEntrypoints(resourceRoot,'compiled')}}");
+  // Match standalone resources: deployment helpers are bundled, never shipped as runtime/*.mjs.
+  await build({stdin:{contents:"import {runtimeEntrypoints} from './runtime/deployment.mjs'; export {agentExtensionManifests} from './runtime/deployment.mjs'; export function composeRuntimeContext(_owner,{resourceRoot,agentHome}){return {agentHome,entrypoints:runtimeEntrypoints(resourceRoot,'compiled')}}",resolveDir:source},bundle:true,platform:'node',format:'esm',packages:'external',outfile:join(root,'build/runtime/host.mjs')});
+  const realHost=await build({entryPoints:[join(source,'runtime/host.ts')],bundle:true,platform:'node',format:'esm',packages:'external',write:false,logLevel:'silent'});
+  assert.match(realHost.outputFiles[0].text,/export \{[^}]*agentExtensionManifests/s);
   await cp(join(source,'pipicoc'),join(root,'pipicoc'),{recursive:true});
   await cp(join(source,'pipiui-extension.json'),join(root,'pipiui-extension.json'));
   for(const name of ['deepseek','grok-build-oauth','image-gen','rerank','jev','remote-control','openai-fast'])

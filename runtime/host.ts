@@ -11,6 +11,9 @@ import { parseModelsJson, stripLineComments } from "./json-comments.ts";
 import { assertWritableLocation, compiledEnvironment, readDeployment, resourcePath, resourceRootFrom,
   runtimeEntrypoints, type RuntimeEntrypoints, type RuntimeLayout } from "./deployment.mjs";
 
+// Profile installation loads manifest discovery from this shipped bundle.
+export { agentExtensionManifests } from "./deployment.mjs";
+
 export interface RuntimeBinding {
 	owner: "session" | "preparation" | "check";
 	home: string;
