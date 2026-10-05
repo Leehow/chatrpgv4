@@ -1,3 +1,4 @@
+import {registerComposerAction} from './workbench/composer-actions'
 // @vitest-environment jsdom
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -4820,4 +4821,42 @@ describe('model provider add (pi auth flow)', () => {
     expect(newTab).not.toHaveBeenCalled()
     Reflect.deleteProperty(window, 'pipiRemoteControl')
   })
+})
+
+it('places an extension action immediately right of thinking in the real Composer', async () => {
+  const host = createMockHost()
+  const extensions = await host.listExtensions!()
+  host.listExtensions = async () => [...extensions,{id:'openai-fast',name:'OpenAI Fast',version:'0.1.0',state:'enabled',source:'builtin',capabilities:[]}]
+  const dispose = registerComposerAction('openai-fast',{id:'openai-fast.toggle',render:context=><button data-testid='fast-position' disabled={context.disabled}>Fast</button>})
+  try {
+    render(<App host={host}/>)
+    const button = await screen.findByTestId('fast-position')
+    const thinking = screen.getByTestId('thinking-chip-anchor')
+    expect(thinking.nextElementSibling).toBe(button)
+    expect(button.closest('.composer-options-left')).toBe(thinking.parentElement)
+  } finally {dispose()}
+})
+
+it('keeps Fast disabled for a sending queue and queued work after stopped, then enables after drain in the real App', async () => {
+  const host = createMockHost()
+  const extensions = await host.listExtensions!()
+  host.listExtensions = async () => [...extensions,{id:'openai-fast',name:'OpenAI Fast',version:'0.1.0',state:'enabled',source:'builtin',capabilities:[]}]
+  let queue=[queuedMessage('fast-busy','welcome','synthetic queued work','sending')]
+  let listener: ((event: StreamEvent) => void) | undefined
+  host.listQueue=async()=>queue
+  host.subscribeStream=(_sessionId,callback)=>{listener=callback;return()=>{listener=undefined}}
+  const dispose=registerComposerAction('openai-fast',{id:'openai-fast.toggle',render:context=><button data-testid='fast-busy-app' disabled={context.disabled}>Fast</button>})
+  try {
+    render(<App host={host}/>)
+    const button=await screen.findByTestId('fast-busy-app') as HTMLButtonElement
+    await waitFor(()=>expect(button.disabled).toBe(true))
+    await act(async()=>{listener?.({type:'status',sessionId:'welcome',status:'stopped'})})
+    await waitFor(()=>expect(button.disabled).toBe(false))
+    queue=[queuedMessage('fast-busy','welcome','synthetic queued work','queued')]
+    await act(async()=>{listener?.({type:'queue_update',sessionId:'welcome',queue})})
+    await waitFor(()=>expect(button.disabled).toBe(true))
+    queue=[]
+    await act(async()=>{listener?.({type:'queue_update',sessionId:'welcome',queue})})
+    await waitFor(()=>expect(button.disabled).toBe(false))
+  }finally{dispose()}
 })

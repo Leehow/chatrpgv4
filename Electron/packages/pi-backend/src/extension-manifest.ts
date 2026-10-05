@@ -233,6 +233,7 @@ export type ExtensionUiSummary = {
   viewContainers?: ExtensionUiViewContainer[];
   views?: ExtensionUiView[];
   headerActions?: ExtensionUiHeaderAction[];
+  composerActions?: ExtensionUiHeaderAction[];
   /** Product-pack Workbench layout. Its presence is what makes this package a form. */
   layout?: ExtensionUiLayout;
   /** Theme pack entries pass through verbatim; per-theme content validation is
@@ -1102,6 +1103,40 @@ export function validateExtensionManifest(value: unknown): ManifestValidation {
             if (entry) actions.push({ id: actionId, entry, ...(order !== undefined ? { order } : {}) });
           }
           if (actions.length) summary.headerActions = actions;
+        }
+      }
+      if (appUi.composerActions !== undefined) {
+        if (!Array.isArray(appUi.composerActions)) {
+          errors.push("app.ui.composerActions must be an array");
+        } else {
+          const actions: ExtensionUiHeaderAction[] = [];
+          const seen = new Set<string>();
+          for (const [index, item] of appUi.composerActions.entries()) {
+            const label = `app.ui.composerActions[${index}]`;
+            if (!isRecord(item)) {
+              errors.push(`${label} must be an object`);
+              continue;
+            }
+            const actionId = asNonEmptyString(item.id);
+            if (!actionId || !CONTRIBUTION_ID_RE.test(actionId)) {
+              errors.push(`${label}.id must be a semantic contribution id`);
+              continue;
+            }
+            if (seen.has(actionId)) {
+              errors.push(`duplicate composer action id '${actionId}'`);
+              continue;
+            }
+            seen.add(actionId);
+            const entry = collectRelativePath(item.entry, `${label}.entry`, errors);
+            let order: number | undefined;
+            if (item.order !== undefined) {
+              if (typeof item.order !== "number" || !Number.isFinite(item.order)) {
+                errors.push(`${label}.order must be a finite number`);
+              } else order = item.order;
+            }
+            if (entry) actions.push({ id: actionId, entry, ...(order !== undefined ? { order } : {}) });
+          }
+          if (actions.length) summary.composerActions = actions;
         }
       }
       if (appUi.panels !== undefined) {

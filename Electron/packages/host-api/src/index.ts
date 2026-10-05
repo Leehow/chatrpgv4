@@ -1107,6 +1107,7 @@ export type ExtensionContributions = {
   viewContainers?: readonly ExtensionViewContainerDecl[];
   views?: readonly ExtensionViewDecl[];
   headerActions?: readonly ExtensionHeaderActionDecl[];
+  composerActions?: readonly ExtensionHeaderActionDecl[];
   auth?: ExtensionAuthContribution;
 };
 /** Theme pack entry from an extension manifest's `app.ui.themes`, passed through
@@ -1143,6 +1144,7 @@ export type ExtensionDescriptor = {
   /** Controlled entries resolved against the extension package directory. */
   ui?: {
     headerActions?: readonly ExtensionHeaderActionDecl[];
+    composerActions?: readonly ExtensionHeaderActionDecl[];
     themes?: readonly ExtensionThemeDecl[];
     /** Present only on a product pack; declaring it is what makes this a form. */
     layout?: ProductPackLayout;
@@ -1456,7 +1458,7 @@ export interface PipiHostAPI {
   readExtensionData?(
     id: string,
     path: string,
-    options?: { tailBytes?: number },
+    options?: { tailBytes?: number; allowMissing?: boolean },
     projectId?: string,
   ): Promise<{ content: string; bytes: number; truncated: boolean }>;
   /** Replace one file under the package's declared `app.data.write` roots. */
