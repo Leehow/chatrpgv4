@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -14,6 +14,8 @@ const row = (id = "grok-4.7-build-fast") => ({
 });
 const wire = (id?: string) => ({ data: [row(id)] });
 const dirs: string[] = [];
+// Fake catalog transport cases control their own offline/layout modes, independent of the parent runner.
+beforeEach(() => { vi.stubEnv("PI_OFFLINE", undefined); vi.stubEnv("PI_COC_LAYOUT", undefined); });
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), "grok-catalog-")); dirs.push(dir);
@@ -98,7 +100,7 @@ describe("official Grok Build model synchronization", () => {
     vi.stubEnv("PI_OFFLINE", "1");
     expect((await loadGrokBuildCatalog({ ...f, force: true }))[0].id).toBe("grok-4.7-build-fast");
     expect(f.fetchImpl).toHaveBeenCalledTimes(1);
-    vi.unstubAllEnvs();
+    vi.stubEnv("PI_OFFLINE", undefined);
     f.fetchImpl.mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
     }));

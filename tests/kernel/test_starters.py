@@ -294,8 +294,16 @@ def test_the_haunting_differs_from_its_pre_rd04_graph_only_by_the_migration():
     roads = sorted(f"/relations[{r['relation_id']}]/properties/{key}: added" for r in after["relations"]
                    if r["relation_kind"] == "route-to" and "travel_minutes" in (r.get("properties") or {}) for key in ROAD_TRAVEL)
     assert roads and set(roads) <= set(changes)
+    # §180.19 is a current authored-source constraint, separate from the historical migrations below.
+    confrontation = next(n for n in after["nodes"] if n["node_id"] == "scene-corbitt-confrontation")
+    dagger = next(a for a in confrontation["properties"]["runtime_projection"]["record"]["affordances"]
+                  if a["id"] == "strike-with-his-dagger")
+    assert dagger["rules_operation"]["investigator_usage_mode"] == "melee"
+    source_mode = {"/nodes[scene-corbitt-confrontation]/properties/runtime_projection/record/"
+                   "affordances[strike-with-his-dagger]/rules_operation/investigator_usage_mode: added"}
+    assert source_mode <= set(changes)
     rd04 = [change for change in RD04_CHANGES if not change.startswith(RETIRED_WITH_THE_TWIN)]
-    assert sorted(set(changes) - set(roads)) == sorted(rd04 + SL25_CHANGES + SL52_CHANGES + CKF_CHANGES)
+    assert sorted(set(changes) - set(roads) - source_mode) == sorted(rd04 + SL25_CHANGES + SL52_CHANGES + CKF_CHANGES)
 
 
 @pytest.mark.parametrize("module_id", sorted(STARTERS))
