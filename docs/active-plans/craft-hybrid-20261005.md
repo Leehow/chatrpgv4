@@ -21,3 +21,7 @@ Current: ownership created; native author and validation pending. No active camp
 ## Genuine compatibility-play result
 
 Four natural root-player turns all delivered on exact2.4.0, only Flapcode gpt-6-luna low. Mixed look/question and quiet scene worked as passages, but source fidelity remains unaccepted: turn2 invented not-being-in-the-house-that-night. Turn4 plain assistant departure had zero tools/receipt; no pause/ending/world move is claimed. Campaign remains active. Driver stopped; raw driver/session/campaign evidence retained in main. This is current App runtime compatibility behavior, not exact latest-source runtime or GUI/stable-quality acceptance. No actor/kernel/source repair added.
+
+## Delivery checkpoint
+
+Source193253d85 integratedc5851159a. Repeated40/40focus checks after integration, same declared source/App-compatible runtime separation. CanonicalApp2.4.0 registry install/digest/five hashes/catalog compatibility/default-enabled verified. Old locks/credentials/model defaults unchanged; no App bundle rebuild or GUI claim. Drivers stopped; all raw campaign/model/tool evidence retained in main. SourceWIP hashes preserved. Final lifecycle closeout/audit remains.
