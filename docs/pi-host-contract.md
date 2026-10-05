@@ -492,3 +492,7 @@ This closes the writer-to-reader gap observed in the installed App: the extensio
 The existing data API accepts `read(path,{allowMissing:true})`: a missing declared path reads empty without creating directories. Writes may initialize missing ancestors only beneath declared write roots, with symlink confinement preserved. This lets an opt-in session/model preference be saved without waking the agent; malformed paths and undeclared roots still fail.
 
 The `openai-fast` extension requests priority for Codex and explicit Flapcode OpenAI identities; it defaults off, persists by project/session/provider/model, and separates requested and terminal effective tier. New session/fork IDs start off. Each request snapshots its choice at the provider hook; running requests do not change. The extension's README specifies response/cost and reconnection semantics. This host UI contract does not alter kernel RPC or independent lanes.
+
+### PipiCOC installed Fast profile boundary
+
+The canonical profile installer must materialize the declared compiled OpenAI Fast agent and its unchanged App manifest/control assets into the writable profile before host discovery. Resource inventory and SDK checks alone do not establish desktop mounting. Installation preserves account settings and existing capability grants; it does not grant or revoke permissions. Verify the installed host extension list and actual composer separately.
