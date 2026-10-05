@@ -1,0 +1,55 @@
+{
+  "at": "2026-10-05T06:35:12.054Z",
+  "source": "f8b17df89",
+  "production": "2.3.1 unchanged",
+  "model": "flapcode/gpt-6-luna",
+  "thinking": "low",
+  "jev": "jev-1.13.0",
+  "selection": {
+    "need_probability_min": 0.65,
+    "exclusion_max": 0.2,
+    "max_cards": 1,
+    "bytes_max": 1800,
+    "timeout_ms": 2000,
+    "attempts": 1
+  },
+  "relaxed_diagnostic": {
+    "need_probability_min": 0.35,
+    "exclusion_max": 0.25
+  },
+  "routing": [
+    "residual+broad",
+    "applicability+broad",
+    "residual+scoped",
+    "applicability+scoped",
+    "residual+broad-relaxed"
+  ],
+  "bases": [
+    "full",
+    "minimal"
+  ],
+  "writing": {
+    "arms": [
+      "full-none",
+      "full-matched",
+      "minimal-none",
+      "minimal-matched"
+    ],
+    "drafts_per_case_arm": 1,
+    "blind_readers_per_case": 2,
+    "other_guidance_identical": true,
+    "routed_packet_deduplication": "Identical instruction packets reuse a factorial draft; not independent router-treatment replication. Distinct selected methods get a distinct native first draft and separate diagnostic reader."
+  },
+  "prior_NONE_data": "Retained historical diagnostic only, not mixed into fresh preference votes.",
+  "method_cards_unchanged": true,
+  "no_after_output_tuning": true,
+  "offline_only": true,
+  "hashes": {
+    "full.md": "531cb0333ca00203a3ba4e122dc4b9d2b9d64e1e0e0b108057da99600555aa1e",
+    "minimal.md": "c3d246e662cec8b642e19d58967d335429fc006b28f18a1bd62ce1dd93ab25ec",
+    "cards.json": "348d30d4451ea6ee2da272e77620f322ddb6631a78a6d0fc472374e570a59520",
+    "keeper.md": "97d63a05b2d0769c5bd2215abbe0b36fa55207f5a48a128a863e6bba99845bea",
+    "other-guidance.md": "3f242ad8028da0e07af531e41901f88afb471d20b3565c4b58353c4c2747cc4b",
+    "cases.json": "0c628bf7bdd1d12797e50be382a980a05b6fbf57a483a40c3e8232950e87dccc"
+  }
+}
