@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-05T06:45:35.454Z",
+  "before_any_review": true,
+  "generated_prose_not_inspected_for_this_change": true,
+  "reason": "Official evaluation guidance recommends pairwise comparison and controlling position/verbosity bias. Replace four-way rank with four explicit pairs, opposite display/pair order in two independent readers. No content editing, length quota, selection threshold or hypothesis change.",
+  "primary_pairs": [
+    "card-full",
+    "card-minimal",
+    "base-no-card",
+    "base-with-card"
+  ],
+  "diagnostics": "Two fresh pairwise readers per distinct routed packet, separate from primary factorial scores",
+  "source": "https://developers.openai.com/api/docs/guides/evaluation-best-practices#llm-as-a-judge-and-model-graders",
+  "model": "flapcode/gpt-6-luna low; no model substitution"
+}

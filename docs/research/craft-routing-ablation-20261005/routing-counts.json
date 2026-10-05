@@ -1,0 +1,62 @@
+{
+  "full/residual+broad": {
+    "requests": 8,
+    "complete": 8,
+    "selected": 0,
+    "none": 8
+  },
+  "full/applicability+broad": {
+    "requests": 8,
+    "complete": 8,
+    "selected": 5,
+    "none": 3
+  },
+  "full/residual+scoped": {
+    "requests": 8,
+    "complete": 8,
+    "selected": 0,
+    "none": 8
+  },
+  "full/applicability+scoped": {
+    "requests": 8,
+    "complete": 8,
+    "selected": 8,
+    "none": 0
+  },
+  "full/residual+broad-relaxed": {
+    "requests": 8,
+    "complete": 8,
+    "selected": 3,
+    "none": 5
+  },
+  "minimal/residual+broad": {
+    "requests": 8,
+    "complete": 8,
+    "selected": 0,
+    "none": 8
+  },
+  "minimal/applicability+broad": {
+    "requests": 8,
+    "complete": 8,
+    "selected": 6,
+    "none": 2
+  },
+  "minimal/residual+scoped": {
+    "requests": 8,
+    "complete": 8,
+    "selected": 0,
+    "none": 8
+  },
+  "minimal/applicability+scoped": {
+    "requests": 8,
+    "complete": 8,
+    "selected": 8,
+    "none": 0
+  },
+  "minimal/residual+broad-relaxed": {
+    "requests": 8,
+    "complete": 8,
+    "selected": 2,
+    "none": 6
+  }
+}

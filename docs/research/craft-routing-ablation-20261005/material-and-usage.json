@@ -1,0 +1,688 @@
+{
+  "metrics": {
+    "full-none": {
+      "n": 8,
+      "median_guidance_bytes": 12995,
+      "median_supplied_file_bytes": 60779,
+      "median_output_characters": 197.5,
+      "median_native_ms": 40759.5,
+      "median_native_input": 17098.5,
+      "median_cache_read": 15360,
+      "latency_not_player_or_causal": true
+    },
+    "full-matched": {
+      "n": 8,
+      "median_guidance_bytes": 13834.5,
+      "median_supplied_file_bytes": 61603.5,
+      "median_output_characters": 176,
+      "median_native_ms": 50827.5,
+      "median_native_input": 16310.5,
+      "median_cache_read": 16384,
+      "latency_not_player_or_causal": true
+    },
+    "minimal-none": {
+      "n": 8,
+      "median_guidance_bytes": 7010,
+      "median_supplied_file_bytes": 54794,
+      "median_output_characters": 191.5,
+      "median_native_ms": 50626.5,
+      "median_native_input": 15448.5,
+      "median_cache_read": 14336,
+      "latency_not_player_or_causal": true
+    },
+    "minimal-matched": {
+      "n": 8,
+      "median_guidance_bytes": 7849.5,
+      "median_supplied_file_bytes": 55618.5,
+      "median_output_characters": 194,
+      "median_native_ms": 47297.5,
+      "median_native_input": 15822,
+      "median_cache_read": 14336,
+      "latency_not_player_or_causal": true
+    }
+  },
+  "materials": [
+    {
+      "case": "masks-npc",
+      "arm": "routed-minimal-direct-answer",
+      "guidance_bytes": 7846,
+      "supplied_file_bytes": 61415,
+      "characters": 433,
+      "elapsed_ms": 48628,
+      "usage": {
+        "input": 16181,
+        "output": 801,
+        "cacheRead": 16384,
+        "cacheWrite": 0,
+        "totalTokens": 33366
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "quiet-wait",
+      "arm": "minimal-none",
+      "guidance_bytes": 7010,
+      "supplied_file_bytes": 54277,
+      "characters": 130,
+      "elapsed_ms": 69146,
+      "usage": {
+        "input": 15133,
+        "output": 677,
+        "cacheRead": 27136,
+        "cacheWrite": 0,
+        "totalTokens": 42946
+      },
+      "status": "complete",
+      "tool_errors": [
+        {
+          "id": "call_vJmaYSOtbPcXDZxcIENgSuO1|fc_0b1567dc23ffbce6016ac345cea3f487d0809271b50396b523",
+          "name": "read",
+          "error": "This independent experiment context can read only its assigned inputs. Other arms, outputs, settings, credentials and answer keys are unavailable."
+        }
+      ]
+    },
+    {
+      "case": "masks-npc",
+      "arm": "full-none",
+      "guidance_bytes": 12995,
+      "supplied_file_bytes": 66564,
+      "characters": 399,
+      "elapsed_ms": 41446,
+      "usage": {
+        "input": 17290,
+        "output": 783,
+        "cacheRead": 17408,
+        "cacheWrite": 0,
+        "totalTokens": 35481
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "npc-direct-answer",
+      "arm": "minimal-none",
+      "guidance_bytes": 7010,
+      "supplied_file_bytes": 54645,
+      "characters": 78,
+      "elapsed_ms": 32559,
+      "usage": {
+        "input": 16214,
+        "output": 561,
+        "cacheRead": 12800,
+        "cacheWrite": 0,
+        "totalTokens": 29575
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "npc-danger",
+      "arm": "full-matched",
+      "guidance_bytes": 13808,
+      "supplied_file_bytes": 61741,
+      "characters": 172,
+      "elapsed_ms": 53075,
+      "usage": {
+        "input": 15610,
+        "output": 611,
+        "cacheRead": 16384,
+        "cacheWrite": 0,
+        "totalTokens": 32605
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "quiet-wait",
+      "arm": "minimal-matched",
+      "guidance_bytes": 7759,
+      "supplied_file_bytes": 55026,
+      "characters": 108,
+      "elapsed_ms": 50585,
+      "usage": {
+        "input": 16336,
+        "output": 557,
+        "cacheRead": 12800,
+        "cacheWrite": 0,
+        "totalTokens": 29693
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "arm": "minimal-matched",
+      "guidance_bytes": 7853,
+      "supplied_file_bytes": 58796,
+      "characters": 292,
+      "elapsed_ms": 45891,
+      "usage": {
+        "input": 15688,
+        "output": 778,
+        "cacheRead": 15360,
+        "cacheWrite": 0,
+        "totalTokens": 31826
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "arrival",
+      "arm": "full-matched",
+      "guidance_bytes": 13838,
+      "supplied_file_bytes": 61245,
+      "characters": 180,
+      "elapsed_ms": 51558,
+      "usage": {
+        "input": 16354,
+        "output": 584,
+        "cacheRead": 15360,
+        "cacheWrite": 0,
+        "totalTokens": 32298
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "arm": "full-matched",
+      "guidance_bytes": 13838,
+      "supplied_file_bytes": 64781,
+      "characters": 321,
+      "elapsed_ms": 35793,
+      "usage": {
+        "input": 17172,
+        "output": 692,
+        "cacheRead": 16384,
+        "cacheWrite": 0,
+        "totalTokens": 34248
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "quiet-wait",
+      "arm": "full-none",
+      "guidance_bytes": 12995,
+      "supplied_file_bytes": 60262,
+      "characters": 120,
+      "elapsed_ms": 20226,
+      "usage": {
+        "input": 15946,
+        "output": 529,
+        "cacheRead": 15360,
+        "cacheWrite": 0,
+        "totalTokens": 31835
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "arm": "routed-minimal-textured-quiet",
+      "guidance_bytes": 7759,
+      "supplied_file_bytes": 58702,
+      "characters": 311,
+      "elapsed_ms": 57448,
+      "usage": {
+        "input": 15700,
+        "output": 683,
+        "cacheRead": 15360,
+        "cacheWrite": 0,
+        "totalTokens": 31743
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "arrival",
+      "arm": "minimal-matched",
+      "guidance_bytes": 7853,
+      "supplied_file_bytes": 55260,
+      "characters": 213,
+      "elapsed_ms": 40008,
+      "usage": {
+        "input": 14905,
+        "output": 633,
+        "cacheRead": 14336,
+        "cacheWrite": 0,
+        "totalTokens": 29874
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "npc-formal-explanation",
+      "arm": "minimal-matched",
+      "guidance_bytes": 7918,
+      "supplied_file_bytes": 56040,
+      "characters": 392,
+      "elapsed_ms": 47252,
+      "usage": {
+        "input": 15398,
+        "output": 783,
+        "cacheRead": 14336,
+        "cacheWrite": 0,
+        "totalTokens": 30517
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "npc-formal-explanation",
+      "arm": "full-matched",
+      "guidance_bytes": 13903,
+      "supplied_file_bytes": 62025,
+      "characters": 380,
+      "elapsed_ms": 63893,
+      "usage": {
+        "input": 15812,
+        "output": 775,
+        "cacheRead": 16384,
+        "cacheWrite": 0,
+        "totalTokens": 32971
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "npc-direct-answer",
+      "arm": "full-matched",
+      "guidance_bytes": 13831,
+      "supplied_file_bytes": 61466,
+      "characters": 103,
+      "elapsed_ms": 44282,
+      "usage": {
+        "input": 15477,
+        "output": 542,
+        "cacheRead": 16384,
+        "cacheWrite": 0,
+        "totalTokens": 32403
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "npc-danger",
+      "arm": "minimal-matched",
+      "guidance_bytes": 7823,
+      "supplied_file_bytes": 55756,
+      "characters": 175,
+      "elapsed_ms": 47343,
+      "usage": {
+        "input": 15956,
+        "output": 732,
+        "cacheRead": 27136,
+        "cacheWrite": 0,
+        "totalTokens": 43824
+      },
+      "status": "complete",
+      "tool_errors": [
+        {
+          "id": "call_7m7mi1UNq8IGRuQGnWVI3dhg|fc_00a4d4583ef4800b016ac34721c4e487d0aee15199c401aab5",
+          "name": "read",
+          "error": "This independent experiment context can read only its assigned inputs. Other arms, outputs, settings, credentials and answer keys are unavailable."
+        }
+      ]
+    },
+    {
+      "case": "door-resistance",
+      "arm": "minimal-none",
+      "guidance_bytes": 7010,
+      "supplied_file_bytes": 54295,
+      "characters": 94,
+      "elapsed_ms": 35099,
+      "usage": {
+        "input": 14407,
+        "output": 501,
+        "cacheRead": 14336,
+        "cacheWrite": 0,
+        "totalTokens": 29244
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "door-resistance",
+      "arm": "full-matched",
+      "guidance_bytes": 13800,
+      "supplied_file_bytes": 61085,
+      "characters": 99,
+      "elapsed_ms": 59998,
+      "usage": {
+        "input": 16270,
+        "output": 520,
+        "cacheRead": 15360,
+        "cacheWrite": 0,
+        "totalTokens": 32150
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "door-resistance",
+      "arm": "minimal-matched",
+      "guidance_bytes": 7815,
+      "supplied_file_bytes": 55100,
+      "characters": 96,
+      "elapsed_ms": 50633,
+      "usage": {
+        "input": 16296,
+        "output": 513,
+        "cacheRead": 12800,
+        "cacheWrite": 0,
+        "totalTokens": 29609
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "arrival",
+      "arm": "full-none",
+      "guidance_bytes": 12995,
+      "supplied_file_bytes": 60402,
+      "characters": 201,
+      "elapsed_ms": 20205,
+      "usage": {
+        "input": 16046,
+        "output": 618,
+        "cacheRead": 15360,
+        "cacheWrite": 0,
+        "totalTokens": 32024
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "npc-formal-explanation",
+      "arm": "routed-minimal-direct-answer",
+      "guidance_bytes": 7846,
+      "supplied_file_bytes": 55968,
+      "characters": 219,
+      "elapsed_ms": 75990,
+      "usage": {
+        "input": 13700,
+        "output": 608,
+        "cacheRead": 15872,
+        "cacheWrite": 0,
+        "totalTokens": 30180
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "npc-danger",
+      "arm": "full-none",
+      "guidance_bytes": 12995,
+      "supplied_file_bytes": 60928,
+      "characters": 194,
+      "elapsed_ms": 45635,
+      "usage": {
+        "input": 17832,
+        "output": 603,
+        "cacheRead": 13824,
+        "cacheWrite": 0,
+        "totalTokens": 32259
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "arm": "minimal-none",
+      "guidance_bytes": 7010,
+      "supplied_file_bytes": 57953,
+      "characters": 455,
+      "elapsed_ms": 54623,
+      "usage": {
+        "input": 29326,
+        "output": 885,
+        "cacheRead": 1536,
+        "cacheWrite": 0,
+        "totalTokens": 31747
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "arm": "full-none",
+      "guidance_bytes": 12995,
+      "supplied_file_bytes": 63938,
+      "characters": 305,
+      "elapsed_ms": 40073,
+      "usage": {
+        "input": 16907,
+        "output": 778,
+        "cacheRead": 16384,
+        "cacheWrite": 0,
+        "totalTokens": 34069
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "npc-danger",
+      "arm": "minimal-none",
+      "guidance_bytes": 7010,
+      "supplied_file_bytes": 54943,
+      "characters": 190,
+      "elapsed_ms": 62820,
+      "usage": {
+        "input": 16377,
+        "output": 654,
+        "cacheRead": 12800,
+        "cacheWrite": 0,
+        "totalTokens": 29831
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "npc-formal-explanation",
+      "arm": "full-none",
+      "guidance_bytes": 12995,
+      "supplied_file_bytes": 61117,
+      "characters": 393,
+      "elapsed_ms": 43493,
+      "usage": {
+        "input": 16515,
+        "output": 760,
+        "cacheRead": 15360,
+        "cacheWrite": 0,
+        "totalTokens": 32635
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "masks-npc",
+      "arm": "minimal-none",
+      "guidance_bytes": 7010,
+      "supplied_file_bytes": 60579,
+      "characters": 381,
+      "elapsed_ms": 66001,
+      "usage": {
+        "input": 15764,
+        "output": 766,
+        "cacheRead": 16384,
+        "cacheWrite": 0,
+        "totalTokens": 32914
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "masks-npc",
+      "arm": "full-matched",
+      "guidance_bytes": 13903,
+      "supplied_file_bytes": 67472,
+      "characters": 550,
+      "elapsed_ms": 50097,
+      "usage": {
+        "input": 17814,
+        "output": 942,
+        "cacheRead": 17408,
+        "cacheWrite": 0,
+        "totalTokens": 36164
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "npc-formal-explanation",
+      "arm": "minimal-none",
+      "guidance_bytes": 7010,
+      "supplied_file_bytes": 55132,
+      "characters": 270,
+      "elapsed_ms": 40193,
+      "usage": {
+        "input": 14871,
+        "output": 627,
+        "cacheRead": 14336,
+        "cacheWrite": 0,
+        "totalTokens": 29834
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "arrival",
+      "arm": "minimal-none",
+      "guidance_bytes": 7010,
+      "supplied_file_bytes": 54417,
+      "characters": 193,
+      "elapsed_ms": 46630,
+      "usage": {
+        "input": 14523,
+        "output": 605,
+        "cacheRead": 14336,
+        "cacheWrite": 0,
+        "totalTokens": 29464
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "npc-formal-explanation",
+      "arm": "routed-full-direct-answer",
+      "guidance_bytes": 13831,
+      "supplied_file_bytes": 61953,
+      "characters": 273,
+      "elapsed_ms": 60564,
+      "usage": {
+        "input": 17341,
+        "output": 694,
+        "cacheRead": 14848,
+        "cacheWrite": 0,
+        "totalTokens": 32883
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "masks-npc",
+      "arm": "minimal-matched",
+      "guidance_bytes": 7918,
+      "supplied_file_bytes": 61487,
+      "characters": 370,
+      "elapsed_ms": 54243,
+      "usage": {
+        "input": 16147,
+        "output": 781,
+        "cacheRead": 16384,
+        "cacheWrite": 0,
+        "totalTokens": 33312
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "npc-direct-answer",
+      "arm": "minimal-matched",
+      "guidance_bytes": 7846,
+      "supplied_file_bytes": 55481,
+      "characters": 106,
+      "elapsed_ms": 33793,
+      "usage": {
+        "input": 15015,
+        "output": 560,
+        "cacheRead": 14336,
+        "cacheWrite": 0,
+        "totalTokens": 29911
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "masks-npc",
+      "arm": "routed-full-direct-answer",
+      "guidance_bytes": 13831,
+      "supplied_file_bytes": 67400,
+      "characters": 383,
+      "elapsed_ms": 61056,
+      "usage": {
+        "input": 17650,
+        "output": 755,
+        "cacheRead": 17408,
+        "cacheWrite": 0,
+        "totalTokens": 35813
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "quiet-wait",
+      "arm": "full-matched",
+      "guidance_bytes": 13744,
+      "supplied_file_bytes": 61011,
+      "characters": 153,
+      "elapsed_ms": 20584,
+      "usage": {
+        "input": 16351,
+        "output": 597,
+        "cacheRead": 15360,
+        "cacheWrite": 0,
+        "totalTokens": 32308
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "door-resistance",
+      "arm": "full-none",
+      "guidance_bytes": 12995,
+      "supplied_file_bytes": 60280,
+      "characters": 89,
+      "elapsed_ms": 66765,
+      "usage": {
+        "input": 17449,
+        "output": 498,
+        "cacheRead": 13824,
+        "cacheWrite": 0,
+        "totalTokens": 31771
+      },
+      "status": "complete",
+      "tool_errors": []
+    },
+    {
+      "case": "npc-direct-answer",
+      "arm": "full-none",
+      "guidance_bytes": 12995,
+      "supplied_file_bytes": 60630,
+      "characters": 82,
+      "elapsed_ms": 39836,
+      "usage": {
+        "input": 17707,
+        "output": 547,
+        "cacheRead": 13824,
+        "cacheWrite": 0,
+        "totalTokens": 32078
+      },
+      "status": "complete",
+      "tool_errors": []
+    }
+  ],
+  "source": "Actual native tool-enabled sessions; prompt/read/write iterations and provider conditions affect usage/time."
+}

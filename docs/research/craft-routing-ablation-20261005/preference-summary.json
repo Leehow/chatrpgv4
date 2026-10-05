@@ -1,0 +1,938 @@
+{
+  "totals": {
+    "card-full": {
+      "opinions": 16,
+      "wins": {
+        "full-none": 7.5,
+        "full-matched": 8.5
+      }
+    },
+    "card-minimal": {
+      "opinions": 16,
+      "wins": {
+        "minimal-none": 8,
+        "minimal-matched": 8
+      }
+    },
+    "base-with-card": {
+      "opinions": 16,
+      "wins": {
+        "full-matched": 4,
+        "minimal-matched": 12
+      }
+    },
+    "base-no-card": {
+      "opinions": 16,
+      "wins": {
+        "full-none": 8,
+        "minimal-none": 8
+      }
+    }
+  },
+  "byKind": {
+    "environment": {
+      "card-full": {
+        "opinions": 8,
+        "wins": {
+          "full-none": 3,
+          "full-matched": 5
+        }
+      },
+      "card-minimal": {
+        "opinions": 8,
+        "wins": {
+          "minimal-none": 4,
+          "minimal-matched": 4
+        }
+      },
+      "base-with-card": {
+        "opinions": 8,
+        "wins": {
+          "full-matched": 2,
+          "minimal-matched": 6
+        }
+      },
+      "base-no-card": {
+        "opinions": 8,
+        "wins": {
+          "full-none": 2,
+          "minimal-none": 6
+        }
+      }
+    },
+    "npc": {
+      "card-full": {
+        "opinions": 8,
+        "wins": {
+          "full-none": 4.5,
+          "full-matched": 3.5
+        }
+      },
+      "card-minimal": {
+        "opinions": 8,
+        "wins": {
+          "minimal-none": 4,
+          "minimal-matched": 4
+        }
+      },
+      "base-with-card": {
+        "opinions": 8,
+        "wins": {
+          "full-matched": 2,
+          "minimal-matched": 6
+        }
+      },
+      "base-no-card": {
+        "opinions": 8,
+        "wins": {
+          "full-none": 6,
+          "minimal-none": 2
+        }
+      }
+    }
+  },
+  "rows": [
+    {
+      "case": "arrival",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-none",
+      "right": "full-matched",
+      "winner": "full-matched",
+      "reason": "sample_3按门、道路、建筑再到视野边界展开，方位和可见范围连贯，且自然收束于完成观察；sample_1也覆盖了布局，但“午后的光线”是无依据的额外时间信息，末段说明略显重复。"
+    },
+    {
+      "case": "arrival",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-none",
+      "right": "minimal-matched",
+      "winner": "minimal-none",
+      "reason": "sample_4的路径、建筑朝向和不可见范围交代清楚，节奏适合一次停留观察；sample_2开头称“门内的布局一览无余”，随后又说看不见建筑内部，造成范围表述冲突，且“完整的轮廓”超出已给事实。"
+    },
+    {
+      "case": "arrival",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "full-matched",
+      "right": "minimal-matched",
+      "winner": "full-matched",
+      "reason": "sample_3明确把观察限定在建筑外部，并以门后室内和坍塌原因作边界，阅读方向稳定；sample_2虽细节齐全，却以“一览无余”泛称视野后再否定室内可见性，降低了可用定位。"
+    },
+    {
+      "case": "arrival",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "full-none",
+      "right": "minimal-none",
+      "winner": "minimal-none",
+      "reason": "sample_4以简短连续的空间顺序呈现从南门到建筑、蓄水池和棚屋的布局，并清楚保持人物在门外；sample_1更明确但加入无来源的“午后的光线”，且“门内、蓄水池旁和棚屋周围”重复强化无人信息。"
+    },
+    {
+      "case": "arrival",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "minimal-matched",
+      "right": "full-matched",
+      "winner": "full-matched",
+      "reason": "两段都清楚交代了从南门看到的道路、蓄水池、棚屋和建筑外观；sample_2按由近及远组织视线，节奏更贴合一次停在门外的观察，并明确把视野边界落在建筑外部。sample_3虽有较好的空间细节，却先称“门内的布局一览无余”，随后又说“从这里看不见门内”，对本次只能获得外部布局的观察形成直接冲突。"
+    },
+    {
+      "case": "arrival",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "minimal-none",
+      "right": "full-none",
+      "winner": "minimal-none",
+      "reason": "sample_1完整覆盖可见布局，顺着门、道路、左侧设施、后方棚屋和建筑立面推进，结尾把室内、坍塌原因和棚屋内部留在视线之外，既完成观察又不增加行动。sample_4也基本可用，但“午后的光线”不是供给的事实，且“门内、蓄水池旁和棚屋周围”把无人处拆得较窄，整体边界说明略显人为。"
+    },
+    {
+      "case": "arrival",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-matched",
+      "right": "full-none",
+      "winner": "full-matched",
+      "reason": "sample_2的“隔着锈蚀却敞开的门向里面望去”自然承接站在门外的动作，空间顺序和停顿适合一次有限的环视；末句准确说明室内、残骸深处和坍塌原因不可见。sample_4的布局也连贯，但加入未给出的“午后的光线”，并以“门内、蓄水池旁和棚屋周围”重复限定无人位置，观察节奏较不经济。"
+    },
+    {
+      "case": "arrival",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-matched",
+      "right": "minimal-none",
+      "winner": "minimal-none",
+      "reason": "sample_1比sample_3更稳定地把视线从南门引向道路和各个可见标志，且以“只能看清这片外部布局”明确遵守站在门外、不能看见室内的限制。sample_3出现“门内的布局一览无余”这一超出可见范围的说法，虽之后补充不可见处，仍削弱了行动结果的可信度。"
+    },
+    {
+      "case": "quiet-wait",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "full-matched",
+      "right": "minimal-matched",
+      "winner": "minimal-matched",
+      "reason": "两段都保持门未开、无人出现且无事件；sample_4以“临近傍晚”交代等待时段，保留浅沟、湿布、滑轮和持续等待，语句更顺。sample_2的“晚下午”不合自然汉语，且细节较多却使等待节奏略显堆叠。"
+    },
+    {
+      "case": "quiet-wait",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-none",
+      "right": "minimal-matched",
+      "winner": "minimal-none",
+      "reason": "两段都准确呈现安静等待和无事发生；sample_3明确写出“不做别的事”、门仍关着，并用水沟、湿布和滑轮形成连贯的静态节奏。sample_4同样可用，但“没有再做什么”稍弱地重复了等待行动。"
+    },
+    {
+      "case": "quiet-wait",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "full-none",
+      "right": "minimal-none",
+      "winner": "minimal-none",
+      "reason": "sample_3直接覆盖了不采取其他行动、门保持关闭、无人出现和无事发生，材料与声音也都来自给定环境。sample_1的“木板挡住了里面的动静”把注意力引向门内的动静，超出观察者已知的安静等待场景，且末尾重复等候略显拖沓。"
+    },
+    {
+      "case": "quiet-wait",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-none",
+      "right": "full-matched",
+      "winner": "full-none",
+      "reason": "两段都覆盖闭门、蓝水、湿布、滑轮、无人和无事件；sample_1的声响先出现再归于安静，等待节奏自然，并明确写出仍站在门外。sample_2虽有更细的水声，但“晚下午”不符合汉语表达，末段信息重复且较拥挤。"
+    },
+    {
+      "case": "quiet-wait",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-matched",
+      "right": "minimal-none",
+      "winner": "minimal-none",
+      "reason": "两者都准确维持无事发生、门未开和安静等待；sample_2直接复现玩家的“不做别的事”，并按排水沟、湿布、滑轮的顺序给出更易定位的连续观察，等待节奏更稳。sample_1的“视线所及没有人出现”与结尾“后门始终闭合”虽合规，但略显重复。"
+    },
+    {
+      "case": "quiet-wait",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "minimal-none",
+      "right": "full-none",
+      "winner": "minimal-none",
+      "reason": "sample_2明确承接“不做别的事”，环境细节由门、沟、湿布到滑轮递进，且以继续等待收束，最贴合本案的静候动作。sample_4也不增事件，但“木板挡住了里面的动静”把不可见的内部状态说得过满，末句“仍站在门外”又增加了玩家未声明的姿势。"
+    },
+    {
+      "case": "quiet-wait",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "minimal-matched",
+      "right": "full-matched",
+      "winner": "minimal-matched",
+      "reason": "sample_1以简洁而完整的段落覆盖关门、蓝水、湿布、滑轮、无人和无事，语言自然，最后回到未采取行动，适合狭窄的安静等待。sample_3增加滴水与沟底细响虽属可渲染的普通材质声，但“晚下午的光线”措辞生硬，并使收束较拥挤。"
+    },
+    {
+      "case": "quiet-wait",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-matched",
+      "right": "full-none",
+      "winner": "full-none",
+      "reason": "sample_4保留了sample_3的大部分可用环境信息，却更紧凑地组织无事、无人和等待，节奏更接近实际短暂等待；“仍站在门外”虽非玩家明确给出的姿势，但不改变结果。sample_3的“晚下午的光线”不自然，且“门缝和门槛下没有动静”等否定观察叠加，使静场显得偏堆砌。"
+    },
+    {
+      "case": "door-resistance",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-none",
+      "right": "full-matched",
+      "winner": "full-matched",
+      "reason": "两段都准确停在推门失败，sample_2用“向记录室里面”明确了动作方向，并以把手发紧、门板深处的闷响和短促回声连出较清楚的压力—声音节奏；sample_4的“去路停在这里”较概括，虽不违背结果，却少了可操作的阻力落点。"
+    },
+    {
+      "case": "door-resistance",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-none",
+      "right": "minimal-matched",
+      "winner": "minimal-matched",
+      "reason": "两段都交代锁住、门框铰链完好且走廊无动静；sample_1以“压力沿着把手传回掌心”和“你仍站在记录室外”同时给出触感与行动后的方位，收束更便于继续游玩。sample_3的因果也清楚，但“推力很快停在那里”略抽象，方位回馈不如sample_1完整。"
+    },
+    {
+      "case": "door-resistance",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "full-none",
+      "right": "minimal-none",
+      "winner": "minimal-none",
+      "reason": "sample_3把“力道传回掌心”、完好的门框与“锁舌牢牢抵住”组织成连续的阻力反馈，并自然停在未开门；sample_4虽有压力、卡响和环境静默，但“门锁着，去路停在这里”较像结论性口号，少了阻力如何停止的具体落点。"
+    },
+    {
+      "case": "door-resistance",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "full-matched",
+      "right": "minimal-matched",
+      "winner": "minimal-matched",
+      "reason": "两段都覆盖推入、门不动、锁定、结构未损和空走廊；sample_1增加“门没有打开，你仍站在记录室外”，直接确认既定结果和当前位置，且“压力传回掌心—闷响—抵住”的节奏完整。sample_2的回声收尾顺畅，但缺少明确的当前位置确认。"
+    },
+    {
+      "case": "door-resistance",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-matched",
+      "right": "full-none",
+      "winner": "full-matched",
+      "reason": "两段都准确呈现推压、阻力、闷响和门未开启；sample_3以“向记录室里面”明确动作方向，并以门把手发紧连接身体感受，收束自然。sample_1的“去路停在这里”较抽象，削弱了这个短促失败动作的可读性。"
+    },
+    {
+      "case": "door-resistance",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "minimal-none",
+      "right": "full-none",
+      "winner": "minimal-none",
+      "reason": "两段都保持在锁门结果内；sample_2把力道回传、锁舌抵住和推力停止连成清楚的因果链，且以空走廊收束。sample_1虽有更明确的卡响，但末句“去路停在这里”不如sample_2具体、顺畅。"
+    },
+    {
+      "case": "door-resistance",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-matched",
+      "right": "minimal-none",
+      "winner": "minimal-matched",
+      "reason": "sample_4除压力、闷响和完好门框外，明确说“你仍站在记录室外”，给出最有用的结果定位，节奏也适合动作停止；sample_2的“门也没有被推开”与前面的锁舌和推力停止略有重复。"
+    },
+    {
+      "case": "door-resistance",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "minimal-matched",
+      "right": "full-matched",
+      "winner": "minimal-matched",
+      "reason": "两段都没有越过锁门结果，也都覆盖门框、铰链和走廊反应；sample_4以“仍站在记录室外”直接确认行动结果，较sample_3末尾偏氛围化的“回声”更适合此处的可操作定向。"
+    },
+    {
+      "case": "npc-direct-answer",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-none",
+      "right": "full-matched",
+      "winner": "full-matched",
+      "reason": "两者都直接给出八点二十分并自然结束；sample_3以“抬眼看了看手边的时刻表”“手指在相应的一行上停了一下”连起查表、回答和继续办事，动作衔接较顺。sample_4的“从手边的班次表上抬起眼”搭配略生硬，因此整体可读性和节奏稍逊。"
+    },
+    {
+      "case": "npc-direct-answer",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-none",
+      "right": "minimal-matched",
+      "winner": "minimal-none",
+      "reason": "sample_1用扫一眼后立即回答，紧接着回到办公事务，最贴合办事员在普通服务中处理一个窄问题的节奏；sample_2虽然方位和查表动作更具体，但“坐在售票窗口后”“翻到北岸那一栏”等信息使回应略显铺陈，未带来必要的取向优势。"
+    },
+    {
+      "case": "npc-direct-answer",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "full-matched",
+      "right": "minimal-matched",
+      "winner": "full-matched",
+      "reason": "sample_3的查表动作简洁，答语明确覆盖了今天、北岸、第一班和八点二十分，并以继续处理事务收束；sample_2加入“翻到北岸那一栏”和指尖停顿，画面更细但对这个已明确的窄问答稍显拖长，且两段之间的动作链不如sample_3紧凑。"
+    },
+    {
+      "case": "npc-direct-answer",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "full-none",
+      "right": "minimal-none",
+      "winner": "minimal-none",
+      "reason": "sample_1的“从窗口后的时刻表上扫了一眼”与随后直接回答衔接自然，末尾回到办公事务也符合既定目的；sample_4的答案同样合适，但“从手边的班次表上抬起眼”语义搭配不够自然，削弱了连贯度。"
+    },
+    {
+      "case": "npc-direct-answer",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "minimal-matched",
+      "right": "full-matched",
+      "winner": "full-matched",
+      "reason": "两者都直接给出八点二十分并自然收束；sample_2用“手指在相应的一行上停了一下”把查表动作和答案连接得更清楚，且“她”明确承接办事员，较sample_3的多余翻栏动作和不完整答语更顺畅、可用。"
+    },
+    {
+      "case": "npc-direct-answer",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-matched",
+      "right": "full-none",
+      "winner": "tie",
+      "reason": "两段都准确覆盖今天北岸第一班船八点二十分开，语气符合平静、忙碌的办事员，也都在回答后回到工作；sample_2的查表过程更具体，sample_1则更简洁自然，未形成足以偏胜的差异。"
+    },
+    {
+      "case": "npc-direct-answer",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-matched",
+      "right": "minimal-none",
+      "winner": "minimal-none",
+      "reason": "sample_4完整而直接地说出“八点二十分开”，随后自然回到办公事务；sample_3的“今天去北岸的第一班船是早上八点二十分”没有说出船开行，未完整回答“几点开”，且增加的翻栏过程没有补偿这一缺口。"
+    },
+    {
+      "case": "npc-direct-answer",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "minimal-none",
+      "right": "full-none",
+      "winner": "full-none",
+      "reason": "两段都准确回答并结束交换；sample_1以“从手边的班次表上抬起眼”清楚呈现办事员查表后答复，sample_4的“从窗口后的时刻表上扫了一眼”修饰关系略含混，像是从窗口本身后面的表格扫视，连接不如sample_1自然。"
+    },
+    {
+      "case": "npc-danger",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-none",
+      "right": "minimal-matched",
+      "winner": "minimal-none",
+      "reason": "两段都清楚呈现刀停在警告距离、门未开且未付款；sample_4的“没准许，谁也不能进园”更直接对应看守阻止无许可进入的目的，且交代等待动作，sample_2的“握刀的手稳得没有一丝让步”略显抽象，发言对当下阻止动作的指向较弱。"
+    },
+    {
+      "case": "npc-danger",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-none",
+      "right": "full-matched",
+      "winner": "full-none",
+      "reason": "sample_3把伸手、拔刀、近距离警告和门仍锁住连成较顺的可读动作链，发言也明确要求收手；sample_1虽有相同结果，但“没准进园”在口语中不成句，且“这一下截断了”使雇工谈话的叙述显得生硬。"
+    },
+    {
+      "case": "npc-danger",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "full-none",
+      "right": "minimal-none",
+      "winner": "full-none",
+      "reason": "sample_3更集中地表现看守在伤害发生前止住威胁，并明确不刺来、暂不谈价钱，符合立即阻止而非谈商业条件；sample_4额外写成从衣襟探手取刀，虽不必然矛盾，却不是给定动作所需的细节，末句又把注意力放到等待对方不再动作上，节奏较拖。"
+    },
+    {
+      "case": "npc-danger",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "full-matched",
+      "right": "minimal-matched",
+      "winner": "minimal-matched",
+      "reason": "sample_2的动作、无许可和未付款信息组织清楚，发言“手别再往前。门是锁着的，没准许就不能进”适合正在阻止门闩被抬起的听者；sample_1的“没准进园”不符合清楚的普通乡村话语，而且“先前谈话被这一下截断”比当下危险更绕。"
+    },
+    {
+      "case": "npc-danger",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-matched",
+      "right": "minimal-none",
+      "winner": "minimal-none",
+      "reason": "sample_1先清楚交代抽刀、低位逼停与门闩未抬起，再给出短而直接的制止语，行动节奏和看守的警告目的都很明确；sample_3把玩家写成已经碰到门闩，越过了只允许写其伸手的行动边界。"
+    },
+    {
+      "case": "npc-danger",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-matched",
+      "right": "full-none",
+      "winner": "full-none",
+      "reason": "sample_2的叙述把手、刀、门闩和锁门的关系交代得连贯，‘先把手收回去’也直接服务于制止目的；sample_4虽同样有效，但‘关于雇工价钱的谈话被这一下截断了’较抽象，且‘手里的刀’弱化了抽刀这一现场动作。"
+    },
+    {
+      "case": "npc-danger",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "minimal-matched",
+      "right": "full-matched",
+      "winner": "minimal-matched",
+      "reason": "sample_3以刀锋尚未触及、门仍锁着收束，危险等级和结果都准确，周槐的完整一句话也同时说明了退手和无许可不能进园；sample_4的‘刚碰到门闩’赋予玩家超出已声明伸手的动作。"
+    },
+    {
+      "case": "npc-danger",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "minimal-none",
+      "right": "full-none",
+      "winner": "full-none",
+      "reason": "sample_2避免添加抽刀时的衣襟细节，先定位门和手，再用‘别碰门闩’及‘先把手收回去’形成最实用的即时警告；sample_1也守住了不伤人的结果，但说明性收尾较长，且‘挡住了你的手’比sample_2的距离描述更像已发生的实体阻挡。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-none",
+      "right": "minimal-matched",
+      "winner": "minimal-matched",
+      "reason": "sample_2以正式、连贯的顺序说明退回并非永久驳回、东侧边界与旧公开测量记录不一致、无法据现有地图确认归属，以及两位相邻所有人分别确认并修正地图后可重新提交；sample_3也覆盖主要路径，但把原因和操作压缩在一段话中，方位材料关系与办理限制略不如sample_2清楚。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-none",
+      "right": "full-matched",
+      "winner": "full-none",
+      "reason": "sample_1的两段顾文书发言完整解释了不一致为何阻止办理、两位所有人的分别确认、补齐后重新提交，并明确不替他们预测回应速度，正式语域和说明目的都贴合；sample_4加入了“按照旧测量记录核对”的较具体路径，且解释顺序稍显折返。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "full-matched",
+      "right": "minimal-matched",
+      "winner": "minimal-matched",
+      "reason": "sample_2把审核发现、现有材料不能确认边界归属、取得两份确认、按确认界线修正地图和重新提交连成清楚的办理路径，且不替所有人保证时间；sample_4称需“按照旧测量记录核对”并把这一点写成要求，超出已给的必要步骤。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "full-none",
+      "right": "minimal-none",
+      "winner": "full-none",
+      "reason": "sample_1提供了适合正式解释的完整两轮回应，既区分退回与永久驳回，也说明两份材料不重合、两位所有人确认、重新提交条件及未知的配合速度；sample_3虽准确而自然，但对为何当前不能继续办理的说明较少，方向和条件的层次不如sample_1充分。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-matched",
+      "right": "minimal-none",
+      "winner": "minimal-matched",
+      "reason": "两段都完整说明了退回原因、两位相邻所有人的确认、地图修正和重新提交。sample_3把原因与后续要求分成两次顾文书发言，先解释为何现有地图不足，再交代办理路径，正式语气和听者所需的因果方向更清楚；sample_2也很顺畅，但把全部要求压在一段话中，边界核对这一层说明略少。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "minimal-none",
+      "right": "full-none",
+      "winner": "full-none",
+      "reason": "两段都提供了可执行的修正路径并明确不是永久否决。sample_4用旧测量记录和当前图纸的并置动作支撑解释，随后明确说明登记机关不替任何一方判断、也不预判所有人回应，较贴合顾文书谨慎且负责的立场；sample_2简洁自然，但对为什么不能继续办理的说明较概括。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-matched",
+      "right": "full-none",
+      "winner": "full-none",
+      "reason": "sample_4的两次发言形成较连贯的正式说明：先界定冲突导致不能继续办理，再说明两位所有人确认、地图修正和重新提交，且没有臆测配合时间。sample_1同样覆盖主要事实，但“显然是在逐项核对记录”替听者作了较强的外部判断，末段又以叙述者替顾文书总结其未判断之事，接口和语气不如sample_4直接。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "minimal-matched",
+      "right": "full-matched",
+      "winner": "minimal-matched",
+      "reason": "sample_3比sample_1更适合正式解释的节奏：两段顾文书发言分别承担原因和要求，明确说明不能据现有地图确认、需取得两份确认并修正后再提交，也谨慎不保证配合速度。sample_1事实覆盖完整，但首段叙述性的“显然”带来不必要的读者推断，第二段后又用旁白收束顾文书本可自然停止的说明。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-none",
+      "right": "minimal-matched",
+      "winner": "minimal-matched",
+      "reason": "两者都覆盖了马奥尼关于邪教、缺乏硬证据、未命名及三篇无署名旧闻的有限记忆；sample_2以更紧凑而连贯的办公室动作承接回答，且“记得的，就这么多”直接贴合提问。sample_4的“我亲眼记得他做过什么、亲口告诉过我什么”略显生硬，且把回忆边界说成亲眼见证，弱化了对他所听闻内容的区分。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-none",
+      "right": "full-matched",
+      "winner": "full-matched",
+      "reason": "sample_1虽然更长，但把访问情境、马奥尼的职业视角、记忆与亲见的区别，以及三篇旧闻细节不可得和后续未明都清楚交代，阅读方向和信息边界最稳。sample_3更简洁自然，却用“越来越离谱”及“没来得及告诉我”给未知的怀疑增加了未经支持的性质和原因。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "full-matched",
+      "right": "minimal-matched",
+      "winner": "minimal-matched",
+      "reason": "sample_2完整保留所有受支持的回忆与不确定性，先以“我记得的，就这么多”限定范围，再自然转入旧报纸，适合这次要求可靠回忆的窄问。sample_1加入较多外部描写和“当时自以为快摸到什么了”等推断，使有限信息显得比来源更确定；sample_2的表达因此更利落而不牺牲必要细节。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "full-none",
+      "right": "minimal-none",
+      "winner": "full-none",
+      "reason": "sample_3的对话和动作衔接较自然，既给出邪教传闻与无硬证据，也明确未命名、三篇无署名报道及后续不明，语气符合一个对头条材料感兴趣但谨慎的编辑。sample_4虽也完整，却以“我亲眼记得……亲口告诉过我”作边界说明，措辞不自然，并把“记得”机械地压成两种见证来源。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-matched",
+      "right": "minimal-none",
+      "winner": "minimal-matched",
+      "reason": "两者都覆盖了马奥尼所知的有限事实并保留了不确定性；sample_3更紧凑地把伦敦、邪教、无硬证据、三篇无署名文章及后续未知连成可读回答，且完整包住发言。sample_1的第二段虽完整，但“我只能告诉你我亲眼记得他做过什么、亲口告诉过我什么”把记忆分类说得生硬，略削弱了对实际问题的自然回应。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-matched",
+      "right": "full-none",
+      "winner": "full-matched",
+      "reason": "sample_4以三段完整标注的直接回答清楚区分了马奥尼听闻、记忆与不知道的部分，节奏也适合一次务实的询问；sample_2的后两段角色发言没有置于say标记内，且“没来得及告诉我”替马奥尼补出了材料未支持的时序解释。sample_4虽稍长，但长度用于完整覆盖三篇旧刊和未知后续，且没有强迫交易或威胁。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "minimal-matched",
+      "right": "full-matched",
+      "winner": "minimal-matched",
+      "reason": "sample_3的单次回答覆盖全部所需信息，明确说没有硬证据、不知道邪教名称和怀疑指向，也交代三篇文章细节及后续追查均不明；sample_4把记忆拆成三次发言，虽然接口完整，但“具体是哪三篇……记不清”超出已知限制：马奥尼记得是三篇无署名稿，只是对其细节含糊，不应改成不记得是哪三篇。sample_3因此更准确且更顺畅。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "minimal-none",
+      "right": "full-none",
+      "winner": "minimal-none",
+      "reason": "sample_1的两段发言均有完整say标记，直接回答“确实记得的部分”，并明确区分亲自见到或听到的内容与证据；sample_2虽有较自然的新闻编辑口吻，但只标记了第一段发言，后续马奥尼的台词落在接口外，且“没来得及告诉我”并非供给事实。就可用的连贯对话而言sample_1更稳妥。"
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-none",
+      "right": "minimal-matched",
+      "winner": "minimal-matched",
+      "reason": "sample_4覆盖三扇窗、门牌、地毯、墙面、暗房、印刷机和空白纸张，空间关系清楚，篇幅也贴合一次安静的查看；sample_2更细，但加入了未由来源支持的光线、纸料整齐等观察，并反复说明没有新动静，削弱了可玩且克制的停顿。"
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "full-matched",
+      "right": "minimal-matched",
+      "winner": "minimal-matched",
+      "reason": "两者都准确限制在楼下办公室且不解读材料；sample_4用更紧凑的表面—位置—未翻找顺序完成查看，sample_3末句“尚未被查看的工作痕迹”与前文已经看见这些痕迹略有张力，收束也较抽象。"
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-none",
+      "right": "full-matched",
+      "winner": "full-matched",
+      "reason": "sample_3的视线从窗与门牌移到地毯、墙面，再到后方设备，连接自然，并明确不触碰、不翻开、不辨认，符合已设定的有限查看；sample_1额外铺陈楼上生活起居且用“未被……解读的状态”作较机械的限制说明，整体不如sample_3顺畅。"
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "repeat": 1,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "full-none",
+      "right": "minimal-none",
+      "winner": "full-none",
+      "reason": "sample_1以两段完成完整的空间巡看，所有列出的材料都来自来源，节奏安静而不拖沓；sample_2虽有更具体的空间组织，但“把外面的光落在那张磨损的蓝色地毯上”和“纸料整齐”不是给定可见事实，末段的“没有新的动静”也超出这次只结算普通视觉结果的范围。"
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-full",
+      "left": "full-matched",
+      "right": "full-none",
+      "winner": "full-none",
+      "reason": "两者都覆盖了办公室的主要可见布置并保持不触碰；sample_4以较紧的空间顺序完成查看，sample_2额外说明楼上不在范围内并用抽象的收束句重复限制，削弱了安静查看的节奏。"
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-no-card",
+      "left": "minimal-none",
+      "right": "full-none",
+      "winner": "full-none",
+      "reason": "sample_4在窗、门牌、地毯、墙面和后方设备之间的移动清楚且克制，更贴合只作普通目视的行动。sample_3加入了来源未给出的光线、纸张整齐程度和现场动静，且篇幅把停留推向了不必要的悬念式收束。"
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "card-minimal",
+      "left": "minimal-matched",
+      "right": "minimal-none",
+      "winner": "minimal-matched",
+      "reason": "sample_1完整呈现三扇窗、门牌、地毯、墙面、暗房和印刷机，并明确不从材料中辨认内容，读起来更像一次可继续行动的安静查看。sample_3虽有空间细节，但夹带了超出已知事实的光线、纸料整齐和无动静判断。"
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "repeat": 2,
+      "diagnostic": false,
+      "contrast": "base-with-card",
+      "left": "minimal-matched",
+      "right": "full-matched",
+      "winner": "minimal-matched",
+      "reason": "sample_1比sample_2更直接地沿着玩家要求的慢看完成空间导览，且门牌信息与来源一致。sample_2把楼上生活区和“不在范围内”单独展开，虽不构成严重越界，却是对本次楼下查看的重复说明，末句也较抽象。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 1,
+      "diagnostic": true,
+      "contrast": "routed-v-none",
+      "left": "routed-minimal-direct-answer",
+      "right": "minimal-none",
+      "winner": "routed-minimal-direct-answer",
+      "reason": "两段都覆盖了伦敦、邪教、无硬证据、未命名、三篇无名报道及后续不明等关键信息；sample_3把“具体是哪三篇”和“有没有继续追查”分别保留为不确定，并以两段窄而完整的回答形成较清楚的记忆边界，节奏也更贴合核对记忆的谈话。sample_1基本同样可靠，但“亲眼记得他做过什么、亲口告诉过我什么”略把信息来源说得过于整齐，且解释性收束稍显堆叠。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 1,
+      "diagnostic": true,
+      "contrast": "routed-v-matched",
+      "left": "routed-minimal-direct-answer",
+      "right": "minimal-matched",
+      "winner": "routed-minimal-direct-answer",
+      "reason": "sample_3更直接地区分已知回忆与不能确认的部分，并明确说没有结论，符合要求的有限答复；两次带名发言也让说话者和覆盖范围清楚。sample_2的内容大体准确，但“他说得很肯定”并非供给事实，且“伊莱亚斯带走的是一个故事的影子”是偏戏剧化的比喻，不能比sample_3更好地服务于可靠回忆的询问。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 2,
+      "diagnostic": true,
+      "contrast": "routed-v-none",
+      "left": "minimal-none",
+      "right": "routed-minimal-direct-answer",
+      "winner": "minimal-none",
+      "reason": "sample_3的回答更连贯地先界定记忆边界，再交代邪教传闻和三篇未署名稿件；节奏贴合询问与等待，语气也较像精明而谨慎的编辑。sample_1虽信息完整且说话标注明确，但“变化的怀疑”“翻找一份已经散乱的剪报记忆”等表达生硬，并把“亲眼记得”与他转述伊莱亚斯说过的话混在同一证据层级。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 2,
+      "diagnostic": true,
+      "contrast": "routed-v-matched",
+      "left": "minimal-matched",
+      "right": "routed-minimal-direct-answer",
+      "winner": "routed-minimal-direct-answer",
+      "reason": "sample_1完整覆盖了两段米奇的发言并使用正确的说话人标记，信息也清楚区分了无硬证据、未命名邪教、三篇无名报道及后续不确定性。sample_2的核心内容同样受限于已知事实，但在标记结束后仍有米奇的直接引语“他还翻过这里的往期报纸……”，造成发言覆盖的接口缺陷；其“拿到法庭上的东西”也把实用的记忆核对稍推向额外的比喻。"
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "repeat": 1,
+      "diagnostic": true,
+      "contrast": "routed-v-none",
+      "left": "routed-minimal-textured-quiet",
+      "right": "minimal-none",
+      "winner": "routed-minimal-textured-quiet",
+      "reason": "两者都覆盖了办公室的主要可见布置并明确没有触碰或取得线索；sample_3以较紧凑的空间顺序从楼层、窗户、门牌推进到地毯、墙面和后部设备，节奏更贴合缓慢查看。sample_1加入“把外面的光落在”以及“门外的牌子与屋内的凌乱相映成趣”等额外描写，既非必要的可见关系，也使安静的停留显得稍有解释过度。"
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "repeat": 1,
+      "diagnostic": true,
+      "contrast": "routed-v-matched",
+      "left": "routed-minimal-textured-quiet",
+      "right": "minimal-matched",
+      "winner": "routed-minimal-textured-quiet",
+      "reason": "sample_3比sample_2多交代了整栋楼两层及楼上生活区与当前办公室的关系，能更清楚地保持在下层办公室内；同时仍以可见材料和不翻看纸页收束。sample_2也很连贯、克制，但对已给出的楼层空间定位少一层，sample_3因此在方向感和任务边界上略胜。"
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "repeat": 2,
+      "diagnostic": true,
+      "contrast": "routed-v-none",
+      "left": "minimal-none",
+      "right": "routed-minimal-textured-quiet",
+      "winner": "routed-minimal-textured-quiet",
+      "reason": "sample_1以办公室的空间、临街要素、地面与墙面再到后方设备的顺序组织可见物，节奏适合一次安静的慢看，并明确停留在未触碰、未读出内容的范围。sample_3虽有较多表面描写，但反复解释未揭示内容，加入“没有新的动静”等超出普通视觉结果的断言，使停顿变得拖沓且略带不必要的悬念。"
+    },
+    {
+      "case": "time-to-harvest-environment",
+      "repeat": 2,
+      "diagnostic": true,
+      "contrast": "routed-v-matched",
+      "left": "minimal-matched",
+      "right": "routed-minimal-textured-quiet",
+      "winner": "minimal-matched",
+      "reason": "sample_2的动线清楚，三扇窗、门牌、地毯、墙面和后方设备均有覆盖，且以“不显得可供辨认”与“没有翻找、打开”准确收束这次查看。sample_1同样连贯，但“把外面的光线引进来”不是给定可见事实，且结尾对线索的说明略比sample_2更直接。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 1,
+      "diagnostic": true,
+      "contrast": "routed-v-none",
+      "left": "routed-minimal-direct-answer",
+      "right": "minimal-none",
+      "winner": "routed-minimal-direct-answer",
+      "reason": "两者都以正式、连贯的中文说明退回原因、确认要求和更正后可重提交，也都覆盖顾文书的完整发言。sample_3把解释集中在一次自然的答复中，节奏更贴合当下的正式问答；sample_1的开头和结尾重复说明同一决定，增加了不必要的叙述回声，因此 sample_3 更利落而不牺牲必要信息。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 1,
+      "diagnostic": true,
+      "contrast": "routed-v-matched",
+      "left": "routed-minimal-direct-answer",
+      "right": "minimal-matched",
+      "winner": "minimal-matched",
+      "reason": "sample_2将原因与后续要求分成两段有明确递进的正式答复，清楚说明两位相邻所有人分别确认、地图修正和重新提交，且保留登记官不知道配合速度的边界；这种结构比 sample_3 更易定位行动顺序。sample_3虽更紧凑，但“由相邻的两位所有权人共同确认”弱化了 supplied fact 中两位所有人分别需要确认的操作要求，sample_2因此更可用。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 2,
+      "diagnostic": true,
+      "contrast": "routed-v-none",
+      "left": "minimal-none",
+      "right": "routed-minimal-direct-answer",
+      "winner": "minimal-none",
+      "reason": "两段都准确说明退回不是永久否决、东侧边界与较早公开测量记录不一致、需两位相邻所有人确认并改图后重交，也都符合顾文书的正式语域。sample_3用更紧凑而连贯的现场动作承接完整说明，结尾自然；sample_1虽同样完整，但“说明便停在这项更正要求上”略显说明式，且把不能判断配合速度作为收束，节奏稍不如sample_3自然。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 2,
+      "diagnostic": true,
+      "contrast": "routed-v-matched",
+      "left": "minimal-matched",
+      "right": "routed-minimal-direct-answer",
+      "winner": "routed-minimal-direct-answer",
+      "reason": "两段都覆盖了退回原因、两位相邻所有人的确认、改正地图后可重新提交，以及登记官不知道对方配合速度这一知识边界。sample_1以一次连续的正式答复完成解释，适合本轮单一提问并保持自然停顿；sample_2拆成两次发言，并加入“说明停在这里”“本轮没有进行申诉或重新提交”等元叙述，虽不违背结果，却使本应直接的官署说明显得过度编排。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 1,
+      "diagnostic": true,
+      "contrast": "routed-v-none",
+      "left": "routed-full-direct-answer",
+      "right": "full-none",
+      "winner": "full-none",
+      "reason": "两段都完整说明了东侧边界冲突、两位相邻所有权人确认以及更正后可重新提交。sample_1先清楚区分“不是永久驳回”，再解释为何不能在界线未确认时办理，最后说明登记官不知道两位所有人何时回应；这种层次更适合正式、审慎的完整答复，且动作和两轮发言使说明过程有可读的节奏。sample_3的单段长答复也合格，但末尾“这一次没有进行申诉，也没有重新提交”把本轮结果直接元叙述出来，较不自然，且比sample_1少了对两份界线材料并置核对的可视化取向。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 1,
+      "diagnostic": true,
+      "contrast": "routed-v-matched",
+      "left": "routed-full-direct-answer",
+      "right": "full-matched",
+      "winner": "full-matched",
+      "reason": "两段都覆盖了退回原因、界线修正、两位相邻所有人的确认和再次提交路径，并保持正式关系与未知信息边界。sample_2把原因、办理障碍和补正要求分成两次顾文书发言，听者容易定位下一步；sample_3的内容同样完整而更紧凑，但结尾的“退回的决定仍限于补正；这一次没有进行申诉，也没有重新提交”偏向对场景状态作硬性旁白，削弱了自然收束。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 2,
+      "diagnostic": true,
+      "contrast": "routed-v-none",
+      "left": "full-none",
+      "right": "routed-full-direct-answer",
+      "winner": "full-none",
+      "reason": "两者都给出完整、正式且可用的说明；sample_3先明确“不是永久驳回”，再解释两条界线不一致、为何不能继续办理以及两位所有权人的确认要求，信息顺序更利于登记官向当事人完成解释。sample_1也覆盖了原因和补正路径，但把“这一次没有进行申诉，也没有重新提交”放入收束叙述，属于本轮已知结果的重复，且对不能确定配合时间的说明集中在较长一句中，节奏略不如sample_3自然。"
+    },
+    {
+      "case": "npc-formal-explanation",
+      "repeat": 2,
+      "diagnostic": true,
+      "contrast": "routed-v-matched",
+      "left": "full-matched",
+      "right": "routed-full-direct-answer",
+      "winner": "full-matched",
+      "reason": "sample_2的两段顾文书发言把原因、当前不能登记的边界、两位所有权人的确认、补正后再提交以及并非永久拒绝逐项说明，最贴合正式办公场合的完整答复；动作也明确引出第二段要求，阅读方向清楚。sample_1同样准确覆盖关键事实，但主要内容压在单段长答复中，随后又用叙述重复本轮未申诉未重提，实际对话节奏稍显拥挤。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 1,
+      "diagnostic": true,
+      "contrast": "routed-v-none",
+      "left": "routed-full-direct-answer",
+      "right": "full-none",
+      "winner": "routed-full-direct-answer",
+      "reason": "sample_3更直接地把马奥尼的有限记忆放进完整、连贯的两段对话中：明确说出邪教未具名、没有硬证据、三篇未署名报道及不知道后续追查，节奏也贴合一次窄问窄答。sample_1的事实大体齐全，但把后半段关键信息放在未标记为马奥尼发言的叙述里，且“越来越离谱”比已知的‘不断变化的怀疑’更带推断色彩。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 1,
+      "diagnostic": true,
+      "contrast": "routed-v-matched",
+      "left": "routed-full-direct-answer",
+      "right": "full-matched",
+      "winner": "routed-full-direct-answer",
+      "reason": "两者都覆盖了已知事实并保持了不确定性；sample_3更紧凑自然，‘能确定的，只有这些’恰好收束了本次询问而不强行制造下一步。sample_2虽然区分记忆与亲见并明确不能靠胡编，但‘当时自以为快摸到什么了’超出马奥尼被设定为知道的内容，给伊莱亚斯的状态添加了未经支持的判断。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 2,
+      "diagnostic": true,
+      "contrast": "routed-v-none",
+      "left": "full-none",
+      "right": "routed-full-direct-answer",
+      "winner": "routed-full-direct-answer",
+      "reason": "两者都覆盖了马奥尼关于邪教、缺乏硬证据、未获知名称与怀疑、三篇无署名旧稿及不知后续的核心记忆；sample_1以分明的两段回答保持了记忆与不确定性的边界，节奏也更贴合一次直接询问。sample_3虽更有气氛，但把“越来越离谱”作为马奥尼的概括，并在标签外继续安排他说话，削弱了知识边界与可读的接口清晰度。"
+    },
+    {
+      "case": "masks-npc",
+      "repeat": 2,
+      "diagnostic": true,
+      "contrast": "routed-v-matched",
+      "left": "full-matched",
+      "right": "routed-full-direct-answer",
+      "winner": "routed-full-direct-answer",
+      "reason": "sample_1更紧凑而完整地回答了玩家要求的“确实记得的部分”，每段马奥尼发言都有完整说话人标签，且没有把性格扩写成交易或威胁。sample_2的内容较详尽、新闻编辑口吻鲜明，但“当时自以为快摸到什么了”超出已供事实对伊莱亚斯主观判断的支持，也加入了回查档案的建议；这些不是必要的记忆内容，使回答稍偏离已预设的有限结论。"
+    }
+  ],
+  "not_independent_case_repetitions": true,
+  "not_causal_or_human_validation": true
+}
