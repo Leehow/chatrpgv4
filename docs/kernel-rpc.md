@@ -26404,6 +26404,22 @@ The view guidance is conditional: distinguish a source/book or narrator identity
 **Shared contract:** Writer, reader, and actor retain the same state, settings, capabilities, sections, current whole/indexed projection, and one-pass operation as the approved package. This addendum changes no producer, kernel, host, selector, classifier, receipt, review, source, or experiment. It refines continuity within the existing environment passage only: let the present look, settled movement, or listening lead from one supplied detail to the next, and let the last concrete relation complete that observation. It does not certify any baseline state path or prose outcome beyond this bounded authoring change.
 
 
+
+### 137.13 Connected resident guidance after the Mod index (2026-10-05)
+
+**Writer (package author):** the tool-enabled author produces paragraph/view guidance. The host materializes approved exact spans as Narration Craft2.3.1, retaining the2.2.7 NPC and settings sections verbatim. Sections, style, voice lane, capabilities and state remain unchanged.
+
+**Reader:** the current whole/indexed projection, including the resident and situational package text, and the existing expression path that consumes `play_language`, settings, style beats, voice data, NPC data, source facts, state, and receipts.
+
+**Actor:** Keeper. The Keeper writes the player-facing passage, applies only authorized state changes, and renders every spoken line through the existing `say` path. Natural-NPC remains owner of deciding what the asker needs and social outcomes; Chinese Optimization remains owner of idiom and Chinese realization.
+
+**Unchanged contracts:** source truth, state ownership, receipt/queued-transaction settlement, one-pass delivery, and the global budget/load policy remain unchanged. A declared act is not a receipt; prose does not create state. Existing identities, objects, relationships, language limits, mood, stance, and queued transactions remain authoritative. No package text, card, example, or metaphor creates a gameplay fact. The candidate preserves the existing settings and their exact values/meaning: `coarse_language` is on and `density_guide` is off unless the table changes that setting; when enabled, the density guide remains an expectation rather than a rule.
+
+This is an instruction-only organization update. Existing action, first-visible/readout, knowledge, agency, identity, mood/stance and speech duties stay in their current production paths. Optional method cards carry no functional duty and do not enable a selector or automatic rewrite.
+
+
+The broad experimental2.3.0 candidate is authored with tool-enabled Flapcode gpt-6-luna low. Host materialization retains exact2.2.7 action, whole-encounter and mood-execution clauses; no functional duty is delegated to optional cards. Old locks remain immutable. Adopted2.3.1 keeps the original NPC and settings sections byte-for-byte and narrows the organization change to paragraph/view guidance; broad2.3.0 comparison opinions do not establish its exact literary effect. Six method cards remain evaluation assets after six valid decisions selectedNONE; this update adds no production selector, card obligation, generic Mod load-policy change, or online prose review. Comparative opinions, source/interface audit, request-supply tests and natural play are separate evidence layers.
+
 ## 138. Band then roll: a rules row named instead of a number, rolled by the kernel (2026-09-26, BR-01 of `docs/specs/band-then-roll.md`; amends §135.28 and §136.22, extends §5's `table.apply` `time` and `damage`)
 
 §136.22 lets the Keeper name the book's amount instead of writing its own. Where the book prints only a scale — how
