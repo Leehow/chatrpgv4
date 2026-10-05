@@ -132,7 +132,7 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                     semantic.weapon_ref = string(resolved.weapon_id);
                     binding.weapon_id = string(resolved.weapon_id);
                     if (snapshot === null) {
-                        const [affordance] = combatOperationFor(context.graph, context.graph.scene(context.activeScene), handle, string(resolved.weapon_id));
+                        const [affordance] = combatOperationFor(context.graph, context.graph.scene(context.activeScene), handle, resolved);
                         if (affordance)
                             binding.affordance_id = affordance;
                     }

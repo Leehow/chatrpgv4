@@ -1028,6 +1028,8 @@ export function objectLook(world: Row, name?: any, graph?: ModuleGraph): Row {
         ...(definition.placeholder === true ? { pending: `${repr(string(definition.name))} is registered; its parameters are still being prepared and land at the start of the next turn` } : {}),
         instance: item ? {
             name: item.name,
+            ...(graph && row(item.source_object).module_id === graph.moduleId && graph.nodes.has(string(row(item.source_object).node_id))
+                ? {source_object:graph.handle(graph.nodes.get(string(row(item.source_object).node_id))!)} : {}),
             owner: item.owner.name,
             quantity: item.quantity,
             state: item.state,

@@ -19,6 +19,7 @@ import { clearRegistration, queueAdoption, queueRegistration, queuedDefinition }
 import type { ModJobs } from './jobs.js';
 import {registerUsage, validateUsage, validateUsageRequest} from './usages.js';
 import {stageDossier} from './dossier-door.js';
+import {bindSourceObject, sourceObjectIdentity} from './source-object.js';
 
 const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(value, key) ? value[key] : fallback;
 export async function objectOwner(campaign: CampaignWritePort, graph: ModuleGraph, world: Row, name: any): Promise<Row> {
@@ -91,7 +92,8 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         const name = effect.name;
         if (typeof name !== 'string' || !name.trim()) throw new RpcError('invalid_params', 'Object needs a name');
         const owner = await objectOwner(campaign, graph, world, effect.to), source = truth(effect.from) ? await objectOwner(campaign, graph, world, effect.from) : null;
-        const prior = objectInstance(world, name); let adopted: any = null;
+        const prior = objectInstance(world, name), identity = Object.hasOwn(effect, 'source_object') ? sourceObjectIdentity(graph, effect.source_object) : null;
+        let adopted: any = null;
         // Contract §88. Where it stands, and what it stands on. `validateDisposition` settles which of the
         // three offer positions this call is (and refuses a plain move that would walk past an offer still
         // standing between these two); `validateHandover` settles the ground a person-to-person move stands
@@ -106,6 +108,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         const division = validateDivision(world, effect, prior, source, owner, disposition, names);
         if (disposition === 'made') {
             const item = prior ?? moveObject(world, name, effect.definition ?? null, source!, {source: null, turn, quantity: field(effect, 'quantity', 1)});
+            bindSourceObject(world, item, identity, prior !== null);
             recordOffer(item, source!, owner, ownerLabel(world, source!), ownerLabel(world, owner), turn, callId);
             return {receipt: {id: mint(`item:${callId}`), kind: 'item', name, label: name, subject: source!.id, subject_label: ownerLabel(world, source!),
                     quantity: item.quantity, instance: item.id, from: null, weapon: null, call_id: callId, why: effect.why ?? null, state: clone(item.state),
@@ -113,6 +116,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                 event: {type: 'item-transferred', data: {name, to: source!.name, from: null, offer: 'made'}}};
         }
         if (disposition === 'declined') {
+            bindSourceObject(world, prior!, identity, true);
             clearOffer(prior!, turn);
             return {receipt: {id: mint(`item:${callId}`), kind: 'item', name, label: name, subject: source!.id, subject_label: ownerLabel(world, source!),
                     quantity: prior!.quantity, instance: prior!.id, from: null, weapon: null, call_id: callId, why: effect.why ?? null, state: clone(prior!.state),
@@ -139,7 +143,8 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
             if(!waiting||waiting.optional_identity!==true||owner.kind!=='investigator'||division||Object.hasOwn(effect,'document')||Object.hasOwn(effect,'condition'))
                 throw new RpcError('invalid_params','This object transfer cannot use pending ordinary-item identity');
             const staged=await stagePendingItemIdentity(context,effect,sheets),adoption={kind:'object',name,to:owner.name,adopt:name,
-                definition:string(waiting.name),quantity:staged.identity.quantity,why:effect.why??null,_pending_identity:staged.identity};
+                definition:string(waiting.name),quantity:staged.identity.quantity,why:effect.why??null,_pending_identity:staged.identity,
+                ...(identity ? {source_object:effect.source_object} : {})};
             if(!queueAdoption(world,string(waiting.name),string(waiting.category),adoption,staged.identity))
                 throw new RpcError('invalid_params','The pending definition is no longer registered');
             if(!staged.event)throw new RpcError('internal','The pending item identity produced no event');
@@ -180,6 +185,8 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         const item = division
             ? divideObject(world, prior!, division, owner, turn)
             : moveObject(world, name, effect.definition ?? null, owner, {source, turn, quantity, condition: effect.condition ?? null, documentSeed: prior ? null : seed});
+        if (division && identity) throw new RpcError('invalid_params', 'A divided portion cannot claim a source object identity');
+        bindSourceObject(world, item, identity, prior !== null);
         // The thing moved, so nothing is being held out any more -- including an offer made to a third
         // party, which this move has just answered by other means.
         if (openOffer(item)) clearOffer(item, turn);

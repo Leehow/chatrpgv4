@@ -6197,6 +6197,7 @@
                   "module_rules_id": "the-haunting",
                   "combat_id": "corbitt-final-combat",
                   "investigator_weapon_id": "corbitt-ritual-dagger",
+                  "investigator_usage_mode": "melee",
                   "resolution_hint": "opposed_melee",
                   "opponent_defense": "dodge",
                   "victory_outcome": "investigators_win",

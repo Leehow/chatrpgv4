@@ -617,6 +617,8 @@ export class ModuleGraph {
             name: this.handle(node),
             kind: node.node_kind,
             display_name: this.displayName(node),
+            ...(['object', 'artifact', 'tome'].includes(string(node.node_kind)) && array(node.source_refs).length && !node.campaign_origin
+                ? {source_object:this.handle(node)} : {}),
             ...(node.node_kind === "investigator-template" ? { note: TEMPLATE_NOTE } : {})
         };
     }
@@ -1158,6 +1160,8 @@ export class ModuleGraph {
         return {
             name: this.handle(node),
             display_name: this.displayName(node),
+            ...(['object', 'artifact', 'tome'].includes(string(node.node_kind)) && array(node.source_refs).length && !node.campaign_origin
+                ? {source_object:this.handle(node)} : {}),
             kind: node.node_kind,
             summary: this.summary(node),
             ...(this.sourceMappings(node).length?{source_mappings:this.sourceMappings(node),source_mapping_note:'Established campaign values remain canonical; these source differences are mappings, not retcon instructions.'}:{}),

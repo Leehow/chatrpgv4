@@ -30,6 +30,7 @@ export function objectTransferReceipt(input: {world: Row; id: string; callId: st
     const receipt: Row = {id: input.id, kind: 'item', name: input.name, label: input.name, subject: input.owner.id, subject_label: ownerLabel(input.world, input.owner),
         quantity: input.quantity, instance: input.item.id, from: input.source ? ownerLabel(input.world, input.source) : null,
         weapon: row(input.definition).category === 'weapon' ? input.item.id : null, call_id: input.callId, why: input.why ?? null, state: clone(input.item.state),
+        ...(truth(input.item.source_object) ? {source_object:clone(input.item.source_object)} : {}),
         ...(truth(ground.handover) ? {handover: string(ground.handover)} : {}), ...(truth(ground.check) ? {check: string(ground.check)} : {}),
         ...(truth(input.offer) ? {offer: string(input.offer)} : {}),
         // Contract §97: a division is one move of a part and one reduction of what stayed. Both halves

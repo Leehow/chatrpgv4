@@ -13,7 +13,7 @@ import { objectTransferReceipt } from '../mods/object-transfer.js';
 import { selectObjectWeapon } from '../mods/usages.js';
 import { CombatSession, VALID_OUTCOMES } from './engine.js';
 import { UnknownWeaponError } from './catalog.js';
-import { combatOperationDestinations, combatOperationFor, investigatorCombatParticipant, moduleWeapons, npcCombatParticipant, participantGaps, resolveInvestigatorWeapon, sheetSkillValue, weaponOptions } from './profiles.js';
+import { authoredWeaponMatches, combatOperationDestinations, combatOperationFor, investigatorCombatParticipant, moduleWeapons, npcCombatParticipant, participantGaps, resolveInvestigatorWeapon, sheetSkillValue, weaponOptions } from './profiles.js';
 import { requireParticipantBlock } from './stat-block.js';
 import { syncCombatants } from './resources.js';
 import { archetypeIds } from '../apply/archetype.js';
@@ -133,9 +133,9 @@ export async function startCombat(context: SettleContext, args: Row): Promise<[
             fix: `set action.weapon to one of details.needs.options, or arm ${string(weaponId)} first with apply item: its name plus the rules-table profile in weapon (a heavy blunt tool is club_large)`,
             details: { needs: { field: 'weapon', options: weaponOptions(sheet) } },
         });
-    const activeScene = context.graph.scene(context.activeScene), [affordance, operation] = combatOperationFor(context.graph, activeScene, target, weapon?.weapon_id ?? null);
+    const activeScene = context.graph.scene(context.activeScene), [affordance, operation] = combatOperationFor(context.graph, activeScene, target, weapon);
     if (!affordance) {
-        const destinations = combatOperationDestinations(context.graph, context.world, activeScene, target, weapon?.weapon_id ?? null);
+        const destinations = combatOperationDestinations(context.graph, context.world, activeScene, target, weapon);
         if (destinations.length) {
             const publicDestinations = destinations.map(({ operation: _operation, ...destination }) => destination),
                 choices = publicDestinations.map(destination => `${string(destination.name)} (${string(destination.scene)})`).join(', ');
@@ -220,7 +220,12 @@ function pendingAttack(session: CombatSession, context: SettleContext, actor: st
         ...(number(declared.bonus_dice) ? { bonus_dice: Math.trunc(number(declared.bonus_dice)) } : {}),
         ...(number(declared.penalty_dice) ? { penalty_dice: Math.trunc(number(declared.penalty_dice)) } : {}) };
     if (session.participants[actor].side === 'investigator') {
-        if (typeof operation.rulebook_exception === 'string' && operation.investigator_weapon_id === pending.weapon_id) {
+        // Re-select for this attack: an ongoing fight may change its weapon or target.
+        const [affordance, selected] = combatOperationFor(context.graph, context.graph.scene(context.activeScene), target, weapon);
+        const targetMatches = !row(operation.opponent).actor_id || operation.opponent.actor_id === target;
+        operation = affordance ? selected : targetMatches ? operation : {};
+        if (typeof operation.rulebook_exception === 'string' && truth(operation.investigator_weapon_id)
+            && authoredWeaponMatches(context.graph, operation, weapon)) {
             pending.rulebook_exception = operation.rulebook_exception;
             if (isJsonObject(operation.on_success))
                 pending.on_success = { ...operation.on_success };
@@ -257,7 +262,8 @@ function validatePendingObjectUsage(context: SettleContext, session: CombatSessi
     const used = row(session.weaponCatalog[string(pending.weapon_id || '')]);
     if (!truth(used.object_id)) return;
     const current = selectObjectWeapon(context.world, string(used.object_id), used.usage ?? null, string(pending.actor_id));
-    if (!current || current.weapon_id !== used.weapon_id || current.usage_id !== used.usage_id || current.object_id !== used.object_id)
+    if (!current || current.weapon_id !== used.weapon_id || current.usage_id !== used.usage_id || current.object_id !== used.object_id
+        || !equal(current.source_object, used.source_object))
         throw new RpcError('needs','The pending attack object usage is stale; restore the original holder and physical state before resolving its defense',
             {details:{reason:'usage_stale', object:used.object_id, usage:used.usage ?? null}});
 }
