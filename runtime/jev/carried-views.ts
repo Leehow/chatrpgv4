@@ -209,9 +209,20 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
   for (const entry of input.sceneRecords ?? [])
     due.push({focus: entry.person ? 'person_record' : 'scene_record', name: entry.person ?? entry.scene, view: entry.view, read: null});
   const skip = new Set(input.skip ?? []);
+  // A later reading may add an off-scene namesake. A unique current presence carries its own identity.
+  let presence: ReturnType<typeof read> | undefined;
   const cards = await Promise.all(input.people.filter(name => !skip.has(name)).map(async name => {
-    const params = {focus: 'npc', name};
-    return {name, params, answer: await read('table.look', params)};
+    let params = {focus: 'npc', name}, answer = await read('table.look', params);
+    if (!answer.ok && answer.code === 'unknown_entity') {
+      const here = await (presence ??= read('table.look', {focus: 'npc'}));
+      const matches = here.ok && Array.isArray(here.value.present)
+        ? here.value.present.filter(person => text(object(person).name) === name) : [];
+      if (matches.length === 1) {
+        const person = object(matches[0]), id = text(object(person.untold).id) || text(person.id);
+        if (id && id !== name) { params = {focus: 'npc', name: id}; answer = await read('table.look', params); }
+      }
+    }
+    return {name, params, answer};
   }));
   for (const {name, params, answer} of cards) {
     if (!answer.ok) { due.push({focus: 'npc', name, read: {method: 'table.look', params}, reason: answer.code === 'unknown_entity' ? 'not_found' : 'read_failed'}); continue; }

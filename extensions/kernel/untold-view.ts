@@ -130,6 +130,8 @@ export function untoldNote(shown: readonly string[]): string {
 /** The text parts the rename reads: host messages and tool results, never the player's words or the Keeper's own. */
 function renamedParts(message: unknown): string[] {
 	const row = object(message);
+	// Recorded dialogue belongs to its original speaker, even inside the host's history frame.
+	if (row.role === "custom" && row.customType === "coc-history") return [];
 	if (row.role !== "custom" && row.role !== "toolResult") return [];
 	if (typeof row.content === "string") return [row.content];
 	return Array.isArray(row.content) ? row.content.flatMap((part) => { const piece = object(part); return piece.type === "text" && typeof piece.text === "string" ? [piece.text] : []; }) : [];
@@ -157,6 +159,7 @@ export function renameUntold<T>(messages: readonly T[], people: readonly UntoldP
 	const ordered = [...people].sort((a, b) => b.name.length - a.name.length);
 	return messages.map((message) => {
 		const row = object(message);
+		if (row.role === "custom" && row.customType === "coc-history") return message;
 		if (row.role !== "custom" && row.role !== "toolResult") return message;
 		// §176.8: a tool result that had a name renamed says so, with the tokens; host messages are JSON the Keeper's view
 		// already carries the tokens in, and are renamed only.

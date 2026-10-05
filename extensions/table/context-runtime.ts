@@ -519,6 +519,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // §176.8: the request's rename runs before the projection fits the budget, not after it. A renamed tool result
         // ends with the untold note, and a word is often longer than the name it replaces: renamed after the fit, a busy
         // turn went out 553 B over its ceiling (long-campaign-context). The rename on the way out stays; it changes nothing twice.
+        await renameJudge.prepare(selected, untoldRoster).catch(() => undefined);
         selected.splice(0, selected.length, ...renameUntold(selected,untoldRoster,renameJudge.keep));
         if (!seen && !messages.some(message => message.role === 'custom' && message.customType === 'coc-capsule')) {
             // A new opening/recovery may have only a host prompt; this ephemeral capsule is not persisted.
@@ -586,6 +587,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // Reserve a diagnostic only when one is needed. An optional workspace must not be
         // displaced by a hypothetical notice on an otherwise healthy, within-budget request.
         if (reason) result = project(Math.max(0,messageBudget-requestSize([diagnostic(reason)])),{workspace,prescreen});
+        // Projection creates host messages absent from event.messages; judge their original words before renaming them.
+        await renameJudge.prepare([...result.messages, ...turnTail], untoldRoster).catch(() => undefined);
         const outgoing = renameUntold([...(reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages), ...turnTail]
             .filter(message=>!(message.role==='custom'&&[EXPRESSION_MESSAGE,MOD_SECTIONS_MESSAGE].includes(message.customType))), untoldRoster, renameJudge.keep);
         // Contract §183.5: package sections this turn needs, at the end; nothing on a table whose instructions all go whole.
