@@ -11,6 +11,7 @@
  * path opens a new haunting campaign and reads the real capsule and the single-person read.
  */
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {after, test} from 'node:test';
 import {mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -30,6 +31,7 @@ await build({stdin: {contents: [
   `export {pythonJsonDumps} from './kernel-ts/json.ts';`,
   `export {ModuleGraph} from './kernel-ts/read/module-graph.ts';`,
   `export {beingPairs} from './kernel-ts/modules/being-shape.ts';`,
+  `export {graphManifest} from './kernel-ts/write/source.ts';`,
 ].join('\n'), resolveDir: root, sourcefile: 'starter-creatures-api.ts', loader: 'ts'},
   outfile: join(bundleDir, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(bundleDir, 'api.mjs')).href);
@@ -64,8 +66,8 @@ async function contentWith(id, mutate) {
   await writeFile(join(starter, 'module-graph.json'), JSON.stringify(graph, null, 2));
   return dir;
 }
-async function kernel(t, contentRoot = content) {
-  const workspace = await mkdtemp(join(scratch, 'home-'));
+async function kernel(t, contentRoot = content, workspace = null) {
+  workspace ??= await mkdtemp(join(scratch, 'home-'));
   const context = await api.createKernelContext({workspace, content: contentRoot, seed: 'starter-creatures', locks: api.nativeAdvisoryLocks(),
     env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
   const runtime = api.createKernelRuntime(context); t.after(() => runtime.close());
@@ -75,7 +77,7 @@ async function kernel(t, contentRoot = content) {
     catch (error) { throw typeof error?.toJson === 'function' ? Object.assign(new Error(error.message), wire(error.toJson())) : error; }
   };
   const meta = async id => JSON.parse(await readFile(join(workspace, '.coc', 'modules', id, 'module.json'), 'utf8'));
-  return {workspace, call, meta};
+  return {workspace, call, meta, close: () => runtime.close()};
 }
 /** Registers `id` (edited by `mutate`) in a fresh home; returns the installed module.json. */
 async function registered(t, id, mutate, before = async () => {}) {
@@ -134,6 +136,128 @@ test('§180.12: a word binds only where a being of its own kind carries it -- a 
 test('§180.12: the binding is the data\'s, so a package the defaults leave off still names the words it contributes', async t => {
   const meta = await registered(t, 'the-haunting', () => {}, game => game.call('mods.defaults', {id: 'hostile-creatures', enabled: false}));
   assert.deepEqual(meta.vocabulary, {actor_profile_keys: [], creature_profile_keys: [HABITS_WORD], actor_weaknesses: WEAKNESS_SHAPE});
+});
+
+test('§180.18: an unchanged old registration repairs its binding and real capsule without rewriting its graph or campaign', async t => {
+  const first = await kernel(t), id = 'the-haunting';
+  await first.call('campaign.create', {id: 'old-haunt', module: id, pregen: 'thomas-hayes', play_language: 'en'});
+  const dir = join(first.workspace, '.coc/modules', id), metaFile = join(dir, 'module.json');
+  const old = await first.meta(id); delete old.vocabulary;
+  await first.close();
+  await writeFile(metaFile, JSON.stringify(old));
+  const game = await kernel(t, content, first.workspace);
+  const call = (method, params = {}) => game.call(method, {campaign: 'old-haunt', ...params});
+  const before = await call('table.capsule');
+  assert.equal(before.mods.vocabulary.words.find(word => word.key === 'habits').bound, false);
+  assert.equal((await call('table.look', {focus: 'npc', name: 'Rat pack'})).habits, undefined);
+  const tree = async dir => {
+    const out = {};
+    for (const name of await readdir(dir)) {
+      const path = join(dir, name);
+      if ((await stat(path)).isDirectory()) {
+        for (const [child, bytes] of Object.entries(await tree(path))) out[`${name}/${child}`] = bytes;
+      } else out[name] = (await readFile(path)).toString('base64');
+    }
+    return out;
+  };
+  const savedGraph = await readFile(join(dir, 'module-graph.json'));
+  const manifest = await readFile(join(dir, 'module-graph-manifest.json'));
+  const campaign = join(first.workspace, '.coc/campaigns/old-haunt'), history = await tree(campaign);
+  await game.call('module.register', {module_id: id});
+  const repaired = await game.meta(id), {vocabulary, updated_at: _updated, ...rest} = repaired;
+  const {updated_at: _oldUpdated, ...oldRest} = old;
+  assert.deepEqual(rest, oldRest);
+  assert.deepEqual(vocabulary, {actor_profile_keys: [], creature_profile_keys: [HABITS_WORD], actor_weaknesses: WEAKNESS_SHAPE});
+  assert.deepEqual(await readFile(join(dir, 'module-graph.json')), savedGraph);
+  assert.deepEqual(await readFile(join(dir, 'module-graph-manifest.json')), manifest);
+  assert.deepEqual(await tree(campaign), history);
+  assert.equal((await call('table.capsule')).mods.vocabulary.words.find(word => word.key === 'habits').bound, true);
+  assert.equal((await call('table.look', {focus: 'npc', name: 'Rat pack'})).habits,
+    node(await shippedGraph(id), 'creature-rat-pack').properties.habits);
+  assert.equal((await call('table.look', {focus: 'npc', name: 'Walter Corbitt'})).weaknesses.length, 2);
+  const once = await readFile(metaFile);
+  await game.call('module.register', {module_id: id});
+  assert.deepEqual(await readFile(metaFile), once, 'the repair is idempotent');
+});
+
+test('§180.18: missing bindings are added while existing keys, labels and weakness provenance remain unchanged', async t => {
+  for (const vocabulary of [
+    {actor_profile_keys: [{key: 'language', label: 'old language', mod: 'old-package', version: '0.1.0'}], audit: 'keep'},
+    {creature_profile_keys: [{...HABITS_WORD, label: 'old habits', version: '0.1.0'}], actor_weaknesses: false},
+    {actor_profile_keys: [{...HABITS_WORD, label: 'claimed on the other spine'}], actor_weaknesses: {mod: 'old-package', version: '0.1.0'}},
+  ]) {
+    const game = await kernel(t), id = 'the-haunting';
+    await game.call('module.register', {module_id: id});
+    const meta = await game.meta(id); meta.vocabulary = vocabulary;
+    await writeFile(join(game.workspace, '.coc/modules', id, 'module.json'), JSON.stringify(meta));
+    await game.call('module.register', {module_id: id});
+    const next = (await game.meta(id)).vocabulary;
+    for (const [field, value] of Object.entries(vocabulary)) assert.deepEqual(next[field], value);
+    if (!Object.hasOwn(vocabulary, 'actor_weaknesses')) assert.deepEqual(next.actor_weaknesses, WEAKNESS_SHAPE);
+    if (!vocabulary.actor_profile_keys?.some(word => word.key === 'habits') && !vocabulary.creature_profile_keys)
+      assert.deepEqual(next.creature_profile_keys, [HABITS_WORD]);
+    if (vocabulary.actor_profile_keys?.some(word => word.key === 'habits')) assert.equal(next.creature_profile_keys, undefined);
+  }
+});
+
+test('§180.18: edited graph bytes or malformed old metadata refuse without overwriting either', async t => {
+  for (const edit of ['graph', 'vocabulary']) {
+    const game = await kernel(t), id = 'the-haunting';
+    await game.call('module.register', {module_id: id});
+    const dir = join(game.workspace, '.coc/modules', id), meta = await game.meta(id);
+    delete meta.vocabulary;
+    if (edit === 'graph') await writeFile(join(dir, 'module-graph.json'), JSON.stringify({user_authored: true}));
+    else meta.vocabulary = {creature_profile_keys: null};
+    await writeFile(join(dir, 'module.json'), JSON.stringify(meta));
+    const before = await Promise.all(['module.json', 'module-graph.json'].map(file => readFile(join(dir, file))));
+    const error = await game.call('module.register', {module_id: id}).then(() => null, error => error);
+    assert.equal(error?.code, 'campaign_not_ready');
+    assert.equal(error.details.reason, edit === 'graph' ? 'module_graph_integrity' : 'starter_vocabulary_invalid');
+    assert.deepEqual(await Promise.all(['module.json', 'module-graph.json'].map(file => readFile(join(dir, file)))), before);
+  }
+});
+
+test('§180.18: a user/PDF provenance is not inferred, and an unavailable contribution remains unbound', async t => {
+  const game = await kernel(t), id = 'the-haunting';
+  await game.call('module.register', {module_id: id});
+  const meta = await game.meta(id); meta.source = 'pdf'; delete meta.vocabulary;
+  await writeFile(join(game.workspace, '.coc/modules', id, 'module.json'), JSON.stringify(meta));
+  await game.call('module.register', {module_id: id});
+  assert.equal((await game.meta(id)).vocabulary, undefined);
+  const dir = await mkdtemp(join(scratch, 'no-packages-'));
+  await mkdir(join(dir, 'content'));
+  for (const name of await readdir(content)) await symlink(join(content, name), join(dir, 'content', name));
+  const other = await kernel(t), twin = 'the-haunting-rulebook';
+  await other.call('module.register', {module_id: twin});
+  const legacy = await other.meta(twin); delete legacy.vocabulary;
+  await other.close();
+  const file = join(other.workspace, '.coc/modules', twin, 'module.json');
+  await writeFile(file, JSON.stringify(legacy));
+  const unavailable = await kernel(t, join(dir, 'content'), other.workspace);
+  const before = await readFile(file);
+  await unavailable.call('module.register', {module_id: twin});
+  assert.deepEqual(await readFile(file), before, 'there is no provider from which to derive the habit word');
+  assert.equal((await unavailable.meta(twin)).vocabulary, undefined);
+});
+
+test('§180.18: a legacy malformed weakness is checked before any repaired binding is published', async t => {
+  const id = 'the-haunting', old = await registered(t, id), contentRoot = await contentWith(id, graph => {
+    node(graph, 'npc-walter-corbitt').properties.weaknesses[0].needs = ['clue-rusted-basement-dagger'];
+  });
+  delete old.vocabulary;
+  const game = await kernel(t, contentRoot), dir = join(game.workspace, '.coc/modules', id);
+  const bytes = await readFile(join(contentRoot, 'starters', id, 'module-graph.json'));
+  old.graph_digest = createHash('sha256').update(bytes).digest('hex');
+  await mkdir(dir, {recursive: true});
+  await writeFile(join(dir, 'module-graph.json'), bytes);
+  await writeFile(join(dir, 'module-graph-manifest.json'), JSON.stringify(api.graphManifest(JSON.parse(bytes), id, old.generation)));
+  await writeFile(join(dir, 'module.json'), JSON.stringify(old));
+  const before = await readFile(join(dir, 'module.json'));
+  const error = await game.call('module.register', {module_id: id}).then(() => null, error => error);
+  assert.equal(error?.details?.reason, 'beings_invalid');
+  assert.equal(error.details.refusals[0].path, 'properties.weaknesses[0].needs[0]');
+  assert.deepEqual(await readFile(join(dir, 'module.json')), before);
+  assert.deepEqual(await readFile(join(dir, 'module-graph.json')), bytes);
 });
 
 test('§180.12: a starter whose weakness is malformed is refused before any byte of the generation is written', async t => {
