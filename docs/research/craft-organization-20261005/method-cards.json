@@ -1,0 +1,62 @@
+[
+  {
+    "id": "guided-perception",
+    "title": "Guided perception",
+    "use_when": "A viewpoint or route must make supplied detail actionable.",
+    "avoid_when": "The detail is hidden, unreachable, off-route, or unsupplied.",
+    "operation": "Thread perception through movement and material relations, showing only what this observer can receive and ending at a grounded visible limit.",
+    "example_context": "A desert observatory at dusk.",
+    "example": "You follow the warm rail to a slit of amber light; dust gathers where the door has not quite met its frame.",
+    "why": "It joins route, sense, and consequence without inventing recognition or a secret."
+  },
+  {
+    "id": "object-resistance",
+    "title": "Object resistance",
+    "use_when": "A declared act meets an object's established condition.",
+    "avoid_when": "The object, transaction, or change is not supplied or receipted.",
+    "operation": "Show the act, the object's existing material response, and the first settled resistance or result; do not create a parallel state.",
+    "example_context": "A flooded archive with a sealed tin.",
+    "example": "The tin turns under your thumb, but the grit packed in its seam holds it shut.",
+    "why": "It makes object state legible while preserving agency and receipt authority."
+  },
+  {
+    "id": "textured-quiet",
+    "title": "Textured quiet",
+    "use_when": "A quiet action or waiting is itself the settled turn.",
+    "avoid_when": "Quiet is being used to imply an omen, clue, event, absence, or cause.",
+    "operation": "Give the waiting or ordinary work its concrete sensory relations and stop without manufacturing escalation.",
+    "example_context": "A moonlit ferry dock in summer.",
+    "example": "Rope rubs the post as the ferry settles; nobody on the bench looks up.",
+    "why": "It gives quiet room without turning omission into evidence."
+  },
+  {
+    "id": "direct-answer",
+    "title": "Direct answer",
+    "use_when": "A person can and chooses to answer the present question.",
+    "avoid_when": "Danger, uncertainty, refusal, hidden knowledge, or another immediate purpose governs the exchange.",
+    "operation": "Identify what the listener needs to act, let this person answer in their register with the warranted length, and stop when the exchange is complete.",
+    "example_context": "A locksmith in a floating market.",
+    "example": "\"The blue awning is two bridges east; ask for the brass counter.\"",
+    "why": "It serves the current listener without making every NPC an information desk."
+  },
+  {
+    "id": "immediate-warning",
+    "title": "Immediate warning",
+    "use_when": "An established danger requires a person's attention now.",
+    "avoid_when": "The scene has no active danger or the line would add a threat not supported by the encounter.",
+    "operation": "Put actor, route, obstacle, and immediate consequence before business or atmosphere; let the speaker claim only what they know.",
+    "example_context": "A greenhouse with a failing pressure valve.",
+    "example": "\"Back from the west door—steam is coming through the latch.\"",
+    "why": "It ranks urgent action without guaranteeing an unearned outcome."
+  },
+  {
+    "id": "connected-explanation",
+    "title": "Connected explanation",
+    "use_when": "Persuasion, uncertainty, formal procedure, or a difficult account needs room.",
+    "avoid_when": "A short settled answer would suffice or the explanation would invent cause, biography, or state.",
+    "operation": "Connect relevant facts through time, cause, place, and perception in the speaker's register, preserving uncertainty and the listener's actual purpose.",
+    "example_context": "A cartographer explaining a drifting canal.",
+    "example": "\"The markers moved after the thaw, so follow the bells rather than the old gate.\"",
+    "why": "It permits long natural speech without slogans, forced escalation, or copied cadence."
+  }
+]

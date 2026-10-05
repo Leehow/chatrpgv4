@@ -1,5 +1,12 @@
 # Narration Craft
 
+## 2.3.1
+- Organizes resident paragraph/view guidance around the declared act and connected perception. Retains the original NPC and settings sections verbatim, plus original action, fact-realization, mood/stance, first-visibility, full readout and material-closure duties. Contract137.13.
+- Keeps the whole/indexed policy, sections/style/voice/state/capability shapes and one-pass delivery. Six optional method cards remain research assets after six valid Jev decisions selectedNONE. No production selector or card obligation.
+
+## 2.3.0 (experimental, not adopted)
+- The broader resident-guidance compression was tested on six constructed cases and genuine private turns. NPC compression did not earn adoption. Its exact package bytes and campaign locks remain preserved;2.3.1 retains the original NPC guidance.
+
 ## 2.2.7
 - Qualifies the entire sensory-relation list and its closing relation by supplied material. Unestablished absence, cause or identification stays unknown; omission from source material does not establish absence. This is a coordinator-approved containment candidate, not an empirically verified fix. 2.2.6's played bytes and locks remain frozen. No NPC, style, section, state, host or review changes; final exact-package play is pending.
 
