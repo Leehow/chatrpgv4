@@ -88,6 +88,7 @@ async function fixture() {
     backend,
     internals,
     sessionId,
+    sessionPath: join(sessionDir, `${sessionId}.jsonl`),
     leasePath,
     children,
     spawnSpy,
@@ -116,6 +117,19 @@ function expectRolledBack(
 }
 
 describe("PiHostBackend spawn rollback", () => {
+  it("an explicit prompt retries a failed COC initialization after passive callers stop", async () => {
+    const current = await fixture();
+    await writeFile(`${current.sessionPath}.coc.json`, JSON.stringify({
+      campaign: "startup-recovery", home: root, play_language: "en", mode: "play",
+    }));
+    current.refreshState.mockRejectedValueOnce(new Error("COC initialization failed"));
+    await expect(current.internals.ensure(current.sessionId)).rejects.toThrow("COC initialization failed");
+    await Promise.allSettled(Array.from({ length: 8 }, () => current.internals.ensure(current.sessionId)));
+    expect(current.spawnSpy).toHaveBeenCalledTimes(1);
+    await current.backend.handle("sendPrompt", [current.sessionId, "Retry after changing the failing condition"]);
+    expect(current.spawnSpy).toHaveBeenCalledTimes(2);
+  });
+
   const failures: Array<{
     name: string;
     message: string;
