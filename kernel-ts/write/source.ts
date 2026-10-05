@@ -495,6 +495,36 @@ export async function starterVocabulary(context: KernelContext, id: string, grap
     return { actor_profile_keys: actorWords, ...(creatureWords.length ? { creature_profile_keys: creatureWords } : {}),
         ...(weaknesses ? { actor_weaknesses: installed.actor_weaknesses ?? true } : {}) };
 }
+/** Add only unclaimed, source-derived bindings; an old binding remains its original claim and provenance. */
+function missingStarterVocabulary(current: unknown, derived: Row | null, id: string): Row | null {
+    const invalid = (): never => { throw new RpcError('campaign_not_ready', `starter ${repr(id)} has malformed vocabulary`, {
+        fix: 'Preserve its metadata and repair the binding through a reviewed publication.',
+        details: {reason: 'starter_vocabulary_invalid', module: id},
+    }); };
+    if (current !== undefined && !isJsonObject(current)) invalid();
+    const next = clone(row(current)), claimed = new Set<string>();
+    for (const spine of ['actor_profile_keys', 'creature_profile_keys']) {
+        if (Object.hasOwn(next, spine) && !Array.isArray(next[spine])) invalid();
+        for (const word of array(next[spine])) {
+            if (!isJsonObject(word) || typeof word.key !== 'string' || !word.key) invalid();
+            claimed.add(word.key);
+        }
+    }
+    let changed = false;
+    for (const spine of ['actor_profile_keys', 'creature_profile_keys']) {
+        const missing = array(derived?.[spine]).filter(word => !claimed.has(string(word.key)));
+        if (!missing.length) continue;
+        next[spine] = [...array(next[spine]), ...missing];
+        for (const word of missing) claimed.add(string(word.key));
+        changed = true;
+    }
+    if (derived && Object.hasOwn(derived, 'actor_weaknesses') && !Object.hasOwn(next, 'actor_weaknesses')) {
+        next.actor_weaknesses = clone(derived.actor_weaknesses); changed = true;
+    }
+    if (!changed) return null;
+    if (!Object.hasOwn(next, 'actor_profile_keys')) next.actor_profile_keys = [];
+    return next;
+}
 /**
  * Contract §180.7, §180.9: a starter's beings held to the reader's checker, as a draft is: one being, one node; the listed
  * relations' endpoints (`misleads`); and the weakness entries when the starter binds the shape (`starterVocabulary`).
@@ -602,6 +632,22 @@ async function registerStarterLocked(context: KernelContext, id: string): Promis
         // Validate the candidate cohort before the metadata pointer can make it visible.
         await readPublishedGraph(context, targetGraph, meta, id);
         await writeMeta();
+    } else if (existing.source === 'starter') {
+        // The source hash can stay unchanged across an engine upgrade. Verify the stored cohort before deriving
+        // missing vocabulary; changing this metadata must never bless edited graph bytes or mint a new generation.
+        const path = typeof existing.graph_file === 'string' ? await resolvedPath(childPath(folder, existing.graph_file)) : join(folder, 'module-graph.json');
+        const installed = await readPublishedGraph(context, path, existing, id);
+        const vocabulary = missingStarterVocabulary(existing.vocabulary,
+            await starterVocabulary(context, id, installed.raw, contract), id);
+        if (vocabulary) {
+            const refusals = starterBeingRefusals(new ModuleGraph(id, installed.raw, installed.digest, dossier), contract, vocabulary);
+            if (refusals.length) throw new RpcError('invalid_params', `starter ${repr(id)} has invalid beings`, {
+                fix: 'Preserve this generation and repair its source before binding its vocabulary.',
+                details: {reason: 'beings_invalid', module: id, refusals},
+            });
+            meta!.vocabulary = vocabulary;
+            await writeMeta();
+        }
     }
     let changed = false;
     const listing = join(source, 'starter-listing.json'), required = await context.snapshots.pathExists(listing) && row(await context.snapshots.readJson(listing)).listed === true;

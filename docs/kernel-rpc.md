@@ -33990,6 +33990,24 @@ The two new names join `KERNEL_GATES` (`kernel-ts/read/sections.ts`). Like every
 - **The familiar is not fightable.** The gym authored its skills and no characteristics. With a stat block it is an actor and present at the chapel, but combat and the chase refuse it: `npcCombatParticipant` throws `NpcProfileError` on the missing STR, SIZ, DEX and CON, and nothing turns that into a refusal. An archetype is a person's, and the catalog pin refuses a creature that has a block (`stat_block_exists`). A partial authored profile has no completion path. *Closed by CK-F2 (180.6's decisions): a partial block is refused with its completion, and `apply npc creature` (or a person's `archetype`) completes it.*
 - **Corbitt's `fear`** still says "being reduced below the point where Flesh Ward and Dominate can buy rounds", which the book does not state. Person fields were outside this ticket.
 
+### 180.18 Missing starter bindings and acceptance prerequisites (2026-10-05; amends §180.12)
+
+An unchanged starter registered by an older build can lack vocabulary even though its graph carries the words and
+weaknesses. `module.register` repairs only missing bindings, under its existing registry lock, after verifying that
+the published graph still matches the starter's source digest and that the metadata declares `source: "starter"`.
+It derives candidates through `starterVocabulary` and runs the existing being checker before publishing metadata.
+Existing word keys, labels, package provenance and weakness bindings are preserved, including keys claimed on the
+other spine. No graph, generation, guidance, campaign state or history is rewritten. A malformed binding or graph
+integrity failure refuses before publication; data with no derivable contribution stays unbound. This is a starter
+repair, never a re-interpretation of a user-authored or PDF-built graph.
+
+Creature acceptance uses `scripts/creature-acceptance-preflight.mjs` before any model input. Its independently reviewed
+expectation records the package commit, receipt SHA-256, required compiled-file hashes, exact campaign Mod locks and
+authored habit/weakness facts. The script checks the actual resource root and receipt first, then reads `mods.list`,
+`table.capsule` and the actor cards from that root's kernel. Missing identity, locks, pending configuration or capsule
+binding refuses acceptance. It never derives expected hashes from the runtime being tested, configures Mods, opens a
+turn, calls a provider or repairs a campaign. Passing this gate proves prerequisites only, never natural adoption.
+
 ## 182. Reading follows the book's chapters: a short book is built once, a long book reads the chapter in play and the next; nothing is read that publishes nothing (owner ruling 2026-10-04; amends §148.3, §151.4's background units, §22.4 read-ahead and §184.4)
 
 Owner, 2026-10-04, after the ten-hour measurement of §184 and the stop of two idle tables: 「读书的目的是为了构建图谱和续后续剧情，如果没有产出一直读书不是浪费tokens么」, then 「其实整本书构建图谱我的意图是一些短模组是可以一次性构建完，但是构建完之后就不需要来回读，还有就是长模组按需读的话也不需要按需读啊，只需要读当前所在章节和接下来的章节，写图谱和取后续文本，根本没必要来回空读，不输出就别读」.
