@@ -8,8 +8,8 @@
  * `module.read.claim` / `module.read.finish`. The drafts are the JSON a reader would write; nothing normalises them, and
  * no case reads a shipped starter.
  *
- * The weakness check is gated on one input: the task's `vocabulary.actor_weaknesses`, which `vocabulary()` writes only
- * when the build bound `actor.weaknesses.v1` (that binding is CK-D's). Fixtures turn it on and off.
+ * New tasks always carry the source weakness law (§180.20). An explicit historical packet without that law remains
+ * a compatibility fixture; it is not the policy for new reads.
  *
  * Refusals are asserted by their stable `rule` (or `reason`) and their JSON pointer, never their wording.
  */
@@ -44,7 +44,7 @@ after(async () => { for (const close of closers.reverse()) await close(); });
 
 const page3 = [{page: 3}], page4 = [{page: 4}];
 const SEEN = new Set([3, 4]);
-const UNBOUND = api.vocabulary(contract), BOUND = api.vocabulary(contract, {actor_weaknesses: true});
+const BOUND = api.vocabulary(contract), {actor_weaknesses: _legacyLaw, ...UNBOUND} = structuredClone(BOUND);
 /** A detail read of a cellar the opening prepared; `vocabulary` is the task's, bound or not. */
 const packetWith = (vocabulary, known = []) => ({module_id: 'book-9', purpose: 'detail', focus: 'Cellar', question: '', source: {page_count: 10},
     known_nodes: [
@@ -94,7 +94,7 @@ const refusedAs = (draft, rule, path, packet) => {
     return got.error;
 };
 
-test('the task carries creature_dossier and the endpoint law always, and the weakness shape only when the build bound it', () => {
+test('new tasks always carry the source weakness law, even when a consumer switch is false', () => {
     const graph = contract.graph;
     assert.deepEqual(Object.keys(graph.creature_dossier).sort(), ['law', 'profile_keys', 'profile_labels', 'why']);
     assert.deepEqual(graph.creature_dossier.profile_keys, [], 'a creature has no core keys (§180.8)');
@@ -103,8 +103,8 @@ test('the task carries creature_dossier and the endpoint law always, and the wea
         assert.match(spine.why, /per node and per encounter[^.]*never per species/, 'the §180.2 boundary rides in both dossiers');
     assert.deepEqual(UNBOUND.creature_dossier, graph.creature_dossier);
     assert.deepEqual(UNBOUND.relation_endpoints, graph.relation_endpoints);
-    assert.equal(UNBOUND.actor_weaknesses, undefined, 'an unbound build is not asked for weaknesses');
-    assert.equal(api.vocabulary(contract, {actor_weaknesses: false}).actor_weaknesses, undefined);
+    assert.equal(UNBOUND.actor_weaknesses, undefined, 'the historical packet fixture remains unbound');
+    assert.deepEqual(api.vocabulary(contract, {actor_weaknesses: false}).actor_weaknesses, graph.actor_weaknesses);
     assert.deepEqual(BOUND.actor_weaknesses, graph.actor_weaknesses);
     assert.equal(BOUND.actor_weaknesses.capability, 'actor.weaknesses.v1');
     // A package's creature word arrives with its ask, beside the empty core list, as an actor word does (§28.3, §180.8).

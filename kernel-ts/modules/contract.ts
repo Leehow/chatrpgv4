@@ -73,8 +73,8 @@ export function vocabulary(contract: ModuleContract, contributed: Row | null = n
         actor_dossier: dossier,
         // §180.8: a creature's words, asked of creature nodes; the boundary of §180.2 rides in both dossiers' `why`.
         ...(graph.creature_dossier ? { creature_dossier: dossierAsk(graph.creature_dossier, given.creature_profile_keys) } : {}),
-        // §180.9: the weakness shape is asked (and checked) only when the build bound it.
-        ...(truth(given.actor_weaknesses) && graph.actor_weaknesses ? { actor_weaknesses: graph.actor_weaknesses } : {}),
+        // §180.20: source facts are asked independently of consumer package switches.
+        ...(graph.actor_weaknesses ? { actor_weaknesses: graph.actor_weaknesses } : {}),
         ...(graph.relation_endpoints ? { relation_endpoints: graph.relation_endpoints } : {}),
         // §22.3.2: which fields a reviewer may only contest, as the graph contract declares them.
         ...(graph.classification_fields ? { classification_fields: graph.classification_fields } : {}),

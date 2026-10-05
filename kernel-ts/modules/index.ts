@@ -10,6 +10,7 @@ import {assertSourcePreparationRequest,type SourcePreparationRequest} from '../.
 import {assertSourcePublicationAdvance,sourceAdvanceAuthority} from '../../runtime/jev/read-set.ts';
 import { Reading,sourcePreparationSnapshot,sourcePreparationScopeMatches,type MaterialGate,type OwnedSourcePreparation } from './reading.js';
 import { ModuleStore } from './store.js';
+import {sourceUpgrade,assertSourceUpgradeRevision} from './source-upgrade.js';
 import { playsFromReading } from './bound-source.js';
 import { ensureCampaignModule, moduleContext, scopedModuleRoot } from './campaign-scope.js';
 function required(params: Row, key: string): string {
@@ -23,6 +24,7 @@ function required(params: Row, key: string): string {
 function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
     return Object.freeze({
         'module.source.bind': params => reading.bind(params),
+        'module.source.upgrade': params => sourceUpgrade(store,params),
         'module.source.outline': params => reading.writeOutline(params),
         'module.source.answer.peek': params => reading.peekAnswer(params),
         'module.source.materials.snapshot': params => reading.materialSnapshot(params),
@@ -191,6 +193,16 @@ export function createModuleRuntime(context: KernelContext) {
         return result;
     };
     const dispatch = async (method: string, params: Row): Promise<Row> => {
+        if(method==='module.source.upgrade') {
+            const id=required(params,'module_id'); let target=await owner(params.campaign,id);
+            if(params.campaign!==undefined&&params.action==='apply') {
+                const preview=await target.handlers[method]({...params,action:'preview'});
+                assertSourceUpgradeRevision(preview,params.revision);
+                if(preview.state==='already_applied')return preview;
+                target=await owner(params.campaign,id,true);
+            }
+            return target.handlers[method](params);
+        }
         if (method === 'module.read.ahead') return ahead(params, true);
         if (method === 'module.source.outline') return outline(params);
         if (libraryOnly.has(method) || params.campaign === undefined || typeof params.module_id !== 'string')

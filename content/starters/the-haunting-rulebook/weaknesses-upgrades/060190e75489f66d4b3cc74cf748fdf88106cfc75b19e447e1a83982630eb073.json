@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "id": "source-weaknesses-corbitt-20261005",
+  "base_graph_digest": "060190e75489f66d4b3cc74cf748fdf88106cfc75b19e447e1a83982630eb073",
+  "review": {
+    "method": "source-fragment-review",
+    "source": "Shipped The Haunting source.pdf SHA256 31e36f72d0ac9a3654b61a09b1f071d3d82f25d78641e5069bfe343e44c5c7db; physical window page 15 / printed page 449; historical packet and published source fields.",
+    "reason": "Local original-source fragment review: wrest control of his own floating dagger and successfully stab him, regardless of spells; sunlight pains him and whether it kills him remains Keeper discretion. Existing means and clue conclusion reused; no new route or executable rule. The exact original legacy publication was reviewed separately; its two cited fields and source refs agree with the original fragment."
+  },
+  "entries": [
+    {
+      "actor_id": "npc-walter-corbitt",
+      "weaknesses": [
+        {
+          "book": "If the investigators wrest control of his floating dagger and successfully stab Corbitt with it, he quickly turns to ashes and dust, regardless of any spells.",
+          "needs": [
+            "object-floating-dagger"
+          ],
+          "learned_by": "conclusion-dagger-can-kill-corbitt"
+        },
+        {
+          "book": "Sunlight causes him pain and is too bright for him to see comfortably. It might kill him, but whether it does so is for the Keeper to determine."
+        }
+      ],
+      "source_refs": [
+        {
+          "source_id": "pdf:the-haunting-rulebook",
+          "pdf_index": 14
+        }
+      ],
+      "evidence": [
+        {
+          "node_id": "npc-walter-corbitt",
+          "path": "/properties/sunlight",
+          "value": "causes him pain and is too bright for him to see comfortably; might kill him (Keeper determines)"
+        },
+        {
+          "node_id": "object-floating-dagger",
+          "path": "/properties/destroy_corbitt",
+          "value": "successfully stab Corbitt with it and he quickly turns to ashes and dust, regardless of any spells"
+        }
+      ]
+    }
+  ]
+}
