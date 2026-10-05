@@ -26420,6 +26420,19 @@ This is an instruction-only organization update. Existing action, first-visible/
 
 The broad experimental2.3.0 candidate is authored with tool-enabled Flapcode gpt-6-luna low. Host materialization retains exact2.2.7 action, whole-encounter and mood-execution clauses; no functional duty is delegated to optional cards. Old locks remain immutable. Adopted2.3.1 keeps the original NPC and settings sections byte-for-byte and narrows the organization change to paragraph/view guidance; broad2.3.0 comparison opinions do not establish its exact literary effect. Six method cards remain evaluation assets after six valid decisions selectedNONE; this update adds no production selector, card obligation, generic Mod load-policy change, or online prose review. Comparative opinions, source/interface audit, request-supply tests and natural play are separate evidence layers.
 
+
+### 137.14 Concise environment with complete NPC guidance (2026-10-05)
+
+This is the approved Narration Craft 2.4.0 HYBRID candidate, informed by limited prior offline evidence; it is not claimed to be universally better or faster.
+
+**Writer:** the package author, writing this candidate and its addendum. **Reader:** the current unchanged whole/indexed/host context, including the host's complete resident and situational material. **Actor:** the Keeper, who applies the guidance in play.
+
+Played package bytes and existing locks remain immutable. This turn, Opening the table, Settings, section declarations, style, voice, capabilities, interfaces, state, migrations and dependencies are unchanged. In particular, the complete NPC/people guidance remains in place and is not compressed, rewritten, or replaced. This candidate adds only concise common sentence guidance and environment/viewpoint guidance; it does not create a runtime whole-turn switch or formal classification. Both lanes share the same truth, agency, identity, receipt, knowledge, visibility, route, state, and stop boundaries.
+
+The existing interfaces, state identities, applies, queued or owed transactions, capabilities, and one-pass operation remain authoritative. No parallel state, new interface, card procedure, genre matrix, mandatory word count, source fact, or online review is introduced. The writer supplies bodies only; the reader combines them with the unchanged host context, and the Keeper performs one ordinary pass: write the declared act, let the world respond, and hand off at the first settled result, obstacle, gated risk, or real decision. English only.
+
+Host materialization retains the exact2.3.1 This turn, The people here, Opening the table and Settings sections. The shared grammar/viewpoint anchors stay exact. A mixed passage uses compact sentence/view guidance and complete NPC realization together; no semantic whole-turn classifier or conditional transport is added. The section declaration, style axes/directives/beats/floor, voice lane, settings, capabilities, state and global whole/indexed policy remain byte-identical or structurally identical as appropriate. New campaigns use the new version; existing locks require ordinary explicit upgrade. Prior model opinions motivate this candidate but do not measure its exact quality or speed.
+
 ## 138. Band then roll: a rules row named instead of a number, rolled by the kernel (2026-09-26, BR-01 of `docs/specs/band-then-roll.md`; amends §135.28 and §136.22, extends §5's `table.apply` `time` and `damage`)
 
 §136.22 lets the Keeper name the book's amount instead of writing its own. Where the book prints only a scale — how

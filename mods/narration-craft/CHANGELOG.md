@@ -1,5 +1,9 @@
 # Narration Craft
 
+## 2.4.0
+- Uses concise common sentence/view guidance together with the complete unchanged NPC guidance. Mixed passages apply both, with shared source/knowledge/agency/receipt/visibility/readout boundaries always binding. Contract137.14.
+- Keeps This turn, Opening the table, Settings, section declaration, style/voice files, state/settings/capabilities and whole/indexed delivery unchanged. No selector, mandatory card, quality review or rewrite. Existing campaign locks stay frozen.
+
 ## 2.3.1
 - Organizes resident paragraph/view guidance around the declared act and connected perception. Retains the original NPC and settings sections verbatim, plus original action, fact-realization, mood/stance, first-visibility, full readout and material-closure duties. Contract137.13.
 - Keeps the whole/indexed policy, sections/style/voice/state/capability shapes and one-pass delivery. Six optional method cards remain research assets after six valid Jev decisions selectedNONE. No production selector or card obligation.
