@@ -274,7 +274,7 @@
     "law": "A key a book does not give is absent, never invented. The person words of actor_dossier are not asked of a creature (contract §180.4). One being is one node: an npc and a creature never share a normalized name or handle (contract §180.7)."
   },
   "actor_weaknesses": {
-    "why": "Contract §180.9: what the book says harms, repels, binds, banishes or ends an npc or creature, the means it names, and the conclusion through which the investigators can learn it. A build binds it only when an enabled package requires `actor.weaknesses.v1`; the reader's task then carries this block, and the draft check holds every entry to it.",
+    "why": "Contract §180.9: what the book says harms, repels, binds, banishes or ends an npc or creature, the means it names, and the conclusion through which the investigators can learn it. Every new source reading binds this base source-fact law independently of consumer Mod switches; the reader task carries this block, and the draft check holds every entry to it.",
     "capability": "actor.weaknesses.v1",
     "property": "weaknesses",
     "on_kinds": [

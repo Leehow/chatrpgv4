@@ -558,11 +558,20 @@ async function registerStarterLocked(context: KernelContext, id: string): Promis
     const graph = row(parsePythonJson(new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(sourceBytes)));
     const digest = createHash('sha256').update(sourceBytes).digest('hex');
     const existing = await context.snapshots.pathExists(metaFile) ? clone(row(await context.snapshots.readJson(metaFile))) : null;
+    // An explicitly upgraded PDF/user publication owns its identity; a same-id bundled starter must not replace it.
+    if (existing && existing.source !== 'starter' && array(existing.source_fact_upgrades).length) {
+        const path = typeof existing.graph_file === 'string' ? await resolvedPath(childPath(folder, existing.graph_file)) : join(folder, 'module-graph.json');
+        await readPublishedGraph(context, path, existing, id);
+        return existing;
+    }
     const contract = row(await context.snapshots.readJson(join(context.content, 'modules', 'module-graph-contract-v3.json'))), dossier = row(contract.actor_dossier);
     const view = new ModuleGraph(id, graph, digest, dossier), template = row(await context.snapshots.readJson(join(context.content, 'modules', 'module-graph-template-v1.json')));
     let meta = existing;
     const writeMeta = async () => { meta!.updated_at = nowIso(); await writeJsonAtomic(metaFile, meta!); };
-    if (!existing || existing.graph_digest !== digest) {
+    if (existing?.source === 'starter' && array(existing.source_fact_upgrades).length && existing.starter_graph_digest !== digest)
+        throw new RpcError('needs','The upstream starter changed after an explicit source-fact upgrade; preserve this generation and review the new source',
+            {details:{reason:'source_upgrade_starter_changed',module:id,expected:existing.starter_graph_digest,actual:digest}});
+    if (!existing || (existing.starter_graph_digest ?? existing.graph_digest) !== digest) {
         // Contract §134.3: a stated obligation is refused before any byte of the generation is written.
         if (statedObligations(view).length) {
             const tables = new RuleTables(context);
@@ -602,6 +611,7 @@ async function registerStarterLocked(context: KernelContext, id: string): Promis
             generation: number(existing?.generation) + 1,
             status: 'registered',
             starter_path: graphFile,
+            starter_graph_digest: digest,
             created_at: string(existing?.created_at || nowIso()),
             registered_at: nowIso(),
             ...(vocabulary ? { vocabulary } : {})

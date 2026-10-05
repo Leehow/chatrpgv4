@@ -241,11 +241,11 @@ test('§180.8: a package may contribute creature words; one key is one spine\'s;
   assert.equal(ahead.compatible, false);
 });
 
-test('§180.8–§180.9: the build collects creature words in load order across both spines, and binds the weakness shape to its package', async t => {
+test('§180.20: creature words follow consumer defaults, while source weaknesses always bind', async t => {
   const game = await kernel(t);
   const built = await api.buildVocabulary(game.context);
   assert.deepEqual(built.creature_profile_keys.map(entry => [entry.key, entry.label, entry.mod]), [['habits', 'habits', PACKAGE]]);
-  assert.deepEqual(built.actor_weaknesses, {mod: PACKAGE, version: '1.0.0'});
+  assert.deepEqual(built.actor_weaknesses, {source: 'module-source', version: 1});
   assert.ok(!built.actor_profile_keys.some(entry => entry.key === 'habits'));
   // A later package claiming `language` as a creature word is displaced by Natural NPC's person word: one key, one spine.
   await game.call('mods.install', {path: await variant(game, 'zz-tongues', manifest => ({...withWords(manifest,
@@ -254,10 +254,10 @@ test('§180.8–§180.9: the build collects creature words in load order across 
   const again = await api.buildVocabulary(game.context);
   assert.ok(!again.creature_profile_keys.some(entry => entry.key === 'language'));
   assert.deepEqual(again.displaced.filter(entry => entry.key === 'language'), [{key: 'language', mod: 'zz-tongues', kept_by: 'natural-npc'}]);
-  // Disabled by default, nothing binds the shape.
+  // Consumer defaults affect contributed words, not original-source facts.
   await game.call('mods.defaults', {id: PACKAGE, enabled: false});
   const off = await api.buildVocabulary(game.context);
-  assert.equal(off.actor_weaknesses, undefined);
+  assert.deepEqual(off.actor_weaknesses, {source: 'module-source', version: 1});
   assert.ok(!array(off.creature_profile_keys).some(entry => entry.key === 'habits'));
 });
 // ---------------------------------------------------------------------------------------------------
@@ -270,7 +270,7 @@ test('§180.8–§180.9: a build with the package on asks for habits and weaknes
   assert.deepEqual(packet.vocabulary.creature_dossier.contributed.map(entry => entry.key), ['habits'], 'the reader is asked the creature word');
   assert.ok(packet.vocabulary.actor_weaknesses, 'the reader is asked the weakness shape, and the checker holds it');
   assert.deepEqual(meta.vocabulary.creature_profile_keys.map(entry => [entry.key, entry.mod]), [['habits', PACKAGE]]);
-  assert.deepEqual(meta.vocabulary.actor_weaknesses, {mod: PACKAGE, version: '1.0.0'});
+  assert.deepEqual(meta.vocabulary.actor_weaknesses, {source: 'module-source', version: 1});
 });
 
 test('§180.4/§180.9: the rows carry the words and the chain, budgeted; the single reads carry all of it', async t => {
@@ -406,21 +406,26 @@ test('§180.8–§180.9: the table door takes a creature word on a creature and 
   assert.deepEqual(words, {key: 'habits', label: 'habits', mod: null, bound: true});
 });
 
-test('§180.8–§180.9: a book built with the package off was never asked -- its authored weaknesses and habits never reach the table', async t => {
+test('§180.20: a PDF built with the consumer off checks, persists and projects source weaknesses', async t => {
   const game = await kernel(t);
   await game.call('mods.defaults', {id: PACKAGE, enabled: false});
   const {mid, packet, meta} = await buildBook(game);
-  assert.equal(packet.vocabulary.actor_weaknesses, undefined);
+  assert.ok(packet.vocabulary.actor_weaknesses);
   assert.equal(packet.vocabulary.creature_dossier.contributed, undefined);
-  assert.equal(meta.vocabulary?.actor_weaknesses, undefined);
+  assert.deepEqual(meta.vocabulary.actor_weaknesses, {source: 'module-source', version: 1});
   assert.equal(meta.vocabulary?.creature_profile_keys, undefined);
-  await game.call('mods.defaults', {id: PACKAGE, enabled: true});
+  const persisted = JSON.parse(await readFile(join(game.workspace, '.coc', 'modules', mid, meta.graph_file), 'utf8'));
+  assert.deepEqual(persisted.nodes.find(node => node.node_id === 'npc-old-warden').properties.weaknesses,
+    opening().nodes.find(node => node.node_id === 'npc-old-warden').properties.weaknesses);
   const table = await played(game, mid);
   const {capsule} = table.opened;
-  assert.equal(table.row(capsule, WARDEN).weaknesses, undefined, 'a property no build bound is not projected');
+  assert.deepEqual(table.row(capsule, WARDEN).weaknesses.map(entry => entry.book), [W_KEY, W_SALT, W_SUN].map(book => book.slice(0, 160)));
+  assert.equal((await table.call('table.look', {focus: 'npc', name: WARDEN})).weaknesses.length, 4);
   assert.equal(table.row(capsule, RATS).habits, undefined);
   // The false lead is a relation the base reads whatever was bound.
   assert.deepEqual(table.row(capsule, WARDEN).false_leads, [{clue: 'silver-lore', discovered: false}]);
+  await table.call('mods.configure', {id: PACKAGE, version: '1.0.0', enabled: true});
+  await table.next('I inspect the same source facts with the consumer enabled.');
   const words = (await table.call('mods.context')).vocabulary.words.find(entry => entry.key === 'habits');
   assert.deepEqual(words, {key: 'habits', label: 'habits', mod: PACKAGE, bound: false}, 'on, and unbound: the package can tell');
 });

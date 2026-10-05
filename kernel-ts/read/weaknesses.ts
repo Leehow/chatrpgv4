@@ -7,7 +7,7 @@
  * of its instance (`rootObjectOwner`), or the sheet that carries it as equipment, as the check catalog finds a tome at
  * hand; who knows a spell is the investigator's magic state (`knownSpells`); which tome teaches it is the book's own
  * sources (`bookSpellSources`); a conclusion's progress counts its supporting clues in `world.discovered_clues`, the
- * reading `thread.ts` makes. A name matches a name by normalization only.
+ * reading `thread.ts` makes. An explicit source identity takes precedence; legacy unbound objects match normalized names.
  */
 import type { ModuleGraph } from "./module-graph.js";
 import { rootObjectOwner } from "./object-owner.js";
@@ -29,17 +29,26 @@ const namesOf = (graph: ModuleGraph, node: Row): Set<string> => new Set(graph.na
 /** Who holds the thing now, by the existing ownership reads; null when nothing at the table holds it. */
 function heldBy(graph: ModuleGraph, world: Row, node: Row, reads: ChainReads): string | null {
     const names = namesOf(graph, node), objects = row(world.objects), definitions = row(objects.definitions);
-    const instances = values(row(objects.instances))
-        .filter(item => names.has(normalize(item.name)) || names.has(normalize(row(definitions[string(item.definition)]).name)))
+    const all = values(row(objects.instances));
+    const sourced = all.filter(item => row(item.source_object).module_id === graph.moduleId && row(item.source_object).node_id === node.node_id);
+    const instances = (sourced.length ? sourced : all.filter(item => !item.source_object &&
+        (names.has(normalize(item.name)) || names.has(normalize(row(definitions[string(item.definition)]).name)))))
         .sort((a, b) => number(b.changed_turn ?? 0) - number(a.changed_turn ?? 0));
     for (const item of instances) {
         try {
-            const owner = string(row(rootObjectOwner(world, item)).name);
+            const root = row(rootObjectOwner(world, item));
+            if (!['npc', 'investigator'].includes(root.kind)) continue;
+            const owner = string(root.name);
             if (owner) return owner;
         }
         catch { /* An ownership chain that does not resolve says nothing about who holds it. */ }
     }
-    const sheet = array(reads.party).find(sheet => array(sheet.equipment).some(item => names.has(normalize(typeof item === "string" ? item : row(item).name))));
+    if (sourced.length) return null;
+    const managedNames = new Set(all.flatMap(item => [normalize(item.name),normalize(row(definitions[string(item.definition)]).name)]));
+    const sheet = array(reads.party).find(sheet => array(sheet.equipment).some(item => {
+        const name = normalize(typeof item === 'string' ? item : row(item).name);
+        return names.has(name) && !managedNames.has(name);
+    }));
     return sheet ? string(sheet.name) || null : null;
 }
 

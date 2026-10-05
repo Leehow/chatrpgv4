@@ -78,7 +78,8 @@ function version(value: any) {
  *  and reaching it through the runtime would pull the package installer -- and its zip reader -- into
  *  every bundle that reads a module. */
 export async function buildVocabulary(context: KernelContext): Promise<Row> {
-    return vocabularyOf(context, "enabled");
+    // §180.20: collection belongs to the source, independently of optional consumers.
+    return {...await vocabularyOf(context, "enabled"), actor_weaknesses: {source:'module-source', version:1}};
 }
 /**
  * Contract §180.12: every word an installed package contributes, for a starter whose data -- not a reader's ask -- decides

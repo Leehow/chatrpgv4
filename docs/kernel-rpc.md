@@ -34049,6 +34049,53 @@ Writers: first `apply object` and the authored source rule. Readers: object/weap
 Action: the existing combat executor and its ordinary damage/HP/condition/end receipts. Old campaigns and snapshots
 receive no automatic migration; proving this mechanism does not certify natural model use or an installed package.
 
+### 180.20 Book weaknesses are source facts; old graphs upgrade explicitly (2026-10-05; amends §180.9, §28.2, §22)
+
+Every new PDF reading asks for and checks the existing `actor.weaknesses.v1` law for both npc and creature nodes,
+independently of installed or enabled consumer packages. Build provenance records
+`vocabulary.actor_weaknesses: {source: "module-source", version: 1}`. The entry schema remains
+`{book, needs?, learned_by?}`; original conditions, degree and citations remain source facts. The reader reviews
+each actor's stated weaknesses, including source statements of resistance, without inventing an entry or route.
+Assembly preserves entries and their field spans. Source facts reach Keeper reads regardless of the optional
+Mod switch; Mod instructions and table-established additions retain their existing enable/disable behavior.
+Reading never adds discovered clues, ownership or executable rules, and never grants player knowledge.
+For a weakness's physical means, an existing explicit `source_object` identity takes precedence over labels;
+renaming it preserves its root-owner reading, and another module's bound object cannot satisfy it by name.
+
+An older graph is not semantically reinterpreted by names or property-key heuristics. `module.source.upgrade`
+accepts `{module_id, action?: "preview"|"apply", upgrade?, revision?, campaign?}`. Preview is the default and
+does not publish or fork a campaign. Without an explicit artifact it may offer the matching starter's reviewed
+`weaknesses-upgrades/<graph_digest>.json`, then `weaknesses-upgrade.json`; otherwise it returns the actors
+whose source weakness facts remain unassessed. Packaged artifacts name exact reviewed cohorts, never a fuzzy match.
+
+The closed upgrade artifact is `{version: 1, id, base_graph_digest, review: {method, source, reason}, entries}`.
+Each entry is `{actor_id, weaknesses, source_refs, evidence}`. Evidence is a nonempty list of exact existing
+`{node_id, path, value}` source fields, with JSON Pointer paths inside their nodes. The source actor, means,
+conclusion and citations must already exist and the entries must pass the current shared weakness checker.
+The artifact is a reviewed source-fragment transcription, not an instruction to a model. The kernel verifies
+the exact graph/evidence and structural law; it does not claim a deterministic semantic review of prose.
+
+Preview returns the target generation/digest, artifact digest, revision, missing-field additions, preserved
+existing actor fields, and remaining unassessed actors with their citations. Existing `weaknesses`, including
+an explicitly empty/manual list, are never replaced or merged by this missing-field upgrade. An unmatched base,
+changed evidence, unsupported references, or unreviewed artifact refuses publication. Unknown facts remain
+`source_extraction_required`; no keyword classifier fills them and no reader/model is started automatically.
+
+Apply requires the exact preview revision and runs under the module metadata lock. It writes an append-only
+generation through the existing publisher, retaining all nodes, edges, visibility, source fields and prior
+generations; the metadata pointer is committed last. It records the immutable artifact digest, base and result
+generation, review and field evidence in `source_fact_upgrades`, and binds the source schema. A repeated identical
+artifact returns already-applied without a new generation; reuse of its id for different bytes is refused.
+Campaign-scoped apply writes only that campaign's fork, never world/history/knowledge. Library apply does not
+rewrite existing private forks. A starter upgrade retains its original starter digest; re-registration cannot
+replace its upgraded generation, and a changed upstream starter requires explicit source review. An explicitly
+upgraded PDF/user publication retains its own source identity when a bundled starter has the same module id.
+
+Writers: checked new source readings or an explicit reviewed missing-field upgrade. Readers: registered module
+provenance, Keeper weakness chains and source-upgrade preview. Action: ordinary clue discovery, physical object
+ownership/usages and existing authored rules; this introduces no combat/immunity engine. Natural semantic
+extraction and an installed package require their own evidence; controlled zero-model fixtures prove only mechanisms.
+
 ## 182. Reading follows the book's chapters: a short book is built once, a long book reads the chapter in play and the next; nothing is read that publishes nothing (owner ruling 2026-10-04; amends §148.3, §151.4's background units, §22.4 read-ahead and §184.4)
 
 Owner, 2026-10-04, after the ten-hour measurement of §184 and the stop of two idle tables: 「读书的目的是为了构建图谱和续后续剧情，如果没有产出一直读书不是浪费tokens么」, then 「其实整本书构建图谱我的意图是一些短模组是可以一次性构建完，但是构建完之后就不需要来回读，还有就是长模组按需读的话也不需要按需读啊，只需要读当前所在章节和接下来的章节，写图谱和取后续文本，根本没必要来回空读，不输出就别读」.
