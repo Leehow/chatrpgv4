@@ -8597,7 +8597,7 @@ read the same whether absent, `null` or empty. For the kinds §32.1 puts to revi
 | `item` | `name`, `to`, `from`, `weapon`, `quantity`, `label`, `intent_ref`, `intent_outcome` (`why` is outside) |
 | `handout` | `name`, `label`, `intent_ref`, `intent_outcome` |
 | `map` | `name`, `regions`, `region_labels`, `level_labels`, `label` (`why` is outside) |
-| `object` | `name`, `adopt`, `definition`, `document`, `to`, `from`, `condition`, `offer`, `handover`, `check`, `part`, `quantity`, `owed` (`why` is outside) |
+| `object` | `name`, `adopt`, `definition`, `source_object`, `document`, `to`, `from`, `condition`, `offer`, `handover`, `check`, `part`, `quantity`, `owed` (`why` is outside) |
 | `usage` | `object`, `name`, `description` |
 
 `label` is identifying. §32.4's "`label` ... outside the key" has been stale since 2026-09-12, when a `move`'s `label` joined
@@ -8607,6 +8607,12 @@ settles that intention (§142.2): they are a write, not a rationale. So is `owed
 addendum was open, and caught by the guard below): it names the owed row the kernel lands. A batch whose every effect is
 owed is admitted on `told` and reviewed by no one (§158.5); in a mixed batch the lane reads the field like any other.
 `why` and `how` stay outside, so a rationale bolted on or rewritten still reuses its verdict. `resolve` is §32.4.2's.
+
+Implementation decision (2026-10-05): `object.source_object` (§180.19) identifies the book object whose physical
+instance the call establishes. Changing or adding that binding changes the admission and split-batch reuse keys;
+an approval for an ordinary object or another source object cannot authorize the changed binding. The reviewer
+already reads this field in the effect line; the identifying-field list now carries it too. The existing schema
+guard verifies that every declared object field participates without changing rationale-only reuse.
 
 `effectSignature` keeps one field list for every kind; a field of the same name on a kind no reviewer reads (a `damage`'s
 `band` or `stated`, an `npc`'s `intent_ref`) is now read in the batch's key too, which makes that key finer, never coarser.
