@@ -177,6 +177,63 @@ it('details completed during cold startup reach the preloaded historical card',a
   } finally {host.live.delete(session.id);await backend.close();}
 },40000);
 
+it('a failed COC startup is not retried by history reads and a model change permits recovery',async()=>{
+  const {backend,session,path}=await backendWithSession('coc-details-startup-failure-');
+  const host=backend as any, errors:any[]=[];
+  const failure=new Error('Model not found: grok-build/grok-4.5');
+  const spawn=vi.spyOn(host,'spawnLive').mockRejectedValue(failure);
+  backend.subscribe((frame:any)=>{if(frame.channel==='stream'&&frame.event?.type==='error')errors.push(frame.event);});
+  const read=async()=>{
+    const history=await backend.handle('getSessionHistory',[session.id,0,50]) as any[];
+    await Promise.all([...host.cocDetailsRecoveries.values()]);
+    return history;
+  };
+  try {
+    await appendFile(path,JSON.stringify({...card(),parentId:null})+'\n');
+    expect((await read()).find(entry=>entry.id==='card-t0').presentation.details.mechanics[1].definition).toBe('pending');
+    for(let i=0;i<12;i++)await read();
+    await expect(host.ensure(session.id)).rejects.toBe(failure);
+    await writeFile(path+'.coc-watchdog-recovery.json',JSON.stringify({version:1,sessionId:session.id}));
+    host.scheduleCocWatchdogRecovery(session.id,path,7);
+    await new Promise(resolve=>setTimeout(resolve,20));
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].content).toBe(failure.message);
+
+    vi.spyOn(host,'loadModelCatalog').mockResolvedValue(undefined);
+    vi.spyOn(host,'composeSessionModelState').mockReturnValue({model:{provider:'working',id:'model',name:'Working'},thinkingLevel:'low',availableThinkingLevels:['low']});
+    await backend.handle('setModel',[session.id,'working','model']);
+    const live={session:{id:session.id},runtimeToken:7,path};
+    spawn.mockImplementation(async()=>{
+      await appendFile(path,JSON.stringify({...details([{name:'旧皮腔相机',definition:'ready',object:OBJECT}]),parentId:'card-t0'})+'\n');
+      host.live.set(session.id,live);
+      return live;
+    });
+    vi.spyOn(host,'liveProcessUsable').mockReturnValue(true);
+    await read();
+    expect(spawn).toHaveBeenCalledTimes(2);
+    expect((await read()).find(entry=>entry.id==='card-t0').presentation.details.mechanics[1].definition).toBe('ready');
+    expect(spawn).toHaveBeenCalledTimes(2);
+    expect(errors).toHaveLength(1);
+  } finally {host.live.delete(session.id);await backend.close();}
+},40000);
+
+it('model and usage reads do not replace a dead COC process',async()=>{
+  const {backend,session,path}=await backendWithSession('coc-details-dead-read-');
+  const host=backend as any;
+  const live={session:{id:session.id},runtimeToken:7,path,process:{exitCode:1}};
+  host.live.set(session.id,live);
+  const ensure=vi.spyOn(host,'ensure').mockRejectedValue(new Error('A read must not start Pi'));
+  vi.spyOn(host,'liveProcessUsable').mockReturnValue(false);
+  vi.spyOn(host,'loadModelCatalog').mockResolvedValue(undefined);
+  vi.spyOn(host,'coldSessionStats').mockResolvedValue({sessionId:session.id,tokens:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0},cost:0});
+  try {
+    await backend.handle('getModelState',[session.id]);
+    await backend.handle('getSessionStats',[session.id]);
+    expect(ensure).not.toHaveBeenCalled();
+  } finally {host.live.delete(session.id);await backend.close();}
+},40000);
+
 it('archived and read-only history do not start item recovery',async()=>{
   const {backend,session,path}=await backendWithSession('coc-details-read-only-');
   const host=backend as any, ensure=vi.spyOn(host,'ensure');

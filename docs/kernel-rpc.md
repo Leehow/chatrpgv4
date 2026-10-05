@@ -4656,6 +4656,34 @@ per-unit evidence isolation stay intact.
 
 ## 23. PipiCOC local frontend (2026-09-07)
 
+### Host decision: COC startup failures do not become read-driven restart loops (2026-10-05)
+
+A COC initialization error is retained for that session's current host lifecycle
+generation. A process lost during initialization has one bounded replacement
+retry for the existing watchdog path; a second loss retains the failure too.
+Successful initialization or explicit retry resets that loss allowance.
+History/card recovery, panel reads, model/usage reads and
+watchdog recovery must not start another process after that failure. Report the
+original error once through the existing error stream; retain the transcript,
+pending cards, campaign and selected provider/model. In-flight callers share the
+same attempt and failure. An old generation cannot block a recreated session.
+
+An explicit player prompt, explicit opening request or successfully persisted
+model selection permits another attempt. Browsing, startup rows, presentation
+pushes and timers are not retry authority. Model and usage reads use metadata or
+the exact already-running process; a process lost during the read returns the
+cold snapshot without starting a replacement. This does not select a fallback
+model, copy credentials, send synthetic input or settle a game turn.
+
+This contains the observed loop in which a retained pending item card kept
+waking a session whose selected model was unavailable, producing two opening
+notifications per failed attempt. The recovery boundary follows the
+[Circuit Breaker pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker)
+and [bounded retry guidance](https://docs.aws.amazon.com/wellarchitected/latest/framework/rel_mitigate_interaction_failure_limit_retries.html):
+unchanged failures stop at one owner, while explicit input can retry after the
+person changes the failing conditions. This is a host lifecycle repair, not
+gameplay acceptance or proof of provider billing.
+
 ### Host decision: shell renderer failure containment (2026-09-19)
 
 A surviving native window is not proof of a surviving UI. The Electron shell

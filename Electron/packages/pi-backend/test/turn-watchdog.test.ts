@@ -238,6 +238,25 @@ describe("turn watchdog (fix 3)", () => {
     await backend.close();
   }, 10_000);
 
+  it("stops recovery after two replacements repeatedly exit during initialization", async () => {
+    const { backend, sessionPath, spawnEnvs } = await fixture({
+      env: { FAKE_EXIT_DURING_WATCHDOG_RECOVERY: "1" },
+      stopEscalationDelays: { termDescendantsMs: 10, killDescendantsMs: 10, killPiMs: 10 },
+    });
+    try {
+      await backend.handle("sendPrompt", ["s1", "__hold_stuck__"]);
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const live = (backend as any).live.get("s1");
+      live.lastTurnActivityAt = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
+      await (backend as any).checkTurnWatchdogs();
+      await eventually(() => spawnEnvs.length === 3 && !(backend as any).ensureInFlight.has("s1"), 6_000);
+      await new Promise(resolve => setTimeout(resolve, 1_200));
+      await Promise.allSettled(Array.from({ length: 6 }, () => (backend as any).ensure("s1")));
+      expect(spawnEnvs).toHaveLength(3);
+      await expect(access(`${sessionPath}.coc-watchdog-recovery.json`)).resolves.toBeUndefined();
+    } finally { await backend.close(); }
+  }, 10_000);
+
   it("retries when a replacement exits during startup presentation catch-up", async () => {
     const { backend, spawnEnvs } = await fixture({
       stopEscalationDelays: { termDescendantsMs: 10, killDescendantsMs: 10, killPiMs: 10 },

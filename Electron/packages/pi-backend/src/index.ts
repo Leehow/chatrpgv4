@@ -2412,6 +2412,10 @@ export class PiHostBackend implements HostBackend {
    * different sessions stay fully parallel.
    */
   private ensureInFlight = new Map<string, Promise<Live>>();
+  /** COC initialization failures survive read-driven recovery until explicit input permits retry. */
+  private readonly cocStartupFailures = new Map<string, { generation: unknown; error: Error }>();
+  /** One replacement lost during initialization may be transient; a second loss stops recovery. */
+  private readonly cocStartupExitRetries = new Map<string, unknown>();
   /** Parsed history for an unchanged JSONL. Switching back must not re-parse on the UI thread. */
   private historyCache = new Map<string, { mtimeMs: number; size: number; before: number | string; limit: number; entries: HistoryEntry[] }>();
   /** One in-flight JSONL scan per path+cursor. Overlapping UI retries must not stack full-file parses. */
@@ -3127,6 +3131,8 @@ export class PiHostBackend implements HostBackend {
     // Absence is intentional: a continuation carrying this token must fail
     // closed rather than become implicit generation zero.
     this.sessionRuntimeTokens.delete(id);
+    this.cocStartupFailures.delete(id);
+    this.cocStartupExitRetries.delete(id);
     this.sessionRedact.reclaim(id);
     this.sessionEnvRefresh.reclaim(id);
     this.turnTelemetry.reclaimSession(id);
@@ -3309,6 +3315,8 @@ export class PiHostBackend implements HostBackend {
     if (this.turnWatchdogTimer) { clearInterval(this.turnWatchdogTimer); this.turnWatchdogTimer = undefined; }
     for (const timer of this.cocWatchdogRecoveryTimers.values()) clearTimeout(timer);
     this.cocWatchdogRecoveryTimers.clear();
+    this.cocStartupFailures.clear();
+    this.cocStartupExitRetries.clear();
     this.cocWatchdogPresentationOffsets.clear();
     // Stop the resident external-pi worker if one was spawned during this run.
     this.externalAuthRuntime?.stop();
@@ -3904,7 +3912,8 @@ export class PiHostBackend implements HostBackend {
   private readonly cocDetailsRecoveries = new Map<string, Promise<void>>();
   /** A loaded waiting card owns recovery; no player sentence or story turn is manufactured. */
   private startCocDetailsRecovery(sessionId: string, path: string, history: HistoryEntry[]): void {
-    if (this.closed || this.sidebarArchivedCache.has(sessionId) || this.cocDetailsRecoveries.has(sessionId)) return;
+    if (this.closed || this.sidebarArchivedCache.has(sessionId) || this.cocDetailsRecoveries.has(sessionId)
+      || this.cocStartupFailures.has(sessionId)) return;
     const cards = history.filter(entry => entry.presentation?.renderer === 'coc-mechanics'
       && isRecord(entry.presentation.details) && Array.isArray(entry.presentation.details.mechanics)
       && entry.presentation.details.mechanics.some((row: any) => row.kind === 'item' && row.definition === 'pending'));
@@ -5864,6 +5873,9 @@ export class PiHostBackend implements HostBackend {
       ? expectedGeneration
       : this.sessionRuntimeToken(id) ?? this.beginSessionRuntime(id);
     this.assertSessionGeneration(id, generation);
+    const failed = this.cocStartupFailures.get(id);
+    if (failed?.generation === generation) throw failed.error;
+    if (failed) this.cocStartupFailures.delete(id);
     // A child is inserted into `live` before model/thinking/state setup has
     // finished. Concurrent callers must join that initialization promise,
     // never treat a writable-but-uninitialized process as recovered.
@@ -5890,7 +5902,21 @@ export class PiHostBackend implements HostBackend {
         throw new Error("会话已归档：请先在侧栏取消归档，再继续该会话");
       }
     }
-    const attempt = this.spawnLive(id, generation, cocDetailsRecovery).finally(() => {
+    const attempt = this.spawnLive(id, generation, cocDetailsRecovery).then(live => {
+      if (this.sessionRuntimeTokenIsCurrent(id, generation)) this.cocStartupExitRetries.delete(id);
+      return live;
+    }).catch(error => {
+      if (this.cocSessionBindings.has(id) && this.sessionRuntimeTokenIsCurrent(id, generation)) {
+        if (error instanceof PiExitedError && this.cocStartupExitRetries.get(id) !== generation) {
+          this.cocStartupExitRetries.set(id, generation);
+        } else {
+          const failure = error instanceof Error ? error : new Error(String(error));
+          this.cocStartupFailures.set(id, { generation, error: failure });
+          this.stream({ type: "error", sessionId: id, content: failure.message });
+        }
+      }
+      throw error;
+    }).finally(() => {
       this.ensureInFlight.delete(id);
     });
     this.ensureInFlight.set(id, attempt);
@@ -7369,15 +7395,16 @@ export class PiHostBackend implements HostBackend {
     }
   }
   private scheduleCocWatchdogRecovery(sessionId: string, sessionPath: string, runtimeToken: unknown, delayMs = 0): void {
-    if (this.closed || this.cocWatchdogRecoveryTimers.has(sessionId)) return;
+    if (this.closed || this.cocWatchdogRecoveryTimers.has(sessionId) || this.cocStartupFailures.has(sessionId)) return;
     const timer = setTimeout(() => {
       this.cocWatchdogRecoveryTimers.delete(sessionId);
-      if (this.closed || !this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)) return;
+      if (this.closed || !this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken) || this.cocStartupFailures.has(sessionId)) return;
       void fs.access(cocWatchdogRecoveryPath(sessionPath)).then(
         async () => {
           try {
             await this.ensure(sessionId, runtimeToken);
           } catch (error) {
+            if (this.cocStartupFailures.has(sessionId)) return;
             this.stream({ type: "error", sessionId, content: error instanceof Error ? error.message : String(error) });
             this.scheduleCocWatchdogRecovery(sessionId, sessionPath, runtimeToken, 1_000);
           }
@@ -9801,6 +9828,8 @@ export class PiHostBackend implements HostBackend {
           if (!binding) throw this.cocRefusal("campaign_unbound", "Create an investigator before starting");
           // The COC extension owns the opening turn on session_start.
           // A synthetic player prompt here races that turn and becomes a follow-up.
+          this.cocStartupFailures.delete(sid);
+          this.cocStartupExitRetries.delete(sid);
           await this.ensure(sid);
           // Pi drains an idle extension's shutdown request at the next RPC boundary.
           await this.command(sid,{type:'get_state'});
@@ -11487,6 +11516,10 @@ export class PiHostBackend implements HostBackend {
       this.assertSessionGeneration(id, generation);
       // This check is the linearization point for a queued dispatch: teardown
       // can revoke it while lease acquisition is paused, before ensure() runs.
+      if (behavior === "prompt") {
+        this.cocStartupFailures.delete(id);
+        this.cocStartupExitRetries.delete(id);
+      }
       const live = await this.ensure(id, generation);
       this.assertSessionGeneration(id, generation);
       if (behavior === "prompt" && payload.text.trim()) {
@@ -11660,8 +11693,9 @@ export class PiHostBackend implements HostBackend {
   private async getModelState(sessionId?: string): Promise<ModelState> {
     await this.loadModelCatalog();
     if (!sessionId) return this.modelState;
-    if (this.live.has(sessionId) || this.ensureInFlight.has(sessionId)) {
-      await this.ensure(sessionId);
+    const initializing = this.ensureInFlight.get(sessionId);
+    if (initializing) await initializing.catch(() => undefined);
+    if (this.live.has(sessionId)) {
       const meta = await this.findSession(sessionId);
       // A live session with nothing recorded yet falls back to what that session
       // asked for, never to the host's placeholder (§68). `this.modelState` is
@@ -11791,6 +11825,8 @@ export class PiHostBackend implements HostBackend {
     this.sessionModelStates.set(sessionId, next);
     this.sessionModelSnapshots.set(sessionId, next);
     await this.rememberManualModelSelection(next.model);
+    this.cocStartupFailures.delete(sessionId);
+    this.cocStartupExitRetries.delete(sessionId);
     this.structuredOutputs?.clear(sessionId);
     return next;
   }
@@ -12008,10 +12044,18 @@ export class PiHostBackend implements HostBackend {
   }
   private async sessionStatsData(id: string): Promise<SessionStats> {
     await this.loadSessionContextLedger();
+    const live = this.live.get(id);
+    if (!live || !this.liveProcessUsable(live)) return this.coldSessionStats(id);
     // Issue order is recorded before the RPC so a stale pre-compaction response
     // can never re-arm the policy after a compaction already succeeded.
-    const generation = this.live.get(id)?.compaction.beginUsageRequest();
-    const data = await this.command(id, { type: "get_session_stats" });
+    const generation = live.compaction.beginUsageRequest();
+    let data: any;
+    try {
+      data = await this.writeCommand(live, { type: "get_session_stats" });
+    } catch (error) {
+      if (error instanceof PiExitedError) return this.coldSessionStats(id);
+      throw error;
+    }
     const tokens = isRecord(data?.tokens) ? data.tokens : {};
     const liveUsage: any = isRecord(data?.contextUsage)
       ? data.contextUsage
