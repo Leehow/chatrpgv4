@@ -227,6 +227,7 @@ const ObjectEffect = Type.Object({
       remainder_text:Type.String({maxLength:64000,description:"Complete current text carried by the original remainder after a document-bearing stack is divided, in the campaign's play_language"})}),
   ],{description:"Initialize a writable carrier once, write its current text with a causal why, or atomically divide the text of a document-bearing stack together with part and a short quantity; ordinary writes use the same from/to owner, acquisition originals are retained unless physical division establishes two new baselines"})),
   definition: Type.Optional(Type.String({description:"Accepted definition name when first placing the instance"})),
+  source_object: Type.Optional(Type.String({description:"On first placement/adoption only: exact source_object handle supplied by lookup module when this is that authored physical thing. Never infer it from a display name or a similar weapon; omit for ordinary objects. Transfers preserve its identity"})),
   to: Type.String({description:"New owner: investigator, NPC, scene or existing container instance; here means the current scene"}),
   condition: Type.Optional(StringEnum(["intact","damaged","jammed","broken"] as const, {description:"Initial condition, or an explicit existing-object state change with the same from/to owner and a causal why; ownership transfers preserve state"})),
   from: Type.Optional(Type.String({description:"Required current owner when transferring an existing instance"})),

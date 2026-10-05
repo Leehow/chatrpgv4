@@ -34008,6 +34008,34 @@ authored habit/weakness facts. The script checks the actual resource root and re
 binding refuses acceptance. It never derives expected hashes from the runtime being tested, configures Mods, opens a
 turn, calls a provider or repairs a campaign. Passing this gate proves prerequisites only, never natural adoption.
 
+### 180.19 Source objects retain their authored combat identity (2026-10-05; amends §26, §102)
+
+An accepted physical usage has an instance-bound weapon id, not a source catalog id. An authored encounter must
+not lose its specific means or apply that means' exception to a namesake. On first placement/adoption,
+`apply object` may explicitly name `source_object`, the exact physical source handle supplied by `lookup module`.
+The kernel resolves that handle only, never a display name, to `{module_id, node_id}` on the instance. It refuses
+a non-source/non-physical reference, a second instance of that source, a quantity other than one, or a changed
+binding. Existing instances are never inferred or retroactively bound. Transfers retain the binding; definitions
+and accepted usage parameters stay unchanged. The source graph and player knowledge are not written.
+
+`lookup module` supplies `source_object` for sourced physical nodes; the Keeper's object read reports the bound
+handle. Weapon projections carry the instance's identity alongside their own id. An authored fixed-weapon
+operation can match that identity only in the same module, through the source object's existing
+`runtime_rule_ref` and the operation's `on_success.rule_ref`. Unmanaged historical canonical weapon ids still
+match exactly. A managed object never obtains an exception merely by reusing a catalog id or display name.
+Optional authored `investigator_usage_mode` limits the operation to the existing closed attack modes. The Haunting
+requires `melee` for its own-dagger stabbing rule; the source condition/effect is unchanged.
+
+Each declared attack selects the operation for its actual target and selected weapon, including during an existing
+fight. This neither repeats preparations nor replaces an initiative turn. Pending defence retains that selection;
+existing ownership/physical-basis checks also compare the projected source identity. Only a successful hit executes
+the existing authored terminal effect. A miss, wrong target, wrong mode, unbound namesake or stale held usage does
+not. No damage multiplier, immunity parser or new weakness engine is introduced.
+
+Writers: first `apply object` and the authored source rule. Readers: object/weapon projections and operation selection.
+Action: the existing combat executor and its ordinary damage/HP/condition/end receipts. Old campaigns and snapshots
+receive no automatic migration; proving this mechanism does not certify natural model use or an installed package.
+
 ## 182. Reading follows the book's chapters: a short book is built once, a long book reads the chapter in play and the next; nothing is read that publishes nothing (owner ruling 2026-10-04; amends §148.3, §151.4's background units, §22.4 read-ahead and §184.4)
 
 Owner, 2026-10-04, after the ten-hour measurement of §184 and the stop of two idle tables: 「读书的目的是为了构建图谱和续后续剧情，如果没有产出一直读书不是浪费tokens么」, then 「其实整本书构建图谱我的意图是一些短模组是可以一次性构建完，但是构建完之后就不需要来回读，还有就是长模组按需读的话也不需要按需读啊，只需要读当前所在章节和接下来的章节，写图谱和取后续文本，根本没必要来回空读，不输出就别读」.

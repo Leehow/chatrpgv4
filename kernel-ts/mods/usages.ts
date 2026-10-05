@@ -90,6 +90,7 @@ export function registerUsage(world: Row, objectName: string, raw: Row, physical
 function weaponRow(item: Row, usage: Row): Row {
     const parameters = row(usage.parameters);
     return {...parameters, weapon_id:usage.id, object_id:item.id, usage_id:usage.id, usage:usage.name, usage_mode:usage.mode,
+        ...(item.source_object ? {source_object:clone(item.source_object)} : {}),
         name:item.name, display_name:item.name, ammo:item.state.ammo ?? null,
         uses_per_round:string(parameters.uses_per_round), impales:parameters.impale ?? false, adds_damage_bonus:parameters.adds_damage_bonus ?? false};
 }
@@ -99,6 +100,7 @@ function legacyWeapon(world: Row, item: Row): Row | null {
     if (!truth(parameters.skill) || !truth(parameters.damage)) return null;
     if (['jammed','broken'].includes(item.state.condition)) return null;
     return {...parameters, weapon_id:item.id, object_id:item.id, name:item.name, display_name:item.name, ammo:item.state.ammo ?? null,
+        ...(item.source_object ? {source_object:clone(item.source_object)} : {}),
         uses_per_round:string(parameters.uses_per_round), impales:parameters.impale ?? false, adds_damage_bonus:parameters.adds_damage_bonus ?? false};
 }
 export function usageWeaponRows(world: Row, ownerId: string | null = null): Row[] {

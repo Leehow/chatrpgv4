@@ -184,7 +184,22 @@ export async function moduleWeapons(tables: RuleTables, graph: ModuleGraph, extr
     result.push(...extra.filter(weapon => isJsonObject(weapon) && truth(weapon.weapon_id)).map(clone));
     return result;
 }
-export function combatOperationFor(graph: ModuleGraph, scene: Row, npcHandle: string, weaponId: string | null): [
+/** §180.19: managed weapons use their physical source, never their label or generated usage ID. */
+export function authoredWeaponMatches(graph: ModuleGraph, operation: Row, weapon: Row | string | null): boolean {
+    if (!truth(operation.investigator_weapon_id)) return true;
+    if (!weapon) return false;
+    if (typeof weapon === 'string') return operation.investigator_weapon_id === weapon;
+    const mode = weapon.usage_mode ?? (string(weapon.skill).startsWith('Firearms') ? 'firearm' : weapon.skill === 'Throw' ? 'thrown' : 'melee');
+    if (operation.investigator_usage_mode && operation.investigator_usage_mode !== mode) return false;
+    if (!weapon.object_id) return operation.investigator_weapon_id === weapon.weapon_id;
+    const identity = row(weapon.source_object), source = graph.nodes.get(string(identity.node_id));
+    return identity.module_id === graph.moduleId && !!source
+        && ['object', 'artifact', 'tome'].includes(string(source.node_kind))
+        && array(source.source_refs).length > 0 && !source.campaign_origin
+        && typeof row(operation.on_success).rule_ref === 'string' && !!operation.on_success.rule_ref
+        && row(source.properties).runtime_rule_ref === operation.on_success.rule_ref;
+}
+export function combatOperationFor(graph: ModuleGraph, scene: Row, npcHandle: string, weapon: Row | string | null): [
     string | null,
     Row
 ] {
@@ -198,7 +213,7 @@ export function combatOperationFor(graph: ModuleGraph, scene: Row, npcHandle: st
         if (operation.kind !== 'combat_engagement' || string(row(operation.opponent).actor_id || '') !== npcHandle)
             continue;
         const fixed = operation.investigator_weapon_id;
-        if (truth(fixed) && (!weaponId || string(fixed) !== weaponId))
+        if (!authoredWeaponMatches(graph, operation, weapon))
             continue;
         matched.push([truth(fixed) ? 0 : 1, string(affordance.id), operation]);
     }
@@ -207,7 +222,7 @@ export function combatOperationFor(graph: ModuleGraph, scene: Row, npcHandle: st
 }
 /** §102: an enabled authored exit whose target owns this opponent's combat operation. The caller
  * refuses before opening a generic fight; state still changes only through the existing move verb. */
-export function combatOperationDestinations(graph: ModuleGraph, world: Row, scene: Row, npcHandle: string, weaponId: string | null): Row[] {
+export function combatOperationDestinations(graph: ModuleGraph, world: Row, scene: Row, npcHandle: string, weapon: Row | string | null): Row[] {
     const result: Row[] = [];
     for (const exit of graph.sceneExits(scene)) {
         if (truth(exit.when) && conditionStatus(exit.when, world) !== true)
@@ -215,7 +230,7 @@ export function combatOperationDestinations(graph: ModuleGraph, world: Row, scen
         const destination = graph.sceneByHandle(string(exit.to));
         if (!destination)
             continue;
-        const [affordance, operation] = combatOperationFor(graph, destination, npcHandle, weaponId);
+        const [affordance, operation] = combatOperationFor(graph, destination, npcHandle, weapon);
         if (!affordance)
             continue;
         result.push({ scene: graph.handle(destination), name: graph.displayName(destination), affordance,
