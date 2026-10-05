@@ -11,6 +11,7 @@ import {mkdtemp, readFile, rm, writeFile, mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {KernelError} from '../../extensions/kernel/client.ts';
 import {ReadingService} from '../../extensions/module/reading-service.ts';
 import {EventEmitter} from 'node:events';
 import moduleExtension from '../../extensions/module/index.ts';
@@ -36,7 +37,8 @@ function host(t, {texts = page => `Page ${page} names Jonah.`, submits, job: job
 		calls.push([method, params]);
 		if (method === 'module.source.snapshot') return {pdf: '/books/harbor.pdf', file_sha256: 'a'.repeat(64)};
 		if (method === 'cast.job') return calls.filter(([name]) => name === 'cast.job').length === 1
-			? (jobAnswer ?? {job_id: 'cast:aaaaaaaaaaaa', module_id: params.module_id, page_count: PAGE_COUNT, play_language: 'zh-Hans', source: 'needed'}) : {job_id: null, state: 'complete'};
+			? ({lease: 'test-lease', ...(jobAnswer ?? {job_id: 'cast:aaaaaaaaaaaa', module_id: params.module_id, page_count: PAGE_COUNT, play_language: 'zh-Hans', source: 'needed'})}) : {job_id: null, state: 'complete'};
+		if (method === 'cast.release') return {released: true};
 		if (method === 'cast.source') return params.pages.some(page => page.text.trim()) ? {state: 'ready', ranges} : {state: 'unavailable', reason: 'no_text_layer'};
 		if (method === 'cast.range') {
 			const range = ranges[params.index], cwd = join(dir, `range-${params.index}`);
@@ -167,4 +169,51 @@ test('§177.2: a table that opened before the session started still gets its cas
 		assert.ok(asked.includes('book-4'), `the cast was asked for (${earlyTable ? 'table first' : 'session first'})`);
 		await hooks.get('session_shutdown')();
 	}
+});
+
+test('§177.2: a busy foreign owner runs no reader; waiting cancellation and every exit release only the owned lease', async t => {
+	const h = host(t);
+	await h.setup();
+	const original = h.reading.deps.call;
+	let claims = 0;
+	h.reading.deps.call = async (method, params) => {
+		if (method === 'cast.job' && claims++ === 0) return {job_id: null, state: 'busy', reason: 'reader_owned'};
+		return original(method, params);
+	};
+	const result = await h.reading.cast('book-4');
+	assert.equal(result.state, 'complete');
+	assert.equal(h.runs.length, 2, 'the waiting host reads ranges only after it owns them');
+	assert.ok(h.calls.filter(([method]) => ['cast.source', 'cast.range', 'cast.submit', 'cast.release'].includes(method)).every(([, params]) => params.lease === 'test-lease'));
+	assert.equal(h.calls.filter(([method]) => method === 'cast.release').length, 1);
+
+	const cancelled = host(t);
+	await cancelled.setup();
+	cancelled.reading.deps.call = async () => ({job_id: null, state: 'busy', reason: 'reader_owned'});
+	const wait = cancelled.reading.cast('book-4');
+	await new Promise(resolve => setTimeout(resolve, 10));
+	await cancelled.reading.close();
+	assert.equal((await wait).state, 'stopped');
+	assert.equal(cancelled.runs.length, 0, 'a cancelled waiter paid for no child and released no foreign lease');
+
+	const failed = host(t);
+	await failed.setup();
+	failed.reading.deps.runtime.runTask = async () => { throw new Error('fixture child failed'); };
+	assert.equal((await failed.reading.cast('book-4')).state, 'failed');
+	assert.equal(failed.calls.filter(([method]) => method === 'cast.release').length, 1, 'the failure releases its lease');
+});
+
+
+test('§177.2: completion by another host, missing ownership and lost leases never pay for another child', async t => {
+	const done = host(t); await done.setup();
+	let claims = 0;
+	done.reading.deps.call = async () => claims++ === 0 ? {job_id: null, state: 'busy', reason: 'reader_owned'} : {job_id: null, state: 'complete'};
+	assert.deepEqual(await done.reading.cast('book-4'), {job_id: null, state: 'complete'});
+	assert.equal(done.runs.length, 0, 'the other host already read the book');
+	const missing = host(t, {job: {job_id: 'cast:aaaaaaaaaaaa', lease: null}}); await missing.setup();
+	assert.equal((await missing.reading.cast('book-4')).state, 'failed');
+	assert.equal(missing.runs.length, 0, 'no unlocked fallback');
+	const lost = host(t, {submits: [() => { throw new KernelError({code: 'invalid_params', message: 'old owner', details: {reason: 'cast_lease_lost'}}); }]}); await lost.setup();
+	assert.equal((await lost.reading.cast('book-4')).state, 'failed');
+	assert.equal(lost.runs.length, 1, 'lost ownership is not a draft-repair retry');
+	assert.equal(lost.calls.filter(([method]) => method === 'cast.release').length, 1);
 });

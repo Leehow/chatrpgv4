@@ -33164,7 +33164,7 @@ Table 24 is why a shared short form never joins: the reader gave the bar owner a
 
 Nothing reads what a name means. Rows join on equal strings, and the only judgment that a string is a name is the reader's.
 
-### 177.2 The cast reader (`cast.job`, `cast.source`, `cast.range`, `cast.submit`)
+### 177.2 The cast reader (`cast.job`, `cast.source`, `cast.range`, `cast.submit`, `cast.release`)
 
 A module that plays from reading (`playsFromReading`) gets its cast once per bound file, in the background, from reader children over the native text layer (owner's Q1).
 
@@ -33173,24 +33173,26 @@ A module that plays from reading (`playsFromReading`) gets its cast once per bou
 - Book-4's 111 Chinese pages are already about 150,000 tokens.
 - The work is text in, names out, so each range runs as a Pi agent with tools, not a lane completion.
 
-**The four methods.**
-- **`cast.job {module_id, campaign?}`** returns one of:
+**The methods.**
+- **`cast.job {module_id, campaign?, claim?}`** returns one of:
   - `{job_id: null, reason: "no_module" | "authored"}`;
   - `{job_id: null, state}` once `cast.json` for this file is `complete` or `unavailable`;
   - `{job_id: "cast:<sha12>", module_id, page_count, play_language, source: "needed"}`;
   - `{job_id, ..., source: "kept", ranges: [{index, first, last, done}]}` when the kernel already keeps the text. A run that stopped resumes at the first range not done.
 
   The cast belongs to the book. The host reads it in the shared library's module directory, and `loadModule` and the reader packets fall back to the library's `cast.json` when a campaign's forked copy has none. Only a module that exists in a campaign's scope alone is read there.
-- **`cast.source {module_id, campaign?, job_id, pages: [{page, text}]}`** keeps the host-extracted text as the kernel's own copy, in `cast-source.json`, and answers `{state: "ready", ranges}`. A book with no text on any page gets `cast.json` `{state: "unavailable", reason: "no_text_layer"}`, and every check falls back to the graph's people (owner's Q2).
-- **`cast.range {module_id, campaign?, job_id, index}`** writes that range's working directory:
+- **`cast.source {module_id, campaign?, job_id, lease, pages: [{page, text}]}`** keeps the host-extracted text as the kernel's own copy, in `cast-source.json`, and answers `{state: "ready", ranges}`. A book with no text on any page gets `cast.json` `{state: "unavailable", reason: "no_text_layer"}`, and every check falls back to the graph's people (owner's Q2).
+- **`cast.range {module_id, campaign?, job_id, lease, index}`** writes that range's working directory:
   - `pages/page-NNNN.txt`, the range's pages that have text;
   - `task.json`, with `range`, `pages_with_text`, `play_language`, and `known_cast` (the rows earlier ranges kept, `{book, play, notes}`).
 
   It answers `{cwd, index, first, last, pages_with_text, known}`.
-- **`cast.submit {module_id, campaign?, job_id, index}`** checks that range's `draft.json` against the kernel's copy (`checkCastDraft`, `kernel-ts/cast/draft.ts`) and folds the accepted rows into `cast.json` (`mergeCastRows`).
+- **`cast.submit {module_id, campaign?, job_id, lease, index}`** checks that range's `draft.json` against the kernel's copy (`checkCastDraft`, `kernel-ts/cast/draft.ts`) and folds the accepted rows into `cast.json` (`mergeCastRows`).
   - The file is `{version: 1, source_sha256, state: "partial" | "complete", people: [{id, book, play, notes, pages, first?}], ranges_done, ranges_total}` (`version` is `CAST_VERSION`, 4 since §177.14).
   - It answers `{state, people, accepted, refused, ranges_done, ranges_total}`.
   - A partial cast is as true as a complete one, only shorter: `bookCast` and the reader packets use it.
+
+- **`cast.release {module_id, campaign?, job_id, lease}`** releases this kernel's matching claim and returns `{released}`. It never releases another claim.
 
 **The draft.** It is `{people: [{book, play, notes, pages}]}`, with no other keys.
 - `book`, `play` and `notes` are each a non-empty list of names of 2–60 characters on one line, with no `{{`, at most 24 together (16 for `book` and `play` before §177.14).
@@ -33215,6 +33217,10 @@ A module that plays from reading (`playsFromReading`) gets its cast once per bou
 It is asked after every preparation of a book except a bare binding (`ReadingService.prepare`), whether a PDF's ingest or character creation preparing a book already read, so the cast can land before the opening. It is queued after that call returns, never inside it. The module extension asks again at every `table-open` of a reading module, and when its reader is made after the table opened. In the installed App the kernel extension opens the table inside its own `session_start`, before the module extension has a reader, and table 24's ask was dropped there. One run per book at a time.
 
 A run that the setup process started stops when setup hands over to the table. The table's session resumes at the first range not yet submitted, so that range is read again.
+
+**Cross-process ownership (2026-10-05).** Setup and a table are different hosts: the service's promise map alone cannot make this a single read. The installed v4 reader submitted each of Blood Road's three ranges twice. `cast.job` without `claim` stays a query. With `claim: true`, the kernel takes a nonblocking exclusive descriptor lock at the book's `.cast-reader.lock`, then checks completion again and returns a fresh opaque `lease`. A held lock returns `{job_id: null, state: "busy", reason: "reader_owned"}`. Missing native locking refuses; it never starts an unlocked paid reader. The waiting host polls the claim without a reader child, until the holder finishes or the host stops.
+
+`cast.source`, `cast.range` and `cast.submit` require the same job's lease held by this kernel. The range's working directory is inside that lease's own directory, so a child left by a dead host cannot overwrite the next run's draft. A missing, released or foreign lease is refused with `details.reason: "cast_lease_lost"`; it cannot publish, rewrite source, clear staging or trigger another paid attempt. `cast.release` requires the module, job id and lease, and releases only its own descriptor; repeated release is harmless. The host releases in `finally` after its child settles, including failure and cancellation. Kernel close, retarget or process death releases its descriptors, so a new host resumes completed ranges without a stale file blocking it. An active owner is not expired by elapsed wall time: stealing a still-live paid reader's lock would recreate the duplicate cost. Old complete casts continue serving until the new table is complete, as §177.16 specifies.
 
 ### 177.3 A newcomer may not take a name the book gives anyone
 

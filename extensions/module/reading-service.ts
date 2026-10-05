@@ -624,7 +624,7 @@ export class ReadingService implements ReadingBridge {
 	 * the background, by a reader child over the native text layer. Blood Road's graph at table 23's turn 9 had 54 people, the
 	 * ones the reader had reached; a newcomer could take the name of anyone else, and a carried page could hand the Keeper an
 	 * untold name nobody renamed. Nothing waits on this: until it lands, every check reads the graph's people as before.
-	 * One run per scope and module at a time; the kernel answers `job_id: null` once the book has its cast.
+	 * One descriptor-owned run per book across hosts at a time; the kernel answers `job_id: null` once the book has its cast.
 	 */
 	cast(mid: string, params: Row = {}): Promise<Row> {
 		const campaign = this.campaign(params), key = JSON.stringify(['cast', mid]);
@@ -642,21 +642,25 @@ export class ReadingService implements ReadingBridge {
 	private castFailed = new Set<string>();
 	private async readCast(mid: string, bound: string | undefined, key: string): Promise<Row> {
 		if (this.stopped) return { state: 'stopped' };
-		// The cast belongs to the book: it is read once in the shared library, which every campaign's fork falls back to
-		// (`loadModule`); only a module that exists in a campaign's scope alone is read there.
-		let campaign: string | undefined = undefined, job: Row;
-		try {
-			job = await this.call('cast.job', { module_id: mid }, undefined);
-			if (job?.reason === 'no_module' && bound !== undefined) { campaign = bound; job = await this.call('cast.job', { module_id: mid }, campaign); }
-		} catch (error) {
-			this.note({ lane: 'cast', module_id: mid, event: 'failed', stage: 'job', message: error instanceof Error ? error.message : String(error) });
-			return { state: 'failed' };
-		}
-		if (!job?.job_id) return job ?? {};
 		const controller = new AbortController(), signal = controller.signal, started = Date.now();
 		this.controllers.set(key, controller);
-		const record = (row: Row) => this.note({ lane: 'cast', module_id: mid, ...(campaign ? { campaign } : {}), job_id: job.job_id, ...row });
+		let campaign: string | undefined, job: Row | undefined;
+		const record = (row: Row) => this.note({ lane: 'cast', module_id: mid, ...(campaign ? { campaign } : {}), ...(job?.job_id ? { job_id: job.job_id } : {}), ...row });
 		try {
+			// The library owns the cast; a campaign-only book is the one scoped exception. Different host processes must
+			// claim the kernel's descriptor lock before extracting text or starting a paid child (§177.2).
+			let waiting = false;
+			for (;;) {
+				signal.throwIfAborted();
+				job = await this.call('cast.job', { module_id: mid, claim: true }, campaign);
+				if (job?.reason === 'no_module' && campaign === undefined && bound !== undefined) { campaign = bound; continue; }
+				if (job?.state !== 'busy') break;
+				if (!waiting) { record({ event: 'waiting', reason: 'reader_owned' }); waiting = true; }
+				await delay(1000);
+			}
+			if (!job?.job_id) return job ?? {};
+			if (typeof job.lease !== 'string' || !job.lease) throw new Error('cast.job returned no reader lease');
+			const owned = { module_id: mid, job_id: job.job_id, lease: job.lease };
 			let ranges: Row[] = Array.isArray(job.ranges) ? job.ranges : [];
 			if (job.source !== 'kept') {
 				const pages: SourcePageText[] = [];
@@ -664,16 +668,17 @@ export class ReadingService implements ReadingBridge {
 					const batch = Array.from({ length: Math.min(CAST_TEXT_BATCH, job.page_count - first + 1) }, (_, index) => first + index);
 					pages.push(...await this.sourcePages(mid, batch, campaign === undefined ? { campaign: null } : { campaign }, signal));
 				}
-				const staged = await this.call('cast.source', { module_id: mid, job_id: job.job_id, pages: pages.map(({ page, text }) => ({ page, text })) }, campaign);
+				signal.throwIfAborted();
+				const staged = await this.call('cast.source', { ...owned, pages: pages.map(({ page, text }) => ({ page, text })) }, campaign);
 				if (staged.state !== 'ready') { record({ event: 'unavailable', reason: staged.reason, ms: Date.now() - started }); return staged; }
 				ranges = Array.isArray(staged.ranges) ? staged.ranges : [];
 			}
 			const systemPrompt = await readFile(join(this.runtime().contentRoot, 'setup', 'module-cast.md'), 'utf8');
 			const model = this.deps.model();
 			let result: Row = { state: 'partial' };
-			// One child per range, in the book's order; a range refused twice stops the run, and the next session resumes there.
 			for (const range of ranges.filter(value => value?.done !== true)) {
-				const place = await this.call('cast.range', { module_id: mid, job_id: job.job_id, index: range.index }, campaign);
+				signal.throwIfAborted();
+				const place = await this.call('cast.range', { ...owned, index: range.index }, campaign);
 				let lastError: unknown, submitted: Row | undefined;
 				for (let attempt = 1; attempt <= CAST_ATTEMPTS && !submitted; attempt++) {
 					if (signal.aborted || this.stopped) return { state: 'stopped' };
@@ -683,24 +688,31 @@ export class ReadingService implements ReadingBridge {
 							+ `Read task.json, then every page file under pages/ (pages ${place.first}-${place.last}), and write draft.json as your instructions say. `
 							+ (attempt > 1 && lastError ? `The previous attempt was refused: ${lastError instanceof Error ? lastError.message : String(lastError)}. ` : '')
 							+ 'Run coc-read-check --kind module-cast --draft draft.json before you stop, and repair what it refuses.' } }, signal);
+					signal.throwIfAborted();
 					try {
-						submitted = await this.call('cast.submit', { module_id: mid, job_id: job.job_id, index: range.index }, campaign);
+						submitted = await this.call('cast.submit', { ...owned, index: range.index }, campaign);
 						record({ event: submitted.state === 'complete' ? 'published' : 'range', range: range.index, people: submitted.people, accepted: submitted.accepted,
 							refused: Array.isArray(submitted.refused) ? submitted.refused.length : 0, attempt, ok: run.ok, ms: Date.now() - started });
 					} catch (error) {
+						// Lost ownership is not a draft refusal: paying for the old child again cannot repair it.
+						if (isKernelError(error) && error.details?.reason === 'cast_lease_lost') throw error;
 						lastError = error;
 						record({ event: 'refused', range: range.index, attempt, ok: run.ok, reason: isKernelError(error) ? error.details?.reason ?? error.code : 'error', message: error instanceof Error ? error.message : String(error) });
 					}
 				}
 				if (!submitted) return { state: 'failed', range: range.index };
 				result = submitted;
-				// Each range's rows are true already: the lanes that name people can use them before the book is done.
 				this.deps.published?.({ ...(campaign ? { campaign } : {}), module_id: mid, people: submitted.people, state: submitted.state });
 			}
 			return result;
 		} catch (error) {
 			if (!signal.aborted) record({ event: 'failed', message: error instanceof Error ? error.message : String(error), ms: Date.now() - started });
 			return { state: signal.aborted ? 'stopped' : 'failed' };
+		} finally {
+			if (job?.job_id && job.lease) {
+				try { await this.call('cast.release', { module_id: mid, job_id: job.job_id, lease: job.lease }, campaign); }
+				catch (error) { record({ event: 'failed', stage: 'release', message: error instanceof Error ? error.message : String(error) }); }
+			}
 		}
 	}
 

@@ -15,6 +15,7 @@
  * An authored module has no job: its cast is its graph's people, derived at load (§177.1).
  */
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import type { KernelContext } from '../context.js';
 import { RpcError } from '../errors.js';
@@ -29,6 +30,7 @@ import { passageKey } from '../read/table-people.js';
 import { array, integer, number, repr, row, string, type Row } from '../read/values.js';
 import { castPageFile, checkCastDraft, mergeCastRows, notesInUse, pageTexts, type CastRowStored } from './draft.js';
 import { nowIso } from '../write/store.js';
+import type { LockLease } from '../locks.js';
 
 /** Pages one reader child reads (§177.2). */
 export const CAST_PAGES_PER_RUN = 40;
@@ -47,7 +49,9 @@ export function castRanges(pages: Map<number, string>, pageCount: number, done: 
     return out;
 }
 
-export function createCastHandlers(context: KernelContext): HandlerGroup {
+export function createCastRuntime(context: KernelContext): { handlers: HandlerGroup; close(): Promise<void> } {
+    const held = new Map<string, { token: string; sha: string; lock: LockLease }>();
+    let closed = false;
     async function locate(params: Row): Promise<{ id: string; dir: string; meta: Row; sha: string; campaign?: string }> {
         const id = validateModuleId(params.module_id), campaign = typeof params.campaign === 'string' && params.campaign ? params.campaign : undefined;
         const scoped = campaign !== undefined ? await scopedModuleRoot(context, campaign, id) : null;
@@ -58,7 +62,7 @@ export function createCastHandlers(context: KernelContext): HandlerGroup {
     }
     const jobIdOf = (sha: string) => `cast:${sha.slice(0, 12)}`;
     const workOf = (dir: string, sha: string) => join(dir, 'work', `cast-${sha.slice(0, 12)}`);
-    const rangeDir = (dir: string, sha: string, index: number) => join(workOf(dir, sha), `range-${String(index).padStart(3, '0')}`);
+    const rangeDir = (dir: string, sha: string, token: string, index: number) => join(workOf(dir, sha), `run-${token}`, `range-${String(index).padStart(3, '0')}`);
     const pageCount = (meta: Row): number => number(meta.page_count || row(meta.source_document).page_count || 0);
     async function readOptional(path: string): Promise<unknown> {
         if (!await context.snapshots.pathExists(path)) return null;
@@ -88,6 +92,13 @@ export function createCastHandlers(context: KernelContext): HandlerGroup {
         if (params.job_id !== jobIdOf(sha))
             throw new RpcError('invalid_params', `job ${repr(params.job_id)} is not this book's cast job`, { fix: 'ask cast.job again and use the job it gives' });
     }
+    function owner(params: Row, dir: string, sha: string): string {
+        const lease = held.get(dir);
+        if (closed || !lease || lease.sha !== sha || params.lease !== lease.token)
+            throw new RpcError('invalid_params', 'this kernel does not own that cast reader lease', {
+                details: { reason: 'cast_lease_lost' }, fix: 'claim cast.job again; do not submit or retry the old reader' });
+        return lease.token;
+    }
     async function rangeOf(dir: string, sha: string, meta: Row, params: Row): Promise<{ pages: Map<number, string>; range: CastRange; kept: Row | null }> {
         const pages = await source(dir, sha);
         if (!pages) throw new RpcError('invalid_params', 'the kernel keeps no text of this book yet', { fix: 'send cast.source first' });
@@ -96,7 +107,7 @@ export function createCastHandlers(context: KernelContext): HandlerGroup {
         if (!range) throw new RpcError('invalid_params', `range ${repr(params.index)} is not one of this book's`, { fix: 'use an index cast.job or cast.source listed' });
         return { pages, range, kept };
     }
-    return Object.freeze({
+    const handlers: HandlerGroup = Object.freeze({
         'cast.job': async (params): Promise<Row> => {
             const { id, dir, meta, sha, campaign } = await locate(params);
             if (!Object.keys(meta).length) return { job_id: null, reason: 'no_module' };
@@ -104,14 +115,42 @@ export function createCastHandlers(context: KernelContext): HandlerGroup {
             if (!sha || !pageCount(meta) || !playsFromReading(meta)) return { job_id: null, reason: 'authored' };
             const settled = await stored(dir, sha);
             if (settled && settled.state !== 'partial') return { job_id: null, state: string(settled.state) };
-            const kept = await inProgress(dir, sha);
-            const pages = await source(dir, sha);
-            return { job_id: jobIdOf(sha), module_id: id, page_count: pageCount(meta), play_language: await languageOf(campaign),
-                ...(pages ? { source: 'kept', ranges: castRanges(pages, pageCount(meta), doneOf(kept)) as unknown as Row[] } : { source: 'needed' }) };
+            let claim: { token: string; sha: string; lock: LockLease } | undefined;
+            if (params.claim === true) {
+                if (closed) throw new RpcError('invalid_params', 'this cast reader runtime is closed');
+                const lock = await context.locks.acquire(join(dir, '.cast-reader.lock'), 'exclusive', { nonblocking: true, createParents: true });
+                if (!lock) return { job_id: null, state: 'busy', reason: 'reader_owned' };
+                if (closed) { await lock.release(); throw new RpcError('invalid_params', 'this cast reader runtime is closed'); }
+                claim = { token: randomUUID(), sha, lock };
+                held.set(dir, claim);
+            }
+            try {
+                // Another process may have completed the table between the first query and this claim.
+                const latest = claim ? await stored(dir, sha) : settled;
+                if (latest && latest.state !== 'partial') {
+                    if (claim) { held.delete(dir); await claim.lock.release(); }
+                    return { job_id: null, state: string(latest.state) };
+                }
+                const kept = await inProgress(dir, sha), pages = await source(dir, sha);
+                return { job_id: jobIdOf(sha), module_id: id, page_count: pageCount(meta), play_language: await languageOf(campaign),
+                    ...(claim ? { lease: claim.token } : {}),
+                    ...(pages ? { source: 'kept', ranges: castRanges(pages, pageCount(meta), doneOf(kept)) as unknown as Row[] } : { source: 'needed' }) };
+            } catch (error) {
+                if (claim) { held.delete(dir); await claim.lock.release(); }
+                throw error;
+            }
+        },
+        'cast.release': async (params): Promise<Row> => {
+            const { dir } = await locate(params), lease = held.get(dir);
+            if (!lease || params.lease !== lease.token || params.job_id !== jobIdOf(lease.sha)) return { released: false };
+            held.delete(dir);
+            await lease.lock.release();
+            return { released: true };
         },
         'cast.source': async (params): Promise<Row> => {
             const { dir, meta, sha } = await locate(params);
             sameJob(params, sha);
+            owner(params, dir, sha);
             const count = pageCount(meta), pages: Row[] = [];
             for (const raw of array(params.pages)) {
                 const entry = row(raw);
@@ -130,8 +169,9 @@ export function createCastHandlers(context: KernelContext): HandlerGroup {
         'cast.range': async (params): Promise<Row> => {
             const { dir, meta, sha, campaign } = await locate(params);
             sameJob(params, sha);
+            const token = owner(params, dir, sha);
             const { pages, range, kept } = await rangeOf(dir, sha, meta, params);
-            const cwd = rangeDir(dir, sha, range.index), folder = join(cwd, 'pages');
+            const cwd = rangeDir(dir, sha, token, range.index), folder = join(cwd, 'pages');
             await mkdir(folder, { recursive: true });
             const written: number[] = [];
             for (let page = range.first; page <= range.last; page++) {
@@ -154,9 +194,10 @@ export function createCastHandlers(context: KernelContext): HandlerGroup {
         'cast.submit': async (params): Promise<Row> => {
             const { dir, meta, sha } = await locate(params);
             sameJob(params, sha);
+            const token = owner(params, dir, sha);
             const { pages, range, kept } = await rangeOf(dir, sha, meta, params);
             let draft: unknown;
-            try { draft = await context.snapshots.readJson(join(rangeDir(dir, sha, range.index), 'draft.json')); }
+            try { draft = await context.snapshots.readJson(join(rangeDir(dir, sha, token, range.index), 'draft.json')); }
             catch { throw new RpcError('invalid_params', 'the cast reader left no readable draft.json', { details: { reason: 'no_draft' } }); }
             const before = array(kept?.people) as unknown as CastRowStored[];
             const known = new Set(before.flatMap(person => array(person.book).map(name => passageKey(name))));
@@ -176,4 +217,10 @@ export function createCastHandlers(context: KernelContext): HandlerGroup {
             return { state, people: people.length, accepted: checked.people.length, refused: checked.refused as unknown as Row[], ranges_done: done.length, ranges_total: all.length };
         },
     });
+    return { handlers, async close() {
+        closed = true;
+        const leases = [...held.values()]; held.clear();
+        const results = await Promise.allSettled(leases.map(lease => lease.lock.release()));
+        for (const result of results) if (result.status === 'rejected') throw result.reason;
+    } };
 }

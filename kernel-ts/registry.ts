@@ -12,7 +12,7 @@ import { createMemoryHandlers } from "./memory/index.js";
 import { createJournalHandlers } from "./journal/index.js";
 import { createVoiceHandlers } from "./voice/index.js";
 import { createEpithetHandlers } from "./epithets/index.js";
-import { createCastHandlers } from "./cast/index.js";
+import { createCastRuntime } from "./cast/index.js";
 import { createSpeechHandlers } from "./speech/index.js";
 import { createNpcHandlers } from "./npc/index.js";
 import { createDevelopmentFamily, stageEnding } from "./development/index.js";
@@ -40,6 +40,7 @@ export function createKernelRuntime(context: KernelContext, options: { readonly 
 } {
     const rules = createRuleQueries(context);
     const modules = createModuleRuntime(context);
+    const cast = createCastRuntime(context);
     const mods = createModRuntime(context,{asset:(id,name)=>modules.source.store.asset(id,name)});
     const adaptations = new AdaptationJobs(context, (id, name) => modules.source.store.asset(id, name));
     const worldlines = createWorldlineRuntime(context,clockEngines);
@@ -54,11 +55,11 @@ export function createKernelRuntime(context: KernelContext, options: { readonly 
         queueAdjacentReading: modules.source.queueAdjacentReading,
         libraryWriteBack: createLibraryWriteBack(context) });
     const resolver = createResolveRuntime(context, writer, { beforeMain:mods.resolveBeforeMain,requireMaterial: modules.source.requireMaterial, development: createDevelopmentFamily(), healing:createHealingResolveContribution(), sanity:createSanityFamily(),magic:createMagicFamily({effects:mods.magicEffects}),combat:createCombatResolveContribution(),chase:createChaseResolveContribution() });
-    const handlers = assembleHandlers(context, foundationHandlers(context, options), ordinaryResolveHandlers(context), ordinaryApplyHandlers(context), readHandlers(context, { ...writer.read, lookupRules: rules.lookup, asset, requireMapMaterial: modules.source.requireMapMaterial }), writer.handlers, quotationHandlers(context, writer), modules.handlers, createSetupHandlers(context, writer), createLibraryHandlers(context, writer), resolver.handlers, createMemoryHandlers(context, writer), createJournalHandlers(context, writer), createVoiceHandlers(context, writer), createEpithetHandlers(context, writer), createCastHandlers(context), createSpeechHandlers(context, writer), createNpcHandlers(context, writer), mods.handlers(writer), adaptations.handlers(), graphHandlers(context), createBranchHandlers(context, writer), createApplyHandlers(context, writer, {adaptation:(c,e)=>adaptations.stage(c,e),mods:mods.apply(writer),worldlines,resources:applyResources,ending:stageEnding,requireMaterial:modules.source.requireMaterial,queueArrivalMap:modules.source.queueArrivalMap,materialReady:modules.source.materialReady,queueAdjacentReading:modules.source.queueAdjacentReading,asset,weaponCatalog:graph=>moduleWeaponCatalog(context,graph)}));
+    const handlers = assembleHandlers(context, foundationHandlers(context, options), ordinaryResolveHandlers(context), ordinaryApplyHandlers(context), readHandlers(context, { ...writer.read, lookupRules: rules.lookup, asset, requireMapMaterial: modules.source.requireMapMaterial }), writer.handlers, quotationHandlers(context, writer), modules.handlers, createSetupHandlers(context, writer), createLibraryHandlers(context, writer), resolver.handlers, createMemoryHandlers(context, writer), createJournalHandlers(context, writer), createVoiceHandlers(context, writer), createEpithetHandlers(context, writer), cast.handlers, createSpeechHandlers(context, writer), createNpcHandlers(context, writer), mods.handlers(writer), adaptations.handlers(), graphHandlers(context), createBranchHandlers(context, writer), createApplyHandlers(context, writer, {adaptation:(c,e)=>adaptations.stage(c,e),mods:mods.apply(writer),worldlines,resources:applyResources,ending:stageEnding,requireMaterial:modules.source.requireMaterial,queueArrivalMap:modules.source.queueArrivalMap,materialReady:modules.source.materialReady,queueAdjacentReading:modules.source.queueAdjacentReading,asset,weaponCatalog:graph=>moduleWeaponCatalog(context,graph)}));
     let closing: Promise<void> | undefined;
     return Object.freeze({ handlers, close() {
             return closing ??= (async () => { try {
-                await modules.close();
+                try { await modules.close(); } finally { await cast.close(); }
             }
             finally {
                 await context.git.close();

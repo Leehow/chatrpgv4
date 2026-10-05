@@ -64,7 +64,7 @@ async function harbor(t) {
 		await writeFile(join(job.work_dir, 'observations.json'), JSON.stringify({file_sha256: sha, read_pages: [1, 2, 3], full_pages: [1, 2, 3], review_pages: [1, 2, 3]}));
 		await writeFile(join(job.work_dir, 'draft.json'), JSON.stringify(draft));
 		await writeFile(join(job.work_dir, 'review.json'), JSON.stringify({checked: [{paths, verdict: 'supported', source_refs: REFS, reason: 'fixture support'}], missing: []}));
-		return k.raw('module.read.finish', {module_id: mid, job_id: job.job_id, lease: job.lease, outcome: 'completed',
+		return k.raw('module.read.finish', {module_id: mid, job_id: job.job_id, lease: job.lease, lease: job.lease, outcome: 'completed',
 			draft_path: join(job.work_dir, 'draft.json'), review_path: join(job.work_dir, 'review.json')});
 	};
 	await read('index', {title: 'The Harbor', language: 'en', sections: [{name: 'Harbor and tower', pages: [[1, 3]], source_refs: [{page: 1}],
@@ -97,21 +97,21 @@ const DRAFT = {people: [
 
 /** The host's calls (extensions/module/reading-service.ts `readCast`), with the reader child's draft written by hand. */
 async function readCast(h, draft = DRAFT) {
-	const job = await h.call('cast.job', {module_id: h.mid});
-	const staged = await h.call('cast.source', {module_id: h.mid, job_id: job.job_id, pages: PAGES.map((text, index) => ({page: index + 1, text}))});
-	const place = await h.call('cast.range', {module_id: h.mid, job_id: job.job_id, index: staged.ranges[0].index});
+	const job = await h.call('cast.job', {module_id: h.mid, claim: true});
+	const staged = await h.call('cast.source', {module_id: h.mid, job_id: job.job_id, lease: job.lease, pages: PAGES.map((text, index) => ({page: index + 1, text}))});
+	const place = await h.call('cast.range', {module_id: h.mid, job_id: job.job_id, lease: job.lease, index: staged.ranges[0].index});
 	await writeFile(join(place.cwd, 'draft.json'), JSON.stringify(draft));
-	return {job, staged, place, submitted: await h.call('cast.submit', {module_id: h.mid, job_id: job.job_id, index: place.index})};
+	return {job, staged, place, submitted: await h.call('cast.submit', {module_id: h.mid, job_id: job.job_id, lease: job.lease, index: place.index})};
 }
 
 test('§177.2: the cast reader works on the book\'s own text; a row no cited page prints is refused alone; the reader\'s check agrees', async t => {
 	const h = await harbor(t);
-	const job = await h.call('cast.job', {module_id: h.mid});
+	const job = await h.call('cast.job', {module_id: h.mid, claim: true});
 	assert.match(job.job_id, /^cast:/);
 	assert.deepEqual([job.page_count, job.play_language, job.source], [3, 'en', 'needed']);
-	const staged = await h.call('cast.source', {module_id: h.mid, job_id: job.job_id, pages: PAGES.map((text, index) => ({page: index + 1, text}))});
+	const staged = await h.call('cast.source', {module_id: h.mid, job_id: job.job_id, lease: job.lease, pages: PAGES.map((text, index) => ({page: index + 1, text}))});
 	assert.deepEqual(staged, {state: 'ready', ranges: [{index: 0, first: 1, last: 3, done: false}]});
-	const place = await h.call('cast.range', {module_id: h.mid, job_id: job.job_id, index: 0});
+	const place = await h.call('cast.range', {module_id: h.mid, job_id: job.job_id, lease: job.lease, index: 0});
 	assert.deepEqual([place.first, place.last, place.pages_with_text, place.known], [1, 3, 3, 0]);
 	assert.equal(await readFile(join(place.cwd, 'pages', 'page-0002.txt'), 'utf8'), PAGES[1], 'one file per physical page, as the text layer has it');
 	assert.deepEqual(JSON.parse(await readFile(join(place.cwd, 'task.json'), 'utf8')).range, {index: 0, first: 1, last: 3});
@@ -122,9 +122,9 @@ test('§177.2: the cast reader works on the book\'s own text; a row no cited pag
 	assert.deepEqual(checked.refused.map(row => [row.index, row.reason]), [[3, 'not_on_page']], 'the reader\'s own check names the row it refuses');
 	assert.match(checked.refused[0].fix, /add the page/);
 
-	const submitted = await h.call('cast.submit', {module_id: h.mid, job_id: job.job_id, index: 0});
+	const submitted = await h.call('cast.submit', {module_id: h.mid, job_id: job.job_id, lease: job.lease, index: 0});
 	assert.deepEqual([submitted.state, submitted.people, submitted.refused.map(row => row.index)], ['complete', 3, [3]], 'the other rows stand');
-	const stored = JSON.parse(await readFile(join(dirname(dirname(dirname(place.cwd))), 'cast.json'), 'utf8'));
+	const stored = JSON.parse(await readFile(join(dirname(dirname(dirname(dirname(place.cwd)))), 'cast.json'), 'utf8'));
 	assert.equal(stored.source_sha256, h.sha);
 	const jonah = stored.people.find(row => row.book.includes('Jonah'));
 	assert.match(jonah.id, /^cast-[0-9a-f]{10}$/, 'an opaque id: no slug of the name');
@@ -140,26 +140,26 @@ test('§177.2: a long book is read in ranges; a later range joins a known person
 	const sha = createHash('sha256').update(await readFile(pdf)).digest('hex');
 	const {module_id: mid} = await k.raw('module.source.bind', {source: {path: pdf, page_count: 45, file_sha256: sha}});
 	const text = page => page === 2 ? 'Its keeper, Silas Marsh, trims the lamp.' : page === 43 ? 'At dusk Silas lights the lamp again.' : page % 7 === 0 ? 'Rain on the harbor.' : '';
-	const job = await k.raw('cast.job', {module_id: mid});
-	const staged = await k.raw('cast.source', {module_id: mid, job_id: job.job_id, pages: Array.from({length: 45}, (_, index) => ({page: index + 1, text: text(index + 1)}))});
+	const job = await k.raw('cast.job', {module_id: mid, claim: true});
+	const staged = await k.raw('cast.source', {module_id: mid, job_id: job.job_id, lease: job.lease, pages: Array.from({length: 45}, (_, index) => ({page: index + 1, text: text(index + 1)}))});
 	assert.deepEqual(staged.ranges.map(range => [range.index, range.first, range.last]), [[0, 1, 40], [1, 41, 45]]);
-	const first = await k.raw('cast.range', {module_id: mid, job_id: job.job_id, index: 0});
+	const first = await k.raw('cast.range', {module_id: mid, job_id: job.job_id, lease: job.lease, index: 0});
 	await writeFile(join(first.cwd, 'draft.json'), JSON.stringify({people: [{book: ['Silas Marsh'], play: ['Silas Marsh'], notes: ['Silas Marsh'], pages: [2]}]}));
-	assert.equal((await k.raw('cast.submit', {module_id: mid, job_id: job.job_id, index: 0})).state, 'partial');
+	assert.equal((await k.raw('cast.submit', {module_id: mid, job_id: job.job_id, lease: job.lease, index: 0})).state, 'partial');
 	const castPath = join(k.home, '.coc', 'modules', mid, 'cast.json'), nextPath = join(k.home, '.coc', 'modules', mid, 'cast.next.json');
 	// §177.16: a read in progress keeps its ranges in cast.next.json; cast.json is written once, complete.
 	await assert.rejects(readFile(castPath, 'utf8'), {code: 'ENOENT'}, 'no cast.json before the table is complete');
 	const firstId = JSON.parse(await readFile(nextPath, 'utf8')).people[0].id;
 	const resumed = await k.raw('cast.job', {module_id: mid});
 	assert.deepEqual([resumed.source, resumed.ranges.map(range => range.done)], ['kept', [true, false]], 'the text is kept; the next run starts at the range not read');
-	const second = await k.raw('cast.range', {module_id: mid, job_id: job.job_id, index: 1});
+	const second = await k.raw('cast.range', {module_id: mid, job_id: job.job_id, lease: job.lease, index: 1});
 	const task = JSON.parse(await readFile(join(second.cwd, 'task.json'), 'utf8'));
 	assert.deepEqual(task.known_cast, [{book: ['Silas Marsh'], play: ['Silas Marsh'], notes: ['Silas Marsh']}], 'the reader of the next range sees who earlier ranges found');
 	await writeFile(join(second.cwd, 'draft.json'), JSON.stringify({people: [{book: ['Silas Marsh', 'Silas'], play: ['Silas Marsh', 'Silas'], notes: ['Silas Marsh', 'Silas'], pages: [43]},
 		{book: ['Silas Marsh'], play: ['Silas Marsh'], notes: ['Silas Marsh'], pages: [2]}]}));
 	const checked = await api.checkModuleCast(join(second.cwd, 'draft.json'));
 	assert.deepEqual(checked.refused.map(row => [row.index, row.reason]), [[1, 'shape']], 'a page outside the range is not this reader\'s to cite');
-	const done = await k.raw('cast.submit', {module_id: mid, job_id: job.job_id, index: 1});
+	const done = await k.raw('cast.submit', {module_id: mid, job_id: job.job_id, lease: job.lease, index: 1});
 	assert.deepEqual([done.state, done.people, done.ranges_done, done.ranges_total], ['complete', 1, 2, 2]);
 	const stored = JSON.parse(await readFile(castPath, 'utf8'));
 	assert.deepEqual(stored.people.map(row => [row.id, row.book, row.pages]), [[firstId, ['Silas Marsh', 'Silas'], [2, 43]]],
@@ -183,17 +183,17 @@ test('§177.16: while a newer cast is read, the older table of the same file ser
 		people: [{id: 'cast-aaaaaaaaaa', book: ['Silas Marsh'], play: ['Silas Marsh'], notes: ['Silas Marsh'], pages: [2]}]};
 	await writeFile(castPath, JSON.stringify(old));
 	assert.equal((await served())?.version, 4, 'an older version of this file serves');
-	const job = await k.raw('cast.job', {module_id: mid});
+	const job = await k.raw('cast.job', {module_id: mid, claim: true});
 	assert.ok(job.job_id, 'and the newer version is still read');
-	await k.raw('cast.source', {module_id: mid, job_id: job.job_id, pages: Array.from({length: 45}, (_, index) => ({page: index + 1, text: text(index + 1)}))});
-	const first = await k.raw('cast.range', {module_id: mid, job_id: job.job_id, index: 0});
+	await k.raw('cast.source', {module_id: mid, job_id: job.job_id, lease: job.lease, pages: Array.from({length: 45}, (_, index) => ({page: index + 1, text: text(index + 1)}))});
+	const first = await k.raw('cast.range', {module_id: mid, job_id: job.job_id, lease: job.lease, index: 0});
 	await writeFile(join(first.cwd, 'draft.json'), JSON.stringify({people: [{book: ['Silas Marsh'], play: ['Silas Marsh'], notes: ['Silas Marsh'], pages: [2]}]}));
-	assert.equal((await k.raw('cast.submit', {module_id: mid, job_id: job.job_id, index: 0})).state, 'partial');
+	assert.equal((await k.raw('cast.submit', {module_id: mid, job_id: job.job_id, lease: job.lease, index: 0})).state, 'partial');
 	assert.equal((await served())?.version, 4, 'half read, the old table still serves: no window');
 	assert.equal(JSON.parse(await readFile(castPath, 'utf8')).version, 4, 'cast.json untouched');
-	const second = await k.raw('cast.range', {module_id: mid, job_id: job.job_id, index: 1});
+	const second = await k.raw('cast.range', {module_id: mid, job_id: job.job_id, lease: job.lease, index: 1});
 	await writeFile(join(second.cwd, 'draft.json'), JSON.stringify({people: [{book: ['Silas Marsh', 'Silas'], play: ['Silas Marsh', 'Silas'], notes: ['Silas Marsh', 'Silas'], pages: [43]}]}));
-	assert.equal((await k.raw('cast.submit', {module_id: mid, job_id: job.job_id, index: 1})).state, 'complete');
+	assert.equal((await k.raw('cast.submit', {module_id: mid, job_id: job.job_id, lease: job.lease, index: 1})).state, 'complete');
 	assert.deepEqual([(await served())?.version, (await served())?.people[0].book], [5, ['Silas Marsh', 'Silas']], 'complete, the new table replaced it');
 	assert.equal((await k.raw('cast.job', {module_id: mid})).job_id, null, 'and nothing is left to read');
 	// A version-3 table (no notes) serves too; a table of another file never does.
@@ -222,9 +222,9 @@ test('§177.16: the reader of a range gets the sentences the game\'s own notes w
 	const file = join(dir, meta.graph_file), published = JSON.parse(await readFile(file, 'utf8'));
 	published.nodes[0].source_needs = [{kind: 'deferred', question: 'What does Maisie mend for the boats', source_refs: [{source_id: `pdf:${h.mid}`, pdf_index: 0}]}];
 	await writeFile(file, JSON.stringify(published));
-	const job = await h.raw('cast.job', {module_id: h.mid});
-	await h.raw('cast.source', {module_id: h.mid, job_id: job.job_id, pages: PAGES.map((text, index) => ({page: index + 1, text}))});
-	const range = await h.raw('cast.range', {module_id: h.mid, job_id: job.job_id, index: 0});
+	const job = await h.raw('cast.job', {module_id: h.mid, claim: true});
+	await h.raw('cast.source', {module_id: h.mid, job_id: job.job_id, lease: job.lease, pages: PAGES.map((text, index) => ({page: index + 1, text}))});
+	const range = await h.raw('cast.range', {module_id: h.mid, job_id: job.job_id, lease: job.lease, index: 0});
 	const task = JSON.parse(await readFile(join(range.cwd, 'task.json'), 'utf8'));
 	assert.ok(task.notes_in_use?.includes('What does Maisie mend for the boats'), `the range's task carries the note: ${JSON.stringify(task.notes_in_use)}`);
 	assert.equal(range.notes_in_use, task.notes_in_use.length);
@@ -318,12 +318,12 @@ test('§177.2: the cast is the book\'s, read in the shared library; the campaign
 	const h = await harbor(t);
 	const forked = await readFile(join(h.home, '.coc', 'module-campaigns', CAMPAIGN, 'modules', h.mid, 'module.json'), 'utf8').then(() => true, () => false);
 	assert.equal(forked, true, 'the fixture\'s campaign has its own copy of the module');
-	const job = await h.raw('cast.job', {module_id: h.mid});
-	const staged = await h.raw('cast.source', {module_id: h.mid, job_id: job.job_id, pages: PAGES.map((text, index) => ({page: index + 1, text}))});
-	const place = await h.raw('cast.range', {module_id: h.mid, job_id: job.job_id, index: staged.ranges[0].index});
+	const job = await h.raw('cast.job', {module_id: h.mid, claim: true});
+	const staged = await h.raw('cast.source', {module_id: h.mid, job_id: job.job_id, lease: job.lease, pages: PAGES.map((text, index) => ({page: index + 1, text}))});
+	const place = await h.raw('cast.range', {module_id: h.mid, job_id: job.job_id, lease: job.lease, index: staged.ranges[0].index});
 	assert.ok(place.cwd.startsWith(join(h.home, '.coc', 'modules', h.mid)), place.cwd);
 	await writeFile(join(place.cwd, 'draft.json'), JSON.stringify(DRAFT));
-	await h.raw('cast.submit', {module_id: h.mid, job_id: job.job_id, index: place.index});
+	await h.raw('cast.submit', {module_id: h.mid, job_id: job.job_id, lease: job.lease, index: place.index});
 	const roster = (await h.call('table.untold')).people;
 	assert.match(roster.find(row => row.name === 'Jonah')?.id ?? '', /^cast-/, 'the fork has no cast of its own and reads the library\'s');
 });
@@ -437,8 +437,8 @@ test('§177.1/§177.2: a partial cast is used as it stands; a cast of another st
 
 test('§177.2 (owner Q2): a book with no text layer has no cast, and the checks read the graph', async t => {
 	const h = await harbor(t);
-	const job = await h.call('cast.job', {module_id: h.mid});
-	const staged = await h.call('cast.source', {module_id: h.mid, job_id: job.job_id, pages: PAGES.map((_, index) => ({page: index + 1, text: '  '}))});
+	const job = await h.call('cast.job', {module_id: h.mid, claim: true});
+	const staged = await h.call('cast.source', {module_id: h.mid, job_id: job.job_id, lease: job.lease, pages: PAGES.map((_, index) => ({page: index + 1, text: '  '}))});
 	assert.deepEqual(staged, {state: 'unavailable', reason: 'no_text_layer'});
 	assert.deepEqual(await h.call('cast.job', {module_id: h.mid}), {job_id: null, state: 'unavailable'});
 	await h.call('table.player_input', {text: 'A man walks up.'});
@@ -558,16 +558,76 @@ test('§177.12 with §176.9: a made-up name tells nobody; a form only the cast p
 	// named: true on that line and the book's name stopped being hidden. §176.9 asks the lane the narrow question.
 	await h.call('table.narrate', {call_id: 't1-c1', text: 'She shrugs. {{say:the net mender}}"Folk call me Granny Nets."{{/say}}'});
 	const job = await h.call('journal.job', {turn: 1});
-	await assert.rejects(h.call('journal.submit', {job_id: job.job_id, entries: [{name: 'Old Mae', named: true, named_quote: 'Folk call me Granny Nets.'}]}),
+	await assert.rejects(h.call('journal.submit', {job_id: job.job_id, lease: job.lease, entries: [{name: 'Old Mae', named: true, named_quote: 'Folk call me Granny Nets.'}]}),
 		error => error?.details?.reason === 'not_a_book_name', 'a name nobody in the book has needs the narrow question');
 	// The graph has only "Old Mae"; the book also prints "Mae" alone, which only the cast holds. A label carrying it names her.
-	await assert.rejects(h.call('journal.submit', {job_id: job.job_id, entries: [{name: 'Old Mae', label: 'Mae of the nets'}]}),
+	await assert.rejects(h.call('journal.submit', {job_id: job.job_id, lease: job.lease, entries: [{name: 'Old Mae', label: 'Mae of the nets'}]}),
 		error => error?.details?.field === 'label' && /the book gives .Old Mae/.test(error?.message ?? ''), 'a form only the cast prints is her own book name in a label');
-	await h.call('journal.submit', {job_id: job.job_id, entries: [{name: 'Old Mae', label: 'the woman with tar on her hands'}]});
+	await h.call('journal.submit', {job_id: job.job_id, lease: job.lease, entries: [{name: 'Old Mae', label: 'the woman with tar on her hands'}]});
 	assert.ok((await h.call('table.untold')).people.some(row => row.name === 'Old Mae'), 'she stays untold, her book name still hidden');
 	await h.call('table.player_input', {text: 'And your real name?'});
 	await h.call('table.narrate', {call_id: 't2-c1', text: 'She sighs. {{say:the net mender}}"It is {{name:the net mender}}, if you must."{{/say}}'});
 	const second = await h.call('journal.job', {turn: 2});
 	if (second.job_id) await h.call('journal.submit', {job_id: second.job_id, entries: [{name: 'Old Mae', named: true, named_quote: 'It is Old Mae, if you must.'}]});
 	assert.ok(!(await h.call('table.untold')).people.some(row => row.name === 'Old Mae'), 'her book name said, she is told');
+});
+
+// This is a mechanism probe, not a table: two independent kernel processes contend for the same PDF's cast.
+test('§177.2: cross-process ownership, process-death recovery and stale drafts are fenced', async t => {
+	const {spawn} = await import('node:child_process');
+	const {once} = await import('node:events');
+	const h = await harbor(t);
+	const first = await h.raw('cast.job', {module_id: h.mid, claim: true});
+	assert.equal(typeof first.lease, 'string');
+	const own = {module_id: h.mid, job_id: first.job_id, lease: first.lease};
+	const missing = await h.attempt('cast.source', {module_id: h.mid, job_id: first.job_id, pages: []});
+	assert.equal(missing.error?.details?.reason, 'cast_lease_lost', 'no mutation without ownership');
+	await h.raw('cast.source', {...own, pages: PAGES.map((text, i) => ({page: i + 1, text}))});
+	const before = await h.raw('cast.range', {...own, index: 0});
+	await writeFile(join(before.cwd, 'draft.json'), JSON.stringify(DRAFT));
+
+	async function child(hold) {
+		const code = `import * as api from ${JSON.stringify(pathToFileURL(join(temporary, 'api.mjs')).href)};
+const ctx = await api.createKernelContext({workspace: ${JSON.stringify(h.home)}, content: ${JSON.stringify(join(root, 'content'))}, locks: api.nativeAdvisoryLocks()});
+const rt = api.createKernelRuntime(ctx);
+console.log(JSON.stringify(await rt.handlers['cast.job']({module_id: ${JSON.stringify(h.mid)}, claim: true})));
+${hold ? 'process.stdin.resume();' : 'await rt.close();'}`;
+		const p = spawn(process.execPath, ['--input-type=module', '-e', code], {stdio: ['pipe', 'pipe', 'pipe']});
+		let stderr = '', text = '';
+		p.stderr.on('data', data => { stderr += data; });
+		const exited = once(p, 'exit');
+		t.after(async () => { if (p.exitCode === null && p.signalCode === null) p.kill('SIGKILL'); await exited; });
+		const answer = await new Promise((resolve, reject) => {
+			p.stdout.on('data', data => { text += data; if (text.includes('\n')) { try { resolve(JSON.parse(text.split('\n')[0])); } catch (e) { reject(e); } } });
+			p.once('error', reject);
+			p.once('exit', code => { if (!text.includes('\n')) reject(new Error(`child ${code}: ${stderr}`)); });
+		});
+		return {p, answer, exited};
+	}
+	const contender = await child(false);
+	assert.deepEqual(contender.answer, {job_id: null, state: 'busy', reason: 'reader_owned'});
+	assert.equal((await contender.exited)[0], 0);
+	assert.deepEqual(await h.raw('cast.release', {...own, lease: 'foreign'}), {released: false});
+	assert.deepEqual(await h.raw('cast.release', own), {released: true});
+	assert.deepEqual(await h.raw('cast.release', own), {released: false});
+	await assert.rejects(h.raw('cast.submit', {...own, index: 0}), error => error.details?.reason === 'cast_lease_lost');
+
+	const owner = await child(true);
+	assert.equal(typeof owner.answer.lease, 'string');
+	assert.notEqual(owner.answer.lease, first.lease);
+	assert.deepEqual(await h.raw('cast.job', {module_id: h.mid, claim: true}), {job_id: null, state: 'busy', reason: 'reader_owned'});
+	// Only the child this test just created is killed, to exercise OS descriptor cleanup; no process discovery is used.
+	owner.p.kill('SIGKILL');
+	await owner.exited;
+	const resumed = await h.raw('cast.job', {module_id: h.mid, claim: true});
+	assert.equal(resumed.source, 'kept');
+	assert.equal(resumed.ranges[0].done, false);
+	const nextOwn = {module_id: h.mid, job_id: resumed.job_id, lease: resumed.lease};
+	const next = await h.raw('cast.range', {...nextOwn, index: 0});
+	assert.notEqual(next.cwd, before.cwd, 'an orphaned reader cannot write the next owner\'s draft');
+	await assert.rejects(h.raw('cast.submit', {...nextOwn, index: 0}), error => error.details?.reason === 'no_draft');
+	await writeFile(join(next.cwd, 'draft.json'), JSON.stringify(DRAFT));
+	assert.equal((await h.raw('cast.submit', {...nextOwn, index: 0})).state, 'complete');
+	await h.raw('cast.release', nextOwn);
+	assert.deepEqual(await h.raw('cast.job', {module_id: h.mid, claim: true}), {job_id: null, state: 'complete'}, 'a second host starts no completed range');
 });
