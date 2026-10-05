@@ -8716,7 +8716,7 @@ export class PiHostBackend implements HostBackend {
     const { id, projectRoot } = await this.resolveExtensionDataAccess(idValue, projectId);
     if (typeof pathValue !== "string" || !pathValue.trim()) throw new Error("data path 必须是 string");
     const tail = isRecord(optionsValue) && typeof optionsValue.tailBytes === "number" ? optionsValue.tailBytes : undefined;
-    return this.extensionLoader.readDataFile(id, projectRoot, pathValue, tail);
+    return this.extensionLoader.readDataFile(id, projectRoot, pathValue, tail, isRecord(optionsValue) && optionsValue.allowMissing === true);
   }
 
   /**

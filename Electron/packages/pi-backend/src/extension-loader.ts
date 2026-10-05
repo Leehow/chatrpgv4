@@ -3,6 +3,7 @@ import {
   closeSync,
   existsSync,
   lstatSync,
+  mkdirSync,
   openSync,
   readdirSync,
   readFileSync,
@@ -181,8 +182,33 @@ function declaredUiEntryPaths(ui: ExtensionUiSummary | undefined): Set<string> {
     ...(ui.settingsSections ?? []).map(item => item.entry),
     ...(ui.views ?? []).map(item => item.entry),
     ...(ui.headerActions ?? []).map(item => item.entry),
+    ...(ui.composerActions ?? []).map(item => item.entry),
   ].filter((entry): entry is string => typeof entry === "string" && Boolean(entry.trim()));
   return new Set(entries.map(entry => entry.trim()));
+}
+
+/** Resolve missing data ancestors without following symlinks. Only write callers create dirs. */
+function dataPathWithMissing(projectRoot: string, relativePath: string, createParents = false): string | undefined {
+  const candidate = confinedJoin(projectRoot, relativePath);
+  if (!candidate) return undefined;
+  let current = realpathSync(projectRoot);
+  const parts = relativePath.split("/");
+  for (let i = 0; i < parts.length; i++) {
+    current = join(current, parts[i]);
+    try {
+      const stat = lstatSync(current);
+      if (stat.isSymbolicLink() || (i < parts.length - 1 && !stat.isDirectory())) return undefined;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return undefined;
+      if (createParents && i < parts.length - 1) {
+        try { mkdirSync(current, {mode: 0o700}); }
+        catch (created) { if ((created as NodeJS.ErrnoException).code !== "EEXIST") throw created; }
+        const stat = lstatSync(current);
+        if (!stat.isDirectory() || stat.isSymbolicLink()) return undefined;
+      }
+    }
+  }
+  return current;
 }
 
 /** Matches runtime prompt-file cap so oversized prompts never enter the snapshot. */
@@ -1028,7 +1054,7 @@ export class ExtensionLoader {
    * must stay inside the project. A symlink that points out of the project resolves to
    * undefined rather than to its target.
    */
-  private confinedDataPath(id: string, projectRoot: string, requested: string): string | undefined {
+  private confinedDataPath(id: string, projectRoot: string, requested: string, allowMissing = false): string | undefined {
     const rel = (requested || "").trim();
     if (!rel || rel.includes("..")) return undefined;
     const roots = this.dataRoots(id);
@@ -1037,7 +1063,7 @@ export class ExtensionLoader {
     const declared = roots.some((root) => normalized === root || normalized.startsWith(`${root}/`));
     if (!declared) return undefined;
     const candidate = confinedJoin(projectRoot, normalized);
-    return candidate ? confinedRealpath(candidate, projectRoot) : undefined;
+    return allowMissing ? dataPathWithMissing(projectRoot, normalized) : candidate ? confinedRealpath(candidate, projectRoot) : undefined;
   }
 
   /**
@@ -1061,7 +1087,9 @@ export class ExtensionLoader {
     const name = normalized.slice(slash + 1);
     if (!name || name.startsWith(".")) return undefined;
     const parent = confinedJoin(projectRoot, normalized.slice(0, slash));
-    const realParent = parent ? confinedRealpath(parent, projectRoot) : undefined;
+    let realParent = parent ? confinedRealpath(parent, projectRoot) : undefined;
+    if (!realParent && dataPathWithMissing(projectRoot, normalized, true))
+      realParent = parent ? confinedRealpath(parent, projectRoot) : undefined;
     if (!realParent) return undefined;
     return join(realParent, name);
   }
@@ -1142,8 +1170,8 @@ export class ExtensionLoader {
    * Read the tail of one declared file. Tail, not head: these are append-only logs and the
    * panel wants what just happened. Truncation is reported, never silent.
    */
-  readDataFile(id: string, projectRoot: string, path: string, tailBytes?: number): { content: string; bytes: number; truncated: boolean } {
-    const real = this.confinedDataPath(id, projectRoot, path);
+  readDataFile(id: string, projectRoot: string, path: string, tailBytes?: number, allowMissing = false): { content: string; bytes: number; truncated: boolean } {
+    const real = this.confinedDataPath(id, projectRoot, path, allowMissing);
     if (!real) throw new Error(`extension ${id} has no declared data path '${path}'`);
     const cap = Math.min(Math.max(1024, Math.floor(tailBytes ?? EXTENSION_DATA_DEFAULT_TAIL)), EXTENSION_DATA_MAX_BYTES);
     try {
@@ -1163,7 +1191,8 @@ export class ExtensionLoader {
       } finally {
         closeSync(handle);
       }
-    } catch {
+    } catch (error) {
+      if (allowMissing && (error as NodeJS.ErrnoException).code === "ENOENT") return {content: "", bytes: 0, truncated: false};
       throw new Error(`extension ${id} data file is unavailable`);
     }
   }

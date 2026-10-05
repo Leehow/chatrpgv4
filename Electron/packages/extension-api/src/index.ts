@@ -208,6 +208,7 @@ export type ExtensionManifest = {
       panels?: ExtensionUiPanel[];
       toolRenderers?: ExtensionUiToolRenderer[];
       headerActions?: ExtensionUiHeaderAction[];
+      composerActions?: ExtensionUiHeaderAction[];
       documentRenderers?: ExtensionUiDocumentRenderer[];
       settingsSections?: ExtensionUiSettingsSection[];
       slashCommands?: ExtensionUiSlashCommand[];
@@ -242,6 +243,14 @@ export type ExtensionGitStatus = {
 };
 
 /** Restricted props injected into an `app.ui.headerActions` entry. */
+/** Restricted composer contribution. No complete host API reaches the extension. */
+export type ComposerActionProps = {
+  api: ExtensionHostAPI;
+  sessionId: string;
+  model?: {provider: string; id: string; api?: string};
+  disabled: boolean;
+};
+
 export type HeaderActionProps = {
   workspaceId?: string;
   git?: {
@@ -389,7 +398,7 @@ export type ExtensionDataRead = { content: string; bytes: number; truncated: boo
  */
 export type ExtensionDataAPI = {
   list: (dir: string) => Promise<ExtensionDataFile[]>;
-  read: (path: string, options?: { tailBytes?: number }) => Promise<ExtensionDataRead>;
+  read: (path: string, options?: { tailBytes?: number; allowMissing?: boolean }) => Promise<ExtensionDataRead>;
   /**
    * A URL for one declared file, to point an `<img>`/`<video>`/`fetch` at.
    *
@@ -479,7 +488,7 @@ export type ExtensionHostBacking = {
   readExtensionData?(
     id: string,
     path: string,
-    options?: { tailBytes?: number },
+    options?: { tailBytes?: number; allowMissing?: boolean },
     projectId?: string,
   ): Promise<ExtensionDataRead>;
   writeExtensionData?(
