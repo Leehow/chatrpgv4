@@ -26,6 +26,9 @@ test('catalog rows report the served window, never the smaller listed budget', (
 
 test('the online catalog path (fetch, cache, re-read) carries the served window', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'grok-build-ctx-'));
+  const offline = process.env.PI_OFFLINE;
+  // This case exercises only its injected in-memory fetch, even when the suite is launched offline.
+  delete process.env.PI_OFFLINE;
   try {
     const authPath = join(dir, 'auth.json');
     const access = `h.${Buffer.from(JSON.stringify({iss: 'https://auth.x.ai', sub: 'u', client_id: 'c'})).toString('base64url')}.s`;
@@ -36,6 +39,8 @@ test('the online catalog path (fetch, cache, re-read) carries the served window'
     const cached = await loadGrokBuildCatalog({authPath, cacheDir: dir, fetchImpl: async () => { throw new Error('cache must answer'); }});
     assert.deepEqual(cached.map((m) => m.contextWindow), [500000, 500000]);
   } finally {
+    if (offline === undefined) delete process.env.PI_OFFLINE;
+    else process.env.PI_OFFLINE = offline;
     await rm(dir, {recursive: true, force: true});
   }
 });

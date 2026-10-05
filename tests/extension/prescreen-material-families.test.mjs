@@ -53,7 +53,11 @@ async function requestMaterials(t,table,query,select){
   const oldFlag=process.env.PI_COC_JEV_PRESELECT,oldKey=process.env.TYPESAFE_API_KEY,oldFetch=globalThis.fetch;
   process.env.PI_COC_JEV_PRESELECT='1';process.env.TYPESAFE_API_KEY='request-boundary-test-key';
   globalThis.fetch=async(_url,options)=>{
-    return Response.json(supportWire(JSON.parse(options.body),candidate=>select(candidate)?'necessary':'skip'));
+    const sent=JSON.parse(options.body),wire=supportWire(sent,candidate=>select(candidate)?'necessary':'skip');
+    // These fixture spans name people. The shared selector's Noul=0 means "locate nothing";
+    // §177.15's independent name judge reads that as "part of another word" and would preserve their names.
+    for(const key of Object.keys(sent.questions))if(/^names_s\d+$/.test(key))wire.answers[key]={type:'noul',noul:1};
+    return Response.json(wire);
   };
   api.installContextPolicy({on:(name,fn)=>hooks.set(name,fn),events:{on:(name,fn)=>bus.set(name,fn)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
   bus.get('coc:kernel-bridge')({campaign:opened.campaign?.id??capsuleResult._context.campaign,call:table.call});
