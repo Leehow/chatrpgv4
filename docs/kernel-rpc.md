@@ -12774,6 +12774,24 @@ outside `agent_settled`" was protecting.
 hidden figures). *Actor:* the player, who can see that the dice fell and the clock moved before
 deciding what to say next.
 
+**Terminal publication barrier (2026-10-05 decision).** The settled hook awaits its
+owed `table.status` mechanics projection and the selected terminal notice before
+returning or releasing queued player input. Pi awaits extension settled handlers
+before publishing the outward `agent_settled` event; an idle custom message with
+`triggerTurn: false` appends without starting another model run. Generic unfinished,
+terminal provider, recovered provider and no-draft source-wait notices use that
+barrier, preserving their existing precedence and once-per-turn reservations.
+The existing `agent_end` cut-short, refused-effect and commit-outage branches
+likewise await their notice emitters; their non-triggering messages flush through
+Pi's existing custom-message path before settlement, without a timer tail.
+The turn and table are captured before asynchronous work; a replaced table cannot
+inherit its queued-input release. Ordinary delivered-turn background preparation
+and standing notices keep their existing scheduling. This amends the earlier
+timer rationale above: terminal notices belong inside the awaited settled hook.
+Failed mechanics reads retain their existing failure accounting and still permit
+the selected service notice; the rejected prose is never restored. No driver grace
+period or new provider request is part of completion.
+
 **Acceptance.** A turn that settles a public check and then cannot be delivered produces exactly one
 `coc-mechanics` entry for that turn carrying the check, marked `undelivered`, alongside exactly one
 service notice; a turn that settles nothing projectable produces no entry and still one
@@ -31887,6 +31905,11 @@ with Jev. The kernel matches current party/present NPC identity, reads pinned ac
 resolves vehicle MOV/Build/armor from its tables, and reads Drive Auto from the actual driver.
 Missing driver skill is an explicit need, never another actor's value or a guessed chance.
 Names, roles and driver links must be distinct/coherent; moving pursuer and quarry are required.
+Passenger initialization owns the snapshot invariant from the moment a participant is added:
+both movement budgets are zero, including when the speed roll ends the chase before round one.
+Opening placement first positions all moving participants, then co-locates passengers with their
+linked drivers and records their origins; roster order must not affect placement. Existing
+passenger snapshot validation and actionable driver-link refusals remain unchanged.
 Roster roles are reviewed as part of player agency. Existing starts without this field retain
 the established foot semantics; the new selector must choose the appropriate mobility explicitly.
 

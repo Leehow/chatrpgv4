@@ -105,8 +105,8 @@ export class ChaseSession {
             conditions: [...(options.conditions ?? [])],
             spot_hidden: options.spotHidden ?? null,
             navigate: options.navigate ?? null,
-            movement_actions: 1,
-            movement_actions_remaining: 1,
+            movement_actions: options.role === 'passenger' ? 0 : 1,
+            movement_actions_remaining: options.role === 'passenger' ? 0 : 1,
             movement_debt: 0,
             assist_penalty_reduction: 0,
             captured: false,
@@ -232,7 +232,9 @@ export class ChaseSession {
                 participant.position = Math.min(gap, this.locationChain.length - 1);
             else if (participant.side === 'pursuer')
                 participant.position = 0;
-            else if (participant.side === 'passenger' && participant.vehicle_actor_id && this.participants[participant.vehicle_actor_id])
+        }
+        for (const participant of values(this.participants)) {
+            if (participant.side === 'passenger' && participant.vehicle_actor_id && this.participants[participant.vehicle_actor_id])
                 participant.position = this.participants[participant.vehicle_actor_id].position;
             if (!this.rounds.length)
                 participant.position_origin = participant.position;

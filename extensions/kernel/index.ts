@@ -3722,20 +3722,19 @@ export default function (pi: ExtensionAPI) {
 		if (table !== state || state.lanes.signal.aborted) return;
 		try {
 			pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-				details: { coc_delivery: true, turn, provider_outage: true, terminal, streak: failure.streak, ms: failure.ms } });
+				details: { coc_delivery: true, turn, provider_outage: true, terminal, streak: failure.streak, ms: failure.ms } },
+				{ triggerTurn: false });
 		} catch { return; /* Pi can revoke its surface before the shutdown hook completes. The outage record already exists. */ }
 		void record({ lane: "delivery", turn, ok: true, reason: "provider_outage_notice",
 			streak: failure.streak, ms: failure.ms, terminal });
 	}
 
-	function scheduleProviderNotice(state: TableState, failure: { ms: number; streak: number }, terminal: boolean,
-		turn = state.turn): void {
+	async function tellProviderNotice(state: TableState, failure: { ms: number; streak: number }, terminal: boolean,
+		turn = state.turn): Promise<void> {
 		if (state.providerNoticeSent) return;
-		// Reserve synchronously so review/provider overlap cannot schedule two messages. Emitting on the
-		// next task keeps pi.sendMessage outside agent_settled; a queued next turn may reset the flag, but
-		// this captured notice neither reads nor writes that new run's state.
+		// Reserve before awaiting so overlapping terminal paths cannot publish twice.
 		state.providerNoticeSent = true;
-		setTimeout(() => void emitProviderNotice(state, failure, terminal, turn), 0);
+		await emitProviderNotice(state, failure, terminal, turn);
 	}
 
 	/**
@@ -3751,7 +3750,7 @@ export default function (pi: ExtensionAPI) {
 		try { line = (await surface.words()).line("commit_down_notice", { streak }); }
 		catch { /* an unreadable content root still owes the player the English line */ }
 		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-			details: { coc_delivery: true, turn, commit_unavailable: true, streak } });
+			details: { coc_delivery: true, turn, commit_unavailable: true, streak } }, { triggerTurn: false });
 		void record({ lane: "delivery", turn, ok: true, reason: "commit_down_notice", streak, cause: failure.cause });
 	}
 
@@ -3845,6 +3844,7 @@ export default function (pi: ExtensionAPI) {
 				: wait.kind === "source" ? words.line("source_wait_notice") : words.line("adaptation_wait_notice");
 		}
 		catch { /* an unreadable content root still owes the player the English line */ }
+		if (fallback === "no_draft" && (table !== state || state.turn !== turn || state.lanes.signal.aborted)) return false;
 		// §50: `triggerTurn: false`. This notice is scheduled from `applyToolSuccess`, on a turn that
 		// delivered, so on a live table it is sent while that run is still streaming — and
 		// `sendCustomMessage` turns a send with the flag left off into `agent.steer()`, which reopens
@@ -3964,8 +3964,9 @@ export default function (pi: ExtensionAPI) {
 		let line = "This turn ended without a delivered result. Anything already settled is kept — send anything to continue.";
 		try { line = (await surface.words()).line("turn_unfinished_notice"); }
 		catch { /* an unreadable content root still owes the player the English line */ }
+		if (table !== state || state.lanes.signal.aborted) return;
 		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
-			details: { coc_delivery: true, turn, turn_unfinished: true } });
+			details: { coc_delivery: true, turn, turn_unfinished: true } }, { triggerTurn: false });
 		void record({ lane: "delivery", turn, ok: true, reason: "turn_unfinished_notice" });
 	}
 
@@ -3973,6 +3974,12 @@ export default function (pi: ExtensionAPI) {
 		if (state.turnNoticeSent) return;
 		state.turnNoticeSent = true;
 		setTimeout(() => void emitTurnUnfinishedNotice(state, turn), 0);
+	}
+
+	async function tellTurnUnfinishedNotice(state: TableState, turn: number): Promise<void> {
+		if (state.turnNoticeSent) return;
+		state.turnNoticeSent = true;
+		await emitTurnUnfinishedNotice(state, turn);
 	}
 
 	/**
@@ -5944,6 +5951,7 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("agent_settled", async () => {
 		if (!table) return;
+		const settledTable = table, settledTurn = table.turn;
 		const run = table.skillRun;
 		table.skillRun = undefined;
 		if (run) {
@@ -5951,6 +5959,7 @@ export default function (pi: ExtensionAPI) {
 			await record({ lane: "skills", campaign: table.campaign, ...measurements,
 				fallback: run.selected !== null && (diverged || run.refusal_classes.length > 0 || !run.delivered) });
 		}
+		if (table !== settledTable || table.turn !== settledTurn) return;
 		// §135.11.3 (SL-63): a run the refusal budget's runaway abort cut is a drop like any other, not a
 		// verdict -- before the turn is judged undelivered, one fallback narrate is tried carrying what
 		// already landed and the Keeper's own last draft if any. Only when that itself lands nothing does
@@ -5960,6 +5969,7 @@ export default function (pi: ExtensionAPI) {
 			table.refusalBudgetCut = false;
 			await deliverRefusalBudgetFallback(table);
 		}
+		if (table !== settledTable || table.turn !== settledTurn) return;
 		// Contract §38: the run itself is the structural boundary. If it settled with the turn still
 		// open/acting and no narrate/ask delivery, there is no actor left who can finish it before the
 		// player's next input — which the state guard would otherwise reject. The cause is irrelevant.
@@ -5979,17 +5989,16 @@ export default function (pi: ExtensionAPI) {
 		// this turn go out on the delivery channel. §38.5 gave the player a sentence; this gives them
 		// the turn. Once per turn: a second run that ends on the same open turn adds no second card.
 		//
-		// The read starts here rather than on a timer: a player input queued during the run is sent a
-		// few lines below, and its `release: "stranded"` closes the turn the receipts belong to. Issuing
-		// `table.status` first puts it ahead of that release on the wire, so the card is drawn from the
-		// turn that paid for it and never from the one that follows it.
+		// Await publication, not just the read's wire order: Pi emits outward agent_settled after this
+		// hook returns. Queued input is released only after the card and selected notice have landed.
 		if (undelivered && table.settledToldTurn !== table.turn) {
 			const state = table, turn = table.turn;
 			state.settledToldTurn = turn;
-			void tellWhatSettled(state, turn).catch(() => {
+			await tellWhatSettled(state, turn).catch(() => {
 				/* the projection must never break a turn */
 			});
 		}
+		if (table !== settledTable || table.turn !== settledTurn) return;
 		// Choose exactly one player notice. A paused-review notice may already have landed at agent_end;
 		// terminal provider wording outranks the generic fallback; recovered long outages remain a
 		// footnote only when the turn actually delivered.
@@ -6001,21 +6010,23 @@ export default function (pi: ExtensionAPI) {
 		if (!table.reviewNoticeSent && !table.commitNoticeSent) {
 			if (undelivered && table.terminalProviderFailure) {
 				const failure = table.terminalProviderFailure;
-				scheduleProviderNotice(table, { ms: failure.ms ?? 0, streak: failure.streak }, true, table.turn);
+				await tellProviderNotice(table, { ms: failure.ms ?? 0, streak: failure.streak }, true, settledTurn);
 			} else if (undelivered && table.sourceWait && !table.preparationWait && !table.turnNoticeSent) {
 				// §22.4.4 (SL-37): no draft at all while a source read is pending: the host's source-wait notice is the
 				// fallback, re-read first (§47); a reading that is no longer in flight falls back to the generic notice.
 				const state = table, turn = table.turn, wait = { kind: "source", ...(table.sourceWait.focus ? { name: table.sourceWait.focus } : {}) };
 				state.turnNoticeSent = true;
-				setTimeout(() => void emitPreparationWaitNotice(state, wait, turn, "no_draft").then((sent) => {
-					if (!sent) { state.turnNoticeSent = false; scheduleTurnUnfinishedNotice(state, turn); }
-				}).catch(() => { /* the notice must never break a turn */ }), 0);
+				try {
+					const sent = await emitPreparationWaitNotice(state, wait, turn, "no_draft");
+					if (!sent) { state.turnNoticeSent = false; await tellTurnUnfinishedNotice(state, turn); }
+				} catch { /* the notice must never break a turn */ }
 			} else if (undelivered) {
-				scheduleTurnUnfinishedNotice(table, table.turn);
+				await tellTurnUnfinishedNotice(table, settledTurn);
 			} else if (longFailure) {
-				scheduleProviderNotice(table, longFailure, false, table.turn);
+				await tellProviderNotice(table, longFailure, false, settledTurn);
 			}
 		}
+		if (table !== settledTable || table.turn !== settledTurn) return;
 		if (!CLOSED_STATES.has(table.state) && !undelivered) return;
 		// Contract §71: the held resend is settled here, by the turn it repeated. A turn that delivered
 		// answered those words already, so running them again would only cost the player a turn of clock
@@ -7277,7 +7288,7 @@ export default function (pi: ExtensionAPI) {
 			const turn = state.turn;
 			state.deliveryCutShort = false;
 			state.cutShortToldTurn = turn;
-			setTimeout(() => void emitCutShortNotice(state, turn), 0);
+			await emitCutShortNotice(state, turn);
 		}
 		// Contract §78: same place, same reason -- a turn that closed normally by every other measure,
 		// and an effect behind that close that the player was never told did not happen. Once per turn.
@@ -7287,17 +7298,17 @@ export default function (pi: ExtensionAPI) {
 			// §86: once per turn, not once per run. The gate reads this before it raises the flag again,
 			// so a second run on the same closed turn does not say the same sentence to the player twice.
 			state.refusedEffectToldTurn = turn;
-			setTimeout(() => void emitRefusedEffectNotice(state, turn), 0);
+			await emitRefusedEffectNotice(state, turn);
 		}
 		// Contract §38.11: the history store is down. This is not the generic no-delivery notice and
 		// must not be replaced by it: the host knows the cause and the player is owed it.
 		if (state.commitUnavailable && !state.commitNoticeSent) {
 			state.commitNoticeSent = true;
 			const failure = state.commitUnavailable, turn = state.turn;
-			setTimeout(() => void emitCommitDownNotice(state, failure, turn), 0);
+			await emitCommitDownNotice(state, failure, turn);
 		}
-		// Provider wording waits for agent_settled, which knows whether retries recovered and schedules
-		// the one selected notice outside that lifecycle event.
+		// Provider wording waits for agent_settled, which knows whether retries recovered and awaits
+		// the selected notice before the outward terminal event.
 		if (state.closedThisRun || state.renderedText) return;
 		// Contract §38: the review, not the Keeper, is why this run ends with nothing delivered, and
 		// returning here silently is the whole of what the player experiences. On the turn that found

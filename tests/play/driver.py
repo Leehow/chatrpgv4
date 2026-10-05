@@ -144,6 +144,62 @@ def extract_host_delivery(message: dict) -> dict | None:
             "pending_choice": None, "details": deepcopy(details)}
 
 
+# Display fields used by the public mechanics card. IDs and runtime bindings are not words.
+PUBLIC_MECHANIC_FIELDS = frozenset("""kind visibility family skill roll target threshold difficulty
+level passed pushed bonus penalty modifier_reason label expression faces total word resource
+before after item subject_label source_label actor_label target_label combat_action gained lost
+standing incapacitated from_label to_label minutes how name quantity weapon offer offered_to_label
+handover currency settlement purpose source_amount purchase_amount spending_level spending_day
+daily_total daily_debited price_name source_display transition round rounds outcome option operation
+mode loop from_turn document text media_type image_media_type definition adopted quote_status""".split())
+
+
+def player_mechanics(rows) -> list[dict]:
+    """Mirror the card's visibility boundary, exposing presentation fields only."""
+    public = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or row.get("visibility") == "keeper":
+            continue
+        fields = PUBLIC_MECHANIC_FIELDS
+        if row.get("kind") in ("handout", "map"):
+            fields = fields | frozenset(("path", "image_path"))
+        if row.get("kind") == "roll" and row.get("visibility") == "concealed":
+            fields = frozenset(("kind", "visibility", "skill", "actor_label"))
+        shown = {key: deepcopy(value) for key, value in row.items()
+                 if key in fields and (value is None or isinstance(value, (str, int, float, bool))
+                                       or isinstance(value, list) and all(isinstance(v, (str, int, float, bool)) for v in value))}
+        # Noncombat NPC handles are deliberately absent from the frontend's card.
+        if row.get("kind") in ("roll", "dice") and row.get("actor_is_investigator") is not True and row.get("public_combat") is not True:
+            shown.pop("actor_label", None)
+        if row.get("kind") == "condition" and row.get("subject_is_investigator") is not True:
+            shown.pop("subject_label", None)
+        public.append(shown)
+    return public
+
+
+def player_choice(choice) -> dict | None:
+    if not isinstance(choice, dict):
+        return None
+    shown = {key: choice[key] for key in ("kind", "prompt")
+             if isinstance(choice.get(key), str)}
+    options = choice.get("options")
+    if isinstance(options, list):
+        shown["options"] = [option for option in options if isinstance(option, str)]
+    return shown or None
+
+
+def print_delivery_panels(delivery) -> None:
+    """Print the public card separately; never rewrite or infer narrative prose."""
+    if not isinstance(delivery, dict):
+        return
+    mechanics = player_mechanics(delivery.get("mechanics"))
+    choice = player_choice(delivery.get("pending_choice"))
+    if mechanics:
+        print(json.dumps({"mechanics": mechanics}, ensure_ascii=False))
+    if choice:
+        print(json.dumps({"pending_choice": choice}, ensure_ascii=False))
+
+
 def extract_setup_opening(message: dict) -> str | None:
     """The accepted opening a setup host shows the player itself, word for word (contract §14.18)."""
     if message.get("customType") != "coc-setup-opening" or message.get("display") is not True:
@@ -571,6 +627,8 @@ class Daemon:
             delivered = ""
             delivery: dict | None = None
             notices: list[dict] = []
+            projected_mechanics: list | None = None
+            projected_choice: dict | None = None
             # Story text the setup host showed before the guide's reply; one message can arrive as both
             # its message_end and its entry_appended.
             setup_openings: list[str] = []
@@ -703,7 +761,12 @@ class Daemon:
                     data = entry.get("data") or {}
                     host = extract_host_delivery(entry)
                     opening = extract_setup_opening(entry)
-                    if host is not None:
+                    if entry.get("customType") == "coc-mechanics" and isinstance(data, dict):
+                        if isinstance(data.get("mechanics"), list):
+                            projected_mechanics = deepcopy(data["mechanics"])
+                    elif entry.get("customType") == "coc-choice" and isinstance(data, dict):
+                        projected_choice = deepcopy(data)
+                    elif host is not None:
                         capture_host_delivery(host)
                     elif opening is not None:
                         if opening not in setup_openings:
@@ -740,6 +803,15 @@ class Daemon:
             if not final_text and not rejected_delivery:
                 final_text = "".join(text_parts).strip()
             tool_records = [tools[t] for t in tool_order if t in tools]
+
+            if projected_mechanics is not None or projected_choice is not None:
+                if delivery is None:
+                    delivery = {"kind": "ask" if projected_choice else "narrate",
+                                "rendered_text": final_text, "mechanics": [], "pending_choice": None}
+                if projected_mechanics is not None:
+                    delivery["mechanics"] = projected_mechanics
+                if projected_choice is not None:
+                    delivery["pending_choice"] = projected_choice
 
             if stop_reason == "timeout":
                 settle_class = "timeout"
@@ -1131,6 +1203,7 @@ def cmd_turn(args: argparse.Namespace) -> int:
         if index == 0 and (summary.get("delivery") or {}).get("kind") == "notice":
             continue  # The first notice is already printed as the primary text.
         print(notice["content"])
+    print_delivery_panels(summary.get("delivery"))
     tool_names = ", ".join(t["name"] for t in summary["tools"]) if summary["tools"] else "(none)"
     print(f"[turn {summary['turn']} | {summary['wall_seconds']:.1f}s | tools: {tool_names}]")
     return SETTLE_EXIT_CODES.get(summary["settle_class"], 1)

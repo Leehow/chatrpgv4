@@ -28,3 +28,28 @@
 - 缓存、守护进程内存、证据排序各骗过我一次：验证前重开进程，按 `at` 排序，看回合记录不看叙述。
 - 守秘人说「已就位」不算数：看 `campaign.json` 的 `module_id` 与 `turns/NNNN.json` 的收据。
 - 叙述里发生了却没有收据的事等于没发生：世界位置看 `world.json`，不看守秘人的话。
+
+## Driver delivery visibility (2026-10-05)
+
+The RPC driver captures the public `coc-mechanics` and `coc-choice` session entries,
+including implicit deliveries that have no `narrate`/`ask` tool result. At turn
+finalization these projections travel alongside the exact delivered prose in
+`delivery.mechanics` and `delivery.pending_choice`. A projection alone does not
+make a turn settled; existing prose, rejection and exit classification remain
+unchanged. Repeated snapshots replace the same turn's projection rather than
+printing duplicate cards; explicit results remain the fallback when no entry exists.
+
+`driver.py turn` prints separate structured mechanics and choice panels after the
+prose and notices. The player panel excludes keeper rows, concealed roll figures
+and grades, receipt/call/marker identifiers, pending-choice bindings and runtime
+actor handles. Condition rows show a subject label only when
+`subject_is_investigator` is exactly true, matching the existing public card.
+Public handout/map rows retain their authorized scalar `path` and `image_path`
+as the terminal artifact fallback (§14.8/§16.2); other row types expose no paths.
+It reads only documented presentation fields and existing public labels; it never reads capsules, source truth or campaign saves to reconstruct a
+result. Policy rolls appear through their mechanics projection even when no
+explicit `resolve` tool call exists. The tool-name footer remains an execution
+summary, not a count of all kernel settlements.
+
+Retained-record replay is transport evidence only. Real play remains the acceptance
+method above, and historical records are never rewritten by replay.
