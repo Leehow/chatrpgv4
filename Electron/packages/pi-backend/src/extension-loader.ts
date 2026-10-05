@@ -1,3 +1,4 @@
+import { replaceConfinedDataFile } from "./extension-data-write.js";
 import {
   closeSync,
   existsSync,
@@ -7,9 +8,6 @@ import {
   readFileSync,
   readSync,
   realpathSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
 } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import {
@@ -1083,23 +1081,8 @@ export class ExtensionLoader {
       throw new Error(`write is ${bytes} bytes, over the ${EXTENSION_DATA_WRITE_MAX_BYTES} cap`);
     }
     try {
-      const existing = lstatSync(real);
-      if (!existing.isFile()) throw new Error("not a regular file");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw new Error(`extension ${id} data path is not writable`);
-      }
-    }
-    const temp = `${real}.${process.pid}.tmp`;
-    try {
-      writeFileSync(temp, content, { encoding: "utf8", mode: 0o600 });
-      renameSync(temp, real);
+      replaceConfinedDataFile(projectRoot, real, content);
     } catch {
-      try {
-        unlinkSync(temp);
-      } catch {
-        /* nothing to clean up */
-      }
       throw new Error(`extension ${id} data path is not writable`);
     }
     return { bytes };
