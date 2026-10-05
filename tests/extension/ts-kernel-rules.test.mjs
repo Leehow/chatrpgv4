@@ -19,6 +19,7 @@ const modules = [
   ['read/rule-facts', ['RuleObservations']],
   ['read/module-graph', ['ModuleGraph']],
   ['rules/tables', ['RuleTables']],
+  ['rules/bands', ['bandRows']],
   ['rules/catalog', ['Catalog', 'SUPPORTED_KINDS', 'moduleSpellRecords', 'resolveFamilyParameter']],
   ['rules/skills', ['SkillResolver']],
   ['rules/options', ['declaredOptionalRules', 'togglesFromPatches', 'effectiveOptionalRules', 'disabledDecisionGates', 'gateFor', 'gateCode', 'gateMessage']],
@@ -150,7 +151,7 @@ async function oracle(operation, input) {
  * entry in its order, each citing its table.
  */
 const BEAST_TABLE = 'beasts.json';
-test('every catalog kind retains the Python record count and canonical content digest', async () => {
+test('catalog kinds retain frozen counts and digests; the current time-rule description has its own TS digest', async () => {
   const expected = await oracle('records', { kinds: api.SUPPORTED_KINDS });
   const actual = {};
   for (const kind of api.SUPPORTED_KINDS) {
@@ -158,7 +159,29 @@ test('every catalog kind retains the Python record count and canonical content d
     actual[kind] = { count: records.length, digest: api.jsonDigest(records.map(unnamed)) };
   }
   await writeFile(join(evidence, 'record-digests-actual.json'), JSON.stringify(actual, null, 2));
-  assert.deepEqual(actual, expected);
+  for (const kind of api.SUPPORTED_KINDS) {
+    // §138.10.1 corrects the live time-rule description, not the frozen Python evidence.
+    // Pin all current rule records; every other family's frozen digest remains unchanged.
+    const wanted = kind === 'rule'
+      ? { count: expected.rule.count, digest: '08cf8e32c767103edbcb35bbb226ef38863f28def8043b873d96821c9d07d0fd' }
+      : expected[kind];
+    assert.deepEqual(actual[kind], wanted, kind);
+  }
+});
+
+test('§138.10.1: rule catalog lookup describes the same time categories the band registry offers', async () => {
+  const found = decoded(await catalog.search('core.time.cost_categories', { kinds: ['rule'] }));
+  assert.equal(found.candidate_count, 1);
+  const rule = found.candidates[0];
+  assert.equal(rule.entity_id, 'core.time.cost_categories');
+  assert.equal(rule.params.source_table, 'time-costs.json');
+  const bands = await api.bandRows(context, 'time.band');
+  assert.equal(rule.params.numeric.category_count, bands.length);
+  assert.equal(rule.params.numeric.category_count, 17);
+  assert.deepEqual(bands.at(-1), { handle: 'momentary', min: 0, max: 1, default: 0 });
+  assert.match(rule.params.source_note, /apply time \{band\}/);
+  assert.match(rule.params.source_note, /basis banded/);
+  assert.doesNotMatch(rule.params.source_note, /DirectorPlan|time_advance|LLM time estimates/);
 });
 
 test('§180.6: the creature family adds every beast after the monsters, citing beasts.json', async () => {

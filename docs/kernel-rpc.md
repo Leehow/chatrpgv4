@@ -27016,9 +27016,13 @@ clerk the way every row does:
 - `content/director/director-graph.json`, whose `time-cost-category` vocabulary nodes the TS kernel never reads (§13.10), so
   `momentary` has no node there; the graph is digest-guarded by its manifest, and the sixteen nodes it has still match the
   table's first sixteen rows by name and ordinal;
-- `rule-index.json`'s `core.time.cost_categories` row. `lookup kind=rule` returns its `numeric.category_count` (15, stale before
-  this row since the table already had 16) and its `source_note`, an older description. Correcting them is a separate data
-  edit, not made here.
+
+**Rule catalog lookup (2026-10-05, final-acceptance seam).** `lookup kind=catalog kinds=["rule"]` reads `rule-index.json`'s
+`core.time.cost_categories` row, which reports 17 categories,
+matching `rules.bands {field: "time.band"}` including `momentary`. Its `source_note` describes the current banded
+`apply time {band}` path, not the retired `DirectorPlan.time_advance` estimate validation. The table remains the arithmetic
+authority; the catalog row is its read-only description. The previous count of 15 was already stale when the table had 16.
+`lookup kind=rule` lists rule-graph guidance instead; it does not expose this catalog count.
 
 **Tests.** `tests/extension/time-band-momentary.test.mjs`:
 - **On the emitted kernel.** `rules.bands` lists the row with its range and default. `apply time {band: "momentary"}` rolls 0
@@ -27028,6 +27032,8 @@ clerk the way every row does:
 
 `tests/extension/band-shadow.test.mjs` pins the shipped rows, and now pins `momentary` last. Three mutations of the data row
 (dropped, `max` 5, `default` 1) each turn a case red.
+`ts-kernel-rules.test.mjs` checks the catalog description against the live band registry and pins the current TS rule
+records separately from the unchanged frozen Python evidence.
 
 ## 139. An excerpt a model copied out of delivered text is located with quotation marks as one class (2026-09-26; amends §12.5's `table.warn` anchoring and the continuity-review rows)
 
