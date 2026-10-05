@@ -502,10 +502,10 @@ class Daemon:
             "socket_path": str(self.socket_path), "status": "starting",
         })
 
-        ready = self.pi.call({"type": "get_state"}, timeout=ACK_TIMEOUT)
+        ready = self.pi.call({"type": "get_state"}, timeout=STARTUP_READY_TIMEOUT)
         if ready is None or not ready.get("success", False):
             raise DriverError(
-                f"pi did not answer get_state within {ACK_TIMEOUT}s (got {ready!r}); "
+                f"pi did not answer startup get_state within {STARTUP_READY_TIMEOUT}s (got {ready!r}); "
                 f"see {self.dir / 'pi-stderr.log'}"
             )
 

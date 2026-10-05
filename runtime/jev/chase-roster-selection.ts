@@ -3,6 +3,7 @@ import type {DecisionQuestion, DecisionResult, Json} from './contracts.ts';
 import type {CheckOption, CheckSelection, CheckSelectionGates} from './resolve-selection.ts';
 import {clears} from './decision-gate.ts';
 import {leansYes, scoreText} from './forced-resolution.ts';
+import {profilePreparationNeeds, roleReady, type ProfileRequirement} from './profile-readiness.ts';
 
 type Row = Record<string, any>;
 const record = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
@@ -84,12 +85,9 @@ export async function selectChaseRoster(option: CheckOption, declaration: string
   }
   if (roleNeeds.length) return {...needs(['chase_mobility_evidence_required'], true),
     preparation: {decision: 'chase:start', needs: ['chase_mobility_evidence_required'], mobility: 'vehicle', roles: roleNeeds}};
-  const missingProfiles = selected.filter(entry => entry.actor.profile_available !== true).map(entry => entry.actor.name);
-  if (missingProfiles.length) return needs(['chase_actor_profile_unavailable'], true, [], missingProfiles);
   if (selected.length < 2 || !selected.some(entry => entry.actor.investigator)) return needs(['chase_participants_unbound'], true);
   const drivers = selected.filter(entry => entry.role === 'driver');
   const missingDrivers = drivers.filter(entry => entry.actor.driving_available !== true).map(entry => entry.actor.name);
-  if (missingDrivers.length) return needs(['chase_driver_skill_unavailable'], true, missingDrivers);
   if (!drivers.length) return needs(['vehicle_chase_has_no_driver']);
   const profileState = {...record(state), context, selected_roles: selected.map(entry => ({actor: entry.actor.name, role: entry.role})),
     vehicle_profiles: Object.fromEntries(profiles.map((profile, index) => [`profile_${index}`, profile]))} as Json;
@@ -144,5 +142,21 @@ export async function selectChaseRoster(option: CheckOption, declaration: string
       roster.find(entry => entry.actor === passenger.actor.name)!.riding_with = driver.actor.name;
     }
   }
-  return finish({status: 'selected', action: {...option.action, chase_roster: roster as Json}, option, needs: []});
+  const action = {...option.action, chase_roster: roster as Json};
+  const requirements: ProfileRequirement[] = selected.flatMap(entry => {
+    const capability = record(record(entry.actor.readiness)[entry.role]);
+    // Older issued catalogs remain readable; current catalogs always issue role-specific capabilities.
+    const ready = entry.actor.readiness ? roleReady(entry.actor, entry.role) : entry.actor.profile_available === true;
+    return ready ? [] : [{actor: String(entry.actor.name), role: entry.role as ProfileRequirement['role'],
+      missing: Array.isArray(capability.missing) ? capability.missing : ['profile'],
+      completion: capability.completion === 'creature' ? 'creature' as const : 'archetype' as const}];
+  });
+  if (requirements.length || missingDrivers.length) {
+    const values = [...(requirements.length ? ['chase_actor_profile_unavailable'] : []),
+      ...(missingDrivers.length ? ['chase_driver_skill_unavailable'] : [])];
+    return finish({status: 'unresolved', option, needs: values, preparation: {decision: 'chase:start', mobility: 'vehicle',
+      needs: [...profilePreparationNeeds(requirements), ...missingDrivers.map(name => `Prepare ${name}'s actual Drive Auto skill through the existing source/profile preparation tools.`)],
+      profiles: requirements.map(entry => entry.actor), drivers: missingDrivers, requirements, action}});
+  }
+  return finish({status: 'selected', action, option, needs: []});
 }

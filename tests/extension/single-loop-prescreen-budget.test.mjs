@@ -354,7 +354,7 @@ test("a read_more on the same scene refreshes source evidence instead of replayi
 	assert.ok(log.some(entry => entry.kind === "prescreen" && entry.at > firstReadEnd), "explicit missing evidence gets a real refresh");
 });
 
-test("the ordinary binder asked after a spent allowance holds its own 15 s lease, not the allowance's remainder", async (t) => {
+test("the ordinary binder after a slow prescreen retains positive deciding allowance within its configured 2 s", async (t) => {
 	const { log, port } = decisionPort({ slowPrescreen: true,
 		route: (batch, n) => n === 1 ? answered(batch, (question) => question.key === "exit" ? "continue" : batch.state.candidates[question.key.replace('need_', 'candidate_')]?.bound?.decision === 'core-check:ordinary-check' ? "now" : undefined)
 			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined) });
@@ -362,12 +362,13 @@ test("the ordinary binder asked after a spent allowance holds its own 15 s lease
 	t.after(() => table.dispose());
 	await table.table.session.prompt("I search Knott's filing cabinet for the Corbitt file.");
 
-	// The prescreen prepares its own check advice inside the allowance; the binder the clerk's check asks comes after the read.
+	// Prescreen time is separate; the later binder has positive remaining deciding time capped by the configured 2 s.
 	const read = runRows(table.table, "read")[0];
 	const readEnd = table.events.find((event) => event.type === "step_end" && event.stepId === read.stepId).at;
 	const binder = log.find((entry) => entry.kind === 'check-selection' && entry.at > readEnd);
 	assert.ok(binder, `the ordinary binder was asked after the read (${log.map((entry) => entry.kind).join(",")})`);
-	assert.ok(binder.deadline - binder.at > 10_000, `its lease is its own (${binder.deadline - binder.at} ms left)`);
+	assert.ok(binder.deadline - binder.at > 0 && binder.deadline - binder.at <= 2_000,
+		`its lease respects the remaining deciding allowance (${binder.deadline - binder.at} ms left)`);
 });
 
 const clerkNotes = (context) => context.messages.flatMap((message) => {
@@ -377,7 +378,7 @@ const clerkNotes = (context) => context.messages.flatMap((message) => {
 });
 
 test("at the extension seam the one jev_budget compose tells the Keeper why, the next step is keeper_carries, and the summary names the spent budget", async (t) => {
-	// No prescreen (the setting is off); the route answer alone takes longer than the 2 s decision budget and asks the Keeper.
+	// No prescreen (the setting is off); the 2.1 s route answer exceeds the 2 s deciding allowance and is unavailable.
 	const { port } = decisionPort({ route: async (batch) => { await sleep(2_100); return answered(batch, (question) => question.key === "exit" ? "ask_llm" : undefined); } });
 	const requests = [];
 	const look = fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" });
@@ -393,18 +394,18 @@ test("at the extension seam the one jev_budget compose tells the Keeper why, the
 	await table.session.prompt("I ask Knott what he knows.");
 
 	const infers = events.filter((event) => event.type === "step_end" && event.kind === "infer").map((event) => `${event.purpose}:${event.reason}`);
-	assert.deepEqual(infers, ["adjudicate:ask_llm", "compose:jev_budget", "adjudicate:keeper_carries", "adjudicate:keeper_carries"]);
-	const composeNote = clerkNotes(requests[1]).find((note) => note.reason === "jev_budget");
+	assert.deepEqual(infers, ["compose:jev_budget", "adjudicate:keeper_carries", "adjudicate:keeper_carries", "adjudicate:keeper_carries"]);
+	const composeNote = clerkNotes(requests[0]).find((note) => note.reason === "jev_budget");
 	assert.ok(composeNote?.decision_budget_note, "the compose says the decision budget is spent");
 	assert.ok(composeNote.decision_budget.jev_ms >= composeNote.decision_budget.max_jev_ms);
-	const continuation = clerkNotes(requests[2]).filter((note) => note.reason === "keeper_carries");
+	const continuation = clerkNotes(requests[1]).filter((note) => note.reason === "keeper_carries");
 	// Optional reference offers and unresolved outcomes have their own projection owners; neither repeats this budget explanation.
 	assert.ok(continuation.every(note => !note.decision_budget_note && !note.decision_budget), "the spent-budget explanation is still sent only once");
 	// §163: the checks the spent budget left unjudged are one recorded forced no-roll, told once, never an unresolved boundary.
 	const forced = table.telemetry("test-camp").filter((row) => row.lane === "forced-resolution");
 	assert.ok(forced.some((row) => row.family === "check-selection" && row.why === "jev_budget" && row.chosen.outcome === "no_roll"), JSON.stringify(forced));
-	assert.ok(clerkNotes(requests[1]).some((note) => note.decided_under_uncertainty?.some((entry) => entry.why === "jev_budget")), "the budget compose carries the marker");
-	assert.ok([...continuation, ...clerkNotes(requests[1])].every((note) => note.unresolved_checks === undefined && note.check_outcome_boundary === undefined));
+	assert.ok(clerkNotes(requests[0]).some((note) => note.decided_under_uncertainty?.some((entry) => entry.why === "jev_budget")), "the budget compose carries the marker");
+	assert.ok([...continuation, ...clerkNotes(requests[0])].every((note) => note.unresolved_checks === undefined && note.check_outcome_boundary === undefined));
 	assert.equal(forced.filter((row) => row.why === "jev_budget").length, 1, "recorded once");
 	const summary = table.telemetry("test-camp").find((row) => row.lane === "run" && row.event === "budget" && row.decision === "summary");
 	assert.equal(summary.decision_budget.spent, true);

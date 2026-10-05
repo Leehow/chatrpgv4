@@ -70,7 +70,16 @@ export function isKernelError(error: unknown): error is KernelError {
 	return !!row && typeof row.code === "string" && typeof row.message === "string" && typeof row.toToolText === "function";
 }
 
+export interface KernelCallTiming {
+	ordinal: number; method: string; enqueued_at: string;
+	queue_ms: number; prepare_ms: number; dispatch_ms: number; total_ms: number;
+	ok: boolean; prepare_failed: boolean;
+	preparation_reads: Array<{method: string; ms: number}>; preparation_reads_overflow: number;
+}
+
 export interface KernelClientOptions {
+	/** Bounded metadata only; observation failures never affect transport. */
+	onCallTiming?: (timing: KernelCallTiming) => void | Promise<void>;
 	/** The launch command, argv style. */
 	command: string[];
 	/** Working directory of the subprocess (the package root). */
@@ -119,6 +128,7 @@ export class KernelClient {
 	private readonly pending = new Map<string, Pending>();
 	private queue: Promise<unknown> = Promise.resolve();
 	private seq = 0;
+	private callOrdinal = 0;
 	private closing = false;
 	private closePromise: Promise<void> | undefined;
 	private restartUsed = false;
@@ -142,16 +152,47 @@ export class KernelClient {
 	/** Executed one at a time in arrival order: the extension serialises them. */
 	call<T = unknown>(method: string, params: Record<string, unknown> = {}, onProgress?: (frame: KernelProgressFrame) => void): Promise<T> {
 		const prepare = this.options.prepareCall;
+		const observer = this.options.onCallTiming;
+		const enqueued = performance.now(), ordinal = ++this.callOrdinal;
+		const enqueuedAt = new Date().toISOString();
 		const run = async () => {
-			let sent = params;
-			if (prepare) {
-				try { sent = await prepare(method, params, (next, nextParams) => this.dispatch(next, nextParams)); }
-				catch {
-					const hostOnly = this.options.hostOnlyParams ?? [];
-					sent = Object.fromEntries(Object.entries(params).filter(([key]) => !hostOnly.includes(key)));
+			const began = performance.now();
+			let prepared = began, dispatched = began, ok = false, prepareFailed = false;
+			const reads: KernelCallTiming["preparation_reads"] = [];
+			let overflow = 0;
+			try {
+				let sent = params;
+				if (prepare) {
+					try { sent = await prepare(method, params, async (next, nextParams) => {
+						const started = performance.now();
+						try { return await this.dispatch(next, nextParams); }
+						finally {
+							if (reads.length < 8) reads.push({method: next, ms: performance.now() - started});
+							else overflow++;
+						}
+					}); }
+					catch {
+						prepareFailed = true;
+						const hostOnly = this.options.hostOnlyParams ?? [];
+						sent = Object.fromEntries(Object.entries(params).filter(([key]) => !hostOnly.includes(key)));
+					}
+				}
+				prepared = performance.now();
+				dispatched = prepared;
+				const value = await this.dispatch<T>(method, sent, onProgress);
+				ok = true;
+				return value;
+			} finally {
+				const ended = performance.now();
+				if (observer) {
+					try { void Promise.resolve(observer({ordinal, method, enqueued_at: enqueuedAt,
+						queue_ms: began - enqueued, prepare_ms: prepared - began,
+						dispatch_ms: ended - dispatched, total_ms: ended - enqueued,
+						ok, prepare_failed: prepareFailed, preparation_reads: reads,
+						preparation_reads_overflow: overflow})).catch(() => undefined); }
+					catch { /* observation cannot affect transport */ }
 				}
 			}
-			return this.dispatch<T>(method, sent, onProgress);
 		};
 		const result = this.queue.then(run, run);
 		this.queue = result.then(

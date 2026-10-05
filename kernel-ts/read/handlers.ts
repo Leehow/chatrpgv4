@@ -3,6 +3,8 @@ import { join } from "node:path";
 import type { KernelContext } from "../context.js";
 import type { HandlerGroup, KernelResult } from "../handlers.js";
 import { RpcError } from "../errors.js";
+import {turnRecordPath} from '../turn-record.js';
+import {parsePythonJson} from '../json.js';
 import { continuityView } from "./continuity.js";
 import { glossaryOf, RULES_DATA } from "./glossary.js";
 import { playLanguageOf } from "./languages.js";
@@ -165,12 +167,8 @@ export function tableSnapshot(campaign: CampaignSnapshot, graph: ModuleGraph): R
         pending_choice: view.pendingChoice()
     };
 }
-export async function readCampaign(context: KernelContext, params: Row, frontend = false, minimal = false, contributions: ReadContributions = {}, readOnlyLegacyTrail = false): Promise<{
-    campaign: CampaignSnapshot;
-    module: LoadedModule;
-}> {
-    const campaign = await CampaignSnapshot.open(context, params.campaign),
-        statuses = frontend ? ["active", "ready_for_table", "completed"] : ["active", "completed"],
+async function requireCampaignReady(context: KernelContext, campaign: CampaignSnapshot, frontend = false): Promise<void> {
+    const statuses = frontend ? ["active", "ready_for_table", "completed"] : ["active", "completed"],
         status = string(campaign.meta.status);
     if (!statuses.includes(status)) {
         let fix: string | undefined;
@@ -183,6 +181,13 @@ export async function readCampaign(context: KernelContext, params: Row, frontend
             details: { status }
         });
     }
+}
+export async function readCampaign(context: KernelContext, params: Row, frontend = false, minimal = false, contributions: ReadContributions = {}, readOnlyLegacyTrail = false): Promise<{
+    campaign: CampaignSnapshot;
+    module: LoadedModule;
+}> {
+    const campaign = await CampaignSnapshot.open(context, params.campaign);
+    await requireCampaignReady(context, campaign, frontend);
     const module = await loadCampaignModule(context, string(campaign.meta.module_id), campaign.world, campaign.id);
     if (!minimal)
         await campaign.preload(frontend ? "view" : "all");
@@ -358,7 +363,46 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 throw new RpcError('not_implemented', 'The map asset contribution is unavailable');
             return { maps: await knownMapViews(module.graph, campaign.world, contributions.asset) };
         },
-        "table.status": async (params) => {
+        "table.status": async (params): Promise<KernelResult> => {
+            if (params.projection !== undefined && params.projection !== "receipts")
+                throw new RpcError("invalid_params", "params.projection must be receipts when supplied");
+            if (params.projection === "receipts") {
+                if (params.expected_turn !== undefined && (typeof params.expected_turn !== "number" || !Number.isInteger(params.expected_turn) || params.expected_turn < 0))
+                    throw new RpcError("invalid_params", "params.expected_turn must be a nonnegative integer");
+                if (params.expected_commit !== undefined && (typeof params.expected_commit !== "string"
+                    || !/^[0-9a-f]{4,64}$/i.test(params.expected_commit) || params.expected_turn === undefined))
+                    throw new RpcError("invalid_params", "params.expected_commit must be a hexadecimal object ID bound to params.expected_turn");
+                const campaign = await CampaignSnapshot.open(context, params.campaign);
+                await requireCampaignReady(context, campaign);
+                const expected = params.expected_turn;
+                if (typeof expected === "number" && typeof params.expected_commit === "string") {
+                    const commit = params.expected_commit.toLowerCase(), path = turnRecordPath(expected);
+                    const owned = (record: Row): boolean => record.turn === expected && record.closed_by === "narrate"
+                        && record.superseded_by == null && record.status !== "superseded";
+                    const matches = await context.git.run(campaign.id, ["rev-parse", `--disambiguate=${commit}`]);
+                    const ids = matches.stdout.trim().split(/\s+/).filter(Boolean);
+                    const full = matches.code === 0 && ids.length === 1 && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(ids[0]) ? ids[0] : undefined;
+                    const kind = full ? await context.git.run(campaign.id, ["cat-file", "-t", full]) : undefined;
+                    if (full && kind?.code === 0 && kind.stdout.trim() === "commit") {
+                        const bound = (value: unknown): boolean => value === commit || value === full;
+                        let working: Row = {};
+                        try { working = row(await campaign.optional(path)); } catch { /* use the immutable owner if the mutable record is unreadable */ }
+                        if (owned(working) && bound(working.commit))
+                            return {turn: expected, state: "committed", receipts: array(working.receipts)};
+                        const blob = await context.git.run(campaign.id, ["show", `${full}:${path.replaceAll('\\', '/')}`]);
+                        let record: Row = {};
+                        if (blob.code === 0) try { record = row(parsePythonJson(blob.stdout)); } catch { /* an invalid owner blob is a conflict */ }
+                        // The owner blob is written before its own commit ID is annotated on disk.
+                        if (owned(record) && (record.commit == null || bound(record.commit)))
+                            return {turn: expected, state: "committed", receipts: array(record.receipts)};
+                    }
+                } else if (expected === undefined || expected === campaign.turn.turn) {
+                    return {turn: campaign.turn.turn, state: campaign.turn.state, receipts: array(campaign.turn.receipts)};
+                }
+                throw new RpcError("revision_conflict", "The requested receipt owner does not match the current cursor or committed narrative", {
+                    details: {expected_turn: expected, current_turn: campaign.turn.turn}
+                });
+            }
             const { campaign, module } = await readCampaign(context, params, false, true, contributions),
                 { turn } = campaign,
                 receipts = array(turn.receipts);

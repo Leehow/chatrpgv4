@@ -6,6 +6,7 @@ import type { JsonObject, JsonValue, ReadonlyJson } from '../json.js';
 import { jsonDigest, isJsonObject } from '../json.js';
 import { appendJsonl, writeJsonAtomic } from '../fileio.js';
 import { RpcError } from '../errors.js';
+import {turnRecordPath} from '../turn-record.js';
 import type { CampaignWritePort, DomainEvent, ResolveCommit, TurnTransaction, WriteMethod, WriteStart } from '../transactions.js';
 import { clone, array, row, number, string, repr, type Row } from '../read/values.js';
 export const nowIso = (): string => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -92,7 +93,7 @@ export class CampaignWriter implements CampaignWritePort {
     writeWorld(value: Row) { return this.write('world.json', value); }
     writeTurn(value: Row) { return this.write('turn.json', value); }
     writeSheet(value: Row) { return this.write(join('party', `${value.id}.json`), value); }
-    recordName(turn: number): string { return join('turns', `${String(turn).padStart(4, '0')}.json`); }
+    recordName(turn: number): string { return turnRecordPath(turn); }
     async readTurnRecord(turn: number): Promise<Row | null> {
         const path = this.recordName(turn);
         return await this.context.snapshots.pathExists(this.path(path)) ? this.read(path) : null;

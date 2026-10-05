@@ -57,9 +57,10 @@ export type CheckSelection = {
   action?: Record<string, Json>;
   needs: string[];
   calls: number;
-  preparation?: {decision: string; needs: string[]; mobility?: 'vehicle'; drivers?: string[]; profiles?: string[];
+  preparation?: {decision: string; needs: string[]; mobility?: 'vehicle' | 'foot'; drivers?: string[]; profiles?: string[];
+    requirements?: import('./profile-readiness.ts').ProfileRequirement[]; action?: Record<string, Json>;
     roles?: Array<{actor: string; evidence: string}>};
-  snapshot?: {scene: string; revision: string; worldRevision: string};
+  snapshot?: {scene: string; revision: string; worldRevision: string; contextDigest: string};
   /**
    * §163: the result was taken below a confidence gate from Jev's best score, or with an answer missing. `uncertain`
    * names each such gate with its score; `why` lists the kinds (`below_confidence_gate`, `jev_unanswered`, `nothing_executable`).
@@ -213,7 +214,8 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     packDecisionBatch(batch);
     calls++;
     const result = await withinCheckLease(input.lease, () => input.decision.decide(batch, input.lease));
-    input.record?.({purpose, version: batch.familyVersion, gates, status: result.status, state: batch.state, questions: batch.questions, answers: result.answers, failure: result.failure ?? null});
+    input.record?.({purpose, version: batch.familyVersion, gates, status: result.status, ms: result.elapsedMs ?? null,
+      state: batch.state, questions: batch.questions, answers: result.answers, failure: result.failure ?? null});
     return result;
   };
   const refine = async (purpose: string, state: Json, questions: DecisionBatch['questions']): Promise<DecisionResult | undefined> => {
@@ -279,7 +281,8 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       && currentSceneReceipts.some(receipt => receipt.kind === 'roll' && receipt.actor === option.action.actor && receipt.skill === option.action.skill
         && (receipt.decision == null || receipt.decision === option.action.decision))));
     if (!eligible.length) return {status: 'no_roll', needs: [], calls};
-    if (eligible.every(option => option.needs.length || option.parameters.some(parameter => !parameter.options.length))) {
+    const profilePreparable = (option: CheckOption) => Array.isArray(option.facts?.profile_requirements) && option.facts.profile_requirements.length > 0;
+    if (eligible.every(option => option.needs.length && !profilePreparable(option) || option.parameters.some(parameter => !parameter.options.length))) {
       const needs = [...new Set(eligible.flatMap(option => [...option.needs,
         ...option.parameters.filter(parameter => !parameter.options.length).map(parameter => `unbound:${parameter.name}`)]))];
       return {...unresolved(needs, eligible[0]), preparation: {decision: input.request.decision, needs}};
@@ -319,10 +322,10 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     if (simple.length > 12) {
       const retained = new Set<CheckOption>();
       let groupsUnresolved = false;
-      for (let offset = 0; offset < simple.length; offset += 64) {
-        const group = simple.slice(offset, offset + 64);
+      const groups = Array.from({length: Math.ceil(simple.length / 64)}, (_, index) => simple.slice(index * 64, index * 64 + 64));
+      const results = await Promise.all(groups.map(group => {
         // The host already excluded settled profiles. Retrieval never settles the other methods.
-        const result = await decide('profiles', {declaration: input.declaration, context: input.context, policy: POLICY,
+        return decide('profiles', {declaration: input.declaration, context: input.context, policy: POLICY,
           profiles: Object.fromEntries(group.map((option, index) => [optionAlias(index), actionView(option.action)]))}, [{
           key: 'profile', target: 'profiles relevant to any remaining declared method', type: 'choice',
           instructions: 'Rank the listed actor/skill profiles by fit for any still-unsettled part of the declared action. Several '
@@ -330,6 +333,9 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
             + 'Use unknown if no supplied profile implements a remaining method.',
           criteria: {...Object.fromEntries(group.map((option, index) => [optionAlias(index), actionView(option.action)])), unknown: 'No matching remaining profile.'},
         }]);
+      }));
+      for (const [groupIndex, group] of groups.entries()) {
+        const result = results[groupIndex];
         if ((probability(result, 'profile', 'unknown') ?? 0) >= gates.choice) continue;
         const answer = result.answers.profile;
         if (result.status !== 'complete' || answer?.status !== 'answered' || answer.type !== 'choice' || !answer.probabilities) {
@@ -401,7 +407,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
           judged.set(option.key, {index, result});
           const candidateQuestions = questions.filter(question => question.key === optionAlias(index) || question.key.startsWith(optionAlias(index) + '_'));
           const blocked = yes(result, optionAlias(index) + '_blocked');
-          if (!option.needs.length && option.parameters.every(parameter => parameter.options.length)
+          if ((!option.needs.length || profilePreparable(option)) && option.parameters.every(parameter => parameter.options.length)
             && candidateQuestions.every(question => yes(result, question.key) !== undefined)
             && blocked !== undefined && blocked < gate) {
             const chase = option.action.decision === 'chase:start', refineDependency = chase && (yes(result, optionAlias(index)) ?? 0) >= gate;
@@ -456,7 +462,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     if (!needed.length) return done({status: deferred ? 'deferred' : 'no_roll', needs: [], calls});
     // Missing source facts are not options for Jev to invent. §163: a needed check that cannot execute is a forced
     // no-roll naming what it lacks; the first needed check that can execute is the one selected.
-    const executable = (option: CheckOption) => !option.needs.length && option.parameters.every(parameter => parameter.options.length);
+    const executable = (option: CheckOption) => (!option.needs.length || profilePreparable(option)) && option.parameters.every(parameter => parameter.options.length);
     const lacking = (option: CheckOption) => [...option.needs, ...option.parameters.filter(parameter => !parameter.options.length).map(parameter => `unbound:${parameter.name}`)];
     const selected = needed.find(executable);
     for (const option of needed.slice(0, selected ? needed.indexOf(selected) : needed.length))
@@ -614,6 +620,13 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     if (selected.action.decision === 'chase:start' && selected.facts?.mobility === 'vehicle') {
       const roster = await selectChaseRoster({...selected, action}, input.declaration, input.context, gates, decide);
       return done({...roster, status: roster.status ?? 'unresolved', needs: roster.needs ?? ['chase_roster_unavailable'], calls});
+    }
+    if (profilePreparable(selected)) {
+      const requirements = selected.facts!.profile_requirements as unknown as import('./profile-readiness.ts').ProfileRequirement[];
+      const {profilePreparationNeeds} = await import('./profile-readiness.ts');
+      return done({status: 'unresolved', option: selected, needs: selected.needs, calls,
+        preparation: {decision: String(action.decision), mobility: 'foot', requirements,
+          needs: profilePreparationNeeds(requirements), action}});
     }
     return done({status: 'selected', option: selected, action, needs: [], calls});
   } catch (error) {

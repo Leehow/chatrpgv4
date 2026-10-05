@@ -1606,6 +1606,31 @@ anchors amend the historical default below; current authority fields remain thos
 
 ### 12.8 扩展侧职责（切片 2）
 
+**Foreground completion before queued lane jobs (2026-10-05).** The existing
+lane queue checks both `agentRunning` and `foregroundPending` before removing
+any queued job, including a freshly committed turn or initial preparation.
+The existing `agent_settled` wake resumes its unchanged FIFO; committed jobs
+still precede backfill. `agent_end` does not release this gate, because steering
+or recovery can continue the foreground run. Keep `coc:turn-committed` publication,
+payloads and all non-lane consumers unchanged. Idle session preparation may still
+start, and an already running job is not interrupted or reordered.
+
+The real V7 trace established the cause: committed lane jobs entered the shared
+kernel FIFO before terminal receipt accounting. `memory.job` took 21.684 seconds,
+followed by look/journal/voice/epithet work; the final receipt RPC waited 37.873
+seconds but itself took 29 ms. This gate prevents new queued lane work from
+creating that foreground tail. It does not claim to preempt jobs already queued
+in the kernel during startup, remove all historical read cost, or disable memory
+and NPC preparation. Existing queue tests that deliberately admitted committed
+work during an active run must assert deferred FIFO release at settled instead;
+retain their jobs, no-overlap, backfill and recovery assertions.
+
+[Starlette background tasks](https://starlette.dev/background/) and
+[Symfony's termination phase](https://symfony.com/doc/current/components/http_kernel.html#8-the-kernel-terminate-event)
+separate response completion from optional follow-up work. Their HTTP lifecycle
+differs from Pi's hooks; here the existing foreground/settled ownership is the
+authority, with no new scheduler, framework or method-name priority table.
+
 - kernel 扩展：`narrate` 成功后在总线上发 `coc:turn-committed {campaign, turn, commit, job_id, facts, rendered_text}`；交付替换完成后自己跑校验车道并 `table.warn`。车道出错只写遥测（`lane: verifier, ok: false`），不催守秘人，不阻塞。**§130（2026-09-22）**：连续性复核缺省同样改在交付之后跑，结论经 `table.warn`（`lane: "continuity-review"`）落到该回合记录并进下一回合胶囊。
 - memory 扩展（`extensions/memory`）：订阅 `coc:turn-committed`，`memory.job` → 零工具子会话（模型 `PI_COC_MEMORY_MODEL`，缺省为快模型设置、再缺省与桌子同模型，§37.10.1）→ `memory.submit`；失败一次重试，再失败 `memory.fail`。同一时刻只跑一个任务，后来的排队；进程退出时未完成的任务留给下次 `memory.job` 缺省派发。
 - 两条车道的 RPC（`memory.job`、`memory.submit`、`memory.fail`、`table.warn`）不带 `call_id`、不看回合状态；结果按 `turn` 落到对应回合记录，晚到也收。memory 扩展派任务时给显式 `turn`（刚提交的那一回合）；`memory.job` 的缺省派发只在重开进程后补漏时用。
@@ -12819,6 +12844,73 @@ timer rationale above: terminal notices belong inside the awaited settled hook.
 Failed mechanics reads retain their existing failure accounting and still permit
 the selected service notice; the rejected prose is never restored. No driver grace
 period or new provider request is part of completion.
+
+**Empty-output attribution (2026-10-05).** Foreground provider requests carry a
+process-local observation ordinal. The native pre-normalization stream hook
+accumulates constant-size counts and UTF-8 byte totals for text/refusal deltas,
+message content at item completion, and final response message content. The
+summary records whether a terminal event and its output list were observed, its closed type/status,
+numeric usage, and normalized assistant text counts/bytes before host replacement.
+It closes once at message end, with agent-end/superseding-request backstops.
+It stores no words, prompt, body, reasoning, arguments, headers or provider IDs.
+An absent terminal event is distinct from observed empty content. The existing
+`text_not_a_delivery` row additionally records `has_prose`, `can_close`,
+`closed_this_run`, phase and the observation ordinal. These fields attribute
+empty upstream output versus normalization loss versus host refusal; they do not
+grant a new delivery, retry or review path and never relax the guards. Correlation
+belongs only to the current message's actual observation, never the preceding
+request when an adapter omits its payload hook. Selected provider/model identity
+is separate from the observed physical foreground stream identity, so virtual
+routing does not erase raw metadata; absent raw observation leaves physical
+identity absent.
+
+**Terminal receipt accounting (2026-10-05).** `table.status` accepts the closed
+optional selector `projection: "receipts"`. It returns only `{turn, state,
+receipts}`, with canonical snapshot validation and the same active or completed
+campaign status gate as ordinary status. Without `expected_turn`, it reads the
+current cursor. A nonnegative integer `expected_turn` identifies the receipt
+owner, not a successor cursor: `ask` retains that current turn, while successful
+narration advances its cursor and may then change worldlines. An accepted narrated
+owner uses `expected_turn` and the exact `expected_commit` returned by that
+narration. The matching working-tree record is a fast path; after a worldline
+checkout, read only that canonical record path at the given immutable Git commit.
+Validate the commit's hexadecimal object-ID syntax and resolve the producer's
+existing abbreviated ID unambiguously to a commit; missing, ambiguous or noncommit
+objects fail closed. Use that resolved object for immutable reads. Validate the
+exact record turn, narrative closure and
+unsuperseded record. The committed blob precedes its on-disk self-commit annotation,
+so its container commit supplies that binding; do not demand a recursive commit
+hash inside its own contents. The result has `state: "committed"`. Without a
+commit anchor, only the current cursor may be read. This binds worldline-transition
+records without interpreting their plan object as a line ID. Unrelated owners or
+commit mismatches are revision conflicts; malformed selectors and bindings are
+invalid parameters. No historical scan or successor-as-old-turn substitution is
+allowed. The default full status shape and existing callers remain unchanged.
+
+The receipt branch runs before module loading, history/exchange scans, mechanics,
+glossary and candidate projection. Successful explicit `narrate`, `ask`, and
+embedded narration in `apply` use the canonical delivery's turn/commit binding for
+the host's final authoritative receipt accounting. Receipt deduplication,
+consequence pairing, residual telemetry and
+pending-NPC retirement remain in place. Nonterminal writes still refresh their
+full state; failed deliveries, implicit close, undelivered public cards, whole
+model batches and later-call refusal keep their existing paths. This is an
+internal read shape, not another Keeper verb or a source of rules effects.
+
+**RPC wait attribution (2026-10-05).** A bounded diagnostic row distinguishes
+time waiting in the existing client FIFO, time in its preparation hook, and time
+awaiting the dispatched RPC. It carries only a client-local call ordinal,
+method, enqueue time, monotonic durations and closed success/failure flags. Direct
+preparation reads are nested under their owning call with method/duration only,
+bounded to a small fixed count with overflow counted. No params, text, result,
+error message or provider data is retained. The existing telemetry sink receives
+the completed row without being awaited; sink failures cannot affect a call.
+Queue ordering, deadlines, cancellation, retry and disclosure authority do not
+change. This measures the missing boundary; it is not a latency repair.
+
+This separates intervals as described by [OpenTelemetry traces](https://opentelemetry.io/docs/concepts/signals/traces/),
+using the existing host telemetry and [Node's monotonic performance clock](https://nodejs.org/api/perf_hooks.html#performancenow).
+No tracing dependency, external exporter or new model request is introduced.
 
 **Acceptance.** A turn that settles a public check and then cannot be delivered produces exactly one
 `coc-mechanics` entry for that turn carrying the check, marked `undelivered`, alongside exactly one
@@ -31954,6 +32046,37 @@ saved driver/passenger state. The same blind live encounter remains the acceptan
 
 ### 159.12 Chase readiness consumes pinned actor profiles and skill ledgers (2026-10-01)
 
+**Role-specific preparation (2026-10-05).** Having a profile does not establish
+readiness. The issued catalog projects the existing execution predicates for each
+movement role: a foot participant needs `statBlockGaps` to be empty; a driver or
+passenger needs `participantGaps` to be empty. Driver skill, published vehicle
+statistics and registered passenger links keep their separate existing checks.
+The foot-only starter uses the foot predicate, not the attack target's combat
+predicate. Each missing profile requirement names the actor, selected role and
+missing paths with the existing creature/archetype completion guidance; no value
+is synthesized. Legacy `profile_available` alone cannot release a current
+role-specific preparation. The selector and fresh-read release consume exactly
+the required actor/role capability. Preparation retains already-bound choices;
+it does not choose a new player action or borrow another actor's numbers.
+NPC first-blow and pursue offers likewise use their combat and foot predicates;
+an incomplete profile is preparation, never an executable combat/chase offer.
+An already selected act must reach preparation before an attempted-effect write,
+and retain its original actor, target and method when completion resumes it.
+Writer: existing profile/skill/source preparation. Reader: kernel capability
+projection and host preparation holds. Actor: the same canonical resolver and
+admission pipeline, which still validate the actual state before settlement.
+
+For the NPC-owned first blow/pursuit, a way may carry its typed profile
+preparation while remaining non-executable. The NPC lane returns its already
+generated and bound act as a host-owned pending packet before writing even the
+attempted intention. The packet lives only in this player run; it is not campaign
+state. The host projects the exact missing completion through existing preparation
+tools and resumes only after fresh options establish the same actor, way, target
+and method as ready. It uses canonical dispatch/admission again and retires the
+packet once; no duplicate generation, substituted action or replayed effect.
+Delivery, cancellation or run replacement leaves unresolved preparation explicit
+and cannot carry an executable packet into another player turn.
+
 Live turn 44 registered the observed participants, but five table-created people had no mechanical
 profile. A roster's foot participants and passengers need those profiles too, not only its drivers.
 The vehicle catalog must expose profile_available for each named participant. After bounded role
@@ -32015,6 +32138,71 @@ unrelated write, biography refresh or ready skill cannot release it. Repeating t
 does not supply new evidence. Missing/provider-invalid answers do not trigger this semantic repair.
 
 ### 159.15 Routing does not carry a Cartesian check-parameter inventory (2026-10-01)
+
+**Decision allowance admission (2026-10-05).** A scope, compile, route, bind or
+check-selection lease is capped by the authoritative remaining deciding allowance
+as well as its existing per-operation deadline. The existing run, call and step
+ceilings do not increase. The operation uses the policy's clock; preparation reads
+and prescreen keep their separate budgets. An attempted scope call counts even
+when it throws before an answer is interpreted. Logical decision calls remain
+distinct from HTTP retries. Budget telemetry distinguishes time, calls and steps
+without including private context or changing execution authority.
+
+A response rejected specifically because this remaining allowance expired carries
+typed budget provenance through the decision artifact. It is not a provider
+outage or an unanswered semantic judgment. No intermediate adjudication is queued:
+the existing exhausted-budget branch composes once with settled receipts and
+unjudged candidates, then uses the established Keeper-carries continuation.
+Late complete answers remain discarded; genuine provider failures and user
+cancellation retain their own existing paths. Existing checks for the former
+independent fifteen-second lease/late-answer sequence must follow this revised
+deadline contract without removing their once-only composition assertions.
+
+Ordinary-profile retrieval groups on one immutable selection snapshot are
+independent. Start their unchanged bounded questions together and fold their
+results in inventory order, preserving each group's unknown exit, top-eight
+retrieval, logical call admission and all later need/binding/freshness gates.
+Do not cache these results across changed receipts: the questions read remaining
+actions and current context. Parallel retrieval neither settles multiple actions
+at once nor removes conditional prerequisites. The host still executes one
+authorized operation, rereads the state and reevaluates meaningful new facts.
+
+**Issued check inputs and execution freshness (2026-10-05).** A live long-campaign
+probe exposed full catalog/capsule reads inside the decision lease, followed by
+another full catalog read even after a completed negative social-method answer.
+That read changed a valid `no_roll` into `task_deadline` and prevented the next
+Psychology candidate from being judged. The existing read step already owns these
+inputs. Each issued check candidate therefore carries a host-owned reference to
+its immutable options/context/capsule snapshot, scoped to its run and exact
+campaign/turn/worldline/loop/declaration. Selection reads that issued input; it
+does not fetch a mutable latest catalog or reuse a previous semantic answer.
+
+The read producer publishes only coherent, successfully read snapshots. Initial
+reads, post-write refreshes and preparation refreshes use the same path. Failed,
+cancelled or late reads cannot install or silently fall back to stale inputs.
+Capsule/options campaign, turn, worldline and loop bindings must agree and their
+nonempty world revisions must match. Both producers hash active scene and scene
+labels in that revision. Their differently projected scene labels are not
+identity tokens and must not be compared as such. A retained proposal keeps its
+own issued generation; a prepared action uses the fresh readiness
+generation while retaining its original actor, target, method, roster and links.
+
+No selection-only postread is required. An executable selection carries scene,
+catalog revision, world revision and a digest of its exact resolve context into
+`selection_snapshot`. The canonical dispatcher's existing pre-execution check
+compares all of these and the input binding before `resolve`; its normal one-time
+stale refresh remains mandatory. This preserves the former context-digest check
+at the mutation boundary. Negative or deferred judgments do not grant effects.
+Deadlines, parameter/consent gates, Mod hooks, admission and kernel transactions
+are unchanged. Separate RPC reads are not an atomic database snapshot, and this
+change makes no stronger cross-process atomicity claim.
+
+External comparison: [Prisma optimistic concurrency control](https://www.prisma.io/docs/orm/v6/prisma-client/queries/transactions#optimistic-concurrency-control)
+supports carrying the read version and rejecting a changed record at mutation;
+[etcd transaction comparisons](https://etcd.io/docs/v3.6/learning/api/#transaction)
+likewise guard writes with revisions. Their database-level atomic checks exceed
+this host's existing separate RPC boundary; only input reuse and final validation
+are adopted here, with no dependency or transaction-protocol change.
 
 Live turn 47's route cannot pack after six NPCs have mechanical profiles. Read-only reproduction
 measures 70,531 state bytes and 94,673 request bytes; social, opposed and psychology each carry

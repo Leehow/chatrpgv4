@@ -1618,6 +1618,62 @@ export default function (pi: ExtensionAPI) {
 	} });
 
 	// ---- Telemetry --------------------------------------------------------
+	type MessageShape = { messages: number; output_text: number; refusal: number; other: number; text_bytes: number; refusal_bytes: number };
+	const emptyMessageShape = (): MessageShape => ({messages: 0, output_text: 0, refusal: 0, other: 0, text_bytes: 0, refusal_bytes: 0});
+	const streamRecord = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+	const textBytes = (value: unknown): number => typeof value === 'string' ? Buffer.byteLength(value, 'utf8') : 0;
+	function addMessageShape(shape: MessageShape, item: Record<string, unknown>): void {
+		if (item.type !== 'message') return;
+		shape.messages++;
+		for (const value of Array.isArray(item.content) ? item.content : []) {
+			const content = streamRecord(value);
+			if (content.type === 'output_text') { shape.output_text++; shape.text_bytes += textBytes(content.text); }
+			else if (content.type === 'refusal') { shape.refusal++; shape.refusal_bytes += textBytes(content.refusal); }
+			else shape.other++;
+		}
+	}
+	let observationOrdinal = 0;
+	let providerObservation: {
+		observation_request: number; turn: number | null; provider: string | null; model: string | null; started_at: string;
+		observed_provider?: string; observed_model?: string;
+		raw_stream_observed: boolean; delta_count: number; delta_bytes: number; refusal_delta_count: number; refusal_delta_bytes: number;
+		item_done: MessageShape; terminal_messages: MessageShape; terminal_observed: boolean; terminal_output_present: boolean;
+		terminal_type?: 'completed' | 'incomplete' | 'failed' | 'error'; terminal_status?: string;
+		usage?: {input: number | null; output: number | null; reasoning: number | null};
+	} | undefined;
+	function flushProviderObservation(close: 'message_end' | 'agent_end' | 'superseded', message?: {content?: unknown}): number | undefined {
+		const observation = providerObservation;
+		if (!observation) return;
+		providerObservation = undefined;
+		const texts = Array.isArray(message?.content) ? message.content.filter(value => streamRecord(value).type === 'text') : undefined;
+		void record({lane: 'provider-stream-summary', ...observation, close,
+			...(texts ? {normalized_text_blocks: texts.length, normalized_text_bytes: texts.reduce((sum, value) => sum + textBytes(streamRecord(value).text), 0)} : {})});
+		return observation.observation_request;
+	}
+	pi.on('provider_stream_event', event => {
+		const observation = providerObservation;
+		if (!observation) return;
+		// The SDK hook belongs to this foreground request; virtual selections emit the physical model here.
+		if (observation.observed_provider !== undefined && (observation.observed_provider !== event.provider || observation.observed_model !== event.model)) return;
+		observation.observed_provider = event.provider;
+		observation.observed_model = event.model;
+		observation.raw_stream_observed = true;
+		const raw = streamRecord(event.data);
+		if (raw.type === 'response.output_text.delta') { observation.delta_count++; observation.delta_bytes += textBytes(raw.delta); }
+		else if (raw.type === 'response.refusal.delta') { observation.refusal_delta_count++; observation.refusal_delta_bytes += textBytes(raw.delta); }
+		else if (raw.type === 'response.output_item.done') addMessageShape(observation.item_done, streamRecord(raw.item));
+		else if (raw.type === 'response.completed' || raw.type === 'response.incomplete' || raw.type === 'response.failed' || raw.type === 'error') {
+			observation.terminal_observed = true;
+			observation.terminal_type = raw.type === 'error' ? 'error' : raw.type === 'response.completed' ? 'completed' : raw.type === 'response.incomplete' ? 'incomplete' : 'failed';
+			const response = streamRecord(raw.response);
+			observation.terminal_output_present = Array.isArray(response.output);
+			observation.terminal_status = ['completed', 'incomplete', 'failed'].includes(String(response.status)) ? String(response.status) : 'unknown';
+			for (const item of Array.isArray(response.output) ? response.output : []) addMessageShape(observation.terminal_messages, streamRecord(item));
+			const usage = streamRecord(response.usage), details = streamRecord(usage.output_tokens_details);
+			const count = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+			observation.usage = {input: count(usage.input_tokens), output: count(usage.output_tokens), reasoning: count(details.reasoning_tokens)};
+		}
+	});
 
 	async function record(entry: Record<string, unknown>): Promise<void> {
 		const run = table?.skillRun;
@@ -5569,6 +5625,7 @@ export default function (pi: ExtensionAPI) {
 		watchdogTurnBinding = undefined;
 		// A new session gets a new gate: a closure handed out by the previous table can only fail, never touch this kernel.
 		bridgeGate = { open: true };
+		const timingGate = bridgeGate;
 		startupError = undefined;
 		try {
 			runtime = createRuntime({ owner: "session", home: cocHome(ctx.cwd),
@@ -5576,6 +5633,10 @@ export default function (pi: ExtensionAPI) {
 			const kernel = runtime.openKernel({
 				prepareCall: untoldSpanJudge,
 				hostOnlyParams: UNTOLD_HOST_PARAMS,
+				onCallTiming: timing => {
+					if (!timingGate.open || bridgeGate !== timingGate) return;
+					void record({lane: "kernel-rpc", ...timing}).catch(() => undefined);
+				},
 				onDiagnostic: (message) => {
 					// The kernel's stderr and restart notices can arrive after the session is disposed (the user
 					// quits pi while a lane is still flying), and after that every ctx getter throws
@@ -6779,6 +6840,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.on("message_end", async (event, ctx) => {
+		const observationRequest = event.message?.role === 'assistant' ? flushProviderObservation('message_end', event.message) : undefined;
 		// How long the Keeper's own call actually took. The two rows above bracket the request and the
 		// arrival of its headers, and neither carries a duration, so a turn with a six-minute hole in it
 		// could not be attributed to the model, the host or anything else -- the evidence simply was not
@@ -6961,7 +7023,9 @@ export default function (pi: ExtensionAPI) {
 			// there is no prose at all. Returning bare left whatever the model wrote on screen as if the
 			// Keeper had said it -- the one path by which raw model output reached the player without
 			// passing through narrate or ask. It leaves with the message, like the drafts below it.
-			if (!prose || !canClose || state.closedThisRun) return dropText(failedLeg ? "failed_leg_not_delivered" : "text_not_a_delivery");
+			if (!prose || !canClose || state.closedThisRun) return dropText(failedLeg ? "failed_leg_not_delivered" : "text_not_a_delivery",
+				{has_prose: Boolean(prose), can_close: canClose, closed_this_run: state.closedThisRun, phase: state.state,
+					...(observationRequest !== undefined ? {observation_request: observationRequest} : {})});
 			try {
 				const defense = state.interactionScope !== undefined && state.interactionScope !== 'world' ? undefined : await recoverStandingDefense(state);
 				if (defense) {
@@ -7189,6 +7253,11 @@ export default function (pi: ExtensionAPI) {
 	pi.on("agent_start", async () => { legMark = Date.now(); });
 	pi.on("before_provider_request", async (event, ctx) => {
 		const payload = event.payload as {model?: string; reasoning?: {effort?: string}; reasoning_effort?: string};
+		flushProviderObservation('superseded');
+		providerObservation = {observation_request: ++observationOrdinal, turn: table?.turn ?? null,
+			provider: ctx.model?.provider ?? null, model: ctx.model?.id ?? payload?.model ?? null, started_at: new Date().toISOString(),
+			raw_stream_observed: false, delta_count: 0, delta_bytes: 0, refusal_delta_count: 0, refusal_delta_bytes: 0,
+			item_done: emptyMessageShape(), terminal_messages: emptyMessageShape(), terminal_observed: false, terminal_output_present: false};
 		providerRequestAt = Date.now();
 		if (table?.skillRun) {
 			noteSkillProviderRound(table.skillRun, ctx.model?.provider ?? null, payload?.model ?? ctx.model?.id ?? null);
@@ -7221,6 +7290,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		await record({lane: "provider-request", at: new Date().toISOString(), model: payload?.model, provider: ctx.model?.provider,
+			observation_request: providerObservation.observation_request,
 			reasoning_effort: payload?.reasoning?.effort ?? payload?.reasoning_effort ?? null,
 			...(firstStepFields ?? {})});
 		// pi's runner replaces the payload with whatever a handler returns and leaves it alone on
@@ -7245,6 +7315,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_end", async () => {
+		flushProviderObservation('agent_end');
 		// §135.11.1: the run is over; a held drop whose calls never all answered is written now.
 		await flushBeside();
 		const state = table;

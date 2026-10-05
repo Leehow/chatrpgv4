@@ -135,11 +135,15 @@ test("real SDK queues retain committed FIFO, independent lanes and shutdown canc
 	api.events.emit("coc:foreground-pending", {});
 	for (const turn of [1, 2]) api.events.emit("coc:turn-committed", { campaign: "camp", turn });
 	await drain();
+	assert.deepEqual(first, [], "foreground reservation defers queued committed work");
+	assert.deepEqual(second, [], "the reservation applies to each independent lane");
+	await session.prompt("complete foreground input");
+	await drain();
 	assert.deepEqual(first, [1]);
 	assert.deepEqual(second, [1, 2], "a held lane cannot serialize an independent lane");
 	held.open();
 	await drain();
-	assert.deepEqual(first, [1, 2], "foreground reservation does not suppress committed FIFO");
+	assert.deepEqual(first, [1, 2], "settled foreground releases the retained committed FIFO");
 	assert.notEqual(one.signal, two.signal);
 	await session._extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
 	assert.equal(one.signal.aborted, true);

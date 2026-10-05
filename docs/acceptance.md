@@ -53,3 +53,14 @@ summary, not a count of all kernel settlements.
 
 Retained-record replay is transport evidence only. Real play remains the acceptance
 method above, and historical records are never rewritten by replay.
+
+The first `get_state` handshake uses the existing startup-ready timeout rather
+than the ordinary command acknowledgement timeout. A populated campaign may need
+more than ten seconds to open its scoped module and initialize extensions before
+RPC input is serviced; the retained Blood Road diagnostic measured 13.804 seconds
+to a successful handshake. Startup remains bounded by the existing thirty-second
+ready budget, and normal command/model/prompt acknowledgement limits are unchanged.
+Opening diagnostics require the campaign state, its matching history repository,
+locked Mods and its campaign-private module scope; a shared initial module alone
+does not reconstruct a long campaign's published graph. Missing-copy startup
+failures are environment evidence, never successful gameplay or Jev verdicts.

@@ -140,7 +140,7 @@ test("committed turns stay FIFO, precede remaining backfill and do not overlap a
 	assert.equal(maximum, 1);
 });
 
-test("an open agent run blocks only new backfill; agent_end is not agent_settled", async (t) => {
+test("an open agent run blocks queued jobs and backfill; agent_end is not agent_settled", async (t) => {
 	budget(t, "2");
 	const h = host(), jobs = [];
 	mount(h, async job => { jobs.push(job); });
@@ -149,10 +149,10 @@ test("an open agent run blocks only new backfill; agent_end is not agent_settled
 	h.publish();
 	h.commit(1);
 	await drain();
-	assert.deepEqual(jobs, [{ campaign: "camp", turn: 1 }]);
+	assert.deepEqual(jobs, [], "the committed job waits for foreground completion");
 	await h.hook("agent_end");
 	await drain();
-	assert.equal(jobs.length, 1);
+	assert.equal(jobs.length, 0);
 	await h.hook("agent_settled");
 	await drain();
 	assert.deepEqual(jobs.map(job => Boolean(job.backfill)), [false, true, true]);

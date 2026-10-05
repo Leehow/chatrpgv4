@@ -80,7 +80,8 @@ const KNOWN = 'produces_known', KNOWN_YES = 'known', KNOWN_NO = 'new';
  * book's name, category, weapon?}`, `weapon` its `weapons.json` profile when it is one.
  */
 export interface ActOption {value: string; label: string; write?: Row; price_id?: string | null; category?: string | null; weapon?: string}
-export interface ActWay {way: string; params: Record<string, ActOption[]>}
+export interface ActWay {way: string; params: Record<string, ActOption[]>; ready?: boolean;
+  preparation?: import('./profile-readiness.ts').ProfileRequirement[]}
 /** `npc.act.options`'s answer (§143.3). */
 export interface ActOptions {
   /** §180.5: `kind` is `npc` for a person, `creature` for a creature with a stat block. */
@@ -549,7 +550,10 @@ export interface NpcActOutcome {
    * re-ask, or the very line of a row under way since an earlier turn) -- that row's abandonment is its one write
    * (`abandoned`, `reason: "repeated"`), and the act is not done.
    */
-  status: 'bound' | 'unavailable' | 'refused' | 'failed' | 'dropped';
+  status: 'bound' | 'unavailable' | 'refused' | 'failed' | 'dropped' | 'preparation';
+  /** Ephemeral host-owned continuation; never serialized into campaign state or sent to a model. */
+  pending?: {requirements: import('./profile-readiness.ts').ProfileRequirement[];
+    ready(): Promise<boolean>; resume(deps: NpcActDeps): Promise<NpcActOutcome>};
   act?: string; way?: string; params?: Record<string, string>; ref?: string;
   opened?: boolean; continued?: string | null; abandoned?: string | null; reask?: boolean; draw?: string | null;
   /**
@@ -610,8 +614,8 @@ export const reaskLine = (who: string, row: Row): string => `${who} set out to "
  */
 export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActTrigger, heard: HeardInput = {}): Promise<NpcActOutcome> {
   const base = {npc: name, handle: null as string | null, trigger, receipts: [] as string[], calls: [] as NpcActOutcome['calls']};
-  const done = (outcome: NpcActOutcome): NpcActOutcome => {
-    deps.record({lane: 'run', event: 'npc_act', run: deps.runId, step: deps.stepId, npc: outcome.handle ?? outcome.npc, trigger, status: outcome.status,
+  const done = (outcome: NpcActOutcome, reporter = deps): NpcActOutcome => {
+    reporter.record({lane: 'run', event: 'npc_act', run: reporter.runId, step: reporter.stepId, npc: outcome.handle ?? outcome.npc, trigger, status: outcome.status,
       ...heard,
       ...(outcome.reason ? {reason: outcome.reason} : {}), ...(outcome.act !== undefined ? {act: outcome.act} : outcome.droppedAct !== undefined ? {act: outcome.droppedAct} : {}),
       ...(outcome.way ? {way: outcome.way, params: outcome.params ?? {}} : {}), ...(outcome.ref ? {ref: outcome.ref} : {}),
@@ -768,26 +772,46 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActT
   const produced = writing.produced ? {name: writing.produced.name, source: writing.produced.source, ...(writing.produced.record ? {record: writing.produced.record.value} : {})} : null;
   const summary = {...(givenUp ? {droppedAct: act} : {act}), way: bound.way, params: Object.fromEntries(Object.entries(bound.params).map(([key, option]) => [key, option.value])), ref,
     opened: !continued, continued: continued ? ref : null, reask, draw: writing.produced?.record?.weapon ?? null, ...told, produced};
-  // 6. The clerk executes, in order; a refused write stops the act and hands what is left to the Keeper.
-  const receipts: string[] = [], calls: NpcActOutcome['calls'] = [];
-  let passed = false, abandoned: string | null = null;
-  for (const [index, call] of writes.entries()) {
-    // §143.19: what the act brings out rides on the basis of the call that carries it; the host marks it from there.
-    const carried = Object.fromEntries(Object.entries(call.carries ?? {}).map(([key, value]) => [key, {npc: base.handle, ...object(value)}]));
-    const basis = {npc_act: {npc: base.handle, trigger, act, way: bound.way, params: summary.params, ref, reason: bound.reason,
-      ...(bound.same ? {same: {ref: text(bound.same.row.ref), confidence: bound.same.confidence}} : {}), ...(reask ? {reask: true} : {})},
-      ...carried} as Json;
-    const written = await deps.write(call, basis, index + 1);
-    calls.push({tool: call.tool, call_id: written.callId, status: written.status, ...(written.refusal ? {refusal: written.refusal} : {})});
-    receipts.push(...written.receipts);
-    if (!written.ok) return done({...base, ...summary, status: 'refused', receipts, calls, reason: written.refusal ?? written.status, passedTurn: passed});
-    const effects = array(object(call.args).effects).map(object);
-    if (effects.some(effect => effect.spend_turn === true || effect.action === 'hold') || (call.tool === 'resolve' && FIGHT_WAYS.has(bound.way))) passed = true;
-    if (effects.some(effect => effect.outcome === 'abandoned')) abandoned = ref;
+  // 6. A missing profile holds the already bound act before even its attempted effect is written.
+  const execute = async (writer: NpcActDeps): Promise<NpcActOutcome> => {
+    const receipts: string[] = [], calls: NpcActOutcome['calls'] = [];
+    let passed = false, abandoned: string | null = null;
+    for (const [index, call] of writes.entries()) {
+      // §143.19: what the act brings out rides on the basis of the call that carries it; the host marks it from there.
+      const carried = Object.fromEntries(Object.entries(call.carries ?? {}).map(([key, value]) => [key, {npc: base.handle, ...object(value)}]));
+      const basis = {npc_act: {npc: base.handle, trigger, act, way: bound.way, params: summary.params, ref, reason: bound.reason,
+        ...(bound.same ? {same: {ref: text(bound.same.row.ref), confidence: bound.same.confidence}} : {}), ...(reask ? {reask: true} : {})},
+        ...carried} as Json;
+      const written = await writer.write(call, basis, index + 1);
+      calls.push({tool: call.tool, call_id: written.callId, status: written.status, ...(written.refusal ? {refusal: written.refusal} : {})});
+      receipts.push(...written.receipts);
+      if (!written.ok) return done({...base, ...summary, status: 'refused', receipts, calls, reason: written.refusal ?? written.status, passedTurn: passed}, writer);
+      const effects = array(object(call.args).effects).map(object);
+      if (effects.some(effect => effect.spend_turn === true || effect.action === 'hold') || (call.tool === 'resolve' && FIGHT_WAYS.has(bound.way))) passed = true;
+      if (effects.some(effect => effect.outcome === 'abandoned')) abandoned = ref;
+    }
+    if (givenUp)
+      return done({...base, ...summary, status: 'dropped', dropped: ref, receipts, calls, abandoned, reason: 'repeated', ...(options.in_session ? {passedTurn: passed} : {})}, writer);
+    return done({...base, ...summary, status: 'bound', receipts, calls, abandoned, reason: bound.reason, ...(options.in_session ? {passedTurn: passed} : {})}, writer);
+  };
+  const requirement = options.ways.find(entry => entry.way === bound.way)?.preparation;
+  if (bound.judged && requirement?.length) {
+    const ready = async (): Promise<boolean> => {
+      if (deps.signal.aborted) return false;
+      const current = await deps.call('npc.act.options', {name}) as unknown as ActOptions;
+      const currentWay = current.ways.find(entry => entry.way === bound.way);
+      return current.npc.handle === options.npc.handle && current.place === options.place
+        && current.in_session === options.in_session && !!currentWay && currentWay.ready === true && !currentWay.preparation?.length
+        && Object.entries(bound.params).every(([key, value]) => currentWay.params[key]?.some(option => option.value === value.value)
+          || key === 'weapon' && !!writing.produced?.record?.weapon && value.value === writing.produced.record.weapon);
+    };
+    const pending: NonNullable<NpcActOutcome['pending']> = {requirements: requirement, ready, resume: async (writer: NpcActDeps) => {
+      if (!await ready()) return {...base, ...summary, status: 'preparation' as const, pending, reason: 'profile_preparation', receipts: [], calls: []};
+      return execute(writer);
+    }};
+    return done({...base, ...summary, opened: false, status: 'preparation', pending, reason: 'profile_preparation'});
   }
-  if (givenUp)
-    return done({...base, ...summary, status: 'dropped', dropped: ref, receipts, calls, abandoned, reason: 'repeated', ...(options.in_session ? {passedTurn: passed} : {})});
-  return done({...base, ...summary, status: 'bound', receipts, calls, abandoned, reason: bound.reason, ...(options.in_session ? {passedTurn: passed} : {})});
+  return execute(deps);
 }
 
 /**

@@ -64,6 +64,7 @@ import { firstStepCallCapMs, firstStepThinkingEnabled } from '../../extensions/k
 import { createNpcActLane, type NpcActPort } from './npc-act.ts';
 import { createHistoryQueryLane, type HistoryQueryPort } from './history-query.ts';
 import { isNpcAct, runNpcAct, runNpcScan, struckReceipts, type NpcActDeps, type NpcActOutcome } from './npc-act-step.ts';
+import {profilePreparationNeeds} from './profile-readiness.ts';
 import { SHADOW_FIELDS, type DamageBandRow, type TimeBandRow } from './band-shadow-domain.ts';
 import { readBandRows } from '../../extensions/kernel/band-shadow.ts';
 import { bandMinConfidence } from '../../extensions/kernel/band-recovery.ts';
@@ -72,7 +73,7 @@ import { issuedSection, readCandidateBodies, type CandidateBodies } from './cand
 import { firstSightStep, type FirstSightViewPort } from './first-sight-step.ts';
 import { IMPROVISATION_GUIDANCE, CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
 import {
-  CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, interpretRoute, missedUnlocks, npcScanDue, overRun, PROPOSED_REASON, ROUTE_FAMILY,
+  CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, exhaustedBy, interpretRoute, missedUnlocks, npcScanDue, overRun, PROPOSED_REASON, ROUTE_FAMILY,
   type BindRecord, type Budget, type Candidate, type DeferredStep, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
 } from './step-policy.ts';
 
@@ -496,6 +497,13 @@ interface HistoryPrefetch {key: string; query: string; objective: string; reused
 /** §158.4: the kernel extension's port for the previous delivery's post review still running (`coc:owed-review`). */
 interface OwedReviewPort {campaign: string; watch(): {in_flight: boolean; turn?: number; landed(): boolean}}
 interface RunState {
+  checkInputs?: Map<string, {options: Row; capsule: Row; snapshot: NonNullable<CheckSelection['snapshot']>}>;
+  checkInputOrdinal?: number;
+  checkInputEpoch?: number;
+  checkInputsClosed?: boolean;
+  pendingNpcActs?: Map<string, NpcActOutcome>;
+  npcPreparationWaitStep?: Map<string, string>;
+  npcPreparationsClosed?: boolean;
   interactionScope?: InteractionScope;
   /** The Keeper read historical reference itself this player input (retained across scene refreshes). */
   historyAttempted?: boolean;
@@ -697,6 +705,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   // leases); without it every one of them reads the host's real clock and timers, as before. `now` alone stays the policy's.
   const clock = options.clock, stepNow = clock ? () => clock.now() : () => Date.now(), leaseClock = clock ? {clock} : {};
   const now = options.now ?? stepNow;
+  const decisionDeadline = (run: RunState): number => stepNow() + Math.min(15_000,
+    Math.max(0, (run.decision?.maxJevMs ?? run.prescreenAllowanceMs) - (run.decision?.jevMs ?? 0)));
   /** §135.25: the clerk steps the last run's budget deferred, for the next run's first note to the Keeper (session memory). */
   let carried: {campaign?: string; run: string; turn?: number; deferred: DeferredStep[]} | undefined;
   const record = (row: Record<string, unknown>) => {
@@ -758,11 +768,27 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
   };
   /** §163 (amends §159.10): a preparation still pending when the turn is delivered was narrated by judgement: a forced no-roll. */
-  const recordUnpreparedChecks = (run: RunState) => recordForced(run, (run.pendingCheckPreparations ?? []).map(entry =>
-    forcedResolution({family: 'check-preparation', subject: entry.candidate, uncertain: entry.needs, chosen: {outcome: 'no_roll'}, why: 'preparation_incomplete'})));
+  const recordUnpreparedChecks = (run: RunState) => {
+    run.checkInputsClosed = true;
+    run.checkInputs?.clear();
+    recordForced(run, (run.pendingCheckPreparations ?? []).map(entry =>
+      forcedResolution({family: 'check-preparation', subject: entry.candidate, uncertain: entry.needs, chosen: {outcome: 'no_roll'}, why: 'preparation_incomplete'})));
+    for (const outcome of run.pendingNpcActs?.values() ?? []) {
+      recordForced(run, [forcedResolution({family: 'check-preparation', subject: `${outcome.npc}'s retained act`,
+        uncertain: profilePreparationNeeds(outcome.pending!.requirements), chosen: {outcome: 'no_roll'}, why: 'preparation_incomplete'})]);
+      record({lane: 'run', event: 'npc_act', run: run.runId, npc: outcome.handle, trigger: outcome.trigger,
+        status: 'unmet_preparation', act: outcome.act, way: outcome.way, params: outcome.params});
+    }
+    run.pendingNpcActs?.clear();
+    run.npcPreparationWaitStep?.clear();
+    run.npcPreparationsClosed = true;
+  };
   /** The kernel reads a step needs and the candidates they issue. Read-only. */
-  async function tableReads(run: RunState): Promise<{capsule: Row; status: Row; table: ReturnType<typeof readTable>; candidates: () => Candidate[]; rows: () => FeatureRows;
+  async function tableReads(run: RunState, signal?: AbortSignal): Promise<{capsule: Row; status: Row; table: ReturnType<typeof readTable>; candidates: () => Candidate[]; rows: () => FeatureRows;
+    selectionSnapshot?: NonNullable<CheckSelection['snapshot']>;
     consequences: () => ConsequenceCandidate[]}> {
+    const epoch = run.checkInputEpoch ?? 0;
+    try {
     await stepsReady;
     const [capsule, status, applyOptions, resolveOptions, bands] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options'), bandReads()]);
     const table = readTable(capsule, status);
@@ -799,25 +825,57 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const fighter = npcTurn ? await call('table.look', {focus: 'npc', name: text(fight.turn_of)}).catch(() => ({})) : undefined;
     // The pending choice this input answers is the one open when the run began (§135.2); one opened later is the Keeper's.
     run.answering ??= [text(object(object(resolveOptions.context).pending_choice).name), text(object(object(capsule.turn).pending_choice).name)].filter(Boolean);
-    return {capsule, status, table,
-      candidates: () => buildCandidates({capsule, applyOptions, resolveOptions, located: run.located, answering: run.answering, bands, ...(fighter ? {fighter} : {})}, run.rawInput),
+    const owner = object(context._binding), capsuleOwner = object(capsule._context);
+    const coherent = object(resolveOptions.selection).owner === 'jev' && object(resolveOptions.selection).version === 1
+      && !!validateCheckOptions(object(resolveOptions.selection).options)
+      && ['campaign', 'turn', 'worldline', 'loop'].every(key => owner[key] !== undefined && owner[key] === capsuleOwner[key])
+      && owner.campaign === bridge?.campaign && context.declared_action === run.rawInput
+      && !!text(capsuleOwner.task_world_revision) && capsuleOwner.task_world_revision === resolveOptions.world_revision;
+    if (signal?.aborted || run.checkInputsClosed || currentRunId !== run.runId) throw new ContractError('check_catalog_binding_changed');
+    if (!coherent) { run.checkInputs?.clear(); run.checkInputEpoch = epoch + 1; }
+    const snapshot = {scene: text(context.scene) || table.context.scene, revision: text(resolveOptions.revision),
+      worldRevision: text(resolveOptions.world_revision), contextDigest: digest(context)};
+    const freeze = (value: any): any => { if (value && typeof value === 'object') { for (const child of Object.values(value)) freeze(child); Object.freeze(value); } return value; };
+    const input = coherent ? freeze(structuredClone({options: resolveOptions, capsule, snapshot})) : undefined;
+    const generation = `${run.runId}:checks:${run.checkInputOrdinal = (run.checkInputOrdinal ?? 0) + 1}`;
+    return {capsule, status, table, ...(input ? {selectionSnapshot: input.snapshot} : {}),
+      candidates: () => {
+        if (signal?.aborted || run.checkInputsClosed || currentRunId !== run.runId
+          || input && epoch !== (run.checkInputEpoch ?? 0)) { run.checkInputs?.clear(); return []; }
+        if (input) { run.checkInputs ??= new Map(); run.checkInputs.set(generation, input); }
+        return buildCandidates({capsule: input?.capsule ?? capsule, applyOptions, resolveOptions: input?.options ?? resolveOptions,
+          located: run.located, answering: run.answering, bands, ...(fighter ? {fighter} : {})}, run.rawInput)
+          .map(candidate => input && candidate.checkOwner === 'jev' && candidate.unbound.some(value => value.binder === 'resolve-selection')
+            ? {...candidate, checkInput: generation} : candidate);
+      },
       // §135.30: the compile's feature rows, from the same reads.
       rows: () => compileRows({capsule, applyOptions, resolveOptions}),
       // SL-76: the three consequence classes, from the same reads (never merged into `candidates()`'s own list).
       consequences: () => stepsMode() === 'off' ? [] : buildConsequenceCandidates({capsule, applyOptions, resolveOptions}, run.rawInput)};
+    } catch (error) { run.checkInputs?.clear(); run.checkInputEpoch = (run.checkInputEpoch ?? 0) + 1; throw error; }
   }
   /** The fresh read after a write: what the policy folds in (`fresh`), and the turn's receipts as rows (§138.10). */
-  const freshOf = (run: RunState, stepId?: string) => tableReads(run).then(async read => {
+  const freshOf = (run: RunState, stepId?: string, signal?: AbortSignal) => tableReads(run, signal).then(async read => {
     const candidates = read.candidates();
+    for (const [key, outcome] of run.pendingNpcActs ?? []) {
+      if (stepId && run.npcPreparationWaitStep?.get(key) === stepId) continue;
+      if (!await outcome.pending!.ready().catch(() => false)) continue;
+      if (run.npcPreparationsClosed || run.pendingNpcActs?.get(key) !== outcome) continue;
+      candidates.unshift({key: `npc_act:prepared:${key}`, verb: 'resolve', family: 'npc_act', source: 'run',
+        label: `${outcome.npc}'s prepared act resumes`, clerk: 'npc_act', forced: true,
+        bound: {npc: outcome.npc, resume: key}, unbound: []});
+    }
     run.issued = candidates;
     // §143.28: a blow that struck a person the fight hold held back rides on the fresh read (the policy owes them the scan).
     const struck = await struckHeld(run, stepId);
+    if (signal?.aborted || run.checkInputsClosed || currentRunId !== run.runId) { run.checkInputs?.clear(); return undefined; }
     // SL-78: `consequences` rides on every fresh read (never called unless something reads it) so the execute-mode
     // inline route (`routeConsequencesAfterWrite`, below) can build D1 candidates off the same reads `freshOf`
     // already made, with no extra kernel round trip. `shadow`/`off` never call it, so their own use of `freshOf`
     // (unpacking only `context`/`candidates`/`rows`) is exactly what it was before this addition.
     // §138.10: the turn's receipts ride beside the fresh read, so a band the clerk named reads the kernel's roll back.
-    return {fresh: {context: read.table.context, candidates, rows: read.rows(), consequences: read.consequences, ...(struck.length ? {struck} : {})},
+    return {fresh: {context: read.table.context, candidates, rows: read.rows(), consequences: read.consequences,
+      selectionSnapshot: read.selectionSnapshot, ...(struck.length ? {struck} : {})},
       receipts: array(read.status.receipts) as Row[]};
   }, () => undefined);
 
@@ -951,7 +1009,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           run.owedWatched = true;
           let owedWatch: ReturnType<OwedReviewPort['watch']> | undefined;
           try { owedWatch = owedPort?.watch(); } catch { owedWatch = undefined; }
-          let current=await tableReads(run);
+          let current=await tableReads(run, invocation.signal);
+          let refreshAfterPrescreen = false;
           let {capsule, table, candidates, rows, consequences}=current;
           let bindingArtifact: Extract<StepArtifact, {kind: 'read'}>['binding'];
           if (table.scope && table.readSet && table.binding) {
@@ -987,6 +1046,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
               ...(bridge.moduleId&&bridge.runtime?.sourceInfo&&bridge.runtime?.sourceText?{source:{moduleId:bridge.moduleId,runtime:bridge.runtime}}:{}),env: options.env as NodeJS.ProcessEnv,
               record: event => { events.push(event); record({...event, run: run.runId, step: invocation.stepId}); },
               byteBudget: PRESCREEN_BYTES, deadlineAt: stepNow() + allowance, providerBudget: run.providerBudget, ...leaseClock});
+            refreshAfterPrescreen = true;
             const prepared = events.find(event => event.event === 'prepared'), fallback = events.find(event => event.event === 'fallback');
             // A prescreen that fell back still spent its calls (§124.11): gate #5's read said 0 while 12 had run.
             calls = Number((prepared ?? fallback)?.jev_calls ?? 0);
@@ -1015,14 +1075,22 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           if (owedWatch?.in_flight) {
             const landed = owedWatch.landed();
             record({lane: 'run', event: 'owed_review', run: run.runId, stepId: invocation.stepId, landed, turn: owedWatch.turn ?? null});
-            if (landed) { current = await tableReads(run); ({capsule, table, candidates, rows, consequences} = current); }
+            if (landed) { current = await tableReads(run, invocation.signal); ({capsule, table, candidates, rows, consequences} = current); }
+          }
+          if (refreshAfterPrescreen) { current = await tableReads(run, invocation.signal); ({capsule, table, candidates, rows, consequences} = current); }
+          if (invocation.signal.aborted || run.checkInputsClosed || currentRunId !== run.runId) { run.checkInputs?.clear(); throw new ContractError('check_catalog_binding_changed'); }
+          if (table.scope && table.readSet && run.scope && table.scope.campaign === run.scope.campaign && table.scope.worldline === run.scope.worldline && table.scope.loop === run.scope.loop) {
+            run.readSet = table.readSet;
+            bindingArtifact = {scope: run.scope, readSet: run.readSet, ...(run.intent ? {intent: run.intent} : {})};
           }
           // Candidates are built after the locate, so a located clue or handout is among them.
-          const fresh = {context: table.context, candidates: candidates(), rows: rows()};
+          const fresh = {context: table.context, candidates: candidates(), rows: rows(),
+            ...(current.selectionSnapshot ? {selectionSnapshot: current.selectionSnapshot} : {})};
           run.issued = fresh.candidates;
           // §135.20: the bodies of the issued candidates, which the Keeper would otherwise look or lookup, ride on the read
           // artifact and reach the Keeper in the run's packet (a packet of their own when the prescreen did not run).
           const issued = await readCandidateBodies({candidates: fresh.candidates, capsule, call}).catch(() => undefined);
+          if (invocation.signal.aborted || run.checkInputsClosed || currentRunId !== run.runId) { run.checkInputs?.clear(); throw new ContractError('check_catalog_binding_changed'); }
           packet = withIssuedBodies(packet, issued);
           // §135.31: a person whose card went to the Keeper as an issued body is not carried again this run.
           for (const entry of issued?.bodies ?? []) if (entry.family === 'person') for (const name of [entry.name, text(entry.body.id)]) if (name) run.shown.people.add(name);
@@ -1131,8 +1199,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §151.5: an accepted `propose` holds the rest of its response until the proposed step has run.
     if (queued && !toolResult.isError) batch.proposed = true;
     // An accepted delivery is terminal. Collect its final receipts without issuing another action space.
-    if (delivery) rememberReceipts(run, await quiet('table.status'));
-    const fresh = !delivery && !toolResult.isError && WRITE_VERBS.has(proposal.operation) ? (await freshOf(run, stepId))?.fresh : undefined;
+    if (delivery) {
+      const details = object(toolResult.details), owner = typeof details.turn === 'number' && Number.isInteger(details.turn) && details.turn >= 0
+        ? details.turn : run.turn;
+      rememberReceipts(run, await quiet('table.status', {projection: 'receipts',
+        ...(owner !== undefined && Number.isInteger(owner) && owner >= 0 ? {expected_turn: owner} : {}),
+        ...(typeof details.commit === 'string' && details.commit.trim() ? {expected_commit: details.commit} : {})}));
+    }
+    const fresh = !delivery && !toolResult.isError && WRITE_VERBS.has(proposal.operation) ? (await freshOf(run, stepId, signal))?.fresh : undefined;
     // SL-78: the Keeper's own settled write (never merely proposed) is a point a listed D1 class can newly clear
     // from, the same as a clerk write. `off`/`shadow` return at once inside `routeConsequencesAfterWrite`.
     if (fresh) await routeConsequencesAfterWrite(run, fresh, signal, stepId).catch(() => undefined);
@@ -1208,11 +1282,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         const snapshot = object(object(write.basis).selection_snapshot);
         if (tool === 'resolve' && typeof snapshot.revision === 'string' && typeof snapshot.worldRevision === 'string') {
           const current = object(await kernel('table.resolve.options', {campaign}));
-          if (current.revision !== snapshot.revision || current.world_revision !== snapshot.worldRevision) {
+          const binding = object(object(current.context)._binding);
+          if (current.revision !== snapshot.revision || current.world_revision !== snapshot.worldRevision
+            || typeof snapshot.contextDigest !== 'string' || digest(current.context) !== snapshot.contextDigest
+            || object(current.context).scene !== snapshot.scene || object(current.context).declared_action !== run.rawInput
+            || binding.campaign !== campaign || binding.turn !== run.turn || binding.worldline !== run.scope?.worldline || binding.loop !== run.scope?.loop) {
             staleCheck = true;
             record({lane: 'check-selection', event: 'execution_stale', run: run.runId, step: invocation.stepId,
               expected: snapshot, actual: {revision: current.revision ?? null, worldRevision: current.world_revision ?? null},
-              context: current.context ?? null});
+              context_digest: digest(current.context)});
             throw new ContractError('check_selection_stale');
           }
         }
@@ -1258,7 +1336,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       if (needs.length) {
         const preparation = {decision:'combat:attack', needs};
         record({lane:'check-preparation', run:run.runId, step:invocation.stepId, ...preparation});
-        const fresh = (await freshOf(run, invocation.stepId))?.fresh;
+        const fresh = (await freshOf(run, invocation.stepId, invocation.signal))?.fresh;
         return {status:'refused' as const, artifact:{kind:'execute', executed:{ok:false, summary:{refusal:'check_preparation', preparation,
           action:object(args.action), bindings:array(params.bindings)}}, ...(fresh ? {fresh} : {})}};
       }
@@ -1280,7 +1358,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const recovery = object(result.band_recovery), bandLine = text(recovery.band)
       ? `band: ${text(recovery.name)} ${recovery.field === 'archetype' ? 'pinned as' : 'read as the profile'} ${text(recovery.band)} (${text(recovery.table)}, confidence ${Number(recovery.confidence ?? 0).toFixed(2)}); the host answered the kernel's needs before this write. To rule otherwise, settle it with your own operation.`
       : undefined;
-    const read = await freshOf(run, invocation.stepId);
+    const read = await freshOf(run, invocation.stepId, invocation.signal);
     // §138.10: a band the clerk named carries the kernel's roll on its record, read back from the turn's receipts.
     const rolled = bandRolls(bindings, ok ? packet.receipts : [], read?.receipts ?? []);
     // A refused write landed no band: its line would tell the Keeper to rule otherwise on nothing.
@@ -1334,6 +1412,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         try { return await jev.decide(batch, lease); } finally { lease.close(); }
       }} : {}),
       write: async (planned, basis) => {
+        if (run.npcPreparationsClosed || invocation.signal.aborted)
+          return {ok: false, callId: null, receipts: [], status: 'refused', refusal: 'npc_preparation_closed'};
         const dispatched = await dispatchClerk(run, {tool: planned.tool, args: planned.args, clerk: 'npc_act', basis, bindings: [] as Json},
           {stepId: invocation.stepId, operationId: `${invocation.operationId}/w${++writes}`, signal: invocation.signal});
         if (dispatched.unavailable) return {ok: false, callId: null, receipts: [], status: 'unavailable', refusal: 'operation_gateway_unavailable'};
@@ -1347,7 +1427,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     let outcomes: NpcActOutcome[];
     // §143.25: the people a pending fight action held back from this scan (never an npc_act row: they did not act).
     const held: Json[] = [];
-    if (trigger === 'turn') {
+    const resume = text(candidate.bound.resume), retained = run.pendingNpcActs?.get(resume);
+    if (resume) {
+      if (!retained?.pending) return {status: 'refused' as const, reason: 'npc_preparation_absent',
+        artifact: {kind: 'execute', executed: {ok: false, summary: {refusal: 'npc_preparation_absent'}}}};
+      run.pendingNpcActs!.delete(resume);
+      run.npcPreparationWaitStep?.delete(resume);
+      outcomes = [await retained.pending.resume(deps).catch(error => ({...retained, pending: undefined,
+        status: 'refused' as const, reason: `npc_preparation_resume_failed: ${String(error).slice(0, 160)}`}))];
+    } else if (trigger === 'turn') {
       const npc = text(candidate.bound.npc);
       run.npcSeen.add(npc);
       outcomes = [await runNpcAct(deps, npc, 'turn')];
@@ -1362,6 +1450,16 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         // §143.25: a declared fight action no clerk step has settled yet.
         ...(Object.hasOwn(object(candidate.bound), 'fight_pending') ? {fightPending: {named: array(pending.named).map(text).filter(Boolean)}} : {}), held: held as Row[]});
     }
+    if (run.npcPreparationsClosed) outcomes = outcomes.map(outcome => outcome.pending
+      ? {...outcome, pending: undefined, status: 'refused' as const, reason: 'npc_preparation_closed'} : outcome);
+    for (const outcome of outcomes) if (outcome.pending && !run.npcPreparationsClosed) {
+      run.pendingNpcActs ??= new Map();
+      run.pendingNpcActs.set(`${outcome.handle}:${outcome.ref}`, outcome);
+      run.npcPreparationWaitStep ??= new Map();
+      run.npcPreparationWaitStep.set(`${outcome.handle}:${outcome.ref}`, invocation.stepId);
+      run.npcSeen.add(outcome.npc);
+      if (outcome.handle) run.npcSeen.add(outcome.handle);
+    }
     // What the table's acts did this turn reaches the Keeper beside the clerk's other steps (§135.11's clerk_did).
     for (const outcome of outcomes) if (outcome.status !== 'failed')
       run.clerkDid.push({step: invocation.stepId, operation: 'npc_act', label: `${outcome.handle ?? outcome.npc}: ${outcome.act ?? '(no act)'}`, clerk: 'npc_act',
@@ -1369,12 +1467,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         result: {npc: outcome.handle ?? outcome.npc, trigger: outcome.trigger, act: outcome.act ?? null, way: outcome.way ?? null, params: (outcome.params ?? {}) as Json,
           ref: outcome.ref ?? null, continued: outcome.continued ?? null, abandoned: outcome.abandoned ?? null, reason: outcome.reason ?? null} as Json});
     // §143.20: a scan that ran nobody wrote nothing (the scan now runs every turn), so there is nothing to read again.
-    const read = outcomes.length ? await freshOf(run, invocation.stepId) : undefined;
+    const read = outcomes.length ? await freshOf(run, invocation.stepId, invocation.signal) : undefined;
     // §143.28: the hold this scan put is the run's hold now (a scan that held no one ends any earlier one), with the receipts
     // already on the table: a blow after it -- whoever settles the punch the clerk did not -- lets them act once.
     if (trigger !== 'turn') run.npcHeld = held.length
       ? {names: held.map(value => text(object(value).npc)).filter(Boolean), before: run.turnReceipts.map(receipt => text(receipt.id)).filter(Boolean)} : undefined;
+    const waiting = !!resume && outcomes.every(outcome => outcome.status === 'preparation' && outcome.calls.length === 0 && !!outcome.pending)
+      && run.pendingNpcActs?.get(resume)?.pending === retained?.pending;
     return {status: 'ok' as const, artifact: {kind: 'execute', executed: {ok: true, summary: {origin: 'policy', clerk: 'npc_act', trigger,
+      ...(waiting ? {npc_preparation_pending: candidate.key} : {}),
       acts: outcomes.map(outcome => ({npc: outcome.handle ?? outcome.npc, status: outcome.status, way: outcome.way ?? null, receipts: outcome.receipts})),
       ...(held.length ? {held} : {})} as Json},
     ...(read ? {fresh: read.fresh} : {})}};
@@ -1484,18 +1585,19 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const question = object(request.question);
     if (request.purpose === 'interaction-scope') {
       let scope = interpretInteractionScope(undefined, 0);
+      let attemptedCalls = 0;
       if (jev && bridge?.campaign) {
         const lease = new TaskLease({owner: 'interaction-scope', goal: 'Read whether this user authorizes fictional action',
-          scope: {owner: run.runId, campaign: bridge.campaign, audience: 'keeper'}, readSet: [], capabilities: ['decision'], signal: request.signal,
-          budget: {deadlineAt: Date.now() + 15_000, remainingInputTokens: 30_000, remainingOutputTokens: 3000, remainingCostUsd: 1, remainingActions: 1}});
+          scope: {owner: run.runId, campaign: bridge.campaign, audience: 'keeper'}, readSet: [], capabilities: ['decision'], signal: request.signal, ...leaseClock,
+          budget: {deadlineAt: decisionDeadline(run), remainingInputTokens: 30_000, remainingOutputTokens: 3000, remainingCostUsd: 1, remainingActions: 1}});
         try {
           const status = await withinCheckLease(lease, () => call('table.status'));
           run.turn = Number(status.turn);
           const batch = interactionScopeBatch(run.rawInput, status.last_interaction ?? status.last_exchange ?? null, lease.context.scope);
-          const answer = await withinCheckLease(lease, () => jev.decide(batch, lease));
+          const answer = await withinCheckLease(lease, () => { attemptedCalls++; return jev.decide(batch, lease); });
           scope = interpretInteractionScope(answer);
           record({lane: 'interaction-scope', run: run.runId, ...scope, state: batch.state, questions: batch.questions, answers: answer.answers});
-        } catch (error) { scope = {...scope, reason: error instanceof Error ? error.message : 'scope_unavailable'}; }
+        } catch (error) { scope = {...scope, calls: attemptedCalls, reason: error instanceof Error ? error.message : 'scope_unavailable'}; }
         finally { lease.close(); }
       }
       run.interactionScope = scope;
@@ -1515,11 +1617,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       if (jev && run.scope && run.readSet && run.turn !== undefined && bridge?.campaign && bridge.call) {
         const lease = new TaskLease({owner: 'check-selection', goal: run.rawInput.trim() || 'select required checks', scope: run.scope, capabilities: ['decision'],
           readSet: run.readSet, signal: request.signal, ...leaseClock,
-          // Like the existing ordinary binder, this decision owns its lease; prescreen time is separate.
-          budget: {deadlineAt: stepNow() + 15_000, remainingInputTokens: 400_000,
+          // The remaining deciding allowance caps this lease; prescreen time is separate.
+          budget: {deadlineAt: decisionDeadline(run), remainingInputTokens: 400_000,
             remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
         try {
-          const [options, capsule] = await withinCheckLease(lease, () => Promise.all([call('table.resolve.options'), call('table.capsule')]));
+          const input = candidate?.checkInput ? run.checkInputs?.get(candidate.checkInput) : undefined;
+          if (!input || run.checkInputsClosed || currentRunId !== run.runId) throw new ContractError('check_catalog_binding_changed');
+          const {options, capsule} = input;
           const context = object(options.context), binding = object(context._binding), catalog = object(options.selection);
           const checks = catalog.owner === 'jev' && catalog.version === 1 ? validateCheckOptions(catalog.options) : undefined;
           if (!candidate || typeof candidate.bound.decision !== 'string') selection = missing('check_request_unbound');
@@ -1537,17 +1641,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
               investigators: array(context.conditions).map(row => text(object(row).actor)).filter(Boolean),
               maxCalls: Number.isSafeInteger(question.remainingCalls) ? question.remainingCalls : 24,
               record: row => record({lane: 'check-selection', run: run.runId, step: request.stepId, ...row})});
-            // A decision from a stale snapshot is never executable, even if its arguments still look plausible.
-            const fresh = await withinCheckLease(lease, () => call('table.resolve.options'));
-            if (options.revision !== fresh.revision || options.world_revision !== fresh.world_revision || digest(context) !== digest(fresh.context))
-              selection = missing('check_selection_stale', selection.calls);
-            else if (selection.status === 'selected' && selection.action) {
+            if (selection.status === 'selected' && selection.action) {
               const scene = text(context.scene), identity = checkAttemptIdentity(selection.action, scene);
               const repeated = run.clerkDid.some(entry => entry.operation === 'resolve' && entry.status === 'succeeded'
                 && text(object(object(entry.basis).selection_snapshot).scene) === scene
                 && checkAttemptIdentity(object(object(entry.result).action) as Record<string, Json>, scene) === identity);
               selection = repeated ? missing('distinct_attempt_binding_required', selection.calls)
-                : {...selection, snapshot: {scene, revision: text(options.revision), worldRevision: text(options.world_revision)}};
+                : {...selection, snapshot: input.snapshot};
             }
           }
         } catch (error) { selection = missing(error instanceof Error ? error.message : 'check_selection_unavailable', selection.calls); }
@@ -1564,8 +1664,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const began = stepNow();
       const lease = new TaskLease({owner: 'ordinary-resolve', goal: run.rawInput.trim() || 'ordinary check', scope: run.scope, capabilities: ['decision'],
         readSet: run.readSet, signal: request.signal, ...leaseClock,
-        // A decision's own lease, like the route's (§135.6, SL-22 addendum): never the prescreen allowance's remainder.
-        budget: {deadlineAt: stepNow() + 15_000, remainingInputTokens: 400_000,
+        // The remaining deciding allowance caps this lease; prescreen time is separate.
+        budget: {deadlineAt: decisionDeadline(run), remainingInputTokens: 400_000,
           remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
       try {
         const result = await prepareCheckPreflight({campaign: bridge.campaign, turn: run.turn, rawInput: run.rawInput, goal: run.rawInput, scope: run.scope,
@@ -1602,9 +1702,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const began = stepNow();
     const lease = new TaskLease({owner: batch.family, goal: `run ${request.runId} ${request.purpose}`, scope: batch.scope, capabilities: ['decision'],
       readSet: batch.readSet, signal: request.signal, ...leaseClock,
-      budget: {deadlineAt: stepNow() + 15_000, remainingInputTokens: 400_000, remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
+      budget: {deadlineAt: decisionDeadline(run), remainingInputTokens: 400_000, remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
+    let attemptedCalls: 0 | 1 = 0;
     try {
-      const result = await jev!.decide(batch, lease);
+      const result = await withinCheckLease(lease, () => { attemptedCalls = 1; return jev!.decide(batch!, lease); });
       if (askHistory && run.history) {
         run.history.asked = true; run.history.allowed = historyNeed(result);
         record({lane: 'historical-reference', event: 'need', run: run.runId, turn: run.turn, allowed: run.history.allowed,
@@ -1659,6 +1760,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       // §135.30.4: a cleared destination the kernel holds back goes to the Keeper with its guard, once, in the next note.
       if (compiled?.guarded) run.guarded.push(...compiled.guarded.filter(entry => !run.guarded.some(seen => seen.to === entry.to)));
       return {status: result.status === 'complete' ? 'ok' as const : 'unavailable' as const, artifact: {kind: request.purpose, result} as StepArtifact};
+    } catch (error) {
+      const reason = lease.signal.reason;
+      if (reason instanceof ContractError && reason.code === 'task_deadline' && run.decision
+        && run.decision.jevMs + stepNow() - began >= run.decision.maxJevMs) {
+        const result: DecisionResult = {batchId: batch.id, status: 'unavailable', answers: {},
+          coverage: {required: [], answered: [], unknown: []}, issues: [], failure: {code: 'budget_exhausted', retryable: false}};
+        return {status: 'unavailable' as const, artifact: {kind: request.purpose, result, allowance_exhausted: true, attempted_calls: attemptedCalls} as StepArtifact};
+      }
+      throw error;
     } finally { lease.close(); }
   }
 
@@ -1753,7 +1863,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       elapsed_at_compose: run.lastInferAt ?? null, over_budget: elapsed >= run.budgetMs, deferred_by_budget: run.deferred,
       // §135.25 (SL-22 addendum): the decisions' Jev budget and, beside it, what the prescreens spent of their own allowance.
       decision_budget: decision ? {jev_calls: decision.jevCalls, jev_ms: decision.jevMs, max_jev_calls: decision.maxJevCalls, max_jev_ms: decision.maxJevMs,
-        spent: exhausted(decision)} : null,
+        steps: decision.steps, max_steps: decision.maxSteps, spent: exhausted(decision), exhausted_by: exhaustedBy(decision)} : null,
       prescreen: run.prescreenSpent});
     carried = run.deferred.length ? {campaign: bridge?.campaign, run: run.runId, ...(run.turn !== undefined ? {turn: run.turn} : {}), deferred: run.deferred} : undefined;
   }
@@ -1913,7 +2023,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     if (unseen.length) Object.assign(content, {decided_under_uncertainty: unseen.map(({key: _key, ...entry}) => entry) as unknown as Json,
       decided_under_uncertainty_note: DECIDED_UNDER_UNCERTAINTY_NOTE});
-    const preparations = (policyView?.unresolvedChecks ?? []).filter(entry => entry.preparation);
+    const preparations: NonNullable<RunView['unresolvedChecks']> = [...(policyView?.unresolvedChecks ?? []).filter(entry => entry.preparation),
+      ...[...(run.pendingNpcActs?.values() ?? [])].map(outcome => ({candidate: outcome.npc,
+        needs: profilePreparationNeeds(outcome.pending!.requirements), preparation: {decision: outcome.way === 'pursue' ? 'chase:start' : 'combat:attack',
+          requirements: outcome.pending!.requirements, needs: profilePreparationNeeds(outcome.pending!.requirements)}}))];
     run.pendingCheckPreparations = preparations.map(({candidate, needs}) => ({candidate, needs}));
     run.pendingAttackPreparation = !!view.policyState.view.preparingAttacks?.length;
     if (preparations.length) content.check_preparation = {
@@ -2108,6 +2221,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    * writes -- `onKeeperCallCap` below has no run/step of its own to go on otherwise, since it is told by the
    * session's own provider-call wrapper, outside any one run's own event stream. */
   let currentRunId: string | undefined;
+  let currentNpcRun: RunState | undefined;
   /** §135.29 addendum 2 (SL-82): this engine's own turn-start counter -- the same reset/increment contract
    * `extensions/kernel/first-step-thinking.ts`'s `isFirstStepOfTurn` documents for the kernel extension's own
    * `table.roundTrips` (both react to the same Pi bus events, so they always agree), kept independently so
@@ -2136,6 +2250,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // The Jev scope comes from the run's own read step (a read artifact carries the binding), never from a read
     // outside a step; until a read has bound it, a route question carries no batch and degrades to the Keeper.
     prepare: context => {
+      if (currentNpcRun) { currentNpcRun.checkInputsClosed = true; currentNpcRun.checkInputs?.clear(); }
+      if (currentNpcRun?.pendingNpcActs?.size) recordUnpreparedChecks(currentNpcRun);
       currentRunId = context.runId;
       historyFinalAnswer = undefined;
       prefetchAbort?.abort();
@@ -2157,6 +2273,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         requireInteractionScope: true,
         interactionScope: options.interactionScope ?? (!context.rawInput.trim() ? {mode: 'world', reason: 'host_opening', calls: 0} : undefined),
         ...(options.compile === false ? {compile: false} : {})});
+      currentNpcRun = run;
       run.interactionScope = options.interactionScope ?? (!context.rawInput.trim() ? {mode: 'world', reason: 'host_opening', calls: 0} : undefined);
       return {policy: budgetRows(run, policy), ports: makePorts(run), maxSteps: options.maxSteps ?? 48};
     },
@@ -2179,7 +2296,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         api: ctx?.model?.api ?? null, tools_disabled: !!payload});
       return payload;
     });
-    pi.on('agent_end', () => {historyFinalAnswer = undefined;});
+    pi.on('agent_end', () => {historyFinalAnswer = undefined;
+      if (currentNpcRun) { currentNpcRun.checkInputsClosed = true; currentNpcRun.checkInputs?.clear(); }
+      if (currentNpcRun?.pendingNpcActs?.size) recordUnpreparedChecks(currentNpcRun);
+      currentNpcRun = undefined;
+    });
     // The run owns the prescreen on this engine (§135.6); the context hook injects what the run prepared.
     const announce = () => { pi.events.emit('coc:loop-engine', {engine: 'hybrid-v1', prescreen: 'run'}); };
     announce();

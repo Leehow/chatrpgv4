@@ -17,7 +17,7 @@ import {ENDING_KINDS} from '../development/plan.js';
 import {loadChaseRules} from '../chase/model.js';
 import {magicLearningSources} from '../magic/facts.js';
 import {npcPatient} from '../healing/patient.js';
-import {hitPointGaps} from '../combat/profiles.js';
+import {hitPointGaps, participantCapability} from '../combat/profiles.js';
 import {healingStatePath} from '../healing/session.js';
 import {evaluateCondition, factsFromState, RuleObservations} from '../read/rule-facts.js';
 
@@ -85,9 +85,17 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
                 ...(array(preparation.weapons).includes(weapon) ? [`object_attack_usage_required:${weapon}`] : [])];
             add('combat:attack', `${opening.actor}: attack ${target} with ${weapon}`, {actor:opening.actor, target, weapon, intent:'combat'}, modifiers(), needs);
         }
-        for (const target of array(opening.targets).filter(target => !array(preparation.targets).includes(target))) add('chase:start', `${opening.actor}: pursue or flee from ${target}`, {actor: opening.actor, target}, [
+        const readiness = (person: typeof people[number], role: 'foot' | 'driver' | 'passenger'): Row => ({
+            ...participantCapability(person.profile, role), completion: graph.isPerson(person.node) ? 'archetype' : 'creature'});
+        for (const target of array(opening.targets)) {
+            const person = people.find(person => person.name === target)!;
+            const capability = readiness(person, 'foot');
+            const requirements = capability.ready ? [] : [{actor: target, role: 'foot', missing: capability.missing, completion: capability.completion}];
+            add('chase:start', `${opening.actor}: pursue or flee from ${target}`, {actor: opening.actor, target}, [
             parameter('intent', 'Is the investigator fleeing this person or moving after them?', ['flee', 'move']),
-        ], [], 'declaration', {mobility: 'foot'});
+            ], requirements.map(entry => `chase_actor_profile_required:${entry.actor}:foot`), 'declaration', {mobility: 'foot',
+                profile_requirements: requirements, chase_actors: [{name: target, readiness: {foot: capability}}]});
+        }
         const chaseRules = await loadChaseRules(new RuleTables(campaign.context));
         const placements = [...owners.history.flatMap(record => array(record.receipts)), ...array(campaign.turn.receipts)].reverse();
         const presenceEvidence = (person: typeof people[number]): string | null => {
@@ -98,11 +106,14 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
         add('chase:start', `${opening.actor}: a chase involving vehicles`, {actor: opening.actor},
             [parameter('intent', 'Is the investigator fleeing the pursuers or pursuing the quarry?', ['flee', 'move'])], [], 'declaration', {
                 mobility: 'vehicle',
-                chase_actors: [{name: opening.actor, investigator: true, profile_available: true, driving_available: ownProfile.some(profile => profile.availability === 'bound')},
+                chase_actors: [{name: opening.actor, investigator: true, profile_available: true,
+                    readiness: Object.fromEntries(['foot', 'driver', 'passenger'].map(role => [role, {ready: true, missing: []}])),
+                    driving_available: ownProfile.some(profile => profile.availability === 'bound')},
                     ...people.filter(person => array(opening.targets).includes(person.name)).map(person => ({name: person.name, investigator: false,
                         description: string(person.node.summary ?? person.node.description).slice(0, 600),
                         presence_evidence: presenceEvidence(person),
                         profile_available: person.profile !== null,
+                        readiness: Object.fromEntries((['foot', 'driver', 'passenger'] as const).map(role => [role, readiness(person, role)])),
                         driving_available: profiles.some(profile => profile.actor === person.name && normalize(profile.skill) === normalize('Drive Auto') && profile.availability === 'bound')}))],
                 vehicle_profiles: Object.entries(row(row(chaseRules.vehicles).entries)).map(([key, value]) => ({key, ...row(value)})),
             });

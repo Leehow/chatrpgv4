@@ -18,6 +18,7 @@
  */
 import {createHash} from 'node:crypto';
 import {preparedAttackReady} from './attack-preparation.ts';
+import {rosterReady, type ProfileRequirement} from './profile-readiness.ts';
 import type {ObservationView, OperationProposal, RunPolicy, RunView as DriverView, StepRequest as DriverStepRequest} from '@earendil-works/pi-agent-core';
 import type {DecisionBatch, DecisionResult, IntentBinding, ReadSet, ScopeBinding} from './contracts.ts';
 import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts';
@@ -130,6 +131,8 @@ export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared
 export type ClerkAuthority = typeof CLERK_AUTHORITY[number];
 /** A host-issued step candidate (design §5.1): what the host can perform now, and what it still needs. */
 export interface Candidate {
+  /** Host-only immutable issued check input generation, never model-authored or projected. */
+  checkInput?: string;
   /** §159: unresolved rule choices cannot be handed to the prose model. */
   checkOwner?: 'jev';
   /**
@@ -248,6 +251,7 @@ export interface Budget {jevCalls: number; jevMs: number; steps: number; runMs: 
 export interface DeferredStep {key: string; label: string; family: string; clerk: string | null; stage: string}
 export interface RunView {
   preparingAttacks?: Candidate[];
+  preparingChecks?: Array<{candidate: Candidate; selection: CheckSelection; scene: string}>;
   interactionScope?: InteractionScope;
   requireInteractionScope?: boolean;
   referenceRouted?: boolean;
@@ -262,6 +266,7 @@ export interface RunView {
   heldCheckDecisions?: string[];
   heldCheckPreparations?: string[];
   checkPreparationRequirements?: Record<string, {mobility?: string; drivers?: string[]; profiles?: string[];
+    requirements?: ProfileRequirement[];
     roles?: Array<{actor: string; evidence: string}>}>;
   runId: string;
   rawInput: string;
@@ -359,8 +364,12 @@ export type StepRequest =
   | {kind: 'infer'; purpose: 'bind' | 'adjudicate' | 'compose'; reason: string; item?: PendingItem; deferred?: DeferredStep[]}
   | {kind: 'finish'; reason: string};
 
-export const exhausted = (budget: Budget): boolean =>
-  budget.jevCalls >= budget.maxJevCalls || budget.jevMs >= budget.maxJevMs || budget.steps >= budget.maxSteps;
+export const exhaustedBy = (budget: Budget): Array<'time' | 'calls' | 'steps'> => [
+  ...(budget.jevMs >= budget.maxJevMs ? ['time' as const] : []),
+  ...(budget.jevCalls >= budget.maxJevCalls ? ['calls' as const] : []),
+  ...(budget.steps >= budget.maxSteps ? ['steps' as const] : []),
+];
+export const exhausted = (budget: Budget): boolean => exhaustedBy(budget).length > 0;
 /** The run has had its one compose for a spent decision budget (§135.25, SL-22 addendum). */
 export const budgetComposed = (view: Pick<RunView, 'observations'>): boolean =>
   view.observations.some(value => value.kind === 'infer' && value.purpose === 'compose' && value.reason === 'jev_budget');
@@ -440,6 +449,7 @@ function routeNext(view: RunView): StepRequest {
   if (last?.kind === 'infer') return head?.kind === 'direct' ? {kind: 'direct', item: head} : {kind: 'finish', reason: `after_infer_${last.purpose}`};
   if (view.interactionScope?.mode === 'reference') {
     if (head?.kind === 'direct' && head.purpose === 'read') return {kind: 'direct', item: head};
+    if (exhausted(view.budget) && !budgetComposed(view)) return {kind: 'infer', purpose: 'compose', reason: 'jev_budget'};
     if (!view.referenceRouted) return {kind: 'decide', purpose: 'route', digest: routeDigest(view)};
     return {kind: 'infer', purpose: 'compose', reason: 'reference_request'};
   }
@@ -1166,7 +1176,9 @@ export function settleCheckSelection(view: RunView, candidate: Candidate, result
     const key = checkHoldKey(view.context.scene, candidate);
     if (key && !view.heldCheckPreparations?.includes(key)) view.heldCheckPreparations = [...(view.heldCheckPreparations ?? []), key];
     if (key) view.checkPreparationRequirements = {...view.checkPreparationRequirements,
-      [key]: {mobility: result.preparation.mobility, drivers: result.preparation.drivers, profiles: result.preparation.profiles, roles: result.preparation.roles}};
+      [key]: {mobility: result.preparation.mobility, drivers: result.preparation.drivers, profiles: result.preparation.profiles, roles: result.preparation.roles,
+        requirements: result.preparation.requirements}};
+    if (result.preparation.action) view.preparingChecks = [...(view.preparingChecks ?? []), {candidate, selection: result, scene: view.context.scene}];
     view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'check_preparation', candidate,
       extra: {preparation: result.preparation}});
     view.unresolvedChecks = [...(view.unresolvedChecks ?? []), {candidate: label, needs: result.needs, preparation: result.preparation}];
@@ -1264,6 +1276,41 @@ function holdCheckDecision(view: RunView, candidate: Candidate): void {
   if (key && !view.heldCheckDecisions?.includes(key)) view.heldCheckDecisions = [...(view.heldCheckDecisions ?? []), key];
 }
 function applyFresh(view: RunView, fresh: Fresh): void {
+  const waiting = view.preparingChecks ?? [];
+  view.preparingChecks = waiting.filter(prepared => {
+    const preparation = prepared.selection.preparation!, action = preparation.action!;
+    if (prepared.scene !== fresh.context.scene) {
+      const held = checkHoldKey(prepared.scene, prepared.candidate);
+      view.heldCheckPreparations = view.heldCheckPreparations?.filter(key => key !== held);
+      view.unresolvedChecks = view.unresolvedChecks?.filter(entry => entry.preparation?.action !== action);
+      view.pending = view.pending.filter(item => item.reason !== 'check_preparation' || item.candidate?.key !== prepared.candidate.key);
+      view.forced = [...(view.forced ?? []), forcedResolution({family: 'check-preparation', subject: prepared.candidate.label,
+        uncertain: ['The prepared action no longer belongs to the current scene.'], chosen: {outcome: 'no_roll'}, why: 'preparation_incomplete'})];
+      return false;
+    }
+    const candidate = fresh.candidates.find(candidate => candidate.checkOwner === 'jev' && candidate.bound.decision === action.decision
+      && Array.isArray(object(candidate.detail).check_options) && object(candidate.detail).check_options.map(object).some((option: Row) => {
+        if (object(option.facts).mobility !== preparation.mobility) return false;
+        if (object(option.action).actor !== action.actor) return false;
+        if (preparation.mobility === 'foot' && object(option.action).target !== action.target) return false;
+        const actors = object(option.facts).chase_actors;
+        const roster = preparation.mobility === 'vehicle' ? action.chase_roster : preparation.requirements;
+        if (!Array.isArray(actors) || !Array.isArray(roster) || !rosterReady(actors, roster as Array<{actor: string; role: string}>)) return false;
+        if (preparation.mobility !== 'vehicle') return true;
+        const vehicles = object(option.facts).vehicle_profiles;
+        return Array.isArray(vehicles) && roster.map(object).every(entry => entry.role === 'driver'
+          ? vehicles.some(vehicle => object(vehicle).key === entry.vehicle)
+          : entry.role !== 'passenger' || roster.map(object).some(driver => driver.actor === entry.riding_with && driver.role === 'driver'));
+      }));
+    if (!candidate || !fresh.selectionSnapshot) return true;
+    const key = checkHoldKey(fresh.context.scene, candidate);
+    view.heldCheckPreparations = view.heldCheckPreparations?.filter(held => held !== key);
+    view.unresolvedChecks = view.unresolvedChecks?.filter(entry => entry.preparation?.action !== action);
+    settleCheckSelection(view, {...candidate, basis: {...object(prepared.candidate.basis), ...object(candidate.basis)}},
+      {...prepared.selection, status: 'selected', action, needs: [], preparation: undefined,
+      snapshot: fresh.selectionSnapshot, calls: 0}, 0);
+    return false;
+  });
   const readyAttacks = (view.preparingAttacks ?? []).flatMap(prepared => {
     const candidate = fresh.candidates.find(item => item.clerk === 'first_blow' && preparedAttackReady(item, prepared));
     return candidate ? [{...candidate, bound:{...candidate.bound, ...prepared.bound}, unbound:[], basis:prepared.basis}] : [];
@@ -1279,8 +1326,11 @@ function applyFresh(view: RunView, fresh: Fresh): void {
   const executable = (candidate: Candidate) => {
     const options = object(candidate.detail).check_options;
     const key = checkHoldKey(fresh.context.scene, candidate), required = key ? view.checkPreparationRequirements?.[key] : undefined;
+    if (key && view.preparingChecks?.some(prepared => checkHoldKey(prepared.scene, prepared.candidate) === key)) return false;
     return Array.isArray(options) && options.map(object).some(option => Array.isArray(option.needs) && option.needs.length === 0
       && (!required?.mobility || object(option.facts).mobility === required.mobility)
+      && (!required?.requirements?.length || Array.isArray(object(option.facts).chase_actors)
+        && rosterReady(object(option.facts).chase_actors, required.requirements))
       && (!required?.drivers?.length || required.drivers.every(name => {
         const actors = object(option.facts).chase_actors;
         return Array.isArray(actors) && actors.map(object).some(actor => actor.name === name && actor.driving_available === true);
@@ -1318,7 +1368,7 @@ export interface ReadResult {materials: Material[]; located?: unknown; summary: 
  * NAF-29): the receipts of this turn that struck a person the fight hold held back since it was put (the engine reads them
  * off the kernel's `acted_on` and the receipts' own fields, `struckReceipts`); absent when no one is held or nothing struck.
  */
-export interface Fresh {context: TurnContext; candidates: Candidate[]; rows?: FeatureRows; struck?: string[]}
+export interface Fresh {context: TurnContext; candidates: Candidate[]; rows?: FeatureRows; struck?: string[]; selectionSnapshot?: CheckSelection['snapshot']}
 export function settleRead(view: RunView, step: number, read: ReadResult, fresh: Fresh, ms: number): TelemetryRow {
   // The read's prescreen has its own allowance and spends none of the decision budget (§135.6, SL-22 addendum): its calls
   // and time are reported on the read's own row and summary, never added to `jevCalls`/`jevMs`.
@@ -1423,7 +1473,9 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
     view.consumed.push(item.candidate!.key);
     view.npcScanned = [...(view.landed ?? [])];
   } else {
-    view.consumed.push(item.candidate!.key);
+    const stillPreparingNpc = item.candidate!.clerk === 'npc_act' && typeof item.candidate!.bound.resume === 'string'
+      && object(executed.summary).npc_preparation_pending === item.candidate!.key;
+    if (!stillPreparingNpc) view.consumed.push(item.candidate!.key);
     // §143.4: a step of the declaration the kernel took (not a forced one, not a person's own act) owes the people it acted
     // on their act before the next model step.
     if (executed.ok && !item.candidate!.forced && item.candidate!.clerk !== 'npc_act' && !(view.landed ?? []).includes(item.candidate!.key))
@@ -1492,10 +1544,10 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
 /** Artifacts the product ports return, per step, so `reduce` can fold them with the transitions above. */
 export type StepArtifact =
   | {kind: 'interaction-scope'; scope: InteractionScope}
-  | {kind: 'route'; result: DecisionResult}
-  | {kind: 'compile'; result: DecisionResult}
-  | {kind: 'reask'; result: DecisionResult}
-  | {kind: 'bind'; result: DecisionResult}
+  | {kind: 'route'; result: DecisionResult; allowance_exhausted?: true; attempted_calls?: 0 | 1}
+  | {kind: 'compile'; result: DecisionResult; allowance_exhausted?: true; attempted_calls?: 0 | 1}
+  | {kind: 'reask'; result: DecisionResult; allowance_exhausted?: true; attempted_calls?: 0 | 1}
+  | {kind: 'bind'; result: DecisionResult; allowance_exhausted?: true; attempted_calls?: 0 | 1}
   | {kind: 'bind-ordinary'; bound: OrdinaryBinding}
   | {kind: 'check-selection'; selection: CheckSelection}
   | {kind: 'locate'; calls: number; ms: number; summary: Json}
@@ -1579,6 +1631,9 @@ function owesTurnClose(driver: DriverView<StepPolicyState>): boolean {
 const unavailable = (reason: string): DecisionResult => ({batchId: '', status: 'unavailable', answers: {}, coverage: {required: [], answered: [], unknown: []}, issues: [], failure: {code: reason, retryable: false}} as unknown as DecisionResult);
 const decisionOf = (observation: ObservationView): DecisionResult => {
   const artifact = observation.artifact as StepArtifact | undefined;
+  if (observation.status === 'unavailable' && artifact && ['route', 'bind', 'compile', 'reask'].includes(artifact.kind)
+    && 'result' in artifact && artifact.allowance_exhausted === true && artifact.result.status === 'unavailable'
+    && artifact.result.failure?.code === 'budget_exhausted') return artifact.result;
   return observation.status === 'ok' && artifact && (artifact.kind === 'route' || artifact.kind === 'bind' || artifact.kind === 'compile' || artifact.kind === 'reask') ? artifact.result
     : unavailable(observation.status === 'ok' ? 'no_answer' : observation.status);
 };
@@ -1771,6 +1826,15 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       // A policy operate carries one proposal; its outcome's artifact is the step's.
       const artifact = (observation.kind === 'operate' ? observation.outcomes?.[0]?.artifact : observation.artifact) as StepArtifact | undefined;
       let bound: Pick<StepPolicyState, 'scope' | 'readSet' | 'intent'> = {};
+      if (request.kind === 'decide' && object(artifact).allowance_exhausted === true
+        && decisionOf(observation).failure?.code === 'budget_exhausted') {
+        view.budget.jevCalls += object(artifact).attempted_calls === 1 ? 1 : 0;
+        view.budget.jevMs += observation.ms;
+        if (view.interactionScope?.mode === 'reference') view.referenceRouted = true;
+        observe(view, {kind: 'decide', purpose: request.purpose, status: 'unavailable', reason: 'jev_budget'});
+        stamp(view, policyState.startedAt);
+        return {...policyState, ...requirements, view};
+      }
       if (request.kind === 'decide' && request.purpose === 'interaction-scope') {
         // §163: no scope answer at all plays as a world turn too, recorded as forced.
         const scope: InteractionScope = artifact?.kind === 'interaction-scope' ? artifact.scope : {mode: 'world', reason: 'scope_unavailable', calls: 0,

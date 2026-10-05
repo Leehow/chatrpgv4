@@ -62,11 +62,11 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 	}
 
 	function nextJob(): LaneJob | undefined {
-		if (Date.now() < pauseUntil) return undefined;
+		if (Date.now() < pauseUntil || agentRunning || foregroundPending) return undefined;
 		// Committed turns are FIFO and always precede backfill, even after the agent has settled.
 		const queued = queue.shift();
 		if (queued) return queued;
-		if (stopped || backfillDone || agentRunning || foregroundPending || backfillLeft <= 0 || !bridge || !ctx) return undefined;
+		if (stopped || backfillDone || backfillLeft <= 0 || !bridge || !ctx) return undefined;
 		backfillLeft -= 1;
 		return { campaign: bridge.campaign, backfill: true };
 	}

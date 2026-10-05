@@ -151,6 +151,11 @@ export function participantGaps(profile: Row): string[] {
 export function statBlockGaps(profile: Row): string[] {
     return [...participantGaps(profile), ...(integer(row(profile.derived).MOV) ? [] : ['derived.MOV'])];
 }
+/** Project the same participant requirements that settlement enforces, without supplying values. */
+export function participantCapability(profile: Row | null, role: 'combat' | 'foot' | 'driver' | 'passenger'): Row {
+    const missing = role === 'foot' ? statBlockGaps(profile ?? {}) : participantGaps(profile ?? {});
+    return {ready: profile !== null && missing.length === 0, missing};
+}
 export async function npcCombatParticipant(tables: RuleTables, handle: string, profile: Row, side = 'npc'): Promise<Row> {
     const characteristics = intMap(profile.characteristics), missing = PARTICIPANT_CHARACTERISTICS.filter(key => !Object.hasOwn(characteristics, key));
     if (missing.length)

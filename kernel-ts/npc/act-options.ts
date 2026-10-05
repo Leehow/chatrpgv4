@@ -39,6 +39,7 @@ import {SessionView, active} from '../read/session-view.js';
 import {array, entries, integer, normalize, number, row, string, truth, type Row} from '../read/values.js';
 import {stanceNow} from '../combat/standing.js';
 import {npcProfileOf} from '../resolve/context.js';
+import {participantCapability} from '../combat/profiles.js';
 import {COERCION_SKILLS} from '../resolve/coercion.js';
 import {stanceTable} from '../write/contributions.js';
 import {committedOnLine, conversationOf, entryNow, intentHistory, personOf, type Person} from './situation.js';
@@ -161,7 +162,12 @@ export function createActOptionsHandlers(context: KernelContext): HandlerGroup {
             const investigators = (here ? party : []).map(sheet => option(string(sheet.id), personLabel(world, string(sheet.id), string(sheet.name || sheet.id))));
             const profile = npcProfileOf(graph, world, handle);
             const ways: Row[] = [];
-            const way = (name: string, params: Record<string, Option[]> = {}) => ways.push({way: name, params});
+            const way = (name: string, params: Record<string, Option[]> = {}, role?: 'combat' | 'foot') => {
+                const capability = role ? participantCapability(profile, role) : {ready: true, missing: []};
+                ways.push({way: name, params, ready: capability.ready,
+                    ...(capability.ready ? {} : {preparation: [{actor: graph.displayName(node), role,
+                        missing: capability.missing, completion: graph.isPerson(node) ? 'archetype' : 'creature'}]})});
+            };
             if (inCombat && myTurn) {
                 // The running fight's own lists (§11.5): opponents who can still fight, the weapons in their hands.
                 const catalog = row(combat!.weapon_catalog), weapons = once(array(fighter.weapons).map(value => weaponLabel(catalog, value)).filter((value): value is Option => !!value));
@@ -171,17 +177,17 @@ export function createActOptionsHandlers(context: KernelContext): HandlerGroup {
                 const fleeTable = campaign.standingTables?.flee;
                 if (!fleeTable || !fleeBlockers(fighter, fleeTable).length) way('flee');
             }
-            if (!inSession && here && profile) {
-                // §142.11: outside a fight, a person present with a stat block may strike the first blow at an investigator.
+            if (!inSession && here) {
+                // §142.11: a present actor may select a first blow; an absent block is preparation, never executable.
                 const catalog = await (async () => { try { return row(await context.snapshots.readJson(join(context.content, 'rulesets', 'coc7', 'rules-json', 'weapons.json'))).weapons; } catch { return {}; } })();
-                const weapons = once([...array(profile.weapons).map(value => weaponLabel(row(catalog), value)).filter((value): value is Option => !!value),
+                const weapons = once([...array(row(profile).weapons).map(value => weaponLabel(row(catalog), value)).filter((value): value is Option => !!value),
                     option('unarmed', string(row(row(catalog).unarmed).display_name) || 'unarmed')]);
-                if (investigators.length) way('first_blow', {target: investigators, weapon: weapons});
+                if (investigators.length) way('first_blow', {target: investigators, weapon: weapons}, 'combat');
                 // Ticket 03: an investigator fled this turn and no chase runs -- going after them is this person's act.
                 const fled = actedOn(me, turn, party, here).filter(entry => entry.kind === 'fled_from')
                     .map(entry => string(row(array(turn.receipts).find(value => string(row(value).id) === entry.receipt)).subject));
                 const quarry = investigators.filter(entry => fled.includes(entry.value));
-                if (quarry.length && !chase) way('pursue', {target: quarry});
+                if (quarry.length && !chase) way('pursue', {target: quarry}, 'foot');
             }
             const skills = skillOptions(graph, world, node, handle, ledger, records);
             if (skills.length) way('check', {skill: skills});
