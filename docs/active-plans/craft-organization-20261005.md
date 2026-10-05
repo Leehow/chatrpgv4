@@ -39,3 +39,11 @@ Evidence lives in the main checkout's unique `.coc/evaluations/craft-organizatio
 ## Final player observation
 
 Exact2.3.1 lock and only Flapcode/Luna were verified. Five genuine player inputs:4 delivered,1 undelivered. The ending needed development settlement; the Keeper repeated refused calls, and one natural player correction recovered prose but no ending receipt. Both private campaigns remain active; broad2.3.0 closed a chapter only. No claim of complete live/source/literary acceptance. Drivers stopped and all owned driver/session evidence copied to main; campaign homes were already in main. Final package content/namespace/state unchanged outside this scope. No kernel/actor repair added.
+
+## Delivery and remaining limits
+
+- Source70e920bb7 integrated into latest0.9.6a as789add9d1. Main WIP file hashes and three status paths unchanged.
+- Post-integration40/40 focused tests, exit0, raw checks-integrated.log. The owned source equals main for changed files; its private b79 runtime matches current unchanged TS. Main build has67 stale kernel source entries and remains untouched, so it is not claimed as the tested runtime.
+- Canonical App Mod install and catalog verified2.3.1, compatible/default-enabled, no global override; five files hash-identical; old campaign locks, credentials and model defaults unchanged. App bundle itself stillb79 and no GUI/repackage claimed.
+- Six method cards remain research-only; no selected reference or observed routing benefit. No NPC improvement or stable literary/source/speed acceptance claim. Final play had an unrecovered ending-state failure despite recovered prose; tracked in preserved raw events, outside this approved craft scope.
+- All drivers/native author processes stopped; campaign homes, raw driver files, native sessions and rejected artifacts are retained in main. Worktree final lifecycle closeout/audit is the remaining mechanical gate.
