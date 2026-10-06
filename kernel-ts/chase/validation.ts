@@ -255,8 +255,13 @@ export function validateSnapshot(data: any): void {
         const conditions = participant.conditions;
         if (!Array.isArray(conditions) || new Set(conditions).size !== conditions.length || conditions.some(value => !CHASE_CONDITIONS.has(value)))
             valueError('chase snapshot participant conditions are invalid');
-        for (const key of ['hp', 'hp_max', 'mov_base', 'mov_adjusted', 'dex', 'build', 'build_max', 'armor'])
+        for (const key of ['hp', 'hp_max', 'mov_base', 'mov_adjusted', 'dex', 'armor'])
             if (!nonnegative(participant[key]))
+                valueError(`chase snapshot participant ${key} is invalid`);
+        // Human Build is signed (the damage-bonus table includes -2 and -1).
+        // Vehicle Build represents structural capacity and cannot be negative.
+        for (const key of ['build', 'build_max'])
+            if (!(participant.is_vehicle ? nonnegative(participant[key]) : integer(participant[key])))
                 valueError(`chase snapshot participant ${key} is invalid`);
         if (number(participant.hp) > number(participant.hp_max) || number(participant.build) > number(participant.build_max))
             valueError('chase snapshot participant health/build is invalid');
