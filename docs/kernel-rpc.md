@@ -35430,3 +35430,113 @@ All tests run through the kernel in process and the installed context runtime, t
 
 (Recorded by the implementing slices: the sweep's field list, the resolution place, node-id egress points found by the
 request scan.)
+
+#### NFH-01 (185.2, 185.3)
+
+**The resolution place.** A name becomes a graph node in one place, `ModuleGraph.resolve`
+(`kernel-ts/read/module-graph.ts`): `find`, `scene`, `npc`, `clue` and `actor` all go through it. The §87.8 junction
+(`calledPerson`, `personNode`, `npcNode`, `actorNode`, `kernel-ts/read/capsule.ts`) adds the table's word for a person
+above it. 185.3's retry lives in `resolve`, after every path has missed (the place layer included), so every caller of the
+graph gets it without a per-tool copy.
+
+**Intentions (185.2, §142).**
+- The owner segment is read by `intentOwnerNode` (`kernel-ts/apply/intent.ts`), which is `personNode`: the graph's actor,
+  then the table's word, with 185.3's retry inside the graph layer. A word two people carry is refused naming both
+  (§87.8). `effectIntent`, `planRollIntent`, the npc variant (`resolveIntent`) and a produced thing's origin
+  (`kernel-ts/apply/draw.ts`) all read it this way.
+- `belongs to` (`details.owner`, now the other person's handle) is refused only when the segment names another person. A
+  segment that names nobody is `unknown_intent`, because the reference names no intention of this person.
+- The given ref is rebuilt as `intent:<handle>:<digest>` (`canonicalIntentRef`) before the ledger is searched. Receipts
+  store that form.
+- `intentOf(entry, ref, sameOwner)` parses the given ref and every stored one, and matches on the digest and on an owner
+  that names the same person. A stored ref is never rewritten.
+- The ledger fold (`foldIntent`, `onePerson`): within one person's entry, a stored row with the same digest is the same
+  intention, whatever owner spelling it was stored with. So a canonical receipt settles that row, keeps its stored ref, and
+  does not open a second row. Per-person folds pass it: `foldNpcTurn`, `intentEntry` and `owedIntents`.
+  `tableIntentOptions`, which mixes everyone's rows, still matches the whole ref.
+- Cards and offers show the ref as stored. In a legacy campaign that is already the canonical form, because the old writer
+  refused any owner spelling but the handle. A row stored under another spelling keeps it, and it still resolves when
+  copied.
+
+**Quotes (185.2, §58.9).**
+- `cashCounterparty` (`kernel-ts/apply/purchases.ts`) reads a counterparty as `npcNode` does: the graph's npc, then the
+  table's word. A plain miss returns null (free text). The graph's ambiguity and a word two people carry are refused.
+- It is used both when a quote is registered and when it is settled. At registration a table word now stores the handle
+  in `with_id`, where before it stored the spelling.
+- At settlement the given `with` and the stored `with_id` (else `with`) are compared as people. Only when either side
+  names no person is the normalized spelling compared with `with`.
+
+**The retry (185.3).**
+- `installRenameUndo` (`kernel-ts/read/rename-undo.ts`) is called from `loadCampaignModule`. It reads `campaign.json`, and
+  for every campaign that does not say `handles: "name-free"` it installs `ModuleGraph.renameUndo`. That covers a campaign
+  without the field and one whose file is not written yet.
+- `renameUndo` holds one row per book person (an npc node that is not a table person): their word, `tableWord`, the same
+  word `untoldRoster` shows them by, beside their handle and node id.
+  - A word two people carry has no row.
+  - Rows are read from the world, not from `table.untold`. `resolve` is synchronous, and the roster's untold test reads
+    the journal and the whole turn history, which a load does not read.
+  - So a told person who has a word has a row too. Their handle was never renamed, the retry runs only on a miss, and it
+    keeps a spelling only when that spelling resolves. The wider set can therefore only turn a refusal into that person's
+    own handle.
+- The retry replaces each place a word stands with no Latin letter or digit running on past an end where the replaced name
+  has one: the rename's own boundary test, read backwards. It tries the handle, then the node id, and returns the first
+  spelling that resolves as written. A spelling that is ambiguous counts as a miss.
+- A reference that is one word and nothing else is not retried. It is that person's word, which the junction already reads.
+  Retrying it would let bare graph lookups that are not the Keeper's references (`replacePassagePeople` asks the graph by a
+  table person's name) land on a book person who happens to carry that word.
+- Limits:
+  - The host reads the roster once per turn (§103.5). A word changed by `apply person` mid-turn leaves the request on the
+    old word until the next turn, and that old word has no row.
+  - A shown word that is a journal label not yet folded (§176.4) has no row either.
+
+**The sweep: fields that name a person or entity and were compared to stored state by spelling.**
+- Converted in this slice:
+  - `intent_ref` on an npc effect, on any other effect and on a `resolve` action;
+  - the host's `intent_ref` beside `_draws` and `_produces`;
+  - `apply cash` `with`, at registration and at settlement.
+- Found and not converted. Resolution for these is spread across tools, so by 185.2 they are recorded here and not
+  patched one by one.
+  - Spelling compared with stored state:
+    - `owed` cash rows: `with` and `subject` compared with `===` against the projected row (`kernel-ts/owed/land.ts`
+      `lands`). The npc and move rows already compare people and places.
+    - chase `action.target` at the start: normalized and compared with handle or display name, and silently ignored
+      when nothing matches (`kernel-ts/chase/bindings.ts`, the opponent filter).
+    - chase `action.target` on `conflict`: compared with the saved participant's id or label.
+    - chase `chase_roster[].actor` and `riding_with`: compared with present opponents' handle or display name, and with
+      each other.
+    - `resolve` `action.obligation`: an exact handle or node id (`obligationByHandle`, `kernel-ts/read/obligations.ts`).
+    - `apply item` `from`: read by `EntityIndex`, stored as a display name or the raw spelling, and later read back by
+      spelling (`kernel-ts/apply/inventory.ts`; `kernel-ts/write/contributions.ts`; `kernel-ts/npc/reunion.ts`).
+    - the memory lane's `subject`, `knowers` and `entities`, and `apply note` `entities`: stored as `EntityIndex`'s
+      canonical name, and matched back by spelling (`kernel-ts/memory/jobs.ts`, `kernel-ts/read/memory.ts`,
+      `kernel-ts/apply/bookkeeping.ts`).
+    - a Mod document seed's `handout`: compared with the display names of shown handouts (`kernel-ts/mods/jobs.ts`).
+  - Entrances that take a person's word but read only the graph (no table word):
+    - `apply object` `to`/`from` and `apply ability` `to` (`objectOwner`, `kernel-ts/mods/stage.ts`);
+    - a Mod `dossier` `name` (`kernel-ts/mods/dossier-door.ts`);
+    - a Mod effect's explicit target (`effectTarget`, `kernel-ts/mods/effects.ts`);
+    - `apply damage` `subject` and the patient (`graph.actor`: `kernel-ts/combat/stat-block.ts`,
+      `kernel-ts/healing/patient.ts`);
+    - the material gate's pre-pass (`kernel-ts/apply/index.ts`);
+    - an investigator anchor of `apply ruling` (`EntityIndex`).
+  - Resolvers beside `ModuleGraph.resolve` that the retry does not reach:
+    - `EntityIndex` (`kernel-ts/read/memory.ts`), which reads `graph.names` directly;
+    - `lookup kind=module` (`ModuleGraph.search`, `handleList`), so a renamed handle looked up is `not_found`;
+    - `obligationByHandle`;
+    - the chase matchers above;
+    - the say-token resolver (`kernel-ts/write/speech.ts`);
+    - the cast matchers (`castPersonNamed`, `newcomerRefusal`);
+    - `objectOwner`'s container lookup;
+    - the clue-label matcher (`kernel-ts/read/mods.ts`).
+
+**Tests.**
+- `tests/extension/legacy-rename-round-trip.test.mjs` runs the kernel in process with the installed context hooks. Its
+  fixture is the rulebook Haunting with a house and a ledger whose handles begin with Steven Knott's. The tests:
+  - the renamed card ref, scene handle and clue handle, copied from the assembled request, each resolve to the original,
+    and the intention settles;
+  - an owner named by the table's word or the book's name settles, and another person's ref is refused;
+  - a stored ref spelled another way is settled under its stored ref;
+  - a campaign marked name-free does not retry.
+- `tests/extension/quote-counterparty-identity.test.mjs` covers settlement by the handle, by the table's word against the
+  name, and by a new word after `apply person`. Another person is refused, and free text compares its spelling.
+- Each fix was reverted by copy and its test went red.
