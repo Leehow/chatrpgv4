@@ -40,7 +40,7 @@ import { markupInProse, describeMarkup, bareWrapper, unwrap, MARKUP_STEER } from
 import { timeGap, timeReading, timeRefusal, timeWarning } from '../read/time-reading.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
 import { foldPersonWords, untoldWholeNames } from '../read/person-words.js';
-import { foldNodeHandles, handleScheme, handlesDirectory, nodeHandleMap, readHandles } from '../read/node-handles.js';
+import { foldNodeHandles, handleScheme, handlesDirectory, nodeHandleMap, readHandles, rewriteCampaignFiles, rewriteHandles, type HandleMove } from '../read/node-handles.js';
 import { prepareNameHistory } from '../journal/name-history.js';
 import { presenceRolls, type PresenceRolled } from '../mods/presence.js';
 import { CheckArithmetic } from '../resolve/arithmetic.js';
@@ -322,20 +322,39 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
      * ready): whatever the book's `handles.json` already holds, so a book other campaigns have named starts named. `state`
      * carries `node_handles` in and out; the module is built with the folded map.
      */
-    async function firstFold(moduleId: string, campaignId: string, state: Row): Promise<LoadedModule> {
+    async function firstFold(moduleId: string, campaignId: string, state: Row): Promise<{ module: LoadedModule; moves: HandleMove[] }> {
         const loaded = await loadModule(context, moduleId, campaignId, nodeHandleMap(state));
         const stored = await readHandles(context, await handlesDirectory(context, campaignId, moduleId));
-        return foldNodeHandles(loaded.graph, state, stored) ? loadModule(context, moduleId, campaignId, nodeHandleMap(state)) : loaded;
+        const moves = foldNodeHandles(loaded.graph, state, stored);
+        return { module: moves.length ? await loadModule(context, moduleId, campaignId, nodeHandleMap(state)) : loaded, moves };
     }
     /**
      * §185.6: fold the book's handles into a name-free campaign's world at a safe moment (`table.open`, `table.player_input`).
-     * Returns the module reloaded with the new map when the world changed (the caller writes it), else null.
+     * The interim handles the fold replaced are rewritten in `held` (what the caller keeps in memory and writes itself, the
+     * world first) and in the campaign's state files (§185.6.1). Returns the module reloaded with the new map when the world
+     * changed (the caller writes it), else null.
      */
-    async function foldHandles(snapshot: CampaignSnapshot, module: LoadedModule): Promise<LoadedModule | null> {
+    async function foldHandles(campaign: CampaignWriter, snapshot: CampaignSnapshot, module: LoadedModule, held: Row[] = []): Promise<LoadedModule | null> {
         if (!module.graph.nameFree) return null;
         const moduleId = string(snapshot.meta.module_id);
         const stored = await readHandles(context, await handlesDirectory(context, snapshot.id, moduleId));
-        return foldNodeHandles(module.graph, snapshot.world, stored) ? loadCampaignModule(context, moduleId, snapshot.world, snapshot.id) : null;
+        const moves = foldNodeHandles(module.graph, snapshot.world, stored);
+        if (!moves.length) return null;
+        const files = await rewriteFolded(campaign, moves, [snapshot.world, snapshot.meta, snapshot.turn, ...snapshot.party, ...held]);
+        for (const [path, value] of files) if (snapshot.jsonFiles.has(path)) snapshot.jsonFiles.set(path, value);
+        return loadCampaignModule(context, moduleId, snapshot.world, snapshot.id);
+    }
+    /**
+     * §185.6.1: after a fold, each moved node's interim handle becomes its final handle in the campaign's mutable state: the
+     * objects in `held`, and every state file on disk but `world.json`, which the caller writes from memory. The campaign's
+     * lock is held: every writer of these files is a campaign method. Returns the files rewritten.
+     */
+    async function rewriteFolded(campaign: CampaignWriter, moves: HandleMove[], held: Row[]): Promise<Map<string, Row>> {
+        const map = new Map(moves.map(move => [move.from, move.to]));
+        for (const value of held) rewriteHandles(value, map);
+        const files = await rewriteCampaignFiles(campaign.directory, map, new Set(['world.json']));
+        await campaign.telemetry({ lane: 'handles', event: 'folded', mapped: moves.length, files: [...files.keys()] });
+        return files;
     }
     async function openCampaign(params: Row, options: {
         requireTurn?: boolean;
@@ -389,8 +408,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // §185.6: a name-free campaign's world is first written here when the opening was not ready at creation.
         const nameFree = handleScheme(meta) === 'name-free';
         const handles: Row = { node_handles: nameFree && await context.snapshots.pathExists(value.path('world.json')) ? row((await value.readWorld()).node_handles) : {} };
-        const module = nameFree ? await firstFold(id, value.id, handles) : await loadModule(context, id, value.id, null),
-            [world, opening] = initialWorld(module.graph, meta.opening_scene || null,!!moduleMeta.source_reference);
+        const folded = nameFree ? await firstFold(id, value.id, handles) : { module: await loadModule(context, id, value.id, null), moves: [] };
+        const module = folded.module;
+        // §185.6.1: what setup stored under an interim handle (the epithet lane's words) takes the final one; meta is written below.
+        if (folded.moves.length) await rewriteFolded(value, folded.moves, [meta]);
+        const [world, opening] = initialWorld(module.graph, meta.opening_scene || null,!!moduleMeta.source_reference);
         if (nameFree) world.node_handles = handles.node_handles;
         await value.writeWorld(world);
         meta.opening_scene = opening;
@@ -724,7 +746,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // §185.1: a new campaign on a book the PDF reader built is name-free; an authored starter is legacy. Fixed here, once.
         const nameFree = !starter && playsFromReading(moduleMeta), handles: Row = { node_handles: {} };
         const loaded = starter || await context.snapshots.pathExists(await sourceGraphPath(moduleId, id))
-            ? nameFree ? await firstFold(moduleId, id, handles) : await loadModule(context, moduleId, id, null) : null, graph = loaded?.graph;
+            ? nameFree ? (await firstFold(moduleId, id, handles)).module : await loadModule(context, moduleId, id, null) : null, graph = loaded?.graph;
         const title = required(params, 'title', true) || (graph ? graph.title() : string(moduleMeta.title || moduleId));
         let sheet: Row | null = null;
         if (pregen != null) {
@@ -839,7 +861,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // §185.6: a name-free campaign takes the book's handles at the table's opening, before anything here reads a handle;
         // never while a turn is open, which read its world already.
         if (!['open', 'acting'].includes(string(snapshot.turn.state))) {
-            const refolded = await foldHandles(snapshot, module);
+            const refolded = await foldHandles(campaign, snapshot, module);
             if (refolded) {
                 module = refolded;
                 await campaign.writeWorld(snapshot.world);
@@ -1070,15 +1092,19 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const cursor = freshTurn(next, 'open', pending);
         cursor.player_text = text;
         // §185.6: the book's handles reach a name-free campaign here too, before anything of this turn reads a handle.
-        const refolded = await foldHandles(snapshot, module);
+        const refolded = await foldHandles(campaign, snapshot, module, [cursor]);
         if (refolded) module = refolded;
         // §107.1: a map published after the table arrived is presented on this, the first turn after it.
         const awaited = JSON.stringify(array(snapshot.world.map_arrivals_pending)), minted = new Set<string>();
         const lateMaps = contributions.asset ? await presentPublishedArrivalMaps({
             graph: module.graph, world: snapshot.world, turn: cursor, callId: `t${next}-input`,
             mint(base: string) { let id = base, n = 2; while (minted.has(id)) id = `${base}-${n++}`; minted.add(id); return id; }
-        }, (id, name) => contributions.asset!(id, name), focus => array(row(module.meta.reading).materials).some(material =>
-            material.material === 'map' && material.status === 'unusable' && normalize(string(material.focus ?? '')) === normalize(focus))) : [];
+        }, (id, name) => contributions.asset!(id, name), focus => {
+            // §185.12: the reading layer settled a name-free campaign's map under the scene's book handle.
+            const scene = module.graph.nameFree ? module.graph.nodeOfHandle(focus) : null, keys = [focus, ...(scene ? [module.graph.bookHandle(scene)] : [])];
+            return array(row(module.meta.reading).materials).some(material => material.material === 'map' && material.status === 'unusable'
+                && keys.some(key => normalize(string(material.focus ?? '')) === normalize(key)));
+        }) : [];
         // §176.1: the epithet lane's words, and the journal's labels for anyone still without one, reach the world here, before
         // this turn's capsule is built: never while a turn is open, which a lane write would stale.
         const folded = await foldPersonWords(campaign, module.graph, snapshot.world, row(await snapshot.optional('npc-journal.json')),

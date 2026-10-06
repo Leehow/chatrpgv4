@@ -334,9 +334,36 @@ export class ModuleGraph {
             this.interims.set(id, value = interimHandle(this.bookKind(node), id));
         return value;
     }
-    /** The handle the book's own words give a node: a scene's `scene_id`, else its node id without the kind (the old slug). */
+    /**
+     * §185.6.1: whether a handle written before now -- in a turn record, an event, a job packet -- names this node. Exact: its
+     * current handle, or in a name-free campaign one of its input-only keys, which is what a node shown before a fold was
+     * written under. Never a name.
+     */
+    sameNode(stored: unknown, node: Row): boolean {
+        if (typeof stored !== "string" || !stored)
+            return false;
+        return stored === this.handle(node) || (this.nodeHandles !== null && (stored === node.node_id || this.inputOnlyKeys(node).includes(stored)));
+    }
+    /** §185.6.1: the node a stored handle names by `sameNode`, or null (none, or more than one). */
+    nodeOfHandle(stored: unknown): Row | null {
+        if (typeof stored !== "string" || !stored)
+            return null;
+        const found = [...this.nodes.values()].filter(node => this.sameNode(stored, node));
+        return found.length === 1 ? found[0] : null;
+    }
+    /** §185.6.1: a stored handle read as the current handle of the node it names; anything else as it is. */
+    currentHandle(stored: string): string {
+        if (!this.nodeHandles || !stored)
+            return stored;
+        const node = this.nodeOfHandle(stored);
+        return node ? this.handle(node) : stored;
+    }
+    /**
+     * The handle the book's own words give a node -- a scene's `scene_id`, else its node id without the kind (the old slug) --
+     * the identifier a legacy campaign shows and the reading layer keeps (§185.12). A projected location strips its own kind.
+     */
     bookHandle(node: Row): string {
-        return node.node_kind === "scene" && typeof recordOf(node).scene_id === "string" ? recordOf(node).scene_id : stripPrefix(node.node_id, node.node_kind);
+        return node.node_kind === "scene" && typeof recordOf(node).scene_id === "string" ? recordOf(node).scene_id : stripPrefix(node.node_id, this.bookKind(node));
     }
     /**
      * What `search` matches on: the name keys plus the place names the module authored. A Keeper

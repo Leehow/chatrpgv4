@@ -229,7 +229,7 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
             for (const key of ['san_loss', 'san_loss_to_see', 'sanity_loss']) if (!loss) loss = parseSanLoss(profile[key]);
             const investigator = campaign.party.find(sheet => sheet.name === actor);
             const alreadyExposed = investigator && visitReceipts.some(receipt => receipt.kind === 'roll' && receipt.roll_kind === 'sanity_check'
-                && receipt.actor === investigator.id && receipt.npc_exposure === graph.handle(person.node));
+                && receipt.actor === investigator.id && graph.sameNode(receipt.npc_exposure, person.node));
             if (loss && investigator) covered.add('sanity:check');
             if (loss && investigator && !alreadyExposed) add('sanity:check', `${actor}: source-stated sanity check on perceiving ${person.name}`, {actor, target: person.name, san_loss: loss.join('/')},
                 [{...parameter('involuntary', 'Assume the upcoming SAN roll fails. The SAN rule then authorizes the Keeper to choose one brief involuntary response from these legal options; this is not a voluntary player decision. Judge its immediate compatibility, not whether the roll has already failed. Do not choose an extended strategy.', [...INVOLUNTARY_KINDS]), selection: 'compatible'}], [], 'consequence');

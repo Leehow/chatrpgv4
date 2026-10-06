@@ -80,7 +80,7 @@ export function storyReentry(graph: ModuleGraph, world: Row, records: Row[], ass
     const evidence = (graph.incoming.get(conclusion.node_id) ?? []).flatMap(edge => {
         const clue = graph.nodes.get(edge.from_node_id);
         if (!clue || clue.node_kind !== 'clue' || !['supports', 'contradicts'].includes(edge.relation_kind)) return [];
-        const name = graph.handle(clue), deliveries = records.filter(record => array(record.receipts).some(receipt => receipt.clue === name));
+        const name = graph.handle(clue), deliveries = records.filter(record => array(record.receipts).some(receipt => graph.sameNode(receipt.clue, clue)));
         return [{clue, name, relation: edge.relation_kind, summary: graph.summary(clue), acquired: evidenceAcquired(graph, world, clue, records),
             turns: deliveries.map(record => record.turn).slice(-3)}];
     });

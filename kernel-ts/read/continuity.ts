@@ -8,28 +8,32 @@ import { array, chars, row, string, type Row } from './values.js';
 
 /** A handout is a causal carrier only through the graph's closed evidence roles. */
 export function evidenceHandouts(graph: ModuleGraph, node: Row): string[] {
+    return evidenceCarriers(graph, node).map(carrier => graph.handle(carrier));
+}
+/** The carrier handout nodes behind `evidenceHandouts`. */
+function evidenceCarriers(graph: ModuleGraph, node: Row): Row[] {
     if (node.node_kind !== 'clue') return [];
     return (graph.incoming.get(node.node_id) ?? []).flatMap(edge => {
         const carrier = graph.nodes.get(edge.from_node_id);
-        return carrier?.node_kind === 'handout' && ['supports', 'depicts'].includes(edge.relation_kind)
-            ? [graph.handle(carrier)] : [];
+        return carrier?.node_kind === 'handout' && ['supports', 'depicts'].includes(edge.relation_kind) ? [carrier] : [];
     });
 }
 
 /** Receipts prove that a clue or one of its handout carriers actually reached play. */
 export function evidenceDeliveryRecords(graph: ModuleGraph, node: Row, records: Row[]): Row[] {
-    const name = graph.handle(node), handouts = new Set(evidenceHandouts(graph, node));
+    // §185.6.1: a receipt keeps the handle a node had then (an interim one, before a fold); compared by identity.
+    const carriers = evidenceCarriers(graph, node);
     return records.filter(record => array(record.receipts).some(receipt =>
-        receipt.clue === name || receipt.handout === name || handouts.has(string(receipt.handout))));
+        graph.sameNode(receipt.clue, node) || graph.sameNode(receipt.handout, node) || carriers.some(carrier => graph.sameNode(receipt.handout, carrier))));
 }
 
 export function evidenceAcquired(graph: ModuleGraph, world: Row, node: Row, records: Row[]): boolean {
     const name = graph.handle(node);
     if (node.node_kind === 'clue' && array(world.discovered_clues).includes(name)) return true;
     if (node.node_kind === 'handout' && array(world.handouts_shown).includes(name)
-        && records.some(record => array(record.receipts).some(receipt => receipt.handout === name))) return true;
-    const handouts = new Set(evidenceHandouts(graph, node));
-    return handouts.size > 0 && records.some(record => array(record.receipts).some(receipt => handouts.has(string(receipt.handout))));
+        && records.some(record => array(record.receipts).some(receipt => graph.sameNode(receipt.handout, node)))) return true;
+    const carriers = evidenceCarriers(graph, node);
+    return carriers.length > 0 && records.some(record => array(record.receipts).some(receipt => carriers.some(carrier => graph.sameNode(receipt.handout, carrier))));
 }
 
 /** Compact evidence keeps every acquired row up to this cap; unacquired rows are optional context.

@@ -74,7 +74,7 @@ export function createVoiceHandlers(context: KernelContext, writer: ReturnType<t
             if (!node)
                 return { job_id: null };
             const ledger = await readNpcLedger(campaign), dossier = npcView(graph, snapshot.world, node, ledger);
-            const handle = graph.handle(node), said = (await campaign.records()).flatMap((record: Row) => array(record.speech).filter(line => row(row(line).who).npc === handle).map(line => string(row(line).text)));
+            const said = (await campaign.records()).flatMap((record: Row) => array(record.speech).filter(line => graph.sameNode(row(row(line).who).npc, node)).map(line => string(row(line).text)));
             const packet = buildPacket(campaign, graph, snapshot.world, owner, node, await playLanguageOf(context, snapshot.meta), dossier, await laneInstruction(context, owner, snapshot.world, catalog), said, await investigatorIdentity(campaign, snapshot.world));
             return openJob(campaign, owner, graph.handle(node), packet);
         },

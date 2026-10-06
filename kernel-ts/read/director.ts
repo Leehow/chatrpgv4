@@ -120,8 +120,9 @@ export function signals(options: {
         empty++;
     }
     const previousText = string(played[0]?.player_text ?? "").trim(), currentText = string(turn.player_text ?? "").trim();
+    // §185.6.1: a record keeps the scene's handle as it was then; compared by identity.
     for (const record of played) {
-        if (row(row(record.world).scene).name !== graph.handle(scene))
+        if (!graph.sameNode(row(row(record.world).scene).name, scene))
             break;
         turns++;
     }
@@ -131,7 +132,7 @@ export function signals(options: {
             hp = h;
         let lost = false;
         for (const record of played) {
-            if (row(row(record.world).scene).name !== graph.handle(scene))
+            if (!graph.sameNode(row(row(record.world).scene).name, scene))
                 break;
             if (array(record.receipts).some(r => r.kind === "delta" && r.resource === "san" && string(r.subject) === string(sheet.id) && integer(r.before) && integer(r.after) && number(r.after) < number(r.before))) {
                 lost = true;

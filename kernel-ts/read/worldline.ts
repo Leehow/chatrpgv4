@@ -69,7 +69,7 @@ export async function worldlineSection(campaign: CampaignSnapshot, graph: Module
             if (string(campaign.meta.opening_scene || "") === handle)
                 since = await campaign.context.git.rootCommit(campaign.id) ? 0 : null;
             else {
-                const record = [...campaign.records].sort((a, b) => number(a.turn) - number(b.turn)).find(record => string(row(row(record.world).scene).name || "") === handle && truth(record.commit));
+                const record = [...campaign.records].sort((a, b) => number(a.turn) - number(b.turn)).find(record => graph.sameNode(row(row(record.world).scene).name, found) && truth(record.commit));
                 if (record)
                     since = number(record.turn);
             }

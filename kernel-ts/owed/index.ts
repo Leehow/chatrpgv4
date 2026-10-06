@@ -138,7 +138,8 @@ export async function projectOwed(kernel: KernelContext, graph: ModuleGraph, wor
     // Moves first: a person "here" is where the prose put the party, so the told position must be known.
     entries.sort((a, b) => Number(a.entry.kind !== 'move') - Number(b.entry.kind !== 'move') || a.index - b.index);
     let told: string | null = null;
-    const delivered = text(row(row(record.world).scene).name) || text(world.active_scene);
+    // §185.6.1: the record keeps the scene's handle as it was then; a row written now names it by its current handle.
+    const delivered = graph.currentHandle(text(row(row(record.world).scene).name)) || text(world.active_scene);
     const bands = entries.length ? await owedBands(kernel) : null;
     for (const { entry, index } of entries) {
         const kind = text(entry.kind), drop = (reason: string) => dropped.push({ index, kind, reason });

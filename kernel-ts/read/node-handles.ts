@@ -12,9 +12,12 @@
  * A campaign on an authored starter pack, and every campaign without the field, is `legacy` and keeps the slug handles.
  */
 import { createHash } from 'node:crypto';
+import type { Dirent } from 'node:fs';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
 import { writeJsonAtomic } from '../fileio.js';
+import { parsePythonJson } from '../json.js';
 import { withOptionalExclusiveLock } from '../locks.js';
 import { namePieces, occurs } from '../journal/naming.js';
 import { scopedModuleRoot } from '../modules/campaign-scope.js';
@@ -95,16 +98,20 @@ export function castForms(graph: ModuleGraph): string[] {
 
 const storedHandle = (entry: unknown): string => text(row(entry).handle);
 
+/** §185.6.1: one node a fold mapped -- from the interim handle it showed until then to its final handle. */
+export interface HandleMove { node_id: string; from: string; to: string }
+
 /**
  * §185.6: take the book's handles into `world.node_handles` for every book node of the served graph not mapped yet:
  * - a handle `handles.json` holds that is free here (no table name, adaptation name or other mapped handle has its
  *   normalized form): that handle;
  * - a node given up, or whose handle is not free here: `<kind>-<n>`, the next ordinal of its kind nothing here answers to;
  * - otherwise nothing: the node keeps its interim handle until a later fold.
- * Returns whether the world changed; the caller writes it, and reloads the graph, whose handles it built with the old map.
+ * Returns the moves (none when the world is unchanged); the caller rewrites the campaign's stored references (§185.6.1),
+ * writes the world and reloads the graph, whose handles it built with the old map.
  */
-export function foldNodeHandles(graph: ModuleGraph, world: Row, stored: Row): boolean {
-    if (!graph.nameFree) return false;
+export function foldNodeHandles(graph: ModuleGraph, world: Row, stored: Row): HandleMove[] {
+    if (!graph.nameFree) return [];
     const map: Row = { ...row(world.node_handles) }, settled = row(stored.nodes);
     const used = new Set([...graph.tableNames.values(), ...graph.tableEntityNames.values(), ...graph.tableCreatureNames.values(),
         ...graph.semanticNames.values(), ...Object.values(map).map(text)].map(normalize).filter(Boolean));
@@ -114,7 +121,7 @@ export function foldNodeHandles(graph: ModuleGraph, world: Row, stored: Row): bo
             if (!used.has(key) && !graph.names.has(key)) return candidate;
         }
     };
-    let changed = false;
+    const moves: HandleMove[] = [];
     for (const node of bookNodes(graph)) {
         const id = String(node.node_id);
         if (Object.hasOwn(map, id) || !Object.hasOwn(settled, id)) continue;
@@ -123,11 +130,84 @@ export function foldNodeHandles(graph: ModuleGraph, world: Row, stored: Row): bo
         const value = handle && !used.has(normalize(handle)) ? handle : ordinal(graph.bookKind(node));
         map[id] = value;
         used.add(normalize(value));
+        moves.push({ node_id: id, from: graph.interimHandle(node), to: value });
+    }
+    if (moves.length) world.node_handles = map;
+    return moves;
+}
+
+/**
+ * §185.6.1: in place, every object key and every string value exactly equal to a moved interim handle becomes the final one.
+ * Never a substring: a composite string (`clue:<interim>-t3`, `intent:<interim>:<digest>`) stays, and resolves through the
+ * interim handle, an input key forever. A key whose final form is already present keeps that entry, written under the
+ * current handle. Key order is kept. Returns whether anything changed.
+ */
+export function rewriteHandles(value: unknown, moves: ReadonlyMap<string, string>): boolean {
+    if (Array.isArray(value)) {
+        let changed = false;
+        for (let index = 0; index < value.length; index++) {
+            const item = value[index];
+            if (typeof item === 'string' && moves.has(item)) { value[index] = moves.get(item)!; changed = true; }
+            else if (rewriteHandles(item, moves)) changed = true;
+        }
+        return changed;
+    }
+    if (!value || typeof value !== 'object') return false;
+    const object = value as Row;
+    let changed = false;
+    for (const key of Object.keys(object)) {
+        const item = object[key];
+        if (typeof item === 'string' && moves.has(item)) { object[key] = moves.get(item)!; changed = true; }
+        else if (rewriteHandles(item, moves)) changed = true;
+    }
+    if (Object.keys(object).some(key => moves.has(key))) {
+        const kept = Object.entries(object);
+        for (const key of Object.keys(object)) delete object[key];
+        for (const [key, item] of kept) {
+            const renamed = moves.get(key);
+            if (renamed === undefined) object[key] = item;
+            else if (!kept.some(([other]) => other === renamed)) object[renamed] = item;
+        }
         changed = true;
     }
-    if (changed) world.node_handles = map;
     return changed;
 }
+
+/**
+ * §185.6.1: the campaign's mutable state files a fold rewrites, found by walking its directory: every `.json` file but the
+ * append-only history and the lanes' job packets. Not rewritten: `turns/` (the turn records), `memory/`, any `jobs/`
+ * folder (a lane's request and answer, echoed back by id), dot-entries (the narrate journal, git), every `.jsonl` log
+ * (transcript, events, telemetry, notes, rulings), and the names in `skip` the caller holds in memory and writes itself.
+ */
+export async function rewriteCampaignFiles(directory: string, moves: ReadonlyMap<string, string>, skip: ReadonlySet<string> = new Set()): Promise<Map<string, Row>> {
+    const rewritten = new Map<string, Row>();
+    const walk = async (relative: string): Promise<void> => {
+        let names: Dirent[];
+        try { names = await readdir(join(directory, relative), { withFileTypes: true }); }
+        catch { return; }
+        for (const entry of names) {
+            const path = relative ? join(relative, entry.name) : entry.name;
+            if (entry.name.startsWith('.') || skip.has(path)) continue;
+            if (entry.isDirectory()) {
+                if (HISTORY_FOLDERS.has(entry.name) && (!relative || entry.name === 'jobs')) continue;
+                await walk(path);
+            }
+            else if (entry.isFile() && entry.name.endsWith('.json')) {
+                let value: unknown;
+                try { value = parsePythonJson(await readFile(join(directory, path), 'utf8')); }
+                catch { continue; }
+                if (rewriteHandles(value, moves)) {
+                    await writeJsonAtomic(join(directory, path), value as Row);
+                    rewritten.set(path, value as Row);
+                }
+            }
+        }
+    };
+    await walk('');
+    return rewritten;
+}
+/** Folders whose files are history (top level: `turns`, `memory`) or lane job packets (`jobs`, at any depth). */
+const HISTORY_FOLDERS: ReadonlySet<string> = new Set(['turns', 'memory', 'jobs']);
 
 /** The lane's instruction (§185.5), in the system language. */
 export function handleInstruction(): string {

@@ -43,7 +43,8 @@ export function speakerResolver(graph: ModuleGraph, world: Row, party: Row[], un
         const handle = graph.handle(node), name = personLabel(world, handle, graph.displayName(node));
         if (string(personRecord(world, handle).name || '').trim() || !untold(node)) return { npc: handle, name };
         // Exact: normalized, a handle and the name it was made from are the same string ("steven-knott", "Steven Knott").
-        const shown = said.trim() === handle ? '' : said.trim();
+        // §185.4: in a name-free campaign the old slug and the interim handle are identifiers too, never a name said.
+        const shown = graph.sameNode(said.trim(), node) ? '' : said.trim();
         return shown === name ? { npc: handle, name } : { npc: handle, name, shown };
     };
     const sheetSpeaker = (sheet: Row): Speaker => ({ investigator: string(sheet.id), name: personLabel(world, string(sheet.id), string(sheet.name)) });

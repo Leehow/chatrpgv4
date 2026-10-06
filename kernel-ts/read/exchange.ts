@@ -62,8 +62,9 @@ export async function lastInteraction(campaign: CampaignSnapshot): Promise<Row |
 export function stillWhereItClosed(graph: ModuleGraph, world: Row, record: Row | null): boolean {
     const active = string(world.active_scene);
     if (!record || !active) return false;
-    const scene = graph.find(active, ['scene']), here = scene ? graph.handle(scene) : active;
-    return string(row(row(record.world).scene).name) === here;
+    const scene = graph.find(active, ['scene']), closed = string(row(row(record.world).scene).name);
+    // §185.6.1: the record keeps the scene's handle as it was then; compared by identity.
+    return scene ? graph.sameNode(closed, scene) : closed === active;
 }
 
 /**
@@ -72,11 +73,12 @@ export function stillWhereItClosed(graph: ModuleGraph, world: Row, record: Row |
  * `EXCHANGE_LINES` lines whose speaker the markers resolved to a person, in order, each by the table's name for them
  * now. Null when the investigators no longer stand where it closed, or when it holds neither words nor lines.
  */
-export function exchangeOf(world: Row, record: Row): Row | null {
+export function exchangeOf(world: Row, record: Row, graph?: ModuleGraph): Row | null {
     const said = clip(record.player_text, EXCHANGE_WORDS_MAX);
     const speech = array(record.speech).map(row).flatMap(line => {
         const who = row(line.who), text = clip(line.text, EXCHANGE_LINE_MAX);
-        const id = typeof who.npc === 'string' && who.npc ? who.npc : typeof who.investigator === 'string' && who.investigator ? who.investigator : '';
+        // §185.6.1: a person's handle as the record kept it, read as their current one, which the world's labels are keyed by.
+        const id = typeof who.npc === 'string' && who.npc ? graph?.currentHandle(who.npc) ?? who.npc : typeof who.investigator === 'string' && who.investigator ? who.investigator : '';
         return id && text ? [{who: personLabel(world, id, string(who.name || id)), line: text}] : [];
     }).slice(-EXCHANGE_LINES);
     return said || speech.length ? {turn: number(record.turn), player_text: said || null, speech} : null;
@@ -92,7 +94,7 @@ export async function lastExchange(campaign: CampaignSnapshot, graph: ModuleGrap
     try {
         const records = campaign.records.length ? campaign.records : await campaign.files('turns');
         const {previous} = committedOnLine(campaign, records);
-        return previous && stillWhereItClosed(graph, campaign.world, previous) ? exchangeOf(campaign.world, previous) : null;
+        return previous && stillWhereItClosed(graph, campaign.world, previous) ? exchangeOf(campaign.world, previous, graph) : null;
     } catch {
         return null;
     }
