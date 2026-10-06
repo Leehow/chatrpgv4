@@ -166,7 +166,8 @@ test('guidance review inspects a host-assigned alternate entrance outside the au
 test('an oversized focused input names its own readable file instead of forcing full-task ingestion',async t=>{
  const cwd=await mkdtemp(join(tmpdir(),'coc-focused-review-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
  await reviewCandidate({cwd,task:{purpose:'detail',focus:'Road',question:'What is visible?',vocabulary:{noise:'not-needed'}},draft:{nodes:[{node_id:'scene-road',summary:'x'.repeat(30000),source_refs:[{page:1}],properties:{}}],claims:[]},instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,record(){},progress(){},async run(request){
-  assert.match(request.brief,/^Read review-input.json/);assert.equal(request.submission,true);
+  // §186.2: the unit-independent instructions lead; the pointer to the oversized input follows them.
+  assert.match(request.brief,/^Independently review only task\.required_review[^]*Read review-input\.json for the complete focused assignment\./);assert.equal(request.submission,true);
   const focused=JSON.parse(await readFile(join(request.cwd,'review-input.json'),'utf8'));
   assert.equal(focused.review_records['/nodes/0'].summary.length,30000);
   assert.equal(JSON.parse(await readFile(join(request.cwd,'draft.json'),'utf8')).nodes[0].summary.length,30000);
@@ -176,6 +177,86 @@ test('an oversized focused input names its own readable file instead of forcing 
   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:task.required_review,verdict:'supported',source_refs:[{page:1}]}],missing:[]}));
   return{ok:true,ms:1,stderr:''};
  }});
+});
+
+/**
+ * §186.2: every unit attempt of one round carries the round's cache identity and the data image budget, and its brief is
+ * shared-first: the unit-independent instructions, then the input whose job-level part precedes the unit's own pointers,
+ * then the unit's own notes. Two units' briefs are one prefix up to their own `required_review`.
+ */
+test('§186.2: the units of one round share a cache identity and a shared-first brief in the same words',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-review-shared-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const cacheId='0b6f3c2e-8a1d-5f4e-9c7b-2d3e4f5a6b7c',requests=[],rows=[];let first=true;
+ const draft={nodes:[{node_id:'scene-room',name:'Room',source_refs:[{page:1}],properties:{}},{node_id:'npc-guard',name:'Guard',source_refs:[{page:2}],properties:{}}],
+  claims:[],ready_nodes:['scene-room'],coverage:{},dependencies:[],node_refs:[]};
+ await reviewCandidate({cwd,cacheId,imageHistory:12,task:{purpose:'detail',focus:'Room',question:'Who guards it?',review_policy:'module-logic-v1',
+   required_review:['/nodes/0','/nodes/1'],review_scope_pages:[1,2],vocabulary:{classification_fields:['/nodes/*/visibility']}},draft,
+  instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,progress(){},record(row){rows.push(row);},
+  async run(request){
+   requests.push(request);
+   const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));
+   const pages=task.required_review.includes('/coverage')?[1,2]:task.required_review.includes('/nodes/0')?[1]:[2];
+   request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:pages.map(page=>({page}))}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+   // The first attempt of the first unit omits its pointer, so its retry carries the failure note.
+   const paths=first?[]:task.required_review;first=false;
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:paths.length?[{paths,verdict:'supported',source_refs:pages.map(page=>({page})),reason:'Fixture.'}]:[],missing:[]}));
+   return {ok:true,ms:1,stderr:'',firstCallUncached:900};
+  }});
+ assert.ok(requests.length>=3);
+ for(const request of requests){
+  assert.equal(request.cacheId,cacheId,'every unit attempt of the round carries the round cache identity');
+  assert.equal(request.imageHistory,12);
+ }
+ for(const row of rows.filter(row=>row.phase==='verify'))assert.equal(row.cache_id,cacheId);
+ assert.deepEqual(rows.filter(row=>row.phase==='verify'&&row.ok).map(row=>row.first_call_uncached),rows.filter(row=>row.phase==='verify'&&row.ok).map(()=>900));
+ const briefs=requests.map(request=>request.brief);
+ for(const brief of briefs){
+  assert.match(brief,/^Independently review only task\.required_review against original images using pdf\./,'unit-independent instructions first');
+  const input=brief.indexOf('<input_json>'),pointers=brief.indexOf('"required_review"');
+  for(const sentence of ['Never edit the draft.','Pass the review directly to submit_reading as your sole final tool call; no separate write or final prose is needed.',
+   'review_records is keyed by ORIGINAL draft pointers, not a replacement graph.'])
+   assert.ok(brief.indexOf(sentence)>=0&&brief.indexOf(sentence)<input,sentence);
+  // The job-level fields of the focused input come before the unit's own pointers.
+  for(const shared of ['"purpose":"detail"','"focus":"Room"','"question":"Who guards it?"','"classification_fields"'])
+   assert.ok(brief.indexOf(shared)>input&&brief.indexOf(shared)<pointers,shared);
+  assert.ok(brief.endsWith('Finish this unit and stop.'));
+ }
+ const firstOf=pointer=>briefs.find(brief=>!brief.includes('Your previous attempt')&&brief.includes(`"required_review":["${pointer}`));
+ const [a,b]=[firstOf('/nodes/0'),firstOf('/coverage')];
+ assert.ok(a&&b);
+ let common=0;while(common<Math.min(a.length,b.length)&&a[common]===b[common])common++;
+ assert.ok(common>a.indexOf('"classification_fields"'),'two units share everything up to their own assignment');
+ assert.ok(common<=a.indexOf('"required_review"')+'"required_review":["/'.length,'and diverge at it');
+ const retry=briefs.find(brief=>brief.includes('Your previous attempt at this same unit was rejected'));
+ assert.ok(retry.indexOf('Your previous attempt at this same unit was rejected')>retry.indexOf('</input_json>'),'the failure note is the unit\'s own, after its input');
+});
+
+test('§186.2: a whole-input review (no focused projection) puts the shared draft and task fields before the unit pointers',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-review-shared-input-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const briefs=[];
+ const draft={nodes:[{node_id:'scene-dock',name:'Dock',source_refs:[{page:1}],properties:{}},{node_id:'npc-pilot',name:'Pilot',source_refs:[{page:2}],properties:{}}],claims:[],critical:[]};
+ await reviewCandidate({cwd,task:{purpose:'skeleton',focus:'',question:'',required_review:['/nodes/0','/nodes/1'],source:{page_count:4}},draft,
+  instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,progress(){},record(){},
+  async run(request){
+   briefs.push(request.brief);
+   const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));
+   const pages=task.required_review.includes('/nodes/0')?[1]:[2];
+   request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:pages.map(page=>({page}))}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:task.required_review,verdict:'supported',source_refs:pages.map(page=>({page})),reason:'Fixture.'}],missing:[]}));
+   return {ok:true,ms:1,stderr:''};
+  }});
+ assert.equal(briefs.length,2);
+ for(const brief of briefs){
+  assert.match(brief,/^Independently review only task\.required_review[^]*Write review\.json\. The following JSON contains your supplied input/);
+  const input=JSON.parse(brief.slice(brief.indexOf('<input_json>\n')+13,brief.indexOf('\n</input_json>')));
+  assert.deepEqual(Object.keys(input),['draft','task'],'the job-level draft first');
+  assert.equal(Object.keys(input.task).at(-1),'required_review','the unit pointers last');
+ }
+ let common=0;while(briefs[0][common]===briefs[1][common])common++;
+ assert.ok(common>briefs[0].indexOf('"purpose":"skeleton"'),'the draft and the shared task fields are one prefix');
+ assert.ok(common<=briefs[0].indexOf('"required_review"')+'"required_review":["/nodes/'.length);
 });
 
 test('omitted fields retry only their unit and retained complete units survive a resumed batch',async t=>{

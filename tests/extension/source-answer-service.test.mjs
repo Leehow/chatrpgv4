@@ -40,7 +40,9 @@ test('an answer uses one scoped independent review and delivers immutable eviden
  const draft={status:'answered',answer:'The page lists food but no exact price.',source_refs:[{page:2}],limitations:'Only the source passage is established.'};
  const runtime={contentRoot:join(ROOT,'content'),async check(){return{ok:true,required_view_pages:[2]};},
   async runTask({request}){
-   tasks.push(request);assert.equal(request.prompt.answer,true);assert.equal(request.submission,true);assert.equal(request.imageHistory,4);
+   // §186.1: the author's and the reviewer's image budget is the data value, not a literal.
+   const {reading_images}=JSON.parse(await readFile(join(ROOT,'content','rulesets','coc7','host-budgets.json'),'utf8'));
+   tasks.push(request);assert.equal(request.prompt.answer,true);assert.equal(request.submission,true);assert.equal(request.imageHistory,reading_images.count);
    const call='view',page=2,path=join(cache,'page-2.png');
    if(request.prompt.phase==='read'){
     await writeFile(join(request.cwd,'draft.json'),JSON.stringify(draft)+'\n');
