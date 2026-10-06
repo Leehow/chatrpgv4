@@ -13752,6 +13752,10 @@ must first be withdrawn through the existing admitted cash cancellation, then th
 new offer uses its own priced rows. Cancellation never pays, delivers goods, reverses
 a settled purchase or carries old cash authority to new terms. This explicit existing
 path preserves technical-retry price freezing without freezing legitimate bargaining.
+The changed-terms refusal carries the exact old human-readable bill and the existing
+separate cancellation call. It distinguishes a technical retry from a genuinely new
+agreement, and must not instruct the Keeper to undo a successful bargaining result or
+replace the player's conditional discounted purchase with the rejected original price.
 An ordinary failed bargain alone grants neither a discount nor purchase consent.
 Only seller-offered terms become quotation drafts; a refused or unanswered player bid
 is not registered as a seller's offer.

@@ -88,7 +88,7 @@ test('a new negotiated agreement may change prices after cancelling the unpaid o
   const p=await policy(),recovery=p.recovery();
   await recovery.failure({effects:[bill,item]},insufficient,1);
   const revised={...bill,bill:'Negotiated counter bill',items:[{name:'Cola',quantity:2,unit_price:'0.40'}]};
-  await assert.rejects(recovery.check({effects:[revised,item]},2),e=>e.details.reason==='purchase_terms_changed');
+  await assert.rejects(recovery.check({effects:[revised,item]},2),e=>e.details.reason==='purchase_terms_changed'&&e.fix.includes('"mode":"cancel","bill":"Counter bill"')&&e.fix.includes('settled bargaining success'));
   assert.equal((await recovery.offers([],1))[0].items[0].unit_price,'0.50','failure preserves the original rate');
   const cancel={kind:'cash',mode:'cancel',bill:bill.bill};
   await recovery.check({effects:[cancel]},2);
