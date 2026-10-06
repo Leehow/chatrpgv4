@@ -13,6 +13,8 @@ import { buildRailPrompts, isNavigationEligibleUserPrompt } from './prompt-rail'
 import { parseSubagentNotice } from './subagent-notice'
 import { parseInternalUserSignal } from './subagent-signal'
 import { TruncatedText } from './TruncatedText'
+import { TranscriptMarkdown } from './TranscriptMarkdown'
+import { transcriptWord, useTranscriptWords } from './transcript-words'
 import { formatTurnElapsed, turnElapsedMs } from './turn-elapsed'
 import { useNarrationTypewriter } from './useNarrationTypewriter'
 import { foldMarkedDeliveries, liveDraftMessageId, withoutMechanicsMarkers, type ChatMessage } from './transcript-model'
@@ -338,6 +340,7 @@ export const MessageList = memo(forwardRef<VirtuosoHandle, { stateKey?: string; 
 function messageTime(timestamp?: number): string { if (!timestamp) return ''; const date = new Date(timestamp); const pad = (value: number) => String(value).padStart(2, '0'); return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}` }
 
 export const MessageView = memo(function MessageView({ message, showFooter, elapsedMs, draftSuperseded, documentBasePath, onOpenDocument, onOpenSubagents, onInvokeExtension, onChoose, onDraftOverride, onDraftConfirm, onDraftSpread, onDraftReroll, onDraftCatalog, onOpenPanel, onCopy, onResend, resendDisabled, copied, onBranch, branchMessageIds, branchDisabled, onIllustrate, illustrateDisabled, illustration, actionWords, canJump = false, onJump }: { message: ChatMessage; showFooter?: boolean; elapsedMs?: number; draftSuperseded?: boolean; copied?: boolean; canJump?: boolean; onJump?: () => void; illustration?: IllustrationState } & DocumentOpenProps & SubagentOpenProps & RendererInvokeProps & PresentationActionProps & Omit<MessageActionHandlers, 'copiedId' | 'illustrations'>) {
+  const transcriptWords = useTranscriptWords()
   const signal = message.role === 'user' ? parseInternalUserSignal(message.content) : null
   const marked = (message.presentation?.details as {marked_text?:string})?.marked_text
   const copyMessage = marked ? {...message, content:withoutMechanicsMarkers(marked)} : message
@@ -359,6 +362,13 @@ export const MessageView = memo(function MessageView({ message, showFooter, elap
   if (message.role === 'compaction') return <CompactionDivider message={message} />
   if (message.role === 'user') return signal ? <article className="message user-message subagent-signal-message"><div className="subagent-signal-stack"><SubagentSignalCard content={message.content} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} />{time}</div></article> : <article className="message user-message" data-user-prompt={message.id}><div className="user-message-stack"><UserMessageBubble text={message.content} images={message.images} /></div>{footer}</article>
   if (message.role === 'tool') { const notice = parseSubagentNotice(message.content); return notice ? <article className="message assistant-message"><CollapsibleActivityCard kind="result" label="子任务" summary={notice.name} meta={`${notice.ok ? '成功' : '失败'} · ${notice.cost}`} error={!notice.ok}><pre><TruncatedText text={message.content} /></pre></CollapsibleActivityCard>{footer}</article> : <article className="system-message tool-message"><div><TruncatedText text={message.content} /></div>{footer}</article> }
+  if (message.role === 'assistant' && message.providerNotice) return <article className="message assistant-message provider-notice" role="status">
+    <CollapsibleActivityCard kind="result" summary={message.providerNotice === 'recovered'
+      ? transcriptWord(transcriptWords, 'provider_recovered') : transcriptWord(transcriptWords, 'provider_failed')}
+      error={message.providerNotice === 'failed'} meta="" defaultExpanded={false}>
+      <TranscriptMarkdown content={message.content} />
+    </CollapsibleActivityCard>{footer}
+  </article>
   return <article className="message assistant-message"><AssistantTranscriptContent message={message} onOpenSubagents={onOpenSubagents} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} illustration={illustrationNode} />{footer}</article>
 })
 

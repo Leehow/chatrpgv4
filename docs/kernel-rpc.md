@@ -11298,6 +11298,35 @@ through §38.2 instead of hitting `turn_state`. Any later completed assistant me
 terminal-failure mark, so the retained turn-3 shape above — one failed call, a 2.6 s successful retry, then
 a normal delivery — records and reports its outage but is never stranded.
 
+**Provider-notice disclosure (2026-10-06, owner request).** The Electron transcript draws provider
+outage notices as compact disclosures, closed by default. The visible summary states either that
+automatic retry recovered and the reply completed, or that the model request failed and the reply
+did not complete. Expanding retains the exact original notice. The existing notice timing and
+eight-retry policy do not change. Summary captions have one English source on the `transcript`
+surface and use the existing open-language presenter, never text classification or language tables.
+
+**The host's decision.** The shared live/history reader projects only displayed `coc-delivery` rows
+with `details.provider_outage === true` and a boolean `details.terminal` into
+`HistoryEntry.providerNotice: "recovered" | "failed"` (`false` means recovered). The UI carries that
+marker through both transcript projections and selects the matching summary. Existing saved notices
+therefore fold without rewriting evidence. Other service notices and host-delivered Keeper prose
+remain on their existing paths; a missing terminal discriminator never claims recovery.
+The producer is the existing settled-run notice, the reader is the shared host projection, and the
+actor is the transcript disclosure. Checks cover real Pi message shapes, reload parity, both
+outcomes, preservation of original content, and the expand/collapse control.
+
+External comparison: [WAI disclosure guidance](https://www.w3.org/WAI/ARIA/apg/patterns/disclosure/)
+and [HTML disclosure semantics](https://html.spec.whatwg.org/multipage/interactive-elements.html#the-details-element)
+both keep the summary visible while details are hidden. The UI uses its existing disclosure card
+and `aria-expanded` toggle; no new retry mechanism is required.
+
+Validation: 30 selected UI checks, nine host live/history checks, and 17 caption guards passed.
+The host API compiled; the UI typecheck retained the same 109 pre-existing diagnostics, with no
+new diagnostics. The shipped Chinese cache's two new captions were projected by a tool-enabled
+Pi agent on `flapcode/gpt-6-luna`, low (`read`, `write`, `bash`); its inputs, output and events remain
+in `.coc/research/provider-notice-fold-20261006/`. This is source verification, not an App package
+or live GUI acceptance.
+
 #### 38.7.1 Addendum (2026-09-26, SL-74): the `provider-request` row gains `step` and `first_step_thinking`
 
 Twelve long gates on the same script (evidence in `docs/specs/pi-native-single-loop-tickets/74-first-step-thinking-experiment.md`)

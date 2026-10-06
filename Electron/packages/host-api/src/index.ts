@@ -89,6 +89,8 @@ export type HistoryActivity =
 export type OpeningHelp = { title: string; lines: string[]; /** Drawn open the first time this desk meets the moment; the extension decided and recorded it. */ open?: boolean; moment?: string };
 export type HistoryEntry = {
   presentation?: {renderer:string; details:unknown};
+  /** Provider outage notice outcome, projected from the host's terminal discriminator. */
+  providerNotice?: "recovered" | "failed";
   /** assistant only: a host-delivered opening that carries a help fold the renderer draws behind a "?" button. */
   help?: OpeningHelp;
   /**

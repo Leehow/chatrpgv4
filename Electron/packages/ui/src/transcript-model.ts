@@ -34,6 +34,7 @@ export type TranscriptSegment =
 
 export type ChatMessage = {
   presentation?: HistoryEntry["presentation"];
+  providerNotice?: HistoryEntry["providerNotice"];
   id: string
   role: 'user' | 'assistant' | 'tool' | 'compaction'
   content: string
@@ -386,7 +387,7 @@ export function historyMessages(entries: HistoryEntry[]): ChatMessage[] {
       if (entry.fileSources?.length) previous.fileSources = entry.fileSources
       continue
     }
-    messages.push({ id: entry.id, role: entry.role, content: entry.role === 'user' ? stripAttachmentPathsForDisplay(entry.content) : entry.content, timestamp: entry.timestamp, ...(entry.role === 'assistant' && entry.help ? { help: entry.help } : {}), ...(entry.role === 'assistant' && entry.errorMessage ? { error: entry.errorMessage } : {}), ...(entry.role === 'assistant' && entry.citations?.length ? { citations: entry.citations } : {}), ...(entry.role === 'assistant' && entry.fileSources?.length ? { fileSources: entry.fileSources } : {}), ...(entry.role === 'user' && entry.images?.length ? { images: entry.images } : {}), ...(entry.role === 'user' && entry.sentAt !== undefined ? { sentAt: entry.sentAt } : {}) })
+    messages.push({ id: entry.id, role: entry.role, content: entry.role === 'user' ? stripAttachmentPathsForDisplay(entry.content) : entry.content, timestamp: entry.timestamp, ...(entry.providerNotice ? { providerNotice: entry.providerNotice } : {}), ...(entry.role === 'assistant' && entry.help ? { help: entry.help } : {}), ...(entry.role === 'assistant' && entry.errorMessage ? { error: entry.errorMessage } : {}), ...(entry.role === 'assistant' && entry.citations?.length ? { citations: entry.citations } : {}), ...(entry.role === 'assistant' && entry.fileSources?.length ? { fileSources: entry.fileSources } : {}), ...(entry.role === 'user' && entry.images?.length ? { images: entry.images } : {}), ...(entry.role === 'user' && entry.sentAt !== undefined ? { sentAt: entry.sentAt } : {}) })
   }
   return messages
 }
@@ -402,6 +403,7 @@ export function transcriptFingerprint(messages: readonly ChatMessage[]): string 
     error: message.error,
     thinking: message.thinking,
     presentation: message.presentation,
+    providerNotice: message.providerNotice,
     tools: message.tools?.map(tool => ({ id: tool.id, name: tool.name, input: tool.input, result: tool.result, error: tool.error, details: tool.details })),
     activities: message.activities?.map(activity => activity.type === 'tool'
       ? { type: activity.type, contentIndex: activity.contentIndex, toolId: activity.tool.id, result: activity.tool.result, error: activity.tool.error }
@@ -688,7 +690,7 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     const replaces = event.replacesDraft
     const draftAt = replaces ? previous.findIndex(item => item.id === replaces) : -1
     const typewriter = at >= 0 ? previous[at].typewriter : draftAt >= 0 ? previous[draftAt].typewriter ?? (liveProse ? {} : undefined) : liveProse ? {} : undefined
-    const message:ChatMessage={id:event.entry.id,role:event.entry.role??'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(opening?{opening:true}:{}),...(event.entry.help?{help:event.entry.help}:{}),...(typewriter?{typewriter}:{})};
+    const message:ChatMessage={id:event.entry.id,role:event.entry.role??'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(event.entry.providerNotice?{providerNotice:event.entry.providerNotice}:{}),...(opening?{opening:true}:{}),...(event.entry.help?{help:event.entry.help}:{}),...(typewriter?{typewriter}:{})};
     if (draftAt >= 0) return at >= 0
       ? previous.filter((_, i) => i !== draftAt).map(item => item.id === entryId ? message : item)
       : previous.map((item, i) => i === draftAt ? message : item)
