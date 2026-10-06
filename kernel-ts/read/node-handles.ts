@@ -220,10 +220,50 @@ export function handleInstruction(): string {
     ].join(' ');
 }
 
-/** `handles.job`'s packet (§185.5): up to HANDLES_PER_JOB book nodes `handles.json` neither names nor gave up. */
-export function handlesJob(campaign: string, graph: ModuleGraph, stored: Row): Row {
+/**
+ * §185.5 (NFH-03): the book's nodes nearest the table first, so the first job names what the Keeper is shown first. From
+ * each scene in `seeds` (the active scene, or the opening a book offers): the scene, the people standing there (`present`,
+ * world state, then the graph's `present-in`), the clues discoverable at it, what it depicts or holds, the places it occurs
+ * at; then each scene routed from a seed, and the people there; then every other book node in the graph's order. Graph
+ * relations and world state only: nothing is judged by what it says.
+ */
+export function nearTableFirst(graph: ModuleGraph, seeds: readonly Row[], present: (scene: Row) => readonly Row[] = () => []): Row[] {
+    const order: Row[] = [], seen = new Set<string>();
+    const add = (node: Row | null | undefined): void => {
+        const id = node ? String(node.node_id) : '';
+        if (!node || seen.has(id) || !graph.isBookNode(node)) return;
+        seen.add(id);
+        order.push(node);
+    };
+    const people = (scene: Row): void => {
+        for (const node of present(scene)) add(node);
+        for (const id of graph.sceneNpcIds(scene)) add(graph.nodes.get(id));
+    };
+    const exits: Row[] = [];
+    for (const scene of seeds) {
+        add(scene);
+        people(scene);
+        for (const id of graph.sceneClueIds(scene)) add(graph.nodes.get(id));
+        for (const node of graph.sceneAssetNodes(scene)) add(node);
+        for (const id of graph.placesOutward(scene).slice(1)) add(graph.nodes.get(id));
+        for (const exit of graph.sceneExits(scene)) {
+            const next = graph.sceneByHandle(String(exit.to));
+            if (next) exits.push(next);
+        }
+    }
+    for (const scene of exits) add(scene);
+    for (const scene of exits) people(scene);
+    for (const node of bookNodes(graph)) add(node);
+    return order;
+}
+
+/**
+ * `handles.job`'s packet (§185.5): up to HANDLES_PER_JOB book nodes `handles.json` neither names nor gave up, in `order`
+ * (`nearTableFirst`), or the graph's order when the caller has none.
+ */
+export function handlesJob(campaign: string, graph: ModuleGraph, stored: Row, order: readonly Row[] = bookNodes(graph)): Row {
     const settled = row(stored.nodes);
-    const wanting = bookNodes(graph).filter(node => !Object.hasOwn(settled, String(node.node_id)));
+    const wanting = order.filter(node => !Object.hasOwn(settled, String(node.node_id)));
     if (!wanting.length) return { job_id: null };
     const nodes = wanting.slice(0, HANDLES_PER_JOB).map(node => ({ id: String(node.node_id), kind: graph.bookKind(node), name: text(node.name),
         summary: chars(words(text(node.summary)), HANDLE_SUMMARY_LIMIT) }));
