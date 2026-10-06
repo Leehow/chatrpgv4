@@ -18,6 +18,7 @@ import {DICE, guardsOf, obligationCandidates, preordainedContacts} from './oblig
 import {composeSentence} from './composed-arguments.ts';
 import {npcTurnCandidate} from './npc-act-step.ts';
 import {damageQuestion, timeQuestion, type DamageBandRow, type TimeBandRow} from './band-shadow-domain.ts';
+import {declaredDurations} from './declared-duration.ts';
 
 type Row = Record<string, any>;
 export {bindingOf, type Binding, type Candidate, type Json, type Unbound} from './step-policy.ts';
@@ -62,17 +63,25 @@ export interface BandReads {time?: TimeBandRow[]; damage?: DamageBandRow[]; gate
 /**
  * §138.10: the time the player's declared action takes, as a row of the time-costs table (the road rows left out: a
  * move carries its road's minutes). The route asks a fact about the declaration -- is it an activity that costs table
- * time -- and the bind is the shadow lane's own time question (§138.8), so the clerk asks exactly what the shadow
- * measured. The `why` is composed; the row is Jev's; the minutes are the kernel's roll.
+ * time -- and the bind extends the shadow lane's time question (§138.8) with host-parsed literal intervals.
+ * The `why` is composed; Jev selects an issued interval or row; the host converts or the kernel rolls minutes.
  */
 function timeCandidate(rows: TimeBandRow[], rawInput: string, gate: number | undefined): Candidate | undefined {
-  const question = timeQuestion(rows), options = Object.keys(question.criteria).filter(key => key !== 'unknown');
+  const question = timeQuestion(rows), durations = declaredDurations(rawInput),
+    descriptions = {...question.criteria as Record<string,string>, ...Object.fromEntries(Object.entries(durations).map(([alias,value])=>[alias,
+      `Exact literal interval ${JSON.stringify(value.text)} at input UTF-16 [${value.start}, ${value.end}): ${value.minutes} whole minutes. Select only if the player chose this interval to elapse now.`]))},
+    options = Object.keys(descriptions).filter(key => key !== 'unknown');
   if (!options.length) return undefined;
   return {key: TIME_CANDIDATE_KEY, verb: 'apply', family: 'time', source: 'rules.bands',
-    label: 'Charge the clock for the time the player\'s declared action takes, as a time-cost row the kernel rolls inside',
-    bound: {kind: 'time', why: composeSentence('The time the player\'s declared action takes, read as a row of the time-costs table and rolled by the kernel', rawInput)},
+    label: 'Charge the clock for the declared action, using its chosen exact interval or an estimated activity band',
+    bound: {kind: 'time', why: composeSentence(Object.keys(durations).length
+      ? 'The time the player\'s declared action takes, selected from an exact input interval or a kernel time-cost row'
+      : 'The time the player\'s declared action takes, read as a row of the time-costs table and rolled by the kernel', rawInput)},
     composed: ['why'],
-    unbound: [{name: 'band', required: true, vocabulary: 'closed', options, descriptions: question.criteria as Record<string, string>, instruction: String(question.instructions),
+    ...(Object.keys(durations).length ? {timeDurations: durations} : {}),
+    unbound: [{name: 'band', required: true, vocabulary: 'closed', options, descriptions, instruction: String(question.instructions)
+      + ' An explicit interval that is not offered must remain unknown; never choose an estimated activity band to replace it.'
+      + (Object.keys(durations).length ? ' If the declaration chooses a fixed interval to elapse now, choose its exact literal duration instead of an estimated activity band. A historical interval, quoted promise, estimate, deadline, negated action or conditional future interval is not chosen time. A bounded wait that ended earlier uses only its actually settled interval. Compound or otherwise unsupported exact intervals need unknown; never substitute an estimate for them. The lexer only enumerates syntax; it grants no action or story outcome.' : ''),
       band: {table: 'time-costs', field: 'time.band', primitive: 'choice', ...(gate !== undefined ? {gate} : {})}}],
     routeFact: {target: 'whether the player\'s declared action is an activity that costs table time',
       instructions: 'The player declared an action this turn. Is it an activity that takes time at the table -- a search, a conversation, research, treatment, '
@@ -80,7 +89,8 @@ function timeCandidate(rows: TimeBandRow[], rawInput: string, gate: number | und
       criteria: {costs: 'The declared action is an activity that takes time at the table; the clock should count it.',
         none: 'The declaration is only movement between places (a road\'s time is the route\'s own), a glance or a word that takes no time worth the clock, or an action inside a fight.',
         unknown: 'Cannot be told from the supplied state.'}, selects: 'costs'},
-    clerk: 'declared_time', basis: {read: 'rules.bands', path: 'time.band', row: {table: 'time-costs', rows: options} as Json}};
+    clerk: 'declared_time', basis: {read: 'rules.bands', path: 'time.band', row: {table: 'time-costs', rows: options},
+      ...(Object.keys(durations).length ? {duration_source: {read: 'current-player-input', occurrences: durations}} : {})} as Json};
 }
 
 /**

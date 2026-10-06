@@ -512,6 +512,8 @@ interface RunState {
   history?: {enabled: boolean; allowed: boolean; asked: boolean; scene: string; context: Json; closed?: boolean;
     closedReason?: 'budget_exhausted' | 'turn_budget_exhausted'; prefetch?: HistoryPrefetch; supplied?: boolean};
   unresolvedAttack?: boolean;
+  /** A failed host time bind is not a license for a model-origin replacement interval. */
+  unresolvedTime?: boolean;
   /** §163: the run's forced resolutions in first-seen order, which are recorded (one telemetry row each), and which the Keeper was shown. */
   forced: ForcedResolution[];
   forcedRecorded: Set<string>;
@@ -1158,7 +1160,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       && array(object(proposal.params).effects).some(effect => object(effect).kind === 'damage');
     const outsideScope = run.interactionScope?.mode !== undefined && run.interactionScope.mode !== 'world'
       && !permitsReferenceOperation(proposal.operation, proposal.params);
+    const replacementTime = run.unresolvedTime === true && proposal.operation === 'apply'
+      && array(object(proposal.params).effects).some(value => object(value).kind === 'time' && !object(value).owed);
     const refuse = outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
+      : replacementTime ? {code:'declared_time_unresolved',text:'The host could not bind the declared interval. This model-origin replacement time effect was not executed. Do not choose minutes or a band or claim that the wait completed. Narrate settled facts or return the genuinely missing interval to the player in character.'}
       : presumedHit ? {code: 'check_outcome_unresolved', text: 'The declared attack has not been settled by the host. Damage cannot stand in for its missing check. '
       + 'Nothing in this apply was executed. Do not describe the attack as hitting or missing, or claim injury, damage, a changed condition, incapacitation, forced movement or another consequence of that attack. '
       + 'Narrate only settled events before the unresolved consequence. If a player-owned choice remains open, end with a present person or immediate situation returning that choice in character; do not leave the declared action hanging.'}
@@ -2153,6 +2158,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         + 'the needed parameters filled in; decide nothing else in this response.'});
     // §135.28: a clerk candidate the clerk could not bind is the Keeper's turn, never a parameter-filling request.
     const unbound = object(request.clerk_unbound);
+    if (step.reason === 'declared_time_unresolved') {
+      run.unresolvedTime = true;
+      const held = object(request.declared_time_unresolved);
+      record({lane:'run',event:'bind',run:run.runId,step:stepId,candidate:request.candidate??null,outcome:'unsettled',cause:held.cause??null,
+        unresolved:held.unresolved??[],bindings:held.bindings??[]});
+      Object.assign(content,{unsettled_time:{cause:held.cause??null,unresolved:held.unresolved??[]},
+        unsettled_time_note:'The host could not bind the declared interval, so no time effect was executed. Do not choose minutes or a band, apply elapsed time, or claim that the wait completed. Narrate settled facts or ask for the genuinely missing interval in character. An NPC callback or other result is not established by waiting alone.'});
+    }
     if (step.reason === 'clerk_unbound' && operation) {
       record({lane: 'run', event: 'bind', run: run.runId, step: stepId, candidate: request.candidate ?? null, outcome: 'keeper', cause: unbound.cause ?? null,
         unresolved: unbound.unresolved ?? [], bindings: unbound.bindings ?? []});

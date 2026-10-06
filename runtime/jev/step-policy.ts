@@ -18,6 +18,7 @@
  */
 import {createHash} from 'node:crypto';
 import {preparedAttackReady} from './attack-preparation.ts';
+import type {DeclaredDuration} from './declared-duration.ts';
 import {rosterReady, type ProfileRequirement} from './profile-readiness.ts';
 import type {ObservationView, OperationProposal, RunPolicy, RunView as DriverView, StepRequest as DriverStepRequest} from '@earendil-works/pi-agent-core';
 import type {DecisionBatch, DecisionResult, IntentBinding, ReadSet, ScopeBinding} from './contracts.ts';
@@ -150,6 +151,8 @@ export interface Candidate {
   bound: Record<string, Json>;
   unbound: Unbound[];
   detail?: Json;
+  /** Host-issued literal intervals in this input; selected only through the declared-time closed bind. */
+  timeDurations?: Record<string, DeclaredDuration>;
   /** The clerk authority that lets the host run it (internal: never shown to Jev or the model). */
   clerk?: ClerkAuthority;
   /** The kernel's issued row it was built from, carried by every step it causes (internal: never shown to Jev). */
@@ -773,8 +776,11 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
     // §138.10: a band is bound `banded`, named with its table, and gated by the table's own gate, never the run's.
     const band = parameter.band, path: BindingPath = band ? 'banded' : 'jev', table = band ? {table: band.table} : {};
     if (choice && choice !== 'unknown' && parameter.options!.includes(choice) && (confidence === undefined || confidence >= (band?.gate ?? gate))) {
-      extra[parameter.name] = choice; lowest = Math.min(lowest, confidence ?? 1);
-      bindings.push({name: parameter.name, path, value: choice, confidence: confidence ?? null, distribution, ...table, ...(band ? {band: choice} : {})});
+      const interval = candidate.clerk === 'declared_time' && parameter.name === 'band' ? candidate.timeDurations?.[choice] : undefined;
+      if (interval) extra.minutes = interval.minutes; else extra[parameter.name] = choice;
+      lowest = Math.min(lowest, confidence ?? 1);
+      bindings.push(interval ? {name: 'minutes', path: 'jev', value: interval.minutes, confidence: confidence ?? null, distribution}
+        : {name: parameter.name, path, value: choice, confidence: confidence ?? null, distribution, ...table, ...(band ? {band: choice} : {})});
       continue;
     }
     if (!cause) cause = !choice || choice === 'unknown' ? 'unknown_binding' : 'low_confidence';
@@ -849,6 +855,9 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
  * step starts, so it is not offered again this run.
  */
 export function keeperOwns(candidate: Candidate, cause: string, unresolved: string[], bindings: BindRecord[] = [], withheld: string[] = []): PendingItem[] {
+  if (candidate.clerk === 'declared_time') return [{kind: 'infer', purpose: 'compose', reason: 'declared_time_unresolved', candidate,
+    extra: {cause, unresolved, time_unsettled: true, instruction: 'The host could not bind the declared interval. Do not choose minutes or a band, apply elapsed time, or claim that the wait completed. Narrate settled facts or ask for the genuinely missing interval in character.',
+      ...(bindings.length ? {bindings: bindings as unknown as Json} : {})}}];
   if (candidate.verb === 'resolve' && candidate.checkOwner === 'jev') return [{kind: 'infer', purpose: 'compose', reason: 'check_unresolved', candidate,
     extra: {cause, unresolved, ...(withheld.length ? {withheld} : {}), ...(bindings.length ? {bindings: bindings as unknown as Json} : {})}}];
   return [{kind: 'infer', purpose: 'adjudicate', reason: 'clerk_unbound', candidate,
@@ -1720,6 +1729,7 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
             ...(request.item.candidate.basis !== undefined ? {basis: request.item.candidate.basis} : {}),
             // §135.28: a clerk candidate handed to the Keeper says what the clerk could not settle, and why.
             ...(request.item.reason === 'clerk_unbound' ? {clerk_unbound: (request.item.extra ?? {}) as Json} : {}),
+            ...(request.item.reason === 'declared_time_unresolved' ? {declared_time_unresolved: (request.item.extra ?? {}) as Json} : {}),
             ...(request.item.reason === 'check_unresolved' ? {check_unresolved: (request.item.extra ?? {}) as Json} : {})} : {})}};
       if (request.kind === 'decide' && request.purpose === 'route') {
         if (!binding) return {kind: 'decide', purpose: 'route', question: unbound};

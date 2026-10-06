@@ -27159,6 +27159,8 @@ issue nothing. Read-only, nothing classified: the row is the receipt's basis and
   level's `book` line. Its `band` is a Score over the severity ladder in the table's order (the shadow's `damageQuestion`),
   read back as the argmax rung, the first in the table's order on a tie. No candidate without the rows.
 
+**Explicit player intervals (2026-10-06, JEV-OPEN-04).** The declared-time choice also offers bounded literal duration occurrences from the current player input. The host parses supported numeral/unit syntax and converts only exact whole minutes; this enumerates values, never classifies intent. Jev chooses a literal only when it is the interval the player chose to elapse now, rather than a quotation, estimate, deadline, historical interval, condition or time that a journey already charges. When a fixed interval is applicable it replaces the estimated band. No calendar inference, duration arithmetic by Jev, repetition counter or story transition follows. A selected occurrence binds numeric `minutes` and its source span; ordinary activities still select a kernel band. An unavailable, unoffered or uncertain declared-time binding leaves the interval unsettled and hands only narration/clarification to the Keeper, never a mechanical duration choice. Source contract tests must distinguish this closed decision replay from paid Jev accuracy or natural-play acceptance.
+
 **The binding** (`runtime/jev/step-policy.ts`). `Unbound.band = {table, field, primitive, gate?}` marks a band parameter:
 `bindBatch` asks a `score` band as a Score (criteria the rows' descriptions in order; no exit) and a `choice` band as a
 Choice whose `unknown` text is the row's own; `clerkBind` reads a Score's answer as the row at the argmax level, gates
@@ -27166,7 +27168,7 @@ the answer by **the table's gate** (`PI_COC_BAND_MIN_CONFIDENCE`, §138.6's plac
 shadow's rows say otherwise; the run's route gate never applies to a band), and records it `path: "banded"` with `table`
 and `band`. A band has no rules default (spec D4): `unknown`, below the gate, an unavailable Jev or a spent budget hand
 the candidate to the Keeper (`keeperOwns`, an `infer(adjudicate)` with `clerk_unbound`), the answer on the record. Never
-an `infer(bind)`: the structural test covers both band shapes for every authority. Precedence (§138.1) is unchanged:
+an `infer(bind)`: the structural test covers both band shapes for every authority. For declared time, the 2026-10-06 amendment above supersedes the Keeper fallback: a compose carries an explicit unsettled-time note, and the model operation gate refuses replacement time effects for that run. Prior delivered `owed` time retains its existing canonical settlement. Precedence (§138.1) is unchanged:
 `stated` beats `banded` -- a stated dice never reaches this path.
 
 **The engine** (`runtime/jev/hybrid-engine.ts`). The two tables are read once per engine (`rules.bands`, kept only when
