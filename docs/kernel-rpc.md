@@ -35248,3 +35248,117 @@ describe the recorded prompt, not the one sent (the `prompt` lane's `stale_promp
   detailed read of every page; a short book is built once and a long book reads the chapter in play and the next.*
 - Eviction on the provider's side is not ours. `thinking-schedule` is a no-op on grok-4.5 and grok-4.7, whose catalogs
   expose no `off`; on a model that does, it would cost a whole prompt per turn on an xAI endpoint (184's probes).
+
+## 186. Reading cost: the request prefix survives, the draft check says everything at once, coverage is reused, the claim check is redesigned (owner ruling 2026-10-06, 「按你的建议做」 on the measured plan; `docs/specs/reading-cost.md`; amends §147.3's image window, §151.2's review reuse, §151.3's claim check and the draft check of §22)
+
+Measured on the installed App home over 2026-10-02..10-06 (the spec has the numbers and their sources): reading is almost
+all vision-LLM tokens; Jev already locates. Of 46.5M author tokens that were resent and missed the provider cache,
+20.3M followed a submission that retired every delivered image and 10.6M followed the four-image window dropping an
+older image; review children start cold (median 2 calls, 10–17K uncached first call); 40 % of author calls are the fix
+loop after the first submission, mostly shape findings revealed one per submission; coverage review repeats after a
+repair. None of the changes below alters what counts as evidence: the same images are required, the same review units
+run, the same gates read the same verdicts.
+
+### 186.1 An image stays in the request until a hard budget overflows (amends §147.3)
+
+The reader context hook (`extensions/module/reader-context.ts`) projects each outgoing request. From this section on:
+
+- An image block, once included in a request that the provider answered, stays in every later request of that child.
+  The projection never rewrites an earlier message while the request is within budget.
+- The budget is the existing pair (count, bytes) of the hook. When admitting the next image would exceed either, the
+  hook evicts the oldest delivered images **in one batch** until the request holds at most half of each budget, and
+  records one `image_eviction` row (`{evicted, kept, bytes_before, bytes_after}`) in the child's image log. The next
+  eviction cannot happen before the window has refilled past the budget again. The placeholder text and the explicit
+  `pdf` reopen are unchanged.
+- A `submit_reading` no longer retires delivered images. (The retirement made the fix loop's first request recompute
+  everything after the first image while saving less than it cost: measured 22.7K uncached per event against the
+  retained images' cached cost over a median 4-call loop at the provider's cache discount.)
+- The count budget for authors and reviewers of `guidance/opening/detail/answer` is no longer `imageHistory: 4`; it is
+  the value chosen by RC-01 from the retained logs (replayed cost of each candidate budget, reported in the ticket), and
+  it is data (`content/rulesets/coc7/host-budgets.json` `reading_images`), not a code literal.
+- Unchanged: first delivery and a failed first-use retry stay intact; a receipt still requires successful delivery;
+  host-projected pages keep their stable identity.
+
+### 186.2 One cache identity per reading round; shared content first
+
+- Every Pi child the reading service starts for one job round — the author attempt and every review unit attempt of
+  that round — is started with `--no-session --session-id <cache id>`, where the cache id is a UUID derived
+  deterministically from `(module id, job id, round)`. Pi sends it as `prompt_cache_key`; the grok cache-routing hook
+  sends it as `x-grok-conv-id`. Children still run in memory; nothing is persisted under that id. Other lanes are
+  untouched.
+- A review unit's brief is ordered shared-first: the unit-independent review instructions, then the job-level context
+  identical for every unit of the round, then the unit's own assignment (`required_review`, the focused review input,
+  `failure.json` note). The instructions' words do not change; only their order.
+- Telemetry: every reading usage row carries `cache_id`; the reading accounting row gains
+  `first_call_uncached` per phase.
+
+### 186.3 The draft check reports every independent finding (amends §22's check)
+
+`checkDraft` (`kernel-ts/modules/visual.ts`) runs in stages, and within a stage collects findings instead of throwing at
+the first:
+
+1. **Envelope:** the draft is an object; unknown top-level keys; `contract_id`; each array-typed key is an array;
+   `coverage` is an object of known domains to known statuses; job-kind envelope laws (a visual scan's coverage, a
+   map-scope draft's single field).
+2. **Records:** per node and per claim — identifiers, kinds, vocabulary fields, references to defined nodes, source
+   refs, predicates and endpoints, record-local laws.
+3. **Graph and evidence:** cross-record and scope laws (dependencies, readiness, source needs, published-value
+   contradictions, required views).
+
+A stage runs only when every earlier stage is clean. The error keeps today's `message`, `path` and `details.reason`
+from the first finding (callers that read one finding keep working) and adds `details.findings: [{path, rule, message,
+value?, allowed?}]` with every finding of that stage, bounded to 40 entries and 8 KB with a `truncated` count.
+`submit_reading` shows the author the whole list. Every vocabulary finding names the field's JSON pointer, the value
+written (clipped to 80 characters) and the allowed values from the task's vocabulary.
+
+Host-owned fields are filled, not refused:
+
+- A top-level key that is a byte-for-byte copy of a host task field (`task`, `focus`, `question`, `visual_asset`,
+  `visual_scan`, `pages`) is dropped before the check, and the drop is listed in the check receipt's `normalized`.
+- A visual scan's `coverage` is host-owned: the host writes `{}` and lists any author value it replaced in
+  `normalized`. No other field becomes host-owned under this section.
+
+No value is translated, mapped or guessed: a vocabulary value outside the list is still a finding, now with the list.
+
+### 186.4 Coverage review is reused after a records-only targeted repair (amends §151.2)
+
+A coverage unit's verdict from round *r* is carried to round *r+1* without running a reviewer when all hold:
+
+- round *r+1*'s candidate is a §151.2 targeted repair and `checkTargetedRepair` accepted it;
+- the round-*r* coverage verdict listed no blocking `missing`;
+- the repair added no record and deleted no record: every changed path lies under a record a fact unit refused in
+  round *r*, and the set of record roots (`/nodes/<i>`, `/claims/<i>` by identity, not index) is equal;
+- `ready_nodes`, `interaction_scene`, `source_needs` and the review scope pages are unchanged.
+
+The carried row keeps its reviewer, verdicts and source refs and gains `carried_from: {round, plan_digest}`; the gate
+accepts it like a carried fact unit. Any other repair runs the coverage unit as today.
+
+### 186.5 Closed labels stay with the author (supersedes the 2026-10-06 suggestion to label with Jev)
+
+The authors' vocabulary rejections were caused by findings that did not name the allowed values (§186.3 fixes that).
+No Jev labeling step is added. If, after §186.3 ships, vocabulary findings still start more than 3 % of fix loops on
+the acceptance home, the question returns to the owner with those numbers.
+
+### 186.6 The claim check redesign and its pre-registered calibration (amends §151.3; the §151.3.1 bar is unchanged)
+
+Fixed before any run of the redesign (2026-10-06):
+
+- **Eligibility, additionally:** a record carrying any path that matches the task's `classification_fields` is
+  ineligible (its contest mark needs a vision reviewer).
+- **Statements:** a claim renders subject and object with their `aliases`; a node is asked one `supported` and one
+  `contradicted` Noul per field statement — identity (kind, name, aliases), each sentence of `summary` (sentence
+  segmentation only), and each property leaf as `key path: value`. A node clears only if every field statement clears
+  (the weakest judgment decides); a claim clears as today. The page text, clipping, batching and outage rules of
+  §151.3 are unchanged.
+- **Splits:** *tuning* = the 2026-09-29 calibration corpus plus the App home's records whose verify round ran before
+  2026-10-04T00:00Z; *held-out* = the App home's records from 2026-10-04T00:00Z on (8,702 vision-supported, 66 strict
+  negatives, 25 contested-only as of 2026-10-06). (S, C) are chosen on tuning only, as the point with zero cleared
+  strict negatives that clears the most supported records; held-out is read once.
+- **Labels:** the vision verdicts, as in §151.3's pairing. Every held-out strict negative (`unsupported`,
+  `contradicted`, `unclear`) is judged by two independent judges who see the cited original page images and the native
+  text, not the Jev scores and not the vision verdict, and answer only "do these pages state this record". A negative
+  becomes `supported` only when both judges say the pages state it. 60 held-out records that the redesign clears and
+  vision supported are judged the same way; their result is reported, not part of the bar.
+- **Bar:** §151.3.1 on held-out — cleared strict negatives ≤ 1 and ≤ 1 % of strict negatives, cleared share of
+  supported ≥ 50 %. Pass: the data default becomes `on`, recorded with the numbers. Fail: the default stays `shadow`
+  with the redesign's questions, and the failure is recorded in the spec. No second attempt on the same held-out.
