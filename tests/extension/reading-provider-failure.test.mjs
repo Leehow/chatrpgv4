@@ -9,6 +9,7 @@ import {mkdir, mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {ReadingService} from '../../extensions/module/reading-service.ts';
+import {readingCacheId} from '../../extensions/module/reader.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const until = async (check, ms = 5000) => { const end = Date.now() + ms; while (!check()) { if (Date.now() > end) throw new Error('timed out'); await new Promise(r => setTimeout(r, 10)); } };
@@ -54,7 +55,8 @@ test('a refusal from the stage lease fails the job after one round, with the cau
   const round = run.records.find(row => row.phase === 'read' && row.round === 1 && row.event === undefined);
   assert.deepEqual([round.usage, round.refusal], [USAGE, 'budget_input_tokens']);
   const rows = (await readFile(join(run.cwd, 'usage.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-  assert.deepEqual(rows, [{job_id: 'read-3', phase: 'read', round: 1, ok: false, pages: 0, usage: USAGE}]);
+  // §186.2: every reading usage row names the round's cache id.
+  assert.deepEqual(rows, [{job_id: 'read-3', phase: 'read', round: 1, cache_id: readingCacheId('book', 'read-3', 1), ok: false, pages: 0, usage: USAGE}]);
   const findings = JSON.parse(await readFile(join(run.cwd, 'findings.json'), 'utf8'));
   assert.deepEqual(findings.details.refusal, REFUSAL);
 });
