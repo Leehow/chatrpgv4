@@ -34,6 +34,7 @@ import {actGated, askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileD
 
 type Row = Record<string, any>;
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
+const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 export type Json = null | boolean | number | string | Json[] | {[key: string]: Json};
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8');
@@ -265,6 +266,8 @@ export interface RunView {
   checkRefreshUsed?: boolean;
   heldCheckDecisions?: string[];
   heldCheckPreparations?: string[];
+  /** A selected preparation whose domain expired cannot be planned again in this player run. */
+  expiredCheckDecisions?: string[];
   checkPreparationRequirements?: Record<string, {mobility?: string; drivers?: string[]; profiles?: string[];
     requirements?: ProfileRequirement[];
     roles?: Array<{actor: string; evidence: string}>}>;
@@ -1279,13 +1282,28 @@ function applyFresh(view: RunView, fresh: Fresh): void {
   const waiting = view.preparingChecks ?? [];
   view.preparingChecks = waiting.filter(prepared => {
     const preparation = prepared.selection.preparation!, action = preparation.action!;
-    if (prepared.scene !== fresh.context.scene) {
+    const domain = fresh.candidates.flatMap(candidate => candidate.checkOwner === 'jev' && candidate.bound.decision === action.decision
+      && Array.isArray(object(candidate.detail).check_options) ? object(candidate.detail).check_options.map(object) : [])
+      .find((option: Row) => object(option.facts).mobility === preparation.mobility && object(option.action).actor === action.actor
+        && (preparation.mobility !== 'foot' || object(option.action).target === action.target));
+    const roster = preparation.mobility === 'vehicle' ? action.chase_roster : preparation.requirements;
+    const actors = array(object(domain?.facts).chase_actors).map(object);
+    const originalActors = array(object(prepared.selection.option?.facts).chase_actors).map(object);
+    const invalidDomain = !!fresh.selectionSnapshot && (!domain || !Array.isArray(roster) || roster.map(object).some(entry => {
+      const actor = actors.find(actor => actor.name === entry.actor), original = originalActors.find(actor => actor.name === entry.actor);
+      return !actor || preparation.mobility === 'vehicle' && (actor.presence_evidence ?? null) !== (original?.presence_evidence ?? null)
+        || entry.role === 'driver' && !array(object(domain?.facts).vehicle_profiles).some(vehicle => object(vehicle).key === entry.vehicle);
+    }));
+    if (prepared.scene !== fresh.context.scene || invalidDomain) {
+      if (typeof action.decision === 'string' && !view.expiredCheckDecisions?.includes(action.decision))
+        view.expiredCheckDecisions = [...(view.expiredCheckDecisions ?? []), action.decision];
       const held = checkHoldKey(prepared.scene, prepared.candidate);
       view.heldCheckPreparations = view.heldCheckPreparations?.filter(key => key !== held);
       view.unresolvedChecks = view.unresolvedChecks?.filter(entry => entry.preparation?.action !== action);
       view.pending = view.pending.filter(item => item.reason !== 'check_preparation' || item.candidate?.key !== prepared.candidate.key);
       view.forced = [...(view.forced ?? []), forcedResolution({family: 'check-preparation', subject: prepared.candidate.label,
-        uncertain: ['The prepared action no longer belongs to the current scene.'], chosen: {outcome: 'no_roll'}, why: 'preparation_incomplete'})];
+        uncertain: [prepared.scene !== fresh.context.scene ? 'The prepared action no longer belongs to the current scene.'
+          : 'The prepared actors, vehicles or role evidence no longer match the selected action.'], chosen: {outcome: 'no_roll'}, why: 'preparation_incomplete'})];
       return false;
     }
     const candidate = fresh.candidates.find(candidate => candidate.checkOwner === 'jev' && candidate.bound.decision === action.decision
@@ -1348,6 +1366,7 @@ function applyFresh(view: RunView, fresh: Fresh): void {
   };
   view.heldCheckPreparations = view.heldCheckPreparations?.filter(key => !fresh.candidates.some(candidate => checkHoldKey(fresh.context.scene, candidate) === key && executable(candidate)));
   view.context = fresh.context;view.candidates = fresh.candidates.filter(candidate => (!view.interactionScope || view.interactionScope.mode === 'world') && !view.consumed.includes(candidate.key)
+    && (candidate.checkOwner !== 'jev' || typeof candidate.bound.decision !== 'string' || !view.expiredCheckDecisions?.includes(candidate.bound.decision))
     && (!checkHoldKey(fresh.context.scene, candidate) || !view.heldCheckDecisions?.includes(checkHoldKey(fresh.context.scene, candidate)!)
       && !view.heldCheckPreparations?.includes(checkHoldKey(fresh.context.scene, candidate)!)));view.stateVersion++;
   if (fresh.rows) view.rows = fresh.rows;

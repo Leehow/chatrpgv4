@@ -859,8 +859,19 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const candidates = read.candidates();
     for (const [key, outcome] of run.pendingNpcActs ?? []) {
       if (stepId && run.npcPreparationWaitStep?.get(key) === stepId) continue;
-      if (!await outcome.pending!.ready().catch(() => false)) continue;
+      const ready = await outcome.pending!.ready().catch(() => false);
       if (run.npcPreparationsClosed || run.pendingNpcActs?.get(key) !== outcome) continue;
+      if (outcome.pending!.expired) {
+        run.pendingNpcActs.delete(key);
+        run.npcPreparationWaitStep?.delete(key);
+        recordForced(run, [forcedResolution({family: 'check-preparation', subject: `${outcome.npc}'s retained act`,
+          uncertain: ['The original NPC action no longer belongs to its actor, scene or bound parameters.'],
+          chosen: {outcome: 'no_roll'}, why: 'preparation_incomplete'})]);
+        record({lane: 'run', event: 'npc_act', run: run.runId, npc: outcome.handle, trigger: outcome.trigger,
+          status: 'unmet_preparation', reason: 'npc_preparation_expired', act: outcome.act, way: outcome.way, params: outcome.params});
+        continue;
+      }
+      if (!ready) continue;
       candidates.unshift({key: `npc_act:prepared:${key}`, verb: 'resolve', family: 'npc_act', source: 'run',
         label: `${outcome.npc}'s prepared act resumes`, clerk: 'npc_act', forced: true,
         bound: {npc: outcome.npc, resume: key}, unbound: []});
@@ -1412,7 +1423,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         try { return await jev.decide(batch, lease); } finally { lease.close(); }
       }} : {}),
       write: async (planned, basis) => {
-        if (run.npcPreparationsClosed || invocation.signal.aborted)
+        if (run.npcPreparationsClosed || run.checkInputsClosed || currentRunId !== run.runId || invocation.signal.aborted)
           return {ok: false, callId: null, receipts: [], status: 'refused', refusal: 'npc_preparation_closed'};
         const dispatched = await dispatchClerk(run, {tool: planned.tool, args: planned.args, clerk: 'npc_act', basis, bindings: [] as Json},
           {stepId: invocation.stepId, operationId: `${invocation.operationId}/w${++writes}`, signal: invocation.signal});

@@ -362,6 +362,10 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
             Row,
             Row
         ] => truth(value[2]));
+        // An NPC-owned pursuit retains that selected actor. Its target is the investigator quarry;
+        // it cannot turn every other present NPC into another pursuer.
+        if (!context.sheetById(context.actingId))
+            opponents = opponents.filter(([handle]) => handle === context.actingId);
         if (!opponents.length)
             throw new RpcError('needs', 'a chase needs a present pursuer with a stat block', {
                 fix: 'establish the pursuer in this scene first, or narrate the flight without dice',
