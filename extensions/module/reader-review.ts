@@ -10,7 +10,7 @@ import {mapReviewPreviews,reviewedMapNodes} from './map-review-preview.ts';
 import { obligationReviewPaths } from "../../kernel-ts/modules/obligation-review.ts";
 import { shapeReviewPaths } from "../../kernel-ts/modules/shape-review.ts";
 import { answerReviewShapeError } from "../../kernel-ts/modules/answer-review-shape.ts";
-import { REVIEW_VERDICTS } from "../../kernel-ts/modules/review-verdicts.ts";
+import { REVIEW_VERDICTS, classificationMatcher } from "../../kernel-ts/modules/review-verdicts.ts";
 import {validatePublicGuidance} from '../../kernel-ts/modules/public-guidance.ts';
 import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings,moduleGuidanceApproved} from '../../kernel-ts/modules/module-review-policy.ts';
 
@@ -97,8 +97,14 @@ function batchGroups(draft: Row, groups: Map<string, Set<string>>, maxPageUnion?
  * `roots` are a fact unit's record roots in unit order and `records` the digests of those records exactly as written;
  * a unit over non-record paths (`/coverage`) has neither. Written by the reviewer beside `review.json`.
  */
-export interface ReviewPlanUnit { paths: string[]; roots: string[]; records: string[] }
-export interface ReviewPlan { version: 1; candidate_sha256: string; review_sha256: string; units: ReviewPlanUnit[] }
+export interface ReviewPlanUnit { paths: string[]; roots: string[]; records: string[];
+	/** §186.4: how many rows and missing items this unit put into review.json (units in order), and the pages its reviewer viewed. */
+	checked?: number; missing?: number; pages?: number[];
+	/** §186.4, the coverage unit only: `coverageScope` of the round. */
+	scope?: string }
+export interface ReviewPlan { version: 1; candidate_sha256: string; review_sha256: string; units: ReviewPlanUnit[];
+	/** §186.4: the verify round that wrote the plan. */
+	round?: number }
 export const REVIEW_PLAN_FILE = 'review-plan.json';
 /** The digest a plan binds its candidate by: the draft's canonical JSON, so formatting never unbinds it. */
 export function candidateDigest(draft: Row): string { return digest(canonical(draft)); }
@@ -186,6 +192,93 @@ export function carriedReviewUnits(draft: Row, requiredPaths: string[] = [], max
 		carried.push(moved);
 	}
 	return [...carried, ...batchGroups(draft, new Map([...groups].filter(([root]) => !taken.has(root))), maxPageUnion)];
+}
+
+/**
+ * What the publication gate's `checkReview` refuses on one path of one row (§151.2.2): a verdict other than `supported`
+ * that is not a contest -- an advisory finding under module-logic-v1, a classification field otherwise.
+ */
+export function gateRefusal(task: Row): (row: Row, path: string) => boolean {
+	const logic = moduleLogicReview(task ?? {}), classifies = classificationMatcher(task?.vocabulary?.classification_fields?.node);
+	return (row, path) => row?.verdict !== 'supported' && !(REVIEW_VERDICTS.includes(row?.verdict) && (logic ? advisoryModuleFinding(row) : classifies(path)));
+}
+
+/**
+ * Contract §186.4: everything the coverage unit judges besides the records -- protocol and instruction version, the bound
+ * source, the model, the focused input's task fields, its coverage context (`coverage`, `ready_nodes`, `dependencies`,
+ * `node_refs`, `source_needs`, the retained source needs, `interaction_scene`) and the review scope pages it must view.
+ * Round bookkeeping and the owed pointers are not in it (the carry compares the pointers itself).
+ */
+export function coverageScope(base: { version?: string; source?: string; model: Row }, task: Row, draft: Row, scopePages: number[]): string {
+	const input = detailReviewInput(withoutBookkeeping(task), draft, ['/coverage']);
+	const { required_review: _owed, review_scope_pages: _scope, ...hot } = input.task;
+	return digest(canonical({ protocol: reviewProtocol, unit: 'coverage-scope-v1', version: base.version, source: base.source, model: base.model,
+		task: hot, coverage: input.coverage_context, pages: [...scopePages].sort((a, b) => a - b) }));
+}
+
+/** §186.4: the review a round wrote for the candidate this round repaired, bound by its plan (`reviewOfCandidate`). */
+export interface CoverageCarrySource { plan: ReviewPlan; plan_sha256: string; review: Row; draft: Row }
+export type CoverageCarryRefusal = 'plan' | 'missing' | 'verdict' | 'records' | 'changed' | 'scope' | 'evidence';
+export type CoverageCarry = { review: Row; pages: number[]; carried_from: { round: number; plan_digest: string } } | { reason: CoverageCarryRefusal };
+const reviewRowPaths = (row: Row): unknown[] => Array.isArray(row?.paths) ? row.paths : [row?.path];
+/** A record's identity, not its position (§186.4): a node's id; a claim's id, or its subject, predicate and object. */
+function recordIdentity(collection: string, record: Row): string {
+	return canonical(collection === 'nodes' ? ['node', record?.node_id ?? record ?? null]
+		: ['claim', typeof record?.claim_id === 'string' ? record.claim_id : [record?.subject_id ?? null, record?.predicate ?? null, record?.object ?? null]]);
+}
+
+/**
+ * Contract §186.4: the previous round's coverage verdict carried to this round's candidate without a reviewer, or why not.
+ * The caller vouches for the first condition -- this round is a §151.2 targeted repair of `previous.draft` that
+ * `checkTargetedRepair` accepted -- by passing `previous` only then. Checked here:
+ * - the plan binds `previous.draft` and recorded every unit's rows and the coverage unit's pages and scope (`plan`);
+ * - the coverage verdict lists no blocking `missing` (`missing`) and is one the gate accepts whole (`verdict`): the
+ *   predicate a retained fact unit meets before it is reused;
+ * - no record was added or deleted: per collection the records' identities are the same set (`records`);
+ * - every change lies under a record a fact unit refused in that round: a record whose content changed pairs by identity
+ *   with such a record, and every non-record field is byte-identical (`changed`);
+ * - the unit owes the same pointers and `coverageScope` is unchanged (`scope`).
+ * The carried rows keep only the unit's own pointers (a row about a record is its record's unit's to answer, as in a
+ * reused fact review), with reviewer, verdict, reason and source refs as written, and gain `carried_from`.
+ */
+export function coverageCarry(previous: CoverageCarrySource, now: { draft: Row; task: Row; paths: string[]; scope: string }): CoverageCarry {
+	const { plan, review } = previous, count = (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0;
+	if (!Number.isSafeInteger(plan?.round) || Number(plan.round) < 1 || typeof previous.plan_sha256 !== 'string' || plan.candidate_sha256 !== candidateDigest(previous.draft)
+		|| !Array.isArray(review?.checked) || !Array.isArray(review?.missing) || !plan.units.every(unit => count(unit.checked) && count(unit.missing))
+		|| plan.units.reduce((sum, unit) => sum + unit.checked!, 0) !== review.checked.length || plan.units.reduce((sum, unit) => sum + unit.missing!, 0) !== review.missing.length)
+		return { reason: 'plan' };
+	const refuses = gateRefusal(now.task), refused = new Set<string>();
+	let atChecked = 0, atMissing = 0, coverage: { unit: ReviewPlanUnit; checked: Row[]; missing: unknown[] } | undefined;
+	for (const unit of plan.units) {
+		const checked: Row[] = review.checked.slice(atChecked, atChecked += unit.checked!), missing: unknown[] = review.missing.slice(atMissing, atMissing += unit.missing!);
+		if (unit.roots.length) {
+			for (const row of checked) for (const path of reviewRowPaths(row)) { const record = recordRoot(path); if (record && refuses(row, path as string)) refused.add(record.root); }
+		} else if (unit.paths.includes('/coverage')) {
+			if (coverage) return { reason: 'plan' };
+			coverage = { unit, checked, missing };
+		}
+	}
+	if (!coverage || typeof coverage.unit.scope !== 'string' || !Array.isArray(coverage.unit.pages) || coverage.unit.pages.some(page => !Number.isSafeInteger(page) || page < 1))
+		return { reason: 'plan' };
+	if (blockingModuleFindings(coverage.missing, now.task ?? {}).length) return { reason: 'missing' };
+	if (!approved({ checked: coverage.checked, missing: [] }, false, now.task ?? {})) return { reason: 'verdict' };
+	for (const collection of ['nodes', 'claims']) {
+		const before: Row[] = Array.isArray(previous.draft?.[collection]) ? previous.draft[collection] : [], after: Row[] = Array.isArray(now.draft?.[collection]) ? now.draft[collection] : [];
+		const was = before.map(record => recordIdentity(collection, record)), is = after.map(record => recordIdentity(collection, record));
+		if (new Set(was).size !== was.length || canonical([...was].sort()) !== canonical([...is].sort())) return { reason: 'records' };
+		for (const [index, record] of before.entries())
+			if (canonical(record) !== canonical(after[is.indexOf(was[index])]) && !refused.has(`/${collection}/${index}`)) return { reason: 'changed' };
+	}
+	for (const key of new Set([...Object.keys(previous.draft ?? {}), ...Object.keys(now.draft ?? {})]))
+		if (key !== 'nodes' && key !== 'claims' && canonical(previous.draft?.[key]) !== canonical(now.draft?.[key])) return { reason: 'changed' };
+	const owed = new Set(coverage.unit.paths);
+	if (canonical([...owed].sort()) !== canonical([...new Set(now.paths)].sort()) || coverage.unit.scope !== now.scope) return { reason: 'scope' };
+	const carried_from = { round: Number(plan.round), plan_digest: previous.plan_sha256 };
+	const checked = coverage.checked.flatMap(row => {
+		const listed = Array.isArray(row?.paths), kept = reviewRowPaths(row).filter((path): path is string => typeof path === 'string' && owed.has(path));
+		return kept.length ? [{ ...row, ...(listed ? { paths: kept } : { path: kept[0] }), carried_from }] : [];
+	});
+	return { review: { checked, missing: coverage.missing }, pages: [...coverage.unit.pages], carried_from };
 }
 
 /**
@@ -434,6 +527,8 @@ export async function reviewCandidate(options: {
 	extractionVersion?: string;
 	/** §151.2.1: the plan of the round that reviewed this candidate's predecessor; its surviving units keep their grouping. */
 	previousPlan?: ReviewPlan;
+	/** §186.4: the review of the candidate this round repaired; passed only after a targeted repair `checkTargetedRepair` accepted. */
+	coverageCarry?: CoverageCarrySource;
 	run: (request: ReaderRequest) => Promise<ReaderOutcome>;
 	record(row: Row): void; progress(row: Row): void;
 	/** Test seam: the waits between transport retries, in order. Production uses `TRANSPORT_BACKOFF_MS`. */
@@ -472,6 +567,18 @@ export async function reviewCandidate(options: {
 		.filter((page: any) => Number.isInteger(page) && page > 0))].sort((a,b) => a-b);
 	if(publicFields)for(const field of Object.values(publicFields))for(const ref of field.source_refs)if(!scopePages.includes(ref.page))scopePages.push(ref.page);
 	scopePages.sort((a,b)=>a-b);
+	// §186.4: the coverage unit's scope, recorded in this round's plan and compared by the next round's carry; and the
+	// verdict a records-only targeted repair carries, checked against this unit like a reused unit's retained review.
+	const scope = !guidanceBytes && !answerTask && units.some(paths => paths.includes('/coverage'))
+		? coverageScope({version:options.reviewVersion, source:options.source.file_sha256, model:options.model}, options.task, options.draft, scopePages) : undefined;
+	const unitPages: number[][] = [];
+	const carriedCoverage = (paths: string[], requiredPages: number[]): CoverageCarry | undefined => {
+		if (!options.coverageCarry || scope === undefined || !paths.includes('/coverage')) return undefined;
+		const carry = coverageCarry(options.coverageCarry, {draft:options.draft, task:options.task, paths, scope});
+		if (!('review' in carry)) return carry;
+		try { checkReviewEvidence(carry.review, paths, new Set(carry.pages), requiredPages, options.draft); return carry; }
+		catch { return {reason:'evidence'}; }
+	};
 	let next = 0, completed = 0, active = 0;
 	const failures: string[] = [];
 	const capacity = Math.min(40, units.length);
@@ -480,11 +587,20 @@ export async function reviewCandidate(options: {
 			const index = next++, paths = units[index];
 			const requiredPages = answerTask ? [...new Set<number>((options.draft.source_refs ?? []).map((ref: Row) => ref.page))]
 				: guidanceBytes || paths.includes('/coverage') ? scopePages : [];
+			// §186.4: a records-only targeted repair carries the repaired round's coverage verdict; no reviewer runs.
+			const carry = carriedCoverage(paths, requiredPages);
+			if (carry && 'review' in carry) {
+				results[index] = carry.review; unitPages[index] = carry.pages; for (const page of carry.pages) observed.add(page); completed++;
+				options.record({lane:'reading',phase:'verify',unit:index+1,ms:0,ok:true,reused:true,carried_from:carry.carried_from,pages:[...carry.pages].sort((a,b)=>a-b)});
+				options.progress({stage:'verify',reviewed:completed,review_total:units.length,activeReaders:active});
+				continue;
+			}
+			if (carry) options.record({lane:'reading',event:'coverage_carry_refused',unit:index+1,reason:carry.reason});
 			const identified = unitKey(paths), key = identified?.key;
 			const cacheFile = key ? join(options.cacheRoot!,key+'.json') : undefined;
 			const reused = cacheFile ? await cachedReview(cacheFile,key!,paths,!!guidanceBytes,requiredPages,options.draft,options.task,identified!.fact) : undefined;
 			if (reused) {
-				results[index] = reused.review; for (const page of reused.pages) observed.add(page); completed++;
+				results[index] = reused.review; unitPages[index] = reused.pages; for (const page of reused.pages) observed.add(page); completed++;
 				options.record({lane:'reading',phase:'verify',unit:index+1,ms:0,ok:true,reused:true,evidence:reused.evidence,pages:[...reused.pages].sort((a,b)=>a-b)});
 				options.progress({stage:'verify',reviewed:completed,review_total:units.length,activeReaders:active});
 				continue;
@@ -577,6 +693,7 @@ export async function reviewCandidate(options: {
 					catch (error) { options.record({lane:'reading',event:'review_cache_unavailable',unit:index+1,detail:String(error)}); }
 				}
 				for (const page of pages) observed.add(page);
+				unitPages[index] = [...pages].sort((a, b) => a - b);
 				// `unit` restarts every round; `attempt` and the owning job's `round` (added by the caller) make the row unique, and `pages` says which physical pages this reviewer viewed (#65).
 				options.record({ lane: "reading", phase: "verify", unit: index + 1, attempt, ms: run.ms, ok: true, image_reads: pages.size, pages: [...pages].sort((a, b) => a - b) });
 				break;
@@ -638,7 +755,10 @@ export async function reviewCandidate(options: {
 	await writeFile(join(options.cwd, "review.json"), reviewBytes);
 	// §151.2.1/§151.2.2: which candidate this review judged, and how it was grouped, for the round that repairs it.
 	if (!guidanceBytes && !answerTask) {
-		const plan: ReviewPlan = {version:1, candidate_sha256:candidateDigest(options.draft), review_sha256:digest(reviewBytes), units:units.map(paths => planUnit(options.draft, paths))};
+		// §186.4: each unit's share of review.json and its viewed pages, and the coverage unit's scope, for the next round's carry.
+		const plan: ReviewPlan = {version:1, round:options.round, candidate_sha256:candidateDigest(options.draft), review_sha256:digest(reviewBytes), units:units.map((paths, index) => ({
+			...planUnit(options.draft, paths), checked:results[index].checked.length, missing:results[index].missing.length, pages:unitPages[index] ?? [],
+			...(scope !== undefined && paths.includes('/coverage') ? {scope} : {})}))};
 		await writeFile(join(options.cwd, REVIEW_PLAN_FILE), JSON.stringify(plan) + "\n");
 	}
 	return [...observed];

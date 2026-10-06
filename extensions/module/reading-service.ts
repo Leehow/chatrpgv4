@@ -5,7 +5,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { KernelError , isKernelError } from "../kernel/client.ts";
 import { readerInput, wakeReaderSlots, type ReaderOutcome, type ReaderRequest } from "./reader.ts";
 import { providerRefusalText } from "../../runtime/jev/provider-budget.ts";
-import { reviewCandidate, type ReviewPlan } from "./reader-review.ts";
+import { reviewCandidate, type CoverageCarrySource, type ReviewPlan } from "./reader-review.ts";
 import { checkTargetedRepair, repairDecision, reviewOfCandidate, TARGETED_REPAIR_ASK, type RepairDecision } from "./targeted-repair.ts";
 import { salvageInterruptedRead } from "./read-salvage.ts";
 import { accountingFields, readingAccounting, tallyChildJev, tallyReadingRow } from "./reading-accounting.ts";
@@ -1254,6 +1254,8 @@ export class ReadingService implements ReadingBridge {
 				let previousPlan: ReviewPlan | undefined;
 				// §151.2.2: a targeted repair the host refused this round; the round's read runs again as today's full repair.
 				let targetedRefused = false;
+				// §186.4: the repaired review, offered to this round's verify only once `checkTargetedRepair` accepted the repair.
+				let coverageCarry: CoverageCarrySource | undefined;
 				try {
 					const phases: Array<"index" | "index-audit" | "read" | "verify"> = job.purpose === "index" ? (readComplete ? [] : ["index", "index-audit"]) : (readComplete ? ["verify"] : ["read", "verify"]);
 					// An index loop: a refused targeted repair inserts the round's full read right after itself.
@@ -1262,6 +1264,7 @@ export class ReadingService implements ReadingBridge {
 						phaseCompleted = false;
 						let previousDraft: Row | undefined, previousPages: number[] = [], candidateBytes: Buffer | undefined;
 						let targeted: Extract<RepairDecision, {kind: "targeted"}> | undefined, pendingNeeds: Buffer | null = null;
+						let repairedReview: CoverageCarrySource | undefined;
 						if (phase === "read") {
 							try {
 								const bytes = await readFile(join(cwd, "draft.json"));
@@ -1288,6 +1291,7 @@ export class ReadingService implements ReadingBridge {
 									: job.resumed?.reread === true || !reviewed ? { kind: "full", reason: "no_review" } : repairDecision(previousDraft, reviewed.review, task);
 								if (decision.kind === "targeted") {
 									targeted = decision;
+									repairedReview = { plan: reviewed!.plan, plan_sha256: reviewed!.plan_sha256, review: reviewed!.review, draft: previousDraft };
 									task.repair = { ...task.repair, kind: "targeted", refused: decision.refused, pages: decision.pages };
 									await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
 									pendingNeeds = await readFile(join(cwd, "pending-source-needs.json")).catch(failure => { if (failure.code === "ENOENT") return null; throw failure; });
@@ -1348,7 +1352,7 @@ export class ReadingService implements ReadingBridge {
 							try {
 								observations.review_pages = await reviewCandidate({ cwd, ...(claimSupport ? { claimSupport } : {}), task: {...task, review_scope_pages: reviewScope,
 									...(requiredReview?{required_review:requiredReview}:{})},
-									draft:candidate, instructions, round, previousPlan, extractionVersion: sourceTextVersion,
+									draft:candidate, instructions, round, previousPlan, coverageCarry, extractionVersion: sourceTextVersion,
 									model, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 }, signal,
 									cacheRoot:join(cache,'..','reviews'),
 									reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion+(draftHasMapRegions(candidate)?':map-region-review-v2':'')),await readFile(join(this.runtime().contentRoot,'setup',job.purpose === 'answer' ? 'source-answer.md' : job.purpose === 'guidance' ? 'visual-guidance.md' : 'visual-reader.md'))])),
@@ -1488,6 +1492,7 @@ export class ReadingService implements ReadingBridge {
 								phases.splice(at + 1, 0, "read");
 								continue;
 							}
+							coverageCarry = repairedReview;
 						}
 						if (phase === "index-audit") {
 							const missing = integerList(task.index_audit_pages).filter(page => !sourcePages.has(page));

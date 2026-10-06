@@ -9,9 +9,7 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { candidateDigest, readReviewPlan, recordRoot, REVIEW_PLAN_FILE, type ReviewPlan } from "./reader-review.ts";
-import { REVIEW_VERDICTS, classificationMatcher } from "../../kernel-ts/modules/review-verdicts.ts";
-import { advisoryModuleFinding, moduleLogicReview } from "../../kernel-ts/modules/module-review-policy.ts";
+import { candidateDigest, gateRefusal, readReviewPlan, recordRoot, REVIEW_PLAN_FILE, type ReviewPlan } from "./reader-review.ts";
 
 type Row = Record<string, any>;
 
@@ -38,15 +36,16 @@ const sha = (bytes: string | Buffer) => createHash("sha256").update(bytes).diges
  * binds both: its candidate digest must be this candidate's and its review digest the review file's, so a review.json
  * anyone else wrote, or one of an earlier candidate, never steers a repair.
  */
-export async function reviewOfCandidate(dirs: string[], candidate: Row): Promise<{ dir: string; review: Row; plan: ReviewPlan } | undefined> {
+export async function reviewOfCandidate(dirs: string[], candidate: Row): Promise<{ dir: string; review: Row; plan: ReviewPlan; plan_sha256: string } | undefined> {
 	const wanted = candidateDigest(candidate);
 	for (const dir of dirs) {
 		try {
-			const plan = readReviewPlan(await readFile(join(dir, REVIEW_PLAN_FILE), "utf8"));
+			const text = await readFile(join(dir, REVIEW_PLAN_FILE), "utf8"), plan = readReviewPlan(text);
 			if (!plan || plan.candidate_sha256 !== wanted) continue;
 			const bytes = await readFile(join(dir, "review.json"));
 			if (sha(bytes) !== plan.review_sha256) continue;
-			return { dir, review: JSON.parse(bytes.toString()), plan };
+			// §186.4: the plan's own digest names it in a carried coverage row's `carried_from`.
+			return { dir, review: JSON.parse(bytes.toString()), plan, plan_sha256: sha(text) };
 		} catch { /* no review of this candidate here */ }
 	}
 	return undefined;
@@ -62,12 +61,11 @@ export async function reviewOfCandidate(dirs: string[], candidate: Row): Promise
 export function repairDecision(candidate: Row, review: Row, task: Row): RepairDecision {
 	if (!Array.isArray(review?.checked) || !Array.isArray(review?.missing)) return { kind: "full", reason: "no_review" };
 	if (review.missing.length) return { kind: "full", reason: "missing" };
-	const logic = moduleLogicReview(task), classifies = classificationMatcher(task?.vocabulary?.classification_fields?.node);
+	const refuses = gateRefusal(task);
 	const refused: RefusedPath[] = [];
 	for (const row of review.checked) {
 		for (const path of Array.isArray(row?.paths) ? row.paths : [row?.path]) {
-			if (row?.verdict === "supported") continue;
-			if (REVIEW_VERDICTS.includes(row?.verdict) && (logic ? advisoryModuleFinding(row) : classifies(path))) continue;
+			if (!refuses(row, path)) continue;
 			const record = recordRoot(path);
 			if (!record || !candidate?.[record.collection]?.[record.index]) return { kind: "full", reason: "not_a_record" };
 			refused.push({ path, root: record.root, verdict: String(row?.verdict ?? ""), reason: String(row?.reason ?? ""),
