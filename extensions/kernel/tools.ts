@@ -265,11 +265,16 @@ const AbilityEffect = Type.Object({
   why: Type.Optional(Sentence()),
 });
 
+/** One unit price, with a precise decimal spelling for provider tool generation. Numbers remain a compatibility input. */
+const UnitPrice=Type.String({pattern:'^[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$',minLength:1,maxLength:100,
+    description:'Use an exact decimal STRING in the purse currency, e.g. "0.55" for fifty-five cents, never "0" for a covered purchase. This is the actual merchandise unit price, not the cash debit. Supply this price once; speech references the bill'});
+const PricedLine=Type.Object({name:Type.String(),quantity:Type.Number({exclusiveMinimum:0}),unit_price:UnitPrice});
+
 /** A priced transaction (contract §5 `cash`, #19; §58 source and Spending Level settlement). */
 const QuotationDrafts = Type.Optional(Type.Array(Type.Object({
-    quote: Type.String({maxLength:200,description:"offer name reused on acceptance"}),
+    quote: Type.String({maxLength:200,description:"offer name reused on acceptance and in {{price:NAME:unit}}, {{price:NAME:quantity}}, {{price:NAME:total}} speech references; submit prices once"}),
     category: StringEnum(["living","purchase"] as const),
-    items: Type.Array(Type.Object({name:Type.String(),quantity:Type.Number({exclusiveMinimum:0}),unit_price:Type.Number({minimum:0})}),{minItems:1,maxItems:24}),
+    items: Type.Array(PricedLine,{minItems:1,maxItems:24}),
     subject: Type.Optional(Type.String({description:"omit for one investigator; otherwise use their exact capsule name/id"})),
     with: Type.Optional(Type.String({description:"seller name/role; required unless source price"})),
     source: Type.Optional(StringEnum(["quote","price"] as const)),
@@ -295,10 +300,11 @@ const CashEffect = Type.Object({
 	owed: OwedRef,
 	...IntentResult,
 	kind: StringEnum(["cash"] as const, { description: "record an exact itemized quote, settle a chosen purchase under the living-standard/daily-spending rules, or transfer actual cash" }),
+	bill: Type.Optional(Type.String({maxLength:200,description:"local bill name for price references in closing prose: {{price:NAME:unit}}, {{price:NAME:quantity}}, {{price:NAME:total}}. Multi-line bills use {{price:NAME:1:unit}}. Supply items once; never write a second price in prose. This is not a saved quote name. Write effects before embedded narrate for early bound price display"})),
 	mode: Type.Optional(StringEnum(["quote", "settle"] as const, {description:"settle (default) completes a chosen expense. quote registers an unchosen offer synchronously; prefer narrate.quotes for ordinary offers so prose does not wait. Use synchronous quote only when another operation needs its exact result before delivery. Quoting does not pay or transfer items"})),
 	quote: Type.Optional(Type.String({maxLength:200,description:"human-readable offer name. With mode quote this names the offer being registered; with settle it reuses that saved offer's exact terms and computed amount once, so omit delta/items/source/category/with/currency unless unchanged"})),
 	category: Type.Optional(StringEnum(["living", "purchase", "transfer"] as const, {description:"required for a negative price/quote: living is ordinary accommodation, food or incidental travel within the investigator's living standard; purchase is additional daily spending, including an incidental gratuity when appropriate; transfer is actual non-purchase cash movement. Make the contextual judgement, never use the purchase amount alone to classify it. The kernel chooses whether any cash is debited"})),
-	items: Type.Optional(Type.Array(Type.Object({name:Type.String(),quantity:Type.Number({exclusiveMinimum:0}),unit_price:Type.Number({minimum:0})}),{minItems:1,maxItems:24,description:"quoted priced lines; the kernel multiplies quantity by unit_price and sums exactly. Omit delta to use that total. A saved quote already contains its lines"})),
+	items: Type.Optional(Type.Array(PricedLine,{minItems:1,maxItems:24,description:"quoted priced lines; write unit_price as an exact decimal string. The kernel multiplies quantity by unit_price and sums exactly. Omit delta to use that total. A saved quote already contains its lines"})),
 	subject: Type.Optional(Type.String({ description: "whose money; defaults to the current investigator" })),
 	stated: StatedAmount,
 	delta: Type.Optional(Type.Number({ description: "signed finite amount; a direct purchase is negative. Omit when items, a saved quote or stated provides it. A supplied purchase delta must equal the negative computed line total. Purchase input is its price, while the receipt delta is the actual cash movement after coverage and daily aggregation" })),

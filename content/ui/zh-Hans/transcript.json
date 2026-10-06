@@ -1,4 +1,6 @@
 {
   "loading": "正在加载机制面板…",
-  "keeper_working": "守秘人正在工作…"
+  "keeper_working": "守秘人正在工作…",
+  "provider_recovered": "连接已恢复。自动重试成功，回复已完成。",
+  "provider_failed": "模型请求失败。回复未能完成。"
 }

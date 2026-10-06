@@ -1571,7 +1571,10 @@ function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], languag
     // without it the transcript's assembly rules treat a service notice as more of the Keeper's
     // message and fold it into the Keeper's card.
     const placedByHost = isHostDeliveredCustomMessage(entry);
-    return { id: entry.id, role: placedByHost ? "assistant" : "user", content: redactText(content, secrets), timestamp: asTime(entry.timestamp), ...(placedByHost ? { placedByHost: true as const } : {}), ...(help ? { help } : {}) };
+    const details = entry.details ?? entry.data;
+    const providerNotice = entry.customType === "coc-delivery" && details?.provider_outage === true
+      && typeof details.terminal === "boolean" ? (details.terminal ? "failed" : "recovered") : undefined;
+    return { id: entry.id, role: placedByHost ? "assistant" : "user", content: redactText(content, secrets), timestamp: asTime(entry.timestamp), ...(placedByHost ? { placedByHost: true as const } : {}), ...(help ? { help } : {}), ...(providerNotice ? { providerNotice } : {}) };
   }
   if (entry?.type === "compaction") {
     return {

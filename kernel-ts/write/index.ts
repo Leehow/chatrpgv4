@@ -54,6 +54,7 @@ import type {createWorldlineRuntime} from '../worldline/index.js';
 import { owedIntents } from '../npc/owed.js';
 import { namedRepeats, speakerThreads } from '../npc/threads.js';
 import {quotationDrafts,quotationScope,pendingQuotation,quotationRecords} from '../runtime/quotes.js';
+import {bindPriceText,priceRows} from '../../shared/cash-prose.js';
 export { createTurnTransaction } from './store.js';
 export { CampaignWriter } from './store.js';
 export { writeEpisode } from './contributions.js';
@@ -1247,9 +1248,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         await validateMods(snapshot.world);
         const untold = await untoldAt(snapshot, module.graph);
         const receipts = [...array(turn.receipts)], speakers = speakerResolver(module.graph, snapshot.world, snapshot.party, untold);
+        const priceTemplate=required(params,'text')!;
+        const priceBinding=bindPriceText(priceTemplate,priceRows(receipts,params.quotes));
         // `let`: §143.17 may take a bare wrapper off the text on the turn's second delivery and render it again.
         // §103.8: a name the fiction says is the book's, put in here; the Keeper never held it.
-        const gated = await untoldNamesGate(snapshot, campaign, turn, module.graph, required(params, 'text')!, speakers, started.callId, truth(params.implicit),
+        const gated = await untoldNamesGate(snapshot, campaign, turn, module.graph, priceBinding.text, speakers, started.callId, truth(params.implicit),
             clearedPlaces(params.untold_cleared));
         const naming = withNames(gated.text, speakers, module.graph);
         let text = naming.text;
@@ -1374,6 +1377,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const record: Row = {
             ...deliveryRecord(turn, text, receipts, result, world),
             ...(quoteDrafts.length?{quote_drafts:quoteDrafts,quote_scope:quotationScope(snapshot.meta)}:{}),
+            ...(priceBinding.bound.length||priceBinding.unresolved.length?{price_template:priceTemplate,price_bindings:priceBinding.bound,unresolved_prices:priceBinding.unresolved}:{}),
             ...(delivery.marked_text ? { marked_text: delivery.marked_text } : {}),
             ...(toldText !== undefined ? { told_text: toldText } : {}),
             closed_by: 'narrate',

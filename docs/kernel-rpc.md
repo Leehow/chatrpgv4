@@ -11320,6 +11320,35 @@ through §38.2 instead of hitting `turn_state`. Any later completed assistant me
 terminal-failure mark, so the retained turn-3 shape above — one failed call, a 2.6 s successful retry, then
 a normal delivery — records and reports its outage but is never stranded.
 
+**Provider-notice disclosure (2026-10-06, owner request).** The Electron transcript draws provider
+outage notices as compact disclosures, closed by default. The visible summary states either that
+automatic retry recovered and the reply completed, or that the model request failed and the reply
+did not complete. Expanding retains the exact original notice. The existing notice timing and
+eight-retry policy do not change. Summary captions have one English source on the `transcript`
+surface and use the existing open-language presenter, never text classification or language tables.
+
+**The host's decision.** The shared live/history reader projects only displayed `coc-delivery` rows
+with `details.provider_outage === true` and a boolean `details.terminal` into
+`HistoryEntry.providerNotice: "recovered" | "failed"` (`false` means recovered). The UI carries that
+marker through both transcript projections and selects the matching summary. Existing saved notices
+therefore fold without rewriting evidence. Other service notices and host-delivered Keeper prose
+remain on their existing paths; a missing terminal discriminator never claims recovery.
+The producer is the existing settled-run notice, the reader is the shared host projection, and the
+actor is the transcript disclosure. Checks cover real Pi message shapes, reload parity, both
+outcomes, preservation of original content, and the expand/collapse control.
+
+External comparison: [WAI disclosure guidance](https://www.w3.org/WAI/ARIA/apg/patterns/disclosure/)
+and [HTML disclosure semantics](https://html.spec.whatwg.org/multipage/interactive-elements.html#the-details-element)
+both keep the summary visible while details are hidden. The UI uses its existing disclosure card
+and `aria-expanded` toggle; no new retry mechanism is required.
+
+Validation: 30 selected UI checks, nine host live/history checks, and 17 caption guards passed.
+The host API compiled; the UI typecheck retained the same 109 pre-existing diagnostics, with no
+new diagnostics. The shipped Chinese cache's two new captions were projected by a tool-enabled
+Pi agent on `flapcode/gpt-6-luna`, low (`read`, `write`, `bash`); its inputs, output and events remain
+in `.coc/research/provider-notice-fold-20261006/`. This is source verification, not an App package
+or live GUI acceptance.
+
 #### 38.7.1 Addendum (2026-09-26, SL-74): the `provider-request` row gains `step` and `first_step_thinking`
 
 Twelve long gates on the same script (evidence in `docs/specs/pi-native-single-loop-tickets/74-first-step-thinking-experiment.md`)
@@ -13633,6 +13662,60 @@ transport is unnecessary here because section 132 already pushes card updates. R
 preserving the same card and playback state during these updates.
 
 ### 58.9 Unified purchases and exact quotations (owner request, 2026-10-02)
+
+**Bound price speech (owner repair, 2026-10-05).** A cash effect may carry `bill`, a
+human-readable local transaction name. Price speech refers to that same transaction with
+`{{price:NAME:unit}}`, `{{price:NAME:quantity}}` or `{{price:NAME:total}}`; multi-line bills
+use `{{price:NAME:N:unit|quantity|amount}}` (one-based line). An offer uses its existing
+`quote` name. These are closed field references, not prose extraction or executable
+expressions. The Keeper supplies each quantity/unit price once. Existing exact decimal
+arithmetic supplies line amounts and totals; coverage supplies the separate actual debit.
+Zero cash debit never means a zero merchandise price.
+Legacy total-only expenses bind `total` from their nominal amount; they cannot invent
+a unit rate or quantity and never substitute the covered receipt's zero debit for price.
+
+Model tools prefer an exact decimal string for `unit_price` (for example `"0.55"`);
+legacy JSON numbers remain accepted. This is one parameter, not a second price source.
+The provider-facing schema is a decimal string; Pi's existing pre-validation
+`prepareArguments` hook converts finite legacy tool numbers to their decimal spelling.
+Direct kernel clients retain both forms. No SDK fork or provider-specific text parsing
+is introduced.
+The bounded decimal grammar is decoded into the same base-10 arithmetic, never by
+natural-language extraction, floating multiplication or currency guessing. A live Grok
+4.5 run repeatedly proposed numeric zero despite a positive bill; that failed run is
+retained and does not establish whether the upstream generator or transport caused it.
+
+Writer: cash receipts carry `bill` and priced items; offer drafts carry the same priced
+items under `quote`. Reader: live delivery and the committed text/speech projection bind
+the references to these rows. Actor: the existing apply transaction owns settlement and
+the existing detached quotation queue only registers offers. The kernel materializes
+bound text before speech, facts and history are recorded. The original template remains
+in the record for provenance. No opaque receipt/job identifier is model-authored.
+
+Streaming resolves only complete structured price rows. Incomplete, ambiguous or invalid
+bindings show an ellipsis, never a guessed zero, while surrounding prose keeps arriving.
+Binding does no source lookup or financial mutation; final settlement/source validation
+still belongs to the kernel. Ordinary quotation registration remains detached and cannot
+rewrite price inputs, charge money or substitute a quote for a chosen service.
+
+A synchronous quote with a kernel-previewed zero debit is checked against the player's
+choice using the existing admission reviewer on a read-only settlement candidate. An
+authorized/entailed candidate yields a bounded `correct_proposal` steer to complete the
+chosen service; it never automatically promotes the offer to a payment. Price-only
+enquiries and actual debit terms remain offers. No new reviewer lane or model is added.
+Invalid price feedback identifies the line values and distinguishes nominal price from
+actual debit. Repeating the same invalid priced input cannot spend three ordinary apply
+attempts: identical zero-priced inputs are refused before the kernel and do not add
+another general apply refusal strike. A genuinely corrected bill remains executable;
+the existing run/step bounds still stop a model that never corrects it. This exception
+does not affect admission, consent or any other refusal class. Historical receipts,
+delivered prose and campaign state are not migrated.
+
+**Kernel decision.** Shared portable decimal operations are also used for provisional
+price presentation, not for admission, coverage or account mutation. Final materialization
+prefers settled receipts and uses the same line arithmetic for offers. Acceptance includes
+decimal transport, same-call speech/card/receipt agreement, slow quote registration,
+invalid-zero correction, price-only enquiry, cumulative-limit consent and real Luna play.
 
 **Chosen covered services continue in the same turn (owner ruling, 2026-10-03).**
 When the player already chose an ordinary service/item and living-standard coverage or

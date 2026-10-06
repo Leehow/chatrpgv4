@@ -79,13 +79,13 @@ async function fixture(childEnv: (sessionPath: string) => Record<string, string>
  * manager minted -- so the id the host publishes can only come from the row.
  */
 async function deliverLikePi(backend: any, sessionPath: string, row: {
-  id: string; customType: string; content: string; details?: Record<string, unknown>; display?: boolean;
+  id: string; customType: string; content: string; details?: Record<string, unknown>; display?: boolean; parentId?: string | null;
 }): Promise<void> {
   const live = backend.live.get("s1");
   await appendFile(sessionPath, JSON.stringify({
     type: "custom_message", customType: row.customType, content: row.content,
     display: row.display ?? true, details: row.details,
-    id: row.id, parentId: null, timestamp: new Date().toISOString(),
+    id: row.id, parentId: row.parentId ?? null, timestamp: new Date().toISOString(),
   }) + "\n");
   const message = {
     role: "custom", customType: row.customType, content: row.content,
@@ -102,6 +102,37 @@ const NOTICE = [
 ].join("\n\n");
 
 describe("a notice the host places reaches the screen when it is placed", () => {
+  it("projects provider outcomes identically live and after reload without classifying notice text", async () => {
+    const { backend, sessionPath, presentations, off } = await fixture();
+    try {
+      await backend.handle("sendPrompt", ["s1", "hello"]);
+      const rows = [
+        { id: "recovered", details: { provider_outage: true, terminal: false }, outcome: "recovered" },
+        { id: "failed", details: { provider_outage: true, terminal: true }, outcome: "failed" },
+        { id: "unknown", details: { provider_outage: true }, outcome: undefined },
+        { id: "other-notice", details: { turn_unfinished: true, terminal: true }, outcome: undefined },
+        { id: "keeper-prose", details: { coc_delivery: true, turn: 5 }, outcome: undefined },
+      ];
+      for (const [index, row] of rows.entries()) await deliverLikePi(backend, sessionPath, {
+        id: row.id, parentId: index > 0 ? rows[index - 1].id : null,
+        customType: "coc-delivery", content: "Retained original text.", details: row.details,
+      });
+      await eventually(() => rows.every(row => presentations.some(entry => entry.id === row.id)));
+      const history = await backend.handle("getSessionHistory", ["s1", 0, 500]) as any[];
+      for (const row of rows) {
+        const live = presentations.find(entry => entry.id === row.id);
+        const saved = history.find(entry => entry.id === row.id);
+        expect(live.providerNotice, row.id).toBe(row.outcome);
+        expect(saved.providerNotice, row.id).toBe(row.outcome);
+        expect(live.content).toBe("Retained original text.");
+        expect(saved.content).toBe(live.content);
+      }
+    } finally {
+      off();
+      await backend.close();
+    }
+  });
+
   it("projects a host-placed delivery that arrives the way Pi delivers it", async () => {
     const { backend, sessionPath, presentations, off } = await fixture();
     await backend.handle("sendPrompt", ["s1", "hello"]);

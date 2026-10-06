@@ -130,6 +130,7 @@ async function cashSource(context:CashContext,effect:Row,heldCurrency:string,sub
 }
 export async function stageCash(context:CashContext,effect:Row,staged:Map<string,Row>):Promise<StagedEffect>{
     const mode=effect.mode??'settle';
+    if(effect.bill!==undefined && (typeof effect.bill!=='string'||!effect.bill.trim()||effect.bill.length>200))throw new RpcError('invalid_params','bill must be a nonempty local transaction name of at most 200 characters');
     if(mode!=='quote'&&mode!=='settle')throw new RpcError('invalid_params','cash mode must be quote or settle');
     if(mode==='quote'&&effect.source===undefined)effect={...effect,source:effect.price_id!==undefined?'price':'quote'};
     const requested=effect.settlement;
@@ -170,7 +171,7 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
             throw new RpcError('invalid_params','A quote needs items, a quote name, a price source and a living or purchase category');
         const name=effect.quote.trim(),amount=storedCash(priced.total),withName=otherName||null;
         const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:personLabel(context.world,id,subject),before,after:before,delta:0,
-            category,settlement:'quote',quote:name,purchase_amount:amount,items:priced.items,currency,with:otherId,with_label:otherLabel,...sourced,why,at:nowIso()};
+            category,settlement:'quote',quote:name,...(effect.bill?{bill:effect.bill}:{}),purchase_amount:amount,items:priced.items,currency,with:otherId,with_label:otherLabel,...sourced,why,at:nowIso()};
         const quotes=array(context.world.cash_quotes).filter(value=>value.subject!==id||normalize(string(value.name))!==normalize(name));
         quotes.push({name,subject:id,category,purchase_amount:amount,items:priced.items,currency,with:withName,...sourced,why,settled:null,origin_turn:number(context.turn.turn)});
         context.world.cash_quotes=quotes;
@@ -193,7 +194,7 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
     if(covered.ledger)finance.daily_spending=covered.ledger;
     cash.amount=after;sheet.finance=finance;sheet.cash=`${string(after)} ${currency}`;
     const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:personLabel(context.world,id,subject),before,after,delta:actualDelta,
-        ...covered.fields,...(priced?{items:priced.items}:{}),...(bound.quote?{quote:bound.quote.name}:{}),with:otherId,with_label:otherLabel,currency,...sourced,why,at:nowIso()};
+        ...covered.fields,...(effect.bill?{bill:effect.bill}:{}),...(priced?{items:priced.items}:{}),...(bound.quote?{quote:bound.quote.name}:{}),with:otherId,with_label:otherLabel,currency,...sourced,why,at:nowIso()};
     if(bound.quote)bound.quote.settled=receipt.id;
     return category!=='transfer'&&effectiveDelta.coefficient===0n
         ?{receipt,event:{type:'purchase-settled',data:{subject:id,amount:covered.fields.purchase_amount,settlement:covered.fields.settlement,...(covered.fields.spending_level!==undefined?{spending_level:covered.fields.spending_level}:{}),currency,why,...(other?{with:context.graph.handle(other)}:{})}}}

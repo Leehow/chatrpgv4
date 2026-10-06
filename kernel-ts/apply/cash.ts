@@ -1,15 +1,9 @@
 /** Exact base-10 cash arithmetic at the JSON-number boundary. */
 import {PythonFloat, pythonFloatRepr} from '../json.js';
 
-export interface Decimal { coefficient: bigint; exponent: number }
+import {normalize,power,addCash,compareCash,cashText,type Decimal} from '../../shared/cash-decimal.js';
+export {addCash,compareCash,multiplyCash,cashText,type Decimal} from '../../shared/cash-decimal.js';
 export type CashValue = number | bigint | PythonFloat;
-
-const normalize = ({coefficient, exponent}: Decimal): Decimal => {
-    if (coefficient === 0n) return {coefficient: 0n, exponent: 0};
-    while (coefficient % 10n === 0n) { coefficient /= 10n; exponent++; }
-    return {coefficient, exponent};
-};
-const power = (exponent: number): bigint => 10n ** BigInt(exponent);
 
 /** The canonical JSON decimal spelling of an existing numeric value, or null when it is not finite numeric data. */
 export function cashDecimal(value: unknown): Decimal | null {
@@ -20,33 +14,6 @@ export function cashDecimal(value: unknown): Decimal | null {
     if (!match) return null;
     const [, sign, whole, fraction = '', magnitude = '0'] = match;
     return normalize({coefficient: BigInt(`${sign}${whole}${fraction}`), exponent: Number(magnitude) - fraction.length});
-}
-
-export function addCash(left: Decimal, right: Decimal): Decimal {
-    const exponent = Math.min(left.exponent, right.exponent);
-    return normalize({
-        coefficient: left.coefficient * power(left.exponent - exponent) + right.coefficient * power(right.exponent - exponent),
-        exponent,
-    });
-}
-
-export function multiplyCash(left: Decimal, right: Decimal): Decimal {
-    return normalize({coefficient:left.coefficient*right.coefficient,exponent:left.exponent+right.exponent});
-}
-
-/** Exact ordering without converting a stored decimal back through binary floating point. */
-export function compareCash(left: Decimal, right: Decimal): number {
-    const exponent = Math.min(left.exponent, right.exponent);
-    const a = left.coefficient * power(left.exponent - exponent);
-    const b = right.coefficient * power(right.exponent - exponent);
-    return a < b ? -1 : a > b ? 1 : 0;
-}
-
-export function cashText(value: Decimal): string {
-    const sign = value.coefficient < 0n ? '-' : '', digits = (value.coefficient < 0n ? -value.coefficient : value.coefficient).toString();
-    if (value.exponent >= 0) return `${sign}${digits}${'0'.repeat(value.exponent)}`;
-    const point = digits.length + value.exponent;
-    return point > 0 ? `${sign}${digits.slice(0, point)}.${digits.slice(point)}` : `${sign}0.${'0'.repeat(-point)}${digits}`;
 }
 
 /** Keep legacy whole number/bigint storage; fractional results must survive PythonFloat serialization byte-for-byte. */
