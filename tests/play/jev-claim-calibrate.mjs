@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Contract §151.3.1 (ticket 03 of docs/specs/jev-decides-llm-writes.md): the offline calibration of the Jev claim-support
- * check against the retained vision reviewer verdicts of one or more homes.
+ * check against the retained vision reviewer verdicts of one or more homes. The §186.6 calibration replays frozen splits
+ * instead (`tests/play/jev-claim-splits.mjs`, `tests/play/jev-claim-replay.mjs`); this tool still runs the current check.
  *
  * What it replays: every retained verify round (`.../verify-<n>/unit-<n>/attempt-<id>/{review.json,draft.json,task.json}`
  * under a home's `.pi/` and `.coc/`) of a fact review (never guidance or source answers). A round's units share one
@@ -37,7 +38,7 @@ import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
-import {claimBatches, claimCandidates, claimSupportBindings, citedPages, readClaimSupportBudget, runClaimSupport, CLAIM_SUPPORT_FAMILY} from '../../runtime/jev/source-claim-support.ts';
+import {claimBatches, claimCandidates, claimClassifier, claimSupportBindings, citedPages, readClaimSupportBudget, runClaimSupport, CLAIM_SUPPORT_FAMILY} from '../../runtime/jev/source-claim-support.ts';
 import {pathsOverlap} from '../../kernel-ts/modules/claim-support.ts';
 import {sourceText, sourceTextVersion} from '../../extensions/module/source.ts';
 import {readVaultSecret} from '../../experiments/single-loop-routing/vault.mjs';
@@ -201,6 +202,8 @@ async function main() {
   await mkdir(options.out, {recursive: true});
   const budget = await readClaimSupportBudget(join(REPO, 'content'));
   if (!budget) throw new Error('the shipped host-budgets.json has no readable source_claim_support block');
+  // §186.6: the task's classification fields, the shipped graph contract's when a retained task predates them.
+  const declared = JSON.parse(readFileSync(join(REPO, 'content', 'modules', 'module-graph-contract-v3.json'), 'utf8')).classification_fields?.node;
   const all = rounds(options.homes);
   const skipped = {non_fact_purpose: 0, no_units: 0, no_module: 0, duplicate_round: 0};
   const seenRounds = new Set();
@@ -231,7 +234,8 @@ async function main() {
     let text;
     try { text = await native.pages(module, pages); }
     catch (error) { failures.native_text = (failures.native_text ?? 0) + 1; return; }
-    const {candidates, ineligible: why} = claimCandidates(round.draft, units, round.task, page => (text.get(page)?.text ?? '').trim() !== '', budget.recordMaxBytes);
+    const {candidates, ineligible: why} = claimCandidates(round.draft, units, round.task, page => (text.get(page)?.text ?? '').trim() !== '', budget.recordMaxBytes,
+      claimClassifier(round.task, declared));
     for (const [reason, count] of Object.entries(why)) ineligible[reason] = (ineligible[reason] ?? 0) + count;
     if (!candidates.length) return;
     const input = {module: 'calibration', job: round.key.slice(-16), sourceSha256: module.fileSha, extractionVersion: sourceTextVersion, candidates,

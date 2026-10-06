@@ -637,11 +637,12 @@ function refuseJev(rule: string, message: string, path: string): never {
     });
 }
 /**
- * §151.3's evidence amendment for one `reviewer: "jev"` row: one record's paths, `supported`, an eligible record, the
- * page-text digests and extraction version of the evidence file for exactly the record's cited pages, a distribution,
- * and no vision row that marked an overlapping path anything but supported. Returns the paths it reviewed.
+ * §151.3's evidence amendment for one `reviewer: "jev"` row: one record's paths, `supported`, an eligible record (§186.6:
+ * one carrying no classification field), the page-text digests and extraction version of the evidence file for exactly
+ * the record's cited pages, a distribution, and no vision row that marked an overlapping path anything but supported.
+ * Returns the paths it reviewed.
  */
-function checkJevRow(draft: Row, item: Row, count: number, claims: ClaimEvidence | undefined, negative: string[]): string[] {
+function checkJevRow(draft: Row, item: Row, count: number, claims: ClaimEvidence | undefined, negative: string[], classifies: (path: string) => boolean): string[] {
     const paths = Object.hasOwn(item, 'paths') ? item.paths : [item.path ?? null];
     const at = typeof array(paths)[0] === 'string' ? array(paths)[0] : '/';
     if (!Array.isArray(paths) || !paths.length || paths.some(path => typeof path !== 'string'))
@@ -655,7 +656,7 @@ function checkJevRow(draft: Row, item: Row, count: number, claims: ClaimEvidence
         refuseJev(JEV_REVIEW_RULES.ineligible, 'Jev only clears a record; it never refuses one', root);
     if (!claims)
         refuseJev(JEV_REVIEW_RULES.evidence, 'no native-text evidence of the bound source accompanies this review', root);
-    const why = claimSupportIneligibility(draft, root, page => (claims.pages.get(page)?.text.trim() ?? '') !== '');
+    const why = claimSupportIneligibility(draft, root, page => (claims.pages.get(page)?.text.trim() ?? '') !== '', classifies);
     if (why !== null)
         refuseJev(JEV_REVIEW_RULES.ineligible, `this record keeps the vision standard (${why})`, root);
     const cited = claimRecordPages(claimRecord(draft, root)!) as { pages: number[] };
@@ -692,7 +693,7 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
         const negative = review.checked.filter((item: any) => object(item) && item.reviewer !== JEV_REVIEWER && item.verdict !== 'supported')
             .flatMap((item: Row) => Object.hasOwn(item, 'paths') ? array(item.paths) : [item.path]).filter((path: any) => typeof path === 'string');
         for (const item of jev)
-            for (const path of checkJevRow(draft, item, count, claims, negative))
+            for (const path of checkJevRow(draft, item, count, claims, negative, classifies))
                 reviewed.add(path);
     }
     for (const item of review.checked) {

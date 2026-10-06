@@ -8,7 +8,9 @@
  * no imports and both sides load it.
  *
  * Eligibility is structural and never reads meaning: a record whose facts live in an image (an image source, a map
- * region, a map's kind, a region-of-page citation) or on a page with no native text keeps the vision reviewer.
+ * region, a map's kind, a region-of-page citation) or on a page with no native text keeps the vision reviewer, and so
+ * does a record carrying a classification field (§186.6): its contest mark needs a vision reviewer, and Jev never judges
+ * a classification.
  */
 
 export const CLAIM_SUPPORT_PROTOCOL = "source-claim-support-v1";
@@ -70,11 +72,27 @@ export function claimRecordPages(record: Row): {pages: number[]} | {reason: "no_
     return {pages: [...pages].sort((a, b) => a - b)};
 }
 
+/** Every JSON pointer under `value` (RFC 6901 escaped), each prefixed with `at`: what a record carries, field by field. */
+function pointersUnder(value: unknown, at: string, out: string[]): string[] {
+    if (Array.isArray(value))
+        value.forEach((child, index) => { out.push(`${at}/${index}`); pointersUnder(child, `${at}/${index}`, out); });
+    else if (plain(value))
+        for (const [key, child] of Object.entries(value)) {
+            const path = `${at}/${key.replace(/~/g, "~0").replace(/\//g, "~1")}`;
+            out.push(path);
+            pointersUnder(child, path, out);
+        }
+    return out;
+}
+
 /**
  * Why a record may not be cleared by a text check, or null when it may. `hasText(page)` says whether the host's native
  * text of that physical page is usable (non-empty) for the bound source; the kernel answers it from the evidence file.
+ * `classifies(path)` says whether a draft pointer is a classification field (the declared `classification_fields`
+ * patterns, `review-verdicts.ts` `classificationMatcher`); both ends pass the same declaration.
  */
-export function claimSupportIneligibility(draft: unknown, root: string, hasText: (page: number) => boolean): string | null {
+export function claimSupportIneligibility(draft: unknown, root: string, hasText: (page: number) => boolean,
+    classifies: (path: string) => boolean): string | null {
     const record = claimRecord(draft, root);
     if (!record) return "not_a_record";
     if (root.startsWith("/nodes/")) {
@@ -84,6 +102,8 @@ export function claimSupportIneligibility(draft: unknown, root: string, hasText:
         // Contract §39.4: a map's kind is read off the printed picture.
         if (Object.hasOwn(properties, "map_scope")) return "map_scope";
     }
+    // §186.6: a record carrying any classification field keeps the vision reviewer, which may contest it.
+    if (pointersUnder(record, root, []).some(path => classifies(path))) return "classification_field";
     const cited = claimRecordPages(record);
     if ("reason" in cited) return cited.reason;
     if (cited.pages.some(page => !hasText(page))) return "no_native_text";
