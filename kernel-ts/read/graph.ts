@@ -8,6 +8,7 @@ import { CampaignSnapshot, loadCampaignModule } from "./campaign.js";
 import { clockSection, parseClockLocal } from "./capsule.js";
 import type { ModuleGraph } from "./module-graph.js";
 import { integer, number, string, truth, row, type Row } from "./values.js";
+import { activeMods } from "./mods.js";
 
 const DEFAULT_MAX_NODES = 500;
 const MAX_NODES_LIMIT = 1000;
@@ -212,7 +213,12 @@ export async function tableGraph(context: KernelContext, params: Row): Promise<R
             at: commit.at, parents: [...commit.parents], tip_of: tips.get(commit.sha) ?? []
         };
     });
-    return { campaign: campaign.id, ...graphLines(campaign.meta), nodes, truncated };
+    const enabled = (await activeMods(context, campaign.world)).some(mod =>
+        Array.isArray(mod.requires) && mod.requires.includes("ui.clock.v1"));
+    const currentClock = row(campaign.world.clock);
+    return { campaign: campaign.id, ...graphLines(campaign.meta), nodes, truncated,
+        clock_mod: { enabled, when: whenOf(graph, {...currentClock, minutes: number(currentClock.minutes)}),
+            turn: number(campaign.turn.turn) } };
 }
 
 export function graphHandlers(context: KernelContext): HandlerGroup {

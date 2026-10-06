@@ -6331,6 +6331,43 @@ chrome (its button, the limit captions, the budget labels) joins the card's
 existing English text keys and is projected by the same presenter lane — no
 language table and no language branch.
 
+### 23.5 Game Clock Mod (2026-10-06)
+
+The built-in `game-clock` 1.0.0 package requires `ui.clock.v1`, is enabled by
+default for new campaigns, and uses the normal immutable campaign lock and
+`mods.configure` boundary. Existing campaigns opt in through the Mods panel.
+It contributes presentation only: no clock writer, timer, model call or Keeper
+instruction. `apply time` and other existing settled effects remain the writers.
+
+`table.graph` additionally returns `clock_mod: {enabled, when, turn}`. `enabled`
+comes from the compatible active packages requiring `ui.clock.v1`; `when` uses
+the same calendar projection as each graph node and the sheet, over the current
+world clock. The host's existing transcript anchors bind historical graph-node
+readings by commit and session/message identity, never wall-clock timestamps or
+turn numbers alone. No private scene or module text reaches this display.
+
+The one-line clock floats over the transcript at its upper right, outside the
+layout flow. It reserves no row or padding and does not reduce the scrolling
+viewport. The dial, date, time and turn share one small card; pointer events pass
+through to the transcript underneath.
+At the bottom it shows the current reading. Away from the bottom it shows the
+reading at the visible message nearest the viewport center; player messages
+inherit the preceding delivered reading. Unknown, unloaded or omitted history,
+and a current reading without a usable time, hide the clock. They never display
+an empty card or substitute the current clock for history.
+The row containing the center wins even when a long reply's own midpoint lies
+offscreen; otherwise the closest visible row edge wins.
+Returning to the bottom restores the current reading. Scrolling only measures
+mounted rows and reads already-loaded data; it makes no RPC or model request.
+Disable, session change and unmount remove the display and its listeners.
+Captions and calendar patterns reuse the projected sheet/timeline UI words.
+
+Implementation precedent: ChatLab's `useTrpgSceneHudScroll.ts` selects the center
+message and clears its override at the bottom. [Virtuoso's range callback](https://virtuoso.dev/react-virtuoso/virtuoso/range-change-callback/)
+includes overscan, so this implementation measures the actually visible mounted
+rows instead; [MDN's observer documentation](https://developer.mozilla.org/en-US/docs/Web/API/Intersection_Observer_API)
+likewise distinguishes the scrolling viewport from document visibility.
+
 ## 26. Gameplay mods (2026-09-08)
 
 ### Document reading language (2026-09-08)
