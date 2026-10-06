@@ -14,7 +14,7 @@ import type {COC_TOOLS} from './tools.ts';
 /** How the call was written: the label before the JSON, whether it sat in an array, and which key held its arguments. */
 export type TextCallForm = {label: string | null; array: boolean; key: 'tool' | 'arguments' | 'parameters'};
 type Call = {name: string; arguments: Record<string, unknown>};
-type Envelope = {name: string; args: unknown; form: TextCallForm};
+type Envelope = {name: string; args: unknown; form: TextCallForm; error?: string};
 
 /**
  * A serialized call list: every call routed, each with the form it was written in, or why each envelope could not be
@@ -37,6 +37,8 @@ const isObject = (value: unknown): value is Record<string, unknown> => !!value &
 function envelope(parsed: unknown, label: string | null, array: boolean): Envelope | undefined {
     if (!isObject(parsed)) return;
     const keys = Object.keys(parsed);
+    if (keys.length === 2 && keys.includes('recipient_name') && keys.includes('parameters') && typeof parsed.recipient_name === 'string')
+        return {name: parsed.recipient_name, args: parsed.parameters, form: {label, array, key: 'parameters'}};
     if (keys.length === 1 && isObject(parsed[keys[0]])) return {name: keys[0], args: parsed[keys[0]], form: {label, array, key: 'tool'}};
     if (keys.length !== 2 || !keys.includes('name') || typeof parsed.name !== 'string') return;
     for (const key of ['arguments', 'parameters'] as const)
@@ -47,12 +49,21 @@ function envelope(parsed: unknown, label: string | null, array: boolean): Envelo
 function envelopes(source: string, label: string | null): Envelope[] | undefined {
     let parsed: unknown;
     try { parsed = JSON.parse(source); } catch { return; }
-    const items = Array.isArray(parsed) ? parsed : [parsed];
+    const wrapper = isObject(parsed) ? ['tool_uses', 'tool_calls'].find(key => Object.hasOwn(parsed,key)) : undefined;
+    const wrapped = wrapper !== undefined;
+    if(wrapper && (Object.keys(parsed as object).length!==1 || !Array.isArray((parsed as Record<string,unknown>)[wrapper]) || !(parsed as Record<string,any>)[wrapper].length))
+        return [{name:wrapper,args:undefined,form:{label,array:true,key:'parameters'},error:'A serialized call wrapper needs exactly one key and a nonempty array of closed tool envelopes.'}];
+    const items = wrapper ? (parsed as Record<string, any>)[wrapper] : Array.isArray(parsed) ? parsed : [parsed];
     if (!items.length) return;
     const out: Envelope[] = [];
     for (const item of items) {
-        const found = envelope(item, label, Array.isArray(parsed));
-        if (!found) return;
+        const found = envelope(item, label, wrapped || Array.isArray(parsed));
+        if (!found) {
+            if(!wrapper)return;
+            out.push({name:isObject(item)&&typeof item.recipient_name==='string'?item.recipient_name:wrapper,args:undefined,
+                form:{label,array:true,key:'parameters'},error:'A wrapped call must contain only its tool name and argument object.'});
+            continue;
+        }
         out.push(found);
     }
     return out;
@@ -60,6 +71,7 @@ function envelopes(source: string, label: string | null): Envelope[] | undefined
 
 /** The arguments an envelope routes with, or why it cannot be routed. */
 function route(found: Envelope, tools: typeof COC_TOOLS): {call: Call} | {error: string} {
+    if(found.error)return {error:found.error};
     const spec = tools.find(tool => tool.name === found.name);
     if (!spec) return {error: `${found.name} is not one of the table tools a call written as text can run as`};
     if (!isObject(found.args)) return {error: `its arguments are not a JSON object`};
@@ -102,7 +114,11 @@ function textCallList(text: string): Envelope[] | undefined {
  */
 export function readTextToolCalls(text: string, tools: typeof COC_TOOLS): TextCallReading | undefined {
     const found = textCallList(text);
-    if (!found) return;
+    if (!found) {
+        const name = text.trim();
+        if (tools.some(tool => tool.name === name)) return {kind: 'unroutable', envelopes: [{tool: name, error: 'The tool identifier has no argument object. Make the actual call with its required arguments.'}]};
+        return;
+    }
     const routed = found.map(item => route(item, tools));
     if (routed.every(item => 'call' in item))
         return {kind: 'calls', calls: routed.map(item => (item as {call: Call}).call), forms: found.map(item => item.form)};
@@ -147,7 +163,7 @@ export function restoreTextCallList<T extends {role?: string; content?: unknown;
     if (blocks.some(block => block?.type === 'toolCall')) return;
     const text = blocks.filter(block => block?.type === 'text').map(block => String(block.text ?? '')).join('');
     const found = text.trim() ? textCallList(text) : undefined;
-    if (!found || !found.every(item => isTool(item.name))) return;
+    if (!found || !found.every(item => !item.error && isTool(item.name))) return;
     const calls = found.map(item => ({type: 'toolCall', id: `textcall_${randomUUID().replace(/-/g, '').slice(0, 24)}`, name: item.name,
         arguments: isObject(item.args) ? item.args : {}}));
     return {

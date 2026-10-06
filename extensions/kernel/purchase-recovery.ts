@@ -36,6 +36,7 @@ export class PurchaseRecovery{
   private key(effect:Row){return JSON.stringify([this.subject(effect),this.seller(effect.with),effect.items.map((i:Row)=>name(i.name)).sort()]);}
   private payment(hold:Hold,e:Row){return e.kind==='cash'&&e.mode!=='quote'&&e.mode!=='cancel'&&(Array.isArray(e.items)&&this.key(e)===this.key(hold.effect)||typeof e.quote==='string'&&name(e.quote)===name(hold.effect.bill??hold.effect.quote));}
   private cancellation(hold:Hold,e:Row){return e.kind==='cash'&&e.mode==='cancel'&&this.subject(e)===this.subject(hold.effect)&&name(e.bill??e.quote)===name(hold.effect.bill??hold.effect.quote);}
+  private delivery(hold:Hold,e:Row){return e.kind==='item'&&(e.quantity??1)>0&&hold.deliveries.some(d=>name(d.name)===name(e.name)&&this.subject(d)===this.subject(e)&&(!e.from||!d.from||this.seller(e.from)===this.seller(d.from)));}
   private async effects(payload:Row):Promise<Row[]>{
     const effects:Array<Row>=Array.isArray(payload.effects)?payload.effects:[];
     if(!effects.some(e=>e.kind==='cash'&&e.mode!=='quote'&&e.mode!=='cancel'&&typeof e.quote==='string'&&!e.items))return effects;
@@ -67,17 +68,24 @@ export class PurchaseRecovery{
     const {state,line,holds}=await this.state(),effects=await this.effects(payload);
     for(const hold of holds){
       const payment=effects.find(e=>this.payment(hold,e));
+      const replacing=effects.some(e=>this.cancellation(hold,e))&&payment&&priced(payment)&&amountOf(payment.items);
       if(payment?.category==='transfer')throw new KernelError({code:'needs',message:'A held purchase cannot become a non-purchase transfer',fix:'Keep the purchase and its merchandise terms. Use its contextual living or purchase category; do not bypass daily settlement by relabelling the payment.',details:{reason:'purchase_category_changed'}});
-      if(payment&&Array.isArray(payment.items)&&(terms(payment)!==terms(hold.effect)||payment.currency!==undefined&&hold.effect.currency!==undefined&&name(payment.currency)!==name(hold.effect.currency))){
+      if(!replacing&&payment&&Array.isArray(payment.items)&&(terms(payment)!==terms(hold.effect)||payment.currency!==undefined&&hold.effect.currency!==undefined&&name(payment.currency)!==name(hold.effect.currency))){
         const quote=hold.effect.bill??hold.effect.quote??hold.effect.items.map((i:Row)=>i.name).join(' + ');
         throw new KernelError({code:'needs',message:'Changed terms need a new agreement, not a payment retry',
-          fix:`For a technical payment retry keep the original merchandise prices ${JSON.stringify(hold.effect.items)}. The original goods cost ${hold.amount}; the separate cash debit ${hold.cash_debit??'from the current preview'} is not an NPC price increase. If a genuine new agreement has established different prices (including a settled bargaining success), first use a separate apply with ${JSON.stringify({kind:'cash',mode:'cancel',bill:quote,...(hold.effect.subject?{subject:hold.effect.subject}:{})})} to withdraw the unpaid old agreement. Then apply the new agreed priced bill and its dependent goods under ordinary admission. Do not reinterpret a successful bargain as a seller refusal, revert to a price the player rejected, or ask for the same conditional purchase again. Cancellation itself pays and delivers nothing.`,details:{reason:'purchase_terms_changed',original:hold.effect}});
+          fix:`For a technical payment retry keep the original merchandise prices ${JSON.stringify(hold.effect.items)}. The original goods cost ${hold.amount}; the separate cash debit ${hold.cash_debit??'from the current preview'} is not an NPC price increase. If a genuine new agreement has established different prices (including a settled bargaining success), include ${JSON.stringify({kind:'cash',mode:'cancel',bill:quote,...(hold.effect.subject?{subject:hold.effect.subject}:{})})} beside the new agreed priced settlement and its dependent goods in the same apply batch. Ordinary admission and the atomic kernel transaction decide the entire replacement. Do not reinterpret a successful bargain as a seller refusal, revert to a price the player rejected, or ask for the same conditional purchase again. Cancellation alone pays and delivers nothing.`,details:{reason:'purchase_terms_changed',original:hold.effect}});
       }
-      const dependent=effects.filter(e=>e.kind==='item'&&(e.quantity??1)>0&&hold.deliveries.some(d=>name(d.name)===name(e.name)&&this.subject(d)===this.subject(e)&&(!e.from||!d.from||this.seller(e.from)===this.seller(d.from))));
+      const dependent=effects.filter(e=>this.delivery(hold,e));
       if((payment||dependent.length)&&hold.turn!==turn){hold.turn=turn;state.lines[line]=holds;await this.save(state);}
       if(dependent.length&&!payment)throw new KernelError({code:'needs',message:'These purchased items still depend on an unpaid transaction',
         fix:`The held purchase ${JSON.stringify(hold.effect)} has not settled. Do not remove its cash effect and deliver its goods, or claim payment in prose. Retry its original terms with accepted cash authority, or leave the purchase incomplete. A gift or credit arrangement needs its own established terms and ordinary admission.`,details:{reason:'purchase_payment_required',items:dependent.map(e=>e.name)}});
     }
+  }
+  /** Host-only groups; admission may not narrow away a cancellation, its replacement or the purchased deliveries. */
+  async replacements(payload:Row):Promise<Row[][]>{
+    const {holds}=await this.state(),effects=await this.effects(payload),raw=Array.isArray(payload.effects)?payload.effects:[];
+    return holds.flatMap(hold=>{const cancellation=effects.findIndex(e=>this.cancellation(hold,e)),payment=effects.findIndex(e=>this.payment(hold,e)&&priced(e)&&amountOf(e.items));
+      return cancellation<0||payment<0?[]:[effects.flatMap((e,index)=>index===cancellation||index===payment||this.delivery(hold,e)?[raw[index]]:[])];});
   }
   async failure(payload:Row,error:unknown,turn:number):Promise<unknown>{
     if(!isKernelError(error)||error.details?.reason==='action_proposal_mismatch')return error;
@@ -123,7 +131,7 @@ export class PurchaseRecovery{
     for(const e of Array.isArray(payload.effects)?payload.effects:[]){
       delete e._purchase_quote;
       const hold=holds.find(h=>this.payment(h,e));
-      if(hold&&Array.isArray(e.items)&&!e.quote)e._purchase_quote=hold.effect.bill??hold.effect.quote??hold.effect.items.map((i:Row)=>i.name).join(' + ');
+      if(hold&&Array.isArray(e.items)&&!e.quote&&!payload.effects.some((other:Row)=>this.cancellation(hold,other)))e._purchase_quote=hold.effect.bill??hold.effect.quote??hold.effect.items.map((i:Row)=>i.name).join(' + ');
     }
   }
 }

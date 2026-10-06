@@ -83,7 +83,7 @@ function tricklingProvider(t, script = []) {
 	return new Promise((ready) => server.listen(0, "127.0.0.1", () => ready({ port: server.address().port, requests: () => requests })));
 }
 
-test("§32.12 (a), §32.12.2: a lane review that answers 200 and then streams past the cap returns the call review_pending within cap + 1 s; nothing is settled and the run goes on", async (t) => {
+test("§32.12 (a), §32.12.2: a lane review that streams past its soft cap is collected by the host until its hard deadline, then remains unsettled", async (t) => {
 	const before = process.env.PI_COC_ADMISSION_TIMEOUT_MS;
 	delete process.env.PI_COC_ADMISSION_TIMEOUT_MS;
 	t.after(() => { if (before !== undefined) process.env.PI_COC_ADMISSION_TIMEOUT_MS = before; });
@@ -102,23 +102,23 @@ test("§32.12 (a), §32.12.2: a lane review that answers 200 and then streams pa
 
 	// A hung review is a failure, not a test that never ends: the guard is far past cap + 1 s.
 	const prompt = table.session.prompt("我说明来意，请她帮忙调出科比特宅这些年的旧剪报。");
-	const outcome = await Promise.race([prompt.then(() => "ended"), new Promise((resolve) => setTimeout(() => resolve("hung"), 25_000).unref())]);
+	const outcome = await Promise.race([prompt.then(() => "ended"), new Promise((resolve) => setTimeout(() => resolve("hung"), 35_000).unref())]);
 	if (outcome === "hung") { await table.session.abort(); await prompt.catch(() => {}); }
-	assert.equal(outcome, "ended", "the call was still waiting 25 s in: the cap did not bound it");
+	assert.equal(outcome, "ended", "the hard deadline did not bound the continued call");
 
 	assert.equal(provider.requests(), 1, "one review request, answered 200 and streamed");
 	const [row] = admissionRows(table);
-	assert.equal(row.verdict, REVIEW_PENDING, "a cap bounds waiting and decides nothing (§32.12.2)");
+	assert.equal(row.verdict, REVIEW_TIMEOUT, "no sufficient verdict by the hard deadline");
 	assert.equal(row.admitted, false);
-	assert.equal(row.cause, "cap");
-	assert.equal(row.cap_ms, 13_000);
+	assert.equal(row.host_continued, true);
+	assert.equal(row.cap_ms, 26_000);
 	assert.equal(row.hard_cap_ms, 26_000);
 	assert.equal(row.path, "lane");
 	assert.equal(row.origin, "model", "the Keeper's own call");
-	assert.ok(row.ms >= 13_000 && row.ms <= 14_000, `returned within cap + 1 s (${row.ms} ms)`);
+	assert.ok(row.ms >= 26_000 && row.ms <= 30_000, `returned within the bounded hard deadline (${row.ms} ms)`);
 	assert.equal(table.kernelRequests().filter((entry) => entry.method === "table.resolve").length, 0, "nothing was rolled");
 	const refused = table.telemetry().find((entry) => entry.tool === "resolve" && entry.ok === false);
-	assert.equal(refused?.reason, REVIEW_PENDING, "the Keeper read a review_pending refusal");
+	assert.equal(refused?.reason, REVIEW_TIMEOUT, "the Keeper sees only the terminal timeout");
 	assert.ok(table.telemetry().some((entry) => entry.tool === "narrate" && entry.ok), "the run went on to the delivery");
 	assert.equal(table.entries("coc-admission-status").length, 0, "not an outage");
 });
@@ -141,13 +141,13 @@ test("§32.12, §32.12.2: pending returns and timeouts are not an outage -- a re
 
 	const rows = admissionRows(table);
 	assert.deepEqual(rows.map((row) => [row.verdict, row.reused, row.cap_ms, row.resend ?? false]),
-		[[REVIEW_PENDING, false, 1500, false], [REVIEW_PENDING, false, 1500, false], [REVIEW_TIMEOUT, false, 3000, true]],
+		[[REVIEW_TIMEOUT, false, 3000, false], [REVIEW_TIMEOUT, false, 3000, false], [REVIEW_TIMEOUT, true, 3000, false]],
 		"the override is the cap; the resend collects the round, which runs out at the hard cap");
-	assert.ok(rows[2].ms <= 2500, `the resend waited only for the rest of the round (${rows[2].ms} ms)`);
+	assert.equal(rows[2].ms,0,"a terminal timeout is reused immediately");
 	assert.equal(provider.requests(), 2, "the resend made no request of its own");
 	assert.equal(table.entries("coc-admission-status").length, 0, "pending returns and a timeout are not an outage");
 	const refusals = table.telemetry().filter((entry) => entry.tool === "resolve" && entry.ok === false);
-	assert.deepEqual(refusals.map((entry) => entry.reason), [REVIEW_PENDING, REVIEW_PENDING, REVIEW_TIMEOUT]);
+	assert.deepEqual(refusals.map((entry) => entry.reason), [REVIEW_TIMEOUT, REVIEW_TIMEOUT, REVIEW_TIMEOUT]);
 	assert.ok(!admissionRows(table).some((row) => row.ok === false), "no unavailability row");
 });
 
@@ -168,7 +168,7 @@ test("§32.12: a timeout between two unavailable reviews does not end the outage
 	assert.equal(outcome, "ended");
 
 	assert.deepEqual(admissionRows(table).map((row) => row.ok === false ? `unavailable:${row.reason}` : row.verdict),
-		["unavailable:model_error", REVIEW_PENDING, "unavailable:model_error"]);
+		["unavailable:model_error", REVIEW_TIMEOUT, "unavailable:model_error"]);
 	const notices = table.entries("coc-admission-status");
 	assert.equal(notices.length, 1, "unavailable, pending, unavailable is a streak of two: the pending return neither counted nor reset it");
 	assert.equal(notices[0].data?.streak ?? notices[0].streak, 2);

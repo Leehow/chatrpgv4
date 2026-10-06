@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { admissionProposes, openTable, waitFor } from "./harness.mjs";
-import { manualClock } from "./manual-clock.mjs";
+import { manualClock, runWaitsPastRound } from "./manual-clock.mjs";
 import { installTypedEndpoint, questionKeys } from "./typed-admission-endpoint.mjs";
 import {
 	ADMISSION_FAST_DEFAULT_MIN_CONFIDENCE,
@@ -380,7 +380,7 @@ test("§32.12.3.2: a batch the typed reading does not settle ends at its slowest
 
 // ---- the seam: at the cap ---------------------------------------------------------------------------------------------------
 
-test("§32.12.3.2: at the cap a time line typed 0.75 is admitted late; a move typed 0.99 is not (class_not_listed), and goes back pending", async (t) => {
+test("§32.12.3.2: at the cap a time line typed 0.75 is admitted late; a move typed 0.99 is not (class_not_listed), and is continued only until the hard deadline", async (t) => {
 	freshBudget(t);
 	const CAP_MS = 1000;
 	const clock = manualClock(), T0 = clock.at();
@@ -396,15 +396,17 @@ test("§32.12.3.2: at the cap a time line typed 0.75 is admitted late; a move ty
 	clock.advanceTo(T0 + 200);
 	await sleep(100);
 	clock.advanceTo(T0 + CAP_MS);
+	await waitFor(() => table.telemetry().some(row=>row.lane==="admission-wait"), {timeoutMs:60000,label:"host waits for the move review"});
+	clock.advanceTo(T0+2*CAP_MS);
+	await runWaitsPastRound(clock,T0+2*CAP_MS,()=>ended);
 	await waitFor(() => ended, { timeoutMs: 60_000, label: "the run's end" });
 	await prompt;
 	assert.deepEqual(applies(table), [], "pending on the move line, nothing lands");
 	const rows = admissionRows(table);
 	assert.deepEqual(rows.map((row) => [row.lines[0], row.path, row.verdict, row.late_rule, row.line_class, row.typed_confidence]),
-		[[1, "typed_late", "entailed", "typed_late", "time", 0.75], [2, "lane", "review_pending", "class_not_listed", "move", 0.99]]);
+		[[1, "typed_late", "entailed", "typed_late", "time", 0.75], [2, "lane", "review_timeout", undefined, "move", 0.99]]);
 	const [result] = toolResults(table.session, "apply");
-	assert.equal(result.details.coc_error.details.reason, "review_pending");
-	assert.equal(result.details.coc_error.details.pending_lines.length, 1);
+	assert.equal(result.details.coc_error.details.reason, "review_timeout");
 });
 
 // ---- the seam: the class list and threshold are data ------------------------------------------------------------------------

@@ -38,7 +38,7 @@ import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOption
 import { argumentLimitRefusal, documentWriteRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { unwrapArgumentMarkup } from "./tool-argument-markup.ts";
 import { leanApplyEnabled, offeredTools } from "./lean-apply.ts";
-import { stripDialectPrefixes } from "./dialect-prefix.ts";
+import { stripDialectPrefixes, omitEmptyEmbeddedArguments } from "./dialect-prefix.ts";
 import { decodeSerializedStrings } from "./encoded-string-argument.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
@@ -3273,11 +3273,25 @@ export default function (pi: ExtensionAPI) {
 				outcome = await review();
 				if (outcome.ok === "split") return outcome;
 			}
+			// A soft cap is progress, not a new decision for the Keeper. The existing lane owns its hard deadline.
+			let continuation: Record<string,unknown> = {};
+			if(outcome.ok==='late'&&outcome.lane&&!lateAdmission(proposal,outcome.typed,process.env,outcome.settleClasses).ok){
+				const running=outcome,waitBegan=admissionNow();
+				await record({lane:'admission-wait',verb:tool,key:digest,event:'continue_existing',soft_cap_ms:running.capMs,hard_cap_ms:running.hardCapMs,...partRows,...origin,...who});
+				outcome=await running.lane!;
+				continuation={host_continued:true,continuation_wait_ms:admissionNow()-waitBegan,soft_cap_ms:running.capMs,hard_cap_ms:running.hardCapMs};
+				if(outcome.ok===true||outcome.ok===false)outcome={...outcome,meta:{...running.meta,...outcome.meta}};
+				if(outcome.ok==='late'||outcome.ok===false&&outcome.reason===NO_GROUNDS){
+					return settle({verdict:REVIEW_TIMEOUT,grounds:'The continued review produced no authoritative verdict',reviewer:'lane',path:'lane',capMs:running.hardCapMs},false,
+						admissionNow()-began,undefined,continuation);
+				}
+				if(outcome.ok==='split')return outcome;
+			}
 			// §135.5/SL-88: a round `message_end` started before this call's own turn came up is not a resend -- the
 			// Keeper never saw a `review_pending` refusal for it. `concurrent_wait_ms` is what this call still had to
 			// wait once its own turn actually arrived, which is the whole saving the ruling is for.
-			const resent = part?.resent ?? (resentBy ? { resend: true, ...(resentBy === "host" ? { resend_by: "host", declared: true } : {}), resend_wait_ms: admissionNow() - resendBegan, lane_ms: outcome.ms }
-				: pending?.prefetched ? { concurrent: true, concurrent_wait_ms: admissionNow() - began, lane_ms: outcome.ms } : {});
+			const resent = {...(part?.resent ?? (resentBy ? { resend: true, ...(resentBy === "host" ? { resend_by: "host", declared: true } : {}), resend_wait_ms: admissionNow() - resendBegan, lane_ms: outcome.ms }
+				: pending?.prefetched ? { concurrent: true, concurrent_wait_ms: admissionNow() - began, lane_ms: outcome.ms } : {})),...continuation};
 			// §32.12.3.1: the batch's lines were reviewed one per call; the caller settles each line on its own. A prefetched
 			// review says so on every line's row.
 			if (outcome.ok === "lines") return pending?.prefetched
@@ -5153,11 +5167,18 @@ export default function (pi: ExtensionAPI) {
                 await purchaseRecovery(state).check(payload,state.turn);
                 await correctCoveredQuote(state,payload,signal,providerBudget);
             }
+			const replacements=spec.name==='apply'&&!dispatcher.hostOrigin(toolCallId)?await purchaseRecovery(state).replacements(payload):[];
 			if((spec.name==='narrate'||spec.name==='ask')&&!referenceDelivery)payload.quotes=await purchaseRecovery(state).offers(payload.quotes,state.turn);
 			delete payload._cash_requests;
 			if((spec.name==='narrate'||spec.name==='ask')&&!referenceDelivery)payload._cash_requests=await purchaseRecovery(state).requests(state.turn);
 			if (spec.name === 'apply') await bindAppendArguments(state,payload,signal,providerBudget);
 			if (spec.name === "resolve" || spec.name === "apply") partial = await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence);
+			if(replacements.length){
+				const remaining=new Set((Array.isArray(payload.effects)?payload.effects:[]).map(effectSignature));
+				if(replacements.some(group=>group.some(effect=>!remaining.has(effectSignature(effect)))))throw new KernelError({code:'needs',message:'An admitted subset cannot split an unpaid purchase replacement',
+					fix:'Keep the cancellation, new priced payment and dependent goods together. Nothing of this replacement has landed.',details:{reason:'purchase_replacement_partial'}});
+			}
+			if(spec.name==='apply'&&!dispatcher.hostOrigin(toolCallId))await purchaseRecovery(state).check(payload,state.turn);
 			if(spec.name==='apply')await purchaseRecovery(state).funding(payload);
 			// Contract §128.3. An explicit narrate is never steered for speech (§128.2), so attribution is
 			// the only leg its unwrapped passages get; it runs before the Mod hooks so the continuity review
@@ -5654,9 +5675,11 @@ export default function (pi: ExtensionAPI) {
 				for (const { field, layers, shapes } of decoded.decodes) void record({ lane: "tool_arguments", event: "json_string_decoded", tool: spec.name, field, layers, shapes });
 				const stripped = stripDialectPrefixes(spec.name, decoded.args);
 				for (const { field, prefix } of stripped.strips) void record({ lane: "arguments", event: "dialect_prefix_stripped", tool: spec.name, field, prefix });
-				const refusal = argumentLimitRefusal(spec.name, stripped.args);
+				const embedded=omitEmptyEmbeddedArguments(spec.name,stripped.args);
+				if(embedded.fields.length)void record({lane:'arguments',event:'empty_embedded_omitted',tool:spec.name,fields:embedded.fields});
+				const refusal = argumentLimitRefusal(spec.name, embedded.args);
 				if (refusal) throw new Error(new KernelError(refusal).toToolText());
-				return preparePriceArguments(spec.name,stripped.args) as never;
+				return preparePriceArguments(spec.name,embedded.args) as never;
 			},
 			// The actions of a turn are ordered: run them serially, so the calls after narrate in the same batch can be stopped.
 			executionMode: "sequential",

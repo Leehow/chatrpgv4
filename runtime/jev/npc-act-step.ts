@@ -640,8 +640,10 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActT
   // here: the generator is not offered one, and a `produces` it names anyway is dropped like any unallowed one.
   const creature = text(object(packet.npc).kind) === 'creature' || first.npc?.kind === 'creature';
   if (creature) packet = withoutSurprise(packet);
+  const authorDeadline=Date.now()+deps.budget.timeoutMs;
   const generate = async (situation: Row): Promise<NpcActResult> =>
-    deps.generate({packet: situation as NpcSituation, play_language: first.play_language, ...(deps.providerBudget ? {providerBudget: deps.providerBudget} : {})}, deps.signal);
+    Date.now()>=authorDeadline?{unavailable:'timeout',ms:0}:deps.generate({packet: situation as NpcSituation, play_language: first.play_language,deadline:authorDeadline,
+      ...(deps.providerBudget ? {providerBudget: deps.providerBudget} : {})}, deps.signal);
   /**
    * §143.19: what an answer brings out, held to the stakes die whatever the port -- a `produces` with no surprise to allow
    * it is dropped (the lane already drops it and says so; a port that answers verbatim, like the fixture, is held here).

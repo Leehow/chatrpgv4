@@ -40,6 +40,67 @@ Public result closure: V9 answered the public-index question with a clear negati
 
 Evidence is retained in this worktree: `.coc/playtests/progress-loop-repair-20261006-v13/`, `.tmp/progress-loop-repair/final-append-acceptance.json`, `final-lan-doc-driver.log`, `final-choice-scope-focused.log`, and the baseline/full-suite logs. Source commits: `aff62af16`, `8b3c3373c`, `62c39359a`; integration from main pricing/provider work: `beaa9b5cb`. Remaining: natural long-play progress and the original two-substantial-portions/ending objective, source-bound full Idea recovery, durable oral NPC promise fulfillment, and overall latency (V13 append 103.1 seconds; read-only 46.9 seconds). The local correction closes neither the full adventure nor all Jev defects. Keep the worktree and ignored campaign evidence.
 
+The following authority block belongs to the separate concurrent jev-remaining-20261006 task; keep its ownership and finite-window ledger distinct from this progress-loop continuation.
+
+## Current authority amendment — 2026-10-06
+
+The user requested native subagents to solve the remaining Jev items and stated
+that story/progress loops are being resolved separately. JEV-OPEN-04 and story
+design are outside this round. OPEN-05 retained-action functionality and the
+signed-Build/flee-receipt corrections retain their existing owner verification;
+they are not reopened merely to repeat tests.
+
+The current task is `jev-remaining-20261006`, lead chat
+`01a10f60-45db-7653-beb2-973f32c7661b`. Source intake is latest `0.9.6a` at
+`82ff59b7700ba77f20dd3eea7277ce8922967518`; earlier paragraphs below preserve
+historical models, roles and progress, superseded by this amendment where they
+differ. Native Codex workers use the user's earlier pinned `gpt-6.1-sol` choice.
+Lead owns contracts, this ledger, serial review/integration and validation;
+workers implement in disjoint task-owned worktrees, no commits, no nested agents.
+
+The user explicitly approved a new finite live window: at most34 player-input
+reservations,208 physical Flapcode requests,816 Jev requests and135minutes from
+the first provider reservation. Account bootstrap, foreground, auxiliary
+workers, failed requests and retries count globally; old task ledgers remain
+immutable and are not borrowed or reset. Stop on the first429, quota/time/input
+ceiling, model mismatch or critical authority/empty-delivery failure, preserving
+progress. A checkpoint after10inputs or64Flapcode requests reviews readiness and
+remaining allowance without resetting the clock or counters. A numeric ceiling
+is not evidence of completing the adventure.
+
+Keeper/runtime model is Flapcode `gpt-6-luna`, entry thinking `low`; existing
+host-derived compose thinking is retained and recorded, not silently rewritten.
+Grok and Astra remain forbidden. The current-turn explicit approval permits a
+fresh context-free native player subagent instead of the historical main-session
+player. That player receives only the public character card, opening and actual
+driver deliveries/visible mechanics/choices, never source truth, capsule, saves,
+old transcripts or diagnostic context. Each input is one natural response to a
+delivered Keeper turn via the existing real `tests/play/driver.py` transport.
+
+Ready lanes: performance remaining-cost measurement/repair (OPEN01), provider
+terminal-text normalization recovery (OPEN02), and current escape/four-family/
+blind-play acceptance preparation (OPEN03/06/07). No new production repair is
+assumed for historical HTTP400 or natural escape selection until current
+evidence demonstrates it. The already-ready OPEN07 campaign/source artifacts
+may be reviewed and exported opaquely into a new task-owned home, avoiding
+another setup/import/card-generation cycle. Any campaign continuation begins
+with `session.resume` for the current host epoch. No original campaign/driver,
+unowned worktree, credential, App or model default is changed.
+
+Owned integration checkout:
+`/Users/haoli/.codex/worktrees/jev-remaining-integration-20261006`, branch
+`codex/jev-remaining-20261006`. Provider implementation checkout:
+`/Users/haoli/.codex/worktrees/jev-remaining-provider-20261006`, branch
+`codex/jev-remaining-provider-20261006`. Both are canonically registered under
+this task; further entries require the same lifecycle policy. Concurrent cash,
+provider-notice/retry and progress-loop work remains independently owned.
+No push, package/install or automatic task/goal creation is part of this round.
+
+Initial reconnaissance handoffs are in primary `.tmp/team-lead/remaining-*-20261006.md`.
+They confirm AFTER-02b057 deterministic handler improvements, remaining quote
+scan costs, the provider-local stream recovery seam and ready-campaign reuse.
+Historical whole-turn latency is not current-source performance evidence.
+
 ## Authorized objective
 
 Continue the real Blood Road campaign, explore as an ordinary player, and play the authored
