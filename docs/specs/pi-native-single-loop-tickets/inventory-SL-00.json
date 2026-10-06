@@ -1225,6 +1225,21 @@
       ]
     },
     {
+      "file": "extensions/node-handles/index.ts",
+      "symbol": "runRound.ask",
+      "kind": "lane",
+      "callee": "runLane",
+      "count": 1,
+      "owner": "node-handles ext",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "contract \u00a7185.5, \u00a7185.11 NFH-03; tests/extension/node-handles-lane.test.mjs",
+      "note": "Handle lane: one zero-tool round per job and one alone per node it could not use, at session start (setup and play), after each commit, after a reading publishes and when setup creates the campaign.",
+      "lines_at_0e31e5904": [
+        221
+      ]
+    },
+    {
       "file": "extensions/module/reading-service.ts",
       "symbol": "ReadingService.readCast",
       "kind": "reader-task",
