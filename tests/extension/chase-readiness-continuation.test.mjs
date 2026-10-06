@@ -101,6 +101,40 @@ for(const mobility of ['foot','vehicle']) test(`JEV-OPEN-05: ${mobility} prepara
  assert.equal(view.preparingChecks.length,0);assert.equal(view.pending.filter(item=>item.candidate?.basis?.selection).length,0);
 });
 
+test('JEV-OPEN-05: a prepared negative-Build passenger resumes the original vehicle action once',async t=>{
+ const f=await setup(t,'vehicle'),view=retained(f),original=structuredClone(f.selection.preparation.action),calls=f.decisions.length;
+ const before=await f.game.call('table.status');
+ foldFresh(view,await f.fresh());
+ assert.deepEqual((await f.game.call('table.status')).receipts,before.receipts);
+ await f.game.apply([{kind:'npc',name:'Steven Knott',archetype:'ordinary_adult',why:'Complete the retained driver profile.'},
+  {kind:'npc',name:'Steven Knott',skill:{name:'Drive Auto',value:80},why:'The established driver skill.'}]);
+ // Exercise legal lower-bound archetype draws through the actual completion writer,
+ // matching the existing signed-Build gateway regression; no world stats are patched.
+ const prototype=Object.getPrototypeOf(f.game.context.rng),randint=prototype.randint;
+ prototype.randint=function(minimum){return minimum;};
+ try {await f.game.apply([{kind:'npc',name:'Pickup gunner',archetype:'ordinary_adult',why:'Complete the original passenger body.'}]);}
+ finally {prototype.randint=randint;}
+ foldFresh(view,await f.fresh(),3);
+ const scheduled=view.pending.find(item=>item.purpose==='execute'&&item.candidate?.basis?.selection);
+ assert.ok(scheduled);
+ assert.deepEqual(scheduled.candidate.bound,original);
+ assert.equal(f.decisions.length,calls,'completion does not select new roles, vehicles or driver links');
+ foldFresh(view,await f.fresh(),4);
+ assert.equal(view.pending.filter(item=>item.candidate?.basis?.selection).length,1);
+ const executed=await f.plan.ports.operations.execute({origin:'policy',operation:'execute',params:{candidate:scheduled.candidate,extra:{}}},f.invocation());
+ assert.equal(executed.artifact.executed.ok,true,JSON.stringify({executed:executed.artifact.executed,refusals:f.refusals}));
+ const saved=JSON.parse(await readFile(join(f.game.directory,'save/chase.json'),'utf8'));
+ const passenger=saved.participants.find(participant=>participant.role==='passenger');
+ assert.deepEqual([passenger.build,passenger.build_max,passenger.vehicle_actor_id,passenger.movement_actions],[-1,-1,'steven-knott',0]);
+ assert.ok(saved.participants.some(participant=>participant.actor_id===passenger.vehicle_actor_id&&participant.role==='driver'&&participant.is_vehicle));
+ assert.equal((await f.game.call('table.status')).receipts.filter(receipt=>receipt.kind==='session'&&String(receipt.id).startsWith('session:chase-start')).length,1);
+ view.pending=view.pending.filter(item=>item!==scheduled);
+ settleExecute(view,5,scheduled,executed.artifact.executed,executed.artifact.fresh,0);
+ foldFresh(view,await f.fresh(),6);
+ assert.equal(view.preparingChecks.length,0);
+ assert.ok(!view.pending.some(item=>item.candidate?.basis?.selection));
+});
+
 test('JEV-OPEN-05: a changed scene retires the retained chase before completion',async t=>{
  const f=await setup(t,'vehicle'),view=retained(f);
  await f.game.apply([{kind:'move',to:'newspaper-morgue'}]);
