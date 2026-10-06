@@ -18,6 +18,7 @@ import { array, row, clone, normalize, stripPrefix, number, repr, type Row } fro
 import { playsFromReading } from "../modules/bound-source.js";
 import type { ChainReads } from "./weaknesses.js";
 import { moduleSourceSha, readServedCast } from "./cast.js";
+import { installRenameUndo } from "./rename-undo.js";
 export class CampaignSnapshot {
     readonly dir: string;
     readonly jsonFiles = new Map<string, any>();
@@ -202,7 +203,10 @@ export async function loadCampaignModule(context: KernelContext, id: string, wor
     // it has ever run an adaptation and `campaignModule` answers null until then. So do its creatures (§180.6).
     const module = await campaignModule(context, id, world, handles) ?? await loadModule(context, id, campaign, handles);
     module.graph.projectSourcePlaces();
-    return withTableCreatures(withTablePeople(withTableEntities(module, world), world), world);
+    const loaded = withTableCreatures(withTablePeople(withTableEntities(module, world), world), world);
+    // §185.3: a legacy campaign's references are read once more with the request's rename undone, after a miss.
+    if (campaign !== undefined) await installRenameUndo(context, campaign, loaded.graph, world);
+    return loaded;
 }
 /**
  * `handles` is the campaign's §185.4 map: null for a legacy campaign; left out, a campaign's own is read from its saved files

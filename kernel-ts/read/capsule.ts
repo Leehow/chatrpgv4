@@ -533,12 +533,12 @@ function promiseOrder(left: Row, right: Row): number {
     const turns = number(left.valid_from_turn ?? left.turn) - number(right.valid_from_turn ?? right.turn);
     return leftOpen !== rightOpen ? leftOpen ? -1 : 1 : leftOpen ? turns : -turns;
 }
-function npcHistory(ledger: Row, memories: Map<string, Row>, shownPromises: Set<string>): Row | null {
+function npcHistory(ledger: Row, handle: string, memories: Map<string, Row>, shownPromises: Set<string>): Row | null {
     const result: Row = {},
         seen = row(ledger.turns_present),
         disclosed = array(ledger.disclosed).filter(item => truth(item.clue)).map(item => string(item.clue));
     // Contract §142.3: what this person set out to do and where each stands -- under way first, then the latest settled.
-    const intents = intentsView(ledger);
+    const intents = intentsView(ledger, handle);
     if (intents.length)
         result.intents = intents;
     const selected = array(ledger.promises).flatMap(item => {
@@ -663,7 +663,7 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     if (toward)
         entry.toward_party = toward;
     const shownPromises = new Set<string>();
-    const history = npcHistory(saved, memories, shownPromises);
+    const history = npcHistory(saved, graph.handle(node), memories, shownPromises);
     if (history)
         entry.history = history;
     const relationships=npcRelationships(graph,node,[...memories.values()],scope),recent=npcRecentSpeech(graph,node,records,scope);

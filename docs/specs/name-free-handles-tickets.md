@@ -10,6 +10,7 @@ Waves:
 - Wave 1, in parallel: NFH-01, NFH-02.
 - Wave 2, after NFH-02 is merged: NFH-03, NFH-04.
 - Then NFH-05.
+- NFH-06 is a follow-up from NFH-01's sweep; it does not block NFH-05.
 
 ---
 
@@ -133,5 +134,41 @@ Status: ready-for-human (the owner gives the word for merging into the mainline,
     Agents.md.
   - It passes when there are no owner or unknown-reference refusals on kernel-written references, no identifier in the
     Keeper's requests carries a cast name, and lane telemetry shows handles written rather than mostly given up.
+
+---
+
+## NFH-06 — Every person/entity reference goes through one junction
+
+Status: needs-triage (follow-up; not blocking NFH-05)
+
+Found by NFH-01's sweep (contract §185.11 `#### NFH-01`, "The sweep"). Graph resolution has one place,
+`ModuleGraph.resolve`, with the §87.8 junction above it for a person's word. But several tools still resolve people and
+entities their own way, so they miss the table's word, compare spelling with stored state, or never reach 185.3's legacy
+retry:
+
+- **Spelling compared with stored state:**
+  - `owed` cash `with` and `subject`;
+  - chase `action.target`, and the `chase_roster` actor / `riding_with`;
+  - `resolve action.obligation`;
+  - `apply item from`;
+  - memory `subject` / `knowers` / `entities`, and `apply note entities` (`EntityIndex`);
+  - a Mod document seed's `handout`.
+- **Entrances that skip the table's word:**
+  - `apply object` `to`/`from` and `apply ability` `to` (`objectOwner`);
+  - Mod dossier `name`, and a Mod effect's target;
+  - `apply damage` subject;
+  - the material gate's pre-pass;
+  - investigator anchors on `apply ruling`.
+- **Resolvers 185.3's retry does not reach:**
+  - `EntityIndex`;
+  - `lookup kind=module` (`search` / `handleList`);
+  - the chase matchers;
+  - the say-token resolver;
+  - the cast matchers;
+  - the clue-label matcher.
+
+What to build: route each through the one junction (graph `resolve` plus §87.8), and compare stored references by
+resolved identity. Each conversion gets a test that fails when the conversion is reverted. Priority comes from the
+owner's failure scan: the 16 failures in names, titles, NPCs and references.
 
 ## Comments

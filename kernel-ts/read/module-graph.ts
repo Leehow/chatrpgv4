@@ -183,6 +183,40 @@ const phraseWithin = (phrase: string[], key: string[]): boolean => {
         closes = phrase.every((word, i) => key[key.length - phrase.length + i] === word);
     return opens || closes;
 };
+/** §185.3: one person's word as the request showed it, and what it stood for there: their handle, then their node id. */
+export interface RenameUndoRow { readonly shown: string; readonly names: readonly string[] }
+const latinRun = (char: string | undefined): boolean => !!char && /^[A-Za-z0-9]$/.test(char);
+/**
+ * §185.3: the spellings `reference` had before the request's rename (`extensions/kernel/untold-view.ts`) put a person's
+ * word where their handle or node id stood. A word counts where it stands as the rename leaves one -- no Latin letter or
+ * digit running on past an end where the name it replaced has one (the rename's own boundary test) -- and is read back
+ * as the handle, then as the node id. A reference that is one word and nothing else is that person's word, which the
+ * junction reads (§87.8), and is left alone. Pure string data from the rows; nothing is classified.
+ */
+function renameUndone(reference: string, rows: readonly RenameUndoRow[]): string[] {
+    const ordered = [...rows].sort((a, b) => b.shown.length - a.shown.length), spellings: string[] = [];
+    for (const pick of [0, 1]) {
+        const places: { start: number; end: number; name: string }[] = [];
+        for (const row of ordered) {
+            const name = row.names[pick] ?? row.names[0];
+            if (!row.shown || !name) continue;
+            for (let at = reference.indexOf(row.shown); at >= 0; at = reference.indexOf(row.shown, at + 1)) {
+                const end = at + row.shown.length;
+                if ((latinRun(name[0]) && latinRun(reference[at - 1])) || (latinRun(name[name.length - 1]) && latinRun(reference[end]))) continue;
+                if (!places.some(place => at < place.end && place.start < end)) places.push({ start: at, end, name });
+            }
+        }
+        if (!places.length || (places.length === 1 && places[0].start === 0 && places[0].end === reference.length)) continue;
+        let out = "", from = 0;
+        for (const place of places.sort((a, b) => a.start - b.start)) {
+            out += reference.slice(from, place.start) + place.name;
+            from = place.end;
+        }
+        out += reference.slice(from);
+        if (!spellings.includes(out)) spellings.push(out);
+    }
+    return spellings;
+}
 /**
  * SL-73 (§11.5.7 addendum, gate #12): `resolve()`'s own `unknown_entity` (`no ${what} named … in the
  * module graph`, `fix: "pick a name from details.candidates or look first"`) is a real answer when
@@ -264,6 +298,12 @@ export class ModuleGraph {
     readonly pinnedBodies = new Set<string>();
     readonly tableEntityNames = new Map<string, string>();
     readonly sourcePlaceNames = new Map<string, string>();
+    /**
+     * §185.3: in a legacy campaign, each book person's word beside their handle and node id -- the inverse of the request
+     * rename's handle rows -- installed by the campaign loader (`read/rename-undo.ts`). Empty otherwise: no retry.
+     */
+    renameUndo: readonly RenameUndoRow[] = [];
+    private undoing = false;
     readonly moduleNode: Row | null;
     /** §185.4: each book node's kind as the book gave it (a projected location stays a location) and its interim handle. */
     private readonly bookKinds = new Map<string, string>();
@@ -638,6 +678,11 @@ export class ModuleGraph {
             if (place && wanted(place.node_id))
                 return place;
         }
+        // §185.3: a legacy campaign's request showed a person's word where their handle stood, inside longer handles too
+        // (`<word>-home`). Only after every path above missed is the reference read once more with the rename undone.
+        const undone = this.undoRename(name, kinds);
+        if (undone)
+            return undone;
         throw new RpcError("unknown_entity", `no ${what} named ${repr(name)} in the module graph`, {
             fix: "pick a name from details.candidates or look first",
             details: {
@@ -654,6 +699,23 @@ export class ModuleGraph {
             if (error instanceof RpcError)
                 return null;
             throw error;
+        }
+    }
+    /** §185.3: the one retry -- each spelling with the rename undone, resolved as written; the first that resolves. */
+    private undoRename(name: string, kinds?: string[]): Row | null {
+        if (this.undoing || !this.renameUndo.length)
+            return null;
+        this.undoing = true;
+        try {
+            for (const spelling of renameUndone(name, this.renameUndo)) {
+                const node = this.find(spelling, kinds);
+                if (node)
+                    return node;
+            }
+            return null;
+        }
+        finally {
+            this.undoing = false;
         }
     }
     /**
