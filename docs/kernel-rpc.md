@@ -32099,6 +32099,24 @@ packet once; no duplicate generation, substituted action or replayed effect.
 Delivery, cancellation or run replacement leaves unresolved preparation explicit
 and cannot carry an executable packet into another player turn.
 
+**Retained action expiry (2026-10-06, JEV-OPEN-05).** A fresh NPC options read
+that loses the original actor, scene, session or bound parameters permanently
+expires that run's packet, even if a later read restores the old domain. Temporary
+profile incompleteness alone keeps preparation pending. Both publication after an
+await and the canonical writer verify run ownership and closure; removing a packet
+from the pending map for execution does not exempt it from cancellation, delivery
+or replacement. Chase preparation also checks the current actor domain, original
+placement evidence and selected vehicle before releasing its retained roster.
+Changed role evidence retires the old choice instead of inferring a replacement.
+An expired prepared check decision stays retired throughout that player run;
+a changed catalog cannot trigger another plan for the same declaration.
+For an NPC-owned foot pursuit, the starter retains that NPC as the sole pursuer
+and the bound investigator as quarry; other present NPCs do not join implicitly.
+Deterministic regression covers null/partial profiles, the original action and
+roster through canonical dispatch, repeated freshness, scene round trips and
+closure while readiness is in flight. It does not establish natural driver or
+App acceptance; those remain separate verification gates.
+
 Live turn 44 registered the observed participants, but five table-created people had no mechanical
 profile. A roster's foot participants and passengers need those profiles too, not only its drivers.
 The vehicle catalog must expose profile_available for each named participant. After bounded role

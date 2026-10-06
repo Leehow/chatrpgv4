@@ -687,7 +687,7 @@ async function seam(t, { npcAct, act, seed = "1", prepare, stakes }) {
 	const rows = [], decisions = [];
 	const game = { call, rows, decisions, turn: 0, ordinal: 0, workspace };
 	if (prepare) { game.turn = (await call("table.status")).turn; game.ordinal = 40; }
-	game.say = async (text) => { const opened = await call("table.player_input", { text }); game.turn = opened.turn ?? game.turn + 1; game.ordinal = 0; return opened; };
+	game.say = async (text) => { const opened = await call("table.player_input", { text }); game.input = text; game.turn = opened.turn ?? game.turn + 1; game.ordinal = 0; return opened; };
 	game.write = (method, params) => call(method, { call_id: `t${game.turn}-c${++game.ordinal}`, ...params });
 	game.close = (text = "……") => game.write("table.narrate", { text });
 	game.receipts = async () => (await call("table.status")).receipts;
@@ -696,10 +696,13 @@ async function seam(t, { npcAct, act, seed = "1", prepare, stakes }) {
 		return batch.family === NPC_ACT_BIND_FAMILY ? actAnswer(batch, act(batch, decisions)) : otherAnswer(batch);
 	} } });
 	const handlers = new Map(), bus = { on: (name, handler) => handlers.set(name, handler), emit: (name, value) => handlers.get(name)?.(value) };
-	engine.extension({ events: bus, on: () => {}, getActiveTools: () => [], setActiveTools: () => {} });
+	const hooks = new Map();
+	engine.extension({ events: bus, on: (name, fn) => hooks.set(name, fn), getActiveTools: () => [], setActiveTools: () => {} });
+	game.agentEnd = () => hooks.get('agent_end')?.();
 	// `stakes` pins the situation's stakes die (§143.8, §143.19) instead of the seed's roll, as `withStakes` does at the table.
 	bus.emit("coc:kernel-bridge", { campaign: CAMPAIGN, call: async (method, params) => {
 		const result = await call(method, params);
+		await game.afterRead?.(method, params, result);
 		return stakes !== undefined && method === "npc.situation" ? { ...result, stakes } : result;
 	} });
 	bus.emit("coc:operation-dispatcher", { dispatch: async (operation, context) => {
@@ -715,6 +718,26 @@ async function seam(t, { npcAct, act, seed = "1", prepare, stakes }) {
 		}
 	} });
 	let runs = 0;
+	// Several real host operations in the same run exercise retained packets. This is a deterministic
+	// regression seam, not a Keeper playtest or a substitute for the natural driver acceptance.
+	game.begin = async () => {
+		const runId = `run-${++runs}`, controller = new AbortController();
+		const plan = engine.runDriver.prepare({runId, inputRevision: 'rev', rawInput: game.input ?? 'x', session: {}});
+		let step = 0;
+		const invocation = origin => ({runId, stepId: `${runId}:s${++step}`, operationId: `${runId}:${step}/op1`,
+			origin, inputRevision: 'rev', scopeId: 'root', signal: controller.signal});
+		await plan.ports.read.read({origin: 'policy', operation: 'read', readOnly: true}, invocation('policy'));
+		return {controller, plan,
+			execute: candidate => plan.ports.operations.execute({origin: 'policy', operation: 'execute', params: {candidate, extra: {}}}, invocation('policy')),
+			model: async (operation, params = {focus: 'scene'}) => {
+				const context = invocation('model');
+				return plan.ports.operations.execute({origin: 'model', operation, params, assistantMessage: {}, toolCall: {id: context.operationId}},
+					{...context, executeModelTool: async () => {
+						const result = await game.write(`table.${operation}`, params);
+						return {isError: false, details: result, content: [{type: 'text', text: JSON.stringify(result)}]};
+					}});
+			}};
+	};
 	game.run = async (candidate) => {
 		const runId = `run-${++runs}`, signal = new AbortController().signal;
 		const plan = engine.runDriver.prepare({ runId, inputRevision: "rev", rawInput: "x", session: {} });
@@ -727,6 +750,168 @@ async function seam(t, { npcAct, act, seed = "1", prepare, stakes }) {
 /** The out-of-fight trigger as the policy issues it (the scan), with the people the compile read as addressed. */
 const scan = (addressees = []) => npcScanCandidate(0, ["resolve:x"], addressees);
 const acts = (game) => game.rows.filter((row) => row.lane === "run" && row.event === "npc_act");
+
+const retainedCandidates = result => result.artifact.fresh?.candidates.filter(candidate => candidate.bound.resume) ?? [];
+const RETAINED_ACT = 'He punches Thomas Hayes with his bare fist.';
+async function unpreparedNpc(t) {
+	const npcAct = createFixtureNpcActPort({'steven-knott': RETAINED_ACT});
+	const game = await seam(t, {npcAct, act: () => ({way: 'first_blow'})});
+	await game.call('table.open');
+	await game.say('I hand Knott a coin.');
+	await game.write('table.apply', {effects: [{kind: 'cash', subject: 'Thomas Hayes', delta: 1, source: 'found', with: 'Steven Knott', why: 'A real exchange triggers the reaction.'}]});
+	const run = await game.begin(), before = await game.receipts();
+	const held = await run.execute(scan());
+	assert.equal(acts(game).at(-1).status, 'preparation');
+	assert.equal(acts(game).at(-1).way, 'first_blow');
+	assert.deepEqual((await game.receipts()).filter(receipt => receipt.family !== 'stakes'), before,
+		'no intention, combat start or damage before profile preparation; the existing stakes read remains');
+	assert.equal(retainedCandidates(held).length, 0, 'no immediate retry within the preparation step');
+	return {game, run, npcAct, before};
+}
+const prepareKnott = run => run.model('apply', {effects: [{kind: 'npc', name: 'Steven Knott', archetype: 'ordinary_adult', why: 'Prepare the already selected action.'}]});
+const refreshUnpreparedKnott = run => run.model('apply', {effects: [{kind: 'npc', name: 'Steven Knott', to: 'here', why: 'Knott remains by the desk; no mechanical profile is supplied.'}]});
+
+test('JEV-OPEN-05: the real driver releases a prepared NPC first blow through the extension gateway', async t => {
+	const npcAct = createFixtureNpcActPort({'*': RETAINED_ACT}), decisions = [];
+	const says = (tool, args) => fauxAssistantMessage([fauxToolCall(tool, args)], {stopReason: 'toolUse'});
+	const answer = morgueJev(() => ({way: 'first_blow'}));
+	const engine = createHybridEngine({env: {}, npcAct, decision: {decide: async batch => {decisions.push(batch);return answer(batch);}}});
+	const table = await openTable({realKernel: true, prepareWorkspace: metArtyWithKnott,
+		env: {PI_COC_LOOP_ENGINE: 'hybrid-v1', COC_KERNEL_SEED: '4'}, runDriver: engine.runDriver,
+		extraExtensions: [{name: 'coc-hybrid-engine', factory: engine.extension}], responses: [
+			says('apply', {effects: [{kind: 'npc', name: 'Arty Wilmot', archetype: 'ordinary_adult', why: 'Prepare the held action without changing it.'}]}),
+			says('narrate', {text: 'The editor steps away from the door.'}),
+		]});
+	t.after(() => table.dispose());
+	await table.session.prompt('I explain why I need the old clippings and persuade the editor to open the archive.');
+	const rows = npcActRows(table), held = rows.find(row => row.status === 'preparation'), resumed = rows.find(row => row.status === 'bound');
+	assert.ok(held, JSON.stringify(rows));
+	assert.ok(resumed, JSON.stringify(rows));
+	assert.deepEqual([resumed.ref, resumed.act, resumed.way, resumed.params], [held.ref, RETAINED_ACT, 'first_blow', held.params]);
+	assert.equal(npcAct.calls.length, 1);
+	assert.equal(decisions.filter(batch => batch.family === NPC_ACT_BIND_FAMILY).length, 1);
+	const receipts = turnRecord(table, 2).receipts;
+	const prepared = receipts.findIndex(receipt => receipt.kind === 'npc' && receipt.profile);
+	const originalEffect = receipts.findIndex(receipt => receipt.intent?.generated);
+	assert.ok(prepared >= 0 && originalEffect > prepared, JSON.stringify(receipts));
+	assert.equal(receipts.filter(receipt => receipt.kind === 'session' && String(receipt.id).startsWith('session:combat-start')).length, 1);
+});
+
+test('JEV-OPEN-05: a null-profile NPC first blow resumes the exact act once after real preparation, without replanning', async t => {
+	const {game, run, npcAct} = await unpreparedNpc(t);
+	for (let i = 0; i < 2; i++) {
+		const refreshed = await refreshUnpreparedKnott(run);
+		assert.ok(refreshed.artifact.fresh, 'an accepted preparation write reaches actual host freshness');
+		assert.equal(retainedCandidates(refreshed).length, 0);
+	}
+	assert.ok(!(await game.receipts()).some(receipt => receipt.intent?.generated), 'unready refresh writes no original action effect');
+	const prepared = await prepareKnott(run), [candidate] = retainedCandidates(prepared);
+	assert.ok(candidate, JSON.stringify({prepared, options: await game.call('npc.act.options', {name: 'Steven Knott'})}));
+	const refreshed = await prepareKnott(run);
+	assert.equal(retainedCandidates(refreshed)[0].key, candidate.key, 'refresh retains one packet identity');
+	const result = await run.execute(candidate);
+	assert.equal(result.artifact.executed.summary.acts[0].status, 'bound');
+	const resumed = acts(game).at(-1), original = acts(game).find(row => row.status === 'preparation');
+	assert.deepEqual([resumed.ref, resumed.act, resumed.way, resumed.params], [original.ref, RETAINED_ACT, 'first_blow', original.params]);
+	assert.equal(npcAct.calls.length, 1, 'generation is not repeated');
+	assert.equal(game.decisions.filter(batch => batch.family === NPC_ACT_BIND_FAMILY).length, 1, 'binding is not repeated');
+	assert.ok((await game.receipts()).some(receipt => receipt.intent?.ref === original.ref && receipt.intent.generated));
+	assert.equal(retainedCandidates(await prepareKnott(run)).length, 0);
+	const before = await game.receipts();
+	assert.equal((await run.execute(candidate)).reason, 'npc_preparation_absent');
+	assert.deepEqual(await game.receipts(), before, 'a duplicate stale candidate writes nothing');
+});
+
+for (const closing of ['delivery', 'cancel', 'agent_end', 'replacement']) test(`JEV-OPEN-05: ${closing} retires a pending NPC action before late completion`, async t => {
+	const {game, run, npcAct} = await unpreparedNpc(t);
+	if (closing === 'delivery') await run.model('narrate', {text: 'Knott stays by the desk.'});
+	else if (closing === 'cancel') run.controller.abort();
+	else if (closing === 'agent_end') game.agentEnd();
+	else await game.begin();
+	// Source completion is a later accepted kernel write, never a stale plan executing a world effect.
+	if (closing === 'delivery') await game.say('I wait beside the desk.');
+	await game.write('table.apply', {effects: [{kind: 'npc', name: 'Steven Knott', archetype: 'ordinary_adult', why: 'Late profile completion.'}]});
+	const late = await prepareKnott(run).catch(() => undefined);
+	assert.equal(late ? retainedCandidates(late).length : 0, 0);
+	assert.ok(!(await game.receipts()).some(receipt => receipt.intent?.generated), 'late preparation freshness cannot replay a closed action');
+	assert.equal(npcAct.calls.length, 1);
+});
+
+for (const closing of ['delivery', 'cancel', 'agent_end', 'replacement']) test(`JEV-OPEN-05: ${closing} while retained freshness awaits cannot republish the original action`, async t => {
+	const {game, run, npcAct} = await unpreparedNpc(t);
+	const entered = Promise.withResolvers(), release = Promise.withResolvers();
+	let held = false;
+	game.afterRead = async method => {if (method === 'npc.act.options' && !held) {held = true; entered.resolve(); await release.promise;}};
+	t.after(() => release.resolve());
+	const pending = prepareKnott(run);
+	await entered.promise;
+	if (closing === 'delivery') await run.model('narrate', {text: 'Knott stays by the desk.'});
+	else if (closing === 'cancel') run.controller.abort();
+	else if (closing === 'agent_end') game.agentEnd();
+	else await game.begin();
+	release.resolve();
+	const late = await pending;
+	assert.equal(retainedCandidates(late).length, 0);
+	assert.ok(!(await game.receipts()).some(receipt => receipt.intent?.generated));
+	assert.equal(npcAct.calls.length, 1);
+});
+
+for (const closing of ['delivery', 'cancel', 'agent_end', 'replacement']) test(`JEV-OPEN-05: ${closing} while retained resume awaits readiness prevents old writes`, async t => {
+	const {game, run} = await unpreparedNpc(t);
+	const [candidate] = retainedCandidates(await prepareKnott(run));
+	assert.ok(candidate, 'preparation published the retained candidate');
+	const entered = Promise.withResolvers(), release = Promise.withResolvers();
+	let held = false;
+	game.afterRead = async method => {if (method === 'npc.act.options' && !held) {held = true; entered.resolve(); await release.promise;}};
+	t.after(() => release.resolve());
+	const pending = run.execute(candidate);
+	await entered.promise;
+	if (closing === 'delivery') await run.model('narrate', {text: 'Knott stays by the desk.'});
+	else if (closing === 'cancel') run.controller.abort();
+	else if (closing === 'agent_end') game.agentEnd();
+	else await game.begin();
+	const before = await game.receipts();
+	release.resolve();
+	await pending;
+	assert.deepEqual(await game.receipts(), before, 'closure applies even while the packet is temporarily removed from the map');
+});
+
+test('JEV-OPEN-05: a concurrent duplicate resume cannot execute the retained NPC action twice', async t => {
+	const {game, run, npcAct} = await unpreparedNpc(t);
+	const [candidate] = retainedCandidates(await prepareKnott(run));
+	assert.ok(candidate);
+	const entered = Promise.withResolvers(), release = Promise.withResolvers();
+	let held = false;
+	game.afterRead = async method => {if (method === 'npc.act.options' && !held) {held = true; entered.resolve(); await release.promise;}};
+	t.after(() => release.resolve());
+	const first = run.execute(candidate);
+	await entered.promise;
+	const before = await game.receipts();
+	assert.equal((await run.execute(candidate)).reason, 'npc_preparation_absent');
+	assert.deepEqual(await game.receipts(), before);
+	release.resolve();
+	assert.equal((await first).artifact.executed.summary.acts[0].status, 'bound');
+	assert.equal(npcAct.calls.length, 1);
+	assert.equal((await game.receipts()).filter(receipt => receipt.kind === 'session' && String(receipt.id).startsWith('session:combat-start')).length, 1);
+});
+
+test('JEV-OPEN-05: returning to an earlier scene cannot revive an NPC action invalidated by leaving it', async t => {
+	const {game, run, npcAct} = await unpreparedNpc(t);
+	await run.model('apply', {effects: [{kind: 'move', to: MORGUE}]});
+	await run.model('apply', {effects: [{kind: 'move', to: 'commission-briefing'}]});
+	assert.equal(retainedCandidates(await prepareKnott(run)).length, 0, 'scene invalidation is terminal even when the old domain becomes ready again');
+	assert.equal(npcAct.calls.length, 1);
+	assert.ok(!(await game.receipts()).some(receipt => receipt.intent?.generated));
+});
+
+test('JEV-OPEN-05: returning an absent actor cannot revive its original prepared action', async t => {
+	const {game, run, npcAct} = await unpreparedNpc(t);
+	await run.model('apply', {effects: [{kind: 'npc', name: 'Steven Knott', to: 'away', why: 'Knott leaves before preparation finishes.'}]});
+	await run.model('apply', {effects: [{kind: 'npc', name: 'Steven Knott', to: 'here', why: 'Knott returns later.'}]});
+	assert.equal(retainedCandidates(await prepareKnott(run)).length, 0);
+	assert.equal(npcAct.calls.length, 1);
+	assert.ok(!(await game.receipts()).some(receipt => receipt.intent?.generated));
+});
 
 test("§143.4 cap: three people acted on outside a fight -- two act, the third is recorded skipped_cap; the one nobody acted on is never asked", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "*": "他往后退了一步，盯着你的手。" });

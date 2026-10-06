@@ -24,6 +24,10 @@ import {build} from 'esbuild';
 import {attackPreparationNeeds} from '../../runtime/jev/attack-preparation.ts';
 import {initialView, settleExecute} from '../../runtime/jev/step-policy.ts';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
+import {runNpcAct} from '../../runtime/jev/npc-act-step.ts';
+import {createFixtureNpcActPort} from '../../runtime/jev/npc-act.ts';
+import {npcActBudget} from '../../runtime/jev/host-budgets.ts';
+import {markNpcAct} from '../../extensions/kernel/npc-act-marks.ts';
 
 const root = resolve(import.meta.dirname, '../..');
 const scratch = await mkdtemp(join(tmpdir(), 'partial-stat-block-'));
@@ -462,4 +466,68 @@ test('CK-F2 follow-up: a roster driver and passenger need no body MOV; a roster 
   const foot = await refusal(other.resolve({decision: 'chase:start', intent: 'flee', goal: 'run', method: 'out the door', chase_roster: [
     {actor: me, role: 'foot'}, {actor: MULE, role: 'foot'}]}));
   assert.deepEqual([foot.details.reason, foot.details.missing, foot.details.needs.field], ['stat_block_incomplete', ['derived.MOV'], 'creature']);
+});
+
+/** The existing source-authored partial blocks also reach the NPC continuation reader and actor.
+ * Host packet ownership/exact-once is exercised in single-loop-npc-act; no natural play claim here.
+ */
+async function retainNpc(game, name, way, act) {
+ const author=createFixtureNpcActPort({'*':act}),decisions=[],writes=[];
+ const deps={call:game.call,generate:author.generate,record:()=>{},scope:{owner:'campaign:c1',campaign:'c1',worldline:'main',loop:0,audience:'keeper'},readSet:[],
+  runId:'partial-npc',stepId:'act',turn:1,gate:.6,budget:await npcActBudget(),signal:new AbortController().signal,
+  decide:async batch=>{
+   decisions.push(batch);
+   const answers=Object.fromEntries(batch.questions.map(q=>{
+    if(q.type==='noul') return [q.key,{status:'answered',type:'noul',noul:.99}];
+    const selected=q.key==='way'?way:q.key==='same'?'none':Object.keys(q.criteria)[0];
+    return [q.key,{status:'answered',type:'choice',choice:selected,confidence:1,probabilities:{[selected]:1}}];
+   }));
+   return {batchId:batch.id,status:'complete',answers,issues:[],coverage:{required:Object.keys(answers),answered:Object.keys(answers),unknown:[]}};
+  },
+  write:async(call,basis)=>{
+   const args=structuredClone(call.args);markNpcAct(call.tool,args,{clerk:'npc_act',basis});
+   const callId=game.id(),result=await game.call(`table.${call.tool}`,{...args,call_id:callId});writes.push({call,basis,result});
+   return {ok:true,callId,status:'succeeded',receipts:[...(result.receipts??[]),...(result.receipt?[result.receipt]:[])],result};
+  }};
+ const held=await runNpcAct(deps,name,'acted_on');
+ assert.equal(held.status,'preparation',JSON.stringify(held));assert.equal(writes.length,0);
+ assert.equal(await held.pending.ready(),false);
+ return {held,deps,author,decisions,writes};
+}
+
+test('JEV-OPEN-05: an authored partial NPC first blow preserves its target and weapon through real catalog completion',async t=>{
+ const game=await table(t),act='The hound bites Thomas Hayes.',before=HOUND_BLOCK;
+ const retained=await retainNpc(game,HOUND,'first_blow',act);
+ assert.ok(retained.held.pending.requirements.every(r=>r.role==='combat'&&r.completion==='creature'));
+ await game.apply({kind:'npc',name:HOUND,creature:'Rat Pack',why:'Complete only unstated characteristics for the selected act.'});
+ const after=(await game.world()).npc_profiles['belfry-hound'];
+ assert.equal(after.characteristics.DEX,before.characteristics.DEX);assert.equal(after.derived.HP,before.derived.HP);
+ assert.equal(await retained.held.pending.ready(),true);
+ const resumed=await retained.held.pending.resume(retained.deps);
+ assert.deepEqual([resumed.status,resumed.act,resumed.params,resumed.ref],['bound',act,retained.held.params,retained.held.ref]);
+ assert.equal(retained.author.calls.length,1);assert.equal(retained.decisions.length,1);
+ assert.ok((await game.receipts()).some(receipt=>receipt.kind==='session'&&receipt.family==='combat'&&receipt.intent?.ref===retained.held.ref));
+});
+
+test('JEV-OPEN-05: an NPC pursuit missing only MOV resumes the original foot action after actual profile completion',async t=>{
+ const game=await table(t,'partial-bench','1');
+ await game.resolve(fight(CARTER));
+ await game.resolve({intent:'combat',decision:'combat:defend',actor:CARTER,defense:'none',goal:'defend',method:'stand'});
+ await game.resolve({intent:'combat',goal:'hit back',method:'fists',actor:CARTER,target:'Thomas Hayes',weapon:'unarmed'});
+ await game.resolve({intent:'combat',decision:'combat:defend',actor:'Thomas Hayes',defense:'dodge',goal:'defend',method:'dodge'});
+ await game.resolve({intent:'flee',decision:'combat:flee',goal:'run',method:'run for the door'});
+ assert.equal((await game.call('table.look',{focus:'session'})).session,null,'the actual flee ended combat before pursuit');
+ const retained=await retainNpc(game,CARTER,'pursue','The carter runs after Thomas Hayes.');
+ assert.deepEqual(retained.held.pending.requirements.map(r=>[r.role,r.missing]),[['foot',['derived.MOV']]]);
+ await game.apply({kind:'npc',name:CARTER,archetype:'capable_adult',why:'Complete the unstated foot movement for the already selected pursuit.'});
+ const profile=(await game.world()).npc_profiles['coal-carter'];
+ for(const [key,value] of Object.entries(CARTER_BLOCK.characteristics)) assert.equal(profile.characteristics[key],value);
+ assert.equal(await retained.held.pending.ready(),true);
+ const resumed=await retained.held.pending.resume(retained.deps);
+ assert.equal(resumed.status,'bound');assert.equal(resumed.way,'pursue');assert.equal(resumed.params.target,retained.held.params.target);
+ assert.equal(retained.author.calls.length,1);assert.equal(retained.decisions.length,1);
+ const receipts=await game.receipts();
+ assert.ok(receipts.some(receipt=>receipt.kind==='session'&&String(receipt.id).startsWith('session:chase-start')),JSON.stringify(receipts));
+ assert.ok(receipts.some(receipt=>receipt.intent?.ref===retained.held.ref&&receipt.intent.generated));
+ assert.deepEqual((await game.saved('chase.json')).participants.map(p=>p.actor_id).sort(),['coal-carter','thomas-hayes'],'only the original pursuer and quarry enter the NPC-owned chase');
 });

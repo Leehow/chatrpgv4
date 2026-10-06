@@ -552,7 +552,7 @@ export interface NpcActOutcome {
    */
   status: 'bound' | 'unavailable' | 'refused' | 'failed' | 'dropped' | 'preparation';
   /** Ephemeral host-owned continuation; never serialized into campaign state or sent to a model. */
-  pending?: {requirements: import('./profile-readiness.ts').ProfileRequirement[];
+  pending?: {requirements: import('./profile-readiness.ts').ProfileRequirement[]; expired?: boolean;
     ready(): Promise<boolean>; resume(deps: NpcActDeps): Promise<NpcActOutcome>};
   act?: string; way?: string; params?: Record<string, string>; ref?: string;
   opened?: boolean; continued?: string | null; abandoned?: string | null; reask?: boolean; draw?: string | null;
@@ -797,16 +797,20 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActT
   const requirement = options.ways.find(entry => entry.way === bound.way)?.preparation;
   if (bound.judged && requirement?.length) {
     const ready = async (): Promise<boolean> => {
-      if (deps.signal.aborted) return false;
+      if (deps.signal.aborted || pending.expired) return false;
       const current = await deps.call('npc.act.options', {name}) as unknown as ActOptions;
       const currentWay = current.ways.find(entry => entry.way === bound.way);
-      return current.npc.handle === options.npc.handle && current.place === options.place
-        && current.in_session === options.in_session && !!currentWay && currentWay.ready === true && !currentWay.preparation?.length
+      const valid = current.npc.handle === options.npc.handle && current.place === options.place
+        && current.in_session === options.in_session && !!currentWay
         && Object.entries(bound.params).every(([key, value]) => currentWay.params[key]?.some(option => option.value === value.value)
           || key === 'weapon' && !!writing.produced?.record?.weapon && value.value === writing.produced.record.weapon);
+      if (!valid) pending.expired = true;
+      return valid && currentWay!.ready === true && !currentWay!.preparation?.length;
     };
     const pending: NonNullable<NpcActOutcome['pending']> = {requirements: requirement, ready, resume: async (writer: NpcActDeps) => {
-      if (!await ready()) return {...base, ...summary, status: 'preparation' as const, pending, reason: 'profile_preparation', receipts: [], calls: []};
+      if (!await ready()) return pending.expired
+        ? done({...base, ...summary, opened: false, status: 'refused', reason: 'npc_preparation_expired'}, writer)
+        : {...base, ...summary, status: 'preparation' as const, pending, reason: 'profile_preparation', receipts: [], calls: []};
       return execute(writer);
     }};
     return done({...base, ...summary, opened: false, status: 'preparation', pending, reason: 'profile_preparation'});
