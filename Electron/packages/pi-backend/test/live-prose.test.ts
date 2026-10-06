@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import { DELIVERY_PROSE_FIELDS, displayedProse, finishedProseField, LiveDeliveryProse, streamingStringField } from "../src/live-prose.js";
 
+it('holds a carried argument label until real prose arrives and never draws a label-only placeholder',()=>{
+  const live=new LiveDeliveryProse('transport');live.startTurn();live.start(0,'apply');
+  expect(live.update(0,'{"narrate":"tex')).toBeUndefined();
+  expect(live.update(0,'{"narrate":"text"}')).toBeUndefined();
+  expect(live.end(0,{narrate:'text'})).toBeUndefined();
+  live.start(1,'apply');expect(live.update(1,'{"narrate":"text|The clerk agrees.')).toMatchObject({text:'The clerk agrees.'});
+  expect(live.end(1,{narrate:'text|The clerk agrees.'})).toBeUndefined();
+  live.startTurn();live.start(0,'narrate');expect(live.end(0,{text:'text'})).toMatchObject({text:'text'});
+});
+
 /** Contract §171: the delivery read out of arguments still arriving, and what the screen holds as they do. */
 
 describe("the prose field read out of streaming JSON (§171.1)", () => {

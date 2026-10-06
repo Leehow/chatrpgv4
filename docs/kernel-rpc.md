@@ -13673,6 +13673,56 @@ preserving the same card and playback state during these updates.
 
 ### 58.9 Unified purchases and exact quotations (owner request, 2026-10-02)
 
+**Delivery and bounded recovery (owner repair, 2026-10-06).** The reproduced Blood Road
+outputs and the 173-second bargaining turn are retained under
+`purchase-recovery-20261006`; they are the acceptance baseline for this change.
+
+- Complete serialized call bodies additionally accept the closed `tool_uses` or
+  `tool_calls` wrapper with a nonempty array of `{recipient_name, parameters}`
+  envelopes. Every member must validate unchanged against an offered tool; mixed
+  prose, extra keys and invalid values remain unroutable. A final body consisting
+  only of an offered tool identifier has no arguments and is an unroutable call,
+  not an implicit story. An intentional short reply inside actual narrate.text
+  remains valid. No language detector, prose keyword classifier or quality rewrite
+  is introduced. Empty optional apply.narrate values after transport normalization
+  are omitted; the admitted effects may land and the ordinary delivery still has to
+  follow. An empty explicit narrate.text remains invalid.
+  The live argument display uses the same declared-label grammar: an unfinished
+  label prefix waits for its value, and a complete label-only optional field is
+  never drawn. Genuine explicit short replies and ordinary prose keep streaming.
+- An unpaid bill's explicit cancellation and a positively priced replacement of
+  the same basket may be submitted in one apply batch. The native recovery gate
+  recognizes both before freezing retry prices. Cancellation alone still cannot
+  deliver those goods. The cancellation, replacement and dependent deliveries form
+  one admission group: narrowing away a member cannot land the remainder. Normal
+  admission, exact arithmetic and the kernel's existing atomic transaction remain
+  authoritative. Failure retains the original unpaid hold; only actual successful
+  cash receipts release it. Paid bills cannot be cancelled or repriced this way.
+- A review still running after its existing soft cap is collected by the host from
+  the same promise under its existing hard deadline. The native operation remains
+  pending until an authoritative verdict or terminal failure, not a generic refusal
+  that asks the Keeper to invent another proposal. Typed late-admission rules stay
+  unchanged; missing authorization never becomes success. Cancellation and new
+  player input invalidate the wait normally. No extra review request or new model
+  lane is created by collecting the pending result. Telemetry distinguishes this
+  continuation from a resend and records its actual wait.
+- All generations and grounding repairs for one NPC action share one absolute
+  deadline derived from the existing npc_act timeout. Re-asking does not replenish
+  that deadline; an exhausted author budget records unavailable and schedules no
+  further generation. Already settled receipts stand. Necessary NPC action and
+  player-choice guards remain enabled; this changes neither an outcome nor the
+  people who can act.
+
+Writers: the model provides closed call envelopes and transaction effects; native
+normalization, purchase recovery, admission collection and the NPC step own these
+technical corrections. Readers: the ordinary dispatcher and each existing actor
+read the normalized calls, grouped transaction or bounded verdict. Actors: existing
+apply/resolve/narrate operations alone commit state and delivery. Validation includes
+captured-output replay, native host/kernel failure and rollback regressions, and
+fresh one-sentence live Keeper trials of the original bargaining scenario. Source
+checks and live timing are reported separately from App packaging.
+
+
 **Purchase recovery and cash authority (owner repair, 2026-10-06).** A failed chosen
 purchase retains its priced terms and payment-dependent item effects in a host-owned
 `purchase-recovery.json`, scoped to the campaign and active worldline. It is policy
@@ -13682,7 +13732,7 @@ or remove the payment while delivering those same purchased items. Successful ca
 settlement, including covered zero-debit settlement, releases that transaction hold.
 `apply cash mode: cancel` explicitly withdraws a held `bill` or unaccepted saved
 `quote`, under ordinary admission. It takes no amount/items, changes no purse,
-cannot cancel a paid receipt and cannot deliver the held goods in the same call.
+cannot cancel a paid receipt. Cancellation alone cannot deliver the held goods; an atomic priced replacement is reviewed as one transaction.
 The cancellation receipt releases that hold. Unrelated gifts and subsequent new
 transactions therefore remain possible without treating a cancelled offer as debt.
 Names and quantities are matched as closed declared transaction fields; no prose,
@@ -13761,7 +13811,7 @@ new offer uses its own priced rows. Cancellation never pays, delivers goods, rev
 a settled purchase or carries old cash authority to new terms. This explicit existing
 path preserves technical-retry price freezing without freezing legitimate bargaining.
 The changed-terms refusal carries the exact old human-readable bill and the existing
-separate cancellation call. It distinguishes a technical retry from a genuinely new
+cancellation effect. It distinguishes a technical retry from a genuinely new
 agreement, and must not instruct the Keeper to undo a successful bargaining result or
 replace the player's conditional discounted purchase with the rejected original price.
 An ordinary failed bargain alone grants neither a discount nor purchase consent.

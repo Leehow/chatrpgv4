@@ -11,6 +11,34 @@ import {createHybridEngine} from './hybrid-engine-fixture.mjs';
 const prose = 'You name the address. The clerk slides the register across the counter.\n\nThe ink is still wet.';
 const envelope = JSON.stringify({narrate:{text:prose}});
 const fenced = '```json\n'+envelope+'\n```';
+const captured=JSON.parse(readFileSync(join(import.meta.dirname,'fixtures','delivery-recovery-20261006.json'),'utf8'));
+test('captured recipient-name wrapper is a validated call, and a bare offered identifier is never prose',()=>{
+    const found=readTextToolCalls(captured.wrapper,COC_TOOLS);
+    assert.equal(found.kind,'calls');assert.equal(found.calls[0].name,'narrate');
+    assert.ok(found.calls[0].arguments.text.includes('一块'));
+    assert.equal(readTextToolCalls(captured.bare,COC_TOOLS).kind,'unroutable');
+    for(const value of [{tool_uses:[]},{tool_uses:[{recipient_name:'narrate',parameters:{text:prose},extra:true}]},
+        {tool_uses:[{recipient_name:'narrate',parameters:{text:prose}}],extra:true}])assert.equal(readTextToolCalls(JSON.stringify(value),COC_TOOLS).kind,'unroutable');
+    const wrapper=JSON.stringify({tool_calls:[{recipient_name:'narrate',parameters:{text:prose}}]});
+    assert.deepEqual(textToolCalls(wrapper,COC_TOOLS),[{name:'narrate',arguments:{text:prose}}]);
+});
+test('native captured wrapper commits its contained prose instead of the JSON transport',async t=>{
+    const table=await openTable({realKernel:true,campaign:'captured-wrapper',responses:[
+        fauxAssistantMessage([fauxToolCall('look',{})],{stopReason:'toolUse'}),
+        fauxAssistantMessage([fauxToolCall('narrate',{text:prose})],{stopReason:'toolUse'}),fauxAssistantMessage(captured.wrapper)]});
+    t.after(()=>table.dispose());await waitForIdle(table.session);await table.session.prompt('I ask for a discount.');await waitForIdle(table.session);
+    const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/captured-wrapper/turns/0001.json')));
+    assert.equal(record.rendered_text.includes('tool_uses'),false);assert.equal(record.rendered_text.includes('recipient_name'),false);
+    assert.ok(record.rendered_text.includes('一块'));assert.equal(table.telemetry().filter(x=>x.reason==='text_tool_call_routed').length,1);
+});
+for(const engine of ['legacy','hybrid-v1'])test(`bare final identifier is repaired once through an actual delivery on ${engine}`,async t=>{
+    const hybrid=engine==='hybrid-v1'?createHybridEngine({env:process.env,decision:null}):undefined;
+    const table=await openTable({...(hybrid?{runDriver:hybrid.runDriver,extraExtensions:[{name:'coc-hybrid-engine',factory:hybrid.extension}],env:{PI_COC_LOOP_ENGINE:engine}}:{}),
+        responses:[fauxAssistantMessage(captured.bare),fauxAssistantMessage([fauxToolCall('narrate',{text:prose})],{stopReason:'toolUse'})]});
+    t.after(()=>table.dispose());await table.session.prompt('I ask the clerk to continue.');await waitForIdle(table.session);
+    assert.ok(shown(table).includes('The clerk slides'));assert.equal(assistantTexts(table.session).includes('narrate'),false);
+    assert.ok(table.telemetry().some(x=>x.reason==='text_tool_call_unroutable'));
+});
 test('only a complete, schema-valid, single registered call is routed', () => {
     for (const value of [envelope,fenced]) assert.deepEqual(textToolCalls(value,COC_TOOLS),[{name:'narrate',arguments:{text:prose}}]);
     for (const value of ['Some prose\n'+fenced,JSON.stringify({narrate:{text:prose,extra:true}}),JSON.stringify({narrate:{text:12}}),
@@ -323,4 +351,3 @@ test('§160.4.1 through a real setup process: the recorded reply runs setup star
     assert.ok(shown(table).includes('Which book would you like to play?'));
     assert.deepEqual(table.entries('coc-telemetry').filter(row=>row.event==='text_call_list').map(row=>row.restored),[['setup']]);
 });
-

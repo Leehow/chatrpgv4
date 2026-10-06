@@ -189,87 +189,29 @@ test("§32.12.3.1: a three-line batch is three lane calls at once, one line each
 
 // ---- per call: the cap, pending and the resend ---------------------------------------------------------------------------
 
-test("§32.12.3.1: a line past the cap leaves only that line pending; nothing lands, and the resend re-joins that line alone", async (t) => {
-	const CAP_MS = 1000, HARD_CAP_MS = 2 * CAP_MS;
-	const clock = manualClock(), T0 = clock.at();
-	const lane = clockLane(clock, T0, [[/apply time/, ok("reporting back takes the walk"), 300], [/corbitt-diaries/, ok("told on the report"), 1500],
-		[/knott-commission/, ok("told on the report"), 400]]);
-	let resendAt;
-	const resend = () => { resendAt = clock.reads(); return call("apply", { effects: [TIME, DIARIES, COMMISSION] }); };
-	const table = await openTable({ env: { PI_COC_ADMISSION_TIMEOUT_MS: String(CAP_MS) },
-		responses: [call("apply", { effects: [TIME, DIARIES, COMMISSION] }), resend, ...close], laneResponses: { admission: lane.responses } });
-	t.after(() => table.dispose());
-	table.emit("coc:test-admission-clock", clock);
-	let ended = false;
-	const prompt = table.session.prompt(WORDS).finally(() => { ended = true; });
-	await waitFor(() => lane.calls.length === 3, { timeoutMs: 60_000, label: "three lane calls" });
-	await advance(table, clock, T0, 300, 1);
-	await advance(table, clock, T0, 400, 2);
-	clock.advanceTo(T0 + CAP_MS);
-	// The call goes back pending at the cap; the Keeper resends it and the resend waits on the one round still running.
-	await waitFor(() => resendAt !== undefined && clock.reads() > resendAt, { timeoutMs: 60_000, label: "the resend waiting on the diaries' round" });
-	assert.equal(kernelCalls(table, "table.apply").length, 0, "a batch pending on one line lands nothing yet");
-	await advance(table, clock, T0, 1500, 3);
-	await runWaitsPastRound(clock, T0 + HARD_CAP_MS, () => ended);
-	assert.ok(ended, "the run ended");
-	await prompt;
-
-	const [first, second] = toolResults(table.session, "apply");
-	assert.equal(first.isError, true);
-	const details = first.details.coc_error.details;
-	assert.equal(details.reason, REVIEW_PENDING);
-	assert.deepEqual(details.pending_lines.map((line) => line.split(";")[0]), ['apply clue: clue="corbitt-diaries"'], "pending only on the diaries line");
-	assert.equal(details.proposed.length, 3);
-	assert.match(first.text, /Resend this identical call once, unchanged/);
-	assert.equal(second.isError, false, "the resend's verdict admitted the batch");
-
-	assert.equal(lane.calls.length, 3, "the resend made no lane call: it reused two lines and re-joined the third");
-	const rows = admissionRows(table);
-	const firstCall = rows.slice(0, 3), resent = rows.slice(3);
-	assert.deepEqual(firstCall.map((row) => [row.lines[0], row.verdict, row.batch_admitted, row.batch_reason]),
-		[[1, "authorized", false, REVIEW_PENDING], [2, REVIEW_PENDING, false, REVIEW_PENDING], [3, "authorized", false, REVIEW_PENDING]]);
-	assert.equal(firstCall[1].ms, CAP_MS, "the diaries line went pending at its cap");
-	assert.equal(firstCall[1].late_rule, "class_not_listed", "§32.12.3.2: a clue line is never admitted on the typed reading, late or not");
-	assert.deepEqual(firstCall[0].line_ms, [300, null, 400], "the diaries call was still running when the call returned");
-	assert.deepEqual(resent.map((row) => [row.lines[0], row.reused, row.resend ?? false]).sort((a, b) => a[0] - b[0]),
-		[[1, true, false], [2, false, true], [3, true, false]], "two lines reused by their own keys, the pending one re-joined");
-	const rejoined = resent.find((row) => row.resend);
-	assert.equal(rejoined.resend_wait_ms, 500, "from the cap to the diaries' answer, inside its round");
-	assert.equal(rejoined.lane_ms, 1500);
-	assert.ok(resent.every((row) => row.batch_admitted === true));
-	const [apply] = kernelCalls(table, "table.apply");
-	assert.deepEqual(apply.params.effects.map((effect) => effect.clue ?? effect.kind), ["time", "corbitt-diaries", "knott-commission"]);
-	assert.ok(!table.telemetry().some((row) => row.lane === "admission-late"), "the collected round leaves no late row");
+test("one late line is collected by the host while the other lines keep their existing verdicts",async t=>{
+ const CAP_MS=1000,HARD_CAP_MS=2*CAP_MS,clock=manualClock(),T0=clock.at();
+ const lane=clockLane(clock,T0,[[/apply time/,ok("reporting back takes the walk"),300],[/corbitt-diaries/,ok("told on the report"),1500],[/knott-commission/,ok("told on the report"),400]]);
+ const table=await openTable({env:{PI_COC_ADMISSION_TIMEOUT_MS:String(CAP_MS)},responses:[call("apply",{effects:[TIME,DIARIES,COMMISSION]}),...close],laneResponses:{admission:lane.responses}});
+ t.after(()=>table.dispose());table.emit("coc:test-admission-clock",clock);let ended=false;const prompt=table.session.prompt(WORDS).finally(()=>{ended=true});
+ await waitFor(()=>lane.calls.length===3,{timeoutMs:60000,label:"three parallel reviews"});await advance(table,clock,T0,300,1);await advance(table,clock,T0,400,2);clock.advanceTo(T0+CAP_MS);
+ await waitFor(()=>table.telemetry().some(x=>x.lane==="admission-wait"),{timeoutMs:60000,label:"host collects the late line"});assert.equal(kernelCalls(table,"table.apply").length,0);
+ await advance(table,clock,T0,1500,3);await runWaitsPastRound(clock,T0+HARD_CAP_MS,()=>ended);await prompt;
+ const [result]=toolResults(table.session,"apply");assert.equal(result.isError,false);assert.equal(toolResults(table.session,"apply").length,1);assert.equal(lane.calls.length,3);
+ const rows=admissionRows(table);assert.ok(rows.every(x=>x.batch_admitted===true));assert.equal(rows.find(x=>x.lines[0]===2).continuation_wait_ms,500);
+ assert.deepEqual(kernelCalls(table,"table.apply")[0].params.effects.map(x=>x.clue??x.kind),["time","corbitt-diaries","knott-commission"]);
 });
 
-test("§32.12.3.1: every line past the cap -- the resend of the identical call re-joins every line's own round, and no line is reviewed again", async (t) => {
-	const CAP_MS = 1000, HARD_CAP_MS = 2 * CAP_MS;
-	const clock = manualClock(), T0 = clock.at();
-	const lane = clockLane(clock, T0, [[/apply time/, ok("reporting back takes the walk"), 1400], [/corbitt-diaries/, ok("told on the report"), 1600]]);
-	let resendAt;
-	const resend = () => { resendAt = clock.reads(); return call("apply", { effects: [TIME, DIARIES] }); };
-	const table = await openTable({ env: { PI_COC_ADMISSION_TIMEOUT_MS: String(CAP_MS) },
-		responses: [call("apply", { effects: [TIME, DIARIES] }), resend, ...close], laneResponses: { admission: lane.responses } });
-	t.after(() => table.dispose());
-	table.emit("coc:test-admission-clock", clock);
-	let ended = false;
-	const prompt = table.session.prompt(WORDS).finally(() => { ended = true; });
-	await waitFor(() => lane.calls.length === 2, { timeoutMs: 60_000, label: "two lane calls" });
-	clock.advanceTo(T0 + CAP_MS);
-	await waitFor(() => resendAt !== undefined && clock.reads() > resendAt, { timeoutMs: 60_000, label: "the resend waiting on both rounds" });
-	await advance(table, clock, T0, 1400, 1);
-	await advance(table, clock, T0, 1600, 2);
-	await runWaitsPastRound(clock, T0 + HARD_CAP_MS, () => ended);
-	assert.ok(ended, "the run ended");
-	await prompt;
-	const [first, second] = toolResults(table.session, "apply");
-	assert.equal(first.details.coc_error.details.reason, REVIEW_PENDING);
-	assert.equal(first.details.coc_error.details.pending_lines.length, 2);
-	assert.equal(second.isError, false);
-	assert.equal(lane.calls.length, 2, "the resend re-joined both rounds: no line was reviewed again");
-	const resent = admissionRows(table).slice(2);
-	assert.deepEqual(resent.map((row) => [row.lines[0], row.resend, row.resend_wait_ms]).sort((a, b) => a[0] - b[0]), [[1, true, 400], [2, true, 600]]);
-	assert.equal(kernelCalls(table, "table.apply").length, 1);
+test("all parallel lines past the soft cap keep their own rounds without another Keeper proposal",async t=>{
+ const CAP_MS=1000,HARD_CAP_MS=2*CAP_MS,clock=manualClock(),T0=clock.at();
+ const lane=clockLane(clock,T0,[[/apply time/,ok("reporting back takes the walk"),1400],[/corbitt-diaries/,ok("told on the report"),1600]]);
+ const table=await openTable({env:{PI_COC_ADMISSION_TIMEOUT_MS:String(CAP_MS)},responses:[call("apply",{effects:[TIME,DIARIES]}),...close],laneResponses:{admission:lane.responses}});
+ t.after(()=>table.dispose());table.emit("coc:test-admission-clock",clock);let ended=false;const prompt=table.session.prompt(WORDS).finally(()=>{ended=true});
+ await waitFor(()=>lane.calls.length===2,{timeoutMs:60000,label:"two parallel reviews"});clock.advanceTo(T0+CAP_MS);
+ await waitFor(()=>table.telemetry().some(x=>x.lane==="admission-wait"),{timeoutMs:60000,label:"host continuation"});await advance(table,clock,T0,1400,1);await advance(table,clock,T0,1600,2);
+ await runWaitsPastRound(clock,T0+HARD_CAP_MS,()=>ended);await prompt;
+ assert.equal(lane.calls.length,2);assert.equal(toolResults(table.session,"apply").length,1);assert.equal(toolResults(table.session,"apply")[0].isError,false);
+ assert.equal(kernelCalls(table,"table.apply").length,1);assert.equal(admissionRows(table).some(x=>x.verdict===REVIEW_PENDING),false);
 });
 
 test("§32.12.3.1 with §32.12.4: a response's batch whose line is already known is not prefetched; its call reuses that line and reviews the rest", async (t) => {

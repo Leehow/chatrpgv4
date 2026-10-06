@@ -91,10 +91,27 @@ test('a new negotiated agreement may change prices after cancelling the unpaid o
   await assert.rejects(recovery.check({effects:[revised,item]},2),e=>e.details.reason==='purchase_terms_changed'&&e.fix.includes('"mode":"cancel","bill":"Counter bill"')&&e.fix.includes('settled bargaining success'));
   assert.equal((await recovery.offers([],1))[0].items[0].unit_price,'0.50','failure preserves the original rate');
   const cancel={kind:'cash',mode:'cancel',bill:bill.bill};
+  await recovery.check({effects:[cancel,revised,item]},2);
+  assert.deepEqual(await recovery.replacements({effects:[cancel,revised,item]}),[[cancel,revised,item]]);
+  await assert.rejects(recovery.check({effects:[cancel,item]},2),e=>e.details.reason==='purchase_payment_required');
   await recovery.check({effects:[cancel]},2);
   await recovery.settled({effects:[cancel]},{receipts:['cash:t2-c1'],_cash_settlements:[{subject:'alice',bill:bill.bill,settlement:'cancelled'}]});
   await recovery.check({effects:[revised,item]},2);
   assert.deepEqual(await recovery.offers([],2),[]);
+});
+
+test('native atomic repricing cancels the held old offer and fulfills the covered new agreement in one call',async t=>{
+  const priceVerdict={...approved,cash_limits:[{index:0,amount:1,basis:'price',evidence:'one-dollar bill'}]};
+  const revised={...bill,bill:'Negotiated counter bill',items:[{name:'Cola',quantity:2,unit_price:'0.40'}]},goods={...item,to:'thomas-hayes'};
+  const table=await openTable({realKernel:true,prepareWorkspace:async workspace=>{await ready(workspace);const p=join(workspace,'.coc/campaigns/test-camp/party/thomas-hayes.json'),c=JSON.parse(await readFile(p));c.finance.daily_spending.total=1.1;await writeFile(p,JSON.stringify(c));},responses:[
+    response('apply',{effects:[bill,goods]}),response('narrate',{text:'The one-dollar bill still needs separate cash authority.'}),
+    response('apply',{effects:[{kind:'cash',mode:'cancel',bill:bill.bill},revised,goods],narrate:'The new eighty-cent agreement is paid and the two colas are handed over.'})
+  ],laneResponses:{admission:Array.from({length:12},()=>input=>{const body=input.messages.filter(m=>m.role==='user').flatMap(m=>m.content.map(c=>c.text??'')).join('\n');return fauxAssistantMessage(JSON.stringify(body.includes('[Cash authority table:')&&body.includes('one-dollar bill')?priceVerdict:approved));})}});
+  t.after(()=>table.dispose());await table.session.prompt('Buy the one-dollar bill.');await waitFor(()=>assistantTexts(table.session).some(x=>x.includes('separate cash authority')));
+  await table.session.prompt('I buy the goods if the clerk agrees to eighty cents.');
+  const r=JSON.parse(await readFile(join(table.workspace,'.coc/campaigns/test-camp/turns/0002.json'))),cash=r.receipts.filter(x=>x.kind==='cash');
+  assert.deepEqual(cash.map(x=>x.settlement),['cancelled','spending_level']);assert.equal(cash[1].purchase_amount,0.8);assert.equal(cash[1].daily_total,1.9);assert.equal(cash[1].delta,0);
+  assert.ok(r.receipts.some(x=>x.kind==='item'));assert.deepEqual(JSON.parse(await readFile(join(table.workspace,'.coc/campaigns/test-camp/purchase-recovery.json'))).lines.main,[]);
 });
 test('canonical counterparty aliases cannot change rates or disguise the unpaid item delivery',async()=>{
   const p=await policy(),recovery=p.recovery();
