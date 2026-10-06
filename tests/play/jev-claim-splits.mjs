@@ -27,6 +27,7 @@
  * `supported` if any instance is. Uniques shared between the splits are reported, not removed (the split is by time).
  *
  * Usage: node tests/play/jev-claim-splits.mjs [--out .tmp/rc06] [--corpus <dir>] [--app <.coc dir>] [--cut <ISO>] [--packets]
+ *        node tests/play/jev-claim-splits.mjs --from-split .tmp/rc06/heldout.json --packet-dir <name> (--keys <keys.json> | --label <label>)
  * The retained homes are only read.
  */
 import {createHash} from 'node:crypto';
@@ -43,6 +44,12 @@ const STRICT = new Set(['unsupported', 'contradicted', 'unclear']);
 function args(argv) {
   const out = {out: join(REPO, '.tmp', 'rc06'), corpus: '/Users/haoli/leehow/code/chatrpgv4-wt-pi-coc-v2/.pi/jev-claim-calibration-20260929',
     app: join(homedir(), 'Library/Application Support/Pipi/pipicoc/pi-coc/.coc'), cut: '2026-10-04T00:00:00Z', packets: false};
+  // Packets from a frozen split (no rebuild): --from-split <split.json> --packet-dir <name> (--keys <keys.json> | --label <label>).
+  for (let i = 0; i < argv.length; i++) if (['--from-split', '--packet-dir', '--keys', '--label'].includes(argv[i])) {
+    out[{'--from-split': 'fromSplit', '--packet-dir': 'packetDir', '--keys': 'keys', '--label': 'label'}[argv[i]]] = argv[i + 1];
+    argv = [...argv.slice(0, i), ...argv.slice(i + 2)];
+    i--;
+  }
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === '--out') out.out = resolve(argv[++i]);
@@ -397,12 +404,13 @@ function statementText(round, record) {
   if (rest.length) lines.push(`Other fields of the record (in record.json, not rendered here): ${rest.join(', ')}`);
   return lines.join('\n') + '\n';
 }
-function writePackets(out, rounds) {
-  const dir = join(out, 'judge', 'heldout-neg');
+/** Judge packets for `entries` (unique records with their instances) under `<out>/judge/<name>/`, numbered from 1. */
+function writePackets(out, name, rounds, entries) {
+  const dir = join(out, 'judge', name);
   rmSync(dir, {recursive: true, force: true});
   mkdirSync(dir, {recursive: true});
   const byId = new Map(rounds.map(round => [round.id, round]));
-  const negatives = uniques(rounds).filter(entry => entry.label === 'strict_negative')
+  const negatives = entries
     .map(entry => ({...entry, instances: entry.instances.sort((a, b) => a.round.localeCompare(b.round) || a.root.localeCompare(b.root))}))
     .sort((a, b) => a.instances[0].round.localeCompare(b.instances[0].round) || a.instances[0].root.localeCompare(b.instances[0].root, 'en', {numeric: true}));
   const index = [];
@@ -431,8 +439,24 @@ function writePackets(out, rounds) {
   return index.length;
 }
 
+/**
+ * Judge packets from an already frozen split, without rebuilding it: the split's digest must be the manifest's, and the
+ * records are the uniques named by `keys` (a JSON array) or carrying `label`.
+ */
+function packetsFromSplit(options) {
+  const path = resolve(options.fromSplit), text = readFileSync(path, 'utf8');
+  const manifest = readJson(join(dirname(path), 'manifest.json'));
+  if (manifest.split_files?.[path.split('/').pop()] !== sha(text)) throw new Error('the split file is not the one the manifest froze');
+  if (!options.packetDir || options.packetDir === 'heldout-neg' || options.packetDir.includes('/')) throw new Error('name a new --packet-dir');
+  const rounds = JSON.parse(text).rounds, wanted = options.keys ? new Set(readJson(resolve(options.keys))) : undefined;
+  const entries = uniques(rounds).filter(entry => wanted ? wanted.has(entry.key) : entry.label === options.label);
+  if (wanted && entries.length !== wanted.size) throw new Error('a key is not a unique record of this split');
+  process.stdout.write(JSON.stringify({packets: writePackets(dirname(path), options.packetDir, rounds, entries), dir: join(dirname(path), 'judge', options.packetDir)}) + '\n');
+}
+
 async function main() {
   const options = args(process.argv.slice(2)), cut = Date.parse(options.cut), excluded = {};
+  if (options.fromSplit) return packetsFromSplit(options);
   const {rounds: corpus, textDisagreements} = await corpusRounds(options.corpus, excluded);
   const app = appRounds(options.app, cut, excluded);
   const rounds = [...corpus, ...app.rounds];
@@ -458,7 +482,7 @@ async function main() {
   writeFileSync(join(options.out, 'manifest.json'), text);
   const summary = {manifest: join(options.out, 'manifest.json'), manifest_sha256: sha(text), split_files: written, app_files: app.files, excluded_instances: excluded,
     heldout_uniques_also_in_tuning: shared.length, counts: Object.fromEntries(Object.entries(manifest.splits).map(([name, value]) => [name, {all: value.counts, ...value.by_origin}]))};
-  if (options.packets) summary.judge_packets = writePackets(options.out, splits.heldout);
+  if (options.packets) summary.judge_packets = writePackets(options.out, 'heldout-neg', splits.heldout, uniques(splits.heldout).filter(entry => entry.label === 'strict_negative'));
   process.stdout.write(JSON.stringify(summary, null, 2) + '\n');
 }
 

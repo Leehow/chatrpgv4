@@ -21,6 +21,8 @@
  * Usage: node tests/play/jev-claim-replay.mjs --split .tmp/rc06/tuning.json --out .tmp/rc06/tuning-run
  *        [--manifest .tmp/rc06/manifest.json] [--concurrency 4] [--dry-run] [--heldout-once]
  *        node tests/play/jev-claim-replay.mjs --split <same> --out <existing replay> --regrid   (no Jev call)
+ *        node tests/play/jev-claim-replay.mjs --split <same> --out <existing replay> --score S,C
+ *          [--relabel <adjudication.json> --packets <judge index.json>]   (one point, raw and adjudicated labels; no Jev call)
  */
 import {createHash} from 'node:crypto';
 import {existsSync, readFileSync} from 'node:fs';
@@ -51,9 +53,14 @@ function args(argv) {
     else if (flag === '--dry-run') out.dryRun = true;
     else if (flag === '--heldout-once') out.heldoutOnce = true;
     else if (flag === '--regrid') out.regrid = true;
+    else if (flag === '--score') out.score = argv[++i].split(',').map(Number);
+    else if (flag === '--relabel') out.relabel = resolve(argv[++i]);
+    else if (flag === '--packets') out.packets = resolve(argv[++i]);
     else throw new Error(`unknown argument ${flag}`);
   }
   if (!out.split || !out.out) throw new Error('name --split and --out');
+  if (out.score && (out.score.length !== 2 || out.score.some(value => !Number.isFinite(value) || value < 0 || value > 1))) throw new Error('--score takes S,C');
+  if (out.relabel && !out.packets) throw new Error('--relabel needs the --packets index that numbers its packets');
   out.manifest ??= join(dirname(out.split), 'manifest.json');
   return out;
 }
@@ -101,6 +108,56 @@ export function grid(rows) {
   return {points, chosen, unique: [...unique.values()]};
 }
 
+/**
+ * One pre-registered point, scored on unique records with the split's labels and, optionally, adjudicated labels:
+ * `relabel` is the set of unique keys two judges both found stated (§186.6), which become `supported`. Supported clears
+ * only if every instance clears; a strict negative or a contested-only record counts as cleared if any instance does.
+ */
+export function scorePoint(rows, S, C, relabel = new Set()) {
+  const unique = new Map();
+  for (const row of rows) {
+    if (!RANK[row.label]) continue;
+    const entry = unique.get(row.key) ?? {key: row.key, label: row.label, type: row.type, readings: []};
+    if (RANK[row.label] > RANK[entry.label]) entry.label = row.label;
+    entry.readings.push(row.answers && row.status === 'answered' ? row.answers : null);
+    unique.set(row.key, entry);
+  }
+  const clears = answers => answers !== null && answers.length > 0 && answers.every(([, supported, contradicted]) => claimCleared(supported, contradicted, {supportedMin: S, contradictedMax: C}));
+  const out = {S, C, relabeled: 0, by_label: {}, by_type: {}, cleared_keys: {supported: [], strict_negative: [], contested_only: []}};
+  for (const entry of unique.values()) {
+    const label = relabel.has(entry.key) ? 'supported' : entry.label;
+    if (relabel.has(entry.key)) out.relabeled++;
+    const cleared = label === 'supported' ? entry.readings.every(clears) : entry.readings.some(clears);
+    for (const bucket of [out.by_label[label] ??= {total: 0, cleared: 0}, (out.by_type[entry.type] ??= {})[label] ??= {total: 0, cleared: 0}]) {
+      bucket.total++;
+      if (cleared) bucket.cleared++;
+    }
+    if (cleared) out.cleared_keys[label].push(entry.key);
+  }
+  for (const label of Object.keys(out.cleared_keys)) out.cleared_keys[label].sort();
+  const supported = out.by_label.supported ?? {total: 0, cleared: 0}, negative = out.by_label.strict_negative ?? {total: 0, cleared: 0};
+  out.cleared_supported_share = supported.total ? supported.cleared / supported.total : 0;
+  out.cleared_negative_rate = negative.total ? negative.cleared / negative.total : 0;
+  // §151.3.1: cleared strict negatives <= 1 and <= 1 % of strict negatives, cleared share of supported >= 50 %.
+  out.bar = negative.cleared <= 1 && out.cleared_negative_rate <= 0.01 && out.cleared_supported_share >= 0.5;
+  return out;
+}
+
+/** The unique keys of the judged packets both judges found stated, through the packet index's instances. */
+function relabelKeys(rows, adjudication, index) {
+  const byInstance = new Map(rows.map(row => [`${row.round}#${row.root}`, row.key]));
+  const packets = new Map(index.packets.map(packet => [packet.packet, packet]));
+  const keys = new Set();
+  for (const {packet: number} of adjudication.relabel_supported) {
+    const packet = packets.get(number);
+    if (!packet) throw new Error(`packet ${number} is not in the index`);
+    const found = new Set(packet.instances.map(instance => byInstance.get(`${instance.round}#${instance.root}`)));
+    if (found.size !== 1 || found.has(undefined)) throw new Error(`packet ${number} does not name one unique record of this replay`);
+    keys.add([...found][0]);
+  }
+  return keys;
+}
+
 /** The grid, the chosen point and `grid.md` from a replay's `records.jsonl`, written into its `summary.json`. */
 async function writeGrid(out, rows, summary) {
   const {points, chosen, unique} = grid(rows);
@@ -120,6 +177,23 @@ async function writeGrid(out, rows, summary) {
 
 async function main() {
   const options = args(process.argv.slice(2));
+  if (options.score) {
+    // Score an existing replay at one pre-registered point, without asking Jev again.
+    const rows = readFileSync(join(options.out, 'records.jsonl'), 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
+    const [S, C] = options.score;
+    const report = {records_sha256: sha(readFileSync(join(options.out, 'records.jsonl'))), raw: scorePoint(rows, S, C)};
+    if (options.relabel) {
+      const adjudication = JSON.parse(readFileSync(options.relabel, 'utf8')), index = JSON.parse(readFileSync(options.packets, 'utf8'));
+      const keys = relabelKeys(rows, adjudication, index);
+      report.adjudication = {file: options.relabel, sha256: sha(readFileSync(options.relabel)), index: options.packets, index_sha256: sha(readFileSync(options.packets)),
+        relabeled_packets: adjudication.relabel_supported.map(item => item.packet), relabeled_keys: [...keys].sort()};
+      report.adjudicated = scorePoint(rows, S, C, keys);
+    }
+    await writeFile(join(options.out, `score-${S}-${C}.json`), JSON.stringify(report, null, 2) + '\n');
+    const brief = value => value && (({cleared_keys: _keys, ...rest}) => rest)(value);
+    process.stdout.write(JSON.stringify({raw: brief(report.raw), adjudicated: brief(report.adjudicated)}, null, 2) + '\n');
+    return;
+  }
   if (options.regrid) {
     // Recompute the grid of an existing replay without asking Jev again.
     const rows = readFileSync(join(options.out, 'records.jsonl'), 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));

@@ -276,3 +276,39 @@ ignored (M19), stale host budget inherited (M20), cache id not validated (M21).
 
 Known unrelated red: `tests/extension/control-flow-inventory.test.mjs` fails on `extensions/openai-fast/test/
 offline.test.mjs` call sites (present at the base commit, not touched here).
+
+### 2026-10-06 RC-06 phase C: held-out read once; the bar is not met (worker, lead-authorized)
+
+- **Inputs, checked before the read.** `heldout.json` sha256 `68ffb5b0…965d1` (the manifest's), the judge index
+  `43185ceb…04c7`, the adjudication `scratchpad/adjudication.json` sha256
+  `ac27b7b0fe8dd097107093be1c2493d9da89afb6cf1dd0ef4eb9077e03fe1eb9`: two judges, blind to Jev and vision, agreed
+  on 51 / 61 packets; both said "stated" on packets 3, 4, 19, 35, 37, 38, 40, 44, 46, 52, 53, 57, 59, 60, 61. Each maps
+  through the index's instances to exactly one unique key of the split (14 nodes, 1 claim); those 15 become supported,
+  the other 46 stay strict negatives. Point: the tuning choice S 0.93 / C 0.2, unchanged.
+- **The read.** `node tests/play/jev-claim-replay.mjs --split .tmp/rc06/heldout.json --out .tmp/rc06/heldout-run
+  --heldout-once`, once: 300 rounds, 8,367 record instances, 7,509 asked, 23,945 statements, 766 requests, 11.84M input
+  tokens, $0.50, 91 s, no unanswered record. `records.jsonl` sha256
+  `3ade1b50943a6110ac8d072313731a5432390562f603e6f8307b1918c689c3d0`; scored with `--score 0.93,0.2 --relabel
+  … --packets …` into `score-0.93-0.2.json`. The classification rule made ineligible 791 supported, 19 strict-negative,
+  22 contested-only and 26 unreviewed instances (unique: 652 / 16 / 21 / 1; every contested-only record).
+
+| labels | cleared supported | claims | nodes | cleared strict negatives | claims | nodes | cleared contested-only |
+|---|---|---|---|---|---|---|---|
+| raw vision | 20 / 6,215 (0.32 %) | 4 / 3,188 | 16 / 3,027 | 0 / 61 (0 %) | 0 / 29 | 0 / 32 | 0 / 21 |
+| **adjudicated** | **20 / 6,230 (0.32 %)** | 4 / 3,189 | 16 / 3,041 | **0 / 46 (0 %)** | 0 / 28 | 0 / 18 | 0 / 21 |
+
+- **Bar (§151.3.1 on the adjudicated labels): not met.** Cleared strict negatives 0 (≤ 1 and ≤ 1 %: met); cleared
+  share of supported 0.32 % (≥ 50 %: not met). None of the 15 relabeled records clears at this point. Per §186.6 the
+  data default stays `shadow` with the redesign's questions, and there is no second attempt on this held-out.
+- **Data.** `content/rulesets/coc7/host-budgets.json` `source_claim_support`: mode `shadow` unchanged; `supported_min`
+  0.8 → 0.93 and `contradicted_max` 0.1 → 0.2. In shadow these only set the `cleared` flag and the paired telemetry; the
+  previous values were v1's zero-false-accept point and mean nothing for the v2 questions (on tuning, v2 at 0.8 / 0.1
+  clears 5 strict negatives), so the shadow rows on new books now measure the pre-registered point, as 2026-09-29 did
+  for v1. No review outcome changes.
+- **Context, descriptive only (not used for any choice).** Instance AUC of the weakest `supported`, vision-supported vs
+  strict negative: claims 0.83, nodes 0.80. The cleared 20: 4 claims, 8 object, 3 location, 2 scene, 2 npc, 1 rule nodes.
+- **Cleared vision-supported records, judge packets (reporting only, not part of the bar):** all 20 (fewer than 60),
+  `.tmp/rc06/judge/heldout-cleared/` (index sha256
+  `0c7354e5e8e6801c3e6ce45d847590aa0a6516163eab50a65fe75fc32b71790b`), same format as `heldout-neg`, no Jev score and
+  no vision verdict. They come from the frozen split (`jev-claim-splits.mjs --from-split`), not a rebuild; regenerating
+  the 61 `heldout-neg` packets the same way reproduced them byte for byte.

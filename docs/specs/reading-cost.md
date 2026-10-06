@@ -54,3 +54,11 @@ RC-06 succeeds only by its pre-registered bar; a failed bar is recorded, not tun
 - Merging into the main line, packaging and the App: separate owner decision after acceptance.
 
 ## Comments
+
+### 2026-10-06 RC-06 outcome: the claim-check redesign failed its pre-registered bar
+
+Held-out (App home rounds from 2026-10-04T00:00Z) read once at the tuning point S 0.93 / C 0.2. With the adjudicated
+labels (two blind judges, 15 of 61 strict negatives relabeled supported), the check clears 20 / 6,230 supported records
+(0.32 %; claims 4 / 3,189, nodes 16 / 3,041) and 0 / 46 strict negatives. The bar (≤ 1 and ≤ 1 % cleared negatives,
+≥ 50 % cleared supported) is not met. The data default stays `shadow` with the redesign's questions; S/C in the data
+are the pre-registered point. Numbers, splits and evidence paths: `docs/specs/reading-cost-tickets.md`, RC-06 Comments.
