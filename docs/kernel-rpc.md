@@ -13747,6 +13747,8 @@ normally takes at least half an hour, and a second attempt after failure is a pu
 even if the skill changes. The Keeper chooses plausible new terms from the settled
 outcome and seller response; the kernel computes those exact priced rows.
 
+**Legacy quote projection (2026-10-06, blind v17).** Persisted unaccepted quotes from older turns may predate optional with_id, cash_debit and origin_turn fields. The Keeper-only known.cash_quotes projection represents absent optional fields as null, never undefined: the structural clone used by table.player_input and table.capsule rejects unsupported JSON values before an input can open. Missing cash_debit remains unknown, not zero, the merchandise total or a guessed debit; absent ownership/turn metadata grants no new cash authority. Source: the eight existing eligible quote rows in the long campaign; reader: knownSection; actor: the ordinary clone/JSON RPC path and the unchanged payment owner. Preserve the stored quotes and all old receipts, and repair the reusable projection rather than editing this campaign's save or fabricating amounts.
+
 The social catalog marks only its `skill` selector as `selection: compatible`: this
 is the rule's adjudication of declared conduct, not a player-owned mechanical choice.
 The existing Jev binder judges the four issued social approaches; no host keywords
