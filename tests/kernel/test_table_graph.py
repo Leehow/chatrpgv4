@@ -113,6 +113,23 @@ def test_shape_and_setup_before_opening(client: RpcClient):
     assert node["title"]
 
 
+def test_game_clock_mod_uses_the_current_world_and_normal_activation(client: RpcClient):
+    play(client, 0)
+    initial = graph(client)["clock_mod"]
+    assert initial == {"enabled": True, "when": expected_when(0), "turn": client.table("view")["turn"]}
+    client.table("player_input", text="I wait for half an hour.")
+    client.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 30}])
+    narrate(client, "t1-c2", "Half an hour passes.")
+    result = graph(client)
+    assert result["clock_mod"] == {"enabled": True, "when": expected_when(30), "turn": client.table("view")["turn"]}
+    assert next(node for node in result["nodes"] if node["turn"] == 0)["when"] == expected_when(0)
+    client.ok("mods.configure", {"campaign": CAMPAIGN, "id": "game-clock", "enabled": False})
+    disabled = graph(client)["clock_mod"]
+    assert disabled == {**result["clock_mod"], "enabled": False}
+    client.ok("mods.configure", {"campaign": CAMPAIGN, "id": "game-clock", "enabled": True})
+    assert graph(client)["clock_mod"] == result["clock_mod"]
+
+
 # ---- turn nodes carry the turn record's clock, projected by the capsule machine ---------------
 
 

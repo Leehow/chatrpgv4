@@ -51,6 +51,8 @@ MOD_CAPABILITIES.add(HISTORY_CAPABILITY);
 MOD_CAPABILITIES.add(MOOD_CAPABILITY);
 /** Contract §183.1: a package declares the sections of its instruction, so a table over the instruction budget can index it. */
 MOD_CAPABILITIES.add(SECTIONS_CAPABILITY);
+/** Contract §23.5: a player-only game clock following the transcript viewport. */
+MOD_CAPABILITIES.add("ui.clock.v1");
 /** Contract §180.9: a build where an enabled package requires this binds the actor property `weaknesses` (the reader is
  *  asked for it, the checker holds it, the module's provenance records it), and the table door accepts `weaknesses`. */
 export const WEAKNESSES_CAPABILITY = "actor.weaknesses.v1";

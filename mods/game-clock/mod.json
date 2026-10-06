@@ -1,0 +1,15 @@
+{
+  "id": "game-clock",
+  "version": "1.0.0",
+  "game_api": "pipicoc.game.v1",
+  "state_version": 1,
+  "author": "PipiCOC",
+  "name": "Game Clock",
+  "description": "A game-time clock in the transcript's upper right, following the message in view when reading history.",
+  "default_enabled": true,
+  "requires": ["ui.clock.v1"],
+  "dependencies": {},
+  "conflicts": [],
+  "settings": {},
+  "contributes": {}
+}

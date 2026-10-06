@@ -1055,7 +1055,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   useEffect(() => {
     if (!selectedSession || !host.invokeExtension) { setTimeline(null); return }
     let cancelled = false
-    setTimeline(null)
+    setTimeline((current: any) => current?.hostSessionId === selectedSession ? current : null)
     void host.invokeExtension('coc-keeper','timeline.graph',{}, {sessionId:selectedSession}).then(result => {
       if (!cancelled && result.ok) setTimeline({...result.data as any, hostSessionId:selectedSession})
     }).catch(() => undefined)
@@ -1077,7 +1077,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
       .finally(() => { timelineFollowInFlight.current = false })
   }, [host, selectedSession, timeline, sessionWorking, branchBusy])
   useEffect(() => subscribeExt(host, 'coc-keeper', event => {
-    if (event.type === 'timeline-changed') setTimelineRefresh(value => value + 1)
+    if (event.type === 'timeline-changed' || event.type === 'mods-changed') setTimelineRefresh(value => value + 1)
     if (event.type !== 'timeline-navigate') return
     const payload = event.payload as {originSessionId:string; session:Session; parent?:Session; messageId?:string}
     if (payload.originSessionId !== selectedSessionRef.current) return
@@ -3025,6 +3025,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
                 : <>
                   <Transcript
                 stateKey={selectedSession}
+                clockData={productId === 'pipicoc' && timeline?.hostSessionId === selectedSession ? timeline : undefined}
                 navigation={timelineNavigation?.sessionId === selectedSession ? timelineNavigation : undefined}
                 onBranch={message => void handleBranch(message)}
                 branchMessageIds={branchMessageIds}
