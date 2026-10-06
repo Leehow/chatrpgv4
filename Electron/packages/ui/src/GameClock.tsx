@@ -40,7 +40,9 @@ export function centeredClockMessage(container: HTMLElement): string | null {
   for (const node of container.querySelectorAll<HTMLElement>('[data-game-clock-message]')) {
     const rect = node.getBoundingClientRect()
     if (rect.height <= 0 || rect.bottom <= bounds.top || rect.top >= bounds.bottom) continue
-    const delta = Math.abs((rect.top + rect.bottom) / 2 - center)
+    // A long reply may fill the viewport while its own midpoint is far offscreen.
+    // Prefer the row containing the reading point, then the nearest visible edge.
+    const delta = center < rect.top ? rect.top - center : center > rect.bottom ? center - rect.bottom : 0
     if (delta < distance) { distance = delta; picked = node.dataset.gameClockMessage ?? null }
   }
   return picked

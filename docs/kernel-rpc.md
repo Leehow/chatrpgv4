@@ -6351,6 +6351,8 @@ At the bottom it shows the current reading. Away from the bottom it shows the
 reading at the visible message nearest the viewport center; player messages
 inherit the preceding delivered reading. Unknown, unloaded or omitted history
 shows a placeholder, never the current clock as a historical substitute.
+The row containing the center wins even when a long reply's own midpoint lies
+offscreen; otherwise the closest visible row edge wins.
 Returning to the bottom restores the current reading. Scrolling only measures
 mounted rows and reads already-loaded data; it makes no RPC or model request.
 Disable, session change and unmount remove the display and its listeners.

@@ -58,6 +58,15 @@ test('center selection excludes virtual-list overscan outside the viewport', () 
   expect(centeredClockMessage(f.containerRef.current!)).toBe('u2')
 })
 
+test('a long reply containing the reading point wins over a shorter preceding message', () => {
+  const f = fixture()
+  const rows = f.containerRef.current!.querySelectorAll<HTMLElement>('[data-game-clock-message]')
+  rows[1].getBoundingClientRect = () => bounds(120, 80)
+  rows[2].getBoundingClientRect = () => bounds(220, 80)
+  rows[3].getBoundingClientRect = () => bounds(320, 1800)
+  expect(centeredClockMessage(f.containerRef.current!)).toBe('a2')
+})
+
 test('scrolling selects historical time and returning to the bottom restores the current reading', async () => {
   const f = fixture()
   const clock = render(<GameClock data={data} messages={messages} sessionId="selected" containerRef={f.containerRef} atBottom />)
