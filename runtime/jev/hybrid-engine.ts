@@ -435,6 +435,7 @@ export function withIssuedBodies(packet: Row | undefined, issued: CandidateBodie
 
 /** One clerk step of this turn, as the Keeper's projection lists it. */
 interface ClerkStep {step: string; operation: string; label: string; clerk?: string; call_id: string | null; status: string; receipts: string[]; basis?: Json; result?: Json;
+  proposed?: Json; not_landed?: boolean; coc_error?: Json;
   /** §135.26: the obligation step this was, with its receipt and page, in one line. */
   obligation?: string;
   /** §135.26 (owner ruling Q5): the open obligation whose guard this step crossed, in one line. */
@@ -1368,6 +1369,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const ok = packet.status === 'succeeded';
     const result = object(packet.result);
     const refusal = ok ? undefined : dispatched.staleCheck ? 'check_selection_stale' : object(result.coc_error).code ?? result.code ?? packet.status;
+    const canonicalError = object(result.coc_error);
+    const errorFields = Object.fromEntries(['code', 'message', 'fix', 'details'].filter(key => result[key] !== undefined).map(key => [key, result[key]]));
+    const refusedError = ok ? undefined : structuredClone(Object.keys(canonicalError).length ? canonicalError
+      : Object.keys(errorFields).length ? errorFields : {code: String(refusal)}) as Json;
     const {goal: _goal, method: _method, ...shown} = object(tool === 'resolve' ? args.action : {}) as Row;
     const obligation = obligationClerkLine(candidate, ok, result, packet.receipts), crossed = ok ? obligationCrossing(candidate, result, packet.receipts) : undefined;
     // §138.6: a `needs` the host answered inside this write (a tier pinned, a profile read) is said beside the defaults.
@@ -1387,8 +1392,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       receipts: packet.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
       // §178.3: a write that brought people together carries the first impressions the kernel rolled for them, so the
       // Keeper's next step can let them show; the receipt ids alone say only that a die was cast.
-      result: (tool === 'resolve' ? {action: shown, outcome: result.outcome ?? null, ...(result.obligation ? {obligation: result.obligation} : {})}
-        : {effects: args.effects, ...(Array.isArray(result.first_impressions) ? {first_impressions: result.first_impressions, first_impressions_note: result.first_impressions_note ?? null} : {})}) as Json,
+      ...(ok ? {result: (tool === 'resolve' ? {action: shown, outcome: result.outcome ?? null, ...(result.obligation ? {obligation: result.obligation} : {})}
+        : {effects: args.effects, ...(Array.isArray(result.first_impressions) ? {first_impressions: result.first_impressions, first_impressions_note: result.first_impressions_note ?? null} : {})}) as Json}
+        : {proposed: (tool === 'resolve' ? {action: shown} : {effects: args.effects}) as Json, not_landed: true,
+          coc_error: refusedError!}),
       ...(obligation ? {obligation} : {}), ...(crossed ? {obligation_open: crossed} : {}), ...(binding ? {binding} : {})});
     // SL-85: an executed consequence candidate's own receipt ids, so the turn-close pairing (`pairConsequences`)
     // can exclude them and ask "did the Keeper *also* file this, independently" -- never "does the clerk's own
@@ -1403,7 +1410,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (ok && read) await routeConsequencesAfterWrite(run, read.fresh, invocation.signal, invocation.stepId).catch(() => undefined);
     return {status: ok ? 'ok' as const : 'refused' as const, ...(ok ? {} : {reason: String(refusal)}),
       artifact: {kind: 'execute', executed: {ok, summary: {origin: 'policy', tool, call_id: callId, status: packet.status, receipts: packet.receipts,
-        clerk: candidate.clerk ?? null, basis: candidate.basis ?? null, ...(ok ? checkOf(tool, result) : {}), ...(ok ? {} : {refusal: String(refusal)})} as Json},
+        clerk: candidate.clerk ?? null, basis: candidate.basis ?? null, ...(ok ? checkOf(tool, result) : {}),
+        ...(ok ? {} : {refusal: String(refusal), coc_error: refusedError!})} as Json},
       ...(read ? {fresh: read.fresh} : {})}};
   }
 
@@ -1738,7 +1746,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const declaredActs = array(question.declaredActs).map(String);
       // §135.30.10: the run's moves, so a move offered after one selects nothing in the row either.
       const moved = array(question.moved).map(String);
-      const routed = request.purpose === 'route' ? interpretRoute({located: question.located === true, settled, declaredActs, moved} as RunView, offered, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE) : undefined;
+      const routed = request.purpose === 'route' ? interpretRoute({located: question.located === true, settled, declaredActs, moved,
+        compileOff: question.compileOff === true, observations: array(question.observations)} as RunView,
+        offered, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE) : undefined;
       const actGatedKeys = request.purpose === 'route' ? offered.filter(candidate => actGated(candidate, declaredActs)).map(candidate => candidate.key) : [];
       const moveGatedKeys = request.purpose === 'route' ? offered.filter(candidate => moveGated(candidate, moved)).map(candidate => candidate.key) : [];
       // §135.30: the compile row carries each feature's distribution and which predicates fired, as the policy will read them.
@@ -1980,6 +1990,17 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §135.11.2 (SL-50 stage 2): the run's first note opens with the head line (right after `kind`), once per run.
     const head = !run.headShown;
     const content: Row = {kind: 'single_loop_step', ...(head ? {head: CLERK_NOTE_HEAD} : {}), purpose: step.purpose, reason: step.reason};
+    const observations = array(view.policyState.view.observations);
+    const held = [...observations].reverse().find(value => value.kind === 'decide'
+      && value.purpose === 'route' && value.reason === 'destination_binding_unresolved');
+    // Independent authority may have failed before this handoff; its refusal does not erase the held batch.
+    if (held && !observations.some(value => value.kind === 'infer' && value.step > held.step)) {
+      content.not_landed = object(held?.summary);
+      content.destination_binding_note = 'These proposed ordinary world steps have not executed: the declared destination did not bind to a cleared catalog endpoint. '
+        + 'An available intermediate route is not a substitute destination. Preserve the original declaration and complete only its needed open world parameters '
+        + 'through the existing operations and ordinary admission; do not ask for the same choice again or narrate arrival before it lands. '
+        + 'Held check selection and time binding remain with Jev and the host: do not choose a check, invent minutes or substitute an activity band.';
+    }
     run.interactionScope = view.policyState.view.interactionScope ?? run.interactionScope;
     if (run.interactionScope && bridge?.campaign && run.turn !== undefined) {
       api?.events?.emit?.('coc:interaction-scope', {campaign: bridge.campaign, turn: run.turn, run: run.runId,
@@ -2117,8 +2138,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const fresh = run.clerkDid.slice(run.projected);
     run.projected = run.clerkDid.length;
     if (fresh.length) Object.assign(content, {clerk_did: fresh,
-      note: 'The host (the clerk) settled these this turn before asking you, from the kernel\'s own options. They are committed, not pending: '
-        + 'narrate what happened, do not redo them, and undo one only with a real operation of your own (its own receipt and time cost).'});
+      note: fresh.every(entry => entry.status === 'succeeded')
+        ? 'The host (the clerk) settled these this turn before asking you, from the kernel\'s own options. They are committed, not pending: '
+          + 'narrate what happened, do not redo them, and undo one only with a real operation of your own (its own receipt and time cost).'
+        : 'Only successful writes are committed; narrate their receipts without redoing them. For npc_act entries, actual receipts are committed, '
+          + 'and the recorded intention status governs the outcome; an act description alone is not an executed result. Refused entries marked not_landed changed nothing: '
+          + 'their proposed arguments are not results and must not be narrated as completed. Read each coc_error, including its fix and details. '
+          + 'When details.recovery is correct_proposal and correction_allowed is true, use the existing world operation once to correct that same declaration, '
+          + 'with fresh admission and no new target, method, cost or commitment. Do not resend unchanged arguments or ask the player to authorize the same act again. '
+          + 'A successful model response does not settle a refused world operation. Check selection remains with Jev and the host.'});
     // §135.30.5 (SL-38): a move the batch staged after its unlocking step that did not happen is reported as guarded.
     for (const entry of missedUnlocks(view.policyState?.view ?? {consumed: []}))
       if (!run.guarded.some(seen => seen.to === entry.to)) run.guarded.push(entry);

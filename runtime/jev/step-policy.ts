@@ -530,6 +530,7 @@ export function compileDue(view: RunView): boolean {
  */
 export function interpretRoute(view: RunView, offered: Candidate[], result: DecisionResult | undefined, gate: number):
   {pending: PendingItem[]; choice?: string; confidence?: number; reason: string; selected?: string[]; exit?: string;
+    held?: Candidate[];
     forced?: Array<{candidate: Candidate; outcome: 'inspect_check' | 'no_roll'; uncertain: string[]; why: string}>} {
   // §135.11 addendum (SL-20): once the clerk has settled the declaration, the exit leans to finish (the compose).
   const settled = (view.settled?.length ?? 0) > 0;
@@ -546,6 +547,9 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
   }
   const exit = answerOf(result, 'exit');
   const selected: Array<{candidate: Candidate; confidence?: number}> = [];
+  const unboundMoves: Candidate[] = [];
+  const latestCompile = [...(view.observations ?? [])].reverse().find(value => value.kind === 'decide' && value.purpose === 'compile');
+  const destination = object(object(latestCompile?.summary).destination_binding);
   for (const [index, candidate] of offered.entries()) {
     // §135.30 addendum (owner, 2026-09-24): an obligation check or a stated meeting is selected only by the compile's
     // predicates. Its own question (§135.26's `seeks`) is still asked and recorded; its answer selects nothing.
@@ -557,6 +561,12 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
     const selects = candidate.routeFact?.selects ?? 'now';
     const checkOwned = candidate.checkOwner === 'jev' && candidate.unbound.some(value => value.binder === 'resolve-selection');
     if (choice === selects && clears(result, key, selects, confidence, gate)) {
+      if (!view.compileOff && latestCompile?.status === 'complete' && typeof destination.cleared === 'boolean'
+        && candidate.family === 'move' && candidate.clerk === 'declared_bookkeeping' && !candidate.forced
+        && !(destination.cleared === true && destination.row === candidate.bound.to)) {
+        unboundMoves.push(candidate);
+        continue;
+      }
       selected.push({candidate, confidence});
       continue;
     }
@@ -574,6 +584,18 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
       selected.push({candidate, confidence});
       forced.push({candidate, outcome: 'inspect_check', uncertain, why: 'below_confidence_gate'});
     } else forced.push({candidate, outcome: 'no_roll', uncertain, why: 'below_confidence_gate'});
+  }
+  if (unboundMoves.length) {
+    // Only this selected ordinary world batch waits for its missing destination; other authority stays intact.
+    const held = [...unboundMoves, ...selected.filter(({candidate}) => !candidate.forced
+      && (candidate.clerk === 'declared_check' || candidate.verb === 'apply'
+        && ['declared_bookkeeping', 'declared_time'].includes(candidate.clerk ?? '') && candidate.bound.kind !== 'npc')).map(value => value.candidate)];
+    const ordinary = new Set(held);
+    const independent = selected.filter(value => !ordinary.has(value.candidate)).sort((left, right) => rank(left.candidate) - rank(right.candidate));
+    return withForced({pending: [...independent.flatMap(({candidate}) => itemsFor(candidate)),
+      {kind: 'infer' as const, purpose: 'adjudicate', reason: 'destination_binding_unresolved'}],
+      choice: independent.map(value => value.candidate.key).join(' + '), reason: 'destination_binding_unresolved',
+      selected: independent.map(value => value.candidate.key), held, exit: exit.choice});
   }
   selected.sort((a, b) => rank(a.candidate) - rank(b.candidate));
   const confidence = selected.length ? Math.min(...selected.map(entry => entry.confidence ?? 1)) : exit.confidence;
@@ -932,16 +954,22 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
   const gated = offered.filter(candidate => actGated(candidate, view.declaredActs ?? [])).map(candidate => candidate.key);
   // §135.30.10: a move offered after the run moved is the Keeper's for the run the same way.
   const moveHeld = offered.filter(candidate => moveGated(candidate, view.moved ?? [])).map(candidate => candidate.key);
-  if (result.status === 'complete') for (const candidate of offered) if ((candidate.routeFact || compileOnly(candidate) || gated.includes(candidate.key) || moveHeld.includes(candidate.key)) && !(routed.selected ?? []).includes(candidate.key)) {
+  const destinationHeld = new Set((routed.held ?? []).map(candidate => candidate.key));
+  if (result.status === 'complete') for (const candidate of offered) if ((candidate.routeFact || compileOnly(candidate) || gated.includes(candidate.key) || moveHeld.includes(candidate.key) || destinationHeld.has(candidate.key)) && !(routed.selected ?? []).includes(candidate.key)) {
     if (!view.consumed.includes(candidate.key)) view.consumed.push(candidate.key);
     view.candidates = view.candidates.filter(value => value.key !== candidate.key);
   }
-  observe(view, {kind: 'decide', purpose: 'route', status: result.status, choice: routed.choice, confidence: routed.confidence, reason: routed.reason});
+  const compile = [...view.observations].reverse().find(value => value.kind === 'decide' && value.purpose === 'compile');
+  const held = routed.held?.length ? {destination_binding: object(compile?.summary).destination_binding ?? null,
+    proposed: routed.held.map(candidate => ({operation: candidate.verb, family: candidate.family, label: candidate.label,
+      bound: candidate.bound, unbound: candidate.unbound.map(parameter => parameter.name)}))} : undefined;
+  observe(view, {kind: 'decide', purpose: 'route', status: result.status, choice: routed.choice, confidence: routed.confidence, reason: routed.reason,
+    ...(held ? {summary: held as Json} : {})});
   const answers = result.status === 'complete' ? Object.fromEntries(Object.entries(result.answers ?? {}).map(([key, value]) => [key,
     value.status === 'answered' && value.type === 'choice' ? {choice: value.choice, confidence: value.confidence ?? null, probabilities: value.probabilities ?? null} : {status: value.status}])) : null;
   return {step, kind: 'decide', purpose: 'route', choice: routed.choice ?? null, confidence: routed.confidence ?? null, ms, jev_calls: 1,
     reason: routed.reason, offered: offered.length, detail: {selected: routed.selected ?? null, exit: routed.exit ?? null, answers, ...(gated.length ? {act_gated: gated} : {}),
-      ...(moveHeld.length ? {move_gated: moveHeld} : {}), offered_keys: offered.map(candidate => candidate.key), batch_state: batch.state as Json} as Json};
+      ...(moveHeld.length ? {move_gated: moveHeld} : {}), ...(held ? {not_landed: held} : {}), offered_keys: offered.map(candidate => candidate.key), batch_state: batch.state as Json} as Json};
 }
 
 /**
@@ -985,7 +1013,8 @@ export function settleCompile(view: RunView, step: number, batch: DecisionBatch,
   // §135.30.9.2 (SL-52 stage 2): a compile that settles a step of the book re-asks the scene's clue rows once, before the batch.
   const reask = !view.reasked && result.status === 'complete' && !exhausted(view.budget) ? reaskOf(view.candidates, view.rows, selected, unlocked) : undefined;
   if (reask) { view.reasked = true; view.pending.unshift({kind: 'decide', purpose: 'reask', extra: reask as unknown as Record<string, Json>}); }
-  observe(view, {kind: 'decide', purpose: 'compile', status: result.status, ...(keys.length ? {choice: keys.join(' + ')} : {}), reason: outcome.reason});
+  observe(view, {kind: 'decide', purpose: 'compile', status: result.status, ...(keys.length ? {choice: keys.join(' + ')} : {}), reason: outcome.reason,
+    summary: {destination_binding: outcome.features?.destination ?? null} as unknown as Json});
   return {step, kind: 'decide', purpose: 'compile', choice: keys.length ? keys.join(' + ') : null, confidence: null, ms, jev_calls: 1, reason: outcome.reason,
     detail: {features: outcome.features, fired: selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
       selected: keys, decided: outcome.decided, fell_through: outcome.fellThrough, ...(outcome.askCleared ? {ask_cleared: outcome.askCleared} : {}),
@@ -1735,7 +1764,8 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         if (!binding) return {kind: 'decide', purpose: 'route', question: unbound};
         const {batch, offered} = routeBatch(state, binding.scope, binding.readSet);
         return {kind: 'decide', purpose: 'route', question: {batch, offered, located: state.located, gate: driver.policyState.gate, settled: state.settled ?? [],
-          declaredActs: state.declaredActs ?? [], moved: state.moved ?? []}};
+          declaredActs: state.declaredActs ?? [], moved: state.moved ?? [], compileOff: state.compileOff === true,
+          observations: state.observations.filter(value => value.kind === 'decide' && value.purpose === 'compile').slice(-1)}};
       }
       if (request.kind === 'decide' && request.purpose === 'compile') {
         if (!binding) return {kind: 'decide', purpose: 'compile', question: unbound};
