@@ -42,22 +42,27 @@ function refuse(rule: string, message: string, fix: string, path: string, extra:
  * until a draft changes its regions.
  */
 export function checkMapScopes(nodes: Row[], known: Row[]): void {
-    const published = new Map(known.filter(node => typeof row(node).node_id === 'string').map(node => [node.node_id, node]));
-    for (const [i, node] of nodes.entries()) {
-        const props = row(node.properties), prior = published.get(node.node_id), id = string(node.node_id), path = `/nodes/${i}/properties/map_scope`;
-        if (Object.hasOwn(props, 'map_scope')) {
-            if (!['asset', 'handout'].includes(node.node_kind) || !(isMap(node) || isMap(prior)))
-                refuse('map_scope_not_a_map', `properties.map_scope belongs only to a map, an asset or handout node with properties.map_regions; ${repr(id)} is not one`,
-                    `Delete properties.map_scope from ${id}. Write map_scope only on the asset or handout node that carries the map's map_regions.`, path);
-            if (!MAP_SCOPES.includes(props.map_scope))
-                refuse('map_scope_invalid', `properties.map_scope of ${repr(id)} must be "area" or "interior", not ${repr(props.map_scope)}`,
-                    `Set properties.map_scope of ${id} to exactly one of the two strings, judged from the original page: ${MAP_SCOPE_KINDS}. Change nothing else.`, path,
-                    { value: props.map_scope });
-        }
-        else if (isMap(node) && mapScopeOf(prior) === null)
-            refuse('map_scope_missing', `${repr(id)} is a map (it has properties.map_regions) but has no properties.map_scope`,
-                `Add properties.map_scope to ${id}, judged from the original page: ${MAP_SCOPE_KINDS}. Keep everything else in the draft as it is.`, path);
+    const published = publishedNodes(known);
+    for (const [i, node] of nodes.entries()) checkMapScope(node, i, published);
+}
+/** The published rows `checkMapScope` compares a drafted node with, by node id. */
+export const publishedNodes = (known: Row[]): Map<string, Row> =>
+    new Map(known.filter(node => typeof row(node).node_id === 'string').map(node => [node.node_id, node]));
+/** `checkMapScopes` for the one drafted node at `/nodes/<i>`, so the draft check can collect every node's refusal (§186.3). */
+export function checkMapScope(node: Row, i: number, published: ReadonlyMap<string, Row>): void {
+    const props = row(node.properties), prior = published.get(node.node_id), id = string(node.node_id), path = `/nodes/${i}/properties/map_scope`;
+    if (Object.hasOwn(props, 'map_scope')) {
+        if (!['asset', 'handout'].includes(node.node_kind) || !(isMap(node) || isMap(prior)))
+            refuse('map_scope_not_a_map', `properties.map_scope belongs only to a map, an asset or handout node with properties.map_regions; ${repr(id)} is not one`,
+                `Delete properties.map_scope from ${id}. Write map_scope only on the asset or handout node that carries the map's map_regions.`, path);
+        if (!MAP_SCOPES.includes(props.map_scope))
+            refuse('map_scope_invalid', `properties.map_scope of ${repr(id)} must be "area" or "interior", not ${repr(props.map_scope)}`,
+                `Set properties.map_scope of ${id} to exactly one of the two strings, judged from the original page: ${MAP_SCOPE_KINDS}. Change nothing else.`, path,
+                { value: props.map_scope });
     }
+    else if (isMap(node) && mapScopeOf(prior) === null)
+        refuse('map_scope_missing', `${repr(id)} is a map (it has properties.map_regions) but has no properties.map_scope`,
+            `Add properties.map_scope to ${id}, judged from the original page: ${MAP_SCOPE_KINDS}. Keep everything else in the draft as it is.`, path);
 }
 /**
  * A map-scope job's draft (`packet.map_scope`) writes only that field: the one named map, as published, with

@@ -40,6 +40,25 @@ export function withoutPostFreezeRecovery(value) {
 }
 
 /**
+ * Contract §186.3 (2026-10-06): the draft check lists every finding of its stage in the refusal's `details.findings`
+ * (and counts what the bound cut in `details.truncated`). Every capture of a draft-check refusal predates it, so a
+ * byte-for-byte comparison reads the deliberate addition as a difference. As with `POST_FREEZE_ERROR_FIELDS`, the two
+ * keys are dropped from the LIVE side only, and only off an error frame's `details`: the code, message, fix, path, reason
+ * and rule each capture holds -- the first finding, as the check has always worded it -- are still compared byte for
+ * byte. The list itself is asserted where it belongs, in `draft-check-findings.test.mjs`.
+ */
+export const DRAFT_FINDINGS_FIELDS = Object.freeze(["findings", "truncated"]);
+export function withoutDraftFindings(value) {
+  if (Array.isArray(value)) return value.map(withoutDraftFindings);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([key, inner]) => {
+    if (key !== "error" || !inner || typeof inner !== "object" || Array.isArray(inner) || !inner.details || typeof inner.details !== "object")
+      return [key, withoutDraftFindings(inner)];
+    return [key, {...inner, details: Object.fromEntries(Object.entries(inner.details).filter(([field]) => !DRAFT_FINDINGS_FIELDS.includes(field)))}];
+  }));
+}
+
+/**
  * The authored identity of a place -- `destination_identity`, the name the module's book gives the
  * building a scene is and the other names it is known by -- projected onto the graph's entity view
  * after the freeze, so that the action-admission reviewer can tell that the scene handled
