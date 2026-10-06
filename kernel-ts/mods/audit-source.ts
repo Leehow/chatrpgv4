@@ -12,7 +12,7 @@ import {continuityAuditContext} from './continuity-audit.js';
 
 export const SOURCE_AUDIT = 'audit.source.v1';
 export async function auditSourceEvidence(context: KernelContext, campaign: Pick<CampaignWritePort, 'id'>, module: LoadedModule, world: Row, turn: Row, party: Row[], continuity = false, preparationWait: Row | null = null, rebindingRefused: Row | null = null, sourceConsultations:Row|null=null, owed: Row | null = null) {
-    const original = module.adapted ? await pinnedSource(context, row(world.adaptation).source) : module;
+    const original = module.adapted ? await pinnedSource(context, row(world.adaptation).source, module.graph.nodeHandles) : module;
     const source = (loaded: LoadedModule) => ({graph: loaded.graph.raw,
         material: [...loaded.graph.nodes.values()].map(node => ({name: loaded.graph.handle(node), status: loaded.material(node.node_id)}))});
     const snapshot = new CampaignSnapshot(context, campaign.id);

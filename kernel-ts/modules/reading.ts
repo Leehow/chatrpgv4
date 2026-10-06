@@ -227,7 +227,7 @@ export async function sourcePreparationSnapshot(context:KernelContext,campaignId
         if(module.adapted||meta.id!==moduleId||meta.campaign_scope!==campaignId||typeof meta.graph_digest!=='string'||!Number.isSafeInteger(meta.generation))
             throw new RpcError('needs','The candidate publication does not belong to this source owner',{details:{reason:'source_preparation_stale'}});
         // writeGraph has created and hashed this immutable generation, but module.json still points at the old one.
-        module={...module,meta,generation:meta.generation,graph:new ModuleGraph(moduleId,publication.graph,meta.graph_digest,module.graph.dossier)};
+        module={...module,meta,generation:meta.generation,graph:new ModuleGraph(moduleId,publication.graph,meta.graph_digest,module.graph.dossier,undefined,false,module.graph.nodeHandles)};
     }
     const active=await activeMods(context,campaign.world);
     const capsule={mods:{active:active.map(mod=>({id:mod.id}))}},revision=await sourceRevision(campaign,module,capsule),worldline=string(campaign.meta.active_worldline||'main');

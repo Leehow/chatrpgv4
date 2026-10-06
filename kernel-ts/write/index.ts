@@ -40,6 +40,7 @@ import { markupInProse, describeMarkup, bareWrapper, unwrap, MARKUP_STEER } from
 import { timeGap, timeReading, timeRefusal, timeWarning } from '../read/time-reading.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
 import { foldPersonWords, untoldWholeNames } from '../read/person-words.js';
+import { foldNodeHandles, handleScheme, handlesDirectory, nodeHandleMap, readHandles } from '../read/node-handles.js';
 import { prepareNameHistory } from '../journal/name-history.js';
 import { presenceRolls, type PresenceRolled } from '../mods/presence.js';
 import { CheckArithmetic } from '../resolve/arithmetic.js';
@@ -316,6 +317,26 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if(contributions.mods){await contributions.mods.initializeWorld(world,playLanguage);return world;}
         const plan=await defaultModPlan(context,world,playLanguage);await plan.install();return plan.world;
     }
+    /**
+     * §185.6: a name-free campaign's fold before its world is first written (`campaign.create`, or setup once the opening is
+     * ready): whatever the book's `handles.json` already holds, so a book other campaigns have named starts named. `state`
+     * carries `node_handles` in and out; the module is built with the folded map.
+     */
+    async function firstFold(moduleId: string, campaignId: string, state: Row): Promise<LoadedModule> {
+        const loaded = await loadModule(context, moduleId, campaignId, nodeHandleMap(state));
+        const stored = await readHandles(context, await handlesDirectory(context, campaignId, moduleId));
+        return foldNodeHandles(loaded.graph, state, stored) ? loadModule(context, moduleId, campaignId, nodeHandleMap(state)) : loaded;
+    }
+    /**
+     * §185.6: fold the book's handles into a name-free campaign's world at a safe moment (`table.open`, `table.player_input`).
+     * Returns the module reloaded with the new map when the world changed (the caller writes it), else null.
+     */
+    async function foldHandles(snapshot: CampaignSnapshot, module: LoadedModule): Promise<LoadedModule | null> {
+        if (!module.graph.nameFree) return null;
+        const moduleId = string(snapshot.meta.module_id);
+        const stored = await readHandles(context, await handlesDirectory(context, snapshot.id, moduleId));
+        return foldNodeHandles(module.graph, snapshot.world, stored) ? loadCampaignModule(context, moduleId, snapshot.world, snapshot.id) : null;
+    }
     async function openCampaign(params: Row, options: {
         requireTurn?: boolean;
         requireWorld?: boolean;
@@ -365,7 +386,12 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             if (!await setupOpeningReady(id, meta.opening_scene || '', value.id))
                 return false;
         }
-        const module = await loadModule(context, id, value.id), [world, opening] = initialWorld(module.graph, meta.opening_scene || null,!!moduleMeta.source_reference);
+        // §185.6: a name-free campaign's world is first written here when the opening was not ready at creation.
+        const nameFree = handleScheme(meta) === 'name-free';
+        const handles: Row = { node_handles: nameFree && await context.snapshots.pathExists(value.path('world.json')) ? row((await value.readWorld()).node_handles) : {} };
+        const module = nameFree ? await firstFold(id, value.id, handles) : await loadModule(context, id, value.id, null),
+            [world, opening] = initialWorld(module.graph, meta.opening_scene || null,!!moduleMeta.source_reference);
+        if (nameFree) world.node_handles = handles.node_handles;
         await value.writeWorld(world);
         meta.opening_scene = opening;
         meta.module_digest = module.graph.digest;
@@ -695,7 +721,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             throw new RpcError('invalid_params', 'pregens exist only for starters', {
                 fix: 'create the investigator with setup.investigator'
             });
-        const loaded = starter || await context.snapshots.pathExists(await sourceGraphPath(moduleId, id)) ? await loadModule(context, moduleId, id) : null, graph = loaded?.graph;
+        // §185.1: a new campaign on a book the PDF reader built is name-free; an authored starter is legacy. Fixed here, once.
+        const nameFree = !starter && playsFromReading(moduleMeta), handles: Row = { node_handles: {} };
+        const loaded = starter || await context.snapshots.pathExists(await sourceGraphPath(moduleId, id))
+            ? nameFree ? await firstFold(moduleId, id, handles) : await loadModule(context, moduleId, id, null) : null, graph = loaded?.graph;
         const title = required(params, 'title', true) || (graph ? graph.title() : string(moduleMeta.title || moduleId));
         let sheet: Row | null = null;
         if (pregen != null) {
@@ -727,7 +756,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 throw new RpcError('invalid_params', 'start_scene must name an authored opening');
         }
         const playable = graph && (!playsFromReading(moduleMeta) || await setupOpeningReady(moduleId, chosen || '', id));
-        const [world, start] = playable ? initialWorld(graph!, chosen,!!moduleMeta.source_reference) : [null, chosen && graph ? graph.handle(graph.scene(chosen)) : null], modConfiguration = await initializeNewWorld(world || {}, language);
+        const [world, start] = playable ? initialWorld(graph!, chosen,!!moduleMeta.source_reference) : [null, chosen && graph ? graph.handle(graph.scene(chosen)) : null];
+        if (world && nameFree) world.node_handles = handles.node_handles;
+        const modConfiguration = await initializeNewWorld(world || {}, language);
         const meta: Row = {
             id,
             title,
@@ -736,6 +767,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             module_generation: number(moduleMeta.generation || loaded?.generation),
             play_language: language,
             register,
+            handles: nameFree ? 'name-free' : 'legacy',
             ...(difficulty != null ? {difficulty: clone(difficulty)} : {}),
             status: sheet ? 'active' : 'setting_up',
             created_at: nowIso(),
@@ -800,9 +832,20 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if (moduleReading && !contributions.queueAdjacentReading)
             missingContribution('visual source opening and reading queue');
         if(!contributions.worldlines)await ensureMain(campaign, meta);
-        const loaded = await load(params, { allowReady: true, requireTurn: false }), snapshot = loaded.snapshot, module = loaded.module;
+        const loaded = await load(params, { allowReady: true, requireTurn: false }), snapshot = loaded.snapshot;
+        let module = loaded.module;
         await initializeMods(campaign, snapshot);
         await validateOntology();
+        // §185.6: a name-free campaign takes the book's handles at the table's opening, before anything here reads a handle;
+        // never while a turn is open, which read its world already.
+        if (!['open', 'acting'].includes(string(snapshot.turn.state))) {
+            const refolded = await foldHandles(snapshot, module);
+            if (refolded) {
+                module = refolded;
+                await campaign.writeWorld(snapshot.world);
+                snapshot.jsonFiles.set('world.json', snapshot.world);
+            }
+        }
         if (snapshot.meta.status === 'ready_for_table') {
             snapshot.meta.status = 'active';
             snapshot.meta.activated_at = nowIso();
@@ -978,7 +1021,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         return { turn: next, state: 'awaiting_player', released: number(turn.turn) };
     }
     async function playerInput(params: Row): Promise<Row> {
-        const { campaign, snapshot, module } = await load(params);
+        const loaded = await load(params), { campaign, snapshot } = loaded;
+        let module = loaded.module;
         preflightCampaign(snapshot.meta, snapshot.world, snapshot.turn, snapshot.party);
         await initializeMods(campaign, snapshot, true);
         const turn = snapshot.turn, text = required(params, 'text')!;
@@ -1025,6 +1069,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         }
         const cursor = freshTurn(next, 'open', pending);
         cursor.player_text = text;
+        // §185.6: the book's handles reach a name-free campaign here too, before anything of this turn reads a handle.
+        const refolded = await foldHandles(snapshot, module);
+        if (refolded) module = refolded;
         // §107.1: a map published after the table arrived is presented on this, the first turn after it.
         const awaited = JSON.stringify(array(snapshot.world.map_arrivals_pending)), minted = new Set<string>();
         const lateMaps = contributions.asset ? await presentPublishedArrivalMaps({
@@ -1040,7 +1087,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // them), before the capsule.
         const met = await meetAtTurnStart(context, campaign, module.graph, snapshot.world, snapshot.party, next, `t${next}-input`, minted, snapshot.meta);
         seedTurn(context, snapshot.meta, next);
-        if (folded || met.changed || lateMaps.length || JSON.stringify(array(snapshot.world.map_arrivals_pending)) !== awaited) await campaign.writeWorld(snapshot.world);
+        if (refolded || folded || met.changed || lateMaps.length || JSON.stringify(array(snapshot.world.map_arrivals_pending)) !== awaited) await campaign.writeWorld(snapshot.world);
         cursor.receipts = [...array(cursor.receipts), ...lateMaps.map(item => item.receipt), ...met.receipts];
         await campaign.writeTurn(cursor);
         await campaign.appendTranscript(next, 'player', text);

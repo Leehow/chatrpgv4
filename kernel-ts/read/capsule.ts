@@ -210,7 +210,8 @@ export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, recor
         // §177.4: an unread person is shown by the word the lane gave them, else by the row's id, which is opaque (no slug).
         const shown = node ? string(untold.label || "").trim() || id : tableWord(world, id) || id;
         // §176.5: a handle is the book's name as a slug, so the handle and the node id are renamed too, once there is a word.
-        const slugs = !node || shown === id ? [] : [string(node.node_id), id].filter((value, at, all) => value && all.indexOf(value) === at);
+        // §185.7: not in a name-free campaign, whose handles carry no name; the rename there touches names only.
+        const slugs = graph.nameFree || !node || shown === id ? [] : [string(node.node_id), id].filter((value, at, all) => value && all.indexOf(value) === at);
         const names = person.names;
         for (const name of [...names, ...namePieces(names).filter(piece => !names.includes(piece)), ...slugs]) {
             // Keyed by the exact string the rename replaces: a handle normalizes to its name ("steven-knott") and is its own row.

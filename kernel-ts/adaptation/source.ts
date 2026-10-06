@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { KernelContext } from '../context.js';
 import type { LoadedModule } from '../read/campaign.js';
-import { ModuleGraph } from '../read/module-graph.js';
+import { ModuleGraph, type NodeHandles } from '../read/module-graph.js';
 import { RpcError } from '../errors.js';
 import { jsonDigest, pythonJsonDumps, parsePythonJson } from '../json.js';
 import { array, row, type Row } from '../read/values.js';
@@ -40,19 +40,20 @@ export async function snapshotSource(context: KernelContext, module: LoadedModul
     await immutable(join(root, `${digest}.json`), pythonJsonDumps(data));
     return digest;
 }
-export async function pinnedSource(context: KernelContext, digest: string): Promise<LoadedModule> {
+/** `handles` is the campaign's §185.4 map (null: legacy); the snapshot holds the book, never a campaign's handles. */
+export async function pinnedSource(context: KernelContext, digest: string, handles: NodeHandles | null = null): Promise<LoadedModule> {
     if (!/^[a-f0-9]{64}$/.test(digest)) throw new RpcError('needs', 'Invalid adaptation source binding');
     const raw = row(parsePythonJson(await readFile(join(context.stateRoot, 'adaptation-sources', `${digest}.json`), 'utf8')));
     if (jsonDigest(raw) !== digest) throw new RpcError('needs', 'Adaptation source snapshot has changed');
-    const graph = new ModuleGraph(raw.module_id, raw.raw, raw.digest, raw.dossier), ready = new Set(array(raw.ready));
+    const graph = new ModuleGraph(raw.module_id, raw.raw, raw.digest, raw.dossier, undefined, false, handles), ready = new Set(array(raw.ready));
     return {graph, meta: raw.meta, generation: raw.generation, path: raw.path, sections: array(raw.sections),
         material: name => { const node = graph.find(name); return node && ready.has(node.node_id) ? 'ready' : 'missing'; },
         asset: async name => { const node = graph.find(name); return node ? row(raw.assets)[node.node_id] ?? null : null; }};
 }
-export async function campaignModule(context: KernelContext, moduleId: string, world: Row): Promise<LoadedModule | null> {
+export async function campaignModule(context: KernelContext, moduleId: string, world: Row, handles: NodeHandles | null = null): Promise<LoadedModule | null> {
     const state = row(world.adaptation);
     if (!state.source) return null;
-    const source = await pinnedSource(context, state.source);
+    const source = await pinnedSource(context, state.source, handles);
     if (source.graph.moduleId !== moduleId) throw new RpcError('needs', 'Adaptation belongs to another module');
     const changes = adaptationChanges(world), graph = adaptedGraph(source.graph, changes);
     if (jsonDigest([state.source, state.records]) !== state.revision) throw new RpcError('needs', 'Adaptation revision has changed');

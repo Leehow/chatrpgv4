@@ -35430,3 +35430,85 @@ All tests run through the kernel in process and the installed context runtime, t
 
 (Recorded by the implementing slices: the sweep's field list, the resolution place, node-id egress points found by the
 request scan.)
+
+#### NFH-02 (2026-10-06, `claude/name-free-handles-20261006-map`; scheme, map, interim, lane methods, fold)
+
+**Status: the kernel side below is implemented and tested; two gaps found against code reality are open and block a
+name-free table from playing.** They are recorded here, not worked around (see "Open" at the end).
+
+- **Which book is reader-built.** `campaign.create` writes `handles: "name-free"` when the module is not a starter and
+  `playsFromReading(module.json)` (a `reading_version` and `source !== "starter"`: its material is published by the reading
+  lane), else `"legacy"`. The marker is read by `handleScheme` (`kernel-ts/read/node-handles.ts`); absent is legacy.
+- **Where the map enters the graph.** A seventh constructor argument, `ModuleGraph(..., nodeHandles)`: null for a legacy
+  campaign (and every graph no campaign serves), the campaign's `world.node_handles` as a map for a name-free one. The names
+  index is built in the constructor and `projectSourcePlaces` runs after it, so both read the map. `loadCampaignModule` reads
+  the scheme from `campaign.json` and the map from the world it is given (a transaction's world can be newer than the disk's);
+  `loadModule(context, id, campaign)` without a map reads both from the campaign's saved files, so the setup reads of a
+  campaign carry its scheme too; `campaign.create` passes it explicitly. `campaignModule`/`pinnedSource` take it,
+  `adaptedGraph` keeps its source's, and `Reading`'s candidate-publication graph keeps the module's.
+- **`handle()`** answers, in order: `sourcePlaceNames`, table entities, table people, table creatures, adaptation names,
+  then (name-free) the map, else the interim handle; legacy keeps the book's slug (`bookHandle`). A "book node" is a node of
+  the served graph none of those table/adaptation maps names (`isBookNode`); its kind is the book's (`bookKind`: a projected
+  location stays `location`, so its interim handle is captured as one).
+- **Input-only keys.** A name-free book node's name keys also carry its interim handle and its stripped node id (a scene's
+  `scene_id` is already one). `resolve` tries them right after an exact handle and before any name, where the slug stood
+  when it was the handle; `handleList` takes them. Nothing emits them.
+- **Internal readers that compared the slug, not `handle()`**: `sceneBeat` (a beat names its scene by `scene_id`) also takes
+  the scene's book handle in a name-free graph; a `clue_discovered` condition also matches the clue's mapped and interim
+  handle; `loadModule`'s `material(name)` also matches a name-free node's handle and interim handle.
+- **Constants.** `HANDLES_PER_JOB` 32, `HANDLE_LIMIT` 48 characters, a job's summary cut at 240 characters
+  (`HANDLE_SUMMARY_LIMIT`).
+- **`handles.job`** answers `{job_id: null}` for a legacy campaign whatever its status; for a name-free one it answers while
+  the campaign is `setting_up`, `ready_for_table` or `active` (the epithet methods' set; §176.3's wording is the same), and
+  `{job_id: null, waiting: "graph"}` while the book has no graph. Nodes are offered in the graph's order. `job_id` is
+  `handles:<campaign>:<sha12 of the ids>`. `avoid` is `namePieces` over every cast person's names (`bookCast`: the graph's
+  people with book, play and notes renderings, and the unread rows).
+- **`handles.submit`** takes `entries: [{id, handle}]` and/or `given_up: [ids]`; it answers
+  `{written: [{id, handle} | {id, given_up: true}], refused: [{id, handle, reason, message}]}`. A legacy campaign is refused
+  as a whole (`invalid_params`, `details.reason: "legacy_handles"`). The checks run in the contract's order; `interim_shape`
+  is `<kind>-<six lowercase hex>` for a kind the served graph has; `taken` compares the normalized handle with `graph.names`
+  (every name key, so another node's name, handle, interim handle or slug) and with the other nodes' handles in the file.
+  A given-up id is checked for `unknown_entity` and `settled` only. The kernel writes `{lane: "handles", event: "submitted",
+  written, given_up, refused}` to the campaign's telemetry, as `epithets.submit` does.
+- **`handles.json`** lives in the library module directory (`<state>/modules/<id>/`), or in the campaign's scope for a module
+  only the campaign has. "The library lock" is that directory's `.metadata.lock` (`withOptionalExclusiveLock`, the lock
+  §184.1 names); the file is read again inside it, so the first writer wins across processes.
+- **The fold** (`foldNodeHandles`): `<kind>-<n>` takes the smallest `n` whose normalized form no table name, adaptation name,
+  mapped handle or name key of the served graph has. `campaign.create` folds before it writes the world (`firstFold`), and
+  so does setup's first world write when the opening was not ready at creation (`startSetupWorld`). `table.open` folds right
+  after its mods are initialized, only when no turn is open, before anything reads a handle; `table.player_input` folds after
+  a stranded or opening turn is recorded and before the late maps, the person-word fold and the capsule. Either reloads the
+  module with the new map when the world changed and writes the world once.
+- **Legacy unchanged.** Every path above is gated on the map being present; a legacy graph's handles, name keys and
+  resolution are the same strings as before.
+- Tests: `tests/extension/name-free-handles.test.mjs` (the scheme at create, a campaign without the field, a starter;
+  interim handles in a new world; the job's packet; every refusal, `carries_name` by a notes rendering; first writer wins
+  across two campaigns; `given_up`; the fold at create with all three outcomes; the roster without handle rows), and the
+  frozen-vocabulary test's current-only set. Mutations, each reverted by copy: no map in `handle()`, no `carries_name`, no
+  `settled`, no fold at create, roster handle rows kept, scheme always legacy -- each turns its case red.
+
+**Open (blocking a name-free table; both need a ruling before NFH-03's lane writes handles in a real campaign).**
+
+1. **A fold changes a handle the campaign has already stored.** World state keys and lists hold `handle()` strings and many
+   readers compare them by equality (`npcsPresent`: `at !== graph.handle(scene)`; `visited_scenes`, `discovered_clues`,
+   `handouts_shown`, `person_labels`/`person_epithets`/`npc_profiles` keys, `epithets.json` keys, speech records' `who.npc`
+   in `toldTurn`, turn records' `world.scene.name` in the Director). The first campaign on a book writes its world at
+   creation with interim handles (`handles.json` is empty then), and the fold at `table.open` moves those nodes to their
+   lane handles. Measured on the fixture book (a scratch run of the real kernel): before the fold the opening scene shows
+   its person; after `handles.submit` and the fold, `world.active_scene` still resolves (input-only key) but `npc_presence`
+   is keyed by the interim handles, so `present` is empty and the opening scene is no longer in `visited_scenes`. The
+   contract's "an interim handle stays resolvable" covers references copied as input, not stored state. Options: the fold
+   rewrites the campaign's stored references from a node's interim handle to its new one (world.json keys and exact values,
+   plus the handle-keyed campaign files, listed); or a node whose interim handle the campaign has stored keeps it.
+2. **The reading layer speaks the book's handles and never sees the campaign's map.** `kernel-ts/modules/reading.ts` matches a
+   focus or a name against node ids, stripped ids, names and aliases (`materialReady`, `identityOver`, `resolveStartScene`),
+   and records foci in the shared library's metadata (`materials[].focus`, map settlements). Campaign handles reach it in
+   `setupOpeningReady(meta.opening_scene)`, the table's read-ahead focus (`world.active_scene`), `requireMaterial`'s names,
+   `queueAdjacentReading`'s `exit.to`, `queueArrivalMap`'s focus, and `module.read.request`/`module.read.ahead` foci the host
+   echoes from `details.read`. A name-free handle matches nothing there: `setup.complete` refuses a ready opening
+   (`opening_preparing`), which is what fails the reader-built fixtures of `module-cast`, `hostile-creatures`,
+   `jev-source-preparation`, `table-creature` and others. Translating the opening focus to the book handle at
+   `setupOpeningReady` and the read-ahead (an experiment, not committed) made `module-cast` pass but for its assertions that
+   pin a slug handle. Which identifier the reading layer receives from a name-free campaign (the book handle, the node id, or
+   the book's `handles.json` taught to the reading layer, ordinals being per campaign), and where the host's echoed foci are
+   translated (they also gate Jev source preparation's exact-read binding), is a design decision.

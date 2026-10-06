@@ -1,9 +1,18 @@
 /** Read-only authored graph; names and projections never change the source. */
+import { createHash } from "node:crypto";
 import { RpcError } from "../errors.js";
 import { canonicalJson, compareUnicode, isJsonObject, type JsonValue } from "../json.js";
 import { entries, values, array, row, truth, string, repr, integer, normalize, normalizeText, kebab, stripPrefix, sorted, similarity, words, chars, pick, type Row } from "./values.js";
 import { SHAPE_KINDS } from "../modules/mechanics-catalog.js";
 export const TEMPLATE_NOTE = "the book's pregenerated investigator, not at this table; the table's investigators are in the capsule's known.investigator";
+/** Contract §185.4: a name-free campaign's map from a book node's id to its handle (`world.node_handles`). */
+export type NodeHandles = ReadonlyMap<string, string>;
+/**
+ * Contract §185.4: the handle a book node shows in a name-free campaign before a fold maps it -- its kind and the first six
+ * hex digits of sha256(node id). Deterministic, so it needs no write, and it stays resolvable after the fold.
+ */
+export const interimHandle = (kind: string, nodeId: string): string =>
+    `${kind || "node"}-${createHash("sha256").update(nodeId).digest("hex").slice(0, 6)}`;
 const EXIT_KINDS = ["route-to", "play-precedes", "may-lead-to", "alternative-to", "hands-off-to"];
 const CHARACTERISTICS = new Set(["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK", "SAN"]);
 const DERIVED = new Set(["HP", "MP", "BUILD", "MOVE", "MAGIC_POINTS", "DAMAGE_BONUS", "AGE", "ARMOR"]);
@@ -123,6 +132,14 @@ export function conditionFlag(when: any): string | null {
 export function flagIsSet(flags: Row, slug: string, expected: any = null): boolean {
     return Object.hasOwn(flags, slug) && (expected != null ? flags[slug] === expected : flags[slug] !== false);
 }
+/**
+ * The handles `discovered_clues` can hold for an authored clue id: the book's slug, and in a name-free campaign (§185.4) the
+ * mapped handle and the interim one. A legacy world holds neither of the last two.
+ */
+function clueForms(world: Row, clueId: string): string[] {
+    const id = clueId.startsWith("clue-") ? clueId : `clue-${clueId}`, mapped = row(world.node_handles)[id];
+    return [stripPrefix(clueId, "clue"), ...(typeof mapped === "string" ? [mapped] : []), interimHandle("clue", id)];
+}
 export function conditionStatus(when: any, world: Row): boolean | null {
     const flags = row(world.flags);
     if (typeof when === "string") {
@@ -134,7 +151,7 @@ export function conditionStatus(when: any, world: Row): boolean | null {
     if (when.kind === "always")
         return true;
     if (when.kind === "clue_discovered")
-        return array(world.discovered_clues).includes(stripPrefix(string(when.clue_id ?? ""), "clue"));
+        return clueForms(world, string(when.clue_id ?? "")).some(handle => array(world.discovered_clues).includes(handle));
     const slug = conditionFlag(when);
     if (slug != null)
         return flagIsSet(flags, slug, when.value);
@@ -248,11 +265,20 @@ export class ModuleGraph {
     readonly tableEntityNames = new Map<string, string>();
     readonly sourcePlaceNames = new Map<string, string>();
     readonly moduleNode: Row | null;
+    /** §185.4: each book node's kind as the book gave it (a projected location stays a location) and its interim handle. */
+    private readonly bookKinds = new Map<string, string>();
+    private readonly interims = new Map<string, string>();
+    /**
+     * `nodeHandles` is a name-free campaign's map (contract §185.4), passed at construction so the names index and the source
+     * place projection both read it; null for a legacy campaign and for a graph no campaign serves.
+     */
     constructor(readonly moduleId: string, readonly raw: Row, readonly digest: string, readonly dossier: Row,
-        readonly semanticNames: ReadonlyMap<string, string> = new Map(), readonly campaignView = false) {
+        readonly semanticNames: ReadonlyMap<string, string> = new Map(), readonly campaignView = false,
+        readonly nodeHandles: NodeHandles | null = null) {
         const append = (map: Map<string, Row[]>, key: string, value: Row) => map.set(key, [...(map.get(key) ?? []), value]);
         for (const node of array(raw.nodes)) {
             this.nodes.set(node.node_id, node);
+            this.bookKinds.set(node.node_id, typeof node.node_kind === "string" ? node.node_kind : "");
             append(this.byKind, node.node_kind, node);
         }
         for (const rel of array(raw.relations)) {
@@ -274,7 +300,43 @@ export class ModuleGraph {
     }
     nameKeys(node: Row): string[] {
         const record = recordOf(node);
-        return [node.node_id, this.handle(node), node.name || "", ...array(node.aliases), ...["display_name", "name", "scene_id", "title"].map(k => record[k]).filter(v => typeof v === "string")].filter(Boolean);
+        return [node.node_id, this.handle(node), node.name || "", ...array(node.aliases), ...["display_name", "name", "scene_id", "title"].map(k => record[k]).filter(v => typeof v === "string"),
+            ...this.inputOnlyKeys(node)].filter(Boolean);
+    }
+    /**
+     * Contract §185.4: in a name-free campaign a book node also answers to its interim handle and to the slug the book's words
+     * made (the stripped node id), so a reference the Keeper copied before a fold, or one internal code wrote with a slug, still
+     * resolves. Input only: nothing emits these. Empty in a legacy campaign, where the slug is the handle.
+     */
+    private inputOnlyKeys(node: Row): string[] {
+        if (!this.nodeHandles || !this.isBookNode(node))
+            return [];
+        return [this.interimHandle(node), stripPrefix(string(node.node_id), this.bookKind(node))];
+    }
+    /** §185.1: whether this graph serves a name-free campaign. */
+    get nameFree(): boolean {
+        return this.nodeHandles !== null;
+    }
+    /** §185.4: a node the book has -- not a person, place, clue or creature this table established, nor one an adaptation minted. */
+    isBookNode(node: Row | null | undefined): boolean {
+        const id = string(node?.node_id);
+        return this.bookKinds.has(id) && !this.tableNames.has(id) && !this.tableEntityNames.has(id) && !this.tableCreatureNames.has(id) && !this.semanticNames.has(id);
+    }
+    /** The node's kind as the book gave it: a source location projected into a scene (§22.6) is still a location here. */
+    bookKind(node: Row): string {
+        return this.bookKinds.get(string(node.node_id)) ?? string(node.node_kind);
+    }
+    /** §185.4: the node's interim handle, `<kind>-<six hex>`. */
+    interimHandle(node: Row): string {
+        const id = string(node.node_id);
+        let value = this.interims.get(id);
+        if (value === undefined)
+            this.interims.set(id, value = interimHandle(this.bookKind(node), id));
+        return value;
+    }
+    /** The handle the book's own words give a node: a scene's `scene_id`, else its node id without the kind (the old slug). */
+    bookHandle(node: Row): string {
+        return node.node_kind === "scene" && typeof recordOf(node).scene_id === "string" ? recordOf(node).scene_id : stripPrefix(node.node_id, node.node_kind);
     }
     /**
      * What `search` matches on: the name keys plus the place names the module authored. A Keeper
@@ -356,7 +418,9 @@ export class ModuleGraph {
         if (this.tableNames.has(node.node_id)) return this.tableNames.get(node.node_id)!;
         if (this.tableCreatureNames.has(node.node_id)) return this.tableCreatureNames.get(node.node_id)!;
         if (this.semanticNames.has(node.node_id)) return this.semanticNames.get(node.node_id)!;
-        return node.node_kind === "scene" && typeof recordOf(node).scene_id === "string" ? recordOf(node).scene_id : stripPrefix(node.node_id, node.node_kind);
+        // §185.4: a name-free campaign shows its map's handle, else the interim one; never the book's slug.
+        if (this.nodeHandles) return this.nodeHandles.get(node.node_id) ?? this.interimHandle(node);
+        return this.bookHandle(node);
     }
     /**
      * A person this table has and the book does not.
@@ -498,6 +562,13 @@ export class ModuleGraph {
             exact = [...this.nodes.values()].filter(n => wanted(n.node_id) && key === normalize(this.handle(n)));
         if (exact.length === 1)
             return exact[0];
+        // §185.4: in a name-free campaign the identifiers a legacy handle used to be (node id, interim handle, old slug) come
+        // next, before any name, as the slug did when it was the handle.
+        if (this.nodeHandles) {
+            const identified = [...this.nodes.values()].filter(n => wanted(n.node_id) && [n.node_id, ...this.inputOnlyKeys(n)].some(value => normalize(value) === key));
+            if (identified.length === 1)
+                return identified[0];
+        }
         const ambiguous = (ids: string[]) => markAmbiguity(new RpcError("unknown_entity", `${what} ${repr(name)} is ambiguous`, {
             fix: "use one of details.candidates by its exact name",
             details: {
@@ -882,7 +953,8 @@ export class ModuleGraph {
         return array(recordOf(threat).clocks).map(row).find(clock => [clock.clock_id, clock.id, clock.name].some(value => typeof value === "string" && normalize(value) === normalize(clockId))) ?? null;
     }
     sceneBeat(scene: Row): Row | null {
-        return this.kind("beat").map(recordOf).find(r => r.scene_id === this.handle(scene)) ?? null;
+        // A beat names its scene by the book's slug, which in a name-free campaign (§185.4) is no longer the scene's handle.
+        return this.kind("beat").map(recordOf).find(r => r.scene_id === this.handle(scene) || (this.nodeHandles !== null && r.scene_id === this.bookHandle(scene))) ?? null;
     }
     /** Canonical clue-owned metadata, with the old conclusion table retained as a fallback. */
     clueProfile(node: Row): Row {
@@ -1114,7 +1186,7 @@ export class ModuleGraph {
         const nodes: Row[] = [];
         for (const word of words) {
             const key = normalize(word),
-                matches = [...this.nodes.values()].filter(node => [node.node_id, this.handle(node)].some(value => normalize(value) === key));
+                matches = [...this.nodes.values()].filter(node => [node.node_id, this.handle(node), ...this.inputOnlyKeys(node)].some(value => normalize(value) === key));
             if (!matches.length)
                 return null;
             // A handle two nodes share (`knott-commission` is a clue and a quest) answers with both,
