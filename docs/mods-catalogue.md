@@ -108,18 +108,18 @@ The index concerns the first two slots. Everything else already reaches its cons
 
 **Reads.** `mods.thread` (lines, connections, reentry), `known.clues_here`, `obligations` (quests), `where.endings`. **Writes.** `apply clue`, `apply flag` to waive a scene obligation, `lookup adaptation / continuity`, `apply adaptation`.
 
-## 6. Historical Reference (`historical-reference` 1.0.10, default on; host setting `exa_api_key`)
+## 6. Historical Reference (`historical-reference` 1.1.0, default on; host setting `exa_api_key`)
 
-**What it is.** Period background and prices for the Keeper, retrieved by the host for the scene and selected by Jev; the Keeper's own lookup only for a missing specific detail.
+**What it is.** Original period background and prices, retrieved through focused questions and selected by Jev. Exact and analogous searches retain their actual source limits; fresh price baselines separate retail prices from hourly wages. An evidence gap can prepare Deep-lite originals in the background for later local reuse.
 
-**Contributes.** `instructions` 3.3 KB, `brief` 60 B.
+**Contributes.** `instructions` 5.0 KB in five declared sections; no separate brief or generated-answer source.
 
 **Sections (blocks).**
-- *The library and the host's lookup* (two blocks, 1.1 KB) — `lookup kind=historical_reference` modes (auto, saved, catalog, read); the host hands `historical_reference_materials` to the first writing step; fold one or two details in, unannounced. Due when materials were handed to this step or a specific detail is missing.
-- *Setting vs reference; ordinary play* (two blocks, 1.1 KB) — the authored era is the scenario's; borrow appearance and practice, keep the scenario's names and institutions; no lecture, no new checks or fees. Every turn, as bounds.
-- *Prices* (0.5 KB) — establish a period scale once, estimate from it; arithmetic and Spending Level stay the kernel's. Due when a price, wage, fare, rent or menu comes up, and before the Keeper writes `cash`.
-- *Price challenge* (0.4 KB) — only an actual player challenge to a quotation permits targeted checking. Due when the player disputes a quoted price.
-- *Closure* (0.3 KB) — when retrieval is closed for this input, finish from what came back. Due on the host's closure.
+- *The reference library* — focused exact/analogy questions, local reuse and optional background originals; the host hands `historical_reference_materials` to the first writing step. Resident.
+- *Setting and reference* — the authored era is the scenario's; borrow compatible appearance and practice while retaining the source's actual limits and the scenario's names and institutions. Resident.
+- *Prices* — separate retail and hourly-wage baselines, then estimate from saved anchors; arithmetic and Spending Level stay the kernel's. Due when a price, wage, fare, rent or menu comes up, and before the Keeper writes `cash`.
+- *A disputed price* — only an actual player challenge to a quotation permits targeted checking. Due when the player disputes a quoted price.
+- *When retrieval is closed* — finish from what came back. Resident.
 
 **Reads.** `historical_setting`, `historical_reference_materials`. **Writes.** `lookup kind=historical_reference`.
 

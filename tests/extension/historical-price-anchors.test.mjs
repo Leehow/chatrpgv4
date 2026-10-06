@@ -26,7 +26,7 @@ async function fixture(t) {
         : {status: 'answered', type: 'choice', choice: 'analogous'}]))};
   };
   const env = {[EXA_ENV]: 'fixture-exa', TYPESAFE_API_KEY: 'fixture-jev'};
-  const create = (patch = {}) => new HistoricalReference({home, env, decide, fetcher: async (_url, init) => {
+  const create = (patch = {}) => new HistoricalReference({home, env, background:false, decide, fetcher: async (_url, init) => {
     requests.push(JSON.parse(init.body));
     return Response.json({results: [{title: 'Representative Boston prices, 1920', url: 'https://example.org/1920-prices', highlights: [excerpt]}]});
   }, ...patch});
@@ -52,7 +52,7 @@ test('one baseline funds many different quotations, including forced web attempt
   const restored = await f.create({env: {TYPESAFE_API_KEY: 'fixture-jev'}}).search({...f.input,
     binding: 'reopened', turn: 6, query: '1920 Boston taxi fare', allowed: false});
   assert.equal(restored.status, 'ready');
-  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests.length, 2);
   const list = await f.create({env: {}}).search({...f.input, query: '', reference_mode: 'catalog'});
   assert.equal(list.catalogue[0].price_anchor, true);
 });
@@ -62,14 +62,14 @@ test('a concrete player challenge permits a targeted item check, but a query can
   const ordinary = await f.create().search({...f.input, binding: 'ordinary', query: 'The player disputes a 1920 coffee quote; search the exact price',
     player_input: 'I order coffee.', reference_mode: 'web'});
   assert.equal(ordinary.pricing.strategy, 'estimate_from_anchors');
-  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests.length, 2);
   assert.equal(f.batches.findLast(b => b.questions.some(q => q.key === 'price_disputed')).state.player_input, 'I order coffee.');
   f.control.challenge = true;
   const checked = await f.create().search({...f.input, binding: 'challenge', turn: 3, query: 'Boston 1920 coffee menu price',
     player_input: 'Ten dollars for coffee in 1920? That quotation seems wrong; check it.', reference_mode: 'web'});
   assert.equal(checked.pricing.strategy, 'check_challenged_quote');
   assert.equal(checked.origin, 'web');
-  assert.equal(f.requests.length, 2);
+  assert.equal(f.requests.length, 3);
   assert.equal(f.requests.at(-1).query, 'Boston 1920 coffee menu price');
 });
 
@@ -80,7 +80,7 @@ test('no anchor does not authorize an ordinary item search; a different market m
   f.control.kind = 'price_anchor'; await f.create().search(f.input);
   f.control.compatible = false;
   await f.create().search({...f.input, binding: 'other-market', query: '1880 London representative wages and everyday price anchors', context: {period: '1880', region: 'London'}});
-  assert.equal(f.requests.length, 2);
+  assert.equal(f.requests.length, 4);
 });
 
 test('unqualified excerpts do not become anchors and an unavailable policy spends no Exa credit', async t => {
@@ -92,7 +92,7 @@ test('unqualified excerpts do not become anchors and an unavailable policy spend
   f.control.unavailable = true;
   const blocked = await f.create().search({...f.input, binding: 'policy-failed', query: 'another baseline', reference_mode: 'web'});
   assert.equal(blocked.reason, 'search_policy_unavailable');
-  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests.length, 2);
 });
 
 test('legacy price packets are qualified from their originals without another search', async t => {
@@ -106,7 +106,7 @@ test('legacy price packets are qualified from their originals without another se
   const result = await f.create().search({...f.input, binding: 'legacy', query: '1920 Boston hat price'});
   assert.equal(result.pricing.strategy, 'estimate_from_anchors');
   assert.equal(result.materials[0].price_anchor, true);
-  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests.length, 2);
 });
 
 test('a prior estimated-item query does not turn an unrelated anchor into exact evidence for a later challenge', async t => {
@@ -117,7 +117,7 @@ test('a prior estimated-item query does not turn an unrelated anchor into exact 
   const result = await f.create().search({...f.input, binding: 'check', query,
     player_input: 'That hat quotation seems wrong. Please check it.'});
   assert.equal(result.origin, 'web');
-  assert.equal(f.requests.length, 2);
+  assert.equal(f.requests.length, 3);
 });
 
 test('saved anchors survive many newer non-price references in the bounded candidate window', async t => {
@@ -130,5 +130,5 @@ test('saved anchors survive many newer non-price references in the bounded candi
   const result = await f.create().search({...f.input, binding: 'later', query: '1920 Boston general price and wage anchors after a long investigation', reference_mode: 'web'});
   assert.deepEqual(result.materials[0].excerpts, [excerpt]);
   assert.equal(result.reason, 'price_anchor_reused');
-  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests.length, 2);
 });

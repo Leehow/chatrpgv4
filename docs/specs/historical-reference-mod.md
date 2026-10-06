@@ -1,8 +1,28 @@
 # 历史参考 Mod：主守秘人直接检索，Jev 筛选，Exa 密钥在右侧设置
 
-Status: **Mod 1.0.7 source includes selected preparation and has genuine in-fiction scene/NPC evidence for the Herald and Cold Harvest PDFs. Earlier reference-question runs remain invalid-for-acceptance for natural enrichment; their failures are retained. Fictional-canon/style selection has controlled service evidence, not a fictional-country live-module pass. The approved repair is committed and merged into 0.9.6a. The sole canonical App now ships 1.0.7, is signed with PipiUI Dev, and has native CUA version/switch/credential persistence acceptance.**
+Status: **Mod 1.1.0 implements focused questions, scoped exact/analogy retrieval and optional background Deep-lite originals. Its source checks and service probes are recorded below; this slice does not claim new installed-App or live-Keeper acceptance.**
+
+Earlier acceptance, Mod 1.0.7: selected preparation has genuine in-fiction scene/NPC evidence for the Herald and Cold Harvest PDFs. Earlier reference-question runs remain invalid-for-acceptance for natural enrichment; their failures are retained. Fictional-canon/style selection has controlled service evidence, not a fictional-country live-module pass. That repair was committed and merged into 0.9.6a, then packaged with PipiUI Dev signing and native CUA version/switch/credential persistence acceptance.
 
 Tracker: [GitHub #110](https://github.com/Leehow/chatrpgv4/issues/110), labelled `ready-for-agent`.
+
+## Approved focused-search execution record — 2026-10-06
+
+**Objective:** Give the Keeper useful original historical evidence quickly, retain honest period/place limits, and prepare difficult missing evidence in the background. A clean generated report without supported originals is not completion.
+
+**Approved scope:** The existing Exa/Jev historical host, scene query lane, lookup/scene wiring, durable reference packets, Historical Reference instructions and focused regression checks. Implement the three improvements approved in this chat. Photography, provider switching, generated-answer authority, purchase rules and unrelated timeline work are excluded.
+
+**Baseline:** Mainline `0.9.7a`, source `86995f478`; Historical Reference 1.0.10. Concurrent timeline edits are preserved. Implementation uses task-owned `codex/historical-search-20261006` in `/Users/haoli/.codex/worktrees/historical-search-20261006`.
+
+**Steps:** Contract first; focused exact/analogy plans and split price baselines; bounded background Deep-lite with original-only selection/persistence and later consumption; focused tests and LAN runtime checks; serial source integration preserving concurrent edits; lifecycle audit/closeout. App packaging and live-Keeper acceptance remain separate.
+
+**Evidence:** The preceding API research found Exa Deep-lite preserves original highlights, while generated research answers could misstate region, period or table columns. [Exa Deep protocol](https://exa.ai/docs/search/deep-search) confirms `systemPrompt`, original `results`, and optional synthesis via `outputSchema`. This slice omits generated synthesis. Existing Jev and scope/cancellation rules remain controlling.
+
+**Validation:** All 78 scoped checks passed, including seven real Pi/TypeScript-kernel request seams, focused retrieval/persistence/cancellation tests, scene reuse and system-language guards. The final runtime build passed on the LAN box and its output was fetched. An earlier full extension run was interrupted after concurrent suites overloaded the shared box; it is not a green full-suite result. Its in-scope failures were fixed and verified by the scoped run. Two independent baseline failures remain outside this slice: the control-flow inventory omits existing OpenAI Fast test calls, and Game Clock lacks the scoped-package capability required by the package-boundary check. No baseline was edited.
+
+**Service evidence:** A real Exa/Jev probe returned scoped regional originals in 1843 ms and separate retail/wage originals in 1492 ms. A difficult archive lookup returned empty in 1519 ms and continued bounded Deep-lite in the background; Deep-lite also found no qualified original, so no invented detail was stored. These are three service samples, not a latency distribution, Keeper play or installed-App acceptance. Evidence and check logs are retained outside the disposable worktree at `/Users/haoli/Documents/Codex/2026-10-06/historical-search-implementation/`.
+
+**State:** Source implementation and validation are complete. The accepted mainline commit and owned-worktree closeout are recorded in the retained evidence directory's `delivery.json`. No installed App was replaced by this slice.
 
 本规格综合 2026-09-30 的讨论与当前 `0.9.6a` 实现调查。用户已确认验收链路：右侧 Mod 设置保存 Exa key → 真实守秘人按需检索 → Jev 筛选 → 正文实际融入材料，并测量增加的等待；代表场景为报社、档案馆和物价。最初仅交付规格；用户随后明确授权实现，当前进度与尚未通过的验收见文末。
 

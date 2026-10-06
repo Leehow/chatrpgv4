@@ -3,6 +3,14 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {checkHistoryQuery, describeHistoryQuery, createHistoryQueryLane, HISTORY_QUERY_MAX, HISTORY_OBJECTIVE_MAX} from '../../runtime/jev/history-query.ts';
 
+test('focused exact and analogous questions remain separate and bounded in the existing lane answer', () => {
+  const plan=[{query:'What did a West Texas store sell in 1975?',scope:'exact',focus:'context'},
+    {query:'How did other rural Texas stores operate in the 1970s?',objective:'A labelled same-period regional analogy.',scope:'analogous',focus:'context'}];
+  assert.deepEqual(checkHistoryQuery({query:'How did a 1975 country store operate?',objective:'Concrete source-backed daily practices.',reference_queries:plan}).reference_queries,plan);
+  for(const reference_queries of [[],[...plan,plan[0]],[{query:'q',scope:'target-region-facts'}],[{query:'q',scope:'exact',focus:'invent_prices'}]])
+    assert.equal(checkHistoryQuery({query:'q',objective:'o',reference_queries}),undefined);
+});
+
 test('the lane\'s answer is two nonempty strings within the search\'s bounds, trimmed; anything else is no answer', () => {
   assert.deepEqual(checkHistoryQuery({query: ' 1975 West Texas general store ', objective: ' How such a store looked then. '}),
     {query: '1975 West Texas general store', objective: 'How such a store looked then.'});

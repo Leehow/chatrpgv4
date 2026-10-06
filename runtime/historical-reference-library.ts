@@ -4,6 +4,7 @@ import {mkdir, readdir, readFile, writeFile, link, rm, stat} from 'node:fs/promi
 import {join} from 'node:path';
 import type {ScopeBinding, Json} from './jev/contracts.ts';
 import type {HistoryMaterial} from './historical-reference.ts';
+import {checkReferenceQueries} from './historical-reference-plan.ts';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const namespace = (scope: ScopeBinding) => [scope.campaign ?? scope.owner, scope.worldline ?? 'main', scope.loop ?? 0];
@@ -11,6 +12,7 @@ export const materialIdentity = (row: HistoryMaterial) => digest([row.url, row.t
 export interface SavedReference extends HistoryMaterial {
   name: string; queries: string[]; saved_at: string; prior_applicability: string | null;
   price_anchor: boolean;
+  previously_selected: boolean;
 }
 export interface ReferenceInventory {entries: SavedReference[]; unreadable: number}
 interface ReferencePacket {
@@ -18,6 +20,7 @@ interface ReferencePacket {
   saved_at: string; materials: HistoryMaterial[]; selection: Record<string, string>;
   origin: 'library' | 'query_cache' | 'web';
   price_anchors?: string[];
+  selected_originals?: string[];
 }
 function validMaterial(row: any): row is HistoryMaterial {
   if (!row || typeof row.title !== 'string' || typeof row.url !== 'string' || typeof row.retrieved_at !== 'string'
@@ -25,6 +28,7 @@ function validMaterial(row: any): row is HistoryMaterial {
     || !(row.published_at === null || typeof row.published_at === 'string') || !Array.isArray(row.excerpts)
     || row.excerpts.length < 1 || row.excerpts.length > 3
     || !row.excerpts.every((part: unknown) => typeof part === 'string' && part.trim() && Buffer.byteLength(part) <= 6000)) return false;
+  if (row.search !== undefined && (!checkReferenceQueries([row.search]) || !['fast','deep-lite'].includes(row.search.method))) return false;
   try {const url = new URL(row.url); return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password;} catch {return false;}
 }
 export class HistoricalReferenceLibrary {
@@ -38,9 +42,9 @@ export class HistoricalReferenceLibrary {
       context: input.context, saved_at: new Date().toISOString(), materials,
       origin: options?.origin ?? 'web',
       selection: options?.decisions ?? Object.fromEntries(selected.map(row => [materialIdentity(row), row.applicability])),
-      price_anchors: selected.filter(row => row.price_anchor === true).map(materialIdentity)};
+      price_anchors: selected.filter(row => row.price_anchor === true).map(materialIdentity), selected_originals: selected.map(materialIdentity)};
     const directory = this.directory(input.scope);
-    const key = digest([packet.scope, packet.query, packet.objective, packet.context, packet.origin, materials.map(materialIdentity), packet.selection, packet.price_anchors]);
+    const key = digest([packet.scope, packet.query, packet.objective, packet.context, packet.origin, materials.map(materialIdentity), packet.selection, packet.price_anchors, packet.selected_originals]);
     const path = join(directory, `${key}.json`), temporary = `${path}.${randomUUID()}.tmp`;
     await mkdir(directory, {recursive: true});
     try {
@@ -61,6 +65,8 @@ export class HistoricalReferenceLibrary {
         if (packet?.version !== 1 || digest(packet.scope) !== digest(namespace(scope)) || typeof packet.query !== 'string'
           || typeof packet.saved_at !== 'string' || !Array.isArray(packet.materials) || packet.materials.length > 10
           || !packet.materials.every(validMaterial)
+          || (packet.selected_originals !== undefined && (!Array.isArray(packet.selected_originals)
+            || !packet.selected_originals.every((id: unknown) => typeof id === 'string' && packet.materials.some((row: HistoryMaterial) => materialIdentity(row) === id))))
           || (packet.price_anchors !== undefined && (!Array.isArray(packet.price_anchors)
             || !packet.price_anchors.every((id: unknown) => typeof id === 'string' && packet.materials.some((row: HistoryMaterial) => materialIdentity(row) === id))))) {unreadable++; continue;}
         packets.push(packet);
@@ -74,9 +80,10 @@ export class HistoricalReferenceLibrary {
         if (!prior.queries.includes(packet.query)) prior.queries.push(packet.query);
         if (packet.selection?.[id]) prior.prior_applicability = packet.selection[id];
         if (packet.price_anchors?.includes(id)) prior.price_anchor = true;
+        if (packet.selected_originals?.includes(id)) prior.previously_selected = true;
       } else entries.set(id, {...row, name: `${row.title || 'Saved historical reference'} (${row.url}; ${row.retrieved_at})`,
         queries: [packet.query], saved_at: packet.saved_at, prior_applicability: packet.selection?.[id] ?? null,
-        price_anchor: packet.price_anchors?.includes(id) ?? false});
+        price_anchor: packet.price_anchors?.includes(id) ?? false, previously_selected: packet.selected_originals?.includes(id) ?? false});
     }
     return {entries: [...entries.values()], unreadable};
   }

@@ -16,7 +16,7 @@ const decision = async batch => contextPolicy(batch) ?? ({status:'complete', ans
 async function fixture(t, overrides={}) {
   const home=await mkdtemp(join(tmpdir(),'coc-history-')); t.after(()=>rm(home,{recursive:true,force:true}));
   const requests=[], records=[];
-  const service=new HistoricalReference({home,env,decide:decision,fetcher:async(url,init)=>{
+  const service=new HistoricalReference({home,env,background:false,decide:decision,fetcher:async(url,init)=>{
     requests.push({url,init}); return Response.json(raw);
   },record:e=>records.push(e),...overrides});
   const input={binding:'test:main:1',scope:{owner:'history-test',audience:'keeper',campaign:'test'},turn:1,enabled:true,allowed:true,
