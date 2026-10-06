@@ -209,6 +209,10 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
     const turnKey = investigator(actor) ? '' : `:r${round}`;
     if (kind === 'combat') {
       const bound: Record<string, Json> = {intent: decision === 'combat:flee' ? 'flee' : 'combat', decision, ...actorField(actor), ...words(actor, decision)};
+      // Keep the receipt binding in the host-only basis; route and bind questions need no runtime choice name.
+      const choice = decision === 'combat:flee' && investigator(actor) && pendingChoice.kind === 'mechanics'
+        && answering.includes(text(pendingChoice.name)) && strings(pendingChoice.options).includes('flee')
+        ? {pending: text(pendingChoice.name), option: 'flee'} : undefined;
       const unbound: Unbound[] = [];
       const attackRow = actions.find(value => value.decision === 'combat:attack');
       for (const [name, options] of [['target', strings(action.targets)], ['weapon', decision === 'combat:maneuver' ? strings(attackRow?.weapons) : strings(action.weapons)]] as const) {
@@ -234,7 +238,7 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
       }
       if (investigator(actor) && unbound.some(value => value.required && value.vocabulary === 'open')) continue;
       const described = [bound.target ? `at ${label(String(bound.target))}` : '', bound.weapon ? `with ${String(bound.weapon)}` : ''].filter(Boolean).join(' ');
-      own.push({...base, key: `resolve:${decision}:${actor}${turnKey}`, label: `${label(actor)}: ${decision}${described ? ` ${described}` : ''}`, bound, unbound,
+      own.push({...base, ...(choice ? {basis: {...basis, choice}} : {}), key: `resolve:${decision}:${actor}${turnKey}`, label: `${label(actor)}: ${decision}${described ? ` ${described}` : ''}`, bound, unbound,
         ...composedWords(actor)});
     } else {
       const bound: Record<string, Json> = {intent: 'flee', decision, ...actorField(actor), ...words(actor, decision)};
@@ -576,8 +580,9 @@ export function keeperCall(candidate: Candidate, extra: Record<string, Json> = {
     const dice = {bonus_dice: DICE[String(bonus)] ?? 0, penalty_dice: DICE[String(penalty)] ?? 0};
     if (dice.bonus_dice || dice.penalty_dice) rest.modifiers = {...object(rest.modifiers), ...dice, reason: typeof goal === 'string' && goal ? goal : 'the player\'s declaration'};
   }
-  // A choice answer names the option it settles: the bound closed parameter it answers with (the defence).
-  const answered = choice && typeof choice === 'object' ? {choice: {...choice, ...(rest.defense !== undefined && choice.option === undefined ? {option: rest.defense} : {})}} : {};
+  // A flight's host-only receipt binding joins the call here, after semantic selection. A defence binds its closed option.
+  const binding = choice ?? object(candidate.basis).choice;
+  const answered = binding && typeof binding === 'object' ? {choice: {...binding, ...(rest.defense !== undefined && binding.option === undefined ? {option: rest.defense} : {})}} : {};
   return {tool: 'resolve', args: {action: {...rest, decision, ...(actor ? {actor} : {}), ...(target ? {target} : {}), ...answered,
     goal: typeof goal === 'string' ? goal : '', method: typeof method === 'string' ? method : ''}}};
 }

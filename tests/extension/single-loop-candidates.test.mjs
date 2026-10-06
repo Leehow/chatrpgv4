@@ -274,6 +274,53 @@ test("the player's answer to a choice that was already open settles that choice;
 	assert.deepEqual(args.action.choice, { pending: "defense:knott-r4", option: "dodge" });
 });
 
+test("a selected flight answers the existing mechanics choice and lands its choice and combat-end receipts", async (t) => {
+	const { call } = kernel(t);
+	const { turn, n } = await knottsTurn(call, "fights_to_the_end");
+	await call("table.apply", { call_id: `t${turn}-c${n}`, effects: [{ kind: "npc", name: "Steven Knott", action: "hold", why: "He hesitates." }] });
+	const before = await reads(call);
+	assert.equal(before.resolveOptions.context.session.turn_of, "thomas-hayes");
+	const asked = await call("table.ask", { call_id: `t${turn}-c${n + 1}`, kind: "mechanics", options: ["accept", "flee"], binds: "combat:investigator-turn", text: "The doorway is open while he hesitates." });
+	const input = "I choose to flee the fight through the open doorway.";
+	const opened = await call("table.player_input", { text: input });
+	const state = await reads(call);
+	const pending = asked.pending_choice.name;
+	const candidates = buildCandidates({ ...state, answering: [pending] }, input);
+	const flight = candidates.find(candidate => candidate.bound.decision === "combat:flee");
+	assert.ok(flight);
+	assert.equal(flight.forced, undefined, "the issued choice alone does not select an escape");
+	const { args } = keeperCall(flight);
+	const settled = await call("table.resolve", { call_id: `t${opened.turn}-c1`, ...args });
+	const status = await call("table.status");
+	assert.ok(status.receipts.some(receipt => receipt.kind === "session" && receipt.family === "combat" && receipt.transition === "end" && receipt.outcome === "fled"), JSON.stringify(settled));
+	assert.ok(status.receipts.some(receipt => receipt.kind === "choice" && receipt.pending === pending && receipt.option === "flee"), "the flight must consume the choice through the kernel's existing binding");
+	const after = await reads(call);
+	assert.equal(after.resolveOptions.context.session, null);
+	assert.equal(after.resolveOptions.context.pending_choice, null, "the answered choice must not survive the ended fight");
+	assert.deepEqual(args.action.choice, { pending, option: "flee" });
+});
+
+test("flight choice binding ignores stale, fresh, story and unissued choices without forcing the flight", () => {
+	const session = { kind: "combat", status: "active", round: 4, turn_of: "tom", pending_defense: null,
+		actions: [{ decision: "combat:flee", actor: "tom" }], participants: [{ name: "tom", label: "Tom", side: "investigator" }] };
+	const choice = { name: "escape-r4", kind: "mechanics", options: ["accept", "flee"] };
+	const build = (pending_choice, answering) => buildCandidates({ capsule: {}, applyOptions: {}, resolveOptions: { context: { session, pending_choice } }, answering }, "I leave the fight.").find(candidate => candidate.bound.decision === "combat:flee");
+	for (const [pending, answering] of [[choice, []], [choice, ["old-escape"]], [{ ...choice, name: "new-escape" }, [choice.name]],
+		[{ ...choice, kind: "story" }, [choice.name]], [{ ...choice, options: ["accept"] }, [choice.name]]]) {
+		const flight = build(pending, answering);
+		assert.equal(keeperCall(flight).args.action.choice, undefined);
+		assert.equal(flight.forced, undefined);
+	}
+	const answered = build(choice, [choice.name]);
+	assert.deepEqual(keeperCall(answered).args.action.choice, { pending: choice.name, option: "flee" });
+	assert.equal(answered.forced, undefined);
+	assert.equal(actGated(answered, []), true, "an unselected offered escape remains gated");
+	const view = initialView({ runId: "flight-choice", rawInput: "I leave the fight.", context, candidates: [answered], readFirst: false });
+	const modelState = JSON.stringify([routeBatch(view, scope, []).batch.state, bindBatch(view, answered, scope, []).state]);
+	assert.ok(!modelState.includes(choice.name), "runtime choice identity stays outside Jev's semantic questions");
+	assert.ok(!modelState.includes('"choice"'), "receipt attachment does not prime a semantic selection");
+});
+
 /** Knott's own turn after his dodge, with a Keeper-written disposition (or none): the state SL-08 reads. */
 async function knottsTurn(call, disposition) {
 	const turn = await fight(call);

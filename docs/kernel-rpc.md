@@ -21716,6 +21716,18 @@ the path and the row itself. The kernel's own tags, such as `authority: availabl
 appear only inside `basis`. A key consumed this turn, whether the host or the Keeper carried it out, is never
 offered again.
 
+**JEV-OPEN-03 choice binding (2026-10-06).** When the investigator's selected `combat:flee` answers a mechanics choice
+already open at the run's player-input boundary, and that same pending choice still lists `flee`, the candidate carries
+`action.choice: {pending: <current pending name>, option: "flee"}` into the ordinary `table.resolve` transaction. The kernel's
+existing `bindChoice` consumes it and records the choice receipt alongside the flight's normal receipts. This attachment
+stays in the host-only candidate `basis` until `keeperCall` builds the operation; runtime choice identity is absent from
+the route and closed-bind questions. The pending name is a receipt binding, never a semantic selection cue. It
+does not select or force the candidate: compile, route, admission, initiative and flight rules remain authoritative. A
+choice opened later, a stale name, a story choice, a choice without `flee`, or an NPC's act carries no such attachment.
+The current-source RPC regression covers choice issuance, input, selected candidate, binding and combat-end receipts.
+The historical turn-600 refusal and the turn-1539 to turn-1541 compile decisions remain separate evidence; this binding
+repair does not establish that those historical refusals or semantic decisions are reproduced or fixed.
+
 **SO-04 seam.** In SL-02 `obligationCandidates(reads)` returned nothing. SO-04 (2026-09-23) fills it: §135.26 says what
 the scene obligations of `docs/specs/scene-obligations-as-candidates.md` issue (clerk authority (e), `obligation_check`
 precedence, `guarded_by` withheld, `reaction: "preordained"`).
