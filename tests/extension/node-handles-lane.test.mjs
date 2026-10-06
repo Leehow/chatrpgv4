@@ -318,3 +318,47 @@ test("§185.5: before the campaign exists, a book a reading published is named i
 	lane.emit("coc:session-bound", { campaign: "camp", mode: "setup", play_language: "en" });
 	await waitFor(() => lane.calls("handles.job").filter((call) => call.params.campaign).length === 5, { label: "the campaign form after creation" });
 });
+
+/** A book of six jobs: each `handles.job` offers a fresh part until the sixth is named. */
+function sixJobs(form = "campaign") {
+	let jobs = 0;
+	return {
+		jobs: () => jobs,
+		respond: (context) => reply(askedNodes(context).map((node) => ({ key: node.key, handle: `named-${node.key}` }))),
+		rpc: async (method, params) => {
+			if (method === "handles.job" && form === "library" && params.campaign) throw kernelError("campaign_not_found", "no campaign 'camp'");
+			if (method === "handles.job") return ++jobs <= 6 ? { ...PACKET, job_id: `handles:part:${jobs}` } : { job_id: null };
+			if (method === "handles.submit") return { written: params.entries.map(({ id, handle }) => ({ id, handle })), refused: [] };
+			return {};
+		},
+	};
+}
+
+test("§185.5: during character creation nobody waits, and one trigger names the whole book", async (t) => {
+	const book = sixJobs();
+	const lane = await openLane(t, { mode: "setup", respond: book.respond, rpc: book.rpc });
+	await waitFor(() => lane.rounds().length === 6, { label: "six rounds from the initial job alone" });
+	await waitFor(() => lane.calls("handles.job").length === 7, { label: "the job that answers job_id null" });
+	assert.deepEqual(lane.rounds().map((row) => row.job_id), [1, 2, 3, 4, 5, 6].map((part) => `handles:part:${part}`));
+});
+
+test("§185.5: a book named in the library form is named whole in one trigger, at a table too", async (t) => {
+	const book = sixJobs("library");
+	const lane = await openLane(t, { mode: "play", respond: book.respond, rpc: book.rpc });
+	await waitFor(() => lane.calls("handles.job").length === 1, { label: "the initial job, no campaign yet" });
+	lane.emit("coc:source-published", { module_id: "book-4" });
+	await waitFor(() => lane.rounds().length === 6, { label: "six library rounds from one publication" });
+	assert.ok(lane.rounds().every((row) => row.form === "library" && row.module === "book-4"));
+});
+
+test("§185.5: at a table a trigger asks four jobs, and the next trigger goes on", async (t) => {
+	const book = sixJobs();
+	const lane = await openLane(t, { mode: "play", respond: book.respond, rpc: book.rpc });
+	await waitFor(() => lane.rounds().length === 4, { label: "the initial job's four rounds" });
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	assert.equal(lane.rounds().length, 4, "a turn's background work stays small");
+	assert.equal(lane.calls("handles.job").length, 4);
+	lane.commit(1);
+	await waitFor(() => lane.calls("handles.job").length === 7, { label: "the committed turn names the rest" });
+	assert.equal(lane.rounds().length, 6);
+});

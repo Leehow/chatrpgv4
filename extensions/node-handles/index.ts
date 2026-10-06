@@ -15,8 +15,8 @@
  * committed turn; when a reading publishes (`coc:source-published`, which catches nodes landed between turns); and when setup
  * creates the campaign (`coc:session-bound`). Before `campaign.create`, or before setup writes a campaign's first world, the
  * campaign form has nothing to answer, and a book a publication named is asked in the library form (`{module}`) instead, so
- * `campaign.create`'s fold can already take its handles. A big book comes in parts, a few jobs per trigger, one after another:
- * jobs hold no lease, so two at once would offer the same nodes.
+ * `campaign.create`'s fold can already take its handles. Jobs run one after another (they hold no lease, so two at once would
+ * offer the same nodes): at a table a few per trigger; in setup and in the library form until the book is named.
  *
  * One retry per node the kernel refused for its handle, or the model left unanswered: alone, with the refusal in the kernel's
  * own words. Refused again, unanswered again, or the model failing or late on that retry, and the node is written as
@@ -25,12 +25,18 @@
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { runLane } from "../lanes/subsession.ts";
+import { cocMode } from "../lanes/host.ts";
 import { createLaneQueue, type KernelCall, type LaneJob } from "../lanes/queue.ts";
 import { createLaneTelemetry } from "../lanes/telemetry.ts";
 
 const MODEL_ENV = "PI_COC_HANDLES_MODEL";
-/** Jobs per trigger: a book larger than one job (`HANDLES_PER_JOB` nodes) is named in parts, the rest by the next trigger. */
-const ROUNDS = 4;
+/**
+ * Jobs per trigger at a table: a book larger than one job (`HANDLES_PER_JOB` nodes) is named in parts, the rest by the next
+ * trigger, so a turn's background work stays small. During character creation and in the library form nobody waits on the
+ * lane, and it runs until the book is named: each round settles every node it asks (written, given up, or settled by
+ * another writer), so the jobs are bounded by the book's size, and a book is named once for every campaign on it.
+ */
+const TABLE_ROUNDS = 4;
 /** Retries in flight at once, each its own completion; bounded so one bad round cannot fan out across the provider. */
 const RETRY_CONCURRENCY = 3;
 /** Past these a completion is late: a whole job's answer, and one node's retry. */
@@ -190,11 +196,15 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	/** Up to ROUNDS jobs of one form, one after another. Rows go to the bound campaign's telemetry, the library form's too. */
+	/**
+	 * Jobs of one form, one after another: at most TABLE_ROUNDS at a table, else until the book is named or a round settles
+	 * nothing. Rows go to the bound campaign's telemetry, the library form's too.
+	 */
 	async function runForm(target: Target, campaign: string, turn: Row, call: KernelCall): Promise<FormOutcome> {
 		const form: Row = "module" in target ? { form: "library", module: target.module } : { form: "campaign" };
 		const note = (row: Row) => telemetry.record(campaign, { ...turn, ...form, ...row });
-		for (let round = 0; round < ROUNDS; round += 1) {
+		const rounds = "module" in target || cocMode() === "setup" ? Infinity : TABLE_ROUNDS;
+		for (let round = 0; round < rounds; round += 1) {
 			if (scheduler.stopped) return "more";
 			let packet: HandlePacket;
 			try {
