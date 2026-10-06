@@ -32,7 +32,7 @@ export function bindCashQuote(context:Pick<ApplyContext,'world'|'graph'>,given:R
     if(given.mode==='quote'||given.quote===undefined)return {effect:given,quote:null};
     if(typeof given.quote!=='string'||!given.quote.trim())throw new RpcError('invalid_params','quote must name a registered offer');
     const quote=array(context.world.cash_quotes).find(value=>value.subject===subject&&normalize(string(value.name))===normalize(given.quote));
-    if(!quote||quote.settled)throw new RpcError('needs','This quote is missing or already settled',{
+    if(!quote||quote.settled||quote.cancelled)throw new RpcError('needs','This quote is missing or already closed',{
         fix:quote?.settled?'This offer was already settled. Do not pay it again or drop its binding to repeat the expense; a genuinely new expense needs its own chosen scope and terms.':given.items!==undefined?'For a fresh complete priced expense, omit quote and use bill for its local name; settle the chosen service directly under ordinary admission. quote reuses a saved offer, it does not name a new bill. Do not register a preliminary offer just to complete a chosen covered service.':'Register a new offer with mode quote, items and a human-readable quote name before another payment.',
         details:{field:'quote',quote:given.quote}});
     for(const key of ['category','currency','with','source','price_id'])if(given[key]!==undefined&&normalize(string(given[key]))!==normalize(string(quote[key])))

@@ -476,6 +476,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             }
             const material = module.material(graph.scene(staged.active_scene).node_id);
             const result: Row = { receipts: ids, markers: markersOf({ ...turn, receipts: [...array(turn.receipts), ...receipts] }, receipts), world: { active_scene: staged.active_scene, clock: staged.clock }, material_ready: material === 'ready', material };
+            const paidCash=receipts.filter(receipt=>receipt.kind==='cash'&&receipt.settlement!=='quote');
+            if(paidCash.length)result._cash_settlements=paidCash;
             const cashQuotes=receipts.filter(receipt=>receipt.kind==='cash'&&receipt.settlement==='quote');
             if(cashQuotes.length)result.cash_quotes=cashQuotes.map(receipt=>({quote:receipt.quote,purchase_amount:receipt.purchase_amount,items:receipt.items,currency:receipt.currency,category:receipt.category,with:receipt.with_label,purpose:receipt.why}));
             // §11.5.5 (SL-59): the lines this batch could not land alone, beside the ones that did (line-level, §32.12.3's shape).

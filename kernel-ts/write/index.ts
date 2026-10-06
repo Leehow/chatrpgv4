@@ -53,7 +53,7 @@ import {eventOf} from '../worldline/index.js';
 import type {createWorldlineRuntime} from '../worldline/index.js';
 import { owedIntents } from '../npc/owed.js';
 import { namedRepeats, speakerThreads } from '../npc/threads.js';
-import {quotationDrafts,quotationScope,pendingQuotation,quotationRecords} from '../runtime/quotes.js';
+import {quotationDrafts,quotationScope,pendingQuotation,quotationRecords,discloseCashRequests} from '../runtime/quotes.js';
 import {bindPriceText,priceRows} from '../../shared/cash-prose.js';
 export { createTurnTransaction } from './store.js';
 export { CampaignWriter } from './store.js';
@@ -1159,8 +1159,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if(truth(turn.worldline))throw new RpcError('invalid_params','a turn that forks or switches the worldline cannot be closed by ask',{fix:"close this turn with narrate; ask on the new line's first turn",details:{worldline:row(turn.worldline).operation??null}});
         const receipts = [...array(turn.receipts)];
         const askSpeakers = speakerResolver(module.graph, snapshot.world, snapshot.party, await untoldAt(snapshot, module.graph));
+        const askPrices=bindPriceText(text??'',priceRows(receipts,params.quotes));
         // §103.8: a name the fiction says is the book's, put in here; the Keeper never held it.
-        const gated = text ? await untoldNamesGate(snapshot, campaign, turn, module.graph, text, askSpeakers, started.callId, false, clearedPlaces(params.untold_cleared)) : null;
+        const gated = text ? await untoldNamesGate(snapshot, campaign, turn, module.graph, askPrices.text, askSpeakers, started.callId, false, clearedPlaces(params.untold_cleared)) : null;
         const asked = gated ? withNames(gated.text, askSpeakers, module.graph) : null;
         const { placed, ...delivery } = deliveryText(asked ? asked.text : text, receipts, askSpeakers);
         await refuseRepeatedLine(snapshot, campaign, delivery.speech);
@@ -1174,6 +1175,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             kind
         };
         const rendered = delivery.rendered_text, projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts), snapshot.world), labels = await playerGlossary(context, language);
+        const quoteDrafts=quotationDrafts(params.quotes,n,snapshot.meta,snapshot.party);
+        discloseCashRequests(quoteDrafts,params._cash_requests,{world:snapshot.world,graph:module.graph},snapshot.party);
+        projected.push(...quoteDrafts.map(pendingQuotation));
         const standing = standingStates(snapshot.party, receipts);
         const result: Row = {
             pending_choice: pending,
@@ -1195,6 +1199,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const world = tableSnapshot(snapshot, module.graph), record = {
             ...deliveryRecord(turn, text, receipts, result, world),
             closed_by: 'ask',
+            ...(quoteDrafts.length?{quote_drafts:quoteDrafts,quote_scope:quotationScope(snapshot.meta)}:{}),
+            ...(askPrices.bound.length||askPrices.unresolved.length?{price_template:text,price_bindings:askPrices.bound,unresolved_prices:askPrices.unresolved}:{}),
             closed_how: 'explicit',
             director_adoption: await adoption(campaign, module, turn, world, 'ask', snapshot.world),
             ...(reads.length ? { reads } : {})
@@ -1334,6 +1340,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         report?.('validate');
         const projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts), snapshot.world), n = number(turn.turn), receipt = `turn:${n}`, world = tableSnapshot(snapshot, module.graph);
         const quoteDrafts=reference?[]:quotationDrafts(params.quotes,n,snapshot.meta,snapshot.party);
+        if(!reference)discloseCashRequests(quoteDrafts,params._cash_requests,{world:snapshot.world,graph:module.graph},snapshot.party);
         projected.push(...quoteDrafts.map(pendingQuotation));
         if(quoteDrafts.length && !delivery.marked_text)delivery.marked_text=text;
         // The public record the verifier reads beside the Keeper-only list (contract §32.6): the two deliveries before this one.

@@ -288,7 +288,7 @@ const CashEffect = Type.Object({
 	...IntentResult,
 	kind: StringEnum(["cash"] as const, { description: "record an exact itemized quote, settle a chosen purchase under the living-standard/daily-spending rules, or transfer actual cash" }),
 	bill: Type.Optional(Type.String({maxLength:200,description:"local bill name for price references in closing prose: {{price:NAME:unit}}, {{price:NAME:quantity}}, {{price:NAME:total}}. Multi-line bills use {{price:NAME:1:unit}}. Supply items once; never write a second price in prose. This is not a saved quote name. Write effects before embedded narrate for early bound price display"})),
-	mode: Type.Optional(StringEnum(["quote", "settle"] as const, {description:"settle (default) completes a chosen expense. quote registers an unchosen offer synchronously; prefer narrate.quotes for ordinary offers so prose does not wait. Use synchronous quote only when another operation needs its exact result before delivery. Quoting does not pay or transfer items"})),
+	mode: Type.Optional(StringEnum(["quote", "settle", "cancel"] as const, {description:"settle (default) completes a chosen expense. quote registers an unchosen offer synchronously; prefer narrate.quotes for ordinary offers so prose does not wait. cancel withdraws a pending bill or unaccepted quote only when the player cancelled it; give its bill or quote name, omit amount/items, and do not deliver its goods. It never reverses a payment. Quoting does not pay or transfer items"})),
 	quote: Type.Optional(Type.String({maxLength:200,description:"human-readable offer name. With mode quote this names the offer being registered; with settle it reuses that saved offer's exact terms and computed amount once, so omit delta/items/source/category/with/currency unless unchanged"})),
 	category: Type.Optional(StringEnum(["living", "purchase", "transfer"] as const, {description:"required for a negative price/quote: living is ordinary accommodation, food or incidental travel within the investigator's living standard; purchase is additional daily spending, including an incidental gratuity when appropriate; transfer is actual non-purchase cash movement. Make the contextual judgement, never use the purchase amount alone to classify it. The kernel chooses whether any cash is debited"})),
 	items: Type.Optional(Type.Array(PricedLine,{minItems:1,maxItems:24,description:"quoted priced lines; write unit_price as an exact decimal string. The kernel multiplies quantity by unit_price and sums exactly. Omit delta to use that total. A saved quote already contains its lines"})),
@@ -867,6 +867,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 
 			options: Type.Array(Type.String(), { minItems: 2, description: "Mechanics: only push, spend_luck, accept, flee. Never ask for combat defense: the host uses the investigator's standing preference, and an NPC defends by its pending_defense.standing. Never automatically ask after a failed roll." }),
 			binds: Type.Optional(Type.String({ description: "the name of the pending choice this binds to" })),
+			quotes: QuotationDrafts,
 			workpad_patch: WorkpadPatch,
 		}),
 	},

@@ -31,8 +31,10 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
             for(const [index,effect] of params.cash_effects.entries()){
                 if(!isJsonObject(effect))throw new RpcError('invalid_params','Each preview effect must be an object');
                 if(effect.kind==='cash'){
-                    const {receipt}=await stageCash(cashContext,effect,sheets);
-                    previews.push({index,...Object.fromEntries(['subject_label','quote','category','settlement','living_standard','purchase_amount','spending_level','daily_total','delta','before','after','currency'].filter(key=>Object.hasOwn(receipt,key)).map(key=>[key,receipt[key]]))});
+                    let receipt:Row;
+                    try{receipt=(await stageCash(cashContext,effect,sheets)).receipt;}
+                    catch(error){if(!(error instanceof RpcError))throw error;throw new RpcError(error.code,error.message,{fix:error.fix,details:{...error.details,cash_index:index}});}
+                    previews.push({index,...Object.fromEntries(['subject','subject_label','with','with_label','quote','category','settlement','living_standard','items','purchase_amount','spending_level','daily_total','delta','before','after','currency'].filter(key=>Object.hasOwn(receipt,key)).map(key=>[key,receipt[key]]))});
                 }else if(['time','move'].includes(string(effect.kind))&&params.cash_effects.slice(index+1).some(value=>isJsonObject(value)&&value.kind==='cash')){
                     if(effect.kind==='time'&&typeof effect.minutes==='number'&&Number.isInteger(effect.minutes)&&effect.minutes>=0&&!effect.band&&!effect.until&&!effect.stated){
                         world.clock={...row(world.clock),minutes:number(row(world.clock).minutes)+effect.minutes};
