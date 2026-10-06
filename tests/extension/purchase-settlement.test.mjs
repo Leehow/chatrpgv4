@@ -200,3 +200,17 @@ test('background quotes from another worldline are stale and write no state',asy
   assert.deepEqual((await game.call('quotes.flush')).turns,[]);
   assert.deepEqual(await game.world(),before);
 });
+test('cancelled offers cannot be repaid or resurrected by an older deferred quotation',async t=>{
+  const game=await table(t),before=(await game.sheet()).finance.cash.amount;
+  await game.call('narrate',{call_id:'t1-c1',text:'The clerk offers the bill.',quotes:[draft]});
+  await game.call('player_input',{text:'I cancel that offer.'});
+  await game.call('apply',{call_id:'t2-c1',effects:[{kind:'cash',mode:'cancel',bill:draft.quote,why:'Cancel the unaccepted offer'}]});
+  const late=await game.call('quotes.flush',{turn:1});
+  assert.equal(Object.values(late.quotes)[0].quote_status,'cancelled');
+  assert.equal((await game.world()).cash_quotes?.length??0,0);
+  assert.equal((await game.sheet()).finance.cash.amount,before);
+  await game.call('apply',{call_id:'t2-c2',effects:[{...draft,kind:'cash',mode:'quote'}]});
+  await game.call('apply',{call_id:'t2-c3',effects:[{kind:'cash',mode:'cancel',quote:draft.quote}]});
+  await assert.rejects(game.call('apply',{call_id:'t2-c4',effects:[{kind:'cash',quote:draft.quote}]}),e=>e.code==='needs');
+  assert.equal((await game.sheet()).finance.cash.amount,before);
+});

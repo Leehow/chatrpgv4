@@ -14,6 +14,7 @@ import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
 import {addCash,cashDecimal,cashStorage,cashText,compareCash} from './cash.js';
 import {bindCashQuote,expenseCategory,expenditure,purchaseItems,storedCash} from './purchases.js';
+import {decimalSpelling} from '../../shared/cash-decimal.js';
 import type {ApplyContext} from './index.js';
 export type CashContext=Pick<ApplyContext,'kernel'|'world'|'graph'|'turn'|'callId'|'ordinal'|'mint'> & {campaign:{party():Promise<readonly Row[]>}};
 type Int=number|bigint;
@@ -131,7 +132,19 @@ async function cashSource(context:CashContext,effect:Row,heldCurrency:string,sub
 export async function stageCash(context:CashContext,effect:Row,staged:Map<string,Row>):Promise<StagedEffect>{
     const mode=effect.mode??'settle';
     if(effect.bill!==undefined && (typeof effect.bill!=='string'||!effect.bill.trim()||effect.bill.length>200))throw new RpcError('invalid_params','bill must be a nonempty local transaction name of at most 200 characters');
-    if(mode!=='quote'&&mode!=='settle')throw new RpcError('invalid_params','cash mode must be quote or settle');
+    if(mode!=='quote'&&mode!=='settle'&&mode!=='cancel')throw new RpcError('invalid_params','cash mode must be quote, settle or cancel');
+    if(mode==='cancel'){
+        const name=typeof effect.quote==='string'?effect.quote:effect.bill;
+        if(typeof name!=='string'||!name.trim()||['delta','items','stated','settlement'].some(key=>effect[key]!==undefined))throw new RpcError('invalid_params','A cancellation needs bill or quote and no amount, items or settlement');
+        const sheet=await stagedSheet(context,staged,effect.subject),id=string(sheet.id),cash=row(row(sheet.finance).cash);
+        const quote=array(context.world.cash_quotes).find(q=>q.subject===id&&normalize(string(q.name))===normalize(name));
+        if(quote?.settled)throw new RpcError('needs','A paid purchase cannot be cancelled',{fix:'A refund is a separately established cash transfer, never a reversed receipt.'});
+        if(effect.quote&&!quote)throw new RpcError('needs','There is no unaccepted quote with this name');
+        if(quote)quote.cancelled=true;
+        const cancelled=array(context.world.cash_quote_cancellations).filter(q=>q.subject!==id||normalize(string(q.name))!==normalize(name));
+        cancelled.push({subject:id,name,turn:number(context.turn.turn)});context.world.cash_quote_cancellations=cancelled;
+        return {receipt:{id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,subject:id,subject_label:personLabel(context.world,id,string(sheet.name)),before:cash.amount??null,after:cash.amount??null,delta:0,currency:cash.currency??null,settlement:'cancelled',quote_status:'cancelled',...(effect.bill?{bill:effect.bill}:{}),...(quote?{quote:quote.name}:{}),why:effect.why??null,at:nowIso()},event:null};
+    }
     if(mode==='quote'&&effect.source===undefined)effect={...effect,source:effect.price_id!==undefined?'price':'quote'};
     const requested=effect.settlement;
     if(requested!==undefined&&requested!=='cash'&&requested!=='spending_level')throw new RpcError('invalid_params','settlement must be cash or spending_level');
@@ -170,10 +183,13 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
         if(!priced||typeof effect.quote!=='string'||!effect.quote.trim()||category==='transfer'||effect.owed)
             throw new RpcError('invalid_params','A quote needs items, a quote name, a price source and a living or purchase category');
         const name=effect.quote.trim(),amount=storedCash(priced.total),withName=otherName||null;
+        let quoteFields:Row={};
+        try{const preview=expenditure(context,finance,category,purchase);quoteFields={...preview.fields,cash_debit:storedCash({coefficient:-preview.delta.coefficient,exponent:preview.delta.exponent})};}
+        catch(error){if(!(error instanceof RpcError)||error.code!=='needs')throw error;}
         const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:personLabel(context.world,id,subject),before,after:before,delta:0,
-            category,settlement:'quote',quote:name,...(effect.bill?{bill:effect.bill}:{}),purchase_amount:amount,items:priced.items,currency,with:otherId,with_label:otherLabel,...sourced,why,at:nowIso()};
+            ...quoteFields,category,settlement:'quote',quote:name,...(effect.bill?{bill:effect.bill}:{}),purchase_amount:amount,items:priced.items,currency,with:otherId,with_label:otherLabel,...sourced,why,at:nowIso()};
         const quotes=array(context.world.cash_quotes).filter(value=>value.subject!==id||normalize(string(value.name))!==normalize(name));
-        quotes.push({name,subject:id,category,purchase_amount:amount,items:priced.items,currency,with:withName,...sourced,why,settled:null,origin_turn:number(context.turn.turn)});
+        quotes.push({name,subject:id,category,purchase_amount:amount,items:priced.items,currency,with:withName,with_id:otherId,...(quoteFields.cash_debit!==undefined?{cash_debit:quoteFields.cash_debit}:{}),...sourced,why,settled:null,origin_turn:number(context.turn.turn)});
         context.world.cash_quotes=quotes;
         return {receipt,event:null};
     }
@@ -187,7 +203,7 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
     if(requested==='spending_level'&&(category!=='purchase'||decimalDelta.coefficient>=0n))throw new RpcError('invalid_params','spending_level is only a purchase settlement');
     if(requested==='spending_level'&&effectiveDelta.coefficient<0n)throw new RpcError('needs','The daily purchase total is above Spending Level',{fix:'Disclose the full cash debit and wait for the player to accept it or use an existing applicable delegation, then omit settlement.',details:{spending_level:covered.fields.spending_level,daily_total:covered.fields.daily_total,cash_debit:storedCash({coefficient:-effectiveDelta.coefficient,exponent:effectiveDelta.exponent})}});
     const decimalAfter=addCash(decimalBefore,effectiveDelta);
-    if(decimalAfter.coefficient<0n)throw new RpcError('invalid_params',`${subject} has ${string(before)} ${currency}; cannot lose ${cashText({coefficient:-effectiveDelta.coefficient,exponent:effectiveDelta.exponent})}`,{fix:'a smaller purchase, or narrate the debt without a cash receipt',details:{before,delta,currency,...(category!=='transfer'?{purchase_amount:covered.fields.purchase_amount,cash_debit:storedCash({coefficient:-effectiveDelta.coefficient,exponent:effectiveDelta.exponent})}:{})}});
+    if(decimalAfter.coefficient<0n)throw new RpcError('invalid_params',`${subject} has ${string(before)} ${currency}; cannot lose ${cashText({coefficient:-effectiveDelta.coefficient,exponent:effectiveDelta.exponent})}`,{fix:'Keep an unaffordable purchase incomplete. Do not claim payment or remove its cash line while delivering its purchased goods. A smaller scope or credit arrangement needs its own established terms.',details:{before,delta,currency,with:otherId,with_label:otherLabel,...(category!=='transfer'?{purchase_amount:covered.fields.purchase_amount,cash_debit:storedCash({coefficient:-effectiveDelta.coefficient,exponent:effectiveDelta.exponent})}:{})}});
     const after=cashStorage(decimalAfter);
     if(after===null)throw new RpcError('invalid_params','cash result cannot be represented without rounding',{fix:'use an amount that can be stored exactly, or keep this amount as a whole-number cash receipt',details:{before,delta,currency}});
     const actualDelta=cashStorage(effectiveDelta);if(actualDelta===null)throw new RpcError('internal','cash delta could not be represented');
@@ -196,6 +212,19 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
     const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:personLabel(context.world,id,subject),before,after,delta:actualDelta,
         ...covered.fields,...(effect.bill?{bill:effect.bill}:{}),...(priced?{items:priced.items}:{}),...(bound.quote?{quote:bound.quote.name}:{}),with:otherId,with_label:otherLabel,currency,...sourced,why,at:nowIso()};
     if(bound.quote)bound.quote.settled=receipt.id;
+    if(typeof effect._purchase_quote==='string'){
+        const name=effect._purchase_quote,offer=array(context.world.cash_quotes).find(q=>q.subject===id&&normalize(string(q.name))===normalize(name));
+        if(offer&&!offer.settled&&!offer.cancelled&&priced){
+            const prior=purchaseItems(offer.items);
+            const signature=(items:Row[],quantities:boolean)=>JSON.stringify(items.map(i=>[normalize(string(i.name)),...(quantities?[cashText(cashDecimal(i.quantity)!)]:[]),typeof i.unit_price==='string'?cashText(decimalSpelling(i.unit_price)!):cashText(cashDecimal(i.unit_price)!)]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
+            if(offer.currency===currency&&signature(prior.items,false)===signature(priced.items,false)){
+                if(signature(prior.items,true)===signature(priced.items,true)){offer.settled=receipt.id;receipt.quote=name;}
+                else offer.cancelled=true;
+            }
+        }
+        const closed=array(context.world.cash_quote_cancellations).filter(q=>q.subject!==id||normalize(string(q.name))!==normalize(name));
+        closed.push({subject:id,name,turn:number(context.turn.turn),paid_receipt:receipt.id});context.world.cash_quote_cancellations=closed;
+    }
     return category!=='transfer'&&effectiveDelta.coefficient===0n
         ?{receipt,event:{type:'purchase-settled',data:{subject:id,amount:covered.fields.purchase_amount,settlement:covered.fields.settlement,...(covered.fields.spending_level!==undefined?{spending_level:covered.fields.spending_level}:{}),currency,why,...(other?{with:context.graph.handle(other)}:{})}}}
         :{receipt,event:{type:'resource-changed',data:{resource:'cash',subject:id,before,after,delta:actualDelta,why,...(other?{with:context.graph.handle(other)}:{})}}};

@@ -39,6 +39,7 @@ import {
 import { ADMISSION_ROLES_FAMILY, admissionRolesBindings, runAdmissionRoles } from "../../runtime/jev/admission-roles-domain.ts";
 import { admissionTypedBudget, type AdmissionTypedBudget } from "../../runtime/jev/host-budgets.ts";
 import { COMPILE_PREDICATES } from "../../runtime/jev/route-compile.ts";
+import {decimalSpelling,compareCash,cashText} from '../../shared/cash-decimal.js';
 
 /** The closed set of verdicts; anything else is `bad_output`. The first three admit, the last two refuse. */
 export const ADMITTING_VERDICTS: ReadonlySet<string> = new Set(["authorized", "entailed", "not_player_action"]);
@@ -93,6 +94,7 @@ export interface AdmissionVerdict {
 	missing?: string;
 	/** A rejected representation of an already chosen act; never authorization. */
 	recovery?: "correct_proposal";
+	cash_limits?: Array<{index:number;amount:number|string;basis:'price'|'input'|'offer'|'delegation'|'none';evidence:string;category?:'living'|'purchase'}>;
 	/** Which reviewer gave this verdict (§32.10); absent on verdicts from before the typed route. */
 	reviewer?: AdmissionReviewer;
 	/** Whose verdict stood (§32.11, §32.12), kept so a reused row names it too. */
@@ -181,6 +183,7 @@ export function typedSettles(proposal: AdmissionProposal, typed: AdmissionJevRes
 
 /** One proposal put to review: the tool, a host-owned reuse key, and the lines the reviewer reads. */
 export interface AdmissionProposal {
+	cash?: Record<string,any>;
 	tool: "resolve" | "apply";
 	/** Canonical form of what is proposed, for verdict reuse within a turn; never shown to a model. */
 	key: string;
@@ -408,7 +411,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [], ...(scope.cash ? {cash:scope.cash} : {}) });
 		// The key stays the whole batch's (§32.4); the lines are only the reviewed effects (§32.12.3).
 		return { tool: "apply", key, lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown,
-			signatures: lineSignatures };
+			signatures: lineSignatures, ...(scope.cash?{cash:{...scope.cash,previews:(Array.isArray(scope.cash.previews)?scope.cash.previews:[]).flatMap((row:any)=>shown.includes(row.index)?[{...row,index:shown.indexOf(row.index)}]:[])}}:{}) };
 	}
 	return null;
 }
@@ -456,6 +459,9 @@ export function admissionSystemPrompt(): string {
 		"When an immediately preceding declaration is labeled unfinished, its turn ended without a Keeper delivery and the action was not thereby withdrawn. Read it together with the current words: a bare request to continue may resume it; current words may instead narrow, replace or withdraw it. The unfinished declaration is context, not automatic authorization. Judge that relationship semantically.",
 		"Explicit limits on money, quantity, duration and scope are binding. Compare proposed debits and commitments with the chosen limit; do not round a budget upward, add a deposit, buy extra nights, or use an earlier offer to override the latest choice. A request for one night with a budget of 2.50 does not authorize a debit of 3.00 described as a deposit or two nights. A goal such as lodging authorizes only its chosen scope. If a proposed value exceeds a stated limit, answer not_authorized and identify both values in grounds; the Keeper's why cannot make the excess entailed.",
 		"For a cash proposal, registered_cash_context.previews carries the kernel-computed actual delta beside purchase_amount. Use that actual debit for cash-budget consent; do not add the ledger yourself or substitute the item's price. A price of 1 can debit 11 when earlier covered spending reaches the daily limit. A zero actual delta is covered bookkeeping for the chosen expense, not a new cash commitment.",
+		"When an actual debit exceeds purchase_amount, an admitting verdict MUST carry cash_limits for that preview index: {index,amount,basis,evidence,category?}. amount is the maximum cash commitment accepted, never copied from the proposed debit. basis price accepts only the established merchandise price; the host caps it there. basis input requires an exact phrase in the current player input that explicitly accepts a cash amount. basis delegation requires exact earlier player words explicitly granting that cash budget. basis none grants zero. Never infer a larger debit from asking to buy, accepting a smaller item price, or earlier similar purchases. evidence is verbatim, not your explanation. Cash-limit indexes use the separate cash authority table below.",
+		"basis offer may cite the exact quote name in the registered quotes only when the current player accepts the full prior quotation card INCLUDING its separate cash_debit, not merely the NPC goods price. The host caps it at that previously issued cash requirement. An offer made this turn is not earlier disclosure. For example an accepted old one-dollar NPC price is basis price amount 1, not input amount 3 or offer amount 3. Include cash_limits in the JSON when required, e.g. [{index:0,amount:\"1\",basis:\"price\",evidence:\"the exact accepted-price words\"}].",
+		"Judge living versus additional spending in the CURRENT purpose, not the last purchase's category. Routine personal refreshments, food, lodging and incidental travel may be living-standard coverage; buying additional goods for others is not made living by the goods' names. If the proposed category misrepresents that chosen ordinary expense, use recovery correct_proposal and identify the proper category; do not ask the player to authorize an avoidable debit. Category is contextual semantic judgment, never an item-name classifier.",
 		"Structured quotation drafts in narrate.quotes or beside apply's closing prose are also offers only, outside the proposed action lines. They cannot turn a proposed move or conversation into a purchase; judge the actual proposed effects, without importing an unproposed payment from their offer context. Cash mode=quote only records the Keeper's priced offer: it spends no money and transfers no object, so it is Keeper bookkeeping, not player acceptance. For a payment, category=living claims ordinary food, accommodation or incidental travel within the investigator's established living standard; judge this contextual claim, never accept an unrelated luxury or transfer as living expenses. Category=purchase is additional daily spending: the kernel enforces the current day's cumulative limit and charges its full total when exceeded, accounting for cash already charged. Coverage never authorizes an unchosen item or service. A covered chosen expense does not need an earlier price disclosure or a second confirmation. Still judge whether the player chose the service, item or activity itself. Actual cash commitments still need disclosed accepted terms or applicable delegation. A player's explicit request to pay the price the NPC names is a delegation, while asking the price alone is not. Do not invent or recompute a saved quote's amount.",
 		"Only for an actual cash debit, surrender of possessions or other new resource commitment, find terms in what the player was told and subsequently accepted, or a still-valid delegation. A chosen service with kernel-previewed zero actual cash delta needs no earlier price disclosure or second confirmation. 'Fill it up' chooses filling the tank; judge that full service, not an unproposed extra purchase. For an actual five-dollar cash debit, that request before any quote does not accept the price; accepting an earlier five-dollar quote does. A source price, affordability, custom or the Keeper's rationale is not consent. Quoting a price in the same delivery as an actual debit is too late. Routine time and effort of the chosen covered service stay entailed. An unchosen service or meaningful new scope still needs the player's choice. Without acceptance or delegation for actual cash commitments, answer not_authorized, or uncertain if genuinely unclear, and identify the missing acceptance.",
 		"An object pickup or transfer is a real proposed action, even beside definition or usage preparation. A usage describes the chosen way an object will be used; preparing it must not invent an attack the player only contemplated. Choosing to take a chair and swing it entails the necessary pickup and parameter preparation, not a different target or method. A different object's or usage's permission is not reusable. Pure owned-equipment adoption and same-owner state recording are bookkeeping; an NPC's own initiative remains not_player_action. Preparing parameters does not settle the attack or grant an extra action.",
@@ -471,6 +477,7 @@ export function admissionSystemPrompt(): string {
 		"You judge the choice, never the result: do not ask that the player knew or approved hidden dangers, surprises or outcomes. A short, quiet or plain reply is still a reply — read what it says. An action already refused this turn and proposed again in other words is the same action.",
 		"Answer with one JSON object only, no code fence and no explanation:",
 		'{"verdict":"authorized"|"entailed"|"not_player_action"|"not_authorized"|"uncertain","grounds":"<=200 chars: the words you relied on","missing":"<only for not_authorized or uncertain: the choice the player has not made, <=160 chars, as a plain description of the choice, not a menu>"}',
+		"For an admitting cash verdict whose actual debit exceeds the goods price, include cash_limits in that same JSON object: [{index:0,amount:\"3\",basis:\"offer\",evidence:\"the exact prior quote name\"}]. For explicit cash acceptance instead use basis input and copy the exact current player phrase as evidence. An authorized verdict without cash_limits cannot settle that larger debit. This field is required here, not optional commentary.",
 		"Only for a refused representation of an already chosen act, include recovery: correct_proposal instead of missing. Never include recovery on an admitting verdict.",
 		"Write grounds and missing in English: they are read by the Keeper, who writes to the player in the player's own language. Quote the player's words as they are.",
 	].join("\n");
@@ -519,6 +526,7 @@ export function buildAdmissionInput(proposal: AdmissionProposal, context: Admiss
 		...(proposal.beside?.lines.length ? [BESIDE_HEADING, proposal.beside.lines.map((line) => `- ${line}`).join("\n"), ""] : []),
 		"[The Keeper now proposes]",
 		proposal.lines.map((line) => `- ${line}`).join("\n"),
+		...(proposal.cash?['','[Cash authority table: accepted cash limits refer to these indexes]',JSON.stringify(proposal.cash.previews),'[Previously registered quotations, not acceptance by themselves]',JSON.stringify(proposal.cash.quotes)]:[]),
 	].join("\n");
 }
 
@@ -531,7 +539,47 @@ export function shapeVerdict(parsed: unknown): AdmissionVerdict | undefined {
 	const grounds = typeof row.grounds === "string" ? row.grounds.trim().slice(0, 300) : "";
 	const missing = typeof row.missing === "string" && row.missing.trim() ? row.missing.trim().slice(0, 240) : undefined;
 	if (row.recovery !== undefined && (row.recovery !== "correct_proposal" || ADMITTING_VERDICTS.has(verdict) || missing !== undefined)) return undefined;
-	return { verdict, grounds, ...(missing ? { missing } : {}), ...(row.recovery === "correct_proposal" ? {recovery: "correct_proposal" as const} : {}) };
+	let limits:AdmissionVerdict['cash_limits'];
+	if(row.cash_limits!==undefined){
+		if(!Array.isArray(row.cash_limits)||row.cash_limits.length>24)return;
+		limits=[];
+		for(const raw of row.cash_limits){
+			if(!raw||typeof raw!=='object')return;const limit=raw as Record<string,any>,amount=decimalSpelling(typeof limit.amount==='number'?String(limit.amount):limit.amount);
+			if(!Number.isSafeInteger(limit.index)||limit.index<0||!amount||amount.coefficient<0n||!['price','input','offer','delegation','none'].includes(limit.basis)||typeof limit.evidence!=='string'||limit.evidence.length>1000||limit.category!==undefined&&!['living','purchase'].includes(limit.category))return;
+			limits.push({index:limit.index,amount:limit.amount,basis:limit.basis,evidence:limit.evidence,...(limit.category?{category:limit.category}:{})});
+		}
+	}
+	return { verdict, grounds, ...(missing ? { missing } : {}), ...(row.recovery === "correct_proposal" ? {recovery: "correct_proposal" as const} : {}), ...(limits?{cash_limits:limits}:{}) };
+}
+
+/** The semantic reviewer chooses accepted terms; exact arithmetic bounds their financial authority. */
+export function boundCashAuthority(proposal:AdmissionProposal,context:AdmissionContext,verdict:AdmissionVerdict):AdmissionVerdict{
+  if(!ADMITTING_VERDICTS.has(verdict.verdict))return verdict;
+  for(const row of proposal.cash?.previews??[]){
+    const debit=decimalSpelling(String(-row.delta)),price=decimalSpelling(String(row.purchase_amount));
+    if(!debit||!price||debit.coefficient<=0n||compareCash(debit,price)<=0)continue;
+    const limit=verdict.cash_limits?.find(l=>l.index===row.index);
+    if(limit?.category&&limit.category!==row.category)return {...verdict,verdict:'not_authorized',recovery:'correct_proposal',missing:undefined,
+      grounds:`Correct cash category ${row.category} to ${limit.category} for the already chosen expense; preserve its merchandise prices.`};
+    let allowed=limit?decimalSpelling(String(limit.amount)):undefined;
+    if(!limit||limit.basis==='none')allowed=decimalSpelling('0');
+    else if(limit.basis==='price'){if(allowed&&compareCash(allowed,price)>0)allowed=price;}
+    else if(limit.basis==='offer'){
+      const terms=(items:any[])=>Array.isArray(items)?JSON.stringify(items.map(i=>[String(i.name).normalize('NFKC').trim().toLowerCase(),cashText(decimalSpelling(String(i.quantity))!),cashText(decimalSpelling(String(i.unit_price))!)]).sort((a,b)=>a[0].localeCompare(b[0]))):undefined;
+      const reference=row.quote??row.bill;
+      const inputEvidence=!!limit.evidence&&context.playerText.includes(limit.evidence);
+      const offers=proposal.cash?.quotes?.filter((q:any)=>(q.quote===limit.evidence||inputEvidence&&typeof reference==='string'&&q.quote===reference)&&q.subject===row.subject&&q.with_id===row.with&&q.currency===row.currency&&q.origin_turn<context.turn&&terms(q.items)===terms(row.items))??[];
+      const offer=offers.length===1?offers[0]:undefined;
+      const ceiling=offer?decimalSpelling(String(offer.cash_debit)):undefined;
+      if(!ceiling)allowed=undefined;else if(allowed&&compareCash(allowed,ceiling)>0)allowed=ceiling;
+    }
+    else if(limit.basis==='input'&&(!limit.evidence||!context.playerText.includes(limit.evidence)))allowed=undefined;
+    else if(limit.basis==='delegation'&&(!limit.evidence||!context.delivered.some(d=>typeof d.player==='string'&&d.player.includes(limit.evidence))))allowed=undefined;
+    if(!allowed||compareCash(debit,allowed)>0)return {...verdict,verdict:'not_authorized',recovery:undefined,
+      grounds:`Nominal purchase ${row.purchase_amount} does not authorize actual cash debit ${-row.delta}.`,
+      missing:`Accept the actual cash debit ${-row.delta} ${row.currency}, including earlier covered daily spending, while keeping this merchandise price ${row.purchase_amount}. Do not increase the NPC price.`};
+  }
+  return verdict;
 }
 
 /** The refusal the Keeper reads when the review did not admit the action (contract §32.2). */

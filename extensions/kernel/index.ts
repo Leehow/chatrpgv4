@@ -1,4 +1,6 @@
 import {CASH_CONSENT_POLICY} from "./admission.ts";
+import {boundCashAuthority} from './admission.ts';
+import {PurchaseRecovery} from './purchase-recovery.ts';
 import {createQuotationQueue} from "./quotes.ts";
 import {decimalSpelling} from '../../shared/cash-decimal.js';
 import {preparePriceArguments} from './price-arguments.ts';
@@ -2853,12 +2855,13 @@ export default function (pi: ExtensionAPI) {
 		const destinations: AdmissionDestination[] = [];
 		let cashContext: Record<string, unknown> | undefined;
 		if (tool === 'apply' && Array.isArray(payload.effects) && payload.effects.some((effect: any) =>
-			effect?.kind === 'cash' && effect.mode !== 'quote' && (effect.quote !== undefined || effect.category !== undefined || effect.items !== undefined))) {
+            effect?.kind === 'cash' && effect.mode !== 'quote' && effect.mode !== 'cancel' && (effect.quote !== undefined || effect.category !== undefined || effect.items !== undefined))) {
             if(payload.effects.some((effect:any)=>effect?.kind==='cash' && effect.mode!=='quote' && typeof effect.quote==='string'))
                 await quotationQueue(state).finish();
 			const capsule = await state.kernel.call<{known?: {investigator?: Record<string, unknown>; cash_quotes?: unknown[]}}>('table.capsule', {campaign: state.campaign, _context_read: true});
 			const previewEffects=payload.effects.map((effect: any)=>{const {_cash_debit_limit:_old,...rest}=effect;return rest;});
 			const preview = await state.kernel.call<{cash_previews?: Array<Record<string, unknown>>}>('table.apply.options',{campaign:state.campaign,cash_effects:previewEffects});
+			await purchaseRecovery(state).observe(payload,preview.cash_previews??[]);
 			for(const row of preview.cash_previews??[]){
 				const index=row.index;
 				if(typeof index==='number'&&typeof row.delta==='number'&&row.delta<=0&&payload.effects[index]?.kind==='cash')
@@ -3076,6 +3079,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		const scopeFor = await admissionScopeBuilder(state, tool, payload);
 		const effectsOf = () => (Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : []);
+		if(tool==='apply'&&who.origin==='model')await purchaseRecovery(state).check(payload,state.turn);
 		let proposal = admissionRequest(tool, payload, scopeFor(effectsOf()));
 		if (!proposal) return;
 		proposal = registeredContactProposal(proposal, payload, evidence);
@@ -3137,6 +3141,8 @@ export default function (pi: ExtensionAPI) {
 			// §32.12.3.1: a line's own admission rows are held until its batch's verdict is known (`settleLines` flushes them).
 			const emit = async (row: Record<string, unknown>): Promise<void> => { if (part?.buffer) part.buffer.push(row); else await record(row); };
 			const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string, meta: Record<string, unknown> = {}, keep = true): Promise<void> => {
+				if(proposal.cash?.previews?.some((r:any)=>-r.delta>r.purchase_amount))await record({lane:'cash-authority',turn:state.turn,verdict:verdict.verdict,limits:verdict.cash_limits??null,previews:proposal.cash.previews,quotes:proposal.cash.quotes});
+				verdict=boundCashAuthority(proposal,context(),verdict);
 				if (!reused && ADMITTING_VERDICTS.has(verdict.verdict) && verdict.verdict !== "not_player_action" && state.admissionCorrections.length >= 2) {
 					state.admissionCorrectionBlocked.add(proposal.key);
 					throw new KernelError({code: "needs", message: "The correction allowance for this turn is exhausted",
@@ -3627,6 +3633,7 @@ export default function (pi: ExtensionAPI) {
 				noteDelivered(state, result);
 				noteSpeech(state, result, typeof result.turn === "number" ? result.turn : state.turn);
                 if (result.interaction) pi.appendEntry("coc-choice", result.interaction);
+				if(readMechanics(result).some(row=>row.quote_status==='pending'))quotationQueue(state).schedule(state.deliveredTurn);
 				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn,
 					withHandouts(state, readMechanics(result)), asString(result.marked_text), result.labels,
 					Array.isArray(result.speech) ? result.speech : undefined,
@@ -4648,6 +4655,12 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	const defenseRecoveryTurns = new WeakMap<TableState, number>();
+	const purchaseRecoveries=new WeakMap<TableState,PurchaseRecovery>();
+	function purchaseRecovery(state:TableState):PurchaseRecovery{
+		let recovery=purchaseRecoveries.get(state);
+		if(!recovery){recovery=new PurchaseRecovery(cocHome(sessionCtx!.cwd),state.campaign,state.party);purchaseRecoveries.set(state,recovery);}
+		return recovery;
+	}
 	const defenseAttempts = new WeakMap<TableState, Map<string, Promise<Record<string, unknown>>>>();
 	async function settleStandingDefense(state: TableState, session: unknown, signal?: AbortSignal): Promise<Record<string, unknown> | undefined> {
 		if (!['open', 'acting'].includes(state.state) || !sessionCtx || state.reviewUnavailable) return;
@@ -4945,7 +4958,7 @@ export default function (pi: ExtensionAPI) {
 		// function). §135.5 addendum 2.
 		const embeddedNarrateText = spec.name === "apply" && !fromStep?.holdEmbeddedNarration && typeof payload.narrate === "string" ? payload.narrate : undefined;
         const embeddedQuotes=spec.name==="apply"?payload.quotes:undefined;
-        if(spec.name!=="narrate")delete payload.quotes;
+        if(spec.name!=="narrate"&&spec.name!=="ask")delete payload.quotes;
 		delete payload.narrate;
 		// §22.4.7.1 (SL-56): only the host asks the kernel to land a person on the book's text.
 		delete payload._land_on_text;
@@ -5135,12 +5148,17 @@ export default function (pi: ExtensionAPI) {
 			// Action admission (contract §32) runs ahead of every Mod hook and of the kernel: a refused
 			// proposal pays for no definition agent and reaches no transaction.
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery();
-			if(spec.name==='apply' && !dispatcher.hostOrigin(toolCallId)){
+            if(spec.name==='apply' && !dispatcher.hostOrigin(toolCallId)){
                 rejectZeroPricedInputs(state,payload);
+                await purchaseRecovery(state).check(payload,state.turn);
                 await correctCoveredQuote(state,payload,signal,providerBudget);
             }
+			if((spec.name==='narrate'||spec.name==='ask')&&!referenceDelivery)payload.quotes=await purchaseRecovery(state).offers(payload.quotes,state.turn);
+			delete payload._cash_requests;
+			if((spec.name==='narrate'||spec.name==='ask')&&!referenceDelivery)payload._cash_requests=await purchaseRecovery(state).requests(state.turn);
 			if (spec.name === 'apply') await bindAppendArguments(state,payload,signal,providerBudget);
 			if (spec.name === "resolve" || spec.name === "apply") partial = await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence);
+			if(spec.name==='apply')await purchaseRecovery(state).funding(payload);
 			// Contract §128.3. An explicit narrate is never steered for speech (§128.2), so attribution is
 			// the only leg its unwrapped passages get; it runs before the Mod hooks so the continuity review
 			// reads the text the kernel will commit. An ask carries no attribution of its own.
@@ -5314,6 +5332,10 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 			if (spec.name === "recall") result = state.recallPages.accept(result);
+			if(spec.name==='apply'){
+				await purchaseRecovery(state).settled(payload,result);
+				delete result._cash_settlements;
+			}
 			if (owedLeftOut.length) { result.owed_left_out = owedLeftOut.map(({ owed, reason, kind }) => ({ owed: owed ?? null, reason, kind: kind ?? null }));
 				result.note = [result.note, owedLeftOutNote(owedLeftOut)].filter(Boolean).join(" "); }
 			// Deferred Mod bookkeeping completes after the verb that opened this turn, never before it.
@@ -5473,6 +5495,7 @@ export default function (pi: ExtensionAPI) {
 				...(spec.name === "narrate" || spec.name === "ask" ? { terminate: true } : {}),
 			};
 		} catch (error) {
+			if(spec.name==='apply'&&!host)error=await purchaseRecovery(state).failure(payload,error,state.turn);
 			if (spec.name === "resolve") noteCombatSceneRequired(state, error);
 			if (spec.name === "apply" && isKernelError(error)
 				&& ["admission_unavailable", "action_not_authorized", "review_timeout"].includes(String(error.details?.reason))) {
@@ -6288,6 +6311,8 @@ export default function (pi: ExtensionAPI) {
 			if (state.rebindingRefused) payload.rebinding_refused = { ...state.rebindingRefused };
 			payload.source_consultations=sourceConsultationsForAudit(state);
 			try {
+				payload.quotes=await purchaseRecovery(state).offers(undefined,state.turn);
+				payload._cash_requests=await purchaseRecovery(state).requests(state.turn);
 				if (mods && !SINGLE_PASS_NARRATION) await mods.prepare("narrate", payload, state.lanes.signal);
 				await reviewForcedPlayerChoiceCue(state, String(payload.text ?? ''), state.lanes.signal, 'implicit');
 				const result = await state.kernel.call<Record<string, unknown>>("table.narrate", payload);
@@ -7281,6 +7306,8 @@ export default function (pi: ExtensionAPI) {
 							: state.sourceWait ? {preparation_wait: {kind: 'source',
 								...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})}} : {}),
 						...(state.rebindingRefused ? {rebinding_refused: {...state.rebindingRefused}} : {}) };
+					if(!referenceAnswer)params.quotes=await purchaseRecovery(state).offers(undefined,state.turn);
+					if(!referenceAnswer)params._cash_requests=await purchaseRecovery(state).requests(state.turn);
 					params.source_consultations=sourceConsultationsForAudit(state);
 					state.skillRun?.tool_names.push(tool);
 					await guardTaskDelivery(event.message);

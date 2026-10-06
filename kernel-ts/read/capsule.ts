@@ -963,8 +963,8 @@ export function knownSection(graph: ModuleGraph, world: Row, scene: Row, party: 
     const paid = pricesPaid(records);
     if (paid.length)
         section.prices_paid = paid;
-    const quotes=array(world.cash_quotes).filter(value=>!value.settled).slice(-8);
-    if(quotes.length)section.cash_quotes=quotes.map(value=>({quote:value.name,subject:value.subject,with:value.with,purchase_amount:value.purchase_amount,items:value.items,currency:value.currency,category:value.category,purpose:value.why}));
+    const quotes=array(world.cash_quotes).filter(value=>!value.settled&&!value.cancelled).slice(-8);
+    if(quotes.length)section.cash_quotes=quotes.map(value=>({quote:value.name,subject:value.subject,with:value.with,with_id:value.with_id,purchase_amount:value.purchase_amount,cash_debit:value.cash_debit,origin_turn:value.origin_turn,items:value.items,currency:value.currency,category:value.category,purpose:value.why}));
     return section;
 }
 function lists(value: any): any[][] {

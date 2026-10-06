@@ -99,3 +99,9 @@ it('shows the exact quoted total, purchase purpose and cumulative limit separate
   expect(rows[1].querySelector('.coc-mech-spending')?.textContent).toContain('11 / 10 USD')
   expect(rows[1].querySelector('.coc-mech-cash-purpose')?.textContent).toBe('Another purchase')
 })
+it('keeps merchandise quotation and the cumulative purse requirement as separate numeric facts',()=>{
+  const container=draw([{kind:'cash',settlement:'quote',purchase_amount:1,cash_debit:3,before:50,after:50,currency:'USD',purpose:'Two colas and cigarettes'}])
+  expect(container.querySelector('.coc-mech-figure')?.textContent).toBe('1USD')
+  expect(container.querySelector('.coc-mech-cash-debit')?.textContent).toContain('3 USD')
+  expect(container.querySelector('.coc-mech-delta')).toBeNull()
+})

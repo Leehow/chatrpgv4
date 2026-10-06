@@ -7,13 +7,30 @@ import {array, clone, normalize, number, row, string, type Row} from '../read/va
 import {activeName, activeLine} from '../read/worldline.js';
 import {loadCampaignModule} from '../read/campaign.js';
 import {stageCash, type CashContext} from '../apply/inventory.js';
+import {purchaseItems,expenditure,storedCash} from '../apply/purchases.js';
 import {mechanicsOf} from '../read/mechanics.js';
 import type {createWriteRuntime} from '../write/index.js';
 
 const FIELDS = ['quote','category','items','subject','with','source','price_id','currency','why'] as const;
 export const quotationScope = (meta:Row):Row => ({line:activeName(meta), loop:number(activeLine(meta).loop)});
 const sameScope = (a:Row,b:Row):boolean => a.line===b.line && a.loop===b.loop;
-export const quotationRecords=(records:readonly Row[],meta:Row):Row[]=>records.filter(record=>record.commit && array(record.quote_drafts).length && sameScope(row(record.quote_scope),quotationScope(meta)));
+const deliveredRecord=(record:Row):boolean=>!!record.commit||record.closed_by==='ask'&&record.closed_how==='explicit';
+export const quotationRecords=(records:readonly Row[],meta:Row):Row[]=>records.filter(record=>deliveredRecord(record) && array(record.quote_drafts).length && sameScope(row(record.quote_scope),quotationScope(meta)));
+
+/** Only held transactions get an immediate, kernel-computed purse requirement; ordinary offers stay detached. */
+export function discloseCashRequests(drafts:Row[],requests:unknown,context:Pick<CashContext,'world'|'graph'>,party:Row[]):void{
+    if(!Array.isArray(requests))return;
+    for(const draft of drafts){const q=row(draft.draft);
+        if(!requests.some(r=>isJsonObject(r)&&normalize(string(r.quote))===normalize(string(q.quote))&&r.subject===q.subject))continue;
+        try{const sheet=party.find(p=>p.id===q.subject),finance=row(sheet?.finance);
+            if(q.currency!==undefined&&q.currency!==row(finance.cash).currency)continue;
+            const priced=purchaseItems(q.items),coverage=expenditure(context,finance,string(q.category),priced.total);
+            draft.cash_debit=storedCash({coefficient:-coverage.delta.coefficient,exponent:coverage.delta.exponent});
+            draft.purchase_amount=storedCash(priced.total);
+            draft.cash_currency=row(finance.cash).currency;
+        }catch{ /* A missing usable financial preview never fabricates a figure or blocks delivery. */ }
+    }
+}
 
 
 /** No price/source work on the delivery path. Even a bad draft cannot withhold finished prose. */
@@ -32,7 +49,7 @@ export function quotationDrafts(value:unknown, turn:number, meta:Row, party:Row[
 }
 export function pendingQuotation(draft:Row):Row {
     return {kind:'cash',receipt:draft.key,quote_key:draft.key,quote:string(row(draft.draft).quote),purpose:string(row(draft.draft).why),
-        settlement:'quote',quote_status:'pending'};
+        settlement:'quote',quote_status:'pending',...(draft.cash_debit!==undefined?{cash_debit:draft.cash_debit,purchase_amount:draft.purchase_amount,currency:draft.cash_currency}:{})};
 }
 
 export function quotationHandlers(context:KernelContext, writer:ReturnType<typeof createWriteRuntime>):HandlerGroup {
@@ -43,7 +60,7 @@ export function quotationHandlers(context:KernelContext, writer:ReturnType<typeo
             keys:Object.fromEntries(records.map(record=>[number(record.turn),array(record.quote_drafts)[0].key]))};
         if(!Number.isSafeInteger(params.turn)||number(params.turn)<0)throw new RpcError('invalid_params','Quotation turn must be a committed turn number');
         const record=await campaign.readTurnRecord(number(params.turn));
-        if(!record?.commit || !sameScope(row(record.quote_scope),scope))return {turn:params.turn,quotes:{},stale:true};
+        if(!record||!deliveredRecord(record) || !sameScope(row(record.quote_scope),scope))return {turn:params.turn,quotes:{},stale:true};
         const drafts=array(record.quote_drafts), world=await campaign.readWorld(),jobs=row(world.cash_quote_jobs),quotes:Row={};
         if(!drafts.length)return {turn:params.turn,quotes};
         const module=await loadCampaignModule(context,string(meta.module_id),world,campaign.id);
@@ -54,12 +71,19 @@ export function quotationHandlers(context:KernelContext, writer:ReturnType<typeo
             let mechanic:Row=pendingQuotation(draft),reason:string|undefined,receipt:Row|undefined;
             const newer=array(world.cash_quotes).some(quote=>normalize(string(quote.name))===normalize(string(input.quote)) && quote.subject===input.subject && number(quote.origin_turn)>number(record.turn))
                 || records.some(later=>number(later.turn)>number(record.turn) && array(later.quote_drafts).some(other=>normalize(string(row(other.draft).quote))===normalize(string(input.quote)) && row(other.draft).subject===input.subject));
-            if(newer){mechanic={...mechanic,quote_status:'superseded'};reason='newer_offer';}
+            const cancelled=array(world.cash_quote_cancellations).find(q=>q.subject===input.subject&&normalize(string(q.name))===normalize(string(input.quote))&&number(q.turn)>number(record.turn));
+            if(cancelled){mechanic={...mechanic,quote_status:cancelled.paid_receipt?'settled':'cancelled'};reason=cancelled.paid_receipt?'offer_paid':'offer_cancelled';}
+            else if(newer){mechanic={...mechanic,quote_status:'superseded'};reason='newer_offer';}
             else try{
                 // A failed draft cannot partially replace another offer, or affect any player's sheet.
                 const stagedWorld=clone(world),cashContext:CashContext={kernel:context,world:stagedWorld,graph:module.graph,
                     turn:{turn:record.turn},campaign,callId:key,ordinal:0,mint:()=>key};
                 const staged=await stageCash(cashContext,{...input,kind:'cash',mode:'quote'},new Map());
+                if(draft.cash_debit!==undefined){
+                    staged.receipt.cash_debit=draft.cash_debit;
+                    const saved=array(stagedWorld.cash_quotes).find(q=>q.subject===input.subject&&normalize(string(q.name))===normalize(string(input.quote)));
+                    if(saved)saved.cash_debit=draft.cash_debit;
+                }
                 receipt=staged.receipt;
                 world.cash_quotes=stagedWorld.cash_quotes;
                 mechanic={...mechanicsOf(receipt),quote_key:key,quote_status:'ready'};
