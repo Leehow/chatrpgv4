@@ -1360,8 +1360,31 @@ function readMechanics(result: Record<string, unknown>): Array<Record<string, un
 }
 
 export default function (pi: ExtensionAPI) {
+	// JEV-OPEN-02: compare the original decoder result before any host rewrite,
+	// including textual-tool restoration. Keep only its shape for the stream summary.
+	// Pi propagates an error replacement into infer and durable history before tools run.
+	pi.on('message_end', async event => {
+		const observation = providerObservation;
+		if (event.message.role !== 'assistant' || !observation) return;
+		const texts = event.message.content.filter(block => block.type === 'text');
+		observation.normalized_text_blocks = texts.length;
+		observation.normalized_text_bytes = texts.reduce((sum, block) => sum + textBytes(block.text), 0);
+		if (!table || !observation.terminal_observed || observation.terminal_type !== 'completed'
+			|| observation.terminal_status !== 'completed' || !observation.terminal_output_present
+			|| ['error', 'aborted', 'length'].includes(event.message.stopReason)) return;
+		const rawBytes = observation.terminal_messages.text_bytes + observation.terminal_messages.refusal_bytes;
+		const normalizedBytes = observation.normalized_text_bytes;
+		if (rawBytes === 0 || normalizedBytes !== 0) return;
+		observation.normalization_failure = 'responses_terminal_text_missing';
+		await record({lane: 'provider-normalization', observation_request: observation.observation_request,
+			reason: observation.normalization_failure, terminal_text_bytes: rawBytes, normalized_text_bytes: normalizedBytes,
+			original_stop_reason: event.message.stopReason});
+		return {message: {...event.message, content: [], stopReason: 'error' as const,
+			errorMessage: 'responses_terminal_text_missing: completed Responses message content was absent after normalization'}};
+	});
+
 	// A tool call the model wrote as text runs as the call it is (extensions/kernel/textual-tool-calls.ts). Registered
-	// first, so every later `message_end` handler -- this extension's own included -- reads the restored message.
+	// after the decoder check, so every later `message_end` consumer reads the restored message.
 	pi.on("message_end", (event) => {
 		let active: string[] = [];
 		try { active = typeof pi.getActiveTools === "function" ? pi.getActiveTools() : []; } catch { active = []; }
@@ -1640,6 +1663,8 @@ export default function (pi: ExtensionAPI) {
 		item_done: MessageShape; terminal_messages: MessageShape; terminal_observed: boolean; terminal_output_present: boolean;
 		terminal_type?: 'completed' | 'incomplete' | 'failed' | 'error'; terminal_status?: string;
 		usage?: {input: number | null; output: number | null; reasoning: number | null};
+		normalized_text_blocks?: number; normalized_text_bytes?: number;
+		normalization_failure?: 'responses_terminal_text_missing';
 	} | undefined;
 	function flushProviderObservation(close: 'message_end' | 'agent_end' | 'superseded', message?: {content?: unknown}): number | undefined {
 		const observation = providerObservation;
@@ -1647,7 +1672,7 @@ export default function (pi: ExtensionAPI) {
 		providerObservation = undefined;
 		const texts = Array.isArray(message?.content) ? message.content.filter(value => streamRecord(value).type === 'text') : undefined;
 		void record({lane: 'provider-stream-summary', ...observation, close,
-			...(texts ? {normalized_text_blocks: texts.length, normalized_text_bytes: texts.reduce((sum, value) => sum + textBytes(streamRecord(value).text), 0)} : {})});
+			...(observation.normalized_text_bytes === undefined && texts ? {normalized_text_blocks: texts.length, normalized_text_bytes: texts.reduce((sum, value) => sum + textBytes(streamRecord(value).text), 0)} : {})});
 		return observation.observation_request;
 	}
 	pi.on('provider_stream_event', event => {
