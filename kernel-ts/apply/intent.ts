@@ -9,8 +9,9 @@ import {RpcError} from '../errors.js';
 import type {KernelContext} from '../context.js';
 import type {ModuleGraph} from '../read/module-graph.js';
 import {CampaignSnapshot} from '../read/campaign.js';
+import {personNode} from '../read/capsule.js';
 import {array, clone, number, row, string, type Row} from '../read/values.js';
-import {INTENT_OUTCOMES, INTENT_TEXT_LIMIT, foldIntent, intentOf, intentOwner, intentRef, intentsOf, isSettled, receiptGenerated} from '../npc/intents.js';
+import {INTENT_OUTCOMES, INTENT_TEXT_LIMIT, canonicalIntentRef, foldIntent, intentOf, intentOwner, intentParts, intentRef, intentsOf, isSettled, receiptGenerated} from '../npc/intents.js';
 
 export interface IntentScope {
     readonly kernel: KernelContext;
@@ -34,6 +35,24 @@ export interface ResolvedIntent { ref: string; text: string; status: string | nu
  */
 const REFS_ARE = 'refs are on the capsule at present[].history.intents[].ref, or in details.options here';
 
+/**
+ * §185.2: the person an intention reference's owner segment names, resolved like any person reference -- the §87.8
+ * junction, the table's word included, and §185.3's retry in a legacy campaign (`ModuleGraph.resolve`) -- or null. A
+ * word two people carry is refused naming both, never picked (§87.8).
+ */
+export function intentOwnerNode(scope: Pick<IntentScope, 'graph' | 'world'>, owner: string): Row | null {
+    return personNode(scope.graph, scope.world, owner);
+}
+/** §185.2: whether an owner segment, given or stored, names `node`. The handle is the usual spelling and is read first. */
+function ownedBy(scope: Pick<IntentScope, 'graph' | 'world'>, node: Row): (owner: string) => boolean {
+    const handle = scope.graph.handle(node);
+    return owner => {
+        if (owner === handle) return true;
+        try { return intentOwnerNode(scope, owner)?.node_id === node.node_id; }
+        catch (error) { if (error instanceof RpcError) return false; throw error; }
+    };
+}
+
 /** This person's ledger entry as it stands now: the committed ledger, then this turn's receipts, then this call's. */
 export async function intentEntry(scope: IntentScope, node: Row): Promise<Row> {
     const snapshot = new CampaignSnapshot(scope.kernel, scope.campaign.id);
@@ -42,7 +61,7 @@ export async function intentEntry(scope: IntentScope, node: Row): Promise<Row> {
     for (const receipt of [...array(scope.turn.receipts), ...(scope.staged?.() ?? [])]) {
         const intent = row(row(receipt).intent);
         if (typeof intent.ref === 'string' && intent.npc === handle)
-            foldIntent(entry, intent, number(scope.turn.turn), row(receipt).id, receiptGenerated(receipt));
+            foldIntent(entry, intent, number(scope.turn.turn), row(receipt).id, receiptGenerated(receipt), true);
     }
     return entry;
 }
@@ -80,22 +99,30 @@ export async function resolveIntent(scope: IntentScope, node: Row, fields: {inte
         text = fields.intends.trim();
         ref = intentRef(handle, text);
     }
+    const mine = ownedBy(scope, node);
     if (fields.intent_ref != null) {
-        const owner = intentOwner(fields.intent_ref);
-        if (owner === null)
+        const parts = intentParts(fields.intent_ref);
+        if (parts === null)
             throw new RpcError('invalid_params', `${field}.intent_ref ${JSON.stringify(fields.intent_ref)} is not an intention reference`, {
                 fix: `${REFS_ARE}; or write the new thing this person tries with intends`,
                 details: {field: `${field}.intent_ref`, options: await intentOptions(scope, node, entry)}});
-        if (owner !== handle)
-            throw new RpcError('invalid_params', `${field}.intent_ref belongs to ${owner}, not to ${who}`, {
-                fix: `name ${who}'s own intention (details.options), or put the result on the effect about ${owner}`,
-                details: {field: `${field}.intent_ref`, owner, options: await intentOptions(scope, node, entry)}});
-        if (ref !== null && ref !== fields.intent_ref)
+        // §185.2: the owner segment is a person reference, compared as a person. `belongs to` is refused only when it names
+        // somebody else; a segment that names nobody leaves the reference unknown to this person.
+        const owner = mine(parts.owner) ? node : intentOwnerNode(scope, parts.owner);
+        if (owner && owner.node_id !== node.node_id) {
+            const theirs = scope.graph.handle(owner);
+            throw new RpcError('invalid_params', `${field}.intent_ref belongs to ${theirs}, not to ${who}`, {
+                fix: `name ${who}'s own intention (details.options), or put the result on the effect about ${theirs}`,
+                details: {field: `${field}.intent_ref`, owner: theirs, options: await intentOptions(scope, node, entry)}});
+        }
+        // §185.2: the canonical form, whatever word the writer used for the owner; the ledger is searched by person and digest.
+        const given = owner ? canonicalIntentRef(handle, parts.digest) : fields.intent_ref as string;
+        if (ref !== null && ref !== given)
             throw new RpcError('invalid_params', `${field}.intends and ${field}.intent_ref name two different intentions`, {
                 fix: 'one intention per npc effect: to settle the one on the card and start a new one, send two npc effects in the same batch -- {intent_ref, outcome: done|failed|abandoned} and {intends, outcome: attempted}', details: {field: `${field}.intent_ref`}});
-        ref = fields.intent_ref as string;
+        ref = given;
         // Not `string()`: it renders an absent value as the word "None", which would pass for a line (string-helper trap).
-        const known = intentOf(entry, ref)?.text;
+        const known = owner ? intentOf(entry, ref, mine)?.text : undefined;
         text ??= typeof known === 'string' && known ? known : null;
         if (text === null)
             throw new RpcError('invalid_params', `${who} has no intention ${ref} on the card`, {
@@ -104,7 +131,7 @@ export async function resolveIntent(scope: IntentScope, node: Row, fields: {inte
     }
     if (ref === null || text === null)
         throw new RpcError('invalid_params', `${field} names no intention`, {fix: 'give intent_ref (an intention on the card) or intends (a new one)', details: {field}});
-    const known = intentOf(entry, ref);
+    const known = intentOf(entry, ref, mine);
     return {ref, text, status: known ? string(known.status) : null, turn: known ? number(known.last_turn) : null, generated: known?.generated === true,
         options: await intentOptions(scope, node, entry)};
 }
@@ -188,7 +215,8 @@ export function generatedOf(value: unknown, field: string): boolean {
  */
 export async function effectIntent(scope: IntentScope, effect: Row, field: string): Promise<Row> {
     const owner = intentOwner(effect.intent_ref);
-    const node = owner === null ? null : scope.graph.actor(owner) ?? scope.graph.find(owner, ['npc']);
+    // §185.2: the owner segment is a person reference, by any word that names them.
+    const node = owner === null ? null : intentOwnerNode(scope, owner);
     if (!node)
         throw new RpcError('invalid_params', `${field}.intent_ref ${JSON.stringify(effect.intent_ref)} names no person's intention`, {
             fix: `${REFS_ARE} (director.offer carries them too); or leave intent_ref out`, details: {field: `${field}.intent_ref`, options: await tableIntentOptions(scope)}});
@@ -225,7 +253,7 @@ export async function planRollIntent(scope: IntentScope, action: Row): Promise<R
     if (outcome != null && (typeof outcome !== 'string' || !INTENT_OUTCOMES.includes(outcome)))
         throw new RpcError('invalid_params', `action.intent_outcome ${JSON.stringify(outcome)} is not where an intention can stand`, {
             fix: 'one of details.options, or leave it out: a passed check is done, a failed one failed', details: {field: 'action.intent_outcome', options: [...INTENT_OUTCOMES]}});
-    const owner = intentOwner(action.intent_ref), node = owner === null ? null : scope.graph.actor(owner) ?? scope.graph.find(owner, ['npc']);
+    const owner = intentOwner(action.intent_ref), node = owner === null ? null : intentOwnerNode(scope, owner);
     if (!node)
         throw new RpcError('invalid_params', `action.intent_ref ${JSON.stringify(action.intent_ref)} names no person's intention`, {
             fix: `${REFS_ARE} (director.offer carries them too); or leave intent_ref out`, details: {field: 'action.intent_ref', options: await tableIntentOptions(scope)}});

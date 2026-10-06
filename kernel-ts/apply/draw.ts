@@ -30,7 +30,8 @@ import {array, row, string, type Row} from '../read/values.js';
 import {RuleTables} from '../rules/tables.js';
 import {nowIso} from '../write/store.js';
 import {defineObject, moveObject, objectInstance, objectRegistry} from '../mods/objects.js';
-import {INTENT_TEXT_LIMIT, intentOwner} from '../npc/intents.js';
+import {INTENT_TEXT_LIMIT, canonicalIntentRef, intentParts} from '../npc/intents.js';
+import {intentOwnerNode} from './intent.js';
 import {effectId, type StagedEffect} from './bookkeeping.js';
 import type {ApplyContext} from './index.js';
 
@@ -44,11 +45,16 @@ const oneLine = (value: unknown, limit: number): value is string =>
 /**
  * §143.29 (ticket 30): the row of the act that brought a thing out, when the write names one of this person's rows
  * (`intent_ref`, the stamp the act step puts on what it brings out). Recorded beside the thing so the situation can say
- * it was brought out before and by which act -- structure only, never read from a name.
+ * it was brought out before and by which act -- structure only, never read from a name. §185.2: the ref's owner is
+ * compared as a person, by any word that names them, and the row records the canonical form.
  */
-const originOf = (effect: Row, handle: string): Row => {
-    const ref = effect.intent_ref;
-    return typeof ref === 'string' && intentOwner(ref) === handle ? {ref} : {};
+const originOf = (context: ApplyContext, effect: Row, node: Row): Row => {
+    const parts = intentParts(effect.intent_ref), handle = context.graph.handle(node);
+    if (!parts) return {};
+    let owner: Row | null = null;
+    try { owner = parts.owner === handle ? node : intentOwnerNode(context, parts.owner); }
+    catch (error) { if (!(error instanceof RpcError)) throw error; }
+    return owner?.node_id === node.node_id ? {ref: canonicalIntentRef(handle, parts.digest)} : {};
 };
 
 /** The rulebook's price-list record with this id, or undefined. */
@@ -74,7 +80,7 @@ export async function stageDraw(context: ApplyContext, effect: Row, node: Row, h
     if (typeof draws.price_id === 'string' && (!record || string(row(record.entity_ref).entity_id) !== weapon))
         throw new RpcError('invalid_params', `${JSON.stringify(draws.price_id)} is not the price-list record of ${JSON.stringify(weapon)}`, {details: {field: 'npc._draws.price_id'}});
     if (!list.some(entry => entry.weapon_id === weapon))
-        held[handle] = [...list, {weapon_id: weapon, name, turn: context.turn.turn, ...(draws.price_id ? {price_id: draws.price_id} : {}), ...originOf(effect, handle)}];
+        held[handle] = [...list, {weapon_id: weapon, name, turn: context.turn.turn, ...(draws.price_id ? {price_id: draws.price_id} : {}), ...originOf(context, effect, node)}];
     const why = typeof effect.why === 'string' && effect.why.trim() ? effect.why : null;
     const produced = {name: string(record?.name) || name, source: 'catalog', ...(draws.price_id ? {record: draws.price_id} : {})};
     const receipt = {id: effectId(context, 'npc', handle), kind: 'npc', call_id: context.callId, npc: node.node_id, handle, name: graph.displayName(node),
@@ -129,7 +135,7 @@ export async function stageProduce(context: ApplyContext, effect: Row, node: Row
         const prior = objectInstance(world, candidate);
         if (prior && row(prior.owner).kind === 'npc' && row(prior.owner).id === handle) { item = prior; break; }
         // §143.29: a thing brought out for the first time records who brought it out, on which turn, and by which act.
-        if (!prior) { item = moveObject(world, candidate, string(definition.name), owner, {source: null, turn}); item.brought_out = {by: handle, turn, ...originOf(effect, handle)}; break; }
+        if (!prior) { item = moveObject(world, candidate, string(definition.name), owner, {source: null, turn}); item.brought_out = {by: handle, turn, ...originOf(context, effect, node)}; break; }
     }
     if (!item)
         throw new RpcError('invalid_params', `${JSON.stringify(name)} is already held by others under every name this person's could take`, {details: {field: 'npc._produces'}});

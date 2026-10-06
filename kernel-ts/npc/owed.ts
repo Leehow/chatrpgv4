@@ -16,7 +16,7 @@ export function owedIntents(graph: ModuleGraph, world: Row, ledger: Row, turn: R
         const handle = graph.handle(node), entry = clone(row(ledger[node.node_id]));
         for (const receipt of array(turn.receipts)) {
             const intent = row(row(receipt).intent);
-            if (typeof intent.ref === 'string' && intent.npc === handle) foldIntent(entry, intent, n, row(receipt).id);
+            if (typeof intent.ref === 'string' && intent.npc === handle) foldIntent(entry, intent, n, row(receipt).id, false, true);
         }
         for (const item of intentsOf(entry))
             if (item.status === 'attempted' && number(item.last_turn) < n)
