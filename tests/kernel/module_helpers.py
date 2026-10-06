@@ -70,3 +70,9 @@ def opening(client, mid):
     write(Path(job["work_dir"]) / "draft.json", draft)
     write(Path(job["work_dir"]) / "review.json", review)
     return job, draft, review
+
+
+def handle_of(client, campaign, name):
+    """A node's handle as the kernel shows `campaign` (an open table): a campaign on a reader-built book has name-free
+    handles (contract section 185), not the book's slugs."""
+    return client.ok("table.lookup", {"campaign": campaign, "kind": "module", "query": name})["entities"][0]["name"]
