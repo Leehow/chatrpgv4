@@ -6,7 +6,7 @@ import { passageKey } from './read/table-people.js';
 import { snapshots } from './snapshots.js';
 import { RpcError, internalError } from './errors.js';
 import { loadModuleContract } from './modules/contract.js';
-import { checkDraft, checkOpeningBatch, requiredViewPages } from './modules/visual.js';
+import { checkDraft, requiredViewPages } from './modules/visual.js';
 import { array, number, row, type Row } from './read/values.js';
 import { ANSWER_REVIEW_PATHS, checkSourceAnswer } from './modules/source-answer.js';
 import { validateDefinition } from './mods/definition.js';
@@ -71,8 +71,9 @@ export async function checkSourceDraft(content: string, packetPath: string, draf
             const answer = checkSourceAnswer(draft, packet);
             return { ok: true, required_review: ANSWER_REVIEW_PATHS, required_view_pages: [...new Set(answer.source_refs.map((ref: any) => ref.page))] };
         }
-        const filled = checkDraft(draft, packet, await loadModuleContract({ content, snapshots }));
-        if (packet.opening_batch === true && packet.purpose === 'opening') checkOpeningBatch(row(draft),packet.focus,packet.known_nodes,packet.opening_scope==='first_interaction',packet.known_claims);
+        // §186.3: the host's first-batch law is the last law of the check's third stage, so its finding joins the others.
+        const filled = checkDraft(draft, packet, await loadModuleContract({ content, snapshots }), undefined,
+            { openingBatch: packet.opening_batch === true && packet.purpose === 'opening' });
         const path = join(dirname(packetPath), 'baseline.json');
         const baseline = await snapshots.pathExists(path) ? row(await snapshots.readJson(path)) : null;
         return { ok: true, required_review: filled.required_review, required_view_pages: [...new Set([...requiredViewPages(row(draft), baseline),...(packet.source_unit||packet.map_scope?array(packet.pages).map(number):[])])] };

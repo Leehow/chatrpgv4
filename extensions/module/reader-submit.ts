@@ -1,4 +1,4 @@
-import {normalizeSourceDraft} from './reader-normalize.ts';
+import {normalizeSourceDraft,type Normalized} from './reader-normalize.ts';
 /** Private checked source submission; never graph publication. */
 import {moduleLogicReview,MODULE_REVIEW_IMPACTS} from '../../kernel-ts/modules/module-review-policy.ts';
 import { readFile, writeFile } from "node:fs/promises";
@@ -12,6 +12,36 @@ import {REVIEW_VERDICTS} from '../../kernel-ts/modules/review-verdicts.ts';
 import {PUBLIC_GUIDANCE_FIELDS,validatePublicGuidance} from '../../kernel-ts/modules/public-guidance.ts';
 import {retainSourceNeeds} from './source-needs.ts';
 import {requireVisualOverview} from '../../kernel-ts/modules/visual-discovery.ts';
+
+const quoted=(value:unknown)=>JSON.stringify(value);
+/** One line per finding of the draft check (§186.3): where, which law, what was written and, for a closed list, what is allowed. */
+function findingLines(findings:any[]):string[]{
+	return findings.map((finding,i)=>`${i+1}. ${finding?.path} (${finding?.rule}): ${finding?.message}`
+		+(finding&&Object.hasOwn(finding,'value')?` Written: ${quoted(finding.value)}.`:'')
+		+(Array.isArray(finding?.allowed)?` Allowed: ${finding.allowed.map(quoted).join(', ')}.`:''));
+}
+/** What the host changed before the check (the receipt's `normalized`), said once so the author does not write it back. */
+function normalizedLine(normalized:Normalized[]):string{
+	const said=normalized.filter(entry=>entry.action==='task_field_copy'||entry.action==='host_owned').map(entry=>entry.action==='task_field_copy'
+		?`dropped ${entry.path}, a copy of the task field the host already holds`
+		:`${entry.path} is host-owned for this job and is now {}; the value written there was replaced: ${quoted(entry.value)}`);
+	return said.length?`The host normalized draft.json before this check: ${said.join('; ')}.`:'';
+}
+/**
+ * The refusal the author repairs from (§186.3): the check's own refusal, then every finding of the stage it stopped at,
+ * so one submission shows all of them. Without findings (a malformed file, an unchecked failure) the output is as it was.
+ */
+function refusalText(stdout:string,stderr:string,failure:any,normalized:Normalized[]):string{
+	const findings=failure?.error?.details?.findings;
+	const tail=normalizedLine(normalized);
+	if(!Array.isArray(findings))return [stdout||stderr||"source draft check failed",tail].filter(Boolean).join('\n');
+	const {findings:_findings,truncated,...details}=failure.error.details;
+	return [JSON.stringify({...failure,error:{...failure.error,details}}),
+		`Every finding of this check stage (${findings.length}${truncated?` of ${findings.length+truncated}`:''}). Repair all of them, then call submit_reading once:`,
+		...findingLines(findings),
+		...(truncated?[`${truncated} more finding(s) were cut to bound this list; the check lists them after these are repaired.`]:[]),
+		...(tail?[tail]:[])].join('\n');
+}
 
 export default async function readerSubmit(pi: any) {
 	const cwd = process.cwd();
@@ -88,6 +118,7 @@ export default async function readerSubmit(pi: any) {
 				...(guidanceTask?{guidance:Type.Optional(Type.Any()),public_fields:Type.Optional(publicSchema)}:{})}),
 		async execute(_id: string, params: any, signal?: AbortSignal) {
 			if (signal?.aborted) throw new Error("Source submission cancelled");
+			let receipt:Normalized[]=[];
 			const names = reviewing ? ["review"] : guidanceProjection?["guidance"]:["draft", ...(guidanceTask?["guidance"]:[])];
 			if(guidanceProjection){
 				if(params.guidance&&params.guidance.guide!=='')throw new Error('Selected guidance guide must be empty; this projection does not prepare a physically present NPC');
@@ -141,9 +172,12 @@ export default async function readerSubmit(pi: any) {
 					if(task.public_progress_required&&!bytes)throw new Error('Submit the four public_fields in the same call as guidance');
 					if(bytes)publicPages=Object.values(validatePublicGuidance(JSON.parse(bytes),task.source?.page_count)).flatMap(field=>field.source_refs.map(ref=>ref.page));
 				}
+				// §186.3: host-owned fields are filled and verbatim task copies dropped before the check; the receipt lists them.
+				let normalized:Normalized[]=[];
 				if(!answerTask&&!guidanceProjection){
                     const file=join(cwd,'draft.json'),candidate=JSON.parse(await readFile(file,'utf8'));
-                    if(normalizeSourceDraft(candidate).length)await writeFile(file,JSON.stringify(candidate)+'\n');
+                    normalized=normalizeSourceDraft(candidate,task);
+                    if(normalized.length)await writeFile(file,JSON.stringify(candidate)+'\n');
                 }
 				const result = await pi.exec(checker, ["--packet",join(cwd,"task.json"),"--draft",join(cwd,"draft.json")], {signal});
 				if (result.code !== 0) {
@@ -151,21 +185,24 @@ export default async function readerSubmit(pi: any) {
 					if(failure?.error?.details?.rule==='source_needs_pending'&&Array.isArray(failure.error.details.requests)){
 						const source=JSON.parse(process.env.PI_COC_READER_SOURCE??'null');
 						await retainSourceNeeds(cwd,source?.file_sha256??'',failure.error.details.requests,task.source?.page_count);
+						const others=Array.isArray(failure.error.details.findings)?failure.error.details.findings.filter((finding:any)=>finding?.rule!=='source_needs_pending'):[];
 						return {
-						content:[{type:'text',text:'Required source gaps are retained. Retrieve original evidence and repair them before completing this candidate.'}],
-						details:{kind:'source_need_batch',requests:failure.error.details.requests}};
+						content:[{type:'text',text:['Required source gaps are retained. Retrieve original evidence and repair them before completing this candidate.',
+							...(others.length?['The same check also found these; repair them too:',...findingLines(others)]:[]),normalizedLine(normalized)].filter(Boolean).join('\n')}],
+						details:{kind:'source_need_batch',requests:failure.error.details.requests,...(normalized.length?{normalized}:{})}};
 					}
-					throw new Error(result.stdout || result.stderr || "source draft check failed");
+					throw new Error(refusalText(result.stdout,result.stderr,failure,normalized));
 				}
 				const check = JSON.parse(result.stdout);
 				if (check.ok !== true || !Array.isArray(check.required_view_pages)) throw new Error("source draft check did not complete");
 				const required=[...new Set<number>([...check.required_view_pages,...(guidanceProjection?.source_pages??[]),...publicPages])];
 				const missing = required.filter((page: number) => !viewed.has(page));
 				if (missing.length) throw new Error(`View original physical pages before submitting: ${missing.join(", ")}`);
+				receipt=normalized;
 			}
 			if (signal?.aborted) throw new Error("Source submission cancelled");
 			return {content:[{type:"text",text:"Artifacts checked. The host will apply the existing independent review and publication gates."}],
-				details:{kind:"source_submission",phase:reviewing?"review":guidanceTask?"guidance":"read"},terminate:true};
+				details:{kind:"source_submission",phase:reviewing?"review":guidanceTask?"guidance":"read",...(receipt.length?{normalized:receipt}:{})},terminate:true};
 		},
 	});
 }

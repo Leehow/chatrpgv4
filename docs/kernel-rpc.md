@@ -35320,6 +35320,58 @@ Host-owned fields are filled, not refused:
 
 No value is translated, mapped or guessed: a vocabulary value outside the list is still a finding, now with the list.
 
+*Implementation (RC-03, 2026-10-06).* `checkDraft` (`kernel-ts/modules/visual.ts`) runs three `Stage`s. A law notes
+the refusal it would have thrown -- today's code, message, fix and `details` (`reason`, `path`, and any `rule`,
+`refusals`, `requests`, `existing_pages`...) -- with the findings it names, and the stage goes on; `settle` throws the
+stage's first refusal unchanged plus `details.findings` (at most 40 entries and 8 KiB of the kernel's JSON, in check
+order) and `details.truncated` (present only when something was cut). Within a stage the first finding is the one the
+sequential check threw among that stage's laws; a draft dirty in two stages reports the earlier stage, so its first
+finding can differ from the old first refusal. The top-level `path` stays today's (often `/`); the finding's `path` is
+the field. `value` is a string clipped to 80 characters (77 and `...`), another value as itself while its JSON fits in
+80, else that JSON clipped. `allowed` comes from the graph contract lists that `vocabulary()` copies into the task, not
+from `packet.vocabulary`, which cannot widen the law.
+
+- *Envelope:* object; unknown keys (one finding, `value` the keys, `allowed` the shard keys); `contract_id`; the
+  map-scope job's draft law; `source_needs` admissibility and its array bound; the five array keys; a skeleton or
+  guidance job's non-empty `nodes` (moved here: a job-kind law on the envelope, and the oracle's empty-skeleton case
+  keeps its first finding); coverage (one finding per key outside the domains or with a status outside the statuses);
+  the visual scan's range, candidates and bounds; a visual asset job's coverage.
+- *Records:* per node -- fields, `node_kind` (vocabulary) and `node_id` as separate findings of today's identity law,
+  name, properties and aliases, alias names, map candidates, `asset_ref`, `image_sources`, the actor-number laws,
+  visibility, the obligation and mechanics source laws, then `source_refs` one reference at a time; map regions per
+  region; map scope per node; `node_refs` and `ready_nodes` references; per claim -- fields, subject, object and
+  predicate as separate findings of today's connection law, self-impersonation, object keys, claim id, `truth_status`,
+  visibility, source refs, holders.
+- *Graph and evidence:* source-need entries; pending needs (still `rule: source_needs_pending` with `requests`);
+  dependencies; skeleton and declared readiness; ready nodes present; the visual asset job's page, kind, place,
+  readiness and crop laws; published-value contradictions (node merges, then claim merges, which moved out of the claim
+  loop); the source-need graph laws; the opening interaction law; source-unit pages; the pointers the review must reach
+  (a critical entry is named by `/critical/<k>`); obligations, mechanics and beings (each refusal of their lists one
+  finding); and the host's first-batch law, which `checkSourceDraft` now passes as `{openingBatch}` so its finding joins
+  this stage instead of running after the check.
+- *Not split further:* `checkOpeningBatch`, `checkMapScopeDraft` and `actorNumbersLaw` stay one finding each (sequential
+  inside); `mergeValue` reports the first contradicting field per record; the mechanics, obligation and being
+  validators stay in the third stage though their shapes are record-local, because they run over the overlay graph,
+  which needs records that passed the second; `dependencies` keeps its one law (a non-array is reported as unresolved,
+  as before, not as an envelope array finding).
+- *Host normalization* (`extensions/module/reader-normalize.ts`, run by `submit_reading` before `coc-read-check`, the
+  draft rewritten): `focus`, `question`, `visual_asset`, `visual_scan` and `pages` are dropped when their JSON text equals
+  the task's field; `task` when it is a non-empty object each of whose fields has the JSON text of the task's field of
+  that name (every retained `task` key held `{focus, question}` copied byte for byte, never the whole task). "A visual
+  scan" reads as the kernel's own refusal reads it: "A visual scan records navigation coverage separately" is the
+  `visual_asset` job's law (416 of 416 retained refusals with that message came from visual asset tasks), and a
+  `visual_scan` job refuses any coverage too, so coverage is host-owned for both job kinds and for no other. The check
+  receipt is `submit_reading`'s result: `details.normalized: [{path, action, value?}]` (`task_field_copy`, `host_owned`
+  with the replaced value, and the two older rewrites `critical_reference` and `zero_damage_bonus`), also on the
+  retained-source-needs result; the refusal text names what was dropped or replaced.
+- *What the author sees:* the check's refusal JSON without the list, then one line per finding (`<n>. <path> (<rule>):
+  <message> Written: <value>. Allowed: <...>.`), the truncated count, the normalization note; the retained-source-needs
+  result lists the stage's other findings.
+- *Tests:* `tests/extension/draft-check-findings.test.mjs` (`module.read.finish` on the emitted kernel, the
+  `coc-read-check` binary, `submit_reading`). The byte-for-byte oracle and parent-commit comparisons
+  (`ts-kernel-modules`, `mechanics-reader`, `obligation-reader`) drop `details.findings` and `details.truncated` from
+  the live side only (`withoutDraftFindings` in `tests/extension/oracle-fixture.mjs`); the captured bytes are untouched.
+
 ### 186.4 Coverage review is reused after a records-only targeted repair (amends §151.2)
 
 A coverage unit's verdict from round *r* is carried to round *r+1* without running a reviewer when all hold:
