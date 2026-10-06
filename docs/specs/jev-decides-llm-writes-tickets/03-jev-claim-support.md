@@ -65,3 +65,12 @@ Tests: eligibility excludes coverage, image/map paths and pages without native t
   - Even a redesigned check (claims only, per-field node checks, rendered structural relations) would move little wall time. Tickets 02 and 04 carry the speed.
 - A redesign later needs a new pre-registered bar and a held-out split fixed before any run.
 - Calibration output is preserved at `chatrpgv4-wt-jw03/.pi/jev-claim-calibration-20260929/` (gitignored; do not remove the worktree without copying it).
+
+### 2026-10-06 — redesign (§186.6, RC-06) measured on a held-out split: bar not met
+- Redesign: a record carrying a classification field is ineligible; claims name their nodes with aliases; a node is
+  asked per field (identity, each summary sentence, each property leaf) and clears only if every field clears. Family v2.
+- Pre-registered splits (tuning = this ticket's 09-29 corpus plus App home rounds before 2026-10-04; held-out = App home
+  rounds from 2026-10-04), (S, C) chosen on tuning: 0.93 / 0.2. Held-out read once with two blind judges adjudicating
+  the vision negatives: cleared supported 20 / 6,230 (0.32 %), cleared strict negatives 0 / 46. Bar not met; the data
+  default stays `shadow`, S/C in the data set to 0.93 / 0.2. Details: `docs/specs/reading-cost-tickets.md`, RC-06.
+

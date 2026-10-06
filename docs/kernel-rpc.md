@@ -35392,3 +35392,10 @@ Fixed before any run of the redesign (2026-10-06):
   `--heldout-once`, and refuses an output directory that already holds a replay. Scoring: unique records; a unique strict
   negative counts as cleared if any instance clears, a unique supported record only if every instance does; records the
   redesign makes ineligible stay in the population as not cleared.
+
+*Outcome (RC-06, 2026-10-06): the bar failed.* Held-out read once at the tuning point S 0.93 / C 0.2. With the
+adjudicated labels (15 of 61 strict negatives relabeled supported by two blind judges), cleared supported is 20 / 6,230
+(0.32 %) and cleared strict negatives 0 / 46. The data default stays `shadow` with these questions;
+`source_claim_support` S/C in `host-budgets.json` are set to 0.93 / 0.2, so the shadow rows on new books measure the
+pre-registered point (as 2026-09-29 did with v1's). No second attempt on this held-out
+(`docs/specs/reading-cost-tickets.md`, RC-06).
