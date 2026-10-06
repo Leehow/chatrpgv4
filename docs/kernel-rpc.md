@@ -35246,3 +35246,187 @@ describe the recorded prompt, not the one sent (the `prompt` lane's `stale_promp
   detailed read of every page; a short book is built once and a long book reads the chapter in play and the next.*
 - Eviction on the provider's side is not ours. `thinking-schedule` is a no-op on grok-4.5 and grok-4.7, whose catalogs
   expose no `off`; on a model that does, it would cost a whole prompt per turn on an xAI endpoint (184's probes).
+
+## 185. Name-free handles: a reference the Keeper copies is never rewritten (owner ruling 2026-10-06, `docs/specs/name-free-handles.md`; amends §58.9, §103.5, §142 and §176.5)
+
+A book person's handle is their name as a slug (`book-4-robert-taylor`), because the reader mints node ids from the book's
+words and `handle()` strips the kind prefix. §176.5 hid it with a text substitution: the untold roster carries a row for the
+handle and the node id, and the request-wide rename (§103.5) replaces that string wherever it stands. The substitution does
+not know which strings are identifiers, so it also rewrites identifiers the Keeper copies back:
+
+- `intent:book-4-robert-taylor:<digest>` becomes `intent:<shown word>:<digest>`. `apply npc` then refuses it ("belongs to"
+  another), and the ledger, searched by the whole string, does not know it.
+- A hyphen is a boundary for the Latin check, so a person's handle is matched inside every handle it begins:
+  `book-4-dr-brenner-home` becomes `<shown word>-home`, which resolves to nothing. Book-4 (generation 53) has 9 such handles.
+
+It also leaves the leak open. Other entities' ids carry the same names (`clue-book-4-john-hides-book-under-counter`), and
+the roster renames only the person's own whole handle. This section separates identity from display at the source for new
+campaigns, compares references by identity everywhere, and repairs the rewrite for campaigns that keep the old handles.
+
+### 185.1 Two schemes, fixed when the campaign is created
+
+- `campaign.json` gains `handles: "name-free" | "legacy"`, written once by `campaign.create` and never changed.
+  - `name-free`: a new campaign whose module graph the PDF reader built (a library book).
+  - `legacy`: an authored starter pack, and every campaign without the field. That covers every campaign created before
+    this section, so old campaigns are read as legacy with no migration.
+- Everything in 185.4–185.7 applies to name-free campaigns only. 185.2 applies to both schemes; 185.3 to legacy only.
+
+### 185.2 References compare by identity, not spelling (both schemes)
+
+- **Intentions (amends §142).** `intentOwner` still parses `intent:<owner>:<digest>`. The owner segment is then resolved like
+  any person reference: the §87.8 junction, including the table's word, plus 185.3's undo on a miss in a legacy campaign.
+  - The owner check compares the resolved node with the effect's person. `belongs to` is refused only when the two are
+    different people.
+  - The ledger is searched by `(owner node, digest)`, not by the whole string. Both the given reference and every stored
+    `ref` are parsed, so a reference written with any word for the owner finds the row. Stored refs are not rewritten.
+  - The canonical form, `intent:<handle>:<digest>`, is what new receipts store and what cards show.
+- **Quotes (amends §58.9).** At settlement, `with` is resolved to a person and compared with the quote's stored `with_id`.
+  - A quote is refused only when the two resolve to different people.
+  - When either side does not resolve to a person (free text such as a front desk), the normalized spelling is compared, as
+    today.
+- **The sweep.** Every other input field that names a person or entity and is compared to stored state by spelling becomes
+  an identity comparison through the same resolution. The implementer lists those fields under 185.11 "Kernel decisions".
+  - Resolution happens in one place, not per tool. If the implementer finds it spread across tools, they record the places
+    under 185.11 and stop before writing per-tool copies.
+
+### 185.3 Legacy campaigns: undo the rename on a miss
+
+- A reference that does not resolve as written is retried once with the rename undone. Each `handle: true` row of
+  `table.untold` (`untoldRoster`) has its `shown` word replaced by its `name`, the handle or node id, and resolution runs
+  again.
+  - The inverse is exact: a handle row belongs to one person, and shown words are unique (§176.3's `taken`).
+  - It covers handles that begin with a person's handle and the owner segment of an intention reference (185.2).
+- The retry runs only after a miss. A reference that resolves as written, by a display name for example, is never rewritten.
+- The rename itself is unchanged in legacy campaigns: the roster keeps its handle rows, and the leak through other
+  entities' slugs stays (owner: old campaigns are left as they are).
+
+### 185.4 The handle map (name-free)
+
+- **`world.node_handles[<node_id>] = handle`** is the campaign's map. Every reader uses it, and an entry never changes or goes
+  away once written.
+- **`ModuleGraph.handle()`** consults it after the names the table itself gave (table entities, table people, table
+  creatures, adaptation names) and before the book-derived fallbacks (the stripped node id, a scene's `scene_id`).
+  - Source place projection captures a location's handle into `sourcePlaceNames`, so the map is applied before
+    `projectSourcePlaces` runs, and a projected place keeps the location's mapped handle.
+- **A node not in the map yet** shows its *interim* handle `<kind>-<h>`, where `<h>` is the first six hex digits of
+  `sha256(node_id)`. It is deterministic and needs no write.
+  - It appears only between a node reaching the campaign and the next fold (185.6).
+  - Its kind is the node's kind as `handle()` reports it.
+- **The names index** carries, for every node: its mapped handle; its interim handle; its node id; and its stripped node id
+  (the old slug). The last three are input-only: they resolve but are never emitted. A reference the Keeper copied before a
+  fold, or one internal code writes with a slug, still resolves.
+
+### 185.5 The lane: `handles.job` and `handles.submit`
+
+- **`handles.job {campaign}`** answers while a name-free campaign is `setting_up` or `active`; for a legacy campaign it
+  always returns `{job_id: null}`.
+  - It returns `{job_id: null}` when every node of the campaign's served graph either has a handle in the book's
+    `handles.json` or has been given up.
+  - Otherwise it returns `{job_id, nodes, avoid, taken, instruction}`:
+    - `nodes[]` is up to `HANDLES_PER_JOB` rows `{id: <node_id>, kind, name, summary}`. `name` and `summary` are as the graph
+      holds them, the summary cut to a fixed length.
+    - `avoid` is every cast form of every cast person (§177.1: book, play and notes renderings, with their pieces).
+    - `taken` is every handle already in the book's `handles.json`.
+  - The node id is a key for the answer only. The instruction tells the lane to describe the thing and never to spell any
+    name; the lane never sees the old slug.
+- **`handles.submit {campaign, entries: [{id, handle}]}`** checks each entry on its own and writes the accepted ones to the
+  book's **`handles.json`** in the shared library module directory, under the library lock:
+  `{nodes: {<node_id>: {handle, at} | {given_up: true, at}}}`. An entry already present is never overwritten (the first
+  writer wins).
+  - It returns `{written, refused: [{id, handle, reason, message}]}`.
+  - Refusals, a closed set:
+    - `unknown_entity`: not a node of the campaign's served graph;
+    - `settled`: already in `handles.json`;
+    - `shape`: not lowercase ASCII kebab-case (`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`), or longer than `HANDLE_LIMIT`;
+    - `carries_name`: carries any `avoid` form by the check §176.3's `untold_name` uses (`namePieces`, then `occurs` on the
+      normalized handle). Unlike §176.3 it counts every cast person, told or untold, because a handle outlives the telling.
+    - `interim_shape`: has the interim form `<kind>-<six hex>`;
+    - `taken`: normalized, it equals another node's handle in `handles.json`, any name key of another node in the served
+      graph, or another entry of the batch.
+- **The lane** (`extensions/node-handles/`) is shaped like §176.3's.
+  - It runs during character creation and at a table: once when the bridge and session are up, and after every committed
+    turn, which catches nodes a reading landed.
+  - Zero tools, on the fast model (`PI_COC_HANDLES_MODEL`, else the fast-model setting, else the table's model).
+  - A few jobs per trigger.
+  - One retry per refused entry, alone, carrying its refusal verbatim. An entry refused again, or not answered in that
+    retry, is written as `given_up` through `handles.submit {given_up: [ids]}`, so the next job never offers it again.
+  - The lane is mounted in `COC_EXTENSIONS` and emitted by `build:runtime`.
+  - Single completion, by Agents.md's two criteria:
+    - the output is a short closed structure, one handle per node;
+    - it decides what the Keeper is first shown for every node a reading lands.
+
+    Same shape as the epithet lane (owner ruling 2026-10-04).
+  - Telemetry: one row per round, `lane: "handles"`, with `asked`, `written`, `refused` by reason, `given_up` and `ms`.
+
+### 185.6 The fold: when a handle enters the campaign
+
+- At the two safe moments of §176.1, `table.open` and `table.player_input` before the capsule is built, the kernel folds the
+  map (`foldNodeHandles`). For each node of the served graph not yet in `world.node_handles`:
+  - when `handles.json` holds a handle for it that is free in this campaign (no table name, adaptation name or other mapped
+    handle has the same normalized form), that handle;
+  - when `handles.json` marks it `given_up`, or its handle is not free here, `<kind>-<n>`, the next unused ordinal for that
+    kind in this campaign;
+  - otherwise nothing: the node keeps its interim handle until a later fold.
+
+  The world is written only when something changed.
+- `campaign.create` of a name-free campaign folds once, with whatever `handles.json` already holds, so a book other campaigns
+  have named starts named.
+- Nodes reach a campaign along three paths, and all of them meet the fold rather than needing a lane run before the write:
+  - a library publication the campaign reads before its fork (§22.6);
+  - the campaign's own readings;
+  - a library adoption (§184).
+
+### 185.7 What the Keeper sees (name-free)
+
+- `table.untold` emits no `handle: true` rows. The request rename (§103.5, §177.15) replaces names only.
+- No Keeper-facing surface carries a book node's node id or old slug: the capsule, tool results, receipts in mechanics,
+  host messages, and lane output folded into the request.
+  - Each place that emits `node.node_id`, or builds a reference from it, emits `handle()` instead.
+  - Two candidates were seen before this section: the dossier receipt's `npc` and the memory recall reference. The full list
+    comes from 185.10's request scan and is recorded under 185.11.
+- A person's handle and their word (§176.1) stay separate. The word is the shown name and may change in the fiction; the
+  handle never changes. `say_name` is built as §176.8 builds it.
+- §176.5's residual, "a person with no word keeps the handle as their shown word", no longer leaks: the handle is name-free.
+
+### 185.8 Writers, readers, actor (§31)
+
+- `handles.json`:
+  - written by `handles.submit`, from the lane;
+  - read by `handles.job` and the fold.
+- `world.node_handles`:
+  - written by the fold, at `campaign.create`, `table.open` and `table.player_input`;
+  - read by `ModuleGraph.handle()`, and through it every surface that names a node.
+- Actor: the Keeper's tool calls. Measured by refusals whose reference the kernel wrote (`unknown_entity`, the intention
+  owner, the quote counterparty), and by the lane's `written` / `given_up` ratio.
+
+### 185.9 Limits
+
+- A cast that grows after a handle is written (§177.2's partial cast) can show a handle carrying a name the cast learns
+  later. `handles.json` may re-check entries that no campaign has folded. A folded handle is never changed. The lane is told
+  to spell no name at all, so the check is a backstop.
+- Legacy campaigns keep the leak through other entities' slugs.
+- Authored starter packs keep authored handles. Renaming them is an authoring change with a version bump per pack, outside
+  this section.
+
+### 185.10 Tests
+
+All tests run through the kernel in process and the installed context runtime, the seam
+`tests/extension/untold-name-path.test.mjs` uses. Each product fix has a test that fails when the fix is reverted.
+
+- **Round trip, legacy.** Untold people whose handles begin other handles, and an intention on a card. Copy the renamed
+  intention reference, scene handle and clue handle from the Keeper's assembled request into tool calls: each resolves to its
+  original, and the intention settles.
+- **Quotes.** Settle by handle, by a new word and by the told name: accepted. Settle naming another person: refused.
+- **The lane's refusals and fallback.** Every refusal reason, the retry, `given_up`, and the fold's ordinal.
+- **Name-free.**
+  - The assembled request carries no node id, no old slug and no `avoid` form in any identifier.
+  - `table.untold` has no handle rows.
+  - Every reference copied back resolves.
+  - A handle survives telling, a new word and a grown cast.
+  - An interim handle copied before the fold still resolves after it.
+- **Schemes.** A campaign without `handles` is legacy, and a starter campaign is legacy.
+
+### 185.11 Kernel decisions
+
+(Recorded by the implementing slices: the sweep's field list, the resolution place, node-id egress points found by the
+request scan.)

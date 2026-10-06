@@ -1,6 +1,6 @@
 # Name-free handles: a reference the Keeper copies is never rewritten (2026-10-06)
 
-Status: ready-for-agent — decided 2026-10-06 (owner rulings quoted below). Contract first: the section is written before any
+Status: ready-for-agent — decided 2026-10-06 (owner rulings quoted below); contract §185 written 2026-10-06, tickets in `name-free-handles-tickets.md`. Contract first: the section is written before any
 code, at the next free number (§185 is free on `0.9.7a` at the time of writing), and amends §176.5, §103.5, §142 and §58.9.
 
 Owner, 2026-10-06, after a scan of the App's sessions from 10-01 to 10-06 (28 sessions, 84 tool failures, 16 of them in
@@ -65,7 +65,8 @@ Identity and display are separated at the source. The untold rename stops having
      classifies nothing.
    - A refused node is asked about once more, alone, with the kernel's refusal. A node still refused, or one the lane could
      not answer, gets `<kind>-<ordinal>`.
-   - A handle is minted before its node can be shown to the Keeper and never changes afterwards.
+   - A handle enters the campaign at a safe moment and never changes afterwards. A node shown before then carries a
+     deterministic interim handle, which stays resolvable.
 2. **The rename touches only names.** In these campaigns the untold roster has no handle or node-id rows. No Keeper-facing
    surface carries a book node's node id or its old slug; the slug stays an input-only key the kernel still resolves.
 3. **References are compared by identity, in every campaign.**
@@ -127,13 +128,18 @@ Identity and display are separated at the source. The untold rename stops having
   so the map must be in place before that projection runs. A location projected into a scene then keeps the name-free
   handle the map gave the location.
 - A node's old slug and node id stay in its name keys, so the kernel still resolves them as input. They are never emitted.
-- Handles belong to the book's graph generation. Each node gets one, minted once, and the library shares them the same way it
-  shares readings: §184.1, and a fork gives back what it minted as §184.5 gives back readings.
-- A campaign copies the handles of the nodes it has. Where the library has none, the campaign mints its own, and never
-  changes a handle once the campaign has it.
-- Nodes enter a campaign's graph in two ways: at creation, for the nodes already read, and when a reading lands. Handles are
-  minted as part of that step, before any projection can show the nodes. When the reading lands inside a turn (a book
-  lookup), the turn waits for it.
+- Two layers (contract §185.4–185.6):
+  - The book's `handles.json` in the shared library holds what the lane wrote; the first writer wins, and every campaign on
+    the book reuses it.
+  - The campaign's `world.node_handles` is the map every reader uses. Entries enter it only at a fold and never change.
+- **Revised while writing the contract (2026-10-06).** "Minted before the node can be shown" cannot be guaranteed. Until its
+  first private write, a campaign reads the shared library (§22.6), so nodes another campaign's reading lands reach it with
+  no write of its own. So:
+  - A node not yet folded shows a deterministic interim handle, `<kind>-<first six hex of sha256(node_id)>`. It needs no
+    write and stays resolvable forever.
+  - The fold runs at §176.1's two safe moments, `table.open` and `table.player_input`, and once at `campaign.create`. It takes
+    the book's handle; or `<kind>-<n>` for a node the lane gave up on; or nothing yet, keeping the interim handle until the
+    lane answers.
 
 ### The handle lane
 - The lane is shaped like the epithet lane (§176.3): `handles.job` lists the nodes still without a handle, in parts, and
