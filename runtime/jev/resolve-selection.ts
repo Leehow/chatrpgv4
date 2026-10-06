@@ -545,20 +545,27 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
               condition: 'The nominated value is unsupported, ambiguous, or another value applies.'}}});
       }
       const refined = await refine('bind', state, confirmationQuestions);
-      const missing: string[] = [], withheld: string[] = [];
+      const missing: string[] = [], withheld: string[] = [], incompatible: string[] = [];
       for (const [index, parameter] of parameters.entries()) {
         if (parameter.selection === 'compatible') {
           const scored = parameter.options.map((option, i) => {
             const key = `${parameterAlias(index)}_${i}`;
             return {option, p: refined && confirmationQuestions.some(question => question.key === key) ? yes(refined, key) : yes(result, key)};
           }).filter((value): value is {option: CheckParameter['options'][number]; p: number} => value.p !== undefined).sort((a, b) => b.p - a.p);
-          let chosen = scored.find(value => value.p >= gates.adjudication);
-          if (!chosen && scored.length) {
-            // §163: no option clears adjudication; Jev's best-scored compatible option is the ruling.
-            chosen = scored[0];
+          const eligible = scored.filter(value => value.p + gates.adjudication > 1);
+          let chosen = eligible.find(value => value.p >= gates.adjudication);
+          if (!chosen && eligible.length) {
+            // §163: the best gray value remains a ruling; definite negatives never become executable values.
+            chosen = eligible[0];
             note(`${parameter.name}: ${chosen.option.label} ${scoreText(chosen.p)}`, 'below_confidence_gate');
           }
-          if (!chosen) missing.push(`unbound:${parameter.name}`);
+          if (!chosen) {
+            if (scored.length !== parameter.options.length) missing.push(`unbound:${parameter.name}`);
+            else {
+              incompatible.push(`unbound:${parameter.name}`);
+              note(`${parameter.name}: no issued compatible value is available`, 'nothing_executable');
+            }
+          }
           else action[parameter.name] = structuredClone(chosen.option.value);
           continue;
         }
@@ -611,6 +618,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       }
       // §163.8: a withheld player choice leaves the check without a roll; the Keeper narrates or lets the fiction ask.
       if (withheld.length) return done({status: 'no_roll', option: selected, needs: withheld.map(name => `player_choice:${name}`), calls});
+      if (incompatible.length) return done({status: 'no_roll', option: selected, needs: [...incompatible, ...missing], calls});
       // §163: a parameter Jev gave no score for cannot be bound; the selected check is a forced no-roll.
       if (missing.length) {
         for (const need of missing) note(`${selected.label} ${need}: unanswered`, 'jev_unanswered');

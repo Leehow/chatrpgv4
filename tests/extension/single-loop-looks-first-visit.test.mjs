@@ -161,11 +161,12 @@ function passagesCarried(requests) {
 // The allowance is generous on purpose: these tests are about what the first model step carries, not about the
 // prescreen's budget (SL-22 has its own tests). Under a loaded 12-way test run the 12 s default expired on the second
 // read of the move test (status "fallback"), which said nothing about the carrying.
-async function hybridTable({ route, responses, allowanceMs = "60000", preselect = "1", env = {} }) {
+async function hybridTable({ route, compile = answered, responses, allowanceMs = "60000", preselect = "1", env = {} }) {
 	const requests = [];
 	const port = { async decide(batch) {
 		if (batch.family === ROUTE_FAMILY) return route(batch);
-		if (batch.family === COMPILE_FAMILY || batch.family === BIND_FAMILY) return answered(batch);
+		if (batch.family === COMPILE_FAMILY) return compile(batch);
+		if (batch.family === BIND_FAMILY) return answered(batch);
 		return supported(batch);
 	} };
 	const engine = createHybridEngine({ env: { ...process.env, PI_COC_JEV_PRESELECT: preselect, EXT_JEV_APIKEY: "mechanical-test-key",
@@ -182,10 +183,10 @@ const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text }
 const look = (focus) => fauxAssistantMessage([fauxToolCall("look", { focus })], { stopReason: "toolUse" });
 
 test("§135.31.1 at the extension seam: after the clerk's move the Keeper's first model step carries the destination's passages from the prescreen, once, and never the scene the run left", async (t) => {
-	let routes = 0;
 	const table = await hybridTable({
-		route: (batch) => ++routes === 1 ? answered(batch, (question) => question.key === "exit" ? "continue" : /Boston Globe offices/.test(question.target) ? "now" : undefined)
-			: answered(batch, (question) => question.key === "exit" ? "ask_llm" : undefined),
+		compile: (batch) => answered(batch, (question) => question.key === "destination"
+			? Object.entries(question.criteria).find(([, value]) => value?.handle === "newspaper-morgue")?.[0] : undefined),
+		route: (batch) => answered(batch, (question) => question.key === "exit" ? "ask_llm" : undefined),
 		responses: [look("time"), narrate("You reach the Globe's morgue.")],
 	});
 	t.after(() => table.dispose());

@@ -218,11 +218,12 @@ const answerViews = (requests) => distinctNotes(requests).flatMap(({ request, no
 const occurrences = (context, needle) => context.messages.map(textOf).join("\n").split(needle).length - 1;
 
 /** A controlled table: `route` answers the route questions; a response may be a function of the request (called when asked). */
-async function hybridTable({ route, responses, env = {}, probe }) {
+async function hybridTable({ route, compile = answered, responses, env = {}, probe }) {
 	const requests = [];
 	const port = { async decide(batch) {
 		if (batch.family === ROUTE_FAMILY) return route(batch);
-		if (batch.family === COMPILE_FAMILY || batch.family === BIND_FAMILY) return answered(batch);
+		if (batch.family === COMPILE_FAMILY) return compile(batch);
+		if (batch.family === BIND_FAMILY) return answered(batch);
 		return supported(batch);
 	} };
 	const engine = createHybridEngine({ env: { ...process.env, PI_COC_JEV_PRESELECT: "1", EXT_JEV_APIKEY: "mechanical-test-key",
@@ -242,18 +243,22 @@ const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text }
 const look = (focus) => fauxAssistantMessage([fauxToolCall("look", { focus })], { stopReason: "toolUse" });
 const consult = (query, question, extra = {}) => fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", source_mode: "answer", query, question, ...extra })], { stopReason: "toolUse" });
 const stay = (batch) => answered(batch, (question) => question.key === "exit" ? "ask_llm" : undefined);
-const toGlobe = (batch) => answered(batch, (question) => question.key === "exit" ? "continue" : /Boston Globe offices/.test(question.target) ? "now" : undefined);
-/** The route: stay, except for the first route question after `move()` is called, which takes the Globe. */
+/** After `move()` the compile binds the declared Globe once; routes leave the remaining work to the Keeper. */
 function router() {
 	let pending = false;
-	return { move() { pending = true; }, route(batch) { if (pending) { pending = false; return toGlobe(batch); } return stay(batch); } };
+	return { move() { pending = true; }, compile(batch) {
+		if (!pending) return answered(batch);
+		pending = false;
+		return answered(batch, (question) => question.key === "destination"
+			? Object.entries(question.criteria).find(([, value]) => value?.handle === "newspaper-morgue")?.[0] : undefined);
+	}, route: stay };
 }
 const telemetryOf = (table, lane, event) => table.table.telemetry(CAMPAIGN).filter((row) => row.lane === lane && row.event === event);
 
 test("§135.20.1 at the extension seam: an answer from turn N rides turn N+1's first model step at the same scene, once, and is gone after the party moves", async (t) => {
 	const SENTINEL = "Corbitt died in 1918 and the Macarios let the house since (held-sentinel).";
 	const way = router();
-	const table = await hybridTable({ route: (batch) => way.route(batch),
+	const table = await hybridTable({ route: (batch) => way.route(batch), compile: (batch) => way.compile(batch),
 		responses: [consult("commission-briefing", "Who lived in the house before?"), narrate("Knott shrugs and taps the lease."),
 			look("time"), narrate("You read the lease again."),
 			look("time"), narrate("You reach the Globe's morgue."),
@@ -366,7 +371,7 @@ test("§135.20.1 at the extension seam: the next turn's first step waits for thi
 	const answers = {};
 	const way = router();
 	let armed = "", infers = 0;
-	const table = await hybridTable({ route: (batch) => way.route(batch),
+	const table = await hybridTable({ route: (batch) => way.route(batch), compile: (batch) => way.compile(batch),
 		env: { PI_COC_SOURCE_ANSWER_ALLOWANCE_MS: "20000" },
 		// The probe lands a consultation 60 ms after the first model step of the armed turn began building its note.
 		probe: (pi) => pi.events.on("coc:model-infer", () => {

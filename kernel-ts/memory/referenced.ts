@@ -3,7 +3,7 @@ import { committedTurnCatalog, type CommittedTurnCatalog } from '../../runtime/j
 import {deriveCommittedSpeechSpans} from '../../runtime/jev/committed-speech-spans.ts';
 import { RpcError } from '../errors.js';
 import { isJsonObject, jsonDigest, parsePythonJson } from '../json.js';
-import { EntityIndex, memoryEvidenceView } from '../read/memory.js';
+import { EntityIndex, memoryEvidenceView, withPromiseFulfillment, canonicalMemoryReceipts } from '../read/memory.js';
 import type { ModuleGraph } from '../read/module-graph.js';
 import { array, clone, normalize, number, row, string, type Row } from '../read/values.js';
 import { noteMemory, readNpcLedger } from '../write/contributions.js';
@@ -189,13 +189,26 @@ export async function referencedJob(campaign: CampaignWriter, graph: ModuleGraph
         const scope = source.catalog.snapshots[0].scope;
         const eligible = (await logs(campaign, 'memory/candidates.jsonl')).filter(value => number(value.valid_from_turn) < turn
             && (value.worldline ?? 'main') === scope.worldline && number(value.loop) === scope.loop);
-        const selected = eligible.slice(-64);
+        const issued = bindSpeakers({context, allowed: context._allowed}, source, graph, party);
+        const index = new ReferencedEntityIndex(graph, party, row(world.scene_labels), array(issued.allowed), array(issued.name_bindings));
+        const npcKeys = new Set(array(issued.context.known_entities).filter(value => value.kind === 'npc')
+            .flatMap(value => index.matches(string(value.name), {kinds: ['npc'], investigators: false, reserved: []})));
+        const projected = withPromiseFulfillment(eligible, {campaign: campaign.id, world,
+            receipts: canonicalMemoryReceipts((await campaign.recordInputs()).filter(record => number(record.turn) <= turn))});
+        const preferred = projected.map((value, at) => ({value, original: eligible[at]})).filter(({value}) => {
+            if(value.kind !== 'promise' || value.status !== 'candidate' || value.superseded_by != null || value.valid_until_turn != null
+                || row(memoryEvidenceView(value).fulfillment).status === 'complete') return false;
+            const keys = index.matches(string(value.subject), {kinds: ['npc'], investigators: false, reserved: []});
+            return keys.length === 1 && npcKeys.has(keys[0]);
+        }).sort((left, right) => number(left.value.valid_from_turn) - number(right.value.valid_from_turn))
+            .slice(0, 64).map(value => value.original);
+        const retained = new Set(preferred), slots = 64 - preferred.length;
+        const selected = [...preferred, ...(slots ? eligible.filter(value => !retained.has(value)).slice(-slots) : [])];
         job = {protocol: PROTOCOL, job_id: context.job_id, turn, commit: source.catalog.commit, record_commit: context.commit, status: 'open', sequence: 0,
-            origin: {scope, revision: source.revision}, context, allowed: context._allowed, receipts: context._receipts,
+            origin: {scope, revision: source.revision}, context: issued.context, allowed: issued.allowed, name_bindings: issued.name_bindings, receipts: context._receipts,
             remaining: source.catalog.segments.map((_, index) => index), deferred: [], steps: [], opened_at: nowIso(),
             targets: selected.map((value, index) => ({...clone(value), alias: `prior:${index}`})),
             prior_coverage: {total: eligible.length, included: selected.length, omitted: eligible.length - selected.length}};
-        job = bindSpeakers(job, source, graph, party);
         await writeJob(campaign, job);
     } else {
         await verified(campaign, job);

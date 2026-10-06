@@ -21,6 +21,7 @@ import { createFixtureNpcActPort } from "../../runtime/jev/npc-act.ts";
 import { NPC_ACT_BIND_FAMILY } from "../../runtime/jev/npc-act-step.ts";
 import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { BIND_FAMILY, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
+import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { CARD_FIELD_ORDER, CARRIED_VIEW_BYTES, CARRIED_VIEWS_BYTES, CARRIED_VIEWS_HEAD, carriedSection, fitView, namedPeople, PRESENT_FIELDS, readCarriedViews } from "../../runtime/jev/carried-views.ts";
 import { readArguments } from "../../extensions/kernel/index.ts";
 import { isRunEvent } from "./pi-agent-core.mjs";
@@ -115,14 +116,12 @@ const toldWhereToDig = (workspace) => kernelSteps(workspace, [
 ]);
 
 test("§135.31 after a clerk move: the scene the run moved into and the people the fresh read's candidates name, each as look returns it, whole under the carried view's own 4 KiB", async (t) => {
-	let routes = 0;
 	const table = await hybridTable({
 		prepareWorkspace: toldWhereToDig,
-		// First route: the move the player declared; after it, nothing more before the Keeper writes the prose. The §135.30
-		// compile answers `unknown` here (the default), so nothing clears and the move reaches the route.
-		decide: (batch) => batch.family !== ROUTE_FAMILY ? answered(batch)
-			: ++routes === 1 ? answered(batch, (question) => question.key === "exit" ? "continue" : /Boston Globe offices/.test(question.target) ? "now" : undefined)
-				: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
+		// The compile binds the player's Globe before moving (§135.11); the route then finishes for the Keeper's prose.
+		decide: (batch) => batch.family === COMPILE_FAMILY ? answered(batch, (question) => question.key === "destination"
+			? Object.entries(question.criteria).find(([, value]) => value?.handle === "newspaper-morgue")?.[0] : undefined)
+			: answered(batch, (question) => batch.family === ROUTE_FAMILY && question.key === "exit" ? "finish" : undefined),
 		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你到了报馆。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());

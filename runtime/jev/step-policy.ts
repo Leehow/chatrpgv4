@@ -530,6 +530,7 @@ export function compileDue(view: RunView): boolean {
  */
 export function interpretRoute(view: RunView, offered: Candidate[], result: DecisionResult | undefined, gate: number):
   {pending: PendingItem[]; choice?: string; confidence?: number; reason: string; selected?: string[]; exit?: string;
+    held?: Candidate[];
     forced?: Array<{candidate: Candidate; outcome: 'inspect_check' | 'no_roll'; uncertain: string[]; why: string}>} {
   // §135.11 addendum (SL-20): once the clerk has settled the declaration, the exit leans to finish (the compose).
   const settled = (view.settled?.length ?? 0) > 0;
@@ -546,6 +547,9 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
   }
   const exit = answerOf(result, 'exit');
   const selected: Array<{candidate: Candidate; confidence?: number}> = [];
+  const unboundMoves: Candidate[] = [];
+  const latestCompile = [...(view.observations ?? [])].reverse().find(value => value.kind === 'decide' && value.purpose === 'compile');
+  const destination = object(object(latestCompile?.summary).destination_binding);
   for (const [index, candidate] of offered.entries()) {
     // §135.30 addendum (owner, 2026-09-24): an obligation check or a stated meeting is selected only by the compile's
     // predicates. Its own question (§135.26's `seeks`) is still asked and recorded; its answer selects nothing.
@@ -557,6 +561,12 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
     const selects = candidate.routeFact?.selects ?? 'now';
     const checkOwned = candidate.checkOwner === 'jev' && candidate.unbound.some(value => value.binder === 'resolve-selection');
     if (choice === selects && clears(result, key, selects, confidence, gate)) {
+      if (!view.compileOff && latestCompile?.status === 'complete' && typeof destination.cleared === 'boolean'
+        && candidate.family === 'move' && candidate.clerk === 'declared_bookkeeping' && !candidate.forced
+        && !(destination.cleared === true && destination.row === candidate.bound.to)) {
+        unboundMoves.push(candidate);
+        continue;
+      }
       selected.push({candidate, confidence});
       continue;
     }
@@ -574,6 +584,18 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
       selected.push({candidate, confidence});
       forced.push({candidate, outcome: 'inspect_check', uncertain, why: 'below_confidence_gate'});
     } else forced.push({candidate, outcome: 'no_roll', uncertain, why: 'below_confidence_gate'});
+  }
+  if (unboundMoves.length) {
+    // Only this selected ordinary world batch waits for its missing destination; other authority stays intact.
+    const held = [...unboundMoves, ...selected.filter(({candidate}) => !candidate.forced
+      && (candidate.clerk === 'declared_check' || candidate.verb === 'apply'
+        && ['declared_bookkeeping', 'declared_time'].includes(candidate.clerk ?? '') && candidate.bound.kind !== 'npc')).map(value => value.candidate)];
+    const ordinary = new Set(held);
+    const independent = selected.filter(value => !ordinary.has(value.candidate)).sort((left, right) => rank(left.candidate) - rank(right.candidate));
+    return withForced({pending: [...independent.flatMap(({candidate}) => itemsFor(candidate)),
+      {kind: 'infer' as const, purpose: 'adjudicate', reason: 'destination_binding_unresolved'}],
+      choice: independent.map(value => value.candidate.key).join(' + '), reason: 'destination_binding_unresolved',
+      selected: independent.map(value => value.candidate.key), held, exit: exit.choice});
   }
   selected.sort((a, b) => rank(a.candidate) - rank(b.candidate));
   const confidence = selected.length ? Math.min(...selected.map(entry => entry.confidence ?? 1)) : exit.confidence;
@@ -626,9 +648,18 @@ function candidateView(candidate: Candidate): Json {
     needs: candidate.unbound.filter(value => value.required).map(value => value.name),
     ...(candidate.detail !== undefined ? {detail: projectedDetail} : {})};
 }
+/** New eligibility identities stay in host observations, never in decision/model context. */
+function publicObservationSummary(value: Json): Json {
+  if (Array.isArray(value)) return value.map(publicObservationSummary);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !['held_eligibility', 'resumed_held_eligibility', 'canonical_move'].includes(key))
+    .map(([key, child]) => [key, publicObservationSummary(child)]));
+  return value;
+}
 export function doneThisTurn(view: RunView): Json[] {
   return view.observations.filter(value => value.kind === 'direct' || value.kind === 'infer')
-    .map(value => ({step: value.step, kind: value.kind, purpose: value.purpose, status: value.status, ...(value.summary !== undefined ? {what: value.summary} : {})}));
+    .map(value => ({step: value.step, kind: value.kind, purpose: value.purpose, status: value.status,
+      ...(value.summary !== undefined ? {what: publicObservationSummary(value.summary)} : {})}));
 }
 
 /** Route needs share scene evidence; detailed rule guidance belongs to the selected check binder. */
@@ -932,16 +963,25 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
   const gated = offered.filter(candidate => actGated(candidate, view.declaredActs ?? [])).map(candidate => candidate.key);
   // §135.30.10: a move offered after the run moved is the Keeper's for the run the same way.
   const moveHeld = offered.filter(candidate => moveGated(candidate, view.moved ?? [])).map(candidate => candidate.key);
-  if (result.status === 'complete') for (const candidate of offered) if ((candidate.routeFact || compileOnly(candidate) || gated.includes(candidate.key) || moveHeld.includes(candidate.key)) && !(routed.selected ?? []).includes(candidate.key)) {
+  const destinationHeld = new Set((routed.held ?? []).map(candidate => candidate.key));
+  if (result.status === 'complete') for (const candidate of offered) if ((candidate.routeFact || compileOnly(candidate) || gated.includes(candidate.key) || moveHeld.includes(candidate.key) || destinationHeld.has(candidate.key)) && !(routed.selected ?? []).includes(candidate.key)) {
     if (!view.consumed.includes(candidate.key)) view.consumed.push(candidate.key);
     view.candidates = view.candidates.filter(value => value.key !== candidate.key);
   }
-  observe(view, {kind: 'decide', purpose: 'route', status: result.status, choice: routed.choice, confidence: routed.confidence, reason: routed.reason});
+  const compile = [...view.observations].reverse().find(value => value.kind === 'decide' && value.purpose === 'compile');
+  const held = routed.held?.length ? {destination_binding: object(compile?.summary).destination_binding ?? null,
+    held_eligibility: {source_scene: view.context.scene, holding_step: view.observations.length + 1,
+      recoverable: routed.held.filter(candidate => ['declared_check', 'declared_time'].includes(candidate.clerk ?? ''))
+        .map(candidate => ({key: candidate.key, clerk: candidate.clerk, family: candidate.family}))},
+    proposed: routed.held.map(candidate => ({operation: candidate.verb, family: candidate.family, label: candidate.label,
+      bound: candidate.bound, unbound: candidate.unbound.map(parameter => parameter.name)}))} : undefined;
+  observe(view, {kind: 'decide', purpose: 'route', status: result.status, choice: routed.choice, confidence: routed.confidence, reason: routed.reason,
+    ...(held ? {summary: held as Json} : {})});
   const answers = result.status === 'complete' ? Object.fromEntries(Object.entries(result.answers ?? {}).map(([key, value]) => [key,
     value.status === 'answered' && value.type === 'choice' ? {choice: value.choice, confidence: value.confidence ?? null, probabilities: value.probabilities ?? null} : {status: value.status}])) : null;
   return {step, kind: 'decide', purpose: 'route', choice: routed.choice ?? null, confidence: routed.confidence ?? null, ms, jev_calls: 1,
     reason: routed.reason, offered: offered.length, detail: {selected: routed.selected ?? null, exit: routed.exit ?? null, answers, ...(gated.length ? {act_gated: gated} : {}),
-      ...(moveHeld.length ? {move_gated: moveHeld} : {}), offered_keys: offered.map(candidate => candidate.key), batch_state: batch.state as Json} as Json};
+      ...(moveHeld.length ? {move_gated: moveHeld} : {}), ...(held ? {not_landed: held} : {}), offered_keys: offered.map(candidate => candidate.key), batch_state: batch.state as Json} as Json};
 }
 
 /**
@@ -985,7 +1025,8 @@ export function settleCompile(view: RunView, step: number, batch: DecisionBatch,
   // §135.30.9.2 (SL-52 stage 2): a compile that settles a step of the book re-asks the scene's clue rows once, before the batch.
   const reask = !view.reasked && result.status === 'complete' && !exhausted(view.budget) ? reaskOf(view.candidates, view.rows, selected, unlocked) : undefined;
   if (reask) { view.reasked = true; view.pending.unshift({kind: 'decide', purpose: 'reask', extra: reask as unknown as Record<string, Json>}); }
-  observe(view, {kind: 'decide', purpose: 'compile', status: result.status, ...(keys.length ? {choice: keys.join(' + ')} : {}), reason: outcome.reason});
+  observe(view, {kind: 'decide', purpose: 'compile', status: result.status, ...(keys.length ? {choice: keys.join(' + ')} : {}), reason: outcome.reason,
+    summary: {destination_binding: outcome.features?.destination ?? null} as unknown as Json});
   return {step, kind: 'decide', purpose: 'compile', choice: keys.length ? keys.join(' + ') : null, confidence: null, ms, jev_calls: 1, reason: outcome.reason,
     detail: {features: outcome.features, fired: selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
       selected: keys, decided: outcome.decided, fell_through: outcome.fellThrough, ...(outcome.askCleared ? {ask_cleared: outcome.askCleared} : {}),
@@ -1434,6 +1475,43 @@ export function consumedByResolve(method: string): string[] {
   return method === 'resolve' ? [ORDINARY_CHECK_KEY] : [];
 }
 
+/** One confirmed model move resumes only still-unexecuted eligibility from its own held frame. */
+function resumeHeldEligibility(view: RunView, item: PendingItem, executed: {ok: boolean; summary: Json}, fresh: Fresh): Json | undefined {
+  if (!executed.ok || item.call?.method !== 'apply') return;
+  const proof = object(object(object(executed.summary).result).canonical_move);
+  const frame = [...view.observations].reverse().find(value => value.kind === 'decide' && value.purpose === 'route'
+    && value.reason === 'destination_binding_unresolved' && object(value.summary).held_eligibility);
+  if (!frame || typeof proof.receipt !== 'string' || !fresh.context.receipts.includes(proof.receipt)
+    || proof.from !== view.context.scene || proof.to !== fresh.context.scene || proof.from === proof.to) return;
+  const held = object(object(frame.summary).held_eligibility);
+  if (held.holding_step !== frame.step || held.source_scene !== proof.from
+    || view.observations.some(value => object(object(value.summary).resumed_held_eligibility).holding_step === frame.step)) return;
+  const performed = new Set([...array(proof.consumed_keys).filter(key => typeof key === 'string'), ...consumedByEffects(item.call.params.effects as Row[] | undefined),
+    ...consumedByClaim(item.call.params.action as Row | undefined), ...consumedByResolve(item.call.method)]);
+  for (const observation of view.observations.filter(value => value.step > frame.step)) {
+    if (observation.kind !== 'direct' || observation.purpose !== 'execute') continue;
+    if (observation.choice) performed.add(observation.choice);
+    if (observation.status === 'ok') {
+      const summary = object(observation.summary), params = object(summary.params);
+      for (const key of [...consumedByEffects(params.effects as Row[] | undefined), ...consumedByClaim(params.action as Row | undefined),
+        ...consumedByResolve(String(summary.tool ?? ''))]) performed.add(key);
+    }
+  }
+  const issued = new Map(fresh.candidates.map(candidate => [candidate.key, candidate]));
+  const recoverable = array(held.recoverable).map(object).filter(value => typeof value.key === 'string'
+    && ['declared_check', 'declared_time'].includes(String(value.clerk)) && !performed.has(value.key));
+  const released = recoverable.filter(value => {
+    const current = issued.get(value.key);
+    return view.consumed.includes(value.key) && current && !current.forced && current.clerk === value.clerk
+      && current.family === value.family && (current.clerk !== 'declared_check' || current.checkOwner === 'jev');
+  });
+  const keys = new Set(released.map(value => value.key));
+  view.consumed = view.consumed.filter(key => !keys.has(key));
+  const checks = new Set(released.filter(value => value.clerk === 'declared_check').map(value => value.key));
+  if (view.compiledOver) view.compiledOver = view.compiledOver.filter(key => !checks.has(key));
+  return {holding_step: frame.step, receipt: proof.receipt, keys: [...keys]};
+}
+
 /**
  * §135.30.5 (SL-38): the moves staged after the clerk step `key`. `landed`: the step was taken and a fresh read followed.
  * A move the fresh read issues runs next, carrying the compile's record (`carryCompile`: the fresh kernel row, the compile's
@@ -1534,8 +1612,10 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
   }
   // §143.28: a blow the Keeper (or the kernel's forced defence) landed on a held person ends the hold and owes them the scan.
   settleStruck(view, fresh);
+  let resumed: Json | undefined;
   if (fresh) {
     const before = view.context.scene;
+    resumed = resumeHeldEligibility(view, item, executed, fresh);
     applyFresh(view, fresh);
     // A scene change invalidates the material the route was judged on (runs 11-13: the people at the morgue
     // were judged against the office's material). The next step reads the new scene before any route.
@@ -1556,9 +1636,10 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
   if (!item.call && item.candidate) settleStagedClues(view, item.candidate.key, executed.ok && !!fresh && (executed.summary as Row | null)?.check !== 'failed');
   if (!item.call && item.candidate) settleUnlocks(view, item.candidate.key, executed.ok && !!fresh);
   if (item.call) {
-    observe(view, {kind: 'direct', purpose: 'execute', status: executed.ok ? 'ok' : 'refused', choice: item.call.label, summary: {...(executed.summary as Row), params: item.call.params} as Json});
+    const summary = {...(executed.summary as Row), params: item.call.params, ...(resumed ? {resumed_held_eligibility: resumed} : {})} as Json;
+    observe(view, {kind: 'direct', purpose: 'execute', status: executed.ok ? 'ok' : 'refused', choice: item.call.label, summary});
     return {step, kind: 'direct', purpose: 'execute', choice: item.call.label, confidence: null, ms, jev_calls: 0,
-      reason: executed.ok ? 'ok_model_origin' : 'refused_model_origin', detail: executed.summary};
+      reason: executed.ok ? 'ok_model_origin' : 'refused_model_origin', detail: summary};
   }
   observe(view, {kind: 'direct', purpose: 'execute', status: executed.ok ? 'ok' : 'refused', choice: item.candidate!.key, summary: executed.summary});
   return {step, kind: 'direct', purpose: 'execute', choice: item.candidate!.key, confidence: null, ms, jev_calls: 0,
@@ -1735,7 +1816,8 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         if (!binding) return {kind: 'decide', purpose: 'route', question: unbound};
         const {batch, offered} = routeBatch(state, binding.scope, binding.readSet);
         return {kind: 'decide', purpose: 'route', question: {batch, offered, located: state.located, gate: driver.policyState.gate, settled: state.settled ?? [],
-          declaredActs: state.declaredActs ?? [], moved: state.moved ?? []}};
+          declaredActs: state.declaredActs ?? [], moved: state.moved ?? [], compileOff: state.compileOff === true,
+          observations: state.observations.filter(value => value.kind === 'decide' && value.purpose === 'compile').slice(-1)}};
       }
       if (request.kind === 'decide' && request.purpose === 'compile') {
         if (!binding) return {kind: 'decide', purpose: 'compile', question: unbound};
@@ -1819,7 +1901,8 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
           if (!fell && (executed?.fell || !ok)) fell = executed?.fell ?? `${toolResult.toolName}_refused`;
           settleExecute(view, ++view.budget.steps, {kind: 'direct', purpose: 'execute',
             call: {method: toolResult.toolName, params: (proposal?.params ?? {}) as Record<string, Json>, label: toolResult.toolName}},
-          {ok, summary: {tool: toolResult.toolName, call: toolResult.toolCallId, status: outcome?.status ?? 'refused', ...(executed?.summary && typeof executed.summary === 'object' ? {result: executed.summary} : {})} as Json},
+          {ok, summary: {tool: toolResult.toolName, call: toolResult.toolCallId, status: outcome?.status ?? 'refused',
+            ...(executed?.executed?.summary && typeof executed.executed.summary === 'object' ? {result: executed.executed.summary} : {})} as Json},
           executed?.fresh, observation.ms);
         }
         if (plan.steps.length > 1 || fell) view.plan = plan;

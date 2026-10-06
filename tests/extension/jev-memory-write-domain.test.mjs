@@ -173,13 +173,13 @@ test("reference-first domain publishes two occurrence-specific promises without 
 	assert.deepEqual(run.record.decisions.map(row => row.result.status), ["complete", "complete", "complete", "complete", "complete"]);
 });
 
-test("v4 issues directed relationship attribution, the complete semantic name catalog, and exact kind and occurrence-relation policy", async () => {
+test("v5 issues directed relationship attribution, the complete semantic name catalog, and exact kind and occurrence-relation policy", async () => {
 	const ooc = segment("player:0", "player", "Please remember my play preference: ask clearly before accepting a commission, and do not prompt my next action.");
 	const issued = packet({ segments: [ooc], step: { key: "ooc-policy", sequence: 0, total: 1, remaining: 1, segments: [ooc] } });
 	const run = await runDomain({ packets: [issued] });
 	assert.equal(createMemoryWriteDomain().version, MEMORY_WRITE_POLICY_VERSION);
-	assert.equal(MEMORY_WRITE_POLICY_VERSION, "4");
-	assert.ok(run.calls.every(call => call.familyVersion === "4"));
+	assert.equal(MEMORY_WRITE_POLICY_VERSION, "5");
+	assert.ok(run.calls.every(call => call.familyVersion === "5"));
 
 	const kinds = run.calls.find(call => call.family === "memory-write-kinds");
 	assert.ok(kinds);
@@ -227,7 +227,7 @@ test("v4 issues directed relationship attribution, the complete semantic name ca
 		independent: "A distinct proposition about the same relation or commitment should coexist with the prior occurrence; an unrelated proposition is none.",
 		correction: "The new occurrence explicitly corrects or retracts the prior occurrence.",
 		contradiction: "The new occurrence asserts a proposition incompatible with the prior occurrence without framing it as a later state change.",
-		temporal_change: "The new occurrence describes a later state replacing or changing the prior state while preserving both points in time.",
+		temporal_change: "The new occurrence describes a later state replacing or changing the prior state while preserving both points in time. For a prior non-material promise, actual delivery of the promised answer or information, or an explicit terminal refusal or withdrawal, can settle that commitment even when the new annotation has another kind. A repeated pledge, a mere attempt, another referral, or saying the work is done without its promised result does not settle it. Speech alone never proves a cash, item or object transfer; those require canonical effects.",
 		uncertain_attribution: "The issued evidence does not support classifying this occurrence pair safely.",
 	});
 });

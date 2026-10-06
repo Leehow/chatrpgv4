@@ -201,10 +201,12 @@ test('§163: forced entries the policy recorded reach the telemetry and the Keep
 
 test('§163, the turn-9 shape on the emitted kernel: a social influence judged necessary at .75/.74 is adjudicated as Jev\'s best guess, with prose and no notice', async t => {
   const port = {async decide(batch) {
+    const firstSkill = batch.questions.find(question => question.type === 'noul' && question.target.startsWith('skill: '));
     const answers = Object.fromEntries(batch.questions.map(question => {
       if (question.type === 'noul') {
         let p = 0.01;
         if (batch.family === 'check-selection-social-method') p = 0.82;
+        if (batch.family.startsWith('check-selection-bind') && question.target.startsWith('skill: ')) p = question === firstSkill ? 0.9 : 0.01;
         if (batch.family.startsWith('check-selection-need')) p = question.key.endsWith('_blocked') ? (batch.family.endsWith('-refine') ? 0.36 : 0.34) : (batch.family.endsWith('-refine') ? 0.74 : 0.75);
         return [question.key, {status: 'answered', type: 'noul', noul: p}];
       }
@@ -248,14 +250,17 @@ test('§163, the turn-9 shape on the emitted kernel: a social influence judged n
 /**
  * Jev at the Globe's newspaper morgue, where Arty Wilmot and Ruth Blake are both present: the route examines the social family,
  * the investigator's influence method is clear (.82), and each target's necessity is `needs` (prerequisites .3). `skill`
- * is the approach Choice: confident unless a probability is given.
+ * is the first issued skill's independent compatibility Noul; the other skills are ruled out.
  */
 function globeJev({needs, skill}) {
   return {async decide(batch) {
+    const firstSkill = batch.questions.find(question => question.type === 'noul' && question.target.startsWith('skill: '));
     const answers = Object.fromEntries(batch.questions.map(question => {
       if (question.type === 'noul') {
         let p = 0.01;
         if (batch.family === 'check-selection-social-method') p = 0.82;
+        if (batch.family.startsWith('check-selection-bind') && question.target.startsWith('skill: '))
+          p = question === firstSkill ? skill ?? 1 : 0.01;
         if (batch.family.startsWith('check-selection-need')) {
           const check = batch.state.checks[question.key.replace(/_blocked$/, '')];
           p = question.key.endsWith('_blocked') ? 0.3 : needs[check?.action?.target] ?? 0.01;
@@ -265,7 +270,6 @@ function globeJev({needs, skill}) {
       let selected, p = 1;
       if (batch.family === 'single-loop-route' && question.key.startsWith('need_')
         && batch.state.candidates[question.key.replace('need_', 'candidate_')]?.bound?.decision === 'social:adjudicate-difficulty') selected = 'now';
-      if (batch.family.startsWith('check-selection-bind') && question.target === 'skill') { selected = 'value_0'; p = skill ?? 1; }
       selected ??= question.key === 'exit' ? 'finish' : 'unknown' in question.criteria ? 'unknown' : 'later' in question.criteria ? 'later' : Object.keys(question.criteria)[0];
       const keys = Object.keys(question.criteria);
       return [question.key, {status: 'answered', type: 'choice', choice: selected, confidence: p,
@@ -309,11 +313,12 @@ test('§163.8 control: the other person confidently ruled out, the remaining tar
   assert.equal(row.chosen.action.target, 'Arty Wilmot');
 });
 
-test('§163.8: the approach (which social skill) below its gate is the player\'s choice -- no roll, recorded, prose', async t => {
-  const run = await atTheGlobe(t, globeJev({needs: {'Arty Wilmot': 0.9, 'Ruth Blake': 0.05}, skill: 0.55}), '我想办法让阿蒂松口，放我进剪报室。');
+test('§163: social skill compatibility all strongly denied -- no mapping, no execution, recorded, prose', async t => {
+  const run = await atTheGlobe(t, globeJev({needs: {'Arty Wilmot': 0.9, 'Ruth Blake': 0.05}, skill: 0.01}), '我想办法让阿蒂松口，放我进剪报室。');
   delivered(run);
   assert.equal(run.rolls.length, 0);
   const row = run.forced.find(entry => entry.family === 'check-selection');
-  assert.deepEqual([row.chosen.outcome, row.why], ['no_roll', 'player_choice']);
-  assert.ok(row.uncertain.some(entry => /^skill: .* p=0\.55 \(the player's choice\)$/.test(entry)), row.uncertain.join('; '));
+  assert.deepEqual([row.chosen.outcome, row.why], ['no_roll', 'nothing_executable']);
+  assert.ok(row.uncertain.includes('skill: no issued compatible value is available'), row.uncertain.join('; '));
+  assert.ok(row.uncertain.every(entry => !entry.includes('unanswered')), row.uncertain.join('; '));
 });

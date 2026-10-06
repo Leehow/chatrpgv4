@@ -23,6 +23,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { customMessages, openTable, waitFor } from "./harness.mjs";
 import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
+import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { isRunEvent } from "./pi-agent-core.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -149,7 +150,9 @@ test("SL-23 (turn 20): the next turn's clerk move to an existing scene is not bl
 		realKernel: true, prepareWorkspace,
 		// The adaptation creator is a child that never answers, so the job is still held when the next turn opens.
 		env: { PI_COC_READER_CMD: JSON.stringify([process.execPath, "-e", "setTimeout(() => {}, 600000)"]) },
-		decide: (batch) => batch.family !== ROUTE_FAMILY ? answered(batch)
+		decide: (batch) => batch.family === COMPILE_FAMILY && turn === 2 ? answered(batch, (question) => question.key === "destination"
+			? Object.entries(question.criteria).find(([, value]) => value?.handle === "newspaper-morgue")?.[0] : undefined)
+			: batch.family !== ROUTE_FAMILY ? answered(batch)
 			: turn === 1 ? keeperAlways(batch)
 				: answered(batch, (question) => question.key === "exit" ? "continue" : /Boston Globe offices/.test(question.target ?? "") ? "now" : undefined),
 		responses: [
@@ -189,10 +192,13 @@ test("SL-23: a proposal the clerk's move staled is told to the Keeper once, on t
 	]);
 	let turn = 0;
 	const want = { 2: /Boston Globe offices/, 3: /Knott/ };
+	const destinations = { 2: "newspaper-morgue", 3: "commission-briefing" };
 	const table = await hybridTable({
 		realKernel: true, prepareWorkspace,
 		env: { PI_COC_READER_CMD: JSON.stringify([process.execPath, "-e", "setTimeout(() => {}, 600000)"]) },
-		decide: (batch) => batch.family !== ROUTE_FAMILY ? answered(batch)
+		decide: (batch) => batch.family === COMPILE_FAMILY && destinations[turn] ? answered(batch, (question) => question.key === "destination"
+			? Object.entries(question.criteria).find(([, value]) => value?.handle === destinations[turn])?.[0] : undefined)
+			: batch.family !== ROUTE_FAMILY ? answered(batch)
 			: turn === 1 ? keeperAlways(batch)
 				: answered(batch, (question) => question.key === "exit" ? "continue" : want[turn].test(question.target ?? "") ? "now" : undefined),
 		responses: [
