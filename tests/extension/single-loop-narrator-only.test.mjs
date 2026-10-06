@@ -77,9 +77,9 @@ function harness({ env, decide = nothing }) {
 		sessionStart: () => handlers.get("session_start")?.({}, {}),
 		read: (step) => plan.ports.read.read({ origin: "policy", operation: "read", readOnly: true }, invocation(step)),
 		/** The note before a model step of `purpose`/`reason`, parsed; `candidates` stands for the policy view's own list. */
-		project: async (step, purpose, reason, candidates) => {
+		project: async (step, purpose, reason, candidates, request = {}) => {
 			const view = candidates ? { policyState: { view: { candidates } } } : { policyState: { view: {} } };
-			const [message] = await plan.ports.projection.project({ view, stepId: step, step: { kind: "infer", purpose, reason } }) ?? [];
+			const [message] = await plan.ports.projection.project({ view, stepId: step, step: { kind: "infer", purpose, reason, request } }) ?? [];
 			return message ? JSON.parse(message.content) : {};
 		},
 		/** One model call of the response `message` (one object per response), through the stand-in pipeline. */
@@ -102,6 +102,20 @@ function harness({ env, decide = nothing }) {
 	};
 }
 const text = (outcome) => outcome.toolResult?.content?.map((part) => part.text).join("") ?? "";
+
+test('unsettled declared time projects clarification and refuses a model replacement while preserving owed state',async()=>{
+	const h=harness({env:{COC_NARRATOR_ONLY:'off'}});
+	const note=await h.project('s1','compose','declared_time_unresolved',[],{declared_time_unresolved:{cause:'jev_unavailable',unresolved:['band']}});
+	assert.equal(note.unsettled_time.cause,'jev_unavailable');assert.match(note.unsettled_time_note,/Do not choose minutes or a band/);
+	for(const effect of [{kind:'time',minutes:230},{kind:'time',band:'short_rest'}]){
+		const outcome=await h.model('s2','apply',{effects:[effect]});assert.equal(outcome.status,'refused');
+		assert.equal(h.announced.at(-1).refuse_code,'declared_time_unresolved');
+	}
+	assert.equal((await h.model('s3','apply',{effects:[{kind:'time',minutes:5,owed:'prior-told-time'}]})).status,'ok');
+	assert.equal((await h.model('s4','narrate')).status,'ok');
+	const later=harness({env:{COC_NARRATOR_ONLY:'off'}});await later.project('s1','compose','finished');
+	assert.equal((await later.model('s2','apply',{effects:[{kind:'time',minutes:5}]})).status,'ok','a fresh run does not inherit the earlier hold');
+});
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The setting.

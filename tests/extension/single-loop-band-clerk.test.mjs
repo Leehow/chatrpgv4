@@ -7,9 +7,9 @@
  *   without a declaration, without rows, or once the turn holds a time receipt. The damage candidate from the kernel's
  *   `unstated_damage` row: forced, its subject the roll's actor, its bind the shadow's Score.
  * - Policy (pure): the Score bind question; a banded record with its table; the table's own gate, not the run's; below
- *   the gate or `unknown` the Keeper's (no rules default); a model-origin time consumes the candidate.
+ *   the gate or `unknown` declared time is unsettled (no rules default or Keeper mechanical fallback); a model-origin time consumes the candidate.
  * - Driver (vendored `runDriver`, stub ports): route → bind → the clerk writes `apply time {band}`; `unknown` → the
- *   Keeper's adjudication; a declaration judged not to cost time is never bound.
+ *   Keeper's compose with unsettled time; a declaration judged not to cost time is never bound.
  * - Engine (hybrid engine, stub bridge): the rows read once per engine; the bind row carries the kernel's roll; the
  *   Keeper's note carries the band line.
  */
@@ -64,7 +64,8 @@ test("§138.10 builder: the declared action's time is one candidate over the tim
 	assert.deepEqual(band.band, { table: "time-costs", field: "time.band", primitive: "choice", gate: 0.5 });
 	// The bind is exactly the shadow lane's time question (§138.8), so the clerk asks what the shadow measured.
 	const shadow = timeQuestion(TIME_ROWS);
-	assert.equal(band.instruction, shadow.instructions);
+	assert.ok(band.instruction.startsWith(shadow.instructions));
+	assert.match(band.instruction, /An explicit interval that is not offered must remain unknown/);
 	assert.deepEqual(band.descriptions, shadow.criteria);
 	assert.equal(band.descriptions.single_room_search, "single room search: 10 to 45 minutes");
 	assert.equal(band.ruleDefault, undefined, "a band has no rules default (spec D4)");
@@ -149,13 +150,13 @@ test("§138.10 policy: a band clears its table's gate, not the run's; it is reco
 	assert.equal(bound.pending[0].candidate.basis.binding, undefined, "no default taken, nothing stamped");
 	// Below the table's gate: the Keeper's turn, the answer on record, nothing executed.
 	const low = interpretBind(time, { questions: [] }, answer({ band: ["single_room_search", 0.45] }), 0.6);
-	assert.deepEqual(summary(low.pending), [["infer", "adjudicate", "clerk_unbound"]]);
+	assert.deepEqual(summary(low.pending), [["infer", "compose", "declared_time_unresolved"]]);
 	assert.deepEqual([low.pending[0].extra.cause, low.pending[0].extra.unresolved], ["low_confidence", ["band"]]);
 	assert.deepEqual(low.bindings, [{ name: "band", path: "banded", value: null, confidence: 0.45, distribution: { single_room_search: 0.45, unknown: 0.55 }, table: "time-costs" }]);
 	const unknown = interpretBind(time, { questions: [] }, answer({ band: ["unknown", 0.9] }), 0.6);
-	assert.deepEqual([unknown.pending[0].reason, unknown.pending[0].extra.cause], ["clerk_unbound", "unknown_binding"]);
+	assert.deepEqual([unknown.pending[0].reason, unknown.pending[0].extra.cause], ["declared_time_unresolved", "unknown_binding"]);
 	// A row the table does not hold is not written; Jev unavailable is the Keeper's too; the run's gate applies without a table gate.
-	assert.equal(interpretBind(time, { questions: [] }, answer({ band: ["mythos_study", 0.9] }), 0.6).pending[0].reason, "clerk_unbound", "a row the table does not hold is never written");
+	assert.equal(interpretBind(time, { questions: [] }, answer({ band: ["mythos_study", 0.9] }), 0.6).pending[0].reason, "declared_time_unresolved", "a row the table does not hold is never written");
 	assert.equal(interpretBind(time, { questions: [] }, { batchId: "b", status: "unavailable", answers: {}, issues: [], coverage: { required: [], answered: [], unknown: [] } }, 0.6).pending[0].extra.cause, "jev_unavailable");
 	const ungated = timeOf(buildCandidates(reads({ bands: bands({ gates: undefined }) }), INPUT));
 	assert.equal(interpretBind(ungated, { questions: [] }, answer({ band: ["single_room_search", 0.55] }), 0.6).reason, "clerk_unbound");
@@ -224,7 +225,7 @@ test("§138.10 on the driver: the route's fact selects the time band, Jev names 
 	assert.deepEqual(landed.inferred, ["compose"], "one model step, the compose: no bind");
 	const unknown = await drive({ candidates: [time], decide: (batch) => batch.family === BIND_FAMILY ? answer({ band: ["unknown", 0.8] }) : route("costs")(batch), infer: prose });
 	assert.ok(!unknown.log.some((entry) => entry.clerk), "nothing executed");
-	assert.deepEqual(unknown.inferred, ["adjudicate"], "the Keeper's turn, never a bind");
+	assert.deepEqual(unknown.inferred, ["compose"], "only narration remains, never a mechanical time fallback");
 	const none = await drive({ candidates: [time], decide: route("none"), infer: prose });
 	assert.ok(!none.log.some((entry) => entry.clerk));
 	assert.deepEqual(none.log.filter((entry) => typeof entry === "string" && entry.startsWith("decide")), ["decide:route"], "not selected: no bind, and not asked again");
