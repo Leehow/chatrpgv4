@@ -407,6 +407,31 @@ export class ModuleGraph {
         return node ? this.handle(node) : stored;
     }
     /**
+     * §185.7: a value as a Keeper-facing surface shows it. In a name-free campaign every string that is exactly a node id of
+     * this graph -- an object key or a value, at any depth of plain objects and arrays -- becomes that node's handle; anything
+     * else is copied as it is. A legacy graph returns the value itself: its surfaces stay byte-identical.
+     *
+     * Exact, never a substring: a composite reference (`clue:<handle>-t3`, `intent:<handle>:<digest>`) is built from handles
+     * already. It reads stored state (a receipt, the ledger, the book's raw properties and claims) for the Keeper and never
+     * writes it back, so every internal reader keeps the node id it compares (`receipt.npc === node.node_id`).
+     */
+    shownIds<T>(value: T): T {
+        if (!this.nodeHandles)
+            return value;
+        const shown = (item: unknown): unknown => {
+            if (typeof item === "string") {
+                const node = this.nodes.get(item);
+                return node ? this.handle(node) : item;
+            }
+            if (Array.isArray(item))
+                return item.map(shown);
+            if (isJsonObject(item))
+                return Object.fromEntries(Object.entries(item).map(([key, child]) => [shown(key) as string, shown(child)]));
+            return item;
+        };
+        return shown(value) as T;
+    }
+    /**
      * The handle the book's own words give a node -- a scene's `scene_id`, else its node id without the kind (the old slug) --
      * the identifier a legacy campaign shows and the reading layer keeps (§185.12). A projected location strips its own kind.
      */

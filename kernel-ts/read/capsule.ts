@@ -12,7 +12,7 @@ import { bookCast, untoldUnread } from "./cast.js";
 import { nameToken } from "../write/names.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
 import {personalityView} from '../npc/material.js';
-import { intentsView } from '../npc/intents.js';
+import { intentsView, shownIntentRef } from '../npc/intents.js';
 import { moodNow } from '../npc/mood.js';
 import {npcRelationships,npcRecentSpeech,npcCommitments} from '../npc/perspective.js';
 import {reunionView} from '../npc/reunion.js';
@@ -749,7 +749,8 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
         ...(calledBlock(world, handle, graph.displayName(node)) ? {called: calledBlock(world, handle, graph.displayName(node))} : {}),
         ...(untold ? {untold} : {}),
         id: handle,
-        node_id: node.node_id,
+        // §185.7: where the book's node id stood, a name-free campaign shows the handle.
+        node_id: graph.shownIds(node.node_id),
         scene: row(world.npc_presence)[handle] ?? null,
         summary: node.summary ?? null,
         visibility: node.visibility ?? null,
@@ -778,7 +779,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
             to: tie.to,
             kind_of: tie.node.node_kind
         }));
-    view.ledger = ledger[node.node_id] ?? null;
+    view.ledger = ledgerView(graph, node, ledger[node.node_id]);
     const record = recordOf(node);
     if (truth(record))
         Object.assign(view, {
@@ -795,7 +796,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     // table reads the rest in the fight itself. `combat` is the saved fight, so a Keeper's hold shows only in its round.
     // With the disposition table, a person without a disposition also carries what one is inferred from.
     Object.assign(view, cardAction(graph, world, node, combat, dispositions));
-    const authored = withoutChainIds(graph.entityView(node).properties, chain);
+    const authored = withoutChainIds(graph.shownIds(graph.entityView(node).properties), chain);
     if (truth(authored))
         view.properties = authored;
     const relationships=npcRelationships(graph,node,memory,scope),recent=npcRecentSpeech(graph,node,records,scope);
@@ -806,6 +807,21 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     const reunion=reunionView(graph,world,node,records,scope);
     if(reunion)view.reunion=reunion;
     return view;
+}
+/**
+ * §185.7 (and NFH-02's note): a person's ledger row as a single read shows it. Each intention reads by its canonical reference,
+ * built from the person's current handle and the row's digest (`shownIntentRef`, §185.2) -- what the card shows and what settles
+ * it; a row recorded before a fold keeps its interim owner in the file. A node id the row stores reads as its handle in a
+ * name-free campaign (`shownIds`). For a row the kernel wrote in a legacy campaign both are the stored strings.
+ */
+function ledgerView(graph: ModuleGraph, node: Row, entry: unknown): Row | null {
+    if (!isJsonObject(entry))
+        return (entry ?? null) as Row | null;
+    const handle = graph.handle(node);
+    const view = Array.isArray(entry.intents)
+        ? {...entry, intents: entry.intents.map(item => isJsonObject(item) && typeof item.ref === "string" ? {...item, ref: shownIntentRef(item.ref, handle)} : item)}
+        : entry;
+    return graph.shownIds(view);
 }
 /** The authored properties a single read dumps, less the raw `weaknesses` (node ids) when the chain carries them by name. */
 function withoutChainIds(properties: Row, chain: Row): Row {
@@ -828,7 +844,8 @@ export function creatureView(graph: ModuleGraph, world: Row, node: Row, ledger: 
         ...(graph.adaptationOrigin(node.campaign_origin) ? {origin: graph.adaptationOrigin(node.campaign_origin)} : {}),
         name: graph.displayName(node),
         id: handle,
-        node_id: node.node_id,
+        // §185.7: where the book's node id stood, a name-free campaign shows the handle.
+        node_id: graph.shownIds(node.node_id),
         scene: row(world.npc_presence)[handle] ?? null,
         summary: node.summary ?? null,
         visibility: node.visibility ?? null,
@@ -837,7 +854,7 @@ export function creatureView(graph: ModuleGraph, world: Row, node: Row, ledger: 
         ...chain,
         ...(truth(record.keeper_note) ? {keeper_note: record.keeper_note} : {}),
         ...(toward ? {toward_party: toward} : {}),
-        ledger: ledger[node.node_id] ?? null,
+        ledger: ledgerView(graph, node, ledger[node.node_id]),
         mechanics: truth(graph.mechanicsOf(node)) ? graph.mechanicsOf(node) : null,
     };
     // A body the engine fights with (§136.12): how it defends and what it does in a fight, as a person's card says.
@@ -845,7 +862,7 @@ export function creatureView(graph: ModuleGraph, world: Row, node: Row, ledger: 
         view.combat_tactic = cardTactic(graph, world, node);
         Object.assign(view, cardAction(graph, world, node, combat, dispositions));
     }
-    const authored = withoutChainIds(graph.entityView(node).properties, chain);
+    const authored = withoutChainIds(graph.shownIds(graph.entityView(node).properties), chain);
     if (truth(authored))
         view.properties = authored;
     return view;

@@ -984,7 +984,8 @@ function knownLabel(world: Row, graph: ModuleGraph, name: any): Row | undefined 
     const handle = graph.handle(node), label = node === clue ? row(world.clue_labels)[handle] : undefined;
     return {
         kind: node === clue ? "clue" : "handout",
-        entity: graph.entityView(node),
+        // §185.7: the book's raw properties may name other nodes by id; the Keeper reads them by handle.
+        entity: graph.shownIds(graph.entityView(node)),
         ...(typeof label === "string" && label.trim() ? { label } : {}),
         ...(node === clue ? { discovered: array(world.discovered_clues).includes(handle) } : { shown: array(world.handouts_shown).includes(handle) }),
         note: node === clue

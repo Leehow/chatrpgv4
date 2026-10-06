@@ -69,7 +69,8 @@ export function continuityView(graph: ModuleGraph, world: Row, records: Row[] = 
     const source = (node: Row): Row => ({
         origin: graph.adaptationOrigin(node.campaign_origin) ?? 'source',
         references: array(node.source_refs).length ? node.source_refs : array(node.source_references),
-        claims: (graph.claimsBySubject.get(node.node_id) ?? []).slice(0, 4).map(c => ({predicate: c.predicate, object: c.object, source_refs: c.source_refs ?? []}))
+        // §185.7: a claim's object names its node by id; the Keeper reads it by handle (a legacy graph shows it as written).
+        claims: (graph.claimsBySubject.get(node.node_id) ?? []).slice(0, 4).map(c => ({predicate: c.predicate, object: graph.shownIds(c.object), source_refs: c.source_refs ?? []}))
     });
     const connections = graph.kind('conclusion').flatMap(conclusion => {
         const relations = (graph.incoming.get(conclusion.node_id) ?? []).filter(edge => ['supports', 'contradicts'].includes(edge.relation_kind));

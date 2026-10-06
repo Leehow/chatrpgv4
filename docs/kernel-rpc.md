@@ -35687,6 +35687,121 @@ graph gets it without a per-tool copy.
   campaign name-free by hand and expected the clue's receipt under its slug; a name-free campaign shows the interim handle
   (§185.4), so it now takes the handle from `table.lookup` and still checks that no retry runs.
 
+#### NFH-04 (2026-10-06, `claude/name-free-handles-20261006-egress`; the request scan and the node-id egress)
+
+**The scan** (`tests/extension/name-free-egress.test.mjs`) is 185.10's name-free check, on the seam 185.10 names: the kernel
+in process and the context hooks as installed.
+- **The book.** Read through the real reading path (bind, index, opening, cast). Every person, and every node that names a
+  person, carries the name in its id: `npc-robert-taylor`, `scene-robert-taylor-home`, `clue-mae-collins-note`,
+  `creature-robert-taylor-hound`, `requirement-robert-taylor-ledger` (a stated obligation, §134.1). The cast has notes
+  renderings (`Bob Taylor`, `Taylor`). One scene and one person are left unread, so the reading layer is met.
+- **The lanes.** The handle lane names three nodes, gives one up and leaves the rest interim; it names one more person
+  between two turns, after she set out to do something under her interim handle. The epithet lane words every person. The
+  first-sight and memory lanes answer.
+- **What it drives.** The opening, then two turns:
+  - the opening host message (`openingInstruction`) and the recovery host message after a mid-turn reopen (the text
+    `sendHost(..., "recovery")` builds, carrying `pending_turn.receipts` whole);
+  - every `look` focus (scene, npc, creature, clues, time, investigator, object by a clue's name, map, session);
+  - `lookup` module (by name, by a handle list, a miss, the obligation), secret (both scopes), continuity, catalog, rule;
+  - `apply` npc with an intention, clue, note, move, two Mod dossier doors (a person's word, a creature's weakness), and
+    refusals: an unknown clue, an unknown person, an unread person (`material_pending`), an intention that names nobody's
+    row;
+  - `resolve` (a check, and a fight against the book's creature);
+  - `recall` (memory, transcript, history timeline, events and diff);
+  - the reading layer's answers (`module.read.request`, `module.reference.status`), carried as a host message;
+  - the workspace (`keeper-context` on).
+
+  Each request is assembled by the `context` hook while its turn is open, and every result and host message is checked to
+  have reached it.
+- **Rendering.** A tool result is the kernel's JSON, as the tool's success path sends it. A refusal is `errorText`'s lines:
+  code, message, fix, and the details it renders (`needs`, `candidates`, `conflicts`, `exits`, `fields`, the mod-repair
+  lists, and every `details.<key>` the fix names), each as its whole JSON.
+- **What it compares**, all exact strings the kernel holds:
+  - every node id of the book's graph, anywhere in any string or key, between non-alphanumerics;
+  - every old slug (the node id without its kind; the reading layer's book handle, §185.12), equal to a hyphen-bounded run
+    of a `:` segment of an identifier;
+  - every form in `handles.job`'s `avoid`, inside an identifier, by `carries_name`'s check (`occurs` on the normalized
+    identifier).
+- **Which strings are identifiers**, by the grammar of references, never by what a string means:
+  - every object key (a projection keys its maps by handle);
+  - every string value that is, as a whole, lowercase ASCII kebab segments joined by `:` (185.5's handle shape, and what is
+    built from handles: an intention ref, a receipt id, a marker);
+  - inside any other string, every token in that grammar that joins two segments by `-` or `:`.
+
+  A display name or a sentence, in any language, is never one; names in prose are the rename's (§103.5). Limit: a
+  single-word identifier inside prose is not checked. The module node's own slug is the library's module id, which every
+  campaign shows as `module_id`, so it is not a slug of the book; its node id is still checked.
+- **The red run**, with every conversion below reverted: 27 hits, every one a node id, from the seven producers below. No
+  slug and no cast form inside an identifier reached the Keeper; the slugs were already input-only (NFH-02).
+
+**The conversions.** One helper, `ModuleGraph.shownIds(value)` (`kernel-ts/read/module-graph.ts`):
+- In a name-free graph, a copy in which every string that is exactly a node id of the graph, as an object key or a value at
+  any depth of plain objects and arrays, is that node's handle.
+- A legacy graph returns the value itself.
+- It is applied to views, never to records. A receipt, the ledger, the book's properties and claims keep their node ids,
+  which internal readers compare (`receipt.npc === node.node_id`, the ledger keyed by node id).
+- Prior art: `semanticGraphValue` (`kernel-ts/read/prescreen-materials.ts`) already does this for prescreen and workspace
+  materials, in both schemes.
+
+The egress list, producer by producer (file:line after the change):
+
+| producer | what reached the Keeper | now |
+| --- | --- | --- |
+| `npcView`, `creatureView` (`kernel-ts/read/capsule.ts:753`, `:848`): `look focus=npc` | `node_id: node.node_id` | `graph.shownIds(node.node_id)`, the handle |
+| the same, their `properties` (`capsule.ts:799`, `:865`) | the book's raw properties: node ids in `thread_refs` | through `shownIds` |
+| `ledgerView` (`capsule.ts:817`; `:782`, `:857`): the single read's `ledger` | the raw ledger row; an intention recorded before a fold read `intent:<interim>:<digest>` (NFH-02's note) | each intention by `shownIntentRef(ref, current handle)`, then `shownIds` |
+| `lookup kind=module` rows (`kernel-ts/read/handlers.ts:557`) | `properties` raw: a weakness's `needs`, an obligation's `scene`, `who`, `demand[].npc`/`target`, `trigger.guards.clues` | the row through `shownIds` |
+| `look focus=object` on a clue or handout (`knownLabel`, `kernel-ts/read/mods.ts:988`) | `entity.properties` raw | the entity through `shownIds` |
+| `lookup kind=continuity` (`kernel-ts/read/continuity.ts:73`) | each evidence claim's `object: {node_id}` | `object` through `shownIds` (its key stays `node_id`) |
+| `table.open`'s `pending_turn.receipts` (`kernel-ts/write/index.ts:907`) | receipts whole, in the host's recovery message: every npc receipt's and the dossier receipt's `npc` | through `shownIds`; the host reads only `id` from them otherwise |
+
+- A field that held a node id keeps its key and shape, and holds the handle. Nothing is dropped, so no schema differs
+  between the schemes.
+- The dossier receipt's `npc` (a known candidate) reaches the Keeper only through the recovery message, and is converted
+  there. The receipt in the turn record keeps the node id.
+- The memory recall reference built from a node id (the other known candidate, `npc:<node_id>` in
+  `kernel-ts/memory/recall.ts`) is an `EntityIndex` key, read back as a display name (`canonicalName`). It never reached
+  the request; the scan's recall calls show `about` and hits by name and by handle.
+
+**Legacy campaigns.**
+- `shownIds` returns the value itself, so every converted surface is byte-identical there. The test's legacy case pins the
+  node id on a single read, the raw claim objects and the recovered receipts' `npc`.
+- One change reaches legacy: the ledger's intentions on a single read are shown canonical. That is NFH-01's ruling (every
+  Keeper-facing view shows `shownIntentRef`), and the look's raw ledger was the view it had missed. For every ref the
+  kernel wrote in a legacy campaign the canonical form is the stored string (the handle never changes), so the bytes change
+  only for a row stored with another spelling of its owner, the case NFH-01's ruling covers.
+
+**Seen, not converted.**
+- `details.person.key` of a person's `material_pending` refusal is the node id. It is the host's round-trip key for
+  `_land_on_text`, matched by the gate against the pre-pass's node ids. `errorText` does not render it (the fix names no
+  `details.person`), and the host's rewritten fix renders only `details.read`, whose focus is the handle. Converting it
+  would need the gate to accept a handle key as well.
+- Lane packets are not the Keeper's: the adaptation lane's `focusedNodes` (`entityView` properties and claims with node
+  ids), `npc.threads` (Jev), the handle lane's own `nodes[].id` (185.5).
+- Map regions keep `source_node` internally; the map views show regions as `{id, label, level}`.
+
+**Not driven by the scan** (each needs a host runtime this seam does not have):
+- setup's surfaces (the opening choice, the prologue);
+- `lookup kind=source` and `kind=adaptation` (the reading and adaptation services);
+- prescreen and Jev packets (a key);
+- handouts and maps with assets.
+
+**Tests.**
+- `tests/extension/name-free-egress.test.mjs` (3):
+  - the scan's own cases: what it flags, and that a name in prose and a name-free handle pass;
+  - the name-free request scan, with the dossier receipts by handle and the barmaid's single-read intention equal to her
+    card's;
+  - the legacy pin.
+- Each conversion was reverted by copy, and the file went red:
+  - `node_id` on the single reads;
+  - the single read's properties;
+  - `ledgerView` (the intention assertion);
+  - the lookup rows;
+  - `look focus=object`;
+  - the continuity claims;
+  - the pending receipts;
+  - `shownIds`'s legacy guard (the legacy pin).
+
 ### 185.12 The reading boundary speaks the book's identifiers (amends §22.4 and §22.6; lead ruling 2026-10-06 on NFH-02's second gap)
 
 The reading layer (`kernel-ts/modules/reading.ts`) matches a focus against the book's node ids, slugs, names and aliases,

@@ -902,7 +902,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const ordinals = Object.keys(row(turn.calls)).flatMap(key => { const part = key.split('-c').at(-1)!; return key.includes('-c') && /^\d+$/.test(part) ? [Number(part)] : []; });
         const pending = ['open', 'acting'].includes(turn.state) ? {
             player_text: turn.player_text ?? null,
-            receipts: array(turn.receipts),
+            // §185.7: the host's recovery message hands these receipts to the Keeper whole; a receipt stores its person by
+            // node id (`npc`), which every internal reader compares, so the view -- not the record -- shows the handle.
+            receipts: module.graph.shownIds(array(turn.receipts)),
             owed: ['narrate'],
             since: turn.opened_at ?? null,
             last_call_ordinal: Math.max(0, ...ordinals)
