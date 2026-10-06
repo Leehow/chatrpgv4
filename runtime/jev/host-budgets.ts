@@ -301,6 +301,44 @@ async function readReadingIdleBudget(contentRoot: string): Promise<ReadingIdleBu
 export function resetReadingIdleBudgetCache(): void { readingIdleCached.clear(); }
 
 /**
+ * Contract §186.1: the image-count budget of a reader child's context hook for the authors and reviewers of a
+ * `guidance`/`opening`/`detail`/`answer` reading, chosen by RC-01's replay of the retained reading logs
+ * (`tests/play/reading_image_replay.py`). Data (`reading_images.count`), never a literal at the call sites.
+ *
+ * Unlike the other budgets there is no fallback number: an unreadable file or an invalid entry yields `undefined`, and the
+ * child then keeps the hook's own general budget, so the replayed choice exists in exactly one place.
+ */
+export interface ReadingImageBudget {
+  /** `reading_images.count`: images a reading child's request may hold before its oldest delivered ones are evicted. */
+  count: number | undefined;
+}
+
+const readingImageCached = new Map<string, Promise<ReadingImageBudget>>();
+
+/** The reading image budget, read once per content root and cached, like `readingIdleBudget`. */
+export function readingImageBudget(contentRoot?: string): Promise<ReadingImageBudget> {
+  const root = contentRoot ?? extensionContentRoot();
+  let pending = readingImageCached.get(root);
+  if (!pending) readingImageCached.set(root, pending = readReadingImageBudget(root));
+  return pending;
+}
+
+async function readReadingImageBudget(contentRoot: string): Promise<ReadingImageBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot, 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      reading_images?: {count?: unknown};
+    };
+    const count = raw.reading_images?.count;
+    return {count: finite(count) && Number.isInteger(count) && count >= 2 ? count : undefined};
+  } catch {
+    return {count: undefined};
+  }
+}
+
+/** Test-only: forgets the cached values, so a test that rewrites a content root sees its own fixture. */
+export function resetReadingImageBudgetCache(): void { readingImageCached.clear(); }
+
+/**
  * SL-97 phase 2b (contract §32.12.3.2): the typed admission reviewer's design and the one rule by which its reading may
  * settle a line alone -- `admission` in the same rules-data file as the other host budgets, so widening the classes after a
  * new measurement is a data change, never a literal in `extensions/kernel/admission.ts`.

@@ -71,7 +71,13 @@ export interface ReaderRequest {
 	tools?: string;
 	eventLog?: string;
 	source?: { pdf: string; cache: string; file_sha256?: string };
+	/** §186.1: the image-count budget of the child's context hook (`reading_images` for a reading's authors and reviewers). */
 	imageHistory?: number;
+	/**
+	 * Host-only (contract §186.2): the reading round's cache identity, `readingCacheId(module, job, round)`. The child runs
+	 * in memory under this session id, which Pi sends as `prompt_cache_key` and the grok hook as `x-grok-conv-id`.
+	 */
+	cacheId?: string;
 	/**
 	 * Files in `cwd` handed to the model as `@file` arguments before the prompt (images become attachments).
 	 * A zero-tool child cannot `read` a picture, so this is how it is given one (contract §155.3).
@@ -94,6 +100,8 @@ export interface ReaderOutcome {
 	overruns?: ProviderRefusal[];
 	/** The provider's own error when the round ended on one (stream timeout, connection error), for a `transport` failure. */
 	providerError?: string;
+	/** §186.2: the uncached input tokens of the child's first answered provider call (its usage `input`), when it reported one. */
+	firstCallUncached?: number;
 	ok: boolean;
 	/** The exit code; null when killed by a signal. */
 	code: number | null;
@@ -113,8 +121,25 @@ export function nativeSourceReaderEnabled(request: Pick<ReaderRequest,"source"|"
 		request.submission===true&&['read','verify'].includes(request.prompt?.phase??'')) && !!readJevApiKey(env);
 }
 
+/** A fixed namespace for the reading rounds' cache identities (an RFC 4122 name-based UUID, version 5). */
+const READING_CACHE_NAMESPACE = Buffer.from("5f0c8a3e9d2b4c6f8e1a7b3d2c4e6f80", "hex");
+
+/**
+ * Contract §186.2: the cache identity every Pi child of one reading job round shares -- the author attempt and each
+ * review unit attempt -- derived only from `(module id, job id, round)`, so the same round always gets the same id and
+ * another round or job another. A UUID, which Pi accepts as `--session-id` and which fits `prompt_cache_key`.
+ */
+export function readingCacheId(moduleId: string, jobId: string, round: number): string {
+	const name = JSON.stringify(["reading-round", moduleId, jobId, round]);
+	const bytes = createHash("sha1").update(READING_CACHE_NAMESPACE).update(name).digest().subarray(0, 16);
+	bytes[6] = (bytes[6] & 0x0f) | 0x50;
+	bytes[8] = (bytes[8] & 0x3f) | 0x80;
+	const hex = bytes.toString("hex");
+	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 /** The reader's command line, without the final `brief` argument. */
-export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext, tools?: string, audit = false, adaptation = false, nativeSource = false): string[] {
+export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext, tools?: string, audit = false, adaptation = false, nativeSource = false, sessionId?: string): string[] {
 	const root = context?.resourceRoot ?? resourceRootFrom(import.meta.url);
 	const entries = context?.entrypoints ?? runtimeEntrypoints(root);
 	const override = context?.env.PI_COC_READER_CMD?.trim();
@@ -130,6 +155,8 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 		nativeSource ? entries.piSourceReader : entries.pi,
 		"-p",
 		"--no-session",
+		// §186.2: still in memory, but under the reading round's shared id, so its provider cache key is the round's.
+		...(sessionId ? ["--session-id", sessionId] : []),
 		"--no-context-files",
 		"--no-extensions",
 		"--no-skills",
@@ -266,7 +293,9 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 	let command: string[];
 	try {
 		const nativeSource = nativeSourceReaderEnabled(request,context.env);
-		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context, request.tools, !!request.audit, !!request.adaptation, nativeSource);
+		if (request.cacheId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(request.cacheId))
+			throw new Error("A reading cache id is a UUID");
+		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context, request.tools, !!request.audit, !!request.adaptation, nativeSource, request.cacheId);
 		if (request.providerBudget && context.env.PI_COC_READER_CMD?.trim()) throw new Error("A budgeted reader requires the host Pi launcher and private provider handshake");
 		if ((request.eventLog || request.providerBudget) && !context.env.PI_COC_READER_CMD?.trim()) command.splice(command.length - 1, 0, "--mode", "json");
 		// Without this the file below is read by nobody: pi loads project settings only for a trusted
@@ -301,7 +330,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 		delete env.PI_COC_ADAPTATION_SUBMIT_ROLE;
 		delete env.PI_COC_ADAPTATION_SUBMIT_DIR;
 	}
-	if(request.imageHistory)env.PI_COC_READER_IMAGE_HISTORY=String(request.imageHistory);
+	if(request.imageHistory)env.PI_COC_READER_IMAGE_HISTORY=String(request.imageHistory);else delete env.PI_COC_READER_IMAGE_HISTORY;
 	if (request.source) env.PI_COC_READER_SOURCE = JSON.stringify(request.source);
 	else delete env.PI_COC_READER_SOURCE;
 	// The subprocess is not a table: it must not think it should open one.
@@ -330,6 +359,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 		// refused retry, and a round that ends on it failed on transport (§20 addendum 2).
 		let lastProviderError: string | undefined;
 		let refusal: ProviderRefusal | undefined;
+		let firstCallUncached: number | undefined;
 		const refuse = (error: unknown) => {
 			refusal ??= providerRefusal(error, {afterProviderError: lastProviderError, unknownCalls: usage.unknownCalls});
 			providerError = providerRefusalText(refusal);
@@ -420,7 +450,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 				const error = eventError ?? (refusal ? providerRefusalText(refusal) : providerError);
 				const failedOnProvider = !refusal && providerError !== undefined && providerError === lastProviderError;
 				resolve({ ...outcome, ...(request.providerBudget ? {usage} : {}), ...(refusal ? {refusal} : {}), ...(overruns.length ? {overruns} : {}),
-					...(failedOnProvider ? {providerError: lastProviderError} : {}),
+					...(failedOnProvider ? {providerError: lastProviderError} : {}), ...(firstCallUncached !== undefined ? {firstCallUncached} : {}),
 					...(error ? { ok: false, error } : {}), ms: Date.now() - began, stderr: stderr.slice(-STDERR_KEEP), command });
 			};
 			if (log && !log.destroyed) log.end(done);
@@ -474,6 +504,10 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 							: value) + "\n");
 						if (event.type === "message_end" && event.message?.role === "assistant") {
 							const message = event.message;
+							// §186.2: the first call that reported usage is the one a shared cache identity is meant to warm.
+							const input = Number(message.usage?.input), cached = Number(message.usage?.cacheRead);
+							if (firstCallUncached === undefined && Number.isSafeInteger(input) && input >= 0 && input + (Number.isSafeInteger(cached) ? cached : 0) > 0)
+								firstCallUncached = input;
 							if (message.errorMessage || message.stopReason === "error" || message.stopReason === "aborted") {
 								if (!refusal) providerError = message.errorMessage || `Reader model ${message.stopReason}`;
 								lastProviderError = message.errorMessage || `Reader model ${message.stopReason}`;

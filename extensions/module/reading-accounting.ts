@@ -23,10 +23,22 @@ export interface ReadingAccounting {
 	repair?: "targeted" | "full";
 	/** §151.4: the need's disposition, when the job was queued from a retained source need and the host settled it. */
 	need?: "answered" | "unlocated" | "carried" | "read";
+	/**
+	 * §186.2: per phase (`read`, `index`, `index-audit`, `verify`), the Pi children whose first call reported usage and the
+	 * sum of those first calls' uncached input tokens -- what a shared cache identity per round is meant to bring down.
+	 */
+	first_call_uncached: Record<string, { children: number; tokens: number }>;
 }
 
 export function readingAccounting(): ReadingAccounting {
-	return { author_ms: 0, review_wall_ms: 0, units_run: 0, units_reused: 0, jev: {}, salvaged: false };
+	return { author_ms: 0, review_wall_ms: 0, units_run: 0, units_reused: 0, jev: {}, salvaged: false, first_call_uncached: {} };
+}
+
+/** §186.2: count one Pi child's first-call uncached input under its phase; a child that reported no usage is not counted. */
+export function tallyFirstCall(accounting: ReadingAccounting, phase: string, uncached: number | undefined): void {
+	if (typeof uncached !== "number" || !Number.isFinite(uncached) || uncached < 0) return;
+	const slot = accounting.first_call_uncached[phase] ??= { children: 0, tokens: 0 };
+	slot.children++; slot.tokens += uncached;
 }
 
 function spend(accounting: ReadingAccounting, family: string): JevSpend {
@@ -92,5 +104,6 @@ export async function tallyChildJev(accounting: ReadingAccounting, attempt: stri
 /** The row's fields, in a stable shape. */
 export function accountingFields(accounting: ReadingAccounting): Row {
 	return { author_ms: accounting.author_ms, review_wall_ms: accounting.review_wall_ms, units_run: accounting.units_run, units_reused: accounting.units_reused,
-		jev: accounting.jev, salvaged: accounting.salvaged, ...(accounting.repair ? { repair: accounting.repair } : {}), ...(accounting.need ? { need: accounting.need } : {}) };
+		jev: accounting.jev, salvaged: accounting.salvaged, ...(accounting.repair ? { repair: accounting.repair } : {}), ...(accounting.need ? { need: accounting.need } : {}),
+		first_call_uncached: accounting.first_call_uncached };
 }

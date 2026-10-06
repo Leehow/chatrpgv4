@@ -38,6 +38,9 @@
     "fallback_window_pages": 24,
     "merge_budget_ms": 2000
   },
+  "reading_images": {
+    "count": 12
+  },
   "after_delivery_lanes": {
     "thinking_floor": "low"
   },

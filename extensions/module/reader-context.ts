@@ -159,31 +159,48 @@ export function confineReaderEnvironment(cwd: string, env: NodeJS.ProcessEnv = p
 	env.HOME = cwd;
 }
 
-export function boundImages(messages: any[], previouslyIncluded = new Set<string>(), byteBudget = 32 * 1024 * 1024, countBudget = 24) {
+const OMITTED_IMAGE = "[Earlier page image omitted from this request to bound its size. Reopen the cached image with read if you need its details again.]";
+
+/**
+ * Contract §186.1: an image, once delivered, stays in every later request of this child, so the request's prefix never
+ * changes while it is within budget. When the images held exceed the count or byte budget, the oldest delivered images
+ * are evicted in one batch until at most half of each budget is held; an evicted image never comes back (the reader
+ * reopens the page explicitly if it needs it). An image not yet delivered (a first use, or the retry of a failed one) is
+ * never evicted. `delivered` and `evicted` are this child's own state across requests; the result names the images it
+ * newly evicted so the caller can keep them evicted and log the batch.
+ */
+export function boundImages(messages: any[], delivered: ReadonlySet<string> = new Set<string>(), byteBudget = 32 * 1024 * 1024, countBudget = 24,
+	evicted: ReadonlySet<string> = new Set<string>()) {
 	const copy = messages.map(message => ({ ...message, ...(Array.isArray(message.content) ? { content: [...message.content] } : {}) }));
-	let bytes = 0, count = 0;
-	const included: string[] = [];
-	for (let i = copy.length - 1; i >= 0; i--) {
-		const message = copy[i];
+	const blocks: { message: number; block: number; key: string; size: number }[] = [];
+	for (const [i, message] of copy.entries()) {
 		if (!Array.isArray(message.content)) continue;
-		for (let j = message.content.length - 1; j >= 0; j--) {
-			const block = message.content[j];
-			if (block.type !== "image") continue;
-			const size = typeof block.data === "string" ? Buffer.byteLength(block.data, "base64") : 0;
+		for (const [j, block] of message.content.entries()) {
+			if (block?.type !== "image") continue;
 			const key = message.toolCallId ?? (message.details?.kind==='host_source_pages'&&typeof block.data==='string'
 				?`host:${message.details.source_sha256??''}:${createHash('sha256').update(Buffer.from(block.data,'base64')).digest('hex')}`
 				:`message-${i}`);
-			if (!previouslyIncluded.has(key) || count === 0 || (count < countBudget && bytes + size <= byteBudget)) {
-				bytes += size; count++;
-				included.push(key);
-				continue;
-			}
-			message.content[j] = { type: "text", text: previouslyIncluded.has(key)
-				? "[Earlier page image omitted from this request to bound its size. Reopen the cached image with read if you need its details again.]"
-				: "[This image has not been included in the model context. Read fewer images at once and reopen this cached image before using its contents.]" };
+			blocks.push({ message: i, block: j, key, size: typeof block.data === "string" ? Buffer.byteLength(block.data, "base64") : 0 });
 		}
 	}
-	return { messages: copy, included, bytes, count };
+	const held = blocks.filter(block => !evicted.has(block.key));
+	let count = held.length, bytes = held.reduce((sum, block) => sum + block.size, 0);
+	const before = { count, bytes }, batch: string[] = [];
+	if (count > countBudget || bytes > byteBudget) {
+		const keepCount = Math.floor(countBudget / 2), keepBytes = Math.floor(byteBudget / 2);
+		for (const key of new Set(held.map(block => block.key))) {
+			if (count <= keepCount && bytes <= keepBytes) break;
+			if (!delivered.has(key)) continue;
+			batch.push(key);
+			for (const block of held) if (block.key === key) { count--; bytes -= block.size; }
+		}
+	}
+	const omitted = new Set([...evicted, ...batch]), included: string[] = [];
+	for (const block of blocks.reverse()) {
+		if (omitted.has(block.key)) copy[block.message].content[block.block] = { type: "text", text: OMITTED_IMAGE };
+		else included.push(block.key);
+	}
+	return { messages: copy, included, bytes, count, evicted: batch, before };
 }
 
 export default function readerContext(pi: any, options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) {
@@ -197,8 +214,8 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 	let candidateImageBytes=0,inFlightImageBytes=0;
 	let candidateHostPages:Record<string,unknown>[]=[];
 	let inFlightHostPages:Record<string,unknown>[]=[];
-	const deliveredHostImages=new Set<string>(),retiredHostImages=new Set<string>();
-	const retiredImageCalls=new Set<string>();
+	// §186.1: the images this child evicted when its window overflowed; they stay out of every later request.
+	const evicted=new Set<string>();
 	// Contract §140: with no lease (no budget channel) the child still sends its own output bound -- the lease's
 	// per-call one, else a reading's -- so the provider's unstated default never decides how much a reasoning
 	// model may think before it answers. A leased child is bounded by `installChildProviderBudget` below instead.
@@ -235,7 +252,6 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 		const successful=!['error','aborted'].includes(event.message.stopReason);
 		if(successful){
 			for(const id of inFlightIncluded)sent.add(id);
-			for(const row of inFlightHostPages)if(typeof row.image_sha256==='string')deliveredHostImages.add(row.image_sha256);
 			const log=env.PI_COC_READER_IMAGES_LOG;
 			if(log&&(inFlightIncluded.length||inFlightHostPages.length))appendFileSync(log,JSON.stringify({delivery:'succeeded',included:inFlightIncluded,host_pages:inFlightHostPages,bytes:inFlightImageBytes})+"\n");
 		}
@@ -243,31 +259,18 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 		inFlightHostPages=[];
 		inFlightImageBytes=0;
 	});
-	pi.on('tool_execution_end',(event:any)=>{
-		if(event.toolName==='submit_reading'){
-			try{
-				let task:any={};try{task=JSON.parse(readFileSync(join(cwd,'task.json'),'utf8'));}catch{}
-				const names=Array.isArray(task.required_review)?['review.json']:['draft.json',...(task.purpose==='guidance'?['guidance.json']:[])];
-				for(const name of names){const value=JSON.parse(readFileSync(join(cwd,name),'utf8'));if(!value||typeof value!=='object'||Array.isArray(value))return;}
-			}catch{return;}
-			for(const digest of deliveredHostImages)retiredHostImages.add(digest);
-			for(const id of sent)retiredImageCalls.add(id);
-		}
-	});
 	// The owning lease's per-call output bound (contract §20 addendum 2); absent keeps the default.
 	installChildProviderBudget(pi, leased, Number(env.PI_COC_PROVIDER_OUTPUT_LIMIT) || undefined);
+	// §186.1: a submit_reading no longer retires delivered images; the request keeps them until its budget overflows.
 	pi.on("context", (event: any) => {
 		const configured=Number(env.PI_COC_READER_IMAGE_HISTORY);
-		const material=event.messages.map((message:any)=>message.toolCallId&&retiredImageCalls.has(message.toolCallId)?{...message,
-			content:(message.content??[]).map((block:any)=>block.type==='image'
-				?{type:'text',text:'Earlier original-page image retired after candidate submission. Reopen the source page with pdf if its details are needed again.'}:block)
-		}:message.details?.kind==='host_source_pages'?{...message,
-			content:(message.content??[]).map((block:any)=>{
-				if(block.type!=='image'||typeof block.data!=='string')return block;
-				const digest=createHash('sha256').update(Buffer.from(block.data,'base64')).digest('hex');
-				return retiredHostImages.has(digest)?{type:'text',text:'Earlier host original-page image retired after source submission. Reopen this physical page with pdf if its details are needed again.'}:block;
-			})}:message);
-		const result = boundImages(material, sent, undefined, configured>0?configured:undefined);
+		const result = boundImages(event.messages, sent, undefined, configured>0?configured:undefined, evicted);
+		if(result.evicted.length){
+			for(const key of result.evicted)evicted.add(key);
+			const log=env.PI_COC_READER_IMAGES_LOG;
+			if(log)appendFileSync(log,JSON.stringify({event:'image_eviction',evicted:result.evicted,kept:result.count,
+				bytes_before:result.before.bytes,bytes_after:result.bytes})+"\n");
+		}
 		candidateIncluded=[...result.included];
 		candidateImageBytes=result.bytes;
 		candidateHostPages=[];

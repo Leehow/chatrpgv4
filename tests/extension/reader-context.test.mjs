@@ -4,8 +4,12 @@ import {createHash} from 'node:crypto';
 
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import readerContext, { boundImages, confineReaderEnvironment, createReaderToolGuard } from "../../extensions/module/reader-context.ts";
+import { readingImageBudget, resetReadingImageBudgetCache } from "../../runtime/jev/host-budgets.ts";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 
@@ -15,7 +19,9 @@ test('host original images keep stable identity when Pi moves the projection wit
  const first=boundImages([host],new Set(),100000,4);
  assert.equal(first.count,6,'every first-use original must reach the reader');
  const moved=boundImages([{role:'user',content:'Earlier context'},host],new Set(first.included),100000,4);
- assert.equal(moved.count,4,'a changed message index must not replay the entire host image batch');
+ // §186.1: six delivered images over a budget of four are evicted in one batch, oldest first, down to half the budget.
+ assert.equal(moved.count,2,'a changed message index must not replay the entire host image batch');
+ assert.equal(moved.evicted.length,4);
  assert.equal(host.content.filter(block=>block.type==='image').length,6,'the retained transcript is unchanged');
  assert.equal(boundImages([{role:'user',content:'Retry'},host],new Set(),100000,4).count,6,'failed first delivery is retried intact');
 });
@@ -173,7 +179,9 @@ test("all new images reach the model before historical eviction", () => {
 	assert.match(result.messages[0].content[1].text, /Earlier page/);
 	assert.equal(result.messages[1].content[1].type, "image");
 	const later = boundImages(original, new Set(original.map(m => m.toolCallId)), 250, 4);
-	assert.deepEqual(later.included, ["read-5", "read-4"]);
+	// §186.1: an overflow evicts down to half of each budget; half of 250 bytes holds one 100-byte image.
+	assert.deepEqual(later.included, ["read-5"]);
+	assert.deepEqual(later.evicted, ["read-0", "read-1", "read-2", "read-3", "read-4"]);
 	assert.ok(original.every(m => m.content[1].type === "image"));
 	assert.deepEqual(result.messages.map(m => m.toolCallId), original.map(m => m.toolCallId));
 });
@@ -183,30 +191,78 @@ test("the newest image remains available even if it alone exceeds the soft budge
 	assert.deepEqual(result.included, ["new"]);
 });
 
-test('an original page is retired only after a successful provider reply',async t=>{
+test('§186.1: only a successful reply makes an image evictable, a submission keeps it, and an overflow evicts once in one batch',async t=>{
  const dir=await mkdtemp(join(tmpdir(),'reader-image-delivery-'));
  t.after(()=>rm(dir,{recursive:true,force:true}));
  const log=join(dir,'images.jsonl'),hooks={};
- readerContext({on(name,fn){hooks[name]=fn;}},{cwd:dir,env:{PI_COC_READER_IMAGE_HISTORY:'1',PI_COC_READER_IMAGES_LOG:log}});
+ readerContext({on(name,fn){hooks[name]=fn;}},{cwd:dir,env:{PI_COC_READER_IMAGE_HISTORY:'2',PI_COC_READER_IMAGES_LOG:log}});
  const image={type:'image',mimeType:'image/jpeg',data:Buffer.alloc(100).toString('base64')};
- const first={role:'toolResult',toolCallId:'page-1',content:[image]},second={role:'toolResult',toolCallId:'page-2',content:[image]};
- assert.equal(hooks.context({messages:[first]}).messages[0].content[0].type,'image');
- hooks.before_provider_request({payload:{}},{abort(){}});
- hooks.message_end({message:{role:'assistant',stopReason:'error'}});
- assert.equal(hooks.context({messages:[first,second]}).messages[0].content[0].type,'image','a failed send cannot evict the first image');
- hooks.before_provider_request({payload:{}},{abort(){}});
- hooks.message_end({message:{role:'assistant',stopReason:'toolUse'}});
- const later=hooks.context({messages:[first,second]});
- assert.equal(later.messages[0].content[0].type,'text','only a confirmed old image can retire');
- assert.equal(later.messages[1].content[0].type,'image');
+ const page=n=>({role:'toolResult',toolCallId:`page-${n}`,content:[image]});
+ const kinds=result=>result.messages.map(message=>message.content[0].type);
+ const reply=stopReason=>{hooks.before_provider_request({payload:{}},{abort(){}});hooks.message_end({message:{role:'assistant',stopReason}});};
+ assert.deepEqual(kinds(hooks.context({messages:[page(1)]})),['image']);
+ reply('error');
+ assert.deepEqual(kinds(hooks.context({messages:[page(1),page(2),page(3)]})),['image','image','image'],'a failed send cannot evict the first image');
+ reply('toolUse');
+ // Three delivered images over a budget of two: the oldest are evicted in one batch until one (half the budget) is left.
+ assert.deepEqual(kinds(hooks.context({messages:[page(1),page(2),page(3)]})),['text','text','image']);
+ reply('toolUse');
  await writeFile(join(dir,'draft.json'),JSON.stringify({nodes:[],claims:[]}));
- hooks.tool_execution_end({toolName:'submit_reading',isError:true});
- const repaired=hooks.context({messages:[first,second,{...second,toolCallId:'explicit-reopen'}]});
- assert.equal(repaired.messages[0].content[0].type,'text');
- assert.equal(repaired.messages[1].content[0].type,'text','a checked draft checkpoint retires passive images during schema repair');
- assert.equal(repaired.messages[2].content[0].type,'image','an explicit source reopen is a new first delivery');
+ hooks.tool_execution_end?.({toolName:'submit_reading',isError:true});
+ // The window refills: no earlier message changes until the budget overflows again, submission or not.
+ assert.deepEqual(kinds(hooks.context({messages:[page(1),page(2),page(3),page(4)]})),['text','text','image','image'],'a submission keeps delivered images');
+ reply('toolUse');
+ assert.deepEqual(kinds(hooks.context({messages:[page(1),page(2),page(3),page(4),{...page(5),toolCallId:'explicit-reopen'}]})),['text','text','text','text','image'],
+  'the next overflow evicts once more; an explicit reopen is a new first delivery');
  const rows=(await readFile(log,'utf8')).trim().split('\n').map(JSON.parse);
- assert.deepEqual(rows.filter(row=>row.delivery==='succeeded').flatMap(row=>row.included),['page-2','page-1']);
+ assert.deepEqual(rows.filter(row=>row.event==='image_eviction'),[
+  {event:'image_eviction',evicted:['page-1','page-2'],kept:1,bytes_before:300,bytes_after:100},
+  {event:'image_eviction',evicted:['page-3','page-4'],kept:1,bytes_before:300,bytes_after:100}]);
+ assert.deepEqual(rows.filter(row=>row.delivery==='succeeded').flatMap(row=>row.included),['page-3','page-2','page-1','page-3','page-4','page-3']);
+});
+
+test('§186.1: the reading image budget is data; an unreadable or invalid entry leaves the hook its own budget',async t=>{
+ resetReadingImageBudgetCache();
+ const shipped=JSON.parse(await readFile(join(ROOT,'content','rulesets','coc7','host-budgets.json'),'utf8'));
+ assert.deepEqual(await readingImageBudget(join(ROOT,'content')),{count:shipped.reading_images.count});
+ const root=await mkdtemp(join(tmpdir(),'reading-images-budget-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ for(const [index,entry] of [undefined,{},{count:0},{count:1},{count:3.5},{count:'twelve'}].entries()){
+  const dir=join(root,String(index));await mkdir(join(dir,'rulesets','coc7'),{recursive:true});
+  await writeFile(join(dir,'rulesets','coc7','host-budgets.json'),JSON.stringify({schema_version:1,...(entry?{reading_images:entry}:{})}));
+  assert.deepEqual(await readingImageBudget(dir),{count:undefined},JSON.stringify(entry));
+ }
+ const custom=join(root,'custom');await mkdir(join(custom,'rulesets','coc7'),{recursive:true});
+ await writeFile(join(custom,'rulesets','coc7','host-budgets.json'),JSON.stringify({schema_version:1,reading_images:{count:7}}));
+ assert.deepEqual(await readingImageBudget(custom),{count:7});
+});
+
+test('§186.1: an author viewing pages one at a time rewrites no earlier message until the shipped budget overflows, then once',async t=>{
+ const {count:budget}=await readingImageBudget(join(ROOT,'content'));
+ assert.ok(Number.isInteger(budget)&&budget>=2);
+ const dir=await mkdtemp(join(tmpdir(),'reader-image-window-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+ const log=join(dir,'images.jsonl'),hooks={};
+ readerContext({on(name,fn){hooks[name]=fn;}},{cwd:dir,env:{PI_COC_READER_IMAGE_HISTORY:String(budget),PI_COC_READER_IMAGES_LOG:log}});
+ const messages=[{role:'user',content:[{type:'text',text:'Read the assigned pages.'}]}];
+ let previous,rewrites=0;
+ for(let n=1;n<=budget+2;n++){
+  messages.push({role:'assistant',content:[{type:'toolCall',id:`page-${n}`,name:'pdf',arguments:{pages:[n]}}]},
+   {role:'toolResult',toolCallId:`page-${n}`,content:[{type:'text',text:`Original physical page ${n}`},{type:'image',mimeType:'image/jpeg',data:Buffer.from(`page image ${n}`).toString('base64')}]});
+  if(n===3){
+   // A rejected submission and its fix loop: today it retired every delivered page and rewrote the whole prefix.
+   messages.push({role:'assistant',content:[{type:'toolCall',id:'submit-1',name:'submit_reading',arguments:{}}]},{role:'toolResult',toolCallId:'submit-1',content:[{type:'text',text:'Rejected: fix the coverage object.'}],isError:true});
+   hooks.tool_execution_end?.({toolName:'submit_reading',isError:true});
+  }
+  const projected=hooks.context({messages}).messages.map(message=>JSON.stringify(message));
+  if(previous&&previous.some((message,index)=>projected[index]!==message))rewrites++;
+  previous=projected;
+  hooks.before_provider_request({payload:{}},{abort(){}});
+  hooks.message_end({message:{role:'assistant',stopReason:'toolUse'}});
+ }
+ assert.equal(rewrites,1,'one rewrite: the batch at the first overflow');
+ const evictions=(await readFile(log,'utf8')).trim().split('\n').map(JSON.parse).filter(row=>row.event==='image_eviction');
+ assert.equal(evictions.length,1);
+ assert.deepEqual(evictions[0].evicted,Array.from({length:budget+1-Math.floor(budget/2)},(_,i)=>`page-${i+1}`));
+ assert.equal(evictions[0].kept,Math.floor(budget/2));
 });
 
 test('a host-projected original page receives an identity-bound receipt only after successful inference',async t=>{
@@ -226,8 +282,8 @@ test('a host-projected original page receives an identity-bound receipt only aft
  hooks.message_end({message:{role:'assistant',stopReason:'toolUse'}});
  const rows=(await readFile(log,'utf8')).trim().split('\n').map(JSON.parse);
  assert.deepEqual(rows.filter(row=>row.delivery==='succeeded').flatMap(row=>row.host_pages??[]).map(row=>row.page),[1]);
- hooks.tool_execution_end({toolName:'submit_reading',isError:true});
- assert.equal(hooks.context({messages:[message]}).messages[0].content[1].type,'text','a submitted draft retires passive host-image replay; the reader may reopen if it needs details');
+ hooks.tool_execution_end?.({toolName:'submit_reading',isError:true});
+ assert.equal(hooks.context({messages:[message]}).messages[0].content[1].type,'image','§186.1: a submission no longer retires a delivered host page');
 });
 
 test("a host-owned provider request ceiling aborts before an extra model call", () => {

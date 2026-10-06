@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import {spawnSync} from 'node:child_process';
 import { ReadingService,guidanceReviewPages,selectedGuidanceProjection,omittedReviewOnly } from "../../extensions/module/reading-service.ts";
 import { KernelError } from "../../extensions/kernel/client.ts";
+import { readingCacheId } from "../../extensions/module/reader.ts";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const FINISH_SEMANTIC_MESSAGE = "the independent review found missing or incorrect material: [{\"description\":\"the opening needs its clue nodes and relations\"}]";
@@ -83,12 +84,13 @@ async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportF
 	t.after(() => rm(home, { recursive: true, force: true }));
 	const cwd = join(home, "work", "attempt-1"), cache = join(home, ".coc", "modules", "book", "cache", "pages");
 	await mkdir(cwd, { recursive: true });
-	const readTasks = [],reviewTasks=[], finishCalls = [];
+	const readTasks = [],reviewTasks=[], finishCalls = [], requests = [], rows = [];
 	let readRounds = 0, completionAttempts = 0;
 	const runtime = {
 		contentRoot: join(ROOT, "content"),
 		async runTask({ request }) {
 			await request.beforeProviderRequest?.(new AbortController().signal);
+			requests.push({ phase: request.prompt.phase, cacheId: request.cacheId, imageHistory: request.imageHistory });
 			if (request.prompt.phase === "read") {
 				readRounds++;
 				if (readRounds === 1) return { ok: false, code: 1, timedOut: false, ms: 1, stderr: "fixture read failure", command: [] };
@@ -100,7 +102,8 @@ async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportF
 				request.onEvent?.({ type: "tool_execution_end", toolCallId: call, isError: false,
 					result: { content: [{ type: "image" }], details: { kind: "source_pages", observations: [{ path: image, page }] } } });
 				await writeFile(request.eventLog + ".images.jsonl", JSON.stringify({ included: [call] }) + "\n");
-				return { ok: true, code: 0, timedOut: false, ms: 2, stderr: "", command: [] };
+				return { ok: true, code: 0, timedOut: false, ms: 2, stderr: "", command: [], firstCallUncached: 1000,
+					usage: { inputTokens: 1200, outputTokens: 10, costUsd: 0, actions: 1, unknownCalls: 0 } };
 			}
 			const task = JSON.parse(await readFile(join(request.cwd, "task.json"), "utf8"));
             reviewTasks.push(task);
@@ -111,13 +114,13 @@ async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportF
 			request.onEvent?.({ type: "tool_execution_end", toolCallId: call, isError: false,
 				result: { content: [{ type: "image" }], details: { kind: "source_pages", observations: pages.map(page => ({ path: join(cache, `page-${page}.png`), page })) } } });
 			await writeFile(request.eventLog + ".images.jsonl", JSON.stringify({ included: [call] }) + "\n");
-			return { ok: true, code: 0, timedOut: false, ms: 2, stderr: "", command: [] };
+			return { ok: true, code: 0, timedOut: false, ms: 2, stderr: "", command: [], firstCallUncached: 300 };
 		},
 		async check() { return { ok: true }; },
 		async sourceInfo() { throw new Error("not a guidance job"); },
 	};
 	const service = new ReadingService({ home, runtime, model: () => ({ id: "fixture/vision", vision: true, thinking: "off" }),
-		progress() {}, record() {}, async call(method, params) {
+		progress() {}, record(row) { rows.push(structuredClone(row)); }, async call(method, params) {
 			assert.equal(method, "module.read.finish");
 			finishCalls.push(params);
 			if (params.outcome === "completed") {
@@ -134,8 +137,44 @@ async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportF
 		index: {}, known_nodes: [], known_claims: [], vocabulary: {}, coverage_domains: [] };
 	if(projectPolicy)Object.assign(job,{purpose:'detail',review_policy:'module-logic-v1',source_unit:{section:'Reference unit',first:4,last:5},pages:[4,5],review_scope_pages:[4,5]});
 	await service.runJob(job, new AbortController().signal, campaign);
-	return { cwd, readTasks,reviewTasks, finishCalls, readRounds, completionAttempts };
+	return { cwd, readTasks,reviewTasks, finishCalls, readRounds, completionAttempts, requests, rows };
 }
+
+/**
+ * §186.1 + §186.2 on the real reading service: every child of one round -- the author attempt and each review unit -- is
+ * launched with the round's cache identity, another round with another; the image budget is the data value; the reading
+ * row and usage file carry the id, and the job's accounting row counts first-call uncached input per phase.
+ */
+test("§186.2: one cache identity per reading round across the author and its review units", async t => {
+	const result = await runFinishRepairFixture(t);
+	const { reading_images } = JSON.parse(await readFile(join(ROOT, "content", "rulesets", "coc7", "host-budgets.json"), "utf8"));
+	const byRound = new Map();
+	for (const request of result.requests) {
+		assert.equal(request.imageHistory, reading_images.count, "§186.1: the data budget, for authors and reviewers alike");
+		assert.match(request.cacheId ?? "", /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+	}
+	const reads = result.rows.filter(row => row.lane === "reading" && row.phase === "read" && row.unit === undefined && row.event === undefined);
+	assert.deepEqual(reads.map(row => row.round), [1, 2, 3]);
+	for (const row of reads) byRound.set(row.round, row.cache_id);
+	assert.equal(new Set(byRound.values()).size, 3, "every round has its own identity");
+	assert.deepEqual(reads.map(row => row.cache_id), [readingCacheId("book", "read-1", 1), readingCacheId("book", "read-1", 2), readingCacheId("book", "read-1", 3)]);
+	// Requests in launch order: each verify request belongs to the read that precedes it.
+	let round = 0;
+	for (const request of result.requests) {
+		if (request.phase === "read") round++;
+		assert.equal(request.cacheId, byRound.get(round), `${request.phase} in round ${round}`);
+	}
+	assert.ok(result.requests.filter(request => request.phase === "verify").length >= 2);
+	for (const row of result.rows.filter(row => row.phase === "verify" && row.unit !== undefined && row.reused !== true))
+		assert.equal(row.cache_id, byRound.get(row.round));
+	const usage = (await readFile(join(result.cwd, "usage.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
+	assert.deepEqual(usage.map(row => row.round), [2, 3]);
+	for (const row of usage) assert.equal(row.cache_id, byRound.get(row.round), "the usage file names the round's identity too");
+	const [accounting] = result.rows.filter(row => row.event === "job_accounting");
+	const verifies = result.requests.filter(request => request.phase === "verify").length;
+	assert.deepEqual(accounting.first_call_uncached, { read: { children: 2, tokens: 2000 }, verify: { children: verifies, tokens: 300 * verifies } },
+		"the failed first read reported no usage and is not counted");
+});
 
 test("a finish-time independent-review rejection gets one source-grounded repair after the normal rounds are spent", async t => {
 	const result = await runFinishRepairFixture(t);
