@@ -42,6 +42,17 @@ export function writeDocument(item: Row, text: any): boolean {
     document.text = text; document.player_edited = false; document.revision++; document.edited_at = nowIso();
     return true;
 }
+/** Preserve explicit player wording while extending the same physical text. */
+export function appendDocument(item: Row, suffix: any): boolean {
+    if (typeof suffix !== 'string') throw new RpcError('invalid_params', 'Document suffix must be a string');
+    const document = item.document;
+    if (!document || typeof document.text !== 'string') throw new RpcError('invalid_params', 'Initialize the writable carrier before appending');
+    const playerEdited = Object.hasOwn(document, 'player_edited') ? document.player_edited
+        : truth(document.edited_at) && document.text !== document.original;
+    const changed = writeDocument(item, document.text + suffix);
+    if (changed) document.player_edited = playerEdited;
+    return changed;
+}
 
 /** Contract §99: a physical split rebases each carrier onto the complete text it now contains. */
 export function divideDocument(prior: Row, part: Row, split: {part: string; remainder: string}): void {
@@ -72,6 +83,31 @@ export function createDocumentHandlers(writer: ReturnType<typeof createWriteRunt
             play_language: await playLanguageOf(campaign.context, meta)};
     }
     return {
+        'mods.document.options': async params => {
+            const campaign = await writer.campaign(params), world = await campaign.readWorld(), party = await campaign.party();
+            // Omitted actor is not a choice of one investigator from a multi-investigator table.
+            const actor = params.actor == null && party.length !== 1 ? null : selectActor(party, params.actor);
+            const documents: Row[] = [];
+            for (const item of values(row(row(world.objects).instances))) {
+                if (!truth(item.document)) continue;
+                const root = rootObjectOwner(world, item);
+                if (!actor || root.kind !== 'investigator' || root.id !== actor.id || item.document.acquired_by !== actor.id) continue;
+                const owner = row(item.owner), holder = owner.kind === 'investigator'
+                    ? party.find(sheet => sheet.id === owner.id)?.name
+                    : owner.kind === 'object' ? row(row(row(world.objects).instances)[String(owner.id)]).name : null;
+                if (typeof holder !== 'string' || !holder) continue;
+                documents.push({name:item.name, owner:holder, presentation:item.document.presentation,
+                    version:await documentVersion(campaign, world, item)});
+            }
+            const known = Array.isArray(params.names) ? params.names.flatMap((name:any)=>{
+                if(typeof name!=='string')return [];
+                const item=findNamedObject(row(row(world.objects).instances),name);
+                if(!item)return [];
+                const root=rootObjectOwner(world,item);
+                return [{query:name,actor_owned:actor ? root.kind==='investigator'&&root.id===actor.id : null}];
+            }) : [];
+            return {actor:actor?.name ?? null, documents, known};
+        },
         'mods.document.view': async params => response(await owned(params)),
         'mods.document.apply': async params => {
             if (Object.keys(params).some(key => !['campaign', 'actor', 'name', 'version', 'action', 'text'].includes(key))) throw new RpcError('invalid_params', 'Unknown document edit field');

@@ -38,6 +38,7 @@ import hashlib
 import json
 import os
 import queue
+import shutil
 import socket
 import subprocess
 import sys
@@ -198,6 +199,37 @@ def print_delivery_panels(delivery) -> None:
         print(json.dumps({"mechanics": mechanics}, ensure_ascii=False))
     if choice:
         print(json.dumps({"pending_choice": choice}, ensure_ascii=False))
+
+
+def player_table_view(view: dict) -> dict:
+    """Project panel display data; raw present and source identities never cross to the player."""
+    def pick(row, fields):
+        return {key: deepcopy(row[key]) for key in fields if isinstance(row, dict) and key in row}
+
+    def words(value):
+        if isinstance(value, list):
+            return [words(item) for item in value]
+        if isinstance(value, dict):
+            return {key: words(item) for key, item in value.items()
+                    if key != "id" and not key.endswith("_id") and not key.startswith("_")
+                    and key not in {"source_object", "definition", "version", "provenance", "source"}}
+        return deepcopy(value)
+
+    shown = {"clock": pick(view.get("clock"), ("minutes", "elapsed", "at", "day", "hh", "mm", "day_part")),
+             "scene": pick(view.get("scene"), ("display_name",)),
+             "investigators": words(view.get("investigators") or []),
+             "clues": [pick(row, ("label", "how")) for row in (view.get("clues") or {}).get("discovered", [])],
+             "handouts": [pick(row, ("name", "label", "text", "media_type", "path", "image_path"))
+                          for row in view.get("handouts") or []],
+             "npcs": []}
+    for row in (view.get("npcs") or {}).get("journal", []):
+        entry = pick(row, ("name", "named", "description", "seen_count", "last_seen_turn", "dead_since_turn"))
+        entry["exchanges"] = [pick(exchange, ("turn", "summary")) for exchange in row.get("exchanges") or []]
+        shown["npcs"].append(entry)
+    choice = player_choice(view.get("pending_choice"))
+    if choice:
+        shown["pending_choice"] = choice
+    return shown
 
 
 def extract_setup_opening(message: dict) -> str | None:
@@ -466,6 +498,16 @@ class Daemon:
                 f"launcher not found: {launcher_path} "
                 f"(pass --launcher, set PI_COC_LAUNCHER, or wait for bin/pi-coc to exist)"
             )
+        # Only the canonical source launcher has a known kernel/home binding. A fake or
+        # alternate transport must never make us read an unrelated campaign's state.
+        self.player_view_command = None
+        if launcher_path == (REPO_ROOT / "bin" / "pi-coc").resolve() and not (REPO_ROOT / "deployment.json").exists():
+            entry = REPO_ROOT / "build" / "kernel" / "rpc.mjs"
+            node = os.environ.get("PI_COC_NODE_EXECUTABLE") or shutil.which("node")
+            if entry.is_file() and node and not os.environ.get("PI_COC_KERNEL_CMD"):
+                content = Path(os.environ.get("PI_COC_CONTENT_ROOT") or REPO_ROOT / "content").expanduser()
+                self.player_view_command = [node, str(entry), "--workspace", str(coc_home()),
+                                            "--content", str(content.resolve())]
         # SL-61: `self.thinking` is the level `start`/`_daemon` was actually given (argparse
         # default None when the CLI flag was omitted); DEFAULT_THINKING is only the fallback for
         # that omitted case, never a value to send regardless of what the operator asked for.
@@ -629,6 +671,7 @@ class Daemon:
             notices: list[dict] = []
             projected_mechanics: list | None = None
             projected_choice: dict | None = None
+            public_clock: dict | None = None
             # Story text the setup host showed before the guide's reply; one message can arrive as both
             # its message_end and its entry_appended.
             setup_openings: list[str] = []
@@ -748,6 +791,8 @@ class Daemon:
                             delivered = body["rendered_text"]
                             rejected_delivery = False
                         if isinstance(body, dict):
+                            if isinstance(body.get("player_clock"), dict):
+                                public_clock = player_table_view({"clock": body["player_clock"]})["clock"]
                             # What a player actually sees is prose *plus* this turn's mechanics
                             # (§16.2/§16.3: numbers never enter the prose, PipiCOC draws them from
                             # here). Keeping the parsed delivery means a reader of this run does not
@@ -762,6 +807,8 @@ class Daemon:
                     host = extract_host_delivery(entry)
                     opening = extract_setup_opening(entry)
                     if entry.get("customType") == "coc-mechanics" and isinstance(data, dict):
+                        if isinstance(data.get("player_clock"), dict):
+                            public_clock = player_table_view({"clock": data["player_clock"]})["clock"]
                         if isinstance(data.get("mechanics"), list):
                             projected_mechanics = deepcopy(data["mechanics"])
                     elif entry.get("customType") == "coc-choice" and isinstance(data, dict):
@@ -827,6 +874,7 @@ class Daemon:
             return self._finalize_turn(n, text, started_at, started_mono, tool_records,
                                         final_text, settle_class, stop_reason,
                                         stale_settles=stale_settles, delivery=delivery,
+                                        **({"public_clock": public_clock} if public_clock is not None else {}),
                                         **({"notices": notices} if notices else {}),
                                         **({"setup_opening": "\n\n".join(setup_openings)} if setup_openings else {}))
         finally:
@@ -836,7 +884,14 @@ class Daemon:
                         tool_records: list[dict], final_text: str,
                         settle_class: str, stop_reason: str | None, stale_settles: int = 0,
                         delivery: dict | None = None, notices: list[dict] | None = None,
-                        setup_opening: str | None = None) -> dict:
+                        setup_opening: str | None = None, public_clock: dict | None = None) -> dict:
+        player_view = None
+        if settle_class == "settled" and public_clock is not None:
+            player_view = {"status": "ready", "surface": "clock", "partial": True,
+                           "source": "committed_delivery", "view": {"clock": public_clock}}
+        elif settle_class == "settled" and getattr(self, "player_view_command", None):
+            player_view = self._read_player_view()
+        # Capture is part of the player's wait for this response, including a failed legacy read.
         wall_seconds = round(time.monotonic() - started_mono, 3)
         clean_tools = [
             {"name": t.get("name"), "args": t.get("args"), "result_text": t.get("result_text", ""),
@@ -856,6 +911,7 @@ class Daemon:
             **({"notices": notices} if notices else {}),
             # The story the setup host showed before the guide's reply (§14.18); final_text stays the reply.
             **({"setup_opening": setup_opening} if setup_opening else {}),
+            **({"player_view": player_view} if player_view is not None else {}),
         }
         write_json(self.dir / f"turn-{n}.json", summary)
         self._write_heartbeat("running")
@@ -863,6 +919,42 @@ class Daemon:
         self.log.write(f"turn {n} settle_class={settle_class} stop_reason={stop_reason} "
                         f"wall={wall_seconds}s tools={tool_names}")
         return {"ok": True, "summary": summary}
+
+    def _read_player_view(self) -> dict:
+        """One bounded read of the committed public projection, with no model or turn mutation."""
+        request = {"id": "player-view", "method": "table.view", "params": {"campaign": self.campaign}}
+        began = time.monotonic()
+        # Both attempts share a budget below cmd_turn's 15-second transport margin.
+        deadline = began + 12.0
+        for surface in ("full", "clock"):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return {"status": "unavailable", "reason": "public_view_timeout"}
+            if surface == "clock":
+                request["params"]["panel"] = "clock"
+            try:
+                result = subprocess.run(self.player_view_command, input=json.dumps(request) + "\n",
+                                        text=True, capture_output=True, timeout=min(10.0, remaining), cwd=str(REPO_ROOT))
+                if result.returncode != 0:
+                    return {"status": "unavailable", "reason": "kernel_process_failed"}
+                frames = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+                response = next((frame for frame in frames if isinstance(frame, dict)
+                                 and frame.get("id") == "player-view" and "ok" in frame), None)
+                if not isinstance(response, dict) or response.get("ok") is not True:
+                    return {"status": "unavailable", "reason": "public_view_refused"}
+                view = response["result"]
+                shown = player_table_view(view)
+                if surface == "clock":
+                    shown = {key: shown[key] for key in ("clock", "scene")}
+                return {"status": "ready", "campaign": self.campaign, "table_turn": view.get("turn"),
+                        "captured_at": now_iso(), "ms": round((time.monotonic() - began) * 1000, 1),
+                        "surface": surface, "partial": surface != "full", "view": shown}
+            except subprocess.TimeoutExpired:
+                if surface == "full":
+                    continue
+                return {"status": "unavailable", "reason": "public_view_timeout"}
+            except (OSError, ValueError, TypeError, KeyError, AttributeError):
+                return {"status": "unavailable", "reason": "invalid_public_view"}
 
     # -- stop ---------------------------------------------------------------
 
@@ -1204,6 +1296,8 @@ def cmd_turn(args: argparse.Namespace) -> int:
             continue  # The first notice is already printed as the primary text.
         print(notice["content"])
     print_delivery_panels(summary.get("delivery"))
+    if summary.get("player_view"):
+        print(json.dumps({"player_view": summary["player_view"]}, ensure_ascii=False))
     tool_names = ", ".join(t["name"] for t in summary["tools"]) if summary["tools"] else "(none)"
     print(f"[turn {summary['turn']} | {summary['wall_seconds']:.1f}s | tools: {tool_names}]")
     return SETTLE_EXIT_CODES.get(summary["settle_class"], 1)

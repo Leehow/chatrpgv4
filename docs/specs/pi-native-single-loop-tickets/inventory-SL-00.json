@@ -2156,6 +2156,18 @@
       "path": "app-play-gated",
       "role": "leaf",
       "gate": "An existing voice preparation job and captured Jev availability; not a foreground prose reviewer."
+    },
+    {
+      "file": "extensions/kernel/index.ts",
+      "symbol": "bindAppendArguments",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "owned-document binding",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "document_binding",
+      "note": "One bounded Jev batch for a plain investigator-owned append target and selected suffix; exact player spans are copied by the host, no planner or LLM fallback."
     }
   ]
 }

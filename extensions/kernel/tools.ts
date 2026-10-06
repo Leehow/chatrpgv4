@@ -13,6 +13,18 @@ export type CocToolName = (typeof COC_TOOL_NAMES)[number];
 /** State-changing calls: they mint a `call_id`, and they are refused once the turn is closed. */
 export const WRITE_TOOLS: ReadonlySet<string> = new Set(["resolve", "apply", "ask", "narrate"]);
 
+/** A malformed document edit is an argument correction, not an unmade player choice. */
+export function documentWriteRefusal(tool: string, args: Record<string, unknown>) {
+	if (tool !== "apply" || !Array.isArray(args.effects)) return;
+	for (const [index, effect] of args.effects.entries()) {
+		if (effect?.kind !== "object" || !["write", "append"].includes(effect.document?.action)) continue;
+		if (typeof effect.from === "string" && effect.from.trim()) continue;
+		return {code: "invalid_params", message: "An existing document edit needs its current owner in from",
+			fix: "Correct this argument using the carrier's current owner in both from and to; keep the player's chosen writing scope. For an addition that preserves old text, use document action append with only the new suffix, including any desired newline. This is not a request for another player authorization.",
+			details: {field: `effects[${index}].from`, reason: "document_owner_missing"}};
+	}
+}
+
 export interface CocToolSpec {
 	name: CocToolName;
 	label: string;
@@ -222,6 +234,7 @@ const ObjectEffect = Type.Object({
     Type.Object({handout:Type.String({description:"Name of an already revealed textual handout; the kernel copies its exact authored text"}),
       presentation:StringEnum(["paper","notebook","book"] as const)}),
     Type.Object({action:StringEnum(["write"] as const),text:Type.String({maxLength:64000,description:"The carrier's current text after this writing, in the campaign's play_language"})}),
+    Type.Object({action:StringEnum(["append"] as const),text:Type.String({maxLength:64000,description:"Only the exact new suffix, including any desired leading newline; the kernel preserves all existing text. Use when adding writing without changing old content"})}),
     Type.Object({action:StringEnum(["divide"] as const),
       part_text:Type.String({maxLength:64000,description:"Complete current text carried by the separated part after a document-bearing stack is divided, in the campaign's play_language"}),
       remainder_text:Type.String({maxLength:64000,description:"Complete current text carried by the original remainder after a document-bearing stack is divided, in the campaign's play_language"})}),
@@ -230,7 +243,7 @@ const ObjectEffect = Type.Object({
   source_object: Type.Optional(Type.String({description:"On first placement/adoption only: exact source_object handle supplied by lookup module when this is that authored physical thing. Never infer it from a display name or a similar weapon; omit for ordinary objects. Transfers preserve its identity"})),
   to: Type.String({description:"New owner: investigator, NPC, scene or existing container instance; here means the current scene"}),
   condition: Type.Optional(StringEnum(["intact","damaged","jammed","broken"] as const, {description:"Initial condition, or an explicit existing-object state change with the same from/to owner and a causal why; ownership transfers preserve state"})),
-  from: Type.Optional(Type.String({description:"Required current owner when transferring an existing instance"})),
+  from: Type.Optional(Type.String({description:"Required current owner for any existing-instance transfer or document write/append; document edits use that owner in both from and to"})),
   // Contract §88.5: the kernel requires `handover` the moment it is rebuilt, and this schema is read
   // once at server start. Rebuild without restarting and the Keeper is refused for a field its tool
   // does not declare, on every retry, on every table. These three ship with the kernel half or not at all.

@@ -31,7 +31,7 @@ import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError
 import { progressPartial } from "./progress.ts";
 import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view.ts';
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
-import { argumentLimitRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
+import { argumentLimitRefusal, documentWriteRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { unwrapArgumentMarkup } from "./tool-argument-markup.ts";
 import { leanApplyEnabled, offeredTools } from "./lean-apply.ts";
 import { stripDialectPrefixes } from "./dialect-prefix.ts";
@@ -50,7 +50,7 @@ import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import { disableStepThinking, isFirstStepOfTurn, STEP_READS } from "./first-step-thinking.ts";
 import { currentPromptHead } from "./prompt-checkpoint.ts";
 import { deliveryProse, isSpeechOnlyDraft, learnSpeechMarks, proseCharCount, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
-import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
+import { createDecisionAdapter, jevFailureTelemetry } from "../../runtime/jev/decision-adapter.ts";
 import { FORCED_CHOICE_CUE_MIN, FORCED_CHOICE_OUTCOME_MAX, type ForcedChoiceCueReview, type ForcedPlayerChoice } from "../../runtime/jev/forced-resolution.ts";
 import { BAND_TABLES, askBand, bandNeeds, dossierOf, pinWhy, recoveryNote, weaponProfilesOf, type BandNeeds, type ShadowQuestion } from "./band-recovery.ts";
 import { speechRoster, type RosterPerson } from "./speech-roster.ts";
@@ -58,6 +58,7 @@ import { bandShadowGate, readBandRows, shadowRow, shadowTargets, skippedRow, una
 import { SHADOW_FIELDS, type ShadowKind } from "../../runtime/jev/band-shadow-domain.ts";
 import type { BandResult } from "../../runtime/jev/band-recovery-domain.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
+import { bindDocumentAppend, documentBindingScope, DOCUMENT_BINDING_FAMILY, type DocumentBindingInput, type DocumentCandidate } from "../../runtime/jev/document-binding-domain.ts";
 import { TaskLease, type TaskClock } from "../../runtime/jev/task-context.ts";
 import { deliveryFloorBudget, jevStepsBudget, timeReadingBudget } from "../../runtime/jev/host-budgets.ts";
 import { heldReading, runTimeReading, timeReadingBindings, TIME_READING_FAMILY, type TimeReadingAnswer } from "../../runtime/jev/time-reading-domain.ts";
@@ -2304,7 +2305,7 @@ export default function (pi: ExtensionAPI) {
 		// §40.2: a delivery may mark say spans and no mechanics at all, and that turn still owes the
 		// host an entry -- the card colours its speakers from this one.
 		const spoken = Array.isArray(speech) && speech.length > 0 ? speech : undefined;
-		if (mechanics.length === 0 && !spoken) return;
+		if (mechanics.length === 0 && !spoken && !extra?.player_clock) return;
 		// §16.6: `marked_text` rides here rather than in the assistant message, because that message
 		// is also what a terminal reader sees and raw `{{...}}` is not prose. A frontend that has it
 		// draws each marked row where the Keeper put it; one that does not reads the message as before.
@@ -2894,6 +2895,62 @@ export default function (pi: ExtensionAPI) {
 		};
 	}
 
+	async function bindAppendArguments(state: TableState, payload: Record<string, unknown>, signal?: AbortSignal, parent?: TaskProviderBudget): Promise<void> {
+		const effects = Array.isArray(payload.effects) ? payload.effects as Array<Record<string, any>> : [];
+		const edits = effects.filter(effect => effect?.kind === 'object' && effect.document?.action === 'append' && typeof effect.document.text === 'string');
+		if (!edits.length || !state.playerText) return;
+		const options = await state.kernel.call<{actor:string|null;documents:DocumentCandidate[];known:Array<{query:string;actor_owned:boolean|null}>}>('mods.document.options',
+			{campaign:state.campaign,names:edits.map(effect=>effect.name)});
+		const normalize = (value: unknown) => typeof value === 'string' ? value.normalize('NFKC').trim().toLowerCase() : '';
+		const pending:Array<{effect:Record<string,any>;result:Extract<Awaited<ReturnType<typeof bindDocumentAppend>>,{status:'bound'}>}>=[];
+		for (const effect of edits) {
+			// Known other-owner carriers and canonical multi-investigator operations retain ordinary validation.
+			if (options.known?.some(item=>item.query===effect.name&&item.actor_owned!==true)) continue;
+			// A transfer is still the original proposal. This owner binds an in-place addition only.
+			if (normalize(effect.from) && normalize(effect.to) && normalize(effect.from) !== normalize(effect.to)) continue;
+			// Extra state changes keep their original validation and cannot ride on a suffix binding.
+			if (Object.keys(effect).some(key => !['kind','name','from','to','document','why','intent_ref','intent_outcome'].includes(key))) continue;
+			if (!options.actor) throw new KernelError({code:'needs',message:'The document identity has no unambiguous investigator scope',
+				fix:'No document changed. Preserve the declared addition and use an already registered carrier with its actual owner; do not choose an investigator from guessed ownership arguments.',
+				details:{reason:'document_binding_unresolved',cause:'ambiguous_investigator_scope'}});
+			const context = admissionContextFor(state), last = context.delivered.at(-1);
+			const input: DocumentBindingInput = {campaign:state.campaign,turn:state.turn,playerText:state.playerText,
+				...(state.interruptedPlayerText ? {unfinished:state.interruptedPlayerText} : {}),
+				...(last ? {justTold:last.keeper.slice(0,1500)} : {}),actor:options.actor,suffix:effect.document.text,documents:options.documents};
+			const binding = documentBindingScope(input), deadlineAt = Math.min(Date.now()+4_000,parent?.deadlineAt??Infinity);
+			const outer = signal ?? new AbortController().signal;
+			const combined = parent ? AbortSignal.any([outer,parent.signal]) : outer;
+			const accounting = preparationBudget({decision:createDecisionAdapter({retryPolicies:{[DOCUMENT_BINDING_FAMILY]:{maxRetries:0,backoffInitialMs:100,backoffMaxMs:1_000}},
+				trace:jevFailureTelemetry(row=>{void record(row);})}),campaign:state.campaign,deadlineAt,signal:combined,
+				...(parent?{parent}:{}),owner:DOCUMENT_BINDING_FAMILY,goal:'Bind the already chosen document addition to its existing carrier'});
+			const lease = new TaskLease({owner:DOCUMENT_BINDING_FAMILY,goal:'Bind the selected append target',...binding,capabilities:['decision'],signal:combined,
+				budget:{deadlineAt,remainingInputTokens:200_000,remainingOutputTokens:20_000,remainingCostUsd:.02,remainingActions:1}});
+			try {
+				const result = await bindDocumentAppend(input,accounting.decision,lease);
+				await record({lane:'document_binding',ok:result.status==='bound',...(result.status==='bound'
+					? {target:result.document.name,text_origin:result.origin,target_probability:result.targetProbability,content_probability:result.contentProbability}
+					: {reason:result.reason})});
+				if (result.status !== 'bound') throw new KernelError({code:'needs',message:'The existing document addition could not be bound unambiguously',
+					fix:'No document changed. Keep the original declared addition; do not invent a target, ask for the same authorization again or claim the writing happened. The binding is unresolved.',
+					details:{reason:'document_binding_unresolved',cause:result.reason}});
+				const body=(text:string)=>text.replace(/^[ \t\r\n]*/u,'');
+				if (pending.some(prior=>prior.result.document.name===result.document.name
+					&& (prior.result.span&&result.span
+						? prior.result.span.start===result.span.start&&prior.result.span.end===result.span.end
+						: body(prior.result.suffix)===body(result.suffix))))
+					throw new KernelError({code:'needs',message:'This batch repeats a document addition without a distinct declared occurrence',
+						fix:'No document changed. Keep each separately chosen addition once. Repeated bindings of the same player span cannot establish another writing occurrence.',
+						details:{reason:'document_binding_unresolved',cause:'unsupported_repeated_occurrence'}});
+				pending.push({effect,result});
+			} finally {lease.close();accounting.close();}
+		}
+		// Bind the complete atomic batch before changing any of its proposed arguments.
+		for (const {effect,result} of pending) {
+			effect.name=result.document.name;effect.from=result.document.owner;effect.to=result.document.owner;
+			effect.document={action:'append',text:result.suffix};
+		}
+	}
+
 	/**
 	 * §135.5/SL-88 ("what needs no result does not wait"): start this call's admission review now, ahead of the
 	 * `runTool` invocation that will eventually reach it. `message_end` calls this once for every `apply`/`resolve`
@@ -2909,6 +2966,9 @@ export default function (pi: ExtensionAPI) {
 	 * the head start: the real call reviews fresh, exactly as it would without this function.
 	 */
 	async function prefetchAdmission(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>): Promise<void> {
+		// Identity may be bound before execution. Do not review malformed or unbound document arguments in advance.
+		if (documentWriteRefusal(tool,payload) || tool === 'apply' && Array.isArray(payload.effects)
+			&& payload.effects.some((effect:any)=>effect?.kind==='object'&&effect.document?.action==='append')) return;
 		if (!state.playerText) return;
 		// §168.4: the real call leaves out an owed name the capsule never offered before it is admitted; so does its head start.
 		if (tool === "apply" && Array.isArray(payload.effects)) {
@@ -2962,6 +3022,8 @@ export default function (pi: ExtensionAPI) {
 		evidence: ClerkEvidence & { label?: string; run?: string; onVerdict?: (verdict: string) => void } = {}): Promise<AdmissionPartial | undefined> {
 		// §32.12: every admission row says who proposed it, which path decided (`none` when no review ran) and how long it took.
 		const who = { origin: typeof origin.origin === "string" ? origin.origin : evidence.label ?? "model" };
+		const malformedDocument = documentWriteRefusal(tool, payload);
+		if (malformedDocument) throw new KernelError(malformedDocument);
 		const internalCombatMove = tool === "apply" ? combatSceneMove(state, payload) : undefined;
 		if (internalCombatMove) {
 			await record({ lane: "admission", verb: tool, ok: true, skipped: "combat_scene_required", destination: internalCombatMove, path: "none", ms: 0, ...origin, ...who });
@@ -3522,7 +3584,8 @@ export default function (pi: ExtensionAPI) {
                 if (result.interaction) pi.appendEntry("coc-choice", result.interaction);
 				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn,
 					withHandouts(state, readMechanics(result)), asString(result.marked_text), result.labels,
-					Array.isArray(result.speech) ? result.speech : undefined);
+					Array.isArray(result.speech) ? result.speech : undefined,
+					...(result.player_clock ? [{player_clock:result.player_clock}] : []));
 				noteStanding(state, result, typeof result.turn === "number" ? result.turn : state.turn);
 				notePreparationWait(state, typeof result.turn === "number" ? result.turn : state.turn);
 				break;
@@ -3541,7 +3604,8 @@ export default function (pi: ExtensionAPI) {
 				state.verifierOwed = { turn: typeof result.turn === "number" ? result.turn : state.turn };
 				const mechanics = withHandouts(state, readMechanics(result));
 				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, mechanics,
-					asString(result.marked_text), result.labels, Array.isArray(result.speech) ? result.speech : undefined);
+					asString(result.marked_text), result.labels, Array.isArray(result.speech) ? result.speech : undefined,
+					...(result.player_clock ? [{player_clock:result.player_clock}] : []));
 				noteCommit(state, result, mechanics);
                 if(mechanics.some(row=>row.quote_status==="pending"))quotationQueue(state).schedule(state.deliveredTurn);
 				noteStanding(state, result, typeof result.turn === "number" ? result.turn : state.turn);
@@ -5026,6 +5090,7 @@ export default function (pi: ExtensionAPI) {
 			// Action admission (contract §32) runs ahead of every Mod hook and of the kernel: a refused
 			// proposal pays for no definition agent and reaches no transaction.
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery();
+			if (spec.name === 'apply') await bindAppendArguments(state,payload,signal,providerBudget);
 			if (spec.name === "resolve" || spec.name === "apply") partial = await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence);
 			// Contract §128.3. An explicit narrate is never steered for speech (§128.2), so attribution is
 			// the only leg its unwrapped passages get; it runs before the Mod hooks so the continuity review
