@@ -47,7 +47,12 @@ test('the settlement gateway starts a vehicle chase with Drive Auto and publishe
 test('ordinary resolve binds a registered driver roster and persists vehicle participants through the production starter', async t => {
   const game = await table(t);
   await game.apply([{kind: 'npc', name: 'Steven Knott', to: 'here', archetype: 'capable_adult', why: 'Knott is driving the pursuing car in this encounter.'}]);
-  await game.apply([{kind: 'npc', name: 'Pickup gunner', walk_on: true, to: 'here', archetype: 'capable_adult', why: 'A fixture passenger in the pursuing vehicle.'}]);
+  // Use the archetype's legal lower-bound characteristic draws to cover body Build -1.
+  const profileRng = Object.getPrototypeOf(game.context.rng), profileRandint = profileRng.randint;
+  profileRng.randint = function (minimum) {return minimum;};
+  try {
+    await game.apply([{kind: 'npc', name: 'Pickup gunner', walk_on: true, to: 'here', archetype: 'ordinary_adult', why: 'A fixture passenger in the pursuing vehicle.'}]);
+  } finally {profileRng.randint = profileRandint;}
   const beforePin = (await game.world()).npc_profiles['steven-knott'];
   let repeatedDraws = 0;
   const prototype = Object.getPrototypeOf(game.context.rng), randint = prototype.randint;
@@ -115,6 +120,8 @@ test('ordinary resolve binds a registered driver roster and persists vehicle par
   const passenger = saved.participants.find(participant => participant.role === 'passenger');
   assert.ok(passenger);
   assert.equal(passenger.side, 'passenger');
+  assert.equal(passenger.build, -1, 'the canonical ordinary adult keeps their signed body Build');
+  assert.equal(passenger.build_max, -1);
   assert.equal(passenger.movement_actions, 0);
   assert.ok(saved.participants.some(participant => participant.actor_id === passenger.vehicle_actor_id && participant.is_vehicle));
 });

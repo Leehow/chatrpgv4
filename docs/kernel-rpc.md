@@ -32044,6 +32044,16 @@ unresolved. Selector family version 20 separates these questions from earlier ca
 Regression coverage includes the actual issued catalog, selector dispatch, ordinary resolve and
 saved driver/passenger state. The same blind live encounter remains the acceptance boundary.
 
+**Snapshot Build validation (2026-10-06, JEV-OPEN-06).** A foot participant or
+passenger keeps the actor's signed integer body Build: the damage-bonus table
+includes -2 and -1. A vehicle participant's structural `build` and `build_max`
+remain nonnegative integers, including zero after damage. Neither distinction
+relaxes `build <= build_max`, HP, passenger placement/action budgets, genesis or
+action-receipt validation. The ordinary-adult passenger regression follows the
+issued catalog, Jev binder and canonical vehicle starter; separate TS save/load
+tests cover signed people, positive/zero vehicles and invalid persisted numbers.
+These deterministic checks establish the numeric boundary, not natural play.
+
 ### 159.12 Chase readiness consumes pinned actor profiles and skill ledgers (2026-10-01)
 
 **Role-specific preparation (2026-10-05).** Having a profile does not establish
