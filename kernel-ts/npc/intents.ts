@@ -37,6 +37,14 @@ export function intentParts(ref: unknown): {owner: string; digest: string} | nul
     const body = ref.slice('intent:'.length), cut = body.lastIndexOf(':'), digest = body.slice(cut + 1);
     return cut > 0 && /^[0-9a-f]{12}$/.test(digest) ? {owner: body.slice(0, cut), digest} : null;
 }
+/**
+ * §185.2: what a Keeper-facing view shows for a stored ref -- the canonical form, from the owner's current handle and the
+ * row's digest. The stored string stays as stored; a string that is not a reference is shown as it is.
+ */
+export function shownIntentRef(ref: unknown, handle: string): string {
+    const parts = intentParts(ref);
+    return parts ? canonicalIntentRef(handle, parts.digest) : string(ref);
+}
 /** The owner segment of an intention reference, or null when the string is not one. */
 export function intentOwner(ref: unknown): string | null {
     return intentParts(ref)?.owner ?? null;
@@ -95,13 +103,13 @@ export function foldIntent(item: Row, intent: Row, turn: number, receipt: unknow
 
 /**
  * The card's view (§142.3): every intention still under way, then the most recently settled ones, newest first. The
- * `ref` is what a writer names to report the next result. `by: "table"` (§143.6) marks one the table's own act of
- * this person set out; one the Keeper set out carries no `by`.
+ * `ref` is what a writer names to report the next result, in its canonical form from `handle`, the person's (§185.2).
+ * `by: "table"` (§143.6) marks one the table's own act of this person set out; one the Keeper set out carries no `by`.
  */
-export function intentsView(entry: Row): Row[] {
+export function intentsView(entry: Row, handle: string): Row[] {
     const all = intentsOf(entry).sort((a, b) => number(b.last_turn) - number(a.last_turn));
     const shown = [...all.filter(item => !isSettled(item.status)), ...all.filter(item => isSettled(item.status)).slice(0, SETTLED_SHOWN)];
-    return shown.map(item => ({ref: item.ref, intent: item.text, status: item.status, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null,
+    return shown.map(item => ({ref: shownIntentRef(item.ref, handle), intent: item.text, status: item.status, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null,
         ...(item.generated === true ? {by: 'table'} : {})}));
 }
 /** Intentions under way with no result yet. */

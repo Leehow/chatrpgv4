@@ -35453,10 +35453,18 @@ graph gets it without a per-tool copy.
 - The ledger fold (`foldIntent`, `onePerson`): within one person's entry, a stored row with the same digest is the same
   intention, whatever owner spelling it was stored with. So a canonical receipt settles that row, keeps its stored ref, and
   does not open a second row. Per-person folds pass it: `foldNpcTurn`, `intentEntry` and `owedIntents`.
-  `tableIntentOptions`, which mixes everyone's rows, still matches the whole ref.
-- Cards and offers show the ref as stored. In a legacy campaign that is already the canonical form, because the old writer
-  refused any owner spelling but the handle. A row stored under another spelling keeps it, and it still resolves when
-  copied.
+  `tableIntentOptions` keeps one entry per person (the ledger's node id, or the receipt's `npc` read as an actor), so it
+  matches by person and digest too.
+- Every Keeper-facing view shows the canonical form built from the owner's current handle and the row's digest
+  (`shownIntentRef`), never the stored string (coordinator, 2026-10-06):
+  - the card (`intentsView`, capsule `present[].history.intents` and `npc.perspective`'s `tried`);
+  - the Director's offer (`kernel-ts/read/assemble.ts`);
+  - refusal options (`intentOptions`, `tableIntentOptions`);
+  - the owed rows (`owedIntents`);
+  - `intentHistory`, read by the NPC act's situation packet, `npc.act.options` and `npc.threads`;
+  - the situation's `brought_out` refs.
+
+  Stored refs stay as stored, and lookups stay by (owner node, digest).
 
 **Quotes (185.2, §58.9).**
 - `cashCounterparty` (`kernel-ts/apply/purchases.ts`) reads a counterparty as `npcNode` does: the graph's npc, then the
@@ -35535,7 +35543,8 @@ graph gets it without a per-tool copy.
   - the renamed card ref, scene handle and clue handle, copied from the assembled request, each resolve to the original,
     and the intention settles;
   - an owner named by the table's word or the book's name settles, and another person's ref is refused;
-  - a stored ref spelled another way is settled under its stored ref;
+  - a stored ref spelled another way is shown canonical on the card, in the offer, in `npc.perspective` and in both kinds
+    of refusal options, and settling with the shown ref settles the row under its stored ref;
   - a campaign marked name-free does not retry.
 - `tests/extension/quote-counterparty-identity.test.mjs` covers settlement by the handle, by the table's word against the
   name, and by a new word after `apply person`. Another person is refused, and free text compares its spelling.

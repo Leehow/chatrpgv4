@@ -153,13 +153,28 @@ test('§185.2: an intention reference written with any word for its owner settle
   assert.deepEqual([receipt.intent?.ref, receipt.intent?.npc, receipt.intent?.outcome], [next, KNOTT, 'done']);
 });
 
-test('§185.2: a stored ref that spells its owner another way is found and settled, and is not rewritten', async t => {
+test('§185.2: a stored ref that spells its owner another way is shown canonical, settled by what is shown, and not rewritten', async t => {
   const game = await table(t);
   const path = join(game.home, '.coc/campaigns/c1/npc-ledger.json'), ledger = JSON.parse(await readFile(path, 'utf8'));
-  const row = ledger[`npc-${KNOTT}`].intents.find(item => item.text === LINE), digest = row.ref.split(':').at(-1), stored = `intent:Steven Knott:${digest}`;
+  const row = ledger[`npc-${KNOTT}`].intents.find(item => item.text === LINE), canonical = row.ref, digest = canonical.split(':').at(-1);
+  const stored = `intent:Steven Knott:${digest}`;
   row.ref = stored;
   await writeFile(path, JSON.stringify(ledger));
-  await game.call('table.apply', {call_id: 't2-c1', effects: [{kind: 'npc', name: WORD, intent_ref: `intent:${WORD}:${digest}`, outcome: 'failed'}]});
+  // Every view shows the canonical form: the card, the Director's offer, and both kinds of refusal options.
+  const view = await game.call('table.capsule');
+  const capsule = view.capsule ?? view;
+  const card = capsule.present.find(person => person.untold?.id === KNOTT || person.name === 'Steven Knott');
+  assert.deepEqual(card?.history?.intents?.map(item => item.ref), [canonical], JSON.stringify(card?.history));
+  assert.ok(capsule.director.offer.some(item => item.ref === canonical), JSON.stringify(capsule.director.offer.map(item => item.ref)));
+  assert.ok(!strings(capsule, value => value.includes(stored)).length, 'the stored spelling reaches no view');
+  const perspective = await game.call('npc.perspective', {name: WORD});
+  assert.ok(strings(perspective, value => value === canonical).length && !strings(perspective, value => value.includes(stored)).length, 'the perspective too');
+  await assert.rejects(game.call('table.apply', {call_id: 't2-c1', effects: [{kind: 'npc', name: WORD, intent_ref: `intent:${WORD}:0123456789ab`, outcome: 'done'}]}),
+    error => error.details?.reason === 'unknown_intent' && JSON.stringify(error.details.options.map(item => item.ref)) === JSON.stringify([canonical]));
+  await assert.rejects(game.call('table.apply', {call_id: 't2-c2', effects: [{kind: 'flag', name: 'keys-signed', intent_ref: `intent:nobody-here:${digest}`}]}),
+    error => error.code === 'invalid_params' && JSON.stringify(error.details?.options?.map(item => [item.ref, item.npc])) === JSON.stringify([[canonical, KNOTT]]));
+  const shown = card.history.intents[0].ref;
+  await game.call('table.apply', {call_id: 't2-c3', effects: [{kind: 'npc', name: WORD, intent_ref: shown, outcome: 'failed'}]});
   await game.call('table.narrate', {call_id: 't2-c9', text: '他没能让你签字。'});
   await game.call('table.player_input', {text: '我把钥匙放回桌上。'});
   const rows = (await game.ledger()).intents.filter(item => item.text === LINE);

@@ -11,7 +11,7 @@ import type {ModuleGraph} from '../read/module-graph.js';
 import {CampaignSnapshot} from '../read/campaign.js';
 import {personNode} from '../read/capsule.js';
 import {array, clone, number, row, string, type Row} from '../read/values.js';
-import {INTENT_OUTCOMES, INTENT_TEXT_LIMIT, canonicalIntentRef, foldIntent, intentOf, intentOwner, intentParts, intentRef, intentsOf, isSettled, receiptGenerated} from '../npc/intents.js';
+import {INTENT_OUTCOMES, INTENT_TEXT_LIMIT, canonicalIntentRef, foldIntent, intentOf, intentOwner, intentParts, intentRef, intentsOf, isSettled, receiptGenerated, shownIntentRef} from '../npc/intents.js';
 
 export interface IntentScope {
     readonly kernel: KernelContext;
@@ -67,22 +67,34 @@ export async function intentEntry(scope: IntentScope, node: Row): Promise<Row> {
 }
 /** What a writer may name: this person's intentions under way. */
 export async function intentOptions(scope: IntentScope, node: Row, entry?: Row): Promise<Row[]> {
-    const current = entry ?? await intentEntry(scope, node);
-    return intentsOf(current).filter(item => !isSettled(item.status)).map(item => ({ref: item.ref, intent: item.text, status: item.status}));
+    const current = entry ?? await intentEntry(scope, node), handle = scope.graph.handle(node);
+    return intentsOf(current).filter(item => !isSettled(item.status)).map(item => ({ref: shownIntentRef(item.ref, handle), intent: item.text, status: item.status}));
 }
 /**
  * §143.7: what a writer may name when the ref it gave names nobody (so there is no person to ask): every intention under
  * way at this table, whoever's -- the committed ledger, then this turn's receipts, then this call's -- each with the
- * handle of the person it belongs to.
+ * handle of the person it belongs to. §185.2: one entry per person, so a receipt finds its row by person and digest, and
+ * each row is shown in its canonical form.
  */
 async function tableIntentOptions(scope: IntentScope): Promise<Row[]> {
     const snapshot = new CampaignSnapshot(scope.kernel, scope.campaign.id);
-    const all: Row = {intents: Object.values(row(await snapshot.optional('npc-ledger.json'))).flatMap(entry => clone(intentsOf(row(entry))))};
-    for (const receipt of [...array(scope.turn.receipts), ...(scope.staged?.() ?? [])]) {
-        const intent = row(row(receipt).intent);
-        if (typeof intent.ref === 'string') foldIntent(all, intent, number(scope.turn.turn), row(receipt).id);
+    const people = new Map<string, {handle: string; entry: Row}>();
+    for (const [id, stored] of Object.entries(row(await snapshot.optional('npc-ledger.json')))) {
+        const rows = clone(intentsOf(row(stored))), node = scope.graph.nodes.get(id);
+        if (rows.length) people.set(id, {handle: node ? scope.graph.handle(node) : string(intentOwner(rows[0].ref)), entry: {intents: rows}});
     }
-    return intentsOf(all).filter(item => !isSettled(item.status)).map(item => ({ref: item.ref, npc: intentOwner(item.ref), intent: item.text, status: item.status}));
+    for (const receipt of [...array(scope.turn.receipts), ...(scope.staged?.() ?? [])]) {
+        const intent = row(row(receipt).intent), npc = string(intent.npc);
+        if (typeof intent.ref !== 'string') continue;
+        let node: Row | null = scope.graph.nodes.get(npc) ?? null;
+        try { node ??= scope.graph.actor(npc); } catch (error) { if (!(error instanceof RpcError)) throw error; }
+        const id = node ? string(node.node_id) : `npc:${npc}`;
+        const person = people.get(id) ?? {handle: node ? scope.graph.handle(node) : npc, entry: {}};
+        people.set(id, person);
+        foldIntent(person.entry, intent, number(scope.turn.turn), row(receipt).id, false, true);
+    }
+    return [...people.values()].flatMap(({handle, entry}) => intentsOf(entry).filter(item => !isSettled(item.status))
+        .map(item => ({ref: shownIntentRef(item.ref, handle), npc: handle, intent: item.text, status: item.status})));
 }
 
 /**
