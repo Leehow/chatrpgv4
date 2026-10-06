@@ -35362,3 +35362,33 @@ Fixed before any run of the redesign (2026-10-06):
 - **Bar:** §151.3.1 on held-out — cleared strict negatives ≤ 1 and ≤ 1 % of strict negatives, cleared share of
   supported ≥ 50 %. Pass: the data default becomes `on`, recorded with the numbers. Fail: the default stays `shadow`
   with the redesign's questions, and the failure is recorded in the spec. No second attempt on the same held-out.
+
+*Implementation (RC-06, 2026-10-06).* Family `source-claim-support` moves to version 2 (`runtime/jev/source-claim-support.ts`).
+- *Eligibility.* `claimSupportIneligibility(draft, root, hasText, classifies)` (`kernel-ts/modules/claim-support.ts`, still
+  import-free) walks every JSON pointer the record carries and refuses the record (`classification_field`) when any
+  matches; both ends build `classifies` with `review-verdicts.ts` `classificationMatcher`. The host reads the task's
+  `vocabulary.classification_fields.node`, and the shipped `module-graph-contract-v3.json` declaration when the task has
+  none (production tasks always carry it; this keeps the host from clearing what the gate refuses); the gate passes the
+  `classificationFields(contract)` it already reads, so a Jev row on such a record is `review_jev_ineligible`.
+- *Statements.* A claim: the v1 statement with `aliases` on every named node (subject, object, asserting and knowing
+  nodes). A node: `identity` `{kind, name, aliases}`; `summary[i]` per sentence (`Intl.Segmenter('und', {granularity:
+  'sentence'})`, trimmed, empty pieces dropped; no abbreviation list, so "Mr. Smith" splits); `properties.<key path>`
+  per leaf with `states: "<key path>: <value>"` (dotted keys, `[i]` for list positions), each about `{name, aliases}`.
+  A leaf that states nothing (null, empty string, empty list or object) has no statement. A string leaf equal to the
+  id of a node of the draft or `known_nodes` is rendered as that node's name with its aliases, as a claim's subject is.
+  `record_max_bytes` still bounds the record's whole rendering (the v1 node rendering; the claim statement with aliases).
+- *Questions.* Claims keep the v1 pair. The identity pair asks whether the pages present something by that name (or an
+  alias) of the sort the kind names, the kind word not required; the field pair asks whether the pages state `states`
+  about `about`, a `label: value` label not required. Where a statement's names carry aliases, the supported question
+  adds that any one name suffices: on tuning, claims rendered with aliases under the unchanged v1 wording lost 0.11 of
+  `supported` against v1 on the same records ("every name must be stated" read as every alias).
+- *Batching and gate.* Every statement is one item; items of one record stay contiguous and split only at the packing
+  limit or page cap; a record with a statement that cannot be packed alone is `packing_limit` whole. A record clears
+  only when every statement clears; its `distribution` (evidence file, Jev row) is the weakest pair (lowest
+  `supported`, highest `contradicted`), and the evidence record gains `fields: [{field, statement, distribution}]`.
+  The evidence protocol stays `source-claim-support-v1`: the part the gate reads is unchanged.
+- *Calibration tools.* `tests/play/jev-claim-splits.mjs` freezes the splits; `tests/play/jev-claim-replay.mjs` replays a
+  split through `claimCandidates`/`runClaimSupport` and the real adapter, refuses the held-out split without
+  `--heldout-once`, and refuses an output directory that already holds a replay. Scoring: unique records; a unique strict
+  negative counts as cleared if any instance clears, a unique supported record only if every instance does; records the
+  redesign makes ineligible stay in the population as not cleared.
