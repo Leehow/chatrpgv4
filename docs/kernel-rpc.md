@@ -35336,6 +35336,12 @@ campaigns, compares references by identity everywhere, and repairs the rewrite f
   - Otherwise it returns `{job_id, nodes, avoid, taken, instruction}`:
     - `nodes[]` is up to `HANDLES_PER_JOB` rows `{id: <node_id>, kind, name, summary}`. `name` and `summary` are as the graph
       holds them, the summary cut to a fixed length.
+    - Nearest the table first (amended 2026-10-06, NFH-03), so the first table on a book opens with the lane's handles
+      rather than interim ones. From the campaign's active scene (else its `opening_scene`), or in the library form from the
+      book's opening, the order is:
+      - the scene, then the people there (world presence, then the graph's `present-in`), then its clues, assets and places;
+      - then the scenes routed from it, and the people there;
+      - then every other node in the graph's order.
     - `avoid` is every cast form of every cast person (§177.1: book, play and notes renderings, with their pieces).
     - `taken` is every handle already in the book's `handles.json`.
   - The node id is a key for the answer only. The instruction tells the lane to describe the thing and never to spell any
@@ -35356,11 +35362,22 @@ campaigns, compares references by identity everywhere, and repairs the rewrite f
       graph, or another entry of the batch.
 - **The lane** (`extensions/node-handles/`) is shaped like §176.3's.
   - It runs during character creation and at a table: once when the bridge and session are up, and after every committed
-    turn, which catches nodes a reading landed.
+    turn, which catches nodes a reading landed. Amended 2026-10-06 (NFH-03, 185.11):
+    - also when a reading publishes, and when setup creates the campaign;
+    - while the campaign form has nothing to answer yet (setup before `campaign.create`, or before setup writes the
+      campaign's first world), a book a publication named is asked in the library form.
   - Zero tools, on the fast model (`PI_COC_HANDLES_MODEL`, else the fast-model setting, else the table's model).
-  - A few jobs per trigger.
+  - Jobs run one after another: a job holds no lease, so two at once would offer the same nodes. Amended 2026-10-06
+    (NFH-03): at a table a few jobs per trigger, so a turn's background work stays small; during character creation and in
+    the library form, until `handles.job` answers `{job_id: null}` or a round settles nothing (nobody is waiting, and a book
+    is named once for every campaign on it).
+  - The model sees each node under an opaque key, never its node id, which is minted from the book's words (NFH-03).
   - One retry per refused entry, alone, carrying its refusal verbatim. An entry refused again, or not answered in that
     retry, is written as `given_up` through `handles.submit {given_up: [ids]}`, so the next job never offers it again.
+    Amended 2026-10-06 (NFH-03):
+    - a node the first ask left unanswered is retried the same way;
+    - the model failing or late on the retry counts as not answered;
+    - a first ask that fails as a whole gives up nothing.
   - The lane is mounted in `COC_EXTENSIONS` and emitted by `build:runtime`.
   - Single completion, by Agents.md's two criteria:
     - the output is a short closed structure, one handle per node;
@@ -35686,6 +35703,131 @@ graph gets it without a per-tool copy.
   renamed to the handle). And one of NFH-01's, after the merge: `legacy-rename-round-trip`'s name-free case marks a starter
   campaign name-free by hand and expected the clue's receipt under its slug; a name-free campaign shows the interim handle
   (§185.4), so it now takes the handle from `table.lookup` and still checks that no retry runs.
+
+#### NFH-03 (2026-10-06, `claude/name-free-handles-20261006-lane`; the lane, host side)
+
+- **Where.** `extensions/node-handles/index.ts`, on `createLaneQueue`, `runLane` and `createLaneTelemetry` like the epithet
+  lane. Mounted after `npc-epithets` in `COC_EXTENSIONS` (`runtime/deployment.mjs`), `package.json`'s `pi.extensions` and
+  `pipicoc/runtime-dependencies.json`'s `requiredEntries` (so `build:runtime` emits `build/extensions/node-handles/index.mjs`).
+  The two tests that pin the mount list (`launch`, `pipicoc-rpc`) name it. Its `runLane` site is in the SL-00 inventory.
+- **Triggers.** Every trigger runs the campaign form first, `{campaign}` from the bridge.
+  - Once when the session and the bridge are both up (`initialJob`), in setup and at a table.
+  - After every committed turn (`coc:turn-committed`).
+  - When a reading publishes (`coc:source-published`, `extensions/module/index.ts`, after `module.read.finish` completes),
+    for a payload naming this campaign or none. This catches nodes a background reading lands between turns, so the next
+    `table.player_input` folds named nodes rather than showing interim handles first.
+  - When setup creates the campaign (`coc:session-bound`, `extensions/onboarding/index.ts`, emitted from the
+    `campaign.create` result).
+- **The library form's seam.** The campaign form may answer `campaign_not_found` (setup before `campaign.create`) or
+  `campaign_not_ready` (setup before the campaign's first world is written; `handles.job` opens the campaign requiring
+  `world.json` and `turn.json`).
+  - Then every book a publication named since the last campaign answer is asked as `{module}`. A publication is the one
+    point where the host knows a book has a graph before a campaign on it folds. In setup it is `module.prepare`'s opening
+    reading, which comes before `create-campaign`, so `campaign.create`'s fold can already take those handles.
+  - Neither error writes a row: they mean "not yet", not a failed lane.
+  - An `authored` refusal ends that book quietly, and it is not asked again in the session. The lane names no book itself:
+    a starter never publishes, so it is never asked.
+  - Not taken: "book chosen". The host preflight runs `choose-source`, `module.prepare` and `create-campaign` back to back
+    (`extensions/onboarding/index.ts`, the `before_agent_start` hook), and no event marks the choice. So for an installed
+    book a lane round could not finish before `campaign.create` anyway. Its nodes are named after `coc:session-bound`,
+    during character creation, and the fold at `table.open` moves them (185.6.1).
+  - A setup started without a campaign id (a terminal `bin/pi-coc setup` without `--campaign`) puts no campaign on the
+    bridge, so neither this lane nor the epithet lane runs in it; the table's initial job names the book.
+- **Concurrency.** Jobs run one after another. A job holds no lease, so a second `handles.job` before the first is submitted
+  offers the same nodes. A trigger stops when `handles.job` answers `{job_id: null}`, when a round settles nothing (nothing
+  written, given up or refused `settled`), or when a job's first ask fails. The retries of one job run at most
+  `RETRY_CONCURRENCY` = 3 at once. Their prompts list as taken what the job's first ask wrote and what earlier retries wrote;
+  two retries in flight together can still collide, and the kernel's `taken` catches that.
+- **How many jobs per trigger** (coordinator ruling 2026-10-06):
+  - At a table, in the campaign form: `TABLE_ROUNDS` = 4, so a turn's background work stays small; the next trigger goes on.
+  - During character creation (`PI_COC_MODE=setup`, read when the jobs run) and in the library form: no cap. Nobody waits
+    on the lane there, and the jobs are bounded by the book: every round settles each node it asks, and a book is named once
+    for every campaign on it (about 14 jobs for a 438-node book).
+- **Which nodes a job offers first** (coordinator ruling 2026-10-06): `nearTableFirst` (`kernel-ts/read/node-handles.ts`),
+  graph relations and world state only.
+  - Seeds:
+    - the campaign form: the scene `world.active_scene` names, else `opening_scene` (setup before the first world write);
+    - the library form: the book's recorded opening (`module.json` `opening_choice.start_scene`), else its one `is_start`
+      scene (what `campaign.create` opens without a choice), else every scene marked `is_start` or `is_entrance`.
+  - From each seed, in this order:
+    - the scene;
+    - the people standing there: `npcsPresent` (world presence), then `sceneNpcIds` (`present-in`);
+    - `sceneClueIds` (`discoverable-at`, `available_clues`);
+    - `sceneAssetNodes` (what it depicts or holds);
+    - the places it occurs at (`placesOutward`).
+  - Then each scene `sceneExits` routes to, then the people there.
+  - Then every other book node in the graph's order (node id order in a published graph).
+- **Model.** `runLane`'s resolution: `PI_COC_HANDLES_MODEL`, else the fast-model setting, else the table's model;
+  `PI_COC_HANDLES_MODEL_THINKING` by §12.8.1 addendum 2; no post-delivery thinking floor (the epithet lane's choice). A job's
+  ask is cut at 120 s, a retry at 60 s: past those it is late. The model is resolved only once a job has nodes, so a legacy
+  campaign or a fully named book costs nothing: no model lookup, no call, no row.
+- **What the model sees.** The kernel's `instruction`, verbatim, then one lane line: let the kind decide what the handle
+  says (a person by role or look, a place by what it is, a clue by what it shows), then the answer shape
+  `{handles: [{key, handle}]}`.
+  - The input is `[Nodes]` (`{key, kind, name, summary?}`), `[Avoid]` (the packet's `avoid`) and `[Taken]` (the packet's
+    `taken` plus this job's written handles). On a retry it adds the one line saying why.
+  - Keys are `n1`, `n2`, ... in the packet's order. The node id is never shown: it is minted from the book's words, and
+    the spec says the lane never sees it or the slug. The lane maps the answer's key back to the id.
+  - No length is written into the lane: `HANDLE_LIMIT` reaches the model in the kernel's instruction and comes back as the
+    kernel's `shape` refusal.
+  - The shape takes every row whose key was asked and not seen before and whose handle is a non-empty string, trimmed. Any
+    other row answers nothing. A reply with no usable row is `bad_output`, a failure of the whole ask.
+- **Retry and `given_up`.** One retry per node, alone, for:
+  - a node the kernel refused for its handle (`shape`, `carries_name`, `interim_shape`, `taken`, or any reason other than
+    `unknown_entity` and `settled`), carrying `"<handle>" refused (<reason>): <message>` verbatim;
+  - a node the first ask left unanswered, carrying the lane's own line.
+
+  Given up, in one `handles.submit {given_up}` per job:
+  - refused again for its handle;
+  - unanswered again;
+  - the model failing (`model_error`, `bad_output`) or late (`timeout`) on the retry.
+
+  Not given up, and asked again by a later trigger:
+  - every node of a job whose first ask fails as a whole (`model_unavailable`, `model_error`, `timeout`, or nothing
+    usable), which writes one failed row and ends the trigger;
+  - a node whose retry hit `model_unavailable`, a kernel error, or a closed session;
+  - refusals `unknown_entity` and `settled`, which are about the node, never retried, and never given up.
+- **Telemetry.** One row per job: `{lane: "handles", form: "campaign" | "library", module?, turn?, job_id, ok, ms, model,
+  asked, written, refused: {<reason>: n}, given_up, unanswered?, retried?, reason?, detail?}`.
+  - `refused` counts the kernel's refusals of both asks.
+  - `detail` on a successful row is a failed `given_up` submit.
+  - A failed row (`ok: false`) carries `reason` and `detail`, with `written`, `given_up` and `refused` empty, and feeds the
+    outage streak (`OUTAGE_STREAK`). A session closing under an ask writes none.
+  - The library form's rows go to the bound campaign's telemetry. In setup that file may precede `campaign.json`, which
+    `campaign.create` allows (#88).
+  - Each completion also writes the `lane: "lane-call"` rows with `subsession: "handles"`.
+- **Open questions.** Both closed by the coordinator's follow-up (the two rulings above): nodes come nearest the table first,
+  and setup is not capped.
+- Tests:
+  - `tests/extension/node-handles-lane.test.mjs` (13, a real Pi session with a stubbed kernel and a faux provider):
+    - the prompt and the shape: keys only, no id and no slug;
+    - in both modes: the initial job, the next job, a committed turn and a publication;
+    - the retry alone with the refusal verbatim, the unanswered node retried, and `given_up` after a second refusal and after
+      no answer;
+    - a failed retry given up, with `settled`/`unknown_entity` not retried;
+    - a whole ask failing (`model_error`, then `bad_output`) giving up nothing and the next trigger asking again;
+    - an unresolvable model;
+    - in both modes, a legacy answer costing nothing;
+    - the library form before `campaign.create`: an authored book asked once, then `coc:session-bound`;
+    - a six-job book named whole by one trigger in setup and in the library form, and in fours at a table.
+  - `tests/extension/node-handles-order.test.mjs` (3, the kernel in process): the fixture book with 36 artifacts whose ids
+    sort ahead of the table's nodes, so in the graph's order the first job of 32 holds none of them.
+    - The campaign form's first job leads with the dock, Old Mae there, its clue, the tower and the ferryman there.
+    - After a move with Old Mae walked along, it leads with the tower, her, then the ferryman.
+    - The library form's first job leads like the first.
+  - The fixture book is shared through `tests/extension/name-free-book.mjs`; NFH-02's test keeps its own copy.
+  - `tests/extension/node-handles-path.test.mjs` (1): NFH-02's fixture book, a name-free campaign opened with interim
+    handles, the lane mounted against the kernel in process, and the fold at `table.player_input`. The Keeper's request, as
+    `installContextPolicy` assembles it, shows the lane's three handles; no interim handle, node id or slug.
+  - `launch.test.mjs` gains the mount test: emitted, mounted in both modes and both layouts, not in a lane child.
+  - Mutations, each reverted by copy, each red: ids shown to the model; retries asked together; the refusal message
+    dropped; no `given_up` after a second refusal; none after a failed retry; everything given up on a failed first ask; the
+    unanswered not retried; refusals not tallied; the model checked before the job; no library form; `campaign_not_found`
+    as a failure; an authored book asked again; no publication wake; no `coc:session-bound` wake; no initial job (the
+    end-to-end test too); this job's handles not taken for the retry; `settled`/`unknown_entity` retried; the lane never
+    submitting (end-to-end); `node-handles` dropped from `COC_EXTENSIONS` (`pipicoc-rpc`, `launch`). The follow-up's:
+    the job ignoring the order; no seed in the campaign form; the opening instead of the active scene; no seed in the library
+    form; no world presence; no graph presence; no clues; no exits; setup and the library form capped at 4; a table uncapped.
 
 ### 185.12 The reading boundary speaks the book's identifiers (amends §22.4 and §22.6; lead ruling 2026-10-06 on NFH-02's second gap)
 

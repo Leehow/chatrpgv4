@@ -111,6 +111,7 @@
     "build/extensions/npc-journal/index.mjs",
     "build/extensions/npc-voice/index.mjs",
     "build/extensions/npc-epithets/index.mjs",
+    "build/extensions/node-handles/index.mjs",
     "build/extensions/speech-edit/index.mjs",
     "build/extensions/npc/index.mjs",
     "build/extensions/thinking-schedule/index.mjs",

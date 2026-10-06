@@ -129,7 +129,7 @@ function defaultMounts(root) {
 	const providers = providerExtensionManifests(root);
 	assert.deepEqual(providers.map(entry => entry.name), ['deepseek', 'flapcode', 'grok-build-oauth'],
 		'the fake tree must carry the same provider manifests the repo does');
-	return ['--no-extensions', ...['kernel', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice', 'npc-epithets', 'speech-edit', 'thinking-schedule'].flatMap(name => ['-e', join(root, 'build/extensions', name, 'index.mjs')]),
+	return ['--no-extensions', ...['kernel', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice', 'npc-epithets', 'node-handles', 'speech-edit', 'thinking-schedule'].flatMap(name => ['-e', join(root, 'build/extensions', name, 'index.mjs')]),
 		...providers.flatMap(entry => ['-e', entry.entry]),
 		'-e', join(root, 'build/extensions/image-gen/agent/index.mjs'),
 		'-e', join(root, 'build/extensions/rerank/agent/index.mjs'),
@@ -187,6 +187,31 @@ test("the thinking schedule is mounted at every Keeper launch, in both modes and
 		const mounted = run.args.flatMap((value, index) => value === "-e" ? [run.args[index + 1]] : []);
 		assert.ok(run.args.includes("--no-extensions"), `${label}: discovery is off, so only the explicit list mounts anything`);
 		assert.ok(mounted.includes(mount), `${label}: the launch mounts the thinking schedule explicitly`);
+	}
+});
+
+/**
+ * The handle lane (contract §185.5) names a reader-built book's nodes during character creation and at a table; a lane that
+ * is not in the emitted runtime does not exist in the App (§135.27's lesson). Mutation: drop 'node-handles' from
+ * COC_EXTENSIONS and every mount assertion fails; drop it from runtime-dependencies.json and build:runtime stops emitting it.
+ */
+test("the handle lane is emitted by build:runtime and mounted at every Keeper launch, in both modes and both layouts", (t) => {
+	const built = join(REPO, "build/extensions/node-handles/index.mjs");
+	assert.ok(existsSync(built), "build:runtime emits the entry the mount names (pipicoc/runtime-dependencies.json requiredEntries)");
+	for (const layout of ["source", "compiled"]) {
+		const entrypoints = runtimeEntrypoints(REPO, layout);
+		assert.ok(entrypoints.extensions.includes(built), `${layout}: COC_EXTENSIONS names it`);
+		assert.ok(sessionExtensionPaths(entrypoints).includes(built), `${layout}: the bin/pi-coc session mounts it`);
+		assert.ok(desktopSessionExtensionPaths(entrypoints).includes(built), `${layout}: the App's session mounts it`);
+		assert.equal(readerProviderExtensionPaths(entrypoints).includes(built), false, `${layout}: a lane child does not mount it`);
+	}
+	const root = fakeRepo();
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const mount = join(root, "build/extensions/node-handles/index.mjs");
+	for (const [label, args] of [["play", ["--campaign", "camp-a", "--no-session"]], ["setup", ["setup", "--campaign", "camp-a", "--no-session"]]]) {
+		const run = runLauncher(root, args);
+		assert.equal(run.value("mode"), label);
+		assert.ok(run.args.flatMap((value, index) => value === "-e" ? [run.args[index + 1]] : []).includes(mount), `${label}: the launch mounts the handle lane`);
 	}
 });
 
