@@ -200,13 +200,14 @@ function manualClock(start = 1_000_000) {
 }
 
 /**
- * A decision port: `route(batch, n)` answers the n-th route; the compile answers `unknown` (the first after `compileMs`); every
+ * A decision port: `route(batch, n)` answers the n-th route; `compile` binds a declared endpoint when supplied, otherwise
+ * it answers `unknown` (the first after `compileMs`); every
  * other batch is the prescreen's or the ordinary binder's. `slowPrescreen` holds each prescreen batch until its lease
  * ends, so the prescreen spends the whole allowance. With a manual `clock` nothing sleeps: the compile advances it by
  * `compileMs`, and a slow prescreen batch advances it to its lease's deadline, which ends the lease. `tickMs` advances it
  * before every decision, so each is stamped strictly after the steps before it.
  */
-function decisionPort({ route: routeAnswer, compileMs = 0, slowPrescreen = false, clock, tickMs = 0 }) {
+function decisionPort({ route: routeAnswer, compile: compileAnswer = answered, compileMs = 0, slowPrescreen = false, clock, tickMs = 0 }) {
 	const log = [];
 	let routes = 0, compiles = 0;
 	return { log, port: { async decide(batch, lease) {
@@ -216,7 +217,7 @@ function decisionPort({ route: routeAnswer, compileMs = 0, slowPrescreen = false
 		if (batch.family === COMPILE_FAMILY) {
 			log.push({ kind: "compile", at });
 			if (compileMs && ++compiles === 1) { if (clock) clock.advance(compileMs); else await sleep(compileMs); }
-			return answered(batch);
+			return compileAnswer(batch);
 		}
 		if (batch.family === BIND_FAMILY) { log.push({ kind: "bind", at }); return answered(batch); }
 		if (batch.family === "ordinary-resolve") { log.push({ kind: "binder", at, deadline }); return supported(batch); }
@@ -261,8 +262,9 @@ test("gate #7's shape: a prescreen that spends the whole allowance leaves the de
 	// allowance, and nothing here sleeps.
 	const clock = manualClock();
 	const { log, port } = decisionPort({ clock, slowPrescreen: true, compileMs: 2_000,
-		route: (batch, n) => n === 1 ? answered(batch, (question) => question.key === "exit" ? "continue" : /Boston Globe offices/.test(question.target) ? "now" : undefined)
-			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined) });
+		compile: (batch) => answered(batch, (question) => question.key === "destination"
+			? Object.entries(question.criteria).find(([, value]) => value?.handle === "newspaper-morgue")?.[0] : undefined),
+		route: (batch) => answered(batch, (question) => question.key === "exit" ? "finish" : undefined) });
 	const table = await hybridTable({ port, clock, allowanceMs: "3000", responses: [narrate("You reach the Globe's morgue.")] });
 	t.after(() => table.dispose());
 	await table.table.session.prompt("I go to the Boston Globe offices.");
@@ -314,8 +316,9 @@ test("SL-44 (§135.6.1): a read after the move that comes late in the turn gets 
 		["not configured: the named default", null, PRESELECT_ALLOWANCE_DEFAULT_MS, false]]) await t.test(label, async (tt) => {
 		const clock = manualClock();
 		const { port } = decisionPort({ clock, compileMs: slow ? 1_000 : 300, slowPrescreen: slow,
-			route: (batch, n) => n === 1 ? answered(batch, (question) => question.key === "exit" ? "continue" : /Boston Globe offices/.test(question.target) ? "now" : undefined)
-				: answered(batch, (question) => question.key === "exit" ? "finish" : undefined) });
+			compile: (batch) => answered(batch, (question) => question.key === "destination"
+				? Object.entries(question.criteria).find(([, value]) => value?.handle === "newspaper-morgue")?.[0] : undefined),
+			route: (batch) => answered(batch, (question) => question.key === "exit" ? "finish" : undefined) });
 		const table = await hybridTable({ port, clock, allowanceMs, responses: [narrate("You reach the Globe's morgue.")] });
 		tt.after(() => table.dispose());
 		await table.table.session.prompt("I go to the Boston Globe offices.");
