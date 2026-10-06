@@ -566,7 +566,10 @@ export function boundCashAuthority(proposal:AdmissionProposal,context:AdmissionC
     else if(limit.basis==='price'){if(allowed&&compareCash(allowed,price)>0)allowed=price;}
     else if(limit.basis==='offer'){
       const terms=(items:any[])=>Array.isArray(items)?JSON.stringify(items.map(i=>[String(i.name).normalize('NFKC').trim().toLowerCase(),cashText(decimalSpelling(String(i.quantity))!),cashText(decimalSpelling(String(i.unit_price))!)]).sort((a,b)=>a[0].localeCompare(b[0]))):undefined;
-      const offer=proposal.cash?.quotes?.find((q:any)=>q.quote===limit.evidence&&q.subject===row.subject&&q.with_id===row.with&&q.currency===row.currency&&q.origin_turn<context.turn&&terms(q.items)===terms(row.items));
+      const reference=row.quote??row.bill;
+      const inputEvidence=!!limit.evidence&&context.playerText.includes(limit.evidence);
+      const offers=proposal.cash?.quotes?.filter((q:any)=>(q.quote===limit.evidence||inputEvidence&&typeof reference==='string'&&q.quote===reference)&&q.subject===row.subject&&q.with_id===row.with&&q.currency===row.currency&&q.origin_turn<context.turn&&terms(q.items)===terms(row.items))??[];
+      const offer=offers.length===1?offers[0]:undefined;
       const ceiling=offer?decimalSpelling(String(offer.cash_debit)):undefined;
       if(!ceiling)allowed=undefined;else if(allowed&&compareCash(allowed,ceiling)>0)allowed=ceiling;
     }

@@ -43,6 +43,13 @@ test('offer acceptance is limited to previously displayed cash terms for the sam
   assert.equal(boundCashAuthority(p,context,v).verdict,'authorized');
   assert.equal(boundCashAuthority({...p,cash:{...p.cash,quotes:[{...q,origin_turn:1}]}},context,v).verdict,'not_authorized');
   assert.equal(boundCashAuthority({...p,cash:{...p.cash,quotes:[{...q,cash_debit:1}]}},context,v).verdict,'not_authorized');
+  const accepted={...context,playerText:'Okay, settle the quotation card you just showed.'};
+  const words={...approved,cash_limits:[{index:0,amount:3,basis:'offer',evidence:'settle the quotation card you just showed'}]};
+  const referenced={...p,cash:{...p.cash,previews:[{...row,quote:'Counter bill'}]}};
+  assert.equal(boundCashAuthority(referenced,accepted,words).verdict,'authorized');
+  assert.equal(boundCashAuthority(referenced,context,words).verdict,'not_authorized');
+  assert.equal(boundCashAuthority({...referenced,cash:{...referenced.cash,previews:[{...row,quote:'Another bill'}]}},accepted,words).verdict,'not_authorized');
+  assert.equal(boundCashAuthority({...referenced,cash:{...referenced.cash,quotes:[q,q]}},accepted,words).verdict,'not_authorized');
 });
 
 async function policy(){
@@ -76,6 +83,18 @@ test('saved-offer retries have the same hold, and a real cancellation releases i
 test('corrupt retained policy state never silently removes a payment hold',async()=>{
   const p=await policy();await writeFile(join(p.base,'purchase-recovery.json'),'not JSON');
   await assert.rejects(p.recovery().check({effects:[item]},2),e=>e instanceof KernelError);
+});
+test('a new negotiated agreement may change prices after cancelling the unpaid original, never during a retry',async()=>{
+  const p=await policy(),recovery=p.recovery();
+  await recovery.failure({effects:[bill,item]},insufficient,1);
+  const revised={...bill,bill:'Negotiated counter bill',items:[{name:'Cola',quantity:2,unit_price:'0.40'}]};
+  await assert.rejects(recovery.check({effects:[revised,item]},2),e=>e.details.reason==='purchase_terms_changed');
+  assert.equal((await recovery.offers([],1))[0].items[0].unit_price,'0.50','failure preserves the original rate');
+  const cancel={kind:'cash',mode:'cancel',bill:bill.bill};
+  await recovery.check({effects:[cancel]},2);
+  await recovery.settled({effects:[cancel]},{receipts:['cash:t2-c1'],_cash_settlements:[{subject:'alice',bill:bill.bill,settlement:'cancelled'}]});
+  await recovery.check({effects:[revised,item]},2);
+  assert.deepEqual(await recovery.offers([],2),[]);
 });
 test('canonical counterparty aliases cannot change rates or disguise the unpaid item delivery',async()=>{
   const p=await policy(),recovery=p.recovery();

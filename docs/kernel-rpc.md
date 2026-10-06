@@ -13674,6 +13674,14 @@ reading by the existing reviewer, not a new model lane. A contextual classificat
 mismatch may use the existing `correct_proposal` recovery; ordinary self-consumed
 food is evaluated against living standard before additional daily spending.
 
+Offer evidence may be the exact registered quote name, or exact current player words
+accepting the proposal's explicit `quote`/`bill` reference. The latter binds that issued
+reference to the same earlier offer and identical subject, seller, currency and priced
+rows; it never treats the player's acceptance sentence as a quotation name. Missing or
+ambiguous identity grants no authority, and the earlier disclosed cash ceiling still
+caps settlement. A generic reference to a shown card does not require the player to
+repeat its numbers.
+
 Cash refusal feedback preserves the merchandise amount and unit prices alongside
 the separately computed actual debit. The daily catch-up is purse bookkeeping, not
 an NPC price increase. The next ordinary delivery carries the held original offer;
@@ -13696,6 +13704,27 @@ changes prices, and underscore-prefixed policy hints remain outside replay ident
 Acceptance includes the original seven staged scenarios, restart, changed-price and
 payment-removal regressions, and the real Grok 4.5 low failures retained under
 `money-audit-20261006-1791268509956`.
+
+**Bargaining is a new agreement, not a payment retry (owner acceptance extension, 2026-10-06).**
+The existing social resolver owns any required check. Keeper Rulebook printed pp. 59,
+60, 64, 66, 71 and 93 (physical PDF pp. 71, 72, 76, 78, 83 and 105) allow Charm,
+Fast Talk, Persuade and Intimidate to affect a price. The described conduct selects
+an approach; disposition and opposing skills select difficulty. A willing seller
+may agree without a roll. The book specifies no fixed discount percentage, Persuade
+normally takes at least half an hour, and a second attempt after failure is a push,
+even if the skill changes. The Keeper chooses plausible new terms from the settled
+outcome and seller response; the kernel computes those exact priced rows.
+
+A successful negotiation may replace an unaccepted offer. A retained payment hold
+must first be withdrawn through the existing admitted cash cancellation, then the
+new offer uses its own priced rows. Cancellation never pays, delivers goods, reverses
+a settled purchase or carries old cash authority to new terms. This explicit existing
+path preserves technical-retry price freezing without freezing legitimate bargaining.
+An ordinary failed bargain alone grants neither a discount nor purchase consent.
+In the success/failure acceptance cases the seller respectively issues the negotiated
+price or keeps the original offer, and checkout uses that same quote, including daily
+coverage and full-cash authority. Fast Talk or coercion may have later fictional
+consequences; those are not an automatic financial penalty or a fixed surcharge.
 
 Precedent: [Stripe quote acceptance](https://docs.stripe.com/api/quotes/accept)
 keeps accepted line terms separate from settlement; [Shopify fulfillment holds](https://shopify.dev/docs/api/admin-graphql/latest/objects/fulfillmenthold)
