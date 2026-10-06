@@ -1,5 +1,7 @@
 import {CASH_CONSENT_POLICY} from "./admission.ts";
 import {createQuotationQueue} from "./quotes.ts";
+import {decimalSpelling} from '../../shared/cash-decimal.js';
+import {preparePriceArguments} from './price-arguments.ts';
 import {patchCard} from "../table/card-patch.ts";
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import {permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
@@ -2286,6 +2288,48 @@ export default function (pi: ExtensionAPI) {
 	 * it. It is never injected into the prose: the TUI shows only what the Keeper wrote.
 	 */
     const quotationQueues=new WeakMap<TableState,ReturnType<typeof createQuotationQueue>>();
+    const quoteChoiceChecks=new WeakMap<TableState,{turn:number;answers:Map<string,boolean>}>();
+    const invalidPriceChecks=new WeakMap<TableState,{turn:number;keys:Set<string>}>();
+    function rejectZeroPricedInputs(state:TableState,payload:Record<string,any>):void {
+        for(const [index,effect] of (Array.isArray(payload.effects)?payload.effects:[]).entries()){
+            if(effect?.kind!=='cash'||!Array.isArray(effect.items)||!effect.items.length||!effect.items.every((item:any)=>item?.unit_price===0||typeof item?.unit_price==='string'&&decimalSpelling(item.unit_price)?.coefficient===0n))continue;
+            let checked=invalidPriceChecks.get(state);
+            if(!checked||checked.turn!==state.turn){checked={turn:state.turn,keys:new Set()};invalidPriceChecks.set(state,checked);}
+            const key=JSON.stringify({subject:effect.subject,source:effect.source,items:effect.items.map((item:any)=>({...item,unit_price:'0'}))}),repeated=checked.keys.has(key);checked.keys.add(key);
+            void record({lane:'price-input',turn:state.turn,index,repeated,kernel_called:false,reason:'zero_priced_bill'});
+            throw new KernelError({code:'invalid_params',message:repeated?'The identical zero-priced bill was already refused; no kernel retry was made':'A priced purchase must have a positive total',
+                details:{index,reason:'zero_priced_bill',field:'items',repeated,lines:effect.items},next:'change_input',
+                fix:'Change the actual merchandise unit_price in items, not the prose or call metadata. Living-standard or Spending Level coverage can make the cash debit zero, never the merchandise price. Complete the already chosen service after correcting its bill; do not ask the player to solve this technical error.'});
+        }
+    }
+    async function correctCoveredQuote(state:TableState,payload:Record<string,any>,signal?:AbortSignal,providerBudget?:TaskProviderBudget):Promise<void> {
+        if(!state.playerText||!sessionCtx)return;
+        for(const effect of Array.isArray(payload.effects)?payload.effects:[]){
+            if(effect?.kind!=='cash'||effect.mode!=='quote'||!Array.isArray(effect.items))continue;
+            const candidate={...effect,mode:'settle',bill:effect.bill??effect.quote};delete candidate.quote;delete candidate.settlement;
+            const proposed={effects:[candidate]},scope=await admissionScopeBuilder(state,'apply',proposed);
+            const cash=scope([candidate]).cash,preview=(cash?.previews as Record<string,any>[]|undefined)?.[0];
+            if(!preview||preview.delta!==0)continue;
+            const proposal=admissionRequest('apply',proposed,scope([candidate]));if(!proposal)continue;
+            let cache=quoteChoiceChecks.get(state);if(!cache||cache.turn!==state.turn){cache={turn:state.turn,answers:new Map()};quoteChoiceChecks.set(state,cache);}
+            const checked=cache.answers,context=admissionContextFor(state);
+            const key=`${proposal.key}:${createHash('sha256').update(JSON.stringify(context)).digest('hex')}`;
+            let chosen=checked.get(key);
+            if(chosen===undefined){
+                const outcome=await reviewAdmissionPrimary({campaign:state.campaign,ctx:sessionCtx,proposal,context,providerBudget,
+                    ...(signal?{signal}:{}),...(admissionClock?{clock:admissionClock}:{}),record:row=>record({verb:'apply',...row,quote_choice_check:true})});
+                chosen=outcome.ok===true && (outcome.verdict.verdict==='authorized'||outcome.verdict.verdict==='entailed');checked.set(key,chosen);
+                await record({lane:'quote-choice',turn:state.turn,chosen,preview_delta:0,bill:effect.bill??effect.quote,review_only:true});
+            }
+            if(chosen){
+                const available=state.admissionCorrections.length===0;
+                if(available)state.admissionCorrections.push(`Quote-only proposal for ${String(effect.bill??effect.quote)} did not complete the chosen covered expense. Correct the proposal to settlement; no service or payment was executed.`);
+                throw new KernelError({code:'needs',message:'This covered service was already chosen; a quote-only proposal does not complete it',next:available?'change_input':'stop',
+                    details:{reason:'chosen_covered_quote',recovery:'correct_proposal',correction_allowed:available,purchase_amount:preview.purchase_amount,actual_delta:0},
+                    fix:available?'Resend this exact expense as mode settle (or omit mode), omit quote when it is not a saved offer, retain its items/category/source/with and use bill for its local price name. Include dependent completion effects and narrate completion now. Do not request another price confirmation. This check executed no payment or service.':'The correction allowance was already used. Do not repeat the quotation or invent a new player choice; close from actual receipts.'});
+            }
+        }
+    }
     function quotationQueue(state:TableState) {
         let queue=quotationQueues.get(state);
         if(!queue){
@@ -5026,6 +5070,10 @@ export default function (pi: ExtensionAPI) {
 			// Action admission (contract §32) runs ahead of every Mod hook and of the kernel: a refused
 			// proposal pays for no definition agent and reaches no transaction.
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery();
+			if(spec.name==='apply' && !dispatcher.hostOrigin(toolCallId)){
+                rejectZeroPricedInputs(state,payload);
+                await correctCoveredQuote(state,payload,signal,providerBudget);
+            }
 			if (spec.name === "resolve" || spec.name === "apply") partial = await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence);
 			// Contract §128.3. An explicit narrate is never steered for speech (§128.2), so attribution is
 			// the only leg its unwrapped passages get; it runs before the Mod hooks so the continuity review
@@ -5519,7 +5567,7 @@ export default function (pi: ExtensionAPI) {
 				for (const { field, prefix } of stripped.strips) void record({ lane: "arguments", event: "dialect_prefix_stripped", tool: spec.name, field, prefix });
 				const refusal = argumentLimitRefusal(spec.name, stripped.args);
 				if (refusal) throw new Error(new KernelError(refusal).toToolText());
-				return stripped.args as never;
+				return preparePriceArguments(spec.name,stripped.args) as never;
 			},
 			// The actions of a turn are ordered: run them serially, so the calls after narrate in the same batch can be stopped.
 			executionMode: "sequential",
@@ -5536,6 +5584,11 @@ export default function (pi: ExtensionAPI) {
 		if (!details?.coc_error) return;
 		const state = table;
 		const key = state?.callKeys.get(event.toolCallId);
+		const priceError=(details.coc_error as {details?:Record<string,unknown>}).details;
+		if(priceError?.reason==='zero_priced_bill' && priceError.repeated===true){
+            await record({lane:'refusals',turn:state?.turn,tool:event.toolName,reason:'repeated_price_input',counted:false});
+            return {isError:true};
+        }
 		const last = `${String(details.coc_error.code ?? "error")}: ${String(details.coc_error.message ?? "")}`.slice(0, 160);
 		// §135.26: a clerk (policy-origin) refusal is the clerk's. The run drops that candidate and hands the turn to the
 		// Keeper; it is recorded on the clerk's side and never struck against the Keeper's budget or resend guard (§67).

@@ -11,6 +11,8 @@
  * brace syntax alone.
  */
 
+import {bindPriceText,priceRows} from '../../../../shared/cash-prose.js';
+
 /** The delivering tools and the argument that carries their prose. */
 export const DELIVERY_PROSE_FIELDS: Readonly<Record<string, string>> = { narrate: "text", ask: "text", apply: "narrate" };
 
@@ -117,8 +119,26 @@ const TOKEN = /\{\{[^{}\n]*\}\}/g;
 const TOKEN_TAIL = /\{\{[^{}\n]{0,64}\}?$|\{$/;
 
 /** The prose as the player reads it: tokens out, an unclosed one held back until it closes. */
-export function displayedProse(raw: string): string {
-  return raw.replace(TOKEN, "").replace(TOKEN_TAIL, "").replace(/[ \t]{2,}/g, " ").replace(/[ \t]+$/gm, "");
+export function displayedProse(raw: string, rows: readonly Record<string,any>[] = []): string {
+  return bindPriceText(raw,rows).text.replace(TOKEN, "").replace(TOKEN_TAIL, "").replace(/[ \t]{2,}/g, " ").replace(/[ \t]+$/gm, "");
+}
+
+/** Only complete top-level structured values may supply a streaming price. */
+function completeField(json:string,field:string): unknown {
+  // Read-only partial JSON is insufficient for numbers: 0.55 can arrive first as 0.
+  // Try each complete object prefix by the same JSON grammar, never by prose content.
+  let quoted=false,escaped=false,depth=0;
+  for(let at=0;at<json.length;at++){
+    const char=json[at];
+    if(quoted){if(escaped)escaped=false;else if(char==='\\')escaped=true;else if(char==='"')quoted=false;continue;}
+    if(char==='"'){quoted=true;continue;}
+    if(char==='{'||char==='[')depth++;
+    else if(char==='}'||char===']')depth--;
+    if(depth===1 && (char===']'||char==='}'||char===',')){
+      try{const prefix=json.slice(0,char===','?at:at+1).trimEnd();const row=JSON.parse(prefix+'}');if(Object.hasOwn(row,field))return row[field];}catch{}
+    }
+  }
+  try{return JSON.parse(json)[field];}catch{return undefined;}
 }
 
 /** What the screen should now hold: the draft card's id and text. `first` is the first time it holds prose. */
@@ -171,7 +191,7 @@ export class LiveDeliveryProse {
     const call = this.calls.get(index);
     if (!call?.live) return undefined;
     const found = streamingStringField(json, call.field);
-    return found ? this.show(displayedProse(found.value)) : undefined;
+    return found ? this.show(displayedProse(found.value,priceRows(completeField(json,'effects'),completeField(json,'quotes')))) : undefined;
   }
 
   /** A call's arguments are complete. */
@@ -181,7 +201,10 @@ export class LiveDeliveryProse {
     if (!call) return undefined;
     const prose = finishedProseField(args, call.field);
     if (prose === undefined) return undefined;
-    return this.show(displayedProse(prose).trim());
+    let parsed=args;
+    if(typeof args==='string'){try{parsed=JSON.parse(args);}catch{}}
+    const row=isRecord(parsed)?parsed:{};
+    return this.show(displayedProse(prose,priceRows(row.effects,row.quotes)).trim());
   }
 
   /** The turn's prose was delivered: the id of the draft it replaces, if one is on screen. */
