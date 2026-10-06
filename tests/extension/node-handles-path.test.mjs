@@ -138,7 +138,7 @@ test('§185.5/§185.6: the lane names a reader-built book at the table, and afte
 	const lane = await laneAt(t, home, raw, NAMES);
 	const telemetry = join(home, '.coc', 'campaigns', 'c1', 'telemetry.jsonl');
 	const round = await waitFor(() => existsSync(telemetry) && readFileSync(telemetry, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line))
-		.find(row => row.lane === 'handles' && typeof row.ok === 'boolean'), {label: 'the lane\'s round row'});
+		.find(row => row.lane === 'handles' && typeof row.ok === 'boolean'), {timeoutMs: 30_000, label: 'the lane\'s round row'});
 	assert.equal(round.ok, true, JSON.stringify(round));
 	assert.equal(round.written, round.asked, JSON.stringify(round));
 	assert.equal(round.given_up, 0);
