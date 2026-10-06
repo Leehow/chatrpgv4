@@ -35333,6 +35333,35 @@ A coverage unit's verdict from round *r* is carried to round *r+1* without runni
 The carried row keeps its reviewer, verdicts and source refs and gains `carried_from: {round, plan_digest}`; the gate
 accepts it like a carried fact unit. Any other repair runs the coverage unit as today.
 
+*Implementation (RC-04, 2026-10-06).* `review-plan.json` (still `version: 1`) gains `round` and, per unit, `checked` and
+`missing` (how many rows and missing items the unit put into `review.json`, units in order, so a unit's verdict is a
+slice of the review the plan binds), `pages` (what its reviewer viewed) and, for the coverage unit, `scope`:
+`coverageScope` (`extensions/module/reader-review.ts`), a digest of the protocol and instruction version, the source, the
+model, the focused input's task fields without round bookkeeping or owed pointers, its `coverage_context` (`coverage`,
+`ready_nodes`, `dependencies`, `node_refs`, `source_needs`, the retained source needs, `interaction_scene`) and the review
+scope pages. A plan without these fields never carries. The reading service offers the repaired review
+(`reviewOfCandidate`, which now also returns the plan file's sha256) to the round's verify only after
+`checkTargetedRepair` accepted the targeted pass; a refused pass and every full repair offer nothing. `coverageCarry`
+then requires, in order: the plan binds the previous candidate; the coverage slice lists no blocking `missing`; the
+slice passes the gate whole (`approved`, the predicate a retained fact unit meets) -- stricter than the second bullet,
+because the carried rows keep only the unit's own pointers and a dropped row must never be a refusal (§151.2.1), so a
+coverage reviewer that also refused a record blocks the carry; per collection the records' identities (a node's
+`node_id`; a claim's `claim_id`, else its subject, predicate and object) are the same set; every record whose content
+changed pairs by identity with a record a fact unit's rows refused under the gate's rule (`gateRefusal`, now shared
+with `repairDecision`); every non-record field is byte-identical (so a renumbered `critical` also runs the unit); the
+owed pointers and `coverageScope` are unchanged. The carried review is then checked against this round's unit with
+`checkReviewEvidence` and the carried reviewer's pages, as `cachedReview` checks a retained fact review, and those pages
+join `observations.review_pages`. `carried_from` is `{round: <the plan's round>, plan_digest: <sha256 of its bytes>}`; a
+resumed attempt may carry from `resume_from`'s plan, as §151.2.2 looks it up. The verify row is `reused: true` with
+`carried_from` (counted in `units_reused`); an offer that fails writes `event: "coverage_carry_refused"` with `reason:
+plan | missing | verdict | records | changed | scope | evidence`. The kernel gate is unchanged: `checkReview` never
+distinguished reused rows, and a carried row passes exactly as a reused fact unit's does (rows in the review, reviewer
+pages in `review_pages`; `carried_from` is a row key it does not read); `tests/extension/coverage-carry-gate.test.mjs`
+publishes one through `module.read.finish`. Measured on the App home (2026-10-02..10-06 UTC, unit directories; plans
+rebuilt from them): 245 coverage runs repeated an earlier one of the same job (6.83M of 27.8M coverage uncached); 157
+followed a full repair, 63 an accepted targeted repair; of those 63, 28 qualify (821K uncached), 16 added or deleted a
+record, 19 had a coverage verdict that itself refused a record (17 of which also fail the third bullet).
+
 ### 186.5 Closed labels stay with the author (supersedes the 2026-10-06 suggestion to label with Jev)
 
 The authors' vocabulary rejections were caused by findings that did not name the allowed values (§186.3 fixes that).
