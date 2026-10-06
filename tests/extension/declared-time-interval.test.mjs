@@ -4,6 +4,7 @@ import {before,after,test} from 'node:test';
 import {mkdir,mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {spawnSync} from 'node:child_process';
 import {build} from 'esbuild';
 import {playtestScratch} from './playtest-scratch.mjs';
 const root=resolve(import.meta.dirname,'../..');
@@ -18,6 +19,7 @@ before(async()=>{
         "export {createKernelRuntime} from './kernel-ts/registry.ts';",
         "export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';"
         ,"export {CampaignWriter} from './kernel-ts/write/store.ts';"
+        ,"export {declaredDurations} from './runtime/jev/declared-duration.ts';"
     ].join('\n'),resolveDir:root,sourcefile:'declared-time-entry.ts'},outfile:join(bundle,'api.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',logLevel:'silent'});
     api=await import(pathToFileURL(join(bundle,'api.mjs')).href);
 });
@@ -87,6 +89,25 @@ test('unsupported complete numerals and compound intervals never expose an execu
         const value=candidate(`I wait ${interval}.`),alias=Object.keys(value.timeDurations)[0],bound=bind(value,alias);
         assert.equal(api.kernelCall(value,bound.extra).params.effects[0].minutes,minutes,interval);
     }
+});
+test('unsupported amount lists stay bounded, including a failing suffix and near-limit input in a private process',async()=>{
+    const probe=spawnSync(process.execPath,['--input-type=module','-e',`
+        import {declaredDurations} from ${JSON.stringify(pathToFileURL(join(bundle,'api.mjs')).href)};
+        const inputs=[26,2000,7990].flatMap(n=>[
+            'I wait '+Array(n).fill('1').join(',')+'x minutes.',
+            'I wait '+Array(n).fill('1').join('/')+' minutes.'
+        ]);
+        inputs.push('I wait '+Array(1500).fill('one').join(' and ')+' minutes.');
+        const start=performance.now();
+        const results=inputs.map(text=>({characters:text.length,durations:declaredDurations(text)}));
+        console.log(JSON.stringify({results,elapsed_ms:performance.now()-start}));
+    `],{encoding:'utf8',timeout:3000});
+    assert.equal(probe.error,undefined,'the complete synchronous lexer must fit the private three-second deadline');
+    assert.equal(probe.status,0,probe.stderr);
+    const proof=JSON.parse(probe.stdout);
+    for(const result of proof.results)assert.deepEqual(result.durations,{},String(result.characters));
+    if(process.env.JEV04_LEXER_REPORT)await writeFile(process.env.JEV04_LEXER_REPORT,JSON.stringify({kind:'bounded-duration-source-probe',live_play:false,model_calls:0,
+        deadline_ms:3000,elapsed_ms:proof.elapsed_ms,results:proof.results},null,2)+'\n');
 });
 test('exact closed interval reaches real apply, clock projection and replay receipts twice without moving anyone',async()=>{
     const home=playtestScratch('declared-time-interval-contracts'),kernel=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'fixed-wait',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(kernel);

@@ -10,10 +10,42 @@ const unit='(?:minutes?|mins?|hours?|hrs?|seconds?|secs?|days?|\\u5206\\u949f|\\
 const units=new RegExp(unit,'giu');
 // Scan the complete amount syntax, including unsupported forms, before considering any value.
 // Those forms must still occupy a span so a neighbouring compound cannot expose a valid tail.
-const amountWord=`(?:${[...SMALL,...TENS,'hundred','thousand','million','billion','half','quarter','a','an','and','plus'].join('|')})`;
-const amountToken=`(?:[0-9]+(?:[.,/:][0-9]*)*|${amountWord}|[${DIGITS}\\u5341\\u767e\\u5343\\u534a]+)`;
-const amountSyntax=new RegExp(`(${amountToken}(?:[\\s,+&/-]+${amountToken})*)\\s*$`,'iu');
+const amountWords=new Set([...SMALL,...TENS,'hundred','thousand','million','billion','half','quarter','a','an','and','plus']);
+const hanAmount=new RegExp(`[${DIGITS}\\u5341\\u767e\\u5343\\u534a]`,'u');
 const singleQuantity=new RegExp(`^${quantity}$`,'iu');
+function amountTokenStart(input:string,end:number):number|undefined {
+    let start=end;
+    if(/[0-9.,/:]/.test(input[end-1]??'')){
+        while(start>0&&/[0-9.,/:]/.test(input[start-1]))start--;
+        return /[0-9]/.test(input.slice(start,end))?start:undefined;
+    }
+    if(hanAmount.test(input[end-1]??'')){
+        while(start>0&&hanAmount.test(input[start-1]))start--;
+        return start;
+    }
+    if(/[A-Za-z]/.test(input[end-1]??'')){
+        while(start>0&&/[A-Za-z]/.test(input[start-1]))start--;
+        return amountWords.has(input.slice(start,end).toLowerCase())?start:undefined;
+    }
+    return undefined;
+}
+function amountBefore(input:string,unitStart:number):{start:number;text:string}|undefined {
+    let end=unitStart;
+    while(end>0&&/\s/u.test(input[end-1]))end--;
+    let start=amountTokenStart(input,end);
+    if(start===undefined)return undefined;
+    // Each token and separator is consumed once moving left. Numeric punctuation can never
+    // be repartitioned between nested regex repetitions, even when the suffix is unsupported.
+    while(start>0){
+        let previous=start;
+        while(previous>0&&/[\s,+&/-]/u.test(input[previous-1]))previous--;
+        if(previous===start)break;
+        const token=amountTokenStart(input,previous);
+        if(token===undefined)break;
+        start=token;
+    }
+    return {start,text:input.slice(start,end)};
+}
 function numeral(text:string):number|undefined {
     if(/^[0-9]+(?:\.[0-9]+)?$/.test(text))return Number(text);
     const lower=text.toLowerCase(),small=SMALL.indexOf(lower);if(small>=0)return small;
@@ -44,11 +76,11 @@ export function declaredDurations(input:string):Record<string,DeclaredDuration> 
     for(let match=units.exec(input);match;match=units.exec(input)){
         const end=match.index+match[0].length,after=input[end]??'';
         if(/[A-Za-z0-9_]/.test(after))continue;
-        const amount=amountSyntax.exec(input.slice(0,match.index)),start=amount?.index??match.index,before=input[start-1]??'';
-        const complete=amount!==null&&singleQuantity.test(amount[1])
+        const amount=amountBefore(input,match.index),start=amount?.start??match.index,before=input[start-1]??'';
+        const complete=amount!==undefined&&singleQuantity.test(amount.text)
             &&!/[A-Za-z0-9_.,:+\-/\u2212\u2013\u2014\u96f6\u3007\u4e00\u4e8c\u4e24\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341\u767e\u5343]/u.test(before)
             &&!/^\s*(?:(?:and|plus|[,+&/:;\-])\s*)?(?:(?:a|an)\s+)?(?:half|quarter)\b/iu.test(input.slice(end))&&after!=='\u534a';
-        const value=complete?numeral(amount![1]):undefined,minutes=value===undefined?NaN:value*multiplier(match[0]);
+        const value=complete?numeral(amount!.text):undefined,minutes=value===undefined?NaN:value*multiplier(match[0]);
         found.push({text:input.slice(start,end),start,end,minutes});
         if(found.length>16)return {};
     }
