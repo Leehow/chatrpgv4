@@ -80,3 +80,47 @@ source unit with the 2026-10-03 luna fork reads, as the spec's success list says
 below.
 
 ## Comments
+
+### 2026-10-06 RC-06 phase A: splits frozen, held-out negatives packed for judging (worker, branch `claude/reading-cost-20261006-claim`)
+
+Frozen before any Jev call of the redesign. Tool `tests/play/jev-claim-splits.mjs` (read-only on both homes); data
+under `.tmp/rc06/` in that worktree (gitignored, not committed).
+
+- **Manifest** `.tmp/rc06/manifest.json` sha256 `a5ce0bbcf13cf8deecc7be30f6dbfc6de6c1f9348027f7e61d424ba3531e2bed`
+  (every source file with its sha256, every record root with its label and unique key). Split files: `tuning.json`
+  `5e398bdcbfbd07da037e3b6c8b29801a1ebc5d3f841d30d44e74affe60f7cc04`, `heldout.json`
+  `68ffb5b0206420f667c0b6f9fcce62f7231a7ceda25601f18a39658c289965d1`. A rebuild from the same homes reproduces all three
+  digests.
+- **Sources.** Corpus 2026-09-29: 3,460 rows; 23 instances (3 rounds of the deleted worktree `.pi/worktrees/pacing-ab-a`,
+  all supported) are excluded because their candidate is no longer retained; 3,437 instances in 183 rounds. Cited
+  pages' native text from the module's `native-navigation-v2.json`, the corpus's `native/`, else `sourceText` on the
+  module PDF (one extraction version, digests checked, 0 disagreements). App home: 600 `claim-support.json` files, of
+  which the 35 under `.coc/modules/book-4/work/merged/` are byte-identical copies of held-out campaign rounds and are
+  counted once (the 8,702 / 66 / 25 quoted in §186.6 counted them twice; without the copies the held-out counts are
+  7,976 / 64 / 23). 565 rounds: 265 tuning, 300 held-out by the file's mtime against 2026-10-04T00:00Z.
+- **Exact candidate.** Each round carries the unit attempt `draft.json` whose records re-render to the statements the
+  shipped v1 check recorded (448 / 448 tuning rounds, 300 / 300 held-out rounds matched), the records the v1 check asked
+  (root, paths, cited pages), the known nodes they name and the task's `classification_fields` (absent in 89 corpus
+  rounds' tasks), and the cited pages' text and digests. No Jev distribution is copied into the split files.
+- **Labels and deduplication.** Per instance from the vision verdict words on the record's paths: `strict_negative`
+  (any `unsupported | contradicted | unclear`), `contested_only`, `supported`, `unreviewed` (not scored). Unique record
+  = sha256 of [source sha256, judged content (node: kind, name, aliases, summary, properties; claim: subject and object
+  as kind/name/aliases, predicate, truth status, validity, asserting and knowing nodes), cited pages, their text
+  digests]; a unique is strict negative if any instance is, else contested-only if any is, else supported.
+
+| split | rounds | supported (inst / unique) | strict negative | contested-only | unreviewed (inst) |
+|---|---|---|---|---|---|
+| tuning: corpus 09-29 | 183 | 3,374 / 2,239 | 59 / 55 | 4 / 4 | 0 |
+| tuning: App before cut | 265 | 1,921 / 1,338 | 78 / 76 | 29 / 29 | 23 |
+| **tuning** | 448 | 5,295 / 3,573 | 137 / 131 | 33 / 33 | 23 |
+| **held-out** (App from cut) | 300 | 7,976 / 6,215 | 64 / 61 | 23 / 21 | 304 |
+
+- Overlap: 50 held-out unique records also occur in tuning (49 supported there, 1 a strict negative there); all 50 are
+  supported in held-out; no held-out strict negative occurs in tuning. Kept as is: §186.6 splits by time.
+- **Judge packets.** 61 (the held-out unique strict negatives, 64 instances), 65 cited pages. Index
+  `.tmp/rc06/judge/heldout-neg/index.json` (sha256 `43185ceb84e49fca45ce10bca96cc064e2140249981d6dee272b64ae2ec204c7`);
+  per packet `record.json` (raw record, the names of the nodes it references, its instances), `statement.txt` (English
+  labels: a claim's subject, relation, object, truth status, condition, asserting/knowing nodes; a node's kind, name,
+  aliases, summary, properties; the cited pages; the names of the record's other fields, e.g. `visibility`, `reason`,
+  which only `record.json` carries), `pages/<page>.png` (`pdftoppm -r 110 -png -singlefile` of the bound `source.pdf`,
+  digest checked, physical 1-based) and `native-<page>.txt`. No Jev distribution, no vision verdict.
