@@ -115,13 +115,13 @@ export async function bindDocumentAppend(input:DocumentBindingInput,decision:Dec
     }else if(content.choice!=='within_selected_addition'||contentProbability<DOCUMENT_ROLE_PROBABILITY_MIN)return unresolved('addition_not_cleared');
     const executionBatch:DecisionBatch={...batch,id:batch.id+':execution',
       state:{playerWords:input.playerText,unfinishedDeclaration:input.unfinished??null,justTold:input.justTold??null,
-        playerControls:input.actor,ownedCarrier:{name:document.name,owner:input.actor},
+        playerControls:input.actor,ownedCarrier:{name:document.name,owner:input.actor,registered:true},
         operation:{kind:'append',writer:input.actor,document:document.name,text:suffix,existingText:'The kernel preserves every existing character exactly.',status:'unperformed_proposal'},
-        policy:'The operation has not happened. Judge whether performing it would fulfill the current declaration; a first-person declared action is a request to act, not proof of execution. The proposed operation is not evidence of consent. Do not judge whether the written claim is true.'},
+        policy:'Judge the player choice, not whether the operation is feasible or has already happened. The host has bound the registered carrier and ownership. A technical naming failure in a prior attempt is not a player withdrawal or an in-fiction prerequisite. A first-person declared action is a request to act. The proposed operation is not evidence of consent. Do not judge whether the written claim is true.'},
       questions:[{key:'execution',target:'operation',type:'choice',
-        instructions:'How does this exact append operation relate to the current player declaration, unfinished declaration and public context?',
-        criteria:{selected_operation:'Performing this append fulfills the currently selected addition and its limits. A subsequent read-back is part of the chosen request; preserving old writing is guaranteed by the kernel.',
-          not_selected_operation:'The current request only reads, discusses, withdraws or defers writing, has an unmet prerequisite, or this operation adds unselected words or uses an unselected carrier.'}}]};
+        instructions:'Classify this exact append against what the player chooses, rather than whether it can be executed. Use the public context only to interpret the player request or the player own conditions. The carrier identity and ownership are already bound; a technical failure of an earlier attempt does not withdraw the request.',
+        criteria:{selected_operation:'The player chooses this addition with this text and carrier. Subsequent read-back is part of that request; preserving old writing is guaranteed by the kernel.',
+          not_selected_operation:'The player only reads, discusses, withdraws or defers writing, sets a prerequisite not established by public context, or did not choose this text or carrier.'}}]};
     packDecisionBatch(executionBatch);
     const confirmation=await decision.decide(executionBatch,lease);
     if(confirmation.status!=='complete')return unresolved(confirmation.failure?.code??`execution_${confirmation.status}`);
