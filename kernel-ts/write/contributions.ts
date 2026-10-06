@@ -203,7 +203,7 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
         if (typeof intent.ref === 'string') {
             const id = actorId(graph, intent.npc);
             if (id)
-                foldIntent(entry(ledger, id), intent, turn, receipt.id, receiptGenerated(receipt));
+                foldIntent(entry(ledger, id), intent, turn, receipt.id, receiptGenerated(receipt), true);
         }
         // §143.8: the stakes die names its person as `actor` but is no interaction with anyone. §178.4: nor is a first
         // impression -- it observes the meeting, and with one on every meeting it would say "tried social" of everyone met.

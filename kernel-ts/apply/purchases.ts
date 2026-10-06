@@ -3,6 +3,8 @@ import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
 import {gameDayOf} from '../healing/day.js';
 import {array,clone,normalize,number,row,string,type Row} from '../read/values.js';
+import {isAmbiguity,type ModuleGraph} from '../read/module-graph.js';
+import {calledPerson} from '../read/capsule.js';
 import {addCash,cashDecimal,cashStorage,compareCash,multiplyCash,type Decimal} from './cash.js';
 import {decimalSpelling} from '../../shared/cash-decimal.js';
 import type {ApplyContext} from './index.js';
@@ -28,6 +30,32 @@ export function purchaseItems(value:unknown):{items:Row[];total:Decimal} {
         details:{field:'items',lines:items.map((item,index)=>({line:index+1,quantity:item.quantity,unit_price:item.unit_price})),purchase_amount:0}});
     return {items,total};
 }
+/**
+ * The person a cash counterparty names (§185.2, §87.8): the graph's npc, then this table's word; null when it names
+ * nobody, which is free text (a front desk). The graph's ambiguity and a word two people carry are refused, never picked.
+ * Read the same way when a quote is registered and when it is settled.
+ */
+export function cashCounterparty(graph:ModuleGraph,world:Row,name:string):Row|null {
+    try{return graph.npc(name);}
+    catch(error){
+        if(!(error instanceof RpcError))throw error;
+        const called=calledPerson(graph,world,name);
+        if(called)return called;
+        if(error.code!=='unknown_entity'||isAmbiguity(error))throw error;
+        return null;
+    }
+}
+/**
+ * §185.2 (amends §58.9): whether a settlement's `with` names the quote's counterparty. Both sides are read as people --
+ * the settlement's word, and the quote's stored `with_id` -- and compared as people, so the handle, a new word from
+ * `apply person` and the name once said all settle it. Only when either side names no person is the spelling compared.
+ */
+function sameCounterparty(context:Pick<ApplyContext,'world'|'graph'>,given:unknown,quote:Row):boolean {
+    const person=(value:unknown)=>typeof value==='string'&&value.trim()?cashCounterparty(context.graph,context.world,value.trim()):null;
+    const now=person(given),then=person(quote.with_id)??person(quote.with);
+    if(now&&then)return now.node_id===then.node_id;
+    return normalize(string(given))===normalize(string(quote.with));
+}
 export function bindCashQuote(context:Pick<ApplyContext,'world'|'graph'>,given:Row,subject:string):{effect:Row;quote:Row|null} {
     if(given.mode==='quote'||given.quote===undefined)return {effect:given,quote:null};
     if(typeof given.quote!=='string'||!given.quote.trim())throw new RpcError('invalid_params','quote must name a registered offer');
@@ -35,7 +63,7 @@ export function bindCashQuote(context:Pick<ApplyContext,'world'|'graph'>,given:R
     if(!quote||quote.settled||quote.cancelled)throw new RpcError('needs','This quote is missing or already closed',{
         fix:quote?.settled?'This offer was already settled. Do not pay it again or drop its binding to repeat the expense; a genuinely new expense needs its own chosen scope and terms.':given.items!==undefined?'For a fresh complete priced expense, omit quote and use bill for its local name; settle the chosen service directly under ordinary admission. quote reuses a saved offer, it does not name a new bill. Do not register a preliminary offer just to complete a chosen covered service.':'Register a new offer with mode quote, items and a human-readable quote name before another payment.',
         details:{field:'quote',quote:given.quote}});
-    for(const key of ['category','currency','with','source','price_id'])if(given[key]!==undefined&&normalize(string(given[key]))!==normalize(string(quote[key])))
+    for(const key of ['category','currency','with','source','price_id'])if(given[key]!==undefined&&(key==='with'?!sameCounterparty(context,given.with,quote):normalize(string(given[key]))!==normalize(string(quote[key]))))
         throw new RpcError('invalid_params',`The supplied ${key} differs from the saved quote`,{details:{field:key,quote:given.quote}});
     if(given.items!==undefined)throw new RpcError('invalid_params','A saved quote already owns its priced lines',{fix:'Omit items when settling the saved quote; register a new offer to change its terms.'});
     const total=cashDecimal(quote.purchase_amount)!;

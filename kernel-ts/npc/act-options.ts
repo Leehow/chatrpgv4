@@ -218,7 +218,7 @@ export function createActOptionsHandlers(context: KernelContext): HandlerGroup {
             // appended, because a settled intention is not tried again (§142.2) and the kernel never reads what it means.
             let act: Row | null = null;
             if (typeof params.act === 'string') {
-                const rows = intentHistory(entryNow(graph, ledger, table, turn, node));
+                const rows = intentHistory(entryNow(graph, ledger, table, turn, node), handle);
                 let line = params.act.trim(), ref = intentRef(handle, line);
                 const known = rows.find(entry => entry.ref === ref);
                 if (known && isSettled(known.status)) { line = `${line} (turn ${number(turn.turn)})`; ref = intentRef(handle, line); }
