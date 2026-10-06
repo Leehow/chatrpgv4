@@ -206,7 +206,9 @@ test('late source actors have conditional initial-presence options without overw
  const job=await f.call('module.read.claim',{...params,owner:'presence-fixture'});
  await f.finish(job,{nodes:[{node_id:'npc-mae',node_kind:'npc',name:'Mae',summary:'An authored dock occupant.',properties:{},source_refs:[{page:1}]}],claims:[{subject_id:'npc-mae',predicate:'present-in',object:{node_id:'scene-dock'},truth_status:'authored-fact',source_refs:[{page:1}]}],node_refs:['scene-dock'],coverage:{},dependencies:[],critical:[],ready_nodes:['npc-mae']},'c1');
  const option=(await f.call('table.apply.options',{campaign:'c1'})).candidates.find(row=>row.description.kind==='source_presence');
- assert.deepEqual(option.effect,{kind:'npc',name:'mae',to:'dock'});
+ // A campaign on a reader-built book shows name-free handles (§185), not the book's slugs: the kernel says which.
+ const handleOf=async name=>(await f.call('table.lookup',{campaign:'c1',kind:'module',query:name})).entities[0]?.name;
+ assert.deepEqual(option.effect,{kind:'npc',name:await handleOf('Mae'),to:await handleOf('Dock')});
  await f.call('table.apply',{campaign:'c1',call_id:'t1-c1',effects:[{kind:'npc',name:'mae',to:'warehouse',why:'A prior table event placed Mae away from the dock.'}]});
  assert(!(await f.call('table.apply.options',{campaign:'c1'})).candidates.some(row=>row.description.kind==='source_presence'),'the book cannot teleport a recorded actor back');
 });

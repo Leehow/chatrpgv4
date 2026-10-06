@@ -207,10 +207,12 @@ test("§22.3.2 legacy retained packet on the emitted kernel: a root dispute refu
 		["table.open", { campaign: CAMPAIGN }], ["table.player_input", { campaign: CAMPAIGN, text: "I cross to the bar." }],
 		["table.apply", { campaign: CAMPAIGN, call_id: "t1-c1", effects: [{ kind: "move", to: "Bar" }] }]]);
 	const [view] = ok(workspace, [["table.look", { campaign: CAMPAIGN, focus: "scene" }]]);
-	assert.equal(view.where.scene, "bar");
+	// The campaign is on a reader-built book, so its handles are name-free (§185): the kernel says whose is whose.
+	const handleOf = (name) => ok(workspace, [["table.lookup", { campaign: CAMPAIGN, kind: "module", query: name }]])[0].entities[0]?.name;
+	assert.equal(view.where.scene, handleOf("Bar"));
 	assert.deepEqual(view.where.contested.map((row) => [row.record, row.field, row.value]).sort(), [
-		["meat", "properties/delivery_kind", "skill_check"], ["meat-luck", "properties/mechanics/check/selection", "maximum"],
-		["spot-plates", "properties/mechanics/check/selection", "maximum"]], JSON.stringify(view.where.contested));
+		[handleOf("The meat on the menu"), "properties/delivery_kind", "skill_check"], [handleOf("Keeper's choice or Luck"), "properties/mechanics/check/selection", "maximum"],
+		[handleOf("Spot the plates"), "properties/mechanics/check/selection", "maximum"]].sort(), JSON.stringify(view.where.contested));
 	assert.ok(view.where.contested.every((row) => typeof row.reason === "string" && row.reason.length > 0));
 	assert.match(view.where.contested_note, /advisory/);
 

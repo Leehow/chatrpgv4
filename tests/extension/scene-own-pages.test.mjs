@@ -141,6 +141,8 @@ test("§22.4.8 on the emitted kernel: a scene's detail read writes its own index
 	assert.deepEqual(landingPages(workspace, "after", "Cellar", "t1-c2"), [3, 4]);
 	assert.deepEqual(landingPages(workspace, "after", "Attic", "t1-c3"), [1]);
 	const [moved] = ok(workspace, [["table.apply", { campaign: "after", call_id: "t1-c4", effects: [{ kind: "move", to: "Bar", _land_on_index: true }] }]]);
-	assert.equal(moved.world.active_scene, "bar");
-	assert.deepEqual(moved.scene_text, [{ scene: "bar", pages: [5, 6] }]);
+	// The campaign is on a reader-built book, so its handles are name-free (§185): the kernel says which is the Bar's.
+	const [{ entities: [bar] }] = ok(workspace, [["table.lookup", { campaign: "after", kind: "module", query: "Bar" }]]);
+	assert.equal(moved.world.active_scene, bar.name);
+	assert.deepEqual(moved.scene_text, [{ scene: bar.name, pages: [5, 6] }]);
 });

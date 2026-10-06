@@ -158,6 +158,8 @@ async function played(game, mid, id = 'book') {
   const row = (capsule, name) => capsule.present.find(entry => entry.name === name);
   return {
     call, opened, row,
+    /** A node's handle as the kernel shows it: a campaign on a reader-built book has name-free handles (§185), not the slug. */
+    handleOf: async name => (await call('table.lookup', {kind: 'module', query: name})).entities[0]?.name,
     id: () => `t${turn}-c${++ordinal}`,
     /** Close this turn with a narration and open the next; the capsule the next input publishes. */
     next: async (text = 'I wait and watch.') => {
@@ -279,13 +281,14 @@ test('§180.4/§180.9: the rows carry the words and the chain, budgeted; the sin
   const table = await played(game, mid);
   const {capsule} = table.opened;
   const warden = table.row(capsule, WARDEN), rats = table.row(capsule, RATS);
+  const conclusion = await table.handleOf('The iron key unbinds the warden'), lore = await table.handleOf('Silver lore');
   assert.deepEqual(capsule.present.map(entry => [entry.name, entry.kind]), [[WARDEN, undefined], [RATS, 'creature']]);
   assert.deepEqual(warden.weaknesses, [
     {book: W_KEY, needs: [{name: 'Iron key', kind: 'artifact'}, {name: 'Ward of Iron', kind: 'spell', taught_by: ['Iron Psalter']}, {name: 'Cellar', kind: 'scene'}],
-      learned_by: {conclusion: 'iron-key-binds-warden', found: 0, of: 3}},
+      learned_by: {conclusion, found: 0, of: 3}},
     {book: [...W_SALT].slice(0, 160).join('')},
     {book: W_SUN}], 'at most three entries, each book cut to 160 characters');
-  assert.deepEqual(warden.false_leads, [{clue: 'silver-lore', discovered: false}]);
+  assert.deepEqual(warden.false_leads, [{clue: lore, discovered: false}]);
   assert.equal(warden.wants, 'Keep the cellar shut.', 'the person dossier is unchanged');
   assert.deepEqual(rats, {name: RATS, kind: 'creature', what: 'A swarm of rats behind the cellar boards.', habits: HABITS, keeper_note: RAT_NOTE});
   assert.deepEqual(Object.keys(rats), ['name', 'kind', 'what', 'habits', 'keeper_note'], 'habits sits between the body and the note');
@@ -314,8 +317,9 @@ test('§180.9: the chain moves as a supporting clue and the false lead are found
     {kind: 'clue', clue: 'silver-lore', how: 'heard the folk tale'}]});
   let capsule = await table.next('I read the ledger again.');
   let warden = table.row(capsule, WARDEN);
-  assert.deepEqual(warden.weaknesses[0].learned_by, {conclusion: 'iron-key-binds-warden', found: 1, of: 3});
-  assert.deepEqual(warden.false_leads, [{clue: 'silver-lore', discovered: true}]);
+  const conclusion = await table.handleOf('The iron key unbinds the warden'), lore = await table.handleOf('Silver lore');
+  assert.deepEqual(warden.weaknesses[0].learned_by, {conclusion, found: 1, of: 3});
+  assert.deepEqual(warden.false_leads, [{clue: lore, discovered: true}]);
   assert.equal(warden.weaknesses[0].needs[0].held_by, undefined, 'nobody holds the key yet');
   // The investigator is the pregen the library carried over, under the sheet's own name.
   const investigator = table.opened.capsule.known.investigator.name;
@@ -423,7 +427,7 @@ test('§180.20: a PDF built with the consumer off checks, persists and projects 
   assert.equal((await table.call('table.look', {focus: 'npc', name: WARDEN})).weaknesses.length, 4);
   assert.equal(table.row(capsule, RATS).habits, undefined);
   // The false lead is a relation the base reads whatever was bound.
-  assert.deepEqual(table.row(capsule, WARDEN).false_leads, [{clue: 'silver-lore', discovered: false}]);
+  assert.deepEqual(table.row(capsule, WARDEN).false_leads, [{clue: await table.handleOf('Silver lore'), discovered: false}]);
   await table.call('mods.configure', {id: PACKAGE, version: '1.0.0', enabled: true});
   await table.next('I inspect the same source facts with the consumer enabled.');
   const words = (await table.call('mods.context')).vocabulary.words.find(entry => entry.key === 'habits');
