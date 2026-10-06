@@ -40,6 +40,7 @@ import { markupInProse, describeMarkup, bareWrapper, unwrap, MARKUP_STEER } from
 import { timeGap, timeReading, timeRefusal, timeWarning } from '../read/time-reading.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
 import { foldPersonWords, untoldWholeNames } from '../read/person-words.js';
+import { prepareNameHistory } from '../journal/name-history.js';
 import { presenceRolls, type PresenceRolled } from '../mods/presence.js';
 import { CheckArithmetic } from '../resolve/arithmetic.js';
 import { RuleTables } from '../rules/tables.js';
@@ -190,7 +191,7 @@ function timeRow(gap: Row, turn: Row, callId: string, params: Row): Row {
  */
 /** §177.15: the places of `text` where it writes an untold person's printed name, outside its markers. */
 async function untoldPlaces(snapshot: CampaignSnapshot, graph: ModuleGraph, text: string, speakers: SpeakerResolver): Promise<{ said: string[]; places: ProsePlace[] }> {
-    const journal = row(await snapshot.optional('npc-journal.json')), records = snapshot.records.length ? snapshot.records : await snapshot.files('turns');
+    const journal = row(await snapshot.optional('npc-journal.json')), records = prepareNameHistory(await snapshot.turnRecords());
     const said = untoldNamesSaid(text, speakers, graph, untoldWholeNames(graph, journal, records));
     return { said, places: said.length ? prosePlaces(text, said) : [] };
 }
@@ -256,7 +257,7 @@ async function untoldNamesGate(snapshot: CampaignSnapshot, campaign: CampaignWri
     return { text: replaced, replaced: left, ...(open.length < places.length ? { told: replacePlaces(text, places, place => blank(place) ?? replacements.get(place.name)) } : {}) };
 }
 async function untoldAt(snapshot: CampaignSnapshot, graph: ModuleGraph): Promise<(node: Row) => boolean> {
-    const journal = row(await snapshot.optional('npc-journal.json')), records = snapshot.records.length ? snapshot.records : await snapshot.files('turns');
+    const journal = row(await snapshot.optional('npc-journal.json')), records = prepareNameHistory(await snapshot.turnRecords());
     return node => !graph.isTablePerson(node) && untoldBlock(graph, snapshot.world, journal, node, records) !== null;
 }
 async function refuseRepeatedLine(snapshot: CampaignSnapshot, campaign: CampaignWriter, speech: unknown,
@@ -527,7 +528,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         allowReady?: boolean;
         requireTurn?: boolean;
         repairLegacyTrail?: boolean;
-        preload?: boolean;
+        preload?: boolean | 'names';
     } = {}): Promise<{
         campaign: CampaignWriter;
         snapshot: CampaignSnapshot;
@@ -538,7 +539,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         snapshot.meta = clone(snapshot.meta);
         snapshot.world = clone(snapshot.world);
         snapshot.turn = clone(snapshot.turn);
-        if(preload)snapshot.party = await snapshot.files('party');
+        if(preload === true)snapshot.party = await snapshot.files('party');
         const status = string(snapshot.meta.status), statuses = allowReady ? ['ready_for_table', 'active', 'completed'] : ['active', 'completed'];
         if (!statuses.includes(status)) {
             const steps = status === 'setting_up' ? row(await context.snapshots.readJson(join(context.content, 'setup', 'steps.json'))) : {};
@@ -554,7 +555,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const module = await loadCampaignModule(context, string(snapshot.meta.module_id), snapshot.world, snapshot.id);
         if (repair)
             await repairLegacyTrail(snapshot);
-        if(preload)await snapshot.preload();
+        if(preload)await snapshot.preload(preload === 'names' ? 'names' : 'all');
         return {
             campaign: writer(snapshot.id),
             snapshot,
@@ -1219,7 +1220,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     async function untoldSpans(params: Row): Promise<Row> {
         const text = params.text;
         if (typeof text !== 'string') throw new RpcError('invalid_params', 'params.text must be a string', { details: { field: 'text' } });
-        const { snapshot, module } = await load(params, { allowReady: true });
+        const { snapshot, module } = await load(params, { allowReady: true, preload: 'names' });
         const speakers = speakerResolver(module.graph, snapshot.world, snapshot.party, await untoldAt(snapshot, module.graph));
         const { places } = await untoldPlaces(snapshot, module.graph, text, speakers);
         return { spans: places.map(place => ({ name: place.name, nth: place.nth, start: place.start, end: place.end })) };
