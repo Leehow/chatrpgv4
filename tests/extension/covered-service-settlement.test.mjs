@@ -60,3 +60,64 @@ test('a nominally small fill-up that exceeds the daily aggregate still needs acc
   assert.equal(sheet.finance.cash.amount,9);assert.equal(sheet.finance.daily_spending.total,1);
   assert.equal(table.kernelRequests().filter(request=>request.method==='table.apply').length,0);
 });
+
+test('a mistaken synchronous quote for a chosen covered service is corrected, then speech and receipt share the bill',async t=>{
+  const bill={...expense('purchase'),bill:'Fill-up'};
+  const text='The attendant fills the tank. "Per gallon {{price:Fill-up:unit}}, total {{price:Fill-up:total}}."';
+  const review=fauxAssistantMessage(JSON.stringify({verdict:'entailed',grounds:'The player already chose this complete covered fill-up'}));
+  const table=await openTable({realKernel:true,prepareWorkspace:ready,responses:[
+    fauxAssistantMessage([fauxToolCall('apply',{effects:[{...bill,mode:'quote',quote:'Fill-up'}]})],{stopReason:'toolUse'}),
+    fauxAssistantMessage([fauxToolCall('apply',{effects:[bill,{kind:'flag',name:'tank-filled',value:true}],narrate:text})],{stopReason:'toolUse'}),
+  ],laneResponses:{admission:[review,review]}});
+  t.after(()=>table.dispose());
+  await table.session.prompt('Fill the tank; it needs three gallons.');
+  await waitFor(()=>assistantTexts(table.session).some(s=>s.includes('total 1.71')),{label:'bound completed fill-up'});
+  const record=JSON.parse(await readFile(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(record.receipts.filter(r=>r.kind==='cash').length,1);
+  assert.equal(record.receipts.find(r=>r.kind==='cash').delta,0);
+  assert.match(record.rendered_text,/Per gallon 0.57, total 1.71/);
+  assert.ok(record.price_bindings.some(b=>b.field==='total'&&b.value==='1.71'));
+  assert.equal(table.kernelRequests().filter(r=>r.method==='table.apply'&&r.params.effects.some(e=>e.mode==='quote')).length,0);
+});
+
+test('repeated zero merchandise input stays out of the kernel and corrected nominal prices still debit zero',async t=>{
+  const good={...expense('living'),bill:'Fill-up'},bad={...good,items:[{name:'Gasoline',quantity:3,unit_price:0}]};
+  const text='The attendant fills the tank. "Per gallon {{price:Fill-up:unit}}, total {{price:Fill-up:total}}."';
+  const table=await openTable({realKernel:true,prepareWorkspace:ready,responses:[bad,bad,bad,bad,good].map(e=>fauxAssistantMessage([
+    fauxToolCall('apply',{effects:[e],...(e===good?{narrate:text}:{})})],{stopReason:'toolUse'})),
+    laneResponses:{admission:[fauxAssistantMessage(JSON.stringify({verdict:'entailed',grounds:'The full service was chosen; its actual cash debit is zero'}))]}});
+  t.after(()=>table.dispose());await table.session.prompt('Fill the tank; it needs three gallons.');
+  await waitFor(()=>assistantTexts(table.session).some(s=>s.includes('total 1.71')),{label:'corrected nominal bill'});
+  const record=JSON.parse(await readFile(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  const expenses=record.receipts.filter(r=>r.kind==='cash');assert.equal(expenses.length,1);
+  assert.equal(expenses[0].items[0].unit_price,'0.57');assert.equal(expenses[0].delta,0);
+  const rejected=table.telemetry().filter(r=>r.lane==='price-input');
+  assert.deepEqual(rejected.map(r=>[r.repeated,r.kernel_called]),[[false,false],[true,false],[true,false],[true,false]]);
+  assert.equal(table.telemetry().filter(r=>r.lane==='refusals'&&r.reason==='repeated_price_input'&&r.counted===false).length,3);
+});
+
+test('a price-only question remains an offer and cannot complete or charge a covered service',async t=>{
+  const bill={...expense('purchase'),mode:'quote',quote:'Fill-up'};
+  const text='The attendant offers gas at {{price:Fill-up:unit}} per gallon. The pump stays off.';
+  const table=await openTable({realKernel:true,prepareWorkspace:ready,responses:[fauxAssistantMessage([
+    fauxToolCall('apply',{effects:[bill],narrate:text})],{stopReason:'toolUse'})],
+    laneResponses:{admission:[fauxAssistantMessage(JSON.stringify({verdict:'not_authorized',grounds:'The player asked only the price and chose no purchase',missing:'choose the service'}))]}});
+  t.after(()=>table.dispose());await table.session.prompt('What would three gallons cost?');
+  await waitFor(()=>assistantTexts(table.session).some(s=>s.includes('0.57 per gallon')),{label:'bound price-only offer'});
+  const record=JSON.parse(await readFile(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  const cash=record.receipts.find(r=>r.kind==='cash');assert.equal(cash.settlement,'quote');assert.equal(cash.before,cash.after);
+  assert.ok(!record.receipts.some(r=>r.kind==='flag'&&r.name==='tank-filled'));
+});
+
+test('decimal-string unit prices survive native tools, exact kernel settlement and bound NPC prose',async t=>{
+  const bill={...expense('purchase'),bill:'Fill-up',items:[{name:'Gasoline',quantity:3,unit_price:'0.57'}]};
+  const text='The attendant fills the tank. "Per gallon {{price:Fill-up:unit}}, total {{price:Fill-up:total}}."';
+  const table=await openTable({realKernel:true,prepareWorkspace:ready,responses:[fauxAssistantMessage([
+    fauxToolCall('apply',{effects:[bill],narrate:text})],{stopReason:'toolUse'})],
+    laneResponses:{admission:[fauxAssistantMessage(JSON.stringify({verdict:'entailed',grounds:'The complete covered service was chosen'}))]}});
+  t.after(()=>table.dispose());await table.session.prompt('Fill the tank; it needs three gallons.');
+  await waitFor(()=>assistantTexts(table.session).some(s=>s.includes('total 1.71')),{label:'decimal-string bill'});
+  const record=JSON.parse(await readFile(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  const cash=record.receipts.find(r=>r.kind==='cash');assert.equal(cash.items[0].unit_price,'0.57');assert.equal(cash.purchase_amount,1.71);assert.equal(cash.delta,0);
+  assert.match(record.rendered_text,/Per gallon 0.57, total 1.71/);
+});

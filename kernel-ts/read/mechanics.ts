@@ -208,7 +208,7 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
         };
         // Contract §58: what the amount was based on travels with it, so a charge can be read back
         // against its source instead of being taken on trust.
-        for (const key of ["subject_label", "currency", "with", "with_label", "source", "settlement", "category", "quote", "price_id", "price_name", "source_display"])
+        for (const key of ["subject_label", "currency", "with", "with_label", "source", "settlement", "category", "quote", "bill", "price_id", "price_name", "source_display"])
             labeled(out, key, receipt[key]);
         // Contract section 58.8: the existing payment description is player-visible card content.
         labeled(out, "purpose", receipt.why);
