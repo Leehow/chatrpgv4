@@ -46,7 +46,8 @@ export class PurchaseRecovery{
   }
   private async state():Promise<{state:State;line:string;holds:Hold[]}>{
     let meta:Row={};try{meta=JSON.parse(await readFile(join(this.home,'.coc/campaigns',this.campaign,'campaign.json'),'utf8'));}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
-    const line=String(meta.active_worldline??'main');let state:State;
+    const active=String(meta.active_worldline??'main'),loop=meta.worldlines?.[active]?.loop??0;
+    const line=loop?`${active}@${loop}`:active;let state:State;
     try{state=JSON.parse(await readFile(this.path,'utf8'));}
     catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw new KernelError({code:'needs',message:'Purchase recovery state is unreadable',fix:'Repair the retained policy record before another purchase or its dependent delivery.'});state={version:1,lines:{}};}
     if(state.version!==1||!state.lines||typeof state.lines!=='object'||Array.isArray(state.lines)||Object.values(state.lines).some(rows=>!Array.isArray(rows)||rows.some(r=>!r||typeof r.key!=='string'||!Array.isArray(r.effect?.items)||!amountOf(r.effect.items)||!Array.isArray(r.deliveries))))

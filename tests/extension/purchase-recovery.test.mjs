@@ -59,6 +59,7 @@ test('an unpaid transaction survives restart, freezes its rates and blocks payme
   await p.recovery().check({effects:[{...item,name:'Map'}]},2);
   await p.recovery().check({effects:[{...item,from:'Another clerk'}]},2);
   await writeFile(join(p.base,'campaign.json'),JSON.stringify({active_worldline:'other'}));await p.recovery().check({effects:[item]},2);
+  await writeFile(join(p.base,'campaign.json'),JSON.stringify({active_worldline:'main',worldlines:{main:{loop:1}}}));await p.recovery().check({effects:[item]},2);
   await writeFile(join(p.base,'campaign.json'),JSON.stringify({active_worldline:'main'}));
   await p.recovery().settled({effects:[bill,item]},{receipts:['cash:t2-c1'],_cash_settlements:[{...bill,subject:'alice',settlement:'cash'}]});
   await p.recovery().check({effects:[item]},3);
