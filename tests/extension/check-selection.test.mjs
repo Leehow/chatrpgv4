@@ -33,6 +33,17 @@ test('a player influence attempt reaches preliminary adjudication without requir
   assert.equal(result.action.motive, undefined, 'the trigger must not invent target willingness or motive');
 });
 
+test('a catalog-owned social skill ruling is bound from conduct even below the choice gate', async t => {
+  const ruled={...social,parameters:[{...social.parameters[0],selection:'compatible',options:[{label:'Charm',value:'Charm'},{label:'Persuade',value:'Persuade'}]}]};
+  const {input}=setup(t, (_batch, question)=>noul(question.target==='skill: Charm'?0.6:question.target==='skill: Persuade'?0.2:0.99),[ruled]);
+  input.declaration='I smile warmly and flatter the shopkeeper while asking for a small discount.';
+  input.investigators=['Ada'];
+  const result=await selectCheck(input);
+  assert.equal(result.status,'selected');
+  assert.equal(result.action.skill,'Charm');
+  assert.deepEqual(result.needs,[]);
+});
+
 test('§163: the social method gate keeps a confident negative; a gray method is Jev\'s best guess, recorded as forced; NPC executor consent stays', async t => {
   for (const [p, status, forced] of [[.1, 'no_roll', false], [.5, 'no_roll', true], [.3, 'no_roll', false]]) {
     const {input} = setup(t, () => noul(p), [social]);

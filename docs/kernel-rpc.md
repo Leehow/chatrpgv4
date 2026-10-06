@@ -13715,12 +13715,22 @@ normally takes at least half an hour, and a second attempt after failure is a pu
 even if the skill changes. The Keeper chooses plausible new terms from the settled
 outcome and seller response; the kernel computes those exact priced rows.
 
+The social catalog marks only its `skill` selector as `selection: compatible`: this
+is the rule's adjudication of declared conduct, not a player-owned mechanical choice.
+The existing Jev binder judges the four issued social approaches; no host keywords
+classify speech. This corrects §163.8's social-skill example while preserving its
+ordinary-check, combined-skill, push, stakes and Luck choice boundaries. A low-confidence
+social approach therefore follows the existing recorded Keeper-ruling path instead of
+`no_roll: player_choice:skill`. The original failed real bargain is retained as evidence.
+
 A successful negotiation may replace an unaccepted offer. A retained payment hold
 must first be withdrawn through the existing admitted cash cancellation, then the
 new offer uses its own priced rows. Cancellation never pays, delivers goods, reverses
 a settled purchase or carries old cash authority to new terms. This explicit existing
 path preserves technical-retry price freezing without freezing legitimate bargaining.
 An ordinary failed bargain alone grants neither a discount nor purchase consent.
+Only seller-offered terms become quotation drafts; a refused or unanswered player bid
+is not registered as a seller's offer.
 In the success/failure acceptance cases the seller respectively issues the negotiated
 price or keeps the original offer, and checkout uses that same quote, including daily
 coverage and full-cash authority. Fast Talk or coercion may have later fictional
