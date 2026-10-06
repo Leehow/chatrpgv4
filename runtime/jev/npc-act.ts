@@ -94,6 +94,8 @@ export function mayProduce(packet: unknown): boolean {
 
 export interface NpcActInput {
   packet: NpcSituation;
+  /** Host-owned deadline shared by every generation and grounding repair of this person's current act. */
+  deadline?: number;
   /** The campaign's play language tag, by shape only; the act is written in it. */
   play_language: string;
   /** The run's provider budget, when the caller has one: the completion reserves and settles against it (§20). */
@@ -242,7 +244,8 @@ export function createNpcActLane(pi: ExtensionAPI, options: NpcActLaneOptions): 
         } catch (error) {
           return await failed('lane_error', `the generation could not be prepared: ${error instanceof Error ? error.message : String(error)}`);
         }
-        const total = options.timeoutMs ?? (await npcActBudget(options.contentRoot)).timeoutMs;
+        const configured = options.timeoutMs ?? (await npcActBudget(options.contentRoot)).timeoutMs;
+        const total = Math.min(configured, input.deadline===undefined?configured:Math.max(0,input.deadline-began));
         const allowProduces = mayProduce(input.packet);
         const deadline = began + total;
         let refusal: string | undefined, why: string | undefined, model: string | undefined;

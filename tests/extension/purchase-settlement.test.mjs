@@ -1,7 +1,7 @@
 import {playtestScratch} from './playtest-scratch.mjs';
 import assert from 'node:assert/strict';
 import {mkdir, mkdtemp, readFile, symlink, writeFile} from 'node:fs/promises';
-import {join, resolve} from 'node:path';
+import {join, resolve, dirname} from 'node:path';
 import test from 'node:test';
 import {build} from 'esbuild';
 import {KernelClient} from '../../extensions/kernel/client.ts';
@@ -33,6 +33,18 @@ async function table(t){
   };
 }
 const spend=(amount,category='purchase',extra={})=>({kind:'cash',delta:-amount,source:'quote',with:'Steven Knott',category,why:'Chosen expense',...extra});
+
+test('an unaffordable atomic replacement rolls back its cancellation and retains the original offer',async t=>{
+  const game=await table(t),p=join(dirname(game.metaPath),'party/thomas-hayes.json'),card=await game.sheet();
+  card.finance.cash.amount=2;card.finance.spending_level.amount=2;card.finance.daily_spending={day:0,total:2,debited:0};await writeFile(p,JSON.stringify(card));
+  const original={kind:'cash',mode:'quote',quote:'Original counter offer',category:'purchase',source:'quote',with:'Steven Knott',items:[{name:'Water',quantity:2,unit_price:'0.50'}]};
+  await game.call('apply',{call_id:'t1-c1',effects:[original]});const before=await game.world(),sheet=await game.sheet();
+  await assert.rejects(game.call('apply',{call_id:'t1-c2',effects:[{kind:'cash',mode:'cancel',quote:original.quote},
+    {...original,mode:'settle',quote:undefined,bill:'New agreed offer',items:[{name:'Water',quantity:2,unit_price:'1.00'}]},
+    {kind:'item',name:'Water',quantity:2,to:'thomas-hayes',from:'Steven Knott'}]}),e=>e.code==='invalid_params');
+  assert.deepEqual(await game.world(),before);assert.deepEqual(await game.sheet(),sheet);
+  assert.equal((await game.receipts()).filter(r=>r.settlement==='cancelled').length,0);
+});
 
 test('an unclassified purchase never silently debits cash',async t=>{
   const game=await table(t),before=(await game.sheet()).finance.cash.amount;

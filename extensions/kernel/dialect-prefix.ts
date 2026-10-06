@@ -82,3 +82,13 @@ export function stripDialectPrefixes(tool: string, args: unknown): { args: unkno
 	}
 	return { args: output ?? args, strips };
 }
+
+/** An empty optional carried argument requests no embedded delivery; an explicit text field is unchanged. */
+export function omitEmptyEmbeddedArguments(tool: string, args: unknown): {args: unknown; fields: string[]} {
+    const carried=EMBEDDED_ARGUMENTS[tool];
+    if(!carried||!args||typeof args!=='object'||Array.isArray(args))return {args,fields:[]};
+    const input=args as Record<string,unknown>,fields=Object.keys(carried).filter(field=>typeof input[field]==='string'&&!String(input[field]).trim());
+    if(!fields.length)return {args,fields};
+    const output={...input};for(const field of fields)delete output[field];
+    return {args:output,fields};
+}

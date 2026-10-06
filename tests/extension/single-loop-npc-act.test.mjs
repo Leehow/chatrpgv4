@@ -1878,6 +1878,18 @@ test("§143.29: the thing his act brought out is in the next packet's at_hand.br
 	assert.deepEqual(bind.state.situation.at_hand.brought_out, npcAct.calls[1].packet.at_hand.brought_out, "the same-purpose question's batch reads it too");
 });
 
+test('grounding repair shares the first author deadline and cannot schedule another generation after it expires',async t=>{
+  let now=1000;const generated=[],writes=[];t.mock.method(Date,'now',()=>now);
+  const deps={call:async (method,params)=>method==='npc.situation'?{...PACKET,canonical_context:{scene:'Agreed unarmed practice.',player_declaration:'I throw a practice punch.'},constraints:[],truncated:[]}:method==='npc.act.options'?{...fightOptions(),play_language:'en',...(params.act?{act:{line:params.act,ref:'intent:steven-knott:bbbbbbbbbbbb',continues:null}}:{})}:{},
+    generate:async input=>{generated.push(input);now+=90;return {act:'He proposes an ungrounded escalation.'};},
+    decide:async batch=>{now+=20;return actAnswer(batch,{way:'intention_only',grounded:.01});},
+    write:async x=>{writes.push(x);return {ok:true,receipts:['unexpected'],status:'succeeded'};},record(){},scope,readSet:[],runId:'shared-deadline',stepId:'s1',turn:2,gate:.6,
+    budget:{timeoutMs:100,maxPerTurn:2,sameActRows:5},signal:new AbortController().signal};
+  const result=await runNpcAct(deps,'Steven Knott','turn');
+  assert.equal(generated.length,1);assert.equal(generated[0].deadline,1100);
+  assert.equal(result.status,'unavailable');assert.equal(result.reason,'timeout');assert.equal(result.reask,true);assert.deepEqual(writes,[]);
+});
+
 test('an ungrounded NPC proposal is repaired at most once and never reaches the write gateway', async () => {
   const bad = 'He draws a chainsaw and cuts into the practice partner.';
   const good = 'He keeps his fists raised for the agreed unarmed practice.';

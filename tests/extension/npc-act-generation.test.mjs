@@ -100,6 +100,17 @@ async function onlyRow(table) {
 	return rows[0];
 }
 
+test('an expired shared author deadline schedules no provider call, even with a larger per-call budget',async t=>{
+    const table=await lane(t,{answers:[json({act:ACT})],timeoutMs:5000});
+    const result=await table.generate({deadline:Date.now()-1});
+    assert.equal(result.unavailable,'timeout');assert.equal(table.calls.length,0);
+});
+test('a shared remaining deadline bounds a hanging generation rather than renewing the configured budget',async t=>{
+    const table=await lane(t,{answers:[hang],timeoutMs:5000});
+    const result=await table.generate({deadline:Date.now()+80});
+    assert.equal(result.unavailable,'timeout');assert.equal(table.calls.length,1);assert.ok(result.ms<1500);
+});
+
 test("a good answer flows through: the authored instruction, the whole packet beside play_language, the act back verbatim, one row", async (t) => {
 	const table = await lane(t, { answers: [reply(`{"act": "  ${ACT}  "}`, USAGE)] });
 	// A field the kernel adds later still reaches the model: there is no second whitelist between the read and the lane.

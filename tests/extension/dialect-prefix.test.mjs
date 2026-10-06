@@ -121,7 +121,7 @@ function turnOneClosed(workspace) {
 }
 
 const turnRecord = (workspace, turn) => JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/turns", `${String(turn).padStart(4, "0")}.json`), "utf8"));
-const prefixRows = (table) => table.telemetry().filter((entry) => entry.lane === "arguments").map(({ event, tool, field, prefix }) => ({ event, tool, field, prefix }));
+const prefixRows = (table) => table.telemetry().filter((entry) => entry.lane === "arguments" && entry.event === "dialect_prefix_stripped").map(({ event, tool, field, prefix }) => ({ event, tool, field, prefix }));
 const floorRows = (table) => table.telemetry().filter((entry) => entry.lane === "floor").map(({ reason, path, chars }) => ({ reason, path, chars }));
 const LONG = "你在剪报室里翻了十分钟，指尖沾了灰，纸页边缘已经发黄发脆，终于找到了那篇被压下的旧闻 {{clue:globe-unpublished-story}}。";
 const realHybridTable = ({ responses }) => {
@@ -149,7 +149,7 @@ test("§144.1: gate #23 t6's value delivers from its first real sentence, and th
 });
 
 for (const label of ["text", "text thriftily-placeholder"]) {
-	test(`§144.1: apply {effects, narrate: ${JSON.stringify(label)}} lands the effect, is refused at the floor with chars 0, and nothing of it is delivered`, async (t) => {
+		test(`§144.1: empty optional embedded narration is omitted while the admitted effects land (${JSON.stringify(label)})`, async (t) => {
 		const table = await realHybridTable({ responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: EFFECTS, narrate: label })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: LONG })], { stopReason: "toolUse" }),
@@ -162,8 +162,9 @@ for (const label of ["text", "text thriftily-placeholder"]) {
 		assert.deepEqual(floorRows(table), [], "an empty transport argument is not a prose quality review");
 		assert.equal(table.telemetry().filter((entry) => entry.tool === "apply" && entry.ok === true).length, 1, "the effect landed");
 		const applyResult = table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "apply");
-		assert.equal(applyResult.isError, true);
-		assert.equal(JSON.parse(applyResult.content.map((block) => block.text ?? "").join("")).coc_error?.code, "invalid_params");
+		assert.equal(applyResult.isError, false);
+		assert.equal(JSON.parse(applyResult.content.map((block) => block.text ?? "").join("")).coc_error, undefined);
+		assert.ok(table.telemetry().some(entry=>entry.event==='empty_embedded_omitted'));
 		const record = turnRecord(table.workspace, 2);
 		assert.equal(record.closed_by, "narrate");
 		assert.equal(/text|thriftily/.test(record.rendered_text), false, record.rendered_text);

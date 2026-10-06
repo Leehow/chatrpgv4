@@ -224,98 +224,45 @@ test("§32.12.2: at the cap a bookkeeping batch typed 0.72 is admitted typed_lat
 	assert.equal(late?.verdict, REVIEW_TIMEOUT, "the trickle never produced a verdict by the hard cap");
 });
 
-test("§32.12.2: at the cap a resolve is returned review_pending with the typed reading; nothing is settled and the run goes on", async (t) => {
-	installJev(t, [{ verdict: "not_authorized", confidence: 0.64, missing: "target" }]);
-	const provider = await tricklingProvider(t);
-	const table = await openTable({ env: { ...KEY, PI_COC_ADMISSION_MODEL: "trickle/trickle-1", PI_COC_ADMISSION_TIMEOUT_MS: "1500" },
-		responses: [call("resolve", persuade), ...close] });
-	t.after(() => table.dispose());
-	registerTrickle(table, provider.port);
-	assert.equal(await promptWithin(table, "我说明来意，请她帮忙调出科比特宅这些年的旧剪报。", 15_000), "ended");
-	assert.equal(kernelCalls(table, "table.resolve").length, 0);
-	const [row] = admissionRows(table);
-	assert.equal(row.verdict, REVIEW_PENDING);
-	assert.equal(row.admitted, false);
-	assert.equal(row.cause, "cap");
-	assert.equal(row.late_rule, "not_bookkeeping");
-	assert.equal(row.typed.verdict, "not_authorized");
-	assert.equal(row.typed.confidence, 0.64);
-	assert.ok(row.ms >= 1500 && row.ms < 2500, `returned at the cap (${row.ms} ms)`);
-	const [text] = toolResultTexts(table.session, "resolve");
-	assert.match(text, /^needs: The action review has not answered within its 1\.5 s cap/m);
-	assert.match(text, /Resend this identical call once, unchanged/);
-	assert.match(text, /^typed: \{"verdict":"not_authorized","confidence":0\.64/m, "the Keeper reads the typed reading beside the pending refusal");
-	assert.equal(table.telemetry().find((entry) => entry.tool === "resolve" && entry.ok === false)?.reason, REVIEW_PENDING);
-	assert.ok(table.telemetry().some((entry) => entry.tool === "narrate" && entry.ok), "the run went on to the delivery");
-	assert.equal(table.entries("coc-admission-status").length, 0, "not an outage");
+test("a running review is continued to the hard deadline without returning a soft-cap refusal", async t=>{
+ installJev(t,[{verdict:"not_authorized",confidence:0.64,missing:"target"}]);
+ const provider=await tricklingProvider(t),table=await openTable({env:{...KEY,PI_COC_ADMISSION_MODEL:"trickle/trickle-1",PI_COC_ADMISSION_TIMEOUT_MS:"1500"},responses:[call("resolve",persuade),...close]});
+ t.after(()=>table.dispose());registerTrickle(table,provider.port);
+ assert.equal(await promptWithin(table,"I ask her for the clippings.",15000),"ended");
+ assert.equal(kernelCalls(table,"table.resolve").length,0);
+ const [row]=admissionRows(table);assert.equal(row.verdict,REVIEW_TIMEOUT);assert.equal(row.host_continued,true);
+ assert.ok(table.telemetry().some(x=>x.lane==="admission-wait"&&x.event==="continue_existing"));
+ assert.equal(admissionRows(table).some(x=>x.verdict===REVIEW_PENDING),false);
+ assert.equal(table.entries("coc-admission-status").length,0);
 });
 
-test("§32.12.2: the Keeper's resend collects the lane that answered after the cap, and its verdict settles the call", async (t) => {
-	// SL-87: the subject is a wall-clock budget -- the cap, the round (the hard cap, twice the cap), a verdict landing inside
-	// the round, and a resend that waits only for the rest of it -- so the review and the resend run on a manual clock
-	// (`coc:test-admission-clock`, the kernel extension's test-only seam) and nothing sleeps. On a loaded box the real 1 s /
-	// 1.6 s version left the verdict 400 ms to land inside its round, and it did not (`review_timeout`).
-	const CAP_MS = 1000, VERDICT_MS = 1600, HARD_CAP_MS = admissionHardCapMs(CAP_MS);
-	const clock = manualClock(), T0 = clock.at();
-	let laneAsked = false, resendAt;
-	// The lane's verdict is due 1.6 s after the round began, on the clock.
-	const verdictOnClock = (row) => async () => { laneAsked = true; await clock.until(T0 + VERDICT_MS); return verdict(row); };
-	// The Keeper resends once it has read the pending refusal; what the clock had been read by then is marked.
-	const resend = () => { resendAt = clock.reads(); return call("resolve", persuade); };
-	const table = await openTable({ env: { PI_COC_ADMISSION_TIMEOUT_MS: String(CAP_MS) },
-		responses: [call("resolve", persuade), resend, ...close],
-		laneResponses: { admission: [verdictOnClock({ verdict: "authorized", grounds: "the player asked her for the clippings" })] } });
-	t.after(() => table.dispose());
-	table.emit("coc:test-admission-clock", clock);
-	let ended = false;
-	const prompt = table.session.prompt("我说明来意，请她帮忙调出科比特宅这些年的旧剪报。").finally(() => { ended = true; });
-	await waitFor(() => laneAsked, { timeoutMs: 60_000, label: "the review's lane round" });
-	// The round is running and its times are all on the clock: the cap, the verdict, and the round's own end (the hard cap).
-	for (const at of [CAP_MS, VERDICT_MS, HARD_CAP_MS])
-		assert.ok(clock.due().includes(T0 + at), `a timer due ${at} ms into the review (${clock.due().map((due) => due - T0)})`);
-	clock.advanceTo(T0 + CAP_MS);
-	// The call goes back pending at the cap; the Keeper resends it. Nothing else reads the review's clock between the
-	// Keeper's resend and the resend taking its start, right before it waits on the round.
-	await waitFor(() => resendAt !== undefined && clock.reads() > resendAt, { timeoutMs: 60_000, label: "the resend waiting on the round" });
-	clock.advanceTo(T0 + VERDICT_MS);
-	// The rest of the run; a resend that waited longer than the round would show in `resend_wait_ms`.
-	await runWaitsPastRound(clock, T0 + HARD_CAP_MS, () => ended);
-	assert.ok(ended, "the run ended");
-	await prompt;
-	const rows = admissionRows(table);
-	assert.deepEqual(rows.map((row) => [row.verdict, row.resend ?? false, row.path]), [[REVIEW_PENDING, false, "lane"], ["authorized", true, "lane"]]);
-	assert.equal(rows[0].ms, CAP_MS, "returned pending at the cap");
-	assert.equal(table.lanes.admission.requests().length, 1, "one review, collected by the resend");
-	assert.ok(rows[1].resend_wait_ms < CAP_MS * 1.5, `the resend waited only for the rest of the round (${rows[1].resend_wait_ms} ms)`);
-	assert.equal(rows[1].resend_wait_ms, VERDICT_MS - CAP_MS, "from the cap, where it resent, to the verdict");
-	assert.equal(rows[1].lane_ms, VERDICT_MS, "the round answered 1.6 s in, inside its 2 s");
-	assert.equal(rows[1].grounds, "the player asked her for the clippings");
-	assert.equal(kernelCalls(table, "table.resolve").length, 1, "the resend landed");
-	assert.ok(!table.telemetry().some((entry) => entry.lane === "admission-late"), "a collected round leaves no late row");
+test("the host collects a verdict just after the soft cap from the same review with one model proposal", async t=>{
+ const CAP_MS=1000,VERDICT_MS=1280,HARD_CAP_MS=admissionHardCapMs(CAP_MS),clock=manualClock(),T0=clock.at();let laneAsked=false;
+ const table=await openTable({env:{PI_COC_ADMISSION_TIMEOUT_MS:String(CAP_MS)},responses:[call("resolve",persuade),...close],
+  laneResponses:{admission:[async()=>{laneAsked=true;await clock.until(T0+VERDICT_MS);return verdict({verdict:"authorized",grounds:"The player asked for the clippings"});}]}});
+ t.after(()=>table.dispose());table.emit("coc:test-admission-clock",clock);let ended=false;
+ const prompt=table.session.prompt("I ask for the clippings.").finally(()=>{ended=true});
+ await waitFor(()=>laneAsked,{timeoutMs:60000,label:"one review started"});clock.advanceTo(T0+CAP_MS);
+ await waitFor(()=>table.telemetry().some(x=>x.lane==="admission-wait"),{timeoutMs:60000,label:"host continuing the review"});
+ assert.equal(kernelCalls(table,"table.resolve").length,0);clock.advanceTo(T0+VERDICT_MS);
+ await runWaitsPastRound(clock,T0+HARD_CAP_MS,()=>ended);await prompt;
+ const [row]=admissionRows(table);assert.equal(row.verdict,"authorized");assert.equal(row.host_continued,true);
+ assert.equal(row.continuation_wait_ms,VERDICT_MS-CAP_MS);assert.equal(row.resend,undefined);
+ assert.equal(table.lanes.admission.requests().length,1);assert.equal(kernelCalls(table,"table.resolve").length,1);
+ assert.equal(admissionRows(table).some(x=>x.verdict===REVIEW_PENDING),false);
 });
 
-test("§32.12.2 (SL-87): a cap timer that fires early is re-armed -- the call is returned pending at its cap on the review's clock, never before", async (t) => {
-	// Node's timers can fire early against the clock that measures the review (they run on the event loop's cached time,
-	// which lags `Date.now()` on a loaded machine: SL-87 saw a call returned pending at 999 ms of a 1000 ms cap). This clock
-	// fires every timer 1 ms early. The cap's timer fires at 999 ms; the review re-arms for the last 1 ms.
-	const CAP_MS = 1000;
-	const clock = manualClock({ early: 1 }), T0 = clock.at();
-	const table = await openTable({ env: { PI_COC_ADMISSION_TIMEOUT_MS: String(CAP_MS) }, responses: [call("resolve", persuade), ...close],
-		laneResponses: { admission: [async () => { await clock.until(T0 + 10 * CAP_MS); return verdict({ verdict: "authorized", grounds: "too late" }); }] } });
-	t.after(() => table.dispose());
-	table.emit("coc:test-admission-clock", clock);
-	let ended = false;
-	const prompt = table.session.prompt("我说明来意，请她帮忙调出科比特宅这些年的旧剪报。").finally(() => { ended = true; });
-	await waitFor(() => clock.due().includes(T0 + CAP_MS - 1), { timeoutMs: 60_000, label: "the review's cap, armed" });
-	clock.advanceTo(T0 + CAP_MS - 1);
-	assert.ok(clock.due().includes(T0 + CAP_MS), `fired 1 ms early, the cap is re-armed for the rest (${clock.due().map((due) => due - T0)})`);
-	clock.advanceTo(T0 + CAP_MS);
-	const pending = await waitFor(() => admissionRows(table).find((row) => row.verdict === REVIEW_PENDING), { timeoutMs: 60_000, label: "the pending row" });
-	assert.equal(pending.ms, CAP_MS, "returned pending at the cap, not before it");
-	assert.equal(pending.cap_ms, CAP_MS);
-	await waitFor(() => ended, { timeoutMs: 60_000, label: "the run's end" });
-	await prompt;
-	assert.equal(kernelCalls(table, "table.resolve").length, 0, "nothing settled");
+test("an early soft-cap timer is rearmed and a continued review still cannot exceed its hard deadline", async t=>{
+ const CAP_MS=1000,clock=manualClock({early:1}),T0=clock.at();
+ const table=await openTable({env:{PI_COC_ADMISSION_TIMEOUT_MS:String(CAP_MS)},responses:[call("resolve",persuade),...close],laneResponses:{admission:[async()=>{await clock.until(T0+10*CAP_MS);return verdict({verdict:"authorized",grounds:"too late"});}]}});
+ t.after(()=>table.dispose());table.emit("coc:test-admission-clock",clock);let ended=false;
+ const prompt=table.session.prompt("I ask for the clippings.").finally(()=>{ended=true});
+ await waitFor(()=>clock.due().includes(T0+CAP_MS-1),{timeoutMs:60000,label:"soft cap armed"});
+ clock.advanceTo(T0+CAP_MS-1);assert.ok(clock.due().includes(T0+CAP_MS));clock.advanceTo(T0+CAP_MS);
+ await waitFor(()=>table.telemetry().some(x=>x.lane==="admission-wait"),{timeoutMs:60000,label:"soft cap continued"});
+ const HARD=2*CAP_MS;clock.advanceTo(T0+HARD-1);await new Promise(r=>setImmediate(r));clock.advanceTo(T0+HARD);
+ await runWaitsPastRound(clock,T0+HARD,()=>ended);await prompt;
+ assert.equal(kernelCalls(table,"table.resolve").length,0);assert.equal(admissionRows(table)[0].verdict,REVIEW_TIMEOUT);
 });
 
 // ---- telemetry --------------------------------------------------------------------------------------------------------------
