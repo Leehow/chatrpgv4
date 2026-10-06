@@ -124,3 +124,63 @@ under `.tmp/rc06/` in that worktree (gitignored, not committed).
   aliases, summary, properties; the cited pages; the names of the record's other fields, e.g. `visibility`, `reason`,
   which only `record.json` carries), `pages/<page>.png` (`pdftoppm -r 110 -png -singlefile` of the bound `source.pdf`,
   digest checked, physical 1-based) and `native-<page>.txt`. No Jev distribution, no vision verdict.
+
+### 2026-10-06 RC-06 phase B: redesign implemented, (S, C) chosen on tuning (worker, branch `claude/reading-cost-20261006-claim`)
+
+No held-out Jev result was produced or read. `tests/play/jev-claim-replay.mjs` refuses the held-out split without
+`--heldout-once`, which was never passed.
+
+- **Code.** `kernel-ts/modules/claim-support.ts` (a record carrying any classification-field pointer is ineligible,
+  `classification_field`; the shared rule takes the classifier), `kernel-ts/modules/visual.ts` (the gate passes its
+  contract classifier, so such a Jev row is `review_jev_ineligible`), `runtime/jev/source-claim-support.ts` (family v2:
+  aliases on claims, per-field node statements, per-statement batching, weakest-judgment clearing, alias-tolerant
+  wording), `extensions/module/claim-support.ts` (task's declaration, the shipped contract's as fallback; evidence
+  records gain `fields`). Evidence protocol unchanged (`source-claim-support-v1`): the part the gate reads did not change.
+  Mode stays `shadow`; `host-budgets.json` untouched. Decisions: the "Implementation (RC-06, 2026-10-06)" paragraph under
+  §186.6.
+- **Replay.** Tuning split (manifest `a5ce0bbc…`), shipped clip/bound/page cap, real adapter `jev-1.13.0`, ≤ 4 requests
+  in flight. 448 rounds, 5,488 record instances, 5,069 asked, 17,348 statements, 937 requests, 10.25M input tokens,
+  $0.43, 93 s; 6 instances `packing_limit`. The classification rule made ineligible 362 supported, 24 strict-negative,
+  30 contested-only and 3 unreviewed instances (unique: 274 / 22 / 28; all nodes: 282 clue, 132 rule, 5 other).
+  Scored population (unique): supported 3,573 (claims 1,616, nodes 1,957), strict negatives 131 (claims 33, nodes 98);
+  ineligible records count as not cleared.
+- **Two runs, one wording fix.** Run 1 used the v1 claim wording with the aliased statements: claims with aliases lost
+  0.108 mean `supported` against v1 on the same corpus records (claims without aliases 0.021), because "every name must
+  be stated" was read as every alias. Run 2 adds, only where a statement's names carry aliases, that any one name
+  suffices (aliased claims then −0.065). Run 2 is the implementation; run 1's chosen point was (0.85, 0.05), 87 / 3,573
+  (2.4 %). Between the runs the same negatives' weakest `supported` moved by up to 0.06 with batch composition alone
+  (a claim negative without aliases: 0.80 → 0.86), which by itself moved the zero-negative point from S 0.85 to 0.93.
+- **Grid (run 2, unique records; full 12 × 7 grid in `.tmp/rc06/tuning-run-2/grid.md`).**
+
+| S | C | cleared supported | claims | nodes | cleared strict negatives |
+|---|---|---|---|---|---|
+| 0.5 | 0.1 | 1,223 / 3,573 (34.2 %) | 790 / 1,616 | 433 / 1,957 | 9 / 131 |
+| 0.5 | 0.2 | 1,617 (45.3 %) | 854 | 763 | 13 |
+| 0.7 | 0.1 | 788 (22.1 %) | 464 | 324 | 5 |
+| 0.8 | 0.05 | 225 (6.3 %) | 209 | 16 | 1 |
+| 0.8 | 0.1 | 435 (12.2 %) | 224 | 211 | 5 |
+| 0.85 | 0.05 | 110 (3.1 %) | 97 | 13 | 1 |
+| 0.9 | 0.05 | 23 (0.6 %) | 16 | 7 | 0 |
+| 0.9 | 0.2 | 84 (2.4 %) | 16 | 68 | 1 |
+| **0.93** | **0.2** | **25 (0.7 %)** | **1** | **24** | **0** |
+| 0.95 | 0.2 | 7 (0.2 %) | 0 | 7 | 0 |
+
+- **Chosen (§186.6: zero cleared strict negatives, most supported cleared; ties to higher S, lower C): S 0.93, C 0.2**
+  — 25 / 3,573 supported cleared on tuning (0.7 %; claims 1 / 1,616, nodes 24 / 1,957), 0 / 131 strict negatives.
+  This is the point the held-out read uses. On tuning the redesign is far from the 50 % share; the read is still due
+  as pre-registered.
+- **Why (tuning only).** Instance AUC of the weakest `supported`, vision-supported vs strict negative: claims 0.78, nodes
+  0.77. Per statement, vision-supported nodes' summary sentences have median `supported` 0.85 and identities 0.94, but
+  strict negatives' summary sentences have 0.80 and identities 0.93: the negatives' fields look like the supported
+  ones, and the record-level error sits in one field among many that a zero-negative gate must be strict enough to
+  catch. Reader-derived fields (median `supported` on vision-supported nodes: `relationship_to_investigators` 0.63,
+  `is_entrance` 0.34, `exit_conditions` 0.28, `runtime_projection` 0.13) cap most nodes. The claim negative that sets the S floor is a knowledge-boundary
+  overclaim (an NPC said to know a group the page only says he belongs to).
+- **Tests** (single files, this Mac): `claim-support.test.mjs` 10/10, `claim-support-gate.test.mjs` 2/2,
+  `system-language` + `reading-accounting` 7/7, `consequence-host-budgets` 13/13; `control-flow-inventory` 3/4, the
+  failure is `extensions/openai-fast/test/offline.test.mjs` sites outside this change. Mutations (copy aside, mutate,
+  run, copy back): 15/15 killed — kernel rule ignores classification fields; gate passes no classifier; host ignores the
+  task declaration; extension asks with no classifier; extension drops the contract fallback; any statement clears the
+  record; the first statement decides; claims lose aliases; summary not asked; summary not segmented; property leaves
+  not asked; node ids in values not named; identity not asked; aliased statements lose the any-name sentence; aliased
+  values not flagged.
