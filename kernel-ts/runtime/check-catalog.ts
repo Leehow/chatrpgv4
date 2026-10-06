@@ -214,7 +214,7 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
             if (graph.isPerson(person.node)) {
                 const skills = own.map(profile => profile.skill).filter(skill => Object.values(SOCIAL_APPROACH_SKILLS).includes(skill));
                 add('social:adjudicate-difficulty', `${actor}: influence ${person.name} with a social approach`, {actor, target: person.name, intent: 'social'},
-                    [parameter('skill', 'Which social skill implements the player-chosen approach?', skills), ...modifiers()], [], 'declaration',
+                    [{...parameter('skill', 'Which social skill fits the conduct the player actually described? The Keeper selects the skill from that conduct, not the player.', skills), selection: 'compatible'}, ...modifiers()], [], 'declaration',
                     {stage: 'difficulty_adjudication', actor_role: campaign.party.some(sheet => sheet.name === actor) ? 'investigator'
                         : people.some(person => person.name === actor) ? 'npc' : 'unknown', target_role: 'npc'});
                 if (own.some(profile => profile.skill === 'Psychology'))

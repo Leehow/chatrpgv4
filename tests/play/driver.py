@@ -150,7 +150,7 @@ PUBLIC_MECHANIC_FIELDS = frozenset("""kind visibility family skill roll target t
 level passed pushed bonus penalty modifier_reason label expression faces total word resource
 before after item subject_label source_label actor_label target_label combat_action gained lost
 standing incapacitated from_label to_label minutes how name quantity weapon offer offered_to_label
-handover currency settlement purpose source_amount purchase_amount spending_level spending_day
+handover currency settlement purpose source_amount purchase_amount cash_debit spending_level spending_day
 daily_total daily_debited price_name source_display transition round rounds outcome option operation
 mode loop from_turn document text media_type image_media_type definition adopted quote_status""".split())
 

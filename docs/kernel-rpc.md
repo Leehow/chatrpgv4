@@ -13673,6 +13673,110 @@ preserving the same card and playback state during these updates.
 
 ### 58.9 Unified purchases and exact quotations (owner request, 2026-10-02)
 
+**Purchase recovery and cash authority (owner repair, 2026-10-06).** A failed chosen
+purchase retains its priced terms and payment-dependent item effects in a host-owned
+`purchase-recovery.json`, scoped to the campaign and active worldline. It is policy
+state, not a receipt or a second purse. Refusal never changes cash or inventory.
+Retries cannot change the original merchandise prices to match a daily catch-up debit,
+or remove the payment while delivering those same purchased items. Successful cash
+settlement, including covered zero-debit settlement, releases that transaction hold.
+`apply cash mode: cancel` explicitly withdraws a held `bill` or unaccepted saved
+`quote`, under ordinary admission. It takes no amount/items, changes no purse,
+cannot cancel a paid receipt and cannot deliver the held goods in the same call.
+The cancellation receipt releases that hold. Unrelated gifts and subsequent new
+transactions therefore remain possible without treating a cancelled offer as debt.
+Names and quantities are matched as closed declared transaction fields; no prose,
+language, item-kind or intent regex classifies a purchase. Other gifts and unrelated
+item actions retain their ordinary admission. Restart retains the hold; another
+worldline does not inherit it. Corrupt policy state fails closed.
+
+For a purchase whose actual cash debit exceeds its merchandise amount, the existing
+admission verdict must additionally bind `cash_limits` to accepted terms. Each row
+names its preview index, finite decimal `amount`, `basis: price|input|offer|delegation|none`
+and exact `evidence`. Price acceptance is capped at the merchandise amount; input
+evidence must occur in the current player's words, and delegation evidence in the
+retained player-visible context. Missing, invalid or insufficient limits never
+authorize the larger debit. `offer` cites an earlier registered quotation whose
+separate cash requirement was shown; the ceiling is its `cash_debit`, not a current
+proposed debit. Same-turn registration is not prior disclosure. All delivery paths,
+including ask and implicit close, persist their ordinary deferred quotation drafts.
+Cancellation prevents an older deferred job from reopening the offer. An `authorized`
+verdict alone is insufficient. This is a bounded
+reading by the existing reviewer, not a new model lane. A contextual classification
+mismatch may use the existing `correct_proposal` recovery; ordinary self-consumed
+food is evaluated against living standard before additional daily spending.
+
+Offer evidence may be the exact registered quote name, or exact current player words
+accepting the proposal's explicit `quote`/`bill` reference. The latter binds that issued
+reference to the same earlier offer and identical subject, seller, currency and priced
+rows; it never treats the player's acceptance sentence as a quotation name. Missing or
+ambiguous identity grants no authority, and the earlier disclosed cash ceiling still
+caps settlement. A generic reference to a shown card does not require the player to
+repeat its numbers.
+
+Cash refusal feedback preserves the merchandise amount and unit prices alongside
+the separately computed actual debit. The daily catch-up is purse bookkeeping, not
+an NPC price increase. The next ordinary delivery carries the held original offer;
+its card exposes `cash_debit` separately from `purchase_amount`, without paying or
+handing over goods. For these held transactions only, host-only `_cash_requests`
+names the offers whose cash requirement the kernel rechecks with its cached exact
+arithmetic and displays immediately. Their immutable disclosed ceiling survives
+late registration; ordinary price/source registration remains detached. Correcting the
+parameters never requires repeating a covered player choice.
+
+Writer: the native apply owner records failed priced transactions and releases them
+only after cash receipts; the existing admission reviewer selects cash authority.
+Reader: retry gates, admission context and delivery quotation cards read those terms.
+Actor: normal apply alone debits the purse and delivers payment-dependent items.
+`table.apply` returns host-only `_cash_settlements` for precise hold release; the
+native tool strips this field before its result reaches the Keeper.
+Host-only `_purchase_quote` retires the same held offer on successful direct checkout,
+including blocking a delayed registration from reopening it. It never imports or
+changes prices, and underscore-prefixed policy hints remain outside replay identity.
+Acceptance includes the original seven staged scenarios, restart, changed-price and
+payment-removal regressions, and the real Grok 4.5 low failures retained under
+`money-audit-20261006-1791268509956`.
+
+**Bargaining is a new agreement, not a payment retry (owner acceptance extension, 2026-10-06).**
+The existing social resolver owns any required check. Keeper Rulebook printed pp. 59,
+60, 64, 66, 71 and 93 (physical PDF pp. 71, 72, 76, 78, 83 and 105) allow Charm,
+Fast Talk, Persuade and Intimidate to affect a price. The described conduct selects
+an approach; disposition and opposing skills select difficulty. A willing seller
+may agree without a roll. The book specifies no fixed discount percentage, Persuade
+normally takes at least half an hour, and a second attempt after failure is a push,
+even if the skill changes. The Keeper chooses plausible new terms from the settled
+outcome and seller response; the kernel computes those exact priced rows.
+
+The social catalog marks only its `skill` selector as `selection: compatible`: this
+is the rule's adjudication of declared conduct, not a player-owned mechanical choice.
+The existing Jev binder judges the four issued social approaches; no host keywords
+classify speech. This corrects §163.8's social-skill example while preserving its
+ordinary-check, combined-skill, push, stakes and Luck choice boundaries. A low-confidence
+social approach therefore follows the existing recorded Keeper-ruling path instead of
+`no_roll: player_choice:skill`. The original failed real bargain is retained as evidence.
+
+A successful negotiation may replace an unaccepted offer. A retained payment hold
+must first be withdrawn through the existing admitted cash cancellation, then the
+new offer uses its own priced rows. Cancellation never pays, delivers goods, reverses
+a settled purchase or carries old cash authority to new terms. This explicit existing
+path preserves technical-retry price freezing without freezing legitimate bargaining.
+The changed-terms refusal carries the exact old human-readable bill and the existing
+separate cancellation call. It distinguishes a technical retry from a genuinely new
+agreement, and must not instruct the Keeper to undo a successful bargaining result or
+replace the player's conditional discounted purchase with the rejected original price.
+An ordinary failed bargain alone grants neither a discount nor purchase consent.
+Only seller-offered terms become quotation drafts; a refused or unanswered player bid
+is not registered as a seller's offer.
+In the success/failure acceptance cases the seller respectively issues the negotiated
+price or keeps the original offer, and checkout uses that same quote, including daily
+coverage and full-cash authority. Fast Talk or coercion may have later fictional
+consequences; those are not an automatic financial penalty or a fixed surcharge.
+
+Precedent: [Stripe quote acceptance](https://docs.stripe.com/api/quotes/accept)
+keeps accepted line terms separate from settlement; [Shopify fulfillment holds](https://shopify.dev/docs/api/admin-graphql/latest/objects/fulfillmenthold)
+explicitly represent awaiting payment. These confirm the boundary, not this game's
+coverage policy or any real-payment integration.
+
 **Bound price speech (owner repair, 2026-10-05).** A cash effect may carry `bill`, a
 human-readable local transaction name. Price speech refers to that same transaction with
 `{{price:NAME:unit}}`, `{{price:NAME:quantity}}` or `{{price:NAME:total}}`; multi-line bills

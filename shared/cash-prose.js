@@ -36,7 +36,7 @@ function bill(row) {
 function bindPriceText(text, rows) {
   const bound = [], unresolved = [];
   const result = text.replace(PRICE, (token, name, index, field) => {
-    const candidates = rows.filter((row) => named(row.bill ?? row.quote) === named(name));
+    const candidates = rows.filter((row) => [row.bill,row.quote].some(alias=>named(alias)===named(name)));
     const values = candidates.map(bill);
     const resolved = values.length === 1 ? values[0] : void 0;
     const at = index === void 0 ? 0 : Number(index) - 1;

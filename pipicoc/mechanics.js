@@ -1260,6 +1260,7 @@ export function createComponent(React) {
         if (row.quote_status && row.quote_status !== "ready")
           return h(Row, { key, kindKey: "cash", kindLabel, family },
             h("span", { className: "coc-mech-body" }, term(text(row.purpose || row.quote))),
+            num(row.cash_debit)!==undefined ? h("span",{className:"coc-mech-cash-debit"},term("cash"),` ${text(row.cash_debit)} `,term(text(row.currency))) : null,
             row.quote_status === "pending" ? h(Waiting, { label: t("preparing") }) : null);
         const before = num(row.before);
         const after = num(row.after);
@@ -1275,6 +1276,7 @@ export function createComponent(React) {
             items.map((item, i) => h("span", { key: `price:${i}`, className: "coc-mech-cash-detail" },
               term(text(item.name)), ` ×${text(item.quantity)} · ${text(item.unit_price)} = ${text(item.amount)} `, term(text(row.currency)))),
             purchase !== undefined && !quoted ? h("span", { className: "coc-mech-cash-detail coc-mech-purchase" }, text(row.purchase_amount), " ", term(text(row.currency))) : null,
+            quoted && num(row.cash_debit)!==undefined ? h("span", {className:"coc-mech-cash-detail coc-mech-cash-debit"}, term("cash"), ` ${text(row.cash_debit)} `, term(text(row.currency))) : null,
             row.daily_total !== undefined ? h("span", { className: "coc-mech-cash-detail coc-mech-spending" },
               sheet("spending"), ` ${text(row.daily_total)} / ${text(row.spending_level)} `, term(text(row.currency))) : null,
             row.settlement === "living_standard" ? h("span", { className: "coc-mech-cash-detail" }, sheet("livingStandard")) : null),
