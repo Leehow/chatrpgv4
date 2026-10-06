@@ -2,7 +2,7 @@
 import { clueGuards } from "./obligations.js";
 import { DirectorGraph, Ontology } from "./content.js";
 import { semanticName } from "./rule-facts.js";
-import { ModuleGraph, recordOf, moduleDeclaration, conditionMet, describeCondition } from "./module-graph.js";
+import { ModuleGraph, recordOf, moduleDeclaration, conditionMet, describeCondition, sameNode } from "./module-graph.js";
 import { array, row, truth, number, integer, normalize, string, float, round, type Row } from "./values.js";
 import { isStakesRoll } from "../npc/stakes-receipt.js";
 const SIGNALS = ["structure_type", "intent", "undiscovered_here", "agenda_npc_present", "dramatic_question", "exit_condition_met", "main_line_complete", "stalled_turns", "blocked_attempts", "empty_turns", "repeat_input", "previous_close", "turns_in_scene", "hp_state", "sanity_state", "session", "last_roll", "pushed_fail_pending", "pending_choice", "clock_near_full", "loop_count", "echoes_here", "loop_available"];
@@ -122,7 +122,7 @@ export function signals(options: {
     const previousText = string(played[0]?.player_text ?? "").trim(), currentText = string(turn.player_text ?? "").trim();
     // §185.6.1: a record keeps the scene's handle as it was then; compared by identity.
     for (const record of played) {
-        if (!graph.sameNode(row(row(record.world).scene).name, scene))
+        if (!sameNode(graph, row(row(record.world).scene).name, scene))
             break;
         turns++;
     }
@@ -132,7 +132,7 @@ export function signals(options: {
             hp = h;
         let lost = false;
         for (const record of played) {
-            if (!graph.sameNode(row(row(record.world).scene).name, scene))
+            if (!sameNode(graph, row(row(record.world).scene).name, scene))
                 break;
             if (array(record.receipts).some(r => r.kind === "delta" && r.resource === "san" && string(r.subject) === string(sheet.id) && integer(r.before) && integer(r.after) && number(r.after) < number(r.before))) {
                 lost = true;

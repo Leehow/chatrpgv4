@@ -1,7 +1,7 @@
 /** Worldline/echo/memory projections consume saved data and the foundation Git reader. */
 import { isJsonObject, parsePythonJson, compareUnicode } from "../json.js";
 import { CampaignSnapshot } from "./campaign.js";
-import { ModuleGraph, recordOf } from "./module-graph.js";
+import { ModuleGraph, recordOf, sameNode } from "./module-graph.js";
 import { EntityIndex, kindRank, fromOtherLines, memoryEvidenceView, withPromiseFulfillment, canonicalMemoryReceipts, memoryOccurrenceKey } from "./memory.js";
 import { array, row, truth, string, number, sorted, type Row } from "./values.js";
 /** Pinned historical branch receipts in one batch; failed history reads never mean unpaid. */
@@ -69,7 +69,7 @@ export async function worldlineSection(campaign: CampaignSnapshot, graph: Module
             if (string(campaign.meta.opening_scene || "") === handle)
                 since = await campaign.context.git.rootCommit(campaign.id) ? 0 : null;
             else {
-                const record = [...campaign.records].sort((a, b) => number(a.turn) - number(b.turn)).find(record => graph.sameNode(row(row(record.world).scene).name, found) && truth(record.commit));
+                const record = [...campaign.records].sort((a, b) => number(a.turn) - number(b.turn)).find(record => sameNode(graph, row(row(record.world).scene).name, found) && truth(record.commit));
                 if (record)
                     since = number(record.turn);
             }

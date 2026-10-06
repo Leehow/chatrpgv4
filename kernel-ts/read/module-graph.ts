@@ -276,6 +276,14 @@ export function notAPerson(name: string, graph: ModuleGraph, party: readonly Row
         });
     return null;
 }
+/**
+ * §185.6.1: whether a stored handle names this node -- `ModuleGraph.sameNode` in a name-free graph. A legacy graph, or a
+ * graph-shaped reader without a map, compares the handle as written, as every reader did before §185.
+ */
+export const sameNode = (graph: ModuleGraph, stored: unknown, node: Row): boolean =>
+    graph.nodeHandles ? graph.sameNode(stored, node) : typeof stored === "string" && stored !== "" && stored === graph.handle(node);
+/** §185.6.1: a stored handle as the current handle of the node it names in a name-free graph; as written otherwise. */
+export const currentHandle = (graph: ModuleGraph, stored: string): string => graph.nodeHandles ? graph.currentHandle(stored) : stored;
 export class ModuleGraph {
     /** Source queue/asset routing only; never authored graph data. */
     sourceCampaign?: string;

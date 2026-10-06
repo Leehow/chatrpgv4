@@ -1,7 +1,7 @@
 /** Source relationships stay useful after acquisition. This view never infers comprehension. */
 import { RpcError } from '../errors.js';
 import { pythonJsonDumps } from '../json.js';
-import { ModuleGraph, recordOf } from './module-graph.js';
+import { ModuleGraph, recordOf, sameNode } from './module-graph.js';
 import { resolveReference } from './references.js';
 import {EntityIndex, queryCandidates, memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts} from './memory.js';
 import { array, chars, row, string, type Row } from './values.js';
@@ -24,16 +24,16 @@ export function evidenceDeliveryRecords(graph: ModuleGraph, node: Row, records: 
     // §185.6.1: a receipt keeps the handle a node had then (an interim one, before a fold); compared by identity.
     const carriers = evidenceCarriers(graph, node);
     return records.filter(record => array(record.receipts).some(receipt =>
-        graph.sameNode(receipt.clue, node) || graph.sameNode(receipt.handout, node) || carriers.some(carrier => graph.sameNode(receipt.handout, carrier))));
+        sameNode(graph, receipt.clue, node) || sameNode(graph, receipt.handout, node) || carriers.some(carrier => sameNode(graph, receipt.handout, carrier))));
 }
 
 export function evidenceAcquired(graph: ModuleGraph, world: Row, node: Row, records: Row[]): boolean {
     const name = graph.handle(node);
     if (node.node_kind === 'clue' && array(world.discovered_clues).includes(name)) return true;
     if (node.node_kind === 'handout' && array(world.handouts_shown).includes(name)
-        && records.some(record => array(record.receipts).some(receipt => graph.sameNode(receipt.handout, node)))) return true;
+        && records.some(record => array(record.receipts).some(receipt => sameNode(graph, receipt.handout, node)))) return true;
     const carriers = evidenceCarriers(graph, node);
-    return carriers.length > 0 && records.some(record => array(record.receipts).some(receipt => carriers.some(carrier => graph.sameNode(receipt.handout, carrier))));
+    return carriers.length > 0 && records.some(record => array(record.receipts).some(receipt => carriers.some(carrier => sameNode(graph, receipt.handout, carrier))));
 }
 
 /** Compact evidence keeps every acquired row up to this cap; unacquired rows are optional context.

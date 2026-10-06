@@ -35640,7 +35640,10 @@ graph gets it without a per-tool copy.
   (`read/exchange.ts`: the closing scene, and each speaker read as their current handle for their label), story evidence
   (`read/story.ts`, a clue's deliveries), continuity evidence (`read/continuity.ts`, clue and handout receipts), the owed
   projection's delivered scene (`owed/index.ts`, written now as the current handle), the sanity exposure check
-  (`runtime/check-catalog.ts`) and the voice lane's said lines (`voice/index.ts`). Readers that already resolve a stored handle
+  (`runtime/check-catalog.ts`), the voice lane's said lines (`voice/index.ts`) and the say token's shown word
+  (`write/speech.ts`). They call the free functions `sameNode(graph, stored, node)` and `currentHandle(graph, stored)`
+  (`read/module-graph.ts`), which compare as written for a legacy graph and for a graph-shaped stub without a map (three
+  unit suites hand those readers one: `name-history`, `owed-printed-weapon`, `untold-name-disclosure`). Readers that already resolve a stored handle
   through the graph (`graph.find`, `graph.scene`, `personOf`'s name keys, recall's node ids) needed nothing. This list is the
   sweep of equality comparisons between a stored handle and `graph.handle()`; NFH-04's request scan is the check that nothing
   else reaches the Keeper.

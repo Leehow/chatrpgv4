@@ -11,7 +11,7 @@
  */
 import type { CampaignSnapshot } from './campaign.js';
 import { personLabel } from './capsule.js';
-import type { ModuleGraph } from './module-graph.js';
+import { currentHandle, sameNode, type ModuleGraph } from './module-graph.js';
 import { array, number, row, string, truth, type Row } from './values.js';
 
 /** The exchange's named bounds: the delivery's last lines kept, one line's code points, the player's words' code points. */
@@ -64,7 +64,7 @@ export function stillWhereItClosed(graph: ModuleGraph, world: Row, record: Row |
     if (!record || !active) return false;
     const scene = graph.find(active, ['scene']), closed = string(row(row(record.world).scene).name);
     // §185.6.1: the record keeps the scene's handle as it was then; compared by identity.
-    return scene ? graph.sameNode(closed, scene) : closed === active;
+    return scene ? sameNode(graph, closed, scene) : closed === active;
 }
 
 /**
@@ -78,7 +78,7 @@ export function exchangeOf(world: Row, record: Row, graph?: ModuleGraph): Row | 
     const speech = array(record.speech).map(row).flatMap(line => {
         const who = row(line.who), text = clip(line.text, EXCHANGE_LINE_MAX);
         // §185.6.1: a person's handle as the record kept it, read as their current one, which the world's labels are keyed by.
-        const id = typeof who.npc === 'string' && who.npc ? graph?.currentHandle(who.npc) ?? who.npc : typeof who.investigator === 'string' && who.investigator ? who.investigator : '';
+        const id = typeof who.npc === 'string' && who.npc ? (graph ? currentHandle(graph, who.npc) : who.npc) : typeof who.investigator === 'string' && who.investigator ? who.investigator : '';
         return id && text ? [{who: personLabel(world, id, string(who.name || id)), line: text}] : [];
     }).slice(-EXCHANGE_LINES);
     return said || speech.length ? {turn: number(record.turn), player_text: said || null, speech} : null;

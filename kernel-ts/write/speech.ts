@@ -5,7 +5,7 @@
  * §34.14) and resolves the name to a person by exact name, deterministically. No fuzzy matching, no
  * word list deciding what kind of person a label denotes: a name that matches nobody stays a label.
  */
-import { ModuleGraph } from '../read/module-graph.js';
+import { ModuleGraph, sameNode } from '../read/module-graph.js';
 import { RpcError } from '../errors.js';
 import { calledPerson, npcsPresent, personLabel, personRecord } from '../read/capsule.js';
 import { array, normalize, normalizeText, row, string, truth, type Row } from '../read/values.js';
@@ -44,7 +44,7 @@ export function speakerResolver(graph: ModuleGraph, world: Row, party: Row[], un
         if (string(personRecord(world, handle).name || '').trim() || !untold(node)) return { npc: handle, name };
         // Exact: normalized, a handle and the name it was made from are the same string ("steven-knott", "Steven Knott").
         // §185.4: in a name-free campaign the old slug and the interim handle are identifiers too, never a name said.
-        const shown = graph.sameNode(said.trim(), node) ? '' : said.trim();
+        const shown = sameNode(graph, said.trim(), node) ? '' : said.trim();
         return shown === name ? { npc: handle, name } : { npc: handle, name, shown };
     };
     const sheetSpeaker = (sheet: Row): Speaker => ({ investigator: string(sheet.id), name: personLabel(world, string(sheet.id), string(sheet.name)) });

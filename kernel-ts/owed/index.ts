@@ -17,7 +17,7 @@ import { cashDecimal } from '../apply/cash.js';
 import { jsonDigest } from '../json.js';
 import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
-import type { ModuleGraph } from '../read/module-graph.js';
+import { currentHandle, type ModuleGraph } from '../read/module-graph.js';
 import { personNode } from '../read/capsule.js';
 import { locateExcerpt } from '../read/excerpt.js';
 import { queuedDefinition } from '../mods/queue.js';
@@ -139,7 +139,7 @@ export async function projectOwed(kernel: KernelContext, graph: ModuleGraph, wor
     entries.sort((a, b) => Number(a.entry.kind !== 'move') - Number(b.entry.kind !== 'move') || a.index - b.index);
     let told: string | null = null;
     // §185.6.1: the record keeps the scene's handle as it was then; a row written now names it by its current handle.
-    const delivered = graph.currentHandle(text(row(row(record.world).scene).name)) || text(world.active_scene);
+    const delivered = currentHandle(graph, text(row(row(record.world).scene).name)) || text(world.active_scene);
     const bands = entries.length ? await owedBands(kernel) : null;
     for (const { entry, index } of entries) {
         const kind = text(entry.kind), drop = (reason: string) => dropped.push({ index, kind, reason });

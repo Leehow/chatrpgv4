@@ -1,5 +1,5 @@
 /** Committed player-visible name disclosure, shared by the journal and Keeper projections (§103). */
-import type { ModuleGraph } from '../read/module-graph.js';
+import { sameNode, type ModuleGraph } from '../read/module-graph.js';
 import { array, string, number, normalize, type Row } from '../read/values.js';
 import { prepareNameHistory } from './name-history.js';
 
@@ -54,7 +54,7 @@ export function toldTurn(graph: ModuleGraph, node: Row, records: Iterable<Row>, 
     for (const record of history.graphRecords()) {
         if (!(number(record.turn) <= upTo)) continue;
         // §185.6.1: a record keeps the handle the person had then (an interim one, before a fold): compared by identity.
-        if (history.speech(record).some(who => graph.sameNode(who.npc, node) && words.some(word => occurs(who.shown, word))))
+        if (history.speech(record).some(who => sameNode(graph, who.npc, node) && words.some(word => occurs(who.shown, word))))
             return number(record.turn);
         // §177.15: `told_text` where the delivery had places the host cleared as part of another word, blanked there.
         if (words.some(word => occurs(history.text(record), word)))
