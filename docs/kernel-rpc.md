@@ -1818,7 +1818,7 @@ Writers are the existing committed-source memory publisher and canonical NPC/res
 
 **Current-attempt delivery.** Ordinary NPC replies stay with the Keeper. A chosen request returns the specific available answer, a scoped unknown/refusal, or a genuinely deferred result with its established cause; acceptance, registration, another promise or another recipient does not replace the original result. Routine steps within the selected goal introduce no new confirmation. A deferred action that remains under way uses the existing NPC intention/result path; completion, failure or abandonment is recorded when supported, while already completed routine dialogue needs no intention row. Already earned literal identities and values (names, room/record numbers and document dates) are story content and may be quoted accurately in prose; dice, resources, prices and rule/time arithmetic remain canonical mechanics. This is not a requirement that every turn add a clue, movement, clock tick or event. New player choices and source knowledge limits still govern play.
 
-候选 `kind` 增加 `promise`：某人答应了有到期或有条件的事（`subject` 为许诺者，`entities` 为受诺者与相关实体，`statement` 写清条件或期限）。抽取指令加一句；`obligations.promise` 取未关闭的。关闭的路径与其他候选一样：同 `subject` 同 `entities` 的新 `promise` 接续旧的。
+候选 `kind` 增加 `promise`：某人答应了有到期或有条件的事（`subject` 为许诺者，`entities` 为受诺者与相关实体，`statement` 写清条件或期限）；`obligations.promise` 取未关闭的。当前 reference-first 路径按 §122 T09 的明确 occurrence relation 关闭：`temporal_change` 或有效 correction 指向被替代的原记录；同 subject/entities 或重复许诺本身不自动关闭。物质履约仍以 canonical receipts 派生，记忆不会执行世界效果。
 
 ### 13.6 `style`：手艺进胶囊
 

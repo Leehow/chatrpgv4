@@ -194,7 +194,7 @@ export async function referencedJob(campaign: CampaignWriter, graph: ModuleGraph
         const npcKeys = new Set(array(issued.context.known_entities).filter(value => value.kind === 'npc')
             .flatMap(value => index.matches(string(value.name), {kinds: ['npc'], investigators: false, reserved: []})));
         const projected = withPromiseFulfillment(eligible, {campaign: campaign.id, world,
-            receipts: canonicalMemoryReceipts((await campaign.records()).filter(record => number(record.turn) <= turn))});
+            receipts: canonicalMemoryReceipts((await campaign.recordInputs()).filter(record => number(record.turn) <= turn))});
         const preferred = projected.map((value, at) => ({value, original: eligible[at]})).filter(({value}) => {
             if(value.kind !== 'promise' || value.status !== 'candidate' || value.superseded_by != null || value.valid_until_turn != null
                 || row(memoryEvidenceView(value).fulfillment).status === 'complete') return false;
