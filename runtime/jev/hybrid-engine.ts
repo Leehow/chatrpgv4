@@ -1106,6 +1106,28 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           const issued = await readCandidateBodies({candidates: fresh.candidates, capsule, call}).catch(() => undefined);
           if (invocation.signal.aborted || run.checkInputsClosed || currentRunId !== run.runId) { run.checkInputs?.clear(); throw new ContractError('check_catalog_binding_changed'); }
           packet = withIssuedBodies(packet, issued);
+          let sourcePresenceMetadata: Row = {status: 'packet_missing'};
+          if (packet) {
+            try {
+              const serialized = object(JSON.parse(String(packet.content))), bodies = object(serialized.issued).bodies;
+              if (!Array.isArray(bodies)) sourcePresenceMetadata = {status: 'issued_bodies_missing'};
+              else {
+                const references = bodies.map(object).filter(entry => entry.family === 'source_presence');
+                const presentKeys = (value: Row) => Object.keys(value).filter(key => value[key] != null);
+                sourcePresenceMetadata = {status: 'serialized_packet', total: references.length, count: Math.min(references.length, 8),
+                  omitted: Math.max(0, references.length - 8), reference_only_count: references.filter(entry => entry.reference_only === true).length,
+                  entries: references.slice(0, 8).map(entry => {
+                    const body = object(entry.body), behavior = object(body.behavior), runtime = object(body.runtime_reference), wants = behavior.wants;
+                    return {reference_only: entry.reference_only === true, reference_only_missing: entry.reference_only == null,
+                      behavior_keys: presentKeys(behavior), behavior_missing: body.behavior == null,
+                      runtime_reference_keys: presentKeys(runtime), runtime_reference_missing: body.runtime_reference == null,
+                      knowledge_count: Array.isArray(behavior.knowledge) ? behavior.knowledge.length : null, knowledge_missing: behavior.knowledge == null,
+                      wants_bytes: wants == null ? null : Buffer.byteLength(typeof wants === 'string' ? wants : JSON.stringify(wants), 'utf8'), wants_missing: wants == null,
+                      truncated: entry.truncated === true, omitted_fields: array(entry.omitted_fields).filter(value => typeof value === 'string')};
+                  })};
+              }
+            } catch { sourcePresenceMetadata = {status: 'packet_parse_failed'}; }
+          }
           // §135.31: a person whose card went to the Keeper as an issued body is not carried again this run.
           for (const entry of issued?.bodies ?? []) if (entry.family === 'person') for (const name of [entry.name, text(entry.body.id)]) if (name) run.shown.people.add(name);
           if (packet && table.binding && bridge?.campaign)
@@ -1113,8 +1135,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           const ms = stepNow() - began;
           record({lane: 'run', event: 'read', run: run.runId, stepId: invocation.stepId, ms, scene: table.context.scene,
             candidates: fresh.candidates.map(candidate => candidate.key), prescreen,
-            ...(issued ? {bodies: {count: issued.bodies.length, bytes: issued.bytes, reads: issued.reads, ms: issued.ms,
-              truncated: issued.bodies.filter(entry => entry.truncated).length, omitted: issued.omitted.map(entry => `${entry.key}:${entry.reason}`)}} : {})});
+            bodies: {...(issued ? {count: issued.bodies.length, bytes: issued.bytes, reads: issued.reads, ms: issued.ms,
+              truncated: issued.bodies.filter(entry => entry.truncated).length, omitted: issued.omitted.map(entry => `${entry.key}:${entry.reason}`)} : {}),
+              source_presence: sourcePresenceMetadata}});
           // SL-76 (§135.32, §135.3.1): this read's D1 candidates are kept for the turn-close route, never asked
           // here. A read is not a decision (§135.6, SL-22), and the run's own route/compile/bind Jev calls stay
           // exactly what they were before SL-76 -- a mid-read consequence call was found, live-gate style, to move
