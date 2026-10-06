@@ -10999,6 +10999,32 @@ The extended **`introduce_evidence` / `source_rebinding` / `bridge_offer`** live
 
 ## 38. A turn always ends: releasing a stranded turn (2026-09-13)
 
+### 38.0 Responses normalization loss (JEV-OPEN-02, 2026-10-06)
+
+The foreground host compares the same request's observed terminal Responses message
+length with its normalized assistant text before delivery replacement. A completed
+terminal event with nonempty `output_text` or refusal content and zero normalized
+text is an explicit `responses_terminal_text_missing` provider failure. It is not
+an upstream empty response and not a successful story delivery. The host returns
+an assistant error through Pi's existing `message_end` replacement port; it does
+not publish raw terminal text or execute calls from that inconsistent message.
+The error does not request automatic retries or add a model budget. Prior canonical
+settlements stay intact and the existing sections 38/50 service notice and mechanics
+projection finish before the outward terminal boundary.
+
+Missing terminal observations remain unknown; parser errors, cancellations and
+incomplete responses keep their existing failure classification. An observed
+completed response whose raw and normalized text are both empty retains the
+ordinary bounded turn-close repair. A nonempty normalized response is outside this
+all-empty guard. Observation callbacks stay read-only and retain only lengths and
+types, never terminal text, credentials or private context. The six v32 attempts
+still lack raw SSE tails and an exact product revision, so a controlled parser
+reproduction does not assign this cause to those historical attempts.
+
+**Kernel decision.** No kernel state transition or settlement rule changes. The
+host's first `message_end` handler owns failure classification; its normal provider
+accounting and stranded-turn delivery consumers read the replaced message.
+
 A turn that a player opened must always be able to return to that player, and every player utterance must
 end in a visible result: a delivery or a service notice. Infrastructure that cannot complete a run must not
 also be able to end the campaign. Until this section the state

@@ -1640,6 +1640,7 @@ export default function (pi: ExtensionAPI) {
 		item_done: MessageShape; terminal_messages: MessageShape; terminal_observed: boolean; terminal_output_present: boolean;
 		terminal_type?: 'completed' | 'incomplete' | 'failed' | 'error'; terminal_status?: string;
 		usage?: {input: number | null; output: number | null; reasoning: number | null};
+		normalization_failure?: 'responses_terminal_text_missing';
 	} | undefined;
 	function flushProviderObservation(close: 'message_end' | 'agent_end' | 'superseded', message?: {content?: unknown}): number | undefined {
 		const observation = providerObservation;
@@ -1673,6 +1674,26 @@ export default function (pi: ExtensionAPI) {
 			const count = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 			observation.usage = {input: count(usage.input_tokens), output: count(usage.output_tokens), reasoning: count(details.reasoning_tokens)};
 		}
+	});
+
+	// JEV-OPEN-02: classify a proved decoder loss before the ordinary delivery handler.
+	// The raw hook remains observational. Pi propagates this replacement into the
+	// infer result and durable history before any proposal can execute.
+	pi.on('message_end', async event => {
+		const observation = providerObservation;
+		if (!table || event.message.role !== 'assistant' || !observation
+			|| !observation.terminal_observed || observation.terminal_type !== 'completed'
+			|| observation.terminal_status !== 'completed' || !observation.terminal_output_present
+			|| ['error', 'aborted', 'length'].includes(event.message.stopReason)) return;
+		const rawBytes = observation.terminal_messages.text_bytes + observation.terminal_messages.refusal_bytes;
+		const normalizedBytes = event.message.content.reduce((sum, block) => sum + (block.type === 'text' ? textBytes(block.text) : 0), 0);
+		if (rawBytes === 0 || normalizedBytes !== 0) return;
+		observation.normalization_failure = 'responses_terminal_text_missing';
+		await record({lane: 'provider-normalization', observation_request: observation.observation_request,
+			reason: observation.normalization_failure, terminal_text_bytes: rawBytes, normalized_text_bytes: normalizedBytes,
+			original_stop_reason: event.message.stopReason});
+		return {message: {...event.message, content: [], stopReason: 'error' as const,
+			errorMessage: 'responses_terminal_text_missing: completed Responses message content was absent after normalization'}};
 	});
 
 	async function record(entry: Record<string, unknown>): Promise<void> {
