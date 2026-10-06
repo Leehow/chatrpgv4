@@ -33720,6 +33720,26 @@ Five mutations each turn a case red: no older pass, partial written to `cast.jso
 
 ### 177.10 Limits
 
+**Kernel decision (2026-10-06, JEV-OPEN-01).** Name disclosure prepares history only within one operation: chronological
+eligible rows and lazily normalized delivered text/speaker wording are shared by that operation's people. The graph
+floor retains `truth(commit)`, `number(turn) <= upTo`, graph name words and matching speaker identity; the unread-cast
+floor retains its JavaScript commit truthiness, integer turn and cast names, and reads prose only. `told_text` still
+overrides `rendered_text`; a recorded `shown` still overrides the speaker's name, including an empty value. This is
+deterministic input preparation, never a cached naming verdict or a cross-request history index. Journal jobs,
+rosters, epithets and delivery still consult their full eligible history and revalidate against the current saved inputs.
+
+`table.untold_spans` preloads only party, turn records and optional journal, beside the canonical owner/world/turn and
+campaign-bound module load. It preserves recovery, readiness and legacy-trail guards. As in the full preload, an
+unreadable optional journal is cached as null for this snapshot; records and mandatory inputs keep their errors.
+A snapshot reuses even an empty loaded turn collection. Other preload modes and the journal/voice/epithet history
+consumers retain their fields. RPC queue, transport/lock, model and whole-turn waits remain separate measurements.
+
+Quotation registration's history scan (`table.quotes.flush`, §58.9) reads frozen saved record inputs instead of
+cloning every complete historical world and call result. Listing and newer-offer checks still read every record
+in the current scope with the existing mandatory-file errors, and continue to check commit, worldline and loop.
+The mutable campaign readers retain their copies; quotation settlement still stages a cloned world. This removes
+copy work from repeated scans without retaining a history list or trusting an old listing across RPCs.
+
 - The cast is navigation, not permission to play. A row gives no facts about a person, only that the book names them and where.
 - A starter's names that appear only in prose are not in its cast (owner's Q4).
 - A newcomer named only in prose, with no `apply npc`, was first left ungated (owner's Q5). After table 25 the owner ruled to refuse a whole printed name in prose (§177.11), and the journal label check above still holds.

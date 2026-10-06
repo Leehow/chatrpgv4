@@ -99,12 +99,15 @@ export class CampaignWriter implements CampaignWritePort {
         return await this.context.snapshots.pathExists(this.path(path)) ? this.read(path) : null;
     }
     writeTurnRecord(value: Row) { return this.write(this.recordName(number(value.turn)), value); }
-    async files(folder: string): Promise<Row[]> {
+    async files(folder: string, mutable = true): Promise<Row[]> {
         const names = await this.context.snapshots.sortedChildNames(this.path(folder), path => this.context.snapshots.isFile(path));
-        return Promise.all(names.filter(name => name.endsWith('.json')).map(name => this.read(join(folder, name))));
+        return Promise.all(names.filter(name => name.endsWith('.json')).map(async name => mutable
+            ? this.read(join(folder, name)) : row(await this.context.snapshots.readJson(this.path(join(folder, name))))));
     }
     party() { return this.files('party'); }
     records() { return this.files('turns'); }
+    /** Frozen saved inputs for read-only consumers; enumerate again on every call, with mandatory-file errors. */
+    recordInputs(): Promise<readonly Row[]> { return this.files('turns', false); }
     async appendTranscript(turn: number, role: 'player' | 'keeper', text: string): Promise<Row> {
         const entry = {
             turn,

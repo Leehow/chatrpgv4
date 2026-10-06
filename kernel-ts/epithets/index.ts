@@ -17,6 +17,7 @@ import { npcsPresent } from '../read/capsule.js';
 import { EPITHETS_PER_JOB, WORD_LIMIT, readEpithets, submitEpithets, tableWord, untoldBookPeople, wordsInUse } from '../read/person-words.js';
 import { personDescribed } from '../first-sight/index.js';
 import { untoldUnread } from '../read/cast.js';
+import { prepareNameHistory } from '../journal/name-history.js';
 import { array, repr, row, string, type Row } from '../read/values.js';
 
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
@@ -55,10 +56,11 @@ export function createEpithetHandlers(context: KernelContext, writer: ReturnType
             if (!graph) return { job_id: null, waiting: 'graph' };
             const stored = await readEpithets(campaign);
             const has = (id: string) => !!tableWord(world, id) || !!text(row(row(stored.people)[id]).word);
-            const wanting = untoldBookPeople(graph, journal, records).filter(node => !has(graph.handle(node)));
+            const history = prepareNameHistory(records);
+            const wanting = untoldBookPeople(graph, journal, history).filter(node => !has(graph.handle(node)));
             // §177.5: the people the book names whom the reader has not reached are given a word too, after the graph's people,
             // so the request's rename can show them by it rather than by the cast row's id.
-            const unread = untoldUnread(graph, records).filter(person => !has(person.id));
+            const unread = untoldUnread(graph, history).filter(person => !has(person.id));
             if (!wanting.length && !unread.length) return { job_id: null };
             // Who is in the room first: the active scene's people, else the opening scene's, then the book's order.
             const sceneId = text(world.active_scene || meta.opening_scene || '');

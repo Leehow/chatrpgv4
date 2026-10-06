@@ -446,7 +446,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
         // Contract §103.5: who is still untold, campaign-wide, for the host's rename of the Keeper's request. Read-only.
         "table.untold": async (params) => {
             const { campaign, module } = await readCampaign(context, params, false, true, contributions, true);
-            const journal = row(await campaign.optional("npc-journal.json")), records = campaign.records.length ? campaign.records : await campaign.files("turns");
+            const journal = row(await campaign.optional("npc-journal.json")), records = await campaign.turnRecords();
             return { people: untoldRoster(module.graph, campaign.world, journal, records) };
         },
         "table.look": async (params) => {

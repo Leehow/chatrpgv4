@@ -17,6 +17,7 @@
  */
 import type { ModuleGraph } from './module-graph.js';
 import { bookNames, namePieces, occurs } from '../journal/naming.js';
+import { prepareNameHistory } from '../journal/name-history.js';
 import { array, integer, normalize, number, row, string, type Row } from './values.js';
 import { isJsonObject } from '../json.js';
 import { join } from 'node:path';
@@ -154,15 +155,17 @@ export const unreadCast = (graph: ModuleGraph): CastPerson[] => bookCast(graph).
 /** Whether a committed delivery showed one of an unread person's names (the test `toldTurn` makes for a graph person). */
 export function castToldTurn(person: CastPerson, records: Iterable<Row>): number | null {
     const words = person.names.map(normalize).filter(Boolean);
-    const committed = [...records].filter(record => record.closed_by === 'narrate' && record.commit && integer(record.turn))
-        .sort((a, b) => number(a.turn) - number(b.turn));
-    for (const record of committed)
-        if (words.some(word => occurs(normalize(string(record.told_text ?? record.rendered_text ?? '')), word))) return number(record.turn);
+    const history = prepareNameHistory(records);
+    for (const record of history.castRecords())
+        if (words.some(word => occurs(history.text(record), word))) return number(record.turn);
     return null;
 }
 
 /** The unread people the investigator has not been told about. */
-export const untoldUnread = (graph: ModuleGraph, records: Row[]): CastPerson[] => unreadCast(graph).filter(person => castToldTurn(person, records) === null);
+export const untoldUnread = (graph: ModuleGraph, records: Iterable<Row>): CastPerson[] => {
+    const history = prepareNameHistory(records);
+    return unreadCast(graph).filter(person => castToldTurn(person, history) === null);
+};
 
 /**
  * The unread person a word names (§177.3): one of their names, the word this table calls them (`world.person_epithets`

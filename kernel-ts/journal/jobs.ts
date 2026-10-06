@@ -8,6 +8,7 @@ import { ModuleGraph } from '../read/module-graph.js';
 import { sceneLabel } from '../read/capsule.js';
 import { tableWord } from '../read/person-words.js';
 import { bookNames, namePieces, occurs, nameWords, toldTurn } from './naming.js';
+import { prepareNameHistory } from './name-history.js';
 import { bookCast, type CastPerson } from '../read/cast.js';
 import { array, row, clone, string, number, integer, truth, repr, sorted, length, normalize, type Row } from '../read/values.js';
 import { FAILURE_REASONS, committedRecords, logs, proseOf, writeLines } from '../memory/jobs.js';
@@ -134,13 +135,13 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
     const journal = await readJournal(campaign), named = collectNamed(graph, record, journal.entries);
     const recordable = sorted(new Set(named.map(([name]) => name)));
     // §103: who the records have shown the player a name for, by turn -- the deterministic floor the lane's `named` sits on.
-    const told: Row = {}, words: Row = {};
+    const told: Row = {}, words: Row = {}, history = prepareNameHistory(committed.values());
     for (const [, id] of named) {
         const node = graph.nodes.get(id);
         if (!node || words[id] !== undefined)
             continue;
         words[id] = nameWords(graph, node);
-        const at = toldTurn(graph, node, committed.values(), turn);
+        const at = toldTurn(graph, node, history, turn);
         if (at != null)
             told[id] = at;
     }

@@ -27,6 +27,7 @@ export class CampaignSnapshot {
     turn: Row = {};
     party: Row[] = [];
     records: Row[] = [];
+    private recordsLoaded = false;
     /** The stance and combat-disposition tables an NPC's standing action reads (§11.5.3); loaded by `preload`. */
     standingTables: StandingTables | null = null;
     /** The stance ledger failed to read while a fight was loaded; the standing action's table reading is withheld. */
@@ -50,6 +51,14 @@ export class CampaignSnapshot {
         const names = await this.context.snapshots.sortedChildNames(join(this.dir, directory), path => this.context.snapshots.isFile(path));
         return Promise.all(names.filter(name => name.endsWith(".json")).map(async (name) => row(await this.optional(join(directory, name)))));
     }
+    /** This snapshot's full history, including an empty collection; never reused by another operation. */
+    async turnRecords(): Promise<Row[]> {
+        if (!this.recordsLoaded) {
+            if (!this.records.length) this.records = await this.files('turns');
+            this.recordsLoaded = true;
+        }
+        return this.records;
+    }
     saved(path: string): Row | null {
         const value = this.jsonFiles.get(join("save", path));
         return value && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -68,10 +77,17 @@ export class CampaignSnapshot {
     chainReads(): ChainReads {
         return { party: this.party, magic: id => this.magic(id) };
     }
-    async preload(mode: "all" | "view" | "people" = "all"): Promise<void> {
+    async preload(mode: "all" | "view" | "people" | "names" = "all"): Promise<void> {
         this.party = await this.files("party");
+        if (mode === 'names') {
+            await this.turnRecords();
+            // Preserve the full preload's optional-journal failure semantics for the name reader.
+            try { await this.optional('npc-journal.json'); }
+            catch { this.jsonFiles.set('npc-journal.json', null); }
+            return;
+        }
         if (mode === "all")
-            this.records = await this.files("turns");
+            await this.turnRecords();
         const saves = mode === "people" ? [] : ["combat.json", "chase.json"];
         for (const sheet of this.party) {
             saves.push(`sanity-state/${sheet.id}.json`);

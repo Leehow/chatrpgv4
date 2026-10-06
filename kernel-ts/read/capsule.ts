@@ -6,6 +6,7 @@ import { entries, values, array, row, number, integer, truth, string, normalize,
 import { clueGate, structureType } from "./director.js";
 import { incapacitatedBy } from "../healing/conditions.js";
 import { namePieces, toldTurn } from "../journal/naming.js";
+import { prepareNameHistory } from '../journal/name-history.js';
 import { tableWord } from "./person-words.js";
 import { bookCast, untoldUnread } from "./cast.js";
 import { nameToken } from "../write/names.js";
@@ -150,7 +151,7 @@ export function calledBlock(world: Row, id: string, authored: string): Row | nul
 }
 /** The reminder starts before the first delivery, not after the asynchronous journal writes a label.
  * Committed deliveries and the lane's `named_at` ground disclosure; a table epithet is not disclosure. */
-export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: Row, records: Row[] = []): Row | null {
+export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: Row, records: Iterable<Row> = []): Row | null {
     // §180.3: a creature has no name to learn, so it is never untold and never carries `say_name`.
     if (!graph.isPerson(node))
         return null;
@@ -188,11 +189,12 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
  * fakes helping the owner with the cars, calling him by an alias the graph records, and only the display name was renamed.
  */
 export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, records: Row[]): Row[] {
+    const history = prepareNameHistory(records);
     // §177.4: the whole cast -- the graph's people with every name the cast gives them, and the people the book names whom
     // the reader has not reached, untold until a delivery shows one of their names. Table 23's turn 9 had 54 people in the
     // graph; a page carried for a scene could name someone else, and that name reached the Keeper as printed.
-    const unread = new Set(untoldUnread(graph, records).map(person => person.id));
-    const people = bookCast(graph).map(person => ({ person, untold: person.node ? untoldBlock(graph, world, journal, person.node, records) : unread.has(person.id) ? {} : null }));
+    const unread = new Set(untoldUnread(graph, history).map(person => person.id));
+    const people = bookCast(graph).map(person => ({ person, untold: person.node ? untoldBlock(graph, world, journal, person.node, history) : unread.has(person.id) ? {} : null }));
     // A name someone the investigator already knows also goes by stays theirs: hiding it would hide them.
     const known = new Set(namePieces(people.filter(entry => !entry.untold).flatMap(entry => entry.person.names)).map(normalize));
     // §176.5: the pieces a name separates with punctuation are renamed too. Table 23 (turn 5): the book's own scene summary
