@@ -35279,6 +35279,26 @@ The reader context hook (`extensions/module/reader-context.ts`) projects each ou
 - Unchanged: first delivery and a failed first-use retry stay intact; a receipt still requires successful delivery;
   host-projected pages keep their stable identity.
 
+*Implementation (RC-01, 2026-10-06).* `boundImages(messages, delivered, byteBudget, countBudget, evicted)` keeps the
+existing delivery keys (tool call id; host page `host:<source>:<image digest>`; message index otherwise) and evicts by
+key, so the images of one tool result leave together, oldest key first, only keys a successful reply delivered. The
+overflow test runs on every request against the images the request holds, so an image admitted over budget as a first
+delivery becomes evictable once it is delivered; "half of each budget" is `floor(count/2)` and `floor(bytes/2)`. The
+hook keeps the evicted keys for the child's life (an evicted image never returns; a reopen is a new key) and writes
+`{"event":"image_eviction","evicted":[<keys>],"kept":<images held after>,"bytes_before":…,"bytes_after":…}` to
+`<event log>.images.jsonl`, which the `delivery`-row readers skip. The `submit_reading` retirement handler is removed.
+The budget is `reading_images.count` (12) in `host-budgets.json`, chosen by `tests/play/reading_image_replay.py` over
+the App home's 2026-10-02..10-06 logs (table and reasoning in `docs/specs/reading-cost-tickets.md`, RC-01 comment): the
+smallest candidate whose replay lowers reopens-after-eviction for every provider and role (4 and 8 raise grok
+reviewers' reopens by about 47 % and 10 %), within 0.6 points of the cheapest on grok authors and the cheapest on grok
+reviewers. `readingImageBudget(contentRoot)` reads it once per content root; the reading service passes it to the author
+request and to `reviewCandidate` for `guidance/opening/detail/answer`. There is no fallback number in code: unreadable
+data leaves the hook its general pair (24, 32 MB). A child launched without a budget no longer inherits a
+`PI_COC_READER_IMAGE_HISTORY` from the host's environment. Replay finding for the owner: on `flapcode/gpt-6-luna` the
+no-retirement rule replays +8.3 % author cost (+1.3 % uncached) at 12, because 17.7 % of flapcode author requests miss
+the provider cache by themselves and recompute every held image; every other provider gains (grok author -6.6 %,
+openai-codex luna -9.0 %, deepseek -43 %). The code follows this section; the number is recorded, not tuned.
+
 ### 186.2 One cache identity per reading round; shared content first
 
 - Every Pi child the reading service starts for one job round — the author attempt and every review unit attempt of
@@ -35291,6 +35311,26 @@ The reader context hook (`extensions/module/reader-context.ts`) projects each ou
   `failure.json` note). The instructions' words do not change; only their order.
 - Telemetry: every reading usage row carries `cache_id`; the reading accounting row gains
   `first_call_uncached` per phase.
+
+*Implementation (RC-02, 2026-10-06).* `readingCacheId(module, job, round)` (`extensions/module/reader.ts`) is an
+RFC 4122 version-5 UUID (SHA-1 over a fixed namespace and `["reading-round", module, job, round]`): Pi's
+`assertValidSessionId` accepts it and it fits `prompt_cache_key` (64). `ReaderRequest.cacheId` puts
+`--session-id <id>` right after `--no-session`; a value that is not a UUID is refused before spawn. The reading
+service sets it on every author phase of the round (`index`, `index-audit`, `read`, a targeted pass) and passes it to
+`reviewCandidate`, which sets it on every unit attempt; the §152.4 identity reviewer and the cast reader are other lanes
+and stay untouched. Where it lands: Pi's `openai-responses` transport (flapcode, any Responses provider) sends
+`prompt_cache_key=<id>` with `session_id`/`x-client-request-id`; `openai-codex-responses` sends `prompt_cache_key` and
+`session-id`/`x-client-request-id`; the grok-build hook sends `x-grok-conv-id` from the session manager. Flapcode's own
+`session-id` relay header stays the provider instance's random UUID (unchanged; evidence in the RC-02 comment).
+The brief: the unit-independent sentences (review instructions, the purpose's submit sentence, the focused-input note)
+come first; then the input, ordered job-level first -- the focused projection's `task` ends with `required_review` and
+`review_scope_pages`, the whole input is `{draft, guidance?, public_fields?, task}` with the unit's keys last in
+`task`; then the unit's own sentences (coverage, map regions, map scope, the failure note); "Finish this unit and stop."
+stays last. The review cache identity is unchanged (it is computed over canonical, sorted keys). Telemetry: `cache_id`
+on the author `lane: reading` row, on `usage.jsonl` lines and on every verify unit row (passed or failed); a passed unit
+row also carries its own `first_call_uncached`. `job_accounting.first_call_uncached` is `{<phase>: {children,
+tokens}}`, a child's first call being its first assistant message whose usage reported tokens, counted by Pi's `input`
+(uncached) field; `ReaderOutcome.firstCallUncached` carries it from `runReader`.
 
 ### 186.3 The draft check reports every independent finding (amends §22's check)
 
