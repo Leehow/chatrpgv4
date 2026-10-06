@@ -6346,11 +6346,13 @@ world clock. The host's existing transcript anchors bind historical graph-node
 readings by commit and session/message identity, never wall-clock timestamps or
 turn numbers alone. No private scene or module text reaches this display.
 
-The transcript reserves a small strip for a clock card at its upper right.
+The transcript reserves a compact strip only while a one-line clock is visible
+at its upper right. The dial, date, time and turn share one small row.
 At the bottom it shows the current reading. Away from the bottom it shows the
 reading at the visible message nearest the viewport center; player messages
-inherit the preceding delivered reading. Unknown, unloaded or omitted history
-shows a placeholder, never the current clock as a historical substitute.
+inherit the preceding delivered reading. Unknown, unloaded or omitted history,
+and a current reading without a usable time, hide the clock and its reserved
+space. They never display an empty card or substitute the current clock for history.
 The row containing the center wins even when a long reply's own midpoint lies
 offscreen; otherwise the closest visible row edge wins.
 Returning to the bottom restores the current reading. Scrolling only measures

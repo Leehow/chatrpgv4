@@ -83,23 +83,24 @@ export function GameClock({ data, messages, sessionId, containerRef, atBottom }:
   if (!enabled) return null
   const reading: Reading | null = atBottom ? data.clock_mod ?? null : centered ? readings.get(centered) ?? null : null
   const when = reading?.when
+  if (!when || !Number.isInteger(when.hh) || !Number.isInteger(when.mm)
+    || when.hh < 0 || when.hh > 23 || when.mm < 0 || when.mm > 59) return null
   const sheet = { ...sheetSource, ...data.ui?.words?.sheet }, timeline = { ...timelineSource, ...data.ui?.words?.timeline }
   const pad = (value: number) => String(value).padStart(2, '0')
-  const time = when ? `${pad(when.hh)}:${pad(when.mm)}` : '—:—'
-  const dated = when && Number.isInteger(when.y) && Number.isInteger(when.mo) && Number.isInteger(when.d)
-  const full = when ? dated
+  const time = `${pad(when.hh)}:${pad(when.mm)}`
+  const dated = Number.isInteger(when.y) && Number.isInteger(when.mo) && Number.isInteger(when.d)
+  const full = dated
     ? fill(sheet.at, { y: when.y!, mo: when.mo!, d: when.d!, mo2: pad(when.mo!), d2: pad(when.d!), hh: pad(when.hh), mm: pad(when.mm) })
     : fill(sheet['day.clock'], { d: when.day ?? '—', hh: pad(when.hh), mm: pad(when.mm) })
-    : '—'
   // The projected calendar pattern remains authoritative; removing its clock leaves the date.
-  const date = when ? full.replace(time, '').trim() : '—'
-  const hourAngle = when ? (when.hh % 12 + when.mm / 60) * 30 : 0
-  const minuteAngle = when ? when.mm * 6 : 0
+  const date = full.replace(time, '').trim()
+  const hourAngle = (when.hh % 12 + when.mm / 60) * 30
+  const minuteAngle = when.mm * 6
   return <aside className={`game-clock${atBottom ? '' : ' is-history'}`} data-testid="game-clock" data-mode={atBottom ? 'live' : 'history'} aria-label={`${sheet.time} · ${full}`}>
     <svg className="game-clock-dial" viewBox="0 0 44 44" aria-hidden="true">
       <circle cx="22" cy="22" r="20" />
       <path className="game-clock-ticks" d="M22 5v3M22 36v3M5 22h3M36 22h3" />
-      {when && <><path className="game-clock-hour" d="M22 22V12" transform={`rotate(${hourAngle} 22 22)`} /><path className="game-clock-minute" d="M22 22V8" transform={`rotate(${minuteAngle} 22 22)`} /><circle className="game-clock-pin" cx="22" cy="22" r="1.8" /></>}
+      <path className="game-clock-hour" d="M22 22V12" transform={`rotate(${hourAngle} 22 22)`} /><path className="game-clock-minute" d="M22 22V8" transform={`rotate(${minuteAngle} 22 22)`} /><circle className="game-clock-pin" cx="22" cy="22" r="1.8" />
     </svg>
     <div className="game-clock-reading"><div className="game-clock-date">{date}</div><div className="game-clock-time">{time}</div></div>
     <div className="game-clock-context" title={atBottom ? timeline.youAreHere : timeline.title}>

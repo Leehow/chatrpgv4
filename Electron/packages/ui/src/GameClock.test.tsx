@@ -82,14 +82,21 @@ test('scrolling selects historical time and returning to the bottom restores the
   expect(screen.getByTestId('game-clock').getAttribute('data-mode')).toBe('live')
 })
 
-test('unknown history stays unknown while a new live reading arrives', async () => {
+test('unknown history hides the clock while a new live reading arrives, then a known message restores it', async () => {
   const f = fixture(); f.select('opening')
   const clock = render(<GameClock data={data} messages={messages} sessionId="selected" containerRef={f.containerRef} atBottom={false} />)
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
   const changed = { ...data, clock_mod: { enabled: true, when: { day: 4, hh: 17, mm: 0 }, turn: 10 } }
   clock.rerender(<GameClock data={changed} messages={messages} sessionId="selected" containerRef={f.containerRef} atBottom={false} />)
-  expect(screen.getByTestId('game-clock').textContent).toContain('—:—')
-  expect(screen.getByTestId('game-clock').textContent).not.toContain('17:00')
+  expect(screen.queryByTestId('game-clock')).toBeNull()
+  f.select('a1')
+  await waitFor(() => expect(screen.getByTestId('game-clock').textContent).toContain('23:55'))
+})
+
+test('a current reading without a game time draws no empty card', () => {
+  const f = fixture()
+  render(<GameClock data={{ ...data, clock_mod: { enabled: true, when: null, turn: 9 } }} messages={messages} sessionId="selected" containerRef={f.containerRef} atBottom />)
+  expect(screen.queryByTestId('game-clock')).toBeNull()
 })
 
 test('undated calendars use projected words, and disabling the Mod removes the display', () => {
