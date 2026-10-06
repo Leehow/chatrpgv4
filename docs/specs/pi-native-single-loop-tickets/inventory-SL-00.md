@@ -443,7 +443,7 @@ One app-play-gated leaf, `runtime/jev/history-query.ts` `createHistoryQueryLane.
 
 ### Owned-document append binding (2026-10-06)
 
-One app-play-gated leaf, `extensions/kernel/index.ts` `bindAppendArguments` `createDecisionAdapter`. A plain investigator-owned append invokes this fixed Jev batch: one Noul per offered owned carrier, one per quoted player span and one for the proposed suffix. It returns a unique existing identity or unresolved. It generates no text or plan, invokes no LLM fallback, and hands execution back to ordinary admission and the kernel transaction. Extra physical state changes and transfers keep their original validation path. Telemetry: `document_binding`.
+One app-play-gated leaf, `extensions/kernel/index.ts` `bindAppendArguments` `createDecisionAdapter`. A plain investigator-owned append first binds an issued carrier reference and selected text role. A second bounded Choice validates that exact materialized operation against the player's current choice and conditions, including read-only, withdrawn, deferred and unmet-conditional writing. Both paths require this final event-probability gate at `0.9`; normalized Choice confidence is recorded separately. The calls share one four-second parent deadline and have no retry. Otherwise binding is unresolved. It generates no text or plan, invokes no LLM fallback, and hands execution back to ordinary admission and the kernel transaction. Extra physical state changes and transfers keep their original validation path. Telemetry: `document_binding`, including closed judgements on unresolved selections.
 
 ### First sight: the check of a delivery (§168.5, 2026-10-02)
 

@@ -2167,7 +2167,7 @@
       "path": "app-play-gated",
       "role": "leaf",
       "trace": "document_binding",
-      "note": "One bounded Jev batch for a plain investigator-owned append target and selected suffix; exact player spans are copied by the host, no planner or LLM fallback."
+      "note": "Bounded Jev carrier/text binding then final-operation validation for a plain investigator-owned append, under one shared deadline; exact player spans are copied by the host, no planner or LLM fallback."
     }
   ]
 }

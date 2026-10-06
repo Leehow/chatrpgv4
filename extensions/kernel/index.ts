@@ -2968,14 +2968,15 @@ export default function (pi: ExtensionAPI) {
 				trace:jevFailureTelemetry(row=>{void record(row);})}),campaign:state.campaign,deadlineAt,signal:combined,
 				...(parent?{parent}:{}),owner:DOCUMENT_BINDING_FAMILY,goal:'Bind the already chosen document addition to its existing carrier'});
 			const lease = new TaskLease({owner:DOCUMENT_BINDING_FAMILY,goal:'Bind the selected append target',...binding,capabilities:['decision'],signal:combined,
-				budget:{deadlineAt,remainingInputTokens:200_000,remainingOutputTokens:20_000,remainingCostUsd:.02,remainingActions:1}});
+				budget:{deadlineAt,remainingInputTokens:200_000,remainingOutputTokens:20_000,remainingCostUsd:.02,remainingActions:2}});
 			try {
 				const result = await bindDocumentAppend(input,accounting.decision,lease);
 				await record({lane:'document_binding',ok:result.status==='bound',...(result.status==='bound'
-					? {target:result.document.name,text_origin:result.origin,target_probability:result.targetProbability,content_probability:result.contentProbability}
-					: {reason:result.reason})});
+					? {target:result.document.name,text_origin:result.origin,target_probability:result.targetProbability,content_probability:result.contentProbability,content_confidence:result.contentConfidence,
+						execution_probability:result.executionProbability,execution_confidence:result.executionConfidence}
+					: {reason:result.reason,judgements:result.judgements})});
 				if (result.status !== 'bound') throw new KernelError({code:'needs',message:'The existing document addition could not be bound unambiguously',
-					fix:'No document changed. Keep the original declared addition; do not invent a target, ask for the same authorization again or claim the writing happened. The binding is unresolved.',
+					fix:'No document changed. This is an internal binding failure, not a registration mismatch or physical obstacle in the fiction. Keep the original declared addition; do not invent a target, ask for the same authorization again or claim the writing happened. The binding is unresolved.',
 					details:{reason:'document_binding_unresolved',cause:result.reason}});
 				const body=(text:string)=>text.replace(/^[ \t\r\n]*/u,'');
 				if (pending.some(prior=>prior.result.document.name===result.document.name
