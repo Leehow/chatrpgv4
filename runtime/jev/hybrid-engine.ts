@@ -73,7 +73,7 @@ import { issuedSection, readCandidateBodies, type CandidateBodies } from './cand
 import { firstSightStep, type FirstSightViewPort } from './first-sight-step.ts';
 import { IMPROVISATION_GUIDANCE, CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
 import {
-  CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, exhaustedBy, interpretRoute, missedUnlocks, npcScanDue, overRun, PROPOSED_REASON, ROUTE_FAMILY,
+  CLERK_AUTHORITY, createStepPolicy, consumedByEffects, consumedByClaim, consumedByResolve, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, exhaustedBy, interpretRoute, missedUnlocks, npcScanDue, overRun, PROPOSED_REASON, ROUTE_FAMILY,
   type BindRecord, type Budget, type Candidate, type DeferredStep, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
 } from './step-policy.ts';
 
@@ -1223,10 +1223,28 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         ...(owner !== undefined && Number.isInteger(owner) && owner >= 0 ? {expected_turn: owner} : {}),
         ...(typeof details.commit === 'string' && details.commit.trim() ? {expected_commit: details.commit} : {})}));
     }
-    const fresh = !delivery && !toolResult.isError && WRITE_VERBS.has(proposal.operation) ? (await freshOf(run, stepId, signal))?.fresh : undefined;
-    // SL-78: the Keeper's own settled write (never merely proposed) is a point a listed D1 class can newly clear
-    // from, the same as a clerk write. `off`/`shadow` return at once inside `routeConsequencesAfterWrite`.
+    let refreshed = !delivery && !toolResult.isError && WRITE_VERBS.has(proposal.operation) ? await freshOf(run, stepId, signal) : undefined;
+    let fresh = refreshed?.fresh;
+    const consequenceCalls = run.consequenceCalls ?? 0, clerkBefore = run.clerkDid.length;
+    // Current eligibility must use the world after any inline consequences, rather than their input snapshot.
     if (fresh) await routeConsequencesAfterWrite(run, fresh, signal, stepId).catch(() => undefined);
+    if ((run.consequenceCalls ?? 0) !== consequenceCalls) {
+      refreshed = await freshOf(run, stepId, signal);
+      fresh = refreshed?.fresh;
+    }
+    const returnedIds = new Set(array(object(toolResult.details).receipts).filter(value => typeof value === 'string'));
+    const proposedMoves = array(object(proposal.params).effects).filter(effect => object(effect).kind === 'move');
+    const returnedMoves = (refreshed?.receipts ?? []).filter(receipt => returnedIds.has(receipt.id) && receipt.kind === 'move');
+    const ordinaryMoves = proposal.origin === 'model' && proposal.operation === 'apply' && proposedMoves.length === returnedMoves.length
+      && proposedMoves.every(effect => object(effect).owed == null && object(effect).intent_ref == null)
+      && returnedMoves.every(receipt => receipt.owed == null && receipt.intent == null && receipt.forced !== true
+        && typeof receipt.from === 'string' && typeof receipt.to === 'string'
+        && (receipt.renamed === true ? receipt.from === receipt.to : receipt.from !== receipt.to));
+    const moves = ordinaryMoves ? returnedMoves.filter(receipt => receipt.renamed !== true) : [];
+    const canonicalMove = moves.length === 1 && moves[0].to === fresh?.context.scene ? {receipt: moves[0].id, from: moves[0].from, to: moves[0].to,
+      consumed_keys: run.clerkDid.slice(clerkBefore).filter(entry => entry.status === 'succeeded')
+        .flatMap(entry => [...(entry.operation === 'apply' ? consumedByEffects(object(entry.result).effects as Row[] | undefined) : []),
+          ...consumedByClaim(object(entry.result).action as Row | undefined), ...consumedByResolve(entry.operation)])} : undefined;
     // SL-85: a real `narrate`/`ask` delivery is the turn's true close exactly as much as a `turn_close` proposal's
     // `delivered` verdict is (§135.11: `turn_close` is proposed only for "a run with no delivery evidence" --
     // a Keeper that delivers here is never proposed one at all). Without this, a turn delivered this way wrote no
@@ -1241,7 +1259,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       closeConsequences(run);
     }
     return {status: toolResult.isError ? 'refused' as const : 'ok' as const, toolResult, ...(delivery ? {delivery} : {}),
-      artifact: {kind: 'execute', executed: {ok: !toolResult.isError, summary: {tool: proposal.operation, ...(queued ? {proposed: queued.key} : {})}},
+      artifact: {kind: 'execute', executed: {ok: !toolResult.isError, summary: {tool: proposal.operation, ...(queued ? {proposed: queued.key} : {}),
+        ...(canonicalMove ? {canonical_move: canonicalMove} : {})}},
         ...(fresh ? {fresh} : {}), ...(fell ? {fell} : {}), ...(narrowed ? {narrator: true} : {}), ...(queued && !toolResult.isError ? {proposed: queued} : {})}};
   }
 
@@ -1995,11 +2014,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       && value.purpose === 'route' && value.reason === 'destination_binding_unresolved');
     // Independent authority may have failed before this handoff; its refusal does not erase the held batch.
     if (held && !observations.some(value => value.kind === 'infer' && value.step > held.step)) {
-      content.not_landed = object(held?.summary);
+      const summary = object(held.summary);
+      content.not_landed = {destination_binding: summary.destination_binding ?? null, proposed: summary.proposed ?? []};
       content.destination_binding_note = 'These proposed ordinary world steps have not executed: the declared destination did not bind to a cleared catalog endpoint. '
         + 'An available intermediate route is not a substitute destination. Preserve the original declaration and complete only its needed open world parameters '
         + 'through the existing operations and ordinary admission; do not ask for the same choice again or narrate arrival before it lands. '
-        + 'Held check selection and time binding remain with Jev and the host: do not choose a check, invent minutes or substitute an activity band.';
+        + 'Perform the world operation alone first, then let the host settle fresh check/time before narrate; do not queue narrate beside that world operation. '
+        + 'Held check selection and time binding remain with Jev and the host: do not choose a check, invent minutes or substitute an activity band. '
+        + 'A source handle is not a public name; public move labels belong to your existing player-language words owner.';
     }
     run.interactionScope = view.policyState.view.interactionScope ?? run.interactionScope;
     if (run.interactionScope && bridge?.campaign && run.turn !== undefined) {

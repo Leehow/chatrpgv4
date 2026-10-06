@@ -648,9 +648,18 @@ function candidateView(candidate: Candidate): Json {
     needs: candidate.unbound.filter(value => value.required).map(value => value.name),
     ...(candidate.detail !== undefined ? {detail: projectedDetail} : {})};
 }
+/** New eligibility identities stay in host observations, never in decision/model context. */
+function publicObservationSummary(value: Json): Json {
+  if (Array.isArray(value)) return value.map(publicObservationSummary);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !['held_eligibility', 'resumed_held_eligibility', 'canonical_move'].includes(key))
+    .map(([key, child]) => [key, publicObservationSummary(child)]));
+  return value;
+}
 export function doneThisTurn(view: RunView): Json[] {
   return view.observations.filter(value => value.kind === 'direct' || value.kind === 'infer')
-    .map(value => ({step: value.step, kind: value.kind, purpose: value.purpose, status: value.status, ...(value.summary !== undefined ? {what: value.summary} : {})}));
+    .map(value => ({step: value.step, kind: value.kind, purpose: value.purpose, status: value.status,
+      ...(value.summary !== undefined ? {what: publicObservationSummary(value.summary)} : {})}));
 }
 
 /** Route needs share scene evidence; detailed rule guidance belongs to the selected check binder. */
@@ -961,6 +970,9 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
   }
   const compile = [...view.observations].reverse().find(value => value.kind === 'decide' && value.purpose === 'compile');
   const held = routed.held?.length ? {destination_binding: object(compile?.summary).destination_binding ?? null,
+    held_eligibility: {source_scene: view.context.scene, holding_step: view.observations.length + 1,
+      recoverable: routed.held.filter(candidate => ['declared_check', 'declared_time'].includes(candidate.clerk ?? ''))
+        .map(candidate => ({key: candidate.key, clerk: candidate.clerk, family: candidate.family}))},
     proposed: routed.held.map(candidate => ({operation: candidate.verb, family: candidate.family, label: candidate.label,
       bound: candidate.bound, unbound: candidate.unbound.map(parameter => parameter.name)}))} : undefined;
   observe(view, {kind: 'decide', purpose: 'route', status: result.status, choice: routed.choice, confidence: routed.confidence, reason: routed.reason,
@@ -1463,6 +1475,43 @@ export function consumedByResolve(method: string): string[] {
   return method === 'resolve' ? [ORDINARY_CHECK_KEY] : [];
 }
 
+/** One confirmed model move resumes only still-unexecuted eligibility from its own held frame. */
+function resumeHeldEligibility(view: RunView, item: PendingItem, executed: {ok: boolean; summary: Json}, fresh: Fresh): Json | undefined {
+  if (!executed.ok || item.call?.method !== 'apply') return;
+  const proof = object(object(object(executed.summary).result).canonical_move);
+  const frame = [...view.observations].reverse().find(value => value.kind === 'decide' && value.purpose === 'route'
+    && value.reason === 'destination_binding_unresolved' && object(value.summary).held_eligibility);
+  if (!frame || typeof proof.receipt !== 'string' || !fresh.context.receipts.includes(proof.receipt)
+    || proof.from !== view.context.scene || proof.to !== fresh.context.scene || proof.from === proof.to) return;
+  const held = object(object(frame.summary).held_eligibility);
+  if (held.holding_step !== frame.step || held.source_scene !== proof.from
+    || view.observations.some(value => object(object(value.summary).resumed_held_eligibility).holding_step === frame.step)) return;
+  const performed = new Set([...array(proof.consumed_keys).filter(key => typeof key === 'string'), ...consumedByEffects(item.call.params.effects as Row[] | undefined),
+    ...consumedByClaim(item.call.params.action as Row | undefined), ...consumedByResolve(item.call.method)]);
+  for (const observation of view.observations.filter(value => value.step > frame.step)) {
+    if (observation.kind !== 'direct' || observation.purpose !== 'execute') continue;
+    if (observation.choice) performed.add(observation.choice);
+    if (observation.status === 'ok') {
+      const summary = object(observation.summary), params = object(summary.params);
+      for (const key of [...consumedByEffects(params.effects as Row[] | undefined), ...consumedByClaim(params.action as Row | undefined),
+        ...consumedByResolve(String(summary.tool ?? ''))]) performed.add(key);
+    }
+  }
+  const issued = new Map(fresh.candidates.map(candidate => [candidate.key, candidate]));
+  const recoverable = array(held.recoverable).map(object).filter(value => typeof value.key === 'string'
+    && ['declared_check', 'declared_time'].includes(String(value.clerk)) && !performed.has(value.key));
+  const released = recoverable.filter(value => {
+    const current = issued.get(value.key);
+    return view.consumed.includes(value.key) && current && !current.forced && current.clerk === value.clerk
+      && current.family === value.family && (current.clerk !== 'declared_check' || current.checkOwner === 'jev');
+  });
+  const keys = new Set(released.map(value => value.key));
+  view.consumed = view.consumed.filter(key => !keys.has(key));
+  const checks = new Set(released.filter(value => value.clerk === 'declared_check').map(value => value.key));
+  if (view.compiledOver) view.compiledOver = view.compiledOver.filter(key => !checks.has(key));
+  return {holding_step: frame.step, receipt: proof.receipt, keys: [...keys]};
+}
+
 /**
  * §135.30.5 (SL-38): the moves staged after the clerk step `key`. `landed`: the step was taken and a fresh read followed.
  * A move the fresh read issues runs next, carrying the compile's record (`carryCompile`: the fresh kernel row, the compile's
@@ -1563,8 +1612,10 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
   }
   // §143.28: a blow the Keeper (or the kernel's forced defence) landed on a held person ends the hold and owes them the scan.
   settleStruck(view, fresh);
+  let resumed: Json | undefined;
   if (fresh) {
     const before = view.context.scene;
+    resumed = resumeHeldEligibility(view, item, executed, fresh);
     applyFresh(view, fresh);
     // A scene change invalidates the material the route was judged on (runs 11-13: the people at the morgue
     // were judged against the office's material). The next step reads the new scene before any route.
@@ -1585,9 +1636,10 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
   if (!item.call && item.candidate) settleStagedClues(view, item.candidate.key, executed.ok && !!fresh && (executed.summary as Row | null)?.check !== 'failed');
   if (!item.call && item.candidate) settleUnlocks(view, item.candidate.key, executed.ok && !!fresh);
   if (item.call) {
-    observe(view, {kind: 'direct', purpose: 'execute', status: executed.ok ? 'ok' : 'refused', choice: item.call.label, summary: {...(executed.summary as Row), params: item.call.params} as Json});
+    const summary = {...(executed.summary as Row), params: item.call.params, ...(resumed ? {resumed_held_eligibility: resumed} : {})} as Json;
+    observe(view, {kind: 'direct', purpose: 'execute', status: executed.ok ? 'ok' : 'refused', choice: item.call.label, summary});
     return {step, kind: 'direct', purpose: 'execute', choice: item.call.label, confidence: null, ms, jev_calls: 0,
-      reason: executed.ok ? 'ok_model_origin' : 'refused_model_origin', detail: executed.summary};
+      reason: executed.ok ? 'ok_model_origin' : 'refused_model_origin', detail: summary};
   }
   observe(view, {kind: 'direct', purpose: 'execute', status: executed.ok ? 'ok' : 'refused', choice: item.candidate!.key, summary: executed.summary});
   return {step, kind: 'direct', purpose: 'execute', choice: item.candidate!.key, confidence: null, ms, jev_calls: 0,
@@ -1849,7 +1901,8 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
           if (!fell && (executed?.fell || !ok)) fell = executed?.fell ?? `${toolResult.toolName}_refused`;
           settleExecute(view, ++view.budget.steps, {kind: 'direct', purpose: 'execute',
             call: {method: toolResult.toolName, params: (proposal?.params ?? {}) as Record<string, Json>, label: toolResult.toolName}},
-          {ok, summary: {tool: toolResult.toolName, call: toolResult.toolCallId, status: outcome?.status ?? 'refused', ...(executed?.summary && typeof executed.summary === 'object' ? {result: executed.summary} : {})} as Json},
+          {ok, summary: {tool: toolResult.toolName, call: toolResult.toolCallId, status: outcome?.status ?? 'refused',
+            ...(executed?.executed?.summary && typeof executed.executed.summary === 'object' ? {result: executed.executed.summary} : {})} as Json},
           executed?.fresh, observation.ms);
         }
         if (plan.steps.length > 1 || fell) view.plan = plan;
