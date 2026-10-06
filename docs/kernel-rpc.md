@@ -11002,7 +11002,10 @@ The extended **`introduce_evidence` / `source_rebinding` / `bridge_offer`** live
 ### 38.0 Responses normalization loss (JEV-OPEN-02, 2026-10-06)
 
 The foreground host compares the same request's observed terminal Responses message
-length with its normalized assistant text before delivery replacement. A completed
+length with its original normalized assistant text in the first `message_end`
+handler, before any host message replacement, including textual-tool restoration.
+Stream summaries retain that original text length even when restoration removes a
+text block to create a valid tool proposal. A completed
 terminal event with nonempty `output_text` or refusal content and zero normalized
 text is an explicit `responses_terminal_text_missing` provider failure. It is not
 an upstream empty response and not a successful story delivery. The host returns

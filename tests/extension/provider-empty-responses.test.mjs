@@ -193,6 +193,26 @@ test('normal streamed text reaches canonical delivery once without normalization
   assert.equal(table.telemetry().filter(row => row.lane === 'provider-normalization').length, 0);
 });
 
+test('normally normalized Responses text tool calls survive restoration and execute once', async t => {
+  const body = 'to=functions.apply code:\n' + JSON.stringify({effects: [{kind: 'time', minutes: 2}]});
+  const {table, events, requests} = await controlledTable(t, [textEvents('normal', body), textEvents('normal')]);
+  await table.session.prompt('I wait beside the office door for two minutes.');
+  await waitForIdle(table.session);
+  assert.equal(applies(table).length, 1, 'the existing restoration must preserve the valid tool proposal');
+  assert.equal(requests(), 2);
+  assert.equal(runEnd(events).status, 'delivered');
+  assert.equal(table.kernelRequests().filter(row => row.method === 'table.narrate').length, 1);
+  assert.equal(table.telemetry().filter(row => row.lane === 'provider-normalization').length, 0);
+  assert.deepEqual(table.telemetry().filter(row => row.lane === 'model-output' && row.event === 'textual_tool_calls')
+    .flatMap(row => row.restored), ['apply']);
+  const summary = table.telemetry().find(row => row.lane === 'provider-stream-summary');
+  assert.equal(summary.terminal_messages.text_bytes, Buffer.byteLength(body));
+  assert.equal(summary.normalized_text_bytes, Buffer.byteLength(body), 'observe parser text before restoration removes it');
+  assert.equal(summary.normalized_text_blocks, 1);
+  assert.equal(summary.normalization_failure, undefined);
+  assert.equal(table.extensionErrors.length, 0);
+});
+
 // Prepare through the production TS RPC entry. This is a controlled state fixture,
 // not a player run or chapter acceptance record.
 function closedFirstTurn(workspace) {
