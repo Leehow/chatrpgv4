@@ -12,9 +12,18 @@
  */
 
 import {bindPriceText,priceRows} from '../../../../shared/cash-prose.js';
+import {EMBEDDED_ARGUMENTS,stripDialectPrefixes} from '../../../../shared/dialect-prefix.js';
 
 /** The delivering tools and the argument that carries their prose. */
 export const DELIVERY_PROSE_FIELDS: Readonly<Record<string, string>> = { narrate: "text", ask: "text", apply: "narrate" };
+
+function transportedProse(tool:string,field:string,value:string,complete:boolean):string|undefined{
+  const parameter=EMBEDDED_ARGUMENTS[tool]?.[field];
+  if(!parameter)return value;
+  if(!complete&&parameter.startsWith(value))return;
+  const repaired=(stripDialectPrefixes(tool,{[field]:value}).args as Record<string,string>)[field];
+  return repaired?.trim()?repaired:undefined;
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -154,7 +163,7 @@ export type LiveProseDraw = { id: string; text: string; first: boolean };
  */
 export class LiveDeliveryProse {
   private draft?: { id: string; shown: string };
-  private readonly calls = new Map<number, { field: string; live: boolean }>();
+  private readonly calls = new Map<number, { tool: string; field: string; live: boolean }>();
   private drafts = 0;
 
   constructor(private readonly prefix: string) {}
@@ -183,7 +192,7 @@ export class LiveDeliveryProse {
       this.draft ??= { id: `${this.prefix}:${++this.drafts}`, shown: "" };
       for (const other of this.calls.values()) other.live = false;
     }
-    this.calls.set(index, { field, live });
+    this.calls.set(index, { tool: String(toolName), field, live });
   }
 
   /** More of a call's arguments arrived; `json` is everything received for it so far. */
@@ -191,7 +200,8 @@ export class LiveDeliveryProse {
     const call = this.calls.get(index);
     if (!call?.live) return undefined;
     const found = streamingStringField(json, call.field);
-    return found ? this.show(displayedProse(found.value,priceRows(completeField(json,'effects'),completeField(json,'quotes')))) : undefined;
+    const prose=found?transportedProse(call.tool,call.field,found.value,found.complete):undefined;
+    return prose!==undefined ? this.show(displayedProse(prose,priceRows(completeField(json,'effects'),completeField(json,'quotes')))) : undefined;
   }
 
   /** A call's arguments are complete. */
@@ -199,7 +209,8 @@ export class LiveDeliveryProse {
     const call = this.calls.get(index);
     this.calls.delete(index);
     if (!call) return undefined;
-    const prose = finishedProseField(args, call.field);
+    const value = finishedProseField(args, call.field);
+    const prose=value===undefined?undefined:transportedProse(call.tool,call.field,value,true);
     if (prose === undefined) return undefined;
     let parsed=args;
     if(typeof args==='string'){try{parsed=JSON.parse(args);}catch{}}

@@ -13679,6 +13679,9 @@ outputs and the 173-second bargaining turn are retained under
   is introduced. Empty optional apply.narrate values after transport normalization
   are omitted; the admitted effects may land and the ordinary delivery still has to
   follow. An empty explicit narrate.text remains invalid.
+  The live argument display uses the same declared-label grammar: an unfinished
+  label prefix waits for its value, and a complete label-only optional field is
+  never drawn. Genuine explicit short replies and ordinary prose keep streaming.
 - An unpaid bill's explicit cancellation and a positively priced replacement of
   the same basket may be submitted in one apply batch. The native recovery gate
   recognizes both before freezing retry prices. Cancellation alone still cannot

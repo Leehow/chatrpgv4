@@ -3277,9 +3277,10 @@ export default function (pi: ExtensionAPI) {
 			let continuation: Record<string,unknown> = {};
 			if(outcome.ok==='late'&&outcome.lane&&!lateAdmission(proposal,outcome.typed,process.env,outcome.settleClasses).ok){
 				const running=outcome,waitBegan=admissionNow();
-				await emit({lane:'admission-wait',verb:tool,key:digest,event:'continue_existing',soft_cap_ms:running.capMs,hard_cap_ms:running.hardCapMs,...origin,...who});
+				await record({lane:'admission-wait',verb:tool,key:digest,event:'continue_existing',soft_cap_ms:running.capMs,hard_cap_ms:running.hardCapMs,...partRows,...origin,...who});
 				outcome=await running.lane!;
 				continuation={host_continued:true,continuation_wait_ms:admissionNow()-waitBegan,soft_cap_ms:running.capMs,hard_cap_ms:running.hardCapMs};
+				if(outcome.ok===true||outcome.ok===false)outcome={...outcome,meta:{...running.meta,...outcome.meta}};
 				if(outcome.ok==='late'||outcome.ok===false&&outcome.reason===NO_GROUNDS){
 					return settle({verdict:REVIEW_TIMEOUT,grounds:'The continued review produced no authoritative verdict',reviewer:'lane',path:'lane',capMs:running.hardCapMs},false,
 						admissionNow()-began,undefined,continuation);
