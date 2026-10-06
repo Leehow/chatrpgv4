@@ -69,6 +69,25 @@ test('source numeral syntax includes the retained five-minute declaration withou
     assert.equal(candidate(input,{...reads,applyOptions:{context:{current_receipts:[{kind:'time',minutes:5}]}}}),undefined,'time is charged once');
     assert.equal(candidate(input,{...reads,resolveOptions:{context:{session:{kind:'combat',status:'active'}}}}),undefined,'combat uses rounds');
 });
+test('unsupported complete numerals and compound intervals never expose an executable component to the real binder',()=>{
+    const rejected=['1,000 minutes','1,5 hours','1, 000 minutes','1 000 minutes','1 hour, 30 minutes','1 hour + 30 minutes',
+        'half an hour and 5 minutes','5 minutes and half an hour','5 minutes and 1 1/2 hours','1 1/2 hours and 5 minutes',
+        '1 hour and30 minutes','one hundred five minutes','1 hour + half','1 hour, half','1 hour/30 minutes','1 hour-30 minutes',
+        '\u4e94\u5206\u949f\u548c\u5341\u79d2'];
+    for(const interval of rejected){
+        const value=candidate(`I wait ${interval}.`);
+        assert.deepEqual(value.timeDurations??{},{},interval);
+        const batch=api.bindBatch(api.initialView({runId:'partial-duration',rawInput:`I wait ${interval}.`,context,candidates:[value],compile:false,readFirst:false}),value,scope,[]);
+        assert.equal(Object.keys(batch.questions[0].criteria).some(key=>key.startsWith('duration:')),false,interval);
+        const invented=bind(value,'duration:0');
+        assert.equal(invented.pending.some(item=>item.purpose==='execute'||item.purpose==='adjudicate'),false,interval);
+        assert.equal(invented.pending[0].purpose,'compose',interval);
+    }
+    for(const [interval,minutes] of [['1.5 hours',90],['5 minutes',5],['twenty-five minutes',25]]){
+        const value=candidate(`I wait ${interval}.`),alias=Object.keys(value.timeDurations)[0],bound=bind(value,alias);
+        assert.equal(api.kernelCall(value,bound.extra).params.effects[0].minutes,minutes,interval);
+    }
+});
 test('exact closed interval reaches real apply, clock projection and replay receipts twice without moving anyone',async()=>{
     const home=playtestScratch('declared-time-interval-contracts'),kernel=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'fixed-wait',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(kernel);
     try{
