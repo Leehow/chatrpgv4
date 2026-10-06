@@ -35372,6 +35372,8 @@ from `packet.vocabulary`, which cannot widen the law.
   (`ts-kernel-modules`, `mechanics-reader`, `obligation-reader`) drop `details.findings` and `details.truncated` from
   the live side only (`withoutDraftFindings` in `tests/extension/oracle-fixture.mjs`); the captured bytes are untouched.
 
+*Lead addendum (2026-10-06, after RC-03's evidence).* 280 retained drafts wrote `coverage` as an array (`[{domain, status}]`), and `content/setup/visual-reader.md` described it only as "statuses from the supplied vocabulary". The Read-phase line now states the shape (an object from prepared domain to one status, `{}` when none, never an array, never pages). No value is converted by the host: an array is still a finding.
+
 ### 186.4 Coverage review is reused after a records-only targeted repair (amends §151.2)
 
 A coverage unit's verdict from round *r* is carried to round *r+1* without running a reviewer when all hold:
