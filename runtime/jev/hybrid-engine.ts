@@ -1233,6 +1233,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       fresh = refreshed?.fresh;
     }
     const returnedIds = new Set(array(object(toolResult.details).receipts).filter(value => typeof value === 'string'));
+    // A failed embedded delivery can return committed effects; retain that receipt boundary across later inferences.
+    const modelRefusal = toolResult.isError && WRITE_VERBS.has(proposal.operation) ? {
+      origin: 'model', proposed: structuredClone(object(proposal.params)), model_write_receipts: [...returnedIds],
+      returned_receipts: returnedIds.size, not_landed: returnedIds.size === 0,
+      coc_error: Object.keys(object(toolResult.details?.coc_error)).length ? structuredClone(toolResult.details.coc_error) : null,
+    } : undefined;
     const proposedMoves = array(object(proposal.params).effects).filter(effect => object(effect).kind === 'move');
     const returnedMoves = (refreshed?.receipts ?? []).filter(receipt => returnedIds.has(receipt.id) && receipt.kind === 'move');
     const ordinaryMoves = proposal.origin === 'model' && proposal.operation === 'apply' && proposedMoves.length === returnedMoves.length
@@ -1260,6 +1266,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     return {status: toolResult.isError ? 'refused' as const : 'ok' as const, toolResult, ...(delivery ? {delivery} : {}),
       artifact: {kind: 'execute', executed: {ok: !toolResult.isError, summary: {tool: proposal.operation, ...(queued ? {proposed: queued.key} : {}),
+        ...(modelRefusal ?? {}),
         ...(canonicalMove ? {canonical_move: canonicalMove} : {})}},
         ...(fresh ? {fresh} : {}), ...(fell ? {fell} : {}), ...(narrowed ? {narrator: true} : {}), ...(queued && !toolResult.isError ? {proposed: queued} : {})}};
   }
@@ -2010,6 +2017,22 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const head = !run.headShown;
     const content: Row = {kind: 'single_loop_step', ...(head ? {head: CLERK_NOTE_HEAD} : {}), purpose: step.purpose, reason: step.reason};
     const observations = array(view.policyState.view.observations);
+    const modelRefused = observations.filter(value => (step.purpose === 'adjudicate' || step.purpose === 'compose')
+      && value.kind === 'direct' && value.purpose === 'execute' && value.status === 'refused')
+      .flatMap(value => {
+        const result = object(object(value.summary).result);
+        return result.origin === 'model' && WRITE_VERBS.has(text(result.tool)) ? [{origin: 'model', operation: result.tool,
+          proposed: result.proposed, coc_error: result.coc_error, not_landed: result.not_landed,
+          returned_receipts: array(result.model_write_receipts).length}] : [];
+      });
+    if (modelRefused.length) Object.assign(content, {model_refused: modelRefused,
+      model_refused_note: 'These original model-origin world-tool calls returned errors. Their proposed arguments are not successful results. '
+        + 'Entries marked not_landed returned no committed receipts: do not narrate those writes as completed. '
+        + 'Entries with returned receipts already committed effects even though the tool failed; preserve the actual receipts and do not resend that whole write. '
+        + 'Read each canonical coc_error and its fix. change_input means repair tool arguments, not withdraw an already chosen player action. '
+        + 'Use the existing world-parameter owner and normal admission for any permitted correction of the same target and method; this note grants no retry or correction allowance. '
+        + 'A later successful correction is settled only by its own receipts; these entries describe the original failed calls. '
+        + 'Do not redo committed effects or replace host-owned check/time selection. A successful inference or turn-close steer does not settle a failed world tool.'});
     const held = [...observations].reverse().find(value => value.kind === 'decide'
       && value.purpose === 'route' && value.reason === 'destination_binding_unresolved');
     // Independent authority may have failed before this handoff; its refusal does not erase the held batch.
@@ -2233,7 +2256,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (shown) content.carried = shown;
     const messages: Row[] = [];
     // Nothing new to say: no message (§135.8) -- except the run's first note, whose head is something to say (§135.11.2).
-    if (head || unseen.length || preparations.length || Object.keys(content).length > base || fresh.length) {
+    if (head || unseen.length || preparations.length || Object.keys(content).length > base || fresh.length || modelRefused.length) {
       messages.push({role: 'custom', customType: CLERK_TYPE, content: JSON.stringify(content), display: false,
         details: {coc_host: true, run: run.runId, step: stepId, ...(run.turn !== undefined ? {turn: run.turn} : {})}, timestamp: Date.now()});
       run.headShown = true;

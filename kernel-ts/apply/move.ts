@@ -34,7 +34,10 @@ export function stageMove(context: ApplyContext, effect: Row): {
             });
         }
     }
-    if (summary !== undefined && !established && !graph.isTableEntity(destination)) throw new RpcError('invalid_params', 'establish cannot replace an authored scene; move to it without establish');
+    if (summary !== undefined && !established && !graph.isTableEntity(destination)) throw new RpcError('invalid_params', 'establish cannot replace an authored scene; move to it without establish', {
+        fix: 'Keep the selected destination and route (to and via), remove establish, and resubmit the same move through normal admission. This repairs the tool arguments, not the player declaration; it does not authorize another target, method, cost or commitment.',
+        details: { reason: 'authored_scene_establish', field: 'establish' }
+    });
     const target = graph.handle(destination);
     const label = typeof effect.label === 'string' && effect.label.trim() ? effect.label : null;
     if (target === from) {
