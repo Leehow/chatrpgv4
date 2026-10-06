@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {reviewCandidate,reviewUnits,checkReviewEvidence,detailReviewInput,readReviewPlan,REVIEW_PLAN_FILE} from '../../extensions/module/reader-review.ts';
 import {createRuntime} from '../../runtime/host.ts';
+import {reviewOfCandidate} from '../../extensions/module/targeted-repair.ts';
 
 test('opening review retains kernel-issued retranscription pointers and reviews the interaction choice once',()=>{
  const draft={nodes:[{node_id:'scene-entry',source_refs:[{page:1}],properties:{}}],claims:[],ready_nodes:['scene-entry'],
@@ -557,4 +558,112 @@ test('§151.2.1 an added connected record re-runs the units it connects to, and 
  const claims=[...draft.claims,claim('npc-sailor','npc-keeper',5,'knows')];
  assert.deepEqual(await again({...draft,claims}),['/claims/1','/claims/2','/coverage','/nodes/1','/nodes/2,/claims/0'],
   'the new claim, and every unit holding the sailor or the keeper; the dock is not connected to it and is reused');
+});
+
+/**
+ * §186.4 at the review entry. Round 1 is a real review whose fact unit refuses the sailor (page 2); round 2 is handed
+ * that review bound to its candidate by `reviewOfCandidate`, as the reading service hands it once `checkTargetedRepair`
+ * accepted a repair. Round 2's reviewers support everything, so only what runs differs. A fact reviewer views its
+ * records' pages; the coverage reviewer views the scope, which holds page 4 that no record cites.
+ */
+function carryReviewer(ran,{refuse=()=>false,missing=()=>[],volunteer=false}={}){
+ return async request=>{
+  const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));ran.push(task.required_review);
+  const draft=JSON.parse(await readFile(join(request.cwd,'draft.json'),'utf8')),coverage=task.required_review.includes('/coverage');
+  const seen=coverage?task.review_scope_pages:[...new Set(task.required_review.flatMap(path=>{const [,collection,index]=path.split('/');
+   return (draft[collection]?.[Number(index)]?.source_refs??[]).map(ref=>ref.page);}))];
+  request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:seen.map(page=>({page}))}}});
+  await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+  await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[
+   ...task.required_review.map(path=>({paths:[path],verdict:refuse(path)?'unsupported':'supported',source_refs:seen.map(page=>({page})),reason:`fixture ${path}`})),
+   ...(coverage&&volunteer?[{paths:['/nodes/0'],verdict:'supported',source_refs:[{page:1}],reason:'volunteered'}]:[])],missing:coverage?missing():[]}));
+  return {ok:true,ms:1,stderr:''};
+ };
+}
+const carryNode=(node_id,page)=>({node_id,node_kind:node_id.split('-')[0],name:node_id,source_refs:[{page}],properties:{}});
+async function carryFixture(t,reviewer={}){
+ const cwd=await mkdtemp(join(tmpdir(),'coc-coverage-carry-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const ran=[],rows=[];
+ const draft={nodes:[carryNode('scene-dock',1),carryNode('npc-sailor',2),carryNode('npc-keeper',3)],
+  claims:[{subject_id:'npc-keeper',predicate:'present-in',object:{node_id:'scene-dock'},source_refs:[{page:3}]}],ready_nodes:['scene-dock'],coverage:{},critical:[]};
+ const task={purpose:'detail',focus:'Dock',question:'',review_scope_pages:[1,2,3,4]};
+ const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',extractionVersion:'native-v1',task,draft,instructions:'unused',round:1,
+  model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(row){rows.push(row)},
+  run:carryReviewer(ran,{refuse:path=>path==='/nodes/1',...reviewer})};
+ await reviewCandidate(options);
+ const source=await reviewOfCandidate([cwd],draft);
+ assert.ok(source,'round 1 left a review bound to its candidate');
+ const corrected={...draft,nodes:[draft.nodes[0],{...draft.nodes[1],summary:'As page 2 prints him.'},draft.nodes[2]]};
+ const again=async(changed,extra={},carry={...source,draft})=>{
+  ran.length=0;rows.length=0;
+  const observed=await reviewCandidate({...options,round:2,draft:changed,previousPlan:source.plan,coverageCarry:carry,run:carryReviewer(ran),...extra});
+  return {ran:ran.map(paths=>paths.join(',')).sort(),observed:observed.sort((a,b)=>a-b),refused:rows.filter(row=>row.event==='coverage_carry_refused').map(row=>row.reason),
+   carried:rows.find(row=>row.carried_from),review:JSON.parse(await readFile(join(cwd,'review.json'),'utf8'))};
+ };
+ return {draft,corrected,source,task,again};
+}
+test('§186.4 a records-only repair carries the coverage verdict with its origin; only the corrected record is reviewed',async t=>{
+ const {corrected,source,again}=await carryFixture(t);
+ const round=await again(corrected);
+ assert.deepEqual(round.ran,['/nodes/1']);
+ assert.deepEqual(round.refused,[]);
+ assert.deepEqual(round.carried.carried_from,{round:1,plan_digest:source.plan_sha256});
+ assert.deepEqual(round.carried.pages,[1,2,3,4]);
+ assert.deepEqual(round.observed,[1,2,3,4],'the carried reviewer\'s pages are this round\'s evidence: page 4 only it viewed');
+ assert.deepEqual(round.review.checked.filter(row=>row.paths.includes('/coverage')),
+  [{paths:['/coverage'],verdict:'supported',source_refs:[1,2,3,4].map(page=>({page})),reason:'fixture /coverage',carried_from:{round:1,plan_digest:source.plan_sha256}}]);
+});
+test('§186.4 a carried coverage verdict brings no row about a record',async t=>{
+ const {corrected,again}=await carryFixture(t,{volunteer:true});
+ const round=await again(corrected);
+ assert.ok(round.carried);
+ assert.equal(round.review.checked.filter(row=>row.reason==='volunteered').length,0,'the record\'s own unit answers for it');
+});
+test('§186.4 a previous blocking missing runs coverage',async t=>{
+ const {corrected,again}=await carryFixture(t,{missing:()=>['The harbour master on page 1 is absent.']});
+ const round=await again(corrected);
+ assert.ok(round.ran.includes('/coverage'));
+ assert.deepEqual(round.refused,['missing']);
+});
+test('§186.4 a previous coverage verdict the gate would refuse runs coverage',async t=>{
+ const {corrected,again}=await carryFixture(t,{refuse:path=>path==='/nodes/1'||path==='/coverage'});
+ assert.deepEqual((await again(corrected)).refused,['verdict']);
+});
+test('§186.4 an added or a deleted record runs coverage',async t=>{
+ const {draft,corrected,again}=await carryFixture(t);
+ const added=await again({...corrected,nodes:[...corrected.nodes,carryNode('npc-ferryman',2)]});
+ assert.ok(added.ran.includes('/coverage'));
+ assert.deepEqual(added.refused,['records']);
+ const deleted=await again({...draft,nodes:[draft.nodes[0],draft.nodes[2]]});
+ assert.ok(deleted.ran.includes('/coverage'));
+ assert.deepEqual(deleted.refused,['records']);
+});
+test('§186.4 a change outside the records a fact unit refused runs coverage: another record, ready_nodes or another field',async t=>{
+ const {corrected,again}=await carryFixture(t);
+ const dock=await again({...corrected,nodes:[{...corrected.nodes[0],summary:'A dock rewritten.'},...corrected.nodes.slice(1)]});
+ assert.ok(dock.ran.includes('/coverage'));
+ assert.deepEqual(dock.refused,['changed']);
+ const ready=await again({...corrected,ready_nodes:['scene-dock','npc-sailor']});
+ assert.ok(ready.ran.includes('/coverage'));
+ assert.deepEqual(ready.refused,['changed']);
+ assert.deepEqual((await again({...corrected,critical:['/nodes/1/summary']})).refused,['changed']);
+});
+test('§186.4 a changed coverage scope runs coverage: retained source needs, fewer scope pages',async t=>{
+ const {corrected,task,again}=await carryFixture(t);
+ const needs=await again(corrected,{task:{...task,retained_source_needs:[{kind:'source_read',focus:'Dock',question:'Who keeps the register?',source_refs:[{page:1}]}]}});
+ assert.ok(needs.ran.includes('/coverage'));
+ assert.deepEqual(needs.refused,['scope']);
+ assert.deepEqual((await again(corrected,{task:{...task,review_scope_pages:[1,2,3]}})).refused,['scope']);
+});
+test('§186.4 an older plan, a source not bound to its candidate, or a carried reviewer that missed a scope page runs coverage',async t=>{
+ const {draft,corrected,source,again}=await carryFixture(t);
+ // A plan written before §186.4: the same units, without their shares of the review, pages or scope.
+ const older={...source.plan,units:source.plan.units.map(({checked:_c,missing:_m,pages:_p,scope:_s,...unit})=>unit)};
+ const old=await again(corrected,{},{...source,plan:older,draft});
+ assert.ok(old.ran.includes('/coverage'));
+ assert.deepEqual(old.refused,['plan']);
+ assert.deepEqual((await again(corrected,{},{...source,draft:corrected})).refused,['plan'],'the plan binds the candidate it reviewed');
+ // Checked like a reused unit's retained review: the carried reviewer must have viewed every scope page.
+ const unviewed={...source.plan,units:source.plan.units.map(unit=>unit.scope?{...unit,pages:[1,2,3]}:unit)};
+ assert.deepEqual((await again(corrected,{},{...source,plan:unviewed,draft})).refused,['evidence']);
 });
