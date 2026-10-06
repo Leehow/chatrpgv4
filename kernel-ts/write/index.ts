@@ -1188,6 +1188,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             },
             ...delivery,
             mechanics: projected,
+            player_clock: clockSection(module.graph, snapshot.world),
             ...(standing.length ? { standing } : {}),
             labels,
             turn: n,
@@ -1353,6 +1354,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const result: Row = {
             ...delivery,
             mechanics: projected,
+            player_clock: clockSection(module.graph, snapshot.world),
             ...(standing.length ? { standing } : {}),
             labels,
             turn: n,

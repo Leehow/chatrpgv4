@@ -10,7 +10,7 @@ import type { ApplyContext } from '../apply/index.js';
 import {stagedSheet,stagePendingItemIdentity} from '../apply/inventory.js';
 import { required } from '../write/store.js';
 import { validateDefinition } from './definition.js';
-import { initializeDocument, ownershipChanged, writeDocument } from './documents.js';
+import { appendDocument, initializeDocument, ownershipChanged, writeDocument } from './documents.js';
 import { defineObject, isPlaceholder, moveObject, objectInstance, objectRegistry } from './objects.js';
 import { objectTransferReceipt, ownerLabel } from './object-transfer.js';
 import { clearOffer, openOffer, recordOffer, receiptsOf, validateDisposition, validateHandover } from './object-offer.js';
@@ -25,13 +25,16 @@ const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(val
 export async function objectOwner(campaign: CampaignWritePort, graph: ModuleGraph, world: Row, name: any): Promise<Row> {
     if (typeof name !== 'string' || !name.trim()) throw new RpcError('invalid_params', 'Object owner must be an investigator, NPC or scene name');
     if (name === 'here') { const scene = graph.scene(world.active_scene); return {kind: 'scene', id: graph.handle(scene), name: graph.displayName(scene)}; }
-    for (const sheet of await campaign.party()) if ([normalize(sheet.id), normalize(sheet.name)].includes(normalize(name))) return {kind: 'investigator', id: sheet.id, name: sheet.name};
+    const party = await campaign.party();
+    for (const sheet of party) if ([normalize(sheet.id), normalize(sheet.name)].includes(normalize(name))) return {kind: 'investigator', id: sheet.id, name: sheet.name};
     const node = graph.find(name);
     if (node?.node_kind === 'npc') return {kind: 'npc', id: graph.handle(node), name: graph.displayName(node)};
     const container = objectInstance(world, name);
     if (container) return {kind: 'object', id: container.id, name: container.name};
     try { const scene = graph.scene(name); return {kind: 'scene', id: graph.handle(scene), name: graph.displayName(scene)}; }
-    catch (error) { if (!(error instanceof RpcError)) throw error; throw new RpcError('unknown_entity', `No object owner named ${repr(name)}`); }
+    catch (error) { if (!(error instanceof RpcError)) throw error; throw new RpcError('unknown_entity', `No object owner named ${repr(name)}`,
+        {fix: 'Use the exact investigator name in details.investigators, or an existing NPC, scene or container name from look. Do not translate or extend a registered name.',
+         details: {field:'object.owner', investigators:party.map(sheet=>sheet.name)}}); }
 }
 export async function stageModEffect(context: ApplyContext, original: Row, sheets: Map<string, Row>, jobs: ModJobs): Promise<{receipt: Row; event: DomainEvent}> {
     const {campaign, graph, world, callId} = context, turn = context.turn.turn;
@@ -177,9 +180,17 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         let seed: Row | null = null, writing = false;
         if (!division && Object.hasOwn(effect, 'document')) {
             if (prior && !equal(source, owner)) throw new RpcError('invalid_params', 'Document initialization or writing uses the same current from/to owner');
-            const value = effect.document; writing = isJsonObject(value) && value.action === 'write';
+            const value = effect.document; writing = isJsonObject(value) && (value.action === 'write' || value.action === 'append');
             if (writing) {
-                if (Object.keys(value).length !== 2 || !Object.hasOwn(value, 'text') || !prior || !string(effect.why || '').trim()) throw new RpcError('invalid_params', 'Writing an existing document needs text and a causal why');
+                if (!prior) throw new RpcError('unknown_entity', `No existing writable carrier named ${repr(name)}`,
+                    {fix:'Use the exact instance name, not a translated or newly coined label. details.documents lists writable carriers this investigator already holds directly. Use look focus own for nested equipment. This is a target-name correction, not another player choice. Do not recreate an existing carrier.',
+                     details:{field:'object.name',reason:'document_not_found',documents:owner.kind==='investigator'
+                         ? Object.values(objectRegistry(world).instances).filter(value=>{const item=row(value),held=row(item.owner);
+                             return isJsonObject(item.document)&&held.kind===owner.kind&&held.id===owner.id;}).map(value=>row(value).name) : []}});
+                if (Object.keys(value).length !== 2 || typeof value.text !== 'string') throw new RpcError('invalid_params', 'Document writing accepts only action and string text',
+                    {fix:'Keep document to {action:"write"|"append",text:"..."}; put the causal why on the object effect.',details:{field:'object.document'}});
+                if (!string(effect.why || '').trim()) throw new RpcError('invalid_params', 'Document writing needs a causal why on the object effect',
+                    {fix:'Add the causal reason to object.why, outside document; preserve the chosen writing scope.',details:{field:'object.why'}});
             } else seed = await jobs.documentSeed(graph, world, value);
         }
         const item = division
@@ -192,7 +203,10 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         if (openOffer(item)) clearOffer(item, turn);
         const definition = objectRegistry(world).definitions[item.definition];
         if (!division && prior && Object.hasOwn(effect, 'document')) {
-            if (writing) writeDocument(item, effect.document.text);
+            if (writing) {
+                if (effect.document.action === 'append') appendDocument(item, effect.document.text);
+                else writeDocument(item, effect.document.text);
+            }
             else { initializeDocument(item, seed); ownershipChanged(world); }
         }
         if (adopted !== null) {
