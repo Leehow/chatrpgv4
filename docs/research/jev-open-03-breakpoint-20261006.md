@@ -4,7 +4,8 @@ Date: 2026-10-06. Owner: Codex thread `01a10ef4-0152-75a9-a42a-d1a36e8e0024`.
 Base: latest development branch `0.9.6a`, verified at
 `17f24438d386819bfe6cf09bf2c5139c93856442`.
 Candidate branch: `codex/jev-open-03-owned-20261006`.
-This is offline historical diagnosis and current TypeScript source verification. It is not natural play acceptance.
+This is offline historical diagnosis and owner verification of the changed TypeScript receipt-binding functionality.
+It does not claim a current natural-language model comparison or full scenario play acceptance.
 No model requests were made, no credentials were read, and the original runs and campaign were not modified.
 
 ## Findings
@@ -56,7 +57,7 @@ but compile selects `none`, not `combat:flee`; `act_gated` therefore prevents th
 The prior public choice is issued, and the player's natural-language answer reaches the host, but the later
 semantic gate does not select flight until driver 746 explicitly names the option. This is a different break
 from turn 600's unavailable admission. Neither a keyword recognizer nor an automatic end is a justified repair.
-Current natural-language comparison belongs to JEV-OPEN-06 and remains untested here.
+Current natural-language comparison remains untested here; the semantic classifier is unchanged by this repair.
 
 The successful campaign `turns/1542.json` contains the combat-end receipt and the old top-level pending choice,
 but no choice receipt. Narration later clears pending choices; this is not evidence that the ended fight remains
@@ -96,10 +97,21 @@ Logs are in `/Users/haoli/Documents/Codex/2026-10-05/task-9/evidence/`.
 | System-language guards | Node 24 `--test tests/extension/system-language.test.mjs`: 5 passed, 0 failed. | `system-language.log` |
 | Emitted runtime | Node 24 `scripts/build-runtime.mjs`: exit 0. | `build-final.log` |
 | Kernel type check | Node 24 `node_modules/typescript/bin/tsc -p tsconfig.kernel.json`: exit 0. | `kernel-types.log` |
+| Integrated source build | Node 24 `scripts/build-runtime.mjs` at `b91cd53a4dbdd38e67f74dd5b58d7b1bf7258c54`: exit 0. | `owner-current-build.log` |
+| Refusal and replay boundary | Node 24 `--test --test-name-pattern="flight choice receipts roll back" tests/extension/single-loop-candidates.test.mjs`: 1 passed. The real kernel refuses the investigator's flight during the NPC turn, preserves pending choice and combat, later commits the selected lawful flight, and replays it without duplicating either receipt. | `owner-flight-replay-final.log` |
+| Unselected flight boundary | Node 24 `--test --test-name-pattern="flight choice receipts roll back\|an offered but unselected flight" tests/extension/single-loop-candidates.test.mjs`: the unselected-flight test passed. After ordinary narration and the next player input, combat remains active and no flight choice/end receipt exists. | `owner-flight-boundaries-final.log` |
+
+The boundary-test drafts initially expected the wrong RPC refusal code, omitted the narration call ID,
+read apply options after closing the turn, and omitted the documented replay marker from an equality assertion.
+Those fixture errors were corrected in this owner chat; all intermediate logs are retained.
+The unselected-flight test's successful run remains valid and was not repeated when only the replay assertion changed.
+The previous 62 target and 5 language tests remain valid; no production code changed during this verification follow-up.
+These are actual kernel transactions with explicit candidate selection, not claims about model interpretation
+of the English fixture inputs.
 
 No full repository suite, App replacement, push or new paid natural call was performed.
 
-## Parent / JEV-OPEN-06 handoff
+## Owner verification and parent integration
 
 Exact candidate files:
 
@@ -108,16 +120,22 @@ Exact candidate files:
 - `docs/kernel-rpc.md`: local addition at section 135.2, "JEV-OPEN-03 choice binding".
 - `docs/research/jev-open-03-breakpoint-20261006.md`: this evidence-bounded handoff.
 
-Parent owns serial review and integration; this task does not edit the shared mainline. JEV-OPEN-06 should use
-the current natural driver to compare an ordinary answer to an issued exit choice with an explicit option
-answer, and trace compile, route, admission, choice receipt, combat-end receipt and player delivery. Include a
-player decision to remain, and a refused or unavailable admission boundary: neither may auto-end the fight.
-Current model requests must remain Flapcode `gpt-6-luna`, requested low, with effective level recorded. This
-task makes no new budget request and grants no paid-call budget to 06.
+Parent reviewed and locally merged repair `4893cbe83e295815e87181e5954cd8b2d499fb59` through
+`daacf9e4c319736f481b0281a61479a23bebd0bc`. The owner verified that repair remains ancestral to current
+main `b91cd53a4dbdd38e67f74dd5b58d7b1bf7258c54`, then fast-forwarded only the independent owned tree to
+that exact source for the boundary checks. Shared mainline and original runtime state were not edited by this task.
 
-Remaining boundaries: historical admission 400 origin has not been reproduced or repaired; v32 natural-answer
-compile decisions have not been revalidated under current source; full natural acceptance and main integration
-remain pending. Do not mark the entire issue closed merely because the deterministic receipt seam passes.
+The user's later direction in parent turn `01a10f42-9a07-710e-bda7-9312241f5c1a` requires each owner to
+test only its changed functionality in the same chat. This supersedes the former 06 verification dependency.
+The changed receipt-binding functionality is owner-verified with the prior valid source regressions and
+the real refusal, replay and unselected-flight boundaries above. No additional production repair was needed.
+Only this test file and this report changed during the follow-up; parent retains serial review/integration
+of that verification commit.
+
+Historical admission 400 origin and v32 natural-answer compile decisions remain unverified under current
+source. They are preserved as historical unknowns, not reported as repaired or used to require unrelated
+full-scenario play for this unchanged semantic classifier. No model call was needed for the changed functionality,
+no budget was consumed or requested, and no admission rule was weakened.
 
 Lifecycle: the working tree was created with `codex-worktree-lifecycle create`, task
 `jev-open-03-20261006`, creation `2e7193ee-2845-4e77-8807-4e8143881449`. It is retained for parent integration.

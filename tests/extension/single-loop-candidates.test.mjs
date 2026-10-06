@@ -321,6 +321,59 @@ test("flight choice binding ignores stale, fresh, story and unissued choices wit
 	assert.ok(!modelState.includes('"choice"'), "receipt attachment does not prime a semantic selection");
 });
 
+test("flight choice receipts roll back on a kernel refusal and occur once on call replay", async (t) => {
+	const { call } = kernel(t);
+	const { turn, n } = await knottsTurn(call, "fights_to_the_end");
+	const asked = await call("table.ask", { call_id: `t${turn}-c${n}`, kind: "mechanics", options: ["accept", "flee"], binds: "combat:investigator-turn", text: "You can wait for an opening or attempt to flee." });
+	const pending = asked.pending_choice.name;
+	const input = "I choose to flee when the doorway is open.";
+	const opened = await call("table.player_input", { text: input });
+	const before = await reads(call);
+	assert.equal(before.resolveOptions.context.session.turn_of, "steven-knott");
+	// Exercise the refusal transaction with the selected-flight attachment while the NPC still owns the turn.
+	await assert.rejects(call("table.resolve", { call_id: `t${opened.turn}-c1`, action: { intent: "combat", decision: "combat:flee", actor: "thomas-hayes", goal: input, method: input, choice: { pending, option: "flee" } } }), /table\.resolve: needs no rule decision is available/);
+	const refused = await reads(call);
+	assert.equal(refused.resolveOptions.context.pending_choice.name, pending, "refusal must not commit the earlier choice binding");
+	assert.equal(refused.resolveOptions.context.session.status, "active");
+	const refusedStatus = await call("table.status");
+	assert.equal(refusedStatus.receipts.some(receipt => receipt.kind === "choice" || (receipt.kind === "session" && receipt.transition === "end")), false);
+	await call("table.apply", { call_id: `t${opened.turn}-c2`, effects: [{ kind: "npc", name: "Steven Knott", action: "hold", why: "He hesitates." }] });
+	const state = await reads(call);
+	const flight = buildCandidates({ ...state, answering: [pending] }, input).find(candidate => candidate.bound.decision === "combat:flee");
+	assert.ok(flight);
+	const { args } = keeperCall(flight);
+	const request = { call_id: `t${opened.turn}-c3`, ...args };
+	const settled = await call("table.resolve", request);
+	assert.deepEqual(await call("table.resolve", request), { ...settled, replayed: true }, "an identical call replay returns the original result with the documented replay marker");
+	const status = await call("table.status");
+	assert.equal(status.receipts.filter(receipt => receipt.kind === "choice" && receipt.pending === pending && receipt.option === "flee").length, 1);
+	assert.equal(status.receipts.filter(receipt => receipt.kind === "session" && receipt.family === "combat" && receipt.transition === "end" && receipt.outcome === "fled").length, 1);
+	const after = await reads(call);
+	assert.equal(after.resolveOptions.context.pending_choice, null);
+	assert.equal(after.resolveOptions.context.session, null);
+});
+
+test("an offered but unselected flight leaves the real combat session active", async (t) => {
+	const { call } = kernel(t);
+	const { turn, n } = await knottsTurn(call, "fights_to_the_end");
+	await call("table.apply", { call_id: `t${turn}-c${n}`, effects: [{ kind: "npc", name: "Steven Knott", action: "hold", why: "He hesitates." }] });
+	const asked = await call("table.ask", { call_id: `t${turn}-c${n + 1}`, kind: "mechanics", options: ["accept", "flee"], binds: "combat:investigator-turn", text: "The doorway is open while he hesitates." });
+	const input = "I remain here and wait; I do not take the doorway.";
+	const opened = await call("table.player_input", { text: input });
+	const state = await reads(call);
+	const flight = buildCandidates({ ...state, answering: [asked.pending_choice.name] }, input).find(candidate => candidate.bound.decision === "combat:flee");
+	assert.ok(flight);
+	assert.equal(flight.forced, undefined);
+	assert.equal(actGated(flight, []), true, "without a compile selection the offered flight cannot execute");
+	await call("table.narrate", { call_id: `t${opened.turn}-c1`, text: "You stay where you are while he hesitates." });
+	const status = await call("table.status");
+	assert.equal(status.receipts.some(receipt => receipt.kind === "choice" && receipt.option === "flee"), false);
+	assert.equal(status.receipts.some(receipt => receipt.kind === "session" && receipt.family === "combat" && receipt.transition === "end"), false);
+	await call("table.player_input", { text: "I am still waiting." });
+	const after = await reads(call);
+	assert.equal(after.resolveOptions.context.session.status, "active");
+});
+
 /** Knott's own turn after his dodge, with a Keeper-written disposition (or none): the state SL-08 reads. */
 async function knottsTurn(call, disposition) {
 	const turn = await fight(call);
