@@ -209,6 +209,9 @@ export function capsuleWarnings(records: Row[], last: Row | undefined, turn: num
         quote: warning.quote ?? null,
         why: warning.why ?? null,
         ...(warning.clue ? { clue: warning.clue } : {}),
+        // A result warning must remain actionable when the present-card budget cuts its intent rows.
+        ...(typeof warning.ref === "string" && warning.ref ? { ref: warning.ref } : {}),
+        ...(typeof warning.npc === "string" && warning.npc ? { npc: warning.npc } : {}),
         ...(warning.fix ? { fix: warning.fix } : {}),
         ...(late ? { late: true } : {})
     });

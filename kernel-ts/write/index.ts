@@ -1398,7 +1398,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 ...owed.map(item => ({ lane: 'intents', kind: 'intent_result_owed', quote: null,
                     why: chars(`${string(item.who)} set out on turn ${string(item.since_turn)} to ${string(item.intent)}, and this delivery reported no result`, 200),
                     fix: 'Settle it this turn: a roll or effect with its intent_ref, or apply npc with intent_ref and outcome done, failed or abandoned.',
-                    ref: item.ref, at: nowIso() })),
+                    ref: item.ref, npc: item.npc, at: nowIso() })),
                 // §143.10: delivered on the second try with markup still in it -- a finding for the next turn, not a second refusal.
                 // §143.17: a bare wrapper was taken off first; the row stays and says so.
                 ...(markup ? [{ lane: 'delivery', kind: 'markup_in_prose', quote: chars(markup.tags[0] ?? markup.lines[0] ?? '', 120),
