@@ -79,6 +79,18 @@ async function book(t) {
 	const handlesFile = async () => JSON.parse(await readFile(join(home, '.coc', 'modules', mid, 'handles.json'), 'utf8'));
 	return {home, raw, mid, campaign, handlesFile};
 }
+/** A campaign on the book with an investigator (saved from a starter pregen, §21.5), still being set up. */
+async function seated(h, id) {
+	if (!h.library) {
+		await h.raw('campaign.create', {id: 'card-source', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+		h.library = (await h.raw('investigator.save', {campaign: 'card-source'})).library_id;
+	}
+	const c = await h.campaign(id);
+	await c.call('investigator.load', {library_id: h.library});
+	const file = async name => JSON.parse(await readFile(join(h.home, '.coc', 'campaigns', id, name), 'utf8'));
+	return {...c, file, telemetry: async () => (await readFile(join(h.home, '.coc', 'campaigns', id, 'telemetry.jsonl'), 'utf8')).split('\n').filter(Boolean).map(line => JSON.parse(line))};
+}
+const NAMED = [{id: 'scene-dock', handle: 'tar-smelling-dock'}, {id: 'npc-old-mae', handle: 'net-mender-by-the-water'}, {id: 'scene-tower', handle: 'lighthouse-on-the-point'}];
 const reasonOf = (answer, id) => answer.refused.find(row => row.id === id)?.reason;
 
 test('§185.1: a campaign on a reader-built book is name-free, a starter campaign legacy; a campaign without the field is read as legacy', async t => {
@@ -209,4 +221,93 @@ test('§185.7: the untold roster carries no handle rows in a name-free campaign;
 	const nameFree = shown(new api.ModuleGraph('harbor', raw, 'digest', {}, undefined, false, new Map([['npc-old-mae', 'net-mender-by-the-water']])));
 	assert.deepEqual(nameFree.filter(row => row.handle), [], 'name-free: the rename touches names only');
 	assert.deepEqual(nameFree.map(row => [row.name, row.shown]), [['Old Mae', 'the net mender']]);
+});
+
+test('§185.6.1: the fold at table.open moves what the campaign stored under interim handles; the opening keeps its people', async t => {
+	// The first campaign on a book writes its world before the lane has named anything: every handle in it is interim.
+	const h = await book(t), c1 = await seated(h, 'c1');
+	const dock = interim('scene', 'scene-dock'), mae = interim('npc', 'npc-old-mae');
+	assert.deepEqual((await c1.world()).npc_presence, {[mae]: dock});
+	// The epithet lane worded her during setup, under the handle she had then.
+	assert.deepEqual((await c1.call('epithets.submit', {entries: [{id: mae, word: 'the net mender'}]})).written, [{id: mae, word: 'the net mender'}]);
+	assert.deepEqual((await c1.call('handles.submit', {entries: NAMED})).refused, []);
+	await c1.call('setup.complete');
+	await c1.call('table.open');
+	const world = await c1.world();
+	assert.deepEqual(world.node_handles, Object.fromEntries(NAMED.map(entry => [entry.id, entry.handle])));
+	assert.equal(world.active_scene, 'tar-smelling-dock');
+	assert.deepEqual(world.visited_scenes, ['tar-smelling-dock']);
+	assert.deepEqual(world.npc_presence, {'net-mender-by-the-water': 'tar-smelling-dock'}, 'present where she was, under her final handle');
+	assert.equal((await c1.meta()).opening_scene, 'tar-smelling-dock');
+	assert.deepEqual(Object.keys((await c1.file('epithets.json')).people), ['net-mender-by-the-water'], 'the lane\'s file moved with her');
+	const look = await c1.call('table.look', {focus: 'scene'});
+	assert.deepEqual(look.present.map(person => person.untold?.id), ['net-mender-by-the-water'], JSON.stringify(look.present));
+	assert.ok(!JSON.stringify(look).includes(mae) && !JSON.stringify(look).includes(dock), 'nothing shows the interim handles any more');
+	const folded = (await c1.telemetry()).filter(row => row.lane === 'handles' && row.event === 'folded');
+	assert.equal(folded.length, 1);
+	assert.equal(folded[0].mapped, 3);
+	assert.ok(folded[0].files.includes('campaign.json') && folded[0].files.includes('epithets.json'), JSON.stringify(folded[0].files));
+});
+
+test('§185.6/§185.6.1: a fold at player_input mid-play -- history read by identity, references and lanes written under the interim handle land on the final one, and a folded handle never moves', async t => {
+	const h = await book(t), c1 = await seated(h, 'c1');
+	await c1.call('setup.complete');
+	await c1.call('table.open');
+	const dock = interim('scene', 'scene-dock'), mae = interim('npc', 'npc-old-mae'), roster = async () => (await c1.call('table.untold')).people.map(row => row.id);
+	await c1.call('table.narrate', {call_id: 't0-c1', text: 'The harbor is quiet.'});
+	await c1.call('table.player_input', {text: 'I ask the old woman what she is doing.'});
+	// Before any handle is written: she sets out to do something, and says her own name in a line.
+	await c1.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'npc', name: mae, intends: 'mend the torn net before dusk', outcome: 'attempted'}]});
+	await c1.call('table.narrate', {call_id: 't1-c2', text: 'She looks up. {{say:Old Mae}}"Mind the cellar."{{/say}}'});
+	const before = JSON.parse(await readFile(join(h.home, '.coc', 'campaigns', 'c1', 'npc-ledger.json'), 'utf8'))['npc-old-mae'].intents[0].ref;
+	assert.ok(before.startsWith(`intent:${mae}:`), before);
+	assert.ok(!(await roster()).includes(mae), 'told by her own line: the record keeps her interim handle');
+
+	await c1.call('handles.submit', {entries: NAMED});
+	const opened = await c1.call('table.player_input', {text: 'I nod to her.'});
+	assert.equal((await c1.world()).node_handles['npc-old-mae'], 'net-mender-by-the-water', 'folded at the turn\'s start');
+	assert.ok(!(await roster()).includes('net-mender-by-the-water'), 'still told: the line is read by identity across the fold');
+
+	// A reference the Keeper copied before the fold still resolves, and lands on her final handle.
+	await c1.call('table.apply', {call_id: 't2-c1', effects: [{kind: 'person', who: mae, address: 'grandmother'}]});
+	assert.equal((await c1.world()).person_labels['net-mender-by-the-water'].address, 'grandmother');
+	assert.equal((await c1.world()).person_labels[mae], undefined);
+	// NFH-01: her card shows the intention recorded under her interim handle by her current one, and that old reference
+	// still settles it.
+	const digest = before.split(':').at(-1), shown = opened.capsule.present.flatMap(person => person.history?.intents ?? []).map(row => row.ref);
+	assert.deepEqual(shown, [`intent:net-mender-by-the-water:${digest}`], JSON.stringify(opened.capsule.present));
+	const settled = await c1.call('table.apply', {call_id: 't2-c2', effects: [{kind: 'npc', name: 'net-mender-by-the-water', intent_ref: before, outcome: 'done'}]});
+	const receipt = (await c1.call('table.status')).receipts.find(row => row.id === settled.receipts[0]);
+	assert.deepEqual([receipt.intent?.ref.split(':').at(-1), receipt.intent?.outcome], [digest, 'done'], JSON.stringify(receipt));
+	// A lane answer written with the interim handle after the fold is kept under the final one.
+	const checked = await c1.call('table.first_sight', {turn: 1, items: [{kind: 'place', id: dock, missing: []}]});
+	assert.deepEqual(checked.shown, [{kind: 'place', id: 'tar-smelling-dock'}]);
+	assert.deepEqual((await c1.file('first-sight.json')).shown.places, ['tar-smelling-dock']);
+
+	// A folded handle survives a new word from apply person and a cast that grows a name it carries.
+	await c1.call('table.apply', {call_id: 't2-c3', effects: [{kind: 'person', who: 'net-mender-by-the-water', name: 'the net woman'}]});
+	const cast = join(h.home, '.coc', 'modules', h.mid, 'cast.json'), table = JSON.parse(await readFile(cast, 'utf8'));
+	table.people.push({id: 'cast-00000000ff', book: ['内塔'], play: ['内塔'], notes: ['Net'], pages: [3]});
+	await writeFile(cast, JSON.stringify(table));
+	await c1.call('table.narrate', {call_id: 't2-c4', text: 'She goes back to her nets.'});
+	await c1.call('table.player_input', {text: 'I watch the water.'});
+	assert.equal(reasonOf(await c1.call('handles.submit', {entries: [{id: 'module-book-1', handle: 'net-and-harbor-book'}]}), 'module-book-1'), 'carries_name',
+		'the cast now has the word');
+	assert.equal((await c1.world()).node_handles['npc-old-mae'], 'net-mender-by-the-water', 'a folded handle is never changed');
+	assert.equal((await c1.call('table.look', {focus: 'npc', name: 'the net woman'})).id, 'net-mender-by-the-water', 'her new word finds her under the same handle');
+	assert.equal((await c1.world()).npc_presence['net-mender-by-the-water'], 'tar-smelling-dock');
+});
+
+test('§185.5: a reader-built book is named in the library alone; an authored module is refused', async t => {
+	const h = await book(t);
+	const job = await h.raw('handles.job', {module: h.mid});
+	assert.match(job.job_id, /^handles:book:/);
+	assert.ok(job.nodes.some(node => node.id === 'npc-old-mae') && job.avoid.includes('Silas'), JSON.stringify(job));
+	assert.deepEqual((await h.raw('handles.submit', {module: h.mid, entries: [{id: 'scene-dock', handle: 'tar-smelling-dock'}, {id: 'npc-old-mae', handle: 'old-mae-at-the-nets'}]})).refused.map(row => [row.id, row.reason]),
+		[['npc-old-mae', 'carries_name']]);
+	assert.equal((await h.handlesFile()).nodes['scene-dock'].handle, 'tar-smelling-dock');
+	const c1 = await h.campaign('c1');
+	assert.equal((await c1.world()).active_scene, 'tar-smelling-dock', 'a campaign created after the library was named starts named');
+	for (const method of ['handles.job', 'handles.submit'])
+		await assert.rejects(h.raw(method, {module: 'the-haunting', entries: []}), error => error?.details?.reason === 'authored', method);
 });

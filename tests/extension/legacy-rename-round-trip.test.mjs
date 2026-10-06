@@ -188,5 +188,8 @@ test('§185.1/§185.3: the retry is a legacy campaign\'s; a campaign marked name
   await assert.rejects(game.call('table.apply', {call_id: 't2-c1', effects: [{kind: 'clue', clue: `${WORD}-ledger`, how: '在抽屉里翻到的'}]}),
     error => error.code === 'unknown_entity');
   const landed = await game.call('table.apply', {call_id: 't2-c2', effects: [{kind: 'clue', clue: LEDGER, how: '在抽屉里翻到的'}]});
-  assert.equal((await game.receipts()).find(row => row.id === landed.receipts[0]).clue, LEDGER);
+  // §185.4: a name-free campaign shows the ledger by its name-free handle (interim here: nothing is folded); the slug is input.
+  const [ledger] = (await game.call('table.lookup', {kind: 'module', query: LEDGER})).entities;
+  assert.notEqual(ledger.name, LEDGER);
+  assert.equal((await game.receipts()).find(row => row.id === landed.receipts[0]).clue, ledger.name);
 });
