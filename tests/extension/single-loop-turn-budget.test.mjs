@@ -5,8 +5,8 @@
  *   engine and a stub clock. Past the budget the next step is the compose and the pending clerk steps are listed;
  *   a model step that crosses the budget is not cut and its whole batch runs; a forced step without a model still
  *   runs; inside the budget the route's choice runs.
- * - Extension seam: the hybrid engine over the emitted kernel. A move the route selected after the budget ran out
- *   is not executed, the compose's note and the next run's first note list it, and the rows carry the budget.
+ * - Extension seam: the hybrid engine over the emitted kernel. A declared move positively bound after the budget target
+ *   still executes; no note forces a close or carries a deferred move, while the summary reports the elapsed budget.
  */
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
@@ -18,6 +18,7 @@ import { openTable } from "./harness.mjs";
 import { runDriver } from "./pi-agent-core.mjs";
 import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { createStepPolicy, DEFAULT_TURN_BUDGET_MS, initialView, next, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
+import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const scope = { owner: "campaign:test", campaign: "test", worldline: "main", loop: 0, audience: "keeper" };
@@ -164,7 +165,7 @@ const clerkNotes = (context) => context.messages.flatMap((message) => {
 
 // Owner, 2026-10-02: the turn gets under 60 s by optimisation, never by being stopped. The engine gives the policy no run
 // budget: the 45 s is a target the summary row measures (`over_budget`), and a step routed past it still runs.
-test("at the extension seam a move routed after 45 s is still executed: the budget is a target the summary measures, never a limit", async (t) => {
+test("at the extension seam a move compiled after 45 s is still executed: the budget is a target the summary measures, never a limit", async (t) => {
 	const campaign = "test-camp";
 	const prepareWorkspace = (workspace) => kernelSteps(workspace, campaign, [
 		["table.open", {}], ["table.player_input", { text: "我听着" }],
@@ -172,12 +173,20 @@ test("at the extension seam a move routed after 45 s is still executed: the budg
 		["table.narrate", { call_id: "t1-c2", text: "他递给你一张写着地方的纸。" }],
 	]);
 	const clock = { t: 1_000_000 };
-	let routes = 0;
+	let compiles = 0;
 	const engine = createHybridEngine({ env: process.env, now: () => clock.t, decision: { decide: async (batch) => {
+		// The first endpoint binding takes 50 s (past the 45 s target); its declared move must still execute.
+		if (batch.family === COMPILE_FAMILY) {
+			const first = ++compiles === 1;
+			if (first) clock.t += 50_000;
+			const answers = Object.fromEntries(batch.questions.map((question) => {
+				const choice = first && question.key === "destination"
+					? Object.entries(question.criteria).find(([, value]) => value?.handle === "newspaper-morgue")?.[0] ?? "unclear" : "unclear";
+				return [question.key, { status: "answered", type: "choice", choice, confidence: 0.95, probabilities: { [choice]: 0.95 } }];
+			}));
+			return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
+		}
 		if (batch.family !== ROUTE_FAMILY) return route(batch);
-		routes++;
-		// The first run's route answers after 50 s (past the 45 s target) and selects the move; the next run finishes.
-		if (routes === 1) { clock.t += 50_000; return route(batch, ["Boston Globe offices"]); }
 		return route(batch, [], "finish");
 	} } });
 	const calls = [], requests = [];

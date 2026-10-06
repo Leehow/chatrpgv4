@@ -60,6 +60,7 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "world is still their claim. " +
     "obligations of kind note are your own open continuity notes; only those names can be closed with apply note. " +
     "Promise reminders belong to memory: respond to their fictional meaning, not by writing or closing a note. " +
+    "A present person's coverage.commitments_omitted counts commitments outside the small card; look focus=npc with their name returns the full account. " +
     "rulings are your earlier rulings that " +
     "bind here, reminders, not rules. worldlines is which line the table is on and which circuit of the " +
     "loop, where the anchor is, what a rewind would leave standing and who would remember it; " +
@@ -446,7 +447,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         receipts: [...campaign.records.flatMap(record => array(record.receipts)), ...array(turn.receipts)],
         modChecks: active.flatMap(mod => array(mod.contributes.checks).map(check => ({ mod: string(mod.id), check })))
     }).map(capsuleRow) : [];
-    const obligations = [...choiceObligation(turn.pending_choice), ...sessionObligation(session), ...continuationRows(continuations), ...sceneRows, ...questObligations(graph, world), ...promiseObligations(memory), ...noteObligations(campaign.logs.get("notes.jsonl") ?? [], presentNames, here), ...loopObligation(worldlines), ...offerObligations(world)];
+    const obligations = [...choiceObligation(turn.pending_choice), ...sessionObligation(session), ...continuationRows(continuations), ...sceneRows, ...promiseObligations(memory), ...questObligations(graph, world), ...noteObligations(campaign.logs.get("notes.jsonl") ?? [], presentNames, here), ...loopObligation(worldlines), ...offerObligations(world)];
     const sig = signals({
         graph,
         world,

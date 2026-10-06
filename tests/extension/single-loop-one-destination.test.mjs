@@ -13,7 +13,8 @@
  *   compile's `move` predicate selects nothing and decides every move, and the route selects no move whatever `need` answered;
  *   only that selected clerk move counts (not the Keeper's own move, an owed one, or a person's movement); a cleared held
  *   destination after the move is not reported as the player's. Controls: the same answers without a move select it.
- * - On the emitted kernel over the haunting through the hybrid engine (a stub Jev with the live turn's answers, the faux
+ * - On the emitted kernel over the haunting through the hybrid engine (a stub Jev with the live turn's declared endpoint
+ *   positively bound under §135.11, the faux
  *   Keeper): one move, to the house. With the compile off (the route alone), a move the route's need says `now` to at the
  *   house selects nothing, and the engine's route row says so.
  *
@@ -93,19 +94,22 @@ function readOwed(view, after) {
 	const read = next(view);
 	if (read.kind === "direct" && read.item?.purpose === "read") settleRead(view, startStep(view, read), { materials: [], summary: {} }, fresh(after), 0);
 }
-/** The live turn's first compile at the office: the house 0.52 against the neighbourhood 0.46, not cleared. */
-const SPLIT = { destination: ["house", 0.45, { house: 0.52, street: 0.46 }], act: ["investigate", 0.89] };
+/** The same declared endpoint, positively bound: §135.11 no longer permits a route to override an unclear compile. */
+const TO_HOUSE = { destination: ["house", 0.91, { house: 0.92, street: 0.06 }], act: ["investigate", 0.89] };
 /** Its compile at the house: the neighbourhood 0.92 ("站在街边"), read from where the party now stands. */
 const AT_HOUSE = { destination: ["street", 0.91, { street: 0.92, none: 0.08 }], act: ["investigate", 0.96] };
 
-/** Turn 2 up to the house: the split compile, the route's move (now 0.84; the neighbourhood now 0.29), the move executed (refused: the party stays). */
-function toTheHouse({ ok = true } = {}) {
+/** Turn 2 up to the house: the compile binds the player's house, then the move executes (refused: the party stays). */
+function toTheHouse({ ok = true, compileOff = false } = {}) {
 	const view = viewAt(office());
-	const first = compileWith(view, SPLIT);
-	assert.deepEqual(first.detail.selected, [], "the destination did not clear at the office");
-	assert.ok(first.detail.fell_through.includes(HOUSE) && first.detail.fell_through.includes(STREET), "both exits reach the route");
-	const { row } = routeWith(view, { [HOUSE]: ["now", 0.84], [STREET]: ["now", 0.29, { later: 0.47, now: 0.52 }] });
-	assert.deepEqual(row.detail.selected, [HOUSE], "the route moves the party to the house");
+	if (compileOff) {
+		view.compileOff = true;
+		assert.deepEqual(routeWith(view, { [HOUSE]: ["now", 0.84], [STREET]: ["now", 0.29, { later: 0.47, now: 0.52 }] }).row.detail.selected,
+			[HOUSE], "the explicit compile-off control still routes the declared house");
+	} else {
+		const first = compileWith(view, TO_HOUSE);
+		assert.deepEqual(first.detail.selected, [HOUSE], "the compile binds the player's declared house before execution");
+	}
 	execute(view, HOUSE, ok ? house() : office(), ok);
 	return view;
 }
@@ -116,7 +120,7 @@ test("§135.30.10 policy: live turn 2 -- after the declared move, the compile at
 	const second = compileWith(view, AT_HOUSE);
 	assert.deepEqual(second.detail.features.destination.row, "street", "the compile still reads what it reads");
 	assert.deepEqual(second.detail.selected, [], "no second move");
-	assert.ok(second.detail.decided.includes(STREET) && second.detail.decided.includes(OFFICE), "every move is decided: the Keeper's for the run");
+	assert.ok(view.consumed.includes(STREET) && second.detail.decided.includes(OFFICE), "the first compile consumed the sibling street; the new office move is decided after arrival");
 	assert.ok(view.consumed.includes(STREET) && !view.candidates.some((candidate) => candidate.family === "move"), "consumed");
 	assert.deepEqual(second.detail.moved, [HOUSE], "the compile row names the run's move");
 	assert.ok(second.detail.fell_through.includes("apply:clue:nailed-windows"), "the house's own steps still reach the route");
@@ -142,8 +146,7 @@ test("§135.30.10 policy: a refused declared move still carries the destination 
 });
 
 test("§135.30.10 policy: after the run moved, the route selects no move whatever need answered, and holds it for the Keeper", () => {
-	const view = toTheHouse();
-	view.compileOff = true;
+	const view = toTheHouse({ compileOff: true });
 	const { row, offered } = routeWith(view, { [STREET]: ["now", 0.97], [OFFICE]: ["now", 0.95], "apply:clue:nailed-windows": ["now", 0.9] });
 	assert.ok(offered.some((candidate) => candidate.key === STREET), "its need question is still asked and recorded");
 	assert.deepEqual(row.detail.selected, ["apply:clue:nailed-windows"], "the house's clue is still the clerk's");
@@ -194,38 +197,31 @@ const complete = (out) => ({ batchId: "b", status: "complete", answers: out, iss
 const place_ = (question, id) => Object.entries(question.criteria).find(([, value]) => value?.handle === id || value?.place === id)?.[0];
 const GROUND = "corbitt-house-ground", NEIGHBOURHOOD = "neighborhood-gossip";
 /**
- * The live turn's answers, by the scene the compile was asked at. The office: the commission's demand yes 0.92, its clues
- * no, the house 0.52 against the neighbourhood 0.46 (not cleared); after the accept, the neighbourhood 0.62 against the house
- * 0.37 (not cleared); the re-ask after the accept files nothing. The house: the neighbourhood 0.92. The neighbourhood: the house 0.87. The first route: the house now
- * 0.84, the neighbourhood now 0.52 (confidence 0.29), the rest later; every later route: finish.
+ * The live turn's same declaration, with its house positively bound at the office (§135.11), staged after acceptance.
+ * The commission's demand remains yes 0.92, its clues no, and the re-ask after acceptance files nothing. The house still
+ * reads the neighbourhood at 0.92, preserving the original second-move pressure. Every route finishes after the compile.
  */
-function liveTurnTwo() {
+function declaredTurnTwo() {
 	const compiles = [];
-	let routes = 0;
 	const decide = async (batch) => {
 		if (batch.family === COMPILE_FAMILY) {
 			const destination = batch.questions.find((question) => question.key === "destination");
-			const at = compiles.length === 0 ? "office" : compiles.length === 1 ? "office-accepted" : place_(destination, NEIGHBOURHOOD) ? "house" : "neighbourhood";
+			const at = compiles.length === 0 ? "office" : place_(destination, NEIGHBOURHOOD) ? "house" : "neighbourhood";
 			compiles.push(at);
 			return complete(Object.fromEntries(batch.questions.map((question) => {
 				if (isAskRow(question)) return [question.key, choice(at === "office" && JSON.stringify(question).includes("Accept Knott's commission") ? ["yes", 0.92] : ["no", 0.9])];
 				if (question.key === "act") return [question.key, choice([Object.entries(question.criteria).find(([, value]) => typeof value === "string" && value.startsWith("investigate"))[0], 0.9])];
 				if (question.key !== "destination") return [question.key, choice([UNCLEAR, 0.9])];
-				const [to, p, other, q] = { office: [GROUND, 0.52, NEIGHBOURHOOD, 0.46], "office-accepted": [NEIGHBOURHOOD, 0.62, GROUND, 0.37],
+				const [to, p, other, q] = { office: [GROUND, 0.92, NEIGHBOURHOOD, 0.06],
 					house: [NEIGHBOURHOOD, 0.92, null, 0], neighbourhood: [GROUND, 0.87, null, 0] }[at];
 				const probabilities = { [place_(question, to)]: p, ...(other ? { [place_(question, other)]: q } : {}), none: Math.max(0, 1 - p - q) };
-				return [question.key, choice([place_(question, to), at.startsWith("office") ? 0.45 : p - 0.01, probabilities])];
+				return [question.key, choice([place_(question, to), p - 0.01, probabilities])];
 			})));
 		}
 		// The re-ask after the accept filed nothing live.
 		if (batch.family === REASK_FAMILY) return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(["no", 0.9])])));
-		const first = batch.family === ROUTE_FAMILY && routes++ === 0;
-		const candidates = batch.state?.candidates ?? {};
 		return complete(Object.fromEntries(batch.questions.map((question) => {
-			if (question.key === "exit") return [question.key, choice(first ? ["continue", 0.9] : ["finish", 0.9])];
-			const to = candidates[`candidate_${question.key.slice("need_".length)}`]?.bound?.to;
-			if (first && to === GROUND) return [question.key, choice(["now", 0.84, { now: 0.92, later: 0.08 }])];
-			if (first && to === NEIGHBOURHOOD) return [question.key, choice(["now", 0.29, { later: 0.47, now: 0.52, unknown: 0.01 }])];
+			if (question.key === "exit") return [question.key, choice(["finish", 0.9])];
 			const keys = Object.keys(question.criteria);
 			return [question.key, choice([keys[0] === "now" ? "later" : question.criteria.seeks ? "not" : keys.includes("unknown") ? "unknown" : keys[0], 0.9])];
 		})));
@@ -233,10 +229,10 @@ function liveTurnTwo() {
 	return { decide, compiles };
 }
 
-test("§135.30.10 on the emitted kernel: live turn 2's sentence and answers move the party once, to the house", async (t) => {
+test("§135.30.10 on the emitted kernel: live turn 2's sentence with a bound endpoint moves the party once, to the house", async (t) => {
 	const rows = [];
 	let workspace;
-	const { decide, compiles } = liveTurnTwo();
+	const { decide, compiles } = declaredTurnTwo();
 	const engine = createHybridEngine({ env: process.env, record: (row) => rows.push(row), decision: { decide } });
 	const table = await openTable({ realKernel: true, prepareWorkspace: (at) => { workspace = at; kernelSteps(at, [
 		["table.open", {}], ["table.player_input", { text: "我听他说完。" }], ["table.narrate", { call_id: "t1-c1", text: "诺特把委托说了一遍。" }]]); },
@@ -248,11 +244,14 @@ test("§135.30.10 on the emitted kernel: live turn 2's sentence and answers move
 	const record = JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/turns/0002.json"), "utf8"));
 	const moves = record.receipts.filter((receipt) => receipt.kind === "move").map((receipt) => [receipt.from, receipt.to]);
 	assert.deepEqual(moves, [["commission-briefing", GROUND]], "one move: the house the player declared");
-	assert.deepEqual(compiles.slice(0, 3), ["office", "office-accepted", "house"], "the compile at the house was asked, as live (§135.30.1)");
-	const atHouse = rows.filter((row) => row.lane === "route" && row.purpose === "compile")[2];
-	assert.equal(atHouse.features.destination.row, NEIGHBOURHOOD, "it read the neighbourhood, as live");
-	assert.deepEqual(atHouse.selected, [], "and selected nothing");
+	assert.deepEqual(compiles, ["office", "house"], "positive binding stages the house after acceptance; the next compile is at the house");
+	const compiled = rows.filter((row) => row.lane === "route" && row.purpose === "compile");
+	assert.equal(compiled[0].features.destination.row, GROUND, "the initial compile binds the declared house");
+	const atHouse = compiled[1];
+	assert.equal(atHouse.features.destination.row, NEIGHBOURHOOD, "it still reads the neighbourhood at the house");
+	assert.deepEqual(atHouse.selected, [], "and selects no second move");
 	assert.deepEqual(atHouse.moved, [`apply:move:${GROUND}`]);
+	assert.ok(rows.filter((row) => row.lane === "route" && row.purpose === "route").every((row) => !(row.selected ?? []).some((key) => key.startsWith("apply:move:"))), "later routes select no second move");
 	const world = JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/world.json"), "utf8"));
 	assert.equal(world.active_scene, GROUND, "the party stands at the house");
 });

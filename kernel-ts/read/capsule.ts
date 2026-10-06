@@ -523,7 +523,16 @@ export function creatureWords(graph: ModuleGraph, world: Row, node: Row): Row {
             result[string(row(entry).label) || key] = row(entry).value;
     return result;
 }
-function npcHistory(ledger: Row, memories: Map<string, Row>): Row | null {
+function outstandingPromise(memory: Row): boolean {
+    return memory.status === 'candidate' && memory.superseded_by == null && memory.valid_until_turn == null
+        && row(memoryEvidenceView(memory).fulfillment).status !== 'complete';
+}
+function promiseOrder(left: Row, right: Row): number {
+    const leftOpen = outstandingPromise(left), rightOpen = outstandingPromise(right);
+    const turns = number(left.valid_from_turn ?? left.turn) - number(right.valid_from_turn ?? right.turn);
+    return leftOpen !== rightOpen ? leftOpen ? -1 : 1 : leftOpen ? turns : -turns;
+}
+function npcHistory(ledger: Row, memories: Map<string, Row>, shownPromises: Set<string>): Row | null {
     const result: Row = {},
         seen = row(ledger.turns_present),
         disclosed = array(ledger.disclosed).filter(item => truth(item.clue)).map(item => string(item.clue));
@@ -531,13 +540,18 @@ function npcHistory(ledger: Row, memories: Map<string, Row>): Row | null {
     const intents = intentsView(ledger);
     if (intents.length)
         result.intents = intents;
-    const promises = array(ledger.promises).slice(-3).flatMap(item => {
+    const selected = array(ledger.promises).flatMap(item => {
         const memory = memories.get(string(item.memory_id));
-        return memory && memory.status !== "superseded" ? [{
+        return memory && memory.status !== 'superseded' && memory.superseded_by == null && memory.valid_until_turn == null
+            ? [{memory, turn: item.turn ?? null}] : [];
+    }).sort((left, right) => promiseOrder(left.memory, right.memory)).slice(0, 3);
+    const promises = selected.map(({memory, turn}) => {
+        shownPromises.add(memoryOccurrenceKey(memory));
+        return {
                 statement: memory.statement ?? null,
-                turn: item.turn ?? null,
+                turn,
                 ...memoryEvidenceView(memory)
-            }] : [];
+            };
     });
     if (truth(seen.count)) {
         result.met_turns = seen.count;
@@ -647,7 +661,8 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     const saved = row(ledger[node.node_id]), toward = towardParty(saved);
     if (toward)
         entry.toward_party = toward;
-    const history = npcHistory(saved, memories);
+    const shownPromises = new Set<string>();
+    const history = npcHistory(saved, memories, shownPromises);
     if (history)
         entry.history = history;
     const relationships=npcRelationships(graph,node,[...memories.values()],scope),recent=npcRecentSpeech(graph,node,records,scope);
@@ -655,9 +670,10 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     if(recent.length)entry.recent_speech=recent;
     // The same owned promise already occupies history.promises. Do not duplicate its bytes and
     // crowd an earlier canonical occurrence out of the capsule; the full NPC read retains all rows.
-    const shownPromises=new Set(array(saved.promises).slice(-3).map(item=>string(item.memory_id)));
-    const commitments=npcCommitments(graph,node,[...memories.values()].filter(value=>!shownPromises.has(string(value.id))),scope);
+    const commitments=npcCommitments(graph,node,[...memories.values()].filter(value=>value.valid_until_turn==null
+        &&!shownPromises.has(memoryOccurrenceKey(value))),scope).sort(promiseOrder);
     if(commitments.length)entry.commitments=commitments.slice(0,4);
+    if(commitments.length>4)entry.coverage={commitments_omitted:commitments.length-4};
     const reunion=reunionView(graph,world,node,records,scope);
     if(reunion)entry.reunion=reunion;
     const elsewhere = across(node);

@@ -92,10 +92,8 @@ const clerkNotes = (context) => context.messages.flatMap((message) => {
 	return start < 0 ? [] : [JSON.parse(text.slice(start, text.lastIndexOf("}") + 1))];
 });
 
-test("the run reads first, Jev routes over host-issued candidates, the clerk's move is the Keeper's own apply through the gateway, and a scene change is read again", async (t) => {
+test("the run reads first, Jev binds the declared host-issued destination, the clerk's move is the Keeper's own apply through the gateway, and a scene change is read again", async (t) => {
 	const campaign = "test-camp";
-	let routesAsked = 0;
-	const nextRoute = () => ++routesAsked;
 	// The table has been told where to dig (the lead clue landed on turn 1), so the kernel issues the Globe as a move.
 	const prepareWorkspace = (workspace) => kernelSteps(workspace, campaign, [
 		["table.open", {}], ["table.player_input", { text: "我听着" }],
@@ -109,10 +107,11 @@ test("the run reads first, Jev routes over host-issued candidates, the clerk's m
 		async after(method, payload) { modHooks.push(["after", method, payload.call_id ?? null]); } })); } };
 	const table = await hybridTable({
 		realKernel: true, prepareWorkspace, extra: [mods],
-		// First route: the move the player declared; after the move, nothing more before the Keeper writes. The §135.30
-		// compile answers `unknown` here (the default below), so nothing clears and every candidate reaches the route.
-		decide: (batch) => batch.family !== ROUTE_FAMILY ? answered(batch)
-			: nextRoute(batch) === 1 ? answered(batch, (question) => question.key === "exit" ? "continue" : /Boston Globe offices/.test(question.target) ? "now" : undefined)
+		// Bind the destination the player declared. An unknown compile may not be overridden by a generic route
+		// to a different or unbound endpoint (§135.11). After the move, nothing more before the Keeper writes.
+		decide: (batch) => batch.family === COMPILE_FAMILY ? answered(batch, (question) => question.key === "destination"
+			? Object.entries(question.criteria).find(([, row]) => row?.handle === "newspaper-morgue")?.[0] : undefined)
+			: batch.family !== ROUTE_FAMILY ? answered(batch)
 				: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
 		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你到了报馆。" })], { stopReason: "toolUse" })],
 	});
@@ -125,9 +124,10 @@ test("the run reads first, Jev routes over host-issued candidates, the clerk's m
 	assert.equal(steps[0], "operate");
 	assert.equal(events.find((event) => event.type === "operation_prepared").readOnly, true);
 	assert.equal(events.find((event) => event.type === "operation_prepared").origin, "policy");
-	// The first route offered host-issued candidates, the Globe among them, and nothing internal.
-	const first = decisions.find((batch) => batch.family === ROUTE_FAMILY);
-	assert.ok(first.questions.some((question) => /Boston Globe offices/.test(question.target ?? "")));
+	// The first compile offered the host-issued destination, the Globe among them, and nothing internal.
+	const first = decisions.find((batch) => batch.family === COMPILE_FAMILY);
+	assert.ok(first.questions.some((question) => question.key === "destination"
+		&& Object.values(question.criteria).some((row) => row?.handle === "newspaper-morgue")));
 	assert.ok(!JSON.stringify(first).includes("available_route_not_player_choice"));
 
 	// The clerk's move: the Keeper's own apply, through the same tool_call/tool_result hooks, under the shared ordinal.
@@ -150,7 +150,7 @@ test("the run reads first, Jev routes over host-issued candidates, the clerk's m
 	// The scene changed, so a read ran again before the next route; the morgue's read issues candidates no compile of the
 	// run was asked over (its gate's check, the way back), so the compile comes first (§135.30 addendum, 2026-09-24).
 	const kinds = events.filter((event) => event.type === "step_start").map((event) => `${event.kind}${event.purpose ? `:${event.purpose}` : ""}`);
-	const executed = kinds.indexOf("operate", kinds.indexOf("decide:route") + 1);
+	const executed = kinds.indexOf("operate", kinds.indexOf("decide:compile") + 1);
 	assert.deepEqual(kinds.slice(executed, executed + 4), ["operate", "operate", "decide:compile", "decide:route"], "move, then read, then the morgue's compile, then the next route");
 	const reads = telemetry.filter((entry) => entry.lane === "run" && entry.event === "read");
 	assert.equal(reads.length, 2);
@@ -167,8 +167,9 @@ test("the run reads first, Jev routes over host-issued candidates, the clerk's m
 	assert.match(notes[0].note, /committed, not pending/);
 	// Every route answer's distribution is retained (lane "route").
 	const routes = telemetry.filter((entry) => entry.lane === "route" && entry.purpose === "route");
-	assert.equal(routes.length, 2);
-	assert.deepEqual(routes[0].selected, ["apply:move:newspaper-morgue"]);
+	assert.equal(routes.length, 1);
+	assert.deepEqual(telemetry.find((entry) => entry.lane === "route" && entry.purpose === "compile").selected,
+		["apply:move:newspaper-morgue"]);
 	assert.ok(Object.values(routes[0].answers).every((answer) => answer.probabilities));
 });
 

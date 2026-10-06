@@ -9,7 +9,7 @@ export const MEMORY_WRITE_CAPABILITY = 'memory.write';
 export const MEMORY_WRITE_KINDS = ['world_event', 'knowledge', 'belief', 'relationship', 'player_assertion',
   'player_preference', 'keeper_correction', 'promise'] as const;
 export const MEMORY_RELATIONS = ['duplicate', 'reinforcement', 'independent', 'correction', 'contradiction', 'temporal_change'] as const;
-export const MEMORY_WRITE_POLICY_VERSION = '4';
+export const MEMORY_WRITE_POLICY_VERSION = '5';
 const MAX_DECISION_BYTES = 30_000;
 
 type Kind = typeof MEMORY_WRITE_KINDS[number];
@@ -50,7 +50,7 @@ const RELATION_DEFINITIONS: Record<'none' | typeof MEMORY_RELATIONS[number], str
   independent: 'A distinct proposition about the same relation or commitment should coexist with the prior occurrence; an unrelated proposition is none.',
   correction: 'The new occurrence explicitly corrects or retracts the prior occurrence.',
   contradiction: 'The new occurrence asserts a proposition incompatible with the prior occurrence without framing it as a later state change.',
-  temporal_change: 'The new occurrence describes a later state replacing or changing the prior state while preserving both points in time.',
+  temporal_change: 'The new occurrence describes a later state replacing or changing the prior state while preserving both points in time. For a prior non-material promise, actual delivery of the promised answer or information, or an explicit terminal refusal or withdrawal, can settle that commitment even when the new annotation has another kind. A repeated pledge, a mere attempt, another referral, or saying the work is done without its promised result does not settle it. Speech alone never proves a cash, item or object transfer; those require canonical effects.',
 };
 const MULTI_KIND_POLICY = 'Select multiple kinds only when the exact source independently supports distinct durable propositions for those kinds. Do not multiply one proposition across categories: a player preference is not also a belief or player assertion merely because the player stated it.';
 const q = (key: string, target: string, instructions: string, criteria: Record<string, DecisionDescriptor>): DecisionBatch['questions'][number] =>
