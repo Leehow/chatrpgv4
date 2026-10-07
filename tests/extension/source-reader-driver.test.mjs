@@ -354,3 +354,18 @@ test('§187.7 at most need_read.lead_pages leads, and the need_read.min_lead_pag
  const one=await needReadRun(t,{leads:{50:0.9,52:0.2}});
  assert.deepEqual(one.receipt.evidence.candidates,[50,52,12],'one cleared lead and the best one below the gate make the floor of two');
 });
+
+// §187.6.1: an append repair reads the pages its missing items name, projected like a targeted repair's.
+test('an append repair projects exactly the pages its missing items name without locating again',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'source-append-repair-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const pdf=join(cwd,'source.pdf');await writeFile(pdf,textPdf(['The harbor dock.','The old tower stands on the hill.','The cellar floods.']));
+ const sha=createHash('sha256').update(await readFile(pdf)).digest('hex');
+ await writeFile(join(cwd,'task.json'),JSON.stringify({purpose:'detail',module_id:'book',focus:'Tower',question:'',source:{page_count:3},pages:[2,3],
+  repair:{draft:'draft.json',baseline:'baseline.json',findings:{},kind:'append',missing:[{item:{path:'/coverage',reason:'absent',source_refs:[{page:3}]},pages:[3]}],pages:[3]}}));
+ const driver=await createSourceReaderDriver({cwd,env:{},source:{pdf,cache:join(cwd,'cache','pages'),file_sha256:sha}});
+ const {ports}=await driver.prepare({runId:'append-run',inputRevision:'v1',rawInput:'Add what is missing',session:{}});
+ const signal=AbortSignal.timeout(20000);
+ assert.equal((await ports.operations.execute({origin:'policy',operation:'source.catalog',readOnly:true},{signal})).status,'ok');
+ const located=await ports.decision.decide({question:{kind:'source_pages'},signal});
+ assert.deepEqual([located.status,located.artifact.pages],['ok',[3]]);
+});

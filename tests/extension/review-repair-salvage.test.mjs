@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ReadingService } from "../../extensions/module/reading-service.ts";
 import { KernelError } from "../../extensions/kernel/client.ts";
-import { TARGETED_REPAIR_ASK, checkTargetedRepair, repairDecision } from "../../extensions/module/targeted-repair.ts";
+import { APPEND_REPAIR_ASK, TARGETED_REPAIR_ASK, checkAppendRepair, checkTargetedRepair, repairDecision } from "../../extensions/module/targeted-repair.ts";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const SHA = "source-sha";
@@ -53,7 +53,7 @@ async function deliver(request, cache, pages, call) {
  * reads have run (1 during the first round's review). `views(pass)` are pages the author views beyond its records'.
  * `plans` holds the review plan on disk as each read starts (the plan of the review that read repairs).
  */
-async function runFixture(t, { author, verdict = () => "supported", missing = () => [], views = () => [], job: extra = {}, before } = {}) {
+async function runFixture(t, { author, verdict = () => "supported", missing = () => [], views = () => [], job: extra = {}, before, onFinish } = {}) {
 	const home = await mkdtemp(join(tmpdir(), "coc-review-repair-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
 	const cwd = join(home, "work", "read-1", extra.attempt ?? "attempt-1"), cache = join(home, ".coc", "modules", "book", "cache", "pages");
@@ -96,6 +96,7 @@ async function runFixture(t, { author, verdict = () => "supported", missing = ()
 		async call(method, params) {
 			if (method !== "module.read.finish") return {};
 			finishes.push(params);
+			await onFinish?.(params, cwd);
 			if (params.outcome !== "completed") return { state: params.outcome };
 			// The publication gate: a non-supported row or a missing item refuses the reading.
 			const review = JSON.parse(await readFile(params.review_path, "utf8"));
@@ -386,4 +387,93 @@ test("§186.4 a targeted repair whose author viewed another page changes the rev
 	assert.equal(result.rows.some(row => row.event === "targeted_repair_refused"), false);
 	assert.equal(coverageRuns(result), 2);
 	assert.deepEqual(carryRefusals(result), ["scope"], "the scope is compared before the carried reviewer's pages are");
+});
+
+// §187.6 (RD-05): a coverage `missing` whose pages lie inside the job's pages is an append repair. The job reads pages 4 and 6.
+const harborMaster = { path: "/coverage", reason: "The harbor master who warns the investigators on page 4 is absent.", source_refs: [{ page: 4 }] };
+const withHarborMaster = () => { const draft = candidate(); draft.nodes.push(node("npc-harbor-master", "npc", 4)); draft.claims.push(claim("npc-harbor-master", "present-in", "scene-dock", 4)); return draft; };
+const missingOnce = item => (unit, reads) => unit.includes("/coverage") && reads === 1 ? [item] : [];
+
+test("§187.6 an in-page missing appends: the author adds records, and only the new records and coverage are reviewed again", async t => {
+	const result = await runFixture(t, { job: { pages: [4, 6] },
+		author: (_task, _onDisk, pass) => pass === 1 ? candidate() : withHarborMaster(),
+		missing: missingOnce(harborMaster) });
+	assert.equal(result.reads.length, 2, "one author, one append");
+	const repair = result.reads[1].task.repair;
+	assert.equal(repair.kind, "append");
+	assert.deepEqual(repair.missing, [{ item: harborMaster, pages: [4] }], "the missing item with its pages and reason");
+	assert.deepEqual(repair.pages, [4]);
+	assert.ok(result.reads[1].brief.includes(APPEND_REPAIR_ASK));
+	assert.deepEqual(result.reads[1].onDisk, candidate(), "the append starts from the reviewed candidate");
+	assert.match(result.reads[1].eventLog, /read-2-append\.jsonl$/);
+	const second = result.units.slice(-2).map(paths => paths.join(",")).sort();
+	assert.deepEqual(second, ["/coverage", "/nodes/4,/claims/2"], "the new records' unit and coverage; the reviewed records are not asked again");
+	const carried = result.rows.filter(row => row.phase === "verify" && row.round === 2 && row.reused === true);
+	assert.equal(carried.length, 2, "both reviewed units carry");
+	assert.ok(carried.every(row => row.carried_from?.round === 1));
+	const review = JSON.parse(await readFile(join(result.cwd, "review.json"), "utf8"));
+	for (const path of ["/nodes/0", "/nodes/1", "/nodes/2", "/nodes/3", "/claims/0", "/claims/1", "/nodes/4", "/claims/2", "/coverage"])
+		assert.ok(review.checked.some(row => row.paths.includes(path)), `the published review answers for ${path}`);
+	assert.deepEqual(review.missing, []);
+	const row = result.rows.find(row => row.event === "repair");
+	assert.deepEqual([row.repair, row.missing, row.pages], ["append", 1, [4]]);
+	assert.equal(result.accounting[0].repair, "append");
+	assert.equal(result.finishes.filter(call => call.outcome === "completed").length, 2);
+});
+
+test("§187.6 a missing item that names a page outside the job's pages is a full round", async t => {
+	const result = await runFixture(t, { job: { pages: [4, 6] },
+		author: (_task, _onDisk, pass) => pass === 1 ? candidate() : withHarborMaster(),
+		missing: missingOnce({ ...harborMaster, source_refs: [{ page: 4 }, { page: 7 }] }) });
+	assert.equal(result.reads[1].task.repair.kind, undefined);
+	const row = result.rows.find(row => row.event === "repair");
+	assert.deepEqual([row.repair, row.reason], ["full", "missing"]);
+});
+
+test("§187.6 a missing whose review no longer binds the candidate is a full round", async t => {
+	const result = await runFixture(t, { job: { pages: [4, 6] },
+		author: (_task, _onDisk, pass) => pass === 1 ? candidate() : withHarborMaster(),
+		missing: missingOnce(harborMaster),
+		// The review file is rewritten after its plan bound it: the plan's review digest no longer matches.
+		onFinish: async (_params, cwd) => { const file = join(cwd, "review.json"); await writeFile(file, (await readFile(file, "utf8")) + " "); } });
+	assert.equal(result.reads[1].task.repair.kind, undefined);
+	const row = result.rows.find(row => row.event === "repair");
+	assert.deepEqual([row.repair, row.reason], ["full", "no_review"]);
+});
+
+test("§187.6 an append that edits an existing record is refused and the round reads in full", async t => {
+	const result = await runFixture(t, { job: { pages: [4, 6] },
+		author: (_task, _onDisk, pass) => {
+			if (pass === 1) return candidate();
+			const draft = withHarborMaster();
+			if (pass === 2) draft.nodes[2] = { ...draft.nodes[2], summary: "A tower rewritten for style." };
+			return draft;
+		},
+		missing: missingOnce(harborMaster) });
+	assert.equal(result.reads.length, 3, "the author, the refused append and today's full repair in the same round");
+	assert.equal(result.reads[1].task.repair.kind, "append");
+	const refused = result.rows.find(row => row.event === "append_repair_refused");
+	assert.deepEqual([refused.reason, refused.changed, refused.round], ["append_changed_existing", ["/nodes/2"], 2]);
+	assert.deepEqual(result.reads[2].onDisk, candidate(), "the full repair starts from the reviewed candidate");
+	assert.equal(result.reads[2].task.repair.kind, undefined);
+	assert.deepEqual(result.rows.filter(row => row.event === "repair").map(row => [row.repair, row.reason]), [["append", undefined], ["full", "append_refused"]]);
+	assert.equal(result.accounting[0].repair, "full");
+	assert.ok(!result.rows.some(row => row.phase === "verify" && row.round === 2 && row.carried_from), "a refused append carries nothing");
+});
+
+test("§187.6 the decision and the host check, unit by unit", () => {
+	const task = { purpose: "detail", pages: [4, 6] }, review = { checked: [{ paths: ["/nodes/0"], verdict: "supported", source_refs: [{ page: 4 }] }], missing: [harborMaster] };
+	assert.equal(repairDecision(candidate(), review, task).kind, "append");
+	assert.deepEqual(repairDecision(candidate(), { ...review, missing: ["The harbor master is absent."] }, task), { kind: "full", reason: "missing" }, "an item that names no page");
+	assert.deepEqual(repairDecision(candidate(), review, { purpose: "detail", pages: [] }), { kind: "full", reason: "missing" }, "a job without pages");
+	const refusing = { ...review, checked: [{ paths: ["/claims/0"], verdict: "unsupported", source_refs: [{ page: 4 }] }] };
+	assert.deepEqual(repairDecision(candidate(), refusing, task), { kind: "full", reason: "missing" }, "a review that refuses and misses");
+	assert.deepEqual(repairDecision(candidate(), review, { ...task, source_unit: { section: "Original pages 4-6", first: 4, last: 6 } }).pages, [4, 6], "a unit's assigned pages ride along");
+	assert.deepEqual(checkAppendRepair(candidate(), withHarborMaster()), { ok: true });
+	const removed = candidate(); removed.claims.pop();
+	assert.deepEqual(checkAppendRepair(candidate(), removed), { ok: false, reason: "append_changed_existing", paths: ["/claims/1"] });
+	const dropped = withHarborMaster(); dropped.ready_nodes = dropped.ready_nodes.slice(1);
+	assert.equal(checkAppendRepair(candidate(), dropped).ok, false, "an existing ready node removed");
+	const moved = withHarborMaster(); moved.nodes = [moved.nodes[4], ...moved.nodes.slice(0, 4)];
+	assert.deepEqual(checkAppendRepair(candidate(), moved), { ok: true }, "a record may sit at another position");
 });

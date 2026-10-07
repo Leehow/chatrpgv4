@@ -6,7 +6,7 @@ import { KernelError , isKernelError } from "../kernel/client.ts";
 import { readerInput, readingCacheId, wakeReaderSlots, type ReaderOutcome, type ReaderRequest } from "./reader.ts";
 import { providerRefusalText } from "../../runtime/jev/provider-budget.ts";
 import { reviewCandidate, type CoverageCarrySource, type ReviewPlan } from "./reader-review.ts";
-import { checkTargetedRepair, repairDecision, reviewOfCandidate, TARGETED_REPAIR_ASK, type RepairDecision } from "./targeted-repair.ts";
+import { APPEND_REPAIR_ASK, appendUnitCarry, checkAppendRepair, checkTargetedRepair, repairDecision, reviewOfCandidate, TARGETED_REPAIR_ASK, type RepairDecision } from "./targeted-repair.ts";
 import { salvageInterruptedRead } from "./read-salvage.ts";
 import { accountingFields, readingAccounting, tallyChildJev, tallyFirstCall, tallyReadingRow } from "./reading-accounting.ts";
 import { sourceAsset, closeSourceDocuments, sourceRenderVersion, sourceTextVersion } from "./source.ts";
@@ -1260,6 +1260,10 @@ export class ReadingService implements ReadingBridge {
 				let targetedRefused = false;
 				// §186.4: the repaired review, offered to this round's verify only once `checkTargetedRepair` accepted the repair.
 				let coverageCarry: CoverageCarrySource | undefined;
+				// §187.6.1: an append repair the host refused this round (the round's read runs again in full), and the bound
+				// review of the candidate an accepted append extended, whose fact units carry to this round's verify.
+				let appendRefused = false;
+				let appendSource: { plan: ReviewPlan; plan_sha256: string; review: Row } | undefined;
 				try {
 					const phases: Array<"index" | "index-audit" | "read" | "verify"> = job.purpose === "index" ? (readComplete ? [] : ["index", "index-audit"]) : (readComplete ? ["verify"] : ["read", "verify"]);
 					// An index loop: a refused targeted repair inserts the round's full read right after itself.
@@ -1268,6 +1272,7 @@ export class ReadingService implements ReadingBridge {
 						phaseCompleted = false;
 						let previousDraft: Row | undefined, previousPages: number[] = [], candidateBytes: Buffer | undefined;
 						let targeted: Extract<RepairDecision, {kind: "targeted"}> | undefined, pendingNeeds: Buffer | null = null;
+						let appended: Extract<RepairDecision, {kind: "append"}> | undefined;
 						let repairedReview: CoverageCarrySource | undefined;
 						if (phase === "read") {
 							try {
@@ -1292,6 +1297,7 @@ export class ReadingService implements ReadingBridge {
 								const reviewed = await reviewOfCandidate([cwd, ...(job.resume_from ? [job.resume_from] : [])], previousDraft);
 								previousPlan = reviewed?.plan;
 								const decision: RepairDecision = targetedRefused ? { kind: "full", reason: "targeted_refused" }
+									: appendRefused ? { kind: "full", reason: "append_refused" }
 									: job.resumed?.reread === true || !reviewed ? { kind: "full", reason: "no_review" } : repairDecision(previousDraft, reviewed.review, task);
 								if (decision.kind === "targeted") {
 									targeted = decision;
@@ -1300,9 +1306,17 @@ export class ReadingService implements ReadingBridge {
 									await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
 									pendingNeeds = await readFile(join(cwd, "pending-source-needs.json")).catch(failure => { if (failure.code === "ENOENT") return null; throw failure; });
 								}
+								if (decision.kind === "append") {
+									appended = decision;
+									appendSource = { plan: reviewed!.plan, plan_sha256: reviewed!.plan_sha256, review: reviewed!.review };
+									task.repair = { ...task.repair, kind: "append", missing: decision.missing, pages: decision.pages };
+									await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
+									pendingNeeds = await readFile(join(cwd, "pending-source-needs.json")).catch(failure => { if (failure.code === "ENOENT") return null; throw failure; });
+								}
 								accounting.repair = decision.kind;
 								this.deps.record({ lane: "reading", event: "repair", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "",
-									round, repair: decision.kind, ...(decision.kind === "targeted" ? { refused: decision.roots, pages: decision.pages } : { reason: decision.reason }) });
+									round, repair: decision.kind, ...(decision.kind === "targeted" ? { refused: decision.roots, pages: decision.pages }
+										: decision.kind === "append" ? { missing: decision.missing.length, pages: decision.pages } : { reason: decision.reason }) });
 							}
 						}
 						if (phase === "index-audit") {
@@ -1357,6 +1371,7 @@ export class ReadingService implements ReadingBridge {
 								observations.review_pages = await reviewCandidate({ cwd, ...(claimSupport ? { claimSupport } : {}), task: {...task, review_scope_pages: reviewScope,
 									...(requiredReview?{required_review:requiredReview}:{})},
 									draft:candidate, instructions, round, previousPlan, coverageCarry, extractionVersion: sourceTextVersion,
+									...(appendSource ? { appendCarry: (paths: string[]) => appendUnitCarry(appendSource!, { draft: candidate, task, paths }) } : {}),
 									cacheId: readingCacheId(job.module_id, job.job_id, round), ...(readingImages ? { imageHistory: readingImages } : {}),
 									model, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 }, signal,
 									cacheRoot:join(cache,'..','reviews'),
@@ -1381,7 +1396,7 @@ export class ReadingService implements ReadingBridge {
 
 						const reads = new Map<string, string>();
 						// §151.2.2: a targeted pass keeps its own logs, so a full read that follows it in the round counts only its own pages.
-						const eventLog = join(cwd, `${phase}-${round}${targeted ? "-targeted" : ""}.jsonl`);
+						const eventLog = join(cwd, `${phase}-${round}${targeted ? "-targeted" : appended ? "-append" : ""}.jsonl`);
 						const sourceRunStartedAt=Date.now();
 						publicProgress('searching');
 						const run = await this.runtime().runTask({ kind: "reader", request: { providerBudget, ...(readingLease ? { readingLease } : {}), cwd, model: model.id, thinking: model.thinking,
@@ -1397,6 +1412,7 @@ export class ReadingService implements ReadingBridge {
 							brief: phase === "index-audit"
 								? `${readerInput({task})} This is the independent map-page completeness audit of the retained PDF index. Read draft.json${round > 1 || job.resume_from ? " and findings.json" : ""}. View every physical page in task.index_audit_pages with pdf, compare each page to draft.map_candidates, and immediately add every authored map whose depicted place can be identified. Every task.required_map_candidates row must remain. Preserve existing sections and candidates; repair missing section source_refs but do not cite any page unless you viewed that full page in this audit or it is in task.index_audit_pages. If another page is needed as a reference, view it first. Do not rewrite for style. Finish only after every assigned page has been checked, then stop.`
 								: targeted ? `${readerInput({task})} Your phase is ${phase}. ${TARGETED_REPAIR_ASK} Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply.`
+								: appended ? `${readerInput({task})} Your phase is ${phase}. ${APPEND_REPAIR_ASK} Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply.`
 								: guidanceProjection ? `${readerInput({task})} The selected entrance and public module facts are already source-reviewed. The host wrote an unchanged scene shard to draft.json; do not rewrite it. Use the original page images supplied in context, and pdf only for a missing or newly needed original page. Write the five guidance fields for task.focus in the player's language where requested. If a necessary public fact is absent, request its source instead of inventing it. Submit guidance and the required public_fields with submit_reading as your sole final tool call. ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`
 								: `${readerInput({task})} Your phase is ${phase}. ${job.repair === "way_on" ? WAY_ON_ASK + " " : ""}Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening","detail","answer"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}${job.resumed?.reread === true ? " The published material on this focus changed since the retained draft was written: check it against the current task and the pages, and repair what no longer holds." : ""}${job.review_retry ? ` ${REVIEW_RETRY_ASK}` : ""}${Array.isArray(job.carried_needs) && job.carried_needs.length ? ` ${CARRIED_NEEDS_ASK}` : ""}`,
 							onEvent(event) {
@@ -1502,6 +1518,22 @@ export class ReadingService implements ReadingBridge {
 								continue;
 							}
 							coverageCarry = repairedReview;
+						}
+						// §187.6.1: the host's check of an append repair. An existing record changed or removed refuses it: the reviewed
+						// candidate is put back and this round's read runs again as today's full repair.
+						if (appended) {
+							const verdict = checkAppendRepair(previousDraft!, JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")));
+							if (!verdict.ok) {
+								this.deps.record({ lane: "reading", event: "append_repair_refused", module_id: job.module_id, campaign, job_id: job.job_id,
+									purpose: job.purpose, focus: job.focus ?? "", round, reason: verdict.reason, changed: verdict.paths.slice(0, 50) });
+								await writeFile(join(cwd, "draft.json"), candidateBytes!);
+								if (pendingNeeds) await writeFile(join(cwd, "pending-source-needs.json"), pendingNeeds);
+								else await rm(join(cwd, "pending-source-needs.json"), { force: true });
+								appendRefused = true;
+								appendSource = undefined;
+								phases.splice(at + 1, 0, "read");
+								continue;
+							}
 						}
 						if (phase === "index-audit") {
 							const missing = integerList(task.index_audit_pages).filter(page => !sourcePages.has(page));

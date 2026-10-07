@@ -299,10 +299,11 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
    async function locate(signal:AbortSignal){
      if(!info)throw new Error('Source catalog is unavailable');
      const question=pendingQuery;
-     // §151.2.2: a targeted repair reads the refused records' own pages; nothing is located again.
-     if(task.repair?.kind==='targeted'&&Array.isArray(task.repair.pages)&&requestCount===0){
+     // §151.2.2: a targeted repair reads the refused records' own pages; §187.6.1: an append repair reads the pages its
+     // missing items name. Nothing is located again.
+     if(['targeted','append'].includes(task.repair?.kind??'')&&Array.isArray(task.repair.pages)&&requestCount===0){
        candidates=[...new Set(task.repair.pages.filter((page):page is number=>Number.isSafeInteger(page)&&Number(page)>=1&&Number(page)<=info!.page_count))].slice(0,20);
-       partial=true;trace({kind:'source_targeted_repair',runId,pages:candidates});
+       partial=true;trace({kind:task.repair!.kind==='append'?'source_append_repair':'source_targeted_repair',runId,pages:candidates});
        return {kind:'located',pages:candidates,partial:true};
      }
      if(task.source_unit&&requestCount===0){

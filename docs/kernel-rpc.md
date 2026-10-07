@@ -35734,6 +35734,28 @@ record was removed; review runs the new records' units and the coverage unit aga
 the accounting row says `repair: append`. A `missing` that names a page outside the job's pages is `full` as today
 (it is a reading, not a repair).
 
+**Implementation decision (187.6, RD-05).** "The job's pages" are the task's assigned `pages`; a job without them has no
+in-page `missing`, so it stays `full`. A missing item "names" a page through its `source_refs[].page` (the review
+protocol's citation field; 20 of 26 retained missing items on the App home carried it, the rest were bare strings and
+stay `full`). `repairDecision` answers `append` only for a bound review (§151.2.2's lookup) with no row the gate would
+refuse; `pages` are the named pages plus, for a source unit, its assigned pages. The task carries `repair: {…today's
+fields, kind: "append", missing: [{item, pages}], pages}`, the brief `APPEND_REPAIR_ASK`, the pass logs to
+`read-<round>-append.jsonl`, and the native driver projects `repair.pages` exactly as for a targeted repair.
+`checkAppendRepair`: every node and claim of the candidate present byte-identical (canonical JSON, any position);
+`ready_nodes` and `node_refs` keep every entry; `critical` keeps every kept record's pointer at its new position; new
+records, their ids and pointers and the other shard fields are the append's own, judged by the review. A refusal writes
+`event: "append_repair_refused", reason: "append_changed_existing", changed`, restores the candidate and
+`pending-source-needs.json`, and the round's read runs again in full (`repair: full, reason: append_refused`), so the
+round count is unchanged. Review after an accepted append: the round's verify gets the plan (`previousPlan`, so surviving
+units keep their grouping) and `appendCarry` (`appendUnitCarry`, `extensions/module/targeted-repair.ts`): a fact unit
+whose records are, in order, byte-identical to a previous plan unit's records and owe the same pointers keeps that unit's
+rows from the bound review (its slice by the plan's `checked` counts, every row one the gate accepts, moved to the
+current positions, with `carried_from: {round, plan_digest}`), checked with `checkReviewEvidence` against the plan unit's
+viewed pages; those pages join `review_pages`. The connected-context check of §151.2.1's cache does not apply to this
+carry: an append adds connected records by definition, and the carried records and their pages are unchanged. Coverage
+always runs (`coverageCarry` is not offered). Accounting: `repair: "append"`. Tests:
+`tests/extension/review-repair-salvage.test.mjs` (§187.6 cases), `tests/extension/source-reader-driver.test.mjs`.
+
 ### 187.7 A need read's candidates are the need's pages (amends §151.4)
 
 **187.7.1** For a `source_need` task the candidate pages are: the need facet's leads at or above `PAGE_LEAD_GATE`,

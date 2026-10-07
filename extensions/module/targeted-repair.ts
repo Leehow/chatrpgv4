@@ -23,11 +23,27 @@ export const TARGETED_REPAIR_ASK = "This reading repairs a reviewed candidate re
 	+ "so each still names the same record. Add no record beyond one replacement per refused record, and leave coverage, source_needs, "
 	+ "dependencies and interaction_scene as they are.";
 
+/**
+ * What the append author is told (§187.6.1): the review missed material on pages this job already reads, so the repair
+ * adds what is missing and touches nothing that was reviewed.
+ */
+export const APPEND_REPAIR_ASK = "This reading repairs a reviewed candidate by adding what the review found missing. draft.json is that candidate, and "
+	+ "every node and claim in it was reviewed and accepted. task.repair.missing lists what the independent review found missing, each with the "
+	+ "original pages it named and the reviewer's reason; task.repair.pages are those pages, supplied as images with their native text (use pdf for "
+	+ "a closer view). Add the nodes and claims the pages state for each missing item, citing those pages. Do not change or remove any "
+	+ "existing node or claim: the host compares every one of them byte for byte and refuses any change. You may add the new "
+	+ "nodes' ids to ready_nodes and node_refs and the new records' pointers to critical, and keep the existing entries of all three. Do not invent "
+	+ "material a page does not state; if a missing item cannot be answered from these pages, retain it in source_needs.";
+
+/** One missing item of an append repair: the review's item as written, and the pages it names. */
+export interface MissingItem { item: unknown; pages: number[] }
 /** One refused path, as the brief carries it. */
 export interface RefusedPath { path: string; root: string; verdict: string; reason: string; source_refs: Row[] }
 export type RepairDecision =
 	| { kind: "targeted"; refused: RefusedPath[]; roots: string[]; pages: number[] }
-	| { kind: "full"; reason: "no_review" | "missing" | "no_refusal" | "not_a_record" | "targeted_refused" };
+	/** §187.6.1: every `missing` item names pages inside the job's pages and nothing was refused. */
+	| { kind: "append"; missing: MissingItem[]; pages: number[] }
+	| { kind: "full"; reason: "no_review" | "missing" | "no_refusal" | "not_a_record" | "targeted_refused" | "append_refused" };
 
 const sha = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
 
@@ -60,8 +76,12 @@ export async function reviewOfCandidate(dirs: string[], candidate: Row): Promise
  */
 export function repairDecision(candidate: Row, review: Row, task: Row): RepairDecision {
 	if (!Array.isArray(review?.checked) || !Array.isArray(review?.missing)) return { kind: "full", reason: "no_review" };
-	if (review.missing.length) return { kind: "full", reason: "missing" };
 	const refuses = gateRefusal(task);
+	// §187.6.1: a review that both refuses and misses is a full round; one that only misses, on this job's own pages, appends.
+	if (review.missing.length) {
+		const refusing = review.checked.some((row: Row) => (Array.isArray(row?.paths) ? row.paths : [row?.path]).some((path: string) => refuses(row, path)));
+		return refusing ? { kind: "full", reason: "missing" } : appendDecision(review.missing, task);
+	}
 	const refused: RefusedPath[] = [];
 	for (const row of review.checked) {
 		for (const path of Array.isArray(row?.paths) ? row.paths : [row?.path]) {
@@ -82,6 +102,32 @@ export function repairDecision(candidate: Row, review: Row, task: Row): RepairDe
 	}
 	if (task?.source_unit) for (const page of Array.isArray(task.pages) ? task.pages : []) if (Number.isSafeInteger(page) && page > 0) pages.add(page);
 	return { kind: "targeted", refused, roots, pages: [...pages].sort((a, b) => a - b) };
+}
+
+const pageList = (value: unknown): number[] => Array.isArray(value) ? value.filter((page): page is number => Number.isSafeInteger(page) && page > 0) : [];
+/** The pages a missing item names: the `source_refs` the review protocol cites with. An item without one names none. */
+export function missingPages(item: unknown): number[] {
+	const refs = item && typeof item === "object" && Array.isArray((item as Row).source_refs) ? (item as Row).source_refs : [];
+	return [...new Set(pageList(refs.map((ref: Row) => ref?.page)))].sort((a, b) => a - b);
+}
+
+/**
+ * §187.6.1: the job's pages are the task's assigned `pages`. Every missing item must name at least one page and every page
+ * it names must be one of them; otherwise the omission is a reading, not a repair, and the round is full. The repair's
+ * pages are the named pages plus, for a source unit, its assigned pages (the checker requires every read of a unit to view them).
+ */
+function appendDecision(missing: unknown[], task: Row): RepairDecision {
+	const jobPages = new Set(pageList(task?.pages));
+	if (!jobPages.size) return { kind: "full", reason: "missing" };
+	const items: MissingItem[] = [];
+	for (const item of missing) {
+		const pages = missingPages(item);
+		if (!pages.length || pages.some(page => !jobPages.has(page))) return { kind: "full", reason: "missing" };
+		items.push({ item, pages });
+	}
+	const pages = new Set(items.flatMap(entry => entry.pages));
+	if (task?.source_unit) for (const page of jobPages) pages.add(page);
+	return { kind: "append", missing: items, pages: [...pages].sort((a, b) => a - b) };
 }
 
 function canonical(value: any): string {
@@ -145,4 +191,81 @@ export function checkTargetedRepair(candidate: Row, repaired: Row, roots: string
 	for (const key of new Set([...Object.keys(candidate ?? {}), ...Object.keys(repaired ?? {})]))
 		if (!["nodes", "claims", "ready_nodes", "node_refs", "critical"].includes(key) && canonical(candidate?.[key]) !== canonical(repaired?.[key])) changed.push(`/${key}`);
 	return changed.length ? { ok: false, paths: [...new Set(changed)] } : { ok: true };
+}
+
+/**
+ * The host's check after an append repair (§187.6.1): every node and claim of the reviewed candidate is still present
+ * byte-identical (canonical JSON, any position) and none was removed; `ready_nodes` and `node_refs` keep every entry
+ * they had; `critical` keeps every pointer of the kept records at their new positions. New records, their ids and
+ * pointers, and the other shard fields (coverage, source_needs, dependencies, interaction_scene) are the append's own,
+ * judged by the review of the new records and the coverage unit. `paths` names the candidate's records or fields that
+ * did not survive.
+ */
+export function checkAppendRepair(candidate: Row, repaired: Row): { ok: true } | { ok: false; reason: "append_changed_existing"; paths: string[] } {
+	const changed: string[] = [], moved = new Map<string, string>();
+	const list = (draft: Row, key: string): any[] => Array.isArray(draft?.[key]) ? draft[key] : [];
+	for (const collection of ["nodes", "claims"]) {
+		const free = new Map<string, number[]>();
+		list(repaired, collection).forEach((row, index) => { const key = canonical(row); free.set(key, [...(free.get(key) ?? []), index]); });
+		for (const [index, row] of list(candidate, collection).entries()) {
+			const at = free.get(canonical(row))?.shift();
+			if (at === undefined) changed.push(`/${collection}/${index}`);
+			else moved.set(`/${collection}/${index}`, `/${collection}/${at}`);
+		}
+	}
+	for (const key of ["ready_nodes", "node_refs"]) {
+		const now = new Set(list(repaired, key).map(entry => canonical(entry)));
+		if (list(candidate, key).some(entry => !now.has(canonical(entry)))) changed.push(`/${key}`);
+	}
+	const critical = new Set(list(repaired, "critical"));
+	for (const pointer of list(candidate, "critical")) {
+		const record = recordRoot(pointer);
+		const expected = record ? (moved.has(record.root) ? moved.get(record.root)! + record.rest : undefined) : pointer;
+		if (expected !== undefined && !critical.has(expected)) { changed.push("/critical"); break; }
+	}
+	return changed.length ? { ok: false, reason: "append_changed_existing", paths: [...new Set(changed)] } : { ok: true };
+}
+
+/**
+ * §187.6.1: after an accepted append, a fact unit whose records are all records the bound review already judged -- the same
+ * records, byte-identical, owing the same pointers -- keeps that review's rows for them; only the new records' units and
+ * the coverage unit run. The previous plan must have recorded each unit's share of `review.json` and its viewed pages
+ * (§186.4's plan fields), the unit's rows must be ones the publication gate accepts, and the rows move to the records'
+ * current positions with `carried_from`. `undefined` when any of that does not hold: the unit then runs as before.
+ */
+export function appendUnitCarry(previous: { plan: ReviewPlan; plan_sha256: string; review: Row }, now: { draft: Row; task: Row; paths: string[] }):
+	{ review: Row; pages: number[]; carried_from: { round: number; plan_digest: string } } | undefined {
+	const { plan, review } = previous;
+	const roots: string[] = [];
+	for (const path of now.paths) { const record = recordRoot(path); if (!record) return undefined; if (!roots.includes(record.root)) roots.push(record.root); }
+	if (!roots.length || !Array.isArray(review?.checked) || !Number.isSafeInteger(plan?.round)) return undefined;
+	const counted = plan.units.every(unit => Number.isSafeInteger(unit.checked) && Number(unit.checked) >= 0);
+	if (!counted || plan.units.reduce((sum, unit) => sum + unit.checked!, 0) !== review.checked.length) return undefined;
+	const value = (draft: Row, root: string) => { const record = recordRoot(root)!; return draft?.[record.collection]?.[record.index]; };
+	const digests = roots.map(root => sha(canonical(value(now.draft, root) ?? null)));
+	let at = 0;
+	for (const unit of plan.units) {
+		const rows: Row[] = review.checked.slice(at, at += unit.checked!);
+		if (unit.roots.length !== roots.length || unit.records.some((record, index) => record !== digests[index])) continue;
+		if (unit.roots.some((root, index) => recordRoot(root)?.collection !== recordRoot(roots[index])?.collection)) continue;
+		const move = (path: unknown): string | undefined => {
+			if (typeof path !== "string") return undefined;
+			const index = unit.roots.findIndex(root => path === root || path.startsWith(root + "/"));
+			return index < 0 ? undefined : roots[index] + path.slice(unit.roots[index].length);
+		};
+		const owed = unit.paths.map(move);
+		if (owed.some(path => path === undefined) || canonical([...new Set(owed)].sort()) !== canonical([...new Set(now.paths)].sort())) continue;
+		if (!Array.isArray(unit.pages) || unit.pages.some(page => !Number.isSafeInteger(page) || page < 1)) return undefined;
+		const refuses = gateRefusal(now.task);
+		const carried_from = { round: Number(plan.round), plan_digest: previous.plan_sha256 };
+		const checked: Row[] = [];
+		for (const row of rows) {
+			const listed = Array.isArray(row?.paths), paths = (listed ? row.paths : [row?.path]) as unknown[];
+			if (paths.some(path => typeof path === "string" && refuses(row, path))) return undefined;
+			const kept = paths.map(move).filter((path): path is string => path !== undefined);
+			if (kept.length) checked.push({ ...row, ...(listed ? { paths: kept } : { path: kept[0] }), carried_from });
+		}
+		return { review: { checked, missing: [] }, pages: [...unit.pages], carried_from };
+	}
+	return undefined;
 }

@@ -20,7 +20,7 @@ export interface ReadingAccounting {
 	/** §151.2.3: this run's read was salvaged from an interrupted attempt. */
 	salvaged: boolean;
 	/** §151.2.2: the repair round's kind, when a round repaired a reviewed candidate. */
-	repair?: "targeted" | "full";
+	repair?: "targeted" | "append" | "full";
 	/** §151.4: the need's disposition, when the job was queued from a retained source need and the host settled it. */
 	need?: "answered" | "unlocated" | "carried" | "read";
 	/**

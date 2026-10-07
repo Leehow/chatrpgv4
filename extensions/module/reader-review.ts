@@ -543,6 +543,8 @@ export async function reviewCandidate(options: {
 	previousPlan?: ReviewPlan;
 	/** §186.4: the review of the candidate this round repaired; passed only after a targeted repair `checkTargetedRepair` accepted. */
 	coverageCarry?: CoverageCarrySource;
+	/** §187.6.1: after an accepted append repair, the bound review's rows for a fact unit of records it already judged. */
+	appendCarry?(paths: string[]): { review: Row; pages: number[]; carried_from: Row } | undefined;
 	run: (request: ReaderRequest) => Promise<ReaderOutcome>;
 	record(row: Row): void; progress(row: Row): void;
 	/** Test seam: the waits between transport retries, in order. Production uses `TRANSPORT_BACKOFF_MS`. */
@@ -614,6 +616,17 @@ export async function reviewCandidate(options: {
 				continue;
 			}
 			if (carry) options.record({lane:'reading',event:'coverage_carry_refused',unit:index+1,reason:carry.reason});
+			// §187.6.1: an append keeps the review of the records it did not touch; only new records and coverage run.
+			const appended = options.appendCarry && !paths.includes('/coverage') ? options.appendCarry(paths) : undefined;
+			if (appended) {
+				try {
+					checkReviewEvidence(appended.review, paths, new Set(appended.pages), requiredPages, options.draft);
+					results[index] = appended.review; unitPages[index] = appended.pages; for (const page of appended.pages) observed.add(page); completed++;
+					options.record({lane:'reading',phase:'verify',unit:index+1,ms:0,ok:true,reused:true,carried_from:appended.carried_from,pages:[...appended.pages].sort((a,b)=>a-b)});
+					options.progress({stage:'verify',reviewed:completed,review_total:units.length,activeReaders:active});
+					continue;
+				} catch { options.record({lane:'reading',event:'append_carry_refused',unit:index+1,reason:'evidence'}); }
+			}
 			const identified = unitKey(paths), key = identified?.key;
 			const cacheFile = key ? join(options.cacheRoot!,key+'.json') : undefined;
 			const reused = cacheFile ? await cachedReview(cacheFile,key!,paths,!!guidanceBytes,requiredPages,options.draft,options.task,identified!.fact) : undefined;
