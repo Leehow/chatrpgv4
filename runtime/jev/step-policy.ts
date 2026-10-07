@@ -652,7 +652,7 @@ function candidateView(candidate: Candidate): Json {
 function publicObservationSummary(value: Json): Json {
   if (Array.isArray(value)) return value.map(publicObservationSummary);
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value)
-    .filter(([key]) => !['held_eligibility', 'resumed_held_eligibility', 'canonical_move'].includes(key))
+    .filter(([key]) => !['held_eligibility', 'resumed_held_eligibility', 'canonical_move', 'model_write_receipts'].includes(key))
     .map(([key, child]) => [key, publicObservationSummary(child)]));
   return value;
 }
