@@ -119,3 +119,28 @@ once by `scripts/build-source-transcripts.ts` with the same producer and committ
 - Re-transcribing on a new instruction version (a later `transcript-v2` decides that).
 
 ## Comments
+
+**2026-10-07, PT-04 (lead).** The Haunting's 17-page window transcribed with `scripts/build-source-transcripts.ts` and
+grok-4.5 low in 2 min 5 s: 17/17 stored on the first attempt, no unplaced line; dropped lines are running heads, folios
+and the margin rune glyphs of pp. 14-15 (and the Keeper map's title on p. 7, kept in the figure note and the exact
+layer); both map pages carry their legends as labelled image text. Committed as seeds under
+`content/source-transcripts/31e36f72…/` (156 KB).
+
+**2026-10-07, TR-A and TR-B (lead, pre-registered in the session scratchpad `trb/PREREGISTER.md`).** Product path:
+`scripts/build-source-transcripts.ts` driving `TranscriptService` at `c52425071`, flapcode/gpt-6-luna low (the App's
+default table model), fresh home, the 17 books / 58 pages of the probe sample (Chinese Word and typeset translations,
+PowerPoint, Chaosium English, a scanned book, handout packs).
+
+| bar | result |
+|---|---|
+| TR-A: every record a permutation of the page's PDF.js lines (independent pdf.js re-check) | 58/58 |
+| text pages (>= 4 lines) with no `unplaced` line | 42/42 (bar 95%) |
+| pages stored on the first child, no repair needed | 58/58 |
+| image-only pages stored (image text or figure note), none failed | 13/13 |
+| second pass, same home: transcript children | 0 (17 books in 10 s) |
+| the same PDF copied under another path: transcript children | 0 (reused by digest) |
+
+Cost: per page median 13.9 K input / 800 output tokens and 33 s (max 63 s); 0.88 M input and 49 K output for the 58
+pages, 3 children at a time. The run surfaced two layout faults fixed in `5a9410f7f`: a line ending in a hyphen joined
+with a space ("sce- nario"), and a heading placeholder that carried the paragraph under it (now forbidden by the
+instructions).
