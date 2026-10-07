@@ -36863,3 +36863,7 @@ Writer: `window-places` (identity scenes), `told-position` through `table.owe` (
 clerk's `apply:owed:*`, §187.3's offers. Actor: the clerk, who lands the owed move first; the Keeper, who finds the party
 where the story put it. Limits: only the position is owed here; a place outside the candidates is the Keeper's to mint;
 nothing reads prose with patterns.
+
+Counted (TP-02): one `told-position` row per delivery (`outcome`: `owed`, `dropped`, `shadow`, `stay`, or `skipped`), the
+owed rows with `source: "told-position"` in `owed.json` and on the record, and the clerk's `apply:owed:*` bind rows and
+receipts that land them. The lane's own read is `table.owe.options`; TP-04 reads the shadow rows before `on`.
