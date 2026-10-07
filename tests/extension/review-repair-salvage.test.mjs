@@ -411,7 +411,8 @@ test("§187.6 an in-page missing appends: the author adds records, and only the 
 	const second = result.units.slice(-2).map(paths => paths.join(",")).sort();
 	assert.deepEqual(second, ["/coverage", "/nodes/4,/claims/2"], "the new records' unit and coverage; the reviewed records are not asked again");
 	const carried = result.rows.filter(row => row.phase === "verify" && row.round === 2 && row.reused === true);
-	assert.equal(carried.length, 2, "both reviewed units carry");
+	const reviewedUnits = result.rows.filter(row => row.phase === "verify" && row.round === 1).length;
+	assert.equal(carried.length, reviewedUnits, "every unit the first round reviewed carries (one under the 12-page budget, §187.8.1)");
 	assert.ok(carried.every(row => row.carried_from?.round === 1));
 	const review = JSON.parse(await readFile(join(result.cwd, "review.json"), "utf8"));
 	for (const path of ["/nodes/0", "/nodes/1", "/nodes/2", "/nodes/3", "/claims/0", "/claims/1", "/nodes/4", "/claims/2", "/coverage"])

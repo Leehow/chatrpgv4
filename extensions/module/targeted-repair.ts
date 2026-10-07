@@ -253,7 +253,8 @@ export function appendUnitCarry(previous: { plan: ReviewPlan; plan_sha256: strin
 			const index = unit.roots.findIndex(root => path === root || path.startsWith(root + "/"));
 			return index < 0 ? undefined : roots[index] + path.slice(unit.roots[index].length);
 		};
-		const owed = unit.paths.map(move);
+		// §187.8.1: a first-round unit may have carried the coverage pointers beside its records; the append carries its records only.
+		const owed = unit.paths.filter(path => typeof path === "string" && recordRoot(path)).map(move);
 		if (owed.some(path => path === undefined) || canonical([...new Set(owed)].sort()) !== canonical([...new Set(now.paths)].sort())) continue;
 		if (!Array.isArray(unit.pages) || unit.pages.some(page => !Number.isSafeInteger(page) || page < 1)) return undefined;
 		const refuses = gateRefusal(now.task);

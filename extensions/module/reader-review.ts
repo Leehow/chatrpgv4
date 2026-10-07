@@ -98,7 +98,8 @@ const pageSet = (pages: Iterable<number>) => [...new Set(pages)].sort((a, b) => 
  * and every non-record key, is its own unit. `seeds` are units a previous round's plan carried (§151.2.1): no record
  * joins them, so they keep the grouping they were reviewed under. The coverage pointers ride in the first unit whose page
  * set contains the job's pages (integration decision, §187.8.3: a record that cites one page beyond the job's would
- * otherwise strand the coverage in its own cold unit under the real 12-page budget), when the pages the coverage reviewer must view are within the image budget and include that
+ * otherwise strand the coverage in its own cold unit under the real 12-page budget); a unit a previous plan carried
+ * (`seeds`) never hosts it, so a carried unit stays wholly reused, when the pages the coverage reviewer must view are within the image budget and include that
  * unit's pages (so the host delivers every page the unit's records cite before the first call, §187.8.2); otherwise
  * they keep a separate unit, as before.
  */
@@ -121,7 +122,7 @@ function batchGroups(draft: Row, groups: Map<string, Set<string>>, budget: Parti
 	if (coverage) {
 		const job = pageSet(scope.jobPages ?? []), view = pageSet(scope.scopePages ?? job);
 		const host = job.length && view.length <= images && job.every(page => view.includes(page))
-			? batches.find(batch => batch.records > 0 && job.every(page => batch.pages.has(page)) && batch.pages.size <= images) : undefined;
+			? batches.find(batch => batch.open && batch.records > 0 && job.every(page => batch.pages.has(page)) && batch.pages.size <= images) : undefined;
 		if (host) host.paths.push(...coverage); else others.push(coverage);
 	}
 	return [...batches.map(batch => batch.paths), ...others];
@@ -616,11 +617,13 @@ export async function reviewCandidate(options: {
 	if(publicFields)for(const field of Object.values(publicFields))for(const ref of field.source_refs)if(!scopePages.includes(ref.page))scopePages.push(ref.page);
 	scopePages.sort((a,b)=>a-b);
 	// §187.8.1: one reviewer per page set within the image budget; the coverage pointers ride in the unit over the job's pages.
+	// §187.8.3 (integration): only in a candidate's first verify round. A repair round carries or re-asks the coverage alone, so
+	// the units it carries (§151.2.1, §187.6) stay wholly reused.
 	const budget = options.reviewBudget ?? await readingReviewBudget();
 	const jobPages = Array.isArray(options.task.pages) ? options.task.pages.filter((page: unknown) => Number.isInteger(page) && Number(page) > 0) : [];
 	const guidancePaths=[...new Set([...reviewUnits(options.draft,[],undefined,moduleLogicReview(options.task)).flat(),...(Array.isArray(options.task.required_review)?options.task.required_review:[])])];
 	const units = answerTask ? [['/status', '/answer', '/source_refs', '/limitations']] : guidanceBytes ? [guidancePaths]
-		: carriedReviewUnits(options.draft,options.task.required_review??[],budget,moduleLogicReview(options.task),options.previousPlan,{jobPages,scopePages}), results: Row[] = [], observed = new Set<number>();
+		: carriedReviewUnits(options.draft,options.task.required_review??[],budget,moduleLogicReview(options.task),options.previousPlan,{jobPages: options.previousPlan ? [] : jobPages,scopePages}), results: Row[] = [], observed = new Set<number>();
 	// §151.3: a record the Jev claim check cleared (`on` mode) is not sent to a vision reviewer; a unit left empty is not run.
 	const cleared = options.claimSupport && !answerTask && !guidanceBytes ? await options.claimSupport(units.map(paths => [...paths])) : undefined;
 	if (cleared?.size) units.splice(0, units.length, ...units.map(paths => paths.filter(path => !cleared.has(path))).filter(paths => paths.length));
