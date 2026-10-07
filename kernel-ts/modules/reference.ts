@@ -83,6 +83,21 @@ export async function referenceReady(store:ModuleStore,mid:string,focus=''):Prom
 export function placeScene(graph:Row|null,place:{id:string;name:string}):Row|undefined{
  return array(graph?.nodes).find(node=>node.node_kind==='scene'&&[node.node_id,node.name,...array(node.aliases)].some(value=>normalize(value)===normalize(place.name)||value===place.id));
 }
+/** §190.1: the most source places one `module.reference.status` call may ask about. */
+export const CITED_PLACES_MAX=256;
+/**
+ * §190.1: which of `value` (`[{id, name}]`, source place identities) a scene of the module's current graph already is, by
+ * `placeScene`'s rule -- the scene `publishReferencePlace` would reuse for it. Read-only; an absent graph cites none.
+ */
+export async function citedPlaces(store:ModuleStore,mid:string,value:unknown):Promise<string[]>{
+ if(!Array.isArray(value)||value.length>CITED_PLACES_MAX)fail(`places must be a list of at most ${CITED_PLACES_MAX} source places`);
+ const places=(value as unknown[]).map(item=>{const place=row(item);
+  if(typeof place.id!=='string'||!/^scene-source-place-[0-9]+-[0-9]+$/.test(place.id)||typeof place.name!=='string'||!place.name.trim()||place.name.length>400)
+   fail('Each place needs a scene-source-place id and a name');
+  return {id:string(place.id),name:string(place.name)};});
+ const graph=places.length?await store.readGraph(mid):null;
+ return places.filter(place=>placeScene(graph,place)).map(place=>place.id);
+}
 /** Publish a requested source place's minimum typed identity, leaving enrichment asynchronous. */
 export async function publishReferencePlace(store:ModuleStore,meta:Row,params:Row):Promise<Row>{
  if(meta.source!=='pdf')fail('Direct reference materialization requires a bound original PDF');

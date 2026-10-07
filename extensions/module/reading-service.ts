@@ -31,7 +31,9 @@ import {IdentityReviewUnavailable,reviewVisualIdentity} from './visual-identity-
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
-import {readingImageBudget, readingReviewBudget} from '../../runtime/jev/host-budgets.ts';
+import {readingImageBudget, readingReviewBudget, windowPlacesBudget, type WindowPlacesBudget} from '../../runtime/jev/host-budgets.ts';
+import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
+import {runWindowPlaces, WINDOW_PLACES_FAMILY} from '../../runtime/jev/window-places.ts';
 /**
  * `allowanceMs` (contract §22.4.3, SL-36): the foreground allowance of an in-turn source consultation. Past it `ensure`
  * resolves `{state: "pending", job_id, read, index, settled}` instead of refusing with `reading_timeout`: the waiter leaves
@@ -142,6 +144,10 @@ interface Dependencies {
 	 * length, ends the wait itself once the claim it is about has landed.
 	 */
 	waitTimer?(callback: () => void, ms: number): () => void;
+	/** §190.1: the environment the window-places lane reads its Jev credential from. Absent: `process.env`. */
+	env?: NodeJS.ProcessEnv;
+	/** §190.1, tests only: the window-places budget instead of the shipped file's. */
+	windowPlacesBudget?: WindowPlacesBudget;
 }
 const realWaitTimer = (callback: () => void, ms: number): (() => void) => { const timer = setTimeout(callback, ms); return () => clearTimeout(timer); };
 interface PendingReading {
@@ -353,6 +359,10 @@ export class ReadingService implements ReadingBridge {
 	private wakes = new Map<string, string>();
 	/** §182.4: per scoped module, the last reading window a read-ahead reported, so `read_window` is written only on a change. */
 	private windows = new Map<string, string>();
+	/** §190.1: per scoped module, the window-places pass in flight or last run; the next window's pass chains after it. */
+	private windowPlaceRuns = new Map<string, Promise<void>>();
+	/** Aborted by `dispose`: the host lanes this service starts in the background (§190.1) stop with it. */
+	private readonly lanes = new AbortController();
 	private readonly deps: Dependencies;
 	/**
 	 * The unwrapped recorder, for rows the *host* writes about a job rather than rows the job writes
@@ -400,6 +410,7 @@ export class ReadingService implements ReadingBridge {
 	 */
 	dispose(options: {handOff?: boolean} = {}) {
 		this.stopped = true;
+		this.lanes.abort();
 		this.stopSweep();
 		for (const [key, controller] of this.controllers) {
 			if (options.handOff && (this.jobs.get(key)?.foreground !== true||this.jobs.get(key)?.source_unit)) this.handedOff.add(key);
@@ -407,7 +418,7 @@ export class ReadingService implements ReadingBridge {
 		}
 	}
 
-	async close(options: {handOff?: boolean} = {}) { this.dispose(options); try { await Promise.allSettled([...this.pumps.values(), ...this.casting.values()]); } finally { await closeSourceDocuments(); } }
+	async close(options: {handOff?: boolean} = {}) { this.dispose(options); try { await Promise.allSettled([...this.pumps.values(), ...this.casting.values(), ...this.windowPlaceRuns.values()]); } finally { await closeSourceDocuments(); } }
 
 	/** The heartbeat of one claimed job. Called only where the reader reported something real. */
 	private beat(key: string) { if (this.heartbeats.has(key) || this.controllers.has(key)) this.heartbeats.set(key, Date.now()); }
@@ -522,6 +533,10 @@ export class ReadingService implements ReadingBridge {
 		if (this.stopped) return Promise.resolve();
 		const campaign = this.deps.campaign?.();
 		this.deps.record({lane:'reading',event:'prefetch_wake',module_id:moduleId,campaign,reason});
+		// §190.1: a table opening (or its reader arriving after it) reads the window once, so the window's places are asked
+		// at the open rather than after the first background reading finishes; the read-ahead's own change check starts them.
+		if ((reason === 'table-open' || reason === 'reader-ready') && campaign !== undefined && this.deps.runtime?.sourceReferences)
+			void this.readAhead({module_id: moduleId}, campaign).catch(() => undefined);
 		this.wakes.set(JSON.stringify([campaign, moduleId]), reason);
 		return this.pump(moduleId, campaign);
 	}
@@ -818,10 +833,40 @@ export class ReadingService implements ReadingBridge {
 			if (this.windows.get(scope) !== seen) {
 				this.windows.set(scope, seen);
 				this.note({ lane: "reading", event: "read_window", module_id: params.module_id, campaign, ...window });
+				if (campaign !== undefined && typeof params.module_id === "string") this.placeWindow(params.module_id, campaign, window);
 			}
 		}
 		this.recordLibrarySync(result, { module_id: params.module_id, campaign });
 		return result;
+	}
+
+	/**
+	 * §190.1: the window's places, in the background, on each window change of a campaign (its table's open included, through
+	 * `prefetch`). Only where source references run (a configured Jev); one pass at a time per campaign and module, the next
+	 * window's chained after the last; a failure is one row and nothing else. The table never waits on it.
+	 */
+	private placeWindow(mid: string, campaign: string, window: Row): void {
+		if (this.stopped || !this.deps.runtime?.sourceReferences) return;
+		const scope = JSON.stringify([campaign, mid]), signal = this.lanes.signal;
+		const run = (this.windowPlaceRuns.get(scope) ?? Promise.resolve()).then(async () => {
+			if (signal.aborted) return;
+			const runtime = this.runtime();
+			await runWindowPlaces({campaign, moduleId: mid, window: {mode: window.mode, first: Number(window.first), last: Number(window.last)},
+				budget: this.deps.windowPlacesBudget ?? await windowPlacesBudget(),
+				call: (method, params) => this.call(method, params, campaign),
+				bookmarks: async pdf => { const info = await runtime.sourceInfo({ pdf, cache: this.deps.home }, signal) as Row;
+					return { file_sha256: info.file_sha256, bookmarks: info.bookmarks }; },
+				pages: async (pdf, sha, pages) => ((await runtime.sourceText({ pdf, pages, expected_file_sha256: sha }, signal)).snapshots ?? [])
+					.map((row: Row) => ({ page: row.page, text: typeof row.text === "string" ? row.text : "" })),
+				decision: createDecisionAdapter({ env: this.deps.env ?? process.env, maxConcurrency: 2,
+					retryPolicies: { [WINDOW_PLACES_FAMILY]: { maxRetries: 1, backoffInitialMs: 500, backoffMaxMs: 2_000 } } }),
+				record: row => { this.note(row); this.recordLibrarySync(row, { module_id: mid, campaign }); },
+				extractionVersion: sourceTextVersion, signal });
+		}).catch(failure => {
+			this.note({ lane: WINDOW_PLACES_FAMILY, event: "failed", module_id: mid, campaign, window: { mode: window.mode ?? null, first: window.first, last: window.last },
+				detail: (failure instanceof Error ? failure.message : String(failure)).slice(0, 500) });
+		});
+		this.windowPlaceRuns.set(scope, run);
 	}
 
 	/**

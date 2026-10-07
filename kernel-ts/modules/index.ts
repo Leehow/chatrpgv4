@@ -8,6 +8,7 @@ import type { ModuleGraph } from '../read/module-graph.js';
 import { equal, repr, row, string, truth, type Row } from '../read/values.js';
 import {assertSourcePreparationRequest,type SourcePreparationRequest} from '../../runtime/jev/source-preparation.ts';
 import {assertSourcePublicationAdvance,sourceAdvanceAuthority} from '../../runtime/jev/read-set.ts';
+import { citedPlaces } from './reference.js';
 import { Reading,sourcePreparationSnapshot,sourcePreparationScopeMatches,type MaterialGate,type OwnedSourcePreparation } from './reading.js';
 import { ModuleStore } from './store.js';
 import {sourceUpgrade,assertSourceUpgradeRevision} from './source-upgrade.js';
@@ -38,7 +39,9 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
             return {ready:await reading.referenceReady(id,string(params.focus??'')),graph_complete:false,
             graph_present:!!meta.graph_file,original_source_available:meta.source==='pdf'&&!!row(meta.source_document).file_sha256,source_reference:meta.source_reference??null,character_guidance:meta.character_guidance??{},
             known_nodes:node?[{node_id:node.node_id,node_kind:node.node_kind,name:node.name,aliases:node.aliases??[],summary:node.summary??'',properties:node.properties??{},
-                source_refs:(node.source_refs??[]).map((ref:Row)=>({page:Number(ref.pdf_index)+1}))}]:[]};},
+                source_refs:(node.source_refs??[]).map((ref:Row)=>({page:Number(ref.pdf_index)+1}))}]:[],
+            // §190.1: which of the asked source places a scene already is (the window-places lane asks only the others).
+            ...(params.places!==undefined?{cited_places:await citedPlaces(store,id,params.places)}:{})};},
         'module.source.snapshot': async params => {
             const id = required(params, 'module_id'), meta = await store.module(id), source = row(meta.source_document);
             if (source.path !== 'source.pdf' || typeof source.file_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(source.file_sha256)
