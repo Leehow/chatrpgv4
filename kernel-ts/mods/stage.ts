@@ -21,6 +21,7 @@ import type { ModJobs } from './jobs.js';
 import {registerUsage, validateUsage, validateUsageRequest} from './usages.js';
 import {stageDossier} from './dossier-door.js';
 import {bindSourceObject, sourceObjectIdentity} from './source-object.js';
+import {refuseJoinedInDocument} from '../write/shared-untold.js';
 
 const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(value, key) ? value[key] : fallback;
 export async function objectOwner(campaign: CampaignWritePort, graph: ModuleGraph, world: Row, name: any): Promise<Row> {
@@ -199,6 +200,8 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                     {fix:'Keep document to {action:"write"|"append",text:"..."}; put the causal why on the object effect.',details:{field:'object.document'}});
                 if (!string(effect.why || '').trim()) throw new RpcError('invalid_params', 'Document writing needs a causal why on the object effect',
                     {fix:'Add the causal reason to object.why, outside document; preserve the chosen writing scope.',details:{field:'object.why'}});
+                // §188.8: the player reads the document; a joined word of several untold people is nobody's name there.
+                await refuseJoinedInDocument(context.kernel, context.campaign.id, graph, world, value.text);
             } else seed = await jobs.documentSeed(graph, world, value);
         }
         const item = division

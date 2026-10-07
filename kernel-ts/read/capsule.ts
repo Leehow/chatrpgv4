@@ -238,6 +238,16 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
  * fakes helping the owner with the cars, calling him by an alias the graph records, and only the display name was renamed.
  */
 export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, records: Iterable<Row>): Row[] {
+    return untoldRosterNames(graph, world, journal, records)
+        .map(entry => ({ name: entry.name, id: entry.ids[0], shown: joinedWord(entry.shown), ...(entry.handle ? { handle: true } : {}) }));
+}
+/**
+ * §188.8: the word a name several untold people share is shown by in the Keeper's request (§177.4): each owner's word, joined.
+ * Built here alone; the delivery gate finds it in a text by this exact string (`write/shared-untold.ts`), never by its form.
+ */
+export const joinedWord = (words: readonly string[]): string => words.join(" / ");
+/** §188.8: `untoldRoster`'s rows as the one builder gives them, each owner's word apart, for the gate's shared names. */
+export function untoldRosterNames(graph: ModuleGraph, world: Row, journal: Row, records: Iterable<Row>): RosterName[] {
     const history = prepareNameHistory(records, tellGuard(graph, world, journal));
     // §177.4: the whole cast -- the graph's people with every name the cast gives them, and the people the book names whom
     // the reader has not reached, untold until a delivery shows one of their names. Table 23's turn 9 had 54 people in the
@@ -248,7 +258,7 @@ export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, recor
     // themselves are known (§185.13): table 30's investigator shared a first name with the untold store owner.
     const known = knownNamePieces(graph, people.filter(entry => !entry.untold).map(entry => entry.person));
     const untold = people.flatMap(({ person, untold }) => untold ? [{ person, shown: rosterWord(graph, world, journal, person) }] : []);
-    return rosterNames(graph, untold, known).map(entry => ({ name: entry.name, id: entry.ids[0], shown: entry.shown.join(" / "), ...(entry.handle ? { handle: true } : {}) }));
+    return rosterNames(graph, untold, known);
 }
 /**
  * §103.5/§176.1/§177.4: the word the request's rename shows a person of the cast by -- this table's word for them, else, for a

@@ -37023,6 +37023,33 @@ ledger reading `from` only; the reunion ignoring `from_id`; `ownerIn` without `c
   hides her. Mutations, each red: `ownedBy` covering only the node it is given; the journal floor's `toldTurn` without the
   individual's owner test.
 
+- **NR-08 (2026-10-07, `claude/names-rename-20261007-joined`; a shared untold name is never written as joined words, 188.8).**
+  - *The roster apart.* `untoldRosterNames` (`kernel-ts/read/capsule.ts`) is `untoldRoster`'s body: NR-03's single builder's
+    rows (`RosterName`, each owner's word apart). `untoldRoster` maps them as before, joining with `joinedWord`, now the one
+    place the joined form is made (NR-03's undo rows use it too).
+  - *Shared names and joined words* (`kernel-ts/write/shared-untold.ts`): `sharedNames` are the roster's non-handle rows with
+    more than one word; `joinedWritten` finds a row's `joinedWord` in a text by exact string (markers included: a say or name
+    token by the joined word shows it too), never by the text's punctuation.
+  - *The gate* (`untoldNamesGate`, `kernel-ts/write/index.ts`) reads the roster with the same guarded history as its places.
+    A held place whose name is shared, or a joined word anywhere in the text, makes the refusal list each person by their
+    own word (`sharedNotice`; `details.shared` / `details.joined`, lists of words) with `SHARED_FIX`, and it is held every
+    time: the second delivery replaces only names one person carries (`shown.length === 1`). The refusal still quotes no
+    name. Telemetry adds `shared` and `joined` counts to the refused row.
+  - *Documents* (`refuseJoinedInDocument`, called from `stageModEffect`'s document write/append in `kernel-ts/mods/stage.ts`):
+    a joined word in the text is refused `invalid_params`, `details.reason: "untold_name"`, `field: "object.document.text"`.
+    Untold names in documents are not gated (unchanged).
+  - *Decided conservatively (owner asleep, lead delegated):* a shared name is held again rather than replaced on the second
+    delivery, because no word is that name; a turn can then take more than one refusal, bounded by the host's refusal budget,
+    and the fix names the words to use. The host's own request rename still shows a shared name as the joined word (§177.4:
+    it hides the name and blames nobody); only the player's text refuses it.
+  - Tests (`tests/extension/protected-name-spans.test.mjs`, a book with 「皮特·诺兰」 and 「皮特·加西亚」 both printed 「皮特」, words
+    「拒绝饮酒的拖车住客」 and 「戴眼镜的五金店老板」): a delivery saying 「皮特」 is held with each word apart and the joined word in
+    neither message nor fix, and held again the second time; one man's own word goes out; the joined word verbatim is held,
+    every time, in prose and inside a say token, and refused in a notebook the investigator writes, while his own word is
+    written; 「皮特·诺兰」 (one owner) is held once and then delivered as 「拒绝饮酒的拖车住客」. Mutations, each red: the old second
+    delivery (shared names replaced by the joined word); the notice offering the joined word; joined words never found; the
+    document guard removed; no shared names.
+
 #### NR-03 (2026-10-07, `claude/names-rename-20261007-undo`; 188.3)
 
 - **The rows come from the roster's own builder.** `untoldRoster`'s body is split, its answer unchanged
@@ -37314,6 +37341,26 @@ labels counted by key, and the two-clue refusal removed; the chase start, roster
 spelling; `samePayer` dropped at `prepareFulfillments`, the capsule and `presentSection`; the item giver labelled by display
 name; the gate pre-pass without the junction; `lookup` without `resolve`.
 
+
+### 188.8 A shared untold name is never written as joined words (lead ruling 2026-10-07, NR-08; the owner delegated)
+
+**Evidence.** Real table `nr07-blood-road-1` (2026-10-07, turns 4, 5 and 11): Blood Road has two untold men called 「皮特」, the
+trailer squatter and the hardware store owner, so the request shows that name as their words joined,
+「拒绝饮酒的拖车住客 / 戴眼镜的五金店老板」 (§177.4). The player asked about 「皮特」 and the Keeper echoed it. §177.11 held the
+delivery, and the Keeper wrote 「皮特」 again; the second delivery replaced it with the roster's shown word, which for a shared
+name is the joined word. The player read it as one man's name four times, among them 「问镇上有没有叫拒绝饮酒的拖车住客 /
+戴眼镜的五金店老板的人」.
+
+- **The refusal names each person apart.** When the gate holds a place whose untold name several people share, its message
+  lists each by their own word and its fix says to write the one meant by their word or describe them, never the words
+  joined and never the name. `details.shared` carries the words, one list per name. The refusal still quotes no name.
+- **No substitution for a shared name.** The second delivery replaces only names one untold person carries. A shared name is
+  held every time it stands.
+- **The joined word is held.** A delivery (`table.narrate`, `table.ask`) or a document write that contains a joined word
+  verbatim is held with the same per-person fix (`details.joined`). The joined words are the roster's own strings, matched
+  exactly; nothing reads the text's punctuation.
+- Unchanged: §177.11 for names one person carries, §188.1's protected spans and told detection, and the request's rename,
+  which still shows a shared name joined.
 ## 189. Reading by the book's sections: a scene is read as a scene (proposed 2026-10-07, owner 「两个一起开 spec，按你推荐的来」; `docs/specs/scene-reading.md`; implementation waits for the owner's word; amends §148.3, §151.4's background units, §182.3, §187.5.1 and §187.9)
 
 **Evidence.** RD-08 and its control (§187, `docs/specs/reading-delivery.md` Comments): two-page units are 56–59 % of the

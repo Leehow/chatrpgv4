@@ -20,7 +20,7 @@ import { join } from "node:path";
 import type { KernelContext } from "../context.js";
 import type { ModuleGraph, RenameUndoRow } from "./module-graph.js";
 import { bookCast, knownNamePieces } from "./cast.js";
-import { calledOwners, rosterNames, rosterWord } from "./capsule.js";
+import { calledOwners, joinedWord, rosterNames, rosterWord } from "./capsule.js";
 import { row, string } from "./values.js";
 import type { Row } from "./values.js";
 
@@ -35,13 +35,13 @@ export function renameUndoRows(graph: ModuleGraph, world: Row, journal: Row): { 
         names.set(shown, list);
     };
     const entries = rosterNames(graph, people, knownNamePieces(graph, []));
-    for (const entry of entries) add(entry.shown.join(" / "), [entry.name]);
+    for (const entry of entries) add(joinedWord(entry.shown), [entry.name]);
     // §188.3: a joined word stood for a name its owners share, which is often a piece no node answers to by itself (a first
     // name); it stands for one of those owners, so after the shared names each owner's own names are tried. All of them
     // naming one node resolve to it; two nodes are the ambiguity the refusal names.
     for (const entry of entries)
         if (entry.ids.length > 1)
-            add(entry.shown.join(" / "), entry.ids.flatMap(id => byId.get(id)?.names ?? []));
+            add(joinedWord(entry.shown), entry.ids.flatMap(id => byId.get(id)?.names ?? []));
     const rows = [...names].filter(([shown, values]) => shown && values.length)
         .map(([shown, values]) => ({ shown, names: values, ...(calledOwners(world, shown).length ? { called: true } : {}) }));
     const words = new Map(people.flatMap(({ person, shown }) => person.node ? [[string(person.node.node_id), shown] as [string, string]] : []));

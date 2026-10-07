@@ -15,7 +15,7 @@
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdtemp, mkdir, readdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {cp, mkdtemp, mkdir, readdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
@@ -33,6 +33,7 @@ export {createRenameJudge} from './extensions/table/untold-rename-judge.ts';
 export {prosePlaces, untoldNamesSaid} from './kernel-ts/write/names.ts';
 export {toldTurn} from './kernel-ts/journal/naming.ts';
 export {prepareNameHistory} from './kernel-ts/journal/name-history.ts';
+export {CONTINUITY_AUDIT} from './kernel-ts/mods/audit-result.ts';
 export * from './extensions/table/context-runtime.ts';
 export * from './extensions/table/workspace/workpad-store.ts';`, resolveDir: root},
 	outfile: join(temporary, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
@@ -371,4 +372,84 @@ test('§188.1 (investigator\'s pieces): his given name alone in the prose tells 
 	const after = (await h.call('table.untold')).people;
 	assert.ok(after.some(row => row.name === 'Dan' && row.id === ids.dan), `the unread second Daniel is still untold: ${JSON.stringify(after)}`);
 	assert.ok(after.some(row => row.name === 'Daniel') && after.some(row => row.name === OWNER), 'and so is the store owner');
+});
+
+/**
+ * §188.8 (real table nr07-blood-road-1, 2026-10-07): two untold men share the first name 「皮特」, the trailer squatter and the
+ * hardware store owner, so the request shows that name as both their words joined. §177.11's second delivery put the joined
+ * word into the player's prose as if it were one man's name, in four turns.
+ */
+const TRAILER = '拒绝饮酒的拖车住客', HARDWARE = '戴眼镜的五金店老板';
+const SHARED = {pages: ['The harbor dock smells of tar. 皮特·诺兰 sleeps in a trailer behind the dock. 皮特·加西亚 keeps the hardware store. Town calls both of them 皮特.',
+	'The old tower stands beyond the harbor.', 'A cellar floods at high tide.'],
+people: [{node_id: 'npc-pete-trailer', name: '皮特·诺兰', summary: 'Lives in a trailer.'}, {node_id: 'npc-pete-hardware', name: '皮特·加西亚', summary: 'Runs the hardware store.'}],
+cast: [{book: ['皮特·诺兰', '皮特'], play: ['皮特·诺兰', '皮特'], notes: ['Pete Nolan', 'Pete'], pages: [1]},
+	{book: ['皮特·加西亚', '皮特'], play: ['皮特·加西亚', '皮特'], notes: ['Pete Garcia', 'Pete'], pages: [1]}]};
+
+/** The shared book with each man's word folded, and the turn open; the joined word as the request shows it. */
+async function twoPetes(t) {
+	const h = await readerBuilt(t, SHARED);
+	const roster = (await h.call('table.untold')).people, idOf = name => roster.find(row => row.name === name)?.id;
+	const trailer = idOf('皮特·诺兰'), hardware = idOf('皮特·加西亚');
+	assert.ok(trailer && hardware && trailer !== hardware, JSON.stringify(roster));
+	assert.deepEqual((await h.call('epithets.submit', {entries: [{id: trailer, word: TRAILER}, {id: hardware, word: HARDWARE}]})).refused, []);
+	await h.call('table.narrate', {call_id: 't0-c1', text: '港口很安静。'});
+	const input = await h.call('table.player_input', {text: '我问镇上有没有叫皮特的人。'});
+	const joined = (await h.call('table.untold')).people.find(row => row.name === '皮特')?.shown;
+	assert.ok(joined && joined.includes(TRAILER) && joined.includes(HARDWARE) && joined !== TRAILER && joined !== HARDWARE, `the request shows the shared name joined: ${joined}`);
+	let n = 0;
+	return {...h, turn: input._context.turn, joined, trailer, hardware, narrate: text => h.call('table.narrate', {call_id: `t${input._context.turn}-c${++n}`, text})};
+}
+const heldShared = (joined, words) => error => {
+	const text = `${error?.message ?? ''}\n${error?.fix ?? error?.data?.fix ?? ''}`;
+	return error?.details?.reason === 'untold_name' && words.every(word => text.includes(`"${word}"`)) && !text.includes(joined);
+};
+const sorted = groups => groups.map(words => [...words].sort()).sort();
+
+test('§188.8: a delivery saying a name two untold people share is held with each person\'s own word, never joined, and never replaced', async t => {
+	const h = await twoPetes(t);
+	const text = '你问镇上有没有叫皮特的人。本说：“皮特？你是说五金店那个吗？”';
+	await assert.rejects(h.narrate(text), error => heldShared(h.joined, [TRAILER, HARDWARE])(error)
+		&& JSON.stringify(sorted(error.details.shared)) === JSON.stringify(sorted([[TRAILER, HARDWARE]])), 'held, each word apart');
+	await assert.rejects(h.narrate(text), error => heldShared(h.joined, [TRAILER, HARDWARE])(error), 'the same text again is held again: no word stands for a name two people share');
+	const own = await h.narrate(`你问镇上的人。本说：“${HARDWARE}？我知道他。”`);
+	assert.ok(own.rendered_text.includes(HARDWARE) && !own.rendered_text.includes(h.joined), 'one person\'s own word goes out');
+});
+
+test('§188.8: a delivery or a document that writes the joined word verbatim is held with each person\'s own word', async t => {
+	const h = await twoPetes(t);
+	await assert.rejects(h.narrate(`你问镇上有没有叫${h.joined}的人。`),
+		error => heldShared(h.joined, [TRAILER, HARDWARE])(error) && JSON.stringify(sorted(error.details.joined)) === JSON.stringify(sorted([[TRAILER, HARDWARE]])));
+	await assert.rejects(h.narrate(`你问镇上有没有叫${h.joined}的人。`), error => error?.details?.reason === 'untold_name', 'every time');
+	await assert.rejects(h.narrate(`{{say:${h.joined}}}“谁找我？”{{/say}}`), error => error?.details?.joined?.length === 1, 'inside a marker too');
+
+	// A note the investigator writes is text the player reads (the §185 table had the Keeper copy a request-only string into one).
+	const fixture = join(h.home, 'notes-mod');
+	await cp(join(root, 'mods/enhanced-items'), fixture, {recursive: true});
+	const manifest = JSON.parse(await readFile(join(fixture, 'mod.json'), 'utf8'));
+	await writeFile(join(fixture, 'mod.json'), JSON.stringify({...manifest, id: 'notes-fixture', version: '1.0.0',
+		requires: [...new Set([...manifest.requires, 'objects.usages.v1', api.CONTINUITY_AUDIT])], contributes: {materializer: 'creator.md', auditor: 'auditor.md'}}));
+	await h.call('mods.install', {path: fixture});
+	await h.call('mods.configure', {id: 'notes-fixture', version: '1.0.0', enabled: true});
+	const job = await h.call('mods.job', {role: 'create', input: {name: 'Notebook', category: 'item', description: 'A pocket notebook.'}});
+	const definition = {name: 'Notebook', category: 'item', description: 'A pocket notebook.', basis: 'Present in this contract fixture.',
+		parameters: {charges: null, effects: []}, player_view: {description: 'A pocket notebook.', fields: []}};
+	await writeFile(join(job.cwd, 'result.json'), JSON.stringify(definition));
+	const accepted = await h.call('mods.accept', {job: job.job});
+	let c = 10;
+	const apply = effects => h.call('table.apply', {call_id: `t${h.turn}-c${++c}`, effects});
+	await apply([{kind: 'define', name: 'Notebook', category: 'item', _definition: accepted.definition, _provenance: accepted.provenance},
+		{kind: 'object', name: 'Pocket notebook', definition: 'Notebook', to: INVESTIGATOR, document: {text: '', presentation: 'notebook'}}]);
+	await assert.rejects(apply([{kind: 'object', name: 'Pocket notebook', from: INVESTIGATOR, to: INVESTIGATOR, why: 'he writes it down',
+		document: {action: 'write', text: `问${h.joined}关于失踪的女孩。`}}]),
+		error => heldShared(h.joined, [TRAILER, HARDWARE])(error) && error.details.field === 'object.document.text');
+	await apply([{kind: 'object', name: 'Pocket notebook', from: INVESTIGATOR, to: INVESTIGATOR, why: 'he writes it down', document: {action: 'write', text: `问${HARDWARE}关于失踪的女孩。`}}]);
+});
+
+test('§188.8: a name one untold person carries is held, then replaced by their word, as before', async t => {
+	const h = await twoPetes(t);
+	const text = '皮特·诺兰从拖车里探出头。';
+	await assert.rejects(h.narrate(text), error => error?.details?.reason === 'untold_name' && !error.details.shared && !error.details.joined, 'held, with the usual fix');
+	const second = await h.narrate(text);
+	assert.equal(second.rendered_text, `${TRAILER}从拖车里探出头。`, 'the second delivery shows his own word');
 });
