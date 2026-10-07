@@ -157,7 +157,7 @@ test("§151.3 the gate accepts Jev rows for eligible records whose digests match
 	assert.ok(graphOf(workspace, mid).nodes.some((node) => node.node_id === "npc-mae"), "the Jev-cleared record is published");
 });
 
-test("§151.3 a Jev row reviews a path but never settles a contest mark a vision reviewer left", async (t) => {
+test("§186.6 a Jev row never reviews a record carrying a classification field, so it never settles the contest mark a vision reviewer left there", async (t) => {
 	const workspace = await mkdtemp(join(tmpdir(), "claim-support-mark-"));
 	t.after(() => rm(workspace, { recursive: true, force: true }));
 	const { mid, file_sha256 } = book(workspace), draft = barDraft();
@@ -166,8 +166,16 @@ test("§151.3 a Jev row reviews a path but never settles a contest mark a vision
 		review([], ["/nodes/0", "/nodes/1", "/nodes/2", "/nodes/3", "/claims/0", "/coverage"], [contest]));
 	assert.ok(first.ok, JSON.stringify(first.error));
 	assert.deepEqual(Object.keys(graphOf(workspace, mid).contested ?? {}), ["/nodes/clue-coffee/properties/delivery_kind"]);
+	// The clue carries `properties/delivery_kind`, a declared classification field: the record keeps the vision standard.
 	const again = finish(workspace, detail(workspace, mid, "again"), draft, review([jevRow(["/nodes/3"])], ["/nodes/0", "/nodes/1", "/nodes/2", "/claims/0", "/coverage"]),
 		evidenceOf(file_sha256));
-	assert.ok(again.ok, JSON.stringify(again.error));
+	assert.deepEqual(refusal(again), [false, "review_jev_ineligible", "/nodes/3"]);
+	assert.match(again.error.message, /classification_field/);
 	assert.deepEqual(Object.keys(graphOf(workspace, mid).contested ?? {}), ["/nodes/clue-coffee/properties/delivery_kind"], "only a vision `supported` settles the mark");
+	// The same clue without the classification field is an ordinary text record again.
+	const plainDraft = barDraft();
+	delete plainDraft.nodes[3].properties.delivery_kind;
+	const cleared = finish(workspace, detail(workspace, mid, "plain"), plainDraft, review([jevRow(["/nodes/3"])], ["/nodes/0", "/nodes/1", "/nodes/2", "/claims/0", "/coverage"]),
+		evidenceOf(file_sha256));
+	assert.ok(cleared.ok, JSON.stringify(cleared.error));
 });

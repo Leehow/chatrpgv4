@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ReadingService } from "../../extensions/module/reading-service.ts";
@@ -49,16 +50,17 @@ async function deliver(request, cache, pages, call) {
 /**
  * `author(task, onDisk, pass)` returns the draft a read writes (pass counts every read run); `verdict(path, unit, reads)`
  * the reviewer's verdict for one assigned pointer and `missing(unit, reads)` the unit's missing list, given how many
- * reads have run (1 during the first round's review).
+ * reads have run (1 during the first round's review). `views(pass)` are pages the author views beyond its records'.
+ * `plans` holds the review plan on disk as each read starts (the plan of the review that read repairs).
  */
-async function runFixture(t, { author, verdict = () => "supported", missing = () => [], job: extra = {}, before } = {}) {
+async function runFixture(t, { author, verdict = () => "supported", missing = () => [], views = () => [], job: extra = {}, before } = {}) {
 	const home = await mkdtemp(join(tmpdir(), "coc-review-repair-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
 	const cwd = join(home, "work", "read-1", extra.attempt ?? "attempt-1"), cache = join(home, ".coc", "modules", "book", "cache", "pages");
 	await mkdir(cwd, { recursive: true });
 	await mkdir(cache, { recursive: true });
 	await before?.({ home, cwd, cache });
-	const reads = [], units = [], rows = [], finishes = [];
+	const reads = [], units = [], rows = [], finishes = [], plans = [];
 	let calls = 0;
 	const runtime = {
 		contentRoot: join(ROOT, "content"),
@@ -68,9 +70,10 @@ async function runFixture(t, { author, verdict = () => "supported", missing = ()
 			if (request.prompt.phase === "read") {
 				const onDisk = JSON.parse(await readFile(join(request.cwd, "draft.json"), "utf8").catch(() => "null"));
 				reads.push({ task, brief: request.brief, onDisk, eventLog: request.eventLog });
+				plans.push(await readFile(join(request.cwd, "review-plan.json"), "utf8").catch(() => null));
 				const draft = author(task, onDisk, reads.length);
 				await writeFile(join(request.cwd, "draft.json"), JSON.stringify(draft) + "\n");
-				await deliver(request, cache, recordPages(draft), `read-${calls}`);
+				await deliver(request, cache, [...new Set([...recordPages(draft), ...views(reads.length)])], `read-${calls}`);
 				return { ok: true, code: 0, timedOut: false, ms: 5, stderr: "", command: [] };
 			}
 			const draft = JSON.parse(await readFile(join(request.cwd, "draft.json"), "utf8"));
@@ -107,7 +110,7 @@ async function runFixture(t, { author, verdict = () => "supported", missing = ()
 	await service.runJob({ job_id: "read-1", key: "job-key", module_id: "book", purpose: "detail", focus: "Dock", question: "", foreground: false, lease: "lease-1",
 		work_dir: cwd, source: { path: join(home, ".coc", "modules", "book", "source.pdf"), page_count: 8, file_sha256: SHA },
 		index: {}, known_nodes: [], known_claims: [], vocabulary: {}, coverage_domains: [], ...extra }, new AbortController().signal);
-	return { cwd, reads, units, rows, finishes, accounting: rows.filter(row => row.event === "job_accounting") };
+	return { cwd, reads, units, rows, finishes, plans, accounting: rows.filter(row => row.event === "job_accounting") };
 }
 
 const refuseSailorAtDock = path => path === "/claims/0" ? "unsupported" : "supported";
@@ -283,4 +286,104 @@ test("§151.2.2 only what the publication gate would refuse is repaired; a conte
 	assert.deepEqual(repairDecision(draft, { checked: [row("/claims/0", "supported")], missing: [] }, {}), { kind: "full", reason: "no_refusal" });
 	const unit = repairDecision(draft, { checked: [row("/claims/0", "unsupported")], missing: [] }, { source_unit: { first: 3, last: 4 }, pages: [3, 4] });
 	assert.deepEqual(unit.pages, [3, 4], "a source unit's assigned pages, which the checker requires every read of the unit to view");
+});
+
+// ---------------------------------------------------------------------------------------------------
+// §186.4: the coverage verdict is carried across a records-only targeted repair.
+//
+// Evidence (App home, 2026-10-02..10-06): the coverage unit is 31 % of review units and 40 % of review uncached tokens;
+// 229 of 791 jobs ran it again in a later round, because its identity is the whole candidate and any repair changes it.
+// ---------------------------------------------------------------------------------------------------
+
+const refuseSailor = path => path === "/nodes/1" ? "unsupported" : "supported";
+/** The refused sailor corrected in place: same node id, no record added or removed, nothing else touched. */
+const sailorCorrected = () => { const draft = candidate(); draft.nodes[1] = { ...draft.nodes[1], summary: "A sailor, as page 4 prints him." }; return draft; };
+const coverageRuns = result => result.units.filter(paths => paths.includes("/coverage")).length;
+const carryRefusals = result => result.rows.filter(row => row.event === "coverage_carry_refused").map(row => row.reason);
+
+test("§186.4 a records-only targeted repair carries the coverage verdict, and the gate's review holds it with its origin", async t => {
+	const result = await runFixture(t, {
+		author: (_task, _onDisk, pass) => pass === 1 ? candidate() : sailorCorrected(),
+		verdict: (path, _unit, reads) => reads === 1 ? refuseSailor(path) : "supported",
+	});
+	assert.equal(result.reads[1].task.repair.kind, "targeted");
+	assert.equal(coverageRuns(result), 1, "the coverage reviewer ran in round 1 only");
+	assert.deepEqual(result.units.slice(3), [["/nodes/0", "/nodes/1", "/claims/0"]], "round 2 runs only the unit of the corrected record");
+	const carried = result.rows.find(row => row.phase === "verify" && row.round === 2 && row.carried_from);
+	assert.ok(carried, "the carried unit has its verify row");
+	assert.equal(carried.reused, true);
+	const roundOnePlan = result.plans[1];
+	assert.ok(roundOnePlan, "the round-1 plan was on disk when the repair read began");
+	assert.deepEqual(carried.carried_from, { round: 1, plan_digest: createHash("sha256").update(roundOnePlan).digest("hex") });
+	assert.deepEqual(carried.pages, [4, 6], "the pages the round-1 coverage reviewer viewed");
+	// The review the gate reads: the round-1 coverage row, as written, with its origin.
+	const finish = result.finishes.filter(call => call.outcome === "completed").at(-1);
+	const review = JSON.parse(await readFile(finish.review_path, "utf8"));
+	const coverage = review.checked.filter(row => row.paths.includes("/coverage"));
+	assert.equal(coverage.length, 1);
+	assert.deepEqual(coverage[0], { paths: ["/coverage"], verdict: "supported", source_refs: [{ page: 4 }, { page: 6 }], reason: "fixture review of /coverage",
+		carried_from: carried.carried_from });
+	assert.deepEqual(review.missing, []);
+	const observations = JSON.parse(await readFile(join(result.cwd, "observations.json"), "utf8"));
+	assert.deepEqual([...observations.review_pages].sort((a, b) => a - b), [4, 6], "the carried pages are evidence the gate reads");
+	// The round-2 plan records the carried unit like any other, so a later round can carry it again.
+	const plan = JSON.parse(await readFile(join(result.cwd, "review-plan.json"), "utf8"));
+	assert.equal(plan.round, 2);
+	const unit = plan.units.find(entry => entry.paths.includes("/coverage"));
+	assert.deepEqual([unit.checked, unit.missing, unit.pages, typeof unit.scope], [1, 0, [4, 6], "string"]);
+	assert.deepEqual(carryRefusals(result), []);
+	const [spent] = result.accounting;
+	assert.deepEqual([spent.units_run, spent.units_reused], [4, 2], "three units in round 1; in round 2 one runs, the tower is reused and coverage carried");
+});
+
+test("§186.4 a targeted repair the host refused is followed by a full read: coverage runs even when that read only corrects the refused record", async t => {
+	const result = await runFixture(t, {
+		author: (_task, _onDisk, pass) => {
+			if (pass === 1) return candidate();
+			const draft = sailorCorrected();
+			if (pass === 2) draft.nodes[2] = { ...draft.nodes[2], summary: "A tower rewritten for style." };
+			return draft;
+		},
+		verdict: (path, _unit, reads) => reads === 1 ? refuseSailor(path) : "supported",
+	});
+	assert.equal(result.reads.length, 3, "the author, the refused targeted pass and the full read");
+	assert.ok(result.rows.some(row => row.event === "targeted_repair_refused"));
+	assert.equal(coverageRuns(result), 2, "a full repair is not a targeted repair the host accepted");
+	assert.equal(result.rows.some(row => row.carried_from), false);
+});
+
+test("§186.4 a targeted repair that deletes the refused record runs coverage", async t => {
+	const result = await runFixture(t, {
+		author: (_task, _onDisk, pass) => pass === 1 ? candidate() : withoutSailorClaim(),
+		verdict: (path, _unit, reads) => reads === 1 ? refuseSailorAtDock(path) : "supported",
+	});
+	assert.equal(result.reads[1].task.repair.kind, "targeted");
+	assert.equal(result.rows.some(row => row.event === "targeted_repair_refused"), false, "the host accepted the repair");
+	assert.equal(coverageRuns(result), 2);
+	assert.deepEqual(carryRefusals(result), ["records"]);
+});
+
+test("§186.4 a targeted repair that replaces the refused relation with another adds a record: coverage runs", async t => {
+	const result = await runFixture(t, {
+		author: (_task, _onDisk, pass) => {
+			const draft = candidate();
+			if (pass > 1) draft.claims[0] = { ...draft.claims[0], predicate: "works-at" };
+			return draft;
+		},
+		verdict: (path, _unit, reads) => reads === 1 ? refuseSailorAtDock(path) : "supported",
+	});
+	assert.equal(result.rows.some(row => row.event === "targeted_repair_refused"), false, "one replacement for one refused record");
+	assert.equal(coverageRuns(result), 2);
+	assert.deepEqual(carryRefusals(result), ["records"]);
+});
+
+test("§186.4 a targeted repair whose author viewed another page changes the review scope: coverage runs", async t => {
+	const result = await runFixture(t, {
+		author: (_task, _onDisk, pass) => pass === 1 ? candidate() : sailorCorrected(),
+		verdict: (path, _unit, reads) => reads === 1 ? refuseSailor(path) : "supported",
+		views: pass => pass === 2 ? [5] : [],
+	});
+	assert.equal(result.rows.some(row => row.event === "targeted_repair_refused"), false);
+	assert.equal(coverageRuns(result), 2);
+	assert.deepEqual(carryRefusals(result), ["scope"], "the scope is compared before the carried reviewer's pages are");
 });

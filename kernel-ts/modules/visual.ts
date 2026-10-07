@@ -1,6 +1,6 @@
 /** Pure source-draft validation shared by publication and the offline host check. */
 import { RpcError } from '../errors.js';
-import { canonicalJson, isJsonObject, orderedObject, sha256Text } from '../json.js';
+import { canonicalJson, isJsonObject, orderedObject, pythonJsonDumps, sha256Text } from '../json.js';
 import { array, clone, entries, equal, integer, normalize, number, numeric, repr, row, sorted, string, truth, type Row } from '../read/values.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { startSceneCandidates } from '../write/source.js';
@@ -17,12 +17,109 @@ import { REVIEW_VERDICTS, classificationMatcher } from './review-verdicts.js';
 import { CLAIM_SUPPORT_PROTOCOL, JEV_REVIEWER, JEV_REVIEW_RULES, claimRecordPages, claimRecordRoot, claimSupportIneligibility, pathsOverlap, claimRecord } from './claim-support.js';
 import { preserveTravel } from './route-travel.js';
 import {validVisualScan,visualCandidates} from './visual-discovery.js';
-import { checkMapScopeDraft, checkMapScopes } from './map-scope.js';
+import { checkMapScope, checkMapScopeDraft, publishedNodes } from './map-scope.js';
+import type { SourceNeed } from './source-needs.js';
 const object = (value: any): boolean => isJsonObject(value);
-export function reject(message: string, path = '/'): never {
-    throw new RpcError('invalid_params', message, {
+/** The refusal `reject` throws, built without throwing so the staged draft check can collect it (§186.3). */
+function refusal(message: string, path = '/'): RpcError {
+    return new RpcError('invalid_params', message, {
         fix: 'correct the draft using the original pages and submit again', details: { reason: 'reading_failed', path },
     });
+}
+export function reject(message: string, path = '/'): never {
+    throw refusal(message, path);
+}
+/** Contract §186.3: one finding of the draft check. `value` is what the draft wrote; `allowed` the closed list it must come from. */
+export interface DraftFinding { path: string; rule: string; message: string; value?: any; allowed?: any[] }
+/** §186.3: `details.findings` holds at most this many entries and this many bytes; `details.truncated` counts the rest. */
+export const DRAFT_FINDINGS_LIMIT = 40, DRAFT_FINDINGS_BYTES = 8 * 1024;
+/** §186.3: a finding's `value` is clipped to this many characters. */
+export const DRAFT_FINDING_VALUE_CHARS = 80;
+const clipText = (text: string): string => {
+    const chars = Array.from(text);
+    return chars.length <= DRAFT_FINDING_VALUE_CHARS ? text : chars.slice(0, DRAFT_FINDING_VALUE_CHARS - 3).join('') + '...';
+};
+/** §186.3: the value as written, at most 80 characters: a string clipped, any other value itself while its JSON fits, else its JSON clipped. */
+export function writtenValue(value: any): any {
+    if (typeof value === 'string') return clipText(value);
+    let text: string;
+    try { text = pythonJsonDumps(value); }
+    catch { return clipText(String(value)); }
+    return Array.from(text).length <= DRAFT_FINDING_VALUE_CHARS ? clone(value) : clipText(text);
+}
+type Locate = Partial<DraftFinding> | ((error: RpcError) => Partial<DraftFinding>);
+const UTF8 = new TextEncoder();
+/**
+ * Contract §186.3: one stage of the draft check. A law records the refusal it would have thrown, with the findings it
+ * names, and the stage goes on to the next independent law; `settle` throws the first refusal with every finding.
+ */
+class Stage {
+    private readonly refusals: RpcError[] = [];
+    private readonly findings: DraftFinding[] = [];
+    private readonly keys = new Set<string>();
+    /** Record a refusal and the fields it names; with none named, the refusal names its own path. */
+    note(error: RpcError, ...located: Array<Partial<DraftFinding>>): void {
+        const details = row(error.details);
+        this.refusals.push(error);
+        for (const at of located.length ? located : [{}]) {
+            const finding: DraftFinding = { path: string(at.path ?? details.path ?? '/'), rule: string(at.rule ?? details.rule ?? 'draft_check'), message: at.message ?? error.message };
+            if (at.value !== undefined) finding.value = writtenValue(at.value);
+            if (Array.isArray(at.allowed)) finding.allowed = clone(at.allowed);
+            const key = canonicalJson(finding as any);
+            if (!this.keys.has(key)) { this.keys.add(key); this.findings.push(finding); }
+        }
+    }
+    /**
+     * Run one law that throws its refusal. A refusal listing several (`details.refusals`, `details.pairs`) becomes one
+     * finding per entry, worded by `each`; any other becomes one finding located by `at`. True when the law passed.
+     */
+    run(law: () => void, at: Locate = {}, each?: (item: Row) => string): boolean {
+        try { law(); return true; }
+        catch (error) {
+            if (!(error instanceof RpcError)) throw error;
+            const details = row(error.details);
+            if (Array.isArray(details.pairs))
+                this.note(error, ...details.pairs.map((pair: Row) => ({ path: string(pair.path), rule: string(details.rule),
+                    message: `one being, two nodes: ${pair.npc} and ${pair.creature} share the name ${repr(pair.shared)}` })));
+            else if (Array.isArray(details.refusals) && each)
+                this.note(error, ...details.refusals.map((item: Row) => ({ path: string(item.path), rule: string(item.rule), message: each(item) })));
+            else {
+                const located = typeof at === 'function' ? at(error) : at;
+                this.note(error, { ...(Object.hasOwn(details, 'value') ? { value: details.value } : {}),
+                    ...(Array.isArray(details.allowed) ? { allowed: details.allowed } : {}), ...located });
+            }
+            return false;
+        }
+    }
+    /** A later stage runs only when this one is clean: the first refusal, unchanged, now carrying every finding of the stage. */
+    settle(): void {
+        if (!this.refusals.length) return;
+        const first = this.refusals[0], kept: DraftFinding[] = [];
+        let bytes = 2;
+        for (const finding of this.findings) {
+            const size = UTF8.encode(pythonJsonDumps(finding as any)).length + (kept.length ? 2 : 0);
+            if (kept.length >= DRAFT_FINDINGS_LIMIT || bytes + size > DRAFT_FINDINGS_BYTES) break;
+            kept.push(finding);
+            bytes += size;
+        }
+        const truncated = this.findings.length - kept.length;
+        throw new RpcError(first.code, first.message, { ...(first.fix ? { fix: first.fix } : {}), ...(first.codeDetail ? { codeDetail: first.codeDetail } : {}),
+            retryable: first.retryable, next: first.next,
+            details: { ...row(first.details), findings: kept as any, ...(truncated ? { truncated } : {}) } });
+    }
+}
+/** The JSON pointer token of one key. */
+const token = (key: string): string => key.replace(/~/g, '~0').replace(/\//g, '~1');
+/** `references` for one record's `source_refs` at `at`, each reference its own law; the normalized list when all pass. */
+function sourceRefs(stage: Stage, value: any, count: any, seen: ReadonlySet<any> | undefined, at: string): Row[] | null {
+    if (!Array.isArray(value) || !value.length) {
+        stage.note(refusal('source_refs must contain at least one original page'), { path: at, rule: 'source_refs', value });
+        return null;
+    }
+    let passed = true;
+    for (const [j, ref] of value.entries())
+        passed = stage.run(() => references([ref], count, seen), { path: `${at}/${j}`, rule: 'source_refs', value: ref }) && passed;
+    return passed ? references(value, count, seen) : null;
 }
 export function references(value: any, pageCount: any, seen?: ReadonlySet<any>): Row[] {
     if (!Array.isArray(value) || !value.length)
@@ -163,139 +260,250 @@ export function mergeValue(old: any, proposed: any, path = '', transcription?: R
     }
     contradiction(path, old, proposed);
 }
-export function checkDraft(draft: any, packet: Row, contract: ModuleContract, seen?: ReadonlySet<number>): Row {
-    if (!object(draft))
-        reject('the draft must be an object');
-    const unknown = Object.keys(draft).filter(key => !SHARD_KEYS.includes(key)&&!(packet.visual_scan&&key==='visual_candidates'));
+/** Options of the draft check. `openingBatch`: the host's first-batch law (§22.0) runs as the last law of the third stage. */
+export interface DraftCheckOptions { openingBatch?: boolean }
+/**
+ * The draft check (§22.3), in the three stages of contract §186.3: the envelope, the records, the graph and its evidence.
+ * Each stage collects its independent findings; a later stage runs only when every earlier stage is clean. The refusal is
+ * the first finding's, as the check has always worded it, with `details.findings` listing the stage's findings.
+ */
+export function checkDraft(draft: any, packet: Row, contract: ModuleContract, seen?: ReadonlySet<number>, options: DraftCheckOptions = {}): Row {
+    // Stage 1, the envelope: top-level keys, the contract, array-typed keys, coverage, and the job kind's own envelope laws.
+    const envelope = new Stage();
+    if (!object(draft)) {
+        envelope.note(refusal('the draft must be an object'), { rule: 'draft_shape', value: draft });
+        envelope.settle();
+    }
+    const vocab = contract.graph, skeleton = ['skeleton', 'guidance'].includes(packet.purpose);
+    const shardKeys = [...SHARD_KEYS, ...(packet.visual_scan ? ['visual_candidates'] : [])];
+    const unknown = Object.keys(draft).filter(key => !shardKeys.includes(key));
     if (unknown.length)
-        reject(`unknown draft keys: ${repr(sorted(unknown))}`);
-    if ((Object.hasOwn(draft, 'contract_id') ? draft.contract_id : VISUAL_CONTRACT_ID) !== VISUAL_CONTRACT_ID)
-        reject('use the visual shard contract coc.module-graph-shard.v4');
-    // §39.4 (2026-09-30): a map-scope job's draft writes only the kind of its one map, before any other law is read.
-    if (packet.map_scope) checkMapScopeDraft(draft, packet, seen);
-    let sourceNeeds;
-    if(Object.hasOwn(draft,'source_needs')&&!['guidance','opening','detail'].includes(packet.purpose))reject('source_needs belongs to a checked source reading','/source_needs');
-    try{sourceNeeds=validateSourceNeeds(draft.source_needs??[],number(row(packet.source).page_count));}
-    catch(error){reject(String(error),'/source_needs');}
-    const pending=sourceNeeds!.filter(need=>['source_read','uncertain'].includes(need.kind));
-    if(pending.length&&!packet.source_unit&&!packet.visual_asset)throw new RpcError('invalid_params','Current source needs remain unresolved',{
-        fix:'Retrieve the required original evidence and repair the candidate; retain runtime inputs and future needs explicitly',
-        details:{reason:'reading_failed',rule:'source_needs_pending',path:'/source_needs',requests:pending},
-    });
-    if (!equal(draft.dependencies, []))
-        reject("resolve the current scope's source dependencies before publication", '/dependencies');
+        envelope.note(refusal(`unknown draft keys: ${repr(sorted(unknown))}`), { rule: 'unknown_key', value: sorted(unknown), allowed: sorted(shardKeys) });
+    const contractId = Object.hasOwn(draft, 'contract_id') ? draft.contract_id : VISUAL_CONTRACT_ID;
+    if (contractId !== VISUAL_CONTRACT_ID)
+        envelope.note(refusal('use the visual shard contract coc.module-graph-shard.v4'), { path: '/contract_id', rule: 'contract_id', value: contractId, allowed: [VISUAL_CONTRACT_ID] });
+    // §39.4 (2026-09-30): a map-scope job's draft writes only the kind of its one map.
+    if (packet.map_scope) envelope.run(() => checkMapScopeDraft(draft, packet, seen));
+    if (Object.hasOwn(draft, 'source_needs') && !['guidance', 'opening', 'detail'].includes(packet.purpose))
+        envelope.note(refusal('source_needs belongs to a checked source reading', '/source_needs'), { rule: 'source_needs_purpose' });
+    else if (!Array.isArray(draft.source_needs ?? []) || array(draft.source_needs).length > 32)
+        envelope.note(refusal('Error: source_needs must be a bounded array', '/source_needs'), { rule: 'not_an_array', value: draft.source_needs });
     for (const key of ['nodes', 'claims', 'node_refs', 'critical', 'ready_nodes'])
         if (!Array.isArray(draft[key]))
-            reject(`${key} must be an array`, `/${key}`);
-    const skeleton = ['skeleton', 'guidance'].includes(packet.purpose), vocab = contract.graph;
-    if (skeleton && !draft.nodes.length)
-        reject('a skeleton needs source-authored nodes before it can be published', '/nodes');
-    if (!object(draft.coverage) || Object.keys(draft.coverage).some(key => !array(vocab.coverage_domains).includes(key)) || Object.values(draft.coverage).some(value => !array(vocab.coverage_status).includes(value))) {
-        reject(`coverage must be an object mapping domain to status; domains=${repr(vocab.coverage_domains)}, statuses=${repr(sorted(array(vocab.coverage_status)))}; use {} when no domain is prepared`, '/coverage');
+            envelope.note(refusal(`${key} must be an array`, `/${key}`), { rule: 'not_an_array', value: draft[key] });
+    // A skeleton job's envelope: it publishes source-authored nodes, so its node list is not empty.
+    if (skeleton && Array.isArray(draft.nodes) && !draft.nodes.length)
+        envelope.note(refusal('a skeleton needs source-authored nodes before it can be published', '/nodes'), { rule: 'skeleton_nodes' });
+    const domains = array(vocab.coverage_domains), statuses = array(vocab.coverage_status);
+    const coverage = refusal(`coverage must be an object mapping domain to status; domains=${repr(vocab.coverage_domains)}, statuses=${repr(sorted(statuses))}; use {} when no domain is prepared`, '/coverage');
+    if (!object(draft.coverage))
+        envelope.note(coverage, { rule: 'coverage_shape', value: draft.coverage });
+    else {
+        const named = entries(draft.coverage).flatMap(([key, status]) => [
+            ...(domains.includes(key) ? [] : [{ path: `/coverage/${token(key)}`, rule: 'coverage_domain', value: key, allowed: domains }]),
+            ...(statuses.includes(status) ? [] : [{ path: `/coverage/${token(key)}`, rule: 'coverage_status', value: status, allowed: statuses }])]);
+        if (named.length) envelope.note(coverage, ...named);
     }
+    let candidates: any;
+    if (packet.visual_scan) {
+        if (!validVisualScan(packet.visual_scan, number(row(packet.source).page_count)))
+            envelope.note(refusal('Invalid visual navigation range'), { rule: 'visual_scan_range' });
+        else envelope.run(() => {
+            try { candidates = visualCandidates(draft.visual_candidates, packet.visual_scan); } catch (error) { reject(String(error)); }
+        }, { path: '/visual_candidates', rule: 'visual_candidates' });
+        if (array(draft.nodes).length || array(draft.claims).length || array(draft.node_refs).length || array(draft.ready_nodes).length || array(draft.critical).length
+            || object(draft.coverage) && Object.keys(draft.coverage).length || array(draft.source_needs).length)
+            envelope.note(refusal('Visual navigation may nominate pages only; prepare assets in independent original-page tasks'), { rule: 'visual_scan_bounds' });
+    }
+    if (packet.visual_asset && object(draft.coverage) && Object.keys(draft.coverage).length)
+        envelope.note(refusal('A visual scan records navigation coverage separately', '/coverage'), { rule: 'visual_coverage', value: draft.coverage });
+    envelope.settle();
+
+    // Stage 2, the records: per node and per claim, identifiers, kinds, vocabulary fields, references to defined nodes,
+    // source refs, predicates and endpoints, and the record-local laws.
     const filled: Row = clone(draft), nodes = filled.nodes as Row[], existing = new Set(array(packet.known_nodes).map(n => n.node_id)), defined = new Set<string>();
-    if(packet.visual_scan){
-        if(!validVisualScan(packet.visual_scan,number(row(packet.source).page_count)))reject('Invalid visual navigation range');
-        try{filled.visual_candidates=visualCandidates(draft.visual_candidates,packet.visual_scan);}catch(error){reject(String(error));}
-        if(nodes.length||filled.claims.length||filled.node_refs.length||filled.ready_nodes.length||filled.critical.length
-            ||Object.keys(filled.coverage).length||array(filled.source_needs).length)
-            reject('Visual navigation may nominate pages only; prepare assets in independent original-page tasks');
-    }
-    if(moduleLogicReview(packet))filled.review_policy=packet.review_policy;
-    const count = packet.source.page_count;
+    if (packet.visual_scan) filled.visual_candidates = candidates;
+    if (moduleLogicReview(packet)) filled.review_policy = packet.review_policy;
+    const count = packet.source.page_count, records = new Stage();
     for (const [i, node] of nodes.entries()) {
-        if (!object(node) || Object.keys(node).some(key => !NODE_KEYS.includes(key)))
-            reject('invalid node fields', `/nodes/${i}`);
-        const id = node.node_id, kind = node.node_kind;
-        if (!array(vocab.node_kinds).includes(kind) || !validSemanticId(id) || !id.startsWith(kind + '-') || defined.has(id))
-            reject('node kind/id must be unique and use the supplied vocabulary', `/nodes/${i}`);
+        if (!object(node)) {
+            records.note(refusal('invalid node fields', `/nodes/${i}`), { rule: 'node_fields', value: node });
+            continue;
+        }
+        const extra = Object.keys(node).filter(key => !NODE_KEYS.includes(key));
+        if (extra.length)
+            records.note(refusal('invalid node fields', `/nodes/${i}`), { rule: 'node_fields', value: extra, allowed: NODE_KEYS });
+        const id = node.node_id, kind = node.node_kind, kindKnown = array(vocab.node_kinds).includes(kind);
+        const identity = refusal('node kind/id must be unique and use the supplied vocabulary', `/nodes/${i}`), named: Array<Partial<DraftFinding>> = [];
+        if (!kindKnown) named.push({ path: `/nodes/${i}/node_kind`, rule: 'node_kind', value: kind, allowed: vocab.node_kinds });
+        if (!validSemanticId(id) || kindKnown && !id.startsWith(kind + '-') || defined.has(id))
+            named.push({ path: `/nodes/${i}/node_id`, rule: 'node_id', value: id });
+        if (named.length) records.note(identity, ...named);
+        if (typeof id === 'string') defined.add(id);
         if (typeof node.name !== 'string' || !node.name.trim())
-            reject('each node needs its source name', `/nodes/${i}/name`);
-        if (!object(Object.hasOwn(node, 'properties') ? node.properties : {}) || !Array.isArray(Object.hasOwn(node, 'aliases') ? node.aliases : []))
-            reject('properties must be an object and aliases an array', `/nodes/${i}`);
+            records.note(refusal('each node needs its source name', `/nodes/${i}/name`), { rule: 'node_name', value: node.name });
+        const shapes = [
+            ...(object(Object.hasOwn(node, 'properties') ? node.properties : {}) ? [] : [{ path: `/nodes/${i}/properties`, rule: 'node_shape', value: node.properties }]),
+            ...(Array.isArray(Object.hasOwn(node, 'aliases') ? node.aliases : []) ? [] : [{ path: `/nodes/${i}/aliases`, rule: 'node_shape', value: node.aliases }])];
+        if (shapes.length)
+            records.note(refusal('properties must be an object and aliases an array', `/nodes/${i}`), ...shapes);
         if (array(node.aliases).some(alias => typeof alias !== 'string'))
-            reject('aliases must contain names');
+            records.note(refusal('aliases must contain names'), { path: `/nodes/${i}/aliases`, rule: 'alias_names', value: node.aliases });
         const props = row(node.properties);
         if (Object.hasOwn(props, 'map_candidates')) {
             if (kind !== 'scene' || !Array.isArray(props.map_candidates) || !props.map_candidates.length)
-                reject('map_candidates belongs to a scene and must not be empty', `/nodes/${i}/properties/map_candidates`);
-            for (const [n, value] of props.map_candidates.entries()) {
+                records.note(refusal('map_candidates belongs to a scene and must not be empty', `/nodes/${i}/properties/map_candidates`), { rule: 'map_candidates' });
+            else for (const [n, value] of props.map_candidates.entries()) {
                 const candidate = row(value);
                 if (typeof candidate.name !== 'string' || !candidate.name.trim() || typeof candidate.focus !== 'string' || !candidate.focus.trim()
                     || !Array.isArray(candidate.pages) || !candidate.pages.length || candidate.pages.some(page => !integer(page) || page < 1 || page > count))
-                    reject('a scene map candidate needs name, exact place focus and physical page numbers', `/nodes/${i}/properties/map_candidates/${n}`);
+                    records.note(refusal('a scene map candidate needs name, exact place focus and physical page numbers', `/nodes/${i}/properties/map_candidates/${n}`), { rule: 'map_candidates', value });
             }
         }
         if (['asset', 'handout'].includes(kind) && Object.hasOwn(props, 'asset_ref')) {
             const prior = row(array(packet.known_nodes).find(n => n.node_id === id));
             if (!equal(props.asset_ref, row(prior.properties).asset_ref ?? null))
-                reject('asset_ref is owned by the host; declare image_sources instead of a local file path', `/nodes/${i}/properties/asset_ref`);
+                records.note(refusal('asset_ref is owned by the host; declare image_sources instead of a local file path', `/nodes/${i}/properties/asset_ref`), { rule: 'asset_ref', value: props.asset_ref });
         }
         if (Object.hasOwn(props, 'image_sources'))
-            references(props.image_sources, count, seen);
+            sourceRefs(records, props.image_sources, count, seen, `/nodes/${i}/properties/image_sources`);
         if (['npc', 'creature'].includes(kind))
-            actorNumbersLaw(props, i, contract);
+            records.run(() => actorNumbersLaw(props, i, contract), error => row(error.details).rule ? {} : { rule: 'stats_outside_profile' });
         if (!Object.hasOwn(node, 'visibility'))
             node.visibility = array(packet.known_nodes).find(known => known.node_id === id)?.visibility ?? 'keeper-only';
         if (!array(vocab.visibility).includes(node.visibility))
-            reject('node visibility must use the supplied vocabulary');
-        if (statesObligation(node))
-            obligationSourceLaw(node, i, seen);
-        if (statesMechanics(node))
-            mechanicsSourceLaw(node, i, seen);
-        node.source_refs = references(node.source_refs, count, seen);
-        defined.add(id);
+            records.note(refusal('node visibility must use the supplied vocabulary'), { path: `/nodes/${i}/visibility`, rule: 'node_visibility', value: node.visibility, allowed: vocab.visibility });
+        // The shaped source laws name their rule first; the generic law then judges what they did not refuse.
+        const sourced = (!statesObligation(node) || records.run(() => obligationSourceLaw(node, i, seen), {}, item => `obligation ${item.node}: ${item.path}: ${item.message}`))
+            && (!statesMechanics(node) || records.run(() => mechanicsSourceLaw(node, i, seen), {}, item => `mechanics ${item.node}: ${item.path}: ${item.message}`));
+        if (sourced) {
+            const refs = sourceRefs(records, node.source_refs, count, seen, `/nodes/${i}/source_refs`);
+            if (refs) node.source_refs = refs;
+        }
     }
     const ids = new Set([...existing, ...defined, `module-${packet.module_id}`]);
     const mapBox = (value: any): boolean => Array.isArray(value) && value.length === 4
         && value.every(item => numeric(item) && Number.isFinite(number(item)) && number(item) >= 0 && number(item) <= 1)
         && number(value[2]) > number(value[0]) && number(value[3]) > number(value[1]);
+    const published = publishedNodes(array(packet.known_nodes));
     for (const [i, node] of nodes.entries()) {
+        if (!object(node)) continue;
         const regions = row(node.properties).map_regions;
-        if (regions == null) continue;
-        if (!['asset', 'handout'].includes(node.node_kind) || !Array.isArray(regions) || !regions.length)
-            reject('map_regions belongs to an asset or handout and must not be empty', `/nodes/${i}/properties/map_regions`);
-        const regionIds = new Set<string>();
-        for (const [n, value] of regions.entries()) {
-            const region = row(value), id = typeof region.region_id === 'string' ? region.region_id.trim() : '';
-            if (!validSemanticId(id) || regionIds.has(id)) reject('map regions need unique semantic region_id values', `/nodes/${i}/properties/map_regions/${n}`);
-            regionIds.add(id);
-            if (typeof region.name !== 'string' || !region.name.trim() || typeof region.source_asset !== 'string' || !region.source_asset.trim())
-                reject('a map region needs name and source_asset', `/nodes/${i}/properties/map_regions/${n}`);
-            if (!mapBox(region.source_box ?? [0,0,1,1]) || !mapBox(region.placement) || array(region.redactions).some(value => !mapBox(value)))
-                reject('map source, placement and redaction boxes must be normalized rectangles', `/nodes/${i}/properties/map_regions/${n}`);
-            const source = [...nodes, ...array(packet.known_nodes)].find(item => item.node_kind === 'asset' && [item.node_id, String(item.node_id).replace(/^asset-/, '')].includes(region.source_asset));
-            if (!source) reject('map region source_asset must name an asset node', `/nodes/${i}/properties/map_regions/${n}/source_asset`);
-            if (!['player-safe','revealable'].includes(source.visibility) && !(region.safe_after_redactions === true && array(region.redactions).length))
-                reject('private map sources require reviewed redactions and safe_after_redactions', `/nodes/${i}/properties/map_regions/${n}`);
+        if (regions != null) {
+            if (!['asset', 'handout'].includes(node.node_kind) || !Array.isArray(regions) || !regions.length)
+                records.note(refusal('map_regions belongs to an asset or handout and must not be empty', `/nodes/${i}/properties/map_regions`), { rule: 'map_regions' });
+            else {
+                const regionIds = new Set<string>();
+                for (const [n, value] of regions.entries()) {
+                    const region = row(value), id = typeof region.region_id === 'string' ? region.region_id.trim() : '', at = `/nodes/${i}/properties/map_regions/${n}`;
+                    if (!validSemanticId(id) || regionIds.has(id)) records.note(refusal('map regions need unique semantic region_id values', at), { rule: 'map_regions', value: region.region_id });
+                    regionIds.add(id);
+                    if (typeof region.name !== 'string' || !region.name.trim() || typeof region.source_asset !== 'string' || !region.source_asset.trim())
+                        records.note(refusal('a map region needs name and source_asset', at), { rule: 'map_regions' });
+                    if (!mapBox(region.source_box ?? [0,0,1,1]) || !mapBox(region.placement) || array(region.redactions).some(value => !mapBox(value)))
+                        records.note(refusal('map source, placement and redaction boxes must be normalized rectangles', at), { rule: 'map_regions' });
+                    const source = [...nodes, ...array(packet.known_nodes)].find(item => row(item).node_kind === 'asset' && [item.node_id, String(item.node_id).replace(/^asset-/, '')].includes(region.source_asset));
+                    if (!source) records.note(refusal('map region source_asset must name an asset node', `${at}/source_asset`), { rule: 'map_regions', value: region.source_asset });
+                    else if (!['player-safe','revealable'].includes(source.visibility) && !(region.safe_after_redactions === true && array(region.redactions).length))
+                        records.note(refusal('private map sources require reviewed redactions and safe_after_redactions', at), { rule: 'map_regions' });
+                }
+            }
         }
     }
     // §39.4 (2026-09-30): which kind of map each drafted map is.
-    checkMapScopes(nodes, array(packet.known_nodes));
-    for (const id of [...filled.node_refs, ...filled.ready_nodes])
-        if (typeof id !== 'string' || !ids.has(id))
-            reject('a node reference must name a defined node');
-    if (skeleton && filled.ready_nodes.length)
-        reject('a skeleton cannot grant material readiness; ready_nodes must be empty', '/ready_nodes');
-    if (!filled.ready_nodes.length && !skeleton && !packet.source_unit && !packet.visual_scan && !packet.visual_asset && !packet.map_scope)
-        reject('declare the nodes whose material this task has prepared', '/ready_nodes');
-    if (filled.ready_nodes.some((id: string) => !defined.has(id)))
-        reject('ready_nodes must be present in the draft so their material can be independently reviewed', '/ready_nodes');
-    if(packet.visual_asset){
-        if(!integer(packet.visual_asset.page)||packet.visual_asset.page<1||packet.visual_asset.page>packet.source.page_count)
-            reject('Invalid visual asset page');
-        if(seen&&!seen.has(packet.visual_asset.page))reject('Visual asset preparation requires the nominated original page');
-        for(const node of nodes){
-            if(!['asset','handout','scene','location'].includes(node.node_kind))
-                reject('Visual discovery prepares visual assets and place identities only','/nodes');
-            if(['scene','location'].includes(node.node_kind)&&Object.keys(row(node.properties)).length)
-                reject('Visual discovery must preserve existing place dossiers','/nodes');
-            if(filled.ready_nodes.includes(node.node_id)&&!['asset','handout'].includes(node.node_kind))
-                reject('Visual discovery cannot grant scene readiness','/ready_nodes');
-            if(['asset','handout'].includes(node.node_kind)&&!array(row(node.properties).image_sources).length)
-                reject('Visual discovery assets require original-page crops','/nodes');
+    for (const [i, node] of nodes.entries())
+        if (object(node)) records.run(() => checkMapScope(node, i, published));
+    for (const key of ['node_refs', 'ready_nodes']) {
+        const named = (filled[key] as any[]).flatMap((id, k) => typeof id !== 'string' || !ids.has(id) ? [{ path: `/${key}/${k}`, rule: 'node_reference', value: id }] : []);
+        if (named.length) records.note(refusal('a node reference must name a defined node'), ...named);
+    }
+    const claimed = new Set<string>(), knownClaims = new Map<number, Row>();
+    for (const [i, claim] of (filled.claims as Row[]).entries()) {
+        if (!object(claim)) {
+            records.note(refusal('invalid claim fields', `/claims/${i}`), { rule: 'claim_fields', value: claim });
+            continue;
         }
-        if(Object.keys(filled.coverage).length)reject('A visual scan records navigation coverage separately','/coverage');
+        const extra = Object.keys(claim).filter(key => !CLAIM_KEYS.includes(key));
+        if (extra.length)
+            records.note(refusal('invalid claim fields', `/claims/${i}`), { rule: 'claim_fields', value: extra, allowed: CLAIM_KEYS });
+        const target = row(claim.object).node_id, ends: Array<Partial<DraftFinding>> = [];
+        if (!ids.has(claim.subject_id)) ends.push({ path: `/claims/${i}/subject_id`, rule: 'claim_endpoint', value: claim.subject_id });
+        if (!ids.has(target)) ends.push(object(claim.object) ? { path: `/claims/${i}/object/node_id`, rule: 'claim_endpoint', value: target } : { path: `/claims/${i}/object`, rule: 'claim_endpoint', value: claim.object });
+        if (!array(vocab.relation_kinds).includes(claim.predicate)) ends.push({ path: `/claims/${i}/predicate`, rule: 'claim_predicate', value: claim.predicate, allowed: vocab.relation_kinds });
+        if (ends.length) records.note(refusal('a claim must connect defined nodes with a supplied predicate', `/claims/${i}`), ...ends);
+        if (claim.predicate === 'impersonates' && claim.subject_id === target)
+            records.note(refusal('an alias is not a second person; put it in aliases rather than a self-impersonation claim', `/claims/${i}`), { rule: 'self_impersonation' });
+        if (object(claim.object) && !equal(Object.keys(claim.object), ['node_id']))
+            records.note(refusal('claim objects contain only node_id'), { path: `/claims/${i}/object`, rule: 'claim_object', value: Object.keys(claim.object) });
+        const matches = array(packet.known_claims).filter(old => Object.hasOwn(claim, 'claim_id') ? equal(old.claim_id, claim.claim_id) : ['subject_id', 'predicate', 'object'].every(key => equal(old[key] ?? null, claim[key] ?? null)));
+        const known = matches.length === 1 ? matches[0] : {};
+        knownClaims.set(i, known);
+        if (!Object.hasOwn(claim, 'claim_id'))
+            claim.claim_id = known.claim_id || `claim-${claim.subject_id}-${claim.predicate}-${target}`;
+        if (!validSemanticId(claim.claim_id) || claimed.has(claim.claim_id))
+            records.note(refusal('claim ids must be unique semantic identifiers'), { path: `/claims/${i}/claim_id`, rule: 'claim_id', value: claim.claim_id });
+        claimed.add(claim.claim_id);
+        if (!array(vocab.truth_status).includes(claim.truth_status))
+            records.note(refusal('claims must declare authored fact, belief, rumor, lie or inference using the vocabulary'),
+                { path: `/claims/${i}/truth_status`, rule: 'truth_status', value: claim.truth_status, allowed: vocab.truth_status });
+        if (!Object.hasOwn(claim, 'visibility'))
+            claim.visibility = Object.hasOwn(known, 'visibility') ? known.visibility : 'keeper-only';
+        if (!array(vocab.visibility).includes(claim.visibility))
+            records.note(refusal('invalid claim visibility'), { path: `/claims/${i}/visibility`, rule: 'claim_visibility', value: claim.visibility, allowed: vocab.visibility });
+        const refs = sourceRefs(records, claim.source_refs, count, seen, `/claims/${i}/source_refs`);
+        if (refs) claim.source_refs = refs;
+        for (const key of ['known_by_ids', 'asserted_by_ids']) {
+            if (!Object.hasOwn(claim, key))
+                claim[key] = clone(known[key] ?? []);
+            if (!Array.isArray(claim[key]) || claim[key].some((id: any) => !ids.has(id)))
+                records.note(refusal(`${key} must name defined nodes`), { path: `/claims/${i}/${key}`, rule: 'claim_holders', value: claim[key] });
+        }
+        if (!Object.hasOwn(claim, 'validity'))
+            claim.validity = known.validity ?? null;
+    }
+    records.settle();
+
+    // Stage 3, the graph and its evidence: cross-record and scope laws -- source needs, dependencies, readiness,
+    // published-value contradictions, pointers the review must reach, required views, and the graph-wide shape laws.
+    const graph = new Stage();
+    const sourceNeeds: SourceNeed[] = [];
+    let needsValid = true;
+    for (const [j, need] of array(draft.source_needs).entries())
+        needsValid = graph.run(() => {
+            try { sourceNeeds.push(...validateSourceNeeds([need], number(row(packet.source).page_count))); } catch (error) { reject(String(error), '/source_needs'); }
+        }, { path: `/source_needs/${j}`, rule: 'source_needs', value: need }) && needsValid;
+    const pending = needsValid ? sourceNeeds.filter(need => ['source_read', 'uncertain'].includes(need.kind)) : [];
+    if (pending.length && !packet.source_unit && !packet.visual_asset)
+        graph.note(new RpcError('invalid_params', 'Current source needs remain unresolved', {
+            fix: 'Retrieve the required original evidence and repair the candidate; retain runtime inputs and future needs explicitly',
+            details: { reason: 'reading_failed', rule: 'source_needs_pending', path: '/source_needs', requests: pending as any },
+        }), ...pending.map(need => ({ path: `/source_needs/${sourceNeeds.indexOf(need)}`, rule: 'source_needs_pending', value: need.question })));
+    if (!equal(draft.dependencies, []))
+        graph.note(refusal("resolve the current scope's source dependencies before publication", '/dependencies'), { rule: 'dependencies', value: draft.dependencies });
+    if (skeleton && filled.ready_nodes.length)
+        graph.note(refusal('a skeleton cannot grant material readiness; ready_nodes must be empty', '/ready_nodes'), { rule: 'skeleton_readiness', value: filled.ready_nodes });
+    if (!filled.ready_nodes.length && !skeleton && !packet.source_unit && !packet.visual_scan && !packet.visual_asset && !packet.map_scope)
+        graph.note(refusal('declare the nodes whose material this task has prepared', '/ready_nodes'), { rule: 'readiness_undeclared' });
+    const absent = (filled.ready_nodes as any[]).flatMap((id, k) => defined.has(id) ? [] : [{ path: `/ready_nodes/${k}`, rule: 'readiness_unreviewable', value: id }]);
+    if (absent.length)
+        graph.note(refusal('ready_nodes must be present in the draft so their material can be independently reviewed', '/ready_nodes'), ...absent);
+    if (packet.visual_asset) {
+        const page = packet.visual_asset.page;
+        if (!integer(page) || page < 1 || page > packet.source.page_count)
+            graph.note(refusal('Invalid visual asset page'), { rule: 'visual_asset_page' });
+        else if (seen && !seen.has(page))
+            graph.note(refusal('Visual asset preparation requires the nominated original page'), { rule: 'visual_asset_page', value: page });
+        for (const [i, node] of nodes.entries()) {
+            if (!['asset','handout','scene','location'].includes(node.node_kind))
+                graph.note(refusal('Visual discovery prepares visual assets and place identities only', '/nodes'),
+                    { path: `/nodes/${i}/node_kind`, rule: 'visual_asset_kind', value: node.node_kind, allowed: ['asset', 'handout', 'scene', 'location'] });
+            if (['scene','location'].includes(node.node_kind) && Object.keys(row(node.properties)).length)
+                graph.note(refusal('Visual discovery must preserve existing place dossiers', '/nodes'), { path: `/nodes/${i}/properties`, rule: 'visual_asset_place' });
+            if (filled.ready_nodes.includes(node.node_id) && !['asset','handout'].includes(node.node_kind))
+                graph.note(refusal('Visual discovery cannot grant scene readiness', '/ready_nodes'), { path: `/ready_nodes/${filled.ready_nodes.indexOf(node.node_id)}`, rule: 'visual_asset_readiness', value: node.node_id });
+            if (['asset','handout'].includes(node.node_kind) && !array(row(node.properties).image_sources).length)
+                graph.note(refusal('Visual discovery assets require original-page crops', '/nodes'), { path: `/nodes/${i}/properties/image_sources`, rule: 'visual_asset_crops' });
+        }
     }
     const knownNodes = new Map(array(packet.known_nodes).map(n => [n.node_id, n]));
     // §22.3.1: a differing value for a published field is judged by span here, before review. A
@@ -309,6 +517,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         preserveExisting:moduleLogicReview(packet)&&(known.ready!==false||known.node_kind==='module'),
         accept: path => retranscribed.push(draftBase + path.slice(base.length)),
     });
+    const contradicted = (error: RpcError): Partial<DraftFinding> => ({ rule: 'published_value', value: row(error.details).proposed });
     for (const [i, node] of nodes.entries()) {
         const known = knownNodes.get(node.node_id);
         // The placeholder module node of an unread book carries no source refs and nothing read.
@@ -317,30 +526,58 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         const proposed = Object.fromEntries(entries(node).filter(([key]) => Object.hasOwn(known, key) && key !== 'source_refs'));
         if (!truth(known.ready) && filled.ready_nodes.includes(node.node_id))
             delete proposed.summary;
-        mergeValue(Object.fromEntries(Object.keys(proposed).map(key => [key, known[key]])), proposed, `/nodes/${node.node_id}`, judge(`/nodes/${node.node_id}`, `/nodes/${i}`, known, node));
+        graph.run(() => mergeValue(Object.fromEntries(Object.keys(proposed).map(key => [key, known[key]])), proposed, `/nodes/${node.node_id}`,
+            judge(`/nodes/${node.node_id}`, `/nodes/${i}`, known, node)), contradicted);
     }
-    const claimed = new Set<string>(), required = new Set<any>(moduleLogicReview(packet)?filled.critical.map(moduleReviewRoot):filled.critical);
-    if(Object.hasOwn(draft,'source_needs')){
-        const graph=new ModuleGraph(string(packet.module_id),{nodes:[...array(packet.known_nodes),...nodes]},'',{});
-        for(const need of sourceNeeds!){
-            if(!graph.find(need.focus))reject('A retained source need must name a candidate or accepted entity','/source_needs');
-            if((packet.source_unit||packet.visual_asset)&&['source_read','uncertain'].includes(need.kind)&&filled.ready_nodes.includes(graph.find(need.focus)?.node_id))reject('A partial source fragment cannot mark an unresolved entity ready','/ready_nodes');
-            if(packet.purpose==='detail'&&need.kind==='deferred'&&string(packet.question).trim()===need.question.trim()
-                &&graph.find(string(packet.focus))?.node_id===graph.find(need.focus)?.node_id)
-                reject('A detail reading cannot defer its own requested source question','/source_needs');
-            references(need.source_refs,count,seen);
+    if (Object.hasOwn(draft, 'source_needs') && needsValid) {
+        const view = new ModuleGraph(string(packet.module_id), { nodes: [...array(packet.known_nodes), ...nodes] }, '', {});
+        for (const [j, need] of sourceNeeds.entries()) {
+            if (!view.find(need.focus))
+                graph.note(refusal('A retained source need must name a candidate or accepted entity', '/source_needs'), { path: `/source_needs/${j}/focus`, rule: 'source_need_focus', value: need.focus });
+            if ((packet.source_unit || packet.visual_asset) && ['source_read', 'uncertain'].includes(need.kind) && filled.ready_nodes.includes(view.find(need.focus)?.node_id))
+                graph.note(refusal('A partial source fragment cannot mark an unresolved entity ready', '/ready_nodes'), { path: `/source_needs/${j}/focus`, rule: 'source_need_ready', value: need.focus });
+            if (packet.purpose === 'detail' && need.kind === 'deferred' && string(packet.question).trim() === need.question.trim()
+                && view.find(string(packet.focus))?.node_id === view.find(need.focus)?.node_id)
+                graph.note(refusal('A detail reading cannot defer its own requested source question', '/source_needs'), { path: `/source_needs/${j}/question`, rule: 'source_need_own_question' });
+            sourceRefs(graph, need.source_refs, count, seen, `/source_needs/${j}/source_refs`);
         }
-        required.add('/source_needs');
     }
-    if (packet.opening_scope === 'first_interaction' || Object.hasOwn(draft, 'interaction_scene')) {
-        if (packet.purpose !== 'opening') reject('interaction_scene belongs only to an opening reading', '/interaction_scene');
-        checkOpeningBatch(filled, packet.focus, array(packet.known_nodes), true, array(packet.known_claims));
-        required.add('/interaction_scene');
+    const opening = packet.opening_scope === 'first_interaction' || Object.hasOwn(draft, 'interaction_scene');
+    if (opening) {
+        if (packet.purpose !== 'opening') graph.note(refusal('interaction_scene belongs only to an opening reading', '/interaction_scene'), { rule: 'interaction_scene' });
+        else graph.run(() => checkOpeningBatch(filled, packet.focus, array(packet.known_nodes), true, array(packet.known_claims)), { rule: 'opening_batch' });
     }
-    if(packet.source_unit&&seen&&array(packet.pages).some(page=>!seen.has(number(page))))reject('A source unit requires its assigned original pages','/coverage');
-    if (!skeleton && (filled.ready_nodes.length||packet.source_unit)) required.add('/coverage');
+    if (packet.source_unit && seen) {
+        const unviewed = array(packet.pages).filter(page => !seen.has(number(page)));
+        if (unviewed.length) graph.note(refusal('A source unit requires its assigned original pages', '/coverage'), { rule: 'source_unit_pages', value: unviewed });
+    }
+    // The pointers the review must reach exist in the draft; a critical entry is named by its own place in /critical.
+    const required = new Set<any>(), pointed = new Map<any, string>();
+    for (const [k, path] of (filled.critical as any[]).entries()) {
+        const root = moduleLogicReview(packet) ? moduleReviewRoot(path) : path;
+        if (!required.has(root)) { required.add(root); pointed.set(root, `/critical/${k}`); }
+    }
+    if (Object.hasOwn(draft, 'source_needs')) required.add('/source_needs');
+    if (opening) required.add('/interaction_scene');
+    if (!skeleton && (filled.ready_nodes.length || packet.source_unit)) required.add('/coverage');
     for (const path of required)
-        pointer(draft, path);
+        graph.run(() => pointer(draft, path), { path: pointed.get(path) ?? path, rule: 'review_pointer', value: path });
+    for (const [i, claim] of (filled.claims as Row[]).entries()) {
+        const known = knownClaims.get(i) ?? {};
+        if (!Object.keys(known).length) continue;
+        const fields = Object.fromEntries(entries(claim).filter(([key]) => Object.hasOwn(known, key) && !['claim_id', 'source_refs'].includes(key)));
+        graph.run(() => mergeValue(Object.fromEntries(Object.keys(fields).map(key => [key, known[key]])), fields, `/claims/${claim.claim_id}`,
+            judge(`/claims/${claim.claim_id}`, `/claims/${i}`, known, claim)), contradicted);
+    }
+    if (nodes.some(statesObligation))
+        graph.run(() => checkObligations(filled, packet, contract), {}, item => `obligation ${item.node}: ${item.path}: ${item.message}`);
+    graph.run(() => checkMechanics(filled, packet, contract), {}, item => `mechanics ${item.node}: ${item.path}: ${item.message}`);
+    graph.run(() => checkBeings(filled, packet, contract), {}, item => `${item.claim ? `claim ${item.claim}` : `node ${item.node}`}: ${item.path}: ${item.message}`);
+    if (options.openingBatch)
+        graph.run(() => checkOpeningBatch(row(draft), packet.focus, packet.known_nodes, packet.opening_scope === 'first_interaction', packet.known_claims), { rule: 'opening_batch' });
+    graph.settle();
+
+    // What the independent review must cover.
     for (const [i, node] of nodes.entries()) {
         if(!moduleLogicReview(packet))for (const path of numericPaths(Object.fromEntries(entries(node.properties).filter(([key]) => !['image_sources', 'map_candidates'].includes(key))), `/nodes/${i}/properties`))
             required.add(path);
@@ -350,56 +587,15 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         if (Object.hasOwn(row(node.properties), 'map_scope'))
             required.add(`/nodes/${i}/properties/map_scope`);
     }
-    for (const [i, claim] of (filled.claims as Row[]).entries()) {
-        if (!object(claim) || Object.keys(claim).some(key => !CLAIM_KEYS.includes(key)))
-            reject('invalid claim fields', `/claims/${i}`);
-        const target = row(claim.object).node_id;
-        if (!ids.has(claim.subject_id) || !ids.has(target) || !array(vocab.relation_kinds).includes(claim.predicate))
-            reject('a claim must connect defined nodes with a supplied predicate', `/claims/${i}`);
-        if (claim.predicate === 'impersonates' && claim.subject_id === target)
-            reject('an alias is not a second person; put it in aliases rather than a self-impersonation claim', `/claims/${i}`);
-        if (!equal(Object.keys(claim.object), ['node_id']))
-            reject('claim objects contain only node_id');
-        const matches = array(packet.known_claims).filter(old => Object.hasOwn(claim, 'claim_id') ? equal(old.claim_id, claim.claim_id) : ['subject_id', 'predicate', 'object'].every(key => equal(old[key] ?? null, claim[key] ?? null)));
-        const known = matches.length === 1 ? matches[0] : {};
-        if (!Object.hasOwn(claim, 'claim_id'))
-            claim.claim_id = known.claim_id || `claim-${claim.subject_id}-${claim.predicate}-${target}`;
-        if (!validSemanticId(claim.claim_id) || claimed.has(claim.claim_id))
-            reject('claim ids must be unique semantic identifiers');
-        claimed.add(claim.claim_id);
-        if (!array(vocab.truth_status).includes(claim.truth_status))
-            reject('claims must declare authored fact, belief, rumor, lie or inference using the vocabulary');
-        if (!Object.hasOwn(claim, 'visibility'))
-            claim.visibility = Object.hasOwn(known, 'visibility') ? known.visibility : 'keeper-only';
-        if (!array(vocab.visibility).includes(claim.visibility))
-            reject('invalid claim visibility');
-        claim.source_refs = references(claim.source_refs, count, seen);
-        for (const key of ['known_by_ids', 'asserted_by_ids']) {
-            if (!Object.hasOwn(claim, key))
-                claim[key] = clone(known[key] ?? []);
-            if (!Array.isArray(claim[key]) || claim[key].some((id: any) => !ids.has(id)))
-                reject(`${key} must name defined nodes`);
-        }
-        if (!Object.hasOwn(claim, 'validity'))
-            claim.validity = known.validity ?? null;
-        if (Object.keys(known).length) {
-            const fields = Object.fromEntries(entries(claim).filter(([key]) => Object.hasOwn(known, key) && !['claim_id', 'source_refs'].includes(key)));
-            mergeValue(Object.fromEntries(Object.keys(fields).map(key => [key, known[key]])), fields, `/claims/${claim.claim_id}`,
-                judge(`/claims/${claim.claim_id}`, `/claims/${i}`, known, claim));
-        }
+    for (const i of (filled.claims as Row[]).keys())
         required.add(`/claims/${i}`);
-    }
     // The field a later reading re-transcribed is named in the review, so the replacement is a reviewed one.
     for (const path of retranscribed)
         required.add(moduleLogicReview(packet)?moduleReviewRoot(path):path);
-    if (nodes.some(statesObligation)) {
-        checkObligations(filled, packet, contract);
-        if(!moduleLogicReview(packet))for (const [i, node] of nodes.entries())
+    if (nodes.some(statesObligation) && !moduleLogicReview(packet))
+        for (const [i, node] of nodes.entries())
             for (const path of obligationReviewPaths(node, `/nodes/${i}`))
                 required.add(path);
-    }
-    checkMechanics(filled, packet, contract);
-    checkBeings(filled, packet, contract);
     if(!moduleLogicReview(packet))for (const [i, node] of nodes.entries())
         for (const path of shapeReviewPaths(node, `/nodes/${i}`))
             required.add(path);
@@ -637,11 +833,12 @@ function refuseJev(rule: string, message: string, path: string): never {
     });
 }
 /**
- * §151.3's evidence amendment for one `reviewer: "jev"` row: one record's paths, `supported`, an eligible record, the
- * page-text digests and extraction version of the evidence file for exactly the record's cited pages, a distribution,
- * and no vision row that marked an overlapping path anything but supported. Returns the paths it reviewed.
+ * §151.3's evidence amendment for one `reviewer: "jev"` row: one record's paths, `supported`, an eligible record (§186.6:
+ * one carrying no classification field), the page-text digests and extraction version of the evidence file for exactly
+ * the record's cited pages, a distribution, and no vision row that marked an overlapping path anything but supported.
+ * Returns the paths it reviewed.
  */
-function checkJevRow(draft: Row, item: Row, count: number, claims: ClaimEvidence | undefined, negative: string[]): string[] {
+function checkJevRow(draft: Row, item: Row, count: number, claims: ClaimEvidence | undefined, negative: string[], classifies: (path: string) => boolean): string[] {
     const paths = Object.hasOwn(item, 'paths') ? item.paths : [item.path ?? null];
     const at = typeof array(paths)[0] === 'string' ? array(paths)[0] : '/';
     if (!Array.isArray(paths) || !paths.length || paths.some(path => typeof path !== 'string'))
@@ -655,7 +852,7 @@ function checkJevRow(draft: Row, item: Row, count: number, claims: ClaimEvidence
         refuseJev(JEV_REVIEW_RULES.ineligible, 'Jev only clears a record; it never refuses one', root);
     if (!claims)
         refuseJev(JEV_REVIEW_RULES.evidence, 'no native-text evidence of the bound source accompanies this review', root);
-    const why = claimSupportIneligibility(draft, root, page => (claims.pages.get(page)?.text.trim() ?? '') !== '');
+    const why = claimSupportIneligibility(draft, root, page => (claims.pages.get(page)?.text.trim() ?? '') !== '', classifies);
     if (why !== null)
         refuseJev(JEV_REVIEW_RULES.ineligible, `this record keeps the vision standard (${why})`, root);
     const cited = claimRecordPages(claimRecord(draft, root)!) as { pages: number[] };
@@ -692,7 +889,7 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
         const negative = review.checked.filter((item: any) => object(item) && item.reviewer !== JEV_REVIEWER && item.verdict !== 'supported')
             .flatMap((item: Row) => Object.hasOwn(item, 'paths') ? array(item.paths) : [item.path]).filter((path: any) => typeof path === 'string');
         for (const item of jev)
-            for (const path of checkJevRow(draft, item, count, claims, negative))
+            for (const path of checkJevRow(draft, item, count, claims, negative, classifies))
                 reviewed.add(path);
     }
     for (const item of review.checked) {

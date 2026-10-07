@@ -35330,3 +35330,277 @@ describe the recorded prompt, not the one sent (the `prompt` lane's `stale_promp
   detailed read of every page; a short book is built once and a long book reads the chapter in play and the next.*
 - Eviction on the provider's side is not ours. `thinking-schedule` is a no-op on grok-4.5 and grok-4.7, whose catalogs
   expose no `off`; on a model that does, it would cost a whole prompt per turn on an xAI endpoint (184's probes).
+
+## 186. Reading cost: the request prefix survives, the draft check says everything at once, coverage is reused, the claim check is redesigned (owner ruling 2026-10-06, 「按你的建议做」 on the measured plan; `docs/specs/reading-cost.md`; amends §147.3's image window, §151.2's review reuse, §151.3's claim check and the draft check of §22)
+
+Measured on the installed App home over 2026-10-02..10-06 (the spec has the numbers and their sources): reading is almost
+all vision-LLM tokens; Jev already locates. Of 46.5M author tokens that were resent and missed the provider cache,
+20.3M followed a submission that retired every delivered image and 10.6M followed the four-image window dropping an
+older image; review children start cold (median 2 calls, 10–17K uncached first call); 40 % of author calls are the fix
+loop after the first submission, mostly shape findings revealed one per submission; coverage review repeats after a
+repair. None of the changes below alters what counts as evidence: the same images are required, the same review units
+run, the same gates read the same verdicts.
+
+### 186.1 An image stays in the request until a hard budget overflows (amends §147.3)
+
+The reader context hook (`extensions/module/reader-context.ts`) projects each outgoing request. From this section on:
+
+- An image block, once included in a request that the provider answered, stays in every later request of that child.
+  The projection never rewrites an earlier message while the request is within budget.
+- The budget is the existing pair (count, bytes) of the hook. When admitting the next image would exceed either, the
+  hook evicts the oldest delivered images **in one batch** until the request holds at most half of each budget, and
+  records one `image_eviction` row (`{evicted, kept, bytes_before, bytes_after}`) in the child's image log. The next
+  eviction cannot happen before the window has refilled past the budget again. The placeholder text and the explicit
+  `pdf` reopen are unchanged.
+- A `submit_reading` no longer retires delivered images. (The retirement made the fix loop's first request recompute
+  everything after the first image while saving less than it cost: measured 22.7K uncached per event against the
+  retained images' cached cost over a median 4-call loop at the provider's cache discount.)
+- The count budget for authors and reviewers of `guidance/opening/detail/answer` is no longer `imageHistory: 4`; it is
+  the value chosen by RC-01 from the retained logs (replayed cost of each candidate budget, reported in the ticket), and
+  it is data (`content/rulesets/coc7/host-budgets.json` `reading_images`), not a code literal.
+- Unchanged: first delivery and a failed first-use retry stay intact; a receipt still requires successful delivery;
+  host-projected pages keep their stable identity.
+
+*Implementation (RC-01, 2026-10-06).* `boundImages(messages, delivered, byteBudget, countBudget, evicted)` keeps the
+existing delivery keys (tool call id; host page `host:<source>:<image digest>`; message index otherwise) and evicts by
+key, so the images of one tool result leave together, oldest key first, only keys a successful reply delivered. The
+overflow test runs on every request against the images the request holds, so an image admitted over budget as a first
+delivery becomes evictable once it is delivered; "half of each budget" is `floor(count/2)` and `floor(bytes/2)`. The
+hook keeps the evicted keys for the child's life (an evicted image never returns; a reopen is a new key) and writes
+`{"event":"image_eviction","evicted":[<keys>],"kept":<images held after>,"bytes_before":…,"bytes_after":…}` to
+`<event log>.images.jsonl`, which the `delivery`-row readers skip. The `submit_reading` retirement handler is removed.
+The budget is `reading_images.count` (12) in `host-budgets.json`, chosen by `tests/play/reading_image_replay.py` over
+the App home's 2026-10-02..10-06 logs (table and reasoning in `docs/specs/reading-cost-tickets.md`, RC-01 comment): the
+smallest candidate whose replay lowers reopens-after-eviction for every provider and role (4 and 8 raise grok
+reviewers' reopens by about 47 % and 10 %), within 0.6 points of the cheapest on grok authors and the cheapest on grok
+reviewers. `readingImageBudget(contentRoot)` reads it once per content root; the reading service passes it to the author
+request and to `reviewCandidate` for `guidance/opening/detail/answer`. There is no fallback number in code: unreadable
+data leaves the hook its general pair (24, 32 MB). A child launched without a budget no longer inherits a
+`PI_COC_READER_IMAGE_HISTORY` from the host's environment. Replay finding for the owner: on `flapcode/gpt-6-luna` the
+no-retirement rule replays +8.3 % author cost (+1.3 % uncached) at 12, because 17.7 % of flapcode author requests miss
+the provider cache by themselves and recompute every held image; every other provider gains (grok author -6.6 %,
+openai-codex luna -9.0 %, deepseek -43 %). The code follows this section; the number is recorded, not tuned.
+
+### 186.2 One cache identity per reading round; shared content first
+
+- Every Pi child the reading service starts for one job round — the author attempt and every review unit attempt of
+  that round — is started with `--no-session --session-id <cache id>`, where the cache id is a UUID derived
+  deterministically from `(module id, job id, round)`. Pi sends it as `prompt_cache_key`; the grok cache-routing hook
+  sends it as `x-grok-conv-id`. Children still run in memory; nothing is persisted under that id. Other lanes are
+  untouched.
+- A review unit's brief is ordered shared-first: the unit-independent review instructions, then the job-level context
+  identical for every unit of the round, then the unit's own assignment (`required_review`, the focused review input,
+  `failure.json` note). The instructions' words do not change; only their order.
+- Telemetry: every reading usage row carries `cache_id`; the reading accounting row gains
+  `first_call_uncached` per phase.
+
+*Implementation (RC-02, 2026-10-06).* `readingCacheId(module, job, round)` (`extensions/module/reader.ts`) is an
+RFC 4122 version-5 UUID (SHA-1 over a fixed namespace and `["reading-round", module, job, round]`): Pi's
+`assertValidSessionId` accepts it and it fits `prompt_cache_key` (64). `ReaderRequest.cacheId` puts
+`--session-id <id>` right after `--no-session`; a value that is not a UUID is refused before spawn. The reading
+service sets it on every author phase of the round (`index`, `index-audit`, `read`, a targeted pass) and passes it to
+`reviewCandidate`, which sets it on every unit attempt; the §152.4 identity reviewer and the cast reader are other lanes
+and stay untouched. Where it lands: Pi's `openai-responses` transport (flapcode, any Responses provider) sends
+`prompt_cache_key=<id>` with `session_id`/`x-client-request-id`; `openai-codex-responses` sends `prompt_cache_key` and
+`session-id`/`x-client-request-id`; the grok-build hook sends `x-grok-conv-id` from the session manager. Flapcode's own
+`session-id` relay header stays the provider instance's random UUID (unchanged; evidence in the RC-02 comment).
+The brief: the unit-independent sentences (review instructions, the purpose's submit sentence, the focused-input note)
+come first; then the input, ordered job-level first -- the focused projection's `task` ends with `required_review` and
+`review_scope_pages`, the whole input is `{draft, guidance?, public_fields?, task}` with the unit's keys last in
+`task`; then the unit's own sentences (coverage, map regions, map scope, the failure note); "Finish this unit and stop."
+stays last. The review cache identity is unchanged (it is computed over canonical, sorted keys). Telemetry: `cache_id`
+on the author `lane: reading` row, on `usage.jsonl` lines and on every verify unit row (passed or failed); a passed unit
+row also carries its own `first_call_uncached`. `job_accounting.first_call_uncached` is `{<phase>: {children,
+tokens}}`, a child's first call being its first assistant message whose usage reported tokens, counted by Pi's `input`
+(uncached) field; `ReaderOutcome.firstCallUncached` carries it from `runReader`.
+
+### 186.3 The draft check reports every independent finding (amends §22's check)
+
+`checkDraft` (`kernel-ts/modules/visual.ts`) runs in stages, and within a stage collects findings instead of throwing at
+the first:
+
+1. **Envelope:** the draft is an object; unknown top-level keys; `contract_id`; each array-typed key is an array;
+   `coverage` is an object of known domains to known statuses; job-kind envelope laws (a visual scan's coverage, a
+   map-scope draft's single field).
+2. **Records:** per node and per claim — identifiers, kinds, vocabulary fields, references to defined nodes, source
+   refs, predicates and endpoints, record-local laws.
+3. **Graph and evidence:** cross-record and scope laws (dependencies, readiness, source needs, published-value
+   contradictions, required views).
+
+A stage runs only when every earlier stage is clean. The error keeps today's `message`, `path` and `details.reason`
+from the first finding (callers that read one finding keep working) and adds `details.findings: [{path, rule, message,
+value?, allowed?}]` with every finding of that stage, bounded to 40 entries and 8 KB with a `truncated` count.
+`submit_reading` shows the author the whole list. Every vocabulary finding names the field's JSON pointer, the value
+written (clipped to 80 characters) and the allowed values from the task's vocabulary.
+
+Host-owned fields are filled, not refused:
+
+- A top-level key that is a byte-for-byte copy of a host task field (`task`, `focus`, `question`, `visual_asset`,
+  `visual_scan`, `pages`) is dropped before the check, and the drop is listed in the check receipt's `normalized`.
+- A visual scan's `coverage` is host-owned: the host writes `{}` and lists any author value it replaced in
+  `normalized`. No other field becomes host-owned under this section.
+
+No value is translated, mapped or guessed: a vocabulary value outside the list is still a finding, now with the list.
+
+*Implementation (RC-03, 2026-10-06).* `checkDraft` (`kernel-ts/modules/visual.ts`) runs three `Stage`s. A law notes
+the refusal it would have thrown -- today's code, message, fix and `details` (`reason`, `path`, and any `rule`,
+`refusals`, `requests`, `existing_pages`...) -- with the findings it names, and the stage goes on; `settle` throws the
+stage's first refusal unchanged plus `details.findings` (at most 40 entries and 8 KiB of the kernel's JSON, in check
+order) and `details.truncated` (present only when something was cut). Within a stage the first finding is the one the
+sequential check threw among that stage's laws; a draft dirty in two stages reports the earlier stage, so its first
+finding can differ from the old first refusal. The top-level `path` stays today's (often `/`); the finding's `path` is
+the field. `value` is a string clipped to 80 characters (77 and `...`), another value as itself while its JSON fits in
+80, else that JSON clipped. `allowed` comes from the graph contract lists that `vocabulary()` copies into the task, not
+from `packet.vocabulary`, which cannot widen the law.
+
+- *Envelope:* object; unknown keys (one finding, `value` the keys, `allowed` the shard keys); `contract_id`; the
+  map-scope job's draft law; `source_needs` admissibility and its array bound; the five array keys; a skeleton or
+  guidance job's non-empty `nodes` (moved here: a job-kind law on the envelope, and the oracle's empty-skeleton case
+  keeps its first finding); coverage (one finding per key outside the domains or with a status outside the statuses);
+  the visual scan's range, candidates and bounds; a visual asset job's coverage.
+- *Records:* per node -- fields, `node_kind` (vocabulary) and `node_id` as separate findings of today's identity law,
+  name, properties and aliases, alias names, map candidates, `asset_ref`, `image_sources`, the actor-number laws,
+  visibility, the obligation and mechanics source laws, then `source_refs` one reference at a time; map regions per
+  region; map scope per node; `node_refs` and `ready_nodes` references; per claim -- fields, subject, object and
+  predicate as separate findings of today's connection law, self-impersonation, object keys, claim id, `truth_status`,
+  visibility, source refs, holders.
+- *Graph and evidence:* source-need entries; pending needs (still `rule: source_needs_pending` with `requests`);
+  dependencies; skeleton and declared readiness; ready nodes present; the visual asset job's page, kind, place,
+  readiness and crop laws; published-value contradictions (node merges, then claim merges, which moved out of the claim
+  loop); the source-need graph laws; the opening interaction law; source-unit pages; the pointers the review must reach
+  (a critical entry is named by `/critical/<k>`); obligations, mechanics and beings (each refusal of their lists one
+  finding); and the host's first-batch law, which `checkSourceDraft` now passes as `{openingBatch}` so its finding joins
+  this stage instead of running after the check.
+- *Not split further:* `checkOpeningBatch`, `checkMapScopeDraft` and `actorNumbersLaw` stay one finding each (sequential
+  inside); `mergeValue` reports the first contradicting field per record; the mechanics, obligation and being
+  validators stay in the third stage though their shapes are record-local, because they run over the overlay graph,
+  which needs records that passed the second; `dependencies` keeps its one law (a non-array is reported as unresolved,
+  as before, not as an envelope array finding).
+- *Host normalization* (`extensions/module/reader-normalize.ts`, run by `submit_reading` before `coc-read-check`, the
+  draft rewritten): `focus`, `question`, `visual_asset`, `visual_scan` and `pages` are dropped when their JSON text equals
+  the task's field; `task` when it is a non-empty object each of whose fields has the JSON text of the task's field of
+  that name (every retained `task` key held `{focus, question}` copied byte for byte, never the whole task). "A visual
+  scan" reads as the kernel's own refusal reads it: "A visual scan records navigation coverage separately" is the
+  `visual_asset` job's law (416 of 416 retained refusals with that message came from visual asset tasks), and a
+  `visual_scan` job refuses any coverage too, so coverage is host-owned for both job kinds and for no other. The check
+  receipt is `submit_reading`'s result: `details.normalized: [{path, action, value?}]` (`task_field_copy`, `host_owned`
+  with the replaced value, and the two older rewrites `critical_reference` and `zero_damage_bonus`), also on the
+  retained-source-needs result; the refusal text names what was dropped or replaced.
+- *What the author sees:* the check's refusal JSON without the list, then one line per finding (`<n>. <path> (<rule>):
+  <message> Written: <value>. Allowed: <...>.`), the truncated count, the normalization note; the retained-source-needs
+  result lists the stage's other findings.
+- *Tests:* `tests/extension/draft-check-findings.test.mjs` (`module.read.finish` on the emitted kernel, the
+  `coc-read-check` binary, `submit_reading`). The byte-for-byte oracle and parent-commit comparisons
+  (`ts-kernel-modules`, `mechanics-reader`, `obligation-reader`) drop `details.findings` and `details.truncated` from
+  the live side only (`withoutDraftFindings` in `tests/extension/oracle-fixture.mjs`); the captured bytes are untouched.
+
+*Lead addendum (2026-10-06, after RC-03's evidence).* 280 retained drafts wrote `coverage` as an array (`[{domain, status}]`), and `content/setup/visual-reader.md` described it only as "statuses from the supplied vocabulary". The Read-phase line now states the shape (an object from prepared domain to one status, `{}` when none, never an array, never pages). No value is converted by the host: an array is still a finding.
+
+### 186.4 Coverage review is reused after a records-only targeted repair (amends §151.2)
+
+A coverage unit's verdict from round *r* is carried to round *r+1* without running a reviewer when all hold:
+
+- round *r+1*'s candidate is a §151.2 targeted repair and `checkTargetedRepair` accepted it;
+- the round-*r* coverage verdict listed no blocking `missing`;
+- the repair added no record and deleted no record: every changed path lies under a record a fact unit refused in
+  round *r*, and the set of record roots (`/nodes/<i>`, `/claims/<i>` by identity, not index) is equal;
+- `ready_nodes`, `interaction_scene`, `source_needs` and the review scope pages are unchanged.
+
+The carried row keeps its reviewer, verdicts and source refs and gains `carried_from: {round, plan_digest}`; the gate
+accepts it like a carried fact unit. Any other repair runs the coverage unit as today.
+
+*Implementation (RC-04, 2026-10-06).* `review-plan.json` (still `version: 1`) gains `round` and, per unit, `checked` and
+`missing` (how many rows and missing items the unit put into `review.json`, units in order, so a unit's verdict is a
+slice of the review the plan binds), `pages` (what its reviewer viewed) and, for the coverage unit, `scope`:
+`coverageScope` (`extensions/module/reader-review.ts`), a digest of the protocol and instruction version, the source, the
+model, the focused input's task fields without round bookkeeping or owed pointers, its `coverage_context` (`coverage`,
+`ready_nodes`, `dependencies`, `node_refs`, `source_needs`, the retained source needs, `interaction_scene`) and the review
+scope pages. A plan without these fields never carries. The reading service offers the repaired review
+(`reviewOfCandidate`, which now also returns the plan file's sha256) to the round's verify only after
+`checkTargetedRepair` accepted the targeted pass; a refused pass and every full repair offer nothing. `coverageCarry`
+then requires, in order: the plan binds the previous candidate; the coverage slice lists no blocking `missing`; the
+slice passes the gate whole (`approved`, the predicate a retained fact unit meets) -- stricter than the second bullet,
+because the carried rows keep only the unit's own pointers and a dropped row must never be a refusal (§151.2.1), so a
+coverage reviewer that also refused a record blocks the carry; per collection the records' identities (a node's
+`node_id`; a claim's `claim_id`, else its subject, predicate and object) are the same set; every record whose content
+changed pairs by identity with a record a fact unit's rows refused under the gate's rule (`gateRefusal`, now shared
+with `repairDecision`); every non-record field is byte-identical (so a renumbered `critical` also runs the unit); the
+owed pointers and `coverageScope` are unchanged. The carried review is then checked against this round's unit with
+`checkReviewEvidence` and the carried reviewer's pages, as `cachedReview` checks a retained fact review, and those pages
+join `observations.review_pages`. `carried_from` is `{round: <the plan's round>, plan_digest: <sha256 of its bytes>}`; a
+resumed attempt may carry from `resume_from`'s plan, as §151.2.2 looks it up. The verify row is `reused: true` with
+`carried_from` (counted in `units_reused`); an offer that fails writes `event: "coverage_carry_refused"` with `reason:
+plan | missing | verdict | records | changed | scope | evidence`. The kernel gate is unchanged: `checkReview` never
+distinguished reused rows, and a carried row passes exactly as a reused fact unit's does (rows in the review, reviewer
+pages in `review_pages`; `carried_from` is a row key it does not read); `tests/extension/coverage-carry-gate.test.mjs`
+publishes one through `module.read.finish`. Measured on the App home (2026-10-02..10-06 UTC, unit directories; plans
+rebuilt from them): 245 coverage runs repeated an earlier one of the same job (6.83M of 27.8M coverage uncached); 157
+followed a full repair, 63 an accepted targeted repair; of those 63, 28 qualify (821K uncached), 16 added or deleted a
+record, 19 had a coverage verdict that itself refused a record (17 of which also fail the third bullet).
+
+### 186.5 Closed labels stay with the author (supersedes the 2026-10-06 suggestion to label with Jev)
+
+The authors' vocabulary rejections were caused by findings that did not name the allowed values (§186.3 fixes that).
+No Jev labeling step is added. If, after §186.3 ships, vocabulary findings still start more than 3 % of fix loops on
+the acceptance home, the question returns to the owner with those numbers.
+
+### 186.6 The claim check redesign and its pre-registered calibration (amends §151.3; the §151.3.1 bar is unchanged)
+
+Fixed before any run of the redesign (2026-10-06):
+
+- **Eligibility, additionally:** a record carrying any path that matches the task's `classification_fields` is
+  ineligible (its contest mark needs a vision reviewer).
+- **Statements:** a claim renders subject and object with their `aliases`; a node is asked one `supported` and one
+  `contradicted` Noul per field statement — identity (kind, name, aliases), each sentence of `summary` (sentence
+  segmentation only), and each property leaf as `key path: value`. A node clears only if every field statement clears
+  (the weakest judgment decides); a claim clears as today. The page text, clipping, batching and outage rules of
+  §151.3 are unchanged.
+- **Splits:** *tuning* = the 2026-09-29 calibration corpus plus the App home's records whose verify round ran before
+  2026-10-04T00:00Z; *held-out* = the App home's records from 2026-10-04T00:00Z on (8,702 vision-supported, 66 strict
+  negatives, 25 contested-only as of 2026-10-06). (S, C) are chosen on tuning only, as the point with zero cleared
+  strict negatives that clears the most supported records; held-out is read once.
+- **Labels:** the vision verdicts, as in §151.3's pairing. Every held-out strict negative (`unsupported`,
+  `contradicted`, `unclear`) is judged by two independent judges who see the cited original page images and the native
+  text, not the Jev scores and not the vision verdict, and answer only "do these pages state this record". A negative
+  becomes `supported` only when both judges say the pages state it. 60 held-out records that the redesign clears and
+  vision supported are judged the same way; their result is reported, not part of the bar.
+- **Bar:** §151.3.1 on held-out — cleared strict negatives ≤ 1 and ≤ 1 % of strict negatives, cleared share of
+  supported ≥ 50 %. Pass: the data default becomes `on`, recorded with the numbers. Fail: the default stays `shadow`
+  with the redesign's questions, and the failure is recorded in the spec. No second attempt on the same held-out.
+
+*Implementation (RC-06, 2026-10-06).* Family `source-claim-support` moves to version 2 (`runtime/jev/source-claim-support.ts`).
+- *Eligibility.* `claimSupportIneligibility(draft, root, hasText, classifies)` (`kernel-ts/modules/claim-support.ts`, still
+  import-free) walks every JSON pointer the record carries and refuses the record (`classification_field`) when any
+  matches; both ends build `classifies` with `review-verdicts.ts` `classificationMatcher`. The host reads the task's
+  `vocabulary.classification_fields.node`, and the shipped `module-graph-contract-v3.json` declaration when the task has
+  none (production tasks always carry it; this keeps the host from clearing what the gate refuses); the gate passes the
+  `classificationFields(contract)` it already reads, so a Jev row on such a record is `review_jev_ineligible`.
+- *Statements.* A claim: the v1 statement with `aliases` on every named node (subject, object, asserting and knowing
+  nodes). A node: `identity` `{kind, name, aliases}`; `summary[i]` per sentence (`Intl.Segmenter('und', {granularity:
+  'sentence'})`, trimmed, empty pieces dropped; no abbreviation list, so "Mr. Smith" splits); `properties.<key path>`
+  per leaf with `states: "<key path>: <value>"` (dotted keys, `[i]` for list positions), each about `{name, aliases}`.
+  A leaf that states nothing (null, empty string, empty list or object) has no statement. A string leaf equal to the
+  id of a node of the draft or `known_nodes` is rendered as that node's name with its aliases, as a claim's subject is.
+  `record_max_bytes` still bounds the record's whole rendering (the v1 node rendering; the claim statement with aliases).
+- *Questions.* Claims keep the v1 pair. The identity pair asks whether the pages present something by that name (or an
+  alias) of the sort the kind names, the kind word not required; the field pair asks whether the pages state `states`
+  about `about`, a `label: value` label not required. Where a statement's names carry aliases, the supported question
+  adds that any one name suffices: on tuning, claims rendered with aliases under the unchanged v1 wording lost 0.11 of
+  `supported` against v1 on the same records ("every name must be stated" read as every alias).
+- *Batching and gate.* Every statement is one item; items of one record stay contiguous and split only at the packing
+  limit or page cap; a record with a statement that cannot be packed alone is `packing_limit` whole. A record clears
+  only when every statement clears; its `distribution` (evidence file, Jev row) is the weakest pair (lowest
+  `supported`, highest `contradicted`), and the evidence record gains `fields: [{field, statement, distribution}]`.
+  The evidence protocol stays `source-claim-support-v1`: the part the gate reads is unchanged.
+- *Calibration tools.* `tests/play/jev-claim-splits.mjs` freezes the splits; `tests/play/jev-claim-replay.mjs` replays a
+  split through `claimCandidates`/`runClaimSupport` and the real adapter, refuses the held-out split without
+  `--heldout-once`, and refuses an output directory that already holds a replay. Scoring: unique records; a unique strict
+  negative counts as cleared if any instance clears, a unique supported record only if every instance does; records the
+  redesign makes ineligible stay in the population as not cleared.
+
+*Outcome (RC-06, 2026-10-06): the bar failed.* Held-out read once at the tuning point S 0.93 / C 0.2. With the
+adjudicated labels (15 of 61 strict negatives relabeled supported by two blind judges), cleared supported is 20 / 6,230
+(0.32 %) and cleared strict negatives 0 / 46. The data default stays `shadow` with these questions;
+`source_claim_support` S/C in `host-budgets.json` are set to 0.93 / 0.2, so the shadow rows on new books measure the
+pre-registered point (as 2026-09-29 did with v1's). No second attempt on this held-out
+(`docs/specs/reading-cost-tickets.md`, RC-06).

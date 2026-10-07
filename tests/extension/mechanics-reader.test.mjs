@@ -11,6 +11,7 @@
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
+import {withoutDraftFindings} from './oracle-fixture.mjs';
 import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -298,10 +299,10 @@ test('a draft that states no shape returns what the parent commit returned, byte
             const dir = await mkdtemp(join(bundleDir, 'golden-'));
             await writeFile(join(dir, 'task.json'), JSON.stringify(item.packet));
             await writeFile(join(dir, 'draft.json'), JSON.stringify(item.draft));
-            result = api.pythonJsonDumps(await api.checkSourceDraft(content, join(dir, 'task.json'), join(dir, 'draft.json')));
+            result = api.pythonJsonDumps(withoutDraftFindings(await api.checkSourceDraft(content, join(dir, 'task.json'), join(dir, 'draft.json'))));
         } else {
             try { result = api.pythonJsonDumps({value: api.checkDraft(parsed(item.draft), structuredClone(item.packet), contract, item.seen ? new Set(item.seen) : undefined)}); }
-            catch (error) { if (!error.toJson) throw error; result = api.pythonJsonDumps({error: error.toJson()}); }
+            catch (error) { if (!error.toJson) throw error; result = api.pythonJsonDumps(withoutDraftFindings({error: error.toJson()})); }
         }
         assert.equal(result, item.result, item.name);
     }

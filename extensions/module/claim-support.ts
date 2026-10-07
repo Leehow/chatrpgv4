@@ -1,5 +1,7 @@
 /**
- * Contract §151.3 (ticket 03 of docs/specs/jev-decides-llm-writes.md): the reading service's Jev claim-support check.
+ * Contract §151.3 (ticket 03 of docs/specs/jev-decides-llm-writes.md): the reading service's Jev claim-support check,
+ * with §186.6's statements (a node is asked field by field, a claim names its nodes with their aliases) and eligibility
+ * (a record carrying a classification field keeps the vision reviewer).
  *
  * Asked once per verify round, before the vision reviewers run: which records of the candidate the cited pages' native
  * text states (`runtime/jev/source-claim-support.ts`). This file is the glue: the mode (env over data), the native text
@@ -19,7 +21,7 @@ import {createDecisionAdapter, JEV_INPUT_USD_PER_MILLION} from '../../runtime/je
 import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
 import {packDecisionBatch} from '../../runtime/jev/question-packing.ts';
-import {CLAIM_SUPPORT_FAMILY, citedPages, claimBatches, claimCandidates, claimSupportBindings, claimSupportMode, clipBytes, factRecords,
+import {CLAIM_SUPPORT_FAMILY, citedPages, claimBatches, claimCandidates, claimClassifier, claimSupportBindings, claimSupportMode, clipBytes, factRecords,
   readClaimSupportBudget, runClaimSupport, type ClaimSupportBudget, type ClaimSupportInput, type ClaimVerdict, type NativePage} from '../../runtime/jev/source-claim-support.ts';
 import {CLAIM_SUPPORT_FILE, CLAIM_SUPPORT_PROTOCOL, JEV_REVIEWER, pathsOverlap} from '../../kernel-ts/modules/claim-support.ts';
 import {readJevApiKey} from '../jev/agent/config.js';
@@ -40,7 +42,10 @@ export interface ClaimSupportRequest {
   job: string;
   campaign?: string;
   source: {file_sha256: string};
-  /** The task the reviewers read (`known_nodes` name a claim's nodes that the draft does not carry). */
+  /**
+   * The task the reviewers read (`known_nodes` name a claim's nodes that the draft does not carry;
+   * `vocabulary.classification_fields` declares the classification fields, §186.6).
+   */
   task: Row;
   draft: Row;
   /** The review units as `reviewCandidate` formed them. */
@@ -62,6 +67,12 @@ export interface ClaimSupportCheck {
 const CLAIM_RETRY = {maxRetries: 1, backoffInitialMs: 200, backoffMaxMs: 1_000, retryNetwork: true, retryTimeout: false};
 const sha = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
 const round3 = (value: number): number => Math.round(value * 1000) / 1000;
+
+/** The shipped graph contract's classification-field patterns: what the publication gate reads (§22.3.2), or undefined. */
+async function declaredClassification(contentRoot: string): Promise<unknown> {
+  try { return JSON.parse(await readFile(join(contentRoot, 'modules', 'module-graph-contract-v3.json'), 'utf8'))?.classification_fields?.node; }
+  catch { return undefined; }
+}
 
 async function nativePages(request: ClaimSupportRequest, pages: number[]): Promise<{version: string; pages: Map<number, NativePage>}> {
   const native = new Map<number, NativePage>();
@@ -94,7 +105,7 @@ function visionWords(review: Row, paths: string[]): string[] {
  * native text unavailable, or an error of the step itself). `decision` is for tests; production builds its own adapter.
  */
 export function createClaimSupport(deps: {env: NodeJS.ProcessEnv; contentRoot: string; decision?: DecisionPort}): (request: ClaimSupportRequest) => Promise<ClaimSupportCheck | undefined> {
-  let budgetRead: Promise<ClaimSupportBudget | undefined> | undefined;
+  let budgetRead: Promise<ClaimSupportBudget | undefined> | undefined, declaredRead: Promise<unknown> | undefined;
   return async request => {
     const began = Date.now();
     const budget = await (budgetRead ??= readClaimSupportBudget(deps.contentRoot));
@@ -109,8 +120,10 @@ export function createClaimSupport(deps: {env: NodeJS.ProcessEnv; contentRoot: s
       let native: {version: string; pages: Map<number, NativePage>};
       try { native = await nativePages(request, pages); }
       catch { return skipped('native_text_unavailable', {records: records.size}); }
+      // §186.6: the task's declared classification fields; the shipped contract's (the gate's) when the task has none.
+      const classifies = claimClassifier(request.task, await (declaredRead ??= declaredClassification(deps.contentRoot)));
       const {candidates, ineligible} = claimCandidates(request.draft, request.units, request.task,
-        page => (native.pages.get(page)?.text.trim() ?? '') !== '', budget.recordMaxBytes);
+        page => (native.pages.get(page)?.text.trim() ?? '') !== '', budget.recordMaxBytes, classifies);
       if (!candidates.length) return skipped('nothing_eligible', {records: records.size, ineligible});
       const input: ClaimSupportInput = {module: request.module, ...(request.campaign ? {campaign: request.campaign} : {}), job: request.job,
         sourceSha256: request.source.file_sha256, extractionVersion: native.version, candidates, pages: native.pages, budget};
@@ -136,10 +149,17 @@ export function createClaimSupport(deps: {env: NodeJS.ProcessEnv; contentRoot: s
           return {page, text: text.text, text_sha256: text.text_sha256,
             ...(clipBytes(text.text, budget.pageTextMaxBytes).clipped ? {clipped_bytes: budget.pageTextMaxBytes} : {})};
         }),
+        // `distribution` is the record's weakest judgment; `fields` keeps every statement Jev read and its own pair.
         records: result.verdicts.map(verdict => ({root: verdict.root, paths: verdict.paths, pages: verdict.pages, statement: verdict.statement,
           status: verdict.status, cleared: verdict.cleared,
           ...(verdict.supported !== undefined || verdict.contradicted !== undefined
             ? {distribution: {...(verdict.supported !== undefined ? {supported: verdict.supported} : {}), ...(verdict.contradicted !== undefined ? {contradicted: verdict.contradicted} : {})}} : {}),
+          fields: verdict.fields.map((field, index) => {
+            const answer = verdict.answers[index];
+            return {field: field.field, statement: field.statement,
+              ...(answer?.supported !== undefined || answer?.contradicted !== undefined
+                ? {distribution: {...(answer.supported !== undefined ? {supported: answer.supported} : {}), ...(answer.contradicted !== undefined ? {contradicted: answer.contradicted} : {})}} : {})};
+          }),
           ...(verdict.reason ? {reason: verdict.reason} : {})}))};
       const roundDir = join(request.cwd, `verify-${request.round}`);
       const write = async (value: Row) => {

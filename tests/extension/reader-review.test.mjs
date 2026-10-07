@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {reviewCandidate,reviewUnits,checkReviewEvidence,detailReviewInput,readReviewPlan,REVIEW_PLAN_FILE} from '../../extensions/module/reader-review.ts';
 import {createRuntime} from '../../runtime/host.ts';
+import {reviewOfCandidate} from '../../extensions/module/targeted-repair.ts';
 
 test('opening review retains kernel-issued retranscription pointers and reviews the interaction choice once',()=>{
  const draft={nodes:[{node_id:'scene-entry',source_refs:[{page:1}],properties:{}}],claims:[],ready_nodes:['scene-entry'],
@@ -166,7 +167,8 @@ test('guidance review inspects a host-assigned alternate entrance outside the au
 test('an oversized focused input names its own readable file instead of forcing full-task ingestion',async t=>{
  const cwd=await mkdtemp(join(tmpdir(),'coc-focused-review-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
  await reviewCandidate({cwd,task:{purpose:'detail',focus:'Road',question:'What is visible?',vocabulary:{noise:'not-needed'}},draft:{nodes:[{node_id:'scene-road',summary:'x'.repeat(30000),source_refs:[{page:1}],properties:{}}],claims:[]},instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,record(){},progress(){},async run(request){
-  assert.match(request.brief,/^Read review-input.json/);assert.equal(request.submission,true);
+  // §186.2: the unit-independent instructions lead; the pointer to the oversized input follows them.
+  assert.match(request.brief,/^Independently review only task\.required_review[^]*Read review-input\.json for the complete focused assignment\./);assert.equal(request.submission,true);
   const focused=JSON.parse(await readFile(join(request.cwd,'review-input.json'),'utf8'));
   assert.equal(focused.review_records['/nodes/0'].summary.length,30000);
   assert.equal(JSON.parse(await readFile(join(request.cwd,'draft.json'),'utf8')).nodes[0].summary.length,30000);
@@ -176,6 +178,86 @@ test('an oversized focused input names its own readable file instead of forcing 
   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:task.required_review,verdict:'supported',source_refs:[{page:1}]}],missing:[]}));
   return{ok:true,ms:1,stderr:''};
  }});
+});
+
+/**
+ * §186.2: every unit attempt of one round carries the round's cache identity and the data image budget, and its brief is
+ * shared-first: the unit-independent instructions, then the input whose job-level part precedes the unit's own pointers,
+ * then the unit's own notes. Two units' briefs are one prefix up to their own `required_review`.
+ */
+test('§186.2: the units of one round share a cache identity and a shared-first brief in the same words',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-review-shared-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const cacheId='0b6f3c2e-8a1d-5f4e-9c7b-2d3e4f5a6b7c',requests=[],rows=[];let first=true;
+ const draft={nodes:[{node_id:'scene-room',name:'Room',source_refs:[{page:1}],properties:{}},{node_id:'npc-guard',name:'Guard',source_refs:[{page:2}],properties:{}}],
+  claims:[],ready_nodes:['scene-room'],coverage:{},dependencies:[],node_refs:[]};
+ await reviewCandidate({cwd,cacheId,imageHistory:12,task:{purpose:'detail',focus:'Room',question:'Who guards it?',review_policy:'module-logic-v1',
+   required_review:['/nodes/0','/nodes/1'],review_scope_pages:[1,2],vocabulary:{classification_fields:['/nodes/*/visibility']}},draft,
+  instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,progress(){},record(row){rows.push(row);},
+  async run(request){
+   requests.push(request);
+   const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));
+   const pages=task.required_review.includes('/coverage')?[1,2]:task.required_review.includes('/nodes/0')?[1]:[2];
+   request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:pages.map(page=>({page}))}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+   // The first attempt of the first unit omits its pointer, so its retry carries the failure note.
+   const paths=first?[]:task.required_review;first=false;
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:paths.length?[{paths,verdict:'supported',source_refs:pages.map(page=>({page})),reason:'Fixture.'}]:[],missing:[]}));
+   return {ok:true,ms:1,stderr:'',firstCallUncached:900};
+  }});
+ assert.ok(requests.length>=3);
+ for(const request of requests){
+  assert.equal(request.cacheId,cacheId,'every unit attempt of the round carries the round cache identity');
+  assert.equal(request.imageHistory,12);
+ }
+ for(const row of rows.filter(row=>row.phase==='verify'))assert.equal(row.cache_id,cacheId);
+ assert.deepEqual(rows.filter(row=>row.phase==='verify'&&row.ok).map(row=>row.first_call_uncached),rows.filter(row=>row.phase==='verify'&&row.ok).map(()=>900));
+ const briefs=requests.map(request=>request.brief);
+ for(const brief of briefs){
+  assert.match(brief,/^Independently review only task\.required_review against original images using pdf\./,'unit-independent instructions first');
+  const input=brief.indexOf('<input_json>'),pointers=brief.indexOf('"required_review"');
+  for(const sentence of ['Never edit the draft.','Pass the review directly to submit_reading as your sole final tool call; no separate write or final prose is needed.',
+   'review_records is keyed by ORIGINAL draft pointers, not a replacement graph.'])
+   assert.ok(brief.indexOf(sentence)>=0&&brief.indexOf(sentence)<input,sentence);
+  // The job-level fields of the focused input come before the unit's own pointers.
+  for(const shared of ['"purpose":"detail"','"focus":"Room"','"question":"Who guards it?"','"classification_fields"'])
+   assert.ok(brief.indexOf(shared)>input&&brief.indexOf(shared)<pointers,shared);
+  assert.ok(brief.endsWith('Finish this unit and stop.'));
+ }
+ const firstOf=pointer=>briefs.find(brief=>!brief.includes('Your previous attempt')&&brief.includes(`"required_review":["${pointer}`));
+ const [a,b]=[firstOf('/nodes/0'),firstOf('/coverage')];
+ assert.ok(a&&b);
+ let common=0;while(common<Math.min(a.length,b.length)&&a[common]===b[common])common++;
+ assert.ok(common>a.indexOf('"classification_fields"'),'two units share everything up to their own assignment');
+ assert.ok(common<=a.indexOf('"required_review"')+'"required_review":["/'.length,'and diverge at it');
+ const retry=briefs.find(brief=>brief.includes('Your previous attempt at this same unit was rejected'));
+ assert.ok(retry.indexOf('Your previous attempt at this same unit was rejected')>retry.indexOf('</input_json>'),'the failure note is the unit\'s own, after its input');
+});
+
+test('§186.2: a whole-input review (no focused projection) puts the shared draft and task fields before the unit pointers',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-review-shared-input-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const briefs=[];
+ const draft={nodes:[{node_id:'scene-dock',name:'Dock',source_refs:[{page:1}],properties:{}},{node_id:'npc-pilot',name:'Pilot',source_refs:[{page:2}],properties:{}}],claims:[],critical:[]};
+ await reviewCandidate({cwd,task:{purpose:'skeleton',focus:'',question:'',required_review:['/nodes/0','/nodes/1'],source:{page_count:4}},draft,
+  instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,progress(){},record(){},
+  async run(request){
+   briefs.push(request.brief);
+   const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));
+   const pages=task.required_review.includes('/nodes/0')?[1]:[2];
+   request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:pages.map(page=>({page}))}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:task.required_review,verdict:'supported',source_refs:pages.map(page=>({page})),reason:'Fixture.'}],missing:[]}));
+   return {ok:true,ms:1,stderr:''};
+  }});
+ assert.equal(briefs.length,2);
+ for(const brief of briefs){
+  assert.match(brief,/^Independently review only task\.required_review[^]*Write review\.json\. The following JSON contains your supplied input/);
+  const input=JSON.parse(brief.slice(brief.indexOf('<input_json>\n')+13,brief.indexOf('\n</input_json>')));
+  assert.deepEqual(Object.keys(input),['draft','task'],'the job-level draft first');
+  assert.equal(Object.keys(input.task).at(-1),'required_review','the unit pointers last');
+ }
+ let common=0;while(briefs[0][common]===briefs[1][common])common++;
+ assert.ok(common>briefs[0].indexOf('"purpose":"skeleton"'),'the draft and the shared task fields are one prefix');
+ assert.ok(common<=briefs[0].indexOf('"required_review"')+'"required_review":["/nodes/'.length);
 });
 
 test('omitted fields retry only their unit and retained complete units survive a resumed batch',async t=>{
@@ -557,4 +639,112 @@ test('§151.2.1 an added connected record re-runs the units it connects to, and 
  const claims=[...draft.claims,claim('npc-sailor','npc-keeper',5,'knows')];
  assert.deepEqual(await again({...draft,claims}),['/claims/1','/claims/2','/coverage','/nodes/1','/nodes/2,/claims/0'],
   'the new claim, and every unit holding the sailor or the keeper; the dock is not connected to it and is reused');
+});
+
+/**
+ * §186.4 at the review entry. Round 1 is a real review whose fact unit refuses the sailor (page 2); round 2 is handed
+ * that review bound to its candidate by `reviewOfCandidate`, as the reading service hands it once `checkTargetedRepair`
+ * accepted a repair. Round 2's reviewers support everything, so only what runs differs. A fact reviewer views its
+ * records' pages; the coverage reviewer views the scope, which holds page 4 that no record cites.
+ */
+function carryReviewer(ran,{refuse=()=>false,missing=()=>[],volunteer=false}={}){
+ return async request=>{
+  const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));ran.push(task.required_review);
+  const draft=JSON.parse(await readFile(join(request.cwd,'draft.json'),'utf8')),coverage=task.required_review.includes('/coverage');
+  const seen=coverage?task.review_scope_pages:[...new Set(task.required_review.flatMap(path=>{const [,collection,index]=path.split('/');
+   return (draft[collection]?.[Number(index)]?.source_refs??[]).map(ref=>ref.page);}))];
+  request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:seen.map(page=>({page}))}}});
+  await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+  await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[
+   ...task.required_review.map(path=>({paths:[path],verdict:refuse(path)?'unsupported':'supported',source_refs:seen.map(page=>({page})),reason:`fixture ${path}`})),
+   ...(coverage&&volunteer?[{paths:['/nodes/0'],verdict:'supported',source_refs:[{page:1}],reason:'volunteered'}]:[])],missing:coverage?missing():[]}));
+  return {ok:true,ms:1,stderr:''};
+ };
+}
+const carryNode=(node_id,page)=>({node_id,node_kind:node_id.split('-')[0],name:node_id,source_refs:[{page}],properties:{}});
+async function carryFixture(t,reviewer={}){
+ const cwd=await mkdtemp(join(tmpdir(),'coc-coverage-carry-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const ran=[],rows=[];
+ const draft={nodes:[carryNode('scene-dock',1),carryNode('npc-sailor',2),carryNode('npc-keeper',3)],
+  claims:[{subject_id:'npc-keeper',predicate:'present-in',object:{node_id:'scene-dock'},source_refs:[{page:3}]}],ready_nodes:['scene-dock'],coverage:{},critical:[]};
+ const task={purpose:'detail',focus:'Dock',question:'',review_scope_pages:[1,2,3,4]};
+ const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',extractionVersion:'native-v1',task,draft,instructions:'unused',round:1,
+  model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(row){rows.push(row)},
+  run:carryReviewer(ran,{refuse:path=>path==='/nodes/1',...reviewer})};
+ await reviewCandidate(options);
+ const source=await reviewOfCandidate([cwd],draft);
+ assert.ok(source,'round 1 left a review bound to its candidate');
+ const corrected={...draft,nodes:[draft.nodes[0],{...draft.nodes[1],summary:'As page 2 prints him.'},draft.nodes[2]]};
+ const again=async(changed,extra={},carry={...source,draft})=>{
+  ran.length=0;rows.length=0;
+  const observed=await reviewCandidate({...options,round:2,draft:changed,previousPlan:source.plan,coverageCarry:carry,run:carryReviewer(ran),...extra});
+  return {ran:ran.map(paths=>paths.join(',')).sort(),observed:observed.sort((a,b)=>a-b),refused:rows.filter(row=>row.event==='coverage_carry_refused').map(row=>row.reason),
+   carried:rows.find(row=>row.carried_from),review:JSON.parse(await readFile(join(cwd,'review.json'),'utf8'))};
+ };
+ return {draft,corrected,source,task,again};
+}
+test('§186.4 a records-only repair carries the coverage verdict with its origin; only the corrected record is reviewed',async t=>{
+ const {corrected,source,again}=await carryFixture(t);
+ const round=await again(corrected);
+ assert.deepEqual(round.ran,['/nodes/1']);
+ assert.deepEqual(round.refused,[]);
+ assert.deepEqual(round.carried.carried_from,{round:1,plan_digest:source.plan_sha256});
+ assert.deepEqual(round.carried.pages,[1,2,3,4]);
+ assert.deepEqual(round.observed,[1,2,3,4],'the carried reviewer\'s pages are this round\'s evidence: page 4 only it viewed');
+ assert.deepEqual(round.review.checked.filter(row=>row.paths.includes('/coverage')),
+  [{paths:['/coverage'],verdict:'supported',source_refs:[1,2,3,4].map(page=>({page})),reason:'fixture /coverage',carried_from:{round:1,plan_digest:source.plan_sha256}}]);
+});
+test('§186.4 a carried coverage verdict brings no row about a record',async t=>{
+ const {corrected,again}=await carryFixture(t,{volunteer:true});
+ const round=await again(corrected);
+ assert.ok(round.carried);
+ assert.equal(round.review.checked.filter(row=>row.reason==='volunteered').length,0,'the record\'s own unit answers for it');
+});
+test('§186.4 a previous blocking missing runs coverage',async t=>{
+ const {corrected,again}=await carryFixture(t,{missing:()=>['The harbour master on page 1 is absent.']});
+ const round=await again(corrected);
+ assert.ok(round.ran.includes('/coverage'));
+ assert.deepEqual(round.refused,['missing']);
+});
+test('§186.4 a previous coverage verdict the gate would refuse runs coverage',async t=>{
+ const {corrected,again}=await carryFixture(t,{refuse:path=>path==='/nodes/1'||path==='/coverage'});
+ assert.deepEqual((await again(corrected)).refused,['verdict']);
+});
+test('§186.4 an added or a deleted record runs coverage',async t=>{
+ const {draft,corrected,again}=await carryFixture(t);
+ const added=await again({...corrected,nodes:[...corrected.nodes,carryNode('npc-ferryman',2)]});
+ assert.ok(added.ran.includes('/coverage'));
+ assert.deepEqual(added.refused,['records']);
+ const deleted=await again({...draft,nodes:[draft.nodes[0],draft.nodes[2]]});
+ assert.ok(deleted.ran.includes('/coverage'));
+ assert.deepEqual(deleted.refused,['records']);
+});
+test('§186.4 a change outside the records a fact unit refused runs coverage: another record, ready_nodes or another field',async t=>{
+ const {corrected,again}=await carryFixture(t);
+ const dock=await again({...corrected,nodes:[{...corrected.nodes[0],summary:'A dock rewritten.'},...corrected.nodes.slice(1)]});
+ assert.ok(dock.ran.includes('/coverage'));
+ assert.deepEqual(dock.refused,['changed']);
+ const ready=await again({...corrected,ready_nodes:['scene-dock','npc-sailor']});
+ assert.ok(ready.ran.includes('/coverage'));
+ assert.deepEqual(ready.refused,['changed']);
+ assert.deepEqual((await again({...corrected,critical:['/nodes/1/summary']})).refused,['changed']);
+});
+test('§186.4 a changed coverage scope runs coverage: retained source needs, fewer scope pages',async t=>{
+ const {corrected,task,again}=await carryFixture(t);
+ const needs=await again(corrected,{task:{...task,retained_source_needs:[{kind:'source_read',focus:'Dock',question:'Who keeps the register?',source_refs:[{page:1}]}]}});
+ assert.ok(needs.ran.includes('/coverage'));
+ assert.deepEqual(needs.refused,['scope']);
+ assert.deepEqual((await again(corrected,{task:{...task,review_scope_pages:[1,2,3]}})).refused,['scope']);
+});
+test('§186.4 an older plan, a source not bound to its candidate, or a carried reviewer that missed a scope page runs coverage',async t=>{
+ const {draft,corrected,source,again}=await carryFixture(t);
+ // A plan written before §186.4: the same units, without their shares of the review, pages or scope.
+ const older={...source.plan,units:source.plan.units.map(({checked:_c,missing:_m,pages:_p,scope:_s,...unit})=>unit)};
+ const old=await again(corrected,{},{...source,plan:older,draft});
+ assert.ok(old.ran.includes('/coverage'));
+ assert.deepEqual(old.refused,['plan']);
+ assert.deepEqual((await again(corrected,{},{...source,draft:corrected})).refused,['plan'],'the plan binds the candidate it reviewed');
+ // Checked like a reused unit's retained review: the carried reviewer must have viewed every scope page.
+ const unviewed={...source.plan,units:source.plan.units.map(unit=>unit.scope?{...unit,pages:[1,2,3]}:unit)};
+ assert.deepEqual((await again(corrected,{},{...source,plan:unviewed,draft})).refused,['evidence']);
 });

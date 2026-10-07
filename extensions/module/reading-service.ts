@@ -3,12 +3,12 @@ import { readFile, writeFile, mkdir, copyFile, appendFile, rm } from "node:fs/pr
 import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { KernelError , isKernelError } from "../kernel/client.ts";
-import { readerInput, wakeReaderSlots, type ReaderOutcome, type ReaderRequest } from "./reader.ts";
+import { readerInput, readingCacheId, wakeReaderSlots, type ReaderOutcome, type ReaderRequest } from "./reader.ts";
 import { providerRefusalText } from "../../runtime/jev/provider-budget.ts";
-import { reviewCandidate, type ReviewPlan } from "./reader-review.ts";
+import { reviewCandidate, type CoverageCarrySource, type ReviewPlan } from "./reader-review.ts";
 import { checkTargetedRepair, repairDecision, reviewOfCandidate, TARGETED_REPAIR_ASK, type RepairDecision } from "./targeted-repair.ts";
 import { salvageInterruptedRead } from "./read-salvage.ts";
-import { accountingFields, readingAccounting, tallyChildJev, tallyReadingRow } from "./reading-accounting.ts";
+import { accountingFields, readingAccounting, tallyChildJev, tallyFirstCall, tallyReadingRow } from "./reading-accounting.ts";
 import { sourceAsset, closeSourceDocuments, sourceRenderVersion, sourceTextVersion } from "./source.ts";
 import { registerSourcePdf, SourceUnreadable } from "./source-registration.ts";
 import {successfulImageDeliveries} from './reader-image-delivery.ts';
@@ -30,6 +30,7 @@ import {IdentityReviewUnavailable,reviewVisualIdentity} from './visual-identity-
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
+import {readingImageBudget} from '../../runtime/jev/host-budgets.ts';
 /**
  * `allowanceMs` (contract §22.4.3, SL-36): the foreground allowance of an in-turn source consultation. Past it `ensure`
  * resolves `{state: "pending", job_id, read, index, settled}` instead of refusing with `reading_timeout`: the waiter leaves
@@ -1149,6 +1150,9 @@ export class ReadingService implements ReadingBridge {
 		const observations: Row = { file_sha256: job.source.file_sha256, read_pages: [], full_pages: [], review_pages: [] };
 		// §151.2.4: what this run spends, written once as the job's `job_accounting` row.
 		const accounting = readingAccounting();
+		// §186.1: the image budget of this reading's authors and reviewers is data, chosen by RC-01's replay.
+		const readingImages = ["guidance", "opening", "detail", "answer"].includes(job.purpose)
+			? (await readingImageBudget(this.runtime().contentRoot)).count : undefined;
 		let readComplete = false;
 		if (job.resume_from) {
 			try {
@@ -1254,6 +1258,8 @@ export class ReadingService implements ReadingBridge {
 				let previousPlan: ReviewPlan | undefined;
 				// §151.2.2: a targeted repair the host refused this round; the round's read runs again as today's full repair.
 				let targetedRefused = false;
+				// §186.4: the repaired review, offered to this round's verify only once `checkTargetedRepair` accepted the repair.
+				let coverageCarry: CoverageCarrySource | undefined;
 				try {
 					const phases: Array<"index" | "index-audit" | "read" | "verify"> = job.purpose === "index" ? (readComplete ? [] : ["index", "index-audit"]) : (readComplete ? ["verify"] : ["read", "verify"]);
 					// An index loop: a refused targeted repair inserts the round's full read right after itself.
@@ -1262,6 +1268,7 @@ export class ReadingService implements ReadingBridge {
 						phaseCompleted = false;
 						let previousDraft: Row | undefined, previousPages: number[] = [], candidateBytes: Buffer | undefined;
 						let targeted: Extract<RepairDecision, {kind: "targeted"}> | undefined, pendingNeeds: Buffer | null = null;
+						let repairedReview: CoverageCarrySource | undefined;
 						if (phase === "read") {
 							try {
 								const bytes = await readFile(join(cwd, "draft.json"));
@@ -1288,6 +1295,7 @@ export class ReadingService implements ReadingBridge {
 									: job.resumed?.reread === true || !reviewed ? { kind: "full", reason: "no_review" } : repairDecision(previousDraft, reviewed.review, task);
 								if (decision.kind === "targeted") {
 									targeted = decision;
+									repairedReview = { plan: reviewed!.plan, plan_sha256: reviewed!.plan_sha256, review: reviewed!.review, draft: previousDraft };
 									task.repair = { ...task.repair, kind: "targeted", refused: decision.refused, pages: decision.pages };
 									await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
 									pendingNeeds = await readFile(join(cwd, "pending-source-needs.json")).catch(failure => { if (failure.code === "ENOENT") return null; throw failure; });
@@ -1348,13 +1356,14 @@ export class ReadingService implements ReadingBridge {
 							try {
 								observations.review_pages = await reviewCandidate({ cwd, ...(claimSupport ? { claimSupport } : {}), task: {...task, review_scope_pages: reviewScope,
 									...(requiredReview?{required_review:requiredReview}:{})},
-									draft:candidate, instructions, round, previousPlan, extractionVersion: sourceTextVersion,
+									draft:candidate, instructions, round, previousPlan, coverageCarry, extractionVersion: sourceTextVersion,
+									cacheId: readingCacheId(job.module_id, job.job_id, round), ...(readingImages ? { imageHistory: readingImages } : {}),
 									model, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 }, signal,
 									cacheRoot:join(cache,'..','reviews'),
 									reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion+(draftHasMapRegions(candidate)?':map-region-review-v2':'')),await readFile(join(this.runtime().contentRoot,'setup',job.purpose === 'answer' ? 'source-answer.md' : job.purpose === 'guidance' ? 'visual-guidance.md' : 'visual-reader.md'))])),
 									run: ({systemPrompt: _instructions, ...request}) => reviewers.run(request,
 										{ phase: "verify", guidance: job.purpose === "guidance", answer: job.purpose === "answer" })
-										.then(run => overrunRows(run, "verify", round)),
+										.then(run => { tallyFirstCall(accounting, "verify", run.firstCallUncached); return overrunRows(run, "verify", round); }),
 									// Every verify row names the job and round it belongs to (#65); the reviewer adds unit and attempt.
 									record: row => { tallyReadingRow(accounting, row); this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", round, ...row, campaign }); },
 									progress: row => this.deps.progress({ module_id: job.module_id, job_id: job.job_id,purpose:job.purpose, ...row, campaign }) });
@@ -1378,7 +1387,9 @@ export class ReadingService implements ReadingBridge {
 						const run = await this.runtime().runTask({ kind: "reader", request: { providerBudget, ...(readingLease ? { readingLease } : {}), cwd, model: model.id, thinking: model.thinking,
 							...(job.visual_scan?{maxRequests:3}:{}),
 							beforeProviderRequest:signal=>this.waitForPriority(job,key,signal,campaign),
-							...(["guidance", "opening", "detail", "answer"].includes(job.purpose) ? {imageHistory:4} : {}),
+							...(readingImages ? {imageHistory:readingImages} : {}),
+							// §186.2: every child of this round, author and review units alike, shares one cache identity.
+							cacheId: readingCacheId(job.module_id, job.job_id, round),
 							submission:["guidance","opening","detail","answer"].includes(job.purpose),
 							priority: () => job.foreground === false ? "background" : "foreground",
 							prompt: { phase: promptPhase, visual:job.visual_scan?'scan':job.visual_asset?'asset':job.map_scope?'scope':undefined, guidance: job.purpose === "guidance", answer: job.purpose === "answer" }, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 },
@@ -1434,16 +1445,18 @@ export class ReadingService implements ReadingBridge {
 							try { need = await readNeedReceipt({cwd, command: run.command, startedAt: sourceRunStartedAt, key: task.source_need.key}); }
 							catch (failure) { needFailure = failure; }
 						this.deps.record({ lane: "reading", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "",
-							model: model.id, thinking: model.thinking, phase, round, ms: run.ms, ok: run.ok, image_reads: imagePaths.size,
+							model: model.id, thinking: model.thinking, phase, round, cache_id: readingCacheId(job.module_id, job.job_id, round),
+							...(run.firstCallUncached !== undefined ? { first_call_uncached: run.firstCallUncached } : {}), ms: run.ms, ok: run.ok, image_reads: imagePaths.size,
 							...(run.ok && !pageLogFailure ? { pages: pagesRead } : {}), ...(run.usage ? { usage: run.usage } : {}), ...(run.overruns?.length ? { overruns: run.overruns.length } : {}),
 							...(run.refusal ? { refusal: run.refusal.reason } : run.providerError ? { refusal: "transport" } : {}),
 							...(need ? { need_disposition: need.disposition } : {}) });
 						overrunRows(run, phase, round);
+						tallyFirstCall(accounting, phase, run.firstCallUncached);
 						accounting.author_ms += Number.isFinite(run.ms) ? run.ms : 0;
 						// §151.2.4 + §151.4: the job row names the need read's disposition (a marked job with no receipt read).
 						if (task.source_need && phase === "read" && run.ok) accounting.need = need?.disposition ?? "read";
 						// §20 addendum 2: the reader's cost per page of this book, measured, for the next stage's lease.
-						if (run.usage) await appendFile(join(cwd, "usage.jsonl"), JSON.stringify({ job_id: job.job_id, phase, round, ok: run.ok && !pageLogFailure,
+						if (run.usage) await appendFile(join(cwd, "usage.jsonl"), JSON.stringify({ job_id: job.job_id, phase, round, cache_id: readingCacheId(job.module_id, job.job_id, round), ok: run.ok && !pageLogFailure,
 							pages: run.ok && !pageLogFailure ? pagesRead.length : 0, usage: run.usage }) + "\n").catch(() => undefined);
 						if (!run.ok && (run.refusal || run.providerError)) {
 							const failure = providerFailure(run, !!providerBudget);
@@ -1488,6 +1501,7 @@ export class ReadingService implements ReadingBridge {
 								phases.splice(at + 1, 0, "read");
 								continue;
 							}
+							coverageCarry = repairedReview;
 						}
 						if (phase === "index-audit") {
 							const missing = integerList(task.index_audit_pages).filter(page => !sourcePages.has(page));
