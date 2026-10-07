@@ -38158,6 +38158,11 @@ campaign's fork, or the library). A steady read-ahead with nothing new pays abou
 from 330 ms to 375 ms. A store's last plan with nothing to write is remembered by its inputs (graph digest, generation,
 `reading.identity`, cast rows, and the same of the other store), so an unchanged book reads no graph twice.
 
+The read-ahead's answer carries `identity_repair` only when the repair is news: it wrote, recorded or failed, asked a
+verdict, or offered something to the library. A quiet repair leaves the answer exactly as it was before §191.5. That covers
+nothing to do, a job already live, and a library left to its lineage fork. Two pytest cases compare the whole answer
+(`test_read_ahead_follows_authored_exits_not_index_page_order`, `test_an_opening_published_ready_stays_ready_under_a_later_rule`).
+
 The repair is maintenance. If it fails, the failure is reported (`identity_repair: {state: "failed", detail}` and a
 `build.jsonl` row) and the read-ahead's own asks go on. A library record that cannot be read lends no decisions: the fork is
 still repaired, and the library's sync and repair report `failed`.
@@ -38271,12 +38276,13 @@ Such a pair also waits for a verdict job.
     "book-4-daniel-mather", 1 brief line.
   - Pete was 3 persons; he is now 2. Peter Benson stays apart, which is the census's "different".
   - Brief people went from 67 to 64.
-- **Second load:** `unchanged`. The fork stays at generation 61, the library at 63, and no new job is asked.
+- **Second load:** quiet, so the answer carries no `identity_repair`. The fork stays at generation 61, the library at 63,
+  and no new job is asked.
 - **The lineage holder's load** (`nr06-blood-road-3`, generation 63).
   - The fork moves to generation 64 with 16 relations, and `library_sync` is `published`: the library is now at 64 with 16
     relations.
   - `nr06-blood-road-3` is still `lineage`, and `nfh-accept-blood-road-1` is still `library_advanced`.
-  - Its second load is `unchanged`.
+  - Its second load is quiet.
 
 **Tests** (`tests/extension/identity-repair.test.mjs`, 9 cases on the real path):
 - the owner's rule on a built book, and a second load writing nothing;
@@ -38290,7 +38296,7 @@ Such a pair also waits for a verdict job.
 - a fork taking the library's decisions;
 - an unreadable library record at the table opening's read-ahead.
 
-**Mutations** (each one literal change, restored by copy and checked by content; 18 of 18 turn a case red):
+**Mutations** (each one literal change, restored by copy and checked by content; 19 of 19 turn a case red):
 - `owner-rule-ignores-pages`: 6 red
 - `owner-rule-any-name`: 1 red
 - `one-reading-pair-merged`: 1 red
@@ -38306,6 +38312,7 @@ Such a pair also waits for a verdict job.
 - `different-not-kept`: 3 red
 - `repair-after-built-return`: 1 red
 - `unreadable-library-stops-the-fork`: 1 red
+- `quiet-repair-reported`: 5 red
 - `two-live-identity-jobs`: 1 red
 - `failures-never-end-asking`: 1 red
 - `host-reports-no-pages`: 3 red

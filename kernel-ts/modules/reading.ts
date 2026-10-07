@@ -1068,8 +1068,17 @@ export class Reading {
             await this.store.appendBuildLog(mid, { event: 'identity-repair-failed', detail: repair.detail }).catch(() => undefined);
         }
         const result = await this.aheadReading(params);
-        if (!repair) return result;
+        if (!repair || !Reading.repairNews(repair)) return result;
         return { ...result, queued: [...new Set([...array(result.queued), ...array(repair.asked)])], identity_repair: repair };
+    }
+    /**
+     * §191.5: whether a repair is news for the read-ahead's answer -- it wrote, recorded or failed, asked a verdict, or offered
+     * something to the library. A quiet repair (nothing to do, a job already live, a library left to its lineage fork) leaves
+     * the answer exactly as it was before §191.5.
+     */
+    private static repairNews(repair: Row): boolean {
+        const changed = (state: unknown) => ['published', 'recorded', 'failed'].includes(string(state));
+        return changed(repair.state) || array(repair.asked).length > 0 || isJsonObject(repair.library_sync) || changed(row(repair.library_repair).state);
     }
     /** `queueAheadReading` after §191.5's repair. */
     private async aheadReading(params: Row): Promise<Row> {

@@ -213,7 +213,7 @@ test('§191.5 owner rule: one kind, one name, a shared page is merged by the rea
 	assert.ok(graph.nodes.get(STORE.node_id).aliases.includes('Mather\'s'), 'the survivor took the copy\'s alias (§191.4)');
 	assert.equal((await b.meta()).generation, before + 1, 'one new generation');
 	const second = await b.ahead();
-	assert.equal(second.identity_repair.state, 'unchanged', JSON.stringify(second.identity_repair));
+	assert.equal(second.identity_repair, undefined, `a quiet repair leaves the read-ahead's answer as it was: ${JSON.stringify(second.identity_repair)}`);
 	assert.equal((await b.meta()).generation, before + 1, 'a second load writes nothing');
 	assert.deepEqual(await b.identityJobs(), [], 'nothing waits for a verdict');
 });
@@ -232,7 +232,8 @@ test('§191.5 never without a verdict: a pair the graph relates, one reading\'s 
 		{relation_id: 'rel-npc-sand-rat-member-of-npc-sand-rats', relation_kind: 'member-of', from_node_id: hick.node_id, to_node_id: rats.node_id, properties: {}},
 		{relation_id: 'rel-npc-virginia-revived-variant-of-npc-virginia', relation_kind: 'variant-of', from_node_id: revived.node_id, to_node_id: virginia.node_id, properties: {}}]});
 	const repaired = await b.ahead();
-	assert.deepEqual([repaired.identity_repair.state, repaired.identity_repair.merged, repaired.identity_repair.open], ['unchanged', 0, 4], JSON.stringify(repaired.identity_repair));
+	assert.deepEqual([repaired.identity_repair.state, repaired.identity_repair.merged, repaired.identity_repair.open, repaired.identity_repair.asked.length],
+		['unchanged', 0, 4, 1], JSON.stringify(repaired.identity_repair));
 	assert.deepEqual(await b.relations(), [], 'nothing was merged without a verdict');
 	const pairs = api.repairCandidates(b.mid, await b.raw(), await b.meta(), []);
 	assert.deepEqual(pairs.map(pair => [pair.kind, pair.a.node_id, pair.b.node_id, pair.rule, pair.related.map(rel => rel.relation_kind)]), [
@@ -244,7 +245,7 @@ test('§191.5 never without a verdict: a pair the graph relates, one reading\'s 
 	assert.deepEqual(job.node_identity.pairs, pairs.map(pair => pair.key).sort(), 'one background job asks the four');
 	assert.equal(job.foreground, false);
 	const again = await b.ahead();
-	assert.equal(again.identity_repair.asked, undefined, 'one live identity job at a time');
+	assert.equal(again.identity_repair, undefined, 'one live identity job at a time: nothing new is asked');
 	assert.equal((await b.identityJobs()).length, 1);
 });
 
@@ -275,7 +276,7 @@ test('§191.5 a verdict job: the reviewer opens both nodes\' pages; same writes 
 	// The host's read-ahead after the finish found nothing left to ask; neither pair is a candidate again.
 	assert.deepEqual(api.repairCandidates(b.mid, await b.raw(), meta, []), []);
 	assert.equal((await b.identityJobs()).length, 1, 'the pair a verdict answered is never queued again');
-	assert.equal((await b.ahead()).identity_repair.state, 'unchanged');
+	assert.equal((await b.ahead()).identity_repair, undefined);
 	assert.equal((await b.graph()).resolve('Dr Brenner', ['npc']).node_id, BRENNER.node_id);
 });
 
@@ -348,8 +349,8 @@ test('§191.5 the library is never written while a live fork holds its lineage; 
 	assert.equal((await b.meta()).generation, library + 1);
 	assert.deepEqual((await b.relations()).map(rel => rel.relation_id), [`rel-identity-${STORE_COPY.node_id}-to-${STORE.node_id}`]);
 	assert.equal(await api.libraryLineage(b.context, 'leading', b.mid), 'lineage', 'and keeps its lineage');
-	assert.equal((await b.ahead('leading')).identity_repair.state, 'unchanged');
-	assert.equal((await b.ahead()).identity_repair.state, 'unchanged', 'the library\'s own read-ahead has nothing left');
+	assert.equal((await b.ahead('leading')).identity_repair, undefined);
+	assert.equal((await b.ahead()).identity_repair, undefined, 'the library\'s own read-ahead has nothing left');
 	assert.equal((await b.meta()).generation, library + 1, 'a second load writes nothing');
 });
 
@@ -374,7 +375,7 @@ test('§191.5 with no fork holding its lineage, the library is repaired by its o
 	assert.deepEqual(doctor.properties.identity_review, {by: 'review', job_id: job.job_id, key: b.key('npc', BRENNER.node_id, BRENNER_COPY.node_id),
 		reason: 'Both pages describe the one town doctor.', imported_from: {store: 'campaign', campaign: 'table', generation: fork}, generation: library + 2});
 	assert.equal((await b.identityJobs()).length, 0, 'the library asked nothing of its own');
-	assert.equal((await b.ahead()).identity_repair.state, 'unchanged');
+	assert.equal((await b.ahead()).identity_repair, undefined);
 });
 
 test('§191.5 a fork takes the library\'s reviewed decisions instead of asking again', async () => {
