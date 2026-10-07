@@ -3,7 +3,7 @@
  * `TranscriptService` a table runs, then copied into `content/source-transcripts/<file_sha256>/` as read-only seeds.
  *
  * Usage: node scripts/build-source-transcripts.ts --pdf FILE --model PROVIDER/ID [--thinking low] [--context-window N]
- *          [--pages A-B] [--home EVIDENCE_HOME] [--agent-home DIR] [--out DIR]
+ *          [--pages A-B,C] [--home EVIDENCE_HOME] [--agent-home DIR] [--out DIR]
  * The evidence home keeps every layout child's work directory; nothing is written into the repository except the
  * copied records under --out (default `content/source-transcripts`).
  */
@@ -19,7 +19,7 @@ const args = process.argv.slice(2);
 const flag = (name: string): string | undefined => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : undefined; };
 const pdfArg = flag('--pdf'), model = flag('--model');
 if (!pdfArg || !model) throw new Error('Usage: node scripts/build-source-transcripts.ts --pdf FILE --model PROVIDER/ID [--thinking low] '
-	+ '[--context-window N] [--pages A-B] [--home EVIDENCE_HOME] [--agent-home DIR] [--out DIR]');
+	+ '[--context-window N] [--pages A-B,C] [--home EVIDENCE_HOME] [--agent-home DIR] [--out DIR]');
 const pdf = resolve(pdfArg);
 const thinking = flag('--thinking') ?? 'low';
 const contextWindow = Number(flag('--context-window') ?? 0) || undefined;
@@ -44,12 +44,14 @@ const service = new TranscriptService({
 });
 try {
 	const info = (await runtime.sourceLines({pdf, pages: [1], expected_file_sha256: sha})) as {page_count: number};
-	const range = flag('--pages');
-	let first = 1, last = info.page_count;
-	if (range) { const [a, b] = range.split('-').map(Number); first = a; last = b || a; }
-	if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last) || first < 1 || last > info.page_count || first > last)
-		throw new Error(`--pages must lie within 1-${info.page_count}`);
-	const pages = Array.from({length: last - first + 1}, (_, index) => first + index);
+	// `--pages` is a comma list of pages and ranges (`3,7-9`); absent, the whole file.
+	const spec = flag('--pages') ?? `1-${info.page_count}`;
+	const pages = [...new Set(spec.split(',').flatMap(part => {
+		const [a, b] = part.split('-').map(Number), last = b || a;
+		if (!Number.isSafeInteger(a) || !Number.isSafeInteger(last) || a < 1 || last > info.page_count || a > last)
+			throw new Error(`--pages must lie within 1-${info.page_count}`);
+		return Array.from({length: last - a + 1}, (_, index) => a + index);
+	}))].sort((x, y) => x - y);
 	const result = await service.ensure({pdf, file_sha256: sha, pages, priority: 'foreground'});
 	process.stdout.write(JSON.stringify({ensure: result}) + '\n');
 	await service.idle();
