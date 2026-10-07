@@ -38316,3 +38316,19 @@ Such a pair also waits for a verdict job.
 - `two-live-identity-jobs`: 1 red
 - `failures-never-end-asking`: 1 red
 - `host-reports-no-pages`: 3 red
+
+*leehow-pc at `c641ff749`.*
+- **ext:** 5064 pass, 7 fail.
+  - Five are the base's: the SL-00 inventory and four `timeline:` cases.
+  - Two are DUP-01's stale survivor fixtures in `duplicate-of-published.test.mjs` (§191.1 against survivors, §191.3 retained
+    needs). DUP-01c (`9980eae18`, on the integration branch after this branch's base) rewrites them. Its version of that file
+    passes 11 of 11 against this branch.
+- **First ext run, at `db623f2d2`:** it shared the box with another session's ext (load about 40) and also failed:
+  - `historical-reference-request` and `/coc module` (§19.1). These are known concurrency reds, and both were green at
+    `c641ff749`.
+  - `system-language`: a Chinese quotation in a comment, now removed.
+  - Four `rename-undo-names` cases: the owner's rule merged that fixture's two fishermen of one name. The one-reading clause
+    fixed them.
+  - Two pytest whole-answer cases (`test_visual_reading`, `test_fast_guidance`): the quiet-repair rule fixed them.
+- **py**, on 24 reading and module kernel files: 210 pass. The one failure is the known `test_npc_act_options` case.
+- **loop:** 333 of 333.
