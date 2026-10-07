@@ -117,7 +117,7 @@
     "max_entries": 64
   },
   "told_position": {
-    "mode": "shadow",
+    "mode": "on",
     "moved_min": 0.85,
     "place_min": 0.85,
     "sentence_min": 0.5,

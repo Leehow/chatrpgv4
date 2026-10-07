@@ -198,10 +198,10 @@ test('a move the review refused and the Keeper then told is owed: a refusal is n
     assert.equal(ledger(table.workspace).open[0].effect.to, 'basement-rites');
 });
 
-test('shadow, the shipped mode, on the implicit close: the row says what on would do, and nothing is owed', async t => {
+test('shadow (the env override since on ships), on the implicit close: the row says what on would do, and nothing is owed', async t => {
     const batches = installJev(t);
     let port;
-    const table = await openTable({realKernel: true, prepareWorkspace: atTheHall, env: {EXT_JEV_APIKEY: 'test-jev-key'},
+    const table = await openTable({realKernel: true, prepareWorkspace: atTheHall, env: {EXT_JEV_APIKEY: 'test-jev-key', PI_COC_TOLD_POSITION: 'shadow'},
         responses: [fauxAssistantMessage(DELIVERY)],
         extraExtensions: [{name: 'owed-port-probe', factory: pi => pi.events.on('coc:owed-review', value => { port = value; })}]});
     t.after(() => table.dispose());
@@ -214,7 +214,7 @@ test('shadow, the shipped mode, on the implicit close: the row says what on woul
     assert.equal(batches.length, 1);
     assert.equal(ledger(table.workspace), null, 'shadow writes the row only');
     assert.equal(turnRecord(table.workspace, 2).owed, undefined);
-    assert.equal(JSON.parse(readFileSync(join(REPO, 'content/rulesets/coc7/host-budgets.json'), 'utf8')).told_position.mode, 'shadow');
+    assert.equal(JSON.parse(readFileSync(join(REPO, 'content/rulesets/coc7/host-budgets.json'), 'utf8')).told_position.mode, 'on', 'owner ruling 2026-10-07 after TP-05: on ships');
 });
 
 test('the read never holds the delivery; the next run\'s watch sees it in flight and landed once the row is written', async t => {

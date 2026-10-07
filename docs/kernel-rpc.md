@@ -36899,6 +36899,8 @@ the questions' distributions, the decision and the owed name.
   "no_text" | "unconfigured" | "move_landed" | "no_candidates"` (`move_landed` with `landed`, the places those moves went
   to), or `ok: false` with `reason: "options_failed" | "lane_crashed"`. Without a Jev key the kernel is not asked at all.
 
+
+**Owner ruling (2026-10-07, 「按你的建议开，合主线打包」, after TP-05).** `told_position.mode` ships `on`, with `place_min` 0.85 (calibrated from TP-04's shadow rows); `PI_COC_TOLD_POSITION=shadow|off` still overrides; the coded fallback for an unreadable budget file stays `shadow`.
 ### 190.3 A transient provider failure is asked again once (amends §143.15)
 
 `reviewAdmission` retries a lane failure once when the provider answered HTTP 429 or 5xx, or the transport ended before a

@@ -2219,7 +2219,7 @@
       "path": "app-play-gated",
       "role": "leaf",
       "trace": "not observed (no told-position rows yet)",
-      "note": "Gate: a delivery (explicit or implicit close) with no move receipt that turn, a Jev key, told_position.mode != off (shipped shadow; PI_COC_TOLD_POSITION overrides). After delivery, watched by the next run's first read (158.4), never waited for; writes an owed move through table.owe only in on.",
+      "note": "Gate: a delivery (explicit or implicit close) with no move receipt that turn, a Jev key, told_position.mode != off (shipped on since 2026-10-07; PI_COC_TOLD_POSITION overrides). After delivery, watched by the next run's first read (158.4), never waited for; writes an owed move through table.owe only in on.",
       "lines_at_0b729e8fb": []
     },
     {

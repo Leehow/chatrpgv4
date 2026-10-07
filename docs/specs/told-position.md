@@ -1,6 +1,6 @@
 # The table stands where the story is
 
-Status: in progress (owner 2026-10-07: 「两个一起开 spec，按你推荐的来」 for the design, then 「打完包就开工，先做 §190」)
+Status: accepted (owner 2026-10-07: design 「两个一起开 spec，按你推荐的来」, start 「打完包就开工，先做 §190」, ship 「按你的建议开，合主线打包」 after TP-05)
 Date: 2026-10-07
 Baseline: `claude/reading-delivery-20261006` at `8a02972ea`. Spec branch: `claude/scene-told-specs-20261007`.
 Contract: §190 of `docs/kernel-rpc.md` (written with this spec). Amends §158 (gives owed moves a producer again), §166 (one
