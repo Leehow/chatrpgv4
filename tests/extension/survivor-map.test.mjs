@@ -32,7 +32,12 @@ export {loadCampaignModule} from './kernel-ts/read/campaign.ts';
 export {bookCast} from './kernel-ts/read/cast.ts';
 export {individualNodes} from './kernel-ts/read/rename-undo.ts';
 export {untoldRoster, fittedModuleSection, whereSection, withinSection, npcsPresent, calledPerson} from './kernel-ts/read/capsule.ts';
-export {identityRelationId, isIdentityRelation} from './kernel-ts/read/survivors.ts';`, resolveDir: root},
+export {identityRelationId, isIdentityRelation, pairKey, apartPairs} from './kernel-ts/read/survivors.ts';
+export {conditionStatus} from './kernel-ts/read/module-graph.ts';
+export {mapsForScene} from './kernel-ts/read/maps.ts';
+export {revealRows, mainLineComplete} from './kernel-ts/read/director.ts';
+export {threadSection} from './kernel-ts/read/thread.ts';
+export {weaknessChain} from './kernel-ts/read/weaknesses.ts';`, resolveDir: root},
   outfile: join(temporary, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(temporary, 'api.mjs')).href);
 
@@ -113,9 +118,23 @@ async function tower(t) {
 		{node_id: 'tome-keeper-log', node_kind: 'tome', name: 'Keeper\'s log', source_refs: refs(2), summary: 'The lamp keeper\'s log.'},
 		{node_id: 'ending-lamp-out', node_kind: 'ending', name: 'The lamp goes out', source_refs: refs(3), summary: 'The harbor goes dark.'},
 		{node_id: 'location-headland', node_kind: 'location', name: 'Headland', source_refs: refs(2), summary: 'The headland the tower stands on.'},
-		{node_id: 'location-lamp-room', node_kind: 'location', name: 'Lamp room', source_refs: refs(2), summary: 'The room at the top.'});
+		{node_id: 'location-lamp-room', node_kind: 'location', name: 'Lamp room', source_refs: refs(2), summary: 'The room at the top.'},
+		{node_id: 'asset-tower-plan', node_kind: 'asset', name: 'Tower plan', source_refs: refs(2), visibility: 'player-safe',
+			properties: {map_regions: [{region_id: 'lamp-room', name: 'Lamp room', source_asset: 'asset-tower-plan', source_box: [0.1, 0.1, 0.5, 0.5], placement: [0.1, 0.1, 0.5, 0.5]}]}},
+		{node_id: 'conclusion-keeper-alive', node_kind: 'conclusion', name: 'Someone keeps the lamp', source_refs: refs(2), summary: 'The keeper is alive.'},
+		{node_id: 'conclusion-keeper-alive-copy', node_kind: 'conclusion', name: 'Someone keeps the lamp', source_refs: refs(2), summary: 'The keeper lives.'});
+	graph.claims.push(
+		{claim_id: 'claim-mae-copy-believes-tide', subject_id: 'npc-mae-copy', predicate: 'believes', object: {statement: 'The tide took Jonah on purpose.'},
+			truth_status: 'authored-belief', source_refs: refs(3)},
+		{claim_id: 'claim-mae-copy-knows-oil', subject_id: 'npc-mae-copy', predicate: 'knows', object: {node_id: 'clue-lamp-oil-copy'},
+			truth_status: 'authored-fact', source_refs: refs(3)});
 	graph.relations.push(
-		relation('scene-tower-copy', 'route-to', 'scene-cellar'),
+		// The way down opens once the oil is found: a condition that names the oil, met by finding its copy.
+		relation('scene-tower-copy', 'route-to', 'scene-cellar', {properties: {when: {kind: 'clue_discovered', clue_id: 'clue-lamp-oil'}}}),
+		relation('asset-tower-plan', 'depicts', 'scene-tower-copy'),
+		relation('clue-lamp-oil-copy', 'supports', 'conclusion-keeper-alive'),
+		relation('clue-cellar-key', 'supports', 'conclusion-keeper-alive'),
+		relation('clue-lamp-oil-copy', 'misleads', 'npc-silas-marsh'),
 		relation('npc-silas-marsh', 'present-in', 'scene-tower-copy'),
 		relation('clue-cellar-key', 'discoverable-at', 'scene-tower-copy'),
 		relation('clue-lamp-oil-copy', 'discoverable-at', 'scene-dock'),
@@ -158,8 +177,10 @@ const REVIEW = {by: 'test', rule: 'fixture'};
 const IDENTITIES = [
 	{nodes: ['scene-tower', 'scene-tower-copy'], review: REVIEW},
 	{nodes: ['clue-lamp-oil', 'clue-lamp-oil-copy'], review: REVIEW},
-	{nodes: ['npc-mae-copy', 'npc-mae'], review: REVIEW}];
-const JOINED = [['scene-tower-copy', 'scene-tower'], ['clue-lamp-oil-copy', 'clue-lamp-oil'], ['npc-mae-copy', 'npc-mae']];
+	{nodes: ['npc-mae-copy', 'npc-mae'], review: REVIEW},
+	{nodes: ['conclusion-keeper-alive', 'conclusion-keeper-alive-copy'], review: REVIEW}];
+const JOINED = [['scene-tower-copy', 'scene-tower'], ['clue-lamp-oil-copy', 'clue-lamp-oil'], ['npc-mae-copy', 'npc-mae'],
+	['conclusion-keeper-alive-copy', 'conclusion-keeper-alive']];
 
 test('§191.3: before the identity relations the copies split the tower; after them every reader reads one tower', async t => {
 	const h = await tower(t);
@@ -294,6 +315,12 @@ test('§191.4: the survivor takes what only the copy had; a contradiction stays 
 	assert.deepEqual(again.skipped, [{from: 'scene-tower-copy', to: 'scene-cellar', reason: 'survivor_taken'}]);
 	assert.deepEqual(again.written.map(row => [row.carried.aliases, row.carried.properties]), IDENTITIES.map(() => [[], []]));
 	assert.equal((await h.store.module(h.mid)).generation, generation + 1);
+	// A pair a recorded `different` verdict keeps apart is refused by the writer, named, and nothing is published for it.
+	const meta = await h.store.module(h.mid);
+	meta.reading.identity = {...(meta.reading.identity ?? {}), [`${h.sha}:scene:scene-cellar:scene-dock`]: {verdict: 'different', kind: 'scene', nodes: ['scene-dock', 'scene-cellar'], by: 'review'}};
+	await h.store.writeModule(meta);
+	const refused = await h.join([{nodes: ['scene-cellar', 'scene-dock'], review: REVIEW}]);
+	assert.deepEqual(refused, {generation: generation + 1, written: [], skipped: [{from: 'scene-cellar', to: 'scene-dock', reason: 'verdict_different', nodes: ['scene-cellar', 'scene-dock']}]});
 });
 
 test('§191.3: the lanes skip a copy; a copy\'s need asks about the survivor; two foci that are one thing are one reading', async t => {
@@ -347,6 +374,29 @@ test('§191.3: the identity writer joins two nodes of one kind, decided by a rev
 			{relation_id: 'rel-identity-scene-c-to-npc-a', relation_kind: 'variant-of', from_node_id: 'scene-c', to_node_id: 'npc-a', properties: {identity_review: REVIEW}}]}, '', {});
 	assert.equal(forged.isVariant(forged.nodes.get('npc-b')), false);
 	assert.equal(forged.isVariant(forged.nodes.get('scene-c')), false);
+	// §191.3 (lead ruling): a recorded `different` verdict and an identity relation cannot both stand. The writer refuses to join
+	// such a pair, through any node of their relation groups; a graph that holds one anyway is reported, the relation left alone.
+	const apart = new Set([api.pairKey('scene-a', 'scene-c2')]);
+	const kept = {module_id: 'book', nodes: [{node_id: 'scene-a', node_kind: 'scene', name: 'A'}, {node_id: 'scene-b', node_kind: 'scene', name: 'A'},
+		{node_id: 'scene-c2', node_kind: 'scene', name: 'A'}], relations: [{relation_id: 'rel-identity-scene-b-to-scene-a', relation_kind: 'variant-of',
+		from_node_id: 'scene-b', to_node_id: 'scene-a', properties: {identity_review: REVIEW}}]};
+	assert.throws(() => api.writeIdentity(kept, 'scene-c2', 'scene-b', REVIEW, apart), error => error.details?.reason === 'identity_verdict_different'
+		&& JSON.stringify(error.details.nodes.sort()) === JSON.stringify(['scene-a', 'scene-c2']));
+	assert.equal(kept.relations.length, 1, 'nothing written');
+	// Lookup's aliases for a thing with copies: a relation written without carry (an older kernel's, or a cast fold) leaves the
+	// copy's names on the copy; the survivor is listed with them all the same.
+	const named = new api.ModuleGraph('book', {nodes: [{node_id: 'scene-x', node_kind: 'scene', name: 'Harbor', aliases: ['Quay']},
+		{node_id: 'scene-y', node_kind: 'scene', name: 'Old harbor', aliases: ['Harbor', 'Wharf']}], relations: [{relation_id: 'rel-identity-scene-y-to-scene-x',
+		relation_kind: 'variant-of', from_node_id: 'scene-y', to_node_id: 'scene-x', properties: {identity_review: REVIEW}}]}, '', {});
+	assert.deepEqual(named.groupAliases(named.nodes.get('scene-x')), ['Quay', 'Old harbor', 'Wharf']);
+	const conflicted = new api.ModuleGraph('book', {...kept, relations: [...kept.relations, {relation_id: 'rel-identity-scene-c2-to-scene-a', relation_kind: 'variant-of',
+		from_node_id: 'scene-c2', to_node_id: 'scene-a', properties: {identity_review: REVIEW}}]}, '', {});
+	conflicted.apart = apart;
+	assert.deepEqual(conflicted.identityConflicts(), [{nodes: ['scene-a', 'scene-c2'], survivor: 'scene-a'}]);
+	assert.equal(conflicted.isVariant(conflicted.nodes.get('scene-c2')), true, 'the relation is left as it is; nothing is guessed');
+	// The verdicts read from `reading.identity` are the bound source's `different` ones only.
+	assert.deepEqual([...api.apartPairs({'sha:scene:a:b': {verdict: 'different', nodes: ['b', 'a']}, 'sha:scene:a:c': {verdict: 'same', nodes: ['a', 'c']},
+		'old:scene:a:d': {verdict: 'different', nodes: ['a', 'd']}}, 'sha')], [api.pairKey('a', 'b')]);
 });
 
 test('§191.3 with §188.2: an identity relation makes two people one cast person before any cast row; the roster shows one word', () => {
@@ -363,4 +413,43 @@ test('§191.3 with §188.2: an identity relation makes two people one cast perso
 	const roster = api.untoldRoster(graph, world, {}, []);
 	assert.deepEqual(roster.filter(row => row.name === '丹尼尔·马瑟').map(row => [row.id, row.shown]), [[mather, '抓胡茬的红发杂货店主']]);
 	assert.equal(graph.resolve('丹尼尔·马瑟', ['npc']).node_id, 'npc-book-4-daniel-mather', 'no cast fold needed');
+});
+
+test('§191.3 (DUP-02b): lookup lists the tower once; maps, a copy\'s claims and every discovered-clue reader read through survivors', async t => {
+	const h = await tower(t);
+	const [tower_, copy, cellar] = await Promise.all(['scene-tower', 'scene-tower-copy', 'scene-cellar'].map(h.handle));
+	await h.join(IDENTITIES);
+	await h.call('table.player_input', {text: 'I ask around the dock.'});
+	// search / lookup: the tower once, found by a name only its copy carried, with its copies' names among its aliases.
+	const byName = (await h.call('table.lookup', {kind: 'module', query: 'Old Tower'})).entities.filter(entity => entity.kind === 'scene');
+	assert.deepEqual(byName.map(entity => entity.name), [tower_], JSON.stringify(byName.map(entity => entity.name)));
+	const byCopyName = (await h.call('table.lookup', {kind: 'module', query: 'the lamp tower'})).entities;
+	assert.deepEqual([byCopyName.map(entity => entity.name), byCopyName[0]?.aliases?.includes('the lamp tower')], [[tower_], true]);
+	// The handle list (§127.1): the copy's handle is the tower.
+	const listed = (await h.call('table.lookup', {kind: 'module', query: `${copy} ${cellar}`})).entities.map(entity => entity.name);
+	assert.deepEqual(listed, [tower_, cellar]);
+	const graph = (await h.loaded()).graph, node = id => graph.nodes.get(id), at = id => graph.handle(node(id));
+	assert.deepEqual(graph.search('Old Tower').filter(each => each.node_kind === 'scene').map(each => each.node_id), ['scene-tower']);
+	// mapsForScene: the plan depicts the copy, so it is the tower's map.
+	assert.ok(api.mapsForScene(graph, node('scene-tower')).some(each => each.node_id === 'asset-tower-plan'));
+	// A copy's claims are the person's: her copy's belief, and what her copy knows, as the clue that stands for it.
+	assert.ok(graph.npcBeliefs(node('npc-mae')).includes('The tide took Jonah on purpose.'));
+	assert.deepEqual(graph.npcKnows(node('npc-mae')).map(entry => entry.node.node_id), ['clue-lamp-oil']);
+	assert.deepEqual(graph.npcsKnowing(node('clue-lamp-oil-copy')), ['npc-mae'], 'she knows it once, never her copy beside her');
+	// Discovered clues: the oil was found through its copy.
+	const found = {discovered_clues: [at('clue-lamp-oil-copy')]};
+	assert.equal(api.conditionStatus({kind: 'clue_discovered', clue_id: 'clue-lamp-oil'}, found, graph), true);
+	assert.equal(api.conditionStatus({kind: 'clue_discovered', clue_id: 'clue-lamp-oil'}, found), false, 'without the graph, its own handles only');
+	const exit = api.whereSection(graph, found, node('scene-tower')).exits.find(row => row.to === at('scene-cellar'));
+	assert.equal(exit?.unlock_when?.met, true, 'the way down a condition on the oil locks is open: its copy was found');
+	assert.deepEqual(api.revealRows(graph, found, node('scene-tower')).map(row => row.clue), [at('clue-cellar-key')], 'the oil is no reveal left');
+	assert.deepEqual(graph.supportingClues(node('conclusion-keeper-alive')).map(each => each.node_id).sort(), ['clue-cellar-key', 'clue-lamp-oil']);
+	assert.equal(api.mainLineComplete(graph, {discovered_clues: [at('clue-lamp-oil-copy'), at('clue-cellar-key')]}), true);
+	assert.equal(api.mainLineComplete(graph, {discovered_clues: [at('clue-cellar-key')]}), false);
+	const thread = api.threadSection(graph, {...found, active_scene: at('scene-tower')}, node('scene-tower'), []);
+	assert.deepEqual(thread.lines.map(line => [line.name, line.missing, line.of]), [[at('conclusion-keeper-alive'), 1, 2]], 'one conclusion, its oil found');
+	const weaknesses = {...found, mods: {active: {lore: {enabled: true}}, state: {lore: {weaknesses: {'npc-silas-marsh': [{book: 'Fears the dark.', learned_by: 'conclusion-keeper-alive'}]}}}}};
+	const chain = api.weaknessChain(graph, weaknesses, node('npc-silas-marsh'));
+	assert.deepEqual(chain.weaknesses?.[0]?.learned_by, {conclusion: at('conclusion-keeper-alive'), found: 1, of: 2});
+	assert.deepEqual(chain.false_leads, [{clue: at('clue-lamp-oil'), discovered: true}]);
 });

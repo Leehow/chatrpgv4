@@ -4,7 +4,7 @@ import { RpcError } from "../errors.js";
 import { canonicalJson, compareUnicode, isJsonObject, type JsonValue } from "../json.js";
 import { entries, values, array, row, truth, string, repr, integer, normalize, normalizeText, kebab, stripPrefix, sorted, similarity, words, chars, pick, type Row } from "./values.js";
 import { SHAPE_KINDS } from "../modules/mechanics-catalog.js";
-import { SurvivorMap, VISUAL_KINDS } from "./survivors.js";
+import { SurvivorMap, VISUAL_KINDS, pairKey, type IdentityConflict } from "./survivors.js";
 export const TEMPLATE_NOTE = "the book's pregenerated investigator, not at this table; the table's investigators are in the capsule's known.investigator";
 /** Contract §185.4: a name-free campaign's map from a book node's id to its handle (`world.node_handles`). */
 export type NodeHandles = ReadonlyMap<string, string>;
@@ -141,7 +141,11 @@ function clueForms(world: Row, clueId: string): string[] {
     const id = clueId.startsWith("clue-") ? clueId : `clue-${clueId}`, mapped = row(world.node_handles)[id];
     return [stripPrefix(clueId, "clue"), ...(typeof mapped === "string" ? [mapped] : []), interimHandle("clue", id)];
 }
-export function conditionStatus(when: any, world: Row): boolean | null {
+/**
+ * `graph`, §191.3: when given, a `clue_discovered` condition is met by a find of any node of the named clue's group -- the clue
+ * that stands for it or a copy found before the two were joined. Without it the clue's own handles are read, as before.
+ */
+export function conditionStatus(when: any, world: Row, graph?: ModuleGraph): boolean | null {
     const flags = row(world.flags);
     if (typeof when === "string") {
         const slug = kebab(when);
@@ -151,8 +155,11 @@ export function conditionStatus(when: any, world: Row): boolean | null {
         return null;
     if (when.kind === "always")
         return true;
-    if (when.kind === "clue_discovered")
-        return clueForms(world, string(when.clue_id ?? "")).some(handle => array(world.discovered_clues).includes(handle));
+    if (when.kind === "clue_discovered") {
+        const named = string(when.clue_id ?? ""), id = named.startsWith("clue-") ? named : `clue-${named}`, node = graph?.nodes.get(id);
+        if (graph && node) return graph.groupOf(node).some(each => [...clueForms(world, string(each.node_id)), graph.handle(each)].some(handle => array(world.discovered_clues).includes(handle)));
+        return clueForms(world, named).some(handle => array(world.discovered_clues).includes(handle));
+    }
     const slug = conditionFlag(when);
     if (slug != null)
         return flagIsSet(flags, slug, when.value);
@@ -160,7 +167,7 @@ export function conditionStatus(when: any, world: Row): boolean | null {
     const named = Object.keys(flags).filter(k => normalizeText(k) && texts.some(text => text.includes(` ${normalizeText(k)} `)));
     return named.length ? named.every(k => flagIsSet(flags, k)) : null;
 }
-export const conditionMet = (when: any, world: Row): boolean => conditionStatus(when, world) === true;
+export const conditionMet = (when: any, world: Row, graph?: ModuleGraph): boolean => conditionStatus(when, world, graph) === true;
 export function describeCondition(when: any): string {
     if (row(when).kind === "clue_discovered")
         return `clue_discovered: ${stripPrefix(string(when.clue_id ?? ""), "clue")}`;
@@ -334,6 +341,17 @@ export class ModuleGraph {
     private survivorMap: SurvivorMap | null = null;
     get castFold(): ReadonlyMap<string, string> { return this.fold; }
     set castFold(value: ReadonlyMap<string, string>) { this.fold = value; this.survivorMap = null; }
+    /**
+     * §191.3 (lead ruling 2026-10-07): the node pairs a recorded `different` verdict keeps apart (`apartPairs` over `module.json`
+     * `reading.identity`), installed by the loader before the cast is first read. The cast's fold never joins such a pair.
+     */
+    private apartSet: ReadonlySet<string> = new Set();
+    get apart(): ReadonlySet<string> { return this.apartSet; }
+    set apart(value: ReadonlySet<string>) { this.apartSet = value; this.survivorMap = null; }
+    /** §191.3: whether a recorded `different` verdict keeps these two nodes apart. */
+    isApart(a: string, b: string): boolean {
+        return a !== b && this.apartSet.has(pairKey(a, b));
+    }
     /**
      * §188.2 as amended by §191.3: NR-02's people, now a view of the one survivor map -- each person node that another node
      * stands for, by node id, to that node. Assigning it installs the cast's fold (`castFold`), as the loader did before §191.
@@ -1289,43 +1307,52 @@ export class ModuleGraph {
         const value = Array.isArray(row(node.properties).weaknesses) ? node.properties.weaknesses : recordOf(node).weaknesses;
         return array(value).filter(entry => isJsonObject(entry) && typeof entry.book === "string" && entry.book.trim()).map(row);
     }
-    /** Contract §180.9: the clues whose belief about this being is false (`clue --misleads--> npc|creature`). */
+    /**
+     * Contract §180.9: the clues whose belief about this being is false (`clue --misleads--> npc|creature`). §191.3: of every
+     * node of the being's group, each clue as the one that stands for it.
+     */
     misleadingClues(node: Row): Row[] {
         const seen = new Set<string>();
-        return (this.incoming.get(node.node_id) ?? []).flatMap(rel => {
-            const clue = this.nodes.get(rel.from_node_id);
-            if (rel.relation_kind !== "misleads" || clue?.node_kind !== "clue" || seen.has(clue.node_id))
+        return this.groupIncoming(node).flatMap(rel => {
+            const found = this.nodes.get(rel.from_node_id), clue = found ? this.survivorOf(found) : undefined;
+            if (rel.relation_kind !== "misleads" || found?.node_kind !== "clue" || !clue || seen.has(clue.node_id))
                 return [];
             seen.add(clue.node_id);
             return [clue];
         });
     }
-    /** The clues that support a conclusion (`clue --supports--> conclusion`), the reading `thread.ts` counts. */
+    /**
+     * The clues that support a conclusion (`clue --supports--> conclusion`), the reading `thread.ts` counts. §191.3: of every
+     * node of the conclusion's group, each clue as the one that stands for it, once.
+     */
     supportingClues(conclusion: Row): Row[] {
-        return (this.incoming.get(conclusion.node_id) ?? [])
+        return [...new Map(this.groupIncoming(conclusion)
             .filter(rel => rel.relation_kind === "supports" && this.nodes.get(rel.from_node_id)?.node_kind === "clue")
-            .map(rel => this.nodes.get(rel.from_node_id)!);
+            .map(rel => this.survivorOf(this.nodes.get(rel.from_node_id)!)).map(node => [string(node.node_id), node] as [string, Row])).values()];
     }
+    /** §191.3: a person's claims are every node of their group's: a copy's beliefs, lies and knowledge are theirs. */
     npcClaims(node: Row, predicate: string): Row[] {
-        return (this.claimsBySubject.get(node.node_id) ?? []).filter(c => c.predicate === predicate);
+        return this.groupOf(node).flatMap(each => this.claimsBySubject.get(string(each.node_id)) ?? []).filter(c => c.predicate === predicate);
     }
     npcKnows(node: Row): Array<{
         node: Row;
         handle: string;
         origin?: Row;
     }> {
-        const ids = [...this.npcClaims(node, "knows").map(c => row(c.object).node_id), ...array(recordOf(node).facts).map(f => f.clue_id)],
+        // §191.3: what any node of the person's group knows, each thing as the node that stands for it, once.
+        const facts = this.groupOf(node).flatMap(each => array(recordOf(each).facts)),
+            ids = [...this.npcClaims(node, "knows").map(c => row(c.object).node_id), ...facts.map(f => f.clue_id)],
             seen = new Set<string>();
         return ids.flatMap(id => {
-            const target = this.nodes.get(id);
-            if (!target || seen.has(id))
+            const found = typeof id === "string" ? this.nodes.get(id) : undefined, target = found ? this.survivorOf(found) : undefined;
+            if (!target || seen.has(string(target.node_id)))
                 return [];
-            seen.add(id);
+            seen.add(string(target.node_id));
+            const origin = this.adaptationOrigin(facts.find(f => f.clue_id === id)?.campaign_origin);
             return [{
                     node: target,
                     handle: this.handle(target),
-                    ...(this.adaptationOrigin(array(recordOf(node).facts).find(f => f.clue_id === id)?.campaign_origin)
-                        ? {origin: this.adaptationOrigin(array(recordOf(node).facts).find(f => f.clue_id === id)?.campaign_origin)!} : {})
+                    ...(origin ? {origin} : {})
                 }];
         });
     }
@@ -1355,8 +1382,10 @@ export class ModuleGraph {
     npcWouldSay(node: Row): string[] {
         return [...new Set([...this.claimLines(this.npcClaims(node, "asserts").filter(c => ["authored-lie", "authored-rumor"].includes(c.truth_status))), ...this.authoredLines(node, "lies"), ...array(row(node.properties).deflect_lines).map(v => typeof v === "string" ? v : row(v).line).filter(v => typeof v === "string" && v.trim()).map(v => v.trim())])];
     }
+    /** The people who know a thing; §191.3: each person once (a copy knows through them), the thing read as its survivor. */
     npcsKnowing(node: Row): string[] {
-        return this.kind("npc").filter(npc => this.npcKnows(npc).some(entry => entry.node.node_id === node.node_id)).map(npc => npc.node_id);
+        const target = this.survivorId(string(node.node_id));
+        return this.kind("npc").filter(npc => !this.isVariant(npc) && this.npcKnows(npc).some(entry => entry.node.node_id === target)).map(npc => npc.node_id);
     }
     npcHasMaterial(node: Row): boolean {
         // Core words only, matching `npcs_without_material`: a book silent about a package's key must
@@ -1410,7 +1439,9 @@ export class ModuleGraph {
             }
         });
         names.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-        return [...exact, ...names.map(n => n[2]), ...summaries].sort((a, b) => Number(a.node_kind === "investigator-template") - Number(b.node_kind === "investigator-template")).slice(0, limit);
+        const ranked = [...exact, ...names.map(n => n[2]), ...summaries].sort((a, b) => Number(a.node_kind === "investigator-template") - Number(b.node_kind === "investigator-template"));
+        // §191.3: each thing once, as the node that stands for it, where its first node ranked; a copy's names find it too.
+        return this.oneEach(ranked.map(node => string(node.node_id))).map(id => this.nodes.get(id)!).slice(0, limit);
     }
     /**
      * Contract §127.1: a query that is two or more words, each exactly a node's handle or node id,
@@ -1430,8 +1461,8 @@ export class ModuleGraph {
             if (!matches.length)
                 return null;
             // A handle two nodes share (`knott-commission` is a clue and a quest) answers with both,
-            // exactly as `search` does when that handle is the whole query.
-            for (const node of matches)
+            // exactly as `search` does when that handle is the whole query. §191.3: a copy's handle is the node that stands for it.
+            for (const node of matches.map(match => this.survivorOf(match)))
                 if (!nodes.includes(node))
                     nodes.push(node);
         }
@@ -1558,6 +1589,26 @@ export class ModuleGraph {
     /** §191.3: the nodes that read as one thing with `node`, its survivor first, then the graph's order. */
     groupOf(node: Row): Row[] {
         return this.survivors.group(string(node.node_id)).map(id => this.nodes.get(id)).filter((item): item is Row => !!item);
+    }
+    /** §191.3: the pairs a `different` verdict keeps apart that kernel identity relations join anyway (flagged, never resolved). */
+    identityConflicts(): IdentityConflict[] {
+        return this.survivors.conflicts();
+    }
+    /**
+     * §191.3: whether the table found this clue: `world.discovered_clues` holds the handle of any node of its group, the clue
+     * that stands for it or a copy found before the two were joined.
+     */
+    discovered(world: Row, clue: Row): boolean {
+        const found = array(world.discovered_clues);
+        return this.groupOf(clue).some(node => found.includes(this.handle(node)));
+    }
+    /** §191.3: a thing's other names for a reader that lists it once: its aliases, then each copy's name and aliases it lacks. */
+    groupAliases(node: Row): string[] {
+        const own = new Set([node.name, this.displayName(node)].filter((value): value is string => typeof value === "string").map(normalize)), out: string[] = [];
+        for (const each of this.groupOf(node))
+            for (const name of [...(each === node ? [] : [each.name]), ...array(each.aliases)])
+                if (typeof name === "string" && name.trim() && !own.has(normalize(name))) { own.add(normalize(name)); out.push(name); }
+        return out;
     }
     /** §191.3: the relations leaving any node of `node`'s group, the survivor's first. */
     private groupOut(node: Row): Row[] {

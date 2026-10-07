@@ -404,7 +404,7 @@ function exitRows(graph: ModuleGraph, world: Row, scene: Row, material: (name: s
         ...(Object.hasOwn(exit, "travel_minutes") ? { travel_minutes: exit.travel_minutes } : {}),
         ...(truth(exit.when) && row(exit.when).kind !== "always" ? { unlock_when: {
                 condition: describeCondition(exit.when),
-                met: conditionStatus(exit.when, world)
+                met: conditionStatus(exit.when, world, graph)
             } } : {}),
         material: material(graph.scene(exit.to).node_id)
     }));
@@ -560,8 +560,7 @@ export function npcsPresent(graph: ModuleGraph, world: Row, scene: Row): Row[] {
  * that stands for it or a copy found before the two were joined.
  */
 export function clueDiscovered(graph: ModuleGraph, world: Row, clue: Row): boolean {
-    const found = array(world.discovered_clues);
-    return graph.groupOf(clue).some(node => found.includes(graph.handle(node)));
+    return graph.discovered(world, clue);
 }
 export function cluesHere(graph: ModuleGraph, world: Row, scene: Row): Row[] {
     return graph.sceneClueIds(scene).map(id => {
