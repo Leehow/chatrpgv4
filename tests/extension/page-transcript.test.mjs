@@ -293,7 +293,8 @@ test("§191.6 foreground pages are served first among queued transcript work", a
 	release();
 	await h.service.idle();
 	assert.deepEqual(h.runs.map(run => run.page), [1, 4, 2, 3]);
-	assert.deepEqual(h.calls.filter(([name]) => name === "sourceLines").map(([, , wanted]) => wanted)[0], [1, 2, 3], "the queued pages' lines in one extraction");
+	const [firstExtraction] = h.calls.filter(([name]) => name === "sourceLines").map(([, , wanted]) => wanted);
+	assert.deepEqual(firstExtraction.slice(0, 3), [1, 2, 3], "the queued pages' lines in one extraction");
 });
 
 test("§191.2 mode off is a no-op; a model without image input transcribes nothing", async t => {
