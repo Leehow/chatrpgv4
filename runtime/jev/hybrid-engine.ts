@@ -558,6 +558,7 @@ interface RunState {
   steer?: Row;
   /** §163.9: close at the next policy boundary so a queued forced-choice repair precedes another Keeper proposal. */
   forceTurnClose?: boolean;
+  forceTurnCloseReason?: string;
   /**
    * §135.6 (SL-22 addendum): the run's previous read, by scene, with the prescreen outcome it ran or reused (absent when it
    * ran none): reuse requires the same scene, source evidence and player need; read_more refreshes it. The packet excludes issued bodies.
@@ -1219,6 +1220,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       ? await proposeStep(run, proposal.toolCall.id, object(proposal.params).key, stepId) : undefined;
     if (proposal.operation === 'lookup' && object(proposal.params).kind === 'historical_reference') run.historyAttempted = true;
     const toolResult = await execute();
+    // This narrow final-outcome refusal uses the existing turn-close steer, not a new batch adjudication/rewrite loop.
+    if (object(object(toolResult.details).coc_error).details?.reason === 'refused_document_outcome') {
+      run.forceTurnClose = true; run.forceTurnCloseReason = 'refused_document_outcome';
+    }
     if (!toolResult.isError && proposal.operation === 'lookup' && object(proposal.params).kind === 'historical_reference'
       && object(object(toolResult.details).retrieval).state === 'closed' && run.history && !run.history.closed) {
       run.history.closed = true;
@@ -2072,7 +2077,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     run.interactionScope = view.policyState.view.interactionScope ?? run.interactionScope;
     if (run.interactionScope && bridge?.campaign && run.turn !== undefined) {
       api?.events?.emit?.('coc:interaction-scope', {campaign: bridge.campaign, turn: run.turn, run: run.runId,
-        player_text: run.rawInput, mode: run.interactionScope.mode});
+        player_text: run.rawInput, mode: run.interactionScope.mode,
+        ...(run.interactionScope.documentRecording === undefined ? {} : {documentRecording:run.interactionScope.documentRecording})});
       if (run.interactionScope.mode === 'reference') Object.assign(content, {interaction_scope: 'reference', interaction_scope_note: REFERENCE_SCOPE_NOTE});
     }
     run.unresolvedAttack = view.policyState?.view?.fightDeclared === true && view.policyState?.view?.fightLanded !== true;
@@ -2300,7 +2306,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       if (forceTurnClose) {
         run.forceTurnClose = undefined;
         record({lane: 'run', event: 'turn_close_forced', run: run.runId, turn: run.turn, step: `${run.runId}:s${driver.steps + 1}`,
-          reason: 'forced_choice_repair'});
+          reason: run.forceTurnCloseReason ?? 'forced_choice_repair'});
+        run.forceTurnCloseReason = undefined;
       }
       const request: DriverStepRequest = forceTurnClose
         ? {kind: 'operate', reason: 'turn_close', proposals: [{origin: 'policy', operation: 'turn_close', readOnly: false, label: 'close the turn'}]}
