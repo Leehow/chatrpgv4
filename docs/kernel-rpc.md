@@ -36260,3 +36260,110 @@ its behaviour. The item and object givers are read back from `npc-ledger.json`; 
 test that names it: owed `with`, `subject` and object `to` back to `===`; `apply item from` back to `EntityIndex`; the
 ledger reading `from` only; the reunion ignoring `from_id`; `ownerIn` without `calledPerson`; the transfer receipt without
 `from_id`; the damage subject not read by `readCalledPeople`; `referencedPerson` without the table layer.
+
+#### NR-04b (188.4 batch B, 2026-10-07, `claude/names-rename-20261007-junctionB`)
+
+**The junction, once more.** No new resolver. Entrances that take a person read `npcNode` / `personNode` / `calledPerson` /
+`referencedPerson` (§87.8, NR-04a); entrances that take any entity read `ModuleGraph.resolve` (its §2 anchored run and §185.3's
+retry included). Two readers are added beside them:
+- `EntityIndex` (`kernel-ts/read/memory.ts:79`) takes the world as a fifth argument. A word its own steps (reserved, an
+  investigator, the graph's exact names, a scene label) leave unanswered is read by the junction (`people`, :120):
+  `graph.npc`, then every owner of the table's word, so two owners come back as two keys and every caller refuses them as
+  ambiguous. A caller that passes no world gets `resolve` without the table layer.
+- `samePersonReference(graph, world)` (`kernel-ts/read/capsule.ts:138`): whether a stored reference and another name one
+  person (`referencedPerson` on both sides); a value that names nobody matches only its own spelling. For
+  `memory/fulfillment-view.ts`, which reads no graph and now takes it as an optional `samePayer`.
+
+**Converted entrances (before → after).**
+- **Memory lane `subject` / `knowers` / `entities`, legacy and referenced protocol** (`memory/jobs.ts:332` `submit`,
+  `memory/referenced.ts:258` `submitReferenced`, through `validateCandidates`): `EntityIndex.matches` over the graph's exact
+  names → the same, then the junction. The row still stores the graph's display name (`canonicalName`), so the stored format
+  is unchanged; a table word that was refused `not a known name` is now that person. `memory.evidence`'s `filters.about`
+  (`memory/evidence.ts:81`) reads the same way. `table.recall` already reached the table's word (§177.13) and is unchanged.
+- **`apply note` `entities`** (`apply/bookkeeping.ts:164`): the same index with the world. *Stored format:* a table word (or
+  an anchored run, or a renamed spelling) is now stored as the person's display name, as a book name always was; before, it was
+  stored as written. The receipt's `entities` and the capsule's note `cue` show that name (§103.5's rename still hides an untold
+  one in the Keeper's request). A word two people carry, and free text, stay as written.
+- **Notes linked to who is here** (`noteObligations`, `read/memory.ts:302`, called at `read/assemble.ts:450`): stored entities
+  and the present people and place compared by `normalize` → by `lenientKey` of an index with the world and the scene labels,
+  so a note an older kernel stored under the table's word links where that person stands.
+- **`apply ruling` anchor `entities`** (`apply/bookkeeping.ts:197`): an investigator, else `graph.resolve` → the same, then
+  `calledPerson` when the graph misses. Stored as the handle, as before; a word two people carry is refused naming both.
+- **Ruling anchors in the capsule** (`rulingsForCapsule`, `read/memory.ts:321`, given `currentHandle` at
+  `read/assemble.ts:496`): a stored anchor compared by spelling with the present handles → read as the current handle of the
+  node it names. `rulings.jsonl` is append-only history (§185.6.1), so a ruling anchored before a fold kept the interim handle
+  and stopped surfacing.
+- **`resolve` `action.obligation`** (`obligationByHandle`, `read/obligations.ts:58`): an exact handle or node id → that, else
+  `graph.find(name, ["requirement"])` kept only when it is a stated obligation. The requirement's name, an anchored run and a
+  renamed handle now bind; a name that is no obligation is `obligation_unknown` as before. `continuedClaim` and the offer
+  ledger read stored handles through the same function.
+- **Mod dossier `name`** (`beingNamed`, `mods/dossier-door.ts:34`): `graph.npc`, then a creature → `npcNode` (the table's word
+  after the graph's npc; two owners refused naming both), then a creature. The receipt still names the display name.
+- **The material gate's pre-pass** (`apply/index.ts:145`): an `npc` effect's name read by `graph.find(name, ["npc"])` → that,
+  then `calledPerson`. *Visible:* a book person whose record is not read, named by the table's word, is now held
+  `material_pending` with his handle as `focus`, as his book name always was; before, the word reached the gate as nobody and
+  the person was placed with no material. A word two people carry is left to `apply npc`'s own refusal.
+- **Chase** (`kernel-ts/chase/bindings.ts`, one reader `chaseBeing` :27 = `personNode`):
+  - `chase_roster[].actor` (:294) and `riding_with` (:322, `participantOf`): spelling against a present opponent's handle or
+    display name, and `riding_with` against the roster's own spelling of the driver → the acting investigator by sheet id or
+    name, anyone else by the junction, matched to a present opponent by node. The table's word now names a runner and a driver.
+  - `action.target` at the start (:396): spelling against handle or display name, silently ignored on a miss → the being the
+    target names, by node. A target that names nobody present still leaves every pursuer (unchanged).
+  - `action.target` on `conflict` (:499): spelling against the participant id or label → an investigator by sheet, anyone else
+    by `sameNode` with the saved participant; a word that names nobody compares its spelling as before.
+- **The say token** (`speakerResolver`, `write/speech.ts:64`): the graph step was an exact name key over every npc → `graph.find(
+  name, ["npc"])`. *Visible:* a token in §2's anchored run (`{{say:Hall of Records clerk}}` for "the Hall of Records clerk")
+  now attributes the line to that person instead of leaving a label. Present people, the party and `calledPerson` are unchanged.
+- **`lookup kind=module`** (`read/handlers.ts:553`): after `search` and `handleList` miss, `graph.find(query, expected ? [expected]
+  : undefined)` before the person junction and the unread cast. *Visible:* a handle the request's rename rewrote
+  (`<word>-house`), an anchored run and, with `expected_kind: scene`, a part of a place (§32's place layer) are found instead of
+  `not_found`.
+- **The clue-label matcher** (`knownLabel`, `read/mods.ts:975`): the labelled keys were counted as strings, and two keys failed
+  over silently to the graph's names → each key read as the clue it names (`graph.find(key, ["clue"])`), deduplicated by node.
+  One clue filed under two spellings of its handle is that clue; *visible:* a label two different clues carry is refused
+  `unknown_entity` with both as candidates.
+- **A promise's cash counterparty** (`fulfillmentReceiptAmount` / `derivePromiseFulfillment`, `memory/fulfillment-view.ts`):
+  `receipt.with !== term.payer` → `samePayer`, given `samePersonReference` by `prepareFulfillments`
+  (`memory/fulfillment-receipt.ts:193`, the write path), the capsule (`read/assemble.ts:428`) and `presentSection`
+  (`read/capsule.ts:772`, the card and `look`). Kernel-written linked receipts carry the handle the payer carries; this reads a
+  stored receipt whose `with` holds another spelling of the same person as that person.
+- **A promised item's giver** (`effectOwners`, `memory/fulfillment-receipt.ts:175`): `EntityIndex` over the graph's names, and
+  the label `canonicalName` → the payer `objectOwner` already read (NR-04a's `ownerIn`), labelled `personLabel`. NR-04a made
+  `apply item` store what this table calls the giver as `from`, so the prepared label (the display name) no longer matched the
+  staged receipt and a promised item from a worded person could not attach. *Stored format:* the link's `source_label` is the
+  table's word when there is one.
+
+**Not converted, and why.**
+- `effectTarget` (`mods/effects.ts`): no caller hands it an unread word. Its default and `castNpc`'s target are `action.target`,
+  read at the resolve entrance (`readCalledPeople`); `castNpc`'s caster is `objectOwner`'s display name; the magic executor passes
+  a stored handle. A conversion would be unreachable, so no test could fail on its revert.
+- `castPersonNamed` (`read/cast.ts`): every caller asks the junction first (lookup: `personNode`; the gate: `graph.find` after the
+  resolve entrance or the pre-pass above). The unread cast has no node for `resolve` to answer, and its comparison is equality
+  with the row's names, epithet and id, which is the cast's identity (§177.1). (`cast.ts` is NR-01/NR-02's file.)
+- `newcomerRefusal`: not a reference. It asks whether a new name carries a book name, after `personNode` (`apply/index.ts:165`)
+  has found nobody; undoing the rename there would refuse a newcomer whose description holds someone's shown word.
+- `EntityIndex` without the world, where stored memory (always the display name since validation) is compared with internal
+  names: `buildJob` and `correctionJob` (`memory/jobs.ts`), the supersede key, `recall`, `worldline`, `continuity`, the
+  continuity audit, the capsule's memory anchors and the referenced job's preference index. The table's word never reaches
+  them as input; `resolve`'s layers reach them through the same `matches`.
+- `withPromiseFulfillment` without `samePayer`: recall (no graph in scope), the referenced job, worldline, continuity, the
+  continuity audit, the NPC perspective and situation, and the fulfillment options lane. They keep the spelling comparison;
+  kernel-written receipts do not differ there.
+- Found and not in batch B: `canonicalOwner` (`memory/fulfillment-receipt.ts`) compares a stored term owner with the current
+  owner id by spelling, so a partial promise bound before a §185.6 fold is refused `fulfillment_target_changed` after it.
+  A Mod document seed's `handout` (`mods/jobs.ts`, in NFH-01's list) is on neither batch of 188.4.
+
+**Tests.** `tests/extension/reference-junction-batch-b.test.mjs` (The Haunting in process, the object-usages fixture: memory
+lane legacy and referenced, `memory.evidence`, recall, notes and their capsule link, ruling anchors, obligations, dossier, say
+token, clue labels, chase start / roster / passenger / conflict), `reference-junction-batch-b-fulfillment.test.mjs` (a cash and
+an item promise of the worded Knott: prepare, attach, the capsule's obligation row, the card and `look`), and
+`reference-junction-batch-b-books.test.mjs` (the reader-built harbor book: the gate holds the worded harbormaster; a ruling on
+Old Mae survives a fold; the legacy rename fixture: `lookup` finds `<word>-house`). Per entrance the table's word, the told name
+and the handle (or node id) reach the same person or entity; another lands on that other one or is refused; a word two people
+carry is refused naming both; free text keeps its behaviour. Mutations by copy, each red in the test that names it: the
+`EntityIndex` junction removed; the world dropped at `submit`, `submitReferenced`, `memory.evidence` and `apply note`;
+`noteObligations` back to `normalize`; the ruling anchor without `calledPerson`; the capsule without `currentHandle`;
+`obligationByHandle` without `resolve`; `beingNamed` back to `graph.npc`; the say token back to the exact key; the clue
+labels counted by key, and the two-clue refusal removed; the chase start, roster actor, `riding_with` and conflict back to
+spelling; `samePayer` dropped at `prepareFulfillments`, the capsule and `presentSection`; the item giver labelled by display
+name; the gate pre-pass without the junction; `lookup` without `resolve`.

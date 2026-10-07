@@ -14,6 +14,7 @@ import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
 import { VOCABULARY_SPINES, WEAKNESSES_CAPABILITY } from '../read/mods.js';
 import type { ModuleGraph } from '../read/module-graph.js';
+import { npcNode } from '../read/capsule.js';
 import { array, entries, repr, row, string, truth, type Row } from '../read/values.js';
 import type { DomainEvent } from '../transactions.js';
 import type { ApplyContext } from '../apply/index.js';
@@ -27,10 +28,12 @@ const LINE_CHARS = 200;
 const WEAKNESS_FIELDS = new Set(['book', 'needs']);
 
 /** The being a dossier names: a person by the book's or the table's name, else a creature (any: a creature without a stat
- *  block still has habits and weaknesses). A miss is the person refusal, whose candidates are the next step. */
-function beingNamed(graph: ModuleGraph, name: string): Row {
+ *  block still has habits and weaknesses). A miss is the person refusal, whose candidates are the next step. §188.4 (§87.8):
+ *  the person is read by the junction (`npcNode`: the graph's npc, then this table's word; a word two people carry is
+ *  refused naming both). */
+function beingNamed(graph: ModuleGraph, world: Row, name: string): Row {
     try {
-        return graph.npc(name);
+        return npcNode(graph, world, name);
     }
     catch (error) {
         if (!(error instanceof RpcError) || error.code !== 'unknown_entity')
@@ -108,7 +111,7 @@ async function weaknessEntries(context: ApplyContext, value: unknown, who: strin
 
 export async function stageDossier(context: ApplyContext, effect: Row, active: Row[]): Promise<{ receipt: Row; event: DomainEvent }> {
     const { graph, world, callId } = context, turn = context.turn.turn, mint = (id: string) => context.mint(id);
-    const node = beingNamed(graph, required(effect, 'name')!), handle = graph.handle(node), person = graph.isPerson(node);
+    const node = beingNamed(graph, world, required(effect, 'name')!), handle = graph.handle(node), person = graph.isPerson(node);
     const who = graph.displayName(node);
     const values = effect.values;
     if (!isJsonObject(values) || !entries(values).length)

@@ -9,7 +9,7 @@ import {array, clone, row, string, type Row} from '../read/values.js';
 import {cashDecimal, addCash, compareCash, cashText, type Decimal} from '../apply/cash.js';
 import {objectOwner} from '../mods/stage.js';
 import {ownerLabel} from '../mods/object-transfer.js';
-import {EntityIndex} from '../read/memory.js';
+import {personLabel,samePersonReference} from '../read/capsule.js';
 import {assertSourceRef, issueSourceRef, resolveSourceRef, type SourceSnapshot} from '../../runtime/jev/source-ref.ts';
 import type {SourceRef, ScopeBinding} from '../../runtime/jev/value-contracts.ts';
 import {fulfillmentDecimal,validateFulfillmentTerms,fulfillmentReceiptAmount,derivePromiseFulfillment,
@@ -172,9 +172,11 @@ async function effectOwners(context:FulfillmentContext,effect:Row,term:PromiseTe
     if(effect.kind==='item') {
         if(recipient.kind!=='investigator'||payer.kind!=='npc'||effect.name!==term.item||effect.weapon!==undefined)
             return fail('unsupported_terms','A simple item reward must use its bound item identity and ordinary nonweapon inventory path');
-        const index=new EntityIndex(context.graph,await context.campaign.party() as Row[]),matches=index.matches(effect.from,{kinds:['npc'],investigators:false});
-        if(matches.length!==1) return fail('fulfillment_target_changed','The item giver is not a unique current NPC');
-        return {sourceLabel:index.canonicalName(matches[0])};
+        // §188.4: the giver is the payer `objectOwner` read above (the §87.8 junction, this table's word included), and the label
+        // is the word `apply item` stores as the receipt's `from` (`personLabel`), so the staged receipt is compared with it.
+        const giver=context.graph.find(payer.id,['npc']);
+        if(!giver) return fail('fulfillment_target_changed','The item giver is not a unique current NPC');
+        return {sourceLabel:personLabel(context.world,payer.id,context.graph.displayName(giver))};
     }
     return {sourceLabel:ownerLabel(context.world,payer)};
 }
@@ -187,6 +189,8 @@ export async function prepareFulfillments(input:FulfillmentContext&{bindings:Ful
     if(!Array.isArray(input.bindings)||!input.bindings.length||input.bindings.length>8||!Array.isArray(input.effects))
         return fail('unsupported_terms','A bounded fulfillment selection is required');
     const bindings=clone(input.bindings) as FulfillmentSelection[],effects=clone(input.effects),scope=stateScope(input.campaign.id,await input.campaign.readCampaign());
+    // §188.4: a stored counterparty is compared with the term's payer as the person each names (the §87.8 junction).
+    const samePayer=samePersonReference(input.graph,input.world);
     const snapshot=new CampaignSnapshot(input.kernel,input.campaign.id),history=await snapshot.files('turns');
     const receipts=clone([...history.flatMap(record=>array(record.receipts)),...array(input.turn.receipts)]) as Row[],receiptIds=new Map<string,Row>();
     for(const receipt of receipts) {
@@ -206,7 +210,7 @@ export async function prepareFulfillments(input:FulfillmentContext&{bindings:Ful
         const source=await promiseFulfillmentSources(input,binding.promiseId);
         if(!same(source.refs,binding.promiseRefs)) return fail('needs_source','The promise binding changed its exact original references');
         for(const id of binding.conditionReceipts) if(!receiptIds.has(id)) return fail('fulfillment_condition_missing','A selected condition receipt does not exist in current canonical history');
-        const view=derivePromiseFulfillment(binding.promiseId,receipts,binding);prior.set(binding.promiseId,view);
+        const view=derivePromiseFulfillment(binding.promiseId,receipts,binding,samePayer);prior.set(binding.promiseId,view);
         if(view.status==='complete') return fail('promise_already_fulfilled','This exact promise occurrence has already been fulfilled');
         const remaining=view.terms.map(term=>fulfillmentDecimal(term.remaining));
         for(const term of binding.terms) {
@@ -267,13 +271,13 @@ export async function prepareFulfillments(input:FulfillmentContext&{bindings:Ful
                     ||compareCash(cashDecimal(instance.quantity)??ZERO,cashDecimal(receipt.quantity)??ZERO)!==0)
                     return fail('fulfillment_receipt_invalid','The staged physical instance does not match the accepted definition, quantity and destination');
             }
-            const actual=fulfillmentReceiptAmount(receipt,value.term);
+            const actual=fulfillmentReceiptAmount(receipt,value.term,undefined,samePayer);
             if(compareCash(actual,value.amount)!==0) return fail('fulfillment_receipt_invalid','The actual effect amount differs from its source-bound proposed amount');
             const link:Row={version:1,promise:value.binding.promiseId,promise_source_refs:clone(value.binding.promiseRefs),scope:clone(value.binding.scope),
                 terms_digest:value.binding.digest,terms:clone(value.binding.terms),term:value.term.ordinal,condition_receipts:[...value.binding.conditionReceipts],
                 applied:cashText(actual),status:'partial',...(value.sourceLabel===null?{}:{source_label:value.sourceLabel})};
             const staged={...receipt,fulfillment:link};simulated.push(staged);
-            link.status=derivePromiseFulfillment(value.binding.promiseId,simulated,value.binding).status;
+            link.status=derivePromiseFulfillment(value.binding.promiseId,simulated,value.binding,samePayer).status;
             pending.push({receipt,link});
         }
         // No staged receipt changes until every link and the whole-batch conservation checks passed.

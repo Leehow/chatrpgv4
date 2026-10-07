@@ -130,6 +130,32 @@ export function referencedPerson(graph: ModuleGraph, world: Row, name: string): 
     }
 }
 /**
+ * Contract §188.4: whether a stored reference and another name one person -- the same string, or one npc node when both are
+ * read through `referencedPerson` (a handle, an interim handle, the book's name, this table's word, §185.3's retry). A value
+ * that names nobody, or two people, matches only its own spelling. For a reader that compares stored state and has no
+ * graph of its own (`memory/fulfillment-view.ts`).
+ */
+export function samePersonReference(graph: ModuleGraph, world: Row): (stored: unknown, other: string) => boolean {
+    const node = (value: unknown): Row | null => {
+        if (typeof value !== 'string' || !value.trim())
+            return null;
+        try {
+            return referencedPerson(graph, world, value.trim());
+        }
+        catch (error) {
+            if (error instanceof RpcError)
+                return null;
+            throw error;
+        }
+    };
+    return (stored, other) => {
+        if (stored === other)
+            return true;
+        const a = node(stored), b = a ? node(other) : null;
+        return !!a && !!b && a.node_id === b.node_id;
+    };
+}
+/**
  * Contract §180.5: the junction of an entrance a creature fills too -- the NPC act's reads (`npc.situation`,
  * `npc.act.options`, `npc.stakes`). A person first, exactly as `npcNode` reads one; on a miss, a creature that states a
  * stat block (an actor, §136.12); else the person refusal unchanged, whose candidates are still the next step.
@@ -743,7 +769,7 @@ export function creatureEntry(graph: ModuleGraph, world: Row, node: Row, ledger:
 /** `options.chain` is what §180.9's chain reads beyond the world (the investigators and their spells); without it a need
  *  still names itself, and an object placed as an instance still says who holds it. */
 export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledger: Row = {}, memory: Row[] = [], across: (node: Row) => Row[] = () => [], options: { voices?: boolean; journal?: Row; records?: Row[]; currentReceipts?: Row[]; campaign?:string; scope?:Row; chain?: ChainReads } = {}): Row[] {
-    const projected=withPromiseFulfillment(memory,{campaign:options.campaign,receipts:canonicalMemoryReceipts(options.records??[],options.currentReceipts??[]),world});
+    const projected=withPromiseFulfillment(memory,{campaign:options.campaign,receipts:canonicalMemoryReceipts(options.records??[],options.currentReceipts??[]),world,samePayer:samePersonReference(graph,world)});
     const memories=new Map<string,Row>();
     for(const value of projected.filter(m=>truth(m.id))) {
         const prior=memories.get(string(value.id));
