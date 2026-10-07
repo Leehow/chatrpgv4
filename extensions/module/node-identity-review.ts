@@ -1,7 +1,7 @@
 /**
  * Contract §191.5: the independent identity reviewer's question about two published nodes that one name or one cast row
  * joins. A tool-enabled Pi reader opens both nodes' pages of each pair with the `pdf` tool and answers `same` (one thing in
- * the book) or `different` (two things that share a name); the host checks that it opened a page of every side that has
+ * the book), `different` (the pages show two things that share a name) or `unsure` (they do not let it tell; DUP-03b); the host checks that it opened a page of every side that has
  * pages before the answers go to the kernel. Nothing here decides sameness: the kernel's trigger only raised the question.
  */
 import {mkdir,mkdtemp,readFile,writeFile} from 'node:fs/promises';
@@ -83,7 +83,8 @@ export async function reviewNodeIdentity(options: {
 			const path = join(options.cwd, 'node-identity.json');
 			await writeFile(path, JSON.stringify({protocol: NODE_IDENTITY_PROTOCOL, verdicts, read_pages: read}, null, 2) + '\n');
 			options.record({lane: 'reading', event: 'node_identity', attempt, ms: run.ms, pairs: options.pairs.length, pages: read,
-				same: verdicts.filter(verdict => verdict.verdict === 'same').length, different: verdicts.filter(verdict => verdict.verdict === 'different').length});
+				same: verdicts.filter(verdict => verdict.verdict === 'same').length, different: verdicts.filter(verdict => verdict.verdict === 'different').length,
+				unsure: verdicts.filter(verdict => verdict.verdict === 'unsure').length});
 			return {path, pages: read};
 		} catch (failure) {
 			// A cancelled reading was not left unanswered by its reviewer: it is stopped, not failed.

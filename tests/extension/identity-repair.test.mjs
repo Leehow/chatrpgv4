@@ -35,6 +35,9 @@ await build({stdin: {contents: [
 	`export {ModuleStore} from './kernel-ts/modules/store.ts';`,
 	`export {ensureCampaignModule, libraryLineage, moduleContext} from './kernel-ts/modules/campaign-scope.ts';`,
 	`export {createModuleRuntime} from './kernel-ts/modules/index.ts';`,
+	`export {loadCampaignModule} from './kernel-ts/read/campaign.ts';`,
+	`export {bookCast} from './kernel-ts/read/cast.ts';`,
+	`export {untoldRoster} from './kernel-ts/read/capsule.ts';`,
 	`export {repairCandidates} from './kernel-ts/modules/identity-repair.ts';`,
 	`export {identityPairKey} from './kernel-ts/modules/published-duplicates.ts';`,
 ].join('\n'), resolveDir: ROOT, sourcefile: 'identity-repair-api.ts', loader: 'ts'},
@@ -100,6 +103,7 @@ async function book(name) {
 	b.identityJobs = async campaign => (await b.queue(campaign)).filter(job => job.node_identity);
 	b.relations = async campaign => (await b.raw(campaign)).relations.filter(rel => rel.relation_id.startsWith('rel-identity-'));
 	b.key = (kind, x, y) => api.identityPairKey(sha, kind, x, y);
+	b.campaignCast = async () => { try { return JSON.parse(await readFile(join(b.store().moduleDir(mid), 'cast.json'), 'utf8')).people.map(row => ({book: row.book, play: row.play})); } catch { return []; } };
 	/** A live campaign (its `campaign.json`) with its fork seeded from the library's head. */
 	b.campaign = async campaign => {
 		await mkdir(join(workspace, '.coc/campaigns', campaign), {recursive: true});
@@ -323,7 +327,8 @@ test('§191.5 the kernel refuses an identity answer that skips a pair, a side th
 	await save(join(job.work_dir, 'observations.json'), {file_sha256: b.sha, read_pages: [1, 2], full_pages: [], review_pages: []});
 	const done = await finish();
 	assert.deepEqual([done.node_identity.same, done.node_identity.different], [1, 1]);
-	assert.throws(() => nodeIdentityVerdicts({verdicts: [{key: 'k', verdict: 'maybe', reason: 'r'}]}, [{key: 'k'}]), /same, different/);
+	assert.throws(() => nodeIdentityVerdicts({verdicts: [{key: 'k', verdict: 'maybe', reason: 'r'}]}, [{key: 'k'}]), /same, different, unsure/);
+	assert.equal(nodeIdentityVerdicts({verdicts: [{key: 'k', verdict: 'unsure', reason: 'The pages do not say.'}]}, [{key: 'k'}], {complete: true})[0].verdict, 'unsure');
 	assert.throws(() => nodeIdentityVerdicts({verdicts: [{key: 'k', verdict: 'same', reason: ' '}]}, [{key: 'k'}]), /reason/);
 	assert.throws(() => nodeIdentityVerdicts({verdicts: [{key: 'x', verdict: 'same', reason: 'r'}]}, [{key: 'k'}], {complete: true}), /not asked/);
 });
@@ -380,21 +385,24 @@ test('§191.5 with no fork holding its lineage, the library is repaired by its o
 
 test('§191.5 a fork takes the library\'s reviewed decisions instead of asking again', async () => {
 	const b = await book('fork-takes');
-	await seed(b, [BRENNER, PETE]);
-	await seed(b, [BRENNER_COPY, BENSON]);
+	const guard = npc('npc-guard', 'Guard', P1, {summary: 'A guard at the gate.'}), gateGuard = npc('npc-guard-base', 'Guard', P2, {summary: 'A guard at the base.'});
+	await seed(b, [BRENNER, PETE, guard]);
+	await seed(b, [BRENNER_COPY, BENSON, gateGuard]);
 	await b.campaign('early');
 	// The library answers its own pairs (its own read-ahead, no fork holds its lineage after this publication).
 	await seed(b, [scene('scene-junkyard', 'Junkyard', P2)]);
 	await b.ahead();
-	await service(b, {identity: differentPete}).run(await claimIdentity(b));
+	const unsureGuard = pair => pair.a.node_id === guard.node_id ? {verdict: 'unsure', reason: 'Neither page says which gate.'} : differentPete(pair);
+	await service(b, {identity: unsureGuard}).run(await claimIdentity(b));
 	const decided = await b.meta();
-	assert.equal(Object.keys(decided.reading.identity).length, 1);
+	assert.deepEqual(Object.values(decided.reading.identity).map(record => record.verdict).sort(), ['different', 'unsure']);
 	const loaded = await b.ahead('early');
-	assert.deepEqual([loaded.identity_repair.imported, loaded.identity_repair.open], [2, 0], JSON.stringify(loaded.identity_repair));
+	assert.deepEqual([loaded.identity_repair.imported, loaded.identity_repair.open], [3, 0], JSON.stringify(loaded.identity_repair));
 	assert.equal(loaded.identity_repair.asked, undefined, 'the fork asks nothing the library answered');
 	const meta = await b.meta('early'), key = b.key('npc', PETE.node_id, BENSON.node_id);
 	assert.equal(meta.reading.identity[key].verdict, 'different');
 	assert.deepEqual(meta.reading.identity[key].imported_from, {store: 'library', generation: decided.generation});
+	assert.equal(meta.reading.identity[b.key('npc', guard.node_id, gateGuard.node_id)].verdict, 'unsure', 'an unsure travels too, so the fork does not ask it');
 	assert.ok((await b.relations('early')).some(rel => rel.from_node_id === BRENNER_COPY.node_id && rel.properties.identity_review.imported_from.store === 'library'));
 });
 
@@ -413,4 +421,55 @@ test('§191.5 the repair is maintenance: a library record it cannot read is repo
 	assert.equal(opened.identity_repair.library_repair.state, 'failed');
 	assert.ok(Array.isArray(opened.queued) && opened.window, 'the read-ahead answered as it always does');
 	assert.deepEqual((await b.relations('table')).map(rel => rel.relation_id), [`rel-identity-${STORE_COPY.node_id}-to-${STORE.node_id}`]);
+});
+
+test('§191.5 DUP-03b doubt never splits: unsure keeps a cast-folded pair one person and is never asked again; different splits; same writes the relation', async () => {
+	const b = await book('doubt');
+	// Three people the cast holds as one individual each, read twice under two different own names (Blood Road's Sutton,
+	// Alissya and Brenner): no name raises them, the cast does, and a verdict job is asked.
+	const row = (id, forms) => ({id, book: forms, play: forms, notes: forms, pages: [1, 2]});
+	await save(join(b.store().moduleDir(b.mid), 'cast.json'), {version: api.CAST_VERSION, source_sha256: b.sha, state: 'complete', ranges_done: 1, ranges_total: 1,
+		people: [row('cast-sutton', ['Matthew Peter Sutton', 'Matthew Sutton', 'Peter Sutton']), row('cast-alissya', ['Alissya Ssrissi Ana', 'Alissya', 'Ssrissi Ana']),
+			row('cast-brenner', ['Robert L. Brenner', 'Robert Brenner', 'Dr Brenner'])]});
+	const person = (id, name, full, refs) => npc(id, name, refs, {aliases: [full], summary: `${name}, as one page names them.`});
+	const SUTTON = [person('npc-matthew-sutton', 'Matthew Sutton', 'Matthew Peter Sutton', P1), person('npc-peter-sutton', 'Peter Sutton', 'Matthew Peter Sutton', P2)];
+	const ALISSYA = [person('npc-alissya', 'Alissya', 'Alissya Ssrissi Ana', P1), person('npc-ssrissi-ana', 'Ssrissi Ana', 'Alissya Ssrissi Ana', P2)];
+	const ROBERT = [person('npc-robert-brenner', 'Robert Brenner', 'Robert L. Brenner', P1), person('npc-dr-brenner', 'Dr Brenner', 'Robert L. Brenner', P2)];
+	await seed(b, [SUTTON[0], ALISSYA[0], ROBERT[0]]);
+	await seed(b, [SUTTON[1], ALISSYA[1], ROBERT[1]]);
+	const asked = await b.ahead();
+	assert.deepEqual([asked.identity_repair.merged, asked.identity_repair.open], [0, 3], JSON.stringify(asked.identity_repair));
+	const job = await claimIdentity(b);
+	assert.deepEqual(job.node_identity.pairs.map(pair => [pair.a.node_id, pair.b.node_id, pair.raised_by]), [
+		['npc-alissya', 'npc-ssrissi-ana', 'cast'], ['npc-dr-brenner', 'npc-robert-brenner', 'cast'], ['npc-matthew-sutton', 'npc-peter-sutton', 'cast']]);
+	const answers = {'npc-matthew-sutton': {verdict: 'unsure', reason: 'Page 2 names a Peter Sutton but never says whether he is Matthew.'},
+		'npc-alissya': {verdict: 'different', reason: 'Page 1 is the girl; page 2 is her mother, who shares the family name.'},
+		'npc-dr-brenner': {verdict: 'same', reason: 'Both pages describe the one town doctor.'}};
+	const host = service(b, {identity: pair => answers[pair.a.node_id]});
+	await host.run(job);
+	const meta = await b.meta(), key = pair => b.key('npc', ...pair.map(node => node.node_id).sort());
+	assert.deepEqual(meta.reading.identity[key(SUTTON)], {verdict: 'unsure', kind: 'npc', nodes: ['npc-matthew-sutton', 'npc-peter-sutton'], by: 'review',
+		job_id: job.job_id, reason: answers['npc-matthew-sutton'].reason, generation: meta.generation}, 'an unsure is kept under the pair\'s key');
+	assert.equal(meta.reading.identity[key(ALISSYA)].verdict, 'different');
+	assert.deepEqual((await b.relations()).map(rel => rel.relation_id), ['rel-identity-npc-dr-brenner-to-npc-robert-brenner'], 'only same writes a relation');
+	assert.ok(host.rows.some(r => r.event === 'node_identity_published' && r.same === 1 && r.different === 1 && r.unsure === 1), JSON.stringify(host.rows));
+	// Never asked again: no candidate is left, and the next read-ahead is quiet.
+	assert.deepEqual(api.repairCandidates(b.mid, await b.raw(), meta, (await b.campaignCast())), []);
+	assert.equal((await b.ahead()).identity_repair, undefined);
+	assert.equal((await b.identityJobs()).length, 1);
+	// Read as a table reads it (the campaign loader installs the cast fold and the verdicts): the unsure pair stays one person,
+	// the different pair is two, the same pair is one by its relation.
+	await b.campaign('table');
+	const world = {active_scene: 'scene-main-street'}, loaded = (await api.loadCampaignModule(b.context, b.mid, world, 'table')).graph;
+	const persons = api.bookCast(loaded).filter(each => each.nodes.length).map(each => each.nodes.map(node => node.node_id).sort());
+	assert.ok(persons.some(ids => JSON.stringify(ids) === JSON.stringify(['npc-matthew-sutton', 'npc-peter-sutton'])), `Sutton is one person: ${JSON.stringify(persons)}`);
+	assert.ok(persons.some(ids => JSON.stringify(ids) === JSON.stringify(['npc-dr-brenner', 'npc-robert-brenner'])), 'Brenner is one person');
+	assert.ok(persons.some(ids => JSON.stringify(ids) === JSON.stringify(['npc-alissya'])) && persons.some(ids => JSON.stringify(ids) === JSON.stringify(['npc-ssrissi-ana'])),
+		`Alissya and Ssrissi Ana are two: ${JSON.stringify(persons)}`);
+	assert.equal(loaded.resolve('Peter Sutton', ['npc']).node_id, loaded.resolve('Matthew Sutton', ['npc']).node_id, 'either name resolves to the one Sutton');
+	assert.notEqual(loaded.resolve('Ssrissi Ana', ['npc']).node_id, loaded.resolve('Alissya', ['npc']).node_id);
+	// Told through one copy, the unsure pair's person is told; the different pair's other person is not.
+	const told = api.untoldRoster(loaded, world, {entries: {'npc-peter-sutton': {named_at: 1}, 'npc-alissya': {named_at: 1}}}, []);
+	assert.ok(!told.some(entry => ['Matthew Sutton', 'Peter Sutton', 'Matthew Peter Sutton'].includes(entry.name)), `Sutton told through his copy: ${JSON.stringify(told.map(e => e.name))}`);
+	assert.ok(told.some(entry => entry.name === 'Ssrissi Ana'), 'the different one is still untold');
 });

@@ -152,10 +152,11 @@ export async function publishIdentities(store: ModuleStore, mid: string, writes:
 
 /**
  * `publishIdentities` for a caller that already holds module `mid`'s metadata lock (§191.5: the read-ahead's repair, an
- * identity job's finish). `verdicts` are the `different` answers the same publication records in `module.json`
+ * identity job's finish). `verdicts` are the `different` and `unsure` answers the same publication records in `module.json`
  * `reading.identity` (§191.1's key and record, without `generation`): they are kept before any relation is written, so no
- * write joins a pair one of them keeps apart, and each is stamped with the generation the publication lands on (the current
- * one when no relation lands). The record is written whenever a verdict is new, even when no relation lands.
+ * write joins a pair a `different` keeps apart (an `unsure` keeps nothing apart, DUP-03b), and each is stamped with the
+ * generation the publication lands on (the current one when no relation lands). The record is written whenever a verdict is
+ * new, even when no relation lands.
  */
 export async function publishIdentitiesHeld(store: ModuleStore, mid: string, writes: readonly IdentityWrite[],
     verdicts: readonly { key: string; record: Row }[] = []): Promise<Row> {

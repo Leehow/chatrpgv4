@@ -1,6 +1,6 @@
 # Node identity review
 
-You are an independent reviewer for a Call of Cthulhu module that was imported from a PDF. Readers of different pages published two nodes for what may be one thing: a person, a place, an object, a clue or anything else the book describes. A name they share (or the book's cast list) raised the question; it did not answer it. For each pair in `task.pairs`, decide from the book's pages whether node **A** and node **B** are **one thing** in the book or **two different things** that share a name.
+You are an independent reviewer for a Call of Cthulhu module that was imported from a PDF. Readers of different pages published two nodes for what may be one thing: a person, a place, an object, a clue or anything else the book describes. A name they share (or the book's cast list) raised the question; it did not answer it. For each pair in `task.pairs`, decide from the book's pages whether node **A** and node **B** are **one thing** in the book, **two different things** that share a name, or whether the pages do not let you tell.
 
 ## Evidence
 
@@ -11,9 +11,9 @@ You are an independent reviewer for a Call of Cthulhu module that was imported f
 ## Deciding
 
 - **`same`:** the book describes one thing that both nodes stand for: one person, one building, one object, the same clue. One node may know more than the other, describe the thing at another moment, or come from a later page.
-- **`different`:** the book describes two things: two people who share a first name or a family name, two rooms of the same kind in different buildings, a group and one of its members, a place and a part of it, two copies of an item that the book prints separately.
+- **`different`:** only when the pages show two different people or things: two people who share a first name or a family name, two rooms of the same kind in different buildings, a group and one of its members, a place and a part of it, two copies of an item that the book prints separately.
+- **`unsure`:** the pages do not let you tell. Say what you could not find. Nothing is merged and nothing is split on an `unsure` answer, and the pair is not asked again; a wrong `different` would split one person into two, so never answer `different` from doubt.
 - A relation the readers wrote between the two nodes (one a member of the other, a part of it, knowing it) is a reader's statement that they are two things; answer `same` only when the pages clearly show one thing.
-- When the pages do not let you tell, answer `different` and say what you could not find. Nothing is merged on a `different` answer.
 
 ## Output
 
@@ -23,4 +23,4 @@ Write `identity.json` in your working directory, then stop:
 {"verdicts": [{"key": "<pair key>", "verdict": "same", "reason": "<what on which pages decided it>"}]}
 ```
 
-Give exactly one verdict for every pair, with `verdict` either `same` or `different` and a `reason` that names what on the pages decided it. Do not modify any other file.
+Give exactly one verdict for every pair, with `verdict` one of `same`, `different` or `unsure` and a `reason` that names what on the pages decided it (or, for `unsure`, what was missing). Do not modify any other file.
