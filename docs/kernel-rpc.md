@@ -37877,7 +37877,7 @@ The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branc
   The names, phrase and undo paths already went through `oneEach`.
 - `oneEach` (`:834`): `individuals.get(id) ?? id` (people only) → `survivorId(id)` (every kind).
 - `placeOf` (`:509`): a tie counted node ids → it counts survivors, so two copies of one place are that place.
-- `materialReady` (`kernel-ts/modules/reading.ts:545`, the one function edited in that file besides focus identity): every node the
+- `materialReady` (`kernel-ts/modules/reading.ts:546`, the one function edited in that file besides focus identity): every node the
   name matched had to be in `reading.materials` → every *thing* it matched must have one node there (`rawSurvivors(...).group`).
 - The kernel's `material` (`kernel-ts/read/campaign.ts:282`, `LoadedModule.material`, read by the apply gate, the capsule's
   `material` fields, adaptation and the audit source): the same rule, through the loaded graph's map (cast fold included).
@@ -37901,7 +37901,7 @@ The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branc
   input keys); `epithets.job` (`kernel-ts/epithets/index.ts:61`) words the survivor only.
 - `sourceNeeds` (`module-graph.ts:1515`): one node's needs, focused on its handle → the needs of every node of the group,
   focused on the survivor's handle (the capsule's `runtime_inputs`, `look` and `entityView`).
-- Focus identity (`Reading.identityOver`, `reading.ts:1366`, given the map by `focusIdentity` `:1361`): a focus named a set of
+- Focus identity (`Reading.identityOver`, `reading.ts:1367`, given the map by `focusIdentity` `:1362`): a focus named a set of
   node ids → of survivor ids, so a reading of a copy and a request about its survivor are one focus and attach.
 - `calledPerson` (`capsule.ts:77`): two ids carrying one word that resolve to one person were "more than one person" → one owner.
 
@@ -37922,8 +37922,11 @@ The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branc
   survivor correctly once the table writes through it (a write resolves a copy's name or handle to its survivor), and only an
   entry written under a copy before the relation landed is missed.
 - For the integration with DUP-01: its trigger (`publishedDuplicates`) builds its graph from nodes alone, so it raises a published
-  copy beside its survivor; given the landing graph's relations it could skip `isVariant` candidates and name the survivor
-  only, so a reader that reuses the id writes under the node that stands for the thing. Both branches edit the same three NR-02
+  copy beside its survivor. Proposed (not done here): pair against survivors only. At finish the landing graph has its
+  relations (`rawSurvivors(landing).id(id)` / `.group(id)`, or a `ModuleGraph` built with `relations` and `isVariant`); the
+  claim-time view (`graph-view.json`, `reading.ts:1858`) would carry `survivors: {<variant id>: <survivor id>}` from the same
+  `rawSurvivors` at claim. A candidate that is a variant is skipped, its names count as its survivor's, and the finding and its
+  verdict key name the survivor, so a reader that reuses the id writes under the node that stands for the thing. Both branches edit the same three NR-02
   cases in `module-cast.test.mjs`: the merge keeps DUP-01's reviewed `distinct_from` on the copy and this branch's order (words
   before the cast) and assertions. A `distinct_from` the review supported records "different", while the cast's both-ways fold
   still joins the two people (§188.2's rule, unchanged here).
