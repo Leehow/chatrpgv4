@@ -564,3 +564,51 @@ async function readNeedReadBudget(contentRoot: string): Promise<NeedReadBudget> 
 
 /** Test-only: forgets the cached values, so a test that rewrites a content root sees its own fixture. */
 export function resetNeedReadBudgetCache(): void { needReadCached.clear(); }
+
+/**
+ * Contract §190.1: the `window-places` lane's mode and bar, from the same file's `window_places` section. `placeMin` is the
+ * Noul an in-window bookmark entry must reach before it is minted as an identity-only place; `timeoutMs` is the deadline
+ * of one fanned-out request; `maxEntries` is the most entries one window asks about, in book order. Data, never a literal
+ * in `runtime/jev/window-places.ts`.
+ */
+export interface WindowPlacesBudget {
+  /** `off`: never asked; `shadow`: asked and recorded, nothing minted; `on`: a cleared entry is minted. */
+  mode: 'off' | 'shadow' | 'on';
+  placeMin: number;
+  timeoutMs: number;
+  maxEntries: number;
+}
+
+/**
+ * Used only if the file or its `window_places` section cannot be read; the shipped file carries the real values. The
+ * fallback mode is `shadow`, so a broken data file never mints a place.
+ */
+export const WINDOW_PLACES_FALLBACK: WindowPlacesBudget = Object.freeze({mode: 'shadow', placeMin: 0.8, timeoutMs: 20_000, maxEntries: 64});
+
+const windowPlacesCached = new Map<string, Promise<WindowPlacesBudget>>();
+
+/** The lane's budget, read once per content root and cached. */
+export function windowPlacesBudget(contentRoot?: string): Promise<WindowPlacesBudget> {
+  const root = contentRoot ?? extensionContentRoot();
+  let pending = windowPlacesCached.get(root);
+  if (!pending) windowPlacesCached.set(root, pending = readWindowPlacesBudget(root));
+  return pending;
+}
+
+async function readWindowPlacesBudget(contentRoot: string): Promise<WindowPlacesBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot, 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {window_places?: Record<string, unknown>};
+    const block = raw.window_places;
+    if (!block || typeof block !== 'object' || Array.isArray(block)) return WINDOW_PLACES_FALLBACK;
+    const fallback = WINDOW_PLACES_FALLBACK, {place_min: bar, timeout_ms: timeout, max_entries: most} = block;
+    return {mode: block.mode === 'off' || block.mode === 'shadow' || block.mode === 'on' ? block.mode : fallback.mode,
+      placeMin: finite(bar) && bar > 0 && bar <= 1 ? bar : fallback.placeMin,
+      timeoutMs: finite(timeout) && timeout > 0 ? timeout : fallback.timeoutMs,
+      maxEntries: Number.isInteger(most) && (most as number) >= 1 && (most as number) <= 256 ? most as number : fallback.maxEntries};
+  } catch {
+    return WINDOW_PLACES_FALLBACK;
+  }
+}
+
+/** Test-only: forgets the cached values, so a test that rewrites a content root sees its own fixture. */
+export function resetWindowPlacesBudgetCache(): void { windowPlacesCached.clear(); }

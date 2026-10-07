@@ -36777,6 +36777,56 @@ move candidate (`apply-operation`), a placement candidate (§187.2.3) and a told
 one lands on the book's text (§22.4.7) and §189.4 reads its section next. Asked once per window per campaign; Jev
 unavailable mints nothing and blocks nothing; telemetry one `lane: "window-places"` row per entry.
 
+**Implementation decisions (TP-01, 2026-10-07).** The lane is `runtime/jev/window-places.ts`; its budget is `window_places`
+in `host-budgets.json` (`windowPlacesBudget`, `runtime/jev/host-budgets.ts`): `mode` (`off | shadow | on`, shipped `on`; an
+unreadable file falls back to `shadow`, so a broken data file mints nothing), `place_min` 0.8, `timeout_ms` 20,000 (one
+request), `max_entries` 64 (the window's first entries in book order). No environment override.
+
+- **When.** `ReadingService.readAhead` starts a pass when it writes `read_window` for a campaign (a library-scoped
+  read-ahead starts none). Because the kernel's own read-ahead at `table.open` writes no row and the host's next one waited
+  for a reading job to finish, `prefetch` on the `table-open` and `reader-ready` wakes runs one host read-ahead when source
+  references run (`runtime.sourceReferences`). Passes run in the background, one at a time per campaign and module (a new
+  window's pass chains after the last), and stop with the service.
+- **Entries and identity.** The PDF's bookmarks as `sourceInfo` reads them, every level, flattened by the walk
+  `selectReferencePacket` makes for a destination: the identity is `scene-source-place-<page>-<index>`, the index counting
+  the rows with a string name and a whole page. A blank heading is not asked. "No scene already cites" an entry when
+  `placeScene` finds no scene of the campaign fork's graph for `{id, name}` (the identity, or the heading as a name or an
+  alias): the scene `publishReferencePlace` would reuse. The kernel answers it on `module.reference.status`, which takes
+  an optional `places: [{id, name}]` (at most 256; an id not of that form or an empty name is `invalid_params`) and then
+  answers `cited_places: [<id>]`; no method is added. A table entity (a Keeper's `establish`) is not in the module graph and
+  cites no entry.
+- **Question.** One Noul per entry (`place_e<n>`), twelve entries per request, the requests fanned out (adapter concurrency
+  2, one retry on a transient failure, model pinned). State `book_headings.e<n>: {heading, page, text_there}`, where
+  `text_there` is the first lines printed from where the heading's own words begin on its page (the fold `entryExcerpt`
+  uses), else from the top of the page, whole lines up to 480 characters. An entry whose page has no native text is not
+  asked (`no_text`).
+- **Asked once.** Answers are kept per campaign fork in `work/window-places/answers.json` (`{version, source_sha256,
+  entries: {<id>: {name, page, noul, at}}}`): an entry answered once is not asked again in any window of that campaign, which
+  is at most once per window. An unanswered entry (Jev unavailable) is asked at the next window change or open. With the lane
+  `on`, a kept answer at or above the bar whose place is not a scene (its mint failed, or it was answered in `shadow`) is
+  minted without asking again.
+- **Mint.** The host writes a `materialize_place` lookup attempt in the fork's `work/window-place-<page>-<index>-<suffix>/`
+  (the task, a packet with one excerpt and the entry as its one place, an `excerpts` receipt with `producer:
+  "window-places"`) and calls `module.reference.materialize`; §184.5's merge replays it into the library as it replays a
+  destination's place. The excerpt is the page's own bytes from the heading, at most 600 characters, cut at a line break: it
+  becomes the scene's summary, which every turn's referenced move candidate carries as `source_context`.
+- **Telemetry.** One `lane: "window-places"` row per entry a pass handled: `entry {id, name, page}`, `window`, `mode`,
+  `place_min`, `noul`, `answer: asked | kept`, `outcome: minted | reused | not_place | shadow | unavailable | no_text |
+  mint_failed`, `scene`, `reason`, `usage {requests, input_tokens, entries}`, `ms`. An entry a scene already is, or one kept
+  below the bar, writes none. A pass that fails writes one `event: "failed"` row.
+- **A referenced move candidate is offered only inside the window, so the route batch stays bounded as places are
+  minted.** Evidence: `table.apply.options` offered every scene with `source_reference_anchor` (or reference-only material)
+  on every turn whatever the window; `runtime/jev/candidates.ts` turns each into a move candidate carrying the scene's
+  summary as `source_context` and a `routeFact` question of its own; `routeBatch` (`runtime/jev/step-policy.ts`) puts every
+  candidate in one request and, at `packing_limit`, shrinks only the material previews before it gives up. Nothing capped
+  the count, and each chapter's window places would have added to it for the rest of the campaign. `apply-operation` now
+  keeps a referenced scene only when one of its cited pages lies inside `briefWindow` (the §187.4 window: the active scene's,
+  or through `bookAnchor` its `within` place's); a scene in `where.exits` or `where.back` is offered as before whatever its
+  pages, since those rows come first. A book with no window (no page count, or read whole) offers every referenced place,
+  as before. `apply move` is unchanged: it never read these rows, and a move to a place that is not an exit or on the trail
+  still needs `via`.
+- **Tests.** `tests/extension/window-places.test.mjs`.
+
 ### 190.2 The ledger follows the told position
 
 **Exception to §166, recorded with this section.** §166 retired automatic prose review and rewriting. The read below reads
