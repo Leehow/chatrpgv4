@@ -37744,3 +37744,185 @@ On the real path, as the survey's §5 plans:
 ### 191.8 Kernel decisions
 
 (Recorded by the implementing slices.)
+
+#### DUP-02 (191.3, 191.4; `claude/reading-duplicates-20261007-survivors`)
+
+**The survivor map** (`kernel-ts/read/survivors.ts`, `SurvivorMap`). One map, built lazily per graph and per cast fold:
+- **A hop** is the first relation in relation order that leaves a node toward the node that stands for it:
+  - between two printed visuals (`asset`, `handout`), any `variant-of`, whoever wrote it (§152.4, unchanged);
+  - for every other node, only a kernel identity relation (`isIdentityRelation`): `relation_kind: "variant-of"`, the id
+    `rel-identity-<from>-to-<to>` (`identityRelationId`, the id §152.4's `writeVariants` writes) and an object
+    `properties.identity_review`, to a node of the same book kind. A reader's own `variant-of` (`rel-<subject>-variant-of-<object>`,
+    a state such as Dust to Dust's revived Virginia), a relation with the kernel's id but no review, and a cross-kind relation
+    are no hop.
+- **`linkedId`**: the walk's end, at most 64 hops; a cycle stands as its first node in node-id order (§152.4's rule, now every kind).
+- **`id`**: the linked survivor, then §188.2's cast fold (`castFold`, installed by the campaign loader from `individualNodes`), whose
+  target is read through `linkedId` again. **`group`**: every node whose `id` is the same, the survivor first, then graph order.
+- `rawSurvivors(raw)`: the same map over a stored graph file (no cast fold), for the reading layer, which holds no `ModuleGraph`.
+- `ModuleGraph` reads it through `survivorId`, `survivorOf`, `linkedSurvivorOf` (relations only: what `bookCast` groups by),
+  `isVariant`, `groupOf`; `regionCorrespondence` walks the same hops. `castFold` replaces the old `individuals` field.
+- **NR-02's `individuals` is a view**: a getter over the person nodes whose survivor is another node. Assigning to it installs the
+  cast fold, as the loader did before (the tests' `Object.assign(resolver, {individuals: ...})` keep working).
+- **The cast groups by identity relations first** (`bookCast`, `kernel-ts/read/cast.ts:160`): the npc nodes one relation chain
+  joins are one person from the start, the survivor as `CastPerson.node`, with every copy's names and pages; the both-ways row
+  fold then runs as before (a person owns the own names of every copy; a fold appends all of a person's nodes, `:220`). So
+  `castNodes`, `isTold`, `rosterWord`, `rosterNames`' slugs, `protectedNames` and `individualNodes` cover identity groups too.
+
+**The writer** (`kernel-ts/modules/identity.ts`), which DUP-03 calls:
+- `publishIdentities(store, moduleId, writes: {nodes: [a, b], review}[])`: one new generation of the store's module (the library's
+  or a campaign fork's, `new ModuleStore(moduleContext(context, campaign))`) through `ModuleStore.writeGraph` and `module.json`,
+  under the module's metadata lock (`<module dir>/.metadata.lock`, the lock every publication of that module takes). Each pair is
+  ordered by §152.4's `publicationOrder(meta)` (the first `reading.materials` generation listing the node; a node no row lists is
+  later; a tie falls to node id order), so the node published first survives whatever order the caller names them in. Each review is
+  stamped with the generation it lands in (`generation`, unless the caller set one). Answers `{generation, written: [{from, to,
+  survivor, carried}], skipped: [{from, to, reason: "survivor_taken"}]}` and appends a `build.jsonl` row `{event: "identity", ...}`;
+  nothing is written when no pair lands. Offering a fork's new generation to the library (§184.1) is the caller's: the library
+  follow lives in `Reading`, which this helper does not own.
+- `writeIdentity(graph, later, earlier, review)`: the pure step into a raw graph clone. Refuses `invalid_params` for a node the graph
+  lacks, two equal ids, two kinds (both visual is one kind, §152.4), or a review that is no object. Returns null and writes
+  nothing when `later` already reads as another node or `earlier` already reads as `later` (one survivor per node, as
+  `writeVariants`). Writing the same decision again replaces its relation and carries nothing new.
+
+**Carry (191.4)**, in the same step, onto the node that now stands for both (the end of the chain, not only `earlier`):
+- names: the variant's own name and aliases the survivor does not carry (normalized), appended to the survivor's `aliases`
+  (`mergeValue` at `/aliases`); `source_refs`: the union (`mergeValue` at `/source_refs`);
+- properties, for every kind but a printed visual: a key the survivor lacks is taken; a key both hold goes through `mergeValue`
+  at the survivor's path (objects key by key; an npc's `knowledge`/`beliefs`/`lies` as lists), and a contradiction (its
+  `needs_choice`) leaves the survivor's value and the variant's on the variant (`carried.kept`). The variant's
+  `runtime_projection.record` goes into the survivor's record when it has one, else into its properties (what `recordOf` reads);
+- never: the schema's identity fields (`name`, `display_name`, `title`, `semantic_name`, `scene_id`, `is_start`, `is_final`,
+  `is_entrance`: what `displayName`, `bookHandle`, `nameKeys`, `startScene` and the entrance law read; a closed list of field
+  names, no judgement of content), `visibility`, `summary`, claims and relations (read through the group instead);
+- a printed visual carries names and references only: its crops and regions move only by §152.4's reviewed correspondence;
+- `field_spans` under each carried path are copied to the survivor's path (unioned), so §22.3.1's same-span rule judges a later
+  reading of a carried field against the passage it came from.
+
+**Readers converted** (before → after; each with a test in `tests/extension/survivor-map.test.mjs` and a mutation below):
+- `resolve` (`kernel-ts/read/module-graph.ts:702`): the exact-handle and the name-free identifier paths returned the one node that
+  carried the key → `oneEach` over the matches, so a variant's handle, node id, interim handle and old slug name its survivor.
+  The names, phrase and undo paths already went through `oneEach`.
+- `oneEach` (`:834`): `individuals.get(id) ?? id` (people only) → `survivorId(id)` (every kind).
+- `placeOf` (`:509`): a tie counted node ids → it counts survivors, so two copies of one place are that place.
+- `materialReady` (`kernel-ts/modules/reading.ts:545`, the one function edited in that file besides focus identity): every node the
+  name matched had to be in `reading.materials` → every *thing* it matched must have one node there (`rawSurvivors(...).group`).
+- The kernel's `material` (`kernel-ts/read/campaign.ts:282`, `LoadedModule.material`, read by the apply gate, the capsule's
+  `material` fields, adaptation and the audit source): the same rule, through the loaded graph's map (cast fold included).
+- Presence: `npcsPresent` (`kernel-ts/read/capsule.ts:554`) compared each `npc_presence` value with the scene's own handle and
+  returned a node per entry → `presenceThrough` (`:542`) reads each entry's key as its survivor (the survivor's own entry wins;
+  a variant's entry stands in only while the survivor has none) and a value naming any node of the scene's group counts.
+  `withinSection` (`:424`, `:433`): the place a scene lies in is read as its survivor, with its group's people, `seated` by an
+  entry under any handle. Write side: `apply npc` with `to` (`kernel-ts/apply/entities.ts:443`)
+  deletes the entries the person's copies hold, so a copy's old entry never stands in again after `to: away`.
+- Clues: `clueDiscovered` (`capsule.ts:562`) → `cluesHere` (`:574`) and `whereSection`'s affordance rows (`:463`): a
+  `discovered_clues` entry under any node of the clue's group counts; an affordance's granted ids are read as their survivors
+  (`:455`).
+- Scene relations, the union of the group's (`groupOut` / `groupIncoming`): `sceneExits` (`module-graph.ts:958`; a target is
+  its survivor, a copy of the scene itself is no exit; `scene_edges` of every copy), `sceneClueIds` (`:1016`), `sceneNpcIds`
+  (`:1022`), and in the same way `entranceRelation` (`:987`), `sceneEndings` (`:992`), `sceneDanglingExits` (`:1012`),
+  `sceneAssetNodes` (`:1039`; Blood Road's Thunderbird tome sits on one copy), `placesOutward` (`:1071`), `scenePlaces`
+  (`:1112`) and `sceneRules` (`:1119`). Every id they return is a survivor.
+- The brief's rosters (`rosterNodes`, `capsule.ts:1201`): people, places, factions, creatures, endings and conclusions skip a
+  variant, and `more` counts what is left.
+- The lanes skip variants: `handlesJob` (`kernel-ts/read/node-handles.ts:267`) never offers one (its id and interim handle stay
+  input keys); `epithets.job` (`kernel-ts/epithets/index.ts:61`) words the survivor only.
+- `sourceNeeds` (`module-graph.ts:1515`): one node's needs, focused on its handle → the needs of every node of the group,
+  focused on the survivor's handle (the capsule's `runtime_inputs`, `look` and `entityView`).
+- Focus identity (`Reading.identityOver`, `reading.ts:1366`, given the map by `focusIdentity` `:1361`): a focus named a set of
+  node ids → of survivor ids, so a reading of a copy and a request about its survivor are one focus and attach.
+- `calledPerson` (`capsule.ts:77`): two ids carrying one word that resolve to one person were "more than one person" → one owner.
+
+**Decisions and deviations.**
+- **The cast fold makes variants too.** §191.3 builds one map from the cast fold as well, and says a variant's handle and node id
+  resolve to the survivor, so NR-02's "a handle, a node id or a legacy slug still names its own node" is amended for cast-fold
+  copies as for relation copies. Visible: a word submitted to `epithets.submit` under a copy's id lands on the survivor, and a
+  second word for the same person in one batch is `settled`. Three NR-02 tests were adapted, not weakened
+  (`tests/extension/module-cast.test.mjs`): the lane is now asked to word her once (asserted); the two words of the journal and
+  told-check tests are written while the copies stand apart and the cast is read after (the history a table that worded both
+  copies before the fold has), and the speaker asserted is the survivor.
+- `mapsForScene` (`kernel-ts/read/maps.ts`) still reads the survivor scene's own `depicts`: a map depicting only a copy scene is
+  not presented on arrival. `search`/`lookup kind=module` still lists each copy (NR-02's test counts them). Not in 191.3's list.
+- Not converted, and why: `needsToAsk` (`reading.ts:928`, DUP-01's file) still queues a copy's own source need as a reading;
+  `npcKnows`/claims of a person read the node's own claims (carry moves properties, not claims); `conditionStatus`'s
+  `clue_discovered` (by authored clue id), the Director's reveal rows, the thread and the weaknesses' discovered counts compare
+  `discovered_clues` by the clue's own handle; `entranceCompany` reads presence by the survivor's own entry. Each reads the
+  survivor correctly once the table writes through it (a write resolves a copy's name or handle to its survivor), and only an
+  entry written under a copy before the relation landed is missed.
+- For the integration with DUP-01: its trigger (`publishedDuplicates`) builds its graph from nodes alone, so it raises a published
+  copy beside its survivor; given the landing graph's relations it could skip `isVariant` candidates and name the survivor
+  only, so a reader that reuses the id writes under the node that stands for the thing. Both branches edit the same three NR-02
+  cases in `module-cast.test.mjs`: the merge keeps DUP-01's reviewed `distinct_from` on the copy and this branch's order (words
+  before the cast) and assertions. A `distinct_from` the review supported records "different", while the cast's both-ways fold
+  still joins the two people (§188.2's rule, unchanged here).
+
+**Tests.** `tests/extension/survivor-map.test.mjs` (real kernel in process over a bound three-page PDF; the fork's duplicates are
+written straight into a generation, as generation 55 left Blood Road's, so the test does not depend on DUP-01's landing check):
+before the relations the tower's name is held as unread material and its copies split; the table finds the copy of the lamp
+oil and seats the keeper and Old Mae in the copy; after `publishIdentities`: the name and the copy's handle land on the tower,
+`materialReady` is true, `look focus=npc` shows both people once, sending Old Mae away clears her copy's entry, `look
+focus=clues` shows one oil (discovered through its copy) and the copy's cellar key, the capsule's exits gain the copy's way
+down (and the copy's route to the tower it copies is no exit), the brief lists Old Mae once. In process: `resolve` by name,
+alias, copy handle and copy node id, `placeOf`, every scene reader, the kernel's `material`, the cast, `individuals`, a
+reader's own `variant-of`, the affordance row, presence's own-entry rule, `withinSection` of a room inside the copy,
+`calledPerson`. The writer orders each pair by publication (Old Mae's pair is named copy first); carry (aliases, pages, a
+lacked property with its spans, a contradiction kept on the copy, the relation's id and review, a second write that changes
+nothing and a third that is skipped as taken); the lanes, `source_needs` and focus identity; the writer's refusals and the
+visual rule; and Blood Road's two Mather nodes joined by a relation alone, one cast person and one roster word.
+
+**Clone evidence** (the acceptance home's `nfh-accept-blood-road-1` fork at generation 60, `cp -c` into a scratch home and its
+paths rewritten by the acceptance home's `tools/rewrite-home-path.mjs`: 1182 files, 0 left holding the old path, 0 stale
+digests). Read with the base kernel (`7350e80f6`) and with this branch, then `publishIdentities` on the clone's fork (generation
+61: the store, the town centre, Mather, Pete and the Thunderbird shop, each ordered by `publicationOrder`) and a reader-style
+`variant-of` from Brenner's p. 50 node to the doctor (generation 62):
+
+| read | base, gen 60 | this branch, gen 60 | this branch, after |
+| --- | --- | --- | --- |
+| `resolve 马瑟综合商店 [scene]` | ambiguous (`dusty-town-general-store`, `covered-porch-general-store`) | ambiguous | `scene-book-4-mather-store` |
+| the copy's handle `covered-porch-general-store` | the copy | the copy | `scene-book-4-mather-store` |
+| `resolve 阿巴托尔镇中心（主干道）` | ambiguous | ambiguous | `scene-book-4-town-center` |
+| `materialReady('马瑟综合商店')` / `('丹尼尔·马瑟')` | false / false | false / false | true / true |
+| kernel `material('scene-mather-general-store')` | missing | missing | ready |
+| present at the copy scene | none | none | the bald man and Mather, as at the store |
+| Thunderbird shop: clues / assets / rules | 4 / portrait + one tome / 1 | same | 6 (both copies') / portrait + both tomes / 2 |
+| brief people lines (unfitted): Mather, Pete, Alissya / total | 2, 2, 2 / 67 | 1, 1, 1 / 61 (the cast fold is a source) | 1, 1, 1 / 61 |
+| Brenner p. 50 under a reader's `variant-of` | ambiguous with the doctor | same | same: not joined |
+
+Carry on the clone: Mather's survivor took `knowledge`, `beliefs`, `motives` and kept his own `biography` (the copy's stays on
+the copy); Pete's took `knowledge`, `beliefs`, `motives`, `secrets`; the two scene copies' `keeper_notes` contradict the
+originals and stay on the copies; the Thunderbird shop took the alias "Thunderbird Gifts". The store holds no clue on either
+copy at generation 60; the Thunderbird pair is where the union shows.
+
+**Mutations** (each reverted by copy from a scratch backup, never git; `node --test` on the named file):
+- `resolve-exact-handle` (`module-graph.ts`): survivor-map.test.mjs: 2 red (in process, the table)
+- `resolve-identified` (`module-graph.ts`): survivor-map.test.mjs: 1 red (in process)
+- `oneEach` (`module-graph.ts`): survivor-map.test.mjs: 4 red (in process, lanes, the cast, the table); module-cast.test.mjs: 5 red (NR-02)
+- `placeOf` (`module-graph.ts`): survivor-map.test.mjs: 1 red (in process)
+- `materialReady` (`reading.ts`): survivor-map.test.mjs: 1 red (the table)
+- `kernel-material` (`campaign.ts`): survivor-map.test.mjs: 1 red (in process)
+- `npcsPresent` (`capsule.ts`): survivor-map.test.mjs: 1 red (the table)
+- `presence-own-wins` (`capsule.ts`): survivor-map.test.mjs: 1 red (in process)
+- `presence-clear-copies` (`entities.ts`): survivor-map.test.mjs: 1 red (the table)
+- `within-seated` (`capsule.ts`): survivor-map.test.mjs: 1 red (in process)
+- `clueDiscovered` (`capsule.ts`): survivor-map.test.mjs: 2 red (in process, the table)
+- `affordance-granted` (`capsule.ts`): survivor-map.test.mjs: 1 red (in process)
+- `sceneClueIds` (`module-graph.ts`): survivor-map.test.mjs: 2 red (in process, the table)
+- `sceneClueIds-survivor` (`module-graph.ts`): survivor-map.test.mjs: 1 red (in process)
+- `sceneNpcIds` (`module-graph.ts`): survivor-map.test.mjs: 1 red (in process)
+- `sceneExits` (`module-graph.ts`): survivor-map.test.mjs: 2 red (in process, the table)
+- `sceneExits-self` (`module-graph.ts`): survivor-map.test.mjs: 2 red (in process, the table)
+- `scene-other-readers` (`module-graph.ts`): survivor-map.test.mjs: 2 red (in process, the table)
+- `rosterNodes` (`capsule.ts`): survivor-map.test.mjs: 2 red (in process, the table)
+- `handles-lane` (`node-handles.ts`): survivor-map.test.mjs: 1 red (lanes)
+- `epithet-lane` (`index.ts`): survivor-map.test.mjs: 1 red (lanes)
+- `sourceNeeds` (`module-graph.ts`): survivor-map.test.mjs: 1 red (lanes)
+- `focusIdentity` (`reading.ts`): survivor-map.test.mjs: 1 red (lanes)
+- `bookCast-linked` (`cast.ts`): survivor-map.test.mjs: 2 red (in process, the cast)
+- `castFold-source` (`survivors.ts`): module-cast.test.mjs: 5 red (NR-02)
+- `calledPerson-dedupe` (`capsule.ts`): survivor-map.test.mjs: 1 red (in process)
+- `hop-reader-variant-collapses` (`survivors.ts`): survivor-map.test.mjs: 2 red (in process, the writer)
+- `identity-needs-review` (`survivors.ts`): survivor-map.test.mjs: 1 red (the writer)
+- `within-place` (`capsule.ts`): survivor-map.test.mjs: 1 red (in process)
+- `publish-order` (`identity.ts`): survivor-map.test.mjs: 4 red (carry, in process, lanes, the table)
+- `carry-off` (`identity.ts`): survivor-map.test.mjs: 1 red (carry)
+- `carry-contradiction-overwrites` (`identity.ts`): survivor-map.test.mjs: 1 red (carry)
+
+32 of 32 mutations turn a case red; each file was restored by copy and checked by digest.
