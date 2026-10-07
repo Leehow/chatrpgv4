@@ -37626,3 +37626,121 @@ nothing reads prose with patterns.
 Counted (TP-02): one `told-position` row per delivery (`outcome`: `owed`, `dropped`, `shadow`, `stay`, or `skipped`), the
 owed rows with `source: "told-position"` in `owed.json` and on the record, and the clerk's `apply:owed:*` bind rows and
 receipts that land them. The lane's own read is `table.owe.options`; TP-04 reads the shadow rows before `on`.
+
+## 191. One thing, one node: a reading may not duplicate what the graph has (owner rulings 2026-10-07; `docs/specs/reading-duplicates-survey.md`; amends §22.3, §152.4 and §188.2)
+
+The NR-07 survey traced Blood Road's generation 55 (a page reading of pp. 25–26). The reader declared eight new nodes for
+things the graph already had: `npc-daniel-mather` beside `npc-book-4-daniel-mather`, the general store, the town centre
+and others.
+- It never saw them: `known_nodes` started at line 2,211 of a 68,652-line packet, and it read lines 1–400.
+- Nothing at landing compares a new node's name with published nodes of the same kind. §180.7 covers npc versus creature;
+  §152.4 covers only visual nodes with crops.
+
+The copies propagated through the library (§184.1) into every later campaign. Across 49 graphs, 88 of 109 same-kind,
+same-name pairs are true duplicates. They make places, objects and clues ambiguous, split clues across copies, keep read
+material "unread" by name, and show extra people and places.
+
+### 191.1 The landing check (prevention)
+
+- **Where.** In `checkDraft` (the reader's own `coc-read-check` / `submit_reading`, against the claim-time view), and again
+  in `module.read.finish` inside the module lock, against the landing generation (two readings claimed in parallel).
+- **Trigger.** Deterministic: names only, no meaning read. A drafted node with an id the graph lacks raises the question
+  when:
+  - the drafted node and a published node have the same `node_kind`, and the drafted node's own name or display name is
+    one of the published node's whole names, or the reverse. This is §177.1's own-name clause, symmetric, under the
+    kernel's `normalize`.
+  - for `npc`, also when the two join the same cast row both ways (§188.2).
+  - Pages are evidence in the refusal, never a condition.
+- **The answer.** Every finding is reported at once (§186.3), as `duplicate_of_published`. The fix names the published
+  node: id, kind, names, pages, summary. The reader then either:
+  - reuses that id: it writes only new facts under it and points the draft's claims at it (the wording of §180.7's
+    `ONE_BEING_FIX` and §152.4's `same_print_duplicate`); or
+  - declares `distinct_from: [<published id>]` on the drafted node. The check adds this to `required_review`, and an
+    unsupported `distinct_from` refuses `review_unsupported` (§22.3.2).
+- **The verdict.** Publication records it in `module.json` as `reading.identity[<source digest>:<kind>:<id a>:<id b>]`, so
+  the pair is never raised again.
+
+### 191.2 The reader packet names what exists
+
+The reader packet puts a compact roster first, ahead of `cast_names` and `index`: the published nodes on the job's pages
+as `{id, kind, name, aliases, pages}`. This is a cost saver, not the guard; 191.1 is the guard.
+
+### 191.3 One survivor map for every kind (read-time grouping)
+
+- **No graph merge and no deletion.**
+  - `world.node_handles` entries never change (§185.4).
+  - `handles.json`, stored world state keyed by handle, history read by identity, and reading metadata keyed by node id
+    would all dangle.
+- **Identity relations.** A duplicate is recorded as a kernel identity relation, `rel-identity-<later>-to-<earlier>`, with
+  `properties.identity_review` (as §152.4's `writeVariants` writes it), in a new generation. The earlier node by
+  publication order survives.
+- **One map.** `ModuleGraph` builds one survivor map from these relations, from §152.4's visual `variant-of` survivors, and
+  from §188.2's cast fold for people. NR-02's `individuals` becomes a view of it.
+  - For non-visual kinds only kernel-written identity hops collapse.
+  - A reader-authored `variant-of` claim expresses a state (Dust to Dust: the revived Virginia) and never collapses.
+- **Readers that read through survivors** (each recorded under 191.8 with a test):
+  - `resolve` / `oneEach` and `placeOf`;
+  - `materialReady`;
+  - presence (`npcsPresent`);
+  - `cluesHere` and discovered clues;
+  - scene exits, `sceneNpcIds` and `sceneClueIds` (the union of the group's relations);
+  - the brief's rosters;
+  - the handles and epithet lanes, which skip variants;
+  - source needs and focus identity.
+- A variant's handle and node id stay input keys and resolve to the survivor.
+
+### 191.4 Carry
+
+When an identity relation is written, the survivor takes what only the variant has: aliases, `source_refs`, and properties
+it lacks, through `mergeValue` (§152.4's `carried_regions`, for facts). A contradiction stays on the variant and is still
+readable through it.
+
+### 191.5 Repairing graphs that already have duplicates
+
+- **Candidates.** The trigger of 191.1, run by the read-ahead over the published graph, for pairs with no recorded verdict.
+- **Merged without a model** (owner ruling 2026-10-07, 「同名加页码重叠就直接合并」; 39 of 39 true on the census). Two
+  conditions together:
+  - same `node_kind` and the same own name under `normalize`;
+  - overlapping `source_refs` pages.
+
+  The kernel writes the identity relation directly, with `identity_review: {by: "kernel", rule: "same-name-same-page"}`.
+  This is an explicit owner exception to "no hardcoded semantics", scoped to this trigger alone.
+- **Every other candidate** is queued as a background identity job, like §152.4's. A tool-using Pi reader opens both nodes'
+  pages and answers `same` (the relation is written) or `different` (recorded in `reading.identity`). It is not a
+  single-completion lane: the job is not on a turn's critical path.
+- **When it runs.** When a book loads, for the library and for each live campaign fork (owner: 「产品自己修，书库和在用的
+  分支」). A fork gets its own new generation; a campaign is a compile snapshot of its fork. No one-off script touches App
+  data.
+
+### 191.6 Limits
+
+- Cross-kind twins are out of scope (scene and location, faction and npc).
+- A duplicate under a different name (a misspelling or a new transliteration) is caught only where an alias or the cast
+  join links the two.
+- Group versus member (a gang and its members) is a different thing by default; only a verdict job may say otherwise.
+- Follow-ups:
+  - check messages vague enough that a reader deleted its claims;
+  - §152.4 missing a visual duplicate when one node has no `image_sources`.
+
+### 191.7 Tests
+
+On the real path, as the survey's §5 plans:
+
+1. **Replaying generation 55's landing** on a clone at generation 54 refuses. It names `npc-book-4-daniel-mather`,
+   `npc-book-4-pete`, `npc-book-4-sand-rats`, `scene-book-4-town-center` and `scene-book-4-mather-store`.
+   - `coc-read-check` reports the same findings.
+   - Reverting the check publishes the eight orphans.
+2. **Concurrency.** Two readings on one generation both mint the same name; the second is refused at finish.
+3. **Repair** on a clone of the generation-60 fork, after which:
+   - `resolve 马瑟综合商店 [scene]` gives one node, and both handles still resolve;
+   - `materialReady('马瑟综合商店')` is true;
+   - presence, the brief and `cluesHere` show one store, holding both copies' clues.
+4. **A real table** on a new campaign, with pre-registered lines:
+   - zero `is ambiguous` refusals on places, objects or clues;
+   - one roster line per person;
+   - no `material_pending` for a place already read;
+   - no new same-name node in the fork afterwards.
+
+### 191.8 Kernel decisions
+
+(Recorded by the implementing slices.)
