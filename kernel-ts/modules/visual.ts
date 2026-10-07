@@ -13,7 +13,8 @@ import { shapeReviewPaths, statesMechanics } from './shape-review.js';
 import {validateSourceNeeds,sourceNeedKey} from './source-needs.js';
 import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings} from './module-review-policy.js';
 import { anchors, pages, recordSpans, sameSpan, spanOf, type Anchor } from './transcription.js';
-import { REVIEW_VERDICTS, classificationMatcher } from './review-verdicts.js';
+import { REVIEW_VERDICTS, classificationMatcher, identityReviewPath } from './review-verdicts.js';
+import { DISTINCT_FROM, DUPLICATE_RULE, duplicateMessage, duplicateRefusal, publishedDuplicates } from './published-duplicates.js';
 import { CLAIM_SUPPORT_PROTOCOL, JEV_REVIEWER, JEV_REVIEW_RULES, claimRecordPages, claimRecordRoot, claimSupportIneligibility, pathsOverlap, claimRecord } from './claim-support.js';
 import { preserveTravel } from './route-travel.js';
 import {validVisualScan,visualCandidates} from './visual-discovery.js';
@@ -267,11 +268,18 @@ export function mergeValue(old: any, proposed: any, path = '', transcription?: R
  * the check judges against this view, so the same-span rule of §22.3.1 reads the graph's spans, not the packet.
  */
 export interface DraftCheckOptions { openingBatch?: boolean; graph?: Row }
-/** The packet as the check reads it: the job's own fields with the graph view's nodes, claims, spans and vocabulary. */
+/**
+ * The packet as the check reads it: the job's own fields with the graph view's nodes, claims, spans and vocabulary, and the
+ * identity answers already recorded for the bound source (§191.1: `identity_verdicts`, `identity_source`), and which node
+ * stands for each copy (§191.3: `survivors`, variant id to survivor id).
+ */
 export function withGraphView(packet: Row, view: Row | null | undefined): Row {
     if (!view || !object(view)) return packet;
     return { ...packet, known_nodes: array(view.known_nodes), known_claims: array(view.known_claims), field_spans: row(view.field_spans),
-        ...(object(view.vocabulary) ? { vocabulary: view.vocabulary } : {}) };
+        ...(object(view.vocabulary) ? { vocabulary: view.vocabulary } : {}),
+        ...(object(view.identity_verdicts) ? { identity_verdicts: view.identity_verdicts } : {}),
+        ...(typeof view.identity_source === 'string' ? { identity_source: view.identity_source } : {}),
+        ...(object(view.survivors) ? { survivors: view.survivors } : {}) };
 }
 /**
  * The draft check (§22.3), in the three stages of contract §186.3: the envelope, the records, the graph and its evidence.
@@ -334,6 +342,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     // Stage 2, the records: per node and per claim, identifiers, kinds, vocabulary fields, references to defined nodes,
     // source refs, predicates and endpoints, and the record-local laws.
     const filled: Row = clone(draft), nodes = filled.nodes as Row[], existing = new Set(array(packet.known_nodes).map(n => n.node_id)), defined = new Set<string>();
+    const knownKinds = new Map<any, any>(array(packet.known_nodes).map(n => [n.node_id, n.node_kind]));
     if (packet.visual_scan) filled.visual_candidates = candidates;
     if (moduleLogicReview(packet)) filled.review_policy = packet.review_policy;
     const count = packet.source.page_count, records = new Stage();
@@ -361,6 +370,15 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
             records.note(refusal('properties must be an object and aliases an array', `/nodes/${i}`), ...shapes);
         if (array(node.aliases).some(alias => typeof alias !== 'string'))
             records.note(refusal('aliases must contain names'), { path: `/nodes/${i}/aliases`, rule: 'alias_names', value: node.aliases });
+        // §191.1: a new node's answer to `duplicate_of_published` names published nodes of its own kind, each once.
+        if (Object.hasOwn(node, DISTINCT_FROM)) {
+            const answer = node[DISTINCT_FROM], at = `/nodes/${i}/${DISTINCT_FROM}`;
+            if (existing.has(id))
+                records.note(refusal('distinct_from belongs to a new node; a published node keeps its own identity', at), { rule: DISTINCT_FROM, value: answer });
+            else if (!Array.isArray(answer) || !answer.length || new Set(answer).size !== answer.length
+                || answer.some(other => typeof other !== 'string' || knownKinds.get(other) !== kind))
+                records.note(refusal(`distinct_from lists the published ${typeof kind === 'string' ? kind : 'same-kind'} node ids this node is not, each once`, at), { rule: DISTINCT_FROM, value: answer });
+        }
         const props = row(node.properties);
         if (Object.hasOwn(props, 'map_candidates')) {
             if (kind !== 'scene' || !Array.isArray(props.map_candidates) || !props.map_candidates.length)
@@ -585,6 +603,17 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         graph.run(() => checkObligations(filled, packet, contract), {}, item => `obligation ${item.node}: ${item.path}: ${item.message}`);
     graph.run(() => checkMechanics(filled, packet, contract), {}, item => `mechanics ${item.node}: ${item.path}: ${item.message}`);
     graph.run(() => checkBeings(filled, packet, contract), {}, item => `${item.claim ? `claim ${item.claim}` : `node ${item.node}`}: ${item.path}: ${item.message}`);
+    // §191.1: one thing, one node. A new node named like a published node of its kind, and not answered by its distinct_from or
+    // by a verdict already recorded, is refused here before any review is spent; `module.read.finish` asks again, against the
+    // generation the draft lands on.
+    const identitySource = typeof packet.identity_source === 'string' ? packet.identity_source
+        : typeof row(packet.source).file_sha256 === 'string' ? row(packet.source).file_sha256 : '';
+    // §191.3: pairs are made against survivors, as the claim's view names them.
+    const survivors = row(packet.survivors);
+    const duplicates = publishedDuplicates(nodes, array(packet.known_nodes), typeof packet.module_id === 'string' ? packet.module_id : 'module',
+        array(packet.cast_names), row(packet.identity_verdicts), identitySource, id => typeof survivors[id] === 'string' ? survivors[id] : id).filter(pair => !pair.declared);
+    if (duplicates.length)
+        graph.note(duplicateRefusal(duplicates), ...duplicates.map(pair => ({ path: pair.path, rule: DUPLICATE_RULE, message: duplicateMessage(pair), value: pair.shared })));
     if (options.openingBatch)
         graph.run(() => checkOpeningBatch(row(draft), packet.focus, packet.known_nodes, packet.opening_scope === 'first_interaction', packet.known_claims), { rule: 'opening_batch' });
     graph.settle();
@@ -601,6 +630,10 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     }
     for (const i of (filled.claims as Row[]).keys())
         required.add(`/claims/${i}`);
+    // §191.1: a node's distinct_from is reviewed as written under either policy; an unsupported one refuses (`checkReview`).
+    for (const [i, node] of nodes.entries())
+        if (Object.hasOwn(node, DISTINCT_FROM))
+            required.add(`/nodes/${i}/${DISTINCT_FROM}`);
     // The field a later reading re-transcribed is named in the review, so the replacement is a reviewed one.
     for (const path of retranscribed)
         required.add(moduleLogicReview(packet)?moduleReviewRoot(path):path);
@@ -921,7 +954,8 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
                 supported.add(path);
                 continue;
             }
-            if (REVIEW_VERDICTS.includes(item.verdict) && (moduleLogicReview(filled)?advisoryModuleFinding(item):classifies(path))) {
+            // §191.1: a distinct_from is an identity statement, never a classification and never advisory.
+            if (!identityReviewPath(path) && REVIEW_VERDICTS.includes(item.verdict) && (moduleLogicReview(filled)?advisoryModuleFinding(item):classifies(path))) {
                 contested.push({ path, verdict: item.verdict, reason: string(item.reason ?? ''), source_refs: refs,...(item.impact?{impact:item.impact}:{}) });
                 continue;
             }

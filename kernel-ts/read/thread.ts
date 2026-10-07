@@ -14,8 +14,7 @@ const HANDED = "The book means these clues to happen: they are not routes and no
 /** Conclusions the discovered clues have not yet closed, each with the clues here, the scenes one move away that
  *  hold more, the clues the book hands over by itself, and the rest as a count. */
 export function threadSection(graph: ModuleGraph, world: Row, scene: Row, present: Row[], records: Row[] = [], candidates: Row[] = [], assessments: Row[] = [], worldline = 'main', loop = 0): Row {
-    const discovered = new Set(array(world.discovered_clues).map(string)),
-        here = new Set(graph.sceneClueIds(scene)),
+    const here = new Set(graph.sceneClueIds(scene)),
         presentIds = new Set(present.map(n => n.node_id)),
         exits = graph.sceneExits(scene),
         neighbours = new Map<string, { node: Row; exit: Row | null }>();
@@ -30,12 +29,13 @@ export function threadSection(graph: ModuleGraph, world: Row, scene: Row, presen
             neighbours.set(node.node_id, { node, exit: null });
     }
     const lines: Row[] = [];
-    for (const conclusion of graph.kind("conclusion")) {
+    // §191.3: a conclusion once, as the node that stands for it; its clues are the survivors (`supportingClues`).
+    for (const conclusion of graph.kind("conclusion").filter(node => !graph.isVariant(node))) {
         // The one reading of a conclusion's clues; §180.9's weakness chain counts `found`/`of` through it too.
         const clues = graph.supportingClues(conclusion);
         if (!clues.length)
             continue;
-        const missing = clues.filter(node => !discovered.has(graph.handle(node)));
+        const missing = clues.filter(node => !graph.discovered(world, node));
         if (!missing.length)
             continue;
         const record = recordOf(conclusion),
@@ -54,7 +54,7 @@ export function threadSection(graph: ModuleGraph, world: Row, scene: Row, presen
                 line = found.map(deliveryOf).find(truth);
             if (line)
                 entry.line = line;
-            if (exit && truth(exit.when) && row(exit.when).kind !== "always" && conditionStatus(exit.when, world) !== true)
+            if (exit && truth(exit.when) && row(exit.when).kind !== "always" && conditionStatus(exit.when, world, graph) !== true)
                 entry.locked = describeCondition(exit.when);
             if (!exit)
                 entry.via = "back";

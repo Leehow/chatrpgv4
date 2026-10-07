@@ -6,7 +6,8 @@
  * `supported`, `contested` and `unsupported` are the words; `contradicted` and `unclear` are the earlier protocol's and
  * read as `unsupported`, so a recorded review is judged as what it was. Which fields are classification fields is never
  * listed here: the graph contract declares them (`module-graph-contract-v3.json` `classification_fields`), and this file
- * only matches a pointer against the declared patterns.
+ * only matches a pointer against the declared patterns. §191.1 adds the one pointer both ends treat as an identity statement
+ * (`identityReviewPath`).
  */
 
 export const REVIEW_VERDICTS: readonly string[] = Object.freeze(["supported", "contested", "unsupported", "contradicted", "unclear"]);
@@ -25,4 +26,15 @@ export function classificationMatcher(patterns: unknown): (path: string) => bool
         const field = tokens.slice(3);
         return declared.some(pattern => pattern.length === field.length && pattern.every((token, index) => token === "*" || token === field[index]));
     };
+}
+
+/**
+ * Contract §191.1: whether a draft pointer is a node's `distinct_from` (or inside it): the reader's answer that a drafted node
+ * is a different thing from the published node it shares a name with. It is reviewed as written under either review policy:
+ * never folded into its record's root, never a classification the reviewer may only contest, never advisory, and never
+ * cleared by the claim check; a verdict other than `supported` refuses it (`review_unsupported`).
+ */
+export function identityReviewPath(path: unknown): boolean {
+    const tokens = typeof path === "string" ? path.split("/") : [];
+    return tokens.length >= 4 && tokens[0] === "" && tokens[1] === "nodes" && /^\d+$/.test(tokens[2]) && tokens[3] === "distinct_from";
 }

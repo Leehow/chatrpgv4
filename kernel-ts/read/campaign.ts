@@ -19,6 +19,7 @@ import { playsFromReading } from "../modules/bound-source.js";
 import type { ChainReads } from "./weaknesses.js";
 import { moduleSourceSha, readServedCast } from "./cast.js";
 import { installRenameUndo } from "./rename-undo.js";
+import { apartPairs } from "./survivors.js";
 export class CampaignSnapshot {
     readonly dir: string;
     readonly jsonFiles = new Map<string, any>();
@@ -259,6 +260,8 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
         contract = row(await context.snapshots.readJson(join(context.content, "modules", "module-graph-contract-v3.json")));
     const graph = new ModuleGraph(id, raw, digest, dossierWith(row(contract.actor_dossier), row(meta.vocabulary), row(contract.creature_dossier)), undefined, false, handles ?? null);
     graph.sourceCampaign = inScope ? campaign : undefined;
+    // §191.3 (lead ruling 2026-10-07): the pairs a recorded `different` verdict keeps apart, before anything reads the cast.
+    graph.apart = apartPairs(row(meta.reading).identity, moduleSourceSha(meta));
     const store = inScope ? new ModuleStore(context) : undefined;
     const asset = store ? (name: string) => store.asset(id, name) : undefined;
     if (asset) graph.assetOverride = asset;
@@ -277,7 +280,10 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
             matches = array(raw.nodes).filter(n => [n.node_id, stripPrefix(n.node_id, n.node_kind), n.name || "", ...array(n.aliases),
                 ...(graph.nameFree ? [graph.handle(n), graph.interimHandle(n)] : [])].some(v => normalize(v) === key)).map(n => n.node_id);
         const ready = new Set(array(row(meta.reading).materials).flatMap(m => array(m.node_ids)));
-        return matches.length > 0 && matches.every(id => ready.has(id)) ? "ready" : "missing";
+        // §191.3: each thing the name names is read when any node of it was -- its survivor or a copy the survivor map joins
+        // (identity relations, and the cast's fold once the campaign loader installs it).
+        const things = [...new Set(matches.map(id => graph.survivorId(id)))];
+        return things.length > 0 && things.every(id => graph.groupOf(graph.nodes.get(id) ?? { node_id: id }).some(node => ready.has(node.node_id))) ? "ready" : "missing";
     };
     let sections: Row[] = [];
     if (registered && typeof meta.index_file === 'string') {
