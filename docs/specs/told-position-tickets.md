@@ -1,6 +1,7 @@
 # The table stands where the story is — tickets
 
-Spec: `docs/specs/told-position.md`. Contract: §190. Implementation waits for the owner's word.
+Spec: `docs/specs/told-position.md`. Contract: §190. Owner 2026-10-07: 「打完包就开工，先做 §190」. Integration branch
+`claude/told-position-20261007`; worker branches `claude/told-position-20261007-{window,told,admission}`.
 
 Same rules as every ticket: contract first; English system language; no prose patterns, place-name lists or regex
 classification (every semantic judgement is a Jev question over host-enumerated candidates); single files locally, full
@@ -9,7 +10,7 @@ path with a fake Jev adapter, `table.owe`, `table.capsule`, `table.apply.options
 
 ## TP-01 The window's places exist before they are read (§190.1)
 
-Status: needs-triage
+Status: ready-for-agent
 
 - `runtime/jev/` new family `window-places` (one Noul per flattened bookmark entry in the window; state: heading, page,
   first lines of the page's native text; bar `window_places.place_min` in `host-budgets.json`).
@@ -20,7 +21,7 @@ Status: needs-triage
 
 ## TP-02 The ledger follows the told position (§190.2)
 
-Status: needs-triage
+Status: ready-for-agent
 
 - `runtime/jev/told-position.ts` (questions, candidates, bars `told_position.{moved_min, place_min, sentence_min, mode}`;
   `mode` ships `shadow`), the host hook after each delivery in `extensions/kernel/index.ts` beside `afterDeliveryFirstSight`,
@@ -33,7 +34,7 @@ Status: needs-triage
 
 ## TP-03 One retry for a transient provider failure; the cause is recorded (§190.3)
 
-Status: needs-triage
+Status: ready-for-agent
 
 - `extensions/kernel/admission.ts` `reviewAdmission`: the lane result's provider status (from `runLane`'s failure detail)
   decides transient; one retry after `admission.transient_retry_ms` inside the deadline; the admission row gains `detail`.

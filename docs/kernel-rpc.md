@@ -36757,7 +36757,7 @@ capsule's `material` closure, the read-ahead's order, the packet scope. Actor: t
 scene ready when the party arrives. Limits: a section is the book's own division; a place is §190.1's decision; nothing in
 this section reads headings with patterns.
 
-## 190. The table stands where the story is (proposed 2026-10-07, owner 「两个一起开 spec，按你推荐的来」; `docs/specs/told-position.md`; implementation waits for the owner's word; amends §158, §166 by one exception, §143.15 and §22.4.7)
+## 190. The table stands where the story is (owner 2026-10-07: 「两个一起开 spec，按你推荐的来」, then 「打完包就开工，先做 §190」; `docs/specs/told-position.md`; amends §158, §166 by one exception, §143.15 and §22.4.7)
 
 **Evidence.** RD-08 (`rd-accept-blood-01-play`): the Keeper narrated the station on turn 2, the town on turn 7 and the
 motel on turns 8–10 while the ledger kept the party in `source-entry-16` until turn 11; the station's three men were not
