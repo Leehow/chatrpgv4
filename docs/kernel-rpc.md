@@ -37181,8 +37181,8 @@ rewritten; image text is labelled model reading.
   one (`outcome()` and the built short book's early return); the reading window itself and everything it limits are
   unchanged. **The cap** is read by the kernel itself, as `readingBudget` reads `reading`: `transcriptWindowPages` reads
   `transcript.max_window_pages` from `content/rulesets/coc7/host-budgets.json` (`context.snapshots.readJson`), coded
-  fallback `TRANSCRIPT_MAX_WINDOW_PAGES` = 120, a value outside 1..100000 falls back; the shipped file has no `transcript`
-  block yet (PT-01 adds it), so the fallback applies until then. **Decided here:** the first range (the anchor's chapter,
+  fallback `TRANSCRIPT_MAX_WINDOW_PAGES` = 120, a value outside 1..100000 falls back; PT-01's `transcript`
+  block ships the same 120. **Decided here:** the first range (the anchor's chapter,
   the page window, or the whole book) is always kept whole; the list stops at the first later range that would pass the cap
   and tries no smaller one after it. An anchor before the first chapter has the front matter (page 1 to the page before
   the first chapter) as its chapter, and the first chapter is then its next. In `pages` mode each reachable anchor's ±2
@@ -37193,3 +37193,41 @@ rewritten; image text is labelled model reading.
   `read_window` row and starts no window-places pass (§191.9's own `window` row belongs to the transcript queue). Tests:
   `tests/extension/read-window.test.mjs` (`§191.5` cases and the pinned windows), the two whole-book pins in
   `tests/kernel/test_fast_guidance.py` and `tests/kernel/test_visual_reading.py`.
+
+*PT-01 (producer, 2026-10-07).* Code: `extensions/module/page-transcript.ts` (grammar, assembly, invariant; pure),
+`extensions/module/transcript-store.ts`, `extensions/module/transcript-service.ts`, `sourceLines` in
+`extensions/module/source.ts` (`runtime/host.ts`, `runtime/tasks.ts`, `runtime/source-worker.ts` op `lines`),
+`transcriptBudget` in `runtime/jev/host-budgets.ts`, `content/setup/page-transcript.md`; one service per session is made
+beside `ReadingService` in `extensions/module/index.ts` and handed to it as the `transcripts` dependency, which no caller
+uses yet (PT-03). Decisions:
+
+- **The lease cannot be the budget's numbers alone.** A call carrying the page image reserves the model's whole declared
+  context window, and a model whose API takes no output limit reserves its whole `maxTokens` (§20 addendum 2), so a lease
+  of 96,000 input tokens would refuse every image call. Each child (layout and repair alike) gets its own `TaskLease`:
+  input `contextWindow + input_tokens` (the window from `model()`, 1,000,000 when unknown), output `131,072 +
+  output_tokens` (the room `independentProviderBudget` keeps for an uncapped model), `output_tokens` also as the per-call
+  output bound, $10, 16 calls, deadline `timeout_ms`. A call is granted while the child's actual spend stays within the
+  budget's numbers.
+- **Publication never overwrites:** the record is written to a temporary file and hard-linked into place (`link` fails on
+  an existing record; a file system without links falls back to `rename` only when no record exists). The loser of a
+  claim race discards its page (`already: true` on its row).
+- **Placeholders place their lines wherever they stand**, inside image text and figure notes too (the reading version
+  shows them there); `image_text` and `figures` keep only what was typed. Other HTML comments are removed with their
+  contents, so a placeholder inside one places nothing. A reversed range is ignored and counted once.
+- **Typed words** are the text between placeholders, split at table pipes and inline HTML tags; a piece is words only
+  when it carries a Unicode letter or number. The CommonMark marker that opens the Markdown line (blockquote, heading,
+  bullet, ordered number) and emphasis markers (`* _ ~` and backtick) around the words are structure and stay; the words
+  between them are what is compared, mapped or removed. A Markdown line left without words by a removal is dropped.
+- **Run join:** no space is added when either side of the join already is whitespace.
+- **Repair:** the repair child's directory holds the previous `layout.md` to edit and `repair.txt` (`L<n>: <line>` per
+  missing line); the attempt with the fewest unplaced lines is kept (a later one on a tie). A first child that leaves no
+  `layout.md` fails the page (`reason: "no_layout"`); a layout left by a child that exited non-zero is still read.
+- **Lines** are extracted with the other queued pages of the same file, at most 32 a `sourceLines` call; a refused batch is
+  retried page by page. `no_vision` is decided from `model()` when the page's job starts.
+- **Disk:** the page render goes to `<store>/cache/page-<NNNN>/` and is removed with the work directories' `page.png`
+  copies when the page finishes; `layout.md`, `lines.txt`, `repair.txt` and `run.jsonl` stay. A work directory of the same
+  attempt number left by an earlier producer is replaced by the claim holder.
+- **Telemetry** rows carry two fields beyond 191.9: `ignored` and `mapped`. The `window` event belongs to the read-ahead
+  that knows the ranges (PT-03). `ensure` answers `{state, queued, reused: {home, seed}, skipped}`; `idle()` and `close()`
+  serve owners and tests. Reader children close stdin (`stdio: ["ignore", ...]` in `runReader`), so `pi -p` never waits
+  for EOF.

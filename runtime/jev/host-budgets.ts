@@ -705,3 +705,59 @@ async function readToldPositionBudget(contentRoot?: string): Promise<ToldPositio
 
 /** Test-only: forgets the cached value. */
 export function resetToldPositionBudgetCache(): void { toldPositionCached = undefined; }
+
+/**
+ * Contract §191.2: the page-transcript producer's budget, from the same file's `transcript` section. `mode` (`on | off`,
+ * shipped `on`; `off` makes `TranscriptService.ensure` a no-op and every reader native), how many layout children run at
+ * once, one child's wall clock, the input and output tokens one child may spend (its own provider lease, never a reading
+ * job's), how many repair children follow a layout that left lines out, and the most pages a reading window names for
+ * transcripts. Data, never a literal in `extensions/module/transcript-service.ts`.
+ */
+export interface TranscriptBudget {
+  mode: 'on' | 'off';
+  concurrency: number;
+  timeoutMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  repairAttempts: number;
+  maxWindowPages: number;
+}
+
+/** Used only if the file or its `transcript` section cannot be read; the shipped file carries the real values. */
+export const TRANSCRIPT_FALLBACK: TranscriptBudget = Object.freeze({mode: 'on', concurrency: 3, timeoutMs: 240_000, inputTokens: 96_000,
+  outputTokens: 16_384, repairAttempts: 1, maxWindowPages: 120});
+
+const transcriptCached = new Map<string, Promise<TranscriptBudget>>();
+
+/** §191.2's budget, read once per content root and cached; no argument means the extension's own content. */
+export function transcriptBudget(contentRoot?: string): Promise<TranscriptBudget> {
+  const root = contentRoot ?? extensionContentRoot();
+  let pending = transcriptCached.get(root);
+  if (!pending) transcriptCached.set(root, pending = readTranscriptBudget(root));
+  return pending;
+}
+
+async function readTranscriptBudget(contentRoot: string): Promise<TranscriptBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot, 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {transcript?: Record<string, unknown>};
+    const block = raw.transcript;
+    if (!block || typeof block !== 'object' || Array.isArray(block)) return TRANSCRIPT_FALLBACK;
+    const fallback = TRANSCRIPT_FALLBACK;
+    const whole = (value: unknown, low: number, high: number, otherwise: number): number =>
+      Number.isSafeInteger(value) && (value as number) >= low && (value as number) <= high ? value as number : otherwise;
+    return {
+      mode: block.mode === 'on' || block.mode === 'off' ? block.mode : fallback.mode,
+      concurrency: whole(block.concurrency, 1, 16, fallback.concurrency),
+      timeoutMs: whole(block.timeout_ms, 1, 3_600_000, fallback.timeoutMs),
+      inputTokens: whole(block.input_tokens, 1, 10_000_000, fallback.inputTokens),
+      outputTokens: whole(block.output_tokens, 1, 1_000_000, fallback.outputTokens),
+      repairAttempts: whole(block.repair_attempts, 0, 4, fallback.repairAttempts),
+      maxWindowPages: whole(block.max_window_pages, 1, 100_000, fallback.maxWindowPages),
+    };
+  } catch {
+    return TRANSCRIPT_FALLBACK;
+  }
+}
+
+/** Test-only: forgets the cached values, so a test that rewrites a content root sees its own fixture. */
+export function resetTranscriptBudgetCache(): void { transcriptCached.clear(); }
