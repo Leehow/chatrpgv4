@@ -137,6 +137,19 @@ Status: ready-for-human (the owner gives the word for merging into the mainline,
 
 ---
 
+## NFH-07 — An investigator's own name is never an untold name
+
+Status: done — `2b005c0c5` (contract §185.13, amends §177.4)
+
+The first acceptance table found this (`nfh-accept-blood-road-1`, 2026-10-06). The investigator 「丹尼尔·怀特」 shares the
+piece 「丹尼尔」 with the untold store owner 「丹尼尔·马瑟」. The request rename rewrote the investigator's name, so 9 of 11
+refusals were `unknown_entity` on it, and every payment and every hand-over failed.
+
+Fix: investigators join the known set, built in one place, `knownNamePieces`. Four consumers use it: the roster, the
+delivery gate, the `untold_name` refusals and the journal check.
+
+---
+
 ## NFH-06 — Every person/entity reference goes through one junction
 
 Status: needs-triage (follow-up; not blocking NFH-05)
