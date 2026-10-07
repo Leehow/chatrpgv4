@@ -6,6 +6,7 @@ import {join,resolve} from 'node:path';
 import {reviewCandidate,reviewUnits,checkReviewEvidence,detailReviewInput,readReviewPlan,REVIEW_PLAN_FILE} from '../../extensions/module/reader-review.ts';
 import {createRuntime} from '../../runtime/host.ts';
 import {reviewOfCandidate} from '../../extensions/module/targeted-repair.ts';
+import {assignedReviewPages} from '../../runtime/jev/source-reader-driver.ts';
 // The pre-§187.8 grouping (one page per unit, up to 8 records): tests whose subject is not grouping keep their units with it.
 const PAGE_UNITS={images:1,maxRecords:8};
 
@@ -750,4 +751,78 @@ test('§186.4 an older plan, a source not bound to its candidate, or a carried r
  // Checked like a reused unit's retained review: the carried reviewer must have viewed every scope page.
  const unviewed={...source.plan,units:source.plan.units.map(unit=>unit.scope?{...unit,pages:[1,2,3]}:unit)};
  assert.deepEqual((await again(corrected,{},{...source,plan:unviewed,draft})).refused,['evidence']);
+});
+
+/**
+ * Contract §187.8 (RD-07): one independent reviewer per page set. A two-page job's records share one reviewer within the
+ * image and record budget, the coverage pointers ride in the unit over the job's pages, the brief names the delivered
+ * images as the evidence, every page the unit cites is delivered before the first call, and reuse stays per record.
+ */
+const jobNode=(i,page)=>({node_id:`npc-${i}`,node_kind:'npc',name:`npc-${i}`,source_refs:[{page}],properties:{}});
+const jobDraft=()=>({nodes:Array.from({length:12},(_,i)=>jobNode(i,40+i%2)),claims:[],ready_nodes:['npc-0'],coverage:{},critical:[]});
+test('§187.8.1 a two-page job\'s twelve records share one reviewer, and coverage rides in it',()=>{
+ const units=reviewUnits(jobDraft(),[],undefined,false,{jobPages:[40,41],scopePages:[40,41]});
+ assert.equal(units.length,1,'twelve records over the job\'s two pages are one page set');
+ assert.deepEqual(units[0],[...Array.from({length:12},(_,i)=>`/nodes/${i}`),'/coverage']);
+});
+test('§187.8.1 a record citing a page beyond the image budget starts a second unit; coverage stays with the job\'s pages',()=>{
+ const draft=jobDraft();draft.nodes.push(jobNode(12,42));
+ const units=reviewUnits(draft,[],{images:2,maxRecords:32},false,{jobPages:[40,41],scopePages:[40,41]});
+ assert.deepEqual(units,[[...Array.from({length:12},(_,i)=>`/nodes/${i}`),'/coverage'],['/nodes/12']]);
+ assert.deepEqual(reviewUnits(draft,[],{images:2,maxRecords:5},false,{jobPages:[40,41],scopePages:[40,41]}).map(paths=>paths.length),[6,5,2,1],
+  'the record budget bounds a unit too; coverage rides in the first unit over the job\'s pages');
+ assert.deepEqual(reviewUnits(jobDraft(),[],{images:2,maxRecords:32},false,{jobPages:[40,41],scopePages:[39,40,41]}).at(-1),['/coverage'],
+  'a scope wider than the image budget keeps a separate coverage unit, so every page it must view can be delivered');
+});
+test('§187.8.2 a merged unit is one reviewer whose brief names the delivered pages and whose cited pages all arrive first; reuse stays per record',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-page-set-review-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const ran=[],briefs=[],delivered=[],rows=[],draft=jobDraft();
+ const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',extractionVersion:'native-v1',draft,instructions:'unused',round:1,
+  task:{purpose:'detail',focus:'Camp',question:'',pages:[40,41],review_scope_pages:[40,41]},reviewBudget:{images:12,maxRecords:32},
+  model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(row){rows.push(row)},
+  async run(request){
+   const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8')),candidate=JSON.parse(await readFile(join(request.cwd,'draft.json'),'utf8'));
+   ran.push(task.required_review);briefs.push(request.brief);
+   // What the source reader driver projects into the reviewer's first request (it delivers at most twelve pages).
+   const first=assignedReviewPages(task,candidate).slice(0,12);delivered.push(first);
+   request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:first.map(page=>({page}))}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:task.required_review.map(path=>({paths:[path],verdict:'supported',source_refs:first.map(page=>({page})),reason:'fixture'})),missing:[]}));
+   return {ok:true,ms:1,stderr:''};
+  }};
+ await reviewCandidate(options);
+ assert.equal(ran.length,1,'one reviewer for the job\'s records and coverage');
+ assert.ok(ran[0].includes('/coverage'));
+ const cited=[...new Set(ran[0].flatMap(path=>{const match=/^\/nodes\/(\d+)$/.exec(path);return match?draft.nodes[Number(match[1])].source_refs.map(ref=>ref.page):[];}))];
+ assert.ok(cited.every(page=>delivered[0].includes(page)),'every page the unit cites is delivered before the first call');
+ assert.ok(briefs[0].includes('The host delivered the cited original pages into this context; they are the evidence. Call pdf only for a page that was not delivered or for a closer view of a region.'));
+ assert.ok(!briefs[0].includes('using pdf'));
+ // A repair changes one record: its unit runs for that record (and coverage, whose identity is the whole candidate); the eleven others reuse their own verdicts.
+ ran.length=0;rows.length=0;
+ const changed={...draft,nodes:draft.nodes.map((node,i)=>i===5?{...node,summary:'As page 41 prints him.'}:node)};
+ await reviewCandidate({...options,round:2,draft:changed});
+ assert.deepEqual(ran,[['/nodes/5','/coverage']]);
+ assert.equal(rows.find(row=>row.phase==='verify'&&row.ok)?.reused_records,11);
+ const review=JSON.parse(await readFile(join(cwd,'review.json'),'utf8'));
+ assert.deepEqual(review.checked.flatMap(row=>row.paths).sort(),[...Array.from({length:12},(_,i)=>`/nodes/${i}`),'/coverage'].sort(),'every record answered once');
+});
+test('§187.8.1 a coverage verdict that rode in a fact unit is carried by a records-only repair',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-merged-carry-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const ran=[],rows=[];
+ const draft={nodes:[carryNode('scene-dock',1),carryNode('npc-sailor',2),carryNode('npc-keeper',2)],claims:[],ready_nodes:['scene-dock'],coverage:{},critical:[]};
+ const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',extractionVersion:'native-v1',draft,instructions:'unused',round:1,
+  task:{purpose:'detail',focus:'Dock',question:'',pages:[1,2],review_scope_pages:[1,2]},
+  model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(row){rows.push(row)},
+  run:carryReviewer(ran,{refuse:path=>path==='/nodes/1'})};
+ await reviewCandidate(options);
+ assert.deepEqual(ran,[['/nodes/0','/nodes/1','/nodes/2','/coverage']]);
+ const source=await reviewOfCandidate([cwd],draft);
+ assert.ok(source);
+ const corrected={...draft,nodes:[draft.nodes[0],{...draft.nodes[1],summary:'As page 2 prints him.'},draft.nodes[2]]};
+ ran.length=0;rows.length=0;
+ await reviewCandidate({...options,round:2,draft:corrected,previousPlan:source.plan,coverageCarry:{...source,draft},run:carryReviewer(ran)});
+ assert.deepEqual(ran,[['/nodes/1']],'only the corrected record is reviewed; coverage is carried and the others reuse their verdicts');
+ assert.deepEqual(rows.filter(row=>row.event==='coverage_carry_refused'),[]);
+ const review=JSON.parse(await readFile(join(cwd,'review.json'),'utf8'));
+ assert.deepEqual(review.checked.filter(row=>row.paths.includes('/coverage')).map(row=>row.carried_from?.round),[1]);
 });
