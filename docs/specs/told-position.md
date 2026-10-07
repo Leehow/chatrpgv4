@@ -116,3 +116,23 @@ labelled before its ledger is opened.
 | 20 | the motel room | 旅馆外的街道 | no |
 
 Control: **8 of 20**. TP-05's bar stays ≥ 17 of 20.
+
+### 2026-10-07 TP-04 shadow table (lead; `tp-accept-blood-01-play`, integration head ad5e3ce93, luna low, Jev key, `told_position` shadow, `window_places` and `scene_placement` on)
+
+Suites on ad5e3ce93 (amax): ext 4966/7 (six mainline-known + §32.12 (b), green on a Mac single-file rerun 41/41), loop 0
+failures, py 1 (`test_npc_act_options`, mainline). Labelled after reading the rows (shadow calibration, not the TP-05 test).
+
+- **window-places** minted 44 book places in the window (pp. 17–45), 1 entry judged not a place. The Keeper then moved on
+  its own on turns 7 (into the town), 11 (minted sheriff's office), 15 (the Esso station, a book place) and 16.
+- **Agreement with the Keeper's own moves only (told-position in shadow): 15 of 20** (control RD-08: 8 of 20). The misses
+  are turns 2–6, the party at the Esso station while the ledger stayed in the prologue.
+- **told-position rows:** 21; `owe` on turns 2 and 3 (`old-gas-station`, place 0.95 and 0.93: correct) and turn 5
+  (`dusty-general-store`, place 0.77: wrong — the Keeper wrote "the shop beside the gas station" but described the book's
+  general store and its owner); `stay` on every other read; 4 skipped as `move_landed`. Turns 4 and 6 stayed with `moved`
+  0.31 / 0.64 against the prologue; under `on`, turn 2's owed move lands first and they read against the station.
+- **TP-03:** two transient retries fired: turn 15 (transport ended before a response) retried and admitted; turn 8 (429,
+  then 429 again) refused.
+- **Calibration proposal for the owner:** `told_position.place_min` 0.7 → 0.85, which keeps both correct owes and drops
+  the wrong one; the other bars unchanged; then TP-05 on a fresh table, labelled blind.
+- Seen in passing, not in scope: luna appended junk to two narrations (RD-08 turn 10 「രജ」, this table turn 11
+  「时时彩平台」).
