@@ -35760,6 +35760,32 @@ region." The Verify phase's "reopen the relevant physical pages yourself" is rem
 host's images are usable stands for authors and reviewers alike. A reviewer's `required_review` must still have had
 every cited page delivered (§22's rule), so the host delivers them before the first call.
 
+**187.8.3 Implementation decisions (RD-07).**
+
+- *The budget.* `reading_review` in `content/rulesets/coc7/host-budgets.json` (`images` 12, `max_records` 32), read by
+  `readingReviewBudget()` in `runtime/jev/host-budgets.ts`; `reviewCandidate` takes it from its `reviewBudget` option or
+  reads it itself. The former per-purpose override (a 4-page union for `module-logic-v1` and `first_interaction`) and the
+  256-pointer cap are retired with the 8-record / 24 KB bound: one rule for every purpose. A record citing no page, and a
+  non-record key, stays its own unit. Grouping is first fit in record order.
+- *The job's pages* are `task.pages`. The coverage pointers join the first unit whose cited page set equals them, and only
+  when the coverage scope (`review_scope_pages`) contains them and is itself within `images`; otherwise coverage keeps its
+  own unit. That guard is what makes §187.8.2's "delivered before the first call" hold: the source reader driver
+  projects a reviewer's assigned pages (`assignedReviewPages`: the scope when the unit carries coverage, else the unit's
+  records' pages) into the first request, at most twelve of them. That twelve is a literal in
+  `runtime/jev/source-reader-driver.ts` today; raising `reading_review.images` above it needs the driver to read the
+  same budget.
+- *Reuse is record by record (§151.2.1).* A unit's review is retained in shares: each answered record's rows under that
+  record's own `reviewUnitIdentity` (its own record and connected context), and the rest of the unit (`/coverage`) with
+  the unit's missing items under the whole-candidate identity, each share only when its own rows are approved. A unit
+  without a rest whose missing items block retains nothing. Before a unit runs, each record and the rest are looked up
+  (and the rest offered to the §186.4 carry); the reviewer is asked only what no share covers, and the unit's rows are
+  the reused shares plus the reviewer's. A unit answered wholly from shares runs no reviewer. Its verify row says
+  `reused_records`. Advisory missing items of a records-only unit are not retained (a reuse does not repeat them).
+- *Plans and the coverage carry.* A plan unit's `roots` are its record paths; `paths` keep `/coverage` when it rode
+  there. A carried unit (§151.2.1) carries its record paths only; coverage is placed afresh and may ride in it. §186.4's
+  carry finds the coverage share in whichever unit holds `/coverage`: its rows restricted to the non-record pointers,
+  that unit's missing items, and refused records gathered from every unit with roots.
+
 ### 187.9 What this section does not do
 
 The job unit stays the two-page source unit. The assessment's fourth step -- cutting jobs by the book's chapters or
