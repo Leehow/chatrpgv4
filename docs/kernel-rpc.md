@@ -37718,8 +37718,13 @@ readable through it.
   The kernel writes the identity relation directly, with `identity_review: {by: "kernel", rule: "same-name-same-page"}`.
   This is an explicit owner exception to "no hardcoded semantics", scoped to this trigger alone.
 - **Every other candidate** is queued as a background identity job, like §152.4's. A tool-using Pi reader opens both nodes'
-  pages and answers `same` (the relation is written) or `different` (recorded in `reading.identity`). It is not a
-  single-completion lane: the job is not on a turn's critical path.
+  pages and answers one of three. It is not a single-completion lane: the job is not on a turn's critical path.
+  - `same`: the relation is written.
+  - `different`: recorded in `reading.identity`, only when the pages show two different people or things. It keeps the pair
+    apart, the cast fold included.
+  - `unsure` (DUP-03b, lead ruling 2026-10-07: doubt never splits): recorded in `reading.identity` under the same key as
+    `{verdict: "unsure", ...}`. It writes no relation and keeps nothing apart, so the cast fold still joins what it joined.
+    The pair is not asked again.
 - **When it runs.** When a book loads, for the library and for each live campaign fork (owner: 「产品自己修，书库和在用的
   分支」). A fork gets its own new generation; a campaign is a compile snapshot of its fork. No one-off script touches App
   data.
@@ -38243,9 +38248,21 @@ Such a pair also waits for a verdict job.
   - `same` writes the relation with `identity_review: {by: "review", job_id, key, reason, generation}`.
   - `different` writes `reading.identity[key] = {verdict: "different", kind, nodes: [a, b], by: "review", job_id, reason,
     generation}`, which is DUP-01's record.
-- **Doubt.** Following §152.4's reviewer, "when the pages do not let you tell, answer `different`". Nothing is merged on
-  doubt. Such a verdict also keeps the cast fold apart (DUP-02b ruling), which can split a person the fold would have joined;
-  the reason the reviewer gives says so.
+- **Doubt never splits** (DUP-03b, lead ruling 2026-10-07; this replaces this slice's first rule, which answered
+  `different` on doubt as §152.4's reviewer does). The reviewer answers one of three: `same`, `different` or `unsure`.
+  The kernel and the host both accept the three (`node-identity-shape.ts`).
+  - Why: the pairs the cast fold joins under different own names (Blood Road's Sutton, Alissya and Brenner) now reach
+    verdict jobs. A `different` given from doubt would split people NR-02 joined, because a `different` beats the fold
+    (DUP-02b).
+  - `different` is for the pages showing two different people or things. It stays the blocking verdict of §191.1's record.
+  - `unsure` is kept as `reading.identity[key] = {verdict: "unsure", kind, nodes, by: "review", job_id, reason,
+    generation}`, the same key format.
+    - It blocks nothing: `apartPairs` reads only `different`, so the cast fold and the identity writer ignore it.
+    - It writes no relation.
+    - It stops the pair being asked again, since a pair with any recorded verdict is no candidate, as after three failures.
+  - An `unsure` travels between stores like the other reviewed decisions, so a fork does not ask it again either.
+  - The instruction (`content/setup/node-identity.md`) says to answer `different` only when the pages show two different
+    people or things, and otherwise `unsure`.
 
 **The library and lineage:**
 - **Adoption only.** A fork's repair generation, whether from the owner's rule or a job, is offered to the library only by
@@ -38322,6 +38339,33 @@ Such a pair also waits for a verdict job.
 - `two-live-identity-jobs`: 1 red
 - `failures-never-end-asking`: 1 red
 - `host-reports-no-pages`: 3 red
+
+**DUP-03b** (doubt never splits; `claude/reading-duplicates-20261007-repair`, merged from integration `08935f6bd`):
+- **The case** (`identity-repair.test.mjs`, "DUP-03b doubt never splits").
+  - Three people the cast holds as one individual each are read twice under different own names: Sutton, Alissya and
+    Brenner. The cast, not a name, raises each pair.
+  - The host's reviewer answers `unsure`, `different` and `same` respectively.
+  - Read through the campaign loader:
+    - the unsure pair stays one person in the cast, `resolve` gives one node for both names, and telling one copy tells
+      the person;
+    - the different pair is two people, and the other one stays untold;
+    - the same pair has its relation.
+  - None of the three is a candidate again, and the next read-ahead is quiet.
+- **Import.** "a fork takes the library's reviewed decisions" now carries an `unsure` from the library to a fork.
+- **Mutations:** six more, all red (25 of 25 in all; `different-not-kept` now drops `different` from the kept records and
+  turns 4 cases red):
+  - `unsure-kept-as-different`: 2 red
+  - `unsure-not-kept`: 2 red
+  - `unsure-merges`: 2 red
+  - `unsure-refused-by-shape`: 3 red
+  - `apart-counts-unsure`: 1 red
+  - `unsure-not-taken`: 1 red
+- **Mac, single files:**
+  - `identity-repair`: 10 of 10
+  - `survivor-map`: 7 of 7
+  - `module-cast`: 29 of 29
+  - `duplicate-of-published`: 11 of 11
+  - `tsc -p tsconfig.kernel.json`: clean
 
 *leehow-pc at `c641ff749`.*
 - **ext:** 5064 pass, 7 fail.

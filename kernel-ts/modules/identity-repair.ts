@@ -20,7 +20,9 @@
  *   revived Virginia); §191.3 never collapses that, and no verdict job is asked to.
  * - **Everything else** is asked of an independent reader in a background identity job (`node_identity`), a few pairs a job;
  *   its `same` writes the relation (`{by: "review", ...}`), its `different` is kept in `reading.identity` as §191.1 keeps a
- *   reviewed `distinct_from`, so the pair is never asked again.
+ *   reviewed `distinct_from`, so the pair is never asked again. Doubt never splits (DUP-03b, lead ruling 2026-10-07): an
+ *   `unsure` is kept there too, under the same key, so the pair is not asked again, but it keeps nothing apart -- the cast
+ *   fold still joins what it joined -- and writes no relation.
  *
  * A store takes the decisions another store of the same book already reviewed (`reviewedDecisions`): a fork the library's, the
  * library a fork's. Nothing here reads what a name, a summary or a page means.
@@ -110,12 +112,13 @@ export function pairTask(pair: RepairPair): Row {
         ...(pair.related.length ? { related: pair.related.map(rel => ({ ...rel })) } : {}) };
 }
 
-/** A decision a store already holds about two node ids from a review: `same` (an identity relation) or `different`. */
-export interface Decision { verdict: 'same' | 'different'; nodes: [string, string]; review: Row }
+/** A decision a store already holds about two node ids from a review: `same` (an identity relation), `different` or `unsure`. */
+export interface Decision { verdict: 'same' | 'different' | 'unsure'; nodes: [string, string]; review: Row }
 
 /**
  * The reviewed decisions a store holds for its bound source: the identity relations a review wrote (`identity_review.by` is
- * `review`) and the `different` verdicts of `reading.identity` (a verdict job's, or §191.1's reviewed `distinct_from`).
+ * `review`), and the `different` (a verdict job's, or §191.1's reviewed `distinct_from`) and `unsure` verdicts of
+ * `reading.identity`.
  */
 export function reviewedDecisions(raw: Row | null, meta: Row): Decision[] {
     const out: Decision[] = [], sha = identitySource(meta);
@@ -125,8 +128,8 @@ export function reviewedDecisions(raw: Row | null, meta: Row): Decision[] {
     }
     for (const [key, value] of Object.entries(row(row(meta.reading).identity))) {
         const record = row(value), nodes = array(record.nodes).filter((id): id is string => typeof id === 'string');
-        if (record.verdict === 'different' && sha && key.startsWith(sha + ':') && nodes.length === 2 && nodes[0] !== nodes[1])
-            out.push({ verdict: 'different', nodes: [nodes[0], nodes[1]], review: record });
+        if ((record.verdict === 'different' || record.verdict === 'unsure') && sha && key.startsWith(sha + ':') && nodes.length === 2 && nodes[0] !== nodes[1])
+            out.push({ verdict: record.verdict, nodes: [nodes[0], nodes[1]], review: record });
     }
     return out;
 }
@@ -156,7 +159,7 @@ export function repairPlan(moduleId: string, raw: Row | null, meta: Row, cast: R
             delete review.generation;
             if (decision.verdict === 'same') plan.writes.push({ nodes: decision.nodes, review });
             else plan.verdicts.push({ key: identityPairKey(sha, pair.kind, decision.nodes[0], decision.nodes[1]),
-                record: { ...review, verdict: 'different', kind: pair.kind, nodes: [...decision.nodes] } });
+                record: { ...review, verdict: decision.verdict, kind: pair.kind, nodes: [...decision.nodes] } });
             plan.imported++;
         }
         else if (pair.rule === SAME_NAME_SAME_PAGE) {

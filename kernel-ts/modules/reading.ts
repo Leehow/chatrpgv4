@@ -2479,8 +2479,9 @@ export class Reading {
      * §191.5: an identity job over published pairs. The reader's checked answers (`node_identity_path`, protocol
      * `node-identity-v1`) answer every pair the job asks that still waits for a verdict, and the reader opened a page of each
      * side that has pages (`observations.json`'s `read_pages`). A `same` writes the identity relation (`identity_review:
-     * {by: "review", job_id, key, reason}`) and a `different` is kept in `reading.identity` as §191.1 keeps a reviewed
-     * `distinct_from`, both in one publication (`publishIdentitiesHeld`). Nothing else is published.
+     * {by: "review", job_id, key, reason}`); a `different` is kept in `reading.identity` as §191.1 keeps a reviewed
+     * `distinct_from`; an `unsure` is kept there under the same key, which asks the pair no more and keeps nothing apart
+     * (DUP-03b: doubt never splits). All in one publication (`publishIdentitiesHeld`); nothing else is published.
      */
     private async finishNodeIdentity(mid: string, meta: Row, queue: Row[], job: Row, work: string, params: Row, seen: Set<unknown>): Promise<Row> {
         const asked = new Set(array(job.node_identity.pairs)), pairs = (await this.openIdentityPairs(mid, meta)).filter(pair => asked.has(pair.key));
@@ -2505,15 +2506,16 @@ export class Reading {
             const pair = byKey.get(verdict.key)!;
             return { nodes: [pair.a.node_id, pair.b.node_id] as const, review: { by: 'review', job_id: jobId, key: verdict.key, reason: verdict.reason } };
         });
-        const records = verdicts.filter(verdict => verdict.verdict === 'different').map(verdict => {
+        const records = verdicts.filter(verdict => verdict.verdict !== 'same').map(verdict => {
             const pair = byKey.get(verdict.key)!;
-            return { key: verdict.key, record: { verdict: 'different', kind: pair.kind, nodes: [pair.a.node_id, pair.b.node_id], by: 'review', job_id: jobId, reason: verdict.reason } };
+            return { key: verdict.key, record: { verdict: verdict.verdict, kind: pair.kind, nodes: [pair.a.node_id, pair.b.node_id], by: 'review', job_id: jobId, reason: verdict.reason } };
         });
         this.owned();
         const published = verdicts.length ? await publishIdentitiesHeld(this.store, mid, writes, records) : { written: [], skipped: [] };
         const current = await this.store.module(mid);
         const result: Row = { state: 'ready', generation: current.generation ?? 0, node_identity: { asked: asked.size, answered: verdicts.length,
-            same: writes.length, different: records.length, written: array(published.written).map(item => ({ from: item.from, to: item.to })),
+            same: writes.length, different: records.filter(item => item.record.verdict === 'different').length,
+            unsure: records.filter(item => item.record.verdict === 'unsure').length, written: array(published.written).map(item => ({ from: item.from, to: item.to })),
             ...(array(published.skipped).length ? { skipped: published.skipped } : {}), ...(published.conflicts ? { conflicts: published.conflicts } : {}) } };
         current.reading = isJsonObject(current.reading) ? current.reading : {};
         current.reading.completed ??= {};
