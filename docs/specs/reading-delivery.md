@@ -71,3 +71,19 @@ Unchanged evidence: the same verdict gates, every published record vision-review
 - Merging into the main line, packaging and the App: separate owner decision after RD-08.
 
 ## Comments
+
+### 2026-10-07 integration notes (lead)
+
+- All four worker branches merged (`place`, `packet`, `repair`, `review`) plus three integration commits: coverage rides the
+  first fact unit that *contains* the job's pages (only in a candidate's first verify round; a carried unit never hosts it),
+  one `reading_review.images` budget bounds the unit, the pages the driver hands a reviewer and the budget the service
+  passes, and `appendUnitCarry` compares record paths only so a first-round unit that hosted the coverage is reused whole
+  after an append (§187.8.3).
+- RD-04 measured: retained Blood Road source-unit packets fall from a median of about 850 KB to 123 KB (`field_spans`
+  was about half of each), still above the 48 KiB inline bound, so whether an author inlines is read from the new
+  `inlined` telemetry in RD-08. The per-purpose instructions fall only from 47.6 KB to 43.5 KB: the old code already
+  sliced by phase, so the Problem Statement's "about two thirds does not apply" was measured on the whole 62 KB file,
+  not on what a detail author received. The remaining lever for item 3 is the packet, not the instructions.
+- Single-file tests on the merge head: 20 extension files green (reader-review 44, review-repair-salvage 17,
+  reading-service 39, packet-scope 3, scene-placement 4, source-reader-driver 20, …), pytest 54 passed. Full suites on
+  amax and RD-08 follow.
