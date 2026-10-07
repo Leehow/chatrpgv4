@@ -152,7 +152,8 @@ test("§32.12, §32.12.2: pending returns and timeouts are not an outage -- a re
 });
 
 test("§32.12: a timeout between two unavailable reviews does not end the outage streak -- the second failure still escalates to the operator", async (t) => {
-	const provider = await tricklingProvider(t, ["error", "trickle", "error"]);
+	// §190.3: a provider 500 is transient and asked again once, so each unavailable review is two 500s.
+	const provider = await tricklingProvider(t, ["error", "error", "trickle", "error", "error"]);
 	const resolve = (target) => fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "social", skill: "Persuade", target, goal: "请她调出旧剪报", method: "说明来意" } })], { stopReason: "toolUse" });
 	const table = await openTable({
 		env: { PI_COC_ADMISSION_MODEL: "trickle/trickle-1", PI_COC_ADMISSION_TIMEOUT_MS: "1500" },
@@ -169,6 +170,7 @@ test("§32.12: a timeout between two unavailable reviews does not end the outage
 
 	assert.deepEqual(admissionRows(table).map((row) => row.ok === false ? `unavailable:${row.reason}` : row.verdict),
 		["unavailable:model_error", REVIEW_TIMEOUT, "unavailable:model_error"]);
+	assert.equal(provider.requests(), 5, "each unavailable review asked its 500 again once (§190.3); the timeout was not");
 	const notices = table.entries("coc-admission-status");
 	assert.equal(notices.length, 1, "unavailable, pending, unavailable is a streak of two: the pending return neither counted nor reset it");
 	assert.equal(notices[0].data?.streak ?? notices[0].streak, 2);

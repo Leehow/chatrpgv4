@@ -49,6 +49,7 @@
     "thinking_floor": "low"
   },
   "admission": {
+    "transient_retry_ms": 1500,
     "typed_design": "roles-2a.3",
     "typed_settle": {
       "classes": [

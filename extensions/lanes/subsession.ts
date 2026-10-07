@@ -32,7 +32,46 @@ export type LaneFailureReason = "model_unavailable" | "model_error" | "bad_outpu
  */
 export type LaneResult<T> =
 	| { ok: true; value: T; ms: number; model: string; raw: string; usage?: ReturnType<typeof providerUsage>; firstByteMs?: number }
-	| { ok: false; reason: LaneFailureReason; detail: string; ms: number; model?: string; firstByteMs?: number };
+	| { ok: false; reason: LaneFailureReason; detail: string; ms: number; model?: string; firstByteMs?: number; transport?: LaneTransport };
+
+/**
+ * Contract §190.3: what the request itself saw of a failed round (`model_error` only), when the caller asked for it
+ * (`LaneRequest.observeTransport`): the HTTP status of the last response the provider sent, or that the transport ended
+ * before any response came (the request was handed to the network and failed without one, while neither the round's
+ * signal nor the request's own had aborted). Read off the `fetch` the adapter used, never off the error's text; absent
+ * when the adapter does not send through `options.fetch` or no request went out.
+ */
+export type LaneTransport = { status: number } | { endedBeforeResponse: true };
+
+/**
+ * §190.3: the APIs whose pi-ai adapter sends its HTTP request through `options.fetch` (`@earendil-works/pi-ai/dist/api/`).
+ * The two Google adapters refuse a custom fetch and Bedrock's SDK takes none, so no other API is handed one: a closed
+ * list of wire APIs, as `REASONING_EFFORT_APIS` below is, never of provider or model names.
+ */
+const OBSERVED_FETCH_APIS: ReadonlySet<string | undefined> = new Set([
+	"openai-completions", "openai-responses", "azure-openai-responses", "openai-codex-responses", "anthropic-messages",
+	"mistral-conversations", "pi-messages",
+]);
+
+/**
+ * §190.3: a `fetch` that passes every request to the global one unchanged and remembers how the last one ended. The
+ * global is looked up per request, so a test's stub of it still answers. `transport()` is what `LaneResult` carries.
+ */
+function observedFetch(signal: AbortSignal): { fetch: typeof globalThis.fetch; transport: () => LaneTransport | undefined } {
+	let last: LaneTransport | undefined;
+	const fetch: typeof globalThis.fetch = async (input, init) => {
+		last = undefined;
+		try {
+			const response = await globalThis.fetch(input, init);
+			last = { status: response.status };
+			return response;
+		} catch (error) {
+			if (!signal.aborted && !init?.signal?.aborted) last = { endedBeforeResponse: true };
+			throw error;
+		}
+	};
+	return { fetch, transport: () => last };
+}
 
 /** `provider/model`. A model id may contain slashes itself, so split on the first one only. */
 export function parseModelRef(raw: string): { provider: string; id: string } | undefined {
@@ -503,6 +542,12 @@ export interface LaneRequest<T> {
 	 * (contract §12.5: the lanes use neither keywords nor regexes).
 	 */
 	shape: (parsed: unknown) => T | undefined;
+	/**
+	 * Contract §190.3: hand the adapter an observing `fetch` (only for the APIs in `OBSERVED_FETCH_APIS`), so that a
+	 * `model_error` says what the provider answered (`LaneResult.transport`). Only the admission lane asks; every other
+	 * lane's request stays exactly as it was.
+	 */
+	observeTransport?: boolean;
 }
 
 /** Run one lane: resolve the model, one completion, take the JSON, check the shape. Any step failing returns a failure, never throws. */
@@ -580,6 +625,9 @@ async function runLaneAttempt<T>(
 	clock: TaskClock = hostClock,
 ): Promise<LaneResult<T>> {
 	let label: string | undefined;
+	// §190.3: what the request saw, for a `model_error`; only when the caller asked and the API sends through `fetch`.
+	let observed: ReturnType<typeof observedFetch> | undefined;
+	const seen = (): { transport?: LaneTransport } => { const transport = observed?.transport(); return transport ? { transport } : {}; };
 	try {
 		const resolved = resolveLaneModel(request.ctx, request.envName);
 		if (!resolved.ok) {
@@ -613,6 +661,7 @@ async function runLaneAttempt<T>(
 		try {
 			signal.throwIfAborted();
 			const headers = openCodeSessionHeaders(resolved.model, sessionIdOf(request.ctx));
+			if (request.observeTransport && OBSERVED_FETCH_APIS.has(resolved.model.api)) observed = observedFetch(signal);
 			reply = await request.ctx.modelRegistry.complete(
 				resolved.model,
 				{
@@ -620,7 +669,7 @@ async function runLaneAttempt<T>(
 					messages: [{ role: "user", content: [{ type: "text", text: request.input }] }],
 					// tools omitted: that is what makes this a zero-tool session.
 				},
-				{ signal, maxRetries:0, ...reasoning, ...rows.options, ...(headers ? { headers } : {}),
+				{ signal, maxRetries:0, ...reasoning, ...rows.options, ...(headers ? { headers } : {}), ...(observed ? { fetch: observed.fetch } : {}),
 					onPayload:async(payload:unknown)=>{
 						const prepared=boundProviderRequest(resolved.model,payload);
 						const compatiblePayload = laneCompatiblePayload(resolved.model, prepared.payload);
@@ -647,6 +696,7 @@ async function runLaneAttempt<T>(
 				detail: reply.errorMessage ?? reply.stopReason,
 				ms: clock.now() - began,
 				model: label,
+				...seen(),
 			};
 		}
 		const raw = (reply.content ?? [])
@@ -682,6 +732,7 @@ async function runLaneAttempt<T>(
 			detail: error instanceof Error ? error.message : String(error),
 			ms: clock.now() - began,
 			...(label ? { model: label } : {}),
+			...seen(),
 		};
 	}
 }
