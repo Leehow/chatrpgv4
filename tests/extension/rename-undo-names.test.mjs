@@ -10,9 +10,12 @@
  * - a piece: 「马瑟」 inside the clue 「马瑟的账本」, as `clue`;
  * - a one-character alias: 「丹」 inside the clue 「丹的钥匙」, as `clue`;
  * - a joined word (§177.4): 「丹尼尔」, which an unread man of the book (「丹尼尔·罗斯」) shares, resolves to the one node its
- *   names reach (name-free); 「艾米」, which two people of the graph share, is refused `ambiguous`, naming each by their own
- *   word and never by a book name;
- * - a legacy handle: the clue whose handle begins with Mather's, as `clue`.
+ *   names reach (name-free); 「艾米」, which two people of the graph share, and 「汤姆」, the whole name of two men (no spelling
+ *   names one of them), are refused `ambiguous`, naming each by their own word and never by a book name;
+ * - a legacy handle: the letter whose handle begins with Mather's, as `clue`.
+ *
+ * Beside the round trips: the rows each scheme installs, a word the junction reads left to the junction (§87.8), and a journal
+ * label the request shows before it is folded.
  *
  * The investigator shares no name with anyone here: §188.1 keeps an investigator's name out of the rename (NR-01), so these are
  * places the rename really makes.
