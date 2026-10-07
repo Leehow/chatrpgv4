@@ -182,7 +182,7 @@ export async function writePlaceAttempt(input: {workRoot: string; moduleId: stri
   const excerpt = entryExcerpt({page: entry.page, text: input.pageText}, name);
   const packet: SourceReferencePacket = validateReferencePacket({protocol: SOURCE_REFERENCE_PROTOCOL, source_sha256: input.sourceSha,
     extraction_version: input.extractionVersion, purpose: 'answer', question: name, excerpts: [excerpt],
-    fields: Object.fromEntries(REFERENCE_FIELDS.map(field => [field, []])) as SourceReferencePacket['fields'], entries: [],
+    fields: Object.fromEntries(REFERENCE_FIELDS.map(field => [field, [] as string[]])) as SourceReferencePacket['fields'], entries: [],
     places: [{id: entry.id, name, page: entry.page}], partial: true, visual_coverage: 'unassessed', unavailable_pages: []}, input.pageCount, input.sourceSha);
   const work = join(input.workRoot, `window-place-${entry.page}-${entry.index}-${randomUUID().slice(0, 8)}`);
   await mkdir(work, {recursive: true});
