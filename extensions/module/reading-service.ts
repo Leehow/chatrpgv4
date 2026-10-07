@@ -31,7 +31,7 @@ import {IdentityReviewUnavailable,reviewVisualIdentity} from './visual-identity-
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
-import {readingImageBudget} from '../../runtime/jev/host-budgets.ts';
+import {readingImageBudget, readingReviewBudget} from '../../runtime/jev/host-budgets.ts';
 /**
  * `allowanceMs` (contract §22.4.3, SL-36): the foreground allowance of an in-turn source consultation. Past it `ensure`
  * resolves `{state: "pending", job_id, read, index, settled}` instead of refusing with `reading_timeout`: the waiter leaves
@@ -1384,6 +1384,7 @@ export class ReadingService implements ReadingBridge {
 									draft:candidate, instructions, round, previousPlan, coverageCarry, extractionVersion: sourceTextVersion,
 									...(appendSource ? { appendCarry: (paths: string[]) => appendUnitCarry(appendSource!, { draft: candidate, task, paths }) } : {}),
 									cacheId: readingCacheId(job.module_id, job.job_id, round), ...(readingImages ? { imageHistory: readingImages } : {}),
+									reviewBudget: await readingReviewBudget(this.runtime().contentRoot),
 									model, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 }, signal,
 									cacheRoot:join(cache,'..','reviews'),
 									reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion+(draftHasMapRegions(candidate)?':map-region-review-v2':'')),Buffer.from(await readerInstructionText(this.runtime().contentRoot, { phase: "verify", guidance: job.purpose === "guidance", answer: job.purpose === "answer" }))])),

@@ -35893,6 +35893,8 @@ every cited page delivered (§22's rule), so the host delivers them before the f
   carry finds the coverage share in whichever unit holds `/coverage`: its rows restricted to the non-record pointers,
   that unit's missing items, and refused records gathered from every unit with roots.
 
+**Integration decision (187.8.3, lead, 2026-10-07).** The coverage pointers ride in the first fact unit whose page set *contains* the job's pages and stays within `reading_review.images`, not one that equals them: under the real 12-page budget a record citing one page beyond the job's would otherwise strand the coverage in a cold unit of its own, which is the cost §187.8 removes. The coverage reviewer still views `review_scope_pages`, which include every page that unit's records cite. The reader driver hands a reviewer up to `reading_review.images` pages (the former literal 12), and the reading service passes the budget it read to `reviewCandidate`, so one data value bounds the unit, its delivered pages and the driver's projection.
+
 ### 187.9 What this section does not do
 
 The job unit stays the two-page source unit. The assessment's fourth step -- cutting jobs by the book's chapters or

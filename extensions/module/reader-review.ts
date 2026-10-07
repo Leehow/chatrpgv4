@@ -91,14 +91,14 @@ function citedPages(draft: Row, root: string): number[] {
 		.filter((page: any) => Number.isInteger(page) && page > 0))].sort((a, b) => a - b);
 }
 const pageSet = (pages: Iterable<number>) => [...new Set(pages)].sort((a, b) => a - b);
-const samePages = (a: Iterable<number>, b: Iterable<number>) => canonical(pageSet(a)) === canonical(pageSet(b));
 
 /**
  * Contract §187.8.1: records whose page sets overlap share a reviewer while the union of their cited pages stays within
  * `budget.images` distinct pages and the unit holds fewer than `budget.maxRecords` records. A record that cites no page,
  * and every non-record key, is its own unit. `seeds` are units a previous round's plan carried (§151.2.1): no record
  * joins them, so they keep the grouping they were reviewed under. The coverage pointers ride in the first unit whose page
- * set equals the job's pages, when the pages the coverage reviewer must view are within the image budget and include that
+ * set contains the job's pages (integration decision, §187.8.3: a record that cites one page beyond the job's would
+ * otherwise strand the coverage in its own cold unit under the real 12-page budget), when the pages the coverage reviewer must view are within the image budget and include that
  * unit's pages (so the host delivers every page the unit's records cite before the first call, §187.8.2); otherwise
  * they keep a separate unit, as before.
  */
@@ -121,7 +121,7 @@ function batchGroups(draft: Row, groups: Map<string, Set<string>>, budget: Parti
 	if (coverage) {
 		const job = pageSet(scope.jobPages ?? []), view = pageSet(scope.scopePages ?? job);
 		const host = job.length && view.length <= images && job.every(page => view.includes(page))
-			? batches.find(batch => batch.records > 0 && samePages(batch.pages, job)) : undefined;
+			? batches.find(batch => batch.records > 0 && job.every(page => batch.pages.has(page)) && batch.pages.size <= images) : undefined;
 		if (host) host.paths.push(...coverage); else others.push(coverage);
 	}
 	return [...batches.map(batch => batch.paths), ...others];

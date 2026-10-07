@@ -19,7 +19,7 @@ import {retainSourceNeeds} from '../../extensions/module/source-needs.ts';
 import {selectReferencePacket,checkReferenceGuide} from './source-reference.ts';
 import {validateReferencePacket,type SourceReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 import {NEED_FACET_KEY,needAnsweredBatch,needAnsweredBudget,needAnsweredState,needDisposition,needFacet,needReadCandidates,needTaskOf,writeNeedReceipt,type NeedLead,type NeedReceipt} from './source-need-reads.ts';
-import {needReadBudget} from './host-budgets.ts';
+import {needReadBudget, readingReviewBudget} from './host-budgets.ts';
 
 type Page = {page:number;text:string;label?:string|null;text_status?:'available'|'empty'|'error'|'unavailable'};
 type ImagePage = {page:number;path:string;image_sha256:string;box:number[];data:string};
@@ -703,7 +703,9 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
              trace({kind:'source_reference_projected',runId,pages:[...new Set(referencePacket.excerpts.map(span=>span.page))],characters:referencePacket.excerpts.reduce((n,span)=>n+span.text.length,0)});
              return {status:'ok',artifact:{kind:'projected',pages:candidates,original_images:0}};
            }
-           if(task.purpose!=='answer')for(const page of candidates.slice(0,reviewing?12:Math.max(6,Math.min(8,new Set(shortSectionPages).size)))){
+           const reviewImages=reviewing?(await readingReviewBudget()).images:undefined;
+           // §187.8.2: a reviewer is handed every page its unit cites, up to the same `reading_review.images` that bounds the unit.
+           if(task.purpose!=='answer')for(const page of candidates.slice(0,reviewing?reviewImages!:Math.max(6,Math.min(8,new Set(shortSectionPages).size)))){
              invocation.signal.throwIfAborted();
              const rendered=await sourcePage(source.pdf,source.cache,page,{format:'jpeg'});
              const bytes=await readFile(rendered.path);
