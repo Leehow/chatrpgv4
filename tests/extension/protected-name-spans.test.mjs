@@ -47,11 +47,13 @@ async function kernel(t, seed) {
 }
 
 /** The investigator is registered under `name`, as table 30's was; returns the sheet ids. */
-async function rename(home, campaign, name) {
+async function rename(home, campaign, name, appearance) {
 	const folder = join(home, '.coc', 'campaigns', campaign, 'party'), ids = [];
 	for (const file of (await readdir(folder)).filter(file => file.endsWith('.json'))) {
 		const sheet = JSON.parse(await readFile(join(folder, file), 'utf8'));
-		await writeFile(join(folder, file), JSON.stringify({...sheet, name}));
+		// The words the player wrote at setup reach the capsule's investigator section as `appearance` (§119).
+		const backstory = appearance === undefined ? sheet.backstory : {...sheet.backstory, personal_description: appearance};
+		await writeFile(join(folder, file), JSON.stringify({...sheet, name, ...(backstory === undefined ? {} : {backstory})}));
 		ids.push(sheet.id);
 	}
 	return ids;
@@ -59,6 +61,11 @@ async function rename(home, campaign, name) {
 
 /** The Keeper's request as the installed context hook assembles it, with one tool result carrying `text`. */
 async function keeperSees(home, campaign, call, input, text) {
+	return (await keeperRequest(home, campaign, call, input, text)).find(message => message.role === 'toolResult').content[0].text;
+}
+
+/** Every message of that request, as the text the Keeper reads. */
+async function keeperRequest(home, campaign, call, input, text) {
 	const hooks = new Map(), bus = new Map();
 	api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn)}},
 		() => {}, () => api.workpadStoreRoot(home));
@@ -67,8 +74,9 @@ async function keeperSees(home, campaign, call, input, text) {
 	const {messages} = await hooks.get('context')({messages: [{role: 'user', content: 'I look around.'},
 		{role: 'assistant', content: [{type: 'toolCall', id: 'lookup-1', name: 'lookup', arguments: {kind: 'source', query: 'the dock'}}]},
 		{role: 'toolResult', toolCallId: 'lookup-1', toolName: 'lookup', content: [{type: 'text', text}]}]}, {model: {contextWindow: 1000000}});
-	return messages.find(message => message.role === 'toolResult').content[0].text;
+	return messages;
 }
+const textOf = message => typeof message.content === 'string' ? message.content : (message.content ?? []).map(part => part.text ?? '').join('');
 
 /** A decision port that answers every place "the name", keeping each place it was asked about (§177.15's marked text). */
 const namePort = asked => ({async decide(batch) {
@@ -93,7 +101,7 @@ const STORE_OWNER = {node_id: 'npc-daniel-mather', name: OWNER, aliases: ['丹']
 const DOCK = {pages: PAGES, people: [STORE_OWNER],
 	cast: [{book: [OWNER, '丹尼尔', '丹尼'], play: [OWNER, '丹尼尔', '丹尼'], notes: ['Daniel Mather', 'Daniel', 'Danny'], pages: [1]}]};
 
-async function readerBuilt(t, book = DOCK) {
+async function readerBuilt(t, book = DOCK, appearance) {
 	const k = await kernel(t, 'protected-name-spans');
 	const pdf = join(k.home, 'harbor.pdf');
 	await writeFile(pdf, `%PDF-1.7\n% ${book.pages.join(' | ')}\n%%EOF\n`);
@@ -126,7 +134,7 @@ async function readerBuilt(t, book = DOCK) {
 	const saved = await k.raw('investigator.save', {campaign: 'card-source'});
 	await k.raw('campaign.create', {id: 'c1', module: mid, play_language: 'zh-Hans'});
 	await k.raw('investigator.load', {campaign: 'c1', library_id: saved.library_id});
-	const ids = await rename(k.home, 'c1', INVESTIGATOR);
+	const ids = await rename(k.home, 'c1', INVESTIGATOR, appearance);
 	await k.raw('setup.complete', {campaign: 'c1'});
 	const call = (method, params = {}) => k.raw(method, {campaign: 'c1', ...params});
 	await call('table.open');
@@ -141,7 +149,8 @@ test('§188.1 (name-free): the request keeps the investigator\'s name whole and 
 	for (const name of [OWNER, '丹', '丹尼']) assert.ok(names.includes(name), `${name} is an untold row: ${JSON.stringify(names)}`);
 	assert.ok(Array.isArray(answer.protected), 'table.untold carries protected beside people');
 	for (const name of [INVESTIGATOR, ...h.ids]) assert.ok(answer.protected.includes(name), `${name} is protected: ${JSON.stringify(answer.protected)}`);
-	assert.ok(!answer.protected.some(name => [OWNER, '丹', '丹尼', '丹尼尔'].includes(name)), 'no untold name and no piece is protected');
+	assert.ok(['丹尼尔', '怀特'].every(name => answer.protected.includes(name)), 'and the pieces of his name (§185.13\'s trade, at the span level)');
+	assert.ok(!answer.protected.some(name => [OWNER, '丹', '丹尼'].includes(name)), 'no untold name is protected');
 	await h.call('table.narrate', {call_id: 't0-c1', text: '港口很安静。'});
 	const input = await h.call('table.player_input', {text: '我走进杂货店。'});
 
@@ -290,9 +299,15 @@ test('§188.1 (told detection): a person\'s own name said in the prose still tel
 	const ids = await toldCast(h);
 	await h.call('table.narrate', {call_id: 't0-c1', text: '港口很安静。'});
 	const input = await h.call('table.player_input', {text: '我问邮差他叫什么。'});
+	// The postmaster's whole name is the investigator's surname, a piece of the investigator's name (§185.13's trade at the span
+	// level): 「怀特」 alone in the prose is the investigator's and tells him nothing. The name token does: it also makes 「怀特」
+	// the postmaster's own word at this table, which never shields his own name.
 	await h.call('table.narrate', {call_id: `t${input._context.turn}-c1`, text: '怀特先生点了点头。'});
+	const asked = await h.call('table.player_input', {text: '我再问一遍。'});
+	assert.ok(untoldIn(asked, ids.white), 'his name alone is the investigator\'s piece: not told');
+	await h.call('table.narrate', {call_id: `t${asked._context.turn}-c1`, text: `邮差说：“我是{{name:${ids.white}}}。”`});
 	const next = await h.call('table.player_input', {text: '我问店主他叫什么。'});
-	assert.equal(untoldIn(next, ids.white), null, 'the postmaster\'s own name alone tells him');
+	assert.equal(untoldIn(next, ids.white), null, 'the name token tells him');
 	assert.ok(!(await h.call('table.untold')).people.some(row => row.name === 'White'));
 	// The name token puts the store owner's book name in the prose and makes it this table's word for him (§103.8): his own word
 	// stands exactly where his name does, and does not shield it. It does shield the second Daniel, whose name stands inside it.
@@ -313,4 +328,47 @@ test('§188.1 (told detection): a say token\'s shown word reads the same guard a
 	assert.equal(api.toldTurn(graph, node, api.prepareNameHistory(records)), 1, 'unguarded, the shown word tells him');
 	assert.equal(api.toldTurn(graph, node, api.prepareNameHistory(records, guard([]))), null, 'inside an investigator\'s name it does not');
 	assert.equal(api.toldTurn(graph, node, api.prepareNameHistory(records, guard(['wang']))), 1, 'his own word never shields his name');
+});
+
+/**
+ * §188.1, the investigator's pieces (real table nr06-blood-road-2, 2026-10-07): the investigator's own sheet said
+ * 「委托人的女儿三个月前在这条公路上失踪，丹尼尔受托寻找她。」, his given name alone, and only his full name was protected, so the
+ * untold store owner's one-character alias 「丹」 was renamed inside it: the Keeper read 「戴厚黑框眼镜的红发店主尼尔受托寻找她」 and
+ * on turn 5 had the store owner introduce himself as 「尼尔」.
+ */
+const BRIEF = '委托人的女儿三个月前在这条公路上失踪，丹尼尔受托寻找她。';
+
+test('§188.1 (investigator\'s pieces): his given name alone stays whole in the request, the gate and the told check', async t => {
+	const h = await readerBuilt(t, DOCK, BRIEF);
+	await h.call('table.narrate', {call_id: 't0-c1', text: '港口很安静。'});
+	const input = await h.call('table.player_input', {text: '我走进杂货店。'});
+	const messages = await keeperRequest(h.home, 'c1', h.call, input, `${OWNER}在柜台后面。丹说今天不开张，丹尼尔受托寻找她。`);
+	const sheet = messages.filter(message => message.role !== 'toolResult').map(textOf).filter(text => text.includes('受托寻找她'));
+	assert.ok(sheet.length, 'the capsule carries the investigator\'s own words');
+	assert.ok(sheet.every(text => text.includes('丹尼尔受托寻找她')), `the sheet's words reach the Keeper as written: ${sheet.map(text => text.slice(text.indexOf('受托') - 30, text.indexOf('受托') + 6))}`);
+	const result = textOf(messages.find(message => message.role === 'toolResult'));
+	assert.ok(result.includes('丹尼尔受托寻找她'), result);
+	assert.ok(!result.includes(OWNER) && !result.includes('丹说'), `the store owner's full name and a lone alias are still renamed: ${result}`);
+
+	// The gate: 「丹尼尔」 alone means the investigator; the nickname 「丹尼」 inside it is no untold place.
+	assert.deepEqual((await h.call('table.untold_spans', {text: '丹尼尔走进杂货店。'})).spans, []);
+	const own = await h.call('table.narrate', {call_id: `t${input._context.turn}-c1`, text: '丹尼尔走进杂货店。'});
+	assert.match(own.rendered_text, /丹尼尔走进杂货店/, 'a delivery saying his given name alone is not held');
+	// Told detection: the journal lane may not count the store owner named by it, as a quote or as named_as.
+	const job = await h.call('journal.job', {turn: input._context.turn});
+	assert.ok(job.unnamed.includes(OWNER), JSON.stringify(job.unnamed));
+	await assert.rejects(h.call('journal.submit', {job_id: job.job_id, lease: job.lease, entries: [{name: OWNER, named: true, named_quote: '丹尼尔走进杂货店。'}]}),
+		error => error?.details?.reason === 'not_a_book_name', 'the quote carries his name only as the investigator\'s given name');
+	await assert.rejects(h.call('journal.submit', {job_id: job.job_id, lease: job.lease, entries: [{name: OWNER, named: true, named_quote: '丹尼尔走进杂货店。', named_as: '丹尼尔'}]}),
+		error => error?.details?.reason === 'not_a_book_name', 'nor as named_as');
+	assert.ok((await h.call('table.untold')).people.some(row => row.name === OWNER), 'the store owner is still untold');
+});
+
+test('§188.1 (investigator\'s pieces): his given name alone in the prose tells no untold person who carries it', async t => {
+	const h = await readerBuilt(t, TOLD);
+	const ids = await toldCast(h);
+	await h.call('table.narrate', {call_id: 't0-c1', text: BRIEF});
+	const after = (await h.call('table.untold')).people;
+	assert.ok(after.some(row => row.name === 'Dan' && row.id === ids.dan), `the unread second Daniel is still untold: ${JSON.stringify(after)}`);
+	assert.ok(after.some(row => row.name === 'Daniel') && after.some(row => row.name === OWNER), 'and so is the store owner');
 });

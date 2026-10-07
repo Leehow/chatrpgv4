@@ -255,14 +255,16 @@ export function knownNamePieces(graph: ModuleGraph, known: readonly CastPerson[]
 /**
  * §188.1: the words the investigator's side owns that are not a told person's name, as written, each with the keys of whose
  * word it is: the names the investigators at this table are registered under (`graph.investigatorNames`, the party sheet's
- * `name` and `id`, which `actor` matches), and this table's words for people -- the names of the people the table established,
+ * `name` and `id`, which `actor` matches) with their pieces (`namePieces`, the trade §185.13 makes: real table nr06-blood-road-2,
+ * the sheet said the investigator's given name alone and the untold store owner's one-character alias was renamed inside it),
+ * and this table's words for people -- the names of the people the table established,
  * `world.person_labels` (`called.name`, under a handle or a sheet id), the folded epithets (under a handle or a cast row's id)
  * and the journal's labels (under a node id). Read from the strings the kernel holds, never from what they mean.
  */
 export function tableWords(graph: ModuleGraph, world: Row, journal: Row): Array<{ word: string; owners: string[] }> {
     const owned = (owners: string[]) => (value: unknown) => ({ word: text(value), owners });
     return [
-        ...graph.investigatorNames.map(owned([])),
+        ...namePieces(graph.investigatorNames).map(owned([])),
         ...graph.kind('npc').filter(node => graph.isTablePerson(node))
             .flatMap(node => [node.name, graph.displayName(node)].map(owned([graph.handle(node), string(node.node_id)]))),
         ...Object.entries(row(world.person_labels)).map(([key, record]) => owned([key])(row(record).name)),
@@ -298,9 +300,10 @@ export function ownedBy(graph: ModuleGraph, node: Row): (owner: string) => boole
 }
 
 /**
- * §188.1: every whole name the investigator's side owns, as written: `tableWords`, and every name of a cast person the
- * investigator has been told about. No piece is added: a place of a protected name protects that whole occurrence, and a piece
- * would also shield an untold person's full name that begins with it.
+ * §188.1: every name the investigator's side owns, as written: `tableWords` (the investigators' names with their pieces, and
+ * this table's words), and every whole name of a cast person the investigator has been told about. A told person's pieces are
+ * not added. A longer untold place that holds a protected occurrence whole is still renamed (`clearOf`), so an investigator's
+ * given name never shields an untold full name that begins with it.
  *
  * Wherever the request's rename (`table.untold`) or the delivery gate (`table.untold_spans`, §177.11) finds an untold name, a
  * place that overlaps an occurrence of one of these is left as written. The §185 acceptance table: the book also prints the

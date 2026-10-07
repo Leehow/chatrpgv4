@@ -36122,7 +36122,13 @@ punctuation piece, a one-character alias, matched as a substring in CJK. The §1
   - every told cast person's whole names;
   - this table's words for people (`tableWord`, `called.name`, epithets, journal labels).
 
-  Pieces are not added: a span protects a whole occurrence.
+  Each investigator's registered names come with their pieces (`namePieces`: 「丹尼尔·怀特」 gives 「丹尼尔」 and 「怀特」), the
+  trade §185.13 already makes, applied at the span level (coordinator ruling 2026-10-07, after the real table
+  `nr06-blood-road-2`: the investigator's own sheet said 「委托人的女儿三个月前在这条公路上失踪，丹尼尔受托寻找她。」, his given name
+  alone; only his full name was protected, so the untold store owner's one-character alias 「丹」 was renamed inside 「丹尼尔」,
+  the Keeper read 「戴厚黑框眼镜的红发店主尼尔受托寻找她」, and on turn 5 had the store owner introduce himself as 「尼尔」). A
+  told cast person's pieces are not added. A longer untold place that holds a protected occurrence whole is still renamed,
+  so 「丹尼尔·马瑟」 is renamed although 「丹尼尔」 is protected.
 - **`table.untold`** answers `{people, protected: string[]}`.
 - The host rename (`renameUntold` / `renameText` / `placesIn`, `extensions/kernel/untold-view.ts`) first finds every
   occurrence of every protected name in the text, using the same matching as places (exact string; a Latin name bounded
@@ -36136,7 +36142,7 @@ punctuation piece, a one-character alias, matched as a substring in CJK. The §1
   state counts an occurrence of a person's name inside an occurrence of a guarded word that is not that person's own:
   `toldTurn` (the delivered text and a speech row's `shown`), `castToldTurn`, the journal lane's floor (`buildJob`'s `told`,
   which writes `named_at`) and its `named_quote` / `named_as` check. The guarded words are only the investigators' registered
-  names and this table's words for people (`tableWord`, `called.name`, epithets, journal labels; the names of people the
+  names with their pieces and this table's words for people (`tableWord`, `called.name`, epithets, journal labels; the names of people the
   table established), never told cast names, since whether someone is told is what these tests decide. A person's own words
   never shield their own name, and with §188.2 the words of every copy the cast holds as that individual are their own. Matching is the rename's, with the same containment rule: a longer occurrence of the name that
   holds a guarded occurrence whole still counts. Without it the investigator 「丹尼尔·怀特」 in the prose told an unread
@@ -36280,8 +36286,8 @@ ledger reading `from` only; the reunion ignoring `from_id`; `ownerIn` without `c
   - this table's words for people: the names of the people the table established (`isTablePerson`), every
     `world.person_labels[*].name` (`called.name`, `tableWord`'s first layer), every folded `world.person_epithets[*].word`,
     and every `npc-journal.json` `entries[*].label`.
-  No piece is added. Epithets the lane wrote but the kernel has not folded yet are not the table's word yet (the request
-  shows the folded one) and are not in the list.
+  No piece is added (but see the investigator's pieces below). Epithets the lane wrote but the kernel has not folded yet are
+  not the table's word yet (the request shows the folded one) and are not in the list.
 - **`table.untold`** answers `{people, protected}`; `people` is unchanged. The handler prepares the turn records once
   (`prepareNameHistory`) for both (`untoldRoster` now takes any `Iterable<Row>`).
 - **Matching.** An occurrence of a protected name is found as a place is: the exact string, a Latin name only where no Latin
@@ -36368,6 +36374,22 @@ ledger reading `from` only; the reunion ignoring `from_id`; `ownerIn` without `c
   unguarded; the `named_quote` check unguarded; the `named_as` check removed; `untoldBlock` unguarded; no `person_labels` in
   the guard (the unread Daniel inside the store owner's word); `untoldRoster` and `table.untold` both unguarded (either one
   alone is masked by the other, by design).
+- **An investigator's pieces (coordinator ruling 2026-10-07, after table `nr06-blood-road-2`; amends the first bullet).**
+  `tableWords` lists `namePieces(graph.investigatorNames)` (each whole name and every punctuation piece of two characters or
+  more) instead of the whole names alone. It is the one source, so the pieces reach all four readers: `protectedNames` (the
+  host rename and its §177.15 judge, through `table.untold`; the gate's `untoldNamesSaid` / `prosePlaces` / `inProse`) and
+  `tellGuard` (every told check). A told cast person's pieces are still not added. The containment rule is unchanged, so an
+  untold full name that begins with the investigator's given name is still renamed and still gated. The trade, as §185.13
+  makes it: an untold person whose whole name is an investigator's piece (the postmaster 「怀特」 beside 「丹尼尔·怀特」) is not
+  told by that piece alone in the prose; the name token tells them, because it makes the word their own `called.name`, and
+  `tellGuard` merges one word's owners, so their own word never shields them. Tests (`protected-name-spans.test.mjs`): the
+  sheet's `backstory.personal_description` set to the table's sentence reaches the Keeper's capsule copy with 「丹尼尔受托寻找她」
+  whole, while the store owner's full name and a lone 「丹」 in a tool result are renamed; `table.untold_spans` finds nothing in
+  「丹尼尔走进杂货店。」 and that delivery goes out; the journal lane is refused `not_a_book_name` for the store owner named by that
+  quote, with and without `named_as`; 「丹尼尔」 alone in the prose leaves the unread second Daniel and the store owner untold.
+  Mutations, each red: no pieces anywhere (request, told, the postmaster's trade); `protectedNames` without them (the
+  capsule copy renamed to 「…npc-b8ee1b尔受托寻找她」); the gate's list without them (`untold_spans` finds a place inside 「丹尼尔」); `tellGuard`
+  without them (the journal quote accepted; the unread Daniel told).
 - **With NR-02 and NR-03 (merge of 2026-10-07).** `isTold` keeps NR-02's told-together over `castNodes` and passes every
   node the individual's owner test (`ownedBy`); `untoldBlock` calls `isTold` with the guarded history; `protectedNames`
   counts someone told when any copy is, each read with `ownerOf(graph, person.nodes, person.castIds)`; NR-03's single
