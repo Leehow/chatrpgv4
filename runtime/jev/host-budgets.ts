@@ -339,6 +339,49 @@ async function readReadingImageBudget(contentRoot: string): Promise<ReadingImage
 export function resetReadingImageBudgetCache(): void { readingImageCached.clear(); }
 
 /**
+ * Contract §187.8.1: how many records one independent source reviewer takes. Records whose page sets overlap share a
+ * reviewer while the union of their cited pages stays within `images` distinct pages and the unit holds fewer than
+ * `max_records` records. Data (`reading_review`), never a literal in `extensions/module/reader-review.ts`.
+ */
+export interface ReadingReviewBudget {
+  /** `reading_review.images`: distinct cited pages one review unit may span. */
+  images: number;
+  /** `reading_review.max_records`: records one review unit may hold. */
+  maxRecords: number;
+}
+
+/** Used only if `content/rulesets/coc7/host-budgets.json` cannot be read; the shipped file carries the real default. */
+export const READING_REVIEW_FALLBACK: ReadingReviewBudget = Object.freeze({images: 12, maxRecords: 32});
+
+const readingReviewCached = new Map<string, Promise<ReadingReviewBudget>>();
+
+/** The review unit budget, read once per content root and cached, like `readingImageBudget`. */
+export function readingReviewBudget(contentRoot?: string): Promise<ReadingReviewBudget> {
+  const root = contentRoot ?? extensionContentRoot();
+  let pending = readingReviewCached.get(root);
+  if (!pending) readingReviewCached.set(root, pending = readReadingReviewBudget(root));
+  return pending;
+}
+
+async function readReadingReviewBudget(contentRoot: string): Promise<ReadingReviewBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot, 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      reading_review?: {images?: unknown; max_records?: unknown};
+    };
+    const images = raw.reading_review?.images, maxRecords = raw.reading_review?.max_records;
+    return {
+      images: finite(images) && Number.isInteger(images) && images >= 1 ? images : READING_REVIEW_FALLBACK.images,
+      maxRecords: finite(maxRecords) && Number.isInteger(maxRecords) && maxRecords >= 1 ? maxRecords : READING_REVIEW_FALLBACK.maxRecords,
+    };
+  } catch {
+    return READING_REVIEW_FALLBACK;
+  }
+}
+
+/** Test-only: forgets the cached values, so a test that rewrites a content root sees its own fixture. */
+export function resetReadingReviewBudgetCache(): void { readingReviewCached.clear(); }
+
+/**
  * SL-97 phase 2b (contract §32.12.3.2): the typed admission reviewer's design and the one rule by which its reading may
  * settle a line alone -- `admission` in the same rules-data file as the other host budgets, so widening the classes after a
  * new measurement is a data change, never a literal in `extensions/kernel/admission.ts`.
