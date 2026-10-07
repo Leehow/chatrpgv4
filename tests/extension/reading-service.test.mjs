@@ -1084,3 +1084,27 @@ test("§151.4: a need the child decided to read, or a receipt for another task, 
 		assert.equal(rows.find(row => row.phase === "read").need_disposition, recorded);
 	}
 });
+
+test("§191.6 foregroundWaiting is true only while a turn waits on a foreground reading", async t => {
+	const prior = process.env.PI_COC_READ_WAIT_MS;
+	process.env.PI_COC_READ_WAIT_MS = "300";
+	t.after(() => { if (prior === undefined) delete process.env.PI_COC_READ_WAIT_MS; else process.env.PI_COC_READ_WAIT_MS = prior; });
+	const service = new ReadingService({ home: "/unused", model: () => { throw new Error("no local reader should be started"); },
+		progress() {}, record() {}, async call(method, params) {
+			if (method === "module.read.request") return { state: "reading", job_id: params.foreground ? "read-fg" : "read-bg", generation: 1 };
+			if (method === "module.read.claim") return { job_id: null };
+			if (method === "module.read.unwait") return { job_id: params.job_id, foreground: false };
+			return {};
+		} });
+	t.after(() => service.dispose());
+	assert.equal(service.foregroundWaiting(), false);
+	const background = service.ensure("book-1", { purpose: "detail", focus: "Archive" });
+	background.catch(() => undefined);
+	assert.equal(service.foregroundWaiting(), false, "a background reading is not a turn waiting");
+	const waiting = service.ensure("book-1", { purpose: "detail", focus: "Bar Cordano", foreground: true });
+	waiting.catch(() => undefined);
+	assert.equal(service.foregroundWaiting(), true);
+	await assert.rejects(waiting, e => e.details?.reason === "reading_timeout");
+	await until(() => !service.foregroundWaiting());
+	await background.catch(() => undefined);
+});

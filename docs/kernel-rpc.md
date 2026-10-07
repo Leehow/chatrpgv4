@@ -37064,8 +37064,8 @@ split at `"\n"` with whitespace-only entries removed, each kept byte for byte; `
   out.
 - **Output** `layout.md`, the grammar of 191.3. The child is done when it exits; the host reads the file.
 - **Budget** (data, `content/rulesets/coc7/host-budgets.json` `transcript`, read by `runtime/jev/host-budgets.ts` with
-  coded fallbacks): `mode` (`on` | `off`, shipped `on`), `concurrency` (3), `timeout_ms` (240000), `input_tokens`
-  (96000), `output_tokens` (16384), `repair_attempts` (1), `max_window_pages` (120). The child's provider lease is its own
+  coded fallbacks): `mode` (`on` | `off`, shipped `on`), `concurrency` (1; *amended 2026-10-07 after TR-C from 3*), `timeout_ms` (240000), `input_tokens`
+  (96000), `output_tokens` (16384), `repair_attempts` (1), `max_window_pages` (120), `cooldown_ms` (60000). The child's provider lease is its own
   (`independentProviderBudget`-shaped, sized by these numbers); it never draws on a reading job's lease.
 - **Slots.** Transcript children take background reader slots (`acquireReaderSlot`, priority `background`); a foreground
   request (191.6) is served first among transcript work but never preempts a reading job.
@@ -37130,6 +37130,14 @@ that have no record and no live claim; `priority: "foreground"` puts them first.
 `window.transcript` after every read-ahead (background) and with the pages of any read in 191.7 that found no record
 (foreground). Nothing ever awaits a transcript: every reader in 191.7 uses the native text for a page that has none.
 `mode: "off"` makes `ensure` a no-op and every reader native.
+
+**The table comes first (amended 2026-10-07 after TR-C).** A transcript child shares the table's provider. On the first
+real table three children at a time drew the provider's rate limit (429) onto the Keeper (18 retries in six minutes) and
+onto the reading a turn was waiting for (one turn waited 331 s). So: no new child starts while a turn of this host waits
+on a foreground reading (`ReadingService.foregroundWaiting()`, handed to the service as `yieldTo`); a child whose event
+log shows a provider retry with status 429 stops new children for `cooldown_ms` (telemetry `event: "cooldown"`); one
+child at a time by default. The brief names the work directory's absolute paths (a child once wrote its layout to a
+path it made up), and a first child that leaves no `layout.md` gets one fresh child counted against `repair_attempts`.
 
 ### 191.7 Readers
 

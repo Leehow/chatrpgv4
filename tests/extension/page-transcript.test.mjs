@@ -157,7 +157,7 @@ test("§191.4 a record of another extraction version is ignored; a claim is excl
 const BUDGET = { ...TRANSCRIPT_FALLBACK };
 const VISION = { id: "fixture/vision", vision: true, thinking: "low", contextWindow: 200_000 };
 
-async function harness(t, { pages = { 1: PAGE }, layouts = () => "{L1-L9}", budget = BUDGET, model = VISION, home, content, gate } = {}) {
+async function harness(t, { pages = { 1: PAGE }, layouts = () => "{L1-L9}", budget = BUDGET, model = VISION, home, content, gate, yieldTo, events } = {}) {
 	home ??= await scratch(t, "transcript-home-");
 	content ??= await scratch(t, "transcript-content-");
 	const runs = [], rows = [], calls = [];
@@ -180,13 +180,16 @@ async function harness(t, { pages = { 1: PAGE }, layouts = () => "{L1-L9}", budg
 			runs.push({ ...request, files, repair: files.includes("repair.txt") ? await readFile(join(request.cwd, "repair.txt"), "utf8") : undefined,
 				page: Number(/p(\d{4})-\d+$/.exec(request.cwd)[1]) });
 			if (gate) await gate(request);
+			runs[runs.length - 1].startedAt = Date.now();
 			const layout = layouts(request, runs.length, files);
 			if (layout !== undefined) await writeFile(join(request.cwd, "layout.md"), layout);
+			if (events) await writeFile(request.eventLog, events(request, runs.length));
+			runs[runs.length - 1].endedAt = Date.now();
 			return { ok: !signal?.aborted, code: 0, timedOut: false, ms: 1, stderr: "", command: [],
 				usage: { inputTokens: 5000, outputTokens: 600, costUsd: 0.01, actions: 3, unknownCalls: 0 } };
 		},
 	};
-	const service = new TranscriptService({ runtime, model: () => model, record: row => rows.push(row), budget, extractionVersion: EXTRACTION });
+	const service = new TranscriptService({ runtime, model: () => model, record: row => rows.push(row), budget, extractionVersion: EXTRACTION, ...(yieldTo ? { yieldTo } : {}) });
 	t.after(() => service.close());
 	return { home, content, runtime, service, runs, rows, calls, store: new TranscriptStore({ home, contentRoot: content, extractionVersion: EXTRACTION }) };
 }
@@ -343,9 +346,62 @@ test("§191.4 a page another producer holds is left to it; a stale claim is take
 	assert.equal(await exists(join(h.store.dir(FILE), "page-0002.claim")), false, "the producer releases the claim it took");
 });
 
+const until = async (condition, ms = 10_000) => {
+	const end = Date.now() + ms;
+	while (!condition()) { if (Date.now() > end) throw new Error("condition not met in time"); await new Promise(resolve => setTimeout(resolve, 20)); }
+};
+
+test("§191.2 the brief names the work directory's absolute paths", async t => {
+	const h = await harness(t);
+	await h.service.ensure({ pdf: "source.pdf", file_sha256: FILE, pages: [1] });
+	await h.service.idle();
+	const [run] = h.runs;
+	assert.ok(run.brief.includes(join(run.cwd, "layout.md")) && run.brief.includes(join(run.cwd, "lines.txt")), run.brief);
+});
+
+test("§191.3 a first child that leaves no layout gets one fresh child; with no repair budget the page fails", async t => {
+	const h = await harness(t, { layouts: (_request, count) => count === 1 ? undefined : "{L1-L8}\n\n<!-- drop: L9 -->" });
+	await h.service.ensure({ pdf: "source.pdf", file_sha256: FILE, pages: [1] });
+	await h.service.idle();
+	assert.equal(h.runs.length, 2);
+	assert.ok(!h.runs[1].files.includes("repair.txt"), "a fresh layout, not a repair");
+	const { record: stored } = await h.store.read(FILE, 1);
+	assert.deepEqual([stored.unplaced, stored.attempts], [[], 2]);
+	const none = await harness(t, { layouts: () => undefined, budget: { ...BUDGET, repairAttempts: 0 } });
+	await none.service.ensure({ pdf: "source.pdf", file_sha256: FILE, pages: [1] });
+	await none.service.idle();
+	assert.equal(none.runs.length, 1);
+	assert.deepEqual(none.rows.filter(row => row.event === "page").map(row => [row.outcome, row.reason]), [["failed", "no_layout"]]);
+});
+
+test("§191.6 no child starts while the table waits on a foreground reading", async t => {
+	let waiting = true, asked = 0, released = 0;
+	const h = await harness(t, { yieldTo: () => { asked++; return waiting; } });
+	await h.service.ensure({ pdf: "source.pdf", file_sha256: FILE, pages: [1] });
+	await until(() => asked >= 1);
+	assert.equal(h.runs.length, 0, "the queue held while yielding");
+	released = Date.now(); waiting = false;
+	await h.service.idle();
+	assert.equal(h.runs.length, 1);
+	assert.ok(h.runs[0].startedAt >= released, "the child started only after the wait ended");
+});
+
+test("§191.6 a child that met a provider rate limit starts the cooldown before the next child", async t => {
+	const cooldownMs = 600;
+	const h = await harness(t, { pages: { 1: PAGE, 2: PAGE }, budget: { ...BUDGET, concurrency: 1, cooldownMs },
+		events: (_request, count) => count === 1
+			? JSON.stringify({ type: "auto_retry_start", attempt: 1, delayMs: 2000, errorMessage: "flapcode API error (429): rate limit" }) + "\n"
+			: JSON.stringify({ type: "agent_settled" }) + "\n" });
+	await h.service.ensure({ pdf: "source.pdf", file_sha256: FILE, pages: [1, 2] });
+	await h.service.idle();
+	assert.equal(h.runs.length, 2);
+	assert.ok(h.runs[1].startedAt - h.runs[0].endedAt >= cooldownMs - 50, `gap ${h.runs[1].startedAt - h.runs[0].endedAt} ms`);
+	assert.equal(h.rows.filter(row => row.event === "cooldown").length, 1);
+});
+
 test("§191.2 the budget is data with coded fallbacks", async t => {
-	assert.deepEqual(await transcriptBudget(join(ROOT, "content")), { mode: "on", concurrency: 3, timeoutMs: 240_000, inputTokens: 96_000,
-		outputTokens: 16_384, repairAttempts: 1, maxWindowPages: 120 });
+	assert.deepEqual(await transcriptBudget(join(ROOT, "content")), { mode: "on", concurrency: 1, timeoutMs: 240_000, inputTokens: 96_000,
+		outputTokens: 16_384, repairAttempts: 1, maxWindowPages: 120, cooldownMs: 60_000 });
 	const empty = await scratch(t, "transcript-budget-");
 	await mkdir(join(empty, "rulesets", "coc7"), { recursive: true });
 	await writeFile(join(empty, "rulesets", "coc7", "host-budgets.json"), JSON.stringify({ transcript: { mode: "off", concurrency: 0 } }));

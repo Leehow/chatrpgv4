@@ -1025,6 +1025,12 @@ export class ReadingService implements ReadingBridge {
 	 * §22.4.6. The job a request of this host is blocked on (a turn waits on it now) when that job is not running here yet:
 	 * the pump may then claim past its own capacity, to place it or to learn which background read yields.
 	 */
+	/** §191.6: a turn of this host waits on a foreground reading now; background transcript children hold off meanwhile. */
+	foregroundWaiting(): boolean {
+		for (const request of this.requests.values()) if (request.foreground && !request.cancelled) return true;
+		return false;
+	}
+
 	private blockingWaiting(mid: string, campaign: string | undefined): string | undefined {
 		for (const request of this.requests.values()) {
 			const of = request.of;

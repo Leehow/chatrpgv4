@@ -721,11 +721,13 @@ export interface TranscriptBudget {
   outputTokens: number;
   repairAttempts: number;
   maxWindowPages: number;
+  /** §191.6: after a layout child met a provider rate limit (429), no new child starts for this long. */
+  cooldownMs: number;
 }
 
 /** Used only if the file or its `transcript` section cannot be read; the shipped file carries the real values. */
-export const TRANSCRIPT_FALLBACK: TranscriptBudget = Object.freeze({mode: 'on', concurrency: 3, timeoutMs: 240_000, inputTokens: 96_000,
-  outputTokens: 16_384, repairAttempts: 1, maxWindowPages: 120});
+export const TRANSCRIPT_FALLBACK: TranscriptBudget = Object.freeze({mode: 'on', concurrency: 1, timeoutMs: 240_000, inputTokens: 96_000,
+  outputTokens: 16_384, repairAttempts: 1, maxWindowPages: 120, cooldownMs: 60_000});
 
 const transcriptCached = new Map<string, Promise<TranscriptBudget>>();
 
@@ -753,6 +755,7 @@ async function readTranscriptBudget(contentRoot: string): Promise<TranscriptBudg
       outputTokens: whole(block.output_tokens, 1, 1_000_000, fallback.outputTokens),
       repairAttempts: whole(block.repair_attempts, 0, 4, fallback.repairAttempts),
       maxWindowPages: whole(block.max_window_pages, 1, 100_000, fallback.maxWindowPages),
+      cooldownMs: whole(block.cooldown_ms, 0, 3_600_000, fallback.cooldownMs),
     };
   } catch {
     return TRANSCRIPT_FALLBACK;

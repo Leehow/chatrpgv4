@@ -32,6 +32,11 @@ export interface TranscriptDependencies {
 	model(): TranscriptModel;
 	/** Telemetry: `lane: "transcript"` rows (§191.9). */
 	record(row: Row): void;
+	/**
+	 * §191.6: true while the table waits on a foreground reading. No new layout child starts then: a transcript is
+	 * background work and must not compete with the reading a turn is waiting for.
+	 */
+	yieldTo?(): boolean;
 	/** Tests only: the budget instead of the shipped file's `transcript` section. */
 	budget?: TranscriptBudget;
 	/** Tests only: the native extraction version records must carry, instead of this build's. */
@@ -66,9 +71,16 @@ const CHILD_COST_USD = 10;
 const CHILD_ACTIONS = 16;
 const CLOSE_WAIT_MS = 10_000;
 
-const FIRST_BRIEF = "Lay out this page: read page.png and lines.txt, then write layout.md as your instructions say.";
-const REPAIR_BRIEF = "Repair this page's layout: read repair.txt, layout.md, lines.txt and page.png, then edit layout.md so that every line "
-	+ "repair.txt lists is placed where it belongs or added to the drop list. Keep the rest of layout.md as it is.";
+/** The brief names the work directory's absolute paths: a child once wrote its layout to a path it made up (TR-C). */
+const firstBrief = (dir: string) => `Lay out this page: read ${join(dir, "page.png")} and ${join(dir, "lines.txt")}, then write ${join(dir, "layout.md")} `
+	+ "as your instructions say. Write exactly that path.";
+const repairBrief = (dir: string) => `Repair this page's layout: read ${join(dir, "repair.txt")}, ${join(dir, "layout.md")}, ${join(dir, "lines.txt")} and `
+	+ `${join(dir, "page.png")}, then edit ${join(dir, "layout.md")} so that every line repair.txt lists is placed where it belongs or added `
+	+ "to the drop list. Keep the rest of layout.md as it is.";
+/** While the queue yields to a foreground reading or cools down, it looks again this often. */
+const YIELD_POLL_MS = 2_000;
+/** A Pi auto-retry whose provider error carries HTTP status 429. */
+const RATE_LIMITED = /\b429\b/;
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 400);
 
@@ -86,6 +98,9 @@ export class TranscriptService {
 	private readonly waiters: Array<() => void> = [];
 	private running = 0;
 	private closed = false;
+	/** §191.6: no new child starts before this time (a child met a provider rate limit). */
+	private coolUntil = 0;
+	private retryTimer?: ReturnType<typeof setTimeout>;
 	private storeValue?: TranscriptStore;
 	private budgetValue?: Promise<TranscriptBudget>;
 
@@ -152,6 +167,7 @@ export class TranscriptService {
 	/** Stop: queued pages are dropped, running children are stopped; their claims are released. */
 	async close(): Promise<void> {
 		this.closed = true;
+		if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = undefined; }
 		this.controller.abort();
 		for (const job of this.queue.splice(0)) this.active.delete(job.key);
 		this.wake();
@@ -167,6 +183,12 @@ export class TranscriptService {
 
 	private pump(runtime: TranscriptRuntime, budget: TranscriptBudget) {
 		while (!this.closed && this.running < budget.concurrency && this.queue.length) {
+			const wait = this.holdFor();
+			if (wait > 0) {
+				this.retryTimer ??= setTimeout(() => { this.retryTimer = undefined; this.pump(runtime, budget); }, wait);
+				this.retryTimer.unref?.();
+				break;
+			}
 			const foreground = this.queue.findIndex(job => job.priority === "foreground");
 			const [job] = this.queue.splice(foreground >= 0 ? foreground : 0, 1);
 			this.running++;
@@ -180,6 +202,31 @@ export class TranscriptService {
 				});
 		}
 		this.wake();
+	}
+
+	/** How long to wait before a new child may start: a foreground reading in wait, or a rate-limit cooldown; 0 to start now. */
+	private holdFor(): number {
+		let yielding = false;
+		try { yielding = this.deps.yieldTo?.() === true; } catch { /* a failing probe never stops the queue */ }
+		if (yielding) return YIELD_POLL_MS;
+		const cooling = this.coolUntil - Date.now();
+		return cooling > 0 ? Math.min(cooling, YIELD_POLL_MS * 30) : 0;
+	}
+
+	/** §191.6: a child whose provider answered 429 starts the cooldown. Reads the child's own event log. */
+	private async rateLimited(eventLog: string, budget: TranscriptBudget, job: Job): Promise<void> {
+		let text = "";
+		try { text = await readFile(eventLog, "utf8"); } catch { return; }
+		for (const line of text.split("\n")) {
+			if (!line.includes("auto_retry_start")) continue;
+			let event: Row; try { event = JSON.parse(line); } catch { continue; }
+			if (event.type !== "auto_retry_start" || !RATE_LIMITED.test(String(event.errorMessage ?? ""))) continue;
+			if (budget.cooldownMs > 0) {
+				this.coolUntil = Math.max(this.coolUntil, Date.now() + budget.cooldownMs);
+				this.note({event: "cooldown", file_sha256: job.sha, page: job.page, until: new Date(this.coolUntil).toISOString()});
+			}
+			return;
+		}
 	}
 
 	/** The page's native lines, extracted with the other queued pages of its file (at most `LINES_BATCH` a call). */
@@ -254,20 +301,25 @@ export class TranscriptService {
 				const lease = this.lease(budget, model);
 				let outcome: ReaderOutcome;
 				try {
-					outcome = await runtime.runTask({kind: "reader", request: {cwd: dir, brief: previous ? REPAIR_BRIEF : FIRST_BRIEF,
+					outcome = await runtime.runTask({kind: "reader", request: {cwd: dir, brief: previous ? repairBrief(dir) : firstBrief(dir),
 						...(model.id ? {model: model.id} : {}), ...(model.thinking ? {thinking: model.thinking} : {}), priority: "background",
 						systemPrompt: join(runtime.contentRoot, "setup", "page-transcript.md"), tools: "read,write,edit",
 						timeoutMs: budget.timeoutMs, eventLog: join(dir, "run.jsonl"), providerBudget: lease.budget}}, signal);
 				} finally { lease.close(); }
 				for (const key of ["inputTokens", "outputTokens", "costUsd", "actions", "unknownCalls"] as const) usage[key] += outcome.usage?.[key] ?? 0;
+				await this.rateLimited(join(dir, "run.jsonl"), budget, job);
 				// The child is done when it exits; what it left in layout.md is read whatever its exit.
 				return readFile(join(dir, "layout.md"), "utf8").catch(() => undefined);
 			};
-			const first = await child();
+			// A first child that leaves no layout gets one fresh child, counted against `repair_attempts` (TR-C: a 429 or a
+			// layout written elsewhere left none).
+			let first = await child();
 			if (signal.aborted) return;
+			let fresh = 0;
+			if (first === undefined && budget.repairAttempts > 0) { fresh = 1; first = await child(); if (signal.aborted) return; }
 			if (first === undefined) { this.failed.add(job.key); page("failed", {reason: "no_layout"}); return; }
 			let best = {layout: first, assembly: assembleLayout(first, native.lines)};
-			for (let repair = 0; repair < budget.repairAttempts && best.assembly.unplaced.length; repair++) {
+			for (let repair = fresh; repair < budget.repairAttempts && best.assembly.unplaced.length; repair++) {
 				const layout = await child(best);
 				if (signal.aborted) return;
 				if (layout === undefined) continue;

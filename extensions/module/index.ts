@@ -77,7 +77,7 @@ export default function (pi: ExtensionAPI) {
             void appendJsonl(join(home, ".coc", "reading-telemetry.jsonl"), line).catch(() => undefined);
             if (row.campaign) void appendJsonl(join(home, ".coc", "campaigns", row.campaign, "telemetry.jsonl"), line).catch(() => undefined);
         };
-        transcripts = new TranscriptService({ runtime: current.runtime, model, record });
+        transcripts = new TranscriptService({ runtime: current.runtime, model, record, yieldTo: () => reading?.foregroundWaiting() ?? false });
         reading = new ReadingService({
             transcripts,
             navigateFresh: createFreshSourceNavigator({runtime: current.runtime, call: (method, params) => current.call(method, params), env: {...process.env}}),
