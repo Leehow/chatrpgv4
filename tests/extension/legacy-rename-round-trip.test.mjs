@@ -181,7 +181,10 @@ test('§185.2: a stored ref that spells its owner another way is shown canonical
   assert.deepEqual(rows.map(item => [item.ref, item.status]), [[stored, 'failed']], 'one row, settled under the ref it was stored with');
 });
 
-test('§185.1/§185.3: the retry is a legacy campaign\'s; a campaign marked name-free resolves references only as written', async t => {
+// §188.3 installs the retry in both schemes; its handle rows stay a legacy campaign's, since a name-free handle is never renamed.
+// Marked name-free, Knott's handle is interim and his word, written under the old handle, is no longer what the request shows
+// him by: a renamed old handle copied back finds no handle row to undo (name rows are `rename-undo-names.test.mjs`'s).
+test('§185.1/§188.3: handle rows are a legacy campaign\'s; a campaign marked name-free does not undo a handle', async t => {
   const game = await table(t);
   const path = join(game.home, '.coc/campaigns/c1/campaign.json');
   await writeFile(path, JSON.stringify({...JSON.parse(await readFile(path, 'utf8')), handles: 'name-free'}));

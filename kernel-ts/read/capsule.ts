@@ -8,7 +8,7 @@ import { incapacitatedBy } from "../healing/conditions.js";
 import { namePieces, toldTurn } from "../journal/naming.js";
 import { prepareNameHistory } from '../journal/name-history.js';
 import { tableWord } from "./person-words.js";
-import { bookCast, knownNamePieces, untoldUnread } from "./cast.js";
+import { bookCast, knownNamePieces, untoldUnread, type CastPerson } from "./cast.js";
 import { nameToken } from "../write/names.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
 import {personalityView} from '../npc/material.js';
@@ -198,18 +198,36 @@ export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, recor
     // A name someone the investigator already knows also goes by stays theirs: hiding it would hide them. The investigators
     // themselves are known (§185.13): table 30's investigator shared a first name with the untold store owner.
     const known = knownNamePieces(graph, people.filter(entry => !entry.untold).map(entry => entry.person));
+    const untold = people.flatMap(({ person, untold }) => untold ? [{ person, shown: rosterWord(graph, world, journal, person) }] : []);
+    return rosterNames(graph, untold, known).map(entry => ({ name: entry.name, id: entry.ids[0], shown: entry.shown.join(" / "), ...(entry.handle ? { handle: true } : {}) }));
+}
+/**
+ * §103.5/§176.1/§177.4: the word the request's rename shows a person of the cast by -- this table's word for them, else, for a
+ * graph person, the journal's label, else their handle (a graph person) or the cast row's id (an unread one), which is opaque.
+ * `untoldRoster` shows the untold by it; §188.3's undo (`read/rename-undo.ts`) reads it back for everyone.
+ */
+export function rosterWord(graph: ModuleGraph, world: Row, journal: Row, person: CastPerson): string {
+    if (!person.node)
+        return tableWord(world, person.id) || person.id;
+    const entry = row(row(journal.entries)[string(person.node.node_id)]);
+    return (tableWord(world, graph.handle(person.node)) || string(entry.label || "")).trim() || person.id;
+}
+/** One string the request's rename replaces: the words of everyone who carries it (§177.4), their ids, and whether it is a handle row. */
+export interface RosterName { readonly name: string; readonly shown: readonly string[]; readonly ids: readonly string[]; readonly handle: boolean }
+/**
+ * What the request's rename replaces for `people`, each shown by the word given beside them, `known` names left out. The one
+ * builder of the roster's rows: `untoldRoster` hands it the untold, §188.3's undo hands it the whole cast.
+ */
+export function rosterNames(graph: ModuleGraph, people: readonly { person: CastPerson; shown: string }[], known: ReadonlySet<string>): RosterName[] {
     // §176.5: the pieces a name separates with punctuation are renamed too. Table 23 (turn 5): the book's own scene summary
     // said the three men under the awning were "Lars, Nate and Steve" by first name; the whole names and the aliases were
     // renamed, the bare first names were not, and the Keeper wrote one of them.
     // §177.4 (table 24): a name or piece two untold people share was left alone, as naming neither for certain; with the
     // whole cast read, the bar owner and the doctor shared a first name, and it reached the Keeper as printed. A name two
     // untold people share is still a name: it is shown as both their words, "A / B", which hides it and blames nobody.
-    const owners = new Map<string, { name: string; shown: string[]; id: string; handle: boolean }>();
-    for (const { person, untold } of people) {
-        if (!untold) continue;
+    const owners = new Map<string, { name: string; shown: string[]; ids: string[]; handle: boolean }>();
+    for (const { person, shown } of people) {
         const node = person.node, id = person.id;
-        // §177.4: an unread person is shown by the word the lane gave them, else by the row's id, which is opaque (no slug).
-        const shown = node ? string(untold.label || "").trim() || id : tableWord(world, id) || id;
         // §176.5: a handle is the book's name as a slug, so the handle and the node id are renamed too, once there is a word.
         // §185.7: not in a name-free campaign, whose handles carry no name; the rename there touches names only.
         const slugs = graph.nameFree || !node || shown === id ? [] : [string(node.node_id), id].filter((value, at, all) => value && all.indexOf(value) === at);
@@ -219,12 +237,13 @@ export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, recor
             const key = name.trim();
             if (!key || known.has(normalize(name))) continue;
             // §177.15: a handle row is machine text, renamed wherever it stands; only a name's places are asked about.
-            const entry = owners.get(key) ?? { name, shown: [], id, handle: slugs.includes(name) };
+            const entry = owners.get(key) ?? { name, shown: [], ids: [], handle: slugs.includes(name) };
             if (!entry.shown.includes(shown)) entry.shown.push(shown);
+            if (!entry.ids.includes(id)) entry.ids.push(id);
             owners.set(key, entry);
         }
     }
-    return [...owners.values()].map(entry => ({ name: entry.name, id: entry.id, shown: entry.shown.join(" / "), ...(entry.handle ? { handle: true } : {}) }));
+    return [...owners.values()];
 }
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {
     const label = row(world.clue_labels)[handle];

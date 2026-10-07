@@ -36193,3 +36193,89 @@ All tests go through the kernel in process plus the installed context runtime: `
 ### 188.7 Kernel decisions
 
 (Recorded by the implementing slices.)
+
+#### NR-03 (2026-10-07, `claude/names-rename-20261007-undo`; 188.3)
+
+- **The rows come from the roster's own builder.** `untoldRoster`'s body is split, its answer unchanged
+  (`kernel-ts/read/capsule.ts`): `rosterWord` is the word a cast person is shown by (the table's word, else a graph
+  person's journal label, else the handle or the cast row's id), and `rosterNames` builds every row the rename replaces
+  (names, aliases, punctuation pieces, one-character aliases, a legacy person's node id and handle once they have a word,
+  and the joined words of shared names, with each row's owners). `untoldRoster` hands it the untold. `renameUndoRows`
+  (`kernel-ts/read/rename-undo.ts`) hands it the whole cast, with only the investigators' names known
+  (`knownNamePieces(graph, [])`, as the roster leaves them out), and groups the rows by shown string. A new row kind
+  added to the roster is undone without a second copy.
+  - A joined word's names are the names its owners share, then each owner's own names. The shared name is often a first
+    name, a piece that no node answers to (the names index holds names, aliases and display names, not pieces); the
+    joined word stood for one of the owners, so the owners' names are what can resolve.
+  - Words come from the world and `npc-journal.json`, read at install. NFH-01's limit "a journal label not yet folded has
+    no row" is gone.
+  - A row whose word the junction reads (`calledOwners`: a `person_labels` name or an epithet) is marked `called`.
+  - `ModuleGraph.shownWords` (node id to word) names the candidates of a refusal.
+  - NFH-01's "a word two people carry has no row" is dropped: such a word is undone and refused `ambiguous` when its
+    spellings name two nodes.
+- **Installed in both schemes** (`installRenameUndo`, called from `loadCampaignModule`). The scheme is no longer read from
+  `campaign.json` here: `rosterNames` makes no slug rows when `graph.nameFree`, which the same marker sets. It now runs
+  after `investigatorNames` is installed; before, the order left `knownNamePieces` without them.
+- **The retry** (`renameUndone`, `undoRename`, `kernel-ts/read/module-graph.ts`).
+  - Places: longest word first, no overlap. A name is offered for a place only where it passes the rename's boundary test
+    there.
+  - Spellings: each place read as each of its names, at most `UNDO_SPELLINGS` (48).
+  - Each spelling goes through `resolve` (not `find`, which hides an ambiguity). A spelling that misses inside the retry
+    throws without ranking candidates.
+  - The spellings that resolve to exactly one node decide: all one node, that node; two or more, `ambiguous`. When none
+    does and some are ambiguous, the nodes those name are the candidates. The ambiguity mark now carries the node ids
+    (`WeakMap`), so the retry can read them.
+  - Reading of 188.3's "the first that resolves wins": the first wins only when the others agree. Taken literally, the
+    rows' order would pick between a joined word's owners.
+- **The refusal.** `unknown_entity` (the code set is closed and has no `ambiguous`), `details.reason: "ambiguous"`,
+  marked as `resolve`'s ambiguity so `apply npc` never mints a newcomer under it.
+  - Message `<what> '<query>' is ambiguous`; `query` is the Keeper's string.
+  - `candidates[]: {name, kind, shown}`. `shown` is a book person's word (`shownWords`), else the node's handle. `name` is
+    what to write: the handle in a name-free campaign, the word in a legacy one, whose handles are the book's names.
+  - No `describe()`, whose `display_name` is the book's name. `resolve`'s existing ambiguity refusals are unchanged; their
+    JSON is compared with the frozen oracle.
+- **NFH-01's single-word guard, re-examined.** It now applies only to a reference that is exactly one word the junction
+  reads (`called`). Such a word is not retried, so §87.8 keeps refusing a word two people answer to, rather than the graph
+  picking the one the roster shows by it.
+  - Retried whole: a joined word (no junction reads it), a journal label not yet folded, a cast row's id.
+  - NFH-01's example, `replacePassagePeople`, runs on a freshly loaded graph before the rows are installed. A table
+    person's name resolves as written before any retry.
+- **What the wider set can do.** Rows for told people and for every owner act only after a miss.
+  - A spurious spelling can turn a miss into the node the word stood for.
+  - It can turn a single answer into `ambiguous` when two spellings name different nodes, e.g. a lookup across all kinds
+    for a word whose piece is exactly another node's name.
+- **Limits.**
+  - Entrances that read the graph through `find` (`graph.actor`, `personNode`) swallow the refusal and answer their own
+    miss. The ambiguity reaches the Keeper where the entrance calls `resolve`, `npc`, `clue` or `scene` (`apply npc`,
+    `apply clue`, `apply move`). NR-04 decides per entrance.
+  - The junction's own refusals (`calledPerson`'s two owners) and `resolve`'s other ambiguities still describe candidates
+    with `display_name`, the book's name, which only the host rename hides. Outside this ticket.
+  - The request keeps a word changed mid-turn until the next turn (§103.5), and that old word has a row only while
+    someone still answers to it.
+- **Tests:** `tests/extension/rename-undo-names.test.mjs`, kernel in process with the context hooks as installed.
+  - Fixtures:
+    - a reader-built book (name-free) with 「丹尼尔·马瑟」 (alias 「丹」), an unread 「丹尼尔·罗斯」 sharing 「丹尼尔」, two
+      graph people sharing 「艾米」, two men printed only as 「汤姆」, and the clues 「马瑟的账本」 and 「丹的钥匙」;
+    - a starter (legacy) with the same people and clues, plus a letter whose handle begins with Mather's.
+  - Each string is taken from the assembled request (a source lookup's text, or the capsule) and sent as `npc.name` or
+    `clue`:
+    - the whole name, the piece and the one-character alias resolve, in both schemes;
+    - the legacy handle resolves;
+    - the joined 「丹尼尔」 word resolves to Mather;
+    - 「艾米」 (both schemes) and 「汤姆」 (no spelling names one) are refused `ambiguous` with each person's word, no book
+      name and no slug, and nobody is minted;
+    - the candidate's `name` then lands on that person.
+  - Also covered: the installed rows (name rows in both schemes, handle rows in legacy only); a stored collision (one
+    person's label is another's epithet), refused by the junction, not picked; a journal label not yet folded, undone
+    whole and inside a joined word.
+  - `legacy-rename-round-trip`'s name-free case is retitled: it now asserts that no handle is undone there.
+  - Mutations, each reverted by copy (checksum-verified) and each red:
+    - rows not installed in name-free;
+    - handle rows only;
+    - joined words without their owners' names;
+    - the first spelling wins;
+    - `describe()` candidates;
+    - the whole-word guard for every word;
+    - no guard for a junction word;
+    - ambiguous spellings counted as misses;
+    - no journal read.
