@@ -95,3 +95,22 @@ told position from the transcript alone (written to the run directory first). Me
 - The two-epithet rendering on RD-08 turn 13 (belongs to `names-in-the-request-rename.md`).
 
 ## Comments
+
+### 2026-10-07 TP-05 control, recorded before any TP-05 run (lead)
+
+RD-08 (`rd-accept-blood-01-play`, App-equivalent head 7d53166ca), told position at the end of each delivery read from
+`rendered_text` alone, against the ledger's active scene at the start of the next turn (`turns/<n+1>.json` capsule; turn
+20 against the final world). **Not blind:** the lead had read this table's ledger before labelling. TP-05's own table is
+labelled before its ledger is opened.
+
+| turns | told position | ledger | agree |
+|---|---|---|---|
+| 1 | the road into Abattoir (prologue) | 序幕 | yes |
+| 2–6 | the Esso station | 序幕 | no |
+| 7–10 | the Last Stop motel (front, yard, lobby) | 序幕 | no |
+| 11–16 | the sheriff's office (the Keeper kept the party there on 14–16) | 警长办公室 | yes |
+| 17–18 | the motel (room window, ground floor) | 警长办公室 | no |
+| 19 | the street by a low building's side door | 旅馆外的街道 | yes |
+| 20 | the motel room | 旅馆外的街道 | no |
+
+Control: **8 of 20**. TP-05's bar stays ≥ 17 of 20.
