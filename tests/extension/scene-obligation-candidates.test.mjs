@@ -1,3 +1,9 @@
+
+const semanticKey = key => key.replace(/__semantic_(facts|execution)$/, '');
+function issuedProbabilities(question, selected, confidence, supplied) {
+  const keys = Object.keys(question.criteria), top = (1 + (keys.length - 1) * confidence) / keys.length;
+  return Object.fromEntries(keys.map(key => [key, supplied ? supplied[key] ?? 0 : key === selected ? top : (1-top)/(keys.length-1)]));
+}
 /**
  * SO-04 (spec scene-obligations-as-candidates D6, owner rulings Q1/Q2/Q5; contract §135.26): the scene obligations the
  * kernel issues become the clerk's candidates.
@@ -263,15 +269,13 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 	assert.deepEqual(view.pending.map((item) => [item.kind, item.purpose]), [["decide", "reask"], ["decide", "bind"]],
 		"the compile's ask selects it; its approach is a bind (after §135.30.9.2's re-ask)");
 	const batch = bindBatch(view, check, scope, []);
-	assert.deepEqual(batch.questions.map((question) => question.key), ["skill", "bonus", "penalty", "intent"]);
+	assert.deepEqual(batch.questions.map((question) => question.key), ["skill", "skill__semantic_facts", "skill__semantic_execution", "bonus", "penalty", "intent", "intent__semantic_facts", "intent__semantic_execution"]);
 	assert.match(batch.questions[0].instructions, /never the skill values/);
-	const answer = (choices, confidence = 0.85) => ({ batchId: batch.id, status: "complete", issues: [], coverage: { required: Object.keys(choices), answered: Object.keys(choices), unknown: [] },
-		answers: Object.fromEntries(Object.entries(choices).map(([key, choice]) => [key, { status: "answered", type: "choice", choice, confidence }])) });
+	const answer = (choices, confidence = 0.85) => ({ batchId: batch.id, status: "complete", issues: [], coverage: { required: batch.questions.map(q=>q.key), answered: batch.questions.map(q=>q.key), unknown: [] },
+    answers: Object.fromEntries(batch.questions.map(question => {const choice = choices[semanticKey(question.key)]; return [question.key,{status:'answered',type:'choice',choice,confidence,probabilities:issuedProbabilities(question,choice,confidence)}];})) });
 	const bound = interpretBind(check, batch, answer({ skill: "Persuade", bonus: "one", penalty: "none", intent: "social" }), 0.6);
 	assert.deepEqual(bound.pending.map((item) => [item.kind, item.purpose]), [["direct", "execute"]]);
-	// §135.28: an approach the words do not settle takes the rules default -- the investigator's highest current value
-	// among the offered approaches, read from the kernel's own profiles; Intimidate and Fast Talk tie at 45, and the tie
-	// goes to the first in the book's stated order -- stamped on the operation's basis; no LLM step.
+	// The issued rule metadata retains its historical fallback, but an unknown player-owned approach stays unchosen.
 	const profile = (skill) => state.resolveOptions.profiles.find((row) => row.actor === check.bound.actor && row.skill === skill)?.value;
 	assert.deepEqual(APPROACHES.map(profile), [40, 45, 35, 45], "the kernel's issued values the default is read from");
 	assert.deepEqual(check.unbound.find((value) => value.name === "skill").ruleDefault, { rule: "jev_lead", fallback: { rule: "highest_offered_skill", value: "Intimidate" } },
@@ -279,16 +283,12 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 	const defaulted = interpretBind(check, batch, answer({ skill: "unknown", bonus: "none", penalty: "none", intent: "social" }), 0.6);
 	assert.deepEqual(defaulted.pending.map((item) => [item.kind, item.purpose, item.reason]), [["infer", "compose", "check_unresolved"]]);
 	assert.deepEqual(defaulted.pending[0].extra.unresolved, ['skill'], 'unknown does not choose the highest skill');
-	// Below the gate everywhere: the dice take their defaults; the approach and the intent are the player's own choices about
-	// the investigator's check (§163.8, owner ruling 2026-10-01: 「玩家的选择不替他定」), so Jev's leading answers are not taken
-	// for them -- the check is the Keeper's recorded no-roll (never an LLM bind, never the highest skill).
-	assert.deepEqual(check.unbound.filter((value) => value.owner === "player").map((value) => value.name), ["skill", "intent"]);
-	const low = interpretBind(check, batch, answer({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" }, 0.4), 0.6);
-	assert.deepEqual(low.pending.map((item) => [item.kind, item.purpose, item.reason, item.extra?.unresolved]), [["infer", "compose", "check_unresolved", ["skill", "intent"]]]);
-	assert.equal(low.pending[0].extra.cause, "player_choice");
-	assert.deepEqual(low.pending[0].extra.withheld, ["skill: Persuade confidence 0.4 (the player's choice)", "intent: social confidence 0.4 (the player's choice)"]);
-	assert.equal(low.forced, undefined, "nothing was bound for the player");
-
+  // §163.10: a low-confidence leading declared approach and intent bind without choosing an unknown value.
+  assert.deepEqual(check.unbound.filter(value => value.owner === 'player').map(value => value.name), ['skill','intent']);
+  const low = interpretBind(check,batch,answer({skill:'Persuade',bonus:'none',penalty:'none',intent:'social'},.4),.6);
+  assert.deepEqual(low.pending.map(item=>[item.kind,item.purpose]), [['direct','execute']]);
+  assert.deepEqual([low.extra.skill,low.extra.intent],['Persuade','social']);
+  for (const name of ['skill','intent']) assert.equal(low.bindings.find(record=>record.name===name).cleared,false);
 	// The clerk's call is the Keeper's resolve with the claim; the dice word becomes a modifier with its reason.
 	const { tool, args } = keeperCall(check, bound.pending[0].extra);
 	assert.equal(tool, "resolve");
@@ -425,8 +425,8 @@ const metArty = (workspace) => kernelSteps(workspace, [
 function answered(batch, pick = () => undefined, confidence = 0.9) {
 	const answers = {};
 	for (const question of batch.questions) {
-		const choice = pick(question) ?? (question.key === "exit" ? "continue" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown");
-		answers[question.key] = { status: "answered", type: "choice", choice, confidence, probabilities: { [choice]: confidence } };
+		const choice = pick({...question,key:semanticKey(question.key)}) ?? (question.key === "exit" ? "continue" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown");
+		answers[question.key] = { status: "answered", type: "choice", choice, confidence, probabilities: issuedProbabilities(question,choice,confidence) };
 	}
 	return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
 }
@@ -552,7 +552,7 @@ async function arrival({ fact, compile, responses, firstExit = "finish", bind = 
 	// The §135.30 compile: `compile: "demand"` clears the ask on the gate's demand; otherwise every family answers `unknown`
 	// (the default), so nothing clears and the obligation reaches the fact question.
 	const engine = createHybridEngine({ env: process.env, decision: { decide: async (batch) => { decisions.push(batch); return batch.family === BIND_FAMILY
-		? answered(batch, (question) => bind[question.key], bindConfidence)
+		? answered(batch, (question) => bind[semanticKey(question.key)], bindConfidence)
 		: batch.family === COMPILE_FAMILY ? answered(batch, (question) => compile === "demand" ? askDemand(question) : undefined)
 		: (routes++, answered(batch, (question) => question.key === "exit" ? (routes === 1 ? firstExit : "finish") : question.criteria.seeks ? fact : undefined)); } } });
 	const table = await openTable({
@@ -637,28 +637,23 @@ test("§159/§163: an unknown approach is a recorded no-roll the Keeper narrates
 	const forced = telemetry.filter((entry) => entry.lane === "forced-resolution");
 	assert.equal(forced.length, 1, JSON.stringify(forced));
 	assert.deepEqual({family: forced[0].family, chosen: forced[0].chosen}, {family: "check-binding", chosen: {outcome: "no_roll"}});
-	assert.ok(forced[0].uncertain.includes("skill"), "the unbound approach is named");
+	assert.ok(forced[0].uncertain.some(value => value === "skill" || value.startsWith("skill ")), "the unbound approach is named");
 	assert.ok(table.session.messages.some((message) => message.customType === "coc-mechanics" || message.role === "toolResult" && message.toolName === "narrate"), "the Keeper's prose was delivered");
 	assert.equal(requests.length, 1, "one model request, the compose: none for the approach");
 	assert.ok(!telemetry.some((entry) => entry.event === "llm_bound"), "no LLM bind");
 });
 
-test("§163.8: what the player's act is, read below the gate, is not chosen for them -- no roll, a recorded player_choice no-roll, prose", async (t) => {
-	const { table, calls } = await arrival({ fact: "seeks", compile: "demand", bindConfidence: 0.5,
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
-	t.after(() => table.dispose());
-	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
-	const telemetry = table.telemetry("test-camp");
-	const forced = telemetry.filter((entry) => entry.lane === "forced-resolution");
-	assert.ok(forced.length >= 1, JSON.stringify(telemetry.filter((entry) => entry.lane === "route" && entry.purpose === "bind")));
-	const binding = forced.find((entry) => entry.family === "check-binding");
-	assert.deepEqual([binding.chosen.outcome, binding.why], ["no_roll", "player_choice"]);
-	// The approach clears through its own `jev_lead` default; the intent has no permitted default and is the player's own.
-	assert.deepEqual(binding.uncertain, ["intent: social confidence 0.5 (the player's choice)"]);
-	const roll = calls.find((value) => value.id.startsWith("clerk:") && value.input.action?.obligation === ACCESS);
-	assert.equal(roll, undefined, "no check was proposed on a guess about the player's act");
-	assert.ok(table.session.messages.some((message) => message.role === "toolResult" && message.toolName === "narrate"), "the Keeper's prose delivered the turn");
-	assert.ok(!table.session.messages.some(message => message.customType === 'coc-delivery' && message.details?.check_selection_unresolved), "no host notice");
+test("§163.10: a declared act read below the former confidence gate binds without a guessed player choice", async t => {
+  const {table,calls} = await arrival({fact:'seeks',compile:'demand',bindConfidence:.5,
+    responses:[fauxAssistantMessage([fauxToolCall("narrate",{text:"编辑松口了。"})],{stopReason:"toolUse"})]});
+  t.after(()=>table.dispose());
+  await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
+  const roll = calls.find(value=>value.id.startsWith('clerk:') && value.input.action?.obligation===ACCESS);
+  assert.ok(roll,'the declared method and act remain executable below the former confidence gate');
+  assert.deepEqual([roll.input.action.skill,roll.input.action.intent],['Persuade','social']);
+  const telemetry = table.telemetry('test-camp'), bindings = telemetry.filter(row=>row.event==='bind').flatMap(row=>row.bindings??[]);
+  for (const name of ['skill','intent']) assert.ok(bindings.some(record=>record.name===name && record.path==='jev' && record.cleared===false));
+  assert.ok(!table.session.messages.some(message=>message.customType==='coc-delivery' && message.details?.check_selection_unresolved),'no host notice');
 });
 
 test("not at arrival: the obligation issues nothing and is not asked again this run", async (t) => {

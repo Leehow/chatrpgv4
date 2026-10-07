@@ -58,7 +58,14 @@ test("§138.10.1 on the emitted kernel: rules.bands lists momentary 0-1 (default
 	assert.deepEqual([...totals].sort(), [0, 1], "rolled with the seeded dice, not the row's default");
 });
 
-const choice = ([value, confidence]) => ({ status: "answered", type: "choice", choice: value, confidence, probabilities: { [value]: confidence } });
+const baseQuestion = (question) => ({ ...question, key: question.key.replace(/__(?:semantic_facts|semantic_execution)$/, "") });
+function issuedChoice(question, value, confidence = 0.9) {
+	const keys = Object.keys(question.criteria);
+	assert.ok(keys.includes(value), `fixture choice ${value} is not issued for ${question.key}`);
+	return { status: "answered", type: "choice", choice: value, confidence,
+		probabilities: Object.fromEntries(keys.map((key) => [key, keys.length === 1 ? 1 : key === value ? confidence : (1 - confidence) / (keys.length - 1)])) };
+}
+const choice = ([value, confidence], question) => issuedChoice(question, value, confidence);
 const complete = (out) => ({ batchId: "b", status: "complete", answers: out, issues: [], coverage: { required: Object.keys(out), answered: Object.keys(out), unknown: [] } });
 
 test("§138.10.1 through the hybrid engine: the band question offers momentary among the kernel's rows, and naming it charges 0 or 1 minute", async (t) => {
@@ -67,18 +74,18 @@ test("§138.10.1 through the hybrid engine: the band question offers momentary a
 	const decide = async (batch) => {
 		if (batch.family === BIND_FAMILY) {
 			bands.push(batch);
-			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(question.key === "band" ? ["momentary", 0.9] : ["unknown", 0.9])])));
+			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(baseQuestion(question).key === "band" ? ["momentary", 0.9] : ["unknown", 0.9], question)])));
 		}
 		if (batch.family === COMPILE_FAMILY || batch.family === REASK_FAMILY)
-			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice([Object.hasOwn(question.criteria, "no") ? "no" : UNCLEAR, 0.9])])));
+			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice([Object.hasOwn(question.criteria, "no") ? "no" : UNCLEAR, 0.9], question)])));
 		const candidates = batch.state?.candidates ?? {};
 		return complete(Object.fromEntries(batch.questions.map((question) => {
-			if (question.key === "exit") return [question.key, choice(["finish", 0.9])];
-			const index = question.key.slice("need_".length), candidate = candidates[`candidate_${index}`];
+			if (question.key === "exit") return [question.key, choice(["finish", 0.9], question)];
+			const index = baseQuestion(question).key.slice("need_".length), candidate = candidates[`candidate_${index}`];
 			// The time candidate is asked by its own fact (§138.10): the declaration costs table time.
-			if (batch.family === ROUTE_FAMILY && Object.hasOwn(question.criteria, "costs")) return [question.key, choice(["costs", 0.9])];
+			if (batch.family === ROUTE_FAMILY && Object.hasOwn(question.criteria, "costs")) return [question.key, choice(["costs", 0.9], question)];
 			const keys = Object.keys(question.criteria);
-			return [question.key, choice([keys[0] === "now" ? "later" : question.criteria.seeks ? "not" : keys.includes("unknown") ? "unknown" : keys[0], 0.9])];
+			return [question.key, choice([keys[0] === "now" ? "later" : question.criteria.seeks ? "not" : keys.includes("unknown") ? "unknown" : keys[0], 0.9], question)];
 		})));
 	};
 	const engine = createHybridEngine({ env: process.env, decision: { decide } });

@@ -23,11 +23,18 @@ import { isRunEvent, RUN_EVENT_SCHEMA_VERSION, RUN_LOOP_PROTOCOL } from "./pi-ag
 import { LOOP_PROTOCOLS } from "../../runtime/loop-engine.ts";
 
 /** A Jev answer in the adapter's result shape: every question answered, `exit` set to `exit`. */
+const baseQuestion = (question) => ({ ...question, key: question.key.replace(/__(?:semantic_facts|semantic_execution)$/, "") });
+function issuedChoice(question, value, confidence = 0.9) {
+	const keys = Object.keys(question.criteria);
+	assert.ok(keys.includes(value), `fixture choice ${value} is not issued for ${question.key}`);
+	return { status: "answered", type: "choice", choice: value, confidence,
+		probabilities: Object.fromEntries(keys.map((key) => [key, keys.length === 1 ? 1 : key === value ? confidence : (1 - confidence) / (keys.length - 1)])) };
+}
 function answered(batch, exit) {
 	const answers = {};
 	for (const question of batch.questions) {
-		const choice = question.key === "exit" ? exit : "later";
-		answers[question.key] = { status: "answered", type: "choice", choice, confidence: 0.9, probabilities: { [choice]: 0.9 } };
+		const choice = baseQuestion(question).key === "exit" ? exit : Object.hasOwn(question.criteria, "costs") ? "none" : "later";
+		answers[question.key] = issuedChoice(question, choice);
 	}
 	return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
 }
@@ -109,7 +116,7 @@ test("SL-01 gate: a policy-origin read and a Jev decision run before one real mo
 	// present and not yet introduced, without the table's own label (and no apply/resolve options): no data source names
 	// him, so staging him is the Keeper's to propose and is not issued to the clerk (§135.28). The one candidate is the
 	// declared action's time band (§138.10), asked by its fact about the declaration; then the exit.
-	assert.deepEqual(decisions[0].batch.questions.map((question) => question.key), ["need_1", "exit"]);
+	assert.deepEqual(decisions[0].batch.questions.map((question) => question.key), ["need_1", "need_1__semantic_facts", "need_1__semantic_execution", "exit"]);
 	assert.ok(decisions[0].batch.questions[0].criteria.costs, "the time band's route question is the fact, not now/later");
 	assert.ok(!JSON.stringify(decisions[0].batch.questions).includes("看门人"));
 

@@ -1,3 +1,9 @@
+
+const semanticKey = key => key.replace(/__semantic_(facts|execution)$/, '');
+function issuedProbabilities(question, selected, confidence, supplied) {
+  const keys = Object.keys(question.criteria), top = (1 + (keys.length - 1) * confidence) / keys.length;
+  return Object.fromEntries(keys.map(key => [key, supplied ? supplied[key] ?? 0 : key === selected ? top : (1-top)/(keys.length-1)]));
+}
 /**
  * SL-20, once the clerk has settled the player's declaration the run leans to finish (contract §135.11, addendum
  * 2026-09-24 (SL-20); the spec's ruling of the same name).
@@ -48,9 +54,9 @@ function morgue() {
 }
 
 /** A complete Jev answer: `choices[key]` = [choice, confidence, probabilities?]. */
-const answer = (choices) => ({ batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
+const answer = (choices, batch) => ({ batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
 	answers: fanAsk(Object.fromEntries(Object.entries(choices).map(([key, [choice, confidence, probabilities]]) => [key,
-		{ status: "answered", type: "choice", choice, confidence, probabilities: probabilities ?? { [choice]: confidence } }]))) });
+		{ status: "answered", type: "choice", choice, confidence, probabilities: batch ? issuedProbabilities(batch.questions.find(question => question.key === key),choice,confidence,probabilities) : probabilities ?? {[choice]:confidence} }]))) });
 /** Live gate #6, turn 2, route s6: the exit right after the clerk's settled Persuade. */
 const GATE6_EXIT = ["ask_llm", 0.23, { ask_llm: 0.42, continue: 0.33, finish: 0.23, read_more: 0.02 }];
 
@@ -178,7 +184,7 @@ test("§135.11 SL-20 on the driver: a forced session step issued after the settl
 				})))
 				: batch.questions.some((question) => question.key === "exit")
 					? answer(Object.fromEntries(batch.questions.map((question) => [question.key, question.key === "exit" ? GATE6_EXIT : ["later", 0.9]])))
-					: answer(Object.fromEntries(batch.questions.map((question) => [question.key, [question.key === "skill" ? "Persuade" : question.key === "intent" ? "social" : "none", 0.9]])));
+					: answer(Object.fromEntries(batch.questions.map((question) => [question.key, [semanticKey(question.key) === "skill" ? "Persuade" : semanticKey(question.key) === "intent" ? "social" : "none", 0.9]])), batch);
 			return { status: "ok", artifact: { kind: request.purpose, result } };
 		} },
 		operations: { async execute(proposal) {
@@ -251,8 +257,8 @@ function kernelSteps(workspace, campaign, requests) {
 function answered(batch, pick) {
 	const answers = {};
 	for (const question of batch.questions) {
-		const picked = pick(question), [choice, confidence, probabilities] = Array.isArray(picked) ? picked : [picked ?? (Object.keys(question.criteria)[0] === "now" ? "later" : "unknown"), 0.9];
-		answers[question.key] = { status: "answered", type: "choice", choice, confidence, probabilities: probabilities ?? { [choice]: confidence } };
+		const picked = pick({...question,key:semanticKey(question.key)}), [choice, confidence, probabilities] = Array.isArray(picked) ? picked : [picked ?? (Object.keys(question.criteria)[0] === "now" ? "later" : "unknown"), 0.9];
+		answers[question.key] = { status: "answered", type: "choice", choice, confidence, probabilities: issuedProbabilities(question,choice,confidence,probabilities) };
 	}
 	return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
 }

@@ -22,18 +22,19 @@ async function setup(t, mobility) {
  const rows = [], decisions = [], refusals = [];
  const decision = {async decide(batch) {
   decisions.push(batch);
-  const answers = Object.fromEntries(batch.questions.map(q=>{
+  const answers = Object.fromEntries(batch.questions.map(rawQuestion=>{
+   const q={...rawQuestion,key:rawQuestion.key.replace(/__semantic_(facts|execution)$/,'')};
    if(q.type==='noul') {
-    const candidate=batch.state.checks?.[q.key.replace(/_(uncertain|unsettled|blocked)$/,'')];
+    const candidate=batch.state.checks?.[q.key.replace(/_(uncertain|unsettled|blocked|selected)$/,'')];
     const yes=batch.family==='check-selection-chase-prerequisite'?false:batch.family==='check-selection-need'?!q.key.endsWith('_blocked')&&candidate?.facts?.mobility===mobility:true;
-    return [q.key,{status:'answered',type:'noul',noul:yes?.99:.01}];
+    return [rawQuestion.key,{status:'answered',type:'noul',noul:yes?.99:.01}];
    }
    const actor=batch.state.actors?.[q.key.replace('role_','actor_')];
    const value=batch.family==='check-selection-chase-roles'?actor.name==='Pickup gunner'?'passenger':'driver'
     :batch.family==='check-selection-chase-vehicles'?Object.entries(batch.state.vehicle_profiles).find(([,p])=>p.key==='car_standard')[0]
     :batch.family==='check-selection-chase-passengers'?'driver_1'
     :Object.entries(q.criteria).find(([,label])=>label==='flee')?.[0]??Object.keys(q.criteria)[0];
-   return [q.key,{status:'answered',type:'choice',choice:value,confidence:1,probabilities:Object.fromEntries(Object.keys(q.criteria).map(k=>[k,k===value?1:0]))}];
+   return [rawQuestion.key,{status:'answered',type:'choice',choice:value,confidence:1,probabilities:Object.fromEntries(Object.keys(q.criteria).map(k=>[k,k===value?1:0]))}];
   }));
   return bindDecisionAnswers(batch,answers,{inputTokens:1,outputTokens:1,costUsd:0});
  }};

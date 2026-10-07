@@ -89,19 +89,20 @@ test('ordinary resolve binds a registered driver roster and persists vehicle par
     declaration: 'I drive away from Steven Knott and the passenger in his pursuing car.', context: {}, scope, readSet: [], lease,
     decision: {async decide(batch) {
       families.push(batch.family);
-      const answers = Object.fromEntries(batch.questions.map(question => {
+      const answers = Object.fromEntries(batch.questions.map(rawQuestion => {
+        const question = {...rawQuestion, key: rawQuestion.key.replace(/__semantic_(facts|execution)$/, '')};
         if (question.type === 'noul') {
-          const candidate = batch.state.checks?.[question.key.replace(/_(uncertain|unsettled|blocked)$/, '')];
+          const candidate = batch.state.checks?.[question.key.replace(/_(uncertain|unsettled|blocked|selected)$/, '')];
           const value = batch.family === 'check-selection-chase-prerequisite' ? false
             : batch.family === 'check-selection-need' ? !question.key.endsWith('_blocked') && candidate?.facts?.mobility === 'vehicle' : true;
-          return [question.key, {status: 'answered', type: 'noul', noul: value ? .99 : .01}];
+          return [rawQuestion.key, {status: 'answered', type: 'noul', noul: value ? .99 : .01}];
         }
         const actor = batch.state.actors?.[question.key.replace('role_', 'actor_')];
         const value = batch.family === 'check-selection-chase-roles' ? actor.name === 'Pickup gunner' ? 'passenger' : 'driver'
           : batch.family === 'check-selection-chase-vehicles' ? Object.entries(batch.state.vehicle_profiles).find(([, profile]) => profile.key === 'car_standard')[0]
           : batch.family === 'check-selection-chase-passengers' ? 'driver_1'
           : Object.entries(question.criteria).find(([, label]) => label === 'flee')[0];
-        return [question.key, {status: 'answered', type: 'choice', choice: value, confidence: 1,
+        return [rawQuestion.key, {status: 'answered', type: 'choice', choice: value, confidence: 1,
           probabilities: Object.fromEntries(Object.keys(question.criteria).map(key => [key, key === value ? 1 : 0]))}];
       }));
       return bindDecisionAnswers(batch, answers, {inputTokens: 1, outputTokens: 1, costUsd: 0});

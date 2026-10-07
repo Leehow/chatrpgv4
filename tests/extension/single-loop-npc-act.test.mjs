@@ -1,3 +1,9 @@
+
+const semanticKey = key => key.replace(/__semantic_(facts|execution)$/, '');
+function issuedProbabilities(question, selected, confidence, supplied) {
+  const keys = Object.keys(question.criteria), top = (1 + (keys.length - 1) * confidence) / keys.length;
+  return Object.fromEntries(keys.map(key => [key, supplied ? supplied[key] ?? 0 : key === selected ? top : (1-top)/(keys.length-1)]));
+}
 /**
  * §143.3–§143.5 (docs/specs/npc-acts-first.md D2–D6 and D9; tickets 03 and 04): a person's act is generated first and
  * bound after -- the kernel lists the ways it can settle it (`npc.act.options`), one closed Jev batch picks the way and
@@ -85,7 +91,7 @@ function otherAnswer(batch) {
 		const criteria = Object.keys(question.criteria ?? {});
 		const value = question.key === "exit" ? "finish" : criteria[0] === "now" ? "later" : criteria.includes("unclear") ? "unclear"
 			: criteria.includes("no") && criteria.includes("yes") ? "no" : "unknown";
-		answers[question.key] = choice(value);
+		answers[question.key] = {...choice(value), probabilities: issuedProbabilities(question,value,.9)};
 	}
 	return complete(batch, answers);
 }
@@ -608,7 +614,7 @@ function morgueJev(act) {
 			/^ask_\d+$/.test(question.key) ? (JSON.stringify(question.target).includes("demand") ? "yes" : "no")
 				: question.key === "addressee" ? arty(question) ?? "unclear" : question.key === "act" ? social(question) ?? "unclear" : question.key === "destination" ? "none" : "unclear")])));
 		if (batch.family === "single-loop-bind") return complete(batch, Object.fromEntries(batch.questions.map((question) => [question.key,
-			choice(({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" })[question.key] ?? "unknown")])));
+			{...choice(({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" })[semanticKey(question.key)] ?? "unknown"), probabilities: issuedProbabilities(question, ({skill:"Persuade",bonus:"none",penalty:"none",intent:"social"})[semanticKey(question.key)]??"unknown",.9)}])));
 		return otherAnswer(batch);
 	};
 }

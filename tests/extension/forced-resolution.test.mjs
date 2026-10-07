@@ -14,6 +14,7 @@ import {createHybridEngine} from './hybrid-engine-fixture.mjs';
 import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
 import {openTable} from './harness.mjs';
 
+const baseKey = key => key.replace(/__semantic_(facts|execution)$/, '');
 const root = resolve(import.meta.dirname, '../..');
 const PROSE = 'You press your ear to the office door. Somewhere below, a pipe knocks twice and goes still.';
 function rpc(workspace, calls) {
@@ -37,14 +38,15 @@ const clerkNotes = context => context.messages.flatMap(message => {
 function jev({need, fail = false}) {
   return {async decide(batch) {
     if (fail && batch.family.startsWith('check-selection')) throw new Error('network_error');
-    const answers = Object.fromEntries(batch.questions.map(question => {
+    const answers = Object.fromEntries(batch.questions.map(rawQuestion => {
+      const question = {...rawQuestion, key: baseKey(rawQuestion.key)};
       if (question.type === 'noul') {
         let p = 0.01;
         if (batch.family.startsWith('check-selection-need') && !question.key.endsWith('_blocked')) {
           const check = batch.state.checks[question.key.replace(/_uncertain$/, '')];
           if (check?.action?.skill === 'Listen') p = question.key.endsWith('_uncertain') ? need : 0.99;
         }
-        return [question.key, {status: 'answered', type: 'noul', noul: p}];
+        return [rawQuestion.key, {status: 'answered', type: 'noul', noul: p}];
       }
       let selected;
       if (batch.family === 'single-loop-route' && question.key.startsWith('need_')
@@ -52,7 +54,7 @@ function jev({need, fail = false}) {
       if (batch.family === 'check-selection-profiles') selected = Object.entries(question.criteria).find(([, value]) => value?.skill === 'Listen')?.[0];
       if (batch.family === 'check-selection-bind') selected = Object.entries(question.criteria).find(([, label]) => ['investigate', 'regular', 'none'].includes(label))?.[0];
       selected ??= question.key === 'exit' ? 'finish' : 'unknown' in question.criteria ? 'unknown' : 'later' in question.criteria ? 'later' : Object.keys(question.criteria)[0];
-      return [question.key, {status: 'answered', type: 'choice', choice: selected, confidence: 1,
+      return [rawQuestion.key, {status: 'answered', type: 'choice', choice: selected, confidence: 1,
         probabilities: Object.fromEntries(Object.keys(question.criteria).map(key => [key, key === selected ? 1 : 0]))}];
     }));
     return bindDecisionAnswers(batch, answers, {inputTokens: 1, outputTokens: 1, costUsd: 0});
@@ -202,20 +204,21 @@ test('§163: forced entries the policy recorded reach the telemetry and the Keep
 test('§163, the turn-9 shape on the emitted kernel: a social influence judged necessary at .75/.74 is adjudicated as Jev\'s best guess, with prose and no notice', async t => {
   const port = {async decide(batch) {
     const firstSkill = batch.questions.find(question => question.type === 'noul' && question.target.startsWith('skill: '));
-    const answers = Object.fromEntries(batch.questions.map(question => {
+    const answers = Object.fromEntries(batch.questions.map(rawQuestion => {
+      const question = {...rawQuestion, key: baseKey(rawQuestion.key)};
       if (question.type === 'noul') {
         let p = 0.01;
         if (batch.family === 'check-selection-social-method') p = 0.82;
-        if (batch.family.startsWith('check-selection-bind') && question.target.startsWith('skill: ')) p = question === firstSkill ? 0.9 : 0.01;
+        if (batch.family.startsWith('check-selection-bind') && question.target.startsWith('skill: ')) p = question.target === firstSkill?.target ? 0.9 : 0.01;
         if (batch.family.startsWith('check-selection-need')) p = question.key.endsWith('_blocked') ? (batch.family.endsWith('-refine') ? 0.36 : 0.34) : (batch.family.endsWith('-refine') ? 0.74 : 0.75);
-        return [question.key, {status: 'answered', type: 'noul', noul: p}];
+        return [rawQuestion.key, {status: 'answered', type: 'noul', noul: p}];
       }
       let selected;
       if (batch.family === 'single-loop-route' && question.key.startsWith('need_')
         && batch.state.candidates[question.key.replace('need_', 'candidate_')]?.bound?.decision === 'social:adjudicate-difficulty') selected = 'now';
       if (batch.family === 'check-selection-bind') selected = Object.keys(question.criteria).find(key => key !== 'unknown');
       selected ??= question.key === 'exit' ? 'finish' : 'unknown' in question.criteria ? 'unknown' : 'later' in question.criteria ? 'later' : Object.keys(question.criteria)[0];
-      return [question.key, {status: 'answered', type: 'choice', choice: selected, confidence: 1,
+      return [rawQuestion.key, {status: 'answered', type: 'choice', choice: selected, confidence: 1,
         probabilities: Object.fromEntries(Object.keys(question.criteria).map(key => [key, key === selected ? 1 : 0]))}];
     }));
     return bindDecisionAnswers(batch, answers, {inputTokens: 1, outputTokens: 1, costUsd: 0});
@@ -236,7 +239,7 @@ test('§163, the turn-9 shape on the emitted kernel: a social influence judged n
   assert.ok(social, JSON.stringify(telemetry.filter(row => row.lane === 'check-selection').map(row => [row.purpose, row.status, row.needs])));
   assert.equal(social.chosen.outcome, 'roll');
   assert.equal(social.chosen.action.decision, 'social:adjudicate-difficulty');
-  assert.deepEqual(social.uncertain.filter(entry => entry.startsWith('necessity of')).map(entry => entry.endsWith(': needed now p=0.74, prerequisite unmet p=0.36')), [true],
+  assert.deepEqual(social.uncertain.filter(entry => entry.startsWith('necessity of')).map(entry => entry.endsWith(': needed now p=0.75, prerequisite unmet p=0.34')), [true],
     social.uncertain.join('; '));
   const settled = telemetry.filter(row => row.tool === 'resolve' && row.origin === 'policy');
   assert.equal(settled.length, 1, 'the host proposed the adjudication through the canonical gateway');
@@ -255,24 +258,30 @@ test('§163, the turn-9 shape on the emitted kernel: a social influence judged n
 function globeJev({needs, skill}) {
   return {async decide(batch) {
     const firstSkill = batch.questions.find(question => question.type === 'noul' && question.target.startsWith('skill: '));
-    const answers = Object.fromEntries(batch.questions.map(question => {
+    const answers = Object.fromEntries(batch.questions.map(rawQuestion => {
+      const question = {...rawQuestion, key: baseKey(rawQuestion.key)};
       if (question.type === 'noul') {
         let p = 0.01;
         if (batch.family === 'check-selection-social-method') p = 0.82;
         if (batch.family.startsWith('check-selection-bind') && question.target.startsWith('skill: '))
-          p = question === firstSkill ? skill ?? 1 : 0.01;
+          p = question.target === firstSkill?.target ? skill ?? 1 : 0.01;
         if (batch.family.startsWith('check-selection-need')) {
           const check = batch.state.checks[question.key.replace(/_blocked$/, '')];
           p = question.key.endsWith('_blocked') ? 0.3 : needs[check?.action?.target] ?? 0.01;
+          if (question.key.endsWith('_selected')) {
+            const alternative = batch.state.checks[question.key.replace(/_selected$/, '')];
+            const selected = Object.entries(needs).filter(([, score]) => score > .5);
+            p = selected.length === 1 && selected[0][0] === alternative?.action?.target ? .99 : .01;
+          }
         }
-        return [question.key, {status: 'answered', type: 'noul', noul: p}];
+        return [rawQuestion.key, {status: 'answered', type: 'noul', noul: p}];
       }
       let selected, p = 1;
       if (batch.family === 'single-loop-route' && question.key.startsWith('need_')
         && batch.state.candidates[question.key.replace('need_', 'candidate_')]?.bound?.decision === 'social:adjudicate-difficulty') selected = 'now';
       selected ??= question.key === 'exit' ? 'finish' : 'unknown' in question.criteria ? 'unknown' : 'later' in question.criteria ? 'later' : Object.keys(question.criteria)[0];
       const keys = Object.keys(question.criteria);
-      return [question.key, {status: 'answered', type: 'choice', choice: selected, confidence: p,
+      return [rawQuestion.key, {status: 'answered', type: 'choice', choice: selected, confidence: p,
         probabilities: Object.fromEntries(keys.map(key => [key, key === selected ? p : (1 - p) / (keys.length - 1)]))}];
     }));
     return bindDecisionAnswers(batch, answers, {inputTokens: 1, outputTokens: 1, costUsd: 0});

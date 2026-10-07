@@ -1,3 +1,4 @@
+import {semanticQuestions, semanticChoice} from './semantic-votes.ts';
 /**
  * The single-loop step policy (design proposal §4.3/§5, owner ruling 2026-09-23):
  *
@@ -95,6 +96,8 @@ export interface BindRecord {name: string; path: BindingPath; value: Json; confi
   cleared?: boolean;
   /** §135.28.1 (SL-40): the ordinary check's skill -- whether the sheet holds it, and whether the declaration named it. */
   held?: boolean; named?: boolean;
+  /** Correlated-view diagnostics, never an execution gate. */
+  semantic?: {answered: number; total: number; spread?: number};
   table?: string; band?: string; roll?: Json}
 /** One shape a candidate takes once its `decision` is bound: the chosen action with its own parameters. */
 export interface CandidateVariant {label: string; bound: Record<string, Json>; unbound: Unbound[]; basis?: Json}
@@ -538,7 +541,9 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
   const withForced = <T extends {pending: PendingItem[]}>(outcome: T): T & {forced?: typeof forced} => forced.length ? {...outcome, forced} : outcome;
   const lean = (choice?: string, confidence?: number) => ({pending: [{kind: 'infer' as const, purpose: 'compose', reason: 'settled'}],
     ...(choice ? {choice, confidence} : {}), reason: 'settled', selected: [] as string[], exit: choice});
-  if (!result || result.status !== 'complete') {
+  const partialTime = result?.status === 'incomplete' && offered.some((candidate, index) => candidate.clerk === 'declared_time'
+    && candidate.routeFact && semanticChoice(result, 'need_' + (index + 1), Object.keys(candidate.routeFact.criteria)).answered > 0);
+  if (!result || result.status !== 'complete' && !partialTime) {
     if (!settled) for (const candidate of offered) if (candidate.checkOwner === 'jev'
       && candidate.unbound.some(value => value.binder === 'resolve-selection'))
       forced.push({candidate, outcome: 'no_roll', uncertain: [`${candidate.label}: ${result?.failure?.code ?? result?.status ?? 'unanswered'}`], why: 'jev_unanswered'});
@@ -547,7 +552,7 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
   }
   const exit = answerOf(result, 'exit');
   const selected: Array<{candidate: Candidate; confidence?: number}> = [];
-  const unboundMoves: Candidate[] = [];
+  const unboundMoves: Candidate[] = [], unsettledTime: PendingItem[] = [];
   const latestCompile = [...(view.observations ?? [])].reverse().find(value => value.kind === 'decide' && value.purpose === 'compile');
   const destination = object(object(latestCompile?.summary).destination_binding);
   for (const [index, candidate] of offered.entries()) {
@@ -557,8 +562,26 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
     // a question or an aside in a fight is never the clerk's punch, whatever `need` answered.
     // §135.30.10: so for a move once the run moved -- the declaration's destination was carried.
     if (compileOnly(candidate) || actGated(candidate, view.declaredActs ?? []) || moveGated(candidate, view.moved ?? [])) continue;
-    const key = `need_${index + 1}`, {choice, confidence, probabilities} = answerOf(result, key);
+    const key = `need_${index + 1}`;
+    if (partialTime && candidate.clerk !== 'declared_time') {
+      if (!settled && candidate.checkOwner === 'jev' && candidate.unbound.some(value => value.binder === 'resolve-selection'))
+        forced.push({candidate, outcome: 'no_roll', uncertain: [`${candidate.label}: ${result.failure?.code ?? result.status}`], why: 'jev_unanswered'});
+      // A partial time answer does not authorize other routes, but must still respect an unbound selected destination.
+      const move = answerOf({...result, status: 'complete'}, key), selects = candidate.routeFact?.selects ?? 'now';
+      if (!view.compileOff && latestCompile?.status === 'complete' && typeof destination.cleared === 'boolean'
+        && candidate.family === 'move' && candidate.clerk === 'declared_bookkeeping' && !candidate.forced
+        && move.choice === selects && clears({...result, status: 'complete'}, key, selects, move.confidence, gate)
+        && !(destination.cleared === true && destination.row === candidate.bound.to)) unboundMoves.push(candidate);
+      continue;
+    }
+    const {choice, confidence, probabilities} = answerOf(result, key);
     const selects = candidate.routeFact?.selects ?? 'now';
+    if (candidate.clerk === 'declared_time' && candidate.routeFact) {
+      const pooled = semanticChoice(result, key, Object.keys(candidate.routeFact.criteria));
+      if (pooled.choice === selects) selected.push({candidate, confidence: pooled.confidence});
+      else if (!pooled.choice || pooled.choice === 'unknown') unsettledTime.push(...keeperOwns(candidate, 'unknown_binding', ['current time activity']));
+      continue;
+    }
     const checkOwned = candidate.checkOwner === 'jev' && candidate.unbound.some(value => value.binder === 'resolve-selection');
     if (choice === selects && clears(result, key, selects, confidence, gate)) {
       if (!view.compileOff && latestCompile?.status === 'complete' && typeof destination.cleared === 'boolean'
@@ -605,10 +628,12 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
     for (const {candidate} of selected) pending.push(...itemsFor(candidate));
     return withForced({pending, choice: keys.join(' + '), confidence, reason: `selected_${selected.length}`, selected: keys, exit: exit.choice});
   }
+  const readBeforeTime = unsettledTime.length > 0 && exit.choice === 'read_more' && clears(result, 'exit', exit.choice, exit.confidence, gate);
+  if (unsettledTime.length && !readBeforeTime) return withForced({pending: unsettledTime, reason: 'declared_time_unresolved', selected: []});
   // After a settlement only `continue` or `ask_llm` that clears the gates on its own hands the run back to the Keeper (a
   // cleared `finish` is the compose below, as always); any other answer -- read_more, none_of_above, below the gates, none
   // at all -- is the compose.
-  if (settled && !(['continue', 'ask_llm', 'finish'].includes(exit.choice ?? '') && clears(result, 'exit', exit.choice!, exit.confidence, gate)))
+  if (settled && !readBeforeTime && !(['continue', 'ask_llm', 'finish'].includes(exit.choice ?? '') && clears(result, 'exit', exit.choice!, exit.confidence, gate)))
     return withForced(lean(exit.choice, exit.confidence));
   if (!exit.choice) return withForced({pending: [{kind: 'infer', purpose: 'adjudicate', reason: 'jev_no_answer'}], reason: 'jev_no_answer', selected: [], exit: undefined});
   if (!clears(result, 'exit', exit.choice, exit.confidence, gate))
@@ -704,7 +729,10 @@ export function routeBatch(view: RunView, scope: ScopeBinding, readSet: ReadSet)
         ask_llm: 'An unresolved adjudication or world operation needs Keeper judgment beyond final narration.', read_more: 'Unread module material is needed first.',
         finish: 'Nothing further should be settled; narrate the result.'}};
     const batch: DecisionBatch = {id: digest([ROUTE_FAMILY, view.runId, view.observations.length, state]), model: JEV_MODEL,
-      family: ROUTE_FAMILY, familyVersion: '3', scope, readSet, state, questions: [...offered.map(needQuestion), exitQuestion]};
+      family: ROUTE_FAMILY, familyVersion: '4', scope, readSet, state, questions: [...offered.flatMap((candidate, index) => {
+        const question = needQuestion(candidate, index);
+        return candidate.clerk === 'declared_time' ? semanticQuestions(question) : [question];
+      }), exitQuestion]};
     try {packDecisionBatch(batch); return {batch, offered};}
     catch (error) {
       if (!(error instanceof PackingError) || error.failure !== 'packing_limit' || (previews === 0 && previewChars <= 0)) throw error;
@@ -719,7 +747,7 @@ export function bindBatch(view: RunView, candidate: Candidate, scope: ScopeBindi
   const state = {purpose: 'bind the closed parameters of the chosen operation', player_input: view.rawInput,
     now: {scene: view.context.scene, present: view.context.present}, done_this_turn: doneThisTurn(view),
     chosen: candidateView(candidate), policy: ROUTE_POLICY} as Json;
-  return {id: digest([BIND_FAMILY, view.runId, view.observations.length, state]), model: JEV_MODEL, family: BIND_FAMILY, familyVersion: '1',
+  return {id: digest([BIND_FAMILY, view.runId, view.observations.length, state]), model: JEV_MODEL, family: BIND_FAMILY, familyVersion: '2',
     scope, readSet, state, questions: closed.map(value => value.band?.primitive === 'score'
       // §138.10: an ordered ladder is a Score over its rows in the table's order, lowest first; the answer is read back as the argmax row.
       ? {key: value.name, target: `${value.name} of the chosen operation`, type: 'score' as const,
@@ -730,7 +758,9 @@ export function bindBatch(view: RunView, candidate: Candidate, scope: ScopeBindi
         + `the person acting in the chosen operation (an NPC's defence or action), select the option that fits that person in the current situation `
         + `shown in the chosen operation's detail. Choose unknown when it cannot be told.`,
       criteria: {...Object.fromEntries(value.options!.map(option => [option, value.descriptions?.[option] ?? option])),
-        unknown: value.descriptions?.unknown ?? 'Cannot be determined from the supplied state.'}})};
+        unknown: value.descriptions?.unknown ?? 'Cannot be determined from the supplied state.'}}).flatMap((question, index) =>
+        candidate.clerk === 'declared_time' || candidate.checkOwner === 'jev' && closed[index].owner === 'player'
+          ? semanticQuestions(question) : [question])};
 }
 
 /**
@@ -802,7 +832,28 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
   const complete = result?.status === 'complete';
   const extra: Record<string, Json> = {}, bindings: BindRecord[] = [], later: Unbound[] = [], leads: Record<string, string> = {};
   let lowest = 1, cause = complete ? '' : 'jev_unavailable';
+  const softUnresolved: string[] = [], softWithheld: string[] = [];
   for (const parameter of closedParameters(candidate)) {
+    if (candidate.clerk === 'declared_time' || candidate.checkOwner === 'jev' && parameter.owner === 'player') {
+      const pooled = semanticChoice(result, parameter.name, [...parameter.options!, 'unknown']);
+      const {choice, confidence, distribution, answered, total, spread} = pooled;
+      const semantic = {answered, total, ...(spread !== undefined ? {spread} : {})};
+      const band = parameter.band, path: BindingPath = band ? 'banded' : 'jev', table = band ? {table: band.table} : {};
+      const admission = confidence !== undefined && confidence < (band?.gate ?? gate) ? {cleared: false} : {};
+      if (choice && choice !== 'unknown' && parameter.options!.includes(choice)) {
+        const interval = candidate.clerk === 'declared_time' && parameter.name === 'band' ? candidate.timeDurations?.[choice] : undefined;
+        if (interval) extra.minutes = interval.minutes; else extra[parameter.name] = choice;
+        lowest = Math.min(lowest, confidence ?? 1);
+        bindings.push(interval ? {name: 'minutes', path: 'jev', value: interval.minutes, confidence: confidence ?? null, distribution, semantic, ...admission}
+          : {name: parameter.name, path, value: choice, confidence: confidence ?? null, distribution, semantic, ...admission, ...table, ...(band ? {band: choice} : {})});
+      } else {
+        softUnresolved.push(parameter.name);
+        if (parameter.owner === 'player') softWithheld.push(parameter.name + ' has no leading declared choice');
+        cause = answered ? 'unknown_binding' : 'jev_unavailable';
+        bindings.push({name: parameter.name, path, value: null, confidence: confidence ?? null, distribution, semantic, ...table});
+      }
+      continue;
+    }
     const {choice, confidence, distribution} = boundAnswer(result, parameter);
     // §138.10: a band is bound `banded`, named with its table, and gated by the table's own gate, never the run's.
     const band = parameter.band, path: BindingPath = band ? 'banded' : 'jev', table = band ? {table: band.table} : {};
@@ -821,7 +872,7 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
     // The Jev answer that did not clear stays on record beside the default that replaced it.
     if (complete) bindings.push({name: parameter.name, path, value: null, confidence: confidence ?? null, distribution, ...table});
   }
-  const defaults: Record<string, Json> = {}, unresolved: string[] = [], leaned: string[] = [], withheld: string[] = [];
+  const defaults: Record<string, Json> = {}, unresolved: string[] = [...softUnresolved], leaned: string[] = [], withheld: string[] = [...softWithheld];
   for (const parameter of later) {
     const lead = leads[parameter.name], evidence = answerOf(result, parameter.name);
     const clearedLead = parameter.ruleDefault?.rule === 'jev_lead' && lead !== undefined && lead !== 'unknown'
@@ -964,7 +1015,11 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
   // §135.30.10: a move offered after the run moved is the Keeper's for the run the same way.
   const moveHeld = offered.filter(candidate => moveGated(candidate, view.moved ?? [])).map(candidate => candidate.key);
   const destinationHeld = new Set((routed.held ?? []).map(candidate => candidate.key));
+  const semanticTime = Object.fromEntries(offered.flatMap((candidate, index) => candidate.clerk === 'declared_time' && candidate.routeFact
+    ? [[candidate.key, semanticChoice(result, 'need_' + (index + 1), Object.keys(candidate.routeFact.criteria))]] : []));
   if (result.status === 'complete') for (const candidate of offered) if ((candidate.routeFact || compileOnly(candidate) || gated.includes(candidate.key) || moveHeld.includes(candidate.key) || destinationHeld.has(candidate.key)) && !(routed.selected ?? []).includes(candidate.key)) {
+    if (candidate.clerk === 'declared_time' && routed.reason === 'read_more'
+      && (!semanticTime[candidate.key]?.choice || semanticTime[candidate.key].choice === 'unknown')) continue;
     if (!view.consumed.includes(candidate.key)) view.consumed.push(candidate.key);
     view.candidates = view.candidates.filter(value => value.key !== candidate.key);
   }
@@ -977,10 +1032,10 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
       bound: candidate.bound, unbound: candidate.unbound.map(parameter => parameter.name)}))} : undefined;
   observe(view, {kind: 'decide', purpose: 'route', status: result.status, choice: routed.choice, confidence: routed.confidence, reason: routed.reason,
     ...(held ? {summary: held as Json} : {})});
-  const answers = result.status === 'complete' ? Object.fromEntries(Object.entries(result.answers ?? {}).map(([key, value]) => [key,
+  const answers = result.status !== 'unavailable' ? Object.fromEntries(Object.entries(result.answers ?? {}).map(([key, value]) => [key,
     value.status === 'answered' && value.type === 'choice' ? {choice: value.choice, confidence: value.confidence ?? null, probabilities: value.probabilities ?? null} : {status: value.status}])) : null;
   return {step, kind: 'decide', purpose: 'route', choice: routed.choice ?? null, confidence: routed.confidence ?? null, ms, jev_calls: 1,
-    reason: routed.reason, offered: offered.length, detail: {selected: routed.selected ?? null, exit: routed.exit ?? null, answers, ...(gated.length ? {act_gated: gated} : {}),
+    reason: routed.reason, offered: offered.length, detail: {selected: routed.selected ?? null, exit: routed.exit ?? null, answers, ...(Object.keys(semanticTime).length ? {semantic_time: semanticTime, questions: batch.questions} : {}), ...(gated.length ? {act_gated: gated} : {}),
       ...(moveHeld.length ? {move_gated: moveHeld} : {}), ...(held ? {not_landed: held} : {}), offered_keys: offered.map(candidate => candidate.key), batch_state: batch.state as Json} as Json};
 }
 
@@ -1267,7 +1322,9 @@ export function settleBind(view: RunView, step: number, candidate: Candidate, ba
   observe(view, {kind: 'decide', purpose: 'bind', status: result.status, choice: candidate.key, confidence: bound.confidence, reason: bound.reason,
     summary: (bound.extra ?? null) as Json});
   return {step, kind: 'decide', purpose: 'bind', choice: candidate.key, confidence: bound.confidence ?? null, ms, jev_calls: 1,
-    reason: bound.reason, detail: (bound.extra ?? null) as Json};
+    reason: bound.reason, detail: (bound.bindings?.some(binding => binding.semantic)
+      ? {...bound.extra, semantic_binding: {questions: batch.questions, answers: result.answers, bindings: bound.bindings}}
+      : bound.extra ?? null) as unknown as Json};
 }
 
 export interface InferAnswer {items: PendingItem[]; stop?: {reason: string; purpose: string}; detail?: Json}

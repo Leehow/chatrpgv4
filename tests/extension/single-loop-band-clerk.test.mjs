@@ -18,11 +18,13 @@ import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { runDriver } from "./pi-agent-core.mjs";
 import { buildCandidates, keeperCall } from "../../runtime/jev/candidates.ts";
+import {semanticQuestions, semanticNoul, semanticChoice} from '../../runtime/jev/semantic-votes.ts';
+import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
 import { damageQuestion, timeQuestion } from "../../runtime/jev/band-shadow-domain.ts";
 import { bandRolls, createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { ROUTE_TRAVEL_ROWS } from "../../kernel-ts/modules/route-travel.ts";
 import {
-	BIND_FAMILY, bindBatch, bindingOf, CLERK_AUTHORITY, consumedByEffects, createStepPolicy, initialView, interpretBind, itemsFor, next, routeBatch, settleRead, startStep,
+	BIND_FAMILY, bindBatch, bindingOf, CLERK_AUTHORITY, consumedByEffects, createStepPolicy, initialView, interpretBind, interpretRoute, itemsFor, next, routeBatch, settleRead, settleRoute, startStep,
 	TIME_CANDIDATE_KEY,
 } from "../../runtime/jev/step-policy.ts";
 
@@ -45,7 +47,7 @@ const timeOf = (candidates) => candidates.find((candidate) => candidate.key === 
 /** A complete Jev answer: `choices[name]` = [choice, confidence]. */
 const answer = (choices) => ({ batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
 	answers: Object.fromEntries(Object.entries(choices).map(([key, [choice, confidence]]) => [key,
-		{ status: "answered", type: "choice", choice, confidence, probabilities: { [choice]: confidence, unknown: Math.round(Math.max(0, 1 - confidence) * 100) / 100 } }])) });
+		{ status: "answered", type: "choice", choice, confidence, probabilities: Object.fromEntries((key.startsWith('band') ? TIME_ROWS.filter(row => !ROUTE_TRAVEL_ROWS.includes(row.handle)).map(row => row.handle).concat('unknown') : ['costs', 'none', 'unknown'].includes(choice) ? ['costs','none','unknown'] : [choice,'unknown']).map(option => [option,option===choice?(choice==='unknown'?1:confidence):option==='unknown'?Math.round(Math.max(0,1-confidence)*100)/100:0])) }])) });
 /** A complete Score answer for one question: probabilities by level index. */
 const scored = (key, probabilities, confidence, score) => ({ batchId: "b", status: "complete", issues: [], coverage: { required: [], answered: [], unknown: [] },
 	answers: { [key]: { status: "answered", type: "score", score, confidence, legend: {}, probabilities } } });
@@ -140,26 +142,24 @@ test("§138.10 builder: the harm a stated step leaves unstated is a forced damag
 	assert.ok(!("local_travel" in timeBatch.questions[0].criteria));
 });
 
-test("§138.10 policy: a band clears its table's gate, not the run's; it is recorded banded with its table; below the gate or unknown it is the Keeper's, with no default", () => {
-	const time = timeOf(buildCandidates(reads(), INPUT));
-	// 0.55 is under the run's 0.6 and over the table's 0.5: bound.
-	const bound = interpretBind(time, { questions: [] }, answer({ band: ["single_room_search", 0.55] }), 0.6);
-	assert.deepEqual(summary(bound.pending), [["direct", "execute", null]]);
-	assert.deepEqual([bound.reason, bound.confidence, bound.pending[0].extra], ["bound", 0.55, { band: "single_room_search" }]);
-	assert.deepEqual(bound.bindings, [{ name: "band", path: "banded", value: "single_room_search", confidence: 0.55, distribution: { single_room_search: 0.55, unknown: 0.45 }, table: "time-costs", band: "single_room_search" }]);
-	assert.equal(bound.pending[0].candidate.basis.binding, undefined, "no default taken, nothing stamped");
-	// Below the table's gate: the Keeper's turn, the answer on record, nothing executed.
-	const low = interpretBind(time, { questions: [] }, answer({ band: ["single_room_search", 0.45] }), 0.6);
-	assert.deepEqual(summary(low.pending), [["infer", "compose", "declared_time_unresolved"]]);
-	assert.deepEqual([low.pending[0].extra.cause, low.pending[0].extra.unresolved], ["low_confidence", ["band"]]);
-	assert.deepEqual(low.bindings, [{ name: "band", path: "banded", value: null, confidence: 0.45, distribution: { single_room_search: 0.45, unknown: 0.55 }, table: "time-costs" }]);
-	const unknown = interpretBind(time, { questions: [] }, answer({ band: ["unknown", 0.9] }), 0.6);
-	assert.deepEqual([unknown.pending[0].reason, unknown.pending[0].extra.cause], ["declared_time_unresolved", "unknown_binding"]);
-	// A row the table does not hold is not written; Jev unavailable is the Keeper's too; the run's gate applies without a table gate.
-	assert.equal(interpretBind(time, { questions: [] }, answer({ band: ["mythos_study", 0.9] }), 0.6).pending[0].reason, "declared_time_unresolved", "a row the table does not hold is never written");
-	assert.equal(interpretBind(time, { questions: [] }, { batchId: "b", status: "unavailable", answers: {}, issues: [], coverage: { required: [], answered: [], unknown: [] } }, 0.6).pending[0].extra.cause, "jev_unavailable");
-	const ungated = timeOf(buildCandidates(reads({ bands: bands({ gates: undefined }) }), INPUT));
-	assert.equal(interpretBind(ungated, { questions: [] }, answer({ band: ["single_room_search", 0.55] }), 0.6).reason, "clerk_unbound");
+test("§163.10 time uses pooled leading issued bands, with unknown or tie unsettled and damage unchanged", () => {
+  const time = timeOf(buildCandidates(reads(), INPUT));
+  const bound = interpretBind(time, {questions: []}, answer({band: ['single_room_search', .55]}), .9);
+  assert.deepEqual(summary(bound.pending), [['direct', 'execute', null]]);
+  assert.equal(bound.pending[0].extra.band, 'single_room_search');
+  assert.equal(bound.bindings[0].cleared, false, 'pooling does not exempt canonical admission');
+  assert.deepEqual(bound.bindings[0].semantic, {answered: 1, total: 3, spread: 0});
+  for (const p of [.45, .5]) {
+    const held = interpretBind(time, {questions: []}, answer({band: ['single_room_search', p]}), .6);
+    assert.equal(held.pending[0].reason, 'declared_time_unresolved');
+    assert.equal(held.pending[0].extra.cause, 'unknown_binding');
+  }
+  const unknown = interpretBind(time, {questions: []}, answer({band: ['unknown', .9]}), .6);
+  assert.equal(unknown.pending[0].extra.cause, 'unknown_binding');
+  assert.equal(interpretBind(time, {questions: []}, answer({band: ['mythos_study', .9]}), .6).pending[0].reason, 'declared_time_unresolved');
+  assert.equal(interpretBind(time, {questions: []}, {status: 'unavailable', answers: {}}, .6).pending[0].extra.cause, 'jev_unavailable');
+  const ungated = timeOf(buildCandidates(reads({bands: bands({gates: undefined})}), INPUT));
+  assert.equal(interpretBind(ungated, {questions: []}, answer({band: ['single_room_search', .55]}), .9).reason, 'bound');
 	// A Score: the argmax level is the row at that index, the distribution keyed by row, the first on a tie.
 	const damage = buildCandidates(reads({ applyOptions: { unstated_damage: [HARM] } }), INPUT).find((candidate) => candidate.family === "damage");
 	const severe = interpretBind(damage, { questions: [] }, scored("band", { 0: 0.1, 1: 0.2, 2: 0.5, 3: 0.1, 4: 0.05, 5: 0.05 }, 0.6, 2.15), 0.6);
@@ -265,16 +265,110 @@ test("§138.10 at the engine: the rows are read once, the bind row carries the k
 	const bind = rows.find((row) => row.event === "bind");
 	assert.deepEqual([bind.clerk, bind.status], ["declared_time", "succeeded"]);
 	assert.deepEqual(bind.bindings.map((entry) => [entry.name, entry.path]), [["why", "composed"], ["band", "banded"]]);
-	assert.deepEqual(bind.bindings[1], { name: "band", path: "banded", value: "single_room_search", confidence: 0.8, distribution: { single_room_search: 0.8, unknown: 0.2 }, table: "time-costs", band: "single_room_search", roll: { min: 10, max: 45, total: 23 } });
+	assert.deepEqual(bind.bindings[1], { name: "band", path: "banded", value: "single_room_search", confidence: 0.75, distribution: {speak_briefly: 0, quick_observation: 0, single_room_search: 0.8, careful_house_search: 0, unknown: 0.2}, semantic: {answered: 1, total: 3, spread: 0}, table: "time-costs", band: "single_room_search", roll: { min: 10, max: 45, total: 23 } });
 	assert.ok(!executed.artifact.fresh.candidates.some((candidate) => candidate.key === TIME_CANDIDATE_KEY), "the fresh read holds a time receipt: time is charged");
 	// line-2 made the projection port async (gathered 2026-09-27); its note is awaited.
 	const [message] = await plan.ports.projection.project({ view: { policyState: { view: {} } }, stepId: "s4", step: { kind: "infer", purpose: "compose", reason: "finish" } });
 	const note = JSON.parse(message.content);
-	assert.equal(note.clerk_did[0].binding, "band: band single_room_search (time-costs, confidence 0.80), the kernel rolled 23 minutes inside 10-45; the host read the player's declared action as this row. To rule otherwise, settle it with your own operation.");
+	assert.equal(note.clerk_did[0].binding, "band: band single_room_search (time-costs, confidence 0.75), the kernel rolled 23 minutes inside 10-45; the host read the player's declared action as this row. To rule otherwise, settle it with your own operation.");
 	assert.deepEqual(note.clerk_did[0].result, { effects: [{ kind: "time", why: time.bound.why, band: "single_room_search" }] });
 	// The roll reader on its own: a damage roll receipt, a record without its receipt, a record that is not banded.
 	const damaged = bandRolls([{ name: "band", path: "banded", value: "severe", table: "hazards", band: "severe" }, { name: "subject", path: "stated", value: "tom" }], ["roll:damage-t3-c2", "delta:hp-t3-c2"],
 		[{ id: "roll:damage-t3-c2", kind: "roll", expression: "1D10", total: 7, basis: "banded", band: "severe" }, { id: "delta:hp-t3-c2", kind: "delta", basis: "banded", band: "severe" }]);
 	assert.deepEqual(damaged, [{ name: "band", path: "banded", value: "severe", table: "hazards", band: "severe", roll: { expression: "1D10", total: 7 } }, { name: "subject", path: "stated", value: "tom" }]);
 	assert.deepEqual(bandRolls([{ name: "band", path: "banded", value: "severe", table: "hazards" }], [], []), [{ name: "band", path: "banded", value: "severe", table: "hazards" }]);
+});
+
+
+test('same-proposition views pool independently and actual incomplete replies bind issued time', () => {
+  const question = {key:'selected', type:'noul', target:'one proposition', instructions:'Judge this proposition', criteria:{true:'yes',false:'no'}};
+  const views = semanticQuestions(question);
+  assert.deepEqual(views.map(q=>q.key), ['selected','selected__semantic_facts','selected__semantic_execution']);
+  assert.ok(views.every(q=>q.target===question.target && JSON.stringify(q.criteria)===JSON.stringify(question.criteria)));
+  const pooled = semanticNoul({status:'incomplete',answers:{selected:{status:'answered',type:'noul',noul:.84},selected__semantic_facts:{status:'answered',type:'noul',noul:.62}}},'selected');
+  assert.deepEqual({answered:pooled.answered,total:pooled.total,score:pooled.score},{answered:2,total:3,score:.73});
+  assert.ok(Math.abs(pooled.spread-.22)<1e-12);
+  assert.equal(semanticNoul({status:'complete',answers:{selected:{status:'answered',type:'noul',noul:NaN}}},'selected').score,undefined);
+  const rounded = semanticChoice({status:'incomplete',answers:{
+    band:{status:'answered',type:'choice',choice:'A',probabilities:{A:.50,B:.49,unknown:0}},
+    band__semantic_facts:{status:'answered',type:'choice',choice:'B',probabilities:{A:.49,B:.50,unknown:.02}}
+  }},'band',['A','B','unknown']);
+  assert.deepEqual(rounded.distribution,{A:.495,B:.495,unknown:.01});
+  assert.equal(rounded.choice,'unknown','reported rounded probabilities preserve their tie without renormalization');
+  assert.equal(rounded.answered,2);
+  assert.equal(semanticChoice({status:'complete',answers:{band:{status:'answered',type:'choice',choice:'A',probabilities:{A:.33,B:.33,unknown:.33}}}},'band',['A','B','unknown']).confidence,0);
+  const time = timeOf(buildCandidates(reads(), INPUT)), view = initialView({runId:'partial',rawInput:INPUT,context,candidates:[time]});
+  const batch = bindBatch(view,time,scope,[]), keys = Object.keys(batch.questions[0].criteria);
+  const probabilities = Object.fromEntries(keys.map(k=>[k,k==='single_room_search'?.84:k==='unknown'?.16:0]));
+  const result = bindDecisionAnswers(batch,{band:{status:'answered',type:'choice',choice:'single_room_search',confidence:.01,probabilities}});
+  assert.equal(result.status,'incomplete');
+  const bound = interpretBind(time,batch,result,.99);
+  assert.equal(bound.extra.band,'single_room_search');
+  assert.equal(bound.bindings[0].semantic.answered,1);
+  const routed = routeBatch(view,scope,[]), routeProb = {costs:.84,none:.1,unknown:.06};
+  const partialRoute = bindDecisionAnswers(routed.batch,{need_1:{status:'answered',type:'choice',choice:'costs',confidence:.01,probabilities:routeProb}});
+  assert.equal(partialRoute.status,'incomplete');
+  assert.equal(interpretRoute(view,routed.offered,partialRoute,.99).selected[0],TIME_CANDIDATE_KEY);
+  assert.equal(semanticChoice({status:'complete',answers:{band:{status:'answered',type:'choice',choice:'single_room_search',probabilities:{single_room_search:.8,outsider:.2}}}},'band',keys).answered,0);
+});
+
+
+test('a declared player-owned closed parameter uses pooled lead and preserves unknown player_choice', () => {
+  const candidate = {key:'chosen-method',verb:'resolve',family:'core-check',clerk:'declared_check',checkOwner:'jev',bound:{decision:'core-check:ordinary-check'},
+    unbound:[{name:'method',required:true,vocabulary:'closed',owner:'player',options:['listen','look'],descriptions:{listen:'Declared listening',look:'Declared looking'}}]};
+  const view = initialView({runId:'player-owned',rawInput:'I listen at the door',context,candidates:[candidate]});
+  const batch = bindBatch(view,candidate,scope,[]);
+  assert.equal(batch.questions.length,3);
+  const raw = Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'choice',choice:'listen',confidence:.01,probabilities:{listen:.45,look:.3,unknown:.25}}]));
+  const selected = interpretBind(candidate,batch,bindDecisionAnswers(batch,raw),.99);
+  assert.equal(selected.extra.method,'listen');
+  assert.equal(selected.bindings[0].cleared,false);
+  assert.equal(selected.bindings[0].semantic.answered,3);
+  const unknown = Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'choice',choice:'unknown',probabilities:{listen:.25,look:.25,unknown:.5}}]));
+  const held = interpretBind(candidate,batch,bindDecisionAnswers(batch,unknown),.99);
+  assert.equal(held.pending.some(item=>item.purpose==='execute'),false);
+  assert.equal(held.pending[0].extra.cause,'player_choice');
+  assert.equal(held.pending[0].extra.withheld.length,1);
+});
+
+test('incomplete time pooling still holds a selected move with no bound destination', () => {
+  const time = timeOf(buildCandidates(reads(), INPUT));
+  const move = {key:'unbound-move',verb:'apply',family:'move',clerk:'declared_bookkeeping',label:'Move to archive',bound:{kind:'move',to:'archive'},unbound:[]};
+  const view = initialView({runId:'destination',rawInput:INPUT,context,candidates:[move,time]});
+  view.observations.push({kind:'decide',purpose:'compile',status:'complete',summary:{destination_binding:{cleared:false}}});
+  const batch = routeBatch(view,scope,[]);
+  const raw = {need_1:{status:'answered',type:'choice',choice:'now',confidence:.99,probabilities:{now:.99,later:.01,unknown:0}},
+    need_2:{status:'answered',type:'choice',choice:'costs',confidence:.01,probabilities:{costs:.84,none:.1,unknown:.06}}};
+  const result = bindDecisionAnswers(batch.batch,raw);
+  assert.equal(result.status,'incomplete');
+  const held = interpretRoute(view,batch.offered,result,.6);
+  assert.equal(held.reason,'destination_binding_unresolved');
+  assert.deepEqual(held.held.map(candidate=>candidate.key),['unbound-move',TIME_CANDIDATE_KEY]);
+  assert.ok(!held.pending.some(item=>item.purpose==='execute'||item.purpose==='bind'));
+});
+
+
+test('cleared read_more precedes unsettled time and preserves its candidate for fresh judgment', () => {
+  const time = timeOf(buildCandidates(reads(), INPUT));
+  const view = initialView({runId:'read-before-time',rawInput:INPUT,context,candidates:[time],compile:false,readFirst:false});
+  const reply = (batch, exit, knownTime = false) => bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(q=> {
+    const selected = q.key==='exit'?exit:knownTime?'costs':'unknown', keys=Object.keys(q.criteria),top=(1+(keys.length-1)*.9)/keys.length;
+    return [q.key,{status:'answered',type:'choice',choice:selected,confidence:.9,probabilities:Object.fromEntries(keys.map(k=>[k,k===selected?top:(1-top)/(keys.length-1)]))}];
+  })));
+  const first = routeBatch(view,scope,[]), result = reply(first.batch,'read_more');
+  settleRoute(view,1,first.batch,first.offered,result,0,.6);
+  assert.deepEqual(view.pending.map(item=>[item.kind,item.purpose]),[['decide','locate'],['direct','read']]);
+  assert.ok(!view.consumed.includes(TIME_CANDIDATE_KEY));
+  assert.ok(view.candidates.some(candidate=>candidate.key===TIME_CANDIDATE_KEY));
+  view.pending=[];
+  settleRead(view,2,{materials:[],summary:{}},{context,candidates:[time]},0);
+  const fresh = routeBatch(view,scope,[]);
+  assert.ok(fresh.offered.some(candidate=>candidate.key===TIME_CANDIDATE_KEY));
+  const boundNext = interpretRoute(view,fresh.offered,reply(fresh.batch,'finish',true),.6);
+  assert.equal(boundNext.pending[0].purpose,'bind');
+  const unknown = interpretRoute(view,fresh.offered,reply(fresh.batch,'finish'),.6);
+  assert.equal(unknown.pending[0].reason,'declared_time_unresolved');
+  assert.equal(unknown.pending[0].extra.time_unsettled,true);
+  const alreadySettled = {...view,settled:[{step:1}]};
+  assert.equal(interpretRoute(alreadySettled,fresh.offered,reply(fresh.batch,'read_more'),.6).pending[0].purpose,'read');
 });

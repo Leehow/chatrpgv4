@@ -12,11 +12,18 @@ import { customMessages, openTable, waitFor } from "./harness.mjs";
 import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 
 /** A Jev answer in the adapter's result shape: every question answered, `exit` set to `exit`. */
+const baseQuestion = (question) => ({ ...question, key: question.key.replace(/__(?:semantic_facts|semantic_execution)$/, "") });
+function issuedChoice(question, value, confidence = 0.9) {
+	const keys = Object.keys(question.criteria);
+	assert.ok(keys.includes(value), `fixture choice ${value} is not issued for ${question.key}`);
+	return { status: "answered", type: "choice", choice: value, confidence,
+		probabilities: Object.fromEntries(keys.map((key) => [key, keys.length === 1 ? 1 : key === value ? confidence : (1 - confidence) / (keys.length - 1)])) };
+}
 function answered(batch, exit) {
 	const answers = {};
 	for (const question of batch.questions) {
-		const choice = question.key === "exit" ? exit : "later";
-		answers[question.key] = { status: "answered", type: "choice", choice, confidence: 0.9, probabilities: { [choice]: 0.9 } };
+		const choice = baseQuestion(question).key === "exit" ? exit : Object.hasOwn(question.criteria, "costs") ? "none" : "later";
+		answers[question.key] = issuedChoice(question, choice);
 	}
 	return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
 }

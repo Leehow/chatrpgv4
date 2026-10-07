@@ -31,7 +31,8 @@ function candidate(text=input,source=reads){return api.buildCandidates(source,te
 function bind(value,selected,confidence=0.9){
     const view=api.initialView({runId:'closed-duration-replay',rawInput:input,context,candidates:[value],compile:false,readFirst:false});
     const batch=api.bindBatch(view,value,scope,[]);
-    const result={status:'complete',answers:{band:{status:'answered',type:'choice',choice:selected,confidence,probabilities:{[selected]:confidence}}}};
+    const probabilities=Object.fromEntries(Object.keys(batch.questions[0].criteria).map(key=>[key,key===selected?confidence:key==='unknown'?1-confidence:0]));
+    const result={status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'choice',choice:selected,confidence,probabilities}]))};
     return {batch,...api.interpretBind(value,batch,result,0.6)};
 }
 test('a fixed player wait has an issued exact interval beside ordinary activity bands',()=>{

@@ -6,6 +6,7 @@ import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
 import {initialView, next, startStep, settleCheckSelection, settleExecute, settleRead, keeperOwns, interpretBind, interpretRoute} from '../../runtime/jev/step-policy.ts';
 import {COMPILE_PREDICATES} from '../../runtime/jev/route-compile.ts';
 
+const baseKey = key => key.replace(/__semantic_(facts|execution)$/, '');
 const scope = {owner: 'check-selection', campaign: 'table', worldline: 'main', loop: 0, audience: 'keeper'};
 const listen = {key: 'listen', family: 'core-check', label: 'Listen', action: {actor: 'Ada', decision: 'core-check:ordinary-check', skill: 'Listen'},
   parameters: [], needs: [], authorization: 'declaration'};
@@ -88,11 +89,11 @@ test('§163 turn 9 of mood-live-20261001: a social necessity of .75/.74 with its
   const social9 = {...social, label: '托马斯·海斯: influence 隔壁亮灯那家的人 with a social approach', action: {...social.action, actor: '托马斯·海斯', target: '隔壁亮灯那家的人'}};
   const {input, seen} = setup(t, (batch, question) => batch.family === 'check-selection-social-method' ? noul(.82)
     : question.type === 'choice' ? choice(question, 'value_0')
-    : question.key.endsWith('_blocked') ? noul(batch.family.endsWith('-refine') ? .36 : .34) : noul(batch.family.endsWith('-refine') ? .74 : .75), [social9]);
+    : baseKey(question.key).endsWith('_blocked') ? noul(batch.family.endsWith('-refine') ? .36 : .34) : noul(batch.family.endsWith('-refine') ? .74 : .75), [social9]);
   const port = input.decision;
   input.decision = {async decide(batch) {
     const result = await port.decide(batch);
-    for (const question of batch.questions) if (question.key.endsWith('_blocked')) result.answers[question.key] = noul(batch.family.endsWith('-refine') ? .36 : .34);
+    for (const question of batch.questions) if (baseKey(question.key).endsWith('_blocked')) result.answers[question.key] = noul(batch.family.endsWith('-refine') ? .36 : .34);
     return result;
   }};
   input.declaration = '我去敲隔壁亮着灯那家的门，等有人开门，就说我是替房东来查这栋空房子的，想请教几句。';
@@ -100,8 +101,8 @@ test('§163 turn 9 of mood-live-20261001: a social necessity of .75/.74 with its
   assert.equal(result.status, 'selected');
   assert.equal(result.action.decision, 'social:adjudicate-difficulty');
   assert.equal(result.action.target, '隔壁亮灯那家的人');
-  assert.deepEqual(result.forced, {uncertain: [`necessity of ${social9.label}: needed now p=0.74, prerequisite unmet p=0.36`], why: 'below_confidence_gate'});
-  assert.equal(seen.filter(batch => batch.family.endsWith('-refine')).length, 1, 'the bounded refinement still runs first');
+  assert.deepEqual(result.forced, {uncertain: [`necessity of ${social9.label}: needed now p=0.75, prerequisite unmet p=0.34`], why: 'below_confidence_gate'});
+  assert.equal(seen.filter(batch => batch.family.endsWith('-refine')).length, 0, 'usable means need no extra gate-clearing request');
 });
 
 test('source-specific checks reach their binder before a general skill search', () => {
@@ -124,7 +125,10 @@ function setup(t, choose, options = [listen, spot]) {
     publicContext: [{role: 'player', text: 'I listen first, then inspect the room.'}], scope, readSet: [], lease,
     decision: {async decide(batch) {
       seen.push(batch);
-      const answers = Object.fromEntries(batch.questions.map(question => [question.key, question.key.endsWith('_blocked') ? noul(0.01) : choose(batch, question)]));
+      const answers = Object.fromEntries(batch.questions.map(question => {
+        const base = {...question, key: question.key.replace(/__semantic_(facts|execution)$/, '')};
+        return [question.key, base.key.endsWith('_blocked') ? noul(0.01) : choose(batch, base)];
+      }));
       return bindDecisionAnswers(batch, answers, {inputTokens: 1, outputTokens: 1, costUsd: 0});
     }}}};
 }
@@ -137,7 +141,7 @@ test('independent declared methods do not compete in a next-check Choice', async
   const result = await selectCheck(input);
   assert.equal(result.status, 'selected');
   assert.equal(result.action.skill, 'Listen');
-  assert.equal(seen.find(batch => batch.family === 'check-selection-need').questions.length, 6);
+  assert.equal(seen.find(batch => batch.family === 'check-selection-need').questions.length, 18);
   assert.equal(seen.some(batch => batch.family === 'check-selection-order'), false);
   assert.equal(seen.some(batch => batch.family === 'check-selection-authority'), false, 'canonical admission remains the consent owner');
   assert.equal(result.calls, 1);
@@ -156,7 +160,7 @@ test('current-agent scope is reused without another family decision or an automa
   input.request = {decision: listen.action.decision, bound: {actor: 'Ada'}};
   assert.equal((await selectCheck(input)).status, 'selected');
   assert.ok(seen.every(batch => !['check-selection-family', 'check-selection-order'].includes(batch.family)));
-  assert.equal(seen.find(batch => batch.family === 'check-selection-need').questions.some(question => question.key.endsWith('_uncertain')), true);
+  assert.equal(seen.find(batch => batch.family === 'check-selection-need').questions.some(question => baseKey(question.key).endsWith('_uncertain')), true);
   input.request = {decision: listen.action.decision, bound: {actor: 'Someone else'}};
   assert.deepEqual((await selectCheck(input)).needs, ['check_request_options_unavailable']);
 });
@@ -167,7 +171,7 @@ test('unmet prerequisites defer a check; §163 a gray prerequisite is Jev\'s bes
     const port = input.decision;
     input.decision = {async decide(batch) {
       const result = await port.decide(batch);
-      for (const question of batch.questions) if (question.key.endsWith('_blocked')) result.answers[question.key] = noul(blocked);
+      for (const question of batch.questions) if (baseKey(question.key).endsWith('_blocked')) result.answers[question.key] = noul(blocked);
       return result;
     }};
     const result = await selectCheck(input);
@@ -211,32 +215,21 @@ test('actual settlement is a host fact and cannot be overridden by confident mod
   assert.equal((await selectCheck(input)).status, 'selected', 'another actor did not settle this attempt');
 });
 
-test('one need refinement isolates a candidate without carrying prior answers or losing evidence', async t => {
-  const {input, seen} = setup(t, (batch, question) => noul(batch.family === 'check-selection-need'
-    ? question.target === 'Listen' ? 0.6 : 0.1 : 0.95));
-  input.context = {rules: ['Only uncertain consequential attempts need a roll.'], current_receipts: [], source: 'A concealed sound.'};
+test('usable pooled necessity preserves evidence without a gate-clearing refinement', async t => {
+  const {input, seen} = setup(t, (_batch, question) => noul(question.target === 'Listen' ? .6 : .1));
+  input.context = {rules: ['Only uncertain attempts need a roll.'], current_receipts: [], source: 'A concealed sound.'};
   const result = await selectCheck(input);
-  assert.equal(result.status, 'selected');
-  assert.equal(result.action.skill, 'Listen');
-  assert.equal(result.calls, 2);
-  const refined = seen.find(batch => batch.family === 'check-selection-need-refine');
-  assert.deepEqual(Object.keys(refined.state.checks), ['check_0']);
-  assert.deepEqual(refined.state.context, input.context);
-  assert.equal(JSON.stringify(refined.state).includes('0.6'), false);
-  assert.equal(refined.questions.length, 3);
+  assert.equal(result.status, 'selected'); assert.equal(result.action.skill, 'Listen'); assert.equal(result.calls, 1);
+  assert.deepEqual(seen[0].state.context, input.context);
+  assert.equal(seen[0].questions.length, 18);
 });
 
-test('an explicit gray method is refined before a ready later method can hide it', async t => {
-  for (const refinedNeed of [0.9, 0.59]) {
-    const {input, seen} = setup(t, (batch, question) => noul(question.key === 'check_0_uncertain'
-      ? batch.family.endsWith('-refine') ? refinedNeed : 0.59 : 0.95));
-    const result = await selectCheck(input);
-    // §163: still gray after its one refinement, the explicit method is Jev's best guess and keeps its catalog precedence.
-    assert.equal(result.status, 'selected');
-    assert.equal(result.action?.skill, 'Listen');
-    assert.equal(!!result.forced, refinedNeed !== 0.9);
-    assert.equal(seen.filter(batch => batch.family.endsWith('-refine')).length, 1);
-  }
+test('an explicit pooled method keeps precedence without confidence refinement', async t => {
+  const {input, seen} = setup(t, (_batch, question) => noul(question.key === 'check_0_uncertain' ? .59 : .95));
+  const result = await selectCheck(input);
+  assert.equal(result.status, 'selected'); assert.equal(result.action.skill, 'Listen');
+  assert.equal(result.forced.why, 'below_confidence_gate');
+  assert.equal(seen.some(batch => batch.family.endsWith('-refine')), false);
 });
 
 test('a broad receipt goal cannot settle a different remaining method in retrieval', async t => {
@@ -260,7 +253,7 @@ test('refinement cannot resurrect rejected, unknown, source-missing or blocked c
     const port = input.decision;
     if (mode === 'blocked') input.decision = {async decide(batch) {
       const result = await port.decide(batch);
-      result.answers.check_0_blocked = noul(0.99);
+      for (const q of batch.questions) if (baseKey(q.key) === 'check_0_blocked') result.answers[q.key] = noul(0.99);
       return result;
     }};
     assert.notEqual((await selectCheck(input)).status, 'selected', mode);
@@ -268,51 +261,25 @@ test('refinement cannot resurrect rejected, unknown, source-missing or blocked c
   }
 });
 
-test('weak Choice uses one absolute Noul; §163 below it the best-scored issued value is forced, never an invented one', async t => {
-  const option = {...listen, parameters: [{name: 'difficulty', question: 'Required success level?',
-    options: [{label: 'Regular', value: 'regular'}, {label: 'Hard', value: 'hard'}]}]};
-  for (const confirmation of [0.95, 0.5, 0.1, undefined]) {
-    const {input, seen} = setup(t, (batch, question) => batch.family === 'check-selection-bind-refine'
-      ? confirmation === undefined ? {status: 'unknown'} : noul(confirmation)
-      : question.type === 'choice' ? choice(question, 'value_1', 0.6) : noul(0.99), [option]);
-    const result = await selectCheck(input);
-    assert.equal(result.status, 'selected');
-    assert.equal(result.action?.difficulty, 'hard');
-    assert.deepEqual(result.forced, confirmation === 0.95 ? undefined : {uncertain: ['difficulty: Hard p=0.6'], why: 'below_confidence_gate'});
-    const refinements = seen.filter(batch => batch.family.endsWith('-refine'));
-    assert.equal(refinements.length, 1);
-    assert.equal(refinements[0].questions[0].type, 'noul');
-    assert.equal(refinements[0].questions[0].criteria.true.nominee, 'Hard');
-    assert.deepEqual(refinements[0].questions[0].criteria.false.alternatives, ['Regular']);
-  }
+test('a pooled weak Choice binds its issued leader without a confirmation request', async t => {
+  const option = {...listen, parameters: [{name:'difficulty',question:'Required success level?',options:[{label:'Regular',value:'regular'},{label:'Hard',value:'hard'}]}]};
+  const {input,seen}=setup(t,(_batch,q)=>q.type==='choice'?choice(q,'value_1',.6):noul(.99),[option]);
+  const result=await selectCheck(input); assert.equal(result.status,'selected'); assert.equal(result.action.difficulty,'hard');
+  assert.equal(seen.some(batch=>batch.family.endsWith('-refine')),false);
+  assert.equal(seen.find(batch=>batch.family==='check-selection-bind').questions.length,3);
 });
 
-test('a need refinement spends the only extra round even if parameters remain ambiguous', async t => {
-  const option = {...listen, parameters: [{name: 'difficulty', question: 'Required success level?',
-    options: [{label: 'Regular', value: 'regular'}, {label: 'Hard', value: 'hard'}]}]};
-  const {input, seen} = setup(t, (batch, question) => question.type === 'choice' ? choice(question, 'value_1', 0.6)
-    : noul(batch.family === 'check-selection-need' ? 0.6 : 0.99), [option]);
-  const result = await selectCheck(input);
-  assert.equal(result.status, 'selected');
-  assert.equal(result.action.difficulty, 'hard', 'the second gray gate takes the best-scored value without another round');
-  assert.deepEqual(result.forced.uncertain, ['difficulty: Hard p=0.6']);
-  assert.equal(seen.filter(batch => batch.family.endsWith('-refine')).length, 1);
-  assert.equal(seen.some(batch => batch.family === 'check-selection-bind-refine'), false);
+test('pooled necessity and binding do not spend an extra confidence-clearing round', async t => {
+  const option={...listen,parameters:[{name:'difficulty',question:'Required success level?',options:[{label:'Regular',value:'regular'},{label:'Hard',value:'hard'}]}]};
+  const {input,seen}=setup(t,(batch,q)=>q.type==='choice'?choice(q,'value_1',.6):noul(batch.family==='check-selection-need'?.6:.99),[option]);
+  const result=await selectCheck(input);assert.equal(result.status,'selected');assert.equal(result.action.difficulty,'hard');
+  assert.equal(result.calls,2);assert.equal(seen.some(batch=>batch.family.endsWith('-refine')),false);
 });
 
-test('ambiguous default conditions may be refined once; §163 an unanswered override takes the rules default, recorded as forced', async t => {
-  const option = {...listen, parameters: [{name: 'bonus', question: 'Granted bonus dice?',
-    options: [{label: 'Zero', value: 'none'}, {label: 'One', value: 'one'}],
-    default: {value: 'none', question: 'Does an established advantage grant bonus dice?'}}]};
-  for (const confirmation of [0.1, undefined]) {
-    const {input, seen} = setup(t, (batch, question) => batch.family === 'check-selection-defaults-refine'
-      ? confirmation === undefined ? {status: 'unknown'} : noul(confirmation)
-      : noul(batch.family === 'check-selection-defaults' ? 0.5 : 0.99), [option]);
-    const result = await selectCheck(input);
-    assert.equal(result.action?.bonus, 'none');
-    assert.deepEqual(result.forced, confirmation === 0.1 ? undefined : {uncertain: ['bonus override: unanswered, rules default'], why: 'jev_unanswered'});
-    assert.equal(seen.filter(batch => batch.family.endsWith('-refine')).length, 1);
-  }
+test('a pooled default tie takes the existing rule default without refinement', async t => {
+  const option={...listen,parameters:[{name:'bonus',question:'Granted bonus?',options:[{label:'Zero',value:'none'},{label:'One',value:'one'}],default:{value:'none',question:'Does an advantage override the default?'}}]};
+  const {input,seen}=setup(t,(batch)=>noul(batch.family==='check-selection-defaults'?.5:.99),[option]);
+  const result=await selectCheck(input);assert.equal(result.action.bonus,'none');assert.equal(seen.some(batch=>batch.family.endsWith('-refine')),false);
 });
 
 test('a selected specialized check reports missing source instead of becoming ordinary', async t => {
@@ -395,7 +362,7 @@ test('exhausted selection budget cannot start another provider request', async t
   assert.deepEqual(result.needs, ['check_selection_budget']);
 });
 
-test('a combined check binds an explicit set; §163 an uncertain member set is Jev\'s best-scored members up to the minimum', async t => {
+test('a combined check includes only positively supported members without minimum top-ups', async t => {
   const option = {...listen, action: {actor: 'Ada', decision: 'core-check:combined-check'}, parameters: [{name: 'skills',
     question: 'Which skills does this combined attempt require?', multiple: {minimum: 2},
     options: ['Listen', 'Spot Hidden', 'Library Use'].map(value => ({label: value, value}))}]};
@@ -403,9 +370,9 @@ test('a combined check binds an explicit set; §163 an uncertain member set is J
     const {input} = setup(t, (batch, question) => noul(batch.family.startsWith('check-selection-bind')
       ? question.key === 'parameter_0_2' ? 0.01 : uncertain && question.key === 'parameter_0_1' ? 0.5 : 0.99 : 0.99), [option]);
     const result = await selectCheck(input);
-    assert.equal(result.status, 'selected');
-    assert.deepEqual(result.action?.skills, ['Listen', 'Spot Hidden']);
-    assert.deepEqual(result.forced, uncertain ? {uncertain: ['skills: Listen p=0.99, Spot Hidden p=0.5, Library Use p=0.01'], why: 'below_confidence_gate'} : undefined);
+    assert.equal(result.status, uncertain ? 'no_roll' : 'selected');
+    if (!uncertain) assert.deepEqual(result.action?.skills, ['Listen', 'Spot Hidden']);
+    else assert.deepEqual(result.needs, ['unbound:skills'], 'a tie is not topped up to the minimum');
   }
 });
 
@@ -420,7 +387,7 @@ test('a split profile ranking retains both listening and looking for independent
   const result = await selectCheck(input);
   assert.equal(result.status, 'selected');
   assert.equal(result.action.skill, 'Listen');
-  assert.deepEqual(seen.find(batch => batch.family === 'check-selection-need').questions.filter(question => !question.key.endsWith('_uncertain') && !question.key.endsWith('_unsettled') && !question.key.endsWith('_blocked')).map(question => question.target), ['Listen', 'Spot Hidden']);
+  assert.deepEqual(seen.find(batch => batch.family === 'check-selection-need').questions.filter(question => !question.key.includes('__semantic_') && !baseKey(question.key).endsWith('_selected') && !baseKey(question.key).endsWith('_uncertain') && !baseKey(question.key).endsWith('_unsettled') && !baseKey(question.key).endsWith('_blocked')).map(question => question.target), ['Listen', 'Spot Hidden']);
 });
 
 test('a hung provider is cancelled by the lease without a fallback', async t => {
@@ -506,17 +473,17 @@ test('chase necessity refinement retains a scoped dependency verdict without re-
   const base = input.decision;
   input.decision = {async decide(batch) {
     const result = await base.decide(batch);
-    for (const question of batch.questions) if (question.key.endsWith('_blocked'))
+    for (const question of batch.questions) if (baseKey(question.key).endsWith('_blocked'))
       result.answers[question.key] = noul(batch.family === 'check-selection-chase-prerequisite' ? .08 : .39);
     return result;
   }};
   const result = await selectCheck(input);
   assert.equal(result.status, 'selected');
-  assert.equal(result.calls, 3);
+  assert.equal(result.calls, 2);
   const dependency = seen.find(batch => batch.family === 'check-selection-chase-prerequisite');
   assert.equal(JSON.stringify(dependency.state).includes('profile_available'), false);
   assert.equal(JSON.stringify(dependency.state).includes('numeric'), false);
-  assert.equal(seen.find(batch => batch.family === 'check-selection-need-refine').questions.some(q => q.key.endsWith('_blocked')), false);
+  assert.equal(seen.some(batch => batch.family === 'check-selection-need-refine'), false);
 });
 
 test('a genuinely conditional chase or an unavailable dependency answer cannot start (§163: a gray dependency waits, an unanswered one is a recorded no-roll)', async t => {
@@ -527,7 +494,7 @@ test('a genuinely conditional chase or an unavailable dependency answer cannot s
     input.declaration = 'I fix the tire first. Only after it is repaired will I start escaping.';
     input.decision = {async decide(batch) {
       const result = await base.decide(batch);
-      for (const question of batch.questions) if (question.key.endsWith('_blocked'))
+      for (const question of batch.questions) if (baseKey(question.key).endsWith('_blocked'))
         result.answers[question.key] = p === undefined ? {status: 'unknown'} : noul(p);
       return result;
     }};
@@ -709,13 +676,13 @@ test('§163: a host selection code is a no-roll because nothing could execute; a
 
 test('§163.8: two gray methods of the player\'s own investigator are the player\'s open choice -- no roll; the same for a non-party actor is a best guess', async t => {
   for (const investigators of [['Ada'], []]) {
-    const {input} = setup(t, (batch, question) => noul(batch.family.startsWith('check-selection-need') && question.key.endsWith('_uncertain') ? 0.99
-      : batch.family.startsWith('check-selection-need') && !question.key.endsWith('_blocked') ? 0.6 : 0.99));
+    const {input} = setup(t, (batch, question) => noul(baseKey(question.key).endsWith('_selected') ? .2 : batch.family.startsWith('check-selection-need') && baseKey(question.key).endsWith('_uncertain') ? 0.99
+      : batch.family.startsWith('check-selection-need') && !baseKey(question.key).endsWith('_blocked') ? 0.6 : 0.99));
     input.investigators = investigators;
     const result = await selectCheck(input);
     if (investigators.length) {
       assert.equal(result.status, 'no_roll');
-      assert.equal(result.forced.why, 'player_choice');
+      assert.ok(result.forced.why.includes('player_choice'));
       assert.equal(result.forced.uncertain.filter(entry => /alternatives the player has not settled/.test(entry)).length, 2);
     } else {
       assert.equal(result.status, 'selected');
@@ -725,7 +692,7 @@ test('§163.8: two gray methods of the player\'s own investigator are the player
 });
 
 test('§163.8: one gray method with its alternative ruled out is a best guess even for the player\'s investigator', async t => {
-  const {input} = setup(t, (batch, question) => noul(!batch.family.startsWith('check-selection-need') || question.key.endsWith('_blocked') ? 0.99
+  const {input} = setup(t, (batch, question) => noul(!batch.family.startsWith('check-selection-need') || baseKey(question.key).endsWith('_blocked') ? 0.99
     : question.target === 'Spot Hidden' ? 0.01 : 0.6));
   input.investigators = ['Ada'];
   const result = await selectCheck(input);
@@ -734,14 +701,13 @@ test('§163.8: one gray method with its alternative ruled out is a best guess ev
   assert.equal(result.forced.why, 'below_confidence_gate');
 });
 
-test('§163.8: the player\'s approach below its gate is withheld; an NPC executor\'s, a rules modifier and a Keeper ruling are still best guesses', async t => {
+test('§163.10: a current player approach below the old gate binds; NPC, modifier and ruling choices remain issued values', async t => {
   const gray = (batch, question) => question.type === 'choice' ? choice(question, 'value_0', 0.55) : noul(batch.family === 'check-selection-bind-refine' ? 0.4 : 0.99);
   const twoSkills = {...social.parameters[0], options: [{label: 'Persuade', value: 'Persuade'}, {label: 'Charm', value: 'Charm'}]};
   const player = setup(t, gray, [{...social, parameters: [twoSkills]}]);
   const withheld = await selectCheck(player.input);
-  assert.deepEqual([withheld.status, withheld.forced.why, withheld.needs], ['no_roll', 'player_choice', ['player_choice:skill']]);
-  assert.deepEqual(withheld.forced.uncertain, ['skill: Persuade p=0.55 (the player\'s choice)']);
-  assert.equal(withheld.action, undefined);
+  assert.equal(withheld.status, 'selected');
+  assert.equal(withheld.action.skill, 'Persuade', 'the pooled actual choice is read without a confidence permission');
   const npcOption = {...social, facts: {...social.facts, actor_role: 'npc'}, parameters: [twoSkills]};
   const npc = setup(t, gray, [npcOption]);
   const guessed = await selectCheck(npc.input);
@@ -762,16 +728,75 @@ test('§163.8: the player\'s approach below its gate is withheld; an NPC executo
   assert.deepEqual([established.status, established.action.rest], ['selected', 'incomplete'], 'a consequence\'s established facts are not the player\'s choice');
 });
 
-test('§163.8: a clerk parameter the builder marks as the player\'s is not bound from Jev\'s lead; another person\'s is', () => {
-  const answer = (choice, confidence) => ({status: 'complete', answers: {target: {status: 'answered', type: 'choice', choice, confidence,
-    probabilities: {Ghoul: .6, Rat: .3, unknown: .1}}}});
+test('§163.10: a clerk reads a declared player target below the old confidence gate; unknown still withholds', () => {
+  const answer = (choice, confidence, probabilities = {Ghoul: .6, Rat: .3, unknown: .1}) => ({status: 'complete', answers: {target: {status: 'answered', type: 'choice', choice, confidence, probabilities}}});
   const blow = {...candidate, key: 'blow', clerk: 'first_blow', family: 'combat', label: 'Strike', bound: {decision: 'combat:attack'},
     unbound: [{name: 'target', required: true, vocabulary: 'closed', options: ['Ghoul', 'Rat'], owner: 'player'}]};
   const mine = interpretBind(blow, {questions: []}, answer('Ghoul', 0.4), 0.85);
-  assert.deepEqual(mine.pending.map(item => [item.kind, item.purpose, item.reason, item.extra.cause, item.extra.unresolved]),
+  assert.equal(mine.pending[0].kind, 'direct');
+  assert.equal(mine.pending[0].extra.target, 'Ghoul', 'a declared issued leader is read despite low confidence');
+  const binding = mine.bindings.find(entry => entry.name === 'target');
+  assert.equal(binding.cleared, false, 'the old confidence gate is not semantic permission');
+  assert.deepEqual(binding.semantic, {answered: 1, total: 3, spread: 0});
+  const unknown = interpretBind(blow, {questions: []}, answer('Ghoul', 1, {Ghoul: .3, Rat: .1, unknown: .6}), 0.85);
+  assert.deepEqual(unknown.pending.map(item => [item.kind, item.purpose, item.reason, item.extra.cause, item.extra.unresolved]),
     [['infer', 'compose', 'check_unresolved', 'player_choice', ['target']]]);
-  assert.deepEqual(mine.pending[0].extra.withheld, ['target: Ghoul confidence 0.4 (the player\'s choice)']);
-  assert.equal(mine.forced, undefined);
+  assert.equal(unknown.forced, undefined);
   const theirs = interpretBind({...blow, unbound: [{...blow.unbound[0], owner: undefined}]}, {questions: []}, answer('Ghoul', 0.4), 0.85);
-  assert.equal(theirs.pending[0].extra.target, 'Ghoul', 'an NPC\'s own choice is still Jev\'s best guess');
+  assert.equal(theirs.pending[0].extra.target, 'Ghoul', 'an NPC\'s own choice retains its existing best guess');
+});
+
+// §163.10: protocol and authority regressions use the existing selector seam.
+test('three views pool each proposition separately and do not retry a usable weak mean', async t => {
+  const {input, seen}=setup(t, (_batch,q)=>noul(q.instructions.includes('Read this same proposition from the supplied facts')?.3:.84),[listen]);
+  const result=await selectCheck(input);
+  assert.equal(result.status,'selected');assert.equal(result.calls,1);
+  assert.equal(seen[0].familyVersion,'23');assert.equal(seen[0].questions.length,9);
+  assert.equal(seen.some(batch=>batch.family.endsWith('-refine')),false);
+});
+test('unknown participates in pooled player choice ranking even with high confidence', async t => {
+  const option={...social,parameters:[{name:'skill',question:'Which approach did the player select?',options:[{label:'Persuade',value:'Persuade'},{label:'Charm',value:'Charm'}]}]};
+  const {input}=setup(t, (_batch,q)=>q.type==='choice'?{status:'answered',type:'choice',choice:'value_0',confidence:1,probabilities:{value_0:.3,value_1:.1,unknown:.6}}:noul(.99),[option]);
+  input.investigators=['Ada'];const result=await selectCheck(input);
+  assert.equal(result.status,'no_roll');assert.deepEqual(result.needs,['player_choice:skill']);
+});
+test('valid partial views in an incomplete decision remain usable', async t => {
+  const {input}=setup(t,()=>noul(.84),[listen]),base=input.decision;
+  input.decision={async decide(batch){const result=await base.decide(batch);result.status='incomplete';
+    for(const q of batch.questions)if(q.key.includes('__semantic_'))result.answers[q.key]={status:'unknown'};return result;}};
+  assert.equal((await selectCheck(input)).status,'selected');
+});
+test('adaptive necessity paging judges a full 24-option inventory without truncation', async t => {
+  const options=Array.from({length:24},(_,i)=>({key:'npc-'+i,family:'sanity',label:'Source horror '+i,definition:'Authored context. '.repeat(80),authorization:'consequence',needs:[],parameters:[],action:{actor:'NPC '+i,decision:'sanity:check',san_loss:'1/1D8'}}));
+  const {input,seen}=setup(t,()=>noul(.84),options);const result=await selectCheck(input);
+  assert.equal(result.status,'selected');
+  const batches=seen.filter(x=>x.family==='check-selection-need');assert.ok(batches.length>1);
+  assert.equal(batches.reduce((sum,x)=>sum+Object.keys(x.state.checks).length,0),24);
+});
+test('player alternatives require actual identification in the same necessity batch', async t => {
+  const second={...social,key:'second',label:'Other attendant option',action:{...social.action,target:'Other attendant'}};
+  const {input,seen}=setup(t,(_batch,q)=>q.type==='choice'?choice(q,'value_0'):noul(q.key.endsWith('_selected')?q.target===social.label?.84:.1:.84),[social,second]);
+  input.investigators=['Ada'];const result=await selectCheck(input);
+  assert.equal(result.status,'selected');assert.equal(result.action.target,'Attendant');
+  assert.equal(seen.find(x=>x.family==='check-selection-need').state.alternatives.length,2);
+});
+
+test('a declared alternative is required even if other alternatives were ruled out', async t => {
+  const second={...social,key:'second',label:'Other alternative',action:{...social.action,target:'Other attendant'}};
+  const {input}=setup(t,(_batch,q)=>q.type==='choice'?choice(q,'value_0'):noul(q.key.endsWith('_selected')?.1:q.target===second.label?.1:.99),[social,second]);
+  input.investigators=['Ada'];const result=await selectCheck(input);
+  assert.equal(result.status,'no_roll');assert.ok(result.forced.why.includes('player_choice'));
+});
+test('one closed Choice retains 254 values plus unknown in every view', async t => {
+  const option={...listen,parameters:[{name:'difficulty',question:'Which exact issued value applies?',options:Array.from({length:254},(_,i)=>({label:'Value '+i,value:'value-'+i}))}]};
+  const {input,seen}=setup(t,(_batch,q)=>q.type==='choice'?choice(q,'value_253',.6):noul(.84),[option]);
+  const result=await selectCheck(input);assert.equal(result.status,'selected');assert.equal(result.action.difficulty,'value-253');
+  const questions=seen.find(x=>x.family==='check-selection-bind').questions;
+  assert.equal(questions.length,3);assert.ok(questions.every(q=>Object.keys(q.criteria).length===255));
+});
+test('incomplete scoped chase prerequisite views are not dropped', async t => {
+  const chase={key:'chase',family:'chase',label:'Ada flees',action:{actor:'Ada',decision:'chase:start',intent:'flee'},parameters:[],needs:[],authorization:'declaration',facts:{mobility:'foot'}};
+  const {input}=setup(t,()=>noul(.84),[chase]),base=input.decision;
+  input.decision={async decide(batch){const result=await base.decide(batch);if(batch.family==='check-selection-chase-prerequisite')result.status='incomplete';return result;}};
+  assert.equal((await selectCheck(input)).status,'selected');
 });
