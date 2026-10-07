@@ -37,7 +37,9 @@ await build({stdin: {contents: [
     outfile: join(scratch, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(scratch, 'api.mjs')).href);
 const contract = await api.loadModuleContract({content, snapshots: api.snapshots});
-const prompt = await readFile(join(content, 'setup', 'visual-reader.md'), 'utf8');
+// §187.5.3: the reader's instructions are a directory; this is every file of it in the order of the old single file.
+const prompt = (await Promise.all(['common', 'index', 'read', 'skeleton', 'opening', 'detail', 'review']
+    .map(name => readFile(join(content, 'setup', 'visual-reader', `${name}.md`), 'utf8')))).join('\n');
 const parsed = value => api.parsePythonJson(JSON.stringify(value));
 const closers = [];
 after(async () => { for (const close of closers.reverse()) await close(); });

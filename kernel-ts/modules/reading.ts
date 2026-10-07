@@ -4,7 +4,7 @@ import { copyFile, mkdir, readFile, rename, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative } from 'node:path';
 import { internalError, RpcError } from '../errors.js';
 import { sha256File, writeJsonAtomic } from '../fileio.js';
-import { compareUnicode, isJsonObject, jsonDigest, parsePythonJson } from '../json.js';
+import { compareUnicode, isJsonObject, jsonDigest, parsePythonJson, pythonJsonDumps } from '../json.js';
 import { withExclusiveLock, type LockLease } from '../locks.js';
 import type {KernelContext} from '../context.js';
 import {CampaignSnapshot,loadCampaignModule} from '../read/campaign.js';
@@ -17,7 +17,8 @@ import { mapsDepictingScene } from '../read/maps.js';
 import { array, clone, equal, integer, normalize, number, repr, row, sorted, string, truth, type Row } from '../read/values.js';
 import { nowIso } from '../write/store.js';
 import { endings } from '../write/source.js';
-import { validSourceLanguage, vocabulary } from './contract.js';
+import { scopedVocabulary, validSourceLanguage, vocabulary } from './contract.js';
+import { GRAPH_VIEW_FILE, jobPages, scopeGraph, scopeWindow, type ScopeWindow } from './packet-scope.js';
 import { childPath, inside, resolvedPath } from './paths.js';
 import { ModuleStore, validateModuleId } from './store.js';
 import { playsFromReading, bindStarterSource, boundFileIntact, boundReadingState, declaredWindow, freshReadingState, starterDeclarationsForBook, starterSourceDeclaration, windowMatches, windowOf } from './bound-source.js';
@@ -1832,8 +1833,24 @@ export class Reading {
                         pairs: publishedIdentityPairs(graph, meta).filter(pair => pair.page === job.visual_identity.page) } } : {};
                     // §177.8: the book's cast, so a person read in two fragments keeps the one printed form as their name.
                     const castNames = job.purpose === 'index' || job.visual_identity ? [] : await this.castNames(mid, meta);
-                    const packet = { ...visibleJob, ...identityTask, ...(needTask ? { source_need: needTask } : {}), ...(carried.length ? { carried_needs: carried } : {}),
-                        ...(castNames.length ? { cast_names: castNames } : {}),...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], field_spans: pageSpans(graph.field_spans), vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
+                    // §187.5: the author's packet is cut to the job; the check reads the whole graph from the view beside it.
+                    const wholeVocabulary = vocabulary(contract, contributed), wholeClaims = array(graph.claims);
+                    const view = { generation: meta.generation ?? 0, known_nodes: known, known_claims: wholeClaims, field_spans: pageSpans(graph.field_spans), vocabulary: wholeVocabulary };
+                    const scopePages = job.purpose === 'index' || job.visual_identity ? [] : jobPages(job, needTask, number(meta.page_count));
+                    let scopeView: ScopeWindow | null = null, scoped = { nodes: known, claims: wholeClaims };
+                    if (scopePages.length && array(graph.nodes).length) {
+                        scopeView = scopeWindow(scopePages, number(meta.page_count), await this.chaptersOf(mid, meta), (await readingBudget(this.store.context)).fallbackWindowPages);
+                        const named = new ModuleGraph(mid, graph, '', {});
+                        const keep = [`module-${mid}`, string(needTask?.node_id ?? ''), string(job.map_scope?.node ?? ''),
+                            string(truth(job.focus) ? named.find(string(job.focus))?.node_id ?? '' : '')];
+                        scoped = scopeGraph(known, wholeClaims, array(graph.relations), scopePages, scopeView, keep);
+                    }
+                    const packet: Row = { ...visibleJob, ...identityTask, ...(needTask ? { source_need: needTask } : {}), ...(carried.length ? { carried_needs: carried } : {}),
+                        ...(castNames.length ? { cast_names: castNames } : {}),...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: scoped.nodes, known_claims: scoped.claims, vocabulary: scopedVocabulary(wholeVocabulary, job), coverage_domains: [...array(contract.graph.coverage_domains)],
+                        scope: { pages: scopePages, window: scopeView, known_nodes: scoped.nodes.length, known_claims: scoped.claims.length, packet_bytes: 0 } };
+                    // The packet's compact JSON size with this field still zero: what an author is handed, before the host adds its own.
+                    packet.scope.packet_bytes = Buffer.byteLength(pythonJsonDumps(packet));
+                    await writeJsonAtomic(join(work, GRAPH_VIEW_FILE), view);
                     await writeJsonAtomic(join(work, 'packet.json'), packet);
                     this.owned();
                     return packet;
@@ -1949,8 +1966,11 @@ export class Reading {
                 return this.finishIdentity(mid, meta, queue, job, work, params);
             if(job.visual_scan)requireVisualOverview(job.visual_scan,array(observations.overview_pages));
             const draft = clone(await this.store.context.snapshots.readJson(await this.contained(work, params.draft_path)));
+            // §187.5.1: the check reads the graph view the claim wrote, never the author's cut packet.
+            const viewPath = join(work, GRAPH_VIEW_FILE);
+            const graphView = await this.store.context.snapshots.pathExists(viewPath) ? row(await this.store.context.snapshots.readJson(await this.contained(work, viewPath))) : undefined;
             if(job.visual_scan){
-                const checked=checkDraft(draft,packet,await this.store.contract(),seen);
+                const checked=checkDraft(draft,packet,await this.store.contract(),seen,{graph:graphView});
                 meta.reading.visual_scans??={};
                 meta.reading.visual_scans[visualScanKey(job.visual_scan)]={...job.visual_scan,source_sha256:meta.source_document.file_sha256,
                     status:'overviewed',candidates:visualCandidates(checked.visual_candidates,job.visual_scan),job_id:job.job_id};
@@ -2012,7 +2032,7 @@ export class Reading {
                 return result;
             }
             else {
-                const contract = await this.store.contract(), filled = checkDraft(draft, packet, contract, seen);
+                const contract = await this.store.contract(), filled = checkDraft(draft, packet, contract, seen, { graph: graphView });
                 const reviewPath = await this.contained(work, params.review_path), review = clone(await this.store.context.snapshots.readJson(reviewPath));
                 if(job.visual_asset&&array(row(review).checked).some(item=>row(item).reviewer===JEV_REVIEWER))
                     reject('Visual discovery requires original-image review, not a native-text claim verdict');

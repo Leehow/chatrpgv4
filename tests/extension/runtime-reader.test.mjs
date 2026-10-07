@@ -80,9 +80,12 @@ test("reader provider retries preserve recovery while terminal and malformed str
 
 test("reader jobs preserve tool flags and captured deployment state across ambient changes", async t => {
   const home = await temporary(t), content = join(home, "selected content"), cwd = join(home, "attempt one");
-  await mkdir(join(content, "setup"), { recursive: true });
+  await mkdir(join(content, "setup", "visual-reader"), { recursive: true });
   await mkdir(cwd);
-  await writeFile(join(content, "setup", "visual-reader.md"), "Captured source instructions\n## Index phase\nIndex only\n## Read phase\nRead only\n## Verify phase\nReview only\n");
+  // §187.5.3: one common file and one per phase; a detail author gets common, read and detail.
+  for (const [name, text] of Object.entries({ common: "Captured source instructions", index: "## Index phase\nIndex only", read: "## Read phase\nRead only",
+    skeleton: "Skeleton only", opening: "Opening only", detail: "Detail only", review: "## Verify phase\nReview only" }))
+    await writeFile(join(content, "setup", "visual-reader", `${name}.md`), text + "\n");
   const executable = join(home, "transport.mjs");
   await writeFile(executable, `import {writeFileSync} from 'node:fs';
 writeFileSync('capture.json',JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),agent:process.env.PI_CODING_AGENT_DIR,campaign:process.env.PI_COC_CAMPAIGN,mode:process.env.PI_COC_MODE,marker:process.env.RUNTIME_TEST_MARKER,options:JSON.parse(process.env.PI_COC_RUNTIME_OPTIONS)}));
@@ -95,7 +98,7 @@ console.log(JSON.stringify({type:'transport_ready'}));\n`);
   t.after(() => { if (before === undefined) delete process.env.PI_COC_READER_CMD; else process.env.PI_COC_READER_CMD = before; });
   const brief = "--literal brief with 'quotes' and $(unexpanded)";
   const result = await runtimeCapabilities.runTask(context, { kind: "reader", request: {
-    cwd, brief, model: "fixture/model", thinking: "low", prompt: { phase: "read" }, eventLog: join(cwd, "events.jsonl"),
+    cwd, brief, model: "fixture/model", thinking: "low", prompt: { phase: "read", purpose: "detail" }, eventLog: join(cwd, "events.jsonl"),
   } }, active());
   assert.equal(result.ok, true, JSON.stringify(result));
   const captured = JSON.parse(await readFile(join(cwd, "capture.json"), "utf8"));
@@ -109,7 +112,8 @@ console.log(JSON.stringify({type:'transport_ready'}));\n`);
   const instruction = await readFile(join(cwd, "instructions-read.md"), "utf8");
   assert.match(instruction, /Captured source instructions/);
   assert.match(instruction, /Read only/);
-  assert.doesNotMatch(instruction, /Index only|Review only/);
+  assert.match(instruction, /Detail only/);
+  assert.doesNotMatch(instruction, /Index only|Review only|Opening only|Skeleton only/);
   assert.match(await readFile(join(cwd, "events.jsonl"), "utf8"), /transport_ready/);
   assert.match(await readFile(join(cwd, "host-bin", "node"), "utf8"), new RegExp(context.nodeExecutable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   const checker = await readFile(join(cwd, "host-bin", "coc-read-check"), "utf8");
