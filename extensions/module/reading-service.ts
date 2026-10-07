@@ -1118,14 +1118,14 @@ export class ReadingService implements ReadingBridge {
             ...Object.fromEntries(['review_policy','source_unit','visual_scan','visual_asset','map_scope','visual_hints','review_scope_pages','source_need','carried_needs','cast_names'].filter(field=>job[field]!==undefined).map(field=>[field,job[field]])), ...(job.material ? { material: job.material } : {}), ...(job.purpose === "opening" ? {opening_batch:true,...(job.opening_scope?{opening_scope:job.opening_scope}:{})} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
 			...(job.purpose === "guidance" ? {guidance_key:job.guidance_key,public_progress_required:job.public_progress===true,
 				play_language:job.play_language, occupations:job.occupations.map((row:Row)=>({name:row.name}))} : {}),
-			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes, field_spans: job.field_spans ?? {},
+			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes,
 			known_claims: (job.known_claims ?? []).map((claim: Row) => Object.fromEntries(
 				["subject_id", "predicate", "object", "truth_status", "visibility", "reason", "known_by_ids", "asserted_by_ids", "validity"]
 					.filter(key => key in claim).map(key => [key, claim[key]]))),
 			vocabulary: job.vocabulary, coverage_domains: job.coverage_domains, commands,
 			// §22.3.3 (SL-57): an earlier reading of this focus was refused at review; these are the refused fields and the reasons.
 			...(job.review_retry ? { review_retry: { refused: job.review_retry.refused ?? [], message: job.review_retry.message ?? "" } } : {}) };
-		if (job.purpose === "index") { delete task.index; delete task.known_nodes; delete task.known_claims; delete task.field_spans; delete task.vocabulary; delete task.coverage_domains; delete task.commands.check; }
+		if (job.purpose === "index") { delete task.index; delete task.known_nodes; delete task.known_claims; delete task.vocabulary; delete task.coverage_domains; delete task.commands.check; }
 		const freshSkeleton = !campaign && job.purpose === 'skeleton' && Array.isArray(job.known_nodes)
 			&& job.known_nodes.length === 1 && job.known_nodes[0].node_kind === 'module' && job.known_nodes[0].ready === false;
 		if (freshSkeleton && this.deps.navigateFresh) {

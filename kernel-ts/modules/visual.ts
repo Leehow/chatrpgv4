@@ -261,13 +261,25 @@ export function mergeValue(old: any, proposed: any, path = '', transcription?: R
     contradiction(path, old, proposed);
 }
 /** Options of the draft check. `openingBatch`: the host's first-batch law (§22.0) runs as the last law of the third stage. */
-export interface DraftCheckOptions { openingBatch?: boolean }
+/**
+ * `graph`, §187.5.1: the whole-graph view the claim wrote beside the packet (`GRAPH_VIEW_FILE`): `known_nodes`,
+ * `known_claims`, `field_spans` and `vocabulary` as the graph stood at the claim. The author's packet is cut to its job;
+ * the check judges against this view, so the same-span rule of §22.3.1 reads the graph's spans, not the packet.
+ */
+export interface DraftCheckOptions { openingBatch?: boolean; graph?: Row }
+/** The packet as the check reads it: the job's own fields with the graph view's nodes, claims, spans and vocabulary. */
+export function withGraphView(packet: Row, view: Row | null | undefined): Row {
+    if (!view || !object(view)) return packet;
+    return { ...packet, known_nodes: array(view.known_nodes), known_claims: array(view.known_claims), field_spans: row(view.field_spans),
+        ...(object(view.vocabulary) ? { vocabulary: view.vocabulary } : {}) };
+}
 /**
  * The draft check (§22.3), in the three stages of contract §186.3: the envelope, the records, the graph and its evidence.
  * Each stage collects its independent findings; a later stage runs only when every earlier stage is clean. The refusal is
  * the first finding's, as the check has always worded it, with `details.findings` listing the stage's findings.
  */
 export function checkDraft(draft: any, packet: Row, contract: ModuleContract, seen?: ReadonlySet<number>, options: DraftCheckOptions = {}): Row {
+    packet = withGraphView(packet, options.graph);
     // Stage 1, the envelope: top-level keys, the contract, array-typed keys, coverage, and the job kind's own envelope laws.
     const envelope = new Stage();
     if (!object(draft)) {

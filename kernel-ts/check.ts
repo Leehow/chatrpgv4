@@ -7,6 +7,7 @@ import { snapshots } from './snapshots.js';
 import { RpcError, internalError } from './errors.js';
 import { loadModuleContract } from './modules/contract.js';
 import { checkDraft, requiredViewPages } from './modules/visual.js';
+import { GRAPH_VIEW_FILE } from './modules/packet-scope.js';
 import { array, number, row, type Row } from './read/values.js';
 import { ANSWER_REVIEW_PATHS, checkSourceAnswer } from './modules/source-answer.js';
 import { validateDefinition } from './mods/definition.js';
@@ -72,8 +73,11 @@ export async function checkSourceDraft(content: string, packetPath: string, draf
             return { ok: true, required_review: ANSWER_REVIEW_PATHS, required_view_pages: [...new Set(answer.source_refs.map((ref: any) => ref.page))] };
         }
         // §186.3: the host's first-batch law is the last law of the check's third stage, so its finding joins the others.
+        // §187.5.1: the author's task is cut to its job; the check reads the graph view the claim wrote beside it.
+        const viewPath = join(dirname(packetPath), GRAPH_VIEW_FILE);
+        const graph = await snapshots.pathExists(viewPath) ? row(await snapshots.readJson(viewPath)) : undefined;
         const filled = checkDraft(draft, packet, await loadModuleContract({ content, snapshots }), undefined,
-            { openingBatch: packet.opening_batch === true && packet.purpose === 'opening' });
+            { openingBatch: packet.opening_batch === true && packet.purpose === 'opening', graph });
         const path = join(dirname(packetPath), 'baseline.json');
         const baseline = await snapshots.pathExists(path) ? row(await snapshots.readJson(path)) : null;
         return { ok: true, required_review: filled.required_review, required_view_pages: [...new Set([...requiredViewPages(row(draft), baseline),...(packet.source_unit||packet.map_scope?array(packet.pages).map(number):[])])] };
