@@ -5,14 +5,17 @@
  * read-ahead runs §191.1's trigger over the published graph (`publishedPairs`): every pair of two things of one kind that one
  * name or one cast row joins, which no verdict answers and which do not already read as one.
  *
- * - **Without a model** (owner: 「同名加页码重叠就直接合并」; 39 of 39 true on the census): two nodes of the pair's kind with the
- *   same `name` under the kernel's `normalize` and an overlapping `source_refs` page. The kernel writes the identity relation
+ * - **Without a model** (owner ruling 2026-10-07: same name and overlapping pages merge directly; 39 of 39 true on the
+ *   census): two nodes of the pair's kind with the same `name` under the kernel's `normalize` and an overlapping
+ *   `source_refs` page. The kernel writes the identity relation
  *   with `identity_review: {by: "kernel", rule: "same-name-same-page"}`. This is the owner's explicit exception to the rule
  *   against hardcoded semantics, scoped to exactly this trigger: the census measured `name` against `name`, so a display name
  *   or an alias never takes this path.
  * - **Never without a verdict:** a pair the graph itself relates (any relation between a node of one and a node of the other:
  *   a member of a group, a part of a place, two people who know each other) is two things to the reader who wrote that
- *   relation, so it waits for a verdict job (§191.6: group versus member is different by default).
+ *   relation, so it waits for a verdict job (§191.6: group versus member is different by default). So do two nodes one reading
+ *   published together (one `reading.materials` row lists both): that reader saw both and kept them apart, which is not how
+ *   the census's duplicates arose (a later reading that never saw the published node; none of Blood Road's 32 pairs).
  * - **Never at all:** a pair a reader-authored `variant-of` links. The reader said one is a state of the other (Dust to Dust's
  *   revived Virginia); §191.3 never collapses that, and no verdict job is asked to.
  * - **Everything else** is asked of an independent reader in a background identity job (`node_identity`), a few pairs a job;
@@ -68,6 +71,14 @@ export function repairCandidates(moduleId: string, raw: Row | null, meta: Row, c
     const nodes = array(raw.nodes).filter(isJsonObject), byId = new Map(nodes.map(node => [string(node.node_id), node as Row]));
     const sha = identitySource(meta), recorded = row(row(meta.reading).identity), apart = apartPairs(recorded, sha);
     const standing = rawSurvivors(raw, apart);
+    // The readings that published each node (`reading.materials` rows by index): two nodes one row lists are one reader's two.
+    const readings = new Map<string, Set<number>>();
+    for (const [index, value] of array(row(meta.reading).materials).entries()) {
+        const material = row(value);
+        if (material.status === 'unusable') continue;
+        for (const id of array(material.node_ids)) if (typeof id === 'string') readings.set(id, (readings.get(id) ?? new Set()).add(index));
+    }
+    const oneReading = (x: string, y: string): boolean => [...readings.get(x) ?? []].some(index => readings.get(y)?.has(index));
     const between = new Map<string, Row[]>();
     for (const value of array(raw.relations)) {
         const rel = row(value);
@@ -84,7 +95,7 @@ export function repairCandidates(moduleId: string, raw: Row | null, meta: Row, c
         const named = (id: string): Row | undefined => { const node = byId.get(id); return node?.node_kind === pair.kind ? node : undefined; };
         const owner = !related.length && left.some(x => right.some(y => {
             const a = named(x), b = named(y), name = ownName(a);
-            if (!a || !b || !name || name !== ownName(b)) return false;
+            if (!a || !b || !name || name !== ownName(b) || oneReading(x, y)) return false;
             const pages = new Set(citedPages(a));
             return citedPages(b).some(page => pages.has(page));
         }));

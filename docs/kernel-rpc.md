@@ -38181,11 +38181,17 @@ that:
 - both have the pair's kind;
 - their `name` fields are equal under `normalize` and not empty;
 - their `source_refs` share a physical page;
+- no single reading published both (no `reading.materials` row lists both);
 - and the graph relates no node of one side to a node of the other.
 
 It compares `name` with `name` because that is what the census measured as `name=name` (39 of 39 true): a display name or an
 alias never takes this path. A pair the graph relates (`member-of`, `part-of`, `knows`, and so on) waits for a verdict job.
 The reader who wrote the relation treated the nodes as two things, as §191.6 does for a group and its members.
+
+So did a reader who published both nodes in one reading. It saw both and kept them apart, as with two fishermen of one name
+on one page (`rename-undo-names.test.mjs`, which the rule without this clause broke). That is not how the census's duplicates
+arose: they came from a later reading that never saw the published node, and none of Blood Road's 32 pairs shares a row.
+Such a pair also waits for a verdict job.
 
 **Writing** (`repairHeld`, `kernel-ts/modules/identity-repair.ts:186`, into `publishIdentitiesHeld`,
 `kernel-ts/modules/identity.ts:160`):
@@ -38274,7 +38280,8 @@ The reader who wrote the relation treated the nodes as two things, as §191.6 do
 
 **Tests** (`tests/extension/identity-repair.test.mjs`, 9 cases on the real path):
 - the owner's rule on a built book, and a second load writing nothing;
-- the pairs that are never merged without a verdict;
+- the pairs that are never merged without a verdict (a related pair, one reading's two, a shared alias, disjoint pages) and
+  the one never asked (a reader's `variant-of`);
 - the verdict job through the host's ReadingService;
 - a reviewer that opens no page, up to three failures;
 - the kernel's refusals;
@@ -38283,9 +38290,10 @@ The reader who wrote the relation treated the nodes as two things, as §191.6 do
 - a fork taking the library's decisions;
 - an unreadable library record at the table opening's read-ahead.
 
-**Mutations** (each one literal change, restored by copy and checked by content; 17 of 17 turn a case red):
+**Mutations** (each one literal change, restored by copy and checked by content; 18 of 18 turn a case red):
 - `owner-rule-ignores-pages`: 6 red
 - `owner-rule-any-name`: 1 red
+- `one-reading-pair-merged`: 1 red
 - `owner-rule-ignores-relations`: 1 red
 - `reader-variant-kept-as-candidate`: 1 red
 - `recorded-verdict-ignored`: 2 red

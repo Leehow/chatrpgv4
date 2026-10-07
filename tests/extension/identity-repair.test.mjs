@@ -128,15 +128,17 @@ async function book(name) {
 
 /**
  * Nodes written straight into a new generation of the library (or a campaign's fork), as a page reading before §191.1 left
- * them: runtime source refs and one `reading.materials` row each, so the earlier written is the earlier published.
+ * them: runtime source refs and one `reading.materials` row each, so the earlier written is the earlier published
+ * (`oneReading`: one row lists them all, as one reading's publication does).
  */
-async function seed(b, nodes, {campaign, relations = []} = {}) {
+async function seed(b, nodes, {campaign, relations = [], oneReading = false} = {}) {
 	const store = b.store(campaign), meta = await store.module(b.mid), graph = await store.readGraph(b.mid);
 	graph.nodes.push(...nodes.map(node => ({...node, source_refs: node.source_refs.map(ref => ({source_id: `pdf:${b.mid}`, pdf_index: ref.page - 1}))})));
 	graph.relations = [...(graph.relations ?? []), ...relations];
 	await store.writeGraph(meta, graph);
-	meta.reading.materials.push(...nodes.map(node => ({key: `seed-${node.node_id}`, purpose: 'detail', focus: node.name, question: '', node_ids: [node.node_id],
-		generation: meta.generation})));
+	const rows = oneReading ? [nodes] : nodes.map(node => [node]);
+	meta.reading.materials.push(...rows.map(group => ({key: `seed-${group[0].node_id}`, purpose: 'detail', focus: group[0].name, question: '',
+		node_ids: group.map(node => node.node_id), generation: meta.generation})));
 	await store.writeModule(meta);
 }
 
@@ -216,26 +218,30 @@ test('§191.5 owner rule: one kind, one name, a shared page is merged by the rea
 	assert.deepEqual(await b.identityJobs(), [], 'nothing waits for a verdict');
 });
 
-test('§191.5 never without a verdict: a pair the graph relates, a shared alias and disjoint pages are asked; a reader\'s variant-of is neither merged nor asked', async () => {
+test('§191.5 never without a verdict: a pair the graph relates, one reading\'s two, a shared alias and disjoint pages are asked; a reader\'s variant-of is neither merged nor asked', async () => {
 	const b = await book('never-owner');
 	const rats = npc('npc-sand-rats', 'Sand Rats', P1, {summary: 'The gang that runs the junkyard.'});
 	const hick = npc('npc-sand-rat', 'Sand Rats', P1, {summary: 'One of the gang, a hick with a shotgun.'});
 	const pharmacy = scene('scene-pharmacy', 'Pharmacy', P1), drugstore = scene('scene-kellys', 'Kelly\'s Drugstore', P1, {aliases: ['Pharmacy']});
 	const virginia = npc('npc-virginia', 'Virginia', P2, {summary: 'Dead in her grave.'}), revived = npc('npc-virginia-revived', 'Virginia', P2, {summary: 'Risen.'});
 	await seed(b, [rats, pharmacy, virginia, BRENNER]);
+	// One reading published two fishermen of one name on one page: that reader kept them apart.
+	await seed(b, [npc('npc-tom-north', 'Tom', P1, {summary: 'A fisherman at the north dock.'}), npc('npc-tom-south', 'Tom', P1, {summary: 'A fisherman at the south dock.'})],
+		{oneReading: true});
 	await seed(b, [hick, drugstore, revived, BRENNER_COPY], {relations: [
 		{relation_id: 'rel-npc-sand-rat-member-of-npc-sand-rats', relation_kind: 'member-of', from_node_id: hick.node_id, to_node_id: rats.node_id, properties: {}},
 		{relation_id: 'rel-npc-virginia-revived-variant-of-npc-virginia', relation_kind: 'variant-of', from_node_id: revived.node_id, to_node_id: virginia.node_id, properties: {}}]});
 	const repaired = await b.ahead();
-	assert.deepEqual([repaired.identity_repair.state, repaired.identity_repair.merged, repaired.identity_repair.open], ['unchanged', 0, 3], JSON.stringify(repaired.identity_repair));
+	assert.deepEqual([repaired.identity_repair.state, repaired.identity_repair.merged, repaired.identity_repair.open], ['unchanged', 0, 4], JSON.stringify(repaired.identity_repair));
 	assert.deepEqual(await b.relations(), [], 'nothing was merged without a verdict');
 	const pairs = api.repairCandidates(b.mid, await b.raw(), await b.meta(), []);
 	assert.deepEqual(pairs.map(pair => [pair.kind, pair.a.node_id, pair.b.node_id, pair.rule, pair.related.map(rel => rel.relation_kind)]), [
 		['npc', BRENNER.node_id, BRENNER_COPY.node_id, null, []],
 		['npc', hick.node_id, rats.node_id, null, ['member-of']],
+		['npc', 'npc-tom-north', 'npc-tom-south', null, []],
 		['scene', drugstore.node_id, pharmacy.node_id, null, []]], 'the reader\'s variant-of pair is no candidate');
 	const [job] = await b.identityJobs();
-	assert.deepEqual(job.node_identity.pairs, pairs.map(pair => pair.key).sort(), 'one background job asks the three');
+	assert.deepEqual(job.node_identity.pairs, pairs.map(pair => pair.key).sort(), 'one background job asks the four');
 	assert.equal(job.foreground, false);
 	const again = await b.ahead();
 	assert.equal(again.identity_repair.asked, undefined, 'one live identity job at a time');
