@@ -823,12 +823,13 @@ export class ReadingService implements ReadingBridge {
 	/**
 	 * The read-ahead (§22.4, §182), as every caller in this service asks it. A `window` that differs from the last one this
 	 * host saw for the campaign and module is one `read_window` row; a short book's completion in a fork carries the library's
-	 * answer, which is its `library_sync` row (§184.1).
+	 * answer, which is its `library_sync` row (§184.1). The window's `transcript` ranges (§191.5) are not the reading window:
+	 * they neither make nor join a `read_window` row, nor start a window-places pass.
 	 */
 	private async readAhead(params: Row, campaign: string | undefined): Promise<Row | undefined> {
 		const result = await this.call("module.read.ahead", params, campaign);
-		const window = result?.window;
-		if (window && typeof window === "object" && !Array.isArray(window)) {
+		if (result?.window && typeof result.window === "object" && !Array.isArray(result.window)) {
+			const { transcript: _transcript, ...window } = result.window as Row;
 			const scope = JSON.stringify([campaign, params.module_id]), seen = JSON.stringify(window);
 			if (this.windows.get(scope) !== seen) {
 				this.windows.set(scope, seen);

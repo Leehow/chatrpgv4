@@ -37171,3 +37171,25 @@ in reading order; the reader and Jev, who choose pages from it. Limits: never ev
 rewritten; image text is labelled model reading.
 
 **Implementation decisions** (filled in by PT-01..PT-05).
+
+- **PT-02 (2026-10-07), the window's transcript pages.** `kernel-ts/modules/chapters.ts` holds the pure rule
+  `transcriptRanges(window, page_count, chapters, anchor, reachable, max)` and `wholeTranscript`;
+  `Reading.reachableAnchors` (`kernel-ts/modules/reading.ts`) gives the reachable scenes' anchor pages -- the focus scene
+  (`params.focus`, else the start scene): its `sceneExits`, the scenes it is `located-in`, the scenes `located-in` it, the
+  focus itself excluded, each anchored by `Reading.sceneAnchor` (the §182.3 median, now shared with `Reading.anchorPage`);
+  a scene citing no page adds nothing. `queueAheadReading` adds `transcript` to the `window` of every result that carries
+  one (`outcome()` and the built short book's early return); the reading window itself and everything it limits are
+  unchanged. **The cap** is read by the kernel itself, as `readingBudget` reads `reading`: `transcriptWindowPages` reads
+  `transcript.max_window_pages` from `content/rulesets/coc7/host-budgets.json` (`context.snapshots.readJson`), coded
+  fallback `TRANSCRIPT_MAX_WINDOW_PAGES` = 120, a value outside 1..100000 falls back; the shipped file has no `transcript`
+  block yet (PT-01 adds it), so the fallback applies until then. **Decided here:** the first range (the anchor's chapter,
+  the page window, or the whole book) is always kept whole; the list stops at the first later range that would pass the cap
+  and tries no smaller one after it. An anchor before the first chapter has the front matter (page 1 to the page before
+  the first chapter) as its chapter, and the first chapter is then its next. In `pages` mode each reachable anchor's ±2
+  span is clamped to the book, spans that overlap or touch merge in book order, and the window's own pages are cut out of
+  them, so the ranges stay disjoint: the window first, then the spans in book order. A starter (and an adapted campaign)
+  still answers `{queued: []}` with no `window`. **Host:** `ReadingService.readAhead` takes `transcript` out of the window
+  before its `read_window` change key, row and §190.1 `placeWindow`, so a change of transcript pages alone writes no
+  `read_window` row and starts no window-places pass (§191.9's own `window` row belongs to the transcript queue). Tests:
+  `tests/extension/read-window.test.mjs` (`§191.5` cases and the pinned windows), the two whole-book pins in
+  `tests/kernel/test_fast_guidance.py` and `tests/kernel/test_visual_reading.py`.

@@ -718,4 +718,5 @@ def test_read_ahead_follows_authored_exits_not_index_page_order(kernel, tmp_path
     # Contract 182.4: the read-ahead reports its reading window. A two-page book is read whole; it streams no units under this
     # opening, so its build never completes, and its chapters are the index sections.
     assert ahead == {"queued": [], "scene": "scene-dock",
-                     "window": {"mode": "whole", "first": 1, "last": 2, "chapters": ["The dock", "The tower"], "complete": False}}
+                     "window": {"mode": "whole", "first": 1, "last": 2, "chapters": ["The dock", "The tower"], "complete": False,
+                                "transcript": [[1, 2]]}}
