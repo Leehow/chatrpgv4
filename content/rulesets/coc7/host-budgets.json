@@ -114,5 +114,13 @@
     "place_min": 0.8,
     "timeout_ms": 20000,
     "max_entries": 64
+  },
+  "told_position": {
+    "mode": "shadow",
+    "moved_min": 0.85,
+    "place_min": 0.7,
+    "sentence_min": 0.5,
+    "max_candidates": 24,
+    "timeout_ms": 10000
   }
 }

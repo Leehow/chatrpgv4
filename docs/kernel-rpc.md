@@ -36851,6 +36851,53 @@ then told is owed. `told_position.mode` (data, `off | shadow | on`, shipped `sha
 by the next run's first read (§158.4's `coc:owed-review` port). Telemetry one `lane: "told-position"` row per delivery with
 the questions' distributions, the decision and the owed name.
 
+**Implementation decisions (TP-02, 2026-10-07).**
+
+- *Where the candidates come from.* `table.apply.options` answers only while a turn is open, and the read runs after the
+  close, so the host reads one read-only private method, `table.owe.options {campaign, turn, limit?}` (1..64, default
+  `told_position.max_candidates`) → `{version, turn, scene: {name, display_name, summary}, moved: [{to, owed?}],
+  candidates: [{name, display_name?, aliases?, summary, source}], window}`. `scene` is the scene the delivered record
+  holds (`record.world.scene`); `moved` lists that turn's move receipts. The candidates never include `scene`; in order:
+  its exits (`exit`), the trail newest first (`back`), the place it lies in by `located-in` (`within`), the places the
+  table established (`table`), then the book's scenes citing a page of the reading window (§182.3), the §190.1 identities
+  among them (`window`; a page is a ref's `pdf_index + 1` or its `page`); without a window, every book scene. A projected
+  location is a scene (`projectSourcePlaces`). The table's places come before the window's so the limit never cuts them.
+- *"A move receipt landed".* A move receipt that is neither an owed landing (`owed`) nor a rename (`renamed`). A clerk
+  landing an earlier told position at the start of a run is the previous delivery's position; the delivery may tell the
+  party onwards, and that is still read. The kernel's `superseded` drop below uses the same definition.
+- *Sentences.* The rendered text is split at line breaks, then after each run of `Sentence_Terminal` characters together
+  with the closing punctuation (`Pe`, `Pf`) that follows it and a `Quotation_Mark` followed by white space or the end; a
+  run followed at once by a decimal digit, or after white space by a lowercase letter, does not end a sentence (UAX #29 SB6
+  and SB8). Pieces with no letter or digit are dropped and the last 24 are offered, numbered `s1..sN` in order: where the party ends up is told last. The quote
+  `table.owe` receives is the chosen sentence exactly as delivered.
+- *The request.* State: `party_was_at` (the scene's display name and summary), `places` (aliases `c0..`, each with its
+  name, other names and a one-line summary; never a handle) and `told` (`s1..sN`). Questions: `moved` (Noul), `place`
+  (Choice over the aliases and `none`), `sentence` (Choice over `s1..sN`). `place_min` is the Choice's confidence.
+- *Bars.* `host-budgets.json` `told_position`: `mode` `shadow`, `moved_min` 0.85, `place_min` 0.7, `sentence_min` 0.5,
+  `max_candidates` 24, `timeout_ms` 10000 (the read's own deadline; nothing waits on it). Placeholders until TP-04 reads the
+  shadow rows. `PI_COC_TOLD_POSITION=off|shadow|on` overrides the mode alone per process; an unreadable file reads as
+  `shadow`.
+- *`table.owe`.* `source` is closed (`told-position`). The kernel answers `{owed: null, dropped}` (never an error) for
+  `move_landed` (the told turn landed a move), `superseded` (a move landed in a later turn: the story moved on, and §158.4
+  would close the row anyway), `quote_not_delivered`, `unknown_scene`, `same_scene` (the scene the delivery held) and
+  `satisfied` (the ledger already stands there). The effect is `{kind: "move", to: <handle>, via: "Told in the delivery of
+  turn <n>.", travel_minutes}`: the kernel writes `via` in English, so a place with no exit from the delivered scene lands
+  (§5 `move` takes a `via` for an unreachable place); `travel_minutes` is the delivered scene's exit row's when it is an
+  integer, else 0. The row is §158.3's (`describe`, `mergeOwed`'s supersede, the record's `owed`) with `source:
+  "told-position"` in place of `job`; the record's `owed_state` warning row has `lane: "told-position"`. A second call for
+  the same turn, place and quote answers the row the first wrote. The kernel writes no telemetry for it: the host's row
+  carries the answer, so a delivery has one `told-position` row.
+- *The watch.* When the read may owe (the mode is `on` and Jev is configured), the host registers it as the turn's flight
+  (`reviewInFlight`, §158.4) at the close; the flight settles only when `table.owe` wrote a row, so a read that owes nothing
+  never makes the next run read the table again, and it is cleared when the read ends. In `shadow`, `off` or without Jev
+  nothing is registered, so a single-pass table's watch stays empty. The mode is known at the close because the budget file
+  is read when the extension loads.
+- *The row.* `{lane: "told-position", event: "read", turn, mode, ok, candidates, sentences: {total, offered}, moved,
+  chosen, distribution, confidence, sentence: {key, confidence, distribution}, decision: "owe" | "stay", why?, handle?,
+  outcome: "owed" | "dropped" | "shadow" | "stay", owed, dropped?, ms}`; when nothing was asked, `skipped:
+  "no_text" | "unconfigured" | "move_landed" | "no_candidates"` (`move_landed` with `landed`, the places those moves went
+  to), or `ok: false` with `reason: "options_failed" | "lane_crashed"`. Without a Jev key the kernel is not asked at all.
+
 ### 190.3 A transient provider failure is asked again once (amends §143.15)
 
 `reviewAdmission` retries a lane failure once when the provider answered HTTP 429 or 5xx, or the transport ended before a
@@ -36866,3 +36913,7 @@ Writer: `window-places` (identity scenes), `told-position` through `table.owe` (
 clerk's `apply:owed:*`, §187.3's offers. Actor: the clerk, who lands the owed move first; the Keeper, who finds the party
 where the story put it. Limits: only the position is owed here; a place outside the candidates is the Keeper's to mint;
 nothing reads prose with patterns.
+
+Counted (TP-02): one `told-position` row per delivery (`outcome`: `owed`, `dropped`, `shadow`, `stay`, or `skipped`), the
+owed rows with `source: "told-position"` in `owed.json` and on the record, and the clerk's `apply:owed:*` bind rows and
+receipts that land them. The lane's own read is `table.owe.options`; TP-04 reads the shadow rows before `on`.
