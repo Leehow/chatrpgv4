@@ -28,11 +28,18 @@ import { isRunEvent } from "./pi-agent-core.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
+const baseQuestion = (question) => ({ ...question, key: question.key.replace(/__(?:semantic_facts|semantic_execution)$/, "") });
+function issuedChoice(question, value, confidence = 0.9) {
+	const keys = Object.keys(question.criteria);
+	assert.ok(keys.includes(value), `fixture choice ${value} is not issued for ${question.key}`);
+	return { status: "answered", type: "choice", choice: value, confidence,
+		probabilities: Object.fromEntries(keys.map((key) => [key, keys.length === 1 ? 1 : key === value ? confidence : (1 - confidence) / (keys.length - 1)])) };
+}
 function answered(batch, pick = () => undefined) {
 	const answers = {};
 	for (const question of batch.questions) {
-		const choice = pick(question) ?? (question.key === "exit" ? "continue" : Object.keys(question.criteria)[0] === "now" ? "later" : "unknown");
-		answers[question.key] = { status: "answered", type: "choice", choice, confidence: 0.9, probabilities: { [choice]: 0.9 } };
+		const choice = pick(baseQuestion(question)) ?? (baseQuestion(question).key === "exit" ? "continue" : Object.hasOwn(question.criteria, "costs") ? "none" : Object.keys(question.criteria)[0] === "now" ? "later" : "unknown");
+		answers[question.key] = issuedChoice(question, choice);
 	}
 	return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
 }

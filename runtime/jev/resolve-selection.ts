@@ -1,11 +1,12 @@
 /**
  * Check selection over host-issued actions. No generated arguments or LLM fallback (§159). §163: a gate Jev answers
- * below is decided by Jev's own best score and recorded as forced; nothing scored or executable is a forced no-roll.
+ * below is diagnostic; §163.10 pools three views of each proposition. Missing semantic evidence remains a no-roll.
  */
 import {createHash} from 'node:crypto';
-import {FORCED_MIDPOINT, leansYes, scoreText} from './forced-resolution.ts';
+import {semanticQuestions, semanticNoul, semanticChoice} from './semantic-votes.ts';
+import {leansYes, scoreText} from './forced-resolution.ts';
 import {isPlainRecord, type DecisionBatch, type DecisionResult, type Json, type ReadSet, type ScopeBinding} from './contracts.ts';
-import {JEV_MODEL, packDecisionBatch} from './question-packing.ts';
+import {JEV_MODEL, PackingError, packDecisionBatch} from './question-packing.ts';
 import type {DecisionPort} from './decision-port.ts';
 import type {TaskLease} from './task-context.ts';
 import {selectChaseRoster} from './chase-roster-selection.ts';
@@ -48,7 +49,7 @@ export interface CheckSelectionInput {
   /** §163.8: the player-controlled investigators (the kernel's party). Absent: read from `context.conditions[].actor`. */
   investigators?: readonly string[];
 }
-/** Screening negatives, mutation authority and closed Choice probability are separate gates. */
+/** Historical confidence thresholds annotate pooled decisions; they do not grant semantic authority. */
 export interface CheckSelectionGates {applicability: number; need: number; noNeed: number; choice: number; adjudication: number}
 export const CHECK_SELECTION_GATES: Readonly<CheckSelectionGates> = Object.freeze({applicability: 0.65, need: 0.85, noNeed: 0.35, choice: 0.85, adjudication: 0.75});
 export type CheckSelection = {
@@ -146,15 +147,8 @@ export async function withinCheckLease<T>(lease: TaskLease, work: () => Promise<
 }
 
 /** Provider confidence is not a substitute for the probability of this particular answer. */
-function probability(result: DecisionResult, key: string, choice: string): number | undefined {
-  const answer = result.answers[key];
-  return result.status === 'complete' && answer?.status === 'answered' && answer.type === 'choice'
-    && answer.choice === choice && Number.isFinite(answer.probabilities?.[choice]) ? answer.probabilities![choice] : undefined;
-}
 function yes(result: DecisionResult, key: string): number | undefined {
-  const answer = result.answers[key];
-  return result.status === 'complete' && answer?.status === 'answered' && answer.type === 'noul'
-    && Number.isFinite(answer.noul) ? answer.noul : undefined;
+  return semanticNoul(result, key).score;
 }
 
 export function validateCheckOptions(value: unknown): CheckOption[] | undefined {
@@ -192,7 +186,6 @@ export function validateCheckOptions(value: unknown): CheckOption[] | undefined 
  */
 export async function selectCheck(input: CheckSelectionInput): Promise<CheckSelection> {
   let calls = 0;
-  let refinementUsed = false;
   const gates = {...CHECK_SELECTION_GATES, ...input.gates}, gate = gates.need;
   // §163: every gate decided by Jev's best score (or with no score) is named here; a result that used one is forced.
   const forced: string[] = [], whys = new Set<string>();
@@ -206,43 +199,26 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
   };
   const unresolved = (needs: string[], option?: CheckOption): CheckSelection => ({status: 'unresolved',
     needs: needs.map(need => input.options.find(option => option.key === need)?.label ?? need), calls, ...(option ? {option} : {})});
-  const decide = async (purpose: string, state: Json, questions: DecisionBatch['questions']): Promise<DecisionResult> => {
+  const decide = async (purpose: string, state: Json, questions: DecisionBatch['questions'], expanded = true): Promise<DecisionResult> => {
     input.lease.assertActive();
     if (calls >= (input.maxCalls ?? 24)) throw new Error('check_selection_budget');
     const batch: DecisionBatch = {id: digest([purpose, state, questions, input.scope, input.readSet]), model: JEV_MODEL,
-      family: `check-selection-${purpose}`, familyVersion: '22', scope: input.scope, readSet: input.readSet, state, questions};
+      family: `check-selection-${purpose}`, familyVersion: expanded ? '23' : '22', scope: input.scope, readSet: input.readSet, state, questions: expanded ? questions.flatMap(semanticQuestions) : questions};
     packDecisionBatch(batch);
     calls++;
     const result = await withinCheckLease(input.lease, () => input.decision.decide(batch, input.lease));
     input.record?.({purpose, version: batch.familyVersion, gates, status: result.status, ms: result.elapsedMs ?? null,
-      state: batch.state, questions: batch.questions, answers: result.answers, failure: result.failure ?? null});
+      state: batch.state, questions: batch.questions, answers: result.answers, failure: result.failure ?? null,
+      semantic: expanded ? questions.map(question => ({key: question.key, ...(question.type === 'choice'
+        ? semanticChoice(result, question.key, Object.keys(question.criteria ?? {})) : semanticNoul(result, question.key))})) : undefined});
     return result;
   };
-  const refine = async (purpose: string, state: Json, questions: DecisionBatch['questions']): Promise<DecisionResult | undefined> => {
-    if (refinementUsed || !questions.length) return undefined;
-    refinementUsed = true;
-    return decide(`${purpose}-refine`, state, questions);
-  };
-  const ambiguous = (p: number | undefined, threshold = gate): p is number => p !== undefined && p > gates.noNeed && p < threshold;
   const classify = (option: CheckOption, index: number, result: DecisionResult): CheckSelection['status'] => {
     const ordinary = option.action.decision === 'core-check:ordinary-check' && option.action.rule === undefined;
-    const answers = (ordinary ? [optionAlias(index), optionAlias(index) + '_uncertain'] : [optionAlias(index)]).map(key => yes(result, key));
-    if (answers.some(answer => answer !== undefined && answer <= gates.noNeed)) return 'no_roll';
-    if (!answers.every(answer => answer !== undefined && answer >= (ordinary ? gates.applicability : gate))) return 'unresolved';
-    const blocked = yes(result, optionAlias(index) + '_blocked');
-    return blocked !== undefined && blocked <= gates.noNeed ? 'selected'
-      : blocked !== undefined && blocked >= gate ? 'deferred' : 'unresolved';
-  };
-  /** §163: Jev's best guess for an option no gate cleared, from the same answers `classify` read. */
-  const leanCheck = (option: CheckOption, index: number, result: DecisionResult) => {
-    const ordinary = option.action.decision === 'core-check:ordinary-check' && option.action.rule === undefined;
     const keys = ordinary ? [optionAlias(index), optionAlias(index) + '_uncertain'] : [optionAlias(index)];
-    const answers = keys.map(key => yes(result, key)), blocked = yes(result, optionAlias(index) + '_blocked');
-    const scores = [...answers.map((p, i) => `${i ? 'roll needed' : ordinary ? 'method fit' : 'needed now'} ${scoreText(p)}`), `prerequisite unmet ${scoreText(blocked)}`].join(', ');
-    const unanswered = answers.some(p => p === undefined) || blocked === undefined;
-    // A tie on necessity is no roll; a tie on an unmet prerequisite waits: neither decides the player's own sequence for them.
-    const status: 'selected' | 'deferred' | 'no_roll' = unanswered || answers.some(p => !leansYes(p!)) ? 'no_roll' : blocked! >= FORCED_MIDPOINT ? 'deferred' : 'selected';
-    return {status, scores, unanswered};
+    const scores = keys.map(key => yes(result, key)), blocked = yes(result, optionAlias(index) + '_blocked');
+    if (scores.some(score => score === undefined || score <= 0.5) || blocked === undefined) return 'no_roll';
+    return blocked >= 0.5 ? 'deferred' : 'selected';
   };
   try {
     // A broad goal can quote multiple attempts. Ordinary settlement is the exact actor/skill receipt.
@@ -256,7 +232,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       || !Number.isFinite(gates.noNeed) || gates.noNeed < 0 || gates.noNeed >= 0.5) return unresolved(['check_selection_gate_invalid']);
     if (!input.options.length) return unresolved(['check_catalog_unavailable']);
     if (!input.request || typeof input.request.decision !== 'string') return unresolved(['check_request_unbound']);
-    const needed: CheckOption[] = [], uncertain: string[] = [];
+    const needed: CheckOption[] = [];
     let deferred = 0;
     // Scope comes from the existing agent's selected operation, never a second family planner.
     let eligible = input.options.filter(option => option.action.decision === input.request!.decision).flatMap(option => {
@@ -303,13 +279,9 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       const active = new Set<string>();
       for (const [index, actor] of socialActors.entries()) {
         const p = yes(result, `actor_${index}`);
-        if (p !== undefined && p >= gates.applicability) active.add(actor);
-        else if (p === undefined) note(`social influence method of ${actor}: unanswered`, 'jev_unanswered');
-        else if (p > gates.noNeed) {
-          // §163: Jev's best score decides a gray method; a tie is no influence attempt.
-          note(`social influence method of ${actor}: ${scoreText(p)}`, 'below_confidence_gate');
-          if (leansYes(p)) active.add(actor);
-        }
+        if (p !== undefined && leansYes(p)) active.add(actor);
+        if (p === undefined) note(`social influence method of ${actor}: unanswered`, 'jev_unanswered');
+        else if (p > gates.noNeed && p < gates.applicability) note(`social influence method of ${actor}: ${scoreText(p)}`, 'below_confidence_gate');
       }
       eligible = eligible.filter(option => option.action.decision !== 'social:adjudicate-difficulty'
         || option.facts?.actor_role !== 'investigator' || active.has(String(option.action.actor)));
@@ -336,14 +308,15 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       }));
       for (const [groupIndex, group] of groups.entries()) {
         const result = results[groupIndex];
-        if ((probability(result, 'profile', 'unknown') ?? 0) >= gates.choice) continue;
-        const answer = result.answers.profile;
-        if (result.status !== 'complete' || answer?.status !== 'answered' || answer.type !== 'choice' || !answer.probabilities) {
-          // §163: nothing ranked this group, so none of its profiles is scored; they take no roll.
+        const pooled = semanticChoice(result, 'profile', [...group.map((_, index) => optionAlias(index)), 'unknown']);
+        if (!pooled.distribution) {
           note(`profile retrieval over ${group.length} ordinary profiles: unanswered`, 'jev_unanswered');
           continue;
         }
-        const ranked = group.map((option, index) => ({option, p: answer.probabilities?.[optionAlias(index)] ?? 0}))
+        // Retrieval keeps a beam of methods; an issued tie is not an unmade execution choice.
+        const issuedMaximum = Math.max(0, ...group.map((_, index) => pooled.distribution![optionAlias(index)] ?? 0));
+        if ((pooled.distribution.unknown ?? 0) > issuedMaximum) continue;
+        const ranked = group.map((option, index) => ({option, p: pooled.distribution![optionAlias(index)] ?? 0}))
           .filter(entry => Number.isFinite(entry.p) && entry.p > 0).sort((left, right) => right.p - left.p).slice(0, 8);
         if (!ranked.length) groupsUnresolved = true;
         for (const entry of ranked) retained.add(entry.option);
@@ -354,13 +327,11 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     }
     // Keep candidate state and request size bounded without truncating the retained inventory.
     const pages = Array.from({length: Math.ceil(eligible.length / 24)}, (_, index) => eligible.slice(index * 24, index * 24 + 24));
-    const refinable: Array<{option: CheckOption; index: number; state: Json; questions: DecisionBatch['questions']; explicitMethod: boolean;
-      fixedAnswers?: DecisionResult['answers']; purpose?: string}> = [];
-    // §163: the answers each still-uncertain option was last judged on, for Jev's best guess if no gate clears; and every
-    // option's own verdict, so a best guess never picks among alternatives the player has not settled (§163.8).
-    const judged = new Map<string, {index: number; result: DecisionResult}>(), statusOf = new Map<string, CheckSelection['status']>();
-    await Promise.all(pages.map(async page => {
+    const statusOf = new Map<string, CheckSelection['status']>();
+    const actualOf = new Map<string, number | undefined>();
+    const judgePage = async (page: CheckOption[]): Promise<void> => {
       const state = {declaration: input.declaration, context: input.context, policy: POLICY,
+        alternatives: eligible.filter(option => playerAct(option, investigators) && page.some(entry => entry.action.actor === option.action.actor && entry.action.decision === option.action.decision)).map(option => ({label: option.label, action: actionView(option.action)})),
         checks: Object.fromEntries(page.map((option, index) => [optionAlias(index), {family: option.family, label: option.label, trigger: option.authorization, action: actionView(option.action), ...(option.definition ? {definition: option.definition} : {}), ...(option.facts ? {facts: option.facts} : {})}]))};
       const questions: DecisionBatch['questions'] = page.flatMap((option, index) => option.action.decision === 'core-check:ordinary-check' && option.action.rule === undefined ? [
         {key: optionAlias(index), target: option.label, type: 'noul' as const,
@@ -386,6 +357,22 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
               false: 'The pursuit/escape is already chosen now. Any conditional precaution is a separate later reaction.'}
           : {true: 'A prerequisite is still unmet; this attempt must wait.', false: 'No unmet prerequisite prevents this attempt now.'},
       })));
+      for (const [index, option] of page.entries()) {
+        if (!playerAct(option, investigators) || !eligible.some(other => other.key !== option.key
+          && other.action.decision === option.action.decision && other.action.actor === option.action.actor)) continue;
+        questions.push({key: optionAlias(index) + '_selected', target: option.label, type: 'noul',
+          instructions: 'Does the current declaration actually identify this exact actor, target and method as a chosen attempt? Judge this alternative against the other issued alternatives, not merely whether it is plausible or useful. Several independent explicitly chosen attempts may each be identified. A future, hypothetical, ambiguous or unspecified alternative is not identified.',
+          criteria: {true: 'This alternative is actually identified by the current declaration.', false: 'This is only plausible, ambiguous, future or not selected.'}});
+      }
+      try {
+        packDecisionBatch({id: 'sizing', model: JEV_MODEL, family: 'check-selection-need', familyVersion: '23',
+          scope: input.scope, readSet: input.readSet, state, questions: questions.flatMap(semanticQuestions)});
+      } catch (error) {
+        if (!(error instanceof PackingError) || error.failure !== 'packing_limit' || page.length <= 1) throw error;
+        const middle = Math.ceil(page.length / 2);
+        await Promise.all([judgePage(page.slice(0, middle)), judgePage(page.slice(middle))]);
+        return;
+      }
       const chaseKeys = new Set(page.flatMap((option, index) => option.action.decision === 'chase:start' ? [optionAlias(index) + '_blocked'] : []));
       const dependencyQuestions = questions.filter(question => chaseKeys.has(question.key));
       const context = isPlainRecord(input.context) ? input.context : {};
@@ -396,65 +383,31 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
         decide('need', state, questions.filter(question => !chaseKeys.has(question.key))),
         dependencyQuestions.length ? decide('chase-prerequisite', dependencyState, dependencyQuestions) : undefined,
       ]);
-      const result = {...necessity, answers: {...necessity.answers, ...(dependency?.status === 'complete' ? dependency.answers : {})}};
+      const result = {...necessity, answers: {...necessity.answers, ...(dependency && dependency.status !== 'unavailable' ? dependency.answers : {})}};
       for (const [index, option] of page.entries()) {
         const status = classify(option, index, result);
         statusOf.set(option.key, status);
-        if (status === 'selected') needed.push(option);
-        else if (status === 'deferred') deferred++;
-        else if (status === 'unresolved') {
-          uncertain.push(option.key);
-          judged.set(option.key, {index, result});
-          const candidateQuestions = questions.filter(question => question.key === optionAlias(index) || question.key.startsWith(optionAlias(index) + '_'));
-          const blocked = yes(result, optionAlias(index) + '_blocked');
-          if ((!option.needs.length || profilePreparable(option)) && option.parameters.every(parameter => parameter.options.length)
-            && candidateQuestions.every(question => yes(result, question.key) !== undefined)
-            && blocked !== undefined && blocked < gate) {
-            const chase = option.action.decision === 'chase:start', refineDependency = chase && (yes(result, optionAlias(index)) ?? 0) >= gate;
-            refinable.push({option, index,
-            state: refineDependency ? {...dependencyState as Record<string, Json>, checks: {[optionAlias(index)]: (dependencyState as any).checks[optionAlias(index)]}}
-              : {...state, checks: {[optionAlias(index)]: state.checks[optionAlias(index)]}},
-            questions: chase ? candidateQuestions.filter(question => question.key.endsWith('_blocked') === refineDependency) : candidateQuestions,
-            ...(chase ? {fixedAnswers: result.answers, purpose: refineDependency ? 'chase-prerequisite' : 'need'} : {}),
-            explicitMethod: option.action.decision === 'core-check:ordinary-check' && option.action.rule === undefined
-              && (yes(result, optionAlias(index)) ?? 0) >= gates.applicability});
-          }
+        actualOf.set(option.key, yes(result, optionAlias(index) + '_selected'));
+        const ordinary = option.action.decision === 'core-check:ordinary-check' && option.action.rule === undefined;
+        const scores = [yes(result, optionAlias(index)), ...(ordinary ? [yes(result, optionAlias(index) + '_uncertain')] : []), yes(result, optionAlias(index) + '_blocked')];
+        if (scores.some(score => score === undefined)) note(`necessity of ${option.label}: unanswered`, 'jev_unanswered');
+        else if (scores.some((score, i) => score! > gates.noNeed && score! < (ordinary && i < 2 ? gates.applicability : gate))) {
+          const description = [...scores.slice(0, -1).map((score, i) => `${i ? 'roll needed' : ordinary ? 'method fit' : 'needed now'} ${scoreText(score)}`), `prerequisite unmet ${scoreText(scores.at(-1))}`].join(', ');
+          note(`necessity of ${option.label}: ${description}`, 'below_confidence_gate');
         }
       }
-    }));
-    if (refinable.length && (!needed.length || refinable.some(candidate => candidate.explicitMethod))) {
-      refinable.sort((left, right) => Number(right.explicitMethod) - Number(left.explicitMethod) || eligible.indexOf(left.option) - eligible.indexOf(right.option));
-      const candidate = refinable[0];
-      const refined = await refine(candidate.purpose ?? 'need', candidate.state, candidate.questions);
-      const result = refined && {...refined, answers: {...candidate.fixedAnswers, ...refined.answers}};
-      if (result) {
-        const status = classify(candidate.option, candidate.index, result);
-        statusOf.set(candidate.option.key, status);
-        if (status !== 'unresolved') uncertain.splice(uncertain.indexOf(candidate.option.key), 1);
-        else judged.set(candidate.option.key, {index: candidate.index, result});
-        if (status === 'selected') needed.push(candidate.option);
-        else if (status === 'deferred') deferred++;
-      }
-    }
-    // §163: an option no gate cleared, after the one refinement, is decided by Jev's own best scores: every necessity
-    // answer above the midpoint and its prerequisite below it is a roll, a prerequisite above it waits, anything else
-    // (a lower score or a missing answer) is no roll. The gray explicit method keeps its precedence by catalog order.
-    for (const key of uncertain) {
-      const option = eligible.find(entry => entry.key === key), seen = judged.get(key);
-      if (!option || !seen) continue;
-      const lean = leanCheck(option, seen.index, seen.result);
-      // §163.8: when the same act has alternatives for this investigator that Jev did not rule out (another target, weapon,
-      // patient or skill of the same decision), a best guess would be choosing for the player: it takes no roll.
-      const rivals = lean.status === 'selected' && playerAct(option, investigators) ? eligible.filter(other => other !== option
-        && other.action.decision === option.action.decision && String(other.action.actor ?? '') === String(option.action.actor ?? '')
-        && statusOf.get(other.key) !== 'no_roll') : [];
-      if (rivals.length) {
-        note(`${option.label}: one of ${rivals.length + 1} alternatives the player has not settled (${lean.scores})`, 'player_choice');
+    };
+    await Promise.all(pages.map(judgePage));
+    for (const option of eligible) {
+      const status = statusOf.get(option.key);
+      const rivals = playerAct(option, investigators) ? eligible.filter(other => other.key !== option.key
+        && other.action.decision === option.action.decision && other.action.actor === option.action.actor) : [];
+      if (status === 'selected' && rivals.length && !leansYes(actualOf.get(option.key) ?? 0)) {
+        note(`${option.label}: one of ${rivals.length + 1} alternatives the player has not settled`, 'player_choice');
         continue;
       }
-      note(`necessity of ${option.label}: ${lean.scores}`, lean.unanswered ? 'jev_unanswered' : 'below_confidence_gate');
-      if (lean.status === 'selected') needed.push(option);
-      else if (lean.status === 'deferred') deferred++;
+      if (status === 'selected') needed.push(option);
+      else if (status === 'deferred') deferred++;
     }
     // Independent ready profiles do not compete for a probability mass of one. The agent receives
     // one bound operation, observes its actual result, and may request the remaining work afresh.
@@ -479,22 +432,13 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
         criteria: {true: 'An established condition requires a non-default modifier.',
           false: 'No non-default modifier is established; the rule default applies.'}}));
       const result = await decide('defaults', state, questions);
-      const pending = defaults.flatMap((parameter, index) => ambiguous(yes(result, parameterAlias(index))) ? [{parameter, index}] : []);
-      const refined = await refine('defaults', {...state, parameters: Object.fromEntries(pending.map(({parameter, index}) => [parameterAlias(index), parameter as unknown as Json]))},
-        questions.filter(question => pending.some(({index}) => parameterAlias(index) === question.key)));
       const defaulted = new Set<CheckParameter>();
       const takeDefault = (parameter: CheckParameter) => { action[parameter.name] = structuredClone(parameter.default!.value); defaulted.add(parameter); };
       for (const [index, parameter] of defaults.entries()) {
-        const override = refined && pending.some(entry => entry.index === index) ? yes(refined, parameterAlias(index)) : yes(result, parameterAlias(index));
-        if (override !== undefined && override <= gates.noNeed) takeDefault(parameter);
-        else if (override === undefined) {
-          // §163: with no answer about an override, the host-owned rules default applies.
-          note(`${parameter.name} override: unanswered, rules default`, 'jev_unanswered');
-          takeDefault(parameter);
-        } else if (override < gates.need) {
-          note(`${parameter.name} override: ${scoreText(override)}`, 'below_confidence_gate');
-          if (!leansYes(override)) takeDefault(parameter);
-        }
+        const override = yes(result, parameterAlias(index));
+        if (override === undefined || !leansYes(override)) takeDefault(parameter);
+        if (override === undefined) note(`${parameter.name} override: unanswered, rules default`, 'jev_unanswered');
+        else if (override > gates.noNeed && override < gates.need) note(`${parameter.name} override: ${scoreText(override)}`, 'below_confidence_gate');
       }
       parameters = parameters.filter(parameter => !defaulted.has(parameter)).map(parameter => parameter.default
         ? {...parameter, options: parameter.options.filter(option => digest(option.value) !== digest(parameter.default!.value))}
@@ -515,106 +459,49 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
             criteria: {true: 'This option is compatible with the situation and the rule.', false: 'This option contradicts the situation or exceeds what the rule permits.'}}))
           : parameter.multiple
           ? parameter.options.map((option, optionIndex) => ({key: `${parameterAlias(index)}_${optionIndex}`, target: `${parameter.name}: ${option.label}`,
-            type: 'noul', instructions: `${parameter.question} Judge only this listed member, independently: does the declared combined attempt require it?`,
+            type: 'noul', instructions: `${parameter.question} Judge only this listed member, independently: does the declared combined attempt require it? ${playerOwned(selected, parameter, investigators) ? 'Use only an actual current selected member; future, hypothetical or unspecified members are not selected.' : ''}`,
             criteria: {true: 'This member is required in the combined attempt.', false: 'This member is not required.'}}))
           : [{key: parameterAlias(index), target: parameter.name, type: 'choice' as const,
-          instructions: `${parameter.question} Select unknown when the supplied state cannot bind it.`,
+          instructions: `${parameter.question} ${playerOwned(selected, parameter, investigators) ? 'Read the actual current player choice, not a plausible, future or hypothetical choice. Select unknown when the player has not identified it.' : 'Select unknown when the supplied state cannot bind it.'}`,
           criteria: {...Object.fromEntries(parameter.options.map((option, index) => [valueAlias(index), option.label])), unknown: 'Not determined by supplied state.'}}]);
       const result = await decide('bind', state, questions);
-      const nominations = new Map<number, number>();
-      const confirmationQuestions: DecisionBatch['questions'] = [];
-      for (const [index, parameter] of parameters.entries()) {
-        const key = parameterAlias(index);
-        if (parameter.selection === 'compatible') {
-          if (!parameter.options.some((_, i) => (yes(result, `${key}_${i}`) ?? 0) >= gates.adjudication))
-            confirmationQuestions.push(...questions.filter(question => question.key.startsWith(key + '_') && ambiguous(yes(result, question.key))));
-          continue;
-        }
-        if (parameter.multiple) {
-          confirmationQuestions.push(...questions.filter(question => question.key.startsWith(key + '_') && ambiguous(yes(result, question.key))));
-          continue;
-        }
-        const nominee = parameter.options.findIndex((_, optionIndex) => ambiguous(probability(result, key, valueAlias(optionIndex)), gates.choice));
-        if (nominee < 0) continue;
-        nominations.set(index, nominee);
-        confirmationQuestions.push({key, target: parameter.name, type: 'noul',
-          instructions: `${parameter.question} Is the nominated value established by the supplied facts, with competing values ruled out? Mere plausibility is insufficient.`,
-          criteria: {true: {nominee: parameter.options[nominee].label,
-            condition: 'The exact nominated value is established and no competing value remains applicable.'},
-            false: {alternatives: parameter.options.filter((_, i) => i !== nominee).map(option => option.label),
-              condition: 'The nominated value is unsupported, ambiguous, or another value applies.'}}});
-      }
-      const refined = await refine('bind', state, confirmationQuestions);
       const missing: string[] = [], withheld: string[] = [], incompatible: string[] = [];
       for (const [index, parameter] of parameters.entries()) {
-        if (parameter.selection === 'compatible') {
-          const scored = parameter.options.map((option, i) => {
-            const key = `${parameterAlias(index)}_${i}`;
-            return {option, p: refined && confirmationQuestions.some(question => question.key === key) ? yes(refined, key) : yes(result, key)};
-          }).filter((value): value is {option: CheckParameter['options'][number]; p: number} => value.p !== undefined).sort((a, b) => b.p - a.p);
-          const eligible = scored.filter(value => value.p + gates.adjudication > 1);
-          let chosen = eligible.find(value => value.p >= gates.adjudication);
-          if (!chosen && eligible.length) {
-            // §163: the best gray value remains a ruling; definite negatives never become executable values.
-            chosen = eligible[0];
-            note(`${parameter.name}: ${chosen.option.label} ${scoreText(chosen.p)}`, 'below_confidence_gate');
-          }
-          if (!chosen) {
-            if (scored.length !== parameter.options.length) missing.push(`unbound:${parameter.name}`);
+        const key = parameterAlias(index);
+        if (parameter.selection === 'compatible' || parameter.multiple) {
+          const scored = parameter.options.map((option, i) => ({option, p: yes(result, `${key}_${i}`)}));
+          const supported = scored.filter((value): value is {option: CheckParameter['options'][number]; p: number} => value.p !== undefined && leansYes(value.p));
+          if (parameter.selection === 'compatible') {
+            const compatible = scored.filter((value): value is {option: CheckParameter['options'][number]; p: number} => value.p !== undefined && value.p > 1 - gates.adjudication);
+            const chosen = compatible.sort((a, b) => b.p - a.p)[0];
+            if (chosen) {
+              action[parameter.name] = structuredClone(chosen.option.value);
+              if (chosen.p < gates.adjudication) note(`${parameter.name}: ${chosen.option.label} ${scoreText(chosen.p)}`, 'below_confidence_gate');
+            }
+            else if (scored.some(value => value.p === undefined)) missing.push(`unbound:${parameter.name}`);
             else {
               incompatible.push(`unbound:${parameter.name}`);
               note(`${parameter.name}: no issued compatible value is available`, 'nothing_executable');
             }
-          }
-          else action[parameter.name] = structuredClone(chosen.option.value);
-          continue;
-        }
-        if (parameter.multiple) {
-          const members = parameter.options.map((option, optionIndex) => {
-            const key = `${parameterAlias(index)}_${optionIndex}`;
-            return {option, p: refined && confirmationQuestions.some(question => question.key === key) ? yes(refined, key) : yes(result, key)};
-          });
-          let chosen = members.filter(member => member.p !== undefined && member.p >= gates.need);
-          if (members.some(member => member.p === undefined || member.p > gates.noNeed && member.p < gates.need) || chosen.length < parameter.multiple.minimum) {
-            // §163: members above the midpoint, topped up to the minimum by Jev's next-best scores.
-            const scored = members.filter((member): member is {option: CheckParameter['options'][number]; p: number} => member.p !== undefined).sort((a, b) => b.p - a.p);
-            chosen = scored.filter(member => leansYes(member.p));
-            for (const member of scored) if (chosen.length < parameter.multiple.minimum && !chosen.includes(member)) chosen.push(member);
-            if (chosen.length < parameter.multiple.minimum) { missing.push(`unbound:${parameter.name}`); continue; }
-            // §163.8: the player's own choice is not made for them.
-            if (playerOwned(selected, parameter, investigators)) {
-              withheld.push(parameter.name);
-              note(`${parameter.name}: ${members.map(member => `${member.option.label} ${scoreText(member.p)}`).join(', ')} (the player's choice)`, 'player_choice');
-              continue;
-            }
-            note(`${parameter.name}: ${members.map(member => `${member.option.label} ${scoreText(member.p)}`).join(', ')}`,
-              members.some(member => member.p === undefined) ? 'jev_unanswered' : 'below_confidence_gate');
-            chosen = members.filter(member => chosen.includes(member));
-          }
-          action[parameter.name] = chosen.map(member => structuredClone(member.option.value));
-          continue;
-        }
-        let value = parameter.options.find((_, optionIndex) => (probability(result, parameterAlias(index), valueAlias(optionIndex)) ?? 0) >= gates.choice)
-          ?? (refined && (yes(refined, parameterAlias(index)) ?? 0) >= gate && nominations.has(index) ? parameter.options[nominations.get(index)!] : undefined);
-        if (!value) {
-          // §163: Jev's best-scored issued value (never `unknown`, never an unissued value).
-          const answer = result.answers[parameterAlias(index)];
-          const ranked = result.status === 'complete' && answer?.status === 'answered' && answer.type === 'choice' && answer.probabilities
-            ? parameter.options.map((option, optionIndex) => ({option, p: answer.probabilities![valueAlias(optionIndex)]}))
-              .filter((entry): entry is {option: CheckParameter['options'][number]; p: number} => Number.isFinite(entry.p) && entry.p > 0).sort((a, b) => b.p - a.p) : [];
-          if (ranked.length && playerOwned(selected, parameter, investigators)) {
-            // §163.8: the player's own choice is not made for them.
+          } else if (supported.length >= parameter.multiple!.minimum) {
+            action[parameter.name] = supported.map(value => structuredClone(value.option.value));
+          } else if (playerOwned(selected, parameter, investigators)) {
             withheld.push(parameter.name);
-            note(`${parameter.name}: ${ranked[0].option.label} ${scoreText(ranked[0].p)} (the player's choice)`, 'player_choice');
-            continue;
-          }
-          if (ranked.length) {
-            value = ranked[0].option;
-            note(`${parameter.name}: ${value.label} ${scoreText(ranked[0].p)}`, 'below_confidence_gate');
-          }
+            note(`${parameter.name}: supported members do not meet the player's required cardinality`, 'player_choice');
+          } else missing.push(`unbound:${parameter.name}`);
+          continue;
         }
-        if (!value) missing.push(`unbound:${parameter.name}`);
-        else action[parameter.name] = structuredClone(value.value);
+        const pooled = semanticChoice(result, key, [...parameter.options.map((_, i) => valueAlias(i)), 'unknown']);
+        const i = pooled.choice ? parameter.options.findIndex((_, index) => valueAlias(index) === pooled.choice) : -1;
+        if (i < 0) {
+          if (playerOwned(selected, parameter, investigators)) {
+            withheld.push(parameter.name);
+            note(`${parameter.name}: the player's choice is unmade, unknown or tied`, 'player_choice');
+          } else missing.push(`unbound:${parameter.name}`);
+        } else {
+          action[parameter.name] = structuredClone(parameter.options[i].value);
+          if ((pooled.confidence ?? 0) < gates.choice) note(`${parameter.name}: ${parameter.options[i].label} ${scoreText(pooled.distribution?.[pooled.choice!])}`, 'below_confidence_gate');
+        }
       }
       // §163.8: a withheld player choice leaves the check without a roll; the Keeper narrates or lets the fiction ask.
       if (withheld.length) return done({status: 'no_roll', option: selected, needs: withheld.map(name => `player_choice:${name}`), calls});
@@ -626,7 +513,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       }
     }
     if (selected.action.decision === 'chase:start' && selected.facts?.mobility === 'vehicle') {
-      const roster = await selectChaseRoster({...selected, action}, input.declaration, input.context, gates, decide);
+      const roster = await selectChaseRoster({...selected, action}, input.declaration, input.context, gates, (purpose, state, questions) => decide(purpose, state, questions, false));
       return done({...roster, status: roster.status ?? 'unresolved', needs: roster.needs ?? ['chase_roster_unavailable'], calls});
     }
     if (profilePreparable(selected)) {

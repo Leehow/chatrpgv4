@@ -135,13 +135,14 @@ test('a wounded NPC is a bound patient before necessity, and an out-of-session p
 for (const skills of [['Listen'], ['Listen', 'Spot Hidden']]) test(`the agent commits ${skills.join(' then ')} through the canonical gateway without a model resolve`, async t => {
   const decision = {async decide(batch) {
     const settled = new Set(batch.state.context?.current_receipts?.filter(receipt => receipt.kind === 'roll').map(receipt => receipt.skill));
-    const answers = Object.fromEntries(batch.questions.map(question => {
+    const answers = Object.fromEntries(batch.questions.map(rawQuestion => {
+        const question = {...rawQuestion, key: rawQuestion.key.replace(/__semantic_(facts|execution)$/, '')};
       if (question.type === 'noul') {
         let p = 0;
         if (batch.family === 'check-selection-profiles' && question.key === 'remaining') p = skills.some(skill => !settled.has(skill)) ? 1 : 0;
 
         if (batch.family === 'check-selection-need' && !question.key.endsWith('_blocked')) {
-          const check = batch.state.checks[question.key.replace(/_(uncertain|unsettled)$/, '')];
+          const check = batch.state.checks[question.key.replace(/_(uncertain|unsettled|selected)$/, '')];
           p = skills.includes(check?.action?.skill) && !settled.has(check.action.skill) && check.action.actor === batch.state.context.conditions[0].actor ? 1 : 0;
         }
         if (batch.family === 'check-selection-need' && question.key.endsWith('_blocked')) {
@@ -149,7 +150,7 @@ for (const skills of [['Listen'], ['Listen', 'Spot Hidden']]) test(`the agent co
           p = check?.action?.skill === 'Spot Hidden' && !settled.has('Listen') ? 1 : 0;
         }
         if (batch.family === 'check-selection-authority') p = 1;
-        return [question.key, {status: 'answered', type: 'noul', noul: p}];
+        return [rawQuestion.key, {status: 'answered', type: 'noul', noul: p}];
       }
       let selected;
       if (batch.family === 'single-loop-route' && question.key.startsWith('need_')) {
@@ -160,7 +161,7 @@ for (const skills of [['Listen'], ['Listen', 'Spot Hidden']]) test(`the agent co
         .find(([, value]) => skills.includes(value?.skill) && !settled.has(value.skill) && value.actor === batch.state.context.conditions[0].actor)?.[0];
       if (batch.family === 'check-selection-bind') selected = Object.entries(question.criteria).find(([, label]) => ['investigate', 'regular', 'none'].includes(label))?.[0];
       selected ??= question.key === 'exit' ? 'finish' : 'unknown' in question.criteria ? 'unknown' : 'later' in question.criteria ? 'later' : Object.keys(question.criteria)[0];
-      return [question.key, {status: 'answered', type: 'choice', choice: selected, confidence: 1,
+      return [rawQuestion.key, {status: 'answered', type: 'choice', choice: selected, confidence: 1,
         probabilities: Object.fromEntries(Object.keys(question.criteria).map(key => [key, key === selected ? 1 : 0]))}];
     }));
     return bindDecisionAnswers(batch, answers, {inputTokens: 1, outputTokens: 1, costUsd: 0});

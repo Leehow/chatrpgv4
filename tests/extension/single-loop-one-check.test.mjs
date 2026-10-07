@@ -1,3 +1,9 @@
+
+const semanticKey = key => key.replace(/__semantic_(facts|execution)$/, '');
+function issuedProbabilities(question, selected, confidence, supplied) {
+  const keys = Object.keys(question.criteria), top = (1 + (keys.length - 1) * confidence) / keys.length;
+  return Object.fromEntries(keys.map(key => [key, supplied ? supplied[key] ?? 0 : key === selected ? top : (1-top)/(keys.length-1)]));
+}
 /**
  * SL-43 (owner ruling 2026-09-24, "A declaration's act is settled once"; contract §135.30.8).
  *
@@ -200,7 +206,7 @@ function gate4Jev({ firstAct = 0.96 } = {}) {
 		}
 		if (batch.family === BIND_FAMILY)
 			return complete(Object.fromEntries(batch.questions.map((question) => [question.key,
-				choice([({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" })[question.key] ?? "unknown", 0.9])])));
+				choice([({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" })[semanticKey(question.key)] ?? "unknown", 0.9, issuedProbabilities(question,({skill:"Persuade",bonus:"none",penalty:"none",intent:"social"})[semanticKey(question.key)]??"unknown",.9)])])));
 		if (batch.family === "ordinary-resolve")
 			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(question.key === "profile"
 				? [aliasWhere(question, (value) => value?.skill === "Persuade"), 0.99]

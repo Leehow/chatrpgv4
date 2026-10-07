@@ -1,3 +1,9 @@
+
+const semanticKey = key => key.replace(/__semantic_(facts|execution)$/, '');
+function issuedProbabilities(question, selected, confidence, supplied) {
+  const keys = Object.keys(question.criteria), top = (1 + (keys.length - 1) * confidence) / keys.length;
+  return Object.fromEntries(keys.map(key => [key, supplied ? supplied[key] ?? 0 : key === selected ? top : (1-top)/(keys.length-1)]));
+}
 /**
  * SL-02 at the extension seam (spec pi-native-single-loop; contract §135): the hybrid engine on a real Pi session
  * from the vendored build, with a stub Jev `DecisionPort` and the faux provider behind Pi's provider path.
@@ -33,8 +39,8 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 function answered(batch, pick = () => undefined) {
 	const answers = {};
 	for (const question of batch.questions) {
-		const choice = pick(question) ?? (question.key === "exit" ? "continue" : Object.keys(question.criteria)[0] === "now" ? "later" : "unknown");
-		answers[question.key] = { status: "answered", type: "choice", choice, confidence: 0.9, probabilities: { [choice]: 0.9 } };
+		const choice = pick({...question,key:semanticKey(question.key)}) ?? (question.key === "exit" ? "continue" : Object.keys(question.criteria)[0] === "now" ? "later" : "unknown");
+		answers[question.key] = { status: "answered", type: "choice", choice, confidence: 0.9, probabilities: issuedProbabilities(question,choice,.9) };
 	}
 	return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
 }
@@ -548,7 +554,7 @@ test("SL-08: a model's apply cannot carry the host-only inference marker: the Ke
 test("a Keeper batch whose step fails returns to the Keeper at once: the rest is not run and no route question comes first", async (t) => {
 	const table = await hybridTable({
 		env: { FAKE_KERNEL_WORKSPACE: "1" },
-		decide: (batch) => answered(batch, (question) => question.key === "exit" ? "ask_llm" : undefined),
+		decide: (batch) => answered(batch, (question) => question.key === "exit" ? "ask_llm" : question.criteria.costs ? "none" : undefined),
 		responses: [
 			// The batch: a check the kernel refuses (it cannot tell which rule applies), then a clue that depends on it.
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "歧义的一眼", method: "看门框" } }),

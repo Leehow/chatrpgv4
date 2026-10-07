@@ -283,6 +283,12 @@ const tookTheJob = (workspace) => kernelSteps(workspace, [
 const aliasWhere = (question, match) => Object.entries(question?.criteria ?? {}).find(([, value]) => match(value))?.[0];
 /** One choice answer: `[choice, confidence, probabilities?]`. */
 const choice = ([value, confidence, probabilities]) => ({ status: "answered", type: "choice", choice: value, confidence, probabilities: probabilities ?? { [value]: confidence } });
+const semanticKey = (key) => key.replace(/__semantic_(facts|execution)$/, '');
+const bindChoice = (question, intended) => {
+  const [value, confidence, probabilities] = intended, keys = Object.keys(question.criteria);
+  const top = (1 + (keys.length - 1) * confidence) / keys.length;
+  return choice([value, confidence, Object.fromEntries(keys.map(key => [key, probabilities ? probabilities[key] ?? 0 : key === value ? top : (1-top)/(keys.length-1)]))]);
+};
 const complete = (answers) => ({ batchId: "b", status: "complete", answers, issues: [],
 	coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] } });
 /**
@@ -295,7 +301,7 @@ function stubJev(compile) {
 			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(compile(question) ?? ["unclear", 0.9])])));
 		if (batch.family === BIND_FAMILY)
 			return complete(Object.fromEntries(batch.questions.map((question) => [question.key,
-				choice([({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" })[question.key] ?? "unknown", 0.9])])));
+				bindChoice(question, [({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" })[semanticKey(question.key)] ?? "unknown", 0.9])])));
 		return complete(Object.fromEntries(batch.questions.map((question) => [question.key,
 			choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9])])));
 	} };
@@ -468,34 +474,40 @@ function gate7Jev(skill) {
 		if (batch.family === COMPILE_FAMILY)
 			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(gate7Compile(question) ?? ["unclear", 0.9])])));
 		if (batch.family === BIND_FAMILY)
-			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(question.key === "skill" ? skill
-				: [({ bonus: "none", penalty: "none", intent: "social" })[question.key] ?? "unknown", 0.84])])));
+			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, bindChoice(question, semanticKey(question.key) === "skill" ? skill
+				: [({ bonus: "none", penalty: "none", intent: "social" })[semanticKey(question.key)] ?? "unknown", 0.84])])));
 		return complete(Object.fromEntries(batch.questions.map((question) => [question.key,
 			choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9])])));
 	} };
 }
 
-test("SL-21 (§32.12): the check the compile selected keeps its evidence through the book's meeting and its bind -- admitted path compile, no lane", async (t) => {
+test("SL-21 (§32.12): the check the compile selected keeps its evidence through the book's meeting and its bind -- high evidence stays compile, low pooled evidence receives canonical review", async (t) => {
 	for (const [label, skill, expected] of [
 		["Jev's approach above the gate", ["Persuade", 0.9], { value: "Persuade", path: "jev" }],
 		["the gate #7 approach: Persuade 0.67 at confidence 0.59, under the gate", ["Persuade", 0.59, { Persuade: 0.67, unknown: 0.31, Intimidate: 0, Charm: 0, "Fast Talk": 0.02 }],
-			{ value: "Persuade", path: "rule-default", rule: "jev_lead" }],
+			{ value: "Persuade", path: "jev", cleared: false }],
 	]) await t.test(label, async (tt) => {
 		const table = await hybrid(tt, { prepare: movedIn, compile: gate7Compile, engine: { decision: gate7Jev(skill) }, responses: narrateOnly("编辑松了口，放你下楼。") });
 		await table.session.prompt("我说明来意，请他帮忙调出科比特宅这些年的旧剪报。");
 		const telemetry = table.telemetry("test-camp");
-		const binds = telemetry.filter((row) => row.lane === "run" && row.event === "bind");
+		const binds = telemetry.filter((row) => row.lane === "run" && row.event === "bind"
+      && ["apply:person:Arty Wilmot", `resolve:obligation:${ACCESS}`].includes(row.candidate));
 		assert.deepEqual(binds.map((row) => [row.candidate, row.status]), [["apply:person:Arty Wilmot", "succeeded"], [`resolve:obligation:${ACCESS}`, "succeeded"]],
 			"the book's meeting is carried first, then the check");
 		const record = binds[1].bindings.find((entry) => entry.name === "skill");
 		assert.deepEqual([record.value, record.path, record.rule], [expected.value, expected.path, expected.rule]);
+    if (expected.cleared === false) assert.equal(record.cleared, false);
+    else assert.notEqual(record.cleared, false);
 		const [row] = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "resolve");
 		assert.ok(row, "the clerk's check reached admission");
 		assert.equal(row.basis?.compile?.predicate, "obligation_check", "the check that ran after the meeting still carries the compile's basis");
 		assert.deepEqual(row.basis.compile.read_features.ask, { row: `obligation:${ACCESS}`, confidence: 0.91, cleared: true });
-		assert.deepEqual([row.path, row.reviewer, row.verdict, row.compile_refused], ["compile", "compile", "authorized", undefined]);
-		assert.equal(row.binding_paths.skill, expected.path);
-		assert.equal(table.lanes.admission.requests().length, 0, "the lane was never asked");
+		assert.deepEqual([row.path, row.reviewer, row.verdict, row.compile_refused], expected.cleared === false
+      ? ["lane", "lane", "authorized", "parameter_not_cleared:skill"]
+      : ["compile", "compile", "authorized", undefined]);
+		if (expected.cleared !== false) assert.equal(row.binding_paths.skill, expected.path);
+		assert.equal(table.lanes.admission.requests().length, expected.cleared === false ? 1 : 0);
+    assert.ok(telemetry.some(row => row.tool === "resolve" && row.origin === "policy" && row.ok && row.basis?.obligation === ACCESS), "the admitted check reached the kernel");
 	});
 	// The carried check whose exemption is refused says why, like any compile selection (§32.12).
 	await t.test("the carried check with its fired-on ask under the gate: reviewed, compile_refused recorded", async (tt) => {
@@ -520,19 +532,21 @@ function scopedCheckJev({method = 0.99, uncertainty = 0.99, difficultyOverride =
       choice(question.key === 'act' ? [aliasWhere(question, value => typeof value === 'string' && value.startsWith('investigate')), 0.99]
         : question.key === 'destination' ? ['none', 0.99] : ['unclear', 0.99])])));
     const settled = batch.state.context?.current_receipts?.some(receipt => receipt.kind === 'roll' && receipt.skill === 'Spot Hidden');
-    return complete(Object.fromEntries(batch.questions.map(question => {
+    return complete(Object.fromEntries(batch.questions.map(rawQuestion => {
+      const question = {...rawQuestion, key: rawQuestion.key.replace(/__semantic_(facts|execution)$/, '')};
       if (question.type === 'noul') {
         let p = 0.01;
         if (batch.family === 'check-selection-profiles' && question.key === 'remaining') p = settled ? 0.01 : 0.99;
         if (batch.family.startsWith('check-selection-need')) {
-          const check = batch.state.checks[question.key.replace(/_(uncertain|unsettled|blocked)$/, '')];
-          if (question.key.endsWith('_unsettled')) p = settled ? 0.01 : 0.99;
+          const check = batch.state.checks[question.key.replace(/_(uncertain|unsettled|blocked|selected)$/, '')];
+          if (question.key.endsWith('_selected')) p = check?.action.skill === 'Spot Hidden' ? method : 0.01;
+          else if (question.key.endsWith('_unsettled')) p = settled ? 0.01 : 0.99;
           else if (question.key.endsWith('_uncertain')) p = uncertainty;
           else if (!question.key.endsWith('_blocked') && check?.action.skill === 'Spot Hidden') p = method;
         }
         if (batch.family.startsWith('check-selection-defaults')) p = question.target === 'difficulty' ? difficultyOverride : question.target === 'penalty' ? penaltyOverride : 0.01;
         if (batch.family === 'check-selection-authority') p = 0.99;
-        return [question.key, {status: 'answered', type: 'noul', noul: p}];
+        return [rawQuestion.key, {status: 'answered', type: 'noul', noul: p}];
       }
       let value;
       if (batch.family === 'single-loop-route' && question.key.startsWith('need_')) {
@@ -542,7 +556,9 @@ function scopedCheckJev({method = 0.99, uncertainty = 0.99, difficultyOverride =
       if (batch.family === 'check-selection-profiles') value = aliasWhere(question, option => option?.skill === 'Spot Hidden');
       if (batch.family === 'check-selection-bind') value = aliasWhere(question, option => option === ({intent: 'investigate', difficulty: 'hard', penalty: 'one'})[question.target]);
       value ??= question.key === 'exit' ? 'finish' : 'unknown' in question.criteria ? 'unknown' : 'later' in question.criteria ? 'later' : Object.keys(question.criteria)[0];
-      return [question.key, choice([value, 0.99])];
+      const confidence = 0.99, keys = Object.keys(question.criteria);
+      const probabilities = Object.fromEntries(keys.map(key => [key, key === value ? confidence : (1 - confidence) / (keys.length - 1)]));
+      return [rawQuestion.key, choice([value, confidence, probabilities])];
     })));
   }};
 }
@@ -654,7 +670,7 @@ const firstBlowJev = { decide: async (batch) => {
 			? [aliasWhere(question, (value) => typeof value === "string" && value.startsWith("combat")), 0.95]
 			: question.key === "target" ? [aliasWhere(question, (value) => JSON.stringify(value).includes("Steven Knott")), 0.95] : ["unclear", 0.9])])));
 	if (batch.family === BIND_FAMILY)
-		return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice([question.key === "weapon" ? "unarmed" : "unknown", 0.9])])));
+		return complete(Object.fromEntries(batch.questions.map((question) => [question.key, bindChoice(question, [semanticKey(question.key) === "weapon" ? "unarmed" : "unknown", 0.9])])));
 	return complete(Object.fromEntries(batch.questions.map((question) => [question.key,
 		choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9])])));
 } };

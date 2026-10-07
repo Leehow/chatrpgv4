@@ -47,8 +47,8 @@ const move = { key: "apply:move:globe", verb: "apply", family: "move", label: "G
 function route(batch, now = [], exit = "continue") {
 	const answers = {};
 	for (const question of batch.questions) {
-		const choice = question.key === "exit" ? exit : now.some((label) => question.target.includes(label)) ? "now" : "later";
-		answers[question.key] = { status: "answered", type: "choice", choice, confidence: 0.95, probabilities: { [choice]: 0.95 } };
+		const choice = baseQuestion(question).key === "exit" ? exit : Object.hasOwn(question.criteria, "costs") ? now.some((label) => question.target.includes(label)) ? "costs" : "none" : now.some((label) => question.target.includes(label)) ? "now" : "later";
+		answers[question.key] = issuedChoice(question, choice, 0.95);
 	}
 	return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
 }
@@ -135,11 +135,18 @@ test("a spent decision budget composes once; after it the Keeper's own batches c
 // Extension seam: the hybrid engine over the emitted kernel on the Haunting.
 // ---------------------------------------------------------------------------------------------------
 
+const baseQuestion = (question) => ({ ...question, key: question.key.replace(/__(?:semantic_facts|semantic_execution)$/, "") });
+function issuedChoice(question, value, confidence = 0.9) {
+	const keys = Object.keys(question.criteria);
+	assert.ok(keys.includes(value), `fixture choice ${value} is not issued for ${question.key}`);
+	return { status: "answered", type: "choice", choice: value, confidence,
+		probabilities: Object.fromEntries(keys.map((key) => [key, keys.length === 1 ? 1 : key === value ? confidence : (1 - confidence) / (keys.length - 1)])) };
+}
 function answered(batch, pick = () => undefined) {
 	const answers = {};
 	for (const question of batch.questions) {
-		const choice = pick(question) ?? (question.key === "exit" ? "continue" : Object.keys(question.criteria)[0] === "now" ? "later" : "unknown");
-		answers[question.key] = { status: "answered", type: "choice", choice, confidence: 0.9, probabilities: { [choice]: 0.9 } };
+		const choice = pick(baseQuestion(question)) ?? (baseQuestion(question).key === "exit" ? "continue" : Object.hasOwn(question.criteria, "costs") ? "none" : Object.keys(question.criteria)[0] === "now" ? "later" : Object.hasOwn(question.criteria, "unclear") ? "unclear" : "unknown");
+		answers[question.key] = issuedChoice(question, choice);
 	}
 	return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
 }

@@ -80,6 +80,7 @@ function timeCandidate(rows: TimeBandRow[], rawInput: string, gate: number | und
     composed: ['why'],
     ...(Object.keys(durations).length ? {timeDurations: durations} : {}),
     unbound: [{name: 'band', required: true, vocabulary: 'closed', options, descriptions, instruction: String(question.instructions)
+      + ' Select the activity or exact interval the declaration currently chooses to occur now. A future plan, inquiry about another activity, quotation, estimate, deadline, negation of this activity or conditional step not yet reached belongs to unknown. Current conversation is itself an activity; negating another activity does not negate a current choice. Do not require narrated completion or invent NPC agreement, permission or a venue.'
       + ' An explicit interval that is not offered must remain unknown; never choose an estimated activity band to replace it.'
       + (Object.keys(durations).length ? ' If the declaration chooses a fixed interval to elapse now, choose its exact literal duration instead of an estimated activity band. A historical interval, quoted promise, estimate, deadline, negated action or conditional future interval is not chosen time. A bounded wait that ended earlier uses only its actually settled interval. Compound or otherwise unsupported exact intervals need unknown; never substitute an estimate for them. The lexer only enumerates syntax; it grants no action or story outcome.' : ''),
       band: {table: 'time-costs', field: 'time.band', primitive: 'choice', ...(gate !== undefined ? {gate} : {})}}],
