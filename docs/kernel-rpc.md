@@ -37231,3 +37231,76 @@ uses yet (PT-03). Decisions:
   that knows the ranges (PT-03). `ensure` answers `{state, queued, reused: {home, seed}, skipped}`; `idle()` and `close()`
   serve owners and tests. Reader children close stdin (`stdio: ["ignore", ...]` in `runReader`), so `pi -p` never waits
   for EOF.
+
+*PT-03 (readers, 2026-10-07).* Code: `extensions/module/source-page-text.ts` (`readSourcePageText`, `readingText`,
+`layerRevision`), the source worker's op `pagetext` (`runtime/source-worker.ts`, `runtime/tasks.ts`, `runtime/host.ts`
+`sourcePageText`), `TranscriptStore.readPages`/`recordedPages` and `transcriptStoreFromEnv` in
+`extensions/module/transcript-store.ts`, `sourceSearch`'s optional store (`extensions/module/source.ts`), the reading
+service (`sourcePages`, `wantTranscripts`, `transcribeWindow`, `windowPlacePages`), the module extension's
+`coc:transcript-wanted` listener, the kernel extension's landing rows, `runtime/jev/window-places.ts`,
+`runtime/jev/source-reader-driver.ts`, `runtime/jev/native-source-catalog.ts` (`layer`, `mergeSourceCatalogs`,
+`layeredBundles`, `layeredSourceCatalog`), `runtime/jev/prescreen-source-provider.ts`,
+`runtime/jev/source-owner-operations.ts` and `extensions/table/context-runtime.ts`. Tests:
+`tests/extension/page-transcript-readers.test.mjs`, the `§191.7` case of `tests/extension/person-text-landing.test.mjs`.
+Decisions:
+
+- **`sourcePageText` runs in the source worker**, as `search` does: the worker reads the store of its environment
+  (`PI_COC_HOME`, `PI_COC_CONTENT_ROOT`, which every owner's runtime already gives it) and calls `sourceText` in-process for
+  the pages without a record. The host process never loads PDF.js for it (a host-side composition pulled PDF.js and the
+  native canvas into `build/runtime/host.mjs`, which the App's own process loads). Every row carries `text_sha256` and a
+  `revision` over its own layer's version (§22.1's formula), so a consultation catalog of either layer validates the same
+  way; the answer carries `page_count` and `native_extraction_version` only when native text was read. When every page has
+  a record the PDF is not opened: the records are of the digest the caller named (without one, the worker hashes the file).
+- **Landing.** `ReadingService.sourcePages` answers `text` = the transcript's `markdown` and `layer` per page; the pages it
+  read natively go to `ensure` (foreground) through `wantTranscripts`, never awaited. A runtime without `sourcePageText`
+  is native. The kernel extension carries the Keeper the page and its text without `layer`; the `scene_text` and
+  `person_text` rows gain `layer` (`transcript`, `native`, or `mixed`) and `transcript_pages`.
+- **The cast reader** reads the transcript where one exists (`markdown`, image text inside its markers) and queues nothing
+  (`params.transcribe: false`): it reads the whole book, and queuing it would transcribe the whole book outside the window.
+- **Read-ahead.** Every read-ahead that names `window.transcript` hands its pages, in priority order, to `ensure`
+  (background) after a `module.source.snapshot` for the bound file; neither is awaited by the read-ahead. The `window` row
+  (`lane: "transcript"`) is written once per change of (file digest, ranges) per campaign and module, and carries
+  `module_id`, `campaign` and the `ensure` answer's `state` beside §191.9's `{file_sha256, ranges, queued}` (`queued` is
+  the page list `ensure` queued). Without a transcript service nothing is asked.
+- **Foreground wants from outside the reading service.** The Keeper prescreen (table extension) reaches the queue through
+  the bus event `coc:transcript-wanted` `{pdf, file_sha256, pages}`, which the module extension hands to
+  `wantTranscripts`. A consultation wants the native pages of the parts its qualification selected and the pages of an
+  explicit continuation (`readNativePages`); the broad sample of pages a prescreen materializes every turn is not wanted
+  (that would transcribe pages spread over the whole book each turn). A need read's child has no channel to the host's
+  queue: once it exits, the reading service reads its receipt and wants the receipt's located `candidates` when the
+  disposition is `read`.
+- **Search.** `sourceSearch(pdf, options, signal, store?)`: a page with a readable record is searched in its exact `text`,
+  then its `image_text` joined by newlines; every match carries `layer`, one found only in image text `image_text: true`;
+  a transcribed page counts as with text when either holds text. `text_availability.transcript_pages` is present when a
+  store was given (so the native-only shape is unchanged), and the guidance adds one sentence about `image_text` when a
+  page was searched in a transcript. The source worker (the prescreen's literal search and every host `sourceSearch`), the
+  reader child's `pdf search` and the Jev driver's cursor continuation pass the store of their environment; the cursor
+  binding is unchanged.
+- **Consultation units.** `nativeSourceCatalog(scope, bundle, sha, layer)` validates a transcript bundle exactly like a
+  native one (version `transcript-v1`, no extraction errors) and mints `pdf:<sha>:page:<n>:transcript:transcript-v1`;
+  snapshots keep `sourceType: "native_text"` (the exact layer is the page's own native lines). `mergeSourceCatalogs` joins
+  one catalog per layer in the pages' order (a page in one layer only); the merged `extractionVersion` is the native
+  layer's when present and `layers` names each layer's version. The readSet holds one `extraction` binding per layer read
+  (`pdf:<sha>:native`, `pdf:<sha>:transcript`). The checkpoint's single re-read page prefers a native page (a native-only
+  catalog is checked exactly as before) and stores `layer`; at check time a native page is re-read with `sourceText`, so a
+  page that gained a transcript since keeps its checkpoint `current`, and a transcript page is re-read through
+  `sourcePageText` (no record any more: `stale`, `source_extraction_changed`). `materializeNativeConsultation` re-reads
+  each selected part in its own layer (port `transcriptText`) and checks each layer's version. A continuation compares each
+  layer it read with the version the preparation read in that layer. `coverage.native` gains `transcript_pages` (pages
+  read in the transcript layer, with text or empty) and, when the literal search ran, `search_layers {transcript, native,
+  image_text}` (match counts); the prescreen's telemetry row carries them inside `source`. The task-runtime
+  `source.text` domain operation (`registerSourceOperations`) still reads native text only.
+- **Window places.** The lane's `pages` port answers the native `text` and, for a transcribed page, `reading` (the
+  markdown): the question's first lines read `reading`, the minted excerpt and the `no_text` gate stay on the native text
+  (a page without a text layer is still not asked: its place would carry no native excerpt).
+- **Jev source driver.** The child reads the store of `options.env` and only reads it. The whole-book native cache
+  (`native-navigation-v2.json`) stays native; after it is loaded or made, every page's transcript `markdown` is laid over it
+  as `reading`, and every navigation text reads `reading` when present: the section and child-section excerpts, the
+  anchor-scope state, the page-lead state, the need-kind excerpt, `needPageText` (a candidate's title line is the
+  markdown's first line) and the `source_navigation_only` pages (a transcribed page adds `layer: "transcript"`). The
+  page filter for leads (`relevant`), `partial` and `native_text_gaps` count a page with reading text, so a page with no
+  text layer but image text can be ranked. The reference packet (`selectReferencePacket`) is given native rows only. The
+  located-pages cache identity adds `transcript: {version, pages}` when any page has a transcript (absent otherwise, so
+  existing caches stay valid): a page that gains one is ranked again. Trace rows gain `transcript_pages` and
+  `searched_transcript_pages`.
+- **SL-00.** The layout child's inventory entry moves from `no-caller` to `app-play`.

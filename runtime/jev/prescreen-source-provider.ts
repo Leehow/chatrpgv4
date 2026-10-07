@@ -1,6 +1,7 @@
 /** #108 host-only original-source candidates for the optional Keeper prescreen. */
 import {createHash} from 'node:crypto';
-import {nativeSourceCatalog,type NativeTextBundle,type NativeSourceCatalog} from './native-source-catalog.ts';
+import {layeredBundles,layeredSourceCatalog,nativeSourceCatalog,sourceLayerOf,type LayeredPageText,type NativeTextBundle,
+  type NativeSourceCatalog,type SourceCatalogLayer} from './native-source-catalog.ts';
 import {issueSourceRef} from './source-ref.ts';
 import {nativeConsultationCoverageBatch,nativeConsultationInitialBatches,nativeSourceParts,
   validateNativeConsultationSelection,type NativeSourcePart,type SourceBinding} from './native-source-domain.ts';
@@ -55,6 +56,10 @@ export interface PrescreenSourceRuntime {
   sourceInfo(source:{pdf:string;cache:string},signal?:AbortSignal):Promise<{file_sha256:string;page_count:number}>;
   sourceSearch?(source:{pdf:string;query:string;first_page?:number;last_page?:number;limit?:number;cursor?:string},signal?:AbortSignal):Promise<Row>;
   sourceText(source:{pdf:string;pages:number[];expected_file_sha256:string},signal?:AbortSignal):Promise<NativeTextBundle>;
+  /** §191.7: pages in the layer asked for; absent, every page is native. */
+  sourcePageText?(source:{pdf:string;pages:number[];expected_file_sha256:string;layer?:'preferred'|'native'},signal?:AbortSignal):Promise<LayeredPageText>;
+  /** §191.6: pages a consultation wanted now and read natively, for the front of the transcript queue (never awaited). */
+  wantTranscripts?(request:{pdf:string;file_sha256:string;pages:number[]}):void;
 }
 export interface PrescreenSourceCheckpoint {
   version:1;
@@ -65,7 +70,8 @@ export interface PrescreenSourceCheckpoint {
   pdf:string;
   file_sha256:string;
   page_count:number;
-  extraction?:{version:string;page:number};
+  /** One materialized page re-read at check time, in the layer it was read in (§191.7; absent `layer` is native). */
+  extraction?:{version:string;page:number;layer?:SourceCatalogLayer};
   readSet:ReadSet;
 }
 export interface PrescreenSourceResult {
@@ -75,7 +81,11 @@ export interface PrescreenSourceResult {
     native:{searched_ranges:number[][];unsearched_ranges:number[][];materialized_pages:number[];unmaterialized_pages:number[];
       empty_pages:number[];error_pages:number[];candidate_omitted:number;
       /** Provider-stage omissions only. Final delivery omissions belong to the consumer after selection. */
-      material_omitted:number;search_error?:string;extraction_error?:string;next?:{cursor:string}};
+      material_omitted:number;search_error?:string;extraction_error?:string;next?:{cursor:string};
+      /** §191.7: the pages read in the transcript layer, with text or empty (every other page read is native). */
+      transcript_pages:number[];
+      /** §191.7: the literal search's matches by layer, and those found only in a transcript's image text. */
+      search_layers?:{transcript:number;native:number;image_text:number}};
   };
   readSet:ReadSet;
   /** Host-only serializable freshness binding for prepared-packet reuse. */
@@ -175,6 +185,26 @@ function decisionChoice(result:DecisionResult,key:string):string|undefined {
   const answer=result.answers[key];return result.status==='complete'&&answer?.status==='answered'&&answer.type==='choice'?answer.choice:undefined;
 }
 
+/**
+ * §191.7: the bound pages as a consultation catalog. A runtime that reads page transcripts gives one catalog per layer
+ * (transcribed pages in their exact layer, every other page native), merged in the pages' order; otherwise native only.
+ */
+async function readCatalog(source:PrescreenSourceRuntime,scope:ScopeBinding,snapshot:{pdf:string;file_sha256:string;page_count:number},
+  pages:number[],signal:AbortSignal):Promise<NativeSourceCatalog> {
+  if(!source.sourcePageText)return nativeSourceCatalog(scope,await source.sourceText({pdf:snapshot.pdf,pages,expected_file_sha256:snapshot.file_sha256},signal),snapshot.file_sha256);
+  const read=await source.sourcePageText({pdf:snapshot.pdf,pages,expected_file_sha256:snapshot.file_sha256,layer:'preferred'},signal);
+  return layeredSourceCatalog(scope,layeredBundles(read,snapshot.file_sha256,snapshot.page_count),snapshot.file_sha256,pages);
+}
+/** Each page of a catalog with the layer it was read in. */
+function pageLayers(catalog:NativeSourceCatalog):Map<number,SourceCatalogLayer> {
+  return new Map(catalog.snapshots.map(snapshot=>[Number(snapshot.resource.split(':')[3]),sourceLayerOf(snapshot.resource)]));
+}
+/** §191.6: tell the transcript queue which pages a consultation wanted and read natively; never a failure of the read. */
+function wantTranscripts(source:PrescreenSourceRuntime,snapshot:{pdf:string;file_sha256:string},pages:number[]):void {
+  if(!source.wantTranscripts||!pages.length)return;
+  try{source.wantTranscripts({pdf:snapshot.pdf,file_sha256:snapshot.file_sha256,pages:[...new Set(pages)]});}catch{/* the queue is never the read's failure */}
+}
+
 export async function checkPrescreenSourceCheckpoint(input:{
   call(method:string,params:Row):Promise<Row>;
   source:PrescreenSourceRuntime;
@@ -190,7 +220,8 @@ export async function checkPrescreenSourceCheckpoint(input:{
       ||!checkpoint.pdf||!sha(checkpoint.file_sha256)||!Number.isSafeInteger(checkpoint.page_count)||checkpoint.page_count<1
       ||!Array.isArray(checkpoint.readSet)||checkpoint.extraction!==undefined
         &&(typeof checkpoint.extraction.version!=='string'||!checkpoint.extraction.version||!Number.isSafeInteger(checkpoint.extraction.page)
-          ||checkpoint.extraction.page<1||checkpoint.extraction.page>checkpoint.page_count))return{status:'unavailable',reason:'invalid_source_checkpoint'};
+          ||checkpoint.extraction.page<1||checkpoint.extraction.page>checkpoint.page_count
+          ||checkpoint.extraction.layer!==undefined&&!['native','transcript'].includes(checkpoint.extraction.layer)))return{status:'unavailable',reason:'invalid_source_checkpoint'};
     if(!Number.isFinite(remaining)||remaining<=0)return{status:'stale',reason:'source_material_deadline'};
     const signal=AbortSignal.any([input.signal,AbortSignal.timeout(Math.max(1,remaining))]);
     const [current,info]=await Promise.all([
@@ -200,10 +231,21 @@ export async function checkPrescreenSourceCheckpoint(input:{
     if(bound.revision!==checkpoint.revision||bound.answers_revision!==checkpoint.answers_revision
       ||info.file_sha256!==checkpoint.file_sha256||info.page_count!==checkpoint.page_count)return{status:'stale',reason:'source_material_changed'};
     if(checkpoint.extraction){
-      const bundle=await input.source.sourceText({pdf:checkpoint.pdf,pages:[checkpoint.extraction.page],
-        expected_file_sha256:checkpoint.file_sha256},signal);
-      if(bundle.page_count!==checkpoint.page_count)return{status:'stale',reason:'source_material_changed'};
-      const catalog=nativeSourceCatalog(input.scope,bundle,checkpoint.file_sha256);
+      // §191.7: the page is re-read in the layer it was read in, so a page that gained a transcript since keeps its checkpoint.
+      let catalog:NativeSourceCatalog;
+      if(checkpoint.extraction.layer==='transcript'){
+        if(!input.source.sourcePageText)return{status:'unavailable',reason:'source_extraction_unavailable'};
+        const read=await input.source.sourcePageText({pdf:checkpoint.pdf,pages:[checkpoint.extraction.page],
+          expected_file_sha256:checkpoint.file_sha256,layer:'preferred'},signal);
+        const bundles=layeredBundles(read,checkpoint.file_sha256,checkpoint.page_count);
+        if(!bundles.transcript)return{status:'stale',reason:'source_extraction_changed'};
+        catalog=nativeSourceCatalog(input.scope,bundles.transcript,checkpoint.file_sha256,'transcript');
+      }else{
+        const bundle=await input.source.sourceText({pdf:checkpoint.pdf,pages:[checkpoint.extraction.page],
+          expected_file_sha256:checkpoint.file_sha256},signal);
+        if(bundle.page_count!==checkpoint.page_count)return{status:'stale',reason:'source_material_changed'};
+        catalog=nativeSourceCatalog(input.scope,bundle,checkpoint.file_sha256);
+      }
       if(catalog.extractionVersion!==checkpoint.extraction.version)return{status:'stale',reason:'source_extraction_changed'};
       if(!catalog.coverage.textPages.includes(checkpoint.extraction.page)&&!catalog.coverage.emptyPages.includes(checkpoint.extraction.page))
         return{status:'unavailable',reason:'source_extraction_unavailable'};
@@ -225,14 +267,16 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
   const candidates:PrescreenSourceCandidate[]=[],usage={candidate:0};let checkedOmitted=Number(snapshot.checked_answers_omitted),candidateOmitted=0;
   for(const row of snapshot.checked_answers){const candidate=answerCandidate(row,snapshot,input.scope,input.query);if(!candidate){checkedOmitted++;continue;}
     if(fit(candidates,candidate,budget,usage)!=='ok')checkedOmitted++;}
-  const searched=new Set<number>(),matches:number[]=[];let next:string|undefined,searchError:string|undefined;
+  const searched=new Set<number>(),matches:number[]=[];let next:string|undefined,searchError:string|undefined,searchLayers:{transcript:number;native:number;image_text:number}|undefined;
   const literal=Array.from(input.query.trim()).slice(0,256).join('');
   if(input.source.sourceSearch&&literal)try{
     const result=await input.source.sourceSearch({pdf:snapshot.pdf,query:literal,first_page:1,last_page:snapshot.page_count,limit:20},signal);
     const scope=isPlainRecord(result.scope)?result.scope:{};
     if(Number.isSafeInteger(scope.searched_first_page)&&Number.isSafeInteger(scope.searched_last_page))
       for(let page=Number(scope.searched_first_page);page<=Number(scope.searched_last_page);page++)searched.add(page);
-    for(const row of Array.isArray(result.matches)?result.matches:[])if(Number.isSafeInteger(row.page)&&row.page>=1&&row.page<=snapshot.page_count)matches.push(row.page);
+    searchLayers={transcript:0,native:0,image_text:0};
+    for(const row of Array.isArray(result.matches)?result.matches:[])if(Number.isSafeInteger(row.page)&&row.page>=1&&row.page<=snapshot.page_count){matches.push(row.page);
+      if(row.layer==='transcript')searchLayers.transcript++;else searchLayers.native++;if(row.image_text===true)searchLayers.image_text++;}
     if(result.truncated===true&&typeof result.next_cursor==='string')next=result.next_cursor;
   }catch(error){if(signal.aborted)throw error;searchError=error instanceof Error?error.message.slice(0,160):'source_search_unavailable';}
   const maxPages=positive(budget.maxNativePages,16,32),broad=spreadPages(snapshot.page_count,maxPages);
@@ -242,15 +286,18 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
   while(reserved.length>=maxPages)reserved.shift();
   const pages=[...samplePages(cited,maxPages-reserved.length),...reserved];
   for(const page of [...matches,...broad,...cited])if(pages.length<maxPages&&!pages.includes(page))pages.push(page);
-  let extractionVersion:string|undefined,recheckPage:number|undefined,emptyPages:number[]=[],errorPages:number[]=[],extractionError:string|undefined,
+  let extractionVersion:string|undefined,recheckPage:number|undefined,recheckLayer:SourceCatalogLayer|undefined,emptyPages:number[]=[],errorPages:number[]=[],extractionError:string|undefined,
     nativeCatalog:NativeSourceCatalog|undefined,nativeOwnerParts:NativeSourcePart[]=[];
-  const materialized=new Set<number>(),candidatePartAliases=new Map<string,string>();
+  const materialized=new Set<number>(),candidatePartAliases=new Map<string,string>(),transcribed=new Set<number>();
   if(pages.length){
     try{
-      const bundle=await input.source.sourceText({pdf:snapshot.pdf,pages,expected_file_sha256:snapshot.file_sha256},signal);
-      const catalog=nativeSourceCatalog(input.scope,bundle,snapshot.file_sha256);nativeCatalog=catalog;nativeOwnerParts=nativeSourceParts(catalog);
-      recheckPage=catalog.coverage.textPages[0]??catalog.coverage.emptyPages[0];
-      extractionVersion=recheckPage===undefined?undefined:catalog.extractionVersion;
+      const catalog=await readCatalog(input.source,input.scope,snapshot,pages,signal);nativeCatalog=catalog;nativeOwnerParts=nativeSourceParts(catalog);
+      const layerOf=pageLayers(catalog),read=[...catalog.coverage.textPages,...catalog.coverage.emptyPages];
+      for(const [page,layer] of layerOf)if(layer==='transcript')transcribed.add(page);
+      // The page re-read at check time: a native one when there is one (§191.7 names its layer either way).
+      recheckPage=read.find(page=>layerOf.get(page)!=='transcript')??read[0];
+      recheckLayer=recheckPage===undefined?undefined:layerOf.get(recheckPage)??'native';
+      extractionVersion=recheckPage===undefined?undefined:catalog.layers?.[recheckLayer!]??catalog.extractionVersion;
       emptyPages=[...catalog.coverage.emptyPages];errorPages=[...catalog.coverage.errorPages];
       for(const page of catalog.coverage.textPages)materialized.add(page);
       const byPage=new Map<number,typeof catalog.units>();
@@ -271,12 +318,13 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
     {kind:'source',resource:`module-source:${input.campaign}:${input.moduleId}`,revision:snapshot.revision},
     {kind:'source',resource:`source-answers:${input.campaign}:${input.moduleId}`,revision:snapshot.answers_revision},
     {kind:'source',resource:`pdf:${snapshot.file_sha256}`,revision:snapshot.file_sha256},
-    ...(extractionVersion?[{kind:'extraction' as const,resource:`pdf:${snapshot.file_sha256}:native`,revision:extractionVersion}]:[]),
+    ...(extractionVersion?(Object.entries(nativeCatalog?.layers??{native:extractionVersion}) as Array<[SourceCatalogLayer,string]>)
+      .map(([layer,version])=>({kind:'extraction' as const,resource:`pdf:${snapshot.file_sha256}:${layer}`,revision:version})):[]),
     {kind:'family',resource:'prescreen-source-materials',revision:'1'},
   ];
   const checkpoint:PrescreenSourceCheckpoint={version:1,campaign:input.campaign,module_id:input.moduleId,revision:snapshot.revision,
     answers_revision:snapshot.answers_revision,pdf:snapshot.pdf,file_sha256:snapshot.file_sha256,page_count:snapshot.page_count,
-    ...(extractionVersion!==undefined&&recheckPage!==undefined?{extraction:{version:extractionVersion,page:recheckPage}}:{}),readSet};
+    ...(extractionVersion!==undefined&&recheckPage!==undefined?{extraction:{version:extractionVersion,page:recheckPage,layer:recheckLayer??'native'}}:{}),readSet};
   const check=(checkSignal:AbortSignal=input.signal,validationDeadlineAt:number=deadlineAt)=>checkPrescreenSourceCheckpoint({call:input.call,source:input.source,scope:input.scope,
     signal:checkSignal,deadlineAt:validationDeadlineAt,checkpoint});
   const nativeQualificationActions=(selectedKeys:readonly string[]):number|undefined=>{
@@ -289,6 +337,7 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
     const gap=(status:'partial'|'unavailable',reason:string):PrescreenNativeQualification=>({status,reason,selectedKeys:keys,calls,
       gap:{reason,coverage:{status:'partial',supported:false,derived:false,omitted:['consultation_coverage'],limitations:[reason]},read:read('Authored source consultation',input.query)}});
     if(!nativeCatalog||!nativeOwnerParts.length||selectedAliases.some(alias=>!alias))return gap('partial','native_selection_unavailable');
+    wantTranscripts(input.source,snapshot,nativeOwnerParts.filter(part=>selectedAliases.includes(part.alias)&&sourceLayerOf(part.ref.resource)==='native').map(part=>part.page));
     const remaining=deadlineAt-Date.now();if(remaining<=0)return gap('unavailable','source_material_deadline');
     const qualifiedSignal=AbortSignal.any([caller,AbortSignal.timeout(Math.max(1,remaining))]),policy={question:input.query,requirements:[input.query] as Json[],constraints:[] as Json[],parts:nativeOwnerParts,coverage:nativeCatalog.coverage};
     try{
@@ -305,7 +354,11 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
       const binding:SourceBinding={module_id:input.moduleId,pdf:snapshot.pdf,file_sha256:snapshot.file_sha256,page_count:snapshot.page_count,revision:snapshot.revision};
       const materialized=await materializeNativeConsultation({port:{call:input.call,
         sourceInfo:(pdf,signal)=>input.source.sourceInfo({pdf,cache:input.source.home},signal),
-        sourceText:(pdf,pages,expected,signal)=>input.source.sourceText({pdf,pages,expected_file_sha256:expected},signal)},moduleId:input.moduleId,
+        sourceText:(pdf,pages,expected,signal)=>input.source.sourceText({pdf,pages,expected_file_sha256:expected},signal),
+        ...(input.source.sourcePageText?{transcriptText:async(pdf:string,pages:number[],expected:string,signal:AbortSignal)=>{
+          const bundles=layeredBundles(await input.source.sourcePageText!({pdf,pages,expected_file_sha256:expected,layer:'preferred'},signal),expected,snapshot.page_count);
+          if(!bundles.transcript||bundles.native)throw new Error('source_binding_stale');
+          return bundles.transcript;}}:{})},moduleId:input.moduleId,
         campaign:input.campaign,scope:input.scope,question:input.query,binding,catalog:nativeCatalog,
         approval:{question:input.query,verdict,classifications,coverage:nativeCatalog.coverage},signal:qualifiedSignal});
       const excerpts=materialized.sourceAnswer.excerpts as Row[],pages=[...new Set(excerpts.map(row=>Number(row.page)).filter(Number.isSafeInteger))],
@@ -321,22 +374,29 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
     omitted:checkedOmitted,invalid:snapshot.checked_answers_invalid},native:{searched_ranges:rangeSet(searched,snapshot.page_count),unsearched_ranges:complement(searched,snapshot.page_count),
       materialized_pages:[...materialized].sort((a,b)=>a-b),unmaterialized_pages:Array.from({length:snapshot.page_count},(_,i)=>i+1).filter(page=>!materialized.has(page)),
       empty_pages:emptyPages,error_pages:errorPages,candidate_omitted:candidateOmitted,material_omitted:0,
+      transcript_pages:[...transcribed].sort((a,b)=>a-b),...(searchLayers?{search_layers:searchLayers}:{}),
       ...(searchError?{search_error:searchError}:{}),...(extractionError?{extraction_error:extractionError}:{}),...(next?{next:{cursor:next}}:{})}}};
   if(extractionVersion)result.readNativePages=async(requested,caller)=>{
     const pages=[...new Set(requested)];
     if(!pages.length||pages.length>2||pages.some(page=>!Number.isSafeInteger(page)||page<1||page>snapshot.page_count
         ||!result.coverage.native.unmaterialized_pages.includes(page)))throw new Error('invalid_native_continuation');
     const active=AbortSignal.any([signal,caller]);active.throwIfAborted();
-    const bundle=await input.source.sourceText({pdf:snapshot.pdf,pages,expected_file_sha256:snapshot.file_sha256},active);
+    const catalog=await readCatalog(input.source,input.scope,snapshot,pages,active);
     active.throwIfAborted();
-    const catalog=nativeSourceCatalog(input.scope,bundle,snapshot.file_sha256);
-    if(catalog.extractionVersion!==extractionVersion||catalog.pageCount!==snapshot.page_count)throw new Error('source_extraction_changed');
+    // Each layer read here is the version the preparation read in it (a layer it did not read has nothing to compare).
+    const prepared=nativeCatalog?.layers??{native:extractionVersion};
+    if(catalog.pageCount!==snapshot.page_count||(Object.entries(catalog.layers??{}) as Array<[SourceCatalogLayer,string]>)
+      .some(([layer,version])=>prepared[layer]!==undefined&&prepared[layer]!==version))throw new Error('source_extraction_changed');
+    const layerOf=pageLayers(catalog);
+    wantTranscripts(input.source,snapshot,pages.filter(page=>layerOf.get(page)!=='transcript'));
     const observed=[...catalog.coverage.textPages,...catalog.coverage.emptyPages,...catalog.coverage.errorPages];
     if(observed.length!==pages.length||observed.some(page=>!pages.includes(page)))throw new Error('invalid_native_continuation');
     const fetched:PrescreenSourceCandidate[]=[],used={candidate:0},allowance={...budget,candidateBytes:budget.materialBytes};
     for(const unit of catalog.units){if(!pages.includes(unit.page))throw new Error('invalid_native_continuation');
       if(fit(fetched,nativeCandidate(unit,input.query,snapshot),allowance,used)!=='ok')result.coverage.native.candidate_omitted++;}
     for(const page of catalog.coverage.textPages)materialized.add(page);
+    for(const [page,layer] of layerOf)if(layer==='transcript')transcribed.add(page);
+    result.coverage.native.transcript_pages=[...transcribed].sort((a,b)=>a-b);
     result.coverage.native.materialized_pages=[...materialized].sort((a,b)=>a-b);
     result.coverage.native.unmaterialized_pages=result.coverage.native.unmaterialized_pages.filter(page=>!pages.includes(page));
     result.coverage.native.empty_pages=[...new Set([...result.coverage.native.empty_pages,...catalog.coverage.emptyPages])];

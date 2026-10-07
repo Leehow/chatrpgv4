@@ -6,6 +6,7 @@ import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { KernelClient, KernelError, type KernelClientOptions } from "../extensions/kernel/client.ts";
 import type { ReaderOutcome, ReaderRequest } from "../extensions/module/reader.ts";
 import { runtimeCapabilities } from "./tasks.ts";
+import type { SourcePageTextOptions, SourcePageTextResult } from "../extensions/module/source-page-text.ts";
 import {readJevApiKey} from '../extensions/jev/agent/config.js';
 import { parseModelsJson, stripLineComments } from "./json-comments.ts";
 import { assertWritableLocation, compiledEnvironment, readDeployment, resourcePath, resourceRootFrom,
@@ -42,6 +43,8 @@ export type RuntimeSourceSearch = { pdf: string } & import('../extensions/module
 export type RuntimeSourceText = { pdf: string } & import('../extensions/module/source.ts').SourceTextOptions;
 /** §191.1: the same request as `sourceText`. */
 export type RuntimeSourceLines = RuntimeSourceText;
+/** §191.7: `sourceText`'s request with the layer a reader wants (`preferred`: a page transcript when one exists). */
+export type RuntimeSourcePageText = { pdf: string } & SourcePageTextOptions;
 export type RuntimeSourceWindow = { pdf: string } & import('../extensions/module/source.ts').SourceWindowOptions;
 export type RuntimePage = RuntimeSource & { page: number; box?: number[]; pixels?: number; format?: "png" | "jpeg" };
 type SourceInfo = Awaited<ReturnType<typeof import("../extensions/module/source.ts").sourceInfo>>;
@@ -72,6 +75,8 @@ export interface RuntimeCapabilities {
 	sourceSearch?(context: RuntimeContext, request: RuntimeSourceSearch, signal: AbortSignal): Promise<SourceSearch>;
 	sourceText?(context: RuntimeContext, request: RuntimeSourceText, signal: AbortSignal): Promise<SourceText>;
 	sourceLines?(context: RuntimeContext, request: RuntimeSourceLines, signal: AbortSignal): Promise<SourceLines>;
+	/** §191.7: the source worker reads the owner's page-transcript store (home and seeds) and the native text. */
+	sourcePageText?(context: RuntimeContext, request: RuntimeSourcePageText, signal: AbortSignal): Promise<SourcePageTextResult>;
 	sourceWindow?(context: RuntimeContext, request: RuntimeSourceWindow, signal: AbortSignal): Promise<SourceWindow>;
 }
 
@@ -95,6 +100,11 @@ export interface HostRuntime {
 	sourceText(request: RuntimeSourceText, signal?: AbortSignal): Promise<SourceText>;
 	/** Contract §191.1: the native text of pages as their non-empty lines, for page transcripts. */
 	sourceLines(request: RuntimeSourceLines, signal?: AbortSignal): Promise<SourceLines>;
+	/**
+	 * Contract §191.7: pages' text in a layer -- `preferred` reads a stored page transcript where one exists and the native
+	 * text elsewhere, `native` reads native text only. Never waits for a transcript.
+	 */
+	sourcePageText(request: RuntimeSourcePageText, signal?: AbortSignal): Promise<SourcePageTextResult>;
 	/** Contract §14.16: extract a physical page window of an original PDF into its own file. */
 	sourceWindow(request: RuntimeSourceWindow, signal?: AbortSignal): Promise<SourceWindow>;
 	close(): Promise<void>;
@@ -264,6 +274,7 @@ export function createRuntime(binding: RuntimeBinding, host: RuntimeHostOptions 
 		sourceSearch: (request, cancellation) => operation('sourceSearch', capabilities.sourceSearch && (s => capabilities.sourceSearch!(context, request, s)), cancellation),
 		sourceText: (request, cancellation) => operation('sourceText', capabilities.sourceText && (s => capabilities.sourceText!(context, request, s)), cancellation),
 		sourceLines: (request, cancellation) => operation('sourceLines', capabilities.sourceLines && (s => capabilities.sourceLines!(context, request, s)), cancellation),
+		sourcePageText: (request, cancellation) => operation('sourcePageText', capabilities.sourcePageText && (s => capabilities.sourcePageText!(context, request, s)), cancellation),
 		sourceWindow: (request, cancellation) => operation('sourceWindow', capabilities.sourceWindow && (s => capabilities.sourceWindow!(context, request, s)), cancellation),
 		close,
 	} satisfies HostRuntime);

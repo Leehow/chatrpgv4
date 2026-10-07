@@ -863,6 +863,15 @@ function providerNoticeAfterMs(): number {
 const ADAPTATION_HELD = ["pending", "reviewing", "ready"];
 /** Terminal adaptation statuses the table is told about once, by name, and never held for (§60). */
 const ADAPTATION_OVER = ["stale", "failed"];
+/**
+ * §191.7: the layer a landing's pages were read in, for its telemetry row -- `transcript` or `native` when every page shares
+ * it, `mixed` otherwise -- with the pages that were read from their page transcript.
+ */
+function landingLayer(pages: Array<{ page: number; layer?: string }>): { layer: string; transcript_pages: number[] } {
+	const layers = new Set(pages.map((page) => page.layer === "transcript" ? "transcript" : "native"));
+	return { layer: layers.size === 1 ? [...layers][0] : "mixed", transcript_pages: pages.filter((page) => page.layer === "transcript").map((page) => page.page) };
+}
+
 /** A proposal name or a move's destination, compared as an id: case, a `scene:` qualifier and separators folded. */
 function destinationId(value: unknown): string {
 	return typeof value === "string" ? value.trim().toLowerCase().replace(/^scene\s*:\s*/, "").replace(/[\s_-]+/g, "-") : "";
@@ -4602,7 +4611,7 @@ export default function (pi: ExtensionAPI) {
 		const effects = Array.isArray(payload.effects) ? payload.effects as unknown[] : undefined, index = details.effect;
 		const target = effects && typeof index === "number" ? effects[index] as Record<string, unknown> | undefined : undefined;
 		if (!focus || !pages.length || !target || target.kind !== "move" || !reading?.sourcePages || !readingModule) return undefined;
-		let texts: Array<{page: number; pdf_label?: string; text: string}>;
+		let texts: Array<{page: number; pdf_label?: string; text: string; layer?: string}>;
 		try { texts = (await reading.sourcePages(readingModule, pages, {}, signal)).filter((page) => page.text.trim().length > 0); }
 		catch (error) {
 			void record({ lane: "reading", event: "scene_text_unavailable", turn: state.turn, scene: focus, detail: error instanceof Error ? error.message : String(error) });
@@ -4623,15 +4632,17 @@ export default function (pi: ExtensionAPI) {
 			settled = reply?.state === "pending" && reply.settled ? reply.settled : Promise.resolve(reply);
 		} catch (error) { settled = Promise.reject(error); }
 		settled.catch(() => undefined);
-		sceneReadings.register(state.campaign, focus, texts, state.turn, settled);
+		// §191.7: the layer is the host's to record; the Keeper is carried the page and its text.
+		const carriedPages = texts.map(({ layer: _layer, ...page }) => page);
+		sceneReadings.register(state.campaign, focus, carriedPages, state.turn, settled);
 		// §11.5.4: on the legacy engine these pages ride this very result, so they are carried now.
-		if (!drivenEngine) carriedText.note(state.campaign, state.turn, texts.map((page) => ({ scene: focus, page: page.page, label: page.pdf_label ?? null, text: page.text })));
+		if (!drivenEngine) carriedText.note(state.campaign, state.turn, carriedPages.map((page) => ({ scene: focus, page: page.page, label: page.pdf_label ?? null, text: page.text })));
 		void record({ lane: "reading", event: "scene_text", turn: state.turn, scene: focus, pages: texts.map((page) => page.page),
-			bytes: Buffer.byteLength(JSON.stringify(texts), "utf8") });
+			bytes: Buffer.byteLength(JSON.stringify(carriedPages), "utf8"), ...landingLayer(texts) });
 		const landed = Array.isArray(result.scene_text) ? result.scene_text as Array<Record<string, unknown>> : [{ scene: focus, pages }];
 		return { ...result, scene_text: landed.map((entry) => ({ ...entry, note: SCENE_TEXT_NOTE,
 			// On the hybrid engine the pages ride the next note once; the legacy engine has no note, so they ride here.
-			...(!drivenEngine && entry.scene === focus ? { text: texts } : {}) })) };
+			...(!drivenEngine && entry.scene === focus ? { text: carriedPages } : {}) })) };
 	}
 
 	/**
@@ -4648,7 +4659,7 @@ export default function (pi: ExtensionAPI) {
 		if (!focus || !key || !name || !reading || !readingModule) return undefined;
 		const names = (Array.isArray(person.names) ? person.names : [name]).filter((value): value is string => typeof value === "string" && !!value.trim());
 		const lookup = (passages: Array<Record<string, any>>) => { for (const spelled of names) { const found = findPassage(passages as never, spelled); if (found) return found; } return undefined; };
-		let passage = lookup(carriedText.of(state.campaign, state.turn)), texts: Array<{page: number; pdf_label?: string; text: string}> = [];
+		let passage = lookup(carriedText.of(state.campaign, state.turn)), texts: Array<{page: number; pdf_label?: string; text: string; layer?: string}> = [];
 		const pages = Array.isArray((details.index as { pages?: unknown } | undefined)?.pages)
 			? ((details.index as { pages: unknown[] }).pages).filter((page): page is number => Number.isSafeInteger(page) && (page as number) >= 1) : [];
 		if (!passage && pages.length && reading.sourcePages) {
@@ -4674,11 +4685,11 @@ export default function (pi: ExtensionAPI) {
 		} catch (error) { settled = Promise.reject(error); }
 		settled.catch(() => undefined);
 		// The turn's carried text already holds the passage: only index pages the Keeper has not seen are carried.
-		const carried = passage && !texts.length ? [] : texts;
+		const indexed = passage && !texts.length ? [] : texts, carried = indexed.map(({ layer: _layer, ...page }) => page);
 		sceneReadings.register(state.campaign, focus, carried, state.turn, settled, name);
 		if (!drivenEngine && carried.length) carriedText.note(state.campaign, state.turn, carried.map((page) => ({ scene: null, page: page.page, label: page.pdf_label ?? null, text: page.text })));
 		void record({ lane: "reading", event: "person_text", turn: state.turn, person: name, focus, pages: (carried.length ? carried : []).map((page) => page.page),
-			source: carried.length ? "index" : "carried" });
+			source: carried.length ? "index" : "carried", ...(indexed.length ? landingLayer(indexed) : {}) });
 		const landed = Array.isArray(result.person_text) ? result.person_text as Array<Record<string, unknown>> : [{ person: name, focus, pages }];
 		return { ...result, person_text: landed.map((entry) => ({ ...entry, note: PERSON_TEXT_NOTE,
 			// On the hybrid engine the pages ride the next note once; the legacy engine has no note, so they ride here.

@@ -1273,10 +1273,10 @@
       "callee": "runtime.runTask",
       "count": 1,
       "owner": "module ext: page transcripts",
-      "path": "no-caller",
+      "path": "app-play",
       "role": "driver",
-      "trace": "contract §191.2, §191.6; tests/extension/page-transcript.test.mjs",
-      "note": "Page transcript layout: one background tool-enabled Pi agent (read,write,edit) per page of a source PDF, plus at most `transcript.repair_attempts` repair children, on its own provider lease; never awaited. The service is made beside the reading service; its read-ahead and reader callers arrive with §191.6/§191.7 (PT-03), which moves this entry to app-play.",
+      "trace": "contract §191.2, §191.6, §191.7; tests/extension/page-transcript.test.mjs, tests/extension/page-transcript-readers.test.mjs",
+      "note": "Page transcript layout: one background tool-enabled Pi agent (read,write,edit) per page of a source PDF, plus at most `transcript.repair_attempts` repair children, on its own provider lease; never awaited. The service is made beside the reading service; since PT-03 it is fed by every read-ahead's `window.transcript` (background) and by the pages a landing, the Keeper prescreen's consultation (`coc:transcript-wanted`) or a need read wanted and read natively (foreground). `transcript.mode: off` or a reading model without image input starts none.",
       "lines_at_86fd65c4a": [
         257
       ]

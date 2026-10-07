@@ -8,7 +8,7 @@
  * processes holds `page-<NNNN>.claim`, created exclusively; a claim older than its staleness may be taken.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { link, mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { link, mkdir, open, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { TRANSCRIPT_VERSION, transcriptPermutationHolds } from "./page-transcript.ts";
 
@@ -65,6 +65,20 @@ export function readableRecord(value: unknown, fileSha256: string, page: number,
 
 export interface TranscriptClaim { release(): Promise<void> }
 
+/** What a reader of the store needs (§191.7): the record of one page, and the pages that may have one. */
+export type TranscriptReader = Pick<TranscriptStore, "read" | "readPages" | "recordedPages">;
+
+const RECORD_FILE = /^page-(\d{4,})\.json$/;
+
+/**
+ * The store a process finds in its environment (§191.7): `PI_COC_HOME` (home) and `PI_COC_CONTENT_ROOT` (seeds), the two
+ * locations every host operation and reader child is given. Absent either, there is no store and every reader is native.
+ */
+export function transcriptStoreFromEnv(env: NodeJS.ProcessEnv, extractionVersion: string): TranscriptStore | undefined {
+	const home = env.PI_COC_HOME?.trim(), contentRoot = env.PI_COC_CONTENT_ROOT?.trim();
+	return home && contentRoot ? new TranscriptStore({ home, contentRoot, extractionVersion }) : undefined;
+}
+
 export class TranscriptStore {
 	readonly root: string;
 	readonly seedRoot: string;
@@ -93,6 +107,37 @@ export class TranscriptStore {
 			if (readableRecord(value, fileSha256, page, this.options.extractionVersion)) return {record: value, source};
 		}
 		return undefined;
+	}
+
+	/** The readable records of `pages` (seed first, then home), by page; a page without one is absent. */
+	async readPages(fileSha256: string, pages: readonly number[]): Promise<Map<number, TranscriptRecord>> {
+		const out = new Map<number, TranscriptRecord>();
+		if (!isFileDigest(fileSha256)) return out;
+		const recorded = await this.recordedPages(fileSha256);
+		for (const page of new Set(pages)) {
+			if (!recorded.has(page)) continue;
+			const found = await this.read(fileSha256, page);
+			if (found) out.set(page, found.record);
+		}
+		return out;
+	}
+
+	/**
+	 * The pages of a file that have a record file in the seed or the home store, from the two directory listings; whether
+	 * each is readable (schema, extraction version, digest) is `read`'s to say.
+	 */
+	async recordedPages(fileSha256: string): Promise<Set<number>> {
+		const out = new Set<number>();
+		if (!isFileDigest(fileSha256)) return out;
+		for (const dir of [join(this.seedRoot, fileSha256), this.dir(fileSha256)]) {
+			let names: string[];
+			try { names = await readdir(dir); } catch { continue; }
+			for (const name of names) {
+				const match = RECORD_FILE.exec(name), page = match ? Number(match[1]) : 0;
+				if (Number.isSafeInteger(page) && page >= 1) out.add(page);
+			}
+		}
+		return out;
 	}
 
 	/**
