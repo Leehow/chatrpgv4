@@ -383,6 +383,12 @@ test('§191.3: the identity writer joins two nodes of one kind, decided by a rev
 	assert.throws(() => api.writeIdentity(kept, 'scene-c2', 'scene-b', REVIEW, apart), error => error.details?.reason === 'identity_verdict_different'
 		&& JSON.stringify(error.details.nodes.sort()) === JSON.stringify(['scene-a', 'scene-c2']));
 	assert.equal(kept.relations.length, 1, 'nothing written');
+	// Lookup's aliases for a thing with copies: a relation written without carry (an older kernel's, or a cast fold) leaves the
+	// copy's names on the copy; the survivor is listed with them all the same.
+	const named = new api.ModuleGraph('book', {nodes: [{node_id: 'scene-x', node_kind: 'scene', name: 'Harbor', aliases: ['Quay']},
+		{node_id: 'scene-y', node_kind: 'scene', name: 'Old harbor', aliases: ['Harbor', 'Wharf']}], relations: [{relation_id: 'rel-identity-scene-y-to-scene-x',
+		relation_kind: 'variant-of', from_node_id: 'scene-y', to_node_id: 'scene-x', properties: {identity_review: REVIEW}}]}, '', {});
+	assert.deepEqual(named.groupAliases(named.nodes.get('scene-x')), ['Quay', 'Old harbor', 'Wharf']);
 	const conflicted = new api.ModuleGraph('book', {...kept, relations: [...kept.relations, {relation_id: 'rel-identity-scene-c2-to-scene-a', relation_kind: 'variant-of',
 		from_node_id: 'scene-c2', to_node_id: 'scene-a', properties: {identity_review: REVIEW}}]}, '', {});
 	conflicted.apart = apart;
