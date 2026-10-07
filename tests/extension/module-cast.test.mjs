@@ -645,9 +645,11 @@ test('§188.2: a later reading that writes someone the graph has again, under an
 	const {place} = await readCast(h);
 	// Blood Road (`nfh-accept-blood-road-1`, generation 55): a page reading in the campaign's fork wrote the store owner a second
 	// node with his name. The cast row both nodes answered was read as someone else, and his name had three owners.
+	// Since §191.1 a reading publishes a second node under a published name only with a reviewed `distinct_from`; these
+	// fixtures stand for the copies written before it, and for a review that wrongly supported one: the cast still joins them.
 	await h.read('detail', {nodes: [{node_id: 'npc-mae-net-mender', node_kind: 'npc', name: 'Old Mae', aliases: ['Mae'], source_refs: [{page: 3}],
-		summary: 'She mends nets; her boy drowned.'}], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['npc-mae-net-mender']},
-		['/nodes/0', '/coverage'], {focus: 'Tower', campaign: CAMPAIGN});
+		summary: 'She mends nets; her boy drowned.', distinct_from: ['npc-old-mae']}], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['npc-mae-net-mender']},
+		['/nodes/0', '/nodes/0/distinct_from', '/coverage'], {focus: 'Tower', campaign: CAMPAIGN});
 	const copies = (await h.call('table.lookup', {kind: 'module', query: 'Old Mae'})).entities.filter(entity => entity.display_name === 'Old Mae').map(entity => entity.name);
 	assert.equal(copies.length, 2, 'the campaign\'s graph holds her twice');
 	const stored = JSON.parse(await readFile(join(dirname(dirname(dirname(dirname(place.cwd)))), 'cast.json'), 'utf8'));
@@ -764,8 +766,8 @@ test('§188.2: the journal lane reads a second copy of someone as that person, w
 	const h = await harbor(t);
 	// The copy carries only "Old Mae"; the book also prints "Mae" alone, which only her cast row holds.
 	await h.read('detail', {nodes: [{node_id: 'npc-old-mae-nets', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 3}],
-		summary: 'She mends nets; her boy drowned.'}], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['npc-old-mae-nets']},
-		['/nodes/0', '/coverage'], {focus: 'Tower', campaign: CAMPAIGN});
+		summary: 'She mends nets; her boy drowned.', distinct_from: ['npc-old-mae']}], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['npc-old-mae-nets']},
+		['/nodes/0', '/nodes/0/distinct_from', '/coverage'], {focus: 'Tower', campaign: CAMPAIGN});
 	// Each node was worded while the two stood apart; then the cast reader's row joins them (§188.2), and since §191.3 the copy
 	// reads as the node that stands for her: her copy's word still names her.
 	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}, {id: 'old-mae-nets', word: 'the woman by the cellar'}]});
@@ -782,8 +784,8 @@ test('§188.2: the journal lane reads a second copy of someone as that person, w
 test('§188.1 with §188.2: a copy\'s own word never shields that person\'s name from the told check', async t => {
 	const h = await harbor(t);
 	await h.read('detail', {nodes: [{node_id: 'npc-old-mae-nets', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 3}],
-		summary: 'She mends nets; her boy drowned.'}], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['npc-old-mae-nets']},
-		['/nodes/0', '/coverage'], {focus: 'Tower', campaign: CAMPAIGN});
+		summary: 'She mends nets; her boy drowned.', distinct_from: ['npc-old-mae']}], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['npc-old-mae-nets']},
+		['/nodes/0', '/nodes/0/distinct_from', '/coverage'], {focus: 'Tower', campaign: CAMPAIGN});
 	// Worded apart before the cast joined them (§191.3: since then the lane words only the node that stands for her).
 	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}, {id: 'old-mae-nets', word: 'the woman by the cellar'}]});
 	await readCast(h);
@@ -800,10 +802,12 @@ test('§188.2: a name two copies of one person carry resolves to that person, on
 	const h = await harbor(t);
 	await readCast(h);
 	// Two later readings in the campaign's fork each write the lamp keeper, under ids that are no slug of his name.
-	const copy = (id, focus) => h.read('detail', {nodes: [{node_id: id, node_kind: 'npc', name: 'Silas Marsh', source_refs: [{page: 2}], summary: 'He trims the lamp.'}],
-		claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: [id]}, ['/nodes/0', '/coverage'], {focus, campaign: CAMPAIGN});
+	// The second copy passes §191.1 only with a reviewed distinct_from (see the first §188.2 case above).
+	const copy = (id, focus, apart = []) => h.read('detail', {nodes: [{node_id: id, node_kind: 'npc', name: 'Silas Marsh', source_refs: [{page: 2}], summary: 'He trims the lamp.',
+		...(apart.length ? {distinct_from: apart} : {})}], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: [id]},
+		['/nodes/0', ...(apart.length ? ['/nodes/0/distinct_from'] : []), '/coverage'], {focus, campaign: CAMPAIGN});
 	await copy('npc-silas-keeper', 'Tower');
-	await copy('npc-lamp-keeper', 'Old Mae');
+	await copy('npc-lamp-keeper', 'Old Mae', ['npc-silas-keeper']);
 	const copies = (await h.call('table.lookup', {kind: 'module', query: 'Silas Marsh'})).entities.filter(entity => entity.display_name === 'Silas Marsh');
 	assert.equal(copies.length, 2, 'the graph holds him twice');
 	await h.call('table.player_input', {text: 'I watch the tower.'});

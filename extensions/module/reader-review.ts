@@ -10,7 +10,7 @@ import {mapReviewPreviews,reviewedMapNodes} from './map-review-preview.ts';
 import { obligationReviewPaths } from "../../kernel-ts/modules/obligation-review.ts";
 import { shapeReviewPaths } from "../../kernel-ts/modules/shape-review.ts";
 import { answerReviewShapeError } from "../../kernel-ts/modules/answer-review-shape.ts";
-import { REVIEW_VERDICTS, classificationMatcher } from "../../kernel-ts/modules/review-verdicts.ts";
+import { REVIEW_VERDICTS, classificationMatcher, identityReviewPath } from "../../kernel-ts/modules/review-verdicts.ts";
 import {validatePublicGuidance} from '../../kernel-ts/modules/public-guidance.ts';
 import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings,moduleGuidanceApproved} from '../../kernel-ts/modules/module-review-policy.ts';
 import {READING_REVIEW_FALLBACK,readingReviewBudget} from '../../runtime/jev/host-budgets.ts';
@@ -73,7 +73,8 @@ function reviewGroups(draft: Row, requiredPaths: string[], logicReview: boolean)
 		groups.set(path, pointers);
 	}
 	for (const rawPath of [...(draft.critical ?? []),...requiredPaths]) {
-        const path=logicReview?moduleReviewRoot(rawPath):rawPath;
+        // §191.1: a distinct_from stays its own pointer under module-logic-v1 too; the gate judges it as written.
+        const path=logicReview&&!identityReviewPath(rawPath)?moduleReviewRoot(rawPath):rawPath;
 		if(['/interaction_scene','/source_needs'].includes(path)&&draft.ready_nodes?.length)continue;
 		const parent = [...groups.keys()].find(p => path === p || path.startsWith(p + "/"));
 		if (parent) groups.get(parent)!.add(path);
@@ -237,7 +238,7 @@ export function carriedReviewUnits(draft: Row, requiredPaths: string[] = [], bud
  */
 export function gateRefusal(task: Row): (row: Row, path: string) => boolean {
 	const logic = moduleLogicReview(task ?? {}), classifies = classificationMatcher(task?.vocabulary?.classification_fields?.node);
-	return (row, path) => row?.verdict !== 'supported' && !(REVIEW_VERDICTS.includes(row?.verdict) && (logic ? advisoryModuleFinding(row) : classifies(path)));
+	return (row, path) => row?.verdict !== 'supported' && !(!identityReviewPath(path) && REVIEW_VERDICTS.includes(row?.verdict) && (logic ? advisoryModuleFinding(row) : classifies(path)));
 }
 
 /**
@@ -497,7 +498,9 @@ export function detailReviewInput(task: Row, draft: Row, paths: string[]): Row {
 		? ['nodes', 'claims'].flatMap(collection => (draft[collection] ?? []).map((_row: Row, index: number) => `/${collection}/${index}`))
 		: [...new Set(paths.map(path => path.match(/^\/(nodes|claims)\/[^/]+(?=\/|$)/)?.[0] ?? path))];
 	const records = Object.fromEntries(roots.filter(path => path !== '/coverage').map(path => [path, pointerValue(draft, path)]));
-	const ids = (record: Row) => [record?.node_id, record?.subject_id, record?.object?.node_id].filter((id): id is string => typeof id === 'string');
+	// §191.1: the published nodes a drafted node declares itself distinct from are connected context, so the reviewer sees both.
+	const ids = (record: Row) => [record?.node_id, record?.subject_id, record?.object?.node_id, ...(Array.isArray(record?.distinct_from) ? record.distinct_from : [])]
+		.filter((id): id is string => typeof id === 'string');
 	const assignedIds = new Set(Object.values(records).flatMap(record => ids(record as Row)));
 	const connected = (claim: Row) => ids(claim).some(id => assignedIds.has(id));
 	const knownClaims = (task.known_claims ?? []).filter(connected), candidateClaims = (draft.claims ?? []).filter(connected);

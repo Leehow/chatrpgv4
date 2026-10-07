@@ -37745,6 +37745,80 @@ On the real path, as the survey's §5 plans:
 
 (Recorded by the implementing slices.)
 
+#### DUP-01
+
+The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branch `claude/reading-duplicates-20261007-landing`.
+
+- **Where.** `kernel-ts/modules/published-duplicates.ts` holds the trigger (`publishedDuplicates`), the refusal
+  (`duplicateRefusal`, `DUPLICATE_FIX`), the verdict key (`identityPairKey`) and the record (`recordDistinct`).
+  - `checkDraft` runs it as a stage-3 law against the claim-time view (`graph-view.json`; an attempt without one falls
+    back to the packet's own fields, as §187.5.4 does).
+  - `module.read.finish` runs it again inside the module lock against the landing graph, after §152.4's
+    `judgeDraftIdentity` and before `assembleVisual`. A drafted visual that overlaps a published crop is still asked
+    §152.4's geometry question first.
+- **The trigger as built.**
+  - A drafted node is new when the graph lacks its id; every kind but `module` is checked.
+  - Its own names are its name and display name (`ModuleGraph.displayName`), trimmed, without its handle or id; its whole
+    names are `bookNames`. Both sides are compared under `normalize`, in both directions.
+  - The cast join runs `bookCast` over the published nodes plus the drafted ones, with the cast rows as `{book, play}`
+    (the fold reads nothing else), and pairs a drafted npc with every published npc in its `CastPerson.nodes`. The check
+    reads the packet's `cast_names`; publication reads the book's current cast (`castNames`).
+  - Every published node a drafted node meets is its own pair. Variants are not collapsed to their survivors: the
+    claim-time view carries no relations, so the two checks would disagree. DUP-02's survivor map may change this.
+  - On Blood Road generation 55 the trigger also raises `npc-pete` against `npc-book-4-peter-benson`, whose aliases carry
+    皮特: the drafted node's own name is one of that node's names. That is one of the survey's six "different thing"
+    triggers, and the reader answers it.
+- **The finding.** `invalid_params`, `details {reason: "reading_failed", rule: "duplicate_of_published", path:
+  "/nodes/<i>", duplicates: [{path, drafted, kind, by: "name" | "cast", shared, published: {node_id, node_kind, name,
+  aliases, pages, summary}}], findings}`.
+  - One finding per pair at `/nodes/<i>`, `value` the shared name, its message naming the published id, its names, pages
+    and summary (cut at `DUPLICATE_SUMMARY_CHARS`, 240). The draft check settles it with the stage's other findings
+    (§186.3).
+  - The host treats it as any `invalid_params` refusal at finish: one repair round with the refusal in `findings.json`.
+- **`distinct_from`.**
+  - A node key (`NODE_KEYS`). Stage 2's law `rule: "distinct_from"`: only on a node the view lacks, and a non-empty list
+    of distinct ids of published nodes of the node's own kind. A listed id need not trigger.
+  - A listed pair is no finding. Every node carrying the field owes `/nodes/<i>/distinct_from` to the review as written,
+    under either review policy.
+  - `identityReviewPath` (`review-verdicts.ts`, read by both ends) names that pointer:
+    - `checkReview` refuses any verdict but `supported` on it as `review_unsupported`, never contested and never advisory;
+    - the host's `reviewGroups` does not fold it into its record's root under module-logic-v1, and `gateRefusal` counts
+      it as a refusal;
+    - `claimSupportIneligibility` answers `identity` for a node carrying the field, so the Jev claim check never clears it.
+  - The reviewer's connected context includes the listed published nodes (`detailReviewInput`). The host takes them from
+    the claim's `graph-view.json` when the author's cut packet lacks them (`distinctReviewContext`).
+- **The record.**
+  - After `checkReview` and the landing check, `recordDistinct` writes `reading.identity[<source sha256>:<kind>:<id>:<id>]`,
+    the ids in code-point order, for every listed id naming a published node of the drafted kind:
+    `{verdict: "different", kind, nodes: [<published>, <drafted>], by: "review", job_id, generation, reason?}`, `reason`
+    the reviewer's for that pointer. `module.json` is written with the generation, so a refused publication keeps nothing.
+  - The node is published without the field (`withoutDistinctFrom`).
+  - `module.read.claim` writes `identity_verdicts` (the whole map) and `identity_source` into `graph-view.json`; the check
+    skips a pair whose key is recorded, whatever the verdict. DUP-03's verdicts use the same map and key.
+  - §184.1's adoption carries `identity` (`ADOPTED_READING`), so a fork's answer reaches the library with its node.
+- **The roster (191.2).** `packetRoster` (`packet-scope.ts`): the non-module nodes citing one of the job's own pages
+  (`jobPages`, not the window), as `{id, kind, name, aliases, pages}` with every page the node cites, sorted by kind then
+  id.
+  - It is the first key of `packet.json` and of the claim's result for a job with pages, an empty list when nothing is
+    published there, and absent for a job without pages.
+  - The host puts it first in the task and writes `task.json` with `readerTaskText`: the roster one node per line, the
+    rest pretty-printed as before. An inlined task leads with it too.
+- **Instructions.** `content/setup/visual-reader/read.md` (the roster, the refusal, the two answers) and `review.md`
+  (judging `/nodes/<i>/distinct_from`).
+- **Existing fixtures.** `tests/extension/module-cast.test.mjs`'s four §188.2 cases built their second copy of a person with
+  a later reading under another id, which this check now refuses. They publish it with a reviewed `distinct_from`, the
+  only way a reading still can; they stand for the copies written before §191 and for a review that wrongly supported one,
+  and the cast fold must still join them.
+- **Evidence.**
+  - Replay of generation 55 on a `cp -c` clone of the acceptance home's fork at generation 54, `read-2/attempt-2`'s own
+    draft and review through `module.read.finish`: refused `duplicate_of_published` naming
+    `npc-book-4-daniel-mather`, `npc-book-4-pete`, `npc-book-4-sand-rats`, `scene-book-4-town-center`,
+    `scene-book-4-mather-store` (and `npc-book-4-peter-benson`). `checkSourceDraft` on the same `task.json` and draft
+    reports the same six pairs. With the check reverted (a scratch copy), the same replay publishes generation 55 with
+    446 nodes and all eight drafted ids, as production did.
+  - `tests/extension/duplicate-of-published.test.mjs`, nine cases; reverting each behaviour (20 mutations, scratch copies)
+    fails at least one of them.
+
 #### DUP-02 (191.3, 191.4; `claude/reading-duplicates-20261007-survivors`)
 
 **The survivor map** (`kernel-ts/read/survivors.ts`, `SurvivorMap`). One map, built lazily per graph and per cast fold:
