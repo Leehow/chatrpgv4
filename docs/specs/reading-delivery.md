@@ -87,3 +87,46 @@ Unchanged evidence: the same verdict gates, every published record vision-review
 - Single-file tests on the merge head: 20 extension files green (reader-review 44, review-repair-salvage 17,
   reading-service 39, packet-scope 3, scene-placement 4, source-reader-driver 20, …), pytest 54 passed. Full suites on
   amax and RD-08 follow.
+
+### 2026-10-07 RD-08 outcome (lead; evidence `~/leehow/code/chatrpgv4-wt-reading-delivery-merge/.coc`, runs `rd-accept-blood-01` and `rd-accept-blood-01-play`, merge head 7d53166ca, luna low, Jev key from the App vault)
+
+Two earlier attempts were discarded and are recorded because each found a real gap: the first table never seated its
+investigator because the §187.8 unit merge dropped a guidance review's `approved/issues` (fixed in 7d53166ca with a
+test that a mutation fails); the second ran without a Jev key (`prescreen: no_jev`), so no placement or admission ran.
+The §186 table `rc-accept-blood-01` (24 turns) is the control: from its turn 2 every scene was a table-minted orphan and
+`where.exits` was empty for all 24 turns.
+
+**Delivery (read from `turns/*.json` capsules, campaign telemetry and a `table.capsule {rehydrate:true}` on the product kernel):**
+- The Keeper minted two places (turn 11 警长办公室, turn 19 旅馆外的街道); both carry the way back (`where.exits` =
+  the departed scene) from the turn they were minted. The placement lane (shadow) chose the town for both, confidence
+  0.92 (would have placed `within`) and 0.46 (below the bar). `where.within` therefore never showed; `same` was not
+  exercised because the Keeper never minted a place the book already has. Turning the lane `on` is a separate decision
+  on these two rows.
+- Background reading published pages 17–18 at 05:37:06; the next turn's `apply` candidates (turn 7, 05:38:58) carried
+  `apply:person` offers for 拉塞尔·威廉姆斯, 内特·帕特森 and 史蒂夫·布朗 and the Keeper seated all three; they stayed
+  `present` through turn 11. The §186 control seated only names the Keeper made up.
+- The brief's rosters follow the window: `brief_window` 16–42 (序幕, 德克萨斯州阿巴托尔镇), people listed window-first
+  (内特, 拉塞尔, 史蒂夫, then 奥斯庭, 布伦纳医生, …); nothing was cut (`more` absent) at this graph size.
+- Not met by the slice: the Keeper narrated the gas station and the town for eleven turns while the active scene stayed
+  序幕 (the book's `abator` exit appeared only at turn 9 when reading published it); a pre-existing arrival gap.
+- Exposed, not caused: at turn 13 the Keeper rendered one person with two epithets joined by " / " (the graph node's
+  穿白衬衫的加油站老板 and the §177 cast entry's 白天值守的男子 are the same man under two identities); belongs to the
+  names work (`names-in-the-request-rename.md`).
+
+**Cost (per `Original pages` job, medians; 6 jobs in this table, 14 in the control):**
+
+| metric | control (§186) | this table |
+|---|---|---|
+| author calls | 13.5 | 14.5 |
+| author uncached input | 88K | 101K |
+| submissions | 4 | 4.5 |
+| review children per job | 3 | 1.5 |
+| review uncached per job | 86K | 23K |
+| `pdf` reopens by reviewers | 3 | 0 |
+| packets inlined | n/a | 13 of 13 (11–38 KB) |
+
+The review half of the target is met (children −50 %, uncached −73 %, reopens 0, no evidence change: every record still
+reviewed against delivered page images). The author half is not shown: every packet inlined, so the cost is no longer
+exploration but the fix loop and image views (rounds median 2: one append, one targeted, one full repair in six jobs).
+With six jobs the author numbers are inside the noise of the control; the spec's "−30 %" is recorded as not met on this
+sample, not tuned. The next lever for the author is the draft check's findings (§186.3) and the instructions, not the packet.

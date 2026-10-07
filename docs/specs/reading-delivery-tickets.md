@@ -12,7 +12,7 @@ harness, the capsule through `table.capsule`), never hand-built normalized dicti
 
 ## RD-01 A minted place sits in the book (§187.2)
 
-Status: ready-for-agent
+Status: ready-for-human (implemented: 116884e58, 508474aa4; integrated on claude/reading-delivery-20261006 at 7d53166ca; awaiting owner merge decision)
 
 - Kernel (`kernel-ts/apply/move.ts`, `kernel-ts/read/table-entities.ts`, `kernel-ts/read/module-graph.ts`
   `addTableEntity`): `establish` accepts `{summary, within?}`; a mint always writes `route-to` minted → departed scene;
@@ -33,7 +33,7 @@ Status: ready-for-agent
 
 ## RD-02 Who the book puts here follows publication, the table says who stayed (§187.3)
 
-Status: ready-for-agent
+Status: ready-for-human (implemented: 116884e58; integrated on claude/reading-delivery-20261006 at 7d53166ca; awaiting owner merge decision)
 
 - `kernel-ts/runtime/apply-operation.ts`: `source_presence` candidates from the active scene **and** its `within`
   place; a candidate the ledger excludes (§187.3.2: dead, or moved out of this scene by a receipt) is not offered.
@@ -49,7 +49,7 @@ Status: ready-for-agent
 
 ## RD-03 The brief's rosters follow the reading window (§187.4)
 
-Status: ready-for-agent
+Status: ready-for-human (implemented: 116884e58, eeff0df4f; integrated on claude/reading-delivery-20261006 at 7d53166ca; awaiting owner merge decision)
 
 - `kernel-ts/read/capsule.ts` `moduleSection` / `fittedModuleSection`: order `people`, `places`, `creatures` by
   §187.4 (window entries first, then book order), then the existing fit; add `more: {people, places, creatures}`
@@ -61,7 +61,7 @@ Status: ready-for-agent
 
 ## RD-04 The author's task is cut to the job (§187.5)
 
-Status: ready-for-agent
+Status: ready-for-human (implemented: ddd325b69, 986e82a04, 6136ba1a5; integrated on claude/reading-delivery-20261006 at 7d53166ca; awaiting owner merge decision)
 
 - `kernel-ts/modules/reading.ts` (claim packet): `known_nodes` and `known_claims` scoped by §187.5.1;
   `field_spans` removed from the packet (the checker takes them from the graph: `kernel-ts/modules/visual.ts`
@@ -76,7 +76,7 @@ Status: ready-for-agent
 
 ## RD-05 A coverage `missing` inside the job's pages is an append repair (§187.6)
 
-Status: ready-for-agent
+Status: ready-for-human (implemented: cc42f73ae; integrated on claude/reading-delivery-20261006 at 7d53166ca; awaiting owner merge decision)
 
 - `extensions/module/targeted-repair.ts` `repairDecision` → `{kind: "append", missing, pages}` under §187.6.1;
   `extensions/module/reading-service.ts` runs the append brief; the host checks every existing record byte-identical
@@ -87,7 +87,7 @@ Status: ready-for-agent
 
 ## RD-06 A need read's candidates are the need's pages (§187.7)
 
-Status: ready-for-agent
+Status: ready-for-human (implemented: 8be4ceeef; integrated on claude/reading-delivery-20261006 at 7d53166ca; awaiting owner merge decision)
 
 - `runtime/jev/source-reader-driver.ts` (candidate union) and `runtime/jev/source-need-reads.ts`: for a need task
   the candidates are §187.7.1's; native text complete for lead pages, a title line for the rest; images for lead
@@ -97,7 +97,7 @@ Status: ready-for-agent
 
 ## RD-07 One independent reviewer per page set (§187.8)
 
-Status: ready-for-agent
+Status: ready-for-human (implemented: 9951faabf, ba9630607, e94247bb0, 172f99778; integrated on claude/reading-delivery-20261006 at 7d53166ca; awaiting owner merge decision)
 
 - `extensions/module/reader-review.ts` `batchGroups`: merge by page-set overlap up to `reading_review.images`
   (`host-budgets.json`, shipped 12) distinct pages and `reading_review.max_records` (shipped 32), not 8 / 24 KB;
@@ -111,7 +111,7 @@ Status: ready-for-agent
 
 ## RD-08 Product-path acceptance
 
-Status: ready-for-human (the lead runs it; workers do not)
+Status: ready-for-human (run 2026-10-07; outcome under the spec's Comments: delivery met except `within` (lane in shadow), review cost met, author cost not shown on six jobs)
 
 - Fresh home, Blood Road PDF, `flapcode/gpt-6-luna` low, `tests/play/driver.py start --launcher
   bin/pi-coc-setup`, 20 turns as the spec's "Success" section scripts them; measures read from `turns.jsonl`,
