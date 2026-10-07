@@ -207,9 +207,10 @@ export async function ensureCampaignModule(context: KernelContext, campaign: str
  * §184.1: the `module.json` fields the library adopts from the fork it follows. The index (`index_file` with
  * `reading.index_complete`) travels as a pair, below. `reading.map_candidates` is the index's own output, read beside
  * `index_file` by the map gate and by every assembly, so it travels with the index rows it came from. §182.2: a short
- * book's `build_complete` travels too, so every later fork starts complete.
+ * book's `build_complete` travels too, so every later fork starts complete. §191.1: `identity`, the answered same-name pairs,
+ * travels with the nodes it answers for, so the library never raises them again.
  */
-const ADOPTED_READING = ['materials', 'scene_index', 'visual_scans', 'visual_candidates', 'visual_identity', 'missing', 'retranscriptions',
+const ADOPTED_READING = ['materials', 'scene_index', 'visual_scans', 'visual_candidates', 'visual_identity', 'identity', 'missing', 'retranscriptions',
     'resolved_source_needs', 'source_need_dispositions', 'viewed_pages', 'map_candidates', 'build_complete'];
 const ADOPTED_MODULE = ['prepared_openings', 'character_guidance', 'source_reference', 'vocabulary', 'languages'];
 /**

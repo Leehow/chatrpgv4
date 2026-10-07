@@ -5,6 +5,7 @@
  * whole-graph view written beside the packet (`GRAPH_VIEW_FILE`).
  */
 import { anchorPage, readingWindow, type Chapter } from './chapters.js';
+import { compareUnicode } from '../json.js';
 import { array, integer, number, row, string, type Row } from '../read/values.js';
 
 /** The kernel-owned file beside `packet.json` that holds what the draft check reads: the graph as it stood at the claim. */
@@ -28,6 +29,20 @@ export function jobPages(job: Row, needTask?: Row, pageCount = Number.MAX_SAFE_I
         for (const page of array(needTask.accepted_pages)) add(page);
     }
     return [...out].sort((a, b) => a - b);
+}
+
+/**
+ * §191.2: what the author meets first in its packet -- the published nodes that cite one of the job's own pages (not the
+ * window), each as `{id, kind, name, aliases, pages}`, grouped by kind. `known` are the packet's node rows (pages 1-based).
+ * A cost saver, not the guard: the draft check's `duplicate_of_published` is the guard (§191.1).
+ */
+export function packetRoster(known: Row[], pages: number[]): Row[] {
+    const assigned = new Set(pages);
+    const cited = (node: Row): number[] => [...new Set(array(node.source_refs).map(ref => row(ref).page).filter(integer).map(number))].sort((a, b) => a - b);
+    return known.filter(node => node.node_kind !== 'module' && cited(node).some(page => assigned.has(page)))
+        .map(node => ({ id: string(node.node_id), kind: string(node.node_kind), name: typeof node.name === 'string' ? node.name : '',
+            aliases: array(node.aliases).filter((alias): alias is string => typeof alias === 'string'), pages: cited(node) }))
+        .sort((a, b) => compareUnicode(a.kind, b.kind) || compareUnicode(a.id, b.id));
 }
 
 /** §182.3's window around the job's pages, anchored on their median page. */

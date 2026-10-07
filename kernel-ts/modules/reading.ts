@@ -18,7 +18,8 @@ import { array, clone, equal, integer, normalize, number, repr, row, sorted, str
 import { nowIso } from '../write/store.js';
 import { endings } from '../write/source.js';
 import { scopedVocabulary, validSourceLanguage, vocabulary } from './contract.js';
-import { GRAPH_VIEW_FILE, jobPages, scopeGraph, scopeWindow, type ScopeWindow } from './packet-scope.js';
+import { GRAPH_VIEW_FILE, jobPages, packetRoster, scopeGraph, scopeWindow, type ScopeWindow } from './packet-scope.js';
+import { duplicateRefusal, publishedDuplicates, recordDistinct, withoutDistinctFrom } from './published-duplicates.js';
 import { childPath, inside, resolvedPath } from './paths.js';
 import { ModuleStore, validateModuleId } from './store.js';
 import { playsFromReading, bindStarterSource, boundFileIntact, boundReadingState, declaredWindow, freshReadingState, starterDeclarationsForBook, starterSourceDeclaration, windowMatches, windowOf } from './bound-source.js';
@@ -1849,7 +1850,9 @@ export class Reading {
                     const castNames = job.purpose === 'index' || job.visual_identity ? [] : await this.castNames(mid, meta);
                     // §187.5: the author's packet is cut to the job; the check reads the whole graph from the view beside it.
                     const wholeVocabulary = vocabulary(contract, contributed), wholeClaims = array(graph.claims);
-                    const view = { generation: meta.generation ?? 0, known_nodes: known, known_claims: wholeClaims, field_spans: pageSpans(graph.field_spans), vocabulary: wholeVocabulary };
+                    // §191.1: the identity answers already recorded for this source, so the check never raises an answered pair again.
+                    const view = { generation: meta.generation ?? 0, known_nodes: known, known_claims: wholeClaims, field_spans: pageSpans(graph.field_spans), vocabulary: wholeVocabulary,
+                        identity_verdicts: row(row(meta.reading).identity), identity_source: identitySource(meta) };
                     const scopePages = job.purpose === 'index' || job.visual_identity ? [] : jobPages(job, needTask, number(meta.page_count));
                     let scopeView: ScopeWindow | null = null, scoped = { nodes: known, claims: wholeClaims };
                     if (scopePages.length && array(graph.nodes).length) {
@@ -1859,7 +1862,9 @@ export class Reading {
                             string(truth(job.focus) ? named.find(string(job.focus))?.node_id ?? '' : '')];
                         scoped = scopeGraph(known, wholeClaims, array(graph.relations), scopePages, scopeView, keep);
                     }
-                    const packet: Row = { ...visibleJob, ...identityTask, ...(needTask ? { source_need: needTask } : {}), ...(carried.length ? { carried_needs: carried } : {}),
+                    // §191.2: a job with pages meets the published nodes on its own pages first, ahead of the cast and the index.
+                    const roster = scopePages.length ? packetRoster(known, scopePages) : null;
+                    const packet: Row = { ...(roster ? { roster } : {}), ...visibleJob, ...identityTask, ...(needTask ? { source_need: needTask } : {}), ...(carried.length ? { carried_needs: carried } : {}),
                         ...(castNames.length ? { cast_names: castNames } : {}),...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: scoped.nodes, known_claims: scoped.claims, vocabulary: scopedVocabulary(wholeVocabulary, job), coverage_domains: [...array(contract.graph.coverage_domains)],
                         scope: { pages: scopePages, window: scopeView, known_nodes: scoped.nodes.length, known_claims: scoped.claims.length, packet_bytes: 0 } };
                     // The packet's compact JSON size with this field still zero: what an author is handed, before the host adds its own.
@@ -2065,8 +2070,19 @@ export class Reading {
                         await this.store.writeModule(meta);
                     judgeDraftIdentity(identityPairs, meta);
                 }
+                // §191.1: one thing, one node, judged again against the generation this draft lands on: a reading claimed beside
+                // this one may have published the same thing since. A distinct_from answer is reviewed (`checkReview`) and kept.
+                const duplicates = publishedDuplicates(array(filled.nodes), array(landing?.nodes), mid, await this.castNames(mid, meta),
+                    row(row(meta.reading).identity), identitySource(meta)).filter(pair => !pair.declared);
+                if (duplicates.length)
+                    throw duplicateRefusal(duplicates);
+                const reviewReasons = new Map<string, string>();
+                for (const item of array(row(review).checked))
+                    for (const path of Object.hasOwn(row(item), 'paths') ? array(item.paths) : [row(item).path])
+                        if (typeof path === 'string' && typeof item.reason === 'string' && item.reason.trim() && !reviewReasons.has(path)) reviewReasons.set(path, item.reason.trim());
+                recordDistinct(meta, array(filled.nodes), array(landing?.nodes), identitySource(meta), string(job.job_id), number(meta.generation) + 1, path => reviewReasons.get(path));
                 const retranscribed: Row[] = [];
-                const graph = assembleVisual(landing, filled, meta, contract, retranscribed);
+                const graph = assembleVisual(landing, withoutDistinctFrom(filled), meta, contract, retranscribed);
                 if(job.purpose==='detail'&&truth(job.question)){
                     const view=new ModuleGraph(mid,graph,'',row(contract.graph.actor_dossier)),target=view.find(string(job.focus));
                     const resolved=array(graph.source_needs).filter(need=>['deferred','source_read','uncertain'].includes(need.kind)&&need.source_sha256===meta.file_sha256&&
