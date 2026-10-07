@@ -147,30 +147,55 @@ function carry(graph: Row, variant: Row, survivor: Row, visual: boolean): Identi
  * its own. Nothing is written when no decision lands. Offering a fork's generation to the library (§184.1) is the caller's.
  */
 export async function publishIdentities(store: ModuleStore, mid: string, writes: readonly IdentityWrite[]): Promise<Row> {
-    return withExclusiveLock(store.context.locks, join(store.moduleDir(mid), '.metadata.lock'), async () => {
-        const meta = await store.module(mid), raw = await store.readGraph(mid);
-        if (!raw)
-            throw new RpcError('campaign_not_ready', `module ${mid} has no graph yet`, { fix: 'publish identities once the book has a graph' });
-        const graph = clone(raw), generation = number(meta.generation || 0) + 1, written: Row[] = [], skipped: Row[] = [];
-        const apart = apartPairs(row(meta.reading).identity, identitySource(meta));
-        const order = publicationOrder(meta), node = (id: string): Row => array(graph.nodes).find(item => row(item).node_id === id) ?? { node_id: id };
-        for (const write of writes) {
-            if (!Array.isArray(write.nodes) || write.nodes.length !== 2 || write.nodes.some(id => typeof id !== 'string'))
-                throw new RpcError('invalid_params', 'an identity names two node ids', { details: { field: 'nodes' } });
-            const [earlier, later] = write.nodes.map(node).sort(order).map(item => string(item.node_id));
-            // §191.3: a pair a recorded `different` verdict keeps apart is refused, never joined and never guessed.
-            const kept = apartVerdict(graph, later, earlier, apart);
-            if (kept !== null) { skipped.push({ from: later, to: earlier, reason: 'verdict_different', nodes: kept.split('\u0000') }); continue; }
-            const done = writeIdentity(graph, later, earlier, { ...row(write.review), generation: row(write.review).generation ?? generation }, apart);
-            if (done) written.push({ from: later, to: earlier, survivor: done.survivor, carried: done.carried });
-            else skipped.push({ from: later, to: earlier, reason: 'survivor_taken' });
+    return withExclusiveLock(store.context.locks, join(store.moduleDir(mid), '.metadata.lock'), () => publishIdentitiesHeld(store, mid, writes));
+}
+
+/**
+ * `publishIdentities` for a caller that already holds module `mid`'s metadata lock (§191.5: the read-ahead's repair, an
+ * identity job's finish). `verdicts` are the `different` answers the same publication records in `module.json`
+ * `reading.identity` (§191.1's key and record, without `generation`): they are kept before any relation is written, so no
+ * write joins a pair one of them keeps apart, and each is stamped with the generation the publication lands on (the current
+ * one when no relation lands). The record is written whenever a verdict is new, even when no relation lands.
+ */
+export async function publishIdentitiesHeld(store: ModuleStore, mid: string, writes: readonly IdentityWrite[],
+    verdicts: readonly { key: string; record: Row }[] = []): Promise<Row> {
+    const meta = await store.module(mid), raw = await store.readGraph(mid);
+    if (!raw)
+        throw new RpcError('campaign_not_ready', `module ${mid} has no graph yet`, { fix: 'publish identities once the book has a graph' });
+    const graph = clone(raw), generation = number(meta.generation || 0) + 1, written: Row[] = [], skipped: Row[] = [];
+    const added: Row[] = [];
+    if (verdicts.length) {
+        meta.reading = isJsonObject(meta.reading) ? meta.reading : {};
+        const book = meta.reading.identity = { ...row(meta.reading.identity) };
+        for (const { key, record } of verdicts) {
+            if (Object.hasOwn(book, key)) continue;
+            book[key] = clone(record);
+            added.push(book[key]);
         }
-        // §191.3: a graph that already joins a pair a verdict keeps apart is reported, never repaired by guessing.
-        const conflicts: IdentityConflict[] = rawSurvivors(graph, apart).conflicts();
-        if (!written.length) return { generation: meta.generation ?? 0, written, skipped, ...(conflicts.length ? { conflicts } : {}) };
-        await store.writeGraph(meta, graph);
-        await store.writeModule(meta);
-        await store.appendBuildLog(mid, { event: 'identity', generation: meta.generation, written, skipped, ...(conflicts.length ? { conflicts } : {}) });
-        return { generation: meta.generation, written, skipped, ...(conflicts.length ? { conflicts } : {}) };
-    });
+    }
+    const apart = apartPairs(row(meta.reading).identity, identitySource(meta));
+    const order = publicationOrder(meta), node = (id: string): Row => array(graph.nodes).find(item => row(item).node_id === id) ?? { node_id: id };
+    for (const write of writes) {
+        if (!Array.isArray(write.nodes) || write.nodes.length !== 2 || write.nodes.some(id => typeof id !== 'string'))
+            throw new RpcError('invalid_params', 'an identity names two node ids', { details: { field: 'nodes' } });
+        const [earlier, later] = write.nodes.map(node).sort(order).map(item => string(item.node_id));
+        // §191.3: a pair a recorded `different` verdict keeps apart is refused, never joined and never guessed.
+        const kept = apartVerdict(graph, later, earlier, apart);
+        if (kept !== null) { skipped.push({ from: later, to: earlier, reason: 'verdict_different', nodes: kept.split('\u0000') }); continue; }
+        const done = writeIdentity(graph, later, earlier, { ...row(write.review), generation: row(write.review).generation ?? generation }, apart);
+        if (done) written.push({ from: later, to: earlier, survivor: done.survivor, carried: done.carried });
+        else skipped.push({ from: later, to: earlier, reason: 'survivor_taken' });
+    }
+    for (const record of added) record.generation = written.length ? generation : number(meta.generation || 0);
+    // §191.3: a graph that already joins a pair a verdict keeps apart is reported, never repaired by guessing.
+    const conflicts: IdentityConflict[] = rawSurvivors(graph, apart).conflicts();
+    const recorded = added.length ? { recorded: added.length } : {};
+    if (!written.length) {
+        if (added.length) await store.writeModule(meta);
+        return { generation: meta.generation ?? 0, written, skipped, ...recorded, ...(conflicts.length ? { conflicts } : {}) };
+    }
+    await store.writeGraph(meta, graph);
+    await store.writeModule(meta);
+    await store.appendBuildLog(mid, { event: 'identity', generation: meta.generation, written, skipped, ...recorded, ...(conflicts.length ? { conflicts } : {}) });
+    return { generation: meta.generation, written, skipped, ...recorded, ...(conflicts.length ? { conflicts } : {}) };
 }

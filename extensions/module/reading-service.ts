@@ -28,6 +28,7 @@ import {readNeedReceipt,type NeedReceipt} from '../../runtime/jev/source-need-re
 import {requireVisualOverview} from '../../kernel-ts/modules/visual-discovery.ts';
 import {mapReviewPreviews} from './map-review-preview.ts';
 import {IdentityReviewUnavailable,reviewVisualIdentity} from './visual-identity-review.ts';
+import {reviewNodeIdentity} from './node-identity-review.ts';
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
@@ -847,6 +848,22 @@ export class ReadingService implements ReadingBridge {
 	}
 
 	/**
+	 * §191.5: ask the independent identity reviewer whether each pair of published nodes is one thing. Its Pi child runs
+	 * through the job's reviewer owner (`run`); the checked answer file lands in `dir`, inside the job's attempt, and its path
+	 * is what the kernel takes as `node_identity_path`, with the pages the reviewer opened. Throws `IdentityReviewUnavailable`
+	 * when the reviewer cannot answer.
+	 */
+	private async reviewNodes(job: Row, pairs: Row[], dir: string, context: {campaign?: string; cache: string; signal: AbortSignal;
+		run(request: ReaderRequest): Promise<ReaderOutcome>}): Promise<{path: string; pages: number[]}> {
+		await mkdir(dir, { recursive: true });
+		const instructions = join(dir, "instructions-node-identity.md");
+		await writeFile(instructions, await readFile(join(this.runtime().contentRoot, "setup", "node-identity.md")));
+		return reviewNodeIdentity({ cwd: dir, pairs, instructions, model: this.deps.model(), signal: context.signal,
+			source: { pdf: job.source.path, cache: context.cache, file_sha256: job.source.file_sha256 }, run: context.run,
+			record: row => this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", campaign: context.campaign, ...row }) });
+	}
+
+	/**
 	 * The read-ahead (§22.4, §182), as every caller in this service asks it. A `window` that differs from the last one this
 	 * host saw for the campaign and module is one `read_window` row; a short book's completion in a fork carries the library's
 	 * answer, which is its `library_sync` row (§184.1).
@@ -863,6 +880,14 @@ export class ReadingService implements ReadingBridge {
 			}
 		}
 		this.recordLibrarySync(result, { module_id: params.module_id, campaign });
+		// §191.5: a repair that wrote, failed or asked a verdict is one row (a library left to its lineage fork is the steady
+		// state, not news); its offer to the library is the sync row.
+		const repair = result?.identity_repair, changed = (state: unknown) => ["published", "recorded", "failed"].includes(String(state));
+		if (repair && typeof repair === "object" && !Array.isArray(repair)) {
+			if (changed(repair.state) || repair.asked || changed(repair.library_repair?.state))
+				this.note({ lane: "reading", event: "identity_repair", module_id: params.module_id, campaign, ...repair });
+			this.recordLibrarySync(repair, { module_id: params.module_id, campaign });
+		}
 		return result;
 	}
 
@@ -1181,6 +1206,36 @@ export class ReadingService implements ReadingBridge {
 			this.deps.record({ lane: "reading", event: "visual_identity_published", module_id: job.module_id, job_id: job.job_id, campaign, ...(published?.visual_identity ?? {}) });
 			this.recordLibrarySync(published, { module_id: job.module_id, campaign, job_id: job.job_id });
 			// The next page's pairs are queued by the read-ahead, one identity job at a time.
+			await this.readAhead({ module_id: job.module_id }, campaign).catch(() => undefined);
+			return;
+		}
+		// §191.5: an identity job over published pairs of nodes has no author either. Its reviewer opens both nodes' pages and
+		// answers each pair; the kernel writes a `same` as an identity relation and keeps a `different`. A reviewer that cannot
+		// answer, or an answer the kernel refuses, fails the job, and a later read-ahead asks again until it has failed three times.
+		if (job.node_identity) {
+			const pairs: Row[] = Array.isArray(job.node_identity.pairs) ? job.node_identity.pairs : [];
+			let reviewed: {path: string; pages: number[]} | undefined, failure: Row | undefined;
+			try { if (pairs.length) reviewed = await this.reviewNodes(job, pairs, join(cwd, "identity"), { campaign, cache, signal, run: reviewers.run }); }
+			catch (error) {
+				if (signal.aborted) throw error;
+				const message = String(error instanceof Error ? error.message : error).slice(0, 1000);
+				failure = { message, rule: "node_identity_unavailable" };
+			}
+			await writeFile(join(cwd, "observations.json"), JSON.stringify({ file_sha256: job.source.file_sha256, read_pages: reviewed?.pages ?? [], full_pages: [], review_pages: [] }) + "\n");
+			const finish = (outcome: Row) => this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease, ...outcome }, campaign);
+			let published: Row | undefined;
+			if (!failure) {
+				try { published = await finish({ outcome: "completed", ...(reviewed ? { node_identity_path: reviewed.path } : {}) }); }
+				catch (error) {
+					if (!isKernelError(error)) throw error;
+					failure = { message: error.message, ...Object.fromEntries(["rule", "reason"].filter(key => typeof error.details?.[key] === "string").map(key => [key, error.details![key]])) };
+				}
+			}
+			if (failure) published = await finish({ outcome: "failed", detail: failure.message, refusal: failure }).catch(() => undefined);
+			this.deps.record({ lane: "reading", event: "node_identity_published", module_id: job.module_id, job_id: job.job_id, campaign,
+				...(published?.node_identity ?? { state: published?.state ?? null, ...(failure ? { refusal: failure } : {}) }) });
+			this.recordLibrarySync(published, { module_id: job.module_id, campaign, job_id: job.job_id });
+			// The next pairs are queued by the read-ahead, one identity job at a time.
 			await this.readAhead({ module_id: job.module_id }, campaign).catch(() => undefined);
 			return;
 		}

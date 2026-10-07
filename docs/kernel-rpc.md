@@ -37723,6 +37723,12 @@ readable through it.
 - **When it runs.** When a book loads, for the library and for each live campaign fork (owner: 「产品自己修，书库和在用的
   分支」). A fork gets its own new generation; a campaign is a compile snapshot of its fork. No one-off script touches App
   data.
+  - The load is every read-ahead (`module.read.ahead`; a table's opening and setup send one), which repairs the store it
+    reads ahead in. It runs before §182.2's return for a short book already built: the repair reads no source.
+  - **The library** (DUP-03). A fork's repair reaches the library as any fork publication does, by §184.1's adoption. The
+    library is written by its own publication only while no live campaign fork holds its lineage; while one does, that fork's
+    own repair reaches the library by adoption, so no lineage ends.
+  - A store takes the reviewed decisions another store of the same book already holds, instead of asking again.
 
 ### 191.6 Limits
 
@@ -38144,3 +38150,191 @@ had already put the copy's alias on the survivor, and the case above was added f
   The test runs on the fake kernel and sees a background `memory.job`.
 - py on 27 related kernel files: 301 pass; the one failure is the known `test_npc_act_options` case.
 - loop: 333 of 333.
+
+#### DUP-03 (191.5; `claude/reading-duplicates-20261007-repair`)
+
+**Where it runs.** `Reading.queueAheadReading` (`kernel-ts/modules/reading.ts:1060`) calls `repairIdentities` first, then the
+read-ahead as before (`aheadReading`). Every read-ahead runs it:
+- the kernel's table opening (`kernel-ts/write/index.ts:887`) and setup (`kernel-ts/setup/index.ts:87`), through
+  `createModuleRuntime(...).source.ahead`;
+- the host's `module.read.ahead`, sent after each publication and at a table's open.
+
+The repair runs before §182.2's return for a short book already built, and on the store the read-ahead reads ahead in (the
+campaign's fork, or the library). A steady read-ahead with nothing new pays about 45 ms: Blood Road's fork, median of 12, went
+from 330 ms to 375 ms. A store's last plan with nothing to write is remembered by its inputs (graph digest, generation,
+`reading.identity`, cast rows, and the same of the other store), so an unchanged book reads no graph twice.
+
+The read-ahead's answer carries `identity_repair` only when the repair is news: it wrote, recorded or failed, asked a
+verdict, or offered something to the library. A quiet repair leaves the answer exactly as it was before §191.5. That covers
+nothing to do, a job already live, and a library left to its lineage fork. Two pytest cases compare the whole answer
+(`test_read_ahead_follows_authored_exits_not_index_page_order`, `test_an_opening_published_ready_stays_ready_under_a_later_rule`).
+
+The repair is maintenance. If it fails, the failure is reported (`identity_repair: {state: "failed", detail}` and a
+`build.jsonl` row) and the read-ahead's own asks go on. A library record that cannot be read lends no decisions: the fork is
+still repaired, and the library's sync and repair report `failed`.
+
+**Candidates** (`publishedPairs`, `kernel-ts/modules/published-duplicates.ts:210`; `repairCandidates`,
+`kernel-ts/modules/identity-repair.ts:66`):
+- **One trigger.** §191.1's trigger has one implementation, `TriggerView` (`:92`). It holds each node's whole and own names,
+  each survivor's names per kind, and the cast fold, for the landing check (`publishedDuplicates`, unchanged in behaviour;
+  DUP-01c's version of its tests passes 11 of 11 on this branch) and for published pairs. A published pair is two survivors
+  of one kind where one's own name meets the other's names (every node of each group counting for its survivor), or two
+  people the cast holds as one individual.
+- **Survivors.** Read by `rawSurvivors(raw, apart)`. Two nodes that already read as one are no pair. A pair where a verdict
+  in `reading.identity` covers any node of each side is not raised again. The recorded `different` pairs also keep the cast
+  fold from joining them (`graph.apart`; DUP-02b ruling).
+- **Excluded entirely:** a pair that a reader-authored `variant-of` links. The reader said one node is a state of the other
+  (§191.3), and no verdict job is asked to undo that.
+- **Relations.** Each pair carries `related`: the relations between a node of one side and a node of the other.
+
+**The owner's rule** (`identity_review: {by: "kernel", rule: "same-name-same-page"}`). It needs one node from each side such
+that:
+- both have the pair's kind;
+- their `name` fields are equal under `normalize` and not empty;
+- their `source_refs` share a physical page;
+- no single reading published both (no `reading.materials` row lists both);
+- and the graph relates no node of one side to a node of the other.
+
+It compares `name` with `name` because that is what the census measured as `name=name` (39 of 39 true): a display name or an
+alias never takes this path. A pair the graph relates (`member-of`, `part-of`, `knows`, and so on) waits for a verdict job.
+The reader who wrote the relation treated the nodes as two things, as §191.6 does for a group and its members.
+
+So did a reader who published both nodes in one reading. It saw both and kept them apart, as with two fishermen of one name
+on one page (`rename-undo-names.test.mjs`, which the rule without this clause broke). That is not how the census's duplicates
+arose: they came from a later reading that never saw the published node, and none of Blood Road's 32 pairs shares a row.
+Such a pair also waits for a verdict job.
+
+**Writing** (`repairHeld`, `kernel-ts/modules/identity-repair.ts:186`, into `publishIdentitiesHeld`,
+`kernel-ts/modules/identity.ts:160`):
+- All decisions of one pass go into one new generation, under the store's metadata lock. The read-ahead holds the lock
+  through `Reading.mutex`, so `publishIdentities` is now a locking wrapper around `publishIdentitiesHeld`.
+- `publishIdentitiesHeld` also records `different` verdicts in the same `module.json` write. It records them before any
+  relation, so no write joins a pair that a new verdict keeps apart. Each verdict is stamped with the generation the write
+  lands on.
+- A chain (A with B, A with C, B with C) writes two relations; the third is skipped as `survivor_taken`.
+
+**Verdict jobs** (`node_identity`):
+- **Asking.**
+  - The read-ahead asks the first four open pairs (`NODE_IDENTITY_BATCH`), by key, in one background `detail` job:
+    `focus: "Node identity review"`, `node_identity: {pairs: [key, ...]}`.
+  - At most one such job is queued or running per store.
+  - A key that a completed job asked is not asked again. A key whose jobs failed three times (`NODE_IDENTITY_FAILURES`) is
+    not asked again.
+  - `node_identity` is in `JOB_MARKERS` and part of the reading key. It is not a §182.2 streamed marker, so it keeps no short
+    book's build open. It has no reading window: the repair covers the whole graph.
+  - `module.read.request` keeps only the keys still open at that moment, and answers `ready` when none is.
+- **The claim** carries `node_identity: {protocol: "node-identity-v1", pairs: [{key, kind, raised_by, shared, a, b,
+  related?}]}`. Each side gives `node_id`, `node_kind`, `name`, `aliases`, `pages` and `summary`, with its group's names and
+  pages. The claim carries no cast and no page window.
+- **The reviewer.** The host side is the branch in `extensions/module/reading-service.ts:1215`, with
+  `extensions/module/node-identity-review.ts` and the English instruction `content/setup/node-identity.md`.
+  - A tool-using Pi reader runs through the job's reviewer owner.
+  - It must open a page of each side that has pages: `pdf` tool deliveries, checked on the provider's own record.
+  - It must answer every pair.
+  - A slip gets one repair round with its reason, and a lost transport up to three retries. After that the job fails with
+    `node_identity_unavailable`, and the next read-ahead asks again with `retry`.
+  - The checked answer goes to the kernel as `node_identity_path`. The pages it opened become `observations.json`'s
+    `read_pages`.
+  - The verdict shape is import-free (`kernel-ts/modules/node-identity-shape.ts`) so the host and the kernel check the same
+    rules.
+- **The finish** (`finishNodeIdentity`, `kernel-ts/modules/reading.ts:2476`).
+  - It refuses with `node_identity_invalid` when the protocol is wrong, a pair still open has no verdict, or a side with
+    pages has none of them in `read_pages`.
+  - `same` writes the relation with `identity_review: {by: "review", job_id, key, reason, generation}`.
+  - `different` writes `reading.identity[key] = {verdict: "different", kind, nodes: [a, b], by: "review", job_id, reason,
+    generation}`, which is DUP-01's record.
+- **Doubt.** Following §152.4's reviewer, "when the pages do not let you tell, answer `different`". Nothing is merged on
+  doubt. Such a verdict also keeps the cast fold apart (DUP-02b ruling), which can split a person the fold would have joined;
+  the reason the reviewer gives says so.
+
+**The library and lineage:**
+- **Adoption only.** A fork's repair generation, whether from the owner's rule or a job, is offered to the library only by
+  §184.1's adoption (`syncLibraryFromCampaign`), never by §184.5's merge. The merge replays readings, and a table's own
+  read-ahead does not wait on one.
+- **The library's own repair.** When the library does not adopt the fork's repair, or the fork wrote nothing, `repairLibrary`
+  (`kernel-ts/modules/identity-repair.ts:216`) plans the library's own repair. It writes only when no live fork holds the
+  library's lineage.
+  - `lineageHolders` (`kernel-ts/modules/campaign-scope.ts:291`) lists the forks whose campaign still has its
+    `campaign.json` and that pass §184.1's lineage test.
+  - While a fork holds the lineage, the answer is `{state: "skipped", reason: "lineage_held", holders}`. That fork's own load
+    repairs it, and the library adopts that repair.
+  - A fork's load never asks verdicts in the library. The library's own read-ahead does, under the same rule.
+- **Decisions travel** (`reviewedDecisions`). A store takes the reviewed decisions that another store of the same source
+  holds about one of its open pairs: relations with `by: "review"`, and `different` verdicts. Each taken decision is marked
+  `imported_from: {store, campaign?, generation}`. A fork takes the library's at each read-ahead; the library takes the
+  loading fork's.
+
+**Clone evidence** (acceptance home cloned with `cp -c` into the session scratch, paths rewritten; the repair runs through
+`createModuleRuntime(context).source.ahead`, the table opening's path):
+- **Candidates.** Fork `nfh-accept-blood-road-1` at generation 60 has 32 candidate pairs: 16 by the owner's rule and 16 for
+  verdict jobs.
+- **First load.**
+  - The fork moves to generation 61 with 15 relations. The 16th rule pair was already joined through the other two pairs of
+    the church chain (`survivor_taken`).
+  - 15 pairs stay open, and the first four are asked in one job.
+  - The library does not take the repair: `library_sync` is `library_advanced`, and `library_repair` is skipped as
+    `lineage_held` with holder `nr06-blood-road-3`. The library stays at generation 63.
+  - `resolve 马瑟综合商店 [scene]` was ambiguous (two candidates) and now gives `scene-book-4-mather-store`. The town centre
+    likewise gives `scene-book-4-town-center`.
+- **Rosters without the cast.** These were read on a view of the generation with no cast rows and no fold, so only kernel
+  relations join anyone.
+  - Mather was 2 persons, untold row "book-4-daniel-mather / daniel-mather", 2 brief lines. He is now 1 person, untold
+    "book-4-daniel-mather", 1 brief line.
+  - Pete was 3 persons; he is now 2. Peter Benson stays apart, which is the census's "different".
+  - Brief people went from 67 to 64.
+- **Second load:** quiet, so the answer carries no `identity_repair`. The fork stays at generation 61, the library at 63,
+  and no new job is asked.
+- **The lineage holder's load** (`nr06-blood-road-3`, generation 63).
+  - The fork moves to generation 64 with 16 relations, and `library_sync` is `published`: the library is now at 64 with 16
+    relations.
+  - `nr06-blood-road-3` is still `lineage`, and `nfh-accept-blood-road-1` is still `library_advanced`.
+  - Its second load is quiet.
+
+**Tests** (`tests/extension/identity-repair.test.mjs`, 9 cases on the real path):
+- the owner's rule on a built book, and a second load writing nothing;
+- the pairs that are never merged without a verdict (a related pair, one reading's two, a shared alias, disjoint pages) and
+  the one never asked (a reader's `variant-of`);
+- the verdict job through the host's ReadingService;
+- a reviewer that opens no page, up to three failures;
+- the kernel's refusals;
+- the lineage held and adopted;
+- the library's own publication taking a fork's decision;
+- a fork taking the library's decisions;
+- an unreadable library record at the table opening's read-ahead.
+
+**Mutations** (each one literal change, restored by copy and checked by content; 19 of 19 turn a case red):
+- `owner-rule-ignores-pages`: 6 red
+- `owner-rule-any-name`: 1 red
+- `one-reading-pair-merged`: 1 red
+- `owner-rule-ignores-relations`: 1 red
+- `reader-variant-kept-as-candidate`: 1 red
+- `recorded-verdict-ignored`: 2 red
+- `candidates-not-survivor-aware`: 5 red
+- `library-written-under-lineage`: 1 red
+- `fork-repair-not-offered`: 2 red
+- `decisions-not-taken`: 2 red
+- `kernel-accepts-unread-side`: 1 red
+- `host-accepts-unread-side`: 1 red
+- `different-not-kept`: 3 red
+- `repair-after-built-return`: 1 red
+- `unreadable-library-stops-the-fork`: 1 red
+- `quiet-repair-reported`: 5 red
+- `two-live-identity-jobs`: 1 red
+- `failures-never-end-asking`: 1 red
+- `host-reports-no-pages`: 3 red
+
+*leehow-pc at `c641ff749`.*
+- **ext:** 5064 pass, 7 fail.
+  - Five are the base's: the SL-00 inventory and four `timeline:` cases.
+  - Two are DUP-01's stale survivor fixtures in `duplicate-of-published.test.mjs` (§191.1 against survivors, §191.3 retained
+    needs). DUP-01c (`9980eae18`, on the integration branch after this branch's base) rewrites them. Its version of that file
+    passes 11 of 11 against this branch.
+- **First ext run, at `db623f2d2`:** it shared the box with another session's ext (load about 40) and also failed:
+  - `historical-reference-request` and `/coc module` (§19.1). These are known concurrency reds, and both were green at
+    `c641ff749`.
+  - `system-language`: a Chinese quotation in a comment, now removed.
+  - Four `rename-undo-names` cases: the owner's rule merged that fixture's two fishermen of one name. The one-reading clause
+    fixed them.
+  - Two pytest whole-answer cases (`test_visual_reading`, `test_fast_guidance`): the quiet-repair rule fixed them.
+- **py**, on 24 reading and module kernel files: 210 pass. The one failure is the known `test_npc_act_options` case.
+- **loop:** 333 of 333.
