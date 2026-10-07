@@ -1,4 +1,5 @@
 /** Host-only context identity and bounded extraction coverage; never persisted as game state. */
+import { briefWindow } from './brief-window.js';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isJsonObject, jsonDigest, pythonJsonDumps, utf8Bytes } from '../json.js';
@@ -183,6 +184,8 @@ export async function contextBinding(campaign: CampaignSnapshot, module: LoadedM
         task_world_revision: worldRevision(views.world, campaign.party, campaign.turn.receipts, campaign.turn.pending_choice),
         task_presentation_revisions: views.presentation,
         ...source,
+        // §187.4: the window the brief's rosters were ordered by; the host rebuilds the brief when it changes.
+        brief_window: await briefWindow(campaign.context, module, campaign.world),
         memory_coverage: await memoryCoverage(campaign)
     };
 }

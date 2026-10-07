@@ -870,12 +870,15 @@ export class Reading {
         const mid = graph.moduleId, queued: string[] = [];
         if (!await this.store.exists(mid) || !playsFromReading(await this.store.module(mid)))
             return queued;
-        for (const exit of graph.sceneExits(scene)) {
-            if (await this.materialReady(mid, graph.scene(exit.to).node_id))
+        // §187.2.1: a minted scene also reads ahead the book place it lies in (its `located-in`), beside its way back.
+        const within = (graph.out.get(scene.node_id) ?? []).filter(rel => rel.relation_kind === 'located-in')
+            .map(rel => graph.nodes.get(rel.to_node_id)).filter((node): node is Row => node?.node_kind === 'scene').map(node => graph.handle(node));
+        for (const target of [...new Set([...graph.sceneExits(scene).map(exit => string(exit.to)), ...within])]) {
+            if (await this.materialReady(mid, graph.scene(target).node_id))
                 continue;
             let reply: Row;
             try {
-                reply = await this.request({ module_id: mid, purpose: 'detail', focus: exit.to });
+                reply = await this.request({ module_id: mid, purpose: 'detail', focus: target });
             }
             catch (error) {
                 if (!(error instanceof RpcError) && !(error instanceof Error && typeof (error as NodeJS.ErrnoException).code === 'string' && typeof (error as NodeJS.ErrnoException).syscall === 'string'))

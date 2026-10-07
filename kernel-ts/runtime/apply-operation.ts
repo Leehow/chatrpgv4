@@ -16,6 +16,23 @@ import {unstatedDamage} from '../read/stated.js';
 import {activeMods} from '../read/mods.js';
 import {destinationView, grantingCues, guardedWay, unlockGuard} from '../read/destination-rows.js';
 
+/**
+ * Contract §187.3.2: whether the table's own record keeps the book from offering this person at `place` again -- the
+ * ledger holds them dead (`npc-ledger.json` `<node_id>.dead`, folded from an `npc` receipt's `dead: true` or a hit-point
+ * `delta` to zero, `write/contributions.ts` `foldNpcTurn`), a receipt this turn said they died, or the latest `npc`
+ * receipt that moved them (`to`, which `apply npc` writes as `away` or a scene handle, and which a §138 departure writes
+ * the same way) took them anywhere but `place`. Answers the reason and the receipt, or null.
+ */
+function tableTookOver(receipts:Row[],entry:Row,handle:string,place:string):Row|null{
+    const own=receipts.filter(receipt=>receipt.kind==='npc'&&receipt.handle===handle);
+    const died=[...own].reverse().find(receipt=>typeof receipt.dead==='boolean');
+    if(died?.dead===true)return {reason:'dead',receipt:string(died.id)};
+    if(!died&&isJsonObject(entry.dead))return {reason:'dead',receipt:string(row(entry.dead).receipt)};
+    const moved=[...own].reverse().find(receipt=>typeof receipt.to==='string'&&receipt.to);
+    if(moved&&moved.to!==place)return {reason:'moved',receipt:string(moved.id),to:string(moved.to)};
+    return null;
+}
+
 export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
     return {...fulfillmentHandlers(context), 'table.apply.options': async (params): Promise<Row> => {
         if (Object.keys(params).some(key=>key!=='campaign'&&key!=='cash_effects')) throw new RpcError('invalid_params','Ordinary apply options accept the bound campaign and optional cash_effects preview');
@@ -52,16 +69,28 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
             const node=graph.find(clue.name,['clue']), cues=node&&scene?grantingCues(scene,string(node.node_id)):[];
             add({kind:'clue',clue:clue.name},{kind:'clue',...clue,...(cues.length?{cues}:{}),authority:'authored_candidate_not_discovered'},guards.clues.get(string(node?.node_id)));
         }
-        for(const id of graph.sceneNpcIds(scene)){
+        // §187.3: the book's people for the active scene and for the book place it lies in (`where.within`), from the current
+        // graph on every call; the table's ledger wins over the book (§187.3.2).
+        const records=await campaign.files('turns'),receipts=[...records.flatMap(record=>array(record.receipts)),...array(campaign.turn.receipts)];
+        let ledger:Row={};
+        try{ledger=row(await campaign.optional('npc-ledger.json'));}catch{/* an unreadable ledger reads as empty, as for look */}
+        const excluded:Row[]=[];
+        const places=[scene,...(graph.out.get(scene.node_id)??[]).filter(rel=>rel.relation_kind==='located-in').map(rel=>graph.nodes.get(rel.to_node_id)).filter((node):node is Row=>!!node)];
+        const offered=new Set<string>();
+        for(const place of places)for(const id of graph.sceneNpcIds(place)){
             const node=graph.nodes.get(id),handle=node?graph.handle(node):'';
-            if(!node||!handle||Object.hasOwn(row(campaign.world.npc_presence),handle))continue;
+            if(!node||!handle||offered.has(handle)||Object.hasOwn(row(campaign.world.npc_presence),handle))continue;
             const names=new Set([node.name,...array(node.aliases)].filter(value=>typeof value==='string').map(normalize));
             if(Object.keys(row(campaign.world.npc_presence)).some(existing=>{const known=graph.actor(existing);return known&&[known.name,...array(known.aliases)].some(value=>typeof value==='string'&&names.has(normalize(value)));}))continue;
-            add({kind:'npc',name:handle,to:graph.handle(scene)},{kind:'source_presence',name:graph.displayName(node),scene:graph.displayName(scene),
+            const leave=tableTookOver(receipts,row(ledger[id]),handle,graph.handle(place));
+            if(leave){excluded.push({name:handle,scene:graph.handle(place),...leave});continue;}
+            offered.add(handle);
+            add({kind:'npc',name:handle,to:graph.handle(place)},{kind:'source_presence',name:graph.displayName(node),scene:graph.displayName(place),
+                ...(place!==scene?{within:true}:{}),
                 actor:{name:handle,display_name:graph.displayName(node),summary:graph.summary(node),source_needs:graph.sourceNeeds(node,true),
                     placement_conditions:{...Object.fromEntries(['when','unlock_when','conditions'].filter(key=>Object.hasOwn(row(node.properties),key)).map(key=>[key,row(node.properties)[key]])),
-                        relations:(graph.out.get(id)??[]).filter(rel=>rel.relation_kind==='present-in'&&rel.to_node_id===scene.node_id).map(rel=>row(rel.properties))}},
-                scene_context:scene.summary??'',authority:'authored_initial_presence_not_a_new_arrival'},guards.people.get(id));
+                        relations:(graph.out.get(id)??[]).filter(rel=>rel.relation_kind==='present-in'&&rel.to_node_id===place.node_id).map(rel=>row(rel.properties))}},
+                scene_context:place.summary??'',authority:'authored_initial_presence_not_a_new_arrival'},guards.people.get(id));
         }
         const destinations=new Set<string>();
         // §135.30.4: a move row says what the place is, and an unmet unlock names what opens it (the book's own data).
@@ -81,13 +110,13 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
         }
         // Complete and untruncated, bound to the same revision; absent when the scene states none (§134.10).
         const obligations=obligationNodes(graph,scene).length?sceneObligations(graph,campaign.world,scene,{
-            receipts:[...(await campaign.files('turns')).flatMap(record=>array(record.receipts)),...array(campaign.turn.receipts)],
+            receipts,
             modChecks:(await activeMods(context,campaign.world)).flatMap(mod=>array(mod.contributes.checks).map(check=>({mod:string(mod.id),check})))}):[];
         // Contract §138.10: the harm a stated step this turn reached leaves unstated; absent when there is none.
         const unstated=unstatedDamage(graph,array(campaign.turn.receipts));
         const session=new SessionView(campaign,graph,campaign.party,campaign.world);
         const promises=await fulfillmentPromiseNavigation(context,campaign);
-        return {version:1,candidates,...promises,...(obligations.length?{obligations}:{}),...(unstated.length?{unstated_damage:unstated}:{}),
+        return {version:1,candidates,...(excluded.length?{source_presence_excluded:excluded}:{}),...promises,...(obligations.length?{obligations}:{}),...(unstated.length?{unstated_damage:unstated}:{}),
             revision:jsonDigest({source:module.generation,candidates,promises,...(obligations.length?{obligations}:{}),...(unstated.length?{unstated_damage:unstated}:{})}),
             world_revision:taskWorldRevision(campaign.world,campaign.party,campaign.turn.receipts,campaign.turn.pending_choice),
             context:{scene:graph.displayName(scene),pending_choice:session.pendingChoice()||campaign.turn.pending_choice||null,

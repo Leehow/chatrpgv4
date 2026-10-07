@@ -418,6 +418,16 @@ export class ModuleGraph {
             const normalized = normalize(key);
             this.names.set(normalized, new Set([...(this.names.get(normalized) ?? []), id]));
         }
+        // §187.2.1: a minted scene's way back to the scene the party left, and the book place it lies in. A handle the
+        // current graph no longer resolves writes no relation; the record keeps it.
+        const relate = (to: Row | null, relation_kind: string) => {
+            if (!to || to.node_id === id) return;
+            const relation = {from_node_id: id, to_node_id: to.node_id, relation_kind, properties: {}, campaign_origin: {kind: 'table'}};
+            this.out.set(id, [...(this.out.get(id) ?? []), relation]);
+            this.incoming.set(to.node_id, [...(this.incoming.get(to.node_id) ?? []), relation]);
+        };
+        if (kind === 'scene' && typeof record.within === 'string') relate(this.find(record.within, ['scene', 'location']), 'located-in');
+        if (kind === 'scene' && typeof record.from === 'string') relate(this.find(record.from, ['scene']), 'route-to');
         if (kind === 'clue' && record.scene) {
             const scene = this.scene(record.scene);
             const relation = {from_node_id: id, to_node_id: scene.node_id, relation_kind: 'discoverable-at', properties: {}};
@@ -747,7 +757,7 @@ export class ModuleGraph {
         for (const rel of links) {
             // §152.4: a printed visual the reviewer found to be a variant is listed as the print it stands for.
             const found = this.nodes.get(rel.from_node_id), node = found ? this.survivorOf(found) : undefined;
-            if (!["depicts", "discoverable-at", "located-in"].includes(rel.relation_kind) || !node || node.node_kind === "clue" || seen.has(node.node_id))
+            if (!["depicts", "discoverable-at", "located-in"].includes(rel.relation_kind) || !node || node.node_kind === "clue" || this.isTableEntity(node) || seen.has(node.node_id))
                 continue;
             seen.add(node.node_id);
             result.push(node);
