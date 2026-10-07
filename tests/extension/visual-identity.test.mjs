@@ -434,8 +434,12 @@ test('§152.4 handouts: a variant is handed over as its survivor, and a handout 
 	await b.publish(both, delta([CARD_A, CARD_B], [], [CARD_A.node_id]), {campaign: 'c1'});
 	const later = await claimDetail(b, 'harbor robbery', 'c1');
 	await b.publish(later, delta([CARD_B]), {campaign: 'c1'});
+	// A campaign on a reader-built book shows name-free handles (§185), not the book's slugs: the kernel says which.
+	const handleOf = async name => (await kernel('table.lookup', {kind: 'module', query: name})).entities[0]?.name;
+	const cardA = await handleOf(CARD_A.name), cardB = await handleOf(CARD_B.name);
+	assert.ok(cardA && cardB && cardA !== cardB, JSON.stringify([cardA, cardB]));
 	const shown = await kernel('table.apply', {call_id: 't1-c1', effects: [{kind: 'handout', name: CARD_B.name, why: 'The clipping is handed over.'}]});
-	assert.ok(shown.receipts.some(id => id.startsWith('handout:card-2-harbor-robbery-')), 'before the verdict each node stands for itself');
+	assert.ok(shown.receipts.some(id => id.startsWith(`handout:${cardB}-`)), 'before the verdict each node stands for itself');
 	// The reviewer finds one print; the campaign's module records the later card as a variant of the earlier one.
 	await b.call('module.read.ahead', {campaign: 'c1'});
 	const job = await claimIdentity(b, 'c1');
@@ -448,19 +452,21 @@ test('§152.4 handouts: a variant is handed over as its survivor, and a handout 
 	await kernel('table.narrate', {call_id: 't1-c2', text: 'The clipping is in your hands.'});
 	await kernel('table.player_input', {text: 'I read it again, and ask for the robbery card.'});
 	const again = await kernel('table.apply', {call_id: 't2-c1', effects: [{kind: 'handout', name: CARD_B.name, why: 'The card is handed over again.'}]});
-	assert.deepEqual(again.receipts.filter(id => id.startsWith('handout:')), ['handout:harbor-advertiser-2-t2'], 'the variant is handed over as its survivor');
+	assert.deepEqual(again.receipts.filter(id => id.startsWith('handout:')), [`handout:${cardA}-t2`], 'the variant is handed over as its survivor');
 	const world = JSON.parse(await readFile(join(b.workspace, '.coc/campaigns/c1/world.json'), 'utf8'));
-	assert.ok(world.handouts_shown.includes('card-2-harbor-robbery'), 'what the table was handed stays recorded under its handle');
-	assert.deepEqual(graph.shownThroughSurvivors(world.handouts_shown), ['harbor-advertiser-2'], 'membership is read through the survivor');
+	assert.ok(world.handouts_shown.includes(cardB), 'what the table was handed stays recorded under its handle');
+	// The campaign's own view of the module: its handles are the campaign's map (§185.4).
+	const view = new api.ModuleGraph(b.mid, graph.raw, '', {}, undefined, false, new Map(Object.entries(world.node_handles ?? {})));
+	assert.deepEqual(view.shownThroughSurvivors(world.handouts_shown), [cardA], 'membership is read through the survivor');
 	// The board's list of held documents: one entry for the one print.
 	const turns = join(b.workspace, '.coc/campaigns/c1/turns'), receipts = [];
 	for (const name of (await readdir(turns)).filter(file => file.endsWith('.json')).sort())
 		receipts.push(...(JSON.parse(await readFile(join(turns, name), 'utf8')).receipts ?? []));
-	const held = await api.heldHandouts(join(b.workspace, '.coc/campaigns/c1'), world.handouts_shown, receipts, graph);
-	assert.deepEqual(held.map(row => row.handout), ['harbor-advertiser-2']);
+	const held = await api.heldHandouts(join(b.workspace, '.coc/campaigns/c1'), world.handouts_shown, receipts, view);
+	assert.deepEqual(held.map(row => row.handout), [cardA]);
 	assert.match(held[0].text, /watchman/);
-	const onlyVariant = await api.heldHandouts(join(b.workspace, '.coc/campaigns/c1'), ['card-2-harbor-robbery'], receipts, graph);
-	assert.deepEqual(onlyVariant.map(row => [row.handout, row.text]), [['harbor-advertiser-2', 'The watchman saw nothing unusual that night.']],
+	const onlyVariant = await api.heldHandouts(join(b.workspace, '.coc/campaigns/c1'), [cardB], receipts, view);
+	assert.deepEqual(onlyVariant.map(row => [row.handout, row.text]), [[cardA, 'The watchman saw nothing unusual that night.']],
 		'shown only under the variant, it is held as the survivor with the document the table was handed');
 	// A name only the variant and its survivor share is the survivor, not an ambiguity.
 	const shared = {...CARD_B, name: CARD_A.name};

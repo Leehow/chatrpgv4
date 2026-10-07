@@ -10,7 +10,7 @@ from pathlib import Path
 
 from setup_helpers import confirmed_investigator
 from conftest import campaign_dir
-from module_helpers import write, bind, request, claim, finish, observed, opening
+from module_helpers import write, bind, request, claim, finish, observed, opening, handle_of
 
 IMAGE = (Path(__file__).parent / "fixtures/bundle-tiny/assets/map-dock.png").read_bytes()
 REFS = [{"page": 2}]
@@ -110,11 +110,13 @@ def test_the_move_lands_and_the_map_published_later_arrives_on_the_next_turn_onc
     mid = book_at_the_dock(kernel, tmp_path)
 
     moved = kernel.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "Tower"}])
-    assert moved["world"]["active_scene"] == "tower", "a map is never a door: the move lands with the scene's text"
+    # The campaign shows its own handles (contract section 185); the reading layer keeps the book's (185.12).
+    tower = handle_of(kernel, "c1", "Tower")
+    assert moved["world"]["active_scene"] == tower, "a map is never a door: the move lands with the scene's text"
     [job] = map_jobs(kernel, mid)
     assert (job["state"], job["foreground"], job["focus"], job["pages"]) == ("queued", False, "tower", [2])
     assert job["job_id"] in moved["deepen_queued"], "the background map job rides the host's existing wake"
-    assert world(kernel)["map_arrivals_pending"] == ["tower"]
+    assert world(kernel)["map_arrivals_pending"] == [tower]
     assert late_receipts(turn_file(kernel)) == [] and "map_views" not in moved
 
     kernel.table("narrate", call_id="t1-c2", text="The tower door stands open.")
@@ -128,16 +130,17 @@ def test_the_move_lands_and_the_map_published_later_arrives_on_the_next_turn_onc
     kernel.table("narrate", call_id="t2-c1", text="The stairs creak.")
 
     third = kernel.ok("table.player_input", {"campaign": "c1", "text": "I look around the top room."})
+    plan = handle_of(kernel, "c1", "Tower plan")
     [receipt] = late_receipts(turn_file(kernel))
-    assert (receipt["map"], receipt["why"], receipt["late"], receipt["scene"], receipt["call_id"]) == ("tower-plan", "arrival", True, "tower", "t3-input")
+    assert (receipt["map"], receipt["why"], receipt["late"], receipt["scene"], receipt["call_id"]) == (plan, "arrival", True, tower, "t3-input")
     assert [region["id"] for region in receipt["regions"]] == ["top-room"]
     [view] = third["map_views"]
-    assert view["receipt"] == receipt["id"] and view["map"] == "tower-plan"
-    assert third["capsule"]["turn"]["map_arrived"] == [{"map": "tower-plan", "scene": "tower", "receipt": receipt["id"]}]
+    assert view["receipt"] == receipt["id"] and view["map"] == plan
+    assert third["capsule"]["turn"]["map_arrived"] == [{"map": plan, "scene": tower, "receipt": receipt["id"]}]
     state = world(kernel)
-    assert state["maps_presented"] == ["tower-plan"] and state["map_arrivals_pending"] == []
+    assert state["maps_presented"] == [plan] and state["map_arrivals_pending"] == []
     delivered = kernel.table("narrate", call_id="t3-c1", text="Wind moves through the top room.")
-    assert any(row.get("kind") == "map" and row.get("map") == "tower-plan" for row in delivered["mechanics"])
+    assert any(row.get("kind") == "map" and row.get("map") == plan for row in delivered["mechanics"])
 
     fourth = kernel.ok("table.player_input", {"campaign": "c1", "text": "I wait."})
     assert "map_views" not in fourth and late_receipts(turn_file(kernel)) == [], "the late card is minted once"
@@ -161,7 +164,7 @@ def test_a_refused_map_review_settles_the_focus_and_the_next_arrival_reads_nothi
     assert world(kernel)["map_arrivals_pending"] == [], "a settled focus drops its pending arrival"
     kernel.table("apply", call_id="t2-c1", effects=[{"kind": "move", "to": "Dock"}])
     again = kernel.table("apply", call_id="t2-c2", effects=[{"kind": "move", "to": "Tower"}])
-    assert again["world"]["active_scene"] == "tower"
+    assert again["world"]["active_scene"] == handle_of(kernel, "c1", "Tower")
     assert [job["job_id"] for job in map_jobs(kernel, mid)] == [job["job_id"]], "the settled focus is not read again"
     assert not any(queued in [j["job_id"] for j in map_jobs(kernel, mid)] for queued in again["deepen_queued"])
     assert world(kernel)["map_arrivals_pending"] == []

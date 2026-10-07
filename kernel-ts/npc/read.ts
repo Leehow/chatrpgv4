@@ -22,7 +22,7 @@ export async function npcViews(input:{campaign:string;graph:ModuleGraph;world:Ro
         // bank this view also carried, §142.4, is retired: §143.6.)
         const entry=row(ledger[string(node.node_id)]);
         const projected=npcPerspective(graph,world,node,memory,records,scope);
-        const tried=intentsView(entry);
+        const tried=intentsView(entry,graph.handle(node));
         const currentInput={turn:turn.turn,player_input:turn.player_text??null,state:turn.state},handle=graph.handle(node);
         const present=row(world.npc_presence)[handle]===world.active_scene,conditions=row(row(world.npc_resources)[handle]).conditions;
         const death=array(turn.receipts).filter(receipt=>receipt.kind==='npc'&&[node.node_id,handle].includes(receipt.npc)&&typeof receipt.dead==='boolean').at(-1);

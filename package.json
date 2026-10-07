@@ -21,6 +21,7 @@
       "./extensions/npc-journal",
       "./extensions/npc-voice",
       "./extensions/npc-epithets",
+      "./extensions/node-handles",
       "./extensions/speech-edit",
       "./extensions/thinking-schedule",
       "./extensions/deepseek",

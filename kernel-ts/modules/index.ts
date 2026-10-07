@@ -13,6 +13,9 @@ import { ModuleStore } from './store.js';
 import {sourceUpgrade,assertSourceUpgradeRevision} from './source-upgrade.js';
 import { playsFromReading } from './bound-source.js';
 import { ensureCampaignModule, moduleContext, scopedModuleRoot } from './campaign-scope.js';
+import { campaignBoundary, graphBoundary, type ReadingBoundary } from './reading-boundary.js';
+/** §185.12: the campaign-scoped methods whose params or answers carry a focus. */
+const BOUNDARY_METHODS: ReadonlySet<string> = new Set(['module.read.request', 'module.reference.status', 'module.reference.materialize', 'module.opening.choose']);
 function required(params: Row, key: string): string {
     const value = params[key];
     if (value == null || value === '')
@@ -150,16 +153,19 @@ export function createModuleRuntime(context: KernelContext) {
         const id = required(params, 'module_id');
         let value = await owner(params.campaign, id);
         if (!await value.store.exists(id) || !playsFromReading(await value.store.module(id))) return { queued: [] };
-        let focus = params.focus, librarySync: Row | null = null;
+        let focus = params.focus, librarySync: Row | null = null, boundary: ReadingBoundary | null = null;
         if (params.campaign !== undefined) {
             const path = join(context.campaignsRoot, params.campaign, 'world.json');
             const world = await context.snapshots.pathExists(path) ? row(await context.snapshots.readJson(path)) : {};
             if (truth(row(world.adaptation).source)) return { queued: [] };
             focus = world.active_scene || focus;
+            // §185.12: the active scene of a name-free campaign by its node id.
+            boundary = await campaignBoundary(context, params.campaign, id);
+            if (boundary) focus = boundary.inward(focus);
             value = await owner(params.campaign, id, true);
             if (merge) librarySync = await value.reading.mergeBacklog(id);
         }
-        const result = await value.reading.queueAheadReading({ ...params, focus });
+        const result = boundary ? boundary.result(await value.reading.queueAheadReading({ ...params, focus })) : await value.reading.queueAheadReading({ ...params, focus });
         // A short book's completion in this pass carries its own, later answer (§182.2); otherwise the batch's.
         return librarySync && !result.library_sync ? { ...result, library_sync: librarySync } : result;
     };
@@ -208,6 +214,14 @@ export function createModuleRuntime(context: KernelContext) {
         if (libraryOnly.has(method) || params.campaign === undefined || typeof params.module_id !== 'string')
             return library.handlers[method](params);
         const id = required(params, 'module_id'), campaign = params.campaign;
+        // §185.12: a name-free campaign's handles cross into the reading layer as node ids, and come back out as its handles.
+        const boundary = BOUNDARY_METHODS.has(method) ? await campaignBoundary(context, campaign, id) : null;
+        if (boundary) return boundary.out(() => crossing(method, params, id, campaign, boundary));
+        return crossing(method, params, id, campaign, null);
+    };
+    /** The campaign-scoped dispatch; `boundary` translates the params the reading layer is handed (after the exact binding check). */
+    const crossing = async (method: string, params: Row, id: string, campaign: any, boundary: ReadingBoundary | null): Promise<Row> => {
+        const inner = (value: Row): Row => boundary ? boundary.params(value) : value;
         if(method==='module.read.request'&&params._task_prepare!==undefined) {
             const request=params._task_prepare as SourcePreparationRequest;assertSourcePreparationRequest(request);
             const authority=request.authority;
@@ -226,7 +240,7 @@ export function createModuleRuntime(context: KernelContext) {
                 const expected=advance?.to??(prior.state==='completed'?undefined:retained.currentRevision);
                 if(!equal(retained.request,request)||current.revision!==expected||!sourcePreparationScopeMatches(current.scope,authority.scope)||current.turn!==authority.turn)
                     throw new RpcError('needs','The retained preparation no longer owns the current source',{details:{reason:'source_preparation_stale'}});
-                return priorOwner.reading.request(params,retained);
+                return priorOwner.reading.request(inner(params),retained);
             }
             if(current.status!=='active'||current.revision!==authority.from||!sourcePreparationScopeMatches(current.scope,authority.scope)||current.turn!==authority.turn)
                 throw new RpcError('needs','The pending operation source changed before preparation',{details:{reason:'source_preparation_stale'}});
@@ -234,7 +248,7 @@ export function createModuleRuntime(context: KernelContext) {
             const target=await owner(campaign,id,true),forked=await sourcePreparationSnapshot(context,campaign,id);
             if(!wasScoped&&forked.forkOriginRevision!==authority.from)throw new RpcError('needs','The library source changed before its owned campaign seed',{details:{reason:'source_preparation_stale'}});
             if(!sourcePreparationScopeMatches(forked.scope,authority.scope)||forked.turn!==authority.turn)throw new RpcError('needs','The campaign changed during source preparation',{details:{reason:'source_preparation_stale'}});
-            return target.reading.request(params,{request:structuredClone(request),currentRevision:forked.revision});
+            return target.reading.request(inner(params),{request:structuredClone(request),currentRevision:forked.revision});
         }
         if (claimsOrFinishes.has(method)) {
             const value = scopedRuntime(campaign);
@@ -251,20 +265,29 @@ export function createModuleRuntime(context: KernelContext) {
             const shared = await library.handlers[method](params);
             return row(shared).job_id ? shared : value.handlers[method](params);
         }
-        return (await owner(campaign, id, forking.has(method))).handlers[method](params);
+        return (await owner(campaign, id, forking.has(method))).handlers[method](inner(params));
     };
     const handlers: HandlerGroup = Object.freeze(Object.fromEntries(Object.keys(library.handlers).map(method => [method,
         (params: Row) => dispatch(method, params),
     ])));
+    const inward = (boundary: ReadingBoundary | null, value: string): string => boundary ? String(boundary.inward(value)) : value;
+    /** A campaign-scoped reading request: params in, answer and refusal out, through the campaign's boundary. */
+    const across = async (params: Row, action: (inner: Row) => Promise<Row>): Promise<Row> => {
+        const boundary = typeof params.module_id === 'string' ? await campaignBoundary(context, params.campaign, params.module_id) : null;
+        return boundary ? boundary.out(() => action(boundary.params(params))) : action(params);
+    };
     const source = Object.freeze({
         store,
         graphPath: async (moduleId: string, campaign?: string) => (await owner(campaign, moduleId)).store.graphPath(moduleId),
-        materialReady: async (moduleId: string, name: string, campaign?: string) => (await owner(campaign, moduleId)).reading.materialReady(moduleId, name),
-        openingReady: async (moduleId: string, focus = '', campaign?: string) => {const reader=(await owner(campaign,moduleId)).reading;return await reader.referenceReady(moduleId,focus)||reader.openingReady(moduleId,focus);},
-        request: async (params: Row) => (await owner(params.campaign, required(params, 'module_id'), true)).reading.request(params),
+        // §185.12: a campaign handle reaches the reading layer as a node id, and its answers come back with the campaign's handles.
+        materialReady: async (moduleId: string, name: string, campaign?: string) => (await owner(campaign, moduleId)).reading.materialReady(moduleId, inward(await campaignBoundary(context, campaign, moduleId), name)),
+        openingReady: async (moduleId: string, focus = '', campaign?: string) => {
+            const reader=(await owner(campaign,moduleId)).reading;focus=inward(await campaignBoundary(context,campaign,moduleId),focus);
+            return await reader.referenceReady(moduleId,focus)||reader.openingReady(moduleId,focus);},
+        request: async (params: Row) => across(params, async inner => (await owner(params.campaign, required(params, 'module_id'), true)).reading.request(inner)),
         // Campaign maintenance is a private write, just like an explicit source request.
         ahead: (params: Row) => ahead(params),
-        requestFollowing: async (params: Row) => (await owner(params.campaign, required(params, 'module_id'), true)).reading.request(params),
+        requestFollowing: async (params: Row) => across(params, async inner => (await owner(params.campaign, required(params, 'module_id'), true)).reading.request(inner)),
         // Before a campaign forks it follows the shared library, so it enqueues nothing there:
         // a table's prefetch may never write into the shared queue on another table's behalf.
         queueAdjacentReading: async (graph: ModuleGraph, scene: Row) => graph.sourceCampaign === undefined
@@ -273,9 +296,11 @@ export function createModuleRuntime(context: KernelContext) {
         requireMaterial: async (graph: ModuleGraph, names: any[], gate?: MaterialGate) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireMaterial(graph, names, gate),
         requireMapMaterial: async (graph: ModuleGraph, params: Row) => (await owner(graph.sourceCampaign, graph.moduleId)).reading.requireMapMaterial(graph, params),
         // §107.1: like the adjacent prefetch, a table that still follows the shared library queues nothing there.
-        queueArrivalMap: async (graph: ModuleGraph, scene: Row): Promise<Row> => graph.sourceCampaign === undefined
-            ? { state: 'none' }
-            : (await owner(graph.sourceCampaign, graph.moduleId)).reading.queueArrivalMap(graph, scene),
+        queueArrivalMap: async (graph: ModuleGraph, scene: Row): Promise<Row> => {
+            if (graph.sourceCampaign === undefined) return { state: 'none' };
+            const answer = await (await owner(graph.sourceCampaign, graph.moduleId)).reading.queueArrivalMap(graph, scene);
+            return graphBoundary(graph)?.result(answer) ?? answer;
+        },
     });
     return Object.freeze({ handlers, source, close: async () => {
         closed = true;

@@ -1,6 +1,6 @@
 /** Read-only action candidates for Jev check selection (§159); settlement stays in table.resolve. */
 import type {CampaignSnapshot} from '../read/campaign.js';
-import type {ModuleGraph} from '../read/module-graph.js';
+import {sameNode, type ModuleGraph} from '../read/module-graph.js';
 import type {SessionView} from '../read/session-view.js';
 import {array, normalize, row, string, type Row} from '../read/values.js';
 import {npcsPresent} from '../read/capsule.js';
@@ -229,7 +229,7 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
             for (const key of ['san_loss', 'san_loss_to_see', 'sanity_loss']) if (!loss) loss = parseSanLoss(profile[key]);
             const investigator = campaign.party.find(sheet => sheet.name === actor);
             const alreadyExposed = investigator && visitReceipts.some(receipt => receipt.kind === 'roll' && receipt.roll_kind === 'sanity_check'
-                && receipt.actor === investigator.id && receipt.npc_exposure === graph.handle(person.node));
+                && receipt.actor === investigator.id && sameNode(graph, receipt.npc_exposure, person.node));
             if (loss && investigator) covered.add('sanity:check');
             if (loss && investigator && !alreadyExposed) add('sanity:check', `${actor}: source-stated sanity check on perceiving ${person.name}`, {actor, target: person.name, san_loss: loss.join('/')},
                 [{...parameter('involuntary', 'Assume the upcoming SAN roll fails. The SAN rule then authorizes the Keeper to choose one brief involuntary response from these legal options; this is not a voluntary player decision. Judge its immediate compatibility, not whether the roll has already failed. Do not choose an extended strategy.', [...INVOLUNTARY_KINDS]), selection: 'compatible'}], [], 'consequence');

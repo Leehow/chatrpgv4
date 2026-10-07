@@ -95,6 +95,9 @@ const DRAFT = {people: [
 	{book: ['Harbormaster Quill'], play: ['Harbormaster Quill'], notes: ['Harbormaster Quill'], pages: [1]},
 ]};
 
+/** A graph person's handle as the kernel shows it: a campaign on a reader-built book has name-free handles (§185), not the slug. */
+const handleOf = async (h, name) => (await h.call('table.lookup', {kind: 'module', query: name})).entities[0]?.name;
+
 /** The host's calls (extensions/module/reading-service.ts `readCast`), with the reader child's draft written by hand. */
 async function readCast(h, draft = DRAFT) {
 	const job = await h.call('cast.job', {module_id: h.mid, claim: true});
@@ -332,16 +335,17 @@ test('§177.1/§177.4/§177.5: stored rows join the graph\'s person or stand unr
 	const h = await harbor(t);
 	await readCast(h);
 	const roster = (await h.call('table.untold')).people;
-	const shownOf = name => roster.find(row => row.name === name)?.shown;
-	assert.equal(roster.find(row => row.name === 'Mae')?.id, 'old-mae', 'a printed short form joins the graph person who carries the row\'s other name');
+	const shownOf = name => roster.find(row => row.name === name)?.shown, mae = await handleOf(h, 'Old Mae');
+	assert.ok(mae && !mae.startsWith('cast-'), mae);
+	assert.equal(roster.find(row => row.name === 'Mae')?.id, mae, 'a printed short form joins the graph person who carries the row\'s other name');
 	const silasId = roster.find(row => row.name === 'Silas Marsh')?.id, jonahId = roster.find(row => row.name === 'Jonah')?.id;
 	assert.match(silasId, /^cast-/, 'someone the book names and the graph does not have yet is renamed too');
 	assert.equal(shownOf('Jonah'), jonahId, 'shown by the opaque row id until the lane gives a word');
 
 	const job = await h.call('epithets.job');
 	const ids = job.people.map(person => person.id);
-	assert.ok(ids.includes('old-mae') && ids.includes(silasId) && ids.includes(jonahId), JSON.stringify(ids));
-	assert.ok(ids.indexOf('old-mae') < ids.indexOf(jonahId), 'the graph\'s people first');
+	assert.ok(ids.includes(mae) && ids.includes(silasId) && ids.includes(jonahId), JSON.stringify(ids));
+	assert.ok(ids.indexOf(mae) < ids.indexOf(jonahId), 'the graph\'s people first');
 	assert.equal(job.people.find(person => person.id === jonahId).looks, "Mae's boy Jonah drowned there last spring.");
 	const refused = await h.call('epithets.submit', {entries: [{id: jonahId, word: "Mae's drowned boy"}]});
 	assert.equal(refused.refused[0]?.reason, 'untold_name', 'a word may not carry the name of anyone untold in the cast');
@@ -393,7 +397,7 @@ test('§177.6/§177.7: lookup finds a person by the table\'s word; an unread per
 	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}, {id: jonahId, word: 'the drowned boy'}]});
 	await h.call('table.player_input', {text: 'I ask about the cellar.'});
 	const mae = await h.call('table.lookup', {kind: 'module', query: 'the net mender'});
-	assert.equal(mae.entities[0]?.name, 'old-mae', 'the epithet finds her through the person junction');
+	assert.equal(mae.entities[0]?.name, await handleOf(h, 'Old Mae'), 'the epithet finds her through the person junction');
 	const boy = await h.call('table.lookup', {kind: 'module', query: 'the drowned boy'});
 	assert.deepEqual([boy.entities[0]?.name, boy.entities[0]?.material, boy.entities[0]?.original_pages], ['the drowned boy', 'unread', [3]]);
 	assert.equal(boy.status, undefined, 'not not_found');

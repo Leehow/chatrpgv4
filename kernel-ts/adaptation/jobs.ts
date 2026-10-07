@@ -296,7 +296,7 @@ export class AdaptationJobs {
                 return {...this.view(old), task: ['pending', 'reviewing'].includes(old.status) ? this.task(old, old.status === 'reviewing' ? 'review' : 'create') : null};
         }
         const effective = await loadCampaignModule(this.context, snapshot.meta.module_id, snapshot.world, snapshot.id);
-        const base = rebase ? current : effective.adapted ? await pinnedSource(this.context, row(snapshot.world.adaptation).source) : current;
+        const base = rebase ? current : effective.adapted ? await pinnedSource(this.context, row(snapshot.world.adaptation).source, effective.graph.nodeHandles) : current;
         const source = effective.adapted && !rebase ? row(snapshot.world.adaptation).source : await snapshotSource(this.context, base, this.asset);
         const previous = adaptationChanges(snapshot.world);
         const attempt = (await this.context.snapshots.pathExists(join(path, 'job.json')) ? Number((await artifact(join(path, 'job.json'))).attempt) : 0) + 1;
@@ -397,7 +397,7 @@ export class AdaptationJobs {
         const job = await this.active(params, 'pending'), value = await artifact(join(job.work, 'create', 'result.json'));
         if (!job.rebase && Array.isArray(value.changes) && value.changes.length === 0)
             return fail(`Draft declined: ${string(value.explanation || 'No supported change could be prepared').slice(0, 1600)}`, 'adaptation_declined');
-        const source = await pinnedSource(this.context, job.source), state = await this.state(job.campaign);
+        const state = await this.state(job.campaign), source = await pinnedSource(this.context, job.source, state.current.graph.nodeHandles);
         const changes = job.rebase ? [] : normalizeChanges(source.graph, job.previous, state.snapshot.world,
             canonicalizeAnchorReferences(source.graph, array(job.anchors).map(string), value.changes), job.key);
         validatePurpose(job.purpose as Purpose, changes);

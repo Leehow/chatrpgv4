@@ -1,5 +1,5 @@
 /** Committed player-visible name disclosure, shared by the journal and Keeper projections (§103). */
-import type { ModuleGraph } from '../read/module-graph.js';
+import { sameNode, type ModuleGraph } from '../read/module-graph.js';
 import { array, string, number, normalize, type Row } from '../read/values.js';
 import { prepareNameHistory } from './name-history.js';
 
@@ -49,11 +49,12 @@ export function namePieces(names: readonly string[]): string[] {
 
 /** The first committed delivery that actually displayed the authored name, not merely the NPC id. */
 export function toldTurn(graph: ModuleGraph, node: Row, records: Iterable<Row>, upTo = Infinity): number | null {
-    const handle = graph.handle(node), words = nameWords(graph, node);
+    const words = nameWords(graph, node);
     const history = prepareNameHistory(records);
     for (const record of history.graphRecords()) {
         if (!(number(record.turn) <= upTo)) continue;
-        if (history.speech(record).some(who => who.npc === handle && words.some(word => occurs(who.shown, word))))
+        // §185.6.1: a record keeps the handle the person had then (an interim one, before a fold): compared by identity.
+        if (history.speech(record).some(who => sameNode(graph, who.npc, node) && words.some(word => occurs(who.shown, word))))
             return number(record.turn);
         // §177.15: `told_text` where the delivery had places the host cleared as part of another word, blanked there.
         if (words.some(word => occurs(history.text(record), word)))

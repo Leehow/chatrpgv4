@@ -89,6 +89,8 @@ function harbor(workspace) {
 	return mid;
 }
 const world = (workspace) => JSON.parse(readFileSync(join(workspace, ".coc/campaigns", CAMPAIGN, "world.json"), "utf8"));
+/** A node's handle as the kernel shows this campaign: a campaign on a reader-built book has name-free handles (§185), not slugs. */
+const handleOf = (workspace, name) => ok(workspace, [["table.lookup", { campaign: CAMPAIGN, kind: "module", query: name }]])[0].entities[0]?.name;
 const turnRecord = (workspace, turn) => JSON.parse(readFileSync(join(workspace, ".coc/campaigns", CAMPAIGN, "turns", `${String(turn).padStart(4, "0")}.json`), "utf8"));
 
 test("§22.4.7 on the emitted kernel: explicit index landing keeps page identity while ordinary arrival needs no dossier", async (t) => {
@@ -97,9 +99,10 @@ test("§22.4.7 on the emitted kernel: explicit index landing keeps page identity
 	harbor(workspace);
 	ok(workspace, [["table.open", { campaign: CAMPAIGN }], ["table.player_input", { campaign: CAMPAIGN, text: "I climb to the tower." }]]);
 	const [moved] = ok(workspace, [["table.apply", { campaign: CAMPAIGN, call_id: "t1-c1", effects: [{ kind: "time", minutes: 1 }, { kind: "move", to: "Tower", _land_on_index: true }] }]]);
-	assert.equal(moved.world.active_scene, "tower", "the move landed on the book's text");
-	assert.deepEqual(moved.scene_text, [{ scene: "tower", pages: [2, 1, 3] }]);
-	assert.deepEqual(world(workspace).index_scenes, ["tower"]);
+	const tower = handleOf(workspace, "Tower");
+	assert.equal(moved.world.active_scene, tower, "the move landed on the book's text");
+	assert.deepEqual(moved.scene_text, [{ scene: tower, pages: [2, 1, 3] }]);
+	assert.deepEqual(world(workspace).index_scenes, [tower]);
 	// The same place passes the material gate of a check there while its record is being read.
 	const [checked] = rpc(workspace, [["table.resolve", { campaign: CAMPAIGN, call_id: "t1-c2", action: { intent: "investigate", goal: "look around",
 		method: "look around the lamp room", skill: "Spot Hidden", decision: "core-check:ordinary-check" } }]]);
@@ -116,7 +119,7 @@ test("§22.4.7 on the emitted kernel: explicit index landing keeps page identity
 	// The Cellar, known on its own page and never read, would land on it only when the host asks.
 	const [cellar] = rpc(workspace, [["table.apply", { campaign: CAMPAIGN, call_id: "t2-c2", effects: [{ kind: "move", to: "Cellar" }] }]]);
 	assert.equal(cellar.ok, true);
-	assert.equal(world(workspace).active_scene, "cellar");
+	assert.equal(world(workspace).active_scene, handleOf(workspace, "Cellar"));
 });
 
 const clerkNotes = (context) => context.messages.flatMap((message) => {
@@ -164,7 +167,7 @@ const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text }
 test("Section 150 at the hybrid seam: ordinary arrival needs no reading job or extra source round", async (t) => {
  const {table,ensures,extractions}=await seam(t,{pageTexts:PAGES,responses:[move("Tower"),narrate("The stair winds up.")]});
  await table.session.prompt("I climb to the tower.");
- assert.equal(world(table.workspace).active_scene,"tower");
+ assert.equal(world(table.workspace).active_scene,handleOf(table.workspace,"Tower"));
  assert.equal(ensures.length,0);
  assert.equal(extractions.length,0);
  assert.deepEqual(table.telemetry(CAMPAIGN).filter(row=>row.tool==='apply'&&!row.event).map(row=>row.ok),[true]);
@@ -175,7 +178,7 @@ test("Section 150 on the legacy engine: an ordinary new person survives an unpre
   fauxAssistantMessage([fauxToolCall("apply",{effects:[{kind:'npc',name:'the lamp keeper',walk_on:true,to:'here',why:'A person tending the lamp.'}]})],{stopReason:'toolUse'}),narrate("The lamp keeper looks up.")]});
  await table.session.prompt("I climb to the tower and speak to whoever tends the lamp.");
  const state=world(table.workspace);
- assert.equal(state.active_scene,'tower');
+ assert.equal(state.active_scene,handleOf(table.workspace,'Tower'));
  const person=state.table_people.find(row=>row.name==='the lamp keeper');
  assert(person);assert.equal(person.from_passage,undefined,'an improvised person is not represented as extracted source');
  assert.equal(ensures.length,0);
@@ -184,7 +187,7 @@ test("Section 150 on the legacy engine: an ordinary new person survives an unpre
 test("Section 150 at the seam: empty native text does not turn ordinary arrival into a source wait", async(t)=>{
  const {table,ensures,extractions}=await seam(t,{pageTexts:['',' ',''],responses:[move('Tower'),narrate('The stair is dark.')]});
  await table.session.prompt('I climb to the tower.');
- assert.equal(world(table.workspace).active_scene,'tower');
+ assert.equal(world(table.workspace).active_scene,handleOf(table.workspace,'Tower'));
  assert.equal(ensures.length,0);assert.equal(extractions.length,0);
 });
 

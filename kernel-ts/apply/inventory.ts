@@ -1,7 +1,7 @@
 /** Staged legacy equipment and era-specific cash; managed instances keep their owner. */
 import {RpcError} from '../errors.js';
 import {isJsonObject,PythonFloat,jsonDigest} from '../json.js';
-import {moduleDeclaration,isAmbiguity} from '../read/module-graph.js';
+import {moduleDeclaration} from '../read/module-graph.js';
 import {findNamedObject} from '../read/mods.js';
 import {EntityIndex} from '../read/memory.js';
 import {actor} from '../read/handlers.js';
@@ -13,7 +13,7 @@ import {Catalog} from '../rules/catalog.js';
 import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
 import {addCash,cashDecimal,cashStorage,cashText,compareCash} from './cash.js';
-import {bindCashQuote,expenseCategory,expenditure,purchaseItems,storedCash} from './purchases.js';
+import {bindCashQuote,cashCounterparty,expenseCategory,expenditure,purchaseItems,storedCash} from './purchases.js';
 import {decimalSpelling} from '../../shared/cash-decimal.js';
 import type {ApplyContext} from './index.js';
 export type CashContext=Pick<ApplyContext,'kernel'|'world'|'graph'|'turn'|'callId'|'ordinal'|'mint'> & {campaign:{party():Promise<readonly Row[]>}};
@@ -160,11 +160,8 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
     if(!decimalDelta||decimalDelta.coefficient===0n)throw new RpcError('invalid_params',"delta must be a finite non-zero amount, or items/quote must provide the amount");
     const why=typeof effect.why==='string'?effect.why:null;
     const otherName=typeof effect.with==='string'?effect.with.trim():'';
-    let other:Row|null=null;
-    if(otherName){
-        try{other=context.graph.npc(otherName);}
-        catch(error){if(!(error instanceof RpcError)||error.code!=='unknown_entity'||isAmbiguity(error))throw error;}
-    }
+    // §185.2: the counterparty is a person reference, the table's word included (§87.8); free text stays as written.
+    const other=otherName?cashCounterparty(context.graph,context.world,otherName):null;
     const otherId=other?context.graph.handle(other):otherName||null;
     const otherLabel=other?personLabel(context.world,context.graph.handle(other),context.graph.displayName(other)):otherName||null;
     let finance=sheet.finance;

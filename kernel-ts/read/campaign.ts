@@ -4,7 +4,8 @@ import { realpath, readFile } from "node:fs/promises";
 import type { KernelContext } from "../context.js";
 import { RpcError } from "../errors.js";
 import { parsePythonJson } from "../json.js";
-import { ModuleGraph, dossierWith } from "./module-graph.js";
+import { ModuleGraph, dossierWith, type NodeHandles } from "./module-graph.js";
+import { campaignNodeHandles } from "./node-handles.js";
 import { readPublishedGraph } from "./published-graph.js";
 import { campaignModule } from '../adaptation/source.js';
 import { scopedModuleRoot } from '../modules/campaign-scope.js';
@@ -17,6 +18,7 @@ import { array, row, clone, normalize, stripPrefix, number, repr, type Row } fro
 import { playsFromReading } from "../modules/bound-source.js";
 import type { ChainReads } from "./weaknesses.js";
 import { moduleSourceSha, readServedCast } from "./cast.js";
+import { installRenameUndo } from "./rename-undo.js";
 export class CampaignSnapshot {
     readonly dir: string;
     readonly jsonFiles = new Map<string, any>();
@@ -194,17 +196,35 @@ export interface LoadedModule {
     asset?(name: string): Promise<Row | null>;
 }
 export async function loadCampaignModule(context: KernelContext, id: string, world: Row, campaign?: string): Promise<LoadedModule> {
+    // §185.4: a name-free campaign's map reaches the graph at construction, before the source places are projected, so a
+    // projected place keeps the handle the map gave its location. It is read from this world, which may be newer than the disk's.
+    const handles = campaign === undefined ? null : await campaignNodeHandles(context, campaign, world);
     // The people this table established ride on both loads, because a table can establish one before
     // it has ever run an adaptation and `campaignModule` answers null until then. So do its creatures (§180.6).
-    const module = await campaignModule(context, id, world) ?? await loadModule(context, id, campaign);
+    const module = await campaignModule(context, id, world, handles) ?? await loadModule(context, id, campaign, handles);
     module.graph.projectSourcePlaces();
-    return withTableCreatures(withTablePeople(withTableEntities(module, world), world), world);
+    const loaded = withTableCreatures(withTablePeople(withTableEntities(module, world), world), world);
+    // §185.3: a legacy campaign's references are read once more with the request's rename undone, after a miss.
+    if (campaign !== undefined) await installRenameUndo(context, campaign, loaded.graph, world);
+    // §185.13: the investigators at this table are people the investigator knows; no name they go by is an untold name.
+    if (campaign !== undefined) loaded.graph.investigatorNames = await investigatorNames(context, campaign);
+    return loaded;
 }
-export async function loadModule(context: KernelContext, id: string, campaign?: string): Promise<LoadedModule> {
+/** §185.13: every name the investigators at this table are registered under: each party sheet's name and id, as `actor` reads them. */
+async function investigatorNames(context: KernelContext, campaign: string): Promise<string[]> {
+    const sheets = await new CampaignSnapshot(context, campaign).files("party");
+    return [...new Set(sheets.flatMap(sheet => [sheet.name, sheet.id]).filter((value): value is string => typeof value === "string" && value.trim() !== "").map(value => value.trim()))];
+}
+/**
+ * `handles` is the campaign's §185.4 map: null for a legacy campaign; left out, a campaign's own is read from its saved files
+ * (`campaignNodeHandles`), so every graph a campaign is served carries its scheme.
+ */
+export async function loadModule(context: KernelContext, id: string, campaign?: string, handles?: NodeHandles | null): Promise<LoadedModule> {
     // Reads follow the shared library until this campaign's first private write forks it.
     let inScope = false;
     if (campaign !== undefined) {
         const root = await scopedModuleRoot(context, campaign, id);
+        if (handles === undefined) handles = await campaignNodeHandles(context, campaign);
         if (root !== null) { context = { ...context, moduleRoot: root }; inScope = true; }
     }
     const moduleRoot = join(context.moduleRoot ?? join(context.stateRoot, "modules"), id),
@@ -236,7 +256,7 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
     }
     const {raw, digest} = await readPublishedGraph(context, path, meta, id),
         contract = row(await context.snapshots.readJson(join(context.content, "modules", "module-graph-contract-v3.json")));
-    const graph = new ModuleGraph(id, raw, digest, dossierWith(row(contract.actor_dossier), row(meta.vocabulary), row(contract.creature_dossier)));
+    const graph = new ModuleGraph(id, raw, digest, dossierWith(row(contract.actor_dossier), row(meta.vocabulary), row(contract.creature_dossier)), undefined, false, handles ?? null);
     graph.sourceCampaign = inScope ? campaign : undefined;
     const store = inScope ? new ModuleStore(context) : undefined;
     const asset = store ? (name: string) => store.asset(id, name) : undefined;
@@ -252,7 +272,9 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
         if (!registered || !playsFromReading(meta))
             return "ready";
         const key = normalize(name),
-            matches = array(raw.nodes).filter(n => [n.node_id, stripPrefix(n.node_id, n.node_kind), n.name || "", ...array(n.aliases)].some(v => normalize(v) === key)).map(n => n.node_id);
+            // §185.4: in a name-free campaign the handle is no slug; the node's handle and interim handle name it too.
+            matches = array(raw.nodes).filter(n => [n.node_id, stripPrefix(n.node_id, n.node_kind), n.name || "", ...array(n.aliases),
+                ...(graph.nameFree ? [graph.handle(n), graph.interimHandle(n)] : [])].some(v => normalize(v) === key)).map(n => n.node_id);
         const ready = new Set(array(row(meta.reading).materials).flatMap(m => array(m.node_ids)));
         return matches.length > 0 && matches.every(id => ready.has(id)) ? "ready" : "missing";
     };

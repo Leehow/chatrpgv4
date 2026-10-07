@@ -99,6 +99,8 @@ function harbor(workspace) {
 	return mid;
 }
 const world = (workspace) => JSON.parse(readFileSync(join(workspace, ".coc/campaigns", CAMPAIGN, "world.json"), "utf8"));
+/** A node's handle as the kernel shows this campaign: a campaign on a reader-built book has name-free handles (§185), not slugs. */
+const handleOf = (workspace, name) => ok(workspace, [["table.lookup", { campaign: CAMPAIGN, kind: "module", query: name }]])[0].entities[0]?.name;
 const check = (target, call_id, extra = {}) => ["table.resolve", { campaign: CAMPAIGN, call_id, ...extra, action: { intent: "investigate", goal: "size them up",
 	method: "watch them for a while", skill: "Spot Hidden", decision: "core-check:ordinary-check", target } }];
 
@@ -116,10 +118,10 @@ test("§22.4.7.1 on the emitted kernel: a table person is not held; a book perso
 	assert.equal(tablePerson.ok, true, `a table person is not book material: ${JSON.stringify(tablePerson.error)}`);
 
 	// A book person not yet read: a check and a write are refused naming the person and their index pages.
-	const [refused] = rpc(workspace, [check("Old Mae", "t1-c3")]);
+	const [refused] = rpc(workspace, [check("Old Mae", "t1-c3")]), mae = handleOf(workspace, "Old Mae");
 	assert.equal(refused.ok, false);
 	assert.equal(refused.error.details.reason, "material_pending");
-	assert.deepEqual(refused.error.details.read, { purpose: "detail", focus: "old-mae" });
+	assert.deepEqual(refused.error.details.read, { purpose: "detail", focus: mae });
 	assert.deepEqual(refused.error.details.person, { key: "Old Mae", name: "Old Mae", names: ["Old Mae"], book: true });
 	assert.deepEqual(refused.error.details.index, { pages: [1] }, "her own page");
 	const [write] = rpc(workspace, [place("Old Mae", "t1-c4")]);
@@ -128,7 +130,7 @@ test("§22.4.7.1 on the emitted kernel: a table person is not held; a book perso
 	// the people played on the book's text; the check itself then meets the scene (she has not been placed here yet).
 	const [landed] = rpc(workspace, [check("Old Mae", "t1-c3", { _land_on_text: [{ key: refused.error.details.person.key }] })]);
 	assert.notEqual(landed.error?.details?.reason, "material_pending", JSON.stringify(landed.error));
-	assert.deepEqual(world(workspace).index_people, ["old-mae"]);
+	assert.deepEqual(world(workspace).index_people, [mae]);
 	// From then on a write and a check pass without landing.
 	const [placed] = ok(workspace, [place("Old Mae", "t1-c4")]);
 	assert.equal(placed.person_text, undefined, "nothing landed again");
@@ -150,7 +152,7 @@ test("§22.4.7.1 on the emitted kernel: a table person is not held; a book perso
 	assert.deepEqual(named.person_text, [{ person: "Silas Marsh", focus: "Silas Marsh", pages: [1, 2, 3], passage }]);
 	const entry = world(workspace).table_people.find((row) => row.name === "Silas Marsh");
 	assert.deepEqual(entry?.from_passage, passage, "registered provisionally from the passage (§11.5.4)");
-	assert.deepEqual(world(workspace).index_people, ["old-mae", "Silas Marsh"]);
+	assert.deepEqual(world(workspace).index_people, [mae, "Silas Marsh"]);
 	const [checked] = rpc(workspace, [check("Silas Marsh", "t1-c8")]);
 	assert.equal(checked.ok, true, `and a check on him passes: ${JSON.stringify(checked.error)}`);
 });
@@ -210,7 +212,8 @@ test("§22.4.7.1 at the seam: the write lands on the book's text in one call, th
 	assert.equal(texts[0].request, 1, "on the step after the write");
 	assert.equal(texts[0].view.name, "Silas Marsh");
 	// §103.5: Old Mae is a book person nobody has named to the investigator, so the Keeper's copy of the page has her handle.
-	assert.deepEqual(Object.values(texts[0].view.view), PAGES.map((page) => page.replace("Old Mae", "old-mae")));
+	const mae = handleOf(table.workspace, "Old Mae");
+	assert.deepEqual(Object.values(texts[0].view.view), PAGES.map((page) => page.replace("Old Mae", mae)));
 	const note = clerkNotes(requests[1]).at(-1);
 	assert.ok(note.carried.head.includes(CARRIED_PERSON_TEXT_HEAD));
 	assert.deepEqual(note.carried.pending.map((row) => [row.focus, row.person, row.purpose]), [["Silas Marsh", "Silas Marsh", "detail"]], "the pending row names the person");
@@ -252,7 +255,8 @@ test('one unchanged batch lands two source-backed people before either dossier c
  await table.session.prompt('I call Old Mae and Silas over to talk with me.');
  const writes=table.telemetry(CAMPAIGN).filter(row=>row.tool==='apply'&&!row.event);
  assert.deepEqual(writes.map(row=>row.ok),[true],'the whole authorized batch lands without waiting for two dossiers');
- assert.deepEqual(ensures.map(row=>row.params.focus).sort(),['Silas Marsh','old-mae']);
+ const mae=handleOf(table.workspace,'Old Mae');
+ assert.deepEqual(ensures.map(row=>row.params.focus).sort(),['Silas Marsh',mae].sort());
  assert.ok(ensures.every(row=>row.options.allowanceMs===0&&row.options.blocking));
- const state=world(table.workspace);assert.ok(state.index_people.includes('old-mae'));assert.ok(state.index_people.includes('Silas Marsh'));
+ const state=world(table.workspace);assert.ok(state.index_people.includes(mae));assert.ok(state.index_people.includes('Silas Marsh'));
 });
