@@ -16,7 +16,7 @@ Waves:
 
 ## NR-01 — Protected spans in the rename and the gate
 
-Status: ready-for-agent · contract §188.1 · branch `…-spans`
+Status: done — e0648e01c, be0f4e5dc, 7fa06a2d6 (merged)
 
 - `protectedNames` lives in the kernel, as one function: the investigators' registered names, told people's whole names,
   and the table's words for people.
@@ -33,7 +33,7 @@ Acceptance:
 
 ## NR-02 — The cast joins its duplicates
 
-Status: ready-for-agent · contract §188.2 · branch `…-castjoin`
+Status: done — 2842ffcb6, 729501083 (merged)
 
 - Find why Blood Road's unread cast row `cast-78239617e2` ("Daniel Mather") did not join the graph person
   `red-haired-store-owner-smoker`, and fix the join under §177.1's whole-identity rule.
@@ -48,7 +48,7 @@ Acceptance:
 
 ## NR-03 — Undo the rename on a miss: every row, both schemes
 
-Status: ready-for-agent · contract §188.3 · branch `…-undo`
+Status: done — b483d4885 (merged)
 
 - `renameUndo` rows gain every name→shown pair the roster can produce, built over-inclusively, including joined words.
 - The rows are installed in both schemes. Handle rows stay legacy-only.
@@ -63,7 +63,7 @@ Acceptance — a round-trip test for each row kind (whole name, piece, one-chara
 
 ## NR-04a — One junction, batch A
 
-Status: ready-for-agent · contract §188.4 · branch `…-junctionA`
+Status: done — da93d6cd8 (merged)
 
 Route these entrances through `resolve` plus §87.8, and compare stored references by identity:
 - cash/owed `with` and `subject`;
@@ -80,7 +80,7 @@ Acceptance:
 
 ## NR-04b — One junction, batch B
 
-Status: needs-triage (wave 2, after NR-04a merges) · contract §188.4 · branch `…-junctionB`
+Status: done — 4a8157708 (merged)
 
 The remaining §188.4 entrances:
 - memory and notes (`EntityIndex`);
@@ -95,7 +95,7 @@ The remaining §188.4 entrances:
 
 ## NR-05 — Measure `say_name`
 
-Status: ready-for-agent · contract §188.5 · branch `…-measure` (sonnet; read-only)
+Status: done — 91309cc3c (merged)
 
 - A read-only script over retained tables:
   - App campaigns in `~/Library/Application Support/Pipi/pipicoc/pi-coc/.coc/campaigns`, read-only;
@@ -109,7 +109,7 @@ Status: ready-for-agent · contract §188.5 · branch `…-measure` (sonnet; rea
 
 ## NR-06 — Integration and the real table
 
-Status: needs-triage (the lead runs it once NR-01..04 have merged)
+Status: done — tables nr06-blood-road-2 and -3 passed the pre-registered lines (acceptance home NR06-PREREG.md, NR06B-PREREG.md); merging into the mainline per the owner
 
 - Run ext, py and loop on the box.
 - Play a real Blood Road table whose investigator shares a name with a book person. Cover payments, hand-overs and writing
