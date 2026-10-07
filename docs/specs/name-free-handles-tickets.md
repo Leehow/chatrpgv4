@@ -152,7 +152,7 @@ delivery gate, the `untold_name` refusals and the journal check.
 
 ## NFH-06 — Every person/entity reference goes through one junction
 
-Status: needs-triage (follow-up; not blocking NFH-05)
+Status: moved — now part 4 of `docs/specs/names-in-the-request-rename.md` (owner, 2026-10-06: 「名字那类问题另开 spec」)
 
 Found by NFH-01's sweep (contract §185.11 `#### NFH-01`, "The sweep"). Graph resolution has one place,
 `ModuleGraph.resolve`, with the §87.8 junction above it for a person's word. But several tools still resolve people and
