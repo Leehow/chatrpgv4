@@ -18,11 +18,14 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable, waitForIdle } from "./harness.mjs";
+import { RATE_LIMITED, lunaEndpoint, registerLuna } from "./luna-endpoint.mjs";
 import { ModelRuntime } from "./pi.mjs";
 import { runLane } from "../../extensions/lanes/subsession.ts";
 import { KernelError } from "../../extensions/kernel/client.ts";
 import { clipBytes, refusedMovesOf, reviewAdmission, transientLaneFailure, withRefusedMoves } from "../../extensions/kernel/admission.ts";
 import { ADMISSION_TRANSIENT_FALLBACK, admissionTransientBudget, resetAdmissionTransientBudgetCache } from "../../runtime/jev/host-budgets.ts";
+import { TaskLease } from "../../runtime/jev/task-context.ts";
+import { createTaskProviderBudget } from "../../runtime/jev/provider-budget.ts";
 
 const WAIT_MS = 1500; // `admission.transient_retry_ms` as shipped (content/rulesets/coc7/host-budgets.json)
 const call = (name, args) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
@@ -219,6 +222,103 @@ test("§190.3: the refusal budget's fallback narrate carries the turn's refused 
 	const refused = narrate.params.refused_moves;
 	assert.ok(refused.length >= 2 && refused.length <= 16, `the refused moves rode the fallback: ${JSON.stringify(refused)}`);
 	assert.deepEqual(refused[0], { to: "place-1", reason: "admission_unavailable" });
+});
+
+// ---- the retry is paid from the failed attempt's reservation (§140.1's rule) --------------------------------------------
+
+/**
+ * The single-loop run's clerk lease as `hybrid-engine.ts` sizes it (`CLERK_PROVIDER_OUTPUT_BUDGET`: 40,000 plus luna's
+ * 128,000): one luna reservation fits, a second whole one does not. (The end-to-end case through the engine's own lease
+ * is in `admission-within-turn.test.mjs`.)
+ */
+const runLease = (t) => {
+	const lease = new TaskLease({ owner: "single-loop-clerk", goal: "run", scope: { owner: "test", audience: "system" }, readSet: [], capabilities: [],
+		budget: { deadlineAt: Date.now() + 300_000, remainingInputTokens: 400_000, remainingOutputTokens: 168_000, remainingCostUsd: 2, remainingActions: 60 } });
+	t.after(() => lease.close());
+	// The port's own accounting rows: a reservation, and a usage row when it is settled (`known: false` = charged whole).
+	const trace = [];
+	const providerBudget = createTaskProviderBudget(lease, { record: (row) => trace.push(row) });
+	const rows = (kind) => trace.filter((row) => row.kind === kind);
+	return { lease, providerBudget, rows };
+};
+async function lunaLane(t, port) {
+	const home = mkdtempSync(join(tmpdir(), "transient-luna-"));
+	t.after(() => rmSync(home, { recursive: true, force: true }));
+	const runtime = await ModelRuntime.create({ authPath: join(home, "auth.json"), modelsPath: null, modelsStorePath: join(home, "models.json"), refreshOnCreate: false });
+	registerLuna(runtime, port);
+	const model = runtime.getModel("luna", "luna");
+	const lane = (options) => runLane({ ctx: { model, modelRegistry: runtime, sessionManager: { getSessionId: () => undefined } }, timeoutMs: 10_000,
+		envName: "UNUSED_LUNA_LANE_MODEL", lane: "transient-luna", systemPrompt: "Answer one JSON object.", input: "Answer.", shape: (value) => value,
+		observeTransport: true, keepFailedReservation: true, ...options });
+	lane.ctx = { model, modelRegistry: runtime, sessionManager: { getSessionId: () => undefined } };
+	return lane;
+}
+
+test("§190.3 (§140.1): an identical resend is paid from the kept reservation and settles both attempts at what it reported", async (t) => {
+	const endpoint = await lunaEndpoint(t, [RATE_LIMITED, AUTHORIZED]);
+	const lane = await lunaLane(t, endpoint.port), { lease, providerBudget, rows } = runLease(t);
+	const failed = await lane({ providerBudget });
+	assert.equal(failed.reason, "model_error");
+	assert.equal(failed.kept.attempts, 1, "the failed call's reservation is kept");
+	assert.equal(rows("provider-usage").length, 0, "and not charged yet");
+	const resent = await lane({ providerBudget, resend: failed.kept });
+	assert.equal(resent.ok, true, JSON.stringify(resent));
+	assert.equal(endpoint.hits.length, 2);
+	assert.equal(rows("provider-reservation").length, 1, "one reservation paid for both requests");
+	// 40 output tokens reported, two identical attempts: 80 charged, never the 128,000 reserved.
+	assert.deepEqual(rows("provider-usage").map((row) => [row.known, row.usage.outputTokens]), [[true, 80]]);
+	assert.equal(lease.context.budget.remainingOutputTokens, 168_000 - 80);
+});
+
+test("§190.3 (§140.1): a resend that is not identical charges the kept reservation whole and needs its own, which the run lease refuses", async (t) => {
+	const endpoint = await lunaEndpoint(t, [RATE_LIMITED, AUTHORIZED]);
+	const lane = await lunaLane(t, endpoint.port), { lease, providerBudget, rows } = runLease(t);
+	const failed = await lane({ providerBudget });
+	assert.equal(lease.context.budget.remainingOutputTokens, 40_000, "the kept reservation is held");
+	const other = await lane({ providerBudget, input: "Answer again, differently.", resend: failed.kept });
+	assert.equal(other.ok, false);
+	assert.match(other.detail, /task_budget_exhausted/);
+	assert.equal(endpoint.hits.length, 1, "the different request never reached the provider");
+	assert.deepEqual(rows("provider-usage").map((row) => [row.known, row.usage.outputTokens]), [[false, 128_000]], "the kept reservation was charged whole");
+	failed.kept.chargeWhole();
+	assert.equal(rows("provider-usage").length, 1, "once only");
+	assert.equal(lease.context.budget.remainingOutputTokens, 40_000);
+});
+
+test("§190.3 (§140.1): an identical resend on a cancelled lease is refused and sends nothing; the kept reservation is charged whole", async (t) => {
+	const endpoint = await lunaEndpoint(t, [RATE_LIMITED, AUTHORIZED]);
+	const lane = await lunaLane(t, endpoint.port), { lease, providerBudget, rows } = runLease(t);
+	const failed = await lane({ providerBudget });
+	lease.cancel();
+	const refused = await lane({ providerBudget, resend: failed.kept });
+	assert.equal(refused.ok, false);
+	assert.equal(endpoint.hits.length, 1, "nothing was sent on a cancelled lease");
+	assert.deepEqual(rows("provider-usage").map((row) => row.known), [false], "the kept reservation was charged whole, not refunded or left held");
+});
+
+test("§190.3 (§140.1): an identical resend past the lease's deadline is refused before the wire and charges the kept reservation whole", async (t) => {
+	const endpoint = await lunaEndpoint(t, [RATE_LIMITED, AUTHORIZED]);
+	const lane = await lunaLane(t, endpoint.port), { providerBudget, rows } = runLease(t);
+	const failed = await lane({ providerBudget });
+	// The lease's deadline has passed and its own timer has not fired yet: the window the resend's own check covers.
+	const expired = { ...providerBudget, deadlineAt: Date.now() - 1 };
+	const refused = await lane({ providerBudget: expired, resend: failed.kept });
+	assert.equal(refused.ok, false);
+	assert.match(refused.detail, /task_deadline/);
+	assert.equal(endpoint.hits.length, 1);
+	assert.deepEqual(rows("provider-usage").map((row) => row.known), [false]);
+});
+
+test("§190.3: a failure no retry takes (a 401) leaves no reservation held: the round charges it whole", async (t) => {
+	const endpoint = await lunaEndpoint(t, [{ status: 401, body: { detail: "bad key" } }]);
+	const lane = await lunaLane(t, endpoint.port), { providerBudget, rows } = runLease(t);
+	const outcome = await reviewAdmission({ ctx: lane.ctx, providerBudget, timeoutMs: 26_000, record: () => {},
+		proposal: { tool: "apply", key: "move", lines: ['apply move: to="the-gas-station"'], kinds: ["move"] },
+		context: { turn: 8, playerText: WORDS, investigators: [{ name: "Jack" }], present: [], delivered: [], landed: [], refused: [] } });
+	assert.equal(outcome.ok, false);
+	assert.equal(outcome.meta.provider_status, 401);
+	assert.equal(endpoint.hits.length, 1);
+	assert.deepEqual(rows("provider-usage").map((row) => row.known), [false], "charged whole when the round ended, never left held");
 });
 
 // ---- the lane runner reads what the request saw --------------------------------------------------------------------------

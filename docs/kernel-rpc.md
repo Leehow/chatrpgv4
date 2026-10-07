@@ -36850,17 +36850,33 @@ status and the provider's message clipped to 200 bytes). A batch that was refuse
    as `refused_moves`; the host deletes a Keeper-supplied one. `table.narrate` and `table.ask` accept a list of at most 16
    `{to: non-empty string, reason: non-empty string}` (`refusedMoves`, `kernel-ts/write/delivery.ts`; `invalid_params`
    otherwise) and write `refused_moves` on the turn record when it is non-empty; a turn with none has no such key.
-5. *Known limit, measured and not repaired here (needs an owner decision).* Under a run lease (`task-host-session.ts`:
-   150,000 output tokens) a model whose transport rejects the output-limit field reserves its whole `maxTokens` per call
-   (§140's `supportsMaxOutputTokens: false`: every flapcode model, `gpt-6-luna` 128,000), and a call that ends in a
-   provider error is charged that whole reservation (§20 addendum 2). The retry's own reservation is then refused
-   `task_budget_exhausted` before any request: RD-08 turn 8's host-run resend failed exactly so, in 5 ms, after a 429. A
-   probe of `reviewAdmission` with that lease and a luna-shaped model against a local Responses endpoint answering 429 then
-   a verdict reads `attempts: 2`, one request, `detail: task_budget_exhausted`; the same probe with an output-capped model
-   reads `attempts: 2`, two requests 1,505 ms apart, admitted. So on the RD-08 configuration this retry is recorded but
-   does not reach the provider. The repair is in the budget, not in admission: §140.1's rule (an identical resend is paid
-   from its failed attempt's reservation) extended to `runLane`, or settling a call the provider answered with an HTTP
-   error status as known zero usage.
+5. *The retry is paid from the failed attempt's reservation (lead's decision, 2026-10-07; extends §140.1's second rule,
+   "an identical resend is paid from its failed attempt's reservation", from a reader child's channel to `runLane`).*
+   Evidence: on the product's single-loop engine the lease a lane round reserves from is the run's clerk lease
+   (`hybrid-engine.ts`, `CLERK_PROVIDER_OUTPUT_BUDGET` 168,000 output tokens: 40,000 plus flapcode `gpt-6-luna`'s 128,000);
+   a model whose transport rejects the output-limit field reserves its whole `maxTokens` per call (§140), and a call that
+   ends in a provider error was charged that whole reservation at once (§20 addendum 2), so the retry's own 128,000 were
+   refused `task_budget_exhausted` before any request -- RD-08 turn 8's host-run resend of the clerk's `declared_check`,
+   5 ms after a 429. A probe of `reviewAdmission` on such a lease with a luna-shaped endpoint answering 429 then a verdict
+   read `attempts: 2`, one request, `detail: task_budget_exhausted`. (The Keeper's own calls run on no lease on that
+   engine: each round takes a fresh independent budget, so RD-08 turn 7's move was never refused by a budget.) The rule,
+   applied exactly: `runLane` takes `keepFailedReservation`; on a caller-supplied budget, a round whose last request
+   ended `stopReason: "error"` (not `aborted`) keeps its reservation unsettled and returns it as the failure's `kept`
+   (`{digest, bound, attempts}`: the SHA-256 of the bounded payload as dispatched, `payloadDigest`). The next round the
+   caller sends with `resend: kept` is paid from it when its payload digest and bound are identical (attempts + 1),
+   after the same lease checks the reader's channel makes (the lease's signal, then its deadline; refused: the kept
+   reservation is charged whole); when the resend reports usage it is settled at `resentUsage(usage, attempts, bound)`.
+   A non-identical request charges the kept reservation whole first and reserves its own; a resend that never reaches the
+   wire, and a round that ends without resending (`reviewAdmission`'s `finally`), charge it whole. Only the admission
+   round asks; no budget size changed, no other lane's accounting changed, an HTTP error is never settled at zero, and an
+   aborted call is never kept. Measured after: the clerk-lease case through the engine (route-selected move, luna-shaped
+   429 then a verdict) sends two requests and admits; without the keep it sends one and is refused. Tests:
+   `admission-within-turn.test.mjs` (that case) and `admission-transient-retry.test.mjs` (on a lease sized as the clerk's:
+   the identical resend paid from one reservation and charged 2 x the reported 40 output tokens; a non-identical request
+   charges the kept one whole and is refused its own; a cancelled lease and a passed deadline refuse the resend before the
+   wire and charge it whole; a 401 no retry takes leaves nothing held). Mutations (copy and restore, 8), each red: the
+   round not keeping; the resend never taking it; any request taking it; no deadline check; a non-identical request not
+   charging it; the round or `runLane` leaving an untaken one held; the resend's usage not scaled to its attempts.
 
 Tests: `tests/extension/admission-transient-retry.test.mjs` (real tool path, the harness table with the fake kernel and
 one emitted-kernel table, a local OpenAI-compatible endpoint as the lane's provider): a 503 then a verdict admits the

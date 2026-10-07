@@ -19,7 +19,7 @@
 
 import { createHash } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { runLane, type LaneResult, type LaneTransport } from "../lanes/subsession.ts";
+import { runLane, type KeptReservation, type LaneResult, type LaneTransport } from "../lanes/subsession.ts";
 import { KernelError } from "./client.ts";
 import { createDecisionAdapter, jevFailureTelemetry } from "../../runtime/jev/decision-adapter.ts";
 import { HANDOVER_GROUND_NOTE } from "../../runtime/jev/action-field-semantics.ts";
@@ -824,7 +824,9 @@ export interface AdmissionReviewOptions {
  * an authentication failure, a timeout and any verdict keep §143.15's rule. The two retries are each at most once, so a
  * round sends at most three completions. The outcome's `meta.attempts` says how many completions the round sent; a
  * failure carries its `detail` clipped to 200 UTF-8 bytes and what the provider answered (`provider_status` or
- * `transport`), and a round that took (or had no time for) the transient retry says so in `meta.transient_retry`.
+ * `transport`), and a round that took (or had no time for) the transient retry says so in `meta.transient_retry`. The
+ * transient retry is an identical resend, so it is paid from the failed attempt's reservation (§140.1's rule, kept by
+ * `runLane` on the caller's budget); a reservation no retry took is charged whole when the round ends.
  */
 export async function reviewAdmission(options: AdmissionReviewOptions): Promise<AdmissionOutcome> {
 	const capMs = options.timeoutMs ?? admissionTimeoutMs();
@@ -834,7 +836,9 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 	const input = buildAdmissionInput(options.proposal, options.context);
 	let lane: LaneResult<AdmissionVerdict> | undefined, model: string | undefined, firstByteMs: number | undefined, previous: string | undefined;
 	let attempts = 0, malformed = 0, transient: Record<string, unknown> | undefined;
-	for (;;) {
+	// §190.3 (§140.1): a transient failure's reservation, kept for its identical retry; charged whole if none takes it.
+	let kept: KeptReservation | undefined;
+	try { for (;;) {
 		const startedAt = clock.now(), left = deadline - startedAt;
 		// No time left for the second attempt: the round produced no verdict by its deadline, which is a timeout (§32.12).
 		if (left <= 0) { lane = { ok: false, reason: "timeout", detail: `the lane did not answer within ${capMs} ms: none was left for another attempt`, ms: startedAt - began }; break; }
@@ -853,7 +857,10 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 			shape: shapeVerdict,
 			// §190.3: what the provider answered decides whether a failure is transient.
 			observeTransport: true,
+			keepFailedReservation: true,
+			...(kept ? { resend: kept } : {}),
 		});
+		kept = lane.ok ? undefined : lane.kept;
 		model = lane.model ?? model;
 		// From the round's first request to the first response headers any attempt received (§32.12's `first_byte_ms`).
 		if (firstByteMs === undefined && lane.firstByteMs !== undefined) firstByteMs = startedAt - began + lane.firstByteMs;
@@ -867,7 +874,7 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 		if (deadline - clock.now() <= retryMs) { transient.skipped = "no_time"; break; }
 		await pause(clock, retryMs, options.signal);
 		if (options.signal?.aborted) break;
-	}
+	} } finally { kept?.chargeWhole(); }
 	const ms = clock.now() - began;
 	const meta = { path: "lane", first_byte_ms: firstByteMs ?? null, attempts, ...(transient ? { transient_retry: transient } : {}) };
 	// §32.12: a round cut at its cap -- whether the provider never answered or answered and streamed past it -- is the
