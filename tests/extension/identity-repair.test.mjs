@@ -34,6 +34,7 @@ await build({stdin: {contents: [
 	`export {pythonJsonDumps} from './kernel-ts/json.ts';`,
 	`export {ModuleStore} from './kernel-ts/modules/store.ts';`,
 	`export {ensureCampaignModule, libraryLineage, moduleContext} from './kernel-ts/modules/campaign-scope.ts';`,
+	`export {createModuleRuntime} from './kernel-ts/modules/index.ts';`,
 	`export {repairCandidates} from './kernel-ts/modules/identity-repair.ts';`,
 	`export {identityPairKey} from './kernel-ts/modules/published-duplicates.ts';`,
 ].join('\n'), resolveDir: ROOT, sourcefile: 'identity-repair-api.ts', loader: 'ts'},
@@ -388,4 +389,21 @@ test('§191.5 a fork takes the library\'s reviewed decisions instead of asking a
 	assert.equal(meta.reading.identity[key].verdict, 'different');
 	assert.deepEqual(meta.reading.identity[key].imported_from, {store: 'library', generation: decided.generation});
 	assert.ok((await b.relations('early')).some(rel => rel.from_node_id === BRENNER_COPY.node_id && rel.properties.identity_review.imported_from.store === 'library'));
+});
+
+test('§191.5 the repair is maintenance: a library record it cannot read is reported, and the table opening\'s read-ahead repairs the fork and goes on', async () => {
+	const b = await book('library-unreadable');
+	await seed(b, [STORE]);
+	await seed(b, [STORE_COPY]);
+	await b.campaign('table');
+	await writeFile(join(b.store().moduleDir(b.mid), 'module.json'), '{"id": ');
+	// The kernel's own read-ahead at a table's opening (`kernel-ts/write/index.ts`), which waits on no merge.
+	const modules = api.createModuleRuntime(b.context);
+	closers.push(() => modules.close());
+	const opened = await modules.source.ahead({module_id: b.mid, campaign: 'table'});
+	assert.equal(opened.identity_repair.state, 'published', JSON.stringify(opened.identity_repair));
+	assert.equal(opened.identity_repair.library_sync.state, 'failed');
+	assert.equal(opened.identity_repair.library_repair.state, 'failed');
+	assert.ok(Array.isArray(opened.queued) && opened.window, 'the read-ahead answered as it always does');
+	assert.deepEqual((await b.relations('table')).map(rel => rel.relation_id), [`rel-identity-${STORE_COPY.node_id}-to-${STORE.node_id}`]);
 });

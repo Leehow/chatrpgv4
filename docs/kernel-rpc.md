@@ -38147,8 +38147,8 @@ had already put the copy's alias on the survivor, and the case above was added f
 
 #### DUP-03 (191.5; `claude/reading-duplicates-20261007-repair`)
 
-**Where it runs.** `Reading.queueAheadReading` (`kernel-ts/modules/reading.ts:1060`) calls `repairIdentities` (`:2419`) first,
-then the read-ahead as before (`aheadReading`). Every read-ahead runs it:
+**Where it runs.** `Reading.queueAheadReading` (`kernel-ts/modules/reading.ts:1060`) calls `repairIdentities` first, then the
+read-ahead as before (`aheadReading`). Every read-ahead runs it:
 - the kernel's table opening (`kernel-ts/write/index.ts:887`) and setup (`kernel-ts/setup/index.ts:87`), through
   `createModuleRuntime(...).source.ahead`;
 - the host's `module.read.ahead`, sent after each publication and at a table's open.
@@ -38157,6 +38157,10 @@ The repair runs before §182.2's return for a short book already built, and on t
 campaign's fork, or the library). A steady read-ahead with nothing new pays about 45 ms: Blood Road's fork, median of 12, went
 from 330 ms to 375 ms. A store's last plan with nothing to write is remembered by its inputs (graph digest, generation,
 `reading.identity`, cast rows, and the same of the other store), so an unchanged book reads no graph twice.
+
+The repair is maintenance. If it fails, the failure is reported (`identity_repair: {state: "failed", detail}` and a
+`build.jsonl` row) and the read-ahead's own asks go on. A library record that cannot be read lends no decisions: the fork is
+still repaired, and the library's sync and repair report `failed`.
 
 **Candidates** (`publishedPairs`, `kernel-ts/modules/published-duplicates.ts:210`; `repairCandidates`,
 `kernel-ts/modules/identity-repair.ts:66`):
@@ -38216,7 +38220,7 @@ The reader who wrote the relation treated the nodes as two things, as §191.6 do
     `read_pages`.
   - The verdict shape is import-free (`kernel-ts/modules/node-identity-shape.ts`) so the host and the kernel check the same
     rules.
-- **The finish** (`finishNodeIdentity`, `kernel-ts/modules/reading.ts:2467`).
+- **The finish** (`finishNodeIdentity`, `kernel-ts/modules/reading.ts:2476`).
   - It refuses with `node_identity_invalid` when the protocol is wrong, a pair still open has no verdict, or a side with
     pages has none of them in `read_pages`.
   - `same` writes the relation with `identity_review: {by: "review", job_id, key, reason, generation}`.
@@ -38268,12 +38272,18 @@ The reader who wrote the relation treated the nodes as two things, as §191.6 do
   - `nr06-blood-road-3` is still `lineage`, and `nfh-accept-blood-road-1` is still `library_advanced`.
   - Its second load is `unchanged`.
 
-**Tests** (`tests/extension/identity-repair.test.mjs`, 8 cases on the real path): the owner's rule on a built book and the
-second load writing nothing; the pairs that are never merged without a verdict; the verdict job through the host's
-ReadingService; a reviewer that opens no page, up to three failures; the kernel's refusals; the lineage held and adopted;
-the library's own publication taking a fork's decision; a fork taking the library's decisions.
+**Tests** (`tests/extension/identity-repair.test.mjs`, 9 cases on the real path):
+- the owner's rule on a built book, and a second load writing nothing;
+- the pairs that are never merged without a verdict;
+- the verdict job through the host's ReadingService;
+- a reviewer that opens no page, up to three failures;
+- the kernel's refusals;
+- the lineage held and adopted;
+- the library's own publication taking a fork's decision;
+- a fork taking the library's decisions;
+- an unreadable library record at the table opening's read-ahead.
 
-**Mutations** (each one literal change, restored by copy and checked by content; 16 of 16 turn a case red):
+**Mutations** (each one literal change, restored by copy and checked by content; 17 of 17 turn a case red):
 - `owner-rule-ignores-pages`: 6 red
 - `owner-rule-any-name`: 1 red
 - `owner-rule-ignores-relations`: 1 red
@@ -38281,12 +38291,13 @@ the library's own publication taking a fork's decision; a fork taking the librar
 - `recorded-verdict-ignored`: 2 red
 - `candidates-not-survivor-aware`: 5 red
 - `library-written-under-lineage`: 1 red
-- `fork-repair-not-offered`: 1 red
+- `fork-repair-not-offered`: 2 red
 - `decisions-not-taken`: 2 red
 - `kernel-accepts-unread-side`: 1 red
 - `host-accepts-unread-side`: 1 red
 - `different-not-kept`: 3 red
 - `repair-after-built-return`: 1 red
+- `unreadable-library-stops-the-fork`: 1 red
 - `two-live-identity-jobs`: 1 red
 - `failures-never-end-asking`: 1 red
 - `host-reports-no-pages`: 3 red

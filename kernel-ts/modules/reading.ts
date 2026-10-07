@@ -1058,7 +1058,15 @@ export class Reading {
      * play and the next one, or a page window); the adjacent-scene reads of §22.4 are unchanged. The result carries `window`.
      */
     async queueAheadReading(params: Row): Promise<Row> {
-        const repair = await this.repairIdentities(validateModuleId(params.module_id));
+        const mid = validateModuleId(params.module_id);
+        // §191.5: the repair is maintenance; its failure is reported and never stops the read-ahead's own asks.
+        let repair: Row | null;
+        try { repair = await this.repairIdentities(mid); }
+        catch (error) {
+            this.owned();
+            repair = { state: 'failed', detail: (error instanceof Error ? error.message : String(error)).slice(0, 1000) };
+            await this.store.appendBuildLog(mid, { event: 'identity-repair-failed', detail: repair.detail }).catch(() => undefined);
+        }
         const result = await this.aheadReading(params);
         if (!repair) return result;
         return { ...result, queued: [...new Set([...array(result.queued), ...array(repair.asked)])], identity_repair: repair };
@@ -2423,7 +2431,8 @@ export class Reading {
         const campaign = this.forkCampaign(first), cast = await this.castNames(mid, first);
         let outcome: Row, follows: Row = {};
         if (campaign) {
-            const library = this.libraryStore(), shared = await library.exists(mid) ? await library.module(mid) : null;
+            // The library's record only lends its reviewed decisions: one that cannot be read lends none, and the fork is repaired.
+            const library = this.libraryStore(), shared = await library.exists(mid) ? await library.module(mid).catch(() => null) : null;
             const from: LazySource | undefined = shared
                 ? { meta: shared, label: { store: 'library', generation: shared.generation ?? 0 }, raw: () => library.readGraph(mid) } : undefined;
             ({ outcome, follows } = await this.mutex(mid, async () => {
