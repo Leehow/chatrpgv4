@@ -479,3 +479,45 @@ async function readTimeReadingBudget(contentRoot?: string): Promise<TimeReadingB
     return TIME_READING_FALLBACK;
   }
 }
+
+/**
+ * Contract §187.7: how many of a need read's own page leads become its candidate pages. `need_read.lead_pages` is the
+ * most (shipped 5), `need_read.min_lead_pages` the fewest (shipped 2): when fewer leads clear the page-lead gate, the
+ * next best leads of the need facet below the gate make up the floor. Data, never a literal in the source driver.
+ */
+export interface NeedReadBudget {
+  /** `need_read.lead_pages`: the most need leads a need read takes as candidate pages. */
+  leadPages: number;
+  /** `need_read.min_lead_pages`: the fewest, topped up from below the gate when fewer clear it. */
+  minLeadPages: number;
+}
+
+/** Used only if `content/rulesets/coc7/host-budgets.json` cannot be read; the shipped file carries the real default. */
+export const NEED_READ_FALLBACK: NeedReadBudget = Object.freeze({leadPages: 5, minLeadPages: 2});
+
+const needReadCached = new Map<string, Promise<NeedReadBudget>>();
+
+/** The need-read candidate budget, read once per content root and cached. */
+export function needReadBudget(contentRoot?: string): Promise<NeedReadBudget> {
+  const root = contentRoot ?? extensionContentRoot();
+  let pending = needReadCached.get(root);
+  if (!pending) needReadCached.set(root, pending = readNeedReadBudget(root));
+  return pending;
+}
+
+async function readNeedReadBudget(contentRoot: string): Promise<NeedReadBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot, 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      need_read?: {lead_pages?: unknown; min_lead_pages?: unknown};
+    };
+    const most = raw.need_read?.lead_pages, fewest = raw.need_read?.min_lead_pages;
+    const leadPages = finite(most) && Number.isInteger(most) && most >= 1 ? most : NEED_READ_FALLBACK.leadPages;
+    const minLeadPages = finite(fewest) && Number.isInteger(fewest) && fewest >= 0 ? Math.min(fewest, leadPages) : Math.min(NEED_READ_FALLBACK.minLeadPages, leadPages);
+    return {leadPages, minLeadPages};
+  } catch {
+    return NEED_READ_FALLBACK;
+  }
+}
+
+/** Test-only: forgets the cached values, so a test that rewrites a content root sees its own fixture. */
+export function resetNeedReadBudgetCache(): void { needReadCached.clear(); }

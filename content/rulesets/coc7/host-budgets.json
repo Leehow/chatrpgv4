@@ -70,6 +70,10 @@
       "days": 1440
     }
   },
+  "need_read": {
+    "lead_pages": 5,
+    "min_lead_pages": 2
+  },
   "source_need_answered": {
     "min_noul": 0.85,
     "timeout_ms": 20000

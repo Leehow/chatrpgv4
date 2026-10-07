@@ -18,7 +18,8 @@ import {moduleLogicReview} from '../../kernel-ts/modules/module-review-policy.ts
 import {retainSourceNeeds} from '../../extensions/module/source-needs.ts';
 import {selectReferencePacket,checkReferenceGuide} from './source-reference.ts';
 import {validateReferencePacket,type SourceReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
-import {NEED_FACET_KEY,needAnsweredBatch,needAnsweredBudget,needAnsweredState,needDisposition,needFacet,needTaskOf,writeNeedReceipt,type NeedLead,type NeedReceipt} from './source-need-reads.ts';
+import {NEED_FACET_KEY,needAnsweredBatch,needAnsweredBudget,needAnsweredState,needDisposition,needFacet,needReadCandidates,needTaskOf,writeNeedReceipt,type NeedLead,type NeedReceipt} from './source-need-reads.ts';
+import {needReadBudget} from './host-budgets.ts';
 
 type Page = {page:number;text:string;label?:string|null;text_status?:'available'|'empty'|'error'|'unavailable'};
 type ImagePage = {page:number;path:string;image_sha256:string;box:number[];data:string};
@@ -56,6 +57,15 @@ export function sourcePageQuestionState(question:string,need:SourceNeed|undefine
 }
 
 /** These are requested uses, not classifications of source pages. Every field is judged by Jev. */
+/**
+ * §187.7.1: a need read's native text. A lead page's text is complete; any other candidate gets its title line (the
+ * page's first non-empty line), so the author knows what the page is and opens it with pdf when it needs more.
+ */
+export function needPageText(row:{page:number;text:string},lead:boolean):{page:number;text:string;truncated:boolean;lead:boolean}{
+ if(lead)return {page:row.page,text:row.text,truncated:false,lead:true};
+ const title=row.text.split(/\r?\n/).map(line=>line.trim()).find(line=>line.length>0)??'';
+ return {page:row.page,text:title,truncated:title.length<row.text.trim().length,lead:false};
+}
 export function sourceScopeFacets(purpose:string):SourceFacet[]{
  if(purpose==='guidance')return [
    {key:'creation_advice',need:'authored advice for players creating their own investigators: suitability, equipment, training or content warnings; use worked pre-generated sheets only if they carry unique applicable advice',limit:2,expand:2},
@@ -176,6 +186,8 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
    const runId=context.runId,scope:ScopeBinding={owner:'source-reader:'+String(task.module_id||'module'),audience:'keeper'};
    let info:Awaited<ReturnType<typeof sourceInfo>>|undefined,pages:Page[]=[],candidates:number[]=[],partial=false,projectedOnce=false;
    let projectedImages:ImagePage[]=[];
+   // §187.7: a need read's lead pages; their native text is projected whole and their images first.
+   let needLeadPages:number[]=[];
    let referencePacket:SourceReferencePacket|undefined,guideAttempts=0;
    submitReference=async(text,signal)=>{
      if(!referencePacket||!info)throw Error('Original source packet is unavailable');
@@ -300,7 +312,8 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      }
      const knownEntry=task.purpose==='guidance'&&requestCount===0?selectedEntrySourcePages(task.focus??'',task.known_nodes,info.page_count):null;
      if(knownEntry){openingProbePages=knownEntry.openingProbes;shortSectionPages=knownEntry.selected.slice(0,6);}
-     const cacheIdentity={version:'source-navigation-v22',source_sha256:info.file_sha256,extraction_version:sourceTextVersion,focus_context:focusContext,requested_need:pendingNeed,
+     const needBudget=needTask&&requestCount===0?await needReadBudget():undefined;
+     const cacheIdentity={version:'source-navigation-v23',need_read:needBudget??null,source_sha256:info.file_sha256,extraction_version:sourceTextVersion,focus_context:focusContext,requested_need:pendingNeed,
        model:JEV_MODEL,purpose:task.purpose,focus:task.focus??'',guidance_key:task.guidance_key??'',question,
        anchor_pages:anchorPages,task_pages:task.pages??[],known_entry_refs:knownEntry?.selected??null,entry_probe_pages:knownEntry?.openingProbes??null};
      const cacheDigest=sha(JSON.stringify(cacheIdentity)),navigationFile=join(dirname(source.cache),'source-navigation-'+cacheDigest+'.json');
@@ -330,6 +343,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
          candidates=prior.candidates;partial=prior.partial;
          shortSectionPages=Array.isArray(prior.short_section_pages)?prior.short_section_pages.filter((page:unknown)=>Number.isSafeInteger(page)&&Number(page)>=1&&Number(page)<=info!.page_count):[];
          openingProbePages=Array.isArray(prior.opening_probe_pages)?prior.opening_probe_pages.filter((page:unknown)=>Number.isSafeInteger(page)&&Number(page)>=1&&Number(page)<=info!.page_count):[];
+         needLeadPages=needBudget&&Array.isArray(prior.need_lead_pages)?prior.need_lead_pages.filter((page:unknown)=>candidates.includes(page as number)):[];
          reviewProbePages=Array.isArray(prior.scope_probe_pages)?prior.scope_probe_pages.filter((page:unknown)=>Number.isSafeInteger(page)&&Number(page)>=1&&Number(page)<=info!.page_count):[];
          await saveReviewLeads();
          trace({kind:'source_located',runId,cached:true,cache_digest:cacheDigest,selected:candidates,partial});
@@ -523,13 +537,20 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      // An incomplete page-lead pass cannot show that no new page exists: the need then reads as today.
      const needLeads:NeedLead[]|undefined=needTask&&requestCount===0&&unanswered===0
        ?scores.filter(row=>row.facet===NEED_FACET_KEY).map(({page,score})=>({page,score})):undefined;
+     // §187.7.1: a need read starts on the need's own leads and the entity's accepted pages, not on the structural,
+     // focus or short-section pages; an incomplete page-lead pass reads as today (§151.4).
+     if(needLeads&&needBudget){
+       const chosen=needReadCandidates({scores:allScores.filter(row=>row.facet===NEED_FACET_KEY).map(({page,score})=>({page,score})),
+         acceptedPages:needTask!.accepted_pages,leadPages:needBudget.leadPages,minLeadPages:needBudget.minLeadPages,pageCount:info.page_count});
+       candidates=chosen.candidates;needLeadPages=chosen.leads;
+     }
      trace({kind:'source_located',runId,selected:candidates,short_section_pages:[...new Set(shortSectionPages)],selected_facets:selected,located_unselected:allScores.filter(row=>!candidates.includes(row.page)),searched_native_pages:relevant.length,
        unsearched_native_pages:pages.filter(row=>row.text.trim()).length-relevant.length,unanswered_pages:unanswered,jev_input:jevInput,jev_output:jevOutput,jev_calls:jevCalls,partial});
      if(unanswered===0&&scores.length){
        const temporary=navigationFile+'.'+randomUUID()+'.tmp';
        await mkdir(dirname(navigationFile),{recursive:true});
        await writeFile(temporary,compact({cache_digest:cacheDigest,page_count:info.page_count,candidates,short_section_pages:[...new Set(shortSectionPages)],
-         opening_probe_pages:[...new Set(openingProbePages)],scope_probe_pages:[...new Set(reviewProbePages)],located_unselected:allScores.filter(row=>!candidates.includes(row.page)),partial,
+         opening_probe_pages:[...new Set(openingProbePages)],scope_probe_pages:[...new Set(reviewProbePages)],...(needLeadPages.length?{need_lead_pages:needLeadPages}:{}),located_unselected:allScores.filter(row=>!candidates.includes(row.page)),partial,
          ...(needLeads?{need_leads:needLeads}:{})}));
        await rename(temporary,navigationFile);
      }
@@ -708,7 +729,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        const chosen=candidates.map(page=>pages.find(row=>row.page===page)).filter((row):row is Page=>!!row);
        const content:any[]=[{type:'text',text:JSON.stringify({kind:'source_navigation_only',source_sha256:info.file_sha256,page_count:info.page_count,requested_use:pendingQuery,
          need_assessments:needAssessments,source_retrieval_remaining:Math.max(0,3-requestCount),need_instruction:'Need kinds are provisional routing advice. Preserve the original question and sourced condition. Resolve a current authored gap from originals; retain a supported runtime input or later use in source_needs for independent review. Never remove a need solely to pass submission.',
-         pages:chosen.map(row=>({page:row.page,text:row.text.slice(0,6000),truncated:row.text.length>6000})),partial,
+         pages:chosen.map(row=>needLeadPages.length?needPageText(row,needLeadPages.includes(row.page)):{page:row.page,text:row.text.slice(0,6000),truncated:row.text.length>6000}),partial,
          native_text_gaps:pages.filter(row=>!row.text.trim()).map(row=>({page:row.page,status:row.text_status??'unavailable'})),
          visual_coverage:{status:'unassessed',physical_ranges:[[1,info.page_count]],original_pages_supplied_in_this_message:projectedImages.map(row=>row.page),
            note:'Text presence does not assess visual content. Supplied originals count as observed only after successful inference, and only for this requested use; no whole-page semantic completeness is claimed.'},

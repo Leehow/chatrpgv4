@@ -156,3 +156,22 @@ export async function readNeedReceipt(input:{cwd:string;command?:readonly string
    throw new Error('The source need receipt does not match this source task');
  return receipt as NeedReceipt;
 }
+
+/**
+ * Contract §187.7.1: the candidate pages of a need read. The lead pages are the need facet's own page leads at or above
+ * `PAGE_LEAD_GATE`, best score first (page order breaks a tie), at most `leadPages`; when fewer than `minLeadPages`
+ * clear the gate, the best need-facet scores below it make up the floor. The entity's accepted pages follow. Structural,
+ * focus and short-section pages and other facets' leads are not candidates of a need read. `scores` are every need-facet
+ * score the page-lead pass answered, cleared or not.
+ */
+export function needReadCandidates(input:{scores:NeedLead[];acceptedPages:number[];leadPages:number;minLeadPages:number;pageCount:number}):
+ {leads:number[];candidates:number[]}{
+ const inBook=(page:number)=>pageNumber(page)&&page<=input.pageCount;
+ const seen=new Set<number>();
+ const ranked=input.scores.filter(row=>inBook(row.page)&&Number.isFinite(row.score))
+   .sort((a,b)=>b.score-a.score||a.page-b.page).filter(row=>!seen.has(row.page)&&!!seen.add(row.page));
+ const cleared=ranked.filter(row=>row.score>=PAGE_LEAD_GATE).slice(0,input.leadPages);
+ const floor=ranked.filter(row=>row.score<PAGE_LEAD_GATE).slice(0,Math.max(0,input.minLeadPages-cleared.length));
+ const leads=[...cleared,...floor].map(row=>row.page);
+ return {leads,candidates:[...new Set([...leads,...input.acceptedPages.filter(inBook)])]};
+}

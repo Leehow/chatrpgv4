@@ -35744,6 +35744,18 @@ for the rest; page images are the lead pages first within the existing image cou
 native search, and `source_retrieval_remaining` is unchanged: the lead pages are where the read starts, not where it
 must end. The need receipt records `candidates` as today, so the saving is read from it.
 
+**Implementation decision (187.7, RD-06).** `needReadCandidates` (`runtime/jev/source-need-reads.ts`) ranks every
+need-facet score the page-lead pass answered, best first (page order breaks a tie): the leads at or above
+`PAGE_LEAD_GATE`, at most `need_read.lead_pages`, and when fewer than `need_read.min_lead_pages` clear the gate the best
+need-facet scores below it make up the floor; the entity's `accepted_pages` follow. The source driver applies it only
+when the need's page-lead pass is complete (the same condition under which `unlocated`/`carried` may settle); an
+incomplete pass or a Jev outage keeps today's union, as §151.4 reads an outage "as today". The navigation cache identity
+is `source-navigation-v23` and carries the `need_read` budget; the cache file keeps `need_lead_pages`. The navigation
+message's page rows gain `lead`: a lead page's native text is whole (`truncated: false`), any other candidate's is its
+first non-empty line (`truncated` says whether more exists). Images take candidates in order, so lead pages first, within
+the unchanged image count. The need receipt's `evidence.candidates` is the new list. Budget loader: `needReadBudget`
+(`runtime/jev/host-budgets.ts`), fallback 5/2. Tests: `tests/extension/source-reader-driver.test.mjs` (§187.7 cases).
+
 ### 187.8 One independent reviewer per page set (amends the §22 implementation decision and §151.2.1's grouping)
 
 **187.8.1** `reviewUnits` groups records by page-set *overlap*: a record joins a unit when the union of their pages

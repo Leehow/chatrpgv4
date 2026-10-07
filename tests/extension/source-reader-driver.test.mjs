@@ -279,3 +279,78 @@ test('a targeted repair projects exactly the refused records\' pages without loc
  const navigation=JSON.parse(message.content[0].text);
  assert.deepEqual(navigation.pages.map(row=>[row.page,row.text.includes('tower')]),[[2,true]],'with its native text');
 });
+
+// §187.7 (RD-06): a need read's candidates are the need's own leads (by score, between need_read.min_lead_pages and
+// need_read.lead_pages) and the entity's accepted pages; the structural, focus and short-section pages and the other
+// facets' leads do not join. Lead pages carry their whole native text, the rest a title line; images lead pages first.
+function linesPdf(pages){
+ const objects=['<< /Type /Catalog /Pages 2 0 R >>',`<< /Type /Pages /Kids [${pages.map((_,i)=>`${4+i*2} 0 R`).join(' ')}] /Count ${pages.length} >>`,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+ for(const [i,lines] of pages.entries()){const stream=`BT /F1 8 Tf 10 TL 10 1180 Td ${lines.map(line=>`(${line}) Tj T*`).join(' ')} ET`;
+  objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 1200] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5+i*2} 0 R >>`,`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`);}
+ let text='%PDF-1.7\n';const offsets=[];
+ for(const [i,object] of objects.entries()){offsets.push(Buffer.byteLength(text));text+=`${i+1} 0 obj\n${object}\nendobj\n`;}
+ const xref=Buffer.byteLength(text),size=objects.length+1;
+ return text+`xref\n0 ${size}\n0000000000 65535 f \n${offsets.map(value=>String(value).padStart(10,'0')+' 00000 n ').join('\n')}\ntrailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+}
+async function needReadRun(t,{leads,other={}}){
+ const cwd=await mkdtemp(join(tmpdir(),'source-need-candidates-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const pdf=join(cwd,'source.pdf'),long=Array.from({length:100},(_,line)=>`Lena profile line ${line}: STR 60 CON 55 SIZ 50 DEX 70 APP 45 INT 80 POW 65 EDU 75 HP 10`);
+ const pages=Array.from({length:60},(_,index)=>[`Page heading ${index+1}`,`Body of page ${index+1}.`]);
+ pages[49]=['Appendix A: later profiles',...long];pages[11]=['Harbor office','Lena keeps the ledgers at the dock.','Second paragraph.'];
+ await writeFile(pdf,linesPdf(pages));
+ const sha=createHash('sha256').update(await readFile(pdf)).digest('hex');
+ await writeFile(join(cwd,'task.json'),JSON.stringify({purpose:'detail',module_id:'book',focus:'lena',question:NEED_QUESTION,pages:[40],source:{page_count:60},
+  known_nodes:[{node_id:'npc-lena',node_kind:'npc',name:'Lena',summary:'A harbor clerk.',source_refs:[{page:12},{page:41}],ready:true}],known_claims:[],
+  source_need:{key:'need-key',kind:'deferred',node_id:'npc-lena',focus:'lena',question:NEED_QUESTION,reason:'Not printed here.',trigger:'If a fight starts.',
+   source_refs:[{page:12}],accepted_pages:[12],material_digest:'d'.repeat(64),unread_units:[]}}));
+ const batches=[];
+ const port={async decide(batch){batches.push(batch);
+  const answers=Object.fromEntries(batch.questions.map(question=>{
+   if(batch.family==='source-need-answered')return [question.key,{status:'answered',type:'noul',noul:0.1}];
+   const match=/^p(\d+)_(.+)$/.exec(question.key);
+   const score=match?(match[2]==='source_need'?leads[Number(match[1])]:other[match[2]]?.[Number(match[1])])??0.05:0.05;
+   return [question.key,question.type==='noul'?{status:'answered',type:'noul',noul:score}
+    :{status:'answered',type:'choice',choice:'none_of_the_above',confidence:0.9,probabilities:{none_of_the_above:1}}];
+  }));
+  return {batchId:batch.id,status:'complete',answers,coverage:{required:[],answered:Object.keys(answers),unknown:[]},issues:[],usage:{inputTokens:1,outputTokens:0}};}};
+ const driver=await createSourceReaderDriver({cwd,env:{},source:{pdf,cache:join(cwd,'cache','pages'),file_sha256:sha},adapter:port});
+ const {policy,ports}=await driver.prepare({runId:'need-candidates',inputRevision:'v1',rawInput:'Read the source',session:{}});
+ const signal=AbortSignal.timeout(30000);
+ let state=policy.initial({});
+ for(let steps=0;steps<12;steps++){
+  const next=policy.next({policyState:state,pendingProposals:[],steps});
+  if(next.kind==='operate'&&next.proposals[0].operation==='source.project'){
+   const projected=await ports.operations.execute(next.proposals[0],{signal});
+   const [message]=ports.projection.project();
+   return {projected,message,navigation:JSON.parse(message.content[0].text),receipt:JSON.parse(await readFile(join(cwd,'need-disposition.json'),'utf8'))};
+  }
+  if(next.kind==='finish'||next.kind==='infer')throw new Error('the need read did not reach projection: '+next.reason);
+  if(next.kind==='decide'){const outcome=await ports.decision.decide({question:next.question,signal});
+   state=policy.reduce(state,{kind:'decide',status:outcome.status,artifact:outcome.artifact},{});continue;}
+  const outcome=await ports.operations.execute(next.proposals[0],{signal});
+  state=policy.reduce(state,{kind:'operate',origin:'policy',status:outcome.status,outcomes:[outcome]},{});
+ }
+ throw new Error('the source policy did not settle');
+}
+
+test('§187.7 a need read starts on its leads and the entity\'s accepted pages, not the structural pages or other facets',async t=>{
+ const {navigation,message,receipt}=await needReadRun(t,{leads:{50:0.9,52:0.6},other:{current_interaction:{30:0.95},clues:{31:0.9}}});
+ assert.equal(receipt.disposition,'read');
+ assert.deepEqual(receipt.evidence.candidates,[50,52,12],'lead pages by score, then the accepted page');
+ assert.deepEqual(navigation.pages.map(row=>row.page),[50,52,12]);
+ for(const page of [40,41,30,31])assert.ok(!receipt.evidence.candidates.includes(page),`page ${page} (structural, focus or another facet) is not a need candidate`);
+ const byPage=Object.fromEntries(navigation.pages.map(row=>[row.page,row]));
+assert.ok(byPage[50].text.length>6000&&byPage[50].lead===true&&byPage[50].truncated===false,'a lead page carries its whole native text');
+ assert.equal(byPage[12].text,'Harbor office','any other candidate carries its title line');
+ assert.equal(byPage[12].truncated,true);
+ assert.deepEqual(message.details.pages.map(row=>row.page),[50,52,12],'images: lead pages first');
+ assert.equal(navigation.source_retrieval_remaining,3,'the author keeps its source requests');
+ assert.match(navigation.instruction,/use pdf for additional or closer views/,'and pdf for any other page');
+});
+
+test('§187.7 at most need_read.lead_pages leads, and the need_read.min_lead_pages floor is topped up from below the gate',async t=>{
+ const many=await needReadRun(t,{leads:{20:0.5,21:0.6,22:0.7,23:0.8,24:0.9,25:0.95,26:0.4}});
+ assert.deepEqual(many.receipt.evidence.candidates,[25,24,23,22,21,12],'five leads, best first, then the accepted page');
+ const one=await needReadRun(t,{leads:{50:0.9,52:0.2}});
+ assert.deepEqual(one.receipt.evidence.candidates,[50,52,12],'one cleared lead and the best one below the gate make the floor of two');
+});
