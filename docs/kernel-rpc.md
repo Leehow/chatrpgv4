@@ -37805,6 +37805,10 @@ The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branc
     rest pretty-printed as before. An inlined task leads with it too.
 - **Instructions.** `content/setup/visual-reader/read.md` (the roster, the refusal, the two answers) and `review.md`
   (judging `/nodes/<i>/distinct_from`).
+- **Existing fixtures.** `tests/extension/module-cast.test.mjs`'s four §188.2 cases built their second copy of a person with
+  a later reading under another id, which this check now refuses. They publish it with a reviewed `distinct_from`, the
+  only way a reading still can; they stand for the copies written before §191 and for a review that wrongly supported one,
+  and the cast fold must still join them.
 - **Evidence.**
   - Replay of generation 55 on a `cp -c` clone of the acceptance home's fork at generation 54, `read-2/attempt-2`'s own
     draft and review through `module.read.finish`: refused `duplicate_of_published` naming
