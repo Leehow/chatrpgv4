@@ -83,11 +83,20 @@ export async function readToldPosition(deps: ToldPositionDeps): Promise<string |
 	const base = {lane: "told-position", event: "read", turn: deps.turn, mode};
 	try {
 		if (!deps.text?.trim()) { await deps.record({...base, ok: true, skipped: "no_text"}); return null; }
-		const read = (await deps.call("table.owe.options", {campaign: deps.campaign, turn: deps.turn, limit: shipped.maxCandidates}) ?? {}) as Row;
+		// Without Jev nothing can be read, and the kernel is not asked for anything.
+		if (!readJevApiKey(deps.env)) { await deps.record({...base, ok: true, skipped: "unconfigured"}); return null; }
+		let read: Row;
+		try { read = (await deps.call("table.owe.options", {campaign: deps.campaign, turn: deps.turn, limit: shipped.maxCandidates}) ?? {}) as Row; }
+		catch (error) {
+			if (deps.signal?.aborted) return null;
+			await deps.record({...base, ok: false, reason: "options_failed", outcome: "stay", owed: null,
+				code: (error as {code?: unknown})?.code ?? null, detail: (error instanceof Error ? error.message : String(error)).slice(0, 200)});
+			return null;
+		}
+		if (deps.signal?.aborted) return null;
 		// §190.2: the ledger already followed a delivery whose turn landed a move.
 		const moved = landedMoves(read.moved);
-		if (moved.length) { await deps.record({...base, ok: true, skipped: "move_landed", moved: moved.map(entry => entry.to)}); return null; }
-		if (!readJevApiKey(deps.env)) { await deps.record({...base, ok: true, skipped: "unconfigured"}); return null; }
+		if (moved.length) { await deps.record({...base, ok: true, skipped: "move_landed", landed: moved.map(entry => entry.to)}); return null; }
 		const {sentences, total} = toldSentences(deps.text);
 		const candidates = (Array.isArray(read.candidates) ? read.candidates : []) as ToldCandidate[];
 		if (!sentences.length) { await deps.record({...base, ok: true, skipped: "no_text"}); return null; }
@@ -96,6 +105,7 @@ export async function readToldPosition(deps: ToldPositionDeps): Promise<string |
 		const input: ToldInput = {campaign: deps.campaign, turn: deps.turn, sentences, candidates,
 			scene: {name: String(scene.name ?? ""), ...(scene.display_name ? {display_name: String(scene.display_name)} : {}), summary: String(scene.summary ?? "")}};
 		const result = await ask(input, deps, began + shipped.timeoutMs);
+		if (deps.signal?.aborted) return null;
 		const decided = toldDecision(result, shipped, input.scene.name);
 		let outcome = "stay", owed: string | null = null, dropped: Row = {};
 		if (decided.decision === "owe" && mode !== "on") outcome = "shadow";
@@ -120,6 +130,7 @@ export async function readToldPosition(deps: ToldPositionDeps): Promise<string |
 			outcome, owed, ...dropped, ms: Date.now() - began});
 		return owed;
 	} catch (error) {
+		if (deps.signal?.aborted) return null;
 		await deps.record({...base, ok: false, reason: "lane_crashed", outcome: "stay", owed: null,
 			detail: (error instanceof Error ? error.message : String(error)).slice(0, 200)});
 		return null;

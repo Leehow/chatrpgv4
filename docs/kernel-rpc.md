@@ -36817,8 +36817,8 @@ the questions' distributions, the decision and the owed name.
   party onwards, and that is still read. The kernel's `superseded` drop below uses the same definition.
 - *Sentences.* The rendered text is split at line breaks, then after each run of `Sentence_Terminal` characters together
   with the closing punctuation (`Pe`, `Pf`) that follows it and a `Quotation_Mark` followed by white space or the end; a
-  run followed at once by a decimal digit or a lowercase letter does not end a sentence (UAX #29 SB6 and SB8). Empty pieces
-  are dropped and the last 24 are offered, numbered `s1..sN` in order: where the party ends up is told last. The quote
+  run followed at once by a decimal digit, or after white space by a lowercase letter, does not end a sentence (UAX #29 SB6
+  and SB8). Pieces with no letter or digit are dropped and the last 24 are offered, numbered `s1..sN` in order: where the party ends up is told last. The quote
   `table.owe` receives is the chosen sentence exactly as delivered.
 - *The request.* State: `party_was_at` (the scene's display name and summary), `places` (aliases `c0..`, each with its
   name, other names and a one-line summary; never a handle) and `told` (`s1..sN`). Questions: `moved` (Noul), `place`
@@ -36843,7 +36843,8 @@ the questions' distributions, the decision and the owed name.
 - *The row.* `{lane: "told-position", event: "read", turn, mode, ok, candidates, sentences: {total, offered}, moved,
   chosen, distribution, confidence, sentence: {key, confidence, distribution}, decision: "owe" | "stay", why?, handle?,
   outcome: "owed" | "dropped" | "shadow" | "stay", owed, dropped?, ms}`; when nothing was asked, `skipped:
-  "move_landed" | "unconfigured" | "no_text" | "no_candidates"` (or `ok: false` and the `reason`).
+  "no_text" | "unconfigured" | "move_landed" | "no_candidates"` (`move_landed` with `landed`, the places those moves went
+  to), or `ok: false` with `reason: "options_failed" | "lane_crashed"`. Without a Jev key the kernel is not asked at all.
 
 ### 190.3 A transient provider failure is asked again once (amends §143.15)
 

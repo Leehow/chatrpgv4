@@ -178,7 +178,7 @@ test('a delivery whose turn landed a move is not read and owes nothing', async t
     t.after(() => table.dispose());
     await table.session.prompt('我去中央图书馆。');
     const row = await toldRow(table);
-    assert.deepEqual({skipped: row.skipped, moved: row.moved}, {skipped: 'move_landed', moved: ['central-library']});
+    assert.deepEqual({skipped: row.skipped, landed: row.landed}, {skipped: 'move_landed', landed: ['central-library']});
     assert.equal(batches.length, 0, 'Jev was never asked');
     assert.equal(ledger(table.workspace), null);
 });
