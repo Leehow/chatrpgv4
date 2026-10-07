@@ -3,9 +3,10 @@
  * `ModuleGraph.resolve` plus the §87.8 junction, and a stored reference is compared by what it names, never by its spelling.
  *
  * On the real kernel in process with The Haunting (the object-usages fixture): the memory lane's `subject` / `knowers` /
- * `entities` and `apply note` `entities` (`EntityIndex`), a note stored under another word, `apply ruling` anchors,
- * `resolve action.obligation`, a Mod dossier's `name`, the say token, the clue-label matcher, the chase's target, roster and
- * conflict, and a promise's cash counterparty. Each is reached by this table's word (`apply person`), by the told name and
+ * `entities` (legacy and referenced), `memory.evidence`'s `about` and `apply note` `entities` (`EntityIndex`), a note stored
+ * under another word, `apply ruling` anchors, `resolve action.obligation`, a Mod dossier's `name`, the say token, the
+ * clue-label matcher, and the chase's target, roster and conflict. (A promise's counterparty, the material gate, an anchor
+ * after a fold and `lookup` have their own files.) Each is reached by this table's word (`apply person`), by the told name and
  * by the handle (or node id), and lands on the same person or entity; another one is refused or lands on that other one; a
  * word two people carry is refused naming both; free text that names nobody keeps the behaviour it had.
  */
