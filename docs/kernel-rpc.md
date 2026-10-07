@@ -36694,3 +36694,125 @@ the reviewer brief. Actor: the Keeper, who moves to a book place instead of mint
 seats a candidate with `apply npc`, and reads a brief that lists what is near first. Limits: a placement is a hop into
 the book, not a merge of nodes; a candidate is an offer, not a seating; a scoped packet is the author's input, not the
 checker's.
+
+## 189. Reading by the book's sections: a scene is read as a scene (proposed 2026-10-07, owner 「两个一起开 spec，按你推荐的来」; `docs/specs/scene-reading.md`; implementation waits for the owner's word; amends §148.3, §151.4's background units, §182.3, §187.5.1 and §187.9)
+
+**Evidence.** RD-08 and its control (§187, `docs/specs/reading-delivery.md` Comments): two-page units are 56–59 % of the
+reading lane's uncached input at 20–26K per draft record and never make a scene `material: ready` (a unit's material row
+carries its `ready_nodes`, which may be empty); the one scene-focused read cost 95K per record and ran with the whole
+known graph, because its job carries `pages: []` and §187.5.1 scopes by job pages; a reference book's places exist only
+when a destination is requested. The book's pages around a place are therefore read once blind and again for the scene.
+
+### 189.1 Section units
+
+`reading.unit` (data, `host-budgets.json`, `"two_page" | "section"`, shipped `"two_page"` until §189.6 passes). Under
+`"section"` the background unit of a book with bookmarks is a section: the flattened bookmark entries (every level) give
+`[entry.page, next.page − 1]` within `page_count`; adjacent sections shorter than `reading.section_unit_max_pages` (data,
+shipped 6) merge up to it; a longer section splits at it on page boundaries; entries sharing a page collapse to the last.
+A book without bookmarks uses index sections (`backgroundSourceUnits`, for every indexed book whose window is read, not only
+under `first_interaction`); a book with neither uses two-page units. The unit key keeps `[section, first, last]`; the §182
+window, `build_complete`, need eligibility and every unit check apply unchanged to the new ranges.
+
+### 189.2 A place section is read as its scene
+
+A section whose heading §190.1 classified as a place carries `focus` = that place's scene handle (the identity §190.1
+minted) and the **scene playbook** ask: the fields §187.1's tier-2 consumers read — the scene's summary, `dramatic_question`,
+`keeper_notes`, `pressure_moves`, affordances and what they grant, exits (`route-to` and entrance relations) with travel
+and conditions, the people `present-in` it with the dossier keys and their `knows`, `believes` and lie claims, the clues
+`discoverable-at` it with skill, difficulty and unlock, `uses-rule` mechanics, and the assets it depicts or holds. The
+ask names fields; it adds no artifact beside the graph. The coverage unit of a place section asks whether the scene can
+be run from what the candidate publishes over the same list; a `missing` item names the field and the physical page (and
+is an append repair when the page is in the unit, §187.6). Finishing a place unit writes the scene's material row with
+the scene among `node_ids` (the scene becomes `ready`) and its `scene_index` row with `scene: <node_id>`. A section that
+is not a place keeps the fragment ask (`unitQuestion`).
+
+### 189.3 A scene read has pages
+
+A `detail` read focused on a scene that has a section unit or a `scene_index` row carries those pages as its job pages:
+§187.5.1 scopes its packet, and the reader's locate starts from them and may extend beyond them (as §187.7.1's need reads
+do). A scene with neither keeps today's locate and an unscoped packet.
+
+### 189.4 Play order
+
+Inside the window the read-ahead asks, in order: the section holding the current scene (or its `within` place), the
+sections of the places reachable from it (exits, `within`, and the referenced place identities of §190.1) in book order,
+then the rest of the window in book order. The two-live-units bound and the slot rules of §22.4.6 are unchanged.
+
+### 189.5 Telemetry
+
+Every reading row and `job_accounting` row carries `unit_kind: "two_page" | "section" | "scene" | "index" | "need" |
+"visual"` and, for a place unit, `scene`.
+
+### 189.6 The switch is decided by a pre-registered comparison
+
+`docs/specs/scene-reading.md` "Success": Blood Road's chapter 德克萨斯州阿巴托尔镇 read to idle in two fresh homes, arm A
+`two_page`, arm B `section`; B becomes the shipped value only if its ready place scenes and median playbook completeness
+are at least A's and its total uncached input is at most 1.1 × A's. The result is recorded under the spec's Comments
+either way; the bar is not tuned after the run.
+
+### 189.7 Three ends (§31)
+
+Writer: the section generator, the place unit's finish (material and `scene_index` rows). Reader: `materialReady` and the
+capsule's `material` closure, the read-ahead's order, the packet scope. Actor: the reading pump; the Keeper, who finds the
+scene ready when the party arrives. Limits: a section is the book's own division; a place is §190.1's decision; nothing in
+this section reads headings with patterns.
+
+## 190. The table stands where the story is (proposed 2026-10-07, owner 「两个一起开 spec，按你推荐的来」; `docs/specs/told-position.md`; implementation waits for the owner's word; amends §158, §166 by one exception, §143.15 and §22.4.7)
+
+**Evidence.** RD-08 (`rd-accept-blood-01-play`): the Keeper narrated the station on turn 2, the town on turn 7 and the
+motel on turns 8–10 while the ledger kept the party in `source-entry-16` until turn 11; the station's three men were not
+`present` and the Keeper told the player nobody was there. Causes: §166's `SINGLE_PASS_NARRATION` starts no post-delivery
+review, and that review was §158's only producer of owed moves (no `owed.json`, no continuity-review row on the table);
+a reference book's places are minted only on a destination request; turn 7's `apply move` was refused by one 524 ms
+`model_error` of the admission lane, which §143.15 does not retry, and the Keeper narrated the move anyway.
+
+### 190.1 The window's places exist before they are read
+
+Family `window-places` (Jev): at table open and on each `read_window` change, one Noul per flattened bookmark entry whose
+page lies in the window and that no scene already cites — "is this heading a place the investigators can be at" — over the
+heading, its page and the first lines of that page's native text. An entry at or above `window_places.place_min` (data) is
+minted as an identity-only place scene through `publishReferencePlace` (one page, the excerpt, `source_reference_anchor`),
+the same identity a destination request mints; an existing identity for that entry is reused. Each is then a referenced
+move candidate (`apply-operation`), a placement candidate (§187.2.3) and a told-position candidate (§190.2); a move into
+one lands on the book's text (§22.4.7) and §189.4 reads its section next. Asked once per window per campaign; Jev
+unavailable mints nothing and blocks nothing; telemetry one `lane: "window-places"` row per entry.
+
+### 190.2 The ledger follows the told position
+
+**Exception to §166, recorded with this section.** §166 retired automatic prose review and rewriting. The read below reads
+a delivered text only to bring the ledger's position forward (§158's ruling); it never reviews, edits, retracts or
+annotates prose, and its result reaches the Keeper only as §158's owed row.
+
+Family `told-position` (Jev, the §12.5 lane pattern). After every delivery (explicit or implicit close), unless a `move`
+receipt landed in that turn, the host enumerates candidates — the active scene, its exits, `back` and `within`, the
+window's place identities (§190.1), the table's established places — and asks in one fanned-out request: a Noul `moved`
+("at the end of the delivered text the investigators are somewhere other than <active scene>"), a Choice `place` over the
+candidates other than the active scene plus `none`, and a Choice `sentence` over the delivered sentences (split at Unicode
+`Sentence_Terminal` characters, at most 24, numbered by the host) — the sentence that tells where they end up. When
+`moved ≥ told_position.moved_min`, the place's confidence `≥ place_min`, it is not `none`, and the sentence's confidence
+`≥ sentence_min` (all data), the host calls the private kernel method **`table.owe`**
+`{campaign, turn, effect: {kind: "move", to: <handle>}, quote: <the chosen sentence>, source: "told-position"}`. The kernel
+projects it exactly as §158.3 projects a review's owed move (anchor in the turn's `rendered_text`, resolve, `travel_minutes`
+from the exit row when one exists else 0, record in the turn record and `owed.json`, `owed_state` warning, supersede) and
+answers `{owed: <name> | null, dropped?: reason}`. §158.4's clerk lands it first on the next run; §187.3 then offers the
+people the book seats there. A turn record's `refused_moves` (§190.3) does not suppress the read: a refused move that was
+then told is owed. `told_position.mode` (data, `off | shadow | on`, shipped `shadow`; env `PI_COC_TOLD_POSITION`) — in
+`shadow` the row is written and `table.owe` is not called. The read runs after delivery and is watched, never waited for,
+by the next run's first read (§158.4's `coc:owed-review` port). Telemetry one `lane: "told-position"` row per delivery with
+the questions' distributions, the decision and the owed name.
+
+### 190.3 A transient provider failure is asked again once (amends §143.15)
+
+`reviewAdmission` retries a lane failure once when the provider answered HTTP 429 or 5xx, or the transport ended before a
+response, after `admission.transient_retry_ms` (data, shipped 1500) and inside the round's existing deadline. A missing
+model, an authentication failure, a timeout and any verdict keep §143.15's rule. The admission row gains `detail` (the
+status and the provider's message clipped to 200 bytes). A batch that was refused while it carried a `move` adds
+`refused_moves: [{to, reason}]` to the turn record.
+
+### 190.4 Three ends (§31)
+
+Writer: `window-places` (identity scenes), `told-position` through `table.owe` (owed rows), the admission lane
+(`refused_moves`, `detail`). Reader: `apply-operation` (referenced moves), the placement lane, the capsule's `owed`, the
+clerk's `apply:owed:*`, §187.3's offers. Actor: the clerk, who lands the owed move first; the Keeper, who finds the party
+where the story put it. Limits: only the position is owed here; a place outside the candidates is the Keeper's to mint;
+nothing reads prose with patterns.
