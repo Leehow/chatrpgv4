@@ -20,7 +20,7 @@ import { SessionView } from '../read/session-view.js';
 import { standingStates } from '../read/standing.js';
 import { authoredMapWords, presentPublishedArrivalMaps } from '../read/maps.js';
 import { clockSection, sceneLabel, untoldBlock, untoldRosterNames } from '../read/capsule.js';
-import { SHARED_FIX, joinedWritten, sharedNames, sharedNotice } from './shared-untold.js';
+import { SHARED_FIX, candidatesOf, joinedWritten, sharedNames, sharedNotice } from './shared-untold.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
 import { playLanguages, playLanguageOf, declaredPlayLanguage } from '../read/languages.js';
 import { modContext, kernelGaps, readModCatalog } from '../read/mods.js';
@@ -231,7 +231,8 @@ async function untoldNamesGate(snapshot: CampaignSnapshot, campaign: CampaignWri
     const { said, places, guarded, journal, records } = await untoldPlaces(snapshot, graph, text, speakers);
     // §188.8: the roster as its builder gives it, each owner's word apart: a name several untold people share is never one
     // person's, and the joined word the request shows it by (§177.4) is nobody's name.
-    const roster = untoldRosterNames(graph, snapshot.world, journal, records), shared = sharedNames(roster), joined = joinedWritten(text, roster);
+    const roster = untoldRosterNames(graph, snapshot.world, journal, records), shared = sharedNames(roster);
+    const joined = joinedWritten(text, roster).map(entry => candidatesOf(graph, snapshot.world, journal, entry));
     if (!said.length && !joined.length) return { text, replaced: [] };
     // §177.15: a place the host judged to be part of another word is not the name (Dallas, written in Chinese, holds the station
     // owner's printed nickname). A name said only where no place stands (inside an unresolved token) is gated as before.
@@ -247,7 +248,7 @@ async function untoldNamesGate(snapshot: CampaignSnapshot, campaign: CampaignWri
         return { text, replaced: [], told: replacePlaces(text, places, blank) };
     }
     const key = [...left].sort().join('\n'), first = left.length > 0 && string(row(turn.untold_gate).words) !== key;
-    const sharedLeft = left.flatMap(name => shared.has(name) ? [[...shared.get(name)!]] : []);
+    const sharedLeft = left.flatMap(name => shared.has(name) ? [candidatesOf(graph, snapshot.world, journal, shared.get(name)!)] : []);
     // §188.8: a shared name or a joined word is held every time, never replaced: no single word stands for a name two people share.
     if (first || sharedLeft.length || joined.length) {
         if (first) await campaign.writeTurn({ ...turn, untold_gate: { words: key, call_id: callId } });

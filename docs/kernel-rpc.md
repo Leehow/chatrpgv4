@@ -37042,6 +37042,15 @@ ledger reading `from` only; the reunion ignoring `from_id`; `ownerIn` without `c
     delivery, because no word is that name; a turn can then take more than one refusal, bounded by the host's refusal budget,
     and the fix names the words to use. The host's own request rename still shows a shared name as the joined word (§177.4:
     it hides the name and blames nobody); only the player's text refuses it.
+  - *NR-08b (lead ruling 2026-10-07 after table `nr08-blood-road-1`).* `candidatesOf` (`shared-untold.ts`) gives each person
+    of a shared name or joined word as `{word, say_name?}`: `rosterWord`, and `nameToken(word)` for a person with a node (the
+    untold block's `say_name`); an unread person has no token, since no node lets the delivery name them. The message lists
+    each token beside the word; `SHARED_FIX` opens with the token path. `refuseUntoldName` (`kernel-ts/apply/person.ts`) adds
+    the person's `say_name` from `untoldBlock` to its fix and `details`. A delivery that names one of them by the token passes
+    the gate (a resolved name token is never the Keeper's own words, §177.11) and tells only that person; the other keeps
+    their names hidden and held. Test: the hold lists both tokens; `apply person` with the bare name is refused with the
+    token; the token delivers 「皮特·加西亚」, he leaves the roster, 「皮特·诺兰」 stays on it and is still held. Mutations, each red:
+    candidates without tokens; the message without them; the fix without the token path; `apply person` without the token.
   - Tests (`tests/extension/protected-name-spans.test.mjs`, a book with 「皮特·诺兰」 and 「皮特·加西亚」 both printed 「皮特」, words
     「拒绝饮酒的拖车住客」 and 「戴眼镜的五金店老板」): a delivery saying 「皮特」 is held with each word apart and the joined word in
     neither message nor fix, and held again the second time; one man's own word goes out; the joined word verbatim is held,
@@ -37351,9 +37360,16 @@ delivery, and the Keeper wrote 「皮特」 again; the second delivery replaced 
 name is the joined word. The player read it as one man's name four times, among them 「问镇上有没有叫拒绝饮酒的拖车住客 /
 戴眼镜的五金店老板的人」.
 
-- **The refusal names each person apart.** When the gate holds a place whose untold name several people share, its message
-  lists each by their own word and its fix says to write the one meant by their word or describe them, never the words
-  joined and never the name. `details.shared` carries the words, one list per name. The refusal still quotes no name.
+- **The refusal names each person apart, with the path to say the name.** When the gate holds a place whose untold name
+  several people share, its message lists each by their own word and, for someone the graph has, their `say_name` token
+  (§176.8, the token their untold block carries). Its fix: when the fiction has one of them give the name or be called by
+  it, write that person's token exactly where it is said (the delivery puts in the name the book gives that person and
+  tells them, §103.8); otherwise their own word, or a description; never the name itself and never the words joined.
+  `details.shared` carries `{word, say_name?}` per person, one list per name. The refusal still quotes no name. (NR-08b,
+  real table `nr08-blood-road-1`, turns 8 and 9: without the token, the Keeper whose fiction had the hardware store's man
+  give his name was refused about thirty times, the refusal budget ran out and two turns delivered nothing.)
+- **`apply person` points at the token too.** Its `untold_name` refusal of a book name as someone's word carries that
+  person's `say_name` (`details.say_name`) and says to write it where the fiction names them.
 - **No substitution for a shared name.** The second delivery replaces only names one untold person carries. A shared name is
   held every time it stands.
 - **The joined word is held.** A delivery (`table.narrate`, `table.ask`) or a document write that contains a joined word

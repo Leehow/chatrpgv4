@@ -404,7 +404,8 @@ const heldShared = (joined, words) => error => {
 	const text = `${error?.message ?? ''}\n${error?.fix ?? error?.data?.fix ?? ''}`;
 	return error?.details?.reason === 'untold_name' && words.every(word => text.includes(`"${word}"`)) && !text.includes(joined);
 };
-const sorted = groups => groups.map(words => [...words].sort()).sort();
+/** A refusal's candidate lists as their words, each list sorted: NR-08b's rows are `{word, say_name}`. */
+const sorted = groups => groups.map(people => people.map(person => typeof person === 'string' ? person : person.word).sort()).sort();
 
 test('§188.8: a delivery saying a name two untold people share is held with each person\'s own word, never joined, and never replaced', async t => {
 	const h = await twoPetes(t);
@@ -452,4 +453,30 @@ test('§188.8: a name one untold person carries is held, then replaced by their 
 	await assert.rejects(h.narrate(text), error => error?.details?.reason === 'untold_name' && !error.details.shared && !error.details.joined, 'held, with the usual fix');
 	const second = await h.narrate(text);
 	assert.equal(second.rendered_text, `${TRAILER}从拖车里探出头。`, 'the second delivery shows his own word');
+});
+
+/**
+ * NR-08b (real table nr08-blood-road-1, turns 8 and 9): the hardware store's man was asked his name and the Keeper had him give
+ * it; every way of writing the shared name was refused, about thirty times, until the refusal budget ran out and two turns
+ * delivered nothing. The refusal now carries each person's say_name: the token has the name said for that one person.
+ */
+test('§188.8 NR-08b: the hold lists each person\'s say_name; the token delivers the book\'s name and tells only that person', async t => {
+	const h = await twoPetes(t);
+	await assert.rejects(h.narrate('五金店老板说：“我叫皮特。”'), error => {
+		const people = error?.details?.shared?.[0] ?? [];
+		return heldShared(h.joined, [TRAILER, HARDWARE])(error) && people.length === 2
+			&& people.every(person => person.say_name === `{{name:${person.word}}}` && error.message.includes(person.say_name))
+			&& /say_name/.test(error.fix);
+	}, 'each candidate with their own token');
+	// apply person refuses the bare name and hands over the same token.
+	await assert.rejects(h.call('table.apply', {call_id: `t${h.turn}-c20`, effects: [{kind: 'person', who: HARDWARE, name: '皮特', why: 'he gives his name'}]}),
+		error => error?.details?.reason === 'untold_name' && error.details.say_name === `{{name:${HARDWARE}}}` && error.fix.includes(`{{name:${HARDWARE}}}`));
+	const said = await h.narrate(`五金店老板说：“我叫{{name:${HARDWARE}}}。”`);
+	assert.ok(said.rendered_text.includes('我叫皮特·加西亚'), `the delivery puts in the book's name for him: ${said.rendered_text}`);
+	const roster = (await h.call('table.untold')).people;
+	assert.ok(!roster.some(row => row.name === '皮特·加西亚'), 'he is told');
+	assert.ok(roster.some(row => row.name === '皮特·诺兰'), `the other man is not: ${JSON.stringify(roster)}`);
+	const next = await h.call('table.player_input', {text: '我看向拖车那边。'});
+	await assert.rejects(h.call('table.narrate', {call_id: `t${next._context.turn}-c1`, text: '皮特·诺兰从拖车里探出头。'}),
+		error => error?.details?.reason === 'untold_name', 'and his name is still held');
 });

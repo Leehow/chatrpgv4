@@ -12,7 +12,7 @@
  */
 import { RpcError } from '../errors.js';
 import type { DomainEvent } from '../transactions.js';
-import { calledPerson, personRecord } from '../read/capsule.js';
+import { calledPerson, personRecord, untoldBlock } from '../read/capsule.js';
 import { CampaignSnapshot } from '../read/campaign.js';
 import { occurs } from '../journal/naming.js';
 import { tableWord, untoldPieces } from '../read/person-words.js';
@@ -98,9 +98,12 @@ async function refuseUntoldName(context: ApplyContext, handle: string, name: str
     const records = prepareNameHistory(await snapshot.files('turns'), tellGuard(graph, context.world, journal));
     const said = normalize(name);
     if (!untoldPieces(graph, journal, records).some(piece => occurs(said, piece))) return;
+    // NR-08b (real table nr08-blood-road-1): the person's own token, ready to copy -- the sanctioned path when the fiction has
+    // them give their name. Asked to "write {{name:<their name field>}}", the Keeper kept applying the name instead.
+    const sayName = string(row(untoldBlock(graph, context.world, journal, node, records)).say_name || '');
     throw new RpcError('invalid_params', `${repr(name)} uses the name the book gives this person, and nobody has said it to the investigator`, {
-        fix: "name is their epithet until the fiction names them: build it from the one visible thing only they have here -- something they carry or wear, a mark, a habit, the job they are doing. Their name reaches the prose only as {{name:<their name field>}}, written where someone in the scene says it",
-        details: { field: 'person.name', reason: 'untold_name', name },
+        fix: `name is their epithet until the fiction names them: build it from the one visible thing only they have here -- something they carry or wear, a mark, a habit, the job they are doing. When the fiction has them give their name or be called by it, write ${sayName || '{{name:<their name field>}}'} in the narration exactly where it is said: the delivery puts in the name the book gives them, and tells them`,
+        details: { field: 'person.name', reason: 'untold_name', name, ...(sayName ? { say_name: sayName } : {}) },
     });
 }
 
