@@ -136,3 +136,25 @@ failures, py 1 (`test_npc_act_options`, mainline). Labelled after reading the ro
   the wrong one; the other bars unchanged; then TP-05 on a fresh table, labelled blind.
 - Seen in passing, not in scope: luna appended junk to two narrations (RD-08 turn 10 「രജ」, this table turn 11
   「时时彩平台」).
+
+### 2026-10-07 TP-05 acceptance (lead; `tp05-blood-01-play`, head 040b609b7, fresh home, `openai-codex/gpt-6-luna` low per the owner's 「如果老被限流的话你就换 openai-codex 的 gpt6 luna 吧」 after TP-04's 92 flapcode 429s in the reading lane, Jev key, `PI_COC_TOLD_POSITION=on`, `place_min` 0.85)
+
+Labelled blind from `player_text` + `final_text` only, written to the run directory
+(`told-position-labels.json`) before the ledger was opened, with the control's rule (a place in the town agrees with the
+town-level scene).
+
+- **agreement: 20 of 20** under the pre-registered rule (bar ≥ 17; control 8 of 20). Read strictly (the exact place, not
+  the town), turns 11–13 sit at town level while the text is at the motel and the town hall: about 17 of 20.
+- **told-position owed nothing**: every move was the Keeper's own (`move_landed` on turns 7, 8, 10, 11, 14); 16 reads all
+  `stay`, no false owe. Turn 12 (the town hall inside the town scene) read `moved` 0.05: a part of the active place is not
+  a move to this question. The gain in this table comes from TP-01's places (the Keeper had book places to move to) and
+  possibly the provider change; told-position is the safety net and was not exercised.
+- **arrival people**: the Esso station's three men were present from turn 3–4; Steve Brown appears twice (English and
+  Chinese names) and Russell Williams in English: the names work (`names-in-the-request-rename.md`).
+- **no retraction**: none. The Keeper declined two player moves in prose (turns 16–17 "still under the awning"), which is
+  the Keeper keeping position, not retracting a told one.
+- **cost**: told-position median 556 ms, max 671 ms, about 6.8K Jev input tokens per delivery, after delivery.
+- **Confound**: the control ran on flapcode, this table on openai-codex (same model name). The bar is met; how much of the
+  gain is the provider is not separable from one table.
+
+Owner decisions open: ship `told_position.mode` `on` (data) or keep it `shadow`; merge and package.
