@@ -36723,319 +36723,6 @@ seats a candidate with `apply npc`, and reads a brief that lists what is near fi
 the book, not a merge of nodes; a candidate is an offer, not a seating; a scoped packet is the author's input, not the
 checker's.
 
-## 189. Reading by the book's sections: a scene is read as a scene (proposed 2026-10-07, owner 「两个一起开 spec，按你推荐的来」; `docs/specs/scene-reading.md`; implementation waits for the owner's word; amends §148.3, §151.4's background units, §182.3, §187.5.1 and §187.9)
-
-**Evidence.** RD-08 and its control (§187, `docs/specs/reading-delivery.md` Comments): two-page units are 56–59 % of the
-reading lane's uncached input at 20–26K per draft record and never make a scene `material: ready` (a unit's material row
-carries its `ready_nodes`, which may be empty); the one scene-focused read cost 95K per record and ran with the whole
-known graph, because its job carries `pages: []` and §187.5.1 scopes by job pages; a reference book's places exist only
-when a destination is requested. The book's pages around a place are therefore read once blind and again for the scene.
-
-### 189.1 Section units
-
-`reading.unit` (data, `host-budgets.json`, `"two_page" | "section"`, shipped `"two_page"` until §189.6 passes). Under
-`"section"` the background unit of a book with bookmarks is a section: the flattened bookmark entries (every level) give
-`[entry.page, next.page − 1]` within `page_count`; adjacent sections shorter than `reading.section_unit_max_pages` (data,
-shipped 6) merge up to it; a longer section splits at it on page boundaries; entries sharing a page collapse to the last.
-A book without bookmarks uses index sections (`backgroundSourceUnits`, for every indexed book whose window is read, not only
-under `first_interaction`); a book with neither uses two-page units. The unit key keeps `[section, first, last]`; the §182
-window, `build_complete`, need eligibility and every unit check apply unchanged to the new ranges.
-
-### 189.2 A place section is read as its scene
-
-A section whose heading §190.1 classified as a place carries `focus` = that place's scene handle (the identity §190.1
-minted) and the **scene playbook** ask: the fields §187.1's tier-2 consumers read — the scene's summary, `dramatic_question`,
-`keeper_notes`, `pressure_moves`, affordances and what they grant, exits (`route-to` and entrance relations) with travel
-and conditions, the people `present-in` it with the dossier keys and their `knows`, `believes` and lie claims, the clues
-`discoverable-at` it with skill, difficulty and unlock, `uses-rule` mechanics, and the assets it depicts or holds. The
-ask names fields; it adds no artifact beside the graph. The coverage unit of a place section asks whether the scene can
-be run from what the candidate publishes over the same list; a `missing` item names the field and the physical page (and
-is an append repair when the page is in the unit, §187.6). Finishing a place unit writes the scene's material row with
-the scene among `node_ids` (the scene becomes `ready`) and its `scene_index` row with `scene: <node_id>`. A section that
-is not a place keeps the fragment ask (`unitQuestion`).
-
-### 189.3 A scene read has pages
-
-A `detail` read focused on a scene that has a section unit or a `scene_index` row carries those pages as its job pages:
-§187.5.1 scopes its packet, and the reader's locate starts from them and may extend beyond them (as §187.7.1's need reads
-do). A scene with neither keeps today's locate and an unscoped packet.
-
-### 189.4 Play order
-
-Inside the window the read-ahead asks, in order: the section holding the current scene (or its `within` place), the
-sections of the places reachable from it (exits, `within`, and the referenced place identities of §190.1) in book order,
-then the rest of the window in book order. The two-live-units bound and the slot rules of §22.4.6 are unchanged.
-
-### 189.5 Telemetry
-
-Every reading row and `job_accounting` row carries `unit_kind: "two_page" | "section" | "scene" | "index" | "need" |
-"visual"` and, for a place unit, `scene`.
-
-### 189.6 The switch is decided by a pre-registered comparison
-
-`docs/specs/scene-reading.md` "Success": Blood Road's chapter 德克萨斯州阿巴托尔镇 read to idle in two fresh homes, arm A
-`two_page`, arm B `section`; B becomes the shipped value only if its ready place scenes and median playbook completeness
-are at least A's and its total uncached input is at most 1.1 × A's. The result is recorded under the spec's Comments
-either way; the bar is not tuned after the run.
-
-### 189.7 Three ends (§31)
-
-Writer: the section generator, the place unit's finish (material and `scene_index` rows). Reader: `materialReady` and the
-capsule's `material` closure, the read-ahead's order, the packet scope. Actor: the reading pump; the Keeper, who finds the
-scene ready when the party arrives. Limits: a section is the book's own division; a place is §190.1's decision; nothing in
-this section reads headings with patterns.
-
-## 190. The table stands where the story is (owner 2026-10-07: 「两个一起开 spec，按你推荐的来」, then 「打完包就开工，先做 §190」; `docs/specs/told-position.md`; amends §158, §166 by one exception, §143.15 and §22.4.7)
-
-**Evidence.** RD-08 (`rd-accept-blood-01-play`): the Keeper narrated the station on turn 2, the town on turn 7 and the
-motel on turns 8–10 while the ledger kept the party in `source-entry-16` until turn 11; the station's three men were not
-`present` and the Keeper told the player nobody was there. Causes: §166's `SINGLE_PASS_NARRATION` starts no post-delivery
-review, and that review was §158's only producer of owed moves (no `owed.json`, no continuity-review row on the table);
-a reference book's places are minted only on a destination request; turn 7's `apply move` was refused by one 524 ms
-`model_error` of the admission lane (its `detail`: the provider's HTTP 429, rate limited), which §143.15 does not retry, and
-the Keeper narrated the move anyway.
-
-### 190.1 The window's places exist before they are read
-
-Family `window-places` (Jev): at table open and on each `read_window` change, one Noul per flattened bookmark entry whose
-page lies in the window and that no scene already cites — "is this heading a place the investigators can be at" — over the
-heading, its page and the first lines of that page's native text. An entry at or above `window_places.place_min` (data) is
-minted as an identity-only place scene through `publishReferencePlace` (one page, the excerpt, `source_reference_anchor`),
-the same identity a destination request mints; an existing identity for that entry is reused. Each is then a referenced
-move candidate (`apply-operation`), a placement candidate (§187.2.3) and a told-position candidate (§190.2); a move into
-one lands on the book's text (§22.4.7) and §189.4 reads its section next. Asked once per window per campaign; Jev
-unavailable mints nothing and blocks nothing; telemetry one `lane: "window-places"` row per entry.
-
-**Implementation decisions (TP-01, 2026-10-07).** The lane is `runtime/jev/window-places.ts`; its budget is `window_places`
-in `host-budgets.json` (`windowPlacesBudget`, `runtime/jev/host-budgets.ts`): `mode` (`off | shadow | on`, shipped `on`; an
-unreadable file falls back to `shadow`, so a broken data file mints nothing), `place_min` 0.8, `timeout_ms` 20,000 (one
-request), `max_entries` 64 (the window's first entries in book order). No environment override.
-
-- **When.** `ReadingService.readAhead` starts a pass when it writes `read_window` for a campaign (a library-scoped
-  read-ahead starts none). Because the kernel's own read-ahead at `table.open` writes no row and the host's next one waited
-  for a reading job to finish, `prefetch` on the `table-open` and `reader-ready` wakes runs one host read-ahead when source
-  references run (`runtime.sourceReferences`). Passes run in the background, one at a time per campaign and module (a new
-  window's pass chains after the last), and stop with the service.
-- **Entries and identity.** The PDF's bookmarks as `sourceInfo` reads them, every level, flattened by the walk
-  `selectReferencePacket` makes for a destination: the identity is `scene-source-place-<page>-<index>`, the index counting
-  the rows with a string name and a whole page. A blank heading is not asked. "No scene already cites" an entry when
-  `placeScene` finds no scene of the campaign fork's graph for `{id, name}` (the identity, or the heading as a name or an
-  alias): the scene `publishReferencePlace` would reuse. The kernel answers it on `module.reference.status`, which takes
-  an optional `places: [{id, name}]` (at most 256; an id not of that form or an empty name is `invalid_params`) and then
-  answers `cited_places: [<id>]`; no method is added. A table entity (a Keeper's `establish`) is not in the module graph and
-  cites no entry.
-- **Question.** One Noul per entry (`place_e<n>`), twelve entries per request, the requests fanned out (adapter concurrency
-  2, one retry on a transient failure, model pinned). State `book_headings.e<n>: {heading, page, text_there}`, where
-  `text_there` is the first lines printed from where the heading's own words begin on its page (the fold `entryExcerpt`
-  uses), else from the top of the page, whole lines up to 480 characters. An entry whose page has no native text is not
-  asked (`no_text`).
-- **Asked once.** Answers are kept per campaign fork in `work/window-places/answers.json` (`{version, source_sha256,
-  entries: {<id>: {name, page, noul, at}}}`): an entry answered once is not asked again in any window of that campaign, which
-  is at most once per window. An unanswered entry (Jev unavailable) is asked at the next window change or open. With the lane
-  `on`, a kept answer at or above the bar whose place is not a scene (its mint failed, or it was answered in `shadow`) is
-  minted without asking again.
-- **Mint.** The host writes a `materialize_place` lookup attempt in the fork's `work/window-place-<page>-<index>-<suffix>/`
-  (the task, a packet with one excerpt and the entry as its one place, an `excerpts` receipt with `producer:
-  "window-places"`) and calls `module.reference.materialize`; §184.5's merge replays it into the library as it replays a
-  destination's place. The excerpt is the page's own bytes from the heading, at most 600 characters, cut at a line break: it
-  becomes the scene's summary, which every turn's referenced move candidate carries as `source_context`.
-- **Telemetry.** One `lane: "window-places"` row per entry a pass handled: `entry {id, name, page}`, `window`, `mode`,
-  `place_min`, `noul`, `answer: asked | kept`, `outcome: minted | reused | not_place | shadow | unavailable | no_text |
-  mint_failed`, `scene`, `reason`, `usage {requests, input_tokens, entries}`, `ms`. An entry a scene already is, or one kept
-  below the bar, writes none. A pass that fails writes one `event: "failed"` row.
-- **A referenced move candidate is offered only inside the window, so the route batch stays bounded as places are
-  minted.** Evidence: `table.apply.options` offered every scene with `source_reference_anchor` (or reference-only material)
-  on every turn whatever the window; `runtime/jev/candidates.ts` turns each into a move candidate carrying the scene's
-  summary as `source_context` and a `routeFact` question of its own; `routeBatch` (`runtime/jev/step-policy.ts`) puts every
-  candidate in one request and, at `packing_limit`, shrinks only the material previews before it gives up. Nothing capped
-  the count, and each chapter's window places would have added to it for the rest of the campaign. `apply-operation` now
-  keeps a referenced scene only when one of its cited pages lies inside `briefWindow` (the §187.4 window: the active scene's,
-  or through `bookAnchor` its `within` place's); a scene in `where.exits` or `where.back` is offered as before whatever its
-  pages, since those rows come first. A book with no window (no page count, or read whole) offers every referenced place,
-  as before. `apply move` is unchanged: it never read these rows, and a move to a place that is not an exit or on the trail
-  still needs `via`.
-- **Tests.** `tests/extension/window-places.test.mjs`.
-
-### 190.2 The ledger follows the told position
-
-**Exception to §166, recorded with this section.** §166 retired automatic prose review and rewriting. The read below reads
-a delivered text only to bring the ledger's position forward (§158's ruling); it never reviews, edits, retracts or
-annotates prose, and its result reaches the Keeper only as §158's owed row.
-
-Family `told-position` (Jev, the §12.5 lane pattern). After every delivery (explicit or implicit close), unless a `move`
-receipt landed in that turn, the host enumerates candidates — the active scene, its exits, `back` and `within`, the
-window's place identities (§190.1), the table's established places — and asks in one fanned-out request: a Noul `moved`
-("at the end of the delivered text the investigators are somewhere other than <active scene>"), a Choice `place` over the
-candidates other than the active scene plus `none`, and a Choice `sentence` over the delivered sentences (split at Unicode
-`Sentence_Terminal` characters, at most 24, numbered by the host) — the sentence that tells where they end up. When
-`moved ≥ told_position.moved_min`, the place's confidence `≥ place_min`, it is not `none`, and the sentence's confidence
-`≥ sentence_min` (all data), the host calls the private kernel method **`table.owe`**
-`{campaign, turn, effect: {kind: "move", to: <handle>}, quote: <the chosen sentence>, source: "told-position"}`. The kernel
-projects it exactly as §158.3 projects a review's owed move (anchor in the turn's `rendered_text`, resolve, `travel_minutes`
-from the exit row when one exists else 0, record in the turn record and `owed.json`, `owed_state` warning, supersede) and
-answers `{owed: <name> | null, dropped?: reason}`. §158.4's clerk lands it first on the next run; §187.3 then offers the
-people the book seats there. A turn record's `refused_moves` (§190.3) does not suppress the read: a refused move that was
-then told is owed. `told_position.mode` (data, `off | shadow | on`, shipped `shadow`; env `PI_COC_TOLD_POSITION`) — in
-`shadow` the row is written and `table.owe` is not called. The read runs after delivery and is watched, never waited for,
-by the next run's first read (§158.4's `coc:owed-review` port). Telemetry one `lane: "told-position"` row per delivery with
-the questions' distributions, the decision and the owed name.
-
-**Implementation decisions (TP-02, 2026-10-07).**
-
-- *Where the candidates come from.* `table.apply.options` answers only while a turn is open, and the read runs after the
-  close, so the host reads one read-only private method, `table.owe.options {campaign, turn, limit?}` (1..64, default
-  `told_position.max_candidates`) → `{version, turn, scene: {name, display_name, summary}, moved: [{to, owed?}],
-  candidates: [{name, display_name?, aliases?, summary, source}], window}`. `scene` is the scene the delivered record
-  holds (`record.world.scene`); `moved` lists that turn's move receipts. The candidates never include `scene`; in order:
-  its exits (`exit`), the trail newest first (`back`), the place it lies in by `located-in` (`within`), the places the
-  table established (`table`), then the book's scenes citing a page of the reading window (§182.3), the §190.1 identities
-  among them (`window`; a page is a ref's `pdf_index + 1` or its `page`); without a window, every book scene. A projected
-  location is a scene (`projectSourcePlaces`). The table's places come before the window's so the limit never cuts them.
-- *"A move receipt landed".* A move receipt that is neither an owed landing (`owed`) nor a rename (`renamed`). A clerk
-  landing an earlier told position at the start of a run is the previous delivery's position; the delivery may tell the
-  party onwards, and that is still read. The kernel's `superseded` drop below uses the same definition.
-- *Sentences.* The rendered text is split at line breaks, then after each run of `Sentence_Terminal` characters together
-  with the closing punctuation (`Pe`, `Pf`) that follows it and a `Quotation_Mark` followed by white space or the end; a
-  run followed at once by a decimal digit, or after white space by a lowercase letter, does not end a sentence (UAX #29 SB6
-  and SB8). Pieces with no letter or digit are dropped and the last 24 are offered, numbered `s1..sN` in order: where the party ends up is told last. The quote
-  `table.owe` receives is the chosen sentence exactly as delivered.
-- *The request.* State: `party_was_at` (the scene's display name and summary), `places` (aliases `c0..`, each with its
-  name, other names and a one-line summary; never a handle) and `told` (`s1..sN`). Questions: `moved` (Noul), `place`
-  (Choice over the aliases and `none`), `sentence` (Choice over `s1..sN`). `place_min` is the Choice's confidence.
-- *Bars.* `host-budgets.json` `told_position`: `mode` `shadow`, `moved_min` 0.85, `place_min` 0.7, `sentence_min` 0.5,
-  `max_candidates` 24, `timeout_ms` 10000 (the read's own deadline; nothing waits on it). Placeholders until TP-04 reads the
-  shadow rows. `PI_COC_TOLD_POSITION=off|shadow|on` overrides the mode alone per process; an unreadable file reads as
-  `shadow`.
-- *`table.owe`.* `source` is closed (`told-position`). The kernel answers `{owed: null, dropped}` (never an error) for
-  `move_landed` (the told turn landed a move), `superseded` (a move landed in a later turn: the story moved on, and §158.4
-  would close the row anyway), `quote_not_delivered`, `unknown_scene`, `same_scene` (the scene the delivery held) and
-  `satisfied` (the ledger already stands there). The effect is `{kind: "move", to: <handle>, via: "Told in the delivery of
-  turn <n>.", travel_minutes}`: the kernel writes `via` in English, so a place with no exit from the delivered scene lands
-  (§5 `move` takes a `via` for an unreachable place); `travel_minutes` is the delivered scene's exit row's when it is an
-  integer, else 0. The row is §158.3's (`describe`, `mergeOwed`'s supersede, the record's `owed`) with `source:
-  "told-position"` in place of `job`; the record's `owed_state` warning row has `lane: "told-position"`. A second call for
-  the same turn, place and quote answers the row the first wrote. The kernel writes no telemetry for it: the host's row
-  carries the answer, so a delivery has one `told-position` row.
-- *The watch.* When the read may owe (the mode is `on` and Jev is configured), the host registers it as the turn's flight
-  (`reviewInFlight`, §158.4) at the close; the flight settles only when `table.owe` wrote a row, so a read that owes nothing
-  never makes the next run read the table again, and it is cleared when the read ends. In `shadow`, `off` or without Jev
-  nothing is registered, so a single-pass table's watch stays empty. The mode is known at the close because the budget file
-  is read when the extension loads.
-- *The row.* `{lane: "told-position", event: "read", turn, mode, ok, candidates, sentences: {total, offered}, moved,
-  chosen, distribution, confidence, sentence: {key, confidence, distribution}, decision: "owe" | "stay", why?, handle?,
-  outcome: "owed" | "dropped" | "shadow" | "stay", owed, dropped?, ms}`; when nothing was asked, `skipped:
-  "no_text" | "unconfigured" | "move_landed" | "no_candidates"` (`move_landed` with `landed`, the places those moves went
-  to), or `ok: false` with `reason: "options_failed" | "lane_crashed"`. Without a Jev key the kernel is not asked at all.
-
-
-**Owner ruling (2026-10-07, 「按你的建议开，合主线打包」, after TP-05).** `told_position.mode` ships `on`, with `place_min` 0.85 (calibrated from TP-04's shadow rows); `PI_COC_TOLD_POSITION=shadow|off` still overrides; the coded fallback for an unreadable budget file stays `shadow`.
-### 190.3 A transient provider failure is asked again once (amends §143.15)
-
-`reviewAdmission` retries a lane failure once when the provider answered HTTP 429 or 5xx, or the transport ended before a
-response, after `admission.transient_retry_ms` (data, shipped 1500) and inside the round's existing deadline. A missing
-model, an authentication failure, a timeout and any verdict keep §143.15's rule. The admission row gains `detail` (the
-status and the provider's message clipped to 200 bytes). A batch that was refused while it carried a `move` adds
-`refused_moves: [{to, reason}]` to the turn record.
-
-**Implementation decisions (TP-03, 2026-10-07).**
-
-1. *What the provider answered is read off the request.* pi-ai calls `onResponse` only for a 2xx response, and a failed
-   completion keeps only `errorMessage`, a display string, so nothing structural said what the provider answered. `runLane`
-   (`extensions/lanes/subsession.ts`) takes `observeTransport`; only the admission lane sets it. For a model whose wire API
-   sends through `options.fetch` in pi-ai (closed list `OBSERVED_FETCH_APIS`: `openai-completions`, `openai-responses`,
-   `azure-openai-responses`, `openai-codex-responses`, `anthropic-messages`, `mistral-conversations`, `pi-messages`; the
-   Google adapters refuse a custom fetch and Bedrock's SDK takes none) the round hands the adapter a `fetch` that calls the
-   global one unchanged and remembers how the last request ended. A `model_error` then carries `transport`: `{status}`, the
-   HTTP status of the last response, or `{endedBeforeResponse: true}`, the fetch rejected while neither the round's signal
-   nor the request's own had aborted. A model on any other API, a call refused before any request (missing credentials, a
-   budget refusal) and a timeout carry none, so they are never transient. Nothing reads the error's text. The `lane-call`
-   rows are unchanged.
-2. *The retry.* `transientLaneFailure` (pure, `extensions/kernel/admission.ts`): a `model_error` whose transport is status
-   429 or 500-599, or ended before a response. The round reads `admission.transient_retry_ms`
-   (`admissionTransientBudget`, `runtime/jev/host-budgets.ts`, once per process; a missing, non-numeric or negative value
-   falls back to 1500), waits it on the round's clock (a cancelled round stops waiting and keeps its failure) and sends the
-   identical input once more. When no more than the wait is left before the round's deadline the retry is not started and
-   the failure stands. §143.15's malformed retry and this one are each at most once per round and independent of each
-   other, so a round sends at most three completions, all under its one deadline. §143.15's host-run resend is a fresh
-   review with its own one transient retry.
-3. *The row.* `detail` stays the string column it already was (RD-08 turn 7's row carried
-   `flapcode API error (429): 429 {"detail":"Rate limit exceeded"}`; what was missing was a status a reader could rely on and
-   a bound): the lane's failure text clipped to 200 UTF-8 bytes on a code-point boundary (`clipBytes`; the refusal's
-   `details.detail` is the same string). Beside it, from the final attempt, `provider_status` (a number) or
-   `transport: "ended_before_response"`. `attempts` counts every completion the round asked for, one refused by the budget
-   before it reached the wire included. A round that took the transient retry, or had no time for it, carries
-   `transient_retry: {after_ms, provider_status | transport, detail, skipped?: "no_time"}` naming the first failure, on a
-   verdict row as on a failure row.
-4. *`refused_moves` rides §135.31's channel.* No channel carried an admission refusal into the turn record (§86.5: refused
-   calls live in telemetry only). The narrowest existing host-to-record channel is §135.31's `keeper_reads`: a host-only
-   field on the delivery that closes the turn, outside the call's digest. The host keeps the turn's refused moves (cleared
-   with the next player input, beside §32.4's verdicts). `admitAction` adds, for an `apply` batch it refuses with any
-   `KernelError` other than `review_pending` (not a refusal, §32.12.2), one `{to, reason}` per `move` effect of the batch as
-   it stood when refused (`refusedMovesOf`): `to` the effect's `to` as proposed, trimmed and cut at 200 code points;
-   `reason` the refusal's `details.reason` (`action_not_authorized`, `admission_unavailable`, `review_timeout`,
-   `action_proposal_mismatch`, ...) or its code. An identical pair is kept once, at most 16 per turn. Every delivery that
-   closes the turn -- an explicit `narrate` or `ask`, the host's implicit close, the refusal-budget fallback -- carries them
-   as `refused_moves`; the host deletes a Keeper-supplied one. `table.narrate` and `table.ask` accept a list of at most 16
-   `{to: non-empty string, reason: non-empty string}` (`refusedMoves`, `kernel-ts/write/delivery.ts`; `invalid_params`
-   otherwise) and write `refused_moves` on the turn record when it is non-empty; a turn with none has no such key.
-5. *The retry is paid from the failed attempt's reservation (lead's decision, 2026-10-07; extends §140.1's second rule,
-   "an identical resend is paid from its failed attempt's reservation", from a reader child's channel to `runLane`).*
-   Evidence: on the product's single-loop engine the lease a lane round reserves from is the run's clerk lease
-   (`hybrid-engine.ts`, `CLERK_PROVIDER_OUTPUT_BUDGET` 168,000 output tokens: 40,000 plus flapcode `gpt-6-luna`'s 128,000);
-   a model whose transport rejects the output-limit field reserves its whole `maxTokens` per call (§140), and a call that
-   ends in a provider error was charged that whole reservation at once (§20 addendum 2), so the retry's own 128,000 were
-   refused `task_budget_exhausted` before any request -- RD-08 turn 8's host-run resend of the clerk's `declared_check`,
-   5 ms after a 429. A probe of `reviewAdmission` on such a lease with a luna-shaped endpoint answering 429 then a verdict
-   read `attempts: 2`, one request, `detail: task_budget_exhausted`. (The Keeper's own calls run on no lease on that
-   engine: each round takes a fresh independent budget, so RD-08 turn 7's move was never refused by a budget.) The rule,
-   applied exactly: `runLane` takes `keepFailedReservation`; on a caller-supplied budget, a round whose last request
-   ended `stopReason: "error"` (not `aborted`) keeps its reservation unsettled and returns it as the failure's `kept`
-   (`{digest, bound, attempts}`: the SHA-256 of the bounded payload as dispatched, `payloadDigest`). The next round the
-   caller sends with `resend: kept` is paid from it when its payload digest and bound are identical (attempts + 1),
-   after the same lease checks the reader's channel makes (the lease's signal, then its deadline; refused: the kept
-   reservation is charged whole); when the resend reports usage it is settled at `resentUsage(usage, attempts, bound)`.
-   A non-identical request charges the kept reservation whole first and reserves its own; a resend that never reaches the
-   wire, and a round that ends without resending (`reviewAdmission`'s `finally`), charge it whole. Only the admission
-   round asks; no budget size changed, no other lane's accounting changed, an HTTP error is never settled at zero, and an
-   aborted call is never kept. Measured after: the clerk-lease case through the engine (route-selected move, luna-shaped
-   429 then a verdict) sends two requests and admits; without the keep it sends one and is refused. Tests:
-   `admission-within-turn.test.mjs` (that case) and `admission-transient-retry.test.mjs` (on a lease sized as the clerk's:
-   the identical resend paid from one reservation and charged 2 x the reported 40 output tokens; a non-identical request
-   charges the kept one whole and is refused its own; a cancelled lease and a passed deadline refuse the resend before the
-   wire and charge it whole; a 401 no retry takes leaves nothing held). Mutations (copy and restore, 8), each red: the
-   round not keeping; the resend never taking it; any request taking it; no deadline check; a non-identical request not
-   charging it; the round or `runLane` leaving an untaken one held; the resend's usage not scaled to its attempts.
-
-Tests: `tests/extension/admission-transient-retry.test.mjs` (real tool path, the harness table with the fake kernel and
-one emitted-kernel table, a local OpenAI-compatible endpoint as the lane's provider): a 503 then a verdict admits the
-Keeper's `apply move` with `attempts: 2`, two requests at least the data's wait apart and `transient_retry` naming 503; a
-transport that ends before a response then a verdict admits with `transient_retry.transport`; a 401 refuses
-`admission_unavailable` at once with one request, `attempts: 1`, `provider_status: 401` and a `detail` clipped to 200
-bytes; a timeout is not retried (one request, `review_timeout`, no `transient_retry`); a 503 with less time left than the
-wait is not retried (`transient_retry.skipped: "no_time"`); a refused move rides the explicit `narrate`, the host's
-implicit close and the refusal-budget fallback as `refused_moves` and lands on the emitted kernel's turn record, and an
-admitted move leaves none; `runLane` reports status, ended-before-response, and nothing when not asked or when its own
-signal aborted; `transientLaneFailure`, `refusedMovesOf` and the loader, pure. The existing streak case of
-`admission-within-turn.test.mjs` scripted one provider 500 per unavailable review; a 500 is now asked again once, so it
-scripts two and counts five requests. Mutations (copy and restore, 17), each turning at least one of these red: no
-observing fetch; an aborted request counted as ended; nothing transient; every 4xx transient; a timeout transient; no wait;
-no deadline guard; an unclipped detail; no `provider_status` on a failure; a literal wait; the loader ignoring the data;
-no refused move recorded; none carried on the explicit, the implicit or the fallback delivery; a pending review counted
-as a refusal; the kernel not writing the record's `refused_moves`. §143.15's own `ADMISSION_LANE_ATTEMPTS = 1` mutation
-still fails its three cases.
-
-### 190.4 Three ends (§31)
-
-Writer: `window-places` (identity scenes), `told-position` through `table.owe` (owed rows), the admission lane
-(`refused_moves`, `detail`). Reader: `apply-operation` (referenced moves), the placement lane, the capsule's `owed`, the
-clerk's `apply:owed:*`, §187.3's offers. Actor: the clerk, who lands the owed move first; the Keeper, who finds the party
-where the story put it. Limits: only the position is owed here; a place outside the candidates is the Keeper's to mint;
-nothing reads prose with patterns.
-
-Counted (TP-02): one `told-position` row per delivery (`outcome`: `owed`, `dropped`, `shadow`, `stay`, or `skipped`), the
-owed rows with `source: "told-position"` in `owed.json` and on the record, and the clerk's `apply:owed:*` bind rows and
-receipts that land them. The lane's own read is `table.owe.options`; TP-04 reads the shadow rows before `on`.
-
 ## 188. Names in the request rename: hide the untold name, never corrupt a name the table owns (owner ruling 2026-10-06, 「名字那类问题另开 spec」, then 「名字那份 spec 开工吧」; `docs/specs/names-in-the-request-rename.md`; amends §103.5, §176.5, §177.4, §177.11, §177.15, §185.3 and §185.13)
 
 The request rename (§103.5) and the delivery gate (§177.11) find untold names by string: a whole name, an alias, a
@@ -37626,3 +37313,316 @@ carry is refused naming both; free text keeps its behaviour. Mutations by copy, 
 labels counted by key, and the two-clue refusal removed; the chase start, roster actor, `riding_with` and conflict back to
 spelling; `samePayer` dropped at `prepareFulfillments`, the capsule and `presentSection`; the item giver labelled by display
 name; the gate pre-pass without the junction; `lookup` without `resolve`.
+
+## 189. Reading by the book's sections: a scene is read as a scene (proposed 2026-10-07, owner 「两个一起开 spec，按你推荐的来」; `docs/specs/scene-reading.md`; implementation waits for the owner's word; amends §148.3, §151.4's background units, §182.3, §187.5.1 and §187.9)
+
+**Evidence.** RD-08 and its control (§187, `docs/specs/reading-delivery.md` Comments): two-page units are 56–59 % of the
+reading lane's uncached input at 20–26K per draft record and never make a scene `material: ready` (a unit's material row
+carries its `ready_nodes`, which may be empty); the one scene-focused read cost 95K per record and ran with the whole
+known graph, because its job carries `pages: []` and §187.5.1 scopes by job pages; a reference book's places exist only
+when a destination is requested. The book's pages around a place are therefore read once blind and again for the scene.
+
+### 189.1 Section units
+
+`reading.unit` (data, `host-budgets.json`, `"two_page" | "section"`, shipped `"two_page"` until §189.6 passes). Under
+`"section"` the background unit of a book with bookmarks is a section: the flattened bookmark entries (every level) give
+`[entry.page, next.page − 1]` within `page_count`; adjacent sections shorter than `reading.section_unit_max_pages` (data,
+shipped 6) merge up to it; a longer section splits at it on page boundaries; entries sharing a page collapse to the last.
+A book without bookmarks uses index sections (`backgroundSourceUnits`, for every indexed book whose window is read, not only
+under `first_interaction`); a book with neither uses two-page units. The unit key keeps `[section, first, last]`; the §182
+window, `build_complete`, need eligibility and every unit check apply unchanged to the new ranges.
+
+### 189.2 A place section is read as its scene
+
+A section whose heading §190.1 classified as a place carries `focus` = that place's scene handle (the identity §190.1
+minted) and the **scene playbook** ask: the fields §187.1's tier-2 consumers read — the scene's summary, `dramatic_question`,
+`keeper_notes`, `pressure_moves`, affordances and what they grant, exits (`route-to` and entrance relations) with travel
+and conditions, the people `present-in` it with the dossier keys and their `knows`, `believes` and lie claims, the clues
+`discoverable-at` it with skill, difficulty and unlock, `uses-rule` mechanics, and the assets it depicts or holds. The
+ask names fields; it adds no artifact beside the graph. The coverage unit of a place section asks whether the scene can
+be run from what the candidate publishes over the same list; a `missing` item names the field and the physical page (and
+is an append repair when the page is in the unit, §187.6). Finishing a place unit writes the scene's material row with
+the scene among `node_ids` (the scene becomes `ready`) and its `scene_index` row with `scene: <node_id>`. A section that
+is not a place keeps the fragment ask (`unitQuestion`).
+
+### 189.3 A scene read has pages
+
+A `detail` read focused on a scene that has a section unit or a `scene_index` row carries those pages as its job pages:
+§187.5.1 scopes its packet, and the reader's locate starts from them and may extend beyond them (as §187.7.1's need reads
+do). A scene with neither keeps today's locate and an unscoped packet.
+
+### 189.4 Play order
+
+Inside the window the read-ahead asks, in order: the section holding the current scene (or its `within` place), the
+sections of the places reachable from it (exits, `within`, and the referenced place identities of §190.1) in book order,
+then the rest of the window in book order. The two-live-units bound and the slot rules of §22.4.6 are unchanged.
+
+### 189.5 Telemetry
+
+Every reading row and `job_accounting` row carries `unit_kind: "two_page" | "section" | "scene" | "index" | "need" |
+"visual"` and, for a place unit, `scene`.
+
+### 189.6 The switch is decided by a pre-registered comparison
+
+`docs/specs/scene-reading.md` "Success": Blood Road's chapter 德克萨斯州阿巴托尔镇 read to idle in two fresh homes, arm A
+`two_page`, arm B `section`; B becomes the shipped value only if its ready place scenes and median playbook completeness
+are at least A's and its total uncached input is at most 1.1 × A's. The result is recorded under the spec's Comments
+either way; the bar is not tuned after the run.
+
+### 189.7 Three ends (§31)
+
+Writer: the section generator, the place unit's finish (material and `scene_index` rows). Reader: `materialReady` and the
+capsule's `material` closure, the read-ahead's order, the packet scope. Actor: the reading pump; the Keeper, who finds the
+scene ready when the party arrives. Limits: a section is the book's own division; a place is §190.1's decision; nothing in
+this section reads headings with patterns.
+
+## 190. The table stands where the story is (owner 2026-10-07: 「两个一起开 spec，按你推荐的来」, then 「打完包就开工，先做 §190」; `docs/specs/told-position.md`; amends §158, §166 by one exception, §143.15 and §22.4.7)
+
+**Evidence.** RD-08 (`rd-accept-blood-01-play`): the Keeper narrated the station on turn 2, the town on turn 7 and the
+motel on turns 8–10 while the ledger kept the party in `source-entry-16` until turn 11; the station's three men were not
+`present` and the Keeper told the player nobody was there. Causes: §166's `SINGLE_PASS_NARRATION` starts no post-delivery
+review, and that review was §158's only producer of owed moves (no `owed.json`, no continuity-review row on the table);
+a reference book's places are minted only on a destination request; turn 7's `apply move` was refused by one 524 ms
+`model_error` of the admission lane (its `detail`: the provider's HTTP 429, rate limited), which §143.15 does not retry, and
+the Keeper narrated the move anyway.
+
+### 190.1 The window's places exist before they are read
+
+Family `window-places` (Jev): at table open and on each `read_window` change, one Noul per flattened bookmark entry whose
+page lies in the window and that no scene already cites — "is this heading a place the investigators can be at" — over the
+heading, its page and the first lines of that page's native text. An entry at or above `window_places.place_min` (data) is
+minted as an identity-only place scene through `publishReferencePlace` (one page, the excerpt, `source_reference_anchor`),
+the same identity a destination request mints; an existing identity for that entry is reused. Each is then a referenced
+move candidate (`apply-operation`), a placement candidate (§187.2.3) and a told-position candidate (§190.2); a move into
+one lands on the book's text (§22.4.7) and §189.4 reads its section next. Asked once per window per campaign; Jev
+unavailable mints nothing and blocks nothing; telemetry one `lane: "window-places"` row per entry.
+
+**Implementation decisions (TP-01, 2026-10-07).** The lane is `runtime/jev/window-places.ts`; its budget is `window_places`
+in `host-budgets.json` (`windowPlacesBudget`, `runtime/jev/host-budgets.ts`): `mode` (`off | shadow | on`, shipped `on`; an
+unreadable file falls back to `shadow`, so a broken data file mints nothing), `place_min` 0.8, `timeout_ms` 20,000 (one
+request), `max_entries` 64 (the window's first entries in book order). No environment override.
+
+- **When.** `ReadingService.readAhead` starts a pass when it writes `read_window` for a campaign (a library-scoped
+  read-ahead starts none). Because the kernel's own read-ahead at `table.open` writes no row and the host's next one waited
+  for a reading job to finish, `prefetch` on the `table-open` and `reader-ready` wakes runs one host read-ahead when source
+  references run (`runtime.sourceReferences`). Passes run in the background, one at a time per campaign and module (a new
+  window's pass chains after the last), and stop with the service.
+- **Entries and identity.** The PDF's bookmarks as `sourceInfo` reads them, every level, flattened by the walk
+  `selectReferencePacket` makes for a destination: the identity is `scene-source-place-<page>-<index>`, the index counting
+  the rows with a string name and a whole page. A blank heading is not asked. "No scene already cites" an entry when
+  `placeScene` finds no scene of the campaign fork's graph for `{id, name}` (the identity, or the heading as a name or an
+  alias): the scene `publishReferencePlace` would reuse. The kernel answers it on `module.reference.status`, which takes
+  an optional `places: [{id, name}]` (at most 256; an id not of that form or an empty name is `invalid_params`) and then
+  answers `cited_places: [<id>]`; no method is added. A table entity (a Keeper's `establish`) is not in the module graph and
+  cites no entry.
+- **Question.** One Noul per entry (`place_e<n>`), twelve entries per request, the requests fanned out (adapter concurrency
+  2, one retry on a transient failure, model pinned). State `book_headings.e<n>: {heading, page, text_there}`, where
+  `text_there` is the first lines printed from where the heading's own words begin on its page (the fold `entryExcerpt`
+  uses), else from the top of the page, whole lines up to 480 characters. An entry whose page has no native text is not
+  asked (`no_text`).
+- **Asked once.** Answers are kept per campaign fork in `work/window-places/answers.json` (`{version, source_sha256,
+  entries: {<id>: {name, page, noul, at}}}`): an entry answered once is not asked again in any window of that campaign, which
+  is at most once per window. An unanswered entry (Jev unavailable) is asked at the next window change or open. With the lane
+  `on`, a kept answer at or above the bar whose place is not a scene (its mint failed, or it was answered in `shadow`) is
+  minted without asking again.
+- **Mint.** The host writes a `materialize_place` lookup attempt in the fork's `work/window-place-<page>-<index>-<suffix>/`
+  (the task, a packet with one excerpt and the entry as its one place, an `excerpts` receipt with `producer:
+  "window-places"`) and calls `module.reference.materialize`; §184.5's merge replays it into the library as it replays a
+  destination's place. The excerpt is the page's own bytes from the heading, at most 600 characters, cut at a line break: it
+  becomes the scene's summary, which every turn's referenced move candidate carries as `source_context`.
+- **Telemetry.** One `lane: "window-places"` row per entry a pass handled: `entry {id, name, page}`, `window`, `mode`,
+  `place_min`, `noul`, `answer: asked | kept`, `outcome: minted | reused | not_place | shadow | unavailable | no_text |
+  mint_failed`, `scene`, `reason`, `usage {requests, input_tokens, entries}`, `ms`. An entry a scene already is, or one kept
+  below the bar, writes none. A pass that fails writes one `event: "failed"` row.
+- **A referenced move candidate is offered only inside the window, so the route batch stays bounded as places are
+  minted.** Evidence: `table.apply.options` offered every scene with `source_reference_anchor` (or reference-only material)
+  on every turn whatever the window; `runtime/jev/candidates.ts` turns each into a move candidate carrying the scene's
+  summary as `source_context` and a `routeFact` question of its own; `routeBatch` (`runtime/jev/step-policy.ts`) puts every
+  candidate in one request and, at `packing_limit`, shrinks only the material previews before it gives up. Nothing capped
+  the count, and each chapter's window places would have added to it for the rest of the campaign. `apply-operation` now
+  keeps a referenced scene only when one of its cited pages lies inside `briefWindow` (the §187.4 window: the active scene's,
+  or through `bookAnchor` its `within` place's); a scene in `where.exits` or `where.back` is offered as before whatever its
+  pages, since those rows come first. A book with no window (no page count, or read whole) offers every referenced place,
+  as before. `apply move` is unchanged: it never read these rows, and a move to a place that is not an exit or on the trail
+  still needs `via`.
+- **Tests.** `tests/extension/window-places.test.mjs`.
+
+### 190.2 The ledger follows the told position
+
+**Exception to §166, recorded with this section.** §166 retired automatic prose review and rewriting. The read below reads
+a delivered text only to bring the ledger's position forward (§158's ruling); it never reviews, edits, retracts or
+annotates prose, and its result reaches the Keeper only as §158's owed row.
+
+Family `told-position` (Jev, the §12.5 lane pattern). After every delivery (explicit or implicit close), unless a `move`
+receipt landed in that turn, the host enumerates candidates — the active scene, its exits, `back` and `within`, the
+window's place identities (§190.1), the table's established places — and asks in one fanned-out request: a Noul `moved`
+("at the end of the delivered text the investigators are somewhere other than <active scene>"), a Choice `place` over the
+candidates other than the active scene plus `none`, and a Choice `sentence` over the delivered sentences (split at Unicode
+`Sentence_Terminal` characters, at most 24, numbered by the host) — the sentence that tells where they end up. When
+`moved ≥ told_position.moved_min`, the place's confidence `≥ place_min`, it is not `none`, and the sentence's confidence
+`≥ sentence_min` (all data), the host calls the private kernel method **`table.owe`**
+`{campaign, turn, effect: {kind: "move", to: <handle>}, quote: <the chosen sentence>, source: "told-position"}`. The kernel
+projects it exactly as §158.3 projects a review's owed move (anchor in the turn's `rendered_text`, resolve, `travel_minutes`
+from the exit row when one exists else 0, record in the turn record and `owed.json`, `owed_state` warning, supersede) and
+answers `{owed: <name> | null, dropped?: reason}`. §158.4's clerk lands it first on the next run; §187.3 then offers the
+people the book seats there. A turn record's `refused_moves` (§190.3) does not suppress the read: a refused move that was
+then told is owed. `told_position.mode` (data, `off | shadow | on`, shipped `shadow`; env `PI_COC_TOLD_POSITION`) — in
+`shadow` the row is written and `table.owe` is not called. The read runs after delivery and is watched, never waited for,
+by the next run's first read (§158.4's `coc:owed-review` port). Telemetry one `lane: "told-position"` row per delivery with
+the questions' distributions, the decision and the owed name.
+
+**Implementation decisions (TP-02, 2026-10-07).**
+
+- *Where the candidates come from.* `table.apply.options` answers only while a turn is open, and the read runs after the
+  close, so the host reads one read-only private method, `table.owe.options {campaign, turn, limit?}` (1..64, default
+  `told_position.max_candidates`) → `{version, turn, scene: {name, display_name, summary}, moved: [{to, owed?}],
+  candidates: [{name, display_name?, aliases?, summary, source}], window}`. `scene` is the scene the delivered record
+  holds (`record.world.scene`); `moved` lists that turn's move receipts. The candidates never include `scene`; in order:
+  its exits (`exit`), the trail newest first (`back`), the place it lies in by `located-in` (`within`), the places the
+  table established (`table`), then the book's scenes citing a page of the reading window (§182.3), the §190.1 identities
+  among them (`window`; a page is a ref's `pdf_index + 1` or its `page`); without a window, every book scene. A projected
+  location is a scene (`projectSourcePlaces`). The table's places come before the window's so the limit never cuts them.
+- *"A move receipt landed".* A move receipt that is neither an owed landing (`owed`) nor a rename (`renamed`). A clerk
+  landing an earlier told position at the start of a run is the previous delivery's position; the delivery may tell the
+  party onwards, and that is still read. The kernel's `superseded` drop below uses the same definition.
+- *Sentences.* The rendered text is split at line breaks, then after each run of `Sentence_Terminal` characters together
+  with the closing punctuation (`Pe`, `Pf`) that follows it and a `Quotation_Mark` followed by white space or the end; a
+  run followed at once by a decimal digit, or after white space by a lowercase letter, does not end a sentence (UAX #29 SB6
+  and SB8). Pieces with no letter or digit are dropped and the last 24 are offered, numbered `s1..sN` in order: where the party ends up is told last. The quote
+  `table.owe` receives is the chosen sentence exactly as delivered.
+- *The request.* State: `party_was_at` (the scene's display name and summary), `places` (aliases `c0..`, each with its
+  name, other names and a one-line summary; never a handle) and `told` (`s1..sN`). Questions: `moved` (Noul), `place`
+  (Choice over the aliases and `none`), `sentence` (Choice over `s1..sN`). `place_min` is the Choice's confidence.
+- *Bars.* `host-budgets.json` `told_position`: `mode` `shadow`, `moved_min` 0.85, `place_min` 0.7, `sentence_min` 0.5,
+  `max_candidates` 24, `timeout_ms` 10000 (the read's own deadline; nothing waits on it). Placeholders until TP-04 reads the
+  shadow rows. `PI_COC_TOLD_POSITION=off|shadow|on` overrides the mode alone per process; an unreadable file reads as
+  `shadow`.
+- *`table.owe`.* `source` is closed (`told-position`). The kernel answers `{owed: null, dropped}` (never an error) for
+  `move_landed` (the told turn landed a move), `superseded` (a move landed in a later turn: the story moved on, and §158.4
+  would close the row anyway), `quote_not_delivered`, `unknown_scene`, `same_scene` (the scene the delivery held) and
+  `satisfied` (the ledger already stands there). The effect is `{kind: "move", to: <handle>, via: "Told in the delivery of
+  turn <n>.", travel_minutes}`: the kernel writes `via` in English, so a place with no exit from the delivered scene lands
+  (§5 `move` takes a `via` for an unreachable place); `travel_minutes` is the delivered scene's exit row's when it is an
+  integer, else 0. The row is §158.3's (`describe`, `mergeOwed`'s supersede, the record's `owed`) with `source:
+  "told-position"` in place of `job`; the record's `owed_state` warning row has `lane: "told-position"`. A second call for
+  the same turn, place and quote answers the row the first wrote. The kernel writes no telemetry for it: the host's row
+  carries the answer, so a delivery has one `told-position` row.
+- *The watch.* When the read may owe (the mode is `on` and Jev is configured), the host registers it as the turn's flight
+  (`reviewInFlight`, §158.4) at the close; the flight settles only when `table.owe` wrote a row, so a read that owes nothing
+  never makes the next run read the table again, and it is cleared when the read ends. In `shadow`, `off` or without Jev
+  nothing is registered, so a single-pass table's watch stays empty. The mode is known at the close because the budget file
+  is read when the extension loads.
+- *The row.* `{lane: "told-position", event: "read", turn, mode, ok, candidates, sentences: {total, offered}, moved,
+  chosen, distribution, confidence, sentence: {key, confidence, distribution}, decision: "owe" | "stay", why?, handle?,
+  outcome: "owed" | "dropped" | "shadow" | "stay", owed, dropped?, ms}`; when nothing was asked, `skipped:
+  "no_text" | "unconfigured" | "move_landed" | "no_candidates"` (`move_landed` with `landed`, the places those moves went
+  to), or `ok: false` with `reason: "options_failed" | "lane_crashed"`. Without a Jev key the kernel is not asked at all.
+
+
+**Owner ruling (2026-10-07, 「按你的建议开，合主线打包」, after TP-05).** `told_position.mode` ships `on`, with `place_min` 0.85 (calibrated from TP-04's shadow rows); `PI_COC_TOLD_POSITION=shadow|off` still overrides; the coded fallback for an unreadable budget file stays `shadow`.
+### 190.3 A transient provider failure is asked again once (amends §143.15)
+
+`reviewAdmission` retries a lane failure once when the provider answered HTTP 429 or 5xx, or the transport ended before a
+response, after `admission.transient_retry_ms` (data, shipped 1500) and inside the round's existing deadline. A missing
+model, an authentication failure, a timeout and any verdict keep §143.15's rule. The admission row gains `detail` (the
+status and the provider's message clipped to 200 bytes). A batch that was refused while it carried a `move` adds
+`refused_moves: [{to, reason}]` to the turn record.
+
+**Implementation decisions (TP-03, 2026-10-07).**
+
+1. *What the provider answered is read off the request.* pi-ai calls `onResponse` only for a 2xx response, and a failed
+   completion keeps only `errorMessage`, a display string, so nothing structural said what the provider answered. `runLane`
+   (`extensions/lanes/subsession.ts`) takes `observeTransport`; only the admission lane sets it. For a model whose wire API
+   sends through `options.fetch` in pi-ai (closed list `OBSERVED_FETCH_APIS`: `openai-completions`, `openai-responses`,
+   `azure-openai-responses`, `openai-codex-responses`, `anthropic-messages`, `mistral-conversations`, `pi-messages`; the
+   Google adapters refuse a custom fetch and Bedrock's SDK takes none) the round hands the adapter a `fetch` that calls the
+   global one unchanged and remembers how the last request ended. A `model_error` then carries `transport`: `{status}`, the
+   HTTP status of the last response, or `{endedBeforeResponse: true}`, the fetch rejected while neither the round's signal
+   nor the request's own had aborted. A model on any other API, a call refused before any request (missing credentials, a
+   budget refusal) and a timeout carry none, so they are never transient. Nothing reads the error's text. The `lane-call`
+   rows are unchanged.
+2. *The retry.* `transientLaneFailure` (pure, `extensions/kernel/admission.ts`): a `model_error` whose transport is status
+   429 or 500-599, or ended before a response. The round reads `admission.transient_retry_ms`
+   (`admissionTransientBudget`, `runtime/jev/host-budgets.ts`, once per process; a missing, non-numeric or negative value
+   falls back to 1500), waits it on the round's clock (a cancelled round stops waiting and keeps its failure) and sends the
+   identical input once more. When no more than the wait is left before the round's deadline the retry is not started and
+   the failure stands. §143.15's malformed retry and this one are each at most once per round and independent of each
+   other, so a round sends at most three completions, all under its one deadline. §143.15's host-run resend is a fresh
+   review with its own one transient retry.
+3. *The row.* `detail` stays the string column it already was (RD-08 turn 7's row carried
+   `flapcode API error (429): 429 {"detail":"Rate limit exceeded"}`; what was missing was a status a reader could rely on and
+   a bound): the lane's failure text clipped to 200 UTF-8 bytes on a code-point boundary (`clipBytes`; the refusal's
+   `details.detail` is the same string). Beside it, from the final attempt, `provider_status` (a number) or
+   `transport: "ended_before_response"`. `attempts` counts every completion the round asked for, one refused by the budget
+   before it reached the wire included. A round that took the transient retry, or had no time for it, carries
+   `transient_retry: {after_ms, provider_status | transport, detail, skipped?: "no_time"}` naming the first failure, on a
+   verdict row as on a failure row.
+4. *`refused_moves` rides §135.31's channel.* No channel carried an admission refusal into the turn record (§86.5: refused
+   calls live in telemetry only). The narrowest existing host-to-record channel is §135.31's `keeper_reads`: a host-only
+   field on the delivery that closes the turn, outside the call's digest. The host keeps the turn's refused moves (cleared
+   with the next player input, beside §32.4's verdicts). `admitAction` adds, for an `apply` batch it refuses with any
+   `KernelError` other than `review_pending` (not a refusal, §32.12.2), one `{to, reason}` per `move` effect of the batch as
+   it stood when refused (`refusedMovesOf`): `to` the effect's `to` as proposed, trimmed and cut at 200 code points;
+   `reason` the refusal's `details.reason` (`action_not_authorized`, `admission_unavailable`, `review_timeout`,
+   `action_proposal_mismatch`, ...) or its code. An identical pair is kept once, at most 16 per turn. Every delivery that
+   closes the turn -- an explicit `narrate` or `ask`, the host's implicit close, the refusal-budget fallback -- carries them
+   as `refused_moves`; the host deletes a Keeper-supplied one. `table.narrate` and `table.ask` accept a list of at most 16
+   `{to: non-empty string, reason: non-empty string}` (`refusedMoves`, `kernel-ts/write/delivery.ts`; `invalid_params`
+   otherwise) and write `refused_moves` on the turn record when it is non-empty; a turn with none has no such key.
+5. *The retry is paid from the failed attempt's reservation (lead's decision, 2026-10-07; extends §140.1's second rule,
+   "an identical resend is paid from its failed attempt's reservation", from a reader child's channel to `runLane`).*
+   Evidence: on the product's single-loop engine the lease a lane round reserves from is the run's clerk lease
+   (`hybrid-engine.ts`, `CLERK_PROVIDER_OUTPUT_BUDGET` 168,000 output tokens: 40,000 plus flapcode `gpt-6-luna`'s 128,000);
+   a model whose transport rejects the output-limit field reserves its whole `maxTokens` per call (§140), and a call that
+   ends in a provider error was charged that whole reservation at once (§20 addendum 2), so the retry's own 128,000 were
+   refused `task_budget_exhausted` before any request -- RD-08 turn 8's host-run resend of the clerk's `declared_check`,
+   5 ms after a 429. A probe of `reviewAdmission` on such a lease with a luna-shaped endpoint answering 429 then a verdict
+   read `attempts: 2`, one request, `detail: task_budget_exhausted`. (The Keeper's own calls run on no lease on that
+   engine: each round takes a fresh independent budget, so RD-08 turn 7's move was never refused by a budget.) The rule,
+   applied exactly: `runLane` takes `keepFailedReservation`; on a caller-supplied budget, a round whose last request
+   ended `stopReason: "error"` (not `aborted`) keeps its reservation unsettled and returns it as the failure's `kept`
+   (`{digest, bound, attempts}`: the SHA-256 of the bounded payload as dispatched, `payloadDigest`). The next round the
+   caller sends with `resend: kept` is paid from it when its payload digest and bound are identical (attempts + 1),
+   after the same lease checks the reader's channel makes (the lease's signal, then its deadline; refused: the kept
+   reservation is charged whole); when the resend reports usage it is settled at `resentUsage(usage, attempts, bound)`.
+   A non-identical request charges the kept reservation whole first and reserves its own; a resend that never reaches the
+   wire, and a round that ends without resending (`reviewAdmission`'s `finally`), charge it whole. Only the admission
+   round asks; no budget size changed, no other lane's accounting changed, an HTTP error is never settled at zero, and an
+   aborted call is never kept. Measured after: the clerk-lease case through the engine (route-selected move, luna-shaped
+   429 then a verdict) sends two requests and admits; without the keep it sends one and is refused. Tests:
+   `admission-within-turn.test.mjs` (that case) and `admission-transient-retry.test.mjs` (on a lease sized as the clerk's:
+   the identical resend paid from one reservation and charged 2 x the reported 40 output tokens; a non-identical request
+   charges the kept one whole and is refused its own; a cancelled lease and a passed deadline refuse the resend before the
+   wire and charge it whole; a 401 no retry takes leaves nothing held). Mutations (copy and restore, 8), each red: the
+   round not keeping; the resend never taking it; any request taking it; no deadline check; a non-identical request not
+   charging it; the round or `runLane` leaving an untaken one held; the resend's usage not scaled to its attempts.
+
+Tests: `tests/extension/admission-transient-retry.test.mjs` (real tool path, the harness table with the fake kernel and
+one emitted-kernel table, a local OpenAI-compatible endpoint as the lane's provider): a 503 then a verdict admits the
+Keeper's `apply move` with `attempts: 2`, two requests at least the data's wait apart and `transient_retry` naming 503; a
+transport that ends before a response then a verdict admits with `transient_retry.transport`; a 401 refuses
+`admission_unavailable` at once with one request, `attempts: 1`, `provider_status: 401` and a `detail` clipped to 200
+bytes; a timeout is not retried (one request, `review_timeout`, no `transient_retry`); a 503 with less time left than the
+wait is not retried (`transient_retry.skipped: "no_time"`); a refused move rides the explicit `narrate`, the host's
+implicit close and the refusal-budget fallback as `refused_moves` and lands on the emitted kernel's turn record, and an
+admitted move leaves none; `runLane` reports status, ended-before-response, and nothing when not asked or when its own
+signal aborted; `transientLaneFailure`, `refusedMovesOf` and the loader, pure. The existing streak case of
+`admission-within-turn.test.mjs` scripted one provider 500 per unavailable review; a 500 is now asked again once, so it
+scripts two and counts five requests. Mutations (copy and restore, 17), each turning at least one of these red: no
+observing fetch; an aborted request counted as ended; nothing transient; every 4xx transient; a timeout transient; no wait;
+no deadline guard; an unclipped detail; no `provider_status` on a failure; a literal wait; the loader ignoring the data;
+no refused move recorded; none carried on the explicit, the implicit or the fallback delivery; a pending review counted
+as a refusal; the kernel not writing the record's `refused_moves`. §143.15's own `ADMISSION_LANE_ATTEMPTS = 1` mutation
+still fails its three cases.
+
+### 190.4 Three ends (§31)
+
+Writer: `window-places` (identity scenes), `told-position` through `table.owe` (owed rows), the admission lane
+(`refused_moves`, `detail`). Reader: `apply-operation` (referenced moves), the placement lane, the capsule's `owed`, the
+clerk's `apply:owed:*`, §187.3's offers. Actor: the clerk, who lands the owed move first; the Keeper, who finds the party
+where the story put it. Limits: only the position is owed here; a place outside the candidates is the Keeper's to mint;
+nothing reads prose with patterns.
+
+Counted (TP-02): one `told-position` row per delivery (`outcome`: `owed`, `dropped`, `shadow`, `stay`, or `skipped`), the
+owed rows with `source: "told-position"` in `owed.json` and on the record, and the clerk's `apply:owed:*` bind rows and
+receipts that land them. The lane's own read is `table.owe.options`; TP-04 reads the shadow rows before `on`.
