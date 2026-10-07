@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { getDocument, version } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { createCanvas, loadImage, type Canvas, type SKRSContext2D } from "@napi-rs/canvas";
+import { nativeLines } from "./page-transcript.ts";
 
 const require = createRequire(import.meta.url);
 const pdfRoot = dirname(require.resolve("pdfjs-dist/package.json"));
@@ -231,6 +232,26 @@ export async function sourceText(pdf: string, options: SourceTextOptions, signal
 		if (detached) void detached.catch(() => undefined).then(source.close).catch(() => undefined);
 		else await source.close();
 	}
+}
+
+/** §191.1: one page's native lines, the unit a page-transcript layout places. */
+export interface SourceLinesPage { page: number; pdf_label: string | null; native_sha256: string; lines: string[] }
+
+/**
+ * Contract §191.1: each page's native text (`sourceText`'s `text`) split at `"\n"`, whitespace-only entries removed, every
+ * other entry byte for byte; `native_sha256` is that text's `text_sha256`. Same validation, document owner and worker path.
+ */
+export async function sourceLines(pdf: string, options: SourceTextOptions, signal?: AbortSignal): Promise<{
+	file_sha256: string;
+	extraction_version: string;
+	page_count: number;
+	pages: SourceLinesPage[];
+	errors: Array<{page: number; code: "native_extraction_unavailable"}>;
+}> {
+	const native = await sourceText(pdf, options, signal);
+	return { file_sha256: native.file_sha256, extraction_version: native.extraction_version, page_count: native.page_count,
+		pages: native.snapshots.map(row => ({ page: row.page, pdf_label: row.pdf_label, native_sha256: row.text_sha256, lines: nativeLines(row.text) })),
+		errors: native.errors };
 }
 
 export async function sourceInfo(pdf: string) {

@@ -148,6 +148,11 @@ interface Dependencies {
 	env?: NodeJS.ProcessEnv;
 	/** §190.1, tests only: the window-places budget instead of the shipped file's. */
 	windowPlacesBudget?: WindowPlacesBudget;
+	/**
+	 * §191.6: the page-transcript producer made beside this service with the same model and telemetry. Its callers are
+	 * §191.6's read-ahead and §191.7's readers; nothing waits on it.
+	 */
+	transcripts?: import("./transcript-service.ts").TranscriptService;
 }
 const realWaitTimer = (callback: () => void, ms: number): (() => void) => { const timer = setTimeout(callback, ms); return () => clearTimeout(timer); };
 interface PendingReading {

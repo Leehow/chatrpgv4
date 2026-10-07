@@ -49,6 +49,17 @@ test("HostRuntime reaches native search and text through the spawned source work
 	assert.match(text.extraction_version, /^pdfjs-.+:native-text-v1$/);
 });
 
+test("HostRuntime reaches the native lines of §191.1 through the spawned source worker", async t => {
+	const { runtime } = await fixture(t, ["BT /F1 12 Tf 20 160 Td (Right column) Tj -10 -40 Td (Left column) Tj ET", ""]);
+	const text = await runtime.sourceText({ pdf: "source.pdf", pages: [1] });
+	const lines = await runtime.sourceLines({ pdf: "source.pdf", pages: [2, 1], expected_file_sha256: text.file_sha256 });
+
+	assert.deepEqual(lines.pages.map(row => [row.page, row.lines]), [[2, []], [1, ["Right column", "Left column"]]]);
+	assert.equal(lines.pages[1].native_sha256, text.snapshots[0].text_sha256);
+	assert.deepEqual([lines.file_sha256, lines.extraction_version, lines.page_count, lines.errors], [text.file_sha256, text.extraction_version, 2, []]);
+	await assert.rejects(runtime.sourceLines({ pdf: "source.pdf", pages: [1], expected_file_sha256: "0".repeat(64) }), /expected_file_sha256/);
+});
+
 test("cancelling a native source worker call leaves its HostRuntime owner usable", async t => {
 	const pages = Array.from({ length: 32 }, (_, index) => textStream(`Page-${index}-` + "native ".repeat(2_000)));
 	const { runtime } = await fixture(t, pages);

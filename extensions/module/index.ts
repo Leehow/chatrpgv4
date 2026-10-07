@@ -4,6 +4,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { appendJsonl, cocMode } from "../lanes/host.ts";
 import { isKernelError } from "../kernel/client.ts";
 import { ReadingService } from "./reading-service.ts";
+import { TranscriptService } from "./transcript-service.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
 import {createFreshSourceNavigator} from '../../runtime/jev/fresh-source-navigator.ts';
 import {createTravelFill} from './travel-fill.ts';
@@ -17,8 +18,15 @@ export default function (pi: ExtensionAPI) {
     let ctx: ExtensionContext | undefined;
     let bridge: { call: Call; runtime: HostRuntime; campaign?: string } | undefined;
     let reading: ReadingService | undefined;
+    /** §191.6: the page-transcript producer, made beside the reading service with its model and telemetry. */
+    let transcripts: TranscriptService | undefined;
     const retiring = new Set<Promise<void>>();
     function retireReader() {
+        const previousTranscripts = transcripts; transcripts = undefined;
+        if (previousTranscripts) {
+            const stopped = previousTranscripts.close().catch(()=>undefined).finally(()=>retiring.delete(stopped));
+            retiring.add(stopped);
+        }
         const previous = reading; reading = undefined;
         if (!previous) return;
         const closed = previous.close({handOff:true}).catch(()=>undefined).finally(()=>retiring.delete(closed));
@@ -55,7 +63,23 @@ export default function (pi: ExtensionAPI) {
         if (!ctx || !bridge) return;
         retireReader();
         const home = bridge.runtime.home, current = bridge;
+        const model = () => {
+            const id = current.runtime.readerModel || (ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : "");
+            const slash = id.indexOf("/");
+            const entry = ctx?.modelRegistry.find(id.slice(0, slash), id.slice(slash + 1));
+            // §20 addendum 6 (SL-65): the reader's own context window, so a background/play reading's stage
+            // lease can be sized to survive its actual whole-context reservations, not a fixed assumption.
+            return { id, vision: entry?.input?.includes("image") === true, thinking: pi.getThinkingLevel(), contextWindow: entry?.contextWindow };
+        };
+        const record = (row: Row) => {
+            const line = { at: new Date().toISOString(), ...row };
+            try { pi.appendEntry("coc-telemetry", line); } catch { /* a closed session cannot accept entries */ }
+            void appendJsonl(join(home, ".coc", "reading-telemetry.jsonl"), line).catch(() => undefined);
+            if (row.campaign) void appendJsonl(join(home, ".coc", "campaigns", row.campaign, "telemetry.jsonl"), line).catch(() => undefined);
+        };
+        transcripts = new TranscriptService({ runtime: current.runtime, model, record });
         reading = new ReadingService({
+            transcripts,
             navigateFresh: createFreshSourceNavigator({runtime: current.runtime, call: (method, params) => current.call(method, params), env: {...process.env}}),
             travel: createTravelFill({env: {...process.env}, contentRoot: current.runtime.contentRoot}),
             claimSupport: createClaimSupport({env: {...process.env}, contentRoot: current.runtime.contentRoot}),
@@ -65,21 +89,9 @@ export default function (pi: ExtensionAPI) {
                     pi.events.emit('coc:source-published', {campaign: params.campaign, module_id: params.module_id,...(result?._task_source_advance?{advance:result._task_source_advance}:{})});
                 return result;
             }, campaign: () => campaign, runtime: current.runtime, home,
-            model: () => {
-                const id = current.runtime.readerModel || (ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : "");
-                const slash = id.indexOf("/");
-                const model = ctx?.modelRegistry.find(id.slice(0, slash), id.slice(slash + 1));
-                // §20 addendum 6 (SL-65): the reader's own context window, so a background/play reading's stage
-                // lease can be sized to survive its actual whole-context reservations, not a fixed assumption.
-                return { id, vision: model?.input?.includes("image") === true, thinking: pi.getThinkingLevel(), contextWindow: model?.contextWindow };
-            },
+            model,
             progress: row => pi.events.emit("coc:module-ingest-progress", row),
-            record: row => {
-                const line = { at: new Date().toISOString(), ...row };
-                try { pi.appendEntry("coc-telemetry", line); } catch { /* a closed session cannot accept entries */ }
-                void appendJsonl(join(home, ".coc", "reading-telemetry.jsonl"), line).catch(() => undefined);
-                if (row.campaign) void appendJsonl(join(home, ".coc", "campaigns", row.campaign, "telemetry.jsonl"), line).catch(() => undefined);
-            },
+            record,
             // The operator's surface for a reader lane that stopped working, shaped after the admission
             // outage notice of contract §32.2: out of fiction, once per session, with the fix. Its reader
             // is the person running the table, not the run analysis -- the telemetry row already says the

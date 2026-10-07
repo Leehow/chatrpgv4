@@ -316,13 +316,17 @@ export const runtimeCapabilities: RuntimeCapabilities = Object.freeze({
     ensureActive(signal);
     return sourceOperation(context, 'text', {...request, pdf: resolve(context.home, request.pdf)}, signal);
   },
+  async sourceLines(context, request, signal) {
+    ensureActive(signal);
+    return sourceOperation(context, 'lines', {...request, pdf: resolve(context.home, request.pdf)}, signal);
+  },
   async sourceWindow(context, request, signal) {
     ensureActive(signal);
     return sourceOperation(context, 'window', {...request, pdf: resolve(context.home, request.pdf), out: resolve(context.home, request.out)}, signal);
   },
 });
 
-async function sourceOperation(context: RuntimeContext, kind: "info" | "page" | 'search' | 'text' | 'window', request: object, signal: AbortSignal) {
+async function sourceOperation(context: RuntimeContext, kind: "info" | "page" | 'search' | 'text' | 'lines' | 'window', request: object, signal: AbortSignal) {
   const output = await runHostProcess([context.nodeExecutable, context.entrypoints.sourceWorker, kind, JSON.stringify(request)], {
     cwd: context.resourceRoot, env: {...context.env}, signal, outputLimit: 32 * 1024 * 1024,
   });
