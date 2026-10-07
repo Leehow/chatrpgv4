@@ -9,7 +9,7 @@ import { sceneLabel } from '../read/capsule.js';
 import { tableWord } from '../read/person-words.js';
 import { bookNames, namePieces, occurs, nameWords, toldTurn } from './naming.js';
 import { prepareNameHistory } from './name-history.js';
-import { bookCast, type CastPerson } from '../read/cast.js';
+import { bookCast, knownNamePieces, type CastPerson } from '../read/cast.js';
 import { array, row, clone, string, number, integer, truth, repr, sorted, length, normalize, type Row } from '../read/values.js';
 import { FAILURE_REASONS, committedRecords, logs, proseOf, writeLines } from '../memory/jobs.js';
 import { isStakesRoll } from '../npc/stakes-receipt.js';
@@ -297,7 +297,7 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
     const otherUntold = (id: string): string[] => {
         if (!graph) return [];
         const cast = bookCast(graph), untold = (person: CastPerson) => person.node ? !isNamed(string(person.node.node_id)) : true;
-        const known = new Set(namePieces(cast.filter(person => !untold(person)).flatMap(person => person.names)).map(normalize));
+        const known = knownNamePieces(graph, cast.filter(person => !untold(person)));
         return namePieces(cast.filter(person => untold(person) && (person.node ? string(person.node.node_id) !== id : true)).flatMap(person => person.names))
             .map(normalize).filter(piece => !!piece && !known.has(piece));
     };

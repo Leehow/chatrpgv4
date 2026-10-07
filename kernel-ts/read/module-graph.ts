@@ -292,6 +292,11 @@ export class ModuleGraph {
     assetOverride?: (name: string) => Promise<Row | null>;
     /** Contract §177.2: the cast reader's `cast.json` for this book, when the module has one (`loadModule`); read by `bookCast`. */
     castStore?: Row | null;
+    /**
+     * Contract §185.13: every name the investigators at this table are registered under (each sheet's name and id), installed
+     * by the campaign loader (`loadCampaignModule`); read by `knownNamePieces`. Empty for a graph no campaign serves.
+     */
+    investigatorNames: readonly string[] = [];
     readonly nodes = new Map<string, Row>();
     readonly byKind = new Map<string, Row[]>();
     readonly out = new Map<string, Row[]>();

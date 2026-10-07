@@ -206,7 +206,14 @@ export async function loadCampaignModule(context: KernelContext, id: string, wor
     const loaded = withTableCreatures(withTablePeople(withTableEntities(module, world), world), world);
     // §185.3: a legacy campaign's references are read once more with the request's rename undone, after a miss.
     if (campaign !== undefined) await installRenameUndo(context, campaign, loaded.graph, world);
+    // §185.13: the investigators at this table are people the investigator knows; no name they go by is an untold name.
+    if (campaign !== undefined) loaded.graph.investigatorNames = await investigatorNames(context, campaign);
     return loaded;
+}
+/** §185.13: every name the investigators at this table are registered under: each party sheet's name and id, as `actor` reads them. */
+async function investigatorNames(context: KernelContext, campaign: string): Promise<string[]> {
+    const sheets = await new CampaignSnapshot(context, campaign).files("party");
+    return [...new Set(sheets.flatMap(sheet => [sheet.name, sheet.id]).filter((value): value is string => typeof value === "string" && value.trim() !== "").map(value => value.trim()))];
 }
 /**
  * `handles` is the campaign's §185.4 map: null for a legacy campaign; left out, a campaign's own is read from its saved files

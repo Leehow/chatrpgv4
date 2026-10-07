@@ -149,6 +149,17 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
     return people;
 }
 
+/**
+ * §177.4 and §185.13: the normalized names and punctuation pieces that stay as written wherever untold names are hidden or
+ * refused -- every name of the cast people the investigator knows (`known`, the told ones), and every name the
+ * investigators at this table are registered under (`graph.investigatorNames`). A name someone known also goes by stays
+ * theirs: hiding it would hide them. The one place the request's rename (`untoldRoster`), the delivery gate
+ * (`untoldWholeNames`), the word refusals (`untoldPieces`) and the journal's label check read it from.
+ */
+export function knownNamePieces(graph: ModuleGraph, known: readonly CastPerson[]): Set<string> {
+    return new Set(namePieces([...known.flatMap(person => person.names), ...graph.investigatorNames]).map(normalize).filter(Boolean));
+}
+
 /** The people of the cast the graph does not have yet (§177.1): named by the book, not yet reached by the reader. */
 export const unreadCast = (graph: ModuleGraph): CastPerson[] => bookCast(graph).filter(person => !person.node);
 

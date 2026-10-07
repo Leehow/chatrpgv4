@@ -35944,6 +35944,34 @@ The egress list, producer by producer (file:line after the change):
   - the pending receipts;
   - `shownIds`'s legacy guard (the legacy pin).
 
+#### NFH-07 (2026-10-06, `claude/name-free-handles-20261006-pcname`; an investigator's own name, 185.13)
+
+- **Where investigator names live.** The party sheets (`party/*.json`), each read for its `name` and `id`, the two names
+  `actor` (`kernel-ts/read/handlers.ts`) matches when it answers `no investigator ... at the table`. `loadCampaignModule`
+  installs them on the campaign's graph (`ModuleGraph.investigatorNames`, read with `CampaignSnapshot.files("party")`), as
+  `loadModule` installs the cast (`castStore`); a graph no campaign serves has none.
+- **The one place.** `knownNamePieces(graph, known)` (`kernel-ts/read/cast.ts`): the normalized names and `namePieces` of the
+  told cast people and of the investigators. Four consumers built that set on their own, the same way, and now all read it:
+  - `untoldRoster` (`read/capsule.ts`): the request's rename (§103.5, via `table.untold`), §177.15's judged places on the
+    host, and §177.11's second-delivery replacements;
+  - `untoldWholeNames` (`read/person-words.ts`): the delivery gate (§177.11) and `table.untold_spans` (§177.15);
+  - `untoldPieces` (`read/person-words.ts`): the `untold_name` refusals of `apply person`, `epithets.submit` and the epithet
+    withdrawal (§177.5);
+  - the journal lane's label check of another untold person's name (`journal/jobs.ts`, §177.4).
+  The host builds no list of its own: the rename, its Jev judge and the spans hook all read the kernel's rows.
+- **Not changed:** a person's own names in the journal's `carriesBookName` (they are that person's, whoever else carries a
+  piece), §177.3's newcomer refusal (a newcomer may still not carry a book name), and the handle lane's `avoid` (§185.5).
+- Tests: `tests/extension/investigator-name-known.test.mjs`, the seam of `untold-name-path.test.mjs` (kernel in process,
+  context hooks as installed). A reader-built book (name-free) with the untold store owner 「丹尼尔·马瑟」, whose cast prints
+  「丹尼尔」 alone, and an investigator registered as 「丹尼尔·怀特」: the roster has no row for 「丹尼尔」, 「怀特」 or the full
+  name; the Keeper's assembled request keeps 「丹尼尔·怀特」 and renames 「丹尼尔·马瑟」; a delivery naming the investigator goes
+  out while one saying the store owner's name is held `untold_name`; `table.untold_spans` finds only the store owner's name.
+  A starter (legacy, voice-bench) with the investigator registered as 「玛丽·怀特」 beside the untold 「玛丽·斯通」: no 「玛丽」 row,
+  「斯通」 still renamed, the request keeps the investigator's name and renames 「玛丽·斯通」. Mutations, each reverted by copy,
+  each red: no investigator names in `knownNamePieces` (both cases), the loader not installing them (both), the gate's own
+  `known` without them (the investigator's delivery held: `▢▢▢·怀特推开杂货店的门。`), the roster's own `known` without them
+  (both).
+
 ### 185.12 The reading boundary speaks the book's identifiers (amends §22.4 and §22.6; lead ruling 2026-10-06 on NFH-02's second gap)
 
 The reading layer (`kernel-ts/modules/reading.ts`) matches a focus against the book's node ids, slugs, names and aliases,
@@ -35965,3 +35993,24 @@ those and differ between campaigns: before this section the opening of every rea
   before the translation; the translated params are what the reading layer reads.
 - **Campaign readers of the library's metadata** match the book handle as well as the campaign's handle (the late map's
   settlement, §107.1).
+
+### 185.13 An investigator's own name is never an untold name (amends §177.4; lead ruling 2026-10-06, NFH-07)
+
+**Evidence.** The acceptance table of §185 (campaign `nfh-accept-blood-road-1`, Blood Road, name-free): the investigator is
+「丹尼尔·怀特」, and the book's untold store owner is 「丹尼尔·马瑟」. The roster had a row for the piece the two share,
+`{"name": "丹尼尔", "id": "red-haired-store-owner-smoker", "shown": "抓胡茬的红发杂货店主 / 站在基地里的住民 / 红发棕眼的来客"}`,
+and the request's rename turned the investigator's own name into 「抓胡茬的红发杂货店主 / 站在基地里的住民 / 红发棕眼的来客·怀特」 in the
+Keeper's request. The Keeper copied it into `cash.subject`, `object.to` and `item.to`: 9 of 11 refusals at the table were
+`unknown_entity: no investigator '…·怀特'`, every payment and hand-over failed, and two turns delivered nothing. §177.15's
+judge kept the places as the name, because 「丹尼尔」 is that name; it does not ask whose. The defect predates §185: a reference
+the Keeper copies (the investigator's registered name) rewritten on the way out, the same class as §185's.
+
+**The rule.** §177.4's "a name someone the investigator already knows also goes by stays theirs" counts the investigators
+themselves: every investigator at the table is a known person. Each name they are registered under (a party sheet's `name`
+and `id`) and the pieces `namePieces` gives join the known names, in one place (`knownNamePieces`) that every reader of
+untold names takes them from: the roster and so the request's rename, the delivery gate and `table.untold_spans`, the word
+refusals, and the journal's label check. No untold row, gate place or refusal is made for a piece an investigator carries.
+
+**The trade.** An untold person's name piece equal to an investigator's piece is no longer hidden: 「丹尼尔」 alone reaches the
+Keeper as written, and a delivery may say it. It is the trade §177.4 already makes for a piece a told person carries. The
+untold person's own full name and their other pieces are still renamed and gated.

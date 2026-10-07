@@ -8,7 +8,7 @@ import { incapacitatedBy } from "../healing/conditions.js";
 import { namePieces, toldTurn } from "../journal/naming.js";
 import { prepareNameHistory } from '../journal/name-history.js';
 import { tableWord } from "./person-words.js";
-import { bookCast, untoldUnread } from "./cast.js";
+import { bookCast, knownNamePieces, untoldUnread } from "./cast.js";
 import { nameToken } from "../write/names.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
 import {personalityView} from '../npc/material.js';
@@ -195,8 +195,9 @@ export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, recor
     // graph; a page carried for a scene could name someone else, and that name reached the Keeper as printed.
     const unread = new Set(untoldUnread(graph, history).map(person => person.id));
     const people = bookCast(graph).map(person => ({ person, untold: person.node ? untoldBlock(graph, world, journal, person.node, history) : unread.has(person.id) ? {} : null }));
-    // A name someone the investigator already knows also goes by stays theirs: hiding it would hide them.
-    const known = new Set(namePieces(people.filter(entry => !entry.untold).flatMap(entry => entry.person.names)).map(normalize));
+    // A name someone the investigator already knows also goes by stays theirs: hiding it would hide them. The investigators
+    // themselves are known (§185.13): table 30's investigator shared a first name with the untold store owner.
+    const known = knownNamePieces(graph, people.filter(entry => !entry.untold).map(entry => entry.person));
     // §176.5: the pieces a name separates with punctuation are renamed too. Table 23 (turn 5): the book's own scene summary
     // said the three men under the awning were "Lars, Nate and Steve" by first name; the whole names and the aliases were
     // renamed, the bare first names were not, and the Keeper wrote one of them.
