@@ -9,8 +9,9 @@
  *
  * The cast is the graph's people (never a table person), each with every name the book gives them, plus, for a PDF book,
  * the rows the cast reader wrote (`cast.json`, §177.2), each with the names the book prints and their play-language
- * renderings. A stored row joins the graph person who carries one of its names exactly; a row nobody carries is a person
- * the book names whom the reader has not reached. Nothing here reads what a name means: rows join on equal strings.
+ * renderings. A stored row joins the graph person who shares a whole name with it; a row nobody answers is a person the
+ * book names whom the reader has not reached. Graph nodes one row identifies as its individual are one person (§188.2).
+ * Nothing here reads what a name means: rows join on equal strings.
  *
  * Creature nodes are not in the cast: a creature node is as often a kind (a deep one) as someone, and a newcomer who is
  * "a deep one" is the book's body already (§136.12).
@@ -47,7 +48,14 @@ export interface CastPerson {
     names: string[];
     /** Physical pages, 1-based. */
     pages: number[];
+    /** The graph node they are (the first of `nodes`), or null for someone the reader has not reached. */
     node: Row | null;
+    /**
+     * §188.2: every graph node that is this one individual, `node` first; empty for someone unread. A later page reading can
+     * add a second node for someone the graph already has (Blood Road's store owner, generation 55); the cast row both
+     * answer makes them one person.
+     */
+    nodes: Row[];
     /** The stored rows this person absorbed. */
     castIds: string[];
     /** The forms those rows print and render (§177.11): the cast reader lists names of individuals, never a group's description. */
@@ -107,46 +115,130 @@ const memo = new WeakMap<ModuleGraph, CastPerson[]>();
 const pagesOf = (graph: ModuleGraph, node: Row): number[] => [...new Set(array(node.source_refs)
     .filter(ref => ref?.source_id === `pdf:${graph.moduleId}` && integer(ref.pdf_index)).map(ref => number(ref.pdf_index) + 1))].sort((a, b) => a - b);
 
-/** The book's cast for this loaded graph (§177.1). */
-export function bookCast(graph: ModuleGraph): CastPerson[] {
-    const cached = memo.get(graph);
-    if (cached) return cached;
-    const people: CastPerson[] = graph.kind('npc').filter(node => !graph.isTablePerson(node))
-        .map(node => ({ id: graph.handle(node), names: bookNames(graph, node), pages: pagesOf(graph, node), node, castIds: [] as string[], printed: [] as string[] }));
+/** A stored cast row as `bookCast` reads it. */
+interface StoredRow {
+    id: string;
+    /** The forms the book prints and the play language writes (§177.11's `printed`). */
+    shown: string[];
+    /** `shown` plus the notes renderings (§177.14). */
+    names: string[];
+    pages: number[];
+    /** `shown`, normalized. */
+    forms: Set<string>;
+    /** The longest form the book prints, normalized ('' for none). */
+    fullest: string;
+    first?: { page: number; sentence: string };
+}
+
+function storedRows(graph: ModuleGraph): StoredRow[] {
     // A partial cast (some ranges read, §177.2) is as true as a complete one, only shorter.
     const stored = graph.castStore && ['complete', 'partial'].includes(string(graph.castStore.state)) ? array(graph.castStore.people) : [];
-    // A row joins a graph person by a whole identity, never by a shared short form: the person's own name is one of the row's
-    // forms, or the row's fullest form is one of the person's names. Table 24: the reader gave the bar owner and the doctor
-    // one bare first name, which the bar owner's node also carries as an alias; the doctor's row must not join him by it.
-    const fullName = (node: Row) => [node.name, graph.displayName(node)].filter((value): value is string => typeof value === 'string' && !!value.trim()).map(normalize);
-    for (const raw of stored) {
+    return stored.flatMap(raw => {
         const entry = row(raw), id = text(entry.id);
         // §177.14: the notes renderings are names to hide and to refuse, never forms a delivery is checked for (`printed`).
         const shown = [...new Set([...array(entry.book), ...array(entry.play)].map(text).filter(Boolean))];
         const names = [...new Set([...shown, ...notesNames(array(entry.book).map(text), array(entry.notes).map(text))])];
-        if (!id || !names.length) continue;
-        const pages = array(entry.pages).filter(page => Number.isSafeInteger(page) && page >= 1);
-        const forms = new Set(shown.map(normalize));
-        const fullest = [...array(entry.book).map(text).filter(Boolean)].sort((a, b) => [...b].length - [...a].length)[0];
-        const hits = new Set(people.flatMap((person, index) => person.node && (fullName(person.node).some(name => forms.has(name))
-            || (fullest && person.names.some(name => normalize(name) === normalize(fullest)))) ? [index] : []));
-        if (hits.size === 1) {
-            const person = people[[...hits][0]!]!;
-            for (const name of names) if (!person.names.some(other => normalize(other) === normalize(name))) person.names.push(name);
-            for (const name of shown) if (!person.printed.some(other => normalize(other) === normalize(name))) person.printed.push(name);
-            person.pages = [...new Set([...person.pages, ...pages])].sort((a, b) => a - b);
-            person.castIds.push(id);
-            continue;
-        }
-        // A row no graph person answers by a whole identity (or two do) is someone else, with every name the row gives them:
-        // a first name they share with a graph person is shared, and the roster shows it as both their words (§177.4).
-        const own = names;
+        if (!id || !names.length) return [];
+        const fullest = [...array(entry.book).map(text).filter(Boolean)].sort((a, b) => [...b].length - [...a].length)[0] ?? '';
         const first = isJsonObject(entry.first) && Number.isSafeInteger(entry.first.page) && typeof entry.first.sentence === 'string'
             ? { page: Number(entry.first.page), sentence: entry.first.sentence } : undefined;
-        people.push({ id, names: own, pages, node: null, castIds: [id], printed: shown, ...(first ? { first } : {}) });
+        return [{ id, shown, names, pages: array(entry.pages).filter(page => Number.isSafeInteger(page) && page >= 1),
+            forms: new Set(shown.map(normalize)), fullest: normalize(fullest), ...(first ? { first } : {}) }];
+    });
+}
+
+const addNames = (into: string[], names: readonly string[]) => {
+    for (const name of names) if (!into.some(other => normalize(other) === normalize(name))) into.push(name);
+};
+
+/** The book's cast for this loaded graph (§177.1, §188.2). */
+export function bookCast(graph: ModuleGraph): CastPerson[] {
+    const cached = memo.get(graph);
+    if (cached) return cached;
+    const people: CastPerson[] = graph.kind('npc').filter(node => !graph.isTablePerson(node))
+        .map(node => ({ id: graph.handle(node), names: bookNames(graph, node), pages: pagesOf(graph, node), node, nodes: [node], castIds: [] as string[], printed: [] as string[] }));
+    const rows = storedRows(graph);
+    // A row and a graph person share a whole identity, never only a short form: the person's own name is one of the row's forms
+    // (`own`), or the row's fullest form is one of the person's names (`fullest`). Table 24: the reader gave the bar owner and
+    // the doctor one bare first name, which the bar owner's node also carries as an alias; the doctor's row must not join him
+    // by it. Read from the graph's own names and the row alone, so no row's join depends on the rows read before it.
+    const ownNames = people.map(person => new Set([person.node!.name, graph.displayName(person.node!)]
+        .filter((value): value is string => typeof value === 'string' && !!value.trim()).map(normalize)));
+    const keys = people.map(person => new Set(person.names.map(normalize)));
+    const links = rows.map(stored => people.flatMap((_, index) => {
+        const own = [...ownNames[index]!].some(name => stored.forms.has(name));
+        const fullest = !!stored.fullest && keys[index]!.has(stored.fullest);
+        if (!own && !fullest) return [];
+        // The longest whole name the two share, in characters: what a graph person linked to several rows is decided by.
+        const length = Math.max(0, ...[...keys[index]!].filter(name => stored.forms.has(name)).map(name => [...name].length));
+        return [{ index, both: own && fullest, length }];
+    }));
+    // §188.2 (Blood Road, 2026-10-06): a later page reading added a second node for the store owner, with his name, and the
+    // row both answered became a third person under §177.1's "two answer" rule; one man owned his name three times. A graph
+    // person identified with a row both ways (the row prints their own name, and they carry the row's fullest form) is that
+    // row's individual; several such people are the graph holding one individual more than once, and the row makes them one
+    // person. A person identified so with several rows goes to the one they share the longest whole name with; a tie
+    // leaves them their own person.
+    const rowOf = new Map<number, number>();
+    people.forEach((_, index) => {
+        const both = links.flatMap((found, at) => found.filter(link => link.index === index && link.both).map(link => ({ at, length: link.length })));
+        const best = Math.max(0, ...both.map(link => link.length)), top = both.filter(link => link.length === best);
+        if (top.length === 1) rowOf.set(index, top[0]!.at);
+    });
+    const into = people.map((_, index) => index), joins = new Map<number, number>();
+    rows.forEach((_, at) => {
+        const members = people.flatMap((_, index) => rowOf.get(index) === at ? [index] : []);
+        if (!members.length) return;
+        for (const index of members.slice(1)) into[index] = members[0]!;
+        joins.set(at, members[0]!);
+    });
+    // Any other row joins the one person (folds counted) who answers it by a whole identity. A row nobody answers, or that
+    // two different people answer, is someone else, with every name the row gives them: a first name they share with a
+    // graph person is shared, and the roster shows it as both their words (§177.4).
+    rows.forEach((_, at) => {
+        const owners = new Set(links[at]!.map(link => into[link.index]!));
+        if (!joins.has(at) && owners.size === 1) joins.set(at, [...owners][0]!);
+    });
+    people.forEach((person, index) => {
+        if (into[index] === index) return;
+        const target = people[into[index]!]!;
+        addNames(target.names, person.names);
+        target.pages = [...new Set([...target.pages, ...person.pages])].sort((a, b) => a - b);
+        target.nodes.push(person.node!);
+    });
+    const unread: CastPerson[] = [];
+    rows.forEach((stored, at) => {
+        const target = joins.get(at);
+        if (target === undefined) {
+            unread.push({ id: stored.id, names: stored.names, pages: stored.pages, node: null, nodes: [], castIds: [stored.id], printed: stored.shown,
+                ...(stored.first ? { first: stored.first } : {}) });
+            return;
+        }
+        // A row that joins a graph person is that person: no entry of its own, and its words never a second owner of their names.
+        const person = people[target]!;
+        addNames(person.names, stored.names);
+        addNames(person.printed, stored.shown);
+        person.pages = [...new Set([...person.pages, ...stored.pages])].sort((a, b) => a - b);
+        person.castIds.push(stored.id);
+    });
+    const cast = [...people.filter((_, index) => into[index] === index), ...unread];
+    memo.set(graph, cast);
+    return cast;
+}
+
+const groups = new WeakMap<ModuleGraph, Map<string, Row[]>>();
+/**
+ * §188.2: the graph nodes the cast holds as the same individual as `node`, `node` among them; just `node` when the cast has
+ * no other (a creature, a table person, a graph without a cast row for them). Told about one, the investigator is told about
+ * all of them (`isTold`).
+ */
+export function castNodes(graph: ModuleGraph, node: Row): Row[] {
+    let found = groups.get(graph);
+    if (!found) {
+        found = new Map(bookCast(graph).flatMap(person => person.nodes.map(each => [string(each.node_id), person.nodes] as [string, Row[]])));
+        groups.set(graph, found);
     }
-    memo.set(graph, people);
-    return people;
+    return found.get(string(node.node_id)) ?? [node];
 }
 
 /**
@@ -198,7 +290,9 @@ export function castPersonNamed(graph: ModuleGraph, world: Row, word: string): C
 export function newcomerRefusal(graph: ModuleGraph, world: Row, name: string): { message: string; fix: string } | null {
     const said = normalize(name);
     if (!said) return null;
-    const epithets = (person: CastPerson) => [text(row(row(world.person_epithets)[person.id]).word), ...person.castIds.map(id => text(row(row(world.person_epithets)[id]).word))];
+    // §188.2: a person the graph holds more than once has a word under each node's handle.
+    const epithets = (person: CastPerson) => [person.id, ...person.nodes.map(node => graph.handle(node)), ...person.castIds]
+        .map(id => text(row(row(world.person_epithets)[id]).word));
     for (const person of bookCast(graph)) {
         // A piece the name writes with a period after it is written as an abbreviation (the "Mr" of "Mr. Dooley", the "Dr" of
         // "Dr. Brenner"), not as a name: read from the punctuation alone, as `namePieces` reads its pieces.

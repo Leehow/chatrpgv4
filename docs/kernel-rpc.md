@@ -36193,3 +36193,81 @@ All tests go through the kernel in process plus the installed context runtime: `
 ### 188.7 Kernel decisions
 
 (Recorded by the implementing slices.)
+
+#### NR-02
+
+**The cause (data, 2026-10-07).** Not a script or language mismatch and not a served-cast version: `cast.json` is version 5,
+complete, of the bound file, and the row prints the graph person's own name in the same script.
+- The graph held the store owner twice. `npc-book-4-daniel-mather` (「丹尼尔·马瑟」, aliases 「丹」, 「丹·马瑟」, handle
+  `red-haired-store-owner-smoker`) came from the first reading. Generation 55 of the campaign's fork (02:05:43Z, a page
+  reading of pages 25–26) added `npc-daniel-mather` (「丹尼尔·马瑟」, alias 「丹·马瑟」, same page, same biography), under
+  another id; its handle is `rough-red-haired-smoking-shopkeeper`.
+- Row `cast-78239617e2` (book 「丹尼尔·马瑟」, 「丹·马瑟」) was then answered by both nodes, and §177.1's "a row two answer
+  is unread" made it a third person. The epithet lane worded it at 02:06:29 (「红发棕眼的来客」) and the copy at the same
+  time (「站在基地里的住民」).
+- Replayed read-only on a clone of the acceptance home: `table.untold` at generation 54 shows every Mather form, including
+  "Daniel Mather", by 「抓胡茬的红发杂货店主」 alone. At generation 60 it shows the three words joined.
+- 「站在基地里的住民」 is the second graph copy, not another man.
+- The same shape on book-4 at generation 60: 7 rows answered by two or more graph people. The duplicated people are
+  Alissya, Brenner (three nodes), Scott, Sutton (the book prints him as Peter and as Matthew), Mather and Pete Smith.
+  Before the fix, `table.untold` had 70 joined-word rows; after it, 43. The rest are different people who share a name.
+
+**The join** (`bookCast`, `kernel-ts/read/cast.ts`).
+- A link between a row and a graph person keeps §177.1's two clauses: the person's own name or display name is one of
+  the row's forms, or the row's fullest form is one of the person's names. §188.2's shorter wording ("one of the row's
+  forms equals one of the person's names") is not taken literally: it would join table 24's shared short forms again.
+- Links are read from the graph's own names and the row alone, so no row's join depends on the rows read before it.
+  Before, a later row could join through names an earlier row had added.
+- **Both ways.** A graph person linked by both clauses is that row's individual. Several such people are the graph holding
+  one individual more than once; the row makes them one cast person. `node` is the first in graph order, and
+  `CastPerson.nodes` holds them all.
+  - Both clauses, not either: the hardware owner's row prints 「皮特」, which is also the trailer squatter's nodes' own name.
+    Only the squatter's own row carries his fullest form, 「彼得·M·史密斯」.
+- **The longest shared name.** A person linked both ways to several rows goes to the row they share the longest whole name
+  with, in characters. A tie leaves them their own person. Example: a row printing 「皮特」 alone loses the squatter to his
+  own row.
+- **Any other row** joins the one cast person (folds counted) that answers it. A row that nobody answers, or that two
+  different people answer, stays unread with all its names, as before.
+- A joined row owns no roster entry, and its words never own a name.
+
+**What reads the person.**
+- `castNodes(graph, node)` gives the nodes the cast holds as one individual.
+- `isTold` (person-words.ts) and `untoldBlock` (capsule.ts) count a node as told when any of those nodes is told (journal
+  `named_at` or a delivery).
+- `untoldRoster` shows the person by the first of their nodes that has a word. A legacy campaign renames every node's
+  id and handle.
+- `newcomerRefusal` counts every node's word.
+- The journal's book-name check finds the person by any of their nodes.
+
+**Not changed, open.**
+- The producer: the page reading merge writes a second node for someone the graph already has. On book-4 generation 55
+  that was the store owner, the squatter, the sand rats and the general store.
+- `ModuleGraph.resolve("丹尼尔·马瑟")` is still ambiguous between the two copies. That is §188.3/§188.4's side.
+- Presence and capsules still show each copy by its own word.
+- Brenner's `npc-book-4-dr-brenner` (「布伦纳医生」) does not carry the row's fullest form, so 「布伦纳医生」 still shows two words.
+- A label the fiction established on a later copy is not preferred over the first copy's epithet.
+
+Tests, in `tests/extension/module-cast.test.mjs`:
+- On the real kernel, a reading in the campaign's fork writes Old Mae again under another id. Her row is not offered to
+  the epithet lane, and `table.untold` shows her forms by one word owned by one of her nodes.
+- On Blood Road's real rows and nodes (Mather, the squatter and the hardware owner):
+  - one person each, with every Mather form shown by one word;
+  - 「皮特」 still shows two words;
+  - the legacy slugs of the second copy are renamed;
+  - the copy's word refuses a newcomer;
+  - told through the second copy, the man is told;
+  - with no word on the first copy, the second copy's word is shown.
+- Both ways and the longest name: a partial cast without the squatter's row, and a later row printing 「皮特」 alone.
+- On the real kernel, the journal lane's label check on the second copy uses the names her row gives her.
+
+Mutations, each turning at least one case red (reverted by copy):
+- the four files back to base;
+- no fold;
+- `isTold` per node;
+- `untoldBlock` per node;
+- the roster's word from the first node only;
+- slugs of the first node only;
+- newcomer words without the copies;
+- fold on either clause;
+- no longest-name choice;
+- the journal by the first node only.

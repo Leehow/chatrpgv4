@@ -20,7 +20,7 @@ import { isJsonObject } from '../json.js';
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
 import { namePieces, occurs, toldTurn } from '../journal/naming.js';
 import { prepareNameHistory } from '../journal/name-history.js';
-import { bookCast, knownNamePieces, untoldUnread, type CastPerson } from './cast.js';
+import { bookCast, castNodes, knownNamePieces, untoldUnread, type CastPerson } from './cast.js';
 import type { CampaignWriter } from '../write/store.js';
 import { nowIso } from '../write/store.js';
 
@@ -45,8 +45,9 @@ export function tableWord(world: Row, handle: string): string {
  * showed it. The same test `untoldBlock` makes.
  */
 export function isTold(graph: ModuleGraph, journal: Row, node: Row, records: Iterable<Row> = []): boolean {
-    const entry = row(row(journal.entries)[string(node.node_id)]);
-    return !!integer(entry.named_at) || toldTurn(graph, node, records) !== null;
+    const history = prepareNameHistory(records);
+    // §188.2: the nodes the cast holds as one individual are told together; told one of his names, the investigator knows him.
+    return castNodes(graph, node).some(each => !!integer(row(row(journal.entries)[string(each.node_id)]).named_at) || toldTurn(graph, each, history) !== null);
 }
 
 /** The book people a word may be given to: npc nodes the book has (never a table person), untold. */
