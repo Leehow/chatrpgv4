@@ -3450,7 +3450,7 @@ repeating successful reading after Pi has already recovered a provider failure.
 
 The host-private PDF tool has four mutually exclusive navigation/page operations (native-text search added by the approved `pdf-source-fast-path` plan, 2026-09-18):
 
-- `search {query, first_page?, last_page?, limit?, cursor?}`: a bounded, cancellable literal search of the original PDF's native text through the existing host PDF.js document owner. Return physical pages, available page labels, bounded original snippets, actual searched scope, continuation/truncation and text availability. Unicode/case/whitespace normalization is retrieval, not a language or intent classifier. A zero-match result is not absence of source facts or absence of a text layer. Empty/unusable text leaves the existing visual route available; no OCR fallback or text-bundle ingestion is restored. Search results are explicitly navigation-only, like overview sheets: they never create page observations or satisfy source/review evidence. Reopen original pages before relying on their contents. In-memory page-text reuse follows document identity and lifetime; search adds no persistent full-book prerequisite, new dependency or wider file access.
+- `search {query, first_page?, last_page?, limit?, cursor?}`: a bounded, cancellable literal search of the original PDF's native text through the existing host PDF.js document owner. Return physical pages, available page labels, bounded original snippets, actual searched scope, continuation/truncation and text availability. Unicode/case/whitespace normalization is retrieval, not a language or intent classifier. A zero-match result is not absence of source facts or absence of a text layer. Empty/unusable text leaves the existing visual route available; no OCR fallback or text-bundle ingestion is restored. Search results are explicitly navigation-only, like overview sheets: they never create page observations or satisfy source/review evidence. Reopen original pages before relying on their contents. In-memory page-text reuse follows document identity and lifetime; search adds no persistent full-book prerequisite, new dependency or wider file access. *Amended 2026-10-07 by §191.7: on a page that has a stored page transcript the search reads the transcript's exact layer and its labelled image text; transcripts are persistent per file digest but never a prerequisite -- a page without one is searched in its native text.*
 
 - `info`：返回真实页数、已有书签与页面标签。没有书签返回空数组，不由程序猜章节。
 - `page <page> [--box x0,y0,x1,y1]`：按需渲染并返回图片路径、物理页号、裁剪范围和实际尺寸；读者再用 Pi `read` 看图。`page` 是从 1 起的物理页序，印刷页码只是标签。`box` 是应用 PDF 旋转后的可视整页上、左为原点的归一化矩形；满足 `0 <= x0 < x1 <= 1` 与 `0 <= y0 < y1 <= 1`。内核持久化 `pdf_index = page - 1`，只在边界转换一次。
@@ -37035,3 +37035,139 @@ nothing reads prose with patterns.
 Counted (TP-02): one `told-position` row per delivery (`outcome`: `owed`, `dropped`, `shadow`, `stay`, or `skipped`), the
 owed rows with `source: "told-position"` in `owed.json` and on the record, and the clerk's `apply:owed:*` bind rows and
 receipts that land them. The lane's own read is `table.owe.options`; TP-04 reads the shadow rows before `on`.
+
+## 191. Page transcripts: the book's text in the order a reader reads it (owner 2026-10-07: 「可以，说明这个方案可行啊，这个不需要指定模型，就用玩家用的模型就行，那你写spec来实现吧，记得图谱解析那边的接线，还有我们内置模组的处理」, 「解析后的文本跟着pdf哈希保存，以后玩家再次玩或者上传相同的pdf不用重复解析」; `docs/specs/page-transcript.md`; amends §22.1's `search`, §22.4.7's landing text, §177.2's cast pages, §182.3's window and the prescreen consultation units of §147.3)
+
+**Evidence.** PDF.js native text is exact but in drawing order and empty where the page is pixels; a tools Pi agent given
+the page image and the numbered PDF.js lines, writing only placeholders, ordered 58 sampled pages of 17 books with every
+line placed on 41/42 (luna) and 42/42 (grok-4.5) text pages; MinerU misordered pages the agent got right. The format is
+the agent's; the words are the host's. The 2026-09-08 retirement of the OCR/Markdown bundle path stands: a transcript is
+a navigation and reading layer beside the native text, never the source of truth, never evidence, never a prerequisite.
+
+### 191.1 Lines
+
+Host operation `sourceLines {pdf, pages: [1..32 unique physical pages], expected_file_sha256?}` returns
+`{file_sha256, extraction_version, page_count, pages: [{page, pdf_label: string|null, native_sha256, lines: [string]}],
+errors: [{page, code: "native_extraction_unavailable"}]}`. `lines` is the native text of §22.1 (`sourceText`'s `text`)
+split at `"\n"` with whitespace-only entries removed, each kept byte for byte; `native_sha256` is that text's
+`text_sha256`. Same validation, document owner and worker path as `sourceText`.
+
+### 191.2 The layout child
+
+- **Who.** A reader child (`runTask({kind: "reader"})`, §22, `extensions/module/reader.ts`) with `tools: "read,write,edit"`,
+  no `source` guard beyond its own work directory, system prompt `content/setup/page-transcript.md` (English), the model
+  and thinking of `ReadingService`'s `deps.model()` at the time of the call. A model whose registry entry has no image
+  input transcribes nothing (`outcome: "no_vision"`); the page keeps its native text.
+- **Inputs** in the work directory `<store>/work/p<NNNN>-<attempt>/`: `page.png` from the existing page render
+  (`sourcePage`, full page, the reader's default size) and `lines.txt` (`L<n>: <line>` per line, 1-based; or one line
+  `(this page has no text layer)`). A repair attempt adds `repair.txt` naming the line numbers the previous layout left
+  out.
+- **Output** `layout.md`, the grammar of 191.3. The child is done when it exits; the host reads the file.
+- **Budget** (data, `content/rulesets/coc7/host-budgets.json` `transcript`, read by `runtime/jev/host-budgets.ts` with
+  coded fallbacks): `mode` (`on` | `off`, shipped `on`), `concurrency` (3), `timeout_ms` (240000), `input_tokens`
+  (96000), `output_tokens` (16384), `repair_attempts` (1), `max_window_pages` (120). The child's provider lease is its own
+  (`independentProviderBudget`-shaped, sized by these numbers); it never draws on a reading job's lease.
+- **Slots.** Transcript children take background reader slots (`acquireReaderSlot`, priority `background`); a foreground
+  request (191.6) is served first among transcript work but never preempts a reading job.
+
+### 191.3 Layout grammar and assembly
+
+- **Placeholders.** `{L<n>}` places line *n*; `{L<a>-L<b>}` places lines *a..b* (`a <= b`). Placeholders written next
+  to each other on one Markdown line form one run. **Drop list** `<!-- drop: L3 L4 L7-L9 -->` anywhere (ranges allowed):
+  page furniture. **Image text** between `<!-- image-text -->` and `<!-- /image-text -->`. **Figure notes**: lines whose
+  content begins `[figure]` after any blockquote markers. Everything else is Markdown structure.
+- **Normalization (deterministic, host).** Free text outside image text and figure notes is compared with each line
+  after NFKC with whitespace removed: equal to an unplaced line → that line is placed there; equal to a placed line →
+  removed; otherwise removed and counted (`free_removed`). A line placed twice keeps its first place. A line both placed
+  and dropped is placed. Numbers outside `1..line_count` are ignored and counted.
+- **Repair.** Lines neither placed nor dropped after normalization start one repair child (`repair_attempts`) with
+  `repair.txt`; after the last attempt they are appended in native order in a final block and listed as `unplaced`.
+- **Products.**
+  - `text` -- the exact layer: every native line exactly once, placed lines in layout order (a run's lines separated by
+    `"\n"`, runs and blocks by `"\n\n"`), then `unplaced`, then dropped lines in native order. **Invariant:** the multiset
+    of `text`'s non-empty lines equals the multiset of the native lines; the host refuses to store a page that fails it.
+  - `markdown` -- the reading version: the layout with runs filled (a run's lines joined with no separator when either
+    side of the join is an East Asian Wide or Fullwidth character, else one space), figure notes kept, image text kept
+    inside its markers, dropped lines left out.
+  - `image_text: [string]`, `figures: [string]` -- what the model read off pixels and its notes; never evidence (§22.3),
+    never a reference span, never a claim's support.
+- A page with no lines stores `text: ""` and a `markdown` of figure notes and image text (possibly empty).
+
+### 191.4 The store: by the file's digest, made once
+
+- **Where.** `<home>/.coc/source-transcripts/<file_sha256>/page-<NNNN>.json` (NNNN = 4-digit physical page), written by
+  temp file and rename, never rewritten. Not under a module or fork directory, so every module id, campaign, fork and
+  re-import of the same bytes (§22.1's dedupe, §14.16's starter replay) reads the same pages.
+- **Record** `{schema: "coc.source-transcript.page.v1", transcript_version: "transcript-v1", file_sha256, page,
+  pdf_label, native: {extraction_version, text_sha256, line_count}, text, text_sha256, markdown, image_text, figures,
+  dropped: [int], unplaced: [int], free_removed: int, attempts: int, model, thinking, at}`. A record whose
+  `native.extraction_version` differs from the current §22.1 version is ignored (re-made when wanted).
+- **One producer.** `page-<NNNN>.claim` created exclusively (`O_EXCL`) holds `{pid, at}`; a claim older than
+  `timeout_ms * (repair_attempts + 1) + 60000` is stale and may be taken. A loser waits for nothing: it reads native text.
+- **Failure.** A failed page (child error, invariant refusal, no vision) writes no record; the same process does not
+  retry it within the session; a later process may.
+- **Seeds.** Before the home store, `<content>/source-transcripts/<file_sha256>/page-<NNNN>.json` is read through
+  (read-only, same record schema). Nothing is copied into home.
+
+### 191.5 The window names the transcript pages (amends §182.3)
+
+`module.read.ahead`'s `window` gains `transcript: [[first, last], ...]` (1-based physical pages, inclusive, disjoint, in
+priority order):
+
+- `mode: "whole"` → `[[1, page_count]]`;
+- `mode: "chapters"` → the chapter that holds the anchor; then, in book order, each chapter holding the anchor page
+  (§182.3's median rule) of a **reachable scene** -- the focus scene's exits (`graph.sceneExits`), the scene it is
+  `located-in`, and the scenes `located-in` it; then the next chapter. Chapters already listed are not repeated;
+- `mode: "pages"` → the page window, then the reachable scenes' anchor pages ± 2 pages;
+- the list stops before it would exceed `transcript.max_window_pages` pages (the anchor chapter is always kept whole).
+
+A starter (`playsFromReading` false) has no read-ahead and no `transcript` field. The kernel reads no PDF (§22.1).
+
+### 191.6 The host queue
+
+`TranscriptService` (`extensions/module/`) owns production. `ensure({pdf, file_sha256, pages, priority})` queues pages
+that have no record and no live claim; `priority: "foreground"` puts them first. The reading service calls it with
+`window.transcript` after every read-ahead (background) and with the pages of any read in 191.7 that found no record
+(foreground). Nothing ever awaits a transcript: every reader in 191.7 uses the native text for a page that has none.
+`mode: "off"` makes `ensure` a no-op and every reader native.
+
+### 191.7 Readers
+
+Host operation `sourcePageText {pdf, pages, expected_file_sha256?, layer?: "preferred" | "native"}` returns per page
+`{page, pdf_label, layer: "transcript" | "native", extraction_version, text, markdown?, image_text?}` (`preferred`:
+the transcript when a record exists, else native; the transcript's `extraction_version` is `"transcript-v1"`).
+
+| reader | uses | change |
+| --- | --- | --- |
+| `ReadingService.sourcePages` → Keeper landing text (`landOnIndex`, `landPerson`, §22.4.7) and the cast reader's pages (§177.2) | `markdown` when `layer` is `transcript` | rows gain `layer`; telemetry `scene_text` rows record it |
+| Jev source driver: page-lead decisions, section ranking excerpt, `needPageText`, `source_navigation_only` projection | `markdown` | the navigation cache key adds the set of transcribed pages |
+| §190.1 window places: `firstLines` | `markdown` | `placeExcerpt` (a reference packet) stays native |
+| reader `pdf search` and the prescreen's literal search | transcript `text` + `image_text` for transcribed pages, native otherwise | matches carry `layer` and `image_text: true` when found only in image text |
+| prescreen consultation units (`nativeSourceCatalog`) | transcript `text` (the exact layer) for transcribed pages | one catalog per layer; resource `pdf:<sha>:page:<n>:transcript:transcript-v1`; the checkpoint stores and re-reads the layer |
+
+Unchanged: claim support (§186.6, §151.3) and every evidence check, reference packets and excerpt spans (§148), the
+fresh-skeleton catalog, page images as the only facts the reader may publish, map/handout/illustration discovery.
+
+### 191.8 The built-in book
+
+`scripts/build-source-transcripts.ts --pdf <file> [--pages a-b] --out content/source-transcripts/` runs the same
+producer and assembly offline. The Haunting's shipped window (`content/starters/the-haunting/source.pdf`, 17 pages,
+physical 447-463 of the book, sha `31e36f72…`) has its 17 records committed under
+`content/source-transcripts/31e36f72d0ac9a3654b61a09b1f071d3d82f25d78641e5069bfe343e44c5c7db/`, the same ruling that
+ships the PDF (2026-09-24); no other page of the book is shipped. Packaging copies `content/` as today.
+
+### 191.9 Telemetry
+
+`lane: "transcript"` rows: `event: "page"` with `{file_sha256, page, outcome: "stored" | "repaired" | "unplaced" |
+"failed" | "no_vision" | "refused", attempts, lines, placed, dropped, unplaced, free_removed, image_text_chars, model,
+thinking, ms, usage}`; `event: "reused"` `{file_sha256, pages, source: "home" | "seed"}` once per `ensure` that found
+records; `event: "window"` `{file_sha256, ranges, queued}` when the window's transcript ranges change.
+
+### 191.10 Three ends (§31)
+
+Writer: `TranscriptService` (layout children and assembly) and the offline seed script. Reader: `sourcePageText`,
+the transcript-aware search, the prescreen catalog. Actor: the Keeper, who reads the landing text and consultation units
+in reading order; the reader and Jev, who choose pages from it. Limits: never evidence, never a prerequisite, never
+rewritten; image text is labelled model reading.
+
+**Implementation decisions** (filled in by PT-01..PT-05).
