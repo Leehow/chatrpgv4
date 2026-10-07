@@ -208,7 +208,7 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
  * §103.8: one row for each name the book gives them, aliases too. Table 20 (2026-10-03): the trucker's biography said he
  * fakes helping the owner with the cars, calling him by an alias the graph records, and only the display name was renamed.
  */
-export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, records: Row[]): Row[] {
+export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, records: Iterable<Row>): Row[] {
     const history = prepareNameHistory(records);
     // §177.4: the whole cast -- the graph's people with every name the cast gives them, and the people the book names whom
     // the reader has not reached, untold until a delivery shows one of their names. Table 23's turn 9 had 54 people in the

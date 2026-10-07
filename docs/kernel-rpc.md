@@ -36260,3 +36260,67 @@ its behaviour. The item and object givers are read back from `npc-ledger.json`; 
 test that names it: owed `with`, `subject` and object `to` back to `===`; `apply item from` back to `EntityIndex`; the
 ledger reading `from` only; the reunion ignoring `from_id`; `ownerIn` without `calledPerson`; the transfer receipt without
 `from_id`; the damage subject not read by `readCalledPeople`; `referencedPerson` without the table layer.
+
+#### NR-01 (2026-10-07, `claude/names-rename-20261007-spans`; protected spans, 188.1)
+
+- **The one function.** `protectedNames(graph, world, journal, records)` (`kernel-ts/read/cast.ts`, beside `knownNamePieces`)
+  returns, trimmed and deduplicated, as written (not normalized):
+  - `graph.investigatorNames` (NFH-07: each party sheet's `name` and `id`, the two names `actor` matches);
+  - every name (`CastPerson.names`) of each cast person who is told, by the roster's own test: a graph person by the
+    journal's `named_at` or `toldTurn`, an unread person by `castToldTurn`;
+  - this table's words for people: the names of the people the table established (`isTablePerson`), every
+    `world.person_labels[*].name` (`called.name`, `tableWord`'s first layer), every folded `world.person_epithets[*].word`,
+    and every `npc-journal.json` `entries[*].label`.
+  No piece is added. Epithets the lane wrote but the kernel has not folded yet are not the table's word yet (the request
+  shows the folded one) and are not in the list.
+- **`table.untold`** answers `{people, protected}`; `people` is unchanged. The handler prepares the turn records once
+  (`prepareNameHistory`) for both (`untoldRoster` now takes any `Iterable<Row>`).
+- **Matching.** An occurrence of a protected name is found as a place is: the exact string, a Latin name only where no Latin
+  letter or digit goes on past either end, CJK as a substring; occurrences may overlap each other. On the host it is found in
+  the text as the rename reads it (JSON-escaped), as places are.
+- **The overlap rule, and its one exception (a deviation from 188.1's literal "no place overlapping").** A place is skipped
+  when it overlaps a protected occurrence, unless the place holds that occurrence whole and is longer than it: §177.15's "a
+  name inside a longer name's place goes with that place". Without the exception, a told person's bare first name (a whole
+  name of theirs, table 24's shape: the bar owner and the doctor printed with one first name) would shield an untold person's
+  full name that begins with it, and the request would carry that full name as printed, a leak §185.13 does not have. An
+  equal-length overlap is skipped (the protected name wins). `clearOf` in `kernel-ts/write/names.ts` and in
+  `extensions/kernel/untold-view.ts` state the same rule.
+- **The host.** `untoldRoster(answer)` (`extensions/kernel/untold-view.ts`) reads the answer as `UntoldRoster {people,
+  protected}`; `untoldPeople` still reads the rows alone. `renameUntold` and `renamePlaces` take a roster (bare rows mean
+  nothing protected), and `placesIn` drops every place that is not clear of the protected occurrences in that text before the
+  longest-first pass, so `renameText` never renames it and the §177.15 judge (`createRenameJudge().prepare`, which reads
+  `renamePlaces`) is never asked about it. The context hook (`extensions/table/context-runtime.ts`) keeps the roster it reads
+  with each snapshot (`NO_UNTOLD` before one) and passes it to every rename and every `prepare`; its `prepared` row adds
+  `untold_protected` (the count) beside `untold_rows`.
+- **The gate.** `untoldPlaces` (`kernel-ts/write/index.ts`) reads `protectedNames` once per call and passes it to:
+  - `untoldNamesSaid`: a name counts as said only where one of its occurrences in the Keeper's own words (normalized, as
+    before) is clear of the normalized protected occurrences;
+  - `prosePlaces`: no place where it is not clear, so `table.untold_spans`, the refusal's places and excerpts, the second
+    delivery's replacements and `told_text` all read the same places;
+  - `inProse`: a name said only inside an unresolved `{{name:}}` token, whose prose occurrences are all protected, is still
+    gated as "said where no prose stands".
+  `untoldWholeNames` is unchanged: the protection is per place, not per name. The host's spans hook
+  (`extensions/kernel/untold-spans.ts`) is unchanged: it asks Jev about the spans the kernel returns, which no longer include a
+  protected place.
+- **Both schemes.** Nothing branches on the scheme. A legacy starter has no cast, so its gate holds nothing (§177.11); its
+  rename is covered.
+- **Not changed (open, for the lead): the told check.** `toldTurn` and `castToldTurn` still read a protected occurrence as
+  telling. A graph person is told only by their name or display name, so the acceptance table's store owner is not affected;
+  an unread cast person is told by any of their names. Measured on this branch: an unread row printed 「丹尼尔」 becomes told
+  when a delivery says 「丹尼尔·怀特」, and its names (here the notes word "Daniel" it shares with the graph person) leave the
+  roster. Skipping protected occurrences there needs a rule for the circularity (told people's names are themselves
+  protected), so it is not in this slice.
+- Tests: `tests/extension/protected-name-spans.test.mjs` (kernel in process, context hooks as installed). Name-free: a
+  reader-built book whose store owner 「丹尼尔·马瑟」 carries the graph alias 「丹」 and the printed forms 「丹尼尔」 and 「丹尼」,
+  beside the investigator 「丹尼尔·怀特」: `table.untold` carries `protected` (the investigator's name and sheet id, no untold
+  name or piece); the assembled request keeps 「丹尼尔·怀特」 whole and renames 「丹尼尔·马瑟」, a lone 「丹」 and a lone 「丹尼」; the
+  judge is asked about exactly two places, none inside the investigator's name; `table.untold_spans` returns the store owner's
+  name and the lone nickname only; a delivery naming the investigator in full goes out; one naming the store owner is held;
+  one with the nickname beside the investigator's name is held with one place, and the second delivery replaces only that
+  place; a nickname said only in an unresolved name token is held with no place. Legacy (voice-bench): the investigator
+  「玛丽·斯通纳」 holds the untold 「玛丽·斯通」 whole; the request keeps it and renames the untold name and its piece elsewhere; a
+  person told in prose and every folded epithet are protected. A unit case pins the containment exception on both sides.
+- Mutations, each reverted by copy, each red: the host ignoring `protected` (request, judge, legacy, unit); the gate ignoring
+  it (gate); `table.untold` without `protected` (request, judge, legacy); no investigator names (all four kernel cases); no told
+  cast names (legacy); no epithets (legacy); the containment exception removed on the host, and in the kernel (unit); the
+  judge's places ignoring `protected` (judge); `inProse`, `untoldNamesSaid` and `prosePlaces` each without it (gate).

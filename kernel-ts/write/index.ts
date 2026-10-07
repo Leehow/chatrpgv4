@@ -40,6 +40,7 @@ import { markupInProse, describeMarkup, bareWrapper, unwrap, MARKUP_STEER } from
 import { timeGap, timeReading, timeRefusal, timeWarning } from '../read/time-reading.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
 import { foldPersonWords, untoldWholeNames } from '../read/person-words.js';
+import { protectedNames } from '../read/cast.js';
 import { foldNodeHandles, handleScheme, handlesDirectory, nodeHandleMap, readHandles, rewriteCampaignFiles, rewriteHandles, type HandleMove } from '../read/node-handles.js';
 import { prepareNameHistory } from '../journal/name-history.js';
 import { presenceRolls, type PresenceRolled } from '../mods/presence.js';
@@ -192,10 +193,13 @@ function timeRow(gap: Row, turn: Row, callId: string, params: Row): Row {
  * stranded by a draft the Keeper could not repair (the host resends a refused implicit draft once, like §143.11's gates).
  */
 /** §177.15: the places of `text` where it writes an untold person's printed name, outside its markers. */
-async function untoldPlaces(snapshot: CampaignSnapshot, graph: ModuleGraph, text: string, speakers: SpeakerResolver): Promise<{ said: string[]; places: ProsePlace[] }> {
+async function untoldPlaces(snapshot: CampaignSnapshot, graph: ModuleGraph, text: string, speakers: SpeakerResolver): Promise<{ said: string[]; places: ProsePlace[]; guarded: string[] }> {
     const journal = row(await snapshot.optional('npc-journal.json')), records = prepareNameHistory(await snapshot.turnRecords());
-    const said = untoldNamesSaid(text, speakers, graph, untoldWholeNames(graph, journal, records));
-    return { said, places: said.length ? prosePlaces(text, said) : [] };
+    // §188.1: the places of a name the investigator's side owns are skipped, from the list the request's rename skips
+    // (`table.untold`'s `protected`): a delivery naming the investigator in full is not held for a name inside it.
+    const guarded = protectedNames(graph, snapshot.world, journal, records);
+    const said = untoldNamesSaid(text, speakers, graph, untoldWholeNames(graph, journal, records), guarded);
+    return { said, places: said.length ? prosePlaces(text, said, guarded) : [], guarded };
 }
 /** §177.15: a refusal shows a place by the words around it with the name blanked, so the request's rename has nothing to rewrite. */
 function blankedPlace(text: string, place: ProsePlace, refused: readonly ProsePlace[]): string {
@@ -221,14 +225,14 @@ function clearedPlaces(value: unknown): Set<string> {
 }
 async function untoldNamesGate(snapshot: CampaignSnapshot, campaign: CampaignWriter, turn: Row, graph: ModuleGraph, text: string,
     speakers: SpeakerResolver, callId: string, implicit: boolean, cleared: ReadonlySet<string> = new Set()): Promise<{ text: string; replaced: string[]; told?: string }> {
-    const { said, places } = await untoldPlaces(snapshot, graph, text, speakers);
+    const { said, places, guarded } = await untoldPlaces(snapshot, graph, text, speakers);
     if (!said.length) return { text, replaced: [] };
     // §177.15: a place the host judged to be part of another word is not the name (Dallas, written in Chinese, holds the station
     // owner's printed nickname). A name said only where no place stands (inside an unresolved token) is gated as before.
     const open = places.filter(place => !cleared.has(placeKey(place)));
     // A name said only where no prose stands (inside an unresolved name token) is gated as before; one inside a longer name's
     // place goes with that place.
-    const left = [...new Set([...open.map(place => place.name), ...said.filter(name => !inProse(text, name))])];
+    const left = [...new Set([...open.map(place => place.name), ...said.filter(name => !inProse(text, name, guarded))])];
     // What the told check reads (`told_text`): a cleared place blanked, so Dallas never tells the station owner's name.
     const blank = (place: ProsePlace) => cleared.has(placeKey(place)) ? '\u25a2'.repeat([...place.name].length) : undefined;
     if (!left.length) {
