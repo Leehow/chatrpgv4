@@ -144,3 +144,22 @@ Cost: per page median 13.9 K input / 800 output tokens and 33 s (max 63 s); 0.88
 pages, 3 children at a time. The run surfaced two layout faults fixed in `5a9410f7f`: a line ending in a hyphen joined
 with a space ("sce- nario"), and a heading placeholder that carried the paragraph under it (now forbidden by the
 instructions).
+
+**2026-10-07, TR-C (lead, live table, pre-registered).** Fresh home at `6ebc59957`, 血色公路, Keeper flapcode/gpt-6-luna
+low, the lead playing one sentence a turn: 5 setup turns, 20 play turns (arrival at the station, the car on the lift, the
+owner's fear, the town, a night meeting). The Keeper described the station in the book's reading order with the three
+men under the awning on the arrival turn -- RD-08's Keeper told the player nobody was there -- and the town and the
+Wieland billboard from the next chapter when the player drove on. Bars: window rows written and 25 of the first window's
+27 pages stored before the first landing row (the two missing pages failed); a `person_text` row with `layer: "mixed"`;
+40/40 records pass the independent permutation check; play coherent. **Found:** (1) 7 of 47 page attempts failed
+`no_layout` -- one child wrote its layout to a path it made up; (2) three transcript children at a time drew the provider's
+rate limit onto the Keeper (18 Keeper retries on 429 while they ran) and onto the reading a turn waited for: turn 11 waited
+331 s before the Keeper could start. Fixed in `e49d32246` (§191.6 "The table comes first").
+
+**2026-10-07, TR-C2 (lead, live table, pre-registered after the fix).** Fresh home at `e49d32246`, same book and Keeper,
+14 play turns as a television reporter (station, the trailer park of the next chapter in the book's words, a trail the
+Keeper improvised). Bars: no `no_layout` failure (11 pages: 9 stored, 2 repaired by a fresh child); Keeper 429 retries
+16 (TR-C 18; the account's rate limit binds without transcripts too, and the transcript queue itself cooled down 7
+times); no play turn over 120 s (max 111 s; TR-C 331 s); 11/11 records pass the permutation check. Not observed: no
+landing row fired on this table, so the landing layer was not exercised here. The price is throughput: with one child,
+yielding and cooling down, 11 pages were made in 13 minutes -- the table comes first.
