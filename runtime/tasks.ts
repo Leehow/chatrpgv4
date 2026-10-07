@@ -8,6 +8,7 @@ import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { KernelError } from "../extensions/kernel/client.ts";
 import { runReader, type ReaderRequest } from "../extensions/module/reader.ts";
+import { readerInstructionText } from "./reader-instructions.ts";
 import type { RuntimeCapabilities, RuntimeCheck, RuntimeContext } from "./host.ts";
 import { runHostProcess } from "./process.ts";
 import { parseModelsJson } from "./json-comments.ts";
@@ -50,21 +51,9 @@ async function readerContext(context: RuntimeContext, request: ReaderRequest, si
 async function instructions(context: RuntimeContext, request: ReaderRequest): Promise<string | undefined> {
   if (request.prompt && request.systemPrompt) throw new Error("Conflicting reader instruction forms");
   if (!request.prompt) return request.systemPrompt;
-  const { phase, guidance, answer, reference, visual } = request.prompt;
-  if (!["index", "read", "verify"].includes(phase)) throw new Error("Unknown reader instruction phase");
-  let text: string;
-  if (visual && phase === 'read') text = await readFile(join(context.contentRoot, 'setup', visual==='asset'?'visual-assets.md':visual==='scope'?'visual-map-scope.md':'visual-discovery.md'), 'utf8');
-  else if (reference) text = await readFile(join(context.contentRoot, "setup", "source-reference-guidance.md"), "utf8");
-  else if (answer) text = await readFile(join(context.contentRoot, "setup", "source-answer.md"), "utf8");
-  else if (guidance) text = await readFile(join(context.contentRoot, "setup", "visual-guidance.md"), "utf8");
-  else {
-    const guide = await readFile(join(context.contentRoot, "setup", "visual-reader.md"), "utf8");
-    const header = phase === "index" ? "## Index phase" : phase === "read" ? "## Read phase" : "## Verify phase";
-    const introEnd = guide.indexOf("## Index phase"), start = guide.indexOf(header);
-    if (introEnd < 0 || start < 0) throw new Error("Reader instructions are missing the selected phase");
-    const end = guide.indexOf("\n## ", start + header.length);
-    text = guide.slice(0, introEnd) + guide.slice(start, end < 0 ? undefined : end) + "\nComplete only this phase and then stop.\n";
-  }
+  const { phase } = request.prompt;
+  // §187.5.3: assembled per purpose; one function, so the host's accounting measures what the child is given.
+  const text = await readerInstructionText(context.contentRoot, request.prompt);
   const path = join(request.cwd, `instructions-${phase}.md`);
   await writeFile(path, text);
   return path;

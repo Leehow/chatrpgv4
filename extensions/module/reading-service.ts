@@ -3,12 +3,13 @@ import { readFile, writeFile, mkdir, copyFile, appendFile, rm } from "node:fs/pr
 import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { KernelError , isKernelError } from "../kernel/client.ts";
-import { readerInput, readingCacheId, wakeReaderSlots, type ReaderOutcome, type ReaderRequest } from "./reader.ts";
+import { readerInput, readerInputInlines, readingCacheId, wakeReaderSlots, type ReaderOutcome, type ReaderRequest } from "./reader.ts";
 import { providerRefusalText } from "../../runtime/jev/provider-budget.ts";
 import { reviewCandidate, type CoverageCarrySource, type ReviewPlan } from "./reader-review.ts";
 import { checkTargetedRepair, repairDecision, reviewOfCandidate, TARGETED_REPAIR_ASK, type RepairDecision } from "./targeted-repair.ts";
 import { salvageInterruptedRead } from "./read-salvage.ts";
 import { accountingFields, readingAccounting, tallyChildJev, tallyFirstCall, tallyReadingRow } from "./reading-accounting.ts";
+import { readerInstructionText } from "../../runtime/reader-instructions.ts";
 import { sourceAsset, closeSourceDocuments, sourceRenderVersion, sourceTextVersion } from "./source.ts";
 import { registerSourcePdf, SourceUnreadable } from "./source-registration.ts";
 import {successfulImageDeliveries} from './reader-image-delivery.ts';
@@ -1150,6 +1151,16 @@ export class ReadingService implements ReadingBridge {
 		const observations: Row = { file_sha256: job.source.file_sha256, read_pages: [], full_pages: [], review_pages: [] };
 		// §151.2.4: what this run spends, written once as the job's `job_accounting` row.
 		const accounting = readingAccounting();
+		// §187.5.3: what the author is handed -- the task's bytes, whether it is inlined, and its instructions' bytes.
+		accounting.packet_bytes = Buffer.byteLength(JSON.stringify(task));
+		accounting.inlined = readerInputInlines({ task });
+		accounting.known_nodes = Array.isArray(task.known_nodes) ? task.known_nodes.length : 0;
+		accounting.known_claims = Array.isArray(task.known_claims) ? task.known_claims.length : 0;
+		try {
+			accounting.instruction_bytes = Buffer.byteLength(await readerInstructionText(this.runtime().contentRoot, { phase: job.purpose === "index" ? "index" : "read",
+				purpose: job.purpose, visual: job.visual_scan ? 'scan' : job.visual_asset ? 'asset' : job.map_scope ? 'scope' : undefined,
+				guidance: job.purpose === "guidance", answer: job.purpose === "answer" }));
+		} catch { /* accounting never fails a reading; the child's own launch reports a missing instruction file */ }
 		// §186.1: the image budget of this reading's authors and reviewers is data, chosen by RC-01's replay.
 		const readingImages = ["guidance", "opening", "detail", "answer"].includes(job.purpose)
 			? (await readingImageBudget(this.runtime().contentRoot)).count : undefined;
@@ -1360,7 +1371,7 @@ export class ReadingService implements ReadingBridge {
 									cacheId: readingCacheId(job.module_id, job.job_id, round), ...(readingImages ? { imageHistory: readingImages } : {}),
 									model, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 }, signal,
 									cacheRoot:join(cache,'..','reviews'),
-									reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion+(draftHasMapRegions(candidate)?':map-region-review-v2':'')),await readFile(join(this.runtime().contentRoot,'setup',job.purpose === 'answer' ? 'source-answer.md' : job.purpose === 'guidance' ? 'visual-guidance.md' : 'visual-reader.md'))])),
+									reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion+(draftHasMapRegions(candidate)?':map-region-review-v2':'')),Buffer.from(await readerInstructionText(this.runtime().contentRoot, { phase: "verify", guidance: job.purpose === "guidance", answer: job.purpose === "answer" }))])),
 									run: ({systemPrompt: _instructions, ...request}) => reviewers.run(request,
 										{ phase: "verify", guidance: job.purpose === "guidance", answer: job.purpose === "answer" })
 										.then(run => { tallyFirstCall(accounting, "verify", run.firstCallUncached); return overrunRows(run, "verify", round); }),
@@ -1392,7 +1403,7 @@ export class ReadingService implements ReadingBridge {
 							cacheId: readingCacheId(job.module_id, job.job_id, round),
 							submission:["guidance","opening","detail","answer"].includes(job.purpose),
 							priority: () => job.foreground === false ? "background" : "foreground",
-							prompt: { phase: promptPhase, visual:job.visual_scan?'scan':job.visual_asset?'asset':job.map_scope?'scope':undefined, guidance: job.purpose === "guidance", answer: job.purpose === "answer" }, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 },
+							prompt: { phase: promptPhase, purpose: job.purpose, visual:job.visual_scan?'scan':job.visual_asset?'asset':job.map_scope?'scope':undefined, guidance: job.purpose === "guidance", answer: job.purpose === "answer" }, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 },
 							eventLog,
 							brief: phase === "index-audit"
 								? `${readerInput({task})} This is the independent map-page completeness audit of the retained PDF index. Read draft.json${round > 1 || job.resume_from ? " and findings.json" : ""}. View every physical page in task.index_audit_pages with pdf, compare each page to draft.map_candidates, and immediately add every authored map whose depicted place can be identified. Every task.required_map_candidates row must remain. Preserve existing sections and candidates; repair missing section source_refs but do not cite any page unless you viewed that full page in this audit or it is in task.index_audit_pages. If another page is needed as a reference, view it first. Do not rewrite for style. Finish only after every assigned page has been checked, then stop.`

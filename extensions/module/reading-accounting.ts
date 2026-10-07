@@ -28,6 +28,13 @@ export interface ReadingAccounting {
 	 * sum of those first calls' uncached input tokens -- what a shared cache identity per round is meant to bring down.
 	 */
 	first_call_uncached: Record<string, { children: number; tokens: number }>;
+	/** §187.5.3: the bytes of the task the author is handed, whether `readerInput` inlines it, and its node and claim counts. */
+	packet_bytes?: number;
+	inlined?: boolean;
+	known_nodes?: number;
+	known_claims?: number;
+	/** §187.5.3: the bytes of the author's assembled instructions. */
+	instruction_bytes?: number;
 }
 
 export function readingAccounting(): ReadingAccounting {
@@ -105,5 +112,7 @@ export async function tallyChildJev(accounting: ReadingAccounting, attempt: stri
 export function accountingFields(accounting: ReadingAccounting): Row {
 	return { author_ms: accounting.author_ms, review_wall_ms: accounting.review_wall_ms, units_run: accounting.units_run, units_reused: accounting.units_reused,
 		jev: accounting.jev, salvaged: accounting.salvaged, ...(accounting.repair ? { repair: accounting.repair } : {}), ...(accounting.need ? { need: accounting.need } : {}),
-		first_call_uncached: accounting.first_call_uncached };
+		first_call_uncached: accounting.first_call_uncached,
+		...Object.fromEntries((["packet_bytes", "inlined", "known_nodes", "known_claims", "instruction_bytes"] as const)
+			.filter(key => accounting[key] !== undefined).map(key => [key, accounting[key]])) };
 }

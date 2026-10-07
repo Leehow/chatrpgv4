@@ -57,7 +57,7 @@ def guarded_files() -> list[Path]:
 def test_no_cjk_character_anywhere_in_code_or_system_content():
     hits: list[str] = []
     files = guarded_files()
-    assert any(p.name == "handlers.ts" for p in files) and any(p.name == "visual-reader.md" for p in files)
+    assert any(p.name == "handlers.ts" for p in files) and any(p.parent.name == "visual-reader" and p.name == "common.md" for p in files)
     assert any(p.name == "coc-source" for p in files) and any(p.name == "style.json" for p in files)
     for path in files:
         try:
