@@ -82,7 +82,8 @@ export async function owedBands(kernel: KernelContext): Promise<{ travel: string
     };
 }
 
-function sceneOf(graph: ModuleGraph, name: unknown): Row | null {
+/** The graph scene `name` names, or null. */
+export function sceneOf(graph: ModuleGraph, name: unknown): Row | null {
     if (typeof name !== 'string' || !name.trim())
         return null;
     try { return graph.scene(name.trim()); }
@@ -103,7 +104,7 @@ function ownedPrintedWeapon(entry: Row, party: readonly Row[]): boolean {
 }
 
 /** One line of English that names what a row owes, for the capsule and the warning row. */
-function describe(graph: ModuleGraph, effect: Row): string {
+export function describe(graph: ModuleGraph, effect: Row): string {
     if (effect.kind === 'move') {
         const scene = sceneOf(graph, effect.to);
         const where = scene ? `${graph.displayName(scene)} (${graph.handle(scene)})` : `a new place, ${text(effect.to)}`;

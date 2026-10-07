@@ -21,6 +21,8 @@ import {createMemoryEvidenceOwner} from './evidence.js';
 import {closeSatisfied, mergeOwed, owedNames, projectOwed, resolveOwedEquipment, readOwed, writeOwed} from '../owed/index.js';
 import {applyFirstSight, checkFirstSightItems, FIRST_SIGHT_BUDGET, firstSightSection, fitFirstSight, readFirstSight, turnFirstSight, writeFirstSight} from '../first-sight/index.js';
 import {HEAD_FIRST_SIGHT} from '../read/assemble.js';
+import {briefWindow} from '../read/brief-window.js';
+import {oweTold, toldOptions} from '../owed/told.js';
 /** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
 const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch', 'unmarked_speech', 'investigator_identity_mismatch'];
 /**
@@ -237,6 +239,12 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
         },
         'table.warn': async (params) => warn(context, await load(params), params),
         'table.first_sight': async (params) => firstSight(context, await load(params), params),
+        // Contract §190.2: the places a delivered text may leave the party at, and the owed move the host's read names.
+        'table.owe.options': async (params) => {
+            const loaded = await load(params);
+            return toldOptions(loaded, await briefWindow(context, loaded.module, loaded.snapshot.world), params);
+        },
+        'table.owe': async (params) => oweTold(context, await load(params), params, FORWARD.owed_state),
         // Contract §168.5: the first sight owed where the party stands now, for a run that moved after its capsule was read.
         'table.first_sight.view': async (params): Promise<Row> => {
             const { campaign, snapshot, module } = await load(params);
