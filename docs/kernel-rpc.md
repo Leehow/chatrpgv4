@@ -37692,6 +37692,10 @@ receipts that land them. The lane's own read is `table.owe.options`; TP-04 reads
 
 ## 192. One thing, one node: a reading may not duplicate what the graph has (owner rulings 2026-10-07; `docs/specs/reading-duplicates-survey.md`; amends §22.3, §152.4 and §188.2)
 
+Numbering note: this section was written as §191 and renumbered on 2026-10-07, because the page-transcript branch
+(`claude/page-transcript-20261007`, already packaged) claimed §191 too. Commit messages for DUP-01 to DUP-04 and the
+NR-07 acceptance notes say §191; read them as §192.
+
 The NR-07 survey traced Blood Road's generation 55 (a page reading of pp. 25–26). The reader declared eight new nodes for
 things the graph already had: `npc-daniel-mather` beside `npc-book-4-daniel-mather`, the general store, the town centre
 and others.
