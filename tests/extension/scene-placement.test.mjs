@@ -4,7 +4,7 @@
  * The real apply tool over the emitted kernel (the-haunting, turn 1 closed at the commission briefing), a controlled typed
  * endpoint behind the real decision adapter. Asserted per outcome, through what the kernel actually received and what it
  * wrote: `same` moves to the book place and mints nothing; `inside` mints with `within` and the capsule shows the book
- * place; a below-bar answer mints as written; `shadow` (the shipped mode) writes the row and changes nothing. What Jev was
+ * place; a below-bar answer mints as written; `shadow` (an env override since 2026-10-07; `on` ships) writes the row and changes nothing. What Jev was
  * shown is the effect's description, the active scene and the book places -- by alias, never by handle.
  */
 import { strict as assert } from "node:assert";
@@ -110,10 +110,11 @@ test("below the bars the move is minted as written", async t => {
 	assert.equal(row.outcome, "mint"); assert.equal(row.why, "below_bar");
 });
 
-test("shadow (the shipped mode): the row says what it would do, the effect is unchanged", async t => {
+test("shadow (the env override): the row says what it would do, the effect is unchanged", async t => {
 	const { table, row } = await play(t, { mode: "shadow", same: 0.95 });
 	assert.equal(world(table.workspace).table_entities[0].name, STAIR);
 	assert.ok(!("within" in world(table.workspace).table_entities[0]), "shadow changes nothing");
 	assert.equal(row.outcome, "shadow"); assert.equal(row.decision, "same"); assert.equal(row.handle, MORGUE);
-	assert.equal(JSON.parse(readFileSync(join(root, "content/rulesets/coc7/host-budgets.json"), "utf8")).scene_placement.mode, "shadow");
+	// Owner ruling 2026-10-07 after RD-08: the shipped mode is `on`; `shadow` stays reachable through PI_COC_SCENE_PLACEMENT.
+	assert.equal(JSON.parse(readFileSync(join(root, "content/rulesets/coc7/host-budgets.json"), "utf8")).scene_placement.mode, "on");
 });

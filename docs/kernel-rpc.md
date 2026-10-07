@@ -35678,6 +35678,8 @@ word in common with a book name is not a placement (the kernel's `placeOf` rule 
 description. Telemetry: one `lane: "scene-placement"` row per effect with the question, distribution, confidence,
 outcome (`same | inside | mint | shadow`) and the handle chosen. The lane never refuses a move: an outage is `mint`.
 
+**Owner ruling (2026-10-07, 「放置车道打开」, after RD-08's shadow rows).** `scene_placement.mode` ships `on`. The two rows read before the ruling: a minted 警长办公室 placed inside the town at 0.92 (would have written `within`), a minted 旅馆外的街道 at 0.46 (below `choice_confidence_min`, mints as written). The bars are unchanged. `PI_COC_SCENE_PLACEMENT=shadow|off` still overrides the mode; the coded fallback for an unreadable budget file stays `shadow`, so a broken data file never moves a Keeper's effect.
+
 **Implementation decisions (RD-01, 2026-10-07).** The record keeps `from` and `within` as handles (as a table clue
 keeps `scene`); a handle the current generation no longer resolves writes no relation and the record is kept. A minted
 scene is never listed among its `within` place's assets (`sceneAssetNodes`), though the place's maps are the room's

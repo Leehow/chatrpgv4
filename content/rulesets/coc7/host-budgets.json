@@ -102,7 +102,7 @@
     "interest_skill_max": 6
   },
   "scene_placement": {
-    "mode": "shadow",
+    "mode": "on",
     "same_min": 0.8,
     "inside_min": 0.75,
     "choice_confidence_min": 0.5,
