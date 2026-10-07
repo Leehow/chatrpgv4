@@ -36809,6 +36809,77 @@ model, an authentication failure, a timeout and any verdict keep §143.15's rule
 status and the provider's message clipped to 200 bytes). A batch that was refused while it carried a `move` adds
 `refused_moves: [{to, reason}]` to the turn record.
 
+**Implementation decisions (TP-03, 2026-10-07).**
+
+1. *What the provider answered is read off the request.* pi-ai calls `onResponse` only for a 2xx response, and a failed
+   completion keeps only `errorMessage`, a display string, so nothing structural said what the provider answered. `runLane`
+   (`extensions/lanes/subsession.ts`) takes `observeTransport`; only the admission lane sets it. For a model whose wire API
+   sends through `options.fetch` in pi-ai (closed list `OBSERVED_FETCH_APIS`: `openai-completions`, `openai-responses`,
+   `azure-openai-responses`, `openai-codex-responses`, `anthropic-messages`, `mistral-conversations`, `pi-messages`; the
+   Google adapters refuse a custom fetch and Bedrock's SDK takes none) the round hands the adapter a `fetch` that calls the
+   global one unchanged and remembers how the last request ended. A `model_error` then carries `transport`: `{status}`, the
+   HTTP status of the last response, or `{endedBeforeResponse: true}`, the fetch rejected while neither the round's signal
+   nor the request's own had aborted. A model on any other API, a call refused before any request (missing credentials, a
+   budget refusal) and a timeout carry none, so they are never transient. Nothing reads the error's text. The `lane-call`
+   rows are unchanged.
+2. *The retry.* `transientLaneFailure` (pure, `extensions/kernel/admission.ts`): a `model_error` whose transport is status
+   429 or 500-599, or ended before a response. The round reads `admission.transient_retry_ms`
+   (`admissionTransientBudget`, `runtime/jev/host-budgets.ts`, once per process; a missing, non-numeric or negative value
+   falls back to 1500), waits it on the round's clock (a cancelled round stops waiting and keeps its failure) and sends the
+   identical input once more. When no more than the wait is left before the round's deadline the retry is not started and
+   the failure stands. §143.15's malformed retry and this one are each at most once per round and independent of each
+   other, so a round sends at most three completions, all under its one deadline. §143.15's host-run resend is a fresh
+   review with its own one transient retry.
+3. *The row.* `detail` stays the string column it already was (RD-08 turn 7's row carried
+   `flapcode API error (429): 429 {"detail":"Rate limit exceeded"}`; what was missing was a status a reader could rely on and
+   a bound): the lane's failure text clipped to 200 UTF-8 bytes on a code-point boundary (`clipBytes`; the refusal's
+   `details.detail` is the same string). Beside it, from the final attempt, `provider_status` (a number) or
+   `transport: "ended_before_response"`. `attempts` counts every completion the round asked for, one refused by the budget
+   before it reached the wire included. A round that took the transient retry, or had no time for it, carries
+   `transient_retry: {after_ms, provider_status | transport, detail, skipped?: "no_time"}` naming the first failure, on a
+   verdict row as on a failure row.
+4. *`refused_moves` rides §135.31's channel.* No channel carried an admission refusal into the turn record (§86.5: refused
+   calls live in telemetry only). The narrowest existing host-to-record channel is §135.31's `keeper_reads`: a host-only
+   field on the delivery that closes the turn, outside the call's digest. The host keeps the turn's refused moves (cleared
+   with the next player input, beside §32.4's verdicts). `admitAction` adds, for an `apply` batch it refuses with any
+   `KernelError` other than `review_pending` (not a refusal, §32.12.2), one `{to, reason}` per `move` effect of the batch as
+   it stood when refused (`refusedMovesOf`): `to` the effect's `to` as proposed, trimmed and cut at 200 code points;
+   `reason` the refusal's `details.reason` (`action_not_authorized`, `admission_unavailable`, `review_timeout`,
+   `action_proposal_mismatch`, ...) or its code. An identical pair is kept once, at most 16 per turn. Every delivery that
+   closes the turn -- an explicit `narrate` or `ask`, the host's implicit close, the refusal-budget fallback -- carries them
+   as `refused_moves`; the host deletes a Keeper-supplied one. `table.narrate` and `table.ask` accept a list of at most 16
+   `{to: non-empty string, reason: non-empty string}` (`refusedMoves`, `kernel-ts/write/delivery.ts`; `invalid_params`
+   otherwise) and write `refused_moves` on the turn record when it is non-empty; a turn with none has no such key.
+5. *Known limit, measured and not repaired here (needs an owner decision).* Under a run lease (`task-host-session.ts`:
+   150,000 output tokens) a model whose transport rejects the output-limit field reserves its whole `maxTokens` per call
+   (§140's `supportsMaxOutputTokens: false`: every flapcode model, `gpt-6-luna` 128,000), and a call that ends in a
+   provider error is charged that whole reservation (§20 addendum 2). The retry's own reservation is then refused
+   `task_budget_exhausted` before any request: RD-08 turn 8's host-run resend failed exactly so, in 5 ms, after a 429. A
+   probe of `reviewAdmission` with that lease and a luna-shaped model against a local Responses endpoint answering 429 then
+   a verdict reads `attempts: 2`, one request, `detail: task_budget_exhausted`; the same probe with an output-capped model
+   reads `attempts: 2`, two requests 1,505 ms apart, admitted. So on the RD-08 configuration this retry is recorded but
+   does not reach the provider. The repair is in the budget, not in admission: §140.1's rule (an identical resend is paid
+   from its failed attempt's reservation) extended to `runLane`, or settling a call the provider answered with an HTTP
+   error status as known zero usage.
+
+Tests: `tests/extension/admission-transient-retry.test.mjs` (real tool path, the harness table with the fake kernel and
+one emitted-kernel table, a local OpenAI-compatible endpoint as the lane's provider): a 503 then a verdict admits the
+Keeper's `apply move` with `attempts: 2`, two requests at least the data's wait apart and `transient_retry` naming 503; a
+transport that ends before a response then a verdict admits with `transient_retry.transport`; a 401 refuses
+`admission_unavailable` at once with one request, `attempts: 1`, `provider_status: 401` and a `detail` clipped to 200
+bytes; a timeout is not retried (one request, `review_timeout`, no `transient_retry`); a 503 with less time left than the
+wait is not retried (`transient_retry.skipped: "no_time"`); a refused move rides the explicit `narrate`, the host's
+implicit close and the refusal-budget fallback as `refused_moves` and lands on the emitted kernel's turn record, and an
+admitted move leaves none; `runLane` reports status, ended-before-response, and nothing when not asked or when its own
+signal aborted; `transientLaneFailure`, `refusedMovesOf` and the loader, pure. The existing streak case of
+`admission-within-turn.test.mjs` scripted one provider 500 per unavailable review; a 500 is now asked again once, so it
+scripts two and counts five requests. Mutations (copy and restore, 17), each turning at least one of these red: no
+observing fetch; an aborted request counted as ended; nothing transient; every 4xx transient; a timeout transient; no wait;
+no deadline guard; an unclipped detail; no `provider_status` on a failure; a literal wait; the loader ignoring the data;
+no refused move recorded; none carried on the explicit, the implicit or the fallback delivery; a pending review counted
+as a refusal; the kernel not writing the record's `refused_moves`. §143.15's own `ADMISSION_LANE_ATTEMPTS = 1` mutation
+still fails its three cases.
+
 ### 190.4 Three ends (§31)
 
 Writer: `window-places` (identity scenes), `told-position` through `table.owe` (owed rows), the admission lane
