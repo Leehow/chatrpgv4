@@ -41,6 +41,10 @@
   "reading_images": {
     "count": 12
   },
+  "reading_review": {
+    "images": 12,
+    "max_records": 32
+  },
   "after_delivery_lanes": {
     "thinking_floor": "low"
   },
