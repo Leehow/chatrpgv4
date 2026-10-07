@@ -9,7 +9,8 @@
  * the limits of this road are, is in docs/pi-host-contract.md §3 and §5.
  */
 
-import {boundProviderRequest, independentProviderBudget, type TaskProviderBudget, type ProviderCharge, providerUsage} from "../../runtime/jev/provider-budget.ts";
+import {boundProviderRequest, independentProviderBudget, payloadDigest, resentUsage, type TaskProviderBudget, type ProviderBound, type ProviderCharge, providerUsage} from "../../runtime/jev/provider-budget.ts";
+import {ContractError} from "../../runtime/jev/contracts.ts";
 import { hostClock, type TaskClock } from "../../runtime/jev/task-context.ts";
 import { clampThinkingLevel, parseJsonWithRepair } from "@earendil-works/pi-ai";
 import type { ModelThinkingLevel, ThinkingLevel, ThinkingLevelMap } from "@earendil-works/pi-ai";
@@ -32,7 +33,73 @@ export type LaneFailureReason = "model_unavailable" | "model_error" | "bad_outpu
  */
 export type LaneResult<T> =
 	| { ok: true; value: T; ms: number; model: string; raw: string; usage?: ReturnType<typeof providerUsage>; firstByteMs?: number }
-	| { ok: false; reason: LaneFailureReason; detail: string; ms: number; model?: string; firstByteMs?: number };
+	| { ok: false; reason: LaneFailureReason; detail: string; ms: number; model?: string; firstByteMs?: number; transport?: LaneTransport; kept?: KeptReservation };
+
+/**
+ * Contract §190.3, extending §140.1's second rule (an identical resend is paid from its failed attempt's reservation) from a
+ * reader child's channel to `runLane`: the reservation of a round that failed on the provider (`stopReason: "error"`, no
+ * usage), kept on a caller-supplied budget for the identical resend the caller sends next (`LaneRequest.resend`), instead
+ * of being charged whole at once. The caller either resends it or calls `chargeWhole()`; a resend that is not identical
+ * (another payload digest or bound) charges it whole and reserves its own. Both are once only.
+ */
+export interface KeptReservation {
+	readonly digest: string;
+	readonly bound: ProviderBound;
+	/** How many identical attempts this reservation pays for so far. */
+	readonly attempts: number;
+	/** Charges the kept reservation whole, as a call without usage always was (§20 addendum 2). A no-op once resent. */
+	chargeWhole(): void;
+	/** @internal The charge, handed once to the identical resend; undefined once taken or charged. */
+	take(): ProviderCharge | undefined;
+}
+
+function keptReservation(charge: ProviderCharge, bound: ProviderBound, digest: string, attempts: number): KeptReservation {
+	let open = true;
+	return {
+		digest, bound, attempts,
+		chargeWhole: () => { if (!open) return; open = false; charge.settle(); },
+		take: () => { if (!open) return undefined; open = false; return charge; },
+	};
+}
+
+/**
+ * Contract §190.3: what the request itself saw of a failed round (`model_error` only), when the caller asked for it
+ * (`LaneRequest.observeTransport`): the HTTP status of the last response the provider sent, or that the transport ended
+ * before any response came (the request was handed to the network and failed without one, while neither the round's
+ * signal nor the request's own had aborted). Read off the `fetch` the adapter used, never off the error's text; absent
+ * when the adapter does not send through `options.fetch` or no request went out.
+ */
+export type LaneTransport = { status: number } | { endedBeforeResponse: true };
+
+/**
+ * §190.3: the APIs whose pi-ai adapter sends its HTTP request through `options.fetch` (`@earendil-works/pi-ai/dist/api/`).
+ * The two Google adapters refuse a custom fetch and Bedrock's SDK takes none, so no other API is handed one: a closed
+ * list of wire APIs, as `REASONING_EFFORT_APIS` below is, never of provider or model names.
+ */
+const OBSERVED_FETCH_APIS: ReadonlySet<string | undefined> = new Set([
+	"openai-completions", "openai-responses", "azure-openai-responses", "openai-codex-responses", "anthropic-messages",
+	"mistral-conversations", "pi-messages",
+]);
+
+/**
+ * §190.3: a `fetch` that passes every request to the global one unchanged and remembers how the last one ended. The
+ * global is looked up per request, so a test's stub of it still answers. `transport()` is what `LaneResult` carries.
+ */
+function observedFetch(signal: AbortSignal): { fetch: typeof globalThis.fetch; transport: () => LaneTransport | undefined } {
+	let last: LaneTransport | undefined;
+	const observing: typeof globalThis.fetch = async (input, init) => {
+		last = undefined;
+		try {
+			const response = await globalThis.fetch(input, init);
+			last = { status: response.status };
+			return response;
+		} catch (error) {
+			if (!signal.aborted && !init?.signal?.aborted) last = { endedBeforeResponse: true };
+			throw error;
+		}
+	};
+	return { fetch: observing, transport: () => last };
+}
 
 /** `provider/model`. A model id may contain slashes itself, so split on the first one only. */
 export function parseModelRef(raw: string): { provider: string; id: string } | undefined {
@@ -503,12 +570,28 @@ export interface LaneRequest<T> {
 	 * (contract §12.5: the lanes use neither keywords nor regexes).
 	 */
 	shape: (parsed: unknown) => T | undefined;
+	/**
+	 * Contract §190.3: hand the adapter an observing `fetch` (only for the APIs in `OBSERVED_FETCH_APIS`), so that a
+	 * `model_error` says what the provider answered (`LaneResult.transport`). Only the admission lane asks; every other
+	 * lane's request stays exactly as it was.
+	 */
+	observeTransport?: boolean;
+	/**
+	 * Contract §190.3 (§140.1's rule): a round that fails on the provider without usage keeps its reservation in the
+	 * failure's `kept` instead of charging it whole, for the caller's identical resend. Only on a caller-supplied
+	 * `providerBudget` (an independent one closes with the round). The caller owns it: resend it or `chargeWhole()`.
+	 */
+	keepFailedReservation?: boolean;
+	/** §190.3: the kept reservation of this caller's failed attempt; an identical request is paid from it. */
+	resend?: KeptReservation;
 }
 
 /** Run one lane: resolve the model, one completion, take the JSON, check the shape. Any step failing returns a failure, never throws. */
 export async function runLane<T>(request: LaneRequest<T>): Promise<LaneResult<T>> {
 	const clock = request.clock ?? hostClock;
 	const independent = request.providerBudget ? undefined : independentProviderBudget(`lane:${request.lane}`, request.signal, request.timeoutMs ?? 180000, request.clock);
+	// §190.3: a reservation is kept only on the caller's own budget; an independent one closes with this round.
+	if (independent) { request.resend?.chargeWhole(); request = { ...request, resend: undefined, keepFailedReservation: false }; }
 	request = {...request, providerBudget:request.providerBudget ?? independent!.budget};
 	const began = clock.now();
 	let label: string | undefined;
@@ -546,7 +629,11 @@ export async function runLane<T>(request: LaneRequest<T>): Promise<LaneResult<T>
 		}, firstByte, clock);
 		// The deadline races the whole completion (§32.12): headers, silence or a steady trickle, a round with no answer by
 		// the cap ends here whatever its stream is doing.
-		return stamped(deadline ? await Promise.race([attempt, deadline]) : await attempt);
+		const result = deadline ? await Promise.race([attempt, deadline]) : await attempt;
+		// §190.3: a reservation kept by an attempt that settles after its deadline won the race is nobody's to resend.
+		if (deadline && result.ok === false && result.reason === "timeout")
+			void attempt.then((late) => { if (!late.ok && late.kept) late.kept.chargeWhole(); }, () => {});
+		return stamped(result);
 	} finally {
 		cancelDeadline?.();
 		request.signal?.removeEventListener("abort", relay);
@@ -580,6 +667,12 @@ async function runLaneAttempt<T>(
 	clock: TaskClock = hostClock,
 ): Promise<LaneResult<T>> {
 	let label: string | undefined;
+	// §190.3: what the request saw, for a `model_error`; only when the caller asked and the API sends through `fetch`.
+	let observed: ReturnType<typeof observedFetch> | undefined;
+	const seen = (): { transport?: LaneTransport } => { const transport = observed?.transport(); return transport ? { transport } : {}; };
+	// §190.3: the caller's kept reservation until a request takes it; whatever no request took is charged whole at the end.
+	let resend = request.resend;
+	let kept: KeptReservation | undefined;
 	try {
 		const resolved = resolveLaneModel(request.ctx, request.envName);
 		if (!resolved.ok) {
@@ -607,12 +700,15 @@ async function runLaneAttempt<T>(
 		const effective = laneEffectiveLevel(resolved.model, thinking);
 		await rows.start(label, thinking, effective, Object.keys(reasoning).length > 0, thinkingSource);
 		let reply: Awaited<ReturnType<ExtensionContext["modelRegistry"]["complete"]>>;
-		const charges:ProviderCharge[]=[];
-		const retainUnknown=()=>{for(const charge of charges)charge.settle();};
+		// Each dispatched request's charge, with its bound, its payload's digest and how many identical attempts it pays for
+		// (§190.3, §140.1).
+		const charges:Array<{charge:ProviderCharge;bound:ProviderBound;digest:string;attempts:number}>=[];
+		const retainUnknown=()=>{for(const {charge} of charges)charge.settle();};
 		signal.addEventListener("abort",retainUnknown,{once:true});
 		try {
 			signal.throwIfAborted();
 			const headers = openCodeSessionHeaders(resolved.model, sessionIdOf(request.ctx));
+			if (request.observeTransport && OBSERVED_FETCH_APIS.has(resolved.model.api)) observed = observedFetch(signal);
 			reply = await request.ctx.modelRegistry.complete(
 				resolved.model,
 				{
@@ -620,22 +716,45 @@ async function runLaneAttempt<T>(
 					messages: [{ role: "user", content: [{ type: "text", text: request.input }] }],
 					// tools omitted: that is what makes this a zero-tool session.
 				},
-				{ signal, maxRetries:0, ...reasoning, ...rows.options, ...(headers ? { headers } : {}),
+				{ signal, maxRetries:0, ...reasoning, ...rows.options, ...(headers ? { headers } : {}), ...(observed ? { fetch: observed.fetch } : {}),
 					onPayload:async(payload:unknown)=>{
 						const prepared=boundProviderRequest(resolved.model,payload);
 						const compatiblePayload = laneCompatiblePayload(resolved.model, prepared.payload);
-						const charge=await request.providerBudget!.reserve(prepared.bound,signal);
+						const digest=payloadDigest(compatiblePayload);
+						// §190.3 (§140.1): the identical payload again after its attempt failed on the provider is paid from the
+						// reservation that attempt still holds; the lease's cancellation and deadline still refuse it.
+						const held=resend;resend=undefined;
+						const resent=held&&held.digest===digest&&JSON.stringify(held.bound)===JSON.stringify(prepared.bound)?held.take():undefined;
+						let charge:ProviderCharge,attempts=1;
+						if(resent){
+							charge=resent;attempts=held!.attempts+1;
+							try{
+								request.providerBudget!.signal.throwIfAborted();
+								if(Date.now()>=request.providerBudget!.deadlineAt)throw new ContractError('task_deadline');
+							}catch(error){charge.settle();throw error;}
+						}else{
+							held?.chargeWhole();
+							charge=await request.providerBudget!.reserve(prepared.bound,signal);
+						}
 						try{await rows.options.onPayload(compatiblePayload);signal.throwIfAborted();}
-						catch(error){charge.release();throw error;}
-						charges.push(charge);return compatiblePayload;
+						catch(error){if(resent)charge.settle();else charge.release();throw error;}
+						charges.push({charge,bound:prepared.bound,digest,attempts});return compatiblePayload;
 					}},
 			);
 		} catch (error) {
-			for(const charge of charges.splice(0))charge.settle();
+			for(const {charge} of charges.splice(0))charge.settle();
 			await rows.end({ ok: false });
 			throw error;
 		} finally {signal.removeEventListener("abort",retainUnknown);}
-		for(const [index,charge] of charges.entries())charge.settle(index===charges.length-1&&!['error','aborted'].includes(reply.stopReason)?reply.usage:undefined);
+		// §190.3 (§140.1): the last request failed on the provider and reported no usage: on the caller's budget, and when it
+		// asked, its reservation is kept for the identical resend instead of being charged whole now.
+		for(const [index,entry] of charges.entries()){
+			const last=index===charges.length-1;
+			if(last&&reply.stopReason==='error'&&request.keepFailedReservation){kept=keptReservation(entry.charge,entry.bound,entry.digest,entry.attempts);continue;}
+			// A resend that reported usage charges every attempt what it reported (`resentUsage`), never above the reservation.
+			const usage=last&&!['error','aborted'].includes(reply.stopReason)?reply.usage:undefined;
+			entry.charge.settle(usage!==undefined&&entry.attempts>1?resentUsage(usage,entry.attempts,entry.bound):usage);
+		}
 		await rows.end({
 			ok: reply.stopReason !== "error" && reply.stopReason !== "aborted",
 			...(typeof reply.stopReason === "string" ? { stopReason: reply.stopReason } : {}),
@@ -647,6 +766,8 @@ async function runLaneAttempt<T>(
 				detail: reply.errorMessage ?? reply.stopReason,
 				ms: clock.now() - began,
 				model: label,
+				...seen(),
+				...(kept ? { kept } : {}),
 			};
 		}
 		const raw = (reply.content ?? [])
@@ -676,12 +797,16 @@ async function runLaneAttempt<T>(
 		}
 		return { ok: true, value, ms: clock.now() - began, model: label, raw, usage:providerUsage(reply.usage) };
 	} catch (error) {
+		kept?.chargeWhole();
 		return {
 			ok: false,
 			reason: "model_error",
 			detail: error instanceof Error ? error.message : String(error),
 			ms: clock.now() - began,
 			...(label ? { model: label } : {}),
+			...seen(),
 		};
+	} finally {
+		resend?.chargeWhole();
 	}
 }

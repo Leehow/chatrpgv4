@@ -144,6 +144,9 @@ import {
 	besideBatch,
 	batchRefusal,
 	REFUSING_VERDICTS,
+	refusedMovesOf,
+	withRefusedMoves,
+	type RefusedMove,
 } from "./admission.ts";
 import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-domain.ts";
 import { watchOwedReview } from "./owed-review.ts";
@@ -683,6 +686,11 @@ interface TableState {
 	 */
 	admissionSplit: Map<string, string[]>;
 	admissionRefused: string[];
+	/**
+	 * §190.3: the moves admission refused this turn, `{to, reason}`, which the delivery closing the turn carries to its record
+	 * (host-only `refused_moves`, §135.31's channel). Cleared with the next player input.
+	 */
+	refusedMoves: RefusedMove[];
 	/** One representation correction per player turn; never an authorization or a withdrawn declaration. */
 	admissionCorrections: string[];
 	admissionCorrectionBlocked: Set<string>;
@@ -1957,6 +1965,7 @@ export default function (pi: ExtensionAPI) {
 		table.admissionPending = new Map();
 		table.admissionSplit = new Map();
 		table.admissionRefused = [];
+		table.refusedMoves = [];
 		table.admissionCorrections = [];
 		table.admissionCorrectionBlocked = new Set();
 		table.compileActs = new Map();
@@ -3191,8 +3200,21 @@ export default function (pi: ExtensionAPI) {
 	 * fast-path confidence and no verdict stood for the whole, the rest is reviewed on its own; when that remainder is not
 	 * admitted, `payload.effects` is narrowed to the admitted lines (in the batch's order) and what happened is returned
 	 * for the tool result. A resend of the whole batch after that applies only the lines that did not land.
+	 *
+	 * §190.3: an `apply` batch it refuses while the batch carries a `move` leaves each such move, `{to, reason}`, for the
+	 * turn record (`refused_moves`); the refusal reaches the Keeper unchanged.
 	 */
 	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal, providerBudget?: TaskProviderBudget,
+		origin: Record<string, unknown> = {}, evidence: ClerkEvidence & { label?: string; run?: string; onVerdict?: (verdict: string) => void } = {}): Promise<AdmissionPartial | undefined> {
+		try {
+			return await admitActionReviewed(state, tool, payload, signal, providerBudget, origin, evidence);
+		} catch (error) {
+			const moves = refusedMovesOf(tool, payload.effects, error);
+			if (moves.length) state.refusedMoves = withRefusedMoves(state.refusedMoves ?? [], moves);
+			throw error;
+		}
+	}
+	async function admitActionReviewed(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal, providerBudget?: TaskProviderBudget,
 		// §135.7: a policy-origin call of the single-loop run names its origin and the kernel row it came from on
 		// every admission row, so the §32 research can be read off telemetry. Absent for the model's own calls.
 		origin: Record<string, unknown> = {},
@@ -5156,6 +5178,8 @@ export default function (pi: ExtensionAPI) {
 			if (spec.name === 'narrate' || spec.name === 'ask') {
 				const reads = readsOfTurn(state);
 				if (reads.length) payload.keeper_reads = reads; else delete payload.keeper_reads;
+				// §190.3: so do the moves admission refused this turn (host-only, the same channel; never the Keeper's to supply).
+				if (state.refusedMoves?.length) payload.refused_moves = state.refusedMoves.map((move) => ({ ...move })); else delete payload.refused_moves;
 			}
 			// §145.2: so does the time reading (host-only, outside the digest).
 			if (spec.name === 'narrate' && timeReading) payload.time_reading = timeReading; else delete payload.time_reading;
@@ -5366,6 +5390,7 @@ export default function (pi: ExtensionAPI) {
 			// `host_attributed` is the host's word about its own wraps; the Keeper never supplies it.
 			delete payload.host_attributed;
 			delete payload.keeper_reads;
+			delete payload.refused_moves;
 			delete payload.source_consultations;
 			// §143.24: `purpose_repeats` is the host's reading of the Keeper's lines; the Keeper never supplies it.
 			delete payload.purpose_repeats;
@@ -6111,6 +6136,7 @@ export default function (pi: ExtensionAPI) {
 				admissionPending: new Map(),
 				admissionSplit: new Map(),
 				admissionRefused: [],
+				refusedMoves: [],
 				admissionCorrections: [],
 				admissionCorrectionBlocked: new Set(),
 				compileActs: new Map(),
@@ -6524,6 +6550,8 @@ export default function (pi: ExtensionAPI) {
 				if (mods && !SINGLE_PASS_NARRATION) await mods.prepare("narrate", payload, state.lanes.signal);
 				await reviewForcedPlayerChoiceCue(state, String(payload.text ?? ''), state.lanes.signal, 'implicit');
         await guardRefusedDocumentDelivery(state,String(payload.text??''),state.lanes.signal,foregroundProviderBudget?.());
+				// §190.3: the fallback closes the turn too, so it carries the moves admission refused this turn to the record.
+				if (state.refusedMoves?.length) payload.refused_moves = state.refusedMoves.map((move) => ({ ...move }));
 				const result = await state.kernel.call<Record<string, unknown>>("table.narrate", payload);
 				if (mods?.after) await mods.after("narrate", payload, state.lanes.signal);
 				state.floorDraft = undefined;
@@ -6712,6 +6740,7 @@ export default function (pi: ExtensionAPI) {
 			state.admissionPending = new Map();
 			state.admissionSplit = new Map();
 			state.admissionRefused = [];
+			state.refusedMoves = [];
 			state.admissionCorrections = [];
 			state.admissionCorrectionBlocked = new Set();
 			state.compileActs = new Map();
@@ -7532,6 +7561,8 @@ export default function (pi: ExtensionAPI) {
 					// §135.31: the host's own close carries the turn's look/lookup calls to its record too (after the Mod hooks).
 					const reads = readsOfTurn(state);
 					if (reads.length) params.keeper_reads = reads;
+					// §190.3: and the moves admission refused this turn.
+					if (state.refusedMoves?.length) params.refused_moves = state.refusedMoves.map((move) => ({ ...move }));
 					if (timeReading) params.time_reading = timeReading;
 					const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
 					// `applyToolSuccess`'s own `narrate` case already projected the mechanics and noted the

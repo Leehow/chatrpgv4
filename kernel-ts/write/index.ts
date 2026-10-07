@@ -36,7 +36,7 @@ import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcL
 import { asciiSlug, facts, publicContext, directorAdoption, offerLedger } from './text.js';
 import { obligationByHandle, obligationState } from '../read/obligations.js';
 import { statedHandleOf } from '../read/stated.js';
-import { deliveryText, deliveryRecord, keeperReads } from './delivery.js';
+import { deliveryText, deliveryRecord, keeperReads, refusedMoves } from './delivery.js';
 import { markupInProse, describeMarkup, bareWrapper, unwrap, MARKUP_STEER } from './markup.js';
 import { timeGap, timeReading, timeRefusal, timeWarning } from '../read/time-reading.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
@@ -1206,7 +1206,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     }
     async function ask(params: Row): Promise<Row> {
         // §135.31: the turn's Keeper reads ride on the delivery for its record; they are not part of the call's digest.
-        const { keeper_reads: readsIn, ...delivered } = params, reads = keeperReads(readsIn);
+        // §190.3: nor are the moves admission refused this turn.
+        const { keeper_reads: readsIn, refused_moves: refusedIn, ...delivered } = params, reads = keeperReads(readsIn), admissionRefusedMoves = refusedMoves(refusedIn);
         params = delivered;
         const { campaign, snapshot, module } = await load(params), turn = snapshot.turn;
         const started = await createTurnTransaction(campaign, snapshot.world, turn).beginWrite('table.ask', params, {
@@ -1280,7 +1281,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...(askPrices.bound.length||askPrices.unresolved.length?{price_template:text,price_bindings:askPrices.bound,unresolved_prices:askPrices.unresolved}:{}),
             closed_how: 'explicit',
             director_adoption: await adoption(campaign, module, turn, world, 'ask', snapshot.world),
-            ...(reads.length ? { reads } : {})
+            ...(reads.length ? { reads } : {}),
+            ...(admissionRefusedMoves.length ? { refused_moves: admissionRefusedMoves } : {})
         };
         await campaign.writeTurnRecord(record);
         await updateNpcLedger(campaign, module.graph, record);
@@ -1311,8 +1313,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     }
     async function narrate(params: Row, report?: ProgressReporter): Promise<Row> {
         // §135.31: the turn's Keeper reads ride on the delivery for its record; they are not part of the call's digest.
-        // §145.2: nor is the host's reading of a time skip.
-        const { keeper_reads: readsIn, time_reading: timeIn, ...delivered } = params, reads = keeperReads(readsIn), reading = timeReading(timeIn);
+        // §145.2: nor is the host's reading of a time skip. §190.3: nor are the moves admission refused this turn.
+        const { keeper_reads: readsIn, time_reading: timeIn, refused_moves: refusedIn, ...delivered } = params, reads = keeperReads(readsIn),
+            reading = timeReading(timeIn), admissionRefusedMoves = refusedMoves(refusedIn);
         params = delivered;
         const interactionScope = params._interaction_scope;
         if (interactionScope !== undefined && !['reference', 'uncertain'].includes(interactionScope))
@@ -1469,6 +1472,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             director_adoption: await adoption(campaign, module, turn, world, 'narrate', snapshot.world),
             worldline: turn.worldline ?? null,
             ...(reads.length ? { reads } : {}),
+            // §190.3: the moves admission refused this turn; a refused move the delivery then told is still owed (§190.2).
+            ...(admissionRefusedMoves.length ? { refused_moves: admissionRefusedMoves } : {}),
             // §128.3: a repeat inside a line the host wrapped is a finding on the delivery, the same
             // `warnings` rows the verifier's `unmarked_speech` lands in, never a refusal.
             // §145.3: so is a time skip the books do not hold, on a delivery that went out anyway.

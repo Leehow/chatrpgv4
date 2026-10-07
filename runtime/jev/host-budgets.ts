@@ -440,6 +440,43 @@ async function readAdmissionTypedBudget(contentRoot?: string): Promise<Admission
 export function resetAdmissionTypedBudgetCache(): void { admissionTypedCached = undefined; }
 
 /**
+ * Contract §190.3: how long the admission lane waits before it asks once more after a transient provider failure (the
+ * provider answered HTTP 429 or 5xx, or the transport ended before any response). `admission.transient_retry_ms` in the
+ * same rules-data file, never a literal in `extensions/kernel/admission.ts`. RD-08 turn 7 lost a player's move to one
+ * 429 answered in 524 ms; the wait gives a rate limit or an overloaded upstream a moment before the one retry.
+ */
+export interface AdmissionTransientBudget {
+  /** `admission.transient_retry_ms`: milliseconds, a whole number at or above zero. */
+  retryMs: number;
+}
+
+/** Used only if `content/rulesets/coc7/host-budgets.json` cannot be read; the shipped file carries the real value. */
+export const ADMISSION_TRANSIENT_FALLBACK: AdmissionTransientBudget = Object.freeze({retryMs: 1500});
+
+let admissionTransientCached: Promise<AdmissionTransientBudget> | undefined;
+
+/** Read once per process and cached, like `admissionTypedBudget`; `contentRoot` is for tests only and is never cached. */
+export function admissionTransientBudget(contentRoot?: string): Promise<AdmissionTransientBudget> {
+  if (contentRoot !== undefined) return readAdmissionTransientBudget(contentRoot);
+  return admissionTransientCached ??= readAdmissionTransientBudget();
+}
+
+async function readAdmissionTransientBudget(contentRoot?: string): Promise<AdmissionTransientBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot ?? extensionContentRoot(), 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      admission?: {transient_retry_ms?: unknown};
+    };
+    const retryMs = raw.admission?.transient_retry_ms;
+    return {retryMs: finite(retryMs) && retryMs >= 0 ? Math.floor(retryMs) : ADMISSION_TRANSIENT_FALLBACK.retryMs};
+  } catch {
+    return ADMISSION_TRANSIENT_FALLBACK;
+  }
+}
+
+/** Test-only: forgets the cached value, so a test that swaps the content root sees its own fixture. */
+export function resetAdmissionTransientBudgetCache(): void { admissionTransientCached = undefined; }
+
+/**
  * §143.2 (docs/specs/npc-acts-first.md D2): the NPC act generation's named defaults, from the same file's `npc_act`
  * section. `timeoutMs` is the deadline of one whole generation, its one retry included (`runtime/jev/npc-act.ts`).
  * §143.4: `maxPerTurn` is how many people acted on outside a fight act in one turn (the rest are `skipped_cap`).

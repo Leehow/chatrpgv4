@@ -19,7 +19,7 @@
 
 import { createHash } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { runLane, type LaneResult } from "../lanes/subsession.ts";
+import { runLane, type KeptReservation, type LaneResult, type LaneTransport } from "../lanes/subsession.ts";
 import { KernelError } from "./client.ts";
 import { createDecisionAdapter, jevFailureTelemetry } from "../../runtime/jev/decision-adapter.ts";
 import { HANDOVER_GROUND_NOTE } from "../../runtime/jev/action-field-semantics.ts";
@@ -37,7 +37,7 @@ import {
 	type AdmissionTypedDesign,
 } from "../../runtime/jev/admission-domain.ts";
 import { ADMISSION_ROLES_FAMILY, admissionRolesBindings, runAdmissionRoles } from "../../runtime/jev/admission-roles-domain.ts";
-import { admissionTypedBudget, type AdmissionTypedBudget } from "../../runtime/jev/host-budgets.ts";
+import { admissionTransientBudget, admissionTypedBudget, type AdmissionTypedBudget } from "../../runtime/jev/host-budgets.ts";
 import { COMPILE_PREDICATES } from "../../runtime/jev/route-compile.ts";
 import {decimalSpelling,compareCash,cashText} from '../../shared/cash-decimal.js';
 
@@ -86,6 +86,87 @@ export const ADMISSION_LANE_ATTEMPTS = 2;
 /** The one line the second attempt adds to the review's input: the first answer was not a valid verdict, and why. */
 export function admissionRetryInput(input: string, detail: string): string {
 	return `${input}\n\nYour previous answer was not valid JSON for this review (${detail.slice(0, 160)}); answer again with the one JSON object only.`;
+}
+
+/** §190.3: the most a lane failure's `detail` keeps, in UTF-8 bytes, on the admission row and in the refusal's details. */
+export const ADMISSION_DETAIL_BYTES = 200;
+
+/**
+ * §190.3 (amends §143.15): whether a lane failure is asked again once. Only a `model_error` whose request saw the provider
+ * answer HTTP 429 or 5xx, or saw the transport end before any response (`LaneResult.transport`, read off the request, never
+ * off the error's text). A missing model (`model_unavailable`), an authentication failure or any other status, a timeout,
+ * a malformed answer (§143.15's own retry) and a verdict are not: RD-08 turn 7's move was refused by one 429 in 524 ms.
+ */
+export function transientLaneFailure(lane: LaneResult<unknown>): boolean {
+	if (lane.ok || lane.reason !== "model_error" || !lane.transport) return false;
+	if ("endedBeforeResponse" in lane.transport) return true;
+	const status = lane.transport.status;
+	return status === 429 || (status >= 500 && status <= 599);
+}
+
+/** §190.3: an admission row's columns for what the provider answered: `provider_status`, or `transport`. */
+export function transportColumns(transport: LaneTransport | undefined): Record<string, unknown> {
+	if (!transport) return {};
+	return "endedBeforeResponse" in transport ? { transport: "ended_before_response" } : { provider_status: transport.status };
+}
+
+/** §190.3: `text` cut to at most `maxBytes` UTF-8 bytes, never inside a code point. */
+export function clipBytes(text: string, maxBytes: number): string {
+	if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
+	let kept = "", used = 0;
+	for (const char of text) {
+		const size = Buffer.byteLength(char, "utf8");
+		if (used + size > maxBytes) break;
+		kept += char;
+		used += size;
+	}
+	return kept;
+}
+
+/** §190.3: one move of the turn that admission refused, as the turn record keeps it. */
+export interface RefusedMove { to: string; reason: string }
+/** §190.3: the most refused moves one turn record keeps; the kernel refuses a longer list. */
+export const REFUSED_MOVES_MAX = 16;
+/** §190.3: a refused move's `to` is kept to this many code points (§135.31's argument ceiling). */
+const REFUSED_MOVE_TO_MAX = 200;
+
+/**
+ * §190.3: what an `apply` batch admission refused leaves for the turn record -- one `{to, reason}` per `move` effect of the
+ * batch as it stood when it was refused (a split batch's landed lines are already gone from it, §32.12.3). `reason` is the
+ * refusal's own `details.reason` (`action_not_authorized`, `admission_unavailable`, `review_timeout`, ...) or its code.
+ * `review_pending` is not a refusal (§32.12.2: the identical resend collects the review), and a `resolve` moves nothing.
+ */
+export function refusedMovesOf(tool: string, effects: unknown, error: unknown): RefusedMove[] {
+	if (tool !== "apply" || !(error instanceof KernelError) || !Array.isArray(effects)) return [];
+	// Never an empty reason: the kernel refuses a delivery whose `refused_moves` carries one.
+	const reason = String(error.details?.reason || error.code || "refused");
+	if (reason === REVIEW_PENDING) return [];
+	return effects.flatMap((effect) => {
+		const move = effect && typeof effect === "object" ? effect as { kind?: unknown; to?: unknown } : undefined;
+		if (move?.kind !== "move" || typeof move.to !== "string" || !move.to.trim()) return [];
+		return [{ to: [...move.to.trim()].slice(0, REFUSED_MOVE_TO_MAX).join(""), reason }];
+	});
+}
+
+/** §190.3: the turn's refused moves with `moves` added: an identical pair once, at most `REFUSED_MOVES_MAX`, oldest first. */
+export function withRefusedMoves(list: readonly RefusedMove[], moves: readonly RefusedMove[]): RefusedMove[] {
+	const kept = [...list];
+	for (const move of moves) {
+		if (kept.length >= REFUSED_MOVES_MAX) break;
+		if (!kept.some((held) => held.to === move.to && held.reason === move.reason)) kept.push({ to: move.to, reason: move.reason });
+	}
+	return kept;
+}
+
+/** Waits `ms` on the review's clock; returns at once when `signal` aborts (a cancelled round does not wait out its retry). */
+function pause(clock: TaskClock, ms: number, signal?: AbortSignal): Promise<void> {
+	return new Promise((resolve) => {
+		if (signal?.aborted) return resolve();
+		let cancel = () => {};
+		const done = () => { cancel(); signal?.removeEventListener("abort", done); resolve(); };
+		cancel = clock.schedule(done, ms);
+		signal?.addEventListener("abort", done, { once: true });
+	});
 }
 
 export interface AdmissionVerdict {
@@ -735,9 +816,17 @@ export interface AdmissionReviewOptions {
  * §32.12.2): it neither admits nor refuses, and it is not an outage.
  *
  * §143.15 (ticket 16): an answer that is not a verdict at all (`bad_output`) is asked for once more inside the same round,
- * with one line saying why, under the round's one deadline; the second bad answer is the lane's `bad_output`. Only a
- * malformed answer is retried: a provider error, a missing model or a timeout is not something asking again repairs.
- * The outcome's `meta.attempts` says how many completions the round sent.
+ * with one line saying why, under the round's one deadline; the second bad answer is the lane's `bad_output`.
+ *
+ * §190.3 (amends §143.15): a provider failure is asked again once, unchanged, when it was transient
+ * (`transientLaneFailure`: HTTP 429 or 5xx, or the transport ended before any response), after
+ * `admission.transient_retry_ms` and only when more than that wait is left before the round's deadline. A missing model,
+ * an authentication failure, a timeout and any verdict keep §143.15's rule. The two retries are each at most once, so a
+ * round sends at most three completions. The outcome's `meta.attempts` says how many completions the round sent; a
+ * failure carries its `detail` clipped to 200 UTF-8 bytes and what the provider answered (`provider_status` or
+ * `transport`), and a round that took (or had no time for) the transient retry says so in `meta.transient_retry`. The
+ * transient retry is an identical resend, so it is paid from the failed attempt's reservation (§140.1's rule, kept by
+ * `runLane` on the caller's budget); a reservation no retry took is charged whole when the round ends.
  */
 export async function reviewAdmission(options: AdmissionReviewOptions): Promise<AdmissionOutcome> {
 	const capMs = options.timeoutMs ?? admissionTimeoutMs();
@@ -746,12 +835,14 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 	const began = clock.now(), deadline = began + capMs;
 	const input = buildAdmissionInput(options.proposal, options.context);
 	let lane: LaneResult<AdmissionVerdict> | undefined, model: string | undefined, firstByteMs: number | undefined, previous: string | undefined;
-	let attempts = 0;
-	for (let attempt = 1; attempt <= ADMISSION_LANE_ATTEMPTS; attempt++) {
+	let attempts = 0, malformed = 0, transient: Record<string, unknown> | undefined;
+	// §190.3 (§140.1): a transient failure's reservation, kept for its identical retry; charged whole if none takes it.
+	let kept: KeptReservation | undefined;
+	try { for (;;) {
 		const startedAt = clock.now(), left = deadline - startedAt;
 		// No time left for the second attempt: the round produced no verdict by its deadline, which is a timeout (§32.12).
 		if (left <= 0) { lane = { ok: false, reason: "timeout", detail: `the lane did not answer within ${capMs} ms: none was left for another attempt`, ms: startedAt - began }; break; }
-		attempts = attempt;
+		attempts++;
 		lane = await runLane<AdmissionVerdict>({
 			providerBudget: options.providerBudget,
 			ctx: options.ctx,
@@ -764,21 +855,36 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 			timeoutMs: left,
 			...(options.clock ? { clock: options.clock } : {}),
 			shape: shapeVerdict,
+			// §190.3: what the provider answered decides whether a failure is transient.
+			observeTransport: true,
+			keepFailedReservation: true,
+			...(kept ? { resend: kept } : {}),
 		});
+		kept = lane.ok ? undefined : lane.kept;
 		model = lane.model ?? model;
 		// From the round's first request to the first response headers any attempt received (§32.12's `first_byte_ms`).
 		if (firstByteMs === undefined && lane.firstByteMs !== undefined) firstByteMs = startedAt - began + lane.firstByteMs;
-		if (lane.ok || lane.reason !== "bad_output" || options.signal?.aborted) break;
-		previous = lane.detail;
-	}
+		if (lane.ok || options.signal?.aborted) break;
+		// §143.15: a malformed answer is asked for once more, with one line saying why.
+		if (lane.reason === "bad_output" && ++malformed < ADMISSION_LANE_ATTEMPTS) { previous = lane.detail; continue; }
+		// §190.3: a transient provider failure is asked again once, unchanged, after the data's wait and inside the deadline.
+		if (transient || !transientLaneFailure(lane)) break;
+		const { retryMs } = await admissionTransientBudget();
+		transient = { after_ms: retryMs, ...transportColumns(lane.transport), detail: clipBytes(lane.detail, ADMISSION_DETAIL_BYTES) };
+		if (deadline - clock.now() <= retryMs) { transient.skipped = "no_time"; break; }
+		await pause(clock, retryMs, options.signal);
+		if (options.signal?.aborted) break;
+	} } finally { kept?.chargeWhole(); }
 	const ms = clock.now() - began;
-	const meta = { path: "lane", first_byte_ms: firstByteMs ?? null, attempts };
+	const meta = { path: "lane", first_byte_ms: firstByteMs ?? null, attempts, ...(transient ? { transient_retry: transient } : {}) };
 	// §32.12: a round cut at its cap -- whether the provider never answered or answered and streamed past it -- is the
 	// host's `review_timeout` verdict, a refusal; never an outage, and never an admit.
 	if (!lane!.ok && lane!.reason === "timeout") return { ok: true,
 		verdict: { verdict: REVIEW_TIMEOUT, grounds: `no verdict within the ${capMs} ms cap`, reviewer: "lane", path: "lane", capMs },
 		ms, model: model ?? "", reviewer: "lane", meta: { ...meta, timed_out: true, cap_ms: capMs } };
-	if (!lane!.ok) return { ok: false, reason: lane!.reason, detail: lane!.detail, ms, ...(model ? { model } : {}), reviewer: "lane", meta };
+	// §190.3: a failure's row reads what the provider answered, beside its detail clipped to the bytes the row keeps.
+	if (!lane!.ok) return { ok: false, reason: lane!.reason, detail: clipBytes(lane!.detail, ADMISSION_DETAIL_BYTES), ms, ...(model ? { model } : {}),
+		reviewer: "lane", meta: { ...meta, ...transportColumns(lane!.transport) } };
 	const answer = lane!.value;
 	// §32.12.2: only a verdict with grounds is a verdict. The prompt asks for the words relied on; an answer without them
 	// cannot be read back by the Keeper or audited, so it is treated as no answer.

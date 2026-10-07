@@ -20,6 +20,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
+import { RATE_LIMITED, lunaEndpoint, registerLuna } from "./luna-endpoint.mjs";
 import { askWords, isAskRow } from "./compile-ask.mjs";
 import { withOriginTamper } from "./origin-tamper.mjs";
 import { DECLARED_CLERKS, DEFAULT_ADMISSION_TIMEOUT_MS, REVIEW_PENDING, REVIEW_TIMEOUT, admissionTimeoutMs, compileAdmission, declaredAction } from "../../extensions/kernel/admission.ts";
@@ -152,7 +153,8 @@ test("§32.12, §32.12.2: pending returns and timeouts are not an outage -- a re
 });
 
 test("§32.12: a timeout between two unavailable reviews does not end the outage streak -- the second failure still escalates to the operator", async (t) => {
-	const provider = await tricklingProvider(t, ["error", "trickle", "error"]);
+	// §190.3: a provider 500 is transient and asked again once, so each unavailable review is two 500s.
+	const provider = await tricklingProvider(t, ["error", "error", "trickle", "error", "error"]);
 	const resolve = (target) => fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "social", skill: "Persuade", target, goal: "请她调出旧剪报", method: "说明来意" } })], { stopReason: "toolUse" });
 	const table = await openTable({
 		env: { PI_COC_ADMISSION_MODEL: "trickle/trickle-1", PI_COC_ADMISSION_TIMEOUT_MS: "1500" },
@@ -169,6 +171,7 @@ test("§32.12: a timeout between two unavailable reviews does not end the outage
 
 	assert.deepEqual(admissionRows(table).map((row) => row.ok === false ? `unavailable:${row.reason}` : row.verdict),
 		["unavailable:model_error", REVIEW_TIMEOUT, "unavailable:model_error"]);
+	assert.equal(provider.requests(), 5, "each unavailable review asked its 500 again once (§190.3); the timeout was not");
 	const notices = table.entries("coc-admission-status");
 	assert.equal(notices.length, 1, "unavailable, pending, unavailable is a streak of two: the pending return neither counted nor reset it");
 	assert.equal(notices[0].data?.streak ?? notices[0].streak, 2);
@@ -762,6 +765,30 @@ test("§143.15 with line-2's typed settle (§32.12.3.2): the route-selected move
 	assert.deepEqual(rows.map((row) => [row.ok, row.reason ?? row.verdict, row.path]), [[false, "bad_output", "lane"], [true, "authorized", "lane"]]);
 	assert.deepEqual([rows[0].attempts, rows[0].declared, rows[0].late_rule, rows[0].then, rows[0].clerk], [2, true, "class_not_listed", "resend", "declared_bookkeeping"]);
 	assert.deepEqual([rows[1].admitted, rows[1].reviewer, rows[1].resend_by], [true, "lane", "host"]);
+	const move = table.telemetry("test-camp").find((row) => row.tool === "apply" && row.origin === "policy");
+	assert.ok(move?.ok, "the declared move landed");
+});
+
+/**
+ * §190.3 (extends §140.1's identical-resend rule to `runLane`): the run's clerk lease (`hybrid-engine.ts`, 168,000 output
+ * tokens: 40,000 plus flapcode luna's 128,000) holds one luna reservation and not a second whole one. RD-08 turn 8: a 429 was
+ * charged its whole reservation and the host's resend was refused `task_budget_exhausted` in 5 ms. The transient retry is an
+ * identical resend, so it is paid from the failed attempt's reservation: two requests, one reservation, the move admitted.
+ */
+test("§190.3: on the run's clerk lease, a luna-shaped 429 is asked again on the failed attempt's reservation and the route-selected move is admitted", async (t) => {
+	const endpoint = await lunaEndpoint(t, [RATE_LIMITED, { verdict: "authorized", grounds: "the player goes to the newspaper morgue" }]);
+	const table = await hybrid(t, { prepare: tookTheJob, compile: () => undefined, responses: narrateOnly("你到了报馆。"), env: { PI_COC_ADMISSION_MODEL: "luna/luna" },
+		engine: { compile: false, decision: { decide: async (batch) => complete(Object.fromEntries(batch.questions.map((question) => {
+			const candidate = batch.state?.candidates?.[`candidate_${question.key.split("_")[1]}`];
+			return [question.key, choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now"
+				? (candidate?.bound?.to === MORGUE ? "now" : "later") : "unknown", 0.9])];
+		}))) } } });
+	registerLuna(table.session.modelRuntime, endpoint.port);
+	await table.session.prompt("先去《环球报》剪报室，翻科比特宅这些年的旧报道。");
+	assert.equal(endpoint.hits.length, 2, "the retry reached the provider instead of being refused by the clerk lease");
+	const rows = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "apply");
+	assert.deepEqual(rows.map((row) => [row.ok, row.verdict ?? row.reason, row.attempts, row.transient_retry?.provider_status]), [[true, "authorized", 2, 429]]);
+	assert.equal(rows[0].clerk, "declared_bookkeeping");
 	const move = table.telemetry("test-camp").find((row) => row.tool === "apply" && row.origin === "policy");
 	assert.ok(move?.ok, "the declared move landed");
 });
