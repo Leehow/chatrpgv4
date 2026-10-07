@@ -260,8 +260,8 @@ export function mergeValue(old: any, proposed: any, path = '', transcription?: R
     }
     contradiction(path, old, proposed);
 }
-/** Options of the draft check. `openingBatch`: the host's first-batch law (§22.0) runs as the last law of the third stage. */
 /**
+ * Options of the draft check. `openingBatch`: the host's first-batch law (§22.0) runs as the last law of the third stage.
  * `graph`, §187.5.1: the whole-graph view the claim wrote beside the packet (`GRAPH_VIEW_FILE`): `known_nodes`,
  * `known_claims`, `field_spans` and `vocabulary` as the graph stood at the claim. The author's packet is cut to its job;
  * the check judges against this view, so the same-span rule of §22.3.1 reads the graph's spans, not the packet.

@@ -35723,6 +35723,42 @@ common file and the job's phase for the author, and the common file and `review`
 do not change when the file is split; a rule that applies to one phase lives in that phase's file. Telemetry: the
 `job_accounting` row (§151.2.4) gains `packet_bytes`, `inlined: boolean`, `instruction_bytes`.
 
+**187.5.4 Implementation decisions (RD-04, 2026-10-07).**
+
+- *The checker's input is a file, not the packet.* `module.read.claim` writes `graph-view.json` beside `packet.json`
+  in the attempt directory: `{generation, known_nodes, known_claims, field_spans, vocabulary}` of the whole graph as it
+  stood at the claim (the nodes, claims, spans and vocabulary the packet used to carry). `checkDraft` takes it as
+  `options.graph`; `module.read.finish` reads it from the attempt and `coc-read-check` from beside `--packet`, so the
+  check sees exactly what it saw before §187.5 while the author sees the cut. The view is a host file the reader child
+  cannot write. Without the file (a hand-made task, an attempt from before this change) the check falls back to the
+  packet's own fields.
+- *Which pages.* The job's pages are `pages` (source unit, visual asset, identity, map scope, map material), a visual
+  scan's `first..last`, and for a need read the need's cited pages and its entity's `accepted_pages`. Index and identity
+  jobs, and any job without pages, keep the whole graph. The window is `readingWindow` of §182.3 anchored on the median
+  of those pages (`anchorPage`) over `chaptersOf`, for every book: a short book's whole-book window of §182.2 decides
+  what is read, not what an author is handed.
+- *Who is carried.* Nodes citing a page of the job or its window, the nodes one `relations` edge away from those, the
+  module node, and the nodes the job names (a need's entity, a map scope's map, the node the focus resolves to) --
+  the last three without their neighbours. `known_claims` are the claims whose subject and object node are both carried.
+  `scope.known_nodes`/`known_claims` are counts; `scope.packet_bytes` is the byte length of the packet's JSON while that
+  field is still 0.
+- *Scoped vocabulary.* The present vocabulary carries no index section shape and no guidance public fields, so the only
+  cut today is the visual job's: no `actor_dossier`, `creature_dossier` or `actor_weaknesses`.
+- *Instruction files.* `content/setup/visual-reader/` holds `common.md`, `index.md`, `read.md`, `skeleton.md`,
+  `opening.md`, `detail.md` and `review.md`. `read.md` is the rules every reading author shares (the shard's fields,
+  extraction, mechanics, maps, repair), assembled after `common.md` for opening, detail and skeleton authors and
+  followed by the purpose's own file; the purpose files have the only new words, their headings. A rule of the old
+  module-reference-policy section that also binds a reviewer stayed in `common.md`. Visual, identity, answer, guidance
+  and reference jobs already had their own instruction files (`visual-discovery.md`, `visual-assets.md`,
+  `visual-map-scope.md`, `visual-identity.md`, `source-answer.md`, `visual-guidance.md`) and are unchanged.
+  `runtime/reader-instructions.ts` assembles them for the child, the review cache's `reviewVersion` and the accounting.
+- *Telemetry.* `job_accounting` adds `packet_bytes` (the host's `task.json`, compact), `inlined`, `known_nodes`,
+  `known_claims` and `instruction_bytes` (the author's assembled instructions).
+- *Measured.* Ten retained Blood Road (`book-4`) source-unit packets from the App home: median 850 KB before, 123 KB
+  after (largest 1.12 MB to 201 KB; `field_spans` was about half of every one). A detail author's instructions go from
+  about 47.6 KB to 43.5 KB: the old host already sliced the file by phase, and most of the read phase applies to every
+  reading author. Dense chapters can still exceed the 48 KiB inline bound; `inlined` measures it.
+
 ### 187.6 A coverage `missing` inside the job's pages is an append repair (amends §151.2.2)
 
 **187.6.1** `repairDecision` answers `{kind: "append", missing, pages}` when the review is bound to the candidate,

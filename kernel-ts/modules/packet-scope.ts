@@ -48,10 +48,9 @@ export function scopeGraph(known: Row[], claims: Row[], relations: Row[], pages:
         const page = number(row(ref).page);
         return assigned.has(page) || window !== null && page >= window.first && page <= window.last;
     });
-    const seed = new Set<string>([...keep].filter(Boolean));
-    for (const node of known)
-        if (node.node_kind === 'module' || cites(node)) seed.add(string(node.node_id));
-    const carried = new Set(seed);
+    // Only a node that cites the pages reaches out one relation; the module node and the named nodes are carried alone.
+    const seed = new Set<string>(known.filter(cites).map(node => string(node.node_id)));
+    const carried = new Set([...seed, ...[...keep].filter(Boolean), ...known.filter(node => node.node_kind === 'module').map(node => string(node.node_id))]);
     for (const relation of relations) {
         const from = string(row(relation).from_node_id), to = string(row(relation).to_node_id);
         if (seed.has(from) && to) carried.add(to);
