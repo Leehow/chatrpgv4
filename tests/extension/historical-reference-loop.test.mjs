@@ -66,6 +66,24 @@ test('a search still running is waited for, however long the turn has run (owner
 
 // Owner 2026-10-02: the fast model writes the scene's query in English (runtime/jev/history-query.ts), once per scene.
 const writer=(answers)=>{const calls=[];return {calls,async write(facts){calls.push(facts);const next=answers.shift();return next;}};};
+test('a pending preparation refreshes locally on a later turn and its originals reach the Keeper without another query writer',async()=>{
+  const plan=[{query:'How did the archive work in 1937?',scope:'exact',focus:'context'},
+    {query:'How did comparable 1930s archives work?',scope:'analogous',focus:'context'}];
+  const lane=writer([{ok:true,query:'How did the archive work in 1937?',objective:'Original historical practices.',reference_queries:plan,ms:1}]);
+  const pending={kind:'historical_reference',status:'empty',reason:'no_applicable_excerpts',materials:[],
+    background:{state:'pending',purpose:'Original historical practices.'}};
+  const ready={...READY,background:{state:'ready',purpose:'Original historical practices.'},materials:READY.materials.map(m=>({...m,
+    search:{...plan[1],method:'deep-lite'},applicability:'analogous'}))};
+  const f=await table({setting:SETTING,historyQuery:lane,port:(_request,n)=>n===1?pending:ready});
+  assert.deepEqual(f.searches[0].reference_queries,plan);
+  const later=await f.turn('prepared-next');
+  assert.equal(lane.calls.length,1);
+  assert.equal(f.searches[1].reference_mode,'saved');
+  assert.deepEqual(later.historical_reference_materials.materials[0].excerpts,[EXCERPT]);
+  assert.equal(later.historical_reference_materials.materials[0].search.scope,'analogous');
+  assert.equal(later.historical_reference_materials.materials[0].applicability,'analogous');
+  await f.turn('prepared-again');assert.equal(f.searches.length,2);
+});
 test('the fast model\'s English query is what the scene searches, written once per scene from the authored facts',async()=>{
   const lane=writer([{ok:true,query:'1937 Soviet provincial archive reading room',objective:'How such a reading room looked and worked in 1937.',ms:4},
     {ok:true,query:'1937 Soviet provincial town main street',objective:'Street life of a 1937 Soviet provincial town.',ms:4}]);

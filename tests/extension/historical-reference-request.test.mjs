@@ -100,7 +100,9 @@ test('real Pi price lookup reads player consent from the host and reuses anchors
       return call('narrate', {text: 'The saved price scale can guide ordinary quotations; you remain in the office.'});
     }, fauxAssistantMessage('Done.')]);
   await table.session.prompt('I am considering ordinary equipment.'); await waitForIdle(table.session);
-  assert.deepEqual(queries, [anchorQuery], JSON.stringify({playerInputs, results: table.session.messages.filter(m => m.role === 'toolResult').map(m => ({tool: m.toolName, details: m.details}))}));
+  assert.equal(queries.length, 2, JSON.stringify({playerInputs, results: table.session.messages.filter(m => m.role === 'toolResult').map(m => ({tool: m.toolName, details: m.details}))}));
+  assert(queries.every(query=>query.includes(anchorQuery)));
+  assert(queries[0].includes('retail prices'));assert(queries[1].includes('hourly wages'));
   assert.equal(playerInputs.includes('The player disputes this price'), false);
   turn = 2;
   table.faux.setResponses([call('lookup', {kind: 'historical_reference', query: challengeQuery, reference_mode: 'web'}), context => {
@@ -108,9 +110,10 @@ test('real Pi price lookup reads player consent from the host and reuses anchors
     return call('narrate', {text: 'The historical reference gives a comparable coffee price; the proposed quotation remains open for discussion.'});
   }, fauxAssistantMessage('Done.')]);
   await table.session.prompt(challenge); await waitForIdle(table.session);
-  assert.deepEqual(queries, [anchorQuery, challengeQuery], JSON.stringify({playerInputs,
+  assert.equal(queries.length, 3, JSON.stringify({playerInputs,
     lookups: table.session.messages.filter(m => m.role === 'toolResult' && m.toolName === 'lookup').map(m => m.content),
     errors: table.extensionErrors}));
+  assert.equal(queries.at(-1),challengeQuery);
   assert.equal(playerInputs.at(-1), challenge);
   assert.deepEqual(table.extensionErrors, []);
 });

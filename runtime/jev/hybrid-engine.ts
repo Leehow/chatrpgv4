@@ -63,6 +63,7 @@ import { catalogRefusal, NARRATOR_NOTE, narratorOnlySetting, offeredForPropose, 
 import { firstStepCallCapMs, firstStepThinkingEnabled } from '../../extensions/kernel/first-step-thinking.ts';
 import { createNpcActLane, type NpcActPort } from './npc-act.ts';
 import { createHistoryQueryLane, type HistoryQueryPort } from './history-query.ts';
+import type {ReferenceQuery} from '../historical-reference-plan.ts';
 import { isNpcAct, runNpcAct, runNpcScan, struckReceipts, type NpcActDeps, type NpcActOutcome } from './npc-act-step.ts';
 import {profilePreparationNeeds} from './profile-readiness.ts';
 import { SHADOW_FIELDS, type DamageBandRow, type TimeBandRow } from './band-shadow-domain.ts';
@@ -490,9 +491,10 @@ function defaultLine(candidate: Candidate): string | undefined {
 /** Per-run state the ports share; the policy's own state stays in the driver. */
 /** §124.12 (2026-10-02): the kernel extension's port that runs the lookup's own historical search for the host (`coc:historical-reference`). */
 interface HistoryPort {campaign: string; search(request: {run: string; scene?: string; turn: number; scope: unknown; query: string; objective?: string;
-  signal?: AbortSignal; deadlineAt?: number}): Promise<Row | undefined>}
+  reference_queries?: ReferenceQuery[]; reference_mode?: 'saved'; signal?: AbortSignal; deadlineAt?: number}): Promise<Row | undefined>}
 /** A scene's prefetch: the search in flight (`done`), what it returned once it did (`result`), or a scene's earlier result reused. */
 interface HistoryPrefetch {key: string; query: string; objective: string; reused: boolean; result?: Row; done: Promise<Row | undefined>;
+  reference_queries?: ReferenceQuery[];
   /** The lane wrote no query, so nothing was searched (2026-10-02: an English query or none). */
   unwritten?: boolean}
 /** §158.4: the kernel extension's port for the previous delivery's post review still running (`coc:owed-review`). */
@@ -697,7 +699,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    * is kept; an unavailable one is tried again on a later turn. The App's restart empties it; the scene's query is then
    * the same string, so the reference library answers it without a web search.
    */
-  const preparedScenes = new Map<string, {query: string; objective: string; result: Row}>();
+  const preparedScenes = new Map<string, {query: string; objective: string; reference_queries?: ReferenceQuery[]; result: Row}>();
   let prefetchAbort: AbortController | undefined;
   // §151.1: the consequence-step mode's data default, read once (cached) and awaited by every run's first read.
   let stepsDataDefault: 'on' | 'shadow' = 'shadow';
@@ -1830,18 +1832,18 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (run.interactionScope?.mode !== undefined && run.interactionScope.mode !== 'world') { record({...row, phase: 'skipped', reason: 'reference_scope'}); return; }
     const key = JSON.stringify([run.scope.campaign ?? null, run.scope.worldline ?? null, run.scope.loop ?? null, history.scene]);
     const saved = preparedScenes.get(key);
-    if (saved) {
+    if (saved && object(saved.result.background).state !== 'pending') {
       history.prefetch = {key, query: saved.query, objective: saved.objective, reused: true, result: saved.result, done: Promise.resolve(saved.result)};
       record({...row, phase: 'reused', query: saved.query, status: saved.result.status ?? null, materials: array(saved.result.materials).length});
       return;
     }
-    const fixed = sceneQuery(history.context), facts = sceneFacts(history.context);
+    const fixed = saved ? {query: saved.query, objective: saved.objective} : sceneQuery(history.context), facts = sceneFacts(history.context);
     const port = historyPort && (!historyPort.campaign || historyPort.campaign === bridge?.campaign) ? historyPort : undefined;
     if (!fixed || !facts || !port) { record({...row, phase: 'skipped', reason: !fixed ? 'no_setting' : 'no_port'}); return; }
     prefetchAbort ??= new AbortController();
     const signal = prefetchAbort.signal, began = now(), turn = run.turn, scope = run.scope;
-    const writer = options.historyQuery === null ? undefined : options.historyQuery ?? historyQueryLane;
-    const prefetch: HistoryPrefetch = {key, ...fixed, reused: false, done: Promise.resolve(undefined)};
+    const writer = saved || options.historyQuery === null ? undefined : options.historyQuery ?? historyQueryLane;
+    const prefetch: HistoryPrefetch = {key, ...fixed, reference_queries: saved?.reference_queries, reused: Boolean(saved), done: Promise.resolve(undefined)};
     prefetch.done = (async () => {
       // Owner, 2026-10-02: the fast model writes the scene's query in English. When it writes none, nothing is searched this
       // turn and nothing is kept, so the scene is tried again on its next turn: the authored-wording fallback searched
@@ -1854,17 +1856,18 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         record({...row, phase: 'skipped', reason: 'no_query', query_failure: written.reason, writer_ms: written.ms});
         return undefined;
       }
-      if (written?.ok) { prefetch.query = written.query; prefetch.objective = written.objective; }
+      if (written?.ok) { prefetch.query = written.query; prefetch.objective = written.objective; prefetch.reference_queries = written.reference_queries; }
       record({...row, phase: 'started', query: prefetch.query, objective: prefetch.objective, query_source: written?.ok ? 'fast_model' : 'fixed_shape',
-        writer_ms: written?.ms ?? null});
+        writer_ms: written?.ms ?? null, reference_queries: prefetch.reference_queries ?? null, ...(saved ? {local_refresh: true} : {})});
       if (signal.aborted) return undefined;
       // Bounded by the lookup's own four-second allowance, never by the turn's time (owner, 2026-10-02).
       // Each scene's lookup has its own retrieval allowance (`scene`), so a move inside the turn cannot starve the destination's.
-      const result = await port.search({run: run.runId, scene: history.scene, turn, scope, query: prefetch.query, objective: prefetch.objective, signal});
+      const result = await port.search({run: run.runId, scene: history.scene, turn, scope, query: prefetch.query, objective: prefetch.objective, signal,
+        ...(prefetch.reference_queries ? {reference_queries: prefetch.reference_queries} : {}), ...(saved ? {reference_mode: 'saved' as const} : {})});
       prefetch.result = result;
       if (result && ['ready', 'empty'].includes(text(result.status))) {
         preparedScenes.delete(key);
-        preparedScenes.set(key, {query: prefetch.query, objective: prefetch.objective, result});
+        preparedScenes.set(key, {query: prefetch.query, objective: prefetch.objective, reference_queries: prefetch.reference_queries, result});
         if (preparedScenes.size > 64) preparedScenes.delete(preparedScenes.keys().next().value!);
       }
       record({...row, phase: 'returned', status: result ? text(result.status) || null : null, ms: now() - began});
@@ -1896,8 +1899,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (!result) return undefined;
     return {origin: prefetch.reused ? 'host_scene_reused' : 'host_scene_lookup', query: prefetch.query, status: result.status ?? null,
       reason: result.reason ?? null, authority: result.authority ?? null, usage: result.usage ?? null,
-      materials: materials.map(({alias, title, url, excerpts, applicability, published_at, price_anchor}) => ({alias, title, url, excerpts, applicability,
-        published_at: published_at ?? null, ...(price_anchor !== undefined ? {price_anchor} : {})}))} as unknown as Json;
+      ...(result.background ? {background: result.background} : {}),
+      materials: materials.map(({alias, title, url, excerpts, applicability, published_at, price_anchor, search}) => ({alias, title, url, excerpts, applicability,
+        published_at: published_at ?? null, ...(price_anchor !== undefined ? {price_anchor} : {}), ...(search ? {search} : {})}))} as unknown as Json;
   }
 
   /** §135.25: one `budget` summary row per run, and the deferred clerk steps carried to the next run's note. */

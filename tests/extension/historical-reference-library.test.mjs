@@ -17,7 +17,7 @@ async function fixture(t) {
   const fetcher=async(_url,init)=>{network++;const query=JSON.parse(init.body).query;
     return Response.json({results:[{title:query.includes('second')?'Second source':'Boston newspaper library',
       url:query.includes('second')?'https://example.org/second':'https://example.org/library',highlights:[excerpt]}]});};
-  const create=(extra={})=>new HistoricalReference({home,env,fetcher,decide,...extra});
+  const create=(extra={})=>new HistoricalReference({home,env,fetcher,decide,background:false,...extra});
   const input={binding:'input-1',scope:{owner:'test',campaign:'c1',worldline:'main',loop:0,audience:'keeper'},turn:1,
     enabled:true,allowed:true,query:'1920 Boston newspaper reference library',context:{scene:'newspaper'},signal:new AbortController().signal,current:()=>true};
   return {home,create,input,network:()=>network};
