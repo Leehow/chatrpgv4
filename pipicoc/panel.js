@@ -30,7 +30,7 @@ const CSS = `
 .coc-sheet{--coc-serif:ui-serif,"Songti SC","Noto Serif CJK SC",Georgia,serif;
   box-sizing:border-box;container-type:inline-size;display:flex;flex-direction:column;
   height:100%;min-height:0;min-width:0;overflow:auto;padding:16px 16px 28px;
-  color:var(--text);font-size:13px;line-height:1.6;scrollbar-width:thin}
+  color:var(--text);font-size:13px;line-height:1.6}
 .coc-sheet>*{flex-shrink:0}
 .coc-sheet-identity{--passport-ink:#33291f;--passport-muted:#776451;--passport-rule:#bda78b;
   position:relative;isolation:isolate;padding:6.2cqi 6.5cqi 7cqi 9.7cqi;min-height:94.65cqi;

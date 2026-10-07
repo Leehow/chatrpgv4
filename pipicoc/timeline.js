@@ -42,8 +42,7 @@ const CSS = `
 .coc-tl-error{margin:4px 16px 12px;color:var(--danger);font-size:12px;overflow-wrap:anywhere}
 .coc-tl-error summary{cursor:pointer;color:var(--muted)}
 .coc-tl-error p{color:var(--muted)}
-.coc-tl-scroll{flex:1;min-height:0;overflow:auto;position:relative;padding:0 6px 18px;
-  scrollbar-width:thin}
+.coc-tl-scroll{flex:1;min-height:0;overflow:auto;position:relative;padding:0 6px 18px}
 .coc-tl-svg{display:block}
 /* Lanes: color is the lane's identity, so every part of a line -- spine, edges, glyphs -- takes
    its lane's color through currentColor. */
@@ -76,16 +75,6 @@ const CSS = `
 .coc-tl-here-label{fill:var(--accent);font-size:10px;font-weight:650}
 @keyframes coc-tl-pulse{0%,100%{opacity:1}50%{opacity:.3}}
 @media (prefers-reduced-motion:reduce){.coc-tl-here-ring{animation:none}.coc-tl-node{transition:none}}
-/* The hover card restates one node: kind, title, game time, and the line it stands on. */
-.coc-tl-tip{position:absolute;z-index:5;width:196px;padding:10px 12px;border:1px solid var(--border);
-  border-radius:10px;background:var(--surface-raised,var(--surface));
-  box-shadow:0 8px 24px color-mix(in srgb,var(--text) 18%,transparent);
-  font-size:12px;line-height:1.5;pointer-events:none}
-.coc-tl-tip-kind{color:var(--accent);font-size:10.5px;font-weight:650;letter-spacing:.04em}
-.coc-tl-tip-title{color:var(--text-strong);margin-top:3px;overflow-wrap:anywhere}
-.coc-tl-tip-time{color:var(--muted);margin-top:3px;font-size:11px}
-.coc-tl-tip-line{color:var(--subtle);margin-top:5px;padding-top:5px;border-top:1px solid var(--border);
-  font-size:11px;overflow-wrap:anywhere}
 .coc-tl-lines{display:flex;flex-wrap:wrap;gap:6px;padding:4px 16px 14px;border-bottom:1px solid var(--border);margin-bottom:10px}
 .coc-tl-line-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;background:var(--surface)}
 .coc-tl-line-chip[data-active="true"]{border-color:currentColor;background:color-mix(in srgb,currentColor 7%,var(--surface))}
@@ -412,14 +401,30 @@ export function layoutGraph(payload) {
 
 export function createComponent(React) {
   const h = React.createElement;
-  const { useState, useEffect, useMemo, useRef } = React;
+  const { useState, useEffect, useLayoutEffect, useMemo, useRef } = React;
 
   return function TimelinePanel(props) {
     const api = props.api ?? {};
     const [answer, setAnswer] = useState(undefined);
     const [error, setError] = useState(null);
     const [busy, setBusy] = useState(false);
-    const [hoverSha, setHoverSha] = useState(null);
+    const [viewportWidth, setViewportWidth] = useState(0);
+    const scrollRef = useRef(null);
+    useLayoutEffect(() => {
+      const scroll = scrollRef.current;
+      if (!scroll) return;
+      const measure = () => {
+        setViewportWidth(Math.max(0, scroll.clientWidth - 12));
+      };
+      measure();
+      if (typeof ResizeObserver === "undefined") {
+        window.addEventListener("resize", measure);
+        return () => window.removeEventListener("resize", measure);
+      }
+      const observer = new ResizeObserver(measure);
+      observer.observe(scroll);
+      return () => observer.disconnect();
+    }, [answer]);
     const generation = useRef(0);
     // `running` is the request in flight (0 when none); `again` is one push that arrived meanwhile.
     const running = useRef(0), again = useRef(false);
@@ -522,13 +527,12 @@ export function createComponent(React) {
     /* --- The graph -------------------------------------------------------- */
 
     let canvas = null;
-    let tooltip = null;
     if (graph && graph.rows.length) {
       const { rows, spines, edges, breaks, rulerRows } = graph;
       // The palette is closed by spec: a seventh concurrent lane wraps to the main hue. Lanes are
       // time-separated by construction, so a wrap can only collide with a line long ended.
       const laneClass = (lane) => `coc-tl-lane-${lane % LANE_PALETTE}`;
-      const hoverRow = hoverSha ? rows.find((row) => row.node.sha === hoverSha) ?? null : null;
+      const canvasWidth = Math.max(graph.width, viewportWidth);
 
       const svgChildren = [];
 
@@ -565,7 +569,7 @@ export function createComponent(React) {
 
       for (const [index, row] of rulerRows.entries()) {
         const range = `${atTime(row.when)} – ${String(row.end.hh).padStart(2,"0")}:${String(row.end.mm).padStart(2,"0")}`;
-        svgChildren.push(h("g",{key:`ruler:${index}`},h("rect",{x:12,y:row.y-32,width:graph.width-24,height:17,fill:"var(--bg)"}),h("text",{className:"coc-tl-caption",x:12,y:row.y-20},range)));
+        svgChildren.push(h("g",{key:`ruler:${index}`},h("rect",{x:12,y:row.y-32,width:canvasWidth-24,height:17,fill:"var(--bg)"}),h("text",{className:"coc-tl-caption",x:12,y:row.y-20},range)));
       }
 
       // The "you are here" marker rides the active line's tip.
@@ -589,8 +593,6 @@ export function createComponent(React) {
           void request("timeline.navigate", {commit:node.sha}).catch(err => setError(refusalOf(err)));
         };
         const handlers = {
-          onMouseEnter: () => setHoverSha(node.sha),
-          onMouseLeave: () => setHoverSha((current) => (current === node.sha ? null : current)),
           ...(clickable ? {
             onClick: navigate,
             onKeyDown: (e) => {
@@ -600,65 +602,44 @@ export function createComponent(React) {
         };
         const cls = `coc-tl-node ${laneClass(row.lane)}${clickable ? " is-clickable" : ""}`;
         const ariaTime = atTime(node.when);
-        const a11y = clickable ? {
-          tabIndex: 0, role: "button",
-          "aria-label": `${row.line?.name ?? ""} · ${fill(t("turn"), { n: node.turn })}${ariaTime ? ` · ${ariaTime}` : ""}`,
-        } : {};
+        const a11y = {
+          tabIndex: 0, ...(clickable ? { role: "button" } : {}),
+          "aria-label": `${row.line?.name ?? ""} · ${kind === "turn" ? fill(t("turn"), { n: node.turn }) : t(`kind.${kind}`)}${ariaTime ? ` · ${ariaTime}` : ""}`,
+        };
         const attrs = { key: node.sha, className: cls, ...(faded ? { "data-faded": "1" } : {}),
           ...a11y, ...handlers };
         let glyph;
         if (kind === "setup") {
-          glyph = h("g", attrs, h("circle", { className: "coc-tl-ring", cx: row.x, cy: row.y, r: 5 }));
+          glyph = h("circle", { className: "coc-tl-ring", cx: row.x, cy: row.y, r: 5 });
         } else if (kind === "merge") {
-          glyph = h("g", attrs,
+          glyph = h("g", null,
             h("circle", { className: "coc-tl-join", cx: row.x, cy: row.y, r: 6 }),
             h("circle", { className: "coc-tl-dot", cx: row.x, cy: row.y, r: 2.4 }));
         } else if (kind === "worldline") {
-          glyph = h("g", attrs,
-            h("line", { className: "coc-tl-tick", x1: row.x - 4.5, y1: row.y, x2: row.x + 4.5, y2: row.y }));
+          glyph = h("line", { className: "coc-tl-tick", x1: row.x - 4.5, y1: row.y, x2: row.x + 4.5, y2: row.y });
         } else {
-          glyph = h("g", attrs, h("circle", { className: "coc-tl-dot", cx: row.x, cy: row.y, r: 5 }));
+          glyph = h("circle", { className: "coc-tl-dot", cx: row.x, cy: row.y, r: 5 });
         }
         // A loop line's tip node carries the loop marker ring.
         const summaryX = graph.width - RIGHT_PAD + 18;
-        if (kind === "turn" && row.y - lastSummaryY >= 22) {
+        const hasSummary = kind === "turn" && row.y - lastSummaryY >= 22;
+        const rowChildren = [h("rect", { key: "hit", className: "coc-tl-hit", x: row.x - 12,
+          y: row.y - 13, width: hasSummary ? canvasWidth - row.x : 24, height: 26, rx: 5 }), glyph];
+        if (hasSummary) {
           const caption = `${fill(t("turn"),{n:node.turn})} · ${text(node.title)}`;
-          svgChildren.push(h("g", {key:`summary:${node.sha}`,onClick:clickable?navigate:undefined,style:{cursor:clickable?"pointer":"default"}},
-            h("rect",{className:"coc-tl-hit",x:summaryX-5,y:row.y-14,width:RIGHT_PAD-20,height:28,rx:5}),
-            h("foreignObject",{x:summaryX,y:row.y-9,width:RIGHT_PAD-28,height:24},h("div",{className:"coc-tl-summary",style:{color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},caption)),
-            h("title",null,caption)));
+          rowChildren.push(h("foreignObject",{key:"summary",x:summaryX,y:row.y-9,width:canvasWidth-summaryX-12,height:24},h("div",{className:"coc-tl-summary",style:{color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},caption)));
           lastSummaryY = row.y;
         }
-        svgChildren.push(h("g", {key:`hit:${node.sha}`,onClick:clickable?navigate:undefined}, h("circle",{className:"coc-tl-hit",cx:row.x,cy:row.y,r:12})));
-        svgChildren.push(glyph);
+        svgChildren.push(h("g", attrs, ...rowChildren));
         if (loopMark) {
           svgChildren.push(h("circle", { key: `loop:${node.sha}`,
             className: `coc-tl-loopmark ${laneClass(row.lane)}`, cx: row.x, cy: row.y, r: 8.5 }));
         }
       }
 
-      canvas = h("svg", { className: "coc-tl-svg", width: graph.width, height: graph.height,
-        viewBox: `0 0 ${graph.width} ${graph.height}`, role: "group", "aria-label": t("title") }, ...svgChildren);
+      canvas = h("svg", { className: "coc-tl-svg", width: canvasWidth, height: graph.height,
+        viewBox: `0 0 ${canvasWidth} ${graph.height}`, role: "group", "aria-label": t("title") }, ...svgChildren);
 
-      if (hoverRow) {
-        const { node } = hoverRow;
-        const kind = text(node.kind);
-        // A turn node's caption is its turn number; the bare kind would say the same twice.
-        const kindCaption = kind === "turn" && Number.isFinite(node.turn)
-          ? fill(t("turn"), { n: node.turn }) : t(`kind.${kind}`);
-        const statusWord = hoverRow.line ? t(text(hoverRow.line.status) || "active") : "";
-        const loopWord = hoverRow.line && Number(hoverRow.line.loop) > 0
-          ? ` · ${fill(t("loop"), { n: hoverRow.line.loop })}` : "";
-        const tipTime = atTime(node.when);
-        tooltip = h("div", { className: "coc-tl-tip",
-          style: { left: Math.min(hoverRow.x + 14, Math.max(8, graph.width - 208)),
-                   top: Math.max(4, hoverRow.y - 14) } },
-          h("div", { className: "coc-tl-tip-kind" }, kindCaption),
-          h("div", { className: "coc-tl-tip-title" }, text(node.title)),
-          tipTime ? h("div", { className: "coc-tl-tip-time" }, tipTime) : null,
-          hoverRow.line ? h("div", { className: "coc-tl-tip-line" },
-            `${hoverRow.line.name}${statusWord ? ` · ${statusWord}` : ""}${loopWord}`) : null);
-      }
     }
 
     const lineNames = graph && h("div",{className:"coc-tl-lines"},
@@ -673,6 +654,6 @@ export function createComponent(React) {
       header, lineNames,
       answer?.truncated ? h("div", { className: "coc-tl-truncated" }, t("truncated")) : null,
       errorBlock,
-      h("div", { className: "coc-tl-scroll" }, canvas, tooltip));
+      h("div", { className: "coc-tl-scroll", ref: scrollRef }, canvas));
   };
 }

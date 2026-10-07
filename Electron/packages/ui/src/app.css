@@ -315,6 +315,9 @@ body{overscroll-behavior:none}
    so virtualised containers (react-virtuoso) also show the scrollbar
    during scroll. */
 *::-webkit-scrollbar{width:6px;height:6px}
+/* Standard scrollbar properties override WebKit styling in Chromium. Every sidebar
+   tab uses the shell appearance, including extension-supplied scroll containers. */
+.pipiui-shell .tool-panel,.pipiui-shell .tool-panel *{scrollbar-width:auto;scrollbar-color:auto}
 *::-webkit-scrollbar-track,
 *::-webkit-scrollbar-corner{background:transparent}
 *::-webkit-scrollbar-thumb{background:rgb(128 128 128/.15);border-radius:3px}

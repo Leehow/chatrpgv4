@@ -7898,6 +7898,14 @@ game-time axis, uses sparse time-range captions, visible line names and compact 
 summaries. Equal game times still align; exact timestamps remain in node details. Chrome
 uses the existing English source/presenter pipeline with no authored translation tables.
 
+**2026-10-06 panel presentation decision.** All right-sidebar tabs use the shell's
+existing six-pixel scrollbar, including its hover and active-scroll states. Panel-local
+standard scrollbar properties must not override that shared appearance.
+The memory-line canvas and delivery labels expand with the sidebar, retaining horizontal
+scrolling only when the lanes need more room. The owner subsequently removed the hover
+preview: hovering or focusing a node displays no delivery card, and the host adds no
+preview text to the anchors. Clicking still navigates to the recorded delivery.
+
 **`table.graph` 的实现面。** `kernel-ts/read/graph.ts` 一个模块装下：战役经 `CampaignSnapshot.open(ctx, id, requireWorld=false, requireTurn=false)` 打开（setting_up 的战役也读得了，不碰桌态）。`at` 取 committer 时间（`%cI`），节点按它降序——`when` 已经是游戏内日历，「更早的历史省略」是提交时间语义。`clock` 用一次 `git cat-file --batch` 给截断后留下的每个节点读 `<sha>:world.json` 的 `clock.minutes`（每节点一次的 `git show` 不允许；读不到的继承父节点，根为 0），`when` 走 `clockSection` 投影机（模组没声明 `start_clock.local_datetime` 时为 null）。枚举全图 = 一次 `for-each-ref refs/heads/wl/` + 一次 `git log --format`，每次调用 3 个 git 进程。`kind` 按契约顺序机械判；`title` 对回合节点剥 `turn N:` 前缀；sha 用短形与注册表一致。`max_nodes` 缺省 500、超 1000 收 1000、非整数或 <1 报 `invalid_params`；截断后把缺的线 tip 补回。`generate_reference.py` 学了 TS-only 方法名单（词汇锁证据可重生成）。
 
 **`table.branch` 的实现面。** `kernel-ts/worldline/branch.ts` 驱动 §15.9 原语（`worldline/history.ts` 的 checkout/createBranch/deleteBranch/commitIfDirty/head/lineCommit），回滚形状与 `transition` 同款；`forkPlan` 本身用不了（它要开着的回合与图），所以是原语级复用，这是对「复用迁移机器」的正确读法。复审修复后：回放切线路径包同款回滚（强制检出回源线 + 写回 campaign.json + `ok: false` 遥测），且回放切线也置 `pending_branch`（回放切线仍是玩家视角的开线成功，守秘人必须听到）；seal 与 `before` 快照进 try，失败遥测一律有。分叉点回合记录的 `commit` 可以是 null（回合记录从下一次提交起才带 sha），检查点断言只钉 worldline 与 turn。胶囊旗标生命周期：`pending_branch` 随注册表重写写入，下一次 `player_input` 里鲜读→删→写，不会复活。
