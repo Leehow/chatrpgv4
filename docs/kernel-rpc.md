@@ -36837,9 +36837,11 @@ the questions' distributions, the decision and the owed name.
   "told-position"` in place of `job`; the record's `owed_state` warning row has `lane: "told-position"`. A second call for
   the same turn, place and quote answers the row the first wrote. The kernel writes no telemetry for it: the host's row
   carries the answer, so a delivery has one `told-position` row.
-- *The watch.* When the mode may owe, the host registers the read as the turn's flight (`reviewInFlight`, §158.4) at the
-  close; the flight settles only when `table.owe` wrote a row, so a read that owes nothing never makes the next run read
-  the table again, and it is cleared when the read ends. In `shadow` and `off` nothing is registered.
+- *The watch.* When the read may owe (the mode is `on` and Jev is configured), the host registers it as the turn's flight
+  (`reviewInFlight`, §158.4) at the close; the flight settles only when `table.owe` wrote a row, so a read that owes nothing
+  never makes the next run read the table again, and it is cleared when the read ends. In `shadow`, `off` or without Jev
+  nothing is registered, so a single-pass table's watch stays empty. The mode is known at the close because the budget file
+  is read when the extension loads.
 - *The row.* `{lane: "told-position", event: "read", turn, mode, ok, candidates, sentences: {total, offered}, moved,
   chosen, distribution, confidence, sentence: {key, confidence, distribution}, decision: "owe" | "stay", why?, handle?,
   outcome: "owed" | "dropped" | "shadow" | "stay", owed, dropped?, ms}`; when nothing was asked, `skipped:

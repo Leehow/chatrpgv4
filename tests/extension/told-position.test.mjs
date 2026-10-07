@@ -200,10 +200,13 @@ test('a move the review refused and the Keeper then told is owed: a refusal is n
 
 test('shadow, the shipped mode, on the implicit close: the row says what on would do, and nothing is owed', async t => {
     const batches = installJev(t);
+    let port;
     const table = await openTable({realKernel: true, prepareWorkspace: atTheHall, env: {EXT_JEV_APIKEY: 'test-jev-key'},
-        responses: [fauxAssistantMessage(DELIVERY)]});
+        responses: [fauxAssistantMessage(DELIVERY)],
+        extraExtensions: [{name: 'owed-port-probe', factory: pi => pi.events.on('coc:owed-review', value => { port = value; })}]});
     t.after(() => table.dispose());
     await table.session.prompt('我开车去科比特宅，直接下到地下室。');
+    assert.equal(port.watch().in_flight, false, 'a read that cannot owe is no flight for the next run to watch');
     const row = await toldRow(table);
     assert.equal(turnRecord(table.workspace, 2).closed_how, 'implicit', 'the host closed the turn with the Keeper\'s prose');
     assert.deepEqual({mode: row.mode, outcome: row.outcome, decision: row.decision, handle: row.handle, owed: row.owed},

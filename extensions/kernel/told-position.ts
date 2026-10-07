@@ -138,15 +138,27 @@ export async function readToldPosition(deps: ToldPositionDeps): Promise<string |
 }
 
 /**
+ * The shipped budget as it is known synchronously: read once per process, warmed when this module loads (long before a
+ * table delivers), so the close can decide at once whether the read is a flight to watch. Undefined only until then.
+ */
+let shippedKnown: ToldPositionBudget | undefined;
+function knownBudget(): ToldPositionBudget | undefined {
+	if (!shippedKnown) void toldPositionBudget().then(budget => { shippedKnown = budget; }, () => undefined);
+	return shippedKnown;
+}
+knownBudget();
+
+/**
  * Start the read of one delivery on a zero-delay timer the delivery never awaits. Answers the flight §158.4's watch reads
- * when the mode may owe (it settles only once `table.owe` wrote a row, so a read that owes nothing never makes the next
- * run read the table again), or nothing in `shadow` and `off`. `ended` runs when the read is over, whatever it found.
+ * only when the read may owe -- the mode is `on` and Jev is configured -- and it settles only once `table.owe` wrote a
+ * row, so a read that owes nothing never makes the next run read the table again; in `shadow` (the shipped mode), `off`
+ * or without Jev nothing is registered. `ended` runs when the read is over, whatever it found.
  */
 export function startToldPosition(deps: ToldPositionDeps, ended?: () => void): ReviewFlight | undefined {
-	const mode = override(deps.env);
+	const mode = override(deps.env) ?? (deps.budget ?? knownBudget())?.mode;
 	if (mode === "off") return undefined;
 	let settle: (() => void) | undefined;
-	const flight = mode === "shadow" ? undefined : {turn: deps.turn, done: new Promise<void>(resolve => { settle = resolve; })};
+	const flight = mode === "on" && readJevApiKey(deps.env) ? {turn: deps.turn, done: new Promise<void>(resolve => { settle = resolve; })} : undefined;
 	const timer = setTimeout(() => {
 		void readToldPosition(deps).then(owed => { if (owed) settle?.(); }, () => undefined).finally(() => ended?.());
 	}, 0);
