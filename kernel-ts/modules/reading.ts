@@ -14,6 +14,7 @@ import {assertSourcePreparationRequest,type SourcePreparationRequest} from '../.
 import type {SourcePublicationAdvance} from '../../runtime/jev/read-set.ts';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { mapsDepictingScene } from '../read/maps.js';
+import { rawSurvivors, type SurvivorMap } from '../read/survivors.js';
 import { array, clone, equal, integer, normalize, number, repr, row, sorted, string, truth, type Row } from '../read/values.js';
 import { nowIso } from '../write/store.js';
 import { endings } from '../write/source.js';
@@ -548,7 +549,9 @@ export class Reading {
         const graph = await this.store.readGraph(mid) || {}, key = normalize(name);
         const matched = array(graph.nodes).filter(node => [node.node_id, node.node_id.startsWith(node.node_kind + '-') ? node.node_id.slice(node.node_kind.length + 1) : node.node_id, node.name ?? '', ...array(node.aliases)].some(value => normalize(value) === key)).map(node => node.node_id);
         const ready = new Set(array(row(meta.reading).materials).flatMap(material => array(material.node_ids)));
-        return matched.length > 0 && matched.every(id => ready.has(id));
+        // §191.3: every thing the name names is read when any node of that thing was (its survivor or a copy the map joins).
+        const survivors = rawSurvivors(graph), things = [...new Set(matched.map(id => survivors.id(id)))];
+        return things.length > 0 && things.every(id => survivors.group(id).some(each => ready.has(each)));
     }
     async openingReady(mid: string, focus = ''): Promise<boolean> {
         const meta = await this.store.module(mid);
@@ -1356,10 +1359,11 @@ export class Reading {
      * when those sets meet; an empty focus is its own identity, as the spelled comparison had it.
      */
     private async focusIdentity(mid: string): Promise<(focus: any) => Set<string>> {
-        return Reading.identityOver(array(row(await this.store.readGraph(mid)).nodes));
+        const raw = row(await this.store.readGraph(mid));
+        return Reading.identityOver(array(raw.nodes), rawSurvivors(raw));
     }
-    /** §22.2.1's focus identity over these graph nodes. */
-    private static identityOver(nodes: Row[]): (focus: any) => Set<string> {
+    /** §22.2.1's focus identity over these graph nodes; §191.3: with `survivors`, each node as the node that stands for it. */
+    private static identityOver(nodes: Row[], survivors?: SurvivorMap): (focus: any) => Set<string> {
         // §22.4.3 (SL-36): a place is also named by its display name and the names the book gives the destination
         // (`destination_identity`), which is how a Keeper spells "The Corbitt House" for `corbitt-house-ground`.
         const names = (node: Row): unknown[] => {
@@ -1371,7 +1375,7 @@ export class Reading {
         return (focus: any) => {
             const key = normalize(string(focus ?? ''));
             const ids = key ? nodes.filter(node => typeof node.node_id === 'string'
-                && names(node).some(value => typeof value === 'string' && normalize(value) === key)).map(node => `node:${node.node_id}`) : [];
+                && names(node).some(value => typeof value === 'string' && normalize(value) === key)).map(node => `node:${survivors ? survivors.id(node.node_id) : node.node_id}`) : [];
             return new Set(ids.length ? ids : [`name:${key}`]);
         };
     }

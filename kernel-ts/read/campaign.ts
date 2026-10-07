@@ -277,7 +277,10 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
             matches = array(raw.nodes).filter(n => [n.node_id, stripPrefix(n.node_id, n.node_kind), n.name || "", ...array(n.aliases),
                 ...(graph.nameFree ? [graph.handle(n), graph.interimHandle(n)] : [])].some(v => normalize(v) === key)).map(n => n.node_id);
         const ready = new Set(array(row(meta.reading).materials).flatMap(m => array(m.node_ids)));
-        return matches.length > 0 && matches.every(id => ready.has(id)) ? "ready" : "missing";
+        // §191.3: each thing the name names is read when any node of it was -- its survivor or a copy the survivor map joins
+        // (identity relations, and the cast's fold once the campaign loader installs it).
+        const things = [...new Set(matches.map(id => graph.survivorId(id)))];
+        return things.length > 0 && things.every(id => graph.groupOf(graph.nodes.get(id) ?? { node_id: id }).some(node => ready.has(node.node_id))) ? "ready" : "missing";
     };
     let sections: Row[] = [];
     if (registered && typeof meta.index_file === 'string') {

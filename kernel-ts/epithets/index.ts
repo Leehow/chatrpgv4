@@ -57,7 +57,8 @@ export function createEpithetHandlers(context: KernelContext, writer: ReturnType
             const stored = await readEpithets(campaign);
             const has = (id: string) => !!tableWord(world, id) || !!text(row(row(stored.people)[id]).word);
             const history = prepareNameHistory(records, tellGuard(graph, world, journal));
-            const wanting = untoldBookPeople(graph, journal, history).filter(node => !has(graph.handle(node)));
+            // §191.3: a copy of someone is that person, shown by their word: the lane words the node that stands for them only.
+            const wanting = untoldBookPeople(graph, journal, history).filter(node => !has(graph.handle(node)) && !graph.isVariant(node));
             // §177.5: the people the book names whom the reader has not reached are given a word too, after the graph's people,
             // so the request's rename can show them by it rather than by the cast row's id.
             const unread = untoldUnread(graph, history).filter(person => !has(person.id));

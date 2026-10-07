@@ -4,6 +4,7 @@ import { RpcError } from "../errors.js";
 import { canonicalJson, compareUnicode, isJsonObject, type JsonValue } from "../json.js";
 import { entries, values, array, row, truth, string, repr, integer, normalize, normalizeText, kebab, stripPrefix, sorted, similarity, words, chars, pick, type Row } from "./values.js";
 import { SHAPE_KINDS } from "../modules/mechanics-catalog.js";
+import { SurvivorMap, VISUAL_KINDS } from "./survivors.js";
 export const TEMPLATE_NOTE = "the book's pregenerated investigator, not at this table; the table's investigators are in the capsule's known.investigator";
 /** Contract §185.4: a name-free campaign's map from a book node's id to its handle (`world.node_handles`). */
 export type NodeHandles = ReadonlyMap<string, string>;
@@ -325,11 +326,25 @@ export class ModuleGraph {
     /** §188.3: each book person's word as the request shows them (node id to word), for the candidates of an ambiguous undo. */
     shownWords: ReadonlyMap<string, string> = new Map();
     /**
-     * §188.2: each node of an individual the cast holds more than once (a later page reading wrote someone the graph had again,
-     * under another id), by node id, to the node that stands for them -- their first, whose word the roster shows first.
-     * Installed by the campaign loader with the undo rows (`read/rename-undo.ts`); a name they share is one candidate.
+     * §188.2: the cast's fold -- each node of an individual the cast holds more than once (a later page reading wrote someone the
+     * graph had again, under another id), by node id, to their first node, whose word the roster shows first. Installed by the
+     * campaign loader with the undo rows (`read/rename-undo.ts`). One of the three sources of the survivor map (§191.3).
      */
-    individuals: ReadonlyMap<string, string> = new Map();
+    private fold: ReadonlyMap<string, string> = new Map();
+    private survivorMap: SurvivorMap | null = null;
+    get castFold(): ReadonlyMap<string, string> { return this.fold; }
+    set castFold(value: ReadonlyMap<string, string>) { this.fold = value; this.survivorMap = null; }
+    /**
+     * §188.2 as amended by §191.3: NR-02's people, now a view of the one survivor map -- each person node that another node
+     * stands for, by node id, to that node. Assigning it installs the cast's fold (`castFold`), as the loader did before §191.
+     */
+    get individuals(): ReadonlyMap<string, string> {
+        return new Map(this.kind("npc").flatMap(node => {
+            const id = string(node.node_id), survivor = this.survivorId(id);
+            return survivor === id ? [] : [[id, survivor] as [string, string]];
+        }));
+    }
+    set individuals(value: ReadonlyMap<string, string>) { this.castFold = value; }
     private undoing = false;
     readonly moduleNode: Row | null;
     /** §185.4: each book node's kind as the book gave it (a projected location stays a location) and its interim handle. */
@@ -500,6 +515,8 @@ export class ModuleGraph {
         for (const node of this.nodes.values()) {
             if (!kinds.includes(node.node_kind))
                 continue;
+            // §191.3: two copies of one place are one place, the node that stands for them; a tie between them is none.
+            const survivor = this.survivorId(string(node.node_id));
             for (const authored of [...this.nameKeys(node), ...destinationNames(node)]) {
                 const place = normalize(authored), words = place.split(" ");
                 if (!place)
@@ -508,9 +525,9 @@ export class ModuleGraph {
                 if (!covers)
                     continue;
                 if (!best || words.length > best.length)
-                    best = { length: words.length, nodes: new Set([node.node_id]) };
+                    best = { length: words.length, nodes: new Set([survivor]) };
                 else if (words.length === best.length)
-                    best.nodes.add(node.node_id);
+                    best.nodes.add(survivor);
             }
         }
         return best && best.nodes.size === 1 ? this.nodes.get([...best.nodes][0])! : null;
@@ -688,15 +705,16 @@ export class ModuleGraph {
         if (table.length === 1) return this.nodes.get(table[0][0])!;
         const key = normalize(name),
             wanted = (id: string) => !kinds?.length || kinds.includes(this.nodes.get(id)!.node_kind),
-            exact = [...this.nodes.values()].filter(n => wanted(n.node_id) && key === normalize(this.handle(n)));
+            // §191.3: a variant's handle and node id stay input keys, and name the node that stands for it.
+            exact = this.oneEach([...this.nodes.values()].filter(n => wanted(n.node_id) && key === normalize(this.handle(n))).map(n => string(n.node_id)));
         if (exact.length === 1)
-            return exact[0];
+            return this.nodes.get(exact[0])!;
         // §185.4: in a name-free campaign the identifiers a legacy handle used to be (node id, interim handle, old slug) come
         // next, before any name, as the slug did when it was the handle.
         if (this.nodeHandles) {
-            const identified = [...this.nodes.values()].filter(n => wanted(n.node_id) && [n.node_id, ...this.inputOnlyKeys(n)].some(value => normalize(value) === key));
+            const identified = this.oneEach([...this.nodes.values()].filter(n => wanted(n.node_id) && [n.node_id, ...this.inputOnlyKeys(n)].some(value => normalize(value) === key)).map(n => string(n.node_id)));
             if (identified.length === 1)
-                return identified[0];
+                return this.nodes.get(identified[0])!;
         }
         const ambiguous = (ids: string[]) => markAmbiguity(new RpcError("unknown_entity", `${what} ${repr(name)} is ambiguous`, {
             fix: "use one of details.candidates by its exact name",
@@ -705,7 +723,7 @@ export class ModuleGraph {
                 candidates: sorted(ids).map(id => this.describe(this.nodes.get(id)!))
             }
         }), ids);
-        // §188.2: the copies of one individual are one candidate, the node that stands for them.
+        // §188.2/§191.3: the copies of one thing are one candidate, the node that stands for them.
         const ids = this.oneEach([...(this.names.get(key) ?? [])].filter(wanted));
         if (ids.length === 1)
             return this.nodes.get(ids[0])!;
@@ -787,7 +805,7 @@ export class ModuleGraph {
         try {
             for (const spelling of spellings) {
                 try {
-                    // §188.2: a spelling that reaches a copy by its own handle (a legacy slug) is the individual's first node.
+                    // §188.2/§191.3: a spelling that reaches a copy by its own handle (a legacy slug) is the node that stands for it.
                     const [id] = this.oneEach([string(this.resolve(spelling, kinds, what).node_id)]);
                     found.set(id!, this.nodes.get(id!)!);
                 }
@@ -812,9 +830,9 @@ export class ModuleGraph {
             details: { query: name, reason: "ambiguous", candidates: sorted(ids).map(id => this.shownCandidate(this.nodes.get(id)!)) },
         }), ids);
     }
-    /** §188.2: node ids with the copies of one individual counted once, as the node that stands for them; order kept. */
+    /** §188.2/§191.3: node ids with the copies of one thing counted once, as the node that stands for them; order kept. */
     private oneEach(ids: Iterable<string>): string[] {
-        return [...new Set([...ids].map(id => this.individuals.get(id) ?? id))];
+        return [...new Set([...ids].map(id => this.survivorId(id)))];
     }
     /**
      * §188.3: a candidate of an ambiguous undo as the request shows it -- a book person by their word (`shownWords`), anything
@@ -933,11 +951,15 @@ export class ModuleGraph {
             result.when = when;
         return result;
     }
+    /**
+     * The scene's ways out. §191.3: the union of its group's relations (every copy of the scene the survivor map joins), each
+     * exit named by the scene that stands for its target; a copy of this same scene is no way out of it.
+     */
     sceneExits(scene: Row): Row[] {
-        const exits = new Map<string, Row>();
-        for (const rel of this.out.get(scene.node_id) ?? []) {
-            const target = this.nodes.get(rel.to_node_id);
-            if (!EXIT_KINDS.includes(rel.relation_kind) || target?.node_kind !== "scene")
+        const exits = new Map<string, Row>(), self = new Set(this.groupOf(scene).map(node => string(node.node_id)));
+        for (const rel of this.groupOut(scene)) {
+            const found = this.nodes.get(rel.to_node_id), target = found ? this.survivorOf(found) : undefined;
+            if (!EXIT_KINDS.includes(rel.relation_kind) || target?.node_kind !== "scene" || self.has(string(target.node_id)))
                 continue;
             const entry = this.exitEntry(this.handle(target), row(rel.properties));
             if (rel.relation_kind !== "route-to")
@@ -945,9 +967,9 @@ export class ModuleGraph {
             if (!exits.has(entry.to))
                 exits.set(entry.to, entry);
         }
-        for (const edge of array(recordOf(scene).scene_edges)) {
+        for (const edge of this.groupOf(scene).flatMap(each => array(recordOf(each).scene_edges))) {
             const target = typeof edge.to === "string" ? this.find(edge.to, ["scene"]) : null;
-            if (!target)
+            if (!target || self.has(string(target.node_id)))
                 continue;
             const entry = this.exitEntry(this.handle(target), edge);
             exits.set(entry.to, {
@@ -960,17 +982,18 @@ export class ModuleGraph {
     /**
      * Contract §168.3: the entrance relation (`play-precedes`, `may-lead-to`, `alternative-to`, `hands-off-to` -- the
      * template's `entrance_relation_kinds`, the book's playing order) that leads from `from` to `to`, or null when the
-     * two are joined only by `route-to` (travel between places) or not at all.
+     * two are joined only by `route-to` (travel between places) or not at all. §191.3: from any copy of `from` to any copy of `to`.
      */
     entranceRelation(from: Row, to: Row): string | null {
-        const rel = (this.out.get(from.node_id) ?? []).find(rel => rel.to_node_id === to.node_id && rel.relation_kind !== "route-to" && EXIT_KINDS.includes(rel.relation_kind));
+        const target = this.survivorId(string(to.node_id));
+        const rel = this.groupOut(from).find(rel => this.survivorId(string(rel.to_node_id)) === target && rel.relation_kind !== "route-to" && EXIT_KINDS.includes(rel.relation_kind));
         return rel ? string(rel.relation_kind) : null;
     }
     sceneEndings(scene: Row): Row[] {
         const seen = new Set<string>(),
             result: Row[] = [];
-        for (const rel of this.out.get(scene.node_id) ?? []) {
-            const node = this.nodes.get(rel.to_node_id);
+        for (const rel of this.groupOut(scene)) {
+            const found = this.nodes.get(rel.to_node_id), node = found ? this.survivorOf(found) : undefined;
             if (!node || node.node_kind !== "ending" || seen.has(node.node_id))
                 continue;
             if (result.length >= 4)
@@ -987,13 +1010,19 @@ export class ModuleGraph {
         return result;
     }
     sceneDanglingExits(scene: Row): string[] {
-        return [...new Set((this.out.get(scene.node_id) ?? []).filter(rel => EXIT_KINDS.includes(rel.relation_kind) && !this.nodes.has(string(rel.to_node_id))).map(rel => string(rel.to_node_id)))];
+        return [...new Set(this.groupOut(scene).filter(rel => EXIT_KINDS.includes(rel.relation_kind) && !this.nodes.has(string(rel.to_node_id))).map(rel => string(rel.to_node_id)))];
     }
+    /** §191.3: the clues of the scene's group (authored lists and `discoverable-at`), each as the clue that stands for it. */
     sceneClueIds(scene: Row): string[] {
-        return [...new Set([...array(recordOf(scene).available_clues), ...(this.incoming.get(scene.node_id) ?? []).filter(r => r.relation_kind === "discoverable-at").map(r => r.from_node_id)].filter(id => this.nodes.get(id)?.node_kind === "clue"))];
+        const group = this.groupOf(scene);
+        return [...new Set([...group.flatMap(each => array(recordOf(each).available_clues)), ...this.groupIncoming(scene).filter(r => r.relation_kind === "discoverable-at").map(r => r.from_node_id)]
+            .filter(id => typeof id === "string" && this.nodes.get(id)?.node_kind === "clue").map(id => this.survivorId(id)))];
     }
+    /** §191.3: the people of the scene's group (`present-in` and authored lists), each as the node that stands for them. */
     sceneNpcIds(scene: Row): string[] {
-        return [...new Set([...(this.incoming.get(scene.node_id) ?? []).filter(r => r.relation_kind === "present-in").map(r => r.from_node_id), ...array(recordOf(scene).npc_ids)].filter(id => this.isActor(this.nodes.get(id))))];
+        const group = this.groupOf(scene);
+        return [...new Set([...this.groupIncoming(scene).filter(r => r.relation_kind === "present-in").map(r => r.from_node_id), ...group.flatMap(each => array(recordOf(each).npc_ids))]
+            .filter(id => typeof id === "string" && this.isActor(this.nodes.get(id))).map(id => this.survivorId(id)))];
     }
     /** The scene's assets; a handout already handed over says so (`shown`, from the world's `handouts_shown`; §135.2). */
     sceneAssets(scene: Row, shown: readonly unknown[] = []): Row[] {
@@ -1003,12 +1032,15 @@ export class ModuleGraph {
             ...(node.node_kind === "handout" && shown.includes(this.handle(node)) ? { shown: true } : {})
         }));
     }
-    /** The nodes behind `sceneAssets`: what the scene, or the place it occurs at, depicts or holds (never a clue). */
+    /**
+     * The nodes behind `sceneAssets`: what the scene, or the place it occurs at, depicts or holds (never a clue). §191.3: of
+     * every copy of the scene, each thing as the node that stands for it.
+     */
     sceneAssetNodes(scene: Row): Row[] {
-        const links = [...(this.incoming.get(scene.node_id) ?? [])],
+        const links = [...this.groupIncoming(scene)],
             seen = new Set<string>(),
             result: Row[] = [];
-        for (const rel of this.out.get(scene.node_id) ?? [])
+        for (const rel of this.groupOut(scene))
             if (rel.relation_kind === "occurs-at")
                 links.push(...(this.incoming.get(rel.to_node_id) ?? []).filter(r => r.relation_kind === "depicts"));
         for (const rel of links) {
@@ -1033,19 +1065,28 @@ export class ModuleGraph {
     }
     /**
      * Contract §39.4: the scene, then the places it occurs at, then every place those lie in by
-     * `located-in`, walking outward. Nearest first, each node once, at most eight steps out.
+     * `located-in`, walking outward. Nearest first, each node once, at most eight steps out. §191.3: the scene is the node that
+     * stands for it and every copy's relations are walked; each place is the node that stands for it.
      */
     placesOutward(scene: Row): string[] {
-        const places = [scene.node_id as string], seen = new Set(places);
+        const self = string(this.survivorOf(scene).node_id), places = [self], seen = new Set(this.survivors.group(self));
+        const add = (id: string, into: string[]): void => {
+            const place = this.survivorId(id);
+            if (seen.has(place)) return;
+            for (const each of this.survivors.group(place)) seen.add(each);
+            places.push(place);
+            into.push(place);
+        };
+        const out = (id: string): Row[] => { const node = this.nodes.get(id); return node ? this.groupOut(node) : []; };
         let frontier: string[] = [];
-        for (const rel of this.out.get(scene.node_id) ?? [])
-            if (rel.relation_kind === "occurs-at" && !seen.has(rel.to_node_id)) { seen.add(rel.to_node_id); places.push(rel.to_node_id); frontier.push(rel.to_node_id); }
-        frontier = [scene.node_id, ...frontier];
+        for (const rel of out(self))
+            if (rel.relation_kind === "occurs-at") add(string(rel.to_node_id), frontier);
+        frontier = [self, ...frontier];
         for (let step = 0; step < 8 && frontier.length; step++) {
             const next: string[] = [];
             for (const id of frontier)
-                for (const rel of this.out.get(id) ?? [])
-                    if (rel.relation_kind === "located-in" && !seen.has(rel.to_node_id)) { seen.add(rel.to_node_id); places.push(rel.to_node_id); next.push(rel.to_node_id); }
+                for (const rel of out(id))
+                    if (rel.relation_kind === "located-in") add(string(rel.to_node_id), next);
             frontier = next;
         }
         return places;
@@ -1069,11 +1110,14 @@ export class ModuleGraph {
         return result;
     }
     scenePlaces(scene: Row): Row[] {
-        return this.listedNodes((this.out.get(scene.node_id) ?? []).filter(r => r.relation_kind === "occurs-at").flatMap(r => (this.incoming.get(r.to_node_id) ?? []).filter(inner => inner.relation_kind === "located-in").map(inner => inner.from_node_id)));
+        return this.listedNodes(this.groupOut(scene).filter(r => r.relation_kind === "occurs-at").flatMap(r => (this.incoming.get(r.to_node_id) ?? []).filter(inner => inner.relation_kind === "located-in").map(inner => this.survivorId(string(inner.from_node_id)))));
     }
-    /** The scene's `uses-rule` rows; `extra` adds the keys a caller projects from each node (the capsule's `mech`, §136.11). */
+    /**
+     * The scene's `uses-rule` rows; `extra` adds the keys a caller projects from each node (the capsule's `mech`, §136.11).
+     * §191.3: the rules every copy of the scene uses, each as the node that stands for it.
+     */
     sceneRules(scene: Row, extra?: (node: Row) => Row): Row[] {
-        return this.listedNodes(this.ruleNodes(scene).map(node => node.node_id), extra);
+        return this.listedNodes(this.groupOf(scene).flatMap(each => this.ruleNodes(each)).map(node => this.survivorId(string(node.node_id))), extra);
     }
     /** The nodes a node links by `uses-rule`, in relation order. */
     ruleNodes(node: Row): Row[] {
@@ -1464,9 +1508,14 @@ export class ModuleGraph {
         }
         return result.slice(-8);
     }
+    /**
+     * What the book still owes about a node. §191.3: the needs of every copy of the thing, each focused on the node that stands
+     * for it, so a copy's need asks about the thing the table holds and never about a second one.
+     */
     sourceNeeds(node:Row,runtimeOnly=false):Row[]{
-        return array(this.raw.source_needs).filter(need=>need.node_id===node.node_id&&(!runtimeOnly||need.kind==='runtime_context'))
-            .map(need=>({kind:need.kind,focus:this.handle(node),question:need.question,reason:need.reason,trigger:need.trigger,source_refs:need.source_refs}));
+        const group=new Set(this.groupOf(node).map(each=>string(each.node_id))),focus=this.handle(this.survivorOf(node));
+        return array(this.raw.source_needs).filter(need=>group.has(string(need.node_id))&&(!runtimeOnly||need.kind==='runtime_context'))
+            .map(need=>({kind:need.kind,focus,question:need.question,reason:need.reason,trigger:need.trigger,source_refs:need.source_refs}));
     }
     adaptationOrigin(value: any): Row | null {
         if (!value || typeof value !== 'object') return null;
@@ -1480,41 +1529,43 @@ export class ModuleGraph {
         return {kind: 'campaign_adaptation', reason: chars(string(value.reason), 400),
             sources: array(value.sources).flatMap(id => {const node = this.nodes.get(id); return node ? [{kind: node.node_kind, name: node.name}] : [];})};
     }
-    /**
-     * Contract §152.4: the `variant-of` hops a printed-visual node takes toward the node it stands for. Only a relation
-     * from one visual node (`asset` or `handout`) to another counts; a node with several takes the first in relation
-     * order. The walk stops at a node with no such relation, before revisiting a node, or after `VARIANT_STEPS` hops.
-     */
-    private variantWalk(node: Row): { path: Row[]; hops: Row[]; cycle: number } {
-        const path: Row[] = [node], hops: Row[] = [], seen = new Set<string>([string(node.node_id)]);
-        if (!VISUAL_KINDS.includes(node.node_kind)) return { path, hops, cycle: -1 };
-        let current = node;
-        for (let step = 0; step < VARIANT_STEPS; step++) {
-            const hop = (this.out.get(string(current.node_id)) ?? []).find(rel => rel.relation_kind === "variant-of"
-                && VISUAL_KINDS.includes(this.nodes.get(string(rel.to_node_id))?.node_kind) && rel.to_node_id !== current.node_id);
-            if (!hop) return { path, hops, cycle: -1 };
-            const next = this.nodes.get(string(hop.to_node_id))!;
-            if (seen.has(string(next.node_id))) return { path, hops: [...hops, hop], cycle: path.findIndex(item => item.node_id === next.node_id) };
-            seen.add(string(next.node_id));
-            path.push(next);
-            hops.push(hop);
-            current = next;
-        }
-        return { path, hops, cycle: -1 };
+    /** §191.3: the survivor map, built once per fold (`castFold`) and read lazily. */
+    private get survivors(): SurvivorMap {
+        return this.survivorMap ??= new SurvivorMap(this);
     }
     /**
-     * Contract §152.4: the node a printed-visual variant stands for, following `variant-of` to the node that is not one.
-     * Where the relations close a cycle, the cycle's first node in node-id order stands for all of it, so the survivor of a
-     * survivor is itself. Any node that is not a variant (a scene, a person, a map nobody linked) is its own survivor.
+     * Contract §191.3: the node id that stands for `id` -- kernel identity relations (every kind), §152.4's `variant-of` between
+     * printed visuals, then §188.2's cast fold for people. A node nothing links is its own survivor; so is an id the graph lacks.
+     */
+    survivorId(id: string): string {
+        return this.survivors.id(id);
+    }
+    /**
+     * Contract §152.4/§191.3: the node a variant stands for. Where the relations close a cycle, the cycle's first node in node-id
+     * order stands for all of it, so the survivor of a survivor is itself. Any node nothing links is its own survivor.
      */
     survivorOf(node: Row): Row {
-        const walk = this.variantWalk(node);
-        if (walk.cycle < 0) return walk.path[walk.path.length - 1];
-        return [...walk.path.slice(walk.cycle)].sort((a, b) => compareUnicode(string(a.node_id), string(b.node_id)))[0];
+        return this.nodes.get(this.survivorId(string(node.node_id))) ?? node;
     }
-    /** Contract §152.4: a printed visual the reviewer found to be the same print as another; map and handout readers skip it. */
+    /** §191.3: the survivor by relations alone, without the cast's fold: what the cast itself groups by (`bookCast`). */
+    linkedSurvivorOf(node: Row): Row {
+        return this.nodes.get(this.survivors.linkedId(string(node.node_id))) ?? node;
+    }
+    /** Contract §152.4/§191.3: a node another stands for; readers that list things skip it and read its survivor. */
     isVariant(node: Row): boolean {
-        return this.survivorOf(node).node_id !== node.node_id;
+        return this.survivorId(string(node.node_id)) !== node.node_id;
+    }
+    /** §191.3: the nodes that read as one thing with `node`, its survivor first, then the graph's order. */
+    groupOf(node: Row): Row[] {
+        return this.survivors.group(string(node.node_id)).map(id => this.nodes.get(id)).filter((item): item is Row => !!item);
+    }
+    /** §191.3: the relations leaving any node of `node`'s group, the survivor's first. */
+    private groupOut(node: Row): Row[] {
+        return this.groupOf(node).flatMap(each => this.out.get(string(each.node_id)) ?? []);
+    }
+    /** §191.3: the relations reaching any node of `node`'s group, the survivor's first. */
+    private groupIncoming(node: Row): Row[] {
+        return this.groupOf(node).flatMap(each => this.incoming.get(string(each.node_id)) ?? []);
     }
     /**
      * Contract §152.4: which region of `survivor` each region of `variant` is, as the reviewer matched them on the
@@ -1525,7 +1576,7 @@ export class ModuleGraph {
     regionCorrespondence(variant: Row, survivor: Row): Record<string, string> {
         if (variant.node_id === survivor.node_id) return {};
         // A survivor inside a cycle is still on the path: the walk lists every node once before it would revisit one.
-        const walk = this.variantWalk(variant), end = walk.path.findIndex((node, index) => index > 0 && node.node_id === survivor.node_id);
+        const walk = this.survivors.walk(variant), end = walk.path.findIndex((node, index) => index > 0 && node.node_id === survivor.node_id);
         if (end <= 0) return {};
         let mapped: Record<string, string> | null = null;
         for (const hop of walk.hops.slice(0, end)) {
@@ -1556,7 +1607,3 @@ export class ModuleGraph {
         return out;
     }
 }
-/** Contract §152.4: the node kinds a printed visual is published as, the only ends a `variant-of` hop is read between. */
-const VISUAL_KINDS: readonly string[] = ["asset", "handout"];
-/** Contract §152.4: the most `variant-of` hops a survivor walk takes. */
-const VARIANT_STEPS = 64;

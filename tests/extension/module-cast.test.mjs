@@ -654,8 +654,13 @@ test('§188.2: a later reading that writes someone the graph has again, under an
 	const hers = stored.people.find(row => row.book.includes('Old Mae')).id;
 	const job = await h.call('epithets.job');
 	assert.ok(!job.people.some(person => person.id === hers), `her row is no one the lane is asked to word: ${JSON.stringify(job.people)}`);
+	// §191.3: the cast's fold makes her second node a variant; the lane words the node that stands for her, once, and a word
+	// sent under the copy's handle is hers, so the second one in a batch is already settled.
+	const asked = job.people.filter(person => copies.includes(person.id)).map(person => person.id);
+	assert.equal(asked.length, 1, `the lane is asked to word her once: ${JSON.stringify(job.people)}`);
 	const words = {[copies[0]]: 'the net mender', [copies[1]]: 'the woman by the cellar'};
-	assert.equal((await h.call('epithets.submit', {entries: copies.map(id => ({id, word: words[id]}))})).written.length, 2);
+	const submitted = await h.call('epithets.submit', {entries: copies.map(id => ({id, word: words[id]}))});
+	assert.deepEqual([submitted.written.map(entry => entry.id), submitted.refused.map(entry => entry.reason)], [asked, ['settled']], JSON.stringify(submitted));
 	await h.call('table.player_input', {text: 'I walk along the dock.'});
 	const roster = (await h.call('table.untold')).people;
 	const rows = roster.filter(row => ['Old Mae', 'Mae'].includes(row.name));
@@ -757,15 +762,17 @@ test('§188.2: a copy joins only the row it shares a whole identity with both wa
 
 test('§188.2: the journal lane reads a second copy of someone as that person, with every name the cast gives them', async t => {
 	const h = await harbor(t);
-	await readCast(h);
 	// The copy carries only "Old Mae"; the book also prints "Mae" alone, which only her cast row holds.
 	await h.read('detail', {nodes: [{node_id: 'npc-old-mae-nets', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 3}],
 		summary: 'She mends nets; her boy drowned.'}], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['npc-old-mae-nets']},
 		['/nodes/0', '/coverage'], {focus: 'Tower', campaign: CAMPAIGN});
+	// Each node was worded while the two stood apart; then the cast reader's row joins them (§188.2), and since §191.3 the copy
+	// reads as the node that stands for her: her copy's word still names her.
 	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}, {id: 'old-mae-nets', word: 'the woman by the cellar'}]});
+	await readCast(h);
 	await h.call('table.player_input', {text: 'I ask the woman by the cellar about the tide.'});
 	const said = await h.call('table.narrate', {call_id: 't1-c1', text: 'She shrugs. {{say:the woman by the cellar}}"Mind the cellar at high tide."{{/say}}'});
-	assert.equal(said.speech[0].who.npc, await handleOf(h, 'npc-old-mae-nets'), 'the second copy speaks');
+	assert.equal(said.speech[0].who.npc, await handleOf(h, 'npc-old-mae'), 'her copy\'s word names her');
 	const job = await h.call('journal.job', {turn: 1});
 	await assert.rejects(h.call('journal.submit', {job_id: job.job_id, lease: job.lease, entries: [{name: 'Old Mae', label: 'Mae by the cellar'}]}),
 		error => error?.details?.reason === 'untold_name' && /the book gives 'Old Mae'/.test(error?.message ?? ''),
@@ -774,11 +781,12 @@ test('§188.2: the journal lane reads a second copy of someone as that person, w
 
 test('§188.1 with §188.2: a copy\'s own word never shields that person\'s name from the told check', async t => {
 	const h = await harbor(t);
-	await readCast(h);
 	await h.read('detail', {nodes: [{node_id: 'npc-old-mae-nets', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 3}],
 		summary: 'She mends nets; her boy drowned.'}], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['npc-old-mae-nets']},
 		['/nodes/0', '/coverage'], {focus: 'Tower', campaign: CAMPAIGN});
+	// Worded apart before the cast joined them (§191.3: since then the lane words only the node that stands for her).
 	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}, {id: 'old-mae-nets', word: 'the woman by the cellar'}]});
+	await readCast(h);
 	await h.call('table.player_input', {text: 'I ask them both their names.'});
 	// The name token makes her name the second copy's word (§103.8); both copies speak, so the journal's floor reads both.
 	await h.call('table.narrate', {call_id: 't1-c1', text: '{{say:the net mender}}"Ask her."{{/say}} {{say:the woman by the cellar}}"It is {{name:the woman by the cellar}}."{{/say}}'});

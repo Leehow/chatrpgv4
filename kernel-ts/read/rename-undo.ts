@@ -50,7 +50,9 @@ export function renameUndoRows(graph: ModuleGraph, world: Row, journal: Row): { 
 
 /**
  * §188.2: each node of an individual the graph holds more than once, by node id, to the node that stands for them: their
- * first node (`CastPerson.node`), whose word the roster shows first (`rosterWord`). `resolve` counts them as one candidate.
+ * first node (`CastPerson.node`), whose word the roster shows first (`rosterWord`). Since §191.3 this is the cast's fold, one
+ * source of the graph's survivor map (`ModuleGraph.castFold`); a person whose copies an identity relation joins is one cast
+ * person already, with the survivor as their first node.
  */
 export function individualNodes(graph: ModuleGraph): Map<string, string> {
     return new Map(bookCast(graph).filter(person => person.node && person.nodes.length > 1)
@@ -69,5 +71,5 @@ export async function installRenameUndo(context: KernelContext, campaign: string
     const { rows, words } = renameUndoRows(graph, world, journal);
     graph.renameUndo = rows;
     graph.shownWords = words;
-    graph.individuals = individualNodes(graph);
+    graph.castFold = individualNodes(graph);
 }

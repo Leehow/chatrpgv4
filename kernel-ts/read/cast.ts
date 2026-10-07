@@ -155,14 +155,27 @@ const addNames = (into: string[], names: readonly string[]) => {
 export function bookCast(graph: ModuleGraph): CastPerson[] {
     const cached = memo.get(graph);
     if (cached) return cached;
-    const people: CastPerson[] = graph.kind('npc').filter(node => !graph.isTablePerson(node))
-        .map(node => ({ id: graph.handle(node), names: bookNames(graph, node), pages: pagesOf(graph, node), node, nodes: [node], castIds: [] as string[], printed: [] as string[] }));
+    // §191.3: nodes a kernel identity relation makes one thing are one person from the start, the node that stands for them
+    // first; the cast's own fold below joins people further. Each person sits where the first of their nodes does.
+    const linked = new Map<string, Row[]>();
+    for (const node of graph.kind('npc').filter(node => !graph.isTablePerson(node))) {
+        const survivor = graph.linkedSurvivorOf(node), key = string(survivor.node_id), nodes = linked.get(key) ?? [];
+        if (node === survivor || string(node.node_id) === key) nodes.unshift(node); else nodes.push(node);
+        linked.set(key, nodes);
+    }
+    const people: CastPerson[] = [...linked.values()].map(nodes => {
+        const names: string[] = bookNames(graph, nodes[0]!);
+        for (const node of nodes.slice(1)) addNames(names, bookNames(graph, node));
+        return { id: graph.handle(nodes[0]!), names, pages: [...new Set(nodes.flatMap(node => pagesOf(graph, node)))].sort((a, b) => a - b),
+            node: nodes[0]!, nodes, castIds: [] as string[], printed: [] as string[] };
+    });
     const rows = storedRows(graph);
     // A row and a graph person share a whole identity, never only a short form: the person's own name is one of the row's forms
     // (`own`), or the row's fullest form is one of the person's names (`fullest`). Table 24: the reader gave the bar owner and
     // the doctor one bare first name, which the bar owner's node also carries as an alias; the doctor's row must not join him
     // by it. Read from the graph's own names and the row alone, so no row's join depends on the rows read before it.
-    const ownNames = people.map(person => new Set([person.node!.name, graph.displayName(person.node!)]
+    // §191.3: a person whose copies are joined owns the own names of every copy.
+    const ownNames = people.map(person => new Set(person.nodes.flatMap(node => [node.name, graph.displayName(node)])
         .filter((value): value is string => typeof value === 'string' && !!value.trim()).map(normalize)));
     const keys = people.map(person => new Set(person.names.map(normalize)));
     const links = rows.map(stored => people.flatMap((_, index) => {
@@ -204,7 +217,7 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
         const target = people[into[index]!]!;
         addNames(target.names, person.names);
         target.pages = [...new Set([...target.pages, ...person.pages])].sort((a, b) => a - b);
-        target.nodes.push(person.node!);
+        target.nodes.push(...person.nodes);
     });
     const unread: CastPerson[] = [];
     rows.forEach((stored, at) => {

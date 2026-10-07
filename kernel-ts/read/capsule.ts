@@ -75,7 +75,8 @@ export function calledOwners(world: Row, name: string): string[] {
  * the Keeper meant is not something a record can answer, so it is refused, never picked.
  */
 export function calledPerson(graph: ModuleGraph, world: Row, name: string): Row | null {
-    const owners = calledOwners(world, name).flatMap(id => { const node = graph.find(id, ['npc']); return node ? [node] : []; });
+    // §191.3: two ids that read as one person (a copy's handle and the handle of the node that stands for it) are one owner.
+    const owners = [...new Map(calledOwners(world, name).flatMap(id => { const node = graph.find(id, ['npc']); return node ? [[string(node.node_id), node] as [string, Row]] : []; })).values()];
     if (owners.length > 1)
         throw new RpcError('unknown_entity', `this table calls more than one person ${repr(name)}`, {
             fix: 'name one of details.candidates by its name; apply person gives one of them another word',
@@ -258,7 +259,7 @@ export function rosterWord(graph: ModuleGraph, world: Row, journal: Row, person:
     if (!person.node)
         return tableWord(world, person.id) || person.id;
     // §188.2: an individual the graph holds more than once is shown by one word: their first node's, the node `resolve` lands
-    // on (`ModuleGraph.individuals`), else the first other copy's that has one.
+    // on (`ModuleGraph.survivorOf`, §191.3), else the first other copy's that has one.
     const word = (node: Row) => (tableWord(world, graph.handle(node)) || string(row(row(journal.entries)[string(node.node_id)]).label || "")).trim();
     return person.nodes.map(word).find(Boolean) || person.id;
 }
@@ -419,7 +420,8 @@ export function withinSection(graph: ModuleGraph, world: Row, scene: Row, materi
     const relation = (graph.out.get(scene.node_id) ?? []).find(rel => rel.relation_kind === "located-in" && graph.nodes.has(rel.to_node_id));
     if (!relation)
         return undefined;
-    const place = graph.nodes.get(relation.to_node_id)!, here = graph.handle(scene), presence = row(world.npc_presence);
+    // §191.3: the place is the node that stands for it; its people are its group's, seated by an entry under any handle.
+    const place = graph.survivorOf(graph.nodes.get(relation.to_node_id)!), here = sceneHandles(graph, scene), presence = presenceThrough(graph, world);
     const display = graph.placeName(place);
     const within: Row = {
         name: graph.handle(place),
@@ -428,7 +430,7 @@ export function withinSection(graph: ModuleGraph, world: Row, scene: Row, materi
         exits: place.node_kind === "scene" ? exitRows(graph, world, place, material) : [],
         people: graph.sceneNpcIds(place).map(id => {
             const node = graph.nodes.get(id)!, name = graph.handle(node), shown = graph.displayName(node);
-            return { name, ...(shown !== name ? { display_name: shown } : {}), seated: presence[name] === here };
+            return { name, ...(shown !== name ? { display_name: shown } : {}), seated: here.has(presence.get(id)?.at ?? "") };
         }),
         clues: graph.sceneClueIds(place).length,
         material: material(place.node_id)
@@ -449,15 +451,16 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         // The cue and what taking it yields belong in one row (contract §31.3, §32.5). The authored
         // field is `grants_clue_ids`; `clue_id` is the older singular spelling, and the first
         // granted clue keeps the `clue` key the §6 shape has always had.
-        const granted = [...array(aff.grants_clue_ids), ...(typeof aff.clue_id === "string" ? [aff.clue_id] : [])]
-            .filter((id, index, all) => typeof id === "string" && graph.nodes.has(id) && all.indexOf(id) === index)
+        // §191.3: each granted clue as the clue that stands for it, once.
+        const granted = [...new Set([...array(aff.grants_clue_ids), ...(typeof aff.clue_id === "string" ? [aff.clue_id] : [])]
+            .filter(id => typeof id === "string" && graph.nodes.has(id)).map(id => graph.survivorId(id)))]
             .map(id => graph.nodes.get(id)!);
         if (granted.length) {
             entry.clue = graph.handle(granted[0]);
             entry.clues = granted.map(node => ({
                 clue: graph.handle(node),
                 gate: clueGate(graph, node, world),
-                discovered: array(world.discovered_clues).includes(graph.handle(node))
+                discovered: clueDiscovered(graph, world, node)
             }));
         }
         const npc = row(aff.npc_interaction).npc_id;
@@ -531,13 +534,34 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         }
     return where;
 }
-export function npcsPresent(graph: ModuleGraph, world: Row, scene: Row): Row[] {
-    return entries(row(world.npc_presence)).flatMap(([handle, at]) => {
-        if (at !== graph.handle(scene))
-            return [];
+/**
+ * §191.3: where the ledger has each actor (`world.npc_presence`), read through survivors: an entry under a variant's handle is
+ * the node that stands for it. The survivor's own entry wins over a variant's, which only stands in while the survivor has none
+ * (a write after an identity relation lands under the survivor's handle). Each actor once, in the ledger's order.
+ */
+export function presenceThrough(graph: ModuleGraph, world: Row): Map<string, { node: Row; at: string }> {
+    const found = new Map<string, { node: Row; at: string; own: boolean }>();
+    for (const [handle, at] of entries(row(world.npc_presence))) {
         const node = graph.actor(handle);
-        return node ? [node] : [];
-    });
+        if (!node || typeof at !== "string") continue;
+        const id = string(node.node_id), own = handle === graph.handle(node) || (graph.nameFree && graph.sameNode(handle, node)), prior = found.get(id);
+        if (!prior || (own && !prior.own)) found.set(id, { node, at, own });
+    }
+    return new Map([...found].map(([id, { node, at }]) => [id, { node, at }]));
+}
+/** §191.3: the scene handles that are this scene -- every node of its group -- for a presence value written under any of them. */
+const sceneHandles = (graph: ModuleGraph, scene: Row): Set<string> => new Set(graph.groupOf(scene).map(node => graph.handle(node)));
+export function npcsPresent(graph: ModuleGraph, world: Row, scene: Row): Row[] {
+    const here = sceneHandles(graph, scene);
+    return [...presenceThrough(graph, world).values()].flatMap(({ node, at }) => here.has(at) ? [node] : []);
+}
+/**
+ * §191.3: whether the table found a clue: `world.discovered_clues` holds the handle of any node of the clue's group, the clue
+ * that stands for it or a copy found before the two were joined.
+ */
+export function clueDiscovered(graph: ModuleGraph, world: Row, clue: Row): boolean {
+    const found = array(world.discovered_clues);
+    return graph.groupOf(clue).some(node => found.includes(graph.handle(node)));
 }
 export function cluesHere(graph: ModuleGraph, world: Row, scene: Row): Row[] {
     return graph.sceneClueIds(scene).map(id => {
@@ -547,7 +571,7 @@ export function cluesHere(graph: ModuleGraph, world: Row, scene: Row): Row[] {
         return {
             ...view,
             gate: clueGate(graph, node, world),
-            discovered: array(world.discovered_clues).includes(view.name)
+            discovered: clueDiscovered(graph, world, node)
         };
     });
 }
@@ -1173,8 +1197,9 @@ export function windowOrder(nodes: Row[], window: RosterWindow): Row[] {
     const near = (node: Row) => array(node.source_refs).some(ref => integer(row(ref).pdf_index) && number(ref.pdf_index) + 1 >= window.first && number(ref.pdf_index) + 1 <= window.last);
     return [...nodes.filter(near), ...nodes.filter(node => !near(node))];
 }
+/** §191.3: the brief lists each thing once: a node another stands for is never a roster line of its own. */
 function rosterNodes(graph: ModuleGraph, kind: string): Row[] {
-    return kind === 'location' ? array(graph.raw.nodes).filter(node => node.node_kind === 'location') : graph.kind(kind);
+    return (kind === 'location' ? array(graph.raw.nodes).filter(node => node.node_kind === 'location') : graph.kind(kind)).filter(node => !graph.isVariant(node));
 }
 export function moduleSection(graph: ModuleGraph, size = 120, window?: RosterWindow): Row {
     const module = graph.moduleNode || {},
@@ -1190,8 +1215,8 @@ export function moduleSection(graph: ModuleGraph, size = 120, window?: RosterWin
         factions: roster(["faction", "organization"]),
         places: roster(["location"]),
         people: roster(["npc"]),
-        endings: graph.kind("ending").map(n => graph.displayName(n)),
-        conclusions: graph.kind("conclusion").map(n => graph.displayName(n)),
+        endings: rosterNodes(graph, "ending").map(n => graph.displayName(n)),
+        conclusions: rosterNodes(graph, "conclusion").map(n => graph.displayName(n)),
         structure_type: structureType(graph)
     };
 }
@@ -1213,7 +1238,7 @@ export function fittedModuleSection(graph: ModuleGraph, budget = 2048, window?: 
     // §180.4: the book's creatures, in the same roster form as its people, ride only on what the fit above leaves. They
     // are cut first and never cost a person, a place or an ending its line, and the roster is absent when the book has
     // none or none fits.
-    const creatures: Row[] = [], bookCreatures = windowOrder(graph.kind("creature"), window);
+    const creatures: Row[] = [], bookCreatures = windowOrder(rosterNodes(graph, "creature"), window);
     for (const node of bookCreatures) {
         const entry = { name: graph.displayName(node), line: oneLine(graph, node, lineSize) };
         if (jsonSize({ ...section, creatures: [...creatures, entry] }) > budget) {
@@ -1226,7 +1251,7 @@ export function fittedModuleSection(graph: ModuleGraph, budget = 2048, window?: 
         section.creatures = creatures;
     // §187.4: how many lines of each roster the fit removed, so the Keeper knows the book holds more than it shows.
     const more = {
-        people: graph.kind("npc").length - array(section.people).length,
+        people: rosterNodes(graph, "npc").length - array(section.people).length,
         places: rosterNodes(graph, "location").length - array(section.places).length,
         creatures: bookCreatures.length - creatures.length
     };
