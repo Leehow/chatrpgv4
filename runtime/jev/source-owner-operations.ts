@@ -3,7 +3,7 @@ import { ContractError, isPlainRecord, type Json, type ObservationPacket, type S
 import { issueSourceRef, resolveSourceRef } from './source-ref.ts';
 import {nativeSourceState,nativeSourceParts,nativeConsultationApproval,SOURCE_CONSULT_CAPABILITY,
   type NativeConsultationApproval as NativeApproval,type SourceBinding} from './native-source-domain.ts';
-import {nativeSourceCatalog,type NativeTextBundle,type NativeSourceCatalog} from './native-source-catalog.ts';
+import {mergeSourceCatalogs,nativeSourceCatalog,sourceLayerOf,type NativeTextBundle,type NativeSourceCatalog} from './native-source-catalog.ts';
 import type { OwnedOperation } from '../../extensions/kernel/canonical-operation-dispatcher.ts';
 import type { TaskRuntime, TaskView } from './task-runtime.ts';
 
@@ -20,6 +20,8 @@ export interface NativeConsultationMaterializerPort {
   call(method:string,params:Record<string,unknown>):Promise<Record<string,any>>;
   sourceInfo(pdf:string,signal:AbortSignal):Promise<{file_sha256:string;page_count:number}>;
   sourceText(pdf:string,pages:number[],expectedSha:string,signal:AbortSignal):Promise<NativeTextBundle>;
+  /** §191.7: the transcript layer of pages that have one (a `transcript-v1` bundle); absent, a transcript part cannot be re-read. */
+  transcriptText?(pdf:string,pages:number[],expectedSha:string,signal:AbortSignal):Promise<NativeTextBundle>;
 }
 export async function materializeNativeConsultation(input:{port:NativeConsultationMaterializerPort;moduleId:string;campaign?:string;
   scope:Parameters<typeof nativeSourceCatalog>[0];question:string;binding:SourceBinding;catalog:NativeSourceCatalog;
@@ -35,11 +37,22 @@ export async function materializeNativeConsultation(input:{port:NativeConsultati
   const actual=await input.port.sourceInfo(current.pdf,input.signal);
   input.signal.throwIfAborted();
   if(actual.file_sha256!==input.binding.file_sha256||actual.page_count!==input.binding.page_count)throw new ContractError('source_binding_stale');
-  const pages=[...new Set(selected.map(part=>part.page))].sort((a,b)=>a-b);
-  const bundle=await input.port.sourceText(current.pdf,pages,input.binding.file_sha256,input.signal);
-  if(bundle.page_count!==input.binding.page_count||bundle.extraction_version!==input.catalog.extractionVersion)
-    throw new ContractError('source_binding_stale');
-  const fresh=nativeSourceCatalog(input.scope,bundle,input.binding.file_sha256),snapshots=new Map(fresh.snapshots.map(snapshot=>[snapshot.resource,snapshot]));
+  // §191.7: each selected part is re-read in the layer it was read in, against that layer's version.
+  const pagesOf=(layer:'native'|'transcript')=>[...new Set(selected.filter(part=>sourceLayerOf(part.ref.resource)===layer).map(part=>part.page))].sort((a,b)=>a-b);
+  const nativePages=pagesOf('native'),transcriptPages=pagesOf('transcript'),catalogs:NativeSourceCatalog[]=[];
+  if(nativePages.length){
+    const bundle=await input.port.sourceText(current.pdf,nativePages,input.binding.file_sha256,input.signal);
+    if(bundle.page_count!==input.binding.page_count||bundle.extraction_version!==(input.catalog.layers?.native??input.catalog.extractionVersion))
+      throw new ContractError('source_binding_stale');
+    catalogs.push(nativeSourceCatalog(input.scope,bundle,input.binding.file_sha256));
+  }
+  if(transcriptPages.length){
+    if(!input.port.transcriptText)throw new ContractError('source_binding_stale');
+    const bundle=await input.port.transcriptText(current.pdf,transcriptPages,input.binding.file_sha256,input.signal);
+    if(bundle.page_count!==input.binding.page_count||bundle.extraction_version!==input.catalog.layers?.transcript)throw new ContractError('source_binding_stale');
+    catalogs.push(nativeSourceCatalog(input.scope,bundle,input.binding.file_sha256,'transcript'));
+  }
+  const fresh=mergeSourceCatalogs(catalogs,[...nativePages,...transcriptPages]),snapshots=new Map(fresh.snapshots.map(snapshot=>[snapshot.resource,snapshot]));
   const excerpts=selected.map(part=>({alias:part.alias,page:part.page,text:resolveSourceRef(part.ref,{
     scope:input.scope,mode:'active',read:resource=>snapshots.get(resource),currentRevision:resource=>snapshots.get(resource)?.revision})}));
   input.signal.throwIfAborted();

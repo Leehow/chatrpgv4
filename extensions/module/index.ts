@@ -131,6 +131,12 @@ export default function (pi: ExtensionAPI) {
         backfillOutline();
     });
     pi.events.on("coc:turn-committed", data => {if(record(data).campaign === campaign)wake("turn-committed");});
+    // §191.6: a reader outside this extension (the Keeper prescreen's consultation) read pages natively that it wanted now.
+    pi.events.on("coc:transcript-wanted", data => {
+        const row = record(data), pages = Array.isArray(row.pages) ? row.pages.filter((page: unknown) => Number.isSafeInteger(page) && (page as number) >= 1) : [];
+        if (stopped || typeof row.pdf !== "string" || typeof row.file_sha256 !== "string" || !pages.length) return;
+        reading?.wantTranscripts({ pdf: row.pdf, file_sha256: row.file_sha256, pages });
+    });
     pi.events.on("coc:source-work-queued", data => {
         if(record(data).campaign === campaign && record(data).module_id === moduleId)wake("scene-queued");
     });

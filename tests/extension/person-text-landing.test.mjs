@@ -172,7 +172,7 @@ function distinctNotes(requests) {
 }
 const views = (requests, focus) => distinctNotes(requests).flatMap(({ request, note }) => (note.carried?.views ?? []).filter((view) => view.focus === focus).map((view) => ({ request, view })));
 
-async function seam(t, { responses }) {
+async function seam(t, { responses, layers = {} }) {
 	const engine = createHybridEngine({ env: process.env, decision: null });
 	const requests = [];
 	const table = await openTable({ realKernel: true, seedCampaign: false, prepareWorkspace: harbor,
@@ -190,7 +190,7 @@ async function seam(t, { responses }) {
 			throw Object.assign(new Error("the source is still being read"), { code: "needs", details: { reason: "reading_timeout", read: { purpose: "detail", focus: params.focus } } });
 		},
 		reading() { return false; },
-		async sourcePages(_mid, pages) { extractions.push(pages); return pages.map((page) => ({ page, text: PAGES[page - 1] ?? "" })); },
+		async sourcePages(_mid, pages) { extractions.push(pages); return pages.map((page) => ({ page, text: PAGES[page - 1] ?? "", ...(layers[page] ? { layer: layers[page] } : {}) })); },
 	});
 	return { table, requests, ensures, extractions, land };
 }
@@ -234,6 +234,17 @@ test("§22.4.7.1 at the seam: the write lands on the book's text in one call, th
 	await table.session.prompt("I wait.");
 	assert.ok(!clerkNotes(requests[3]).some((row) => (row.carried?.views ?? []).some((view) => view.focus === "person_record")), "and never again");
 	assert.deepEqual(table.telemetry(CAMPAIGN).filter((row) => row.lane === "reading" && String(row.event).startsWith("person_record")).map((row) => row.event), ["person_record_landed"]);
+});
+
+test("§191.7 at the seam: the person_text row records the layer its pages were read in; the Keeper is carried the pages without it", async (t) => {
+	const { table, requests } = await seam(t, { layers: { 2: "transcript", 1: "native", 3: "native" },
+		responses: [placeOn("Silas Marsh"), narrate("The keeper squints at you.")] });
+	await table.session.prompt("I size up the lamp keeper.");
+	assert.deepEqual(table.telemetry(CAMPAIGN).filter((row) => row.event === "person_text").map((row) => [row.pages, row.layer, row.transcript_pages]),
+		[[[1, 2, 3], "mixed", [2]]]);
+	const texts = views(requests, "person_text");
+	assert.equal(texts.length, 1);
+	assert.ok(!JSON.stringify(texts[0].view).includes("transcript"), "the layer is the host's telemetry, not the Keeper's text");
 });
 
 test("§22.4.7.1 at the seam: a person the book's text nowhere names keeps the foreground wait", async (t) => {

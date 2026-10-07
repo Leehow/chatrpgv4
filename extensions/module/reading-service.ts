@@ -11,6 +11,7 @@ import { salvageInterruptedRead } from "./read-salvage.ts";
 import { accountingFields, readingAccounting, tallyChildJev, tallyFirstCall, tallyReadingRow } from "./reading-accounting.ts";
 import { readerInstructionText } from "../../runtime/reader-instructions.ts";
 import { sourceAsset, closeSourceDocuments, sourceRenderVersion, sourceTextVersion } from "./source.ts";
+import { readingText } from "./source-page-text.ts";
 import { registerSourcePdf, SourceUnreadable } from "./source-registration.ts";
 import {successfulImageDeliveries} from './reader-image-delivery.ts';
 import {requireCheckedSourceReceipt} from './reader-source-receipt.ts';
@@ -46,8 +47,11 @@ export interface ReadingOptions {providerBudget?:TaskProviderBudget; allowanceMs
 	 * reads, so it keeps its blocking slot (§22.4.6) until it settles, though no call waits on it.
 	 */
 	blocking?: boolean}
-/** §22.4.7: one page of the bound document's native text, as the reading service extracts it. */
-export interface SourcePageText {page: number; pdf_label?: string; text: string}
+/**
+ * §22.4.7: one page of the bound document's text, as the reading service extracts it. §191.7: `text` is the page
+ * transcript's reading version when `layer` is `transcript`, the native text otherwise.
+ */
+export interface SourcePageText {page: number; pdf_label?: string; text: string; layer?: "transcript" | "native"}
 type Row = Record<string, any>;
 type Call = (method: string, params: Row) => Promise<any>;
 /** A complete supported review missing issued pointers needs review repair, not source re-authoring. */
@@ -155,6 +159,25 @@ interface Dependencies {
 	transcripts?: import("./transcript-service.ts").TranscriptService;
 }
 const realWaitTimer = (callback: () => void, ms: number): (() => void) => { const timer = setTimeout(callback, ms); return () => clearTimeout(timer); };
+/**
+ * §190.1 + §191.7: the window places' pages -- the native text (`text`, which a minted place's excerpt copies byte for byte)
+ * and, for a page with a stored transcript, its reading version (`reading`, which the place question's first lines read).
+ * A runtime without `sourcePageText` gives native text only.
+ */
+export async function windowPlacePages(runtime: HostRuntime, pdf: string, sha: string, pages: number[], signal?: AbortSignal): Promise<Array<{page: number; text: string; reading?: string}>> {
+	const native = new Map<number, string>(), reading = new Map<number, string>();
+	const nativeOf = async (wanted: number[]) => { for (const row of (await runtime.sourceText({ pdf, pages: wanted, expected_file_sha256: sha }, signal)).snapshots ?? [])
+		native.set(row.page, typeof row.text === "string" ? row.text : ""); };
+	if (typeof runtime.sourcePageText !== "function") await nativeOf(pages);
+	else {
+		for (const row of (await runtime.sourcePageText({ pdf, pages, expected_file_sha256: sha, layer: "preferred" }, signal)).pages ?? []) {
+			if (row.layer === "transcript") reading.set(row.page, readingText(row));
+			else native.set(row.page, typeof row.text === "string" ? row.text : "");
+		}
+		if (reading.size) await nativeOf([...reading.keys()]);
+	}
+	return pages.filter(page => native.has(page)).map(page => ({ page, text: native.get(page)!, ...(reading.has(page) ? { reading: reading.get(page)! } : {}) }));
+}
 interface PendingReading {
 	providerBudget?:TaskProviderBudget;
 	waiters: number;
@@ -630,15 +653,34 @@ export class ReadingService implements ReadingBridge {
 	}
 
 	/**
-	 * §22.4.7 (SL-47): the native text of `pages` of the module's bound document, read with the same extraction the
-	 * prescreen uses (`sourceText`, pinned to the document's digest). Read-only; costs no model call.
+	 * §22.4.7 (SL-47): the text of `pages` of the module's bound document, pinned to the document's digest. Read-only; costs
+	 * no model call. §191.7: a page with a stored page transcript reads its reading version (`layer: "transcript"`), any
+	 * other page its native text (`sourceText`'s extraction) at once; such a page is put at the front of the transcript queue
+	 * (`ensure`, foreground, never awaited) unless `params.transcribe` is false. A runtime without `sourcePageText` is native.
 	 */
 	async sourcePages(mid: string, pages: number[], params: Row = {}, signal?: AbortSignal): Promise<SourcePageText[]> {
-		const campaign = this.campaign(params);
+		const campaign = this.campaign(params), runtime = this.runtime();
 		const snapshot = await this.call("module.source.snapshot", { module_id: mid }, campaign);
-		const bundle = await this.runtime().sourceText({ pdf: snapshot.pdf, pages, expected_file_sha256: snapshot.file_sha256 }, signal);
-		return (bundle.snapshots ?? []).map((row: Row) => ({ page: row.page, ...(typeof row.pdf_label === "string" && row.pdf_label ? { pdf_label: row.pdf_label } : {}),
-			text: typeof row.text === "string" ? row.text : "" }));
+		const request = { pdf: snapshot.pdf, pages, expected_file_sha256: snapshot.file_sha256 };
+		const rows: Row[] = typeof runtime.sourcePageText === "function"
+			? ((await runtime.sourcePageText({ ...request, layer: "preferred" }, signal)).pages ?? [])
+			: ((await runtime.sourceText(request, signal)).snapshots ?? []).map((row: Row) => ({ ...row, layer: "native" }));
+		const out = rows.map((row: Row): SourcePageText => ({ page: row.page, ...(typeof row.pdf_label === "string" && row.pdf_label ? { pdf_label: row.pdf_label } : {}),
+			text: readingText({ layer: row.layer, text: typeof row.text === "string" ? row.text : "", markdown: row.markdown }),
+			layer: row.layer === "transcript" ? "transcript" : "native" }));
+		const untranscribed = out.filter(row => row.layer === "native").map(row => row.page);
+		if (params.transcribe !== false && untranscribed.length) this.wantTranscripts({ pdf: snapshot.pdf, file_sha256: snapshot.file_sha256, pages: untranscribed });
+		return out;
+	}
+
+	/**
+	 * §191.6: pages a reader wanted now and read natively go to the front of the transcript queue. Never awaited and never
+	 * a failure of the read that wanted them; without a transcript service (a test, a closed session) nothing is queued.
+	 */
+	wantTranscripts(request: {pdf: string; file_sha256: string; pages: number[]}): void {
+		const transcripts = this.deps.transcripts;
+		if (!transcripts || this.stopped || !request.pages.length) return;
+		void Promise.resolve().then(() => transcripts.ensure({ ...request, priority: "foreground" })).catch(() => undefined);
 	}
 
 	/**
@@ -688,7 +730,8 @@ export class ReadingService implements ReadingBridge {
 				const pages: SourcePageText[] = [];
 				for (let first = 1; first <= job.page_count; first += CAST_TEXT_BATCH) {
 					const batch = Array.from({ length: Math.min(CAST_TEXT_BATCH, job.page_count - first + 1) }, (_, index) => first + index);
-					pages.push(...await this.sourcePages(mid, batch, campaign === undefined ? { campaign: null } : { campaign }, signal));
+					// §191.7: the cast reads a page's transcript where one exists; it reads the whole book, so it queues none.
+					pages.push(...await this.sourcePages(mid, batch, { ...(campaign === undefined ? { campaign: null } : { campaign }), transcribe: false }, signal));
 				}
 				signal.throwIfAborted();
 				const staged = await this.call('cast.source', { ...owned, pages: pages.map(({ page, text }) => ({ page, text })) }, campaign);
@@ -829,12 +872,14 @@ export class ReadingService implements ReadingBridge {
 	 * The read-ahead (§22.4, §182), as every caller in this service asks it. A `window` that differs from the last one this
 	 * host saw for the campaign and module is one `read_window` row; a short book's completion in a fork carries the library's
 	 * answer, which is its `library_sync` row (§184.1). The window's `transcript` ranges (§191.5) are not the reading window:
-	 * they neither make nor join a `read_window` row, nor start a window-places pass.
+	 * they neither make nor join a `read_window` row, nor start a window-places pass; they go to the transcript queue
+	 * (§191.6, background, never awaited) after every read-ahead, with one `window` row when they change.
 	 */
 	private async readAhead(params: Row, campaign: string | undefined): Promise<Row | undefined> {
 		const result = await this.call("module.read.ahead", params, campaign);
 		if (result?.window && typeof result.window === "object" && !Array.isArray(result.window)) {
-			const { transcript: _transcript, ...window } = result.window as Row;
+			const { transcript, ...window } = result.window as Row;
+			if (typeof params.module_id === "string") this.transcribeWindow(params.module_id, campaign, transcript);
 			const scope = JSON.stringify([campaign, params.module_id]), seen = JSON.stringify(window);
 			if (this.windows.get(scope) !== seen) {
 				this.windows.set(scope, seen);
@@ -845,6 +890,33 @@ export class ReadingService implements ReadingBridge {
 		this.recordLibrarySync(result, { module_id: params.module_id, campaign });
 		return result;
 	}
+
+	/**
+	 * §191.6: the window's transcript pages, in priority order, to the transcript queue as background work. The bound file
+	 * comes from `module.source.snapshot`; a `lane: "transcript"`, `event: "window"` row is written when the file or the ranges
+	 * change for the campaign and module (§191.9). Nothing waits on this and nothing it does fails the read-ahead.
+	 */
+	private transcribeWindow(mid: string, campaign: string | undefined, ranges: unknown): void {
+		const transcripts = this.deps.transcripts;
+		if (!transcripts || this.stopped || !Array.isArray(ranges)) return;
+		const valid = ranges.filter((range): range is [number, number] => Array.isArray(range) && range.length === 2
+			&& Number.isSafeInteger(range[0]) && Number.isSafeInteger(range[1]) && range[0] >= 1 && range[0] <= range[1]);
+		const pages = [...new Set(valid.flatMap(([first, last]) => Array.from({ length: last - first + 1 }, (_, index) => first + index)))];
+		if (!pages.length) return;
+		const scope = JSON.stringify([campaign, mid]);
+		void (async () => {
+			const snapshot = await this.call("module.source.snapshot", { module_id: mid }, campaign);
+			if (typeof snapshot?.pdf !== "string" || typeof snapshot.file_sha256 !== "string") return;
+			const answer = await transcripts.ensure({ pdf: snapshot.pdf, file_sha256: snapshot.file_sha256, pages, priority: "background" });
+			const seen = JSON.stringify([snapshot.file_sha256, valid]);
+			if (this.transcriptWindows.get(scope) === seen) return;
+			this.transcriptWindows.set(scope, seen);
+			this.note({ lane: "transcript", event: "window", module_id: mid, campaign, file_sha256: snapshot.file_sha256, ranges: valid,
+				queued: answer.queued, state: answer.state });
+		})().catch(() => undefined);
+	}
+	/** §191.9: per scoped module, the last transcript window a read-ahead reported, so its `window` row is written only on a change. */
+	private transcriptWindows = new Map<string, string>();
 
 	/**
 	 * §190.1: the window's places, in the background, on each window change of a campaign (its table's open included, through
@@ -862,8 +934,7 @@ export class ReadingService implements ReadingBridge {
 				call: (method, params) => this.call(method, params, campaign),
 				bookmarks: async pdf => { const info = await runtime.sourceInfo({ pdf, cache: this.deps.home }, signal) as Row;
 					return { file_sha256: info.file_sha256, bookmarks: info.bookmarks }; },
-				pages: async (pdf, sha, pages) => ((await runtime.sourceText({ pdf, pages, expected_file_sha256: sha }, signal)).snapshots ?? [])
-					.map((row: Row) => ({ page: row.page, text: typeof row.text === "string" ? row.text : "" })),
+				pages: async (pdf, sha, pages) => windowPlacePages(runtime, pdf, sha, pages, signal),
 				decision: createDecisionAdapter({ env: this.deps.env ?? process.env, maxConcurrency: 2,
 					retryPolicies: { [WINDOW_PLACES_FAMILY]: { maxRetries: 1, backoffInitialMs: 500, backoffMaxMs: 2_000 } } }),
 				record: row => { this.note(row); this.recordLibrarySync(row, { module_id: mid, campaign }); },
@@ -1523,6 +1594,11 @@ export class ReadingService implements ReadingBridge {
 						if (run.ok && phase === "read" && task.source_need)
 							try { need = await readNeedReceipt({cwd, command: run.command, startedAt: sourceRunStartedAt, key: task.source_need.key}); }
 							catch (failure) { needFailure = failure; }
+						// §191.6: the pages a need read was located on go to the front of the transcript queue. The child has no channel
+						// to this host's queue, so its receipt names them once it exits; pages already transcribed are only reused.
+						if (need?.disposition === "read" && Array.isArray(need.evidence?.candidates))
+							this.wantTranscripts({ pdf: job.source.path, file_sha256: job.source.file_sha256,
+								pages: need.evidence.candidates.filter(page => Number.isSafeInteger(page) && page >= 1) });
 						this.deps.record({ lane: "reading", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "",
 							model: model.id, thinking: model.thinking, phase, round, cache_id: readingCacheId(job.module_id, job.job_id, round),
 							...(run.firstCallUncached !== undefined ? { first_call_uncached: run.firstCallUncached } : {}), ms: run.ms, ok: run.ok, image_reads: imagePaths.size,

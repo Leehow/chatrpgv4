@@ -2,7 +2,8 @@
 import { createHash } from "node:crypto";
 import { Type } from "typebox";
 import { readFile } from "node:fs/promises";
-import { sourceInfo, sourceOverview, sourcePage, sourceSearch, closeSourceDocuments } from "./source.ts";
+import { sourceInfo, sourceOverview, sourcePage, sourceSearch, sourceTextVersion, closeSourceDocuments } from "./source.ts";
+import { transcriptStoreFromEnv } from "./transcript-store.ts";
 
 export default function readerPdf(pi: any) {
 	pi.on("session_shutdown", () => closeSourceDocuments());
@@ -24,7 +25,8 @@ export default function readerPdf(pi: any) {
 			const hasPages=Object.hasOwn(params,"pages"),hasOverview=Object.hasOwn(params,"overview"),hasBox=Object.hasOwn(params,"box"),hasSearch=Object.hasOwn(params,"search");
 			if(Number(hasPages)+Number(hasOverview)+Number(hasSearch)>1||hasBox&&!hasPages)throw new Error("Choose exactly one PDF mode: info, search, overview, or exact pages");
 			if(hasSearch) {
-				const result=await sourceSearch(config.pdf,params.search,signal);
+				// §191.7: transcribed pages are searched in their transcript (exact layer, then labelled image text).
+				const result=await sourceSearch(config.pdf,params.search,signal,transcriptStoreFromEnv(process.env,sourceTextVersion));
 				return {content:[{type:"text",text:JSON.stringify(result)}],details:{kind:"source_search",...result}};
 			}
 			if(hasOverview) {

@@ -137,8 +137,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const changed = call !== nextCall || campaign !== nextCampaign;
         call = nextCall; campaign = nextCampaign;
         const runtime=object(value.runtime);
+        // §191.6: the prescreen's consultation hands the pages it wanted and read natively to the transcript queue.
         sourceRuntime=typeof runtime.home==='string'&&typeof runtime.sourceInfo==='function'&&typeof runtime.sourceText==='function'
-            ?runtime as unknown as PrescreenSourceRuntime:undefined;
+            ?{...runtime as unknown as PrescreenSourceRuntime,wantTranscripts:request=>pi.events.emit('coc:transcript-wanted',request)}:undefined;
         if (changed) {observedWorkspaceMode = 'off'; invalidate();}
     });
     pi.events.on('coc:table-open', data => {
