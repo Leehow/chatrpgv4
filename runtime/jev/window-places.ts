@@ -24,7 +24,7 @@ import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts'
 import {clip, digest16} from './text.ts';
 import {entryExcerpt} from './source-reference.ts';
 import type {WindowPlacesBudget} from './host-budgets.ts';
-import {REFERENCE_FIELDS, SOURCE_REFERENCE_PROTOCOL, validateReferencePacket, type SourceReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
+import {REFERENCE_FIELDS, SOURCE_REFERENCE_PROTOCOL, validateReferencePacket, type ReferenceExcerpt, type SourceReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 
 export const WINDOW_PLACES_FAMILY = 'window-places';
 export const WINDOW_PLACES_VERSION = '1';
@@ -32,6 +32,12 @@ export const WINDOW_PLACES_VERSION = '1';
 export const WINDOW_PLACES_GROUP = 12;
 /** The most characters of a page's first lines an entry's state carries. */
 export const OPENING_CHARS = 480;
+/**
+ * The most characters of the excerpt a minted place carries. The excerpt becomes the scene's summary, and every referenced
+ * place rides on every turn's move candidates with that summary as its `source_context`; a whole page per place would
+ * crowd the route request as the window's places accumulate. The book's pages still reach the Keeper on arrival (§22.4.7).
+ */
+export const PLACE_EXCERPT_CHARS = 600;
 const MEMO_VERSION = 1;
 
 type Row = Record<string, any>;
@@ -80,6 +86,21 @@ export function firstLines(pageText: string, heading: string, max = OPENING_CHAR
     size += length;
   }
   return kept.join('\n');
+}
+
+/**
+ * The excerpt a minted place carries: the page's own bytes from where the heading's words begin (else the top of the page),
+ * ending at the last line break inside `max` characters when there is one past half of it, else at `max`.
+ */
+export function placeExcerpt(page: {page: number; text: string}, heading: string, max = PLACE_EXCERPT_CHARS): ReferenceExcerpt {
+  const whole = entryExcerpt(page, heading);
+  if (whole.text.length <= max) return whole;
+  let end = whole.text.lastIndexOf('\n', max);
+  if (end <= Math.floor(max / 2)) end = max;
+  // Never between the two halves of a surrogate pair: the excerpt must stay a string of whole characters.
+  const code = whole.text.charCodeAt(end - 1);
+  if (code >= 0xd800 && code <= 0xdbff) end--;
+  return {id: `p${page.page}-${whole.start}-${whole.start + end}`, page: page.page, start: whole.start, end: whole.start + end, text: whole.text.slice(0, end)};
 }
 
 /** What one asked entry carries into the request. */
@@ -173,13 +194,13 @@ const sha = (bytes: string): string => createHash('sha256').update(bytes).digest
 
 /**
  * The host-built source-place attempt `module.reference.materialize` publishes: the task (a `materialize_place` lookup),
- * the packet (one excerpt of the entry's page, from its heading on; the entry as the one place) and the excerpts receipt,
+ * the packet (one bounded excerpt of the entry's page, from its heading on; the entry as the one place) and the receipt,
  * in a new directory under the fork's `work/`. The bytes are the page's own; nothing is generated.
  */
 export async function writePlaceAttempt(input: {workRoot: string; moduleId: string; sourceSha: string; pageCount: number; extractionVersion: string;
   entry: BookEntry; pageText: string}): Promise<string> {
   const {entry} = input, name = entry.name.trim();
-  const excerpt = entryExcerpt({page: entry.page, text: input.pageText}, name);
+  const excerpt = placeExcerpt({page: entry.page, text: input.pageText}, name);
   const packet: SourceReferencePacket = validateReferencePacket({protocol: SOURCE_REFERENCE_PROTOCOL, source_sha256: input.sourceSha,
     extraction_version: input.extractionVersion, purpose: 'answer', question: name, excerpts: [excerpt],
     fields: Object.fromEntries(REFERENCE_FIELDS.map(field => [field, [] as string[]])) as SourceReferencePacket['fields'], entries: [],

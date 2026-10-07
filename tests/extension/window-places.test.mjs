@@ -23,7 +23,7 @@ import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {KernelError} from '../../extensions/kernel/client.ts';
 import {ReadingService} from '../../extensions/module/reading-service.ts';
-import {flattenBookmarks, firstLines, windowEntries} from '../../runtime/jev/window-places.ts';
+import {flattenBookmarks, firstLines, placeExcerpt, windowEntries, PLACE_EXCERPT_CHARS} from '../../runtime/jev/window-places.ts';
 import {selectReferencePacket} from '../../runtime/jev/source-reference.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..'), CONTENT = join(ROOT, 'content');
@@ -161,7 +161,7 @@ async function open(reading, b, campaign) {
 const placeRows = rows => rows.filter(row => row.lane === 'window-places');
 const outcomes = rows => Object.fromEntries(placeRows(rows).map(row => [row.entry.name, row.outcome]));
 
-test('§190.1: the identity of an entry is the one a destination request mints for it (the same flattened walk)', async () => {
+test('§190.1: an entry\'s identity is the one a destination request mints; its lines and its bounded excerpt are the page\'s own words from the heading', async () => {
 	const entries = flattenBookmarks(BOOKMARKS);
 	assert.deepEqual(entries.map(entry => entry.id), ['scene-source-place-1-0', 'scene-source-place-41-1', 'scene-source-place-42-2', 'scene-source-place-42-3',
 		'scene-source-place-43-4', 'scene-source-place-45-5', 'scene-source-place-46-6', 'scene-source-place-49-7', 'scene-source-place-91-8']);
@@ -176,6 +176,12 @@ test('§190.1: the identity of an entry is the one a destination request mints f
 	assert.equal(packet.places[0].id, PLACES['Mine shaft']);
 	assert.equal(firstLines(TEXT[42], 'The inn'), 'The inn\nA low inn with a crooked sign; the landlord watches the door.', 'the first lines start at the heading on its page');
 	assert.equal(firstLines('No heading here.\nSecond line.', 'Elsewhere'), 'No heading here.\nSecond line.', 'without the heading on the page, its top');
+	// The minted excerpt is the page's own bytes from the heading, bounded: every referenced place rides on every turn's moves.
+	const page = {page: 46, text: 'Earlier section text.\nMine shaft\n' + 'A long description of the shaft and its ladders.\n'.repeat(40)};
+	const excerpt = placeExcerpt(page, 'Mine shaft');
+	assert.ok(excerpt.text.startsWith('Mine shaft\n') && excerpt.text.length <= PLACE_EXCERPT_CHARS, `${excerpt.text.length} characters`);
+	assert.equal(page.text.slice(excerpt.start, excerpt.end), excerpt.text);
+	assert.ok(excerpt.text.endsWith('ladders.'), 'it ends at a line break');
 });
 
 test('§190.1: at table open the window\'s headings are asked once; three of five clear and become referenced move candidates', async t => {
@@ -242,12 +248,33 @@ test('§190.1: Jev unavailable mints nothing and the table plays on; the next op
 	assert.deepEqual(outcomes(again), {'The town': 'not_place', 'The inn': 'minted', 'Town history': 'not_place', 'The mine': 'minted', 'Mine shaft': 'minted'});
 });
 
-test('§190.1: in shadow the rows are written and nothing is minted', async t => {
+test('§190.1: in shadow the rows are written and nothing is minted; turned on, the kept answers mint without asking again', async t => {
 	const batches = installJev(t), b = await book('shadow');
 	await b.table('table');
-	const rows = [];
-	await open(service(b, 'table', rows, {windowPlacesBudget: {mode: 'shadow', placeMin: 0.8, timeoutMs: 20_000, maxEntries: 64}}), b, 'table');
+	const rows = [], budget = {mode: 'shadow', placeMin: 0.8, timeoutMs: 20_000, maxEntries: 64};
+	await open(service(b, 'table', rows, {windowPlacesBudget: budget}), b, 'table');
 	assert.equal(batches.length, 1);
 	assert.deepEqual(outcomes(rows), {'The town': 'not_place', 'The inn': 'shadow', 'Town history': 'not_place', 'The mine': 'shadow', 'Mine shaft': 'shadow'});
 	assert.equal((await b.graph('table')).nodes.filter(node => node.node_id.startsWith('scene-source-place-')).length, 0);
+	const quiet = [];
+	await open(service(b, 'table', quiet, {windowPlacesBudget: budget}), b, 'table');
+	assert.deepEqual(placeRows(quiet), [], 'still shadow: a kept answer is not recorded twice');
+	const on = [];
+	await open(service(b, 'table', on, {windowPlacesBudget: {...budget, mode: 'on'}}), b, 'table');
+	assert.equal(batches.length, 1, 'nothing is asked again');
+	assert.deepEqual(placeRows(on).map(row => [row.entry.name, row.outcome, row.answer]),
+		[['The inn', 'minted', 'kept'], ['The mine', 'minted', 'kept'], ['Mine shaft', 'minted', 'kept']]);
+	assert.deepEqual((await b.graph('table')).nodes.filter(node => node.node_id.startsWith('scene-source-place-')).map(node => node.node_id).sort(),
+		Object.values(PLACES).sort());
+});
+
+test('§190.1: an entry whose page has no native text is not asked and not minted', async t => {
+	const batches = installJev(t), b = await book('scanned');
+	await b.table('table');
+	const rows = [], text = TEXT[46];
+	delete TEXT[46];
+	try { await open(service(b, 'table', rows), b, 'table'); } finally { TEXT[46] = text; }
+	assert.deepEqual(Object.values(batches[0].state.book_headings).map(entry => entry.heading), ['The town', 'The inn', 'Town history', 'The mine']);
+	assert.equal(outcomes(rows)['Mine shaft'], 'no_text');
+	assert.equal((await b.graph('table')).nodes.some(node => node.node_id === PLACES['Mine shaft']), false);
 });
