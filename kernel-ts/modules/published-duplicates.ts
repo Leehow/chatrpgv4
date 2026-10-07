@@ -64,9 +64,10 @@ const clip = (text: string): string => {
     return chars.length <= DUPLICATE_SUMMARY_CHARS ? text : chars.slice(0, DUPLICATE_SUMMARY_CHARS - 3).join('') + '...';
 };
 
-function published(node: Row, names: string[]): PublishedView {
+/** The published thing a finding names: the survivor, with every name and page of the nodes that read as it (§191.3). */
+function published(node: Row, names: string[], pages: number[]): PublishedView {
     return { node_id: string(node.node_id), node_kind: string(node.node_kind), name: typeof node.name === 'string' ? node.name : '', aliases: names.filter(name => name !== node.name),
-        pages: citedPages(node), summary: clip(typeof node.summary === 'string' ? node.summary.trim() : '') };
+        pages, summary: clip(typeof node.summary === 'string' ? node.summary.trim() : '') };
 }
 
 /** The drafted node's `distinct_from`, the ids it declares itself apart from; empty when absent or not a list of strings. */
@@ -75,20 +76,40 @@ export function distinctFrom(node: Row): string[] {
     return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
 }
 
+/** §191.1 with §191.3: the published node that stands for a node id; without a survivor map every node stands for itself. */
+export type SurvivorOf = (id: string) => string;
+const itself: SurvivorOf = id => id;
+
 /**
- * Every pair of a drafted node new to `graphNodes` and a published node it meets by §191.1's trigger, in draft order and
+ * Every pair of a drafted node new to `graphNodes` and a published thing it meets by §191.1's trigger, in draft order and
  * then the published nodes' order. A pair `recorded` already holds a verdict for (`reading.identity`) is not raised again.
  *
+ * §191.1 pairs against survivors only (§191.3): `survivorOf` names the node that stands for each published node (at
+ * publication `rawSurvivors` over the landing graph, in the check the claim's `graph-view.json` `survivors`). A variant is no
+ * candidate; its names count as its survivor's, and the finding, its pages and the verdict key name the survivor, so a reader
+ * that reuses the id writes under the node that stands for the thing.
+ *
  * `cast` are the book's cast rows (`{book, play}`, the packet's `cast_names`); the cast join reads them exactly as `bookCast`
- * does, over the published people and the drafted ones together.
+ * does, over the published people and the drafted ones together, and a joined copy counts as its survivor.
  */
-export function publishedDuplicates(drafted: Row[], graphNodes: Row[], moduleId: string, cast: Row[], recorded: Row, sourceSha: string): DuplicatePair[] {
-    const graphRows = graphNodes.filter(isJsonObject), ids = new Set(graphRows.map(node => string(node.node_id)));
-    const fresh = drafted.flatMap((node, index) => isJsonObject(node) && typeof node.node_id === 'string' && node.node_id && !ids.has(node.node_id)
+export function publishedDuplicates(drafted: Row[], graphNodes: Row[], moduleId: string, cast: Row[], recorded: Row, sourceSha: string,
+    survivorOf: SurvivorOf = itself): DuplicatePair[] {
+    const graphRows = graphNodes.filter(isJsonObject), byId = new Map(graphRows.map(node => [string(node.node_id), node]));
+    const fresh = drafted.flatMap((node, index) => isJsonObject(node) && typeof node.node_id === 'string' && node.node_id && !byId.has(node.node_id)
         && typeof node.node_kind === 'string' && node.node_kind !== 'module' ? [{ node: node as Row, index }] : []);
     if (!fresh.length) return [];
+    /** The published node standing for `id`: its survivor when the map names a node the graph has, else itself. */
+    const stands = (id: string): string => { const value = survivorOf(id); return byId.has(value) ? value : id; };
+    // Each survivor with the nodes that read as it, the survivor first: the candidates and the names and pages they lend it.
+    const groups = new Map<string, Row[]>();
+    for (const node of graphRows) {
+        const id = string(node.node_id), survivor = stands(id), members = groups.get(survivor) ?? [];
+        if (id === survivor) members.unshift(node); else members.push(node);
+        groups.set(survivor, members);
+    }
     const kinds = new Set(fresh.map(item => string(item.node.node_kind)));
-    const candidates = graphRows.filter(node => kinds.has(string(node.node_kind)));
+    const candidates = graphRows.filter(node => stands(string(node.node_id)) === node.node_id
+        && groups.get(string(node.node_id))!.some(member => kinds.has(string(member.node_kind))));
     if (!candidates.length) return [];
     const graph = new ModuleGraph(moduleId, { nodes: [...graphRows, ...fresh.map(item => item.node)] }, '', {});
     const rows = cast.filter(isJsonObject).map((entry, index) => ({ id: `cast-row-${index}`, book: array(entry.book), play: array(entry.play) }));
@@ -98,28 +119,41 @@ export function publishedDuplicates(drafted: Row[], graphNodes: Row[], moduleId:
         const all = bookNames(graph, node), handles = new Set([graph.handle(node), string(node.node_id)]);
         const own = [...new Set([node.name, graph.displayName(node)].filter((value): value is string => typeof value === 'string' && !!value.trim())
             .map(value => value.trim()))].filter(value => !handles.has(value));
-        return { all, own, keys: new Set(all.map(normalize)) };
+        return { all, own };
     };
-    const known = new Map(candidates.map(node => [string(node.node_id), names(node)]));
+    const unique = (values: string[]) => [...new Set(values)];
+    /** A survivor's names for one kind: every name of each node of its group that has that kind; null when none has it. */
+    const lent = new Map<string, { all: string[]; own: string[]; keys: Set<string>; pages: number[] } | null>();
+    const theirsFor = (survivor: string, kind: string) => {
+        const at = `${kind}:${survivor}`;
+        if (!lent.has(at)) {
+            const members = groups.get(survivor)!.filter(member => member.node_kind === kind), each = members.map(names);
+            const all = unique(each.flatMap(item => item.all));
+            lent.set(at, members.length ? { all, own: unique(each.flatMap(item => item.own)), keys: new Set(all.map(normalize)),
+                pages: [...new Set(members.flatMap(citedPages))].sort((a, b) => a - b) } : null);
+        }
+        return lent.get(at)!;
+    };
     // §188.2: the cast holds two people as one individual when both answer one row both ways; read only when people were drafted.
     const people = fresh.some(item => item.node.node_kind === 'npc') && rows.length ? bookCast(graph) : [];
     const pairs: DuplicatePair[] = [];
     for (const { node, index } of fresh) {
-        const kind = string(node.node_kind), mine = names(node), declared = new Set(distinctFrom(node));
-        const individual = kind === 'npc' ? people.find(person => person.nodes.some(each => each.node_id === node.node_id)) : undefined;
+        const kind = string(node.node_kind), drafted = string(node.node_id), mine = names(node), mineKeys = new Set(mine.all.map(normalize));
+        const declared = new Set(distinctFrom(node).map(stands));
+        const individual = kind === 'npc' ? people.find(person => person.nodes.some(each => each.node_id === drafted)) : undefined;
         for (const other of candidates) {
-            if (other.node_kind !== kind) continue;
-            const id = string(other.node_id), theirs = known.get(id)!;
-            const key = identityPairKey(sourceSha, kind, string(node.node_id), id);
-            if (Object.hasOwn(recorded, key)) continue;
-            let shared = mine.own.find(name => theirs.keys.has(normalize(name))) ?? theirs.own.find(name => mine.keys.has(normalize(name)));
+            const id = string(other.node_id), theirs = theirsFor(id, kind);
+            if (!theirs) continue;
+            const key = identityPairKey(sourceSha, kind, drafted, id);
+            if (groups.get(id)!.some(member => Object.hasOwn(recorded, identityPairKey(sourceSha, kind, drafted, string(member.node_id))))) continue;
+            let shared = mine.own.find(name => theirs.keys.has(normalize(name))) ?? theirs.own.find(name => mineKeys.has(normalize(name)));
             let by: 'name' | 'cast' = 'name';
-            if (shared === undefined && individual?.nodes.some(each => each.node_id === id)) {
+            if (shared === undefined && individual?.nodes.some(each => each.node_id !== drafted && stands(string(each.node_id)) === id)) {
                 by = 'cast';
                 shared = [...individual.printed].sort((a, b) => Array.from(b).length - Array.from(a).length)[0] ?? individual.names[0] ?? '';
             }
             if (shared === undefined) continue;
-            pairs.push({ path: `/nodes/${index}`, draft_index: index, drafted: string(node.node_id), kind, published: published(other, theirs.all), by, shared, key,
+            pairs.push({ path: `/nodes/${index}`, draft_index: index, drafted, kind, published: published(other, theirs.all, theirs.pages), by, shared, key,
                 declared: declared.has(id) });
         }
     }
@@ -160,15 +194,17 @@ export function duplicateRefusal(pairs: DuplicatePair[]): RpcError {
  * Publication's record of the reviewed `distinct_from` answers (§191.1): for every drafted node new to the landing graph, each
  * id it lists that names a published node of its kind, kept in `reading.identity` under the pair's key. The review gate has
  * already refused the reading unless every `distinct_from` was supported (`checkReview`), so each record is `different`.
- * `reasons` gives the reviewer's reason for a draft pointer, when the review stated one.
+ * `reasons` gives the reviewer's reason for a draft pointer, when the review stated one. A listed copy is recorded as its
+ * survivor (`survivorOf`, §191.3), the node the pair is keyed by.
  */
 export function recordDistinct(meta: Row, drafted: Row[], graphNodes: Row[], sourceSha: string, jobId: string, generation: number,
-    reasons: (path: string) => string | undefined): number {
+    reasons: (path: string) => string | undefined, survivorOf: SurvivorOf = itself): number {
     const byId = new Map(graphNodes.filter(isJsonObject).map(node => [string(node.node_id), node]));
+    const stands = (id: string): string => { const value = survivorOf(id); return byId.has(value) ? value : id; };
     let written = 0;
     for (const [index, node] of drafted.entries()) {
         if (!isJsonObject(node) || byId.has(string(node.node_id))) continue;
-        for (const id of distinctFrom(node)) {
+        for (const id of [...new Set(distinctFrom(node).map(stands))]) {
             const other = byId.get(id);
             if (!other || other.node_kind !== node.node_kind) continue;
             meta.reading ??= {};

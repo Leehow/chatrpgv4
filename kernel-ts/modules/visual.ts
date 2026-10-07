@@ -270,14 +270,16 @@ export function mergeValue(old: any, proposed: any, path = '', transcription?: R
 export interface DraftCheckOptions { openingBatch?: boolean; graph?: Row }
 /**
  * The packet as the check reads it: the job's own fields with the graph view's nodes, claims, spans and vocabulary, and the
- * identity answers already recorded for the bound source (§191.1: `identity_verdicts`, `identity_source`).
+ * identity answers already recorded for the bound source (§191.1: `identity_verdicts`, `identity_source`), and which node
+ * stands for each copy (§191.3: `survivors`, variant id to survivor id).
  */
 export function withGraphView(packet: Row, view: Row | null | undefined): Row {
     if (!view || !object(view)) return packet;
     return { ...packet, known_nodes: array(view.known_nodes), known_claims: array(view.known_claims), field_spans: row(view.field_spans),
         ...(object(view.vocabulary) ? { vocabulary: view.vocabulary } : {}),
         ...(object(view.identity_verdicts) ? { identity_verdicts: view.identity_verdicts } : {}),
-        ...(typeof view.identity_source === 'string' ? { identity_source: view.identity_source } : {}) };
+        ...(typeof view.identity_source === 'string' ? { identity_source: view.identity_source } : {}),
+        ...(object(view.survivors) ? { survivors: view.survivors } : {}) };
 }
 /**
  * The draft check (§22.3), in the three stages of contract §186.3: the envelope, the records, the graph and its evidence.
@@ -606,8 +608,10 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     // generation the draft lands on.
     const identitySource = typeof packet.identity_source === 'string' ? packet.identity_source
         : typeof row(packet.source).file_sha256 === 'string' ? row(packet.source).file_sha256 : '';
+    // §191.3: pairs are made against survivors, as the claim's view names them.
+    const survivors = row(packet.survivors);
     const duplicates = publishedDuplicates(nodes, array(packet.known_nodes), typeof packet.module_id === 'string' ? packet.module_id : 'module',
-        array(packet.cast_names), row(packet.identity_verdicts), identitySource).filter(pair => !pair.declared);
+        array(packet.cast_names), row(packet.identity_verdicts), identitySource, id => typeof survivors[id] === 'string' ? survivors[id] : id).filter(pair => !pair.declared);
     if (duplicates.length)
         graph.note(duplicateRefusal(duplicates), ...duplicates.map(pair => ({ path: pair.path, rule: DUPLICATE_RULE, message: duplicateMessage(pair), value: pair.shared })));
     if (options.openingBatch)

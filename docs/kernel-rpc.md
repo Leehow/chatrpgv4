@@ -37651,6 +37651,9 @@ material "unread" by name, and show extra people and places.
     kernel's `normalize`.
   - for `npc`, also when the two join the same cast row both ways (§188.2).
   - Pages are evidence in the refusal, never a condition.
+  - **It pairs against survivors (191.3).** A published node another stands for is no candidate. Its names count as its
+    survivor's, and the finding, its pages and the verdict key name the survivor, so a reader that reuses the id writes under
+    the node that stands for the thing. A `distinct_from` naming a copy answers for its survivor.
 - **The answer.** Every finding is reported at once (§186.3), as `duplicate_of_published`. The fix names the published
   node: id, kind, names, pages, summary. The reader then either:
   - reuses that id: it writes only new facts under it and points the draft's claims at it (the wording of §180.7's
@@ -37763,8 +37766,8 @@ The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branc
   - The cast join runs `bookCast` over the published nodes plus the drafted ones, with the cast rows as `{book, play}`
     (the fold reads nothing else), and pairs a drafted npc with every published npc in its `CastPerson.nodes`. The check
     reads the packet's `cast_names`; publication reads the book's current cast (`castNames`).
-  - Every published node a drafted node meets is its own pair. Variants are not collapsed to their survivors: the
-    claim-time view carries no relations, so the two checks would disagree. DUP-02's survivor map may change this.
+  - Every published node a drafted node meets is its own pair. Superseded by DUP-01b below: pairs are made against
+    survivors.
   - On Blood Road generation 55 the trigger also raises `npc-pete` against `npc-book-4-peter-benson`, whose aliases carry
     皮特: the drafted node's own name is one of that node's names. That is one of the survey's six "different thing"
     triggers, and the reader answers it.
@@ -37805,6 +37808,28 @@ The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branc
     rest pretty-printed as before. An inlined task leads with it too.
 - **Instructions.** `content/setup/visual-reader/read.md` (the roster, the refusal, the two answers) and `review.md`
   (judging `/nodes/<i>/distinct_from`).
+- **DUP-01b, against survivors (after DUP-02's map).**
+  - Both checks read one map, `rawSurvivors` (`kernel-ts/read/survivors.ts`, the graph's own relations, no cast fold).
+    `module.read.finish` builds it from the landing graph. `module.read.claim` writes it into `graph-view.json` as
+    `survivors: {<variant id>: <survivor id>}`, which `withGraphView` carries and `checkDraft` reads.
+  - `publishedDuplicates` takes the map (`survivorOf`). Each published node is grouped under its survivor; only a survivor is
+    a candidate, and the names, own names and pages of every node of its group that has the drafted kind count as its own.
+    The cast join counts a joined copy as its survivor. A pair is skipped when a verdict is recorded for the drafted node
+    with any node of the group. The pair's key and `published` name the survivor.
+  - `recordDistinct` maps each listed id to its survivor before keying and recording.
+  - The roster (191.2) lists a thing once, as its survivor: a survivor any of whose group's nodes cites one of the job's
+    pages, with the group's other names among its aliases and the group's pages.
+  - **Retained needs** (`needsToAsk`, which DUP-02 left here). A need on a copy is its survivor's:
+    - one question (kind and trimmed question) about one thing is one need, the survivor's own need first, else the first in
+      graph order;
+    - a question done (`needDone`) for any node of the thing is done for all of them;
+    - the window is judged on the pages of every node of the thing.
+    - `queueNeedReads` focuses the read on the survivor's handle. `module.read.request`'s `source_need` check accepts a focus
+      whose survivor is the need's node's survivor.
+    - The publication of that read resolves the same question on every node of the thing (the `resolved_source_needs` filter
+      compares survivors).
+  - Tests: `duplicate-of-published.test.mjs` adds the copy case (a copy written by a reviewed `distinct_from`, then joined by
+    DUP-02's `publishIdentities`) and the retained-needs case; 30 mutations in scratch copies, each failing a case.
 - **Existing fixtures.** `tests/extension/module-cast.test.mjs`'s four §188.2 cases built their second copy of a person with
   a later reading under another id, which this check now refuses. They publish it with a reviewed `distinct_from`, the
   only way a reading still can; they stand for the copies written before §191 and for a review that wrongly supported one,
@@ -37816,8 +37841,8 @@ The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branc
     `scene-book-4-mather-store` (and `npc-book-4-peter-benson`). `checkSourceDraft` on the same `task.json` and draft
     reports the same six pairs. With the check reverted (a scratch copy), the same replay publishes generation 55 with
     446 nodes and all eight drafted ids, as production did.
-  - `tests/extension/duplicate-of-published.test.mjs`, nine cases; reverting each behaviour (20 mutations, scratch copies)
-    fails at least one of them.
+  - `tests/extension/duplicate-of-published.test.mjs`, eleven cases since DUP-01b; reverting each behaviour (30 mutations,
+    scratch copies) fails at least one of them.
 
 #### DUP-02 (191.3, 191.4; `claude/reading-duplicates-20261007-survivors`)
 

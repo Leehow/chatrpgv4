@@ -924,22 +924,38 @@ export class Reading {
      * reading completed or failed is not asked again (`needDone`); a settled need waits for its eligibility, which inside the
      * window re-opens an unlocated need only for material added there; a long book asks only the needs whose entity cites a
      * page of its window.
+     *
+     * §191.3: a need on a copy is its survivor's (`rawSurvivors`, the graph's identity relations). One question about one thing
+     * is one need: the survivor's own need stands for it, else the first in the graph's order; a question done for any node
+     * of the thing is done for all of them; the window reads the pages of every node of the thing. `queueNeedReads` focuses
+     * the read on the survivor.
      */
     private async needsToAsk(mid: string, meta: Row, raw: Row, queue: Row[], window: ReadingWindow): Promise<Row[]> {
         const units = await this.streamedUnits(mid, meta), rows = unitRows(meta, units), jobs = unitJobs(queue, rows);
         const unqueued = units.filter(unit => rangeMeets(window, unit.first, unit.last) && !jobs.has(sourceUnitKey(unit))).length;
         const dispositions = row(row(meta.reading).source_need_dispositions), nodes = new Set(array(raw.nodes).map(node => row(node).node_id));
-        return array(raw.source_needs).filter(need => READABLE_NEED_KINDS.includes(need.kind) && need.source_sha256 === meta.file_sha256
-            && typeof need.node_id === 'string' && nodes.has(need.node_id) && (need.kind !== 'deferred' || unqueued === 0)
-            && !needDone(dispositions, need, queue)
-            && (window.mode === 'whole' || needMaterial(raw, need.node_id, mid).pages.some(page => pageInside(window, page)))
+        const survivors = rawSurvivors(raw), own = (need: Row) => survivors.id(need.node_id) === need.node_id;
+        const thing = (need: Row) => JSON.stringify([survivors.id(need.node_id), need.kind, typeof need.question === 'string' ? need.question.trim() : need.question]);
+        const readable = array(raw.source_needs).filter(need => READABLE_NEED_KINDS.includes(need.kind) && need.source_sha256 === meta.file_sha256
+            && typeof need.node_id === 'string' && nodes.has(need.node_id));
+        const standing = new Map<string, Row>(), done = new Set<string>();
+        for (const need of readable) {
+            const key = thing(need), held = standing.get(key);
+            if (!held || !own(held) && own(need)) standing.set(key, need);
+            if (needDone(dispositions, need, queue)) done.add(key);
+        }
+        const pages = (need: Row) => survivors.group(survivors.id(need.node_id)).flatMap(id => needMaterial(raw, id, mid).pages);
+        return readable.filter(need => standing.get(thing(need)) === need && !done.has(thing(need)) && (need.kind !== 'deferred' || unqueued === 0)
+            && (window.mode === 'whole' || pages(need).some(page => pageInside(window, page)))
             && needEligible(dispositions, raw, need, queue, mid, rows, window));
     }
     /** §151.4: the retained needs' background reads (`needsToAsk`), asked after this pass's streamed units, two per pass. */
     private async queueNeedReads(mid: string, graph: ModuleGraph, ask: (request: Row) => Promise<Row | null>, window: ReadingWindow): Promise<void> {
         const meta = await this.store.module(mid), queue = ownAsks(await this.store.queue(mid));
+        // §191.3: a need on a copy is read as its survivor's.
+        const survivors = rawSurvivors(graph.raw);
         for (const need of (await this.needsToAsk(mid, meta, graph.raw, queue, window)).slice(0, 2)) {
-            const node = graph.nodes.get(string(need.node_id));
+            const node = graph.nodes.get(survivors.id(string(need.node_id)));
             if (node) await ask({ purpose: 'detail', focus: graph.handle(node), question: need.question, source_need: sourceNeedKey(need) });
         }
     }
@@ -1460,8 +1476,10 @@ export class Reading {
             if (params.source_need !== undefined) {
                 needGraph = await this.store.graph(mid);
                 const need = retainedNeed(needGraph.raw, params.source_need);
-                if (purpose !== 'detail' || material !== undefined || params.source_unit !== undefined || !need || typeof need.node_id !== 'string'
-                    || needGraph.find(focus)?.node_id !== need.node_id || string(need.question).trim() !== question.trim())
+                // §191.3: the focus names the need's thing: its node, or the survivor a need on a copy is read as (`queueNeedReads`).
+                const focused = needGraph.find(focus), standing = rawSurvivors(needGraph.raw);
+                if (purpose !== 'detail' || material !== undefined || params.source_unit !== undefined || !need || typeof need.node_id !== 'string' || !focused
+                    || standing.id(string(focused.node_id)) !== standing.id(need.node_id) || string(need.question).trim() !== question.trim())
                     throw new RpcError('invalid_params', 'source_need must name a retained source need of this detail focus and question');
                 needMarker = { key: params.source_need, kind: need.kind, node_id: need.node_id };
             }
@@ -1855,8 +1873,11 @@ export class Reading {
                     // §187.5: the author's packet is cut to the job; the check reads the whole graph from the view beside it.
                     const wholeVocabulary = vocabulary(contract, contributed), wholeClaims = array(graph.claims);
                     // §191.1: the identity answers already recorded for this source, so the check never raises an answered pair again.
+                    // §191.3: and which node stands for each copy, so the check pairs against survivors as publication does.
+                    const standing = rawSurvivors(graph), survivors = Object.fromEntries(array(graph.nodes).map(node => string(row(node).node_id))
+                        .filter(id => standing.id(id) !== id).map(id => [id, standing.id(id)]));
                     const view = { generation: meta.generation ?? 0, known_nodes: known, known_claims: wholeClaims, field_spans: pageSpans(graph.field_spans), vocabulary: wholeVocabulary,
-                        identity_verdicts: row(row(meta.reading).identity), identity_source: identitySource(meta) };
+                        identity_verdicts: row(row(meta.reading).identity), identity_source: identitySource(meta), survivors };
                     const scopePages = job.purpose === 'index' || job.visual_identity ? [] : jobPages(job, needTask, number(meta.page_count));
                     let scopeView: ScopeWindow | null = null, scoped = { nodes: known, claims: wholeClaims };
                     if (scopePages.length && array(graph.nodes).length) {
@@ -1867,7 +1888,7 @@ export class Reading {
                         scoped = scopeGraph(known, wholeClaims, array(graph.relations), scopePages, scopeView, keep);
                     }
                     // §191.2: a job with pages meets the published nodes on its own pages first, ahead of the cast and the index.
-                    const roster = scopePages.length ? packetRoster(known, scopePages) : null;
+                    const roster = scopePages.length ? packetRoster(known, scopePages, survivors) : null;
                     const packet: Row = { ...(roster ? { roster } : {}), ...visibleJob, ...identityTask, ...(needTask ? { source_need: needTask } : {}), ...(carried.length ? { carried_needs: carried } : {}),
                         ...(castNames.length ? { cast_names: castNames } : {}),...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: scoped.nodes, known_claims: scoped.claims, vocabulary: scopedVocabulary(wholeVocabulary, job), coverage_domains: [...array(contract.graph.coverage_domains)],
                         scope: { pages: scopePages, window: scopeView, known_nodes: scoped.nodes.length, known_claims: scoped.claims.length, packet_bytes: 0 } };
@@ -2076,21 +2097,25 @@ export class Reading {
                 }
                 // §191.1: one thing, one node, judged again against the generation this draft lands on: a reading claimed beside
                 // this one may have published the same thing since. A distinct_from answer is reviewed (`checkReview`) and kept.
+                // §191.3: against survivors only, by the landing graph's own relations.
+                const standing = rawSurvivors(landing ?? {}), standsFor = (id: string) => standing.id(id);
                 const duplicates = publishedDuplicates(array(filled.nodes), array(landing?.nodes), mid, await this.castNames(mid, meta),
-                    row(row(meta.reading).identity), identitySource(meta)).filter(pair => !pair.declared);
+                    row(row(meta.reading).identity), identitySource(meta), standsFor).filter(pair => !pair.declared);
                 if (duplicates.length)
                     throw duplicateRefusal(duplicates);
                 const reviewReasons = new Map<string, string>();
                 for (const item of array(row(review).checked))
                     for (const path of Object.hasOwn(row(item), 'paths') ? array(item.paths) : [row(item).path])
                         if (typeof path === 'string' && typeof item.reason === 'string' && item.reason.trim() && !reviewReasons.has(path)) reviewReasons.set(path, item.reason.trim());
-                recordDistinct(meta, array(filled.nodes), array(landing?.nodes), identitySource(meta), string(job.job_id), number(meta.generation) + 1, path => reviewReasons.get(path));
+                recordDistinct(meta, array(filled.nodes), array(landing?.nodes), identitySource(meta), string(job.job_id), number(meta.generation) + 1, path => reviewReasons.get(path), standsFor);
                 const retranscribed: Row[] = [];
                 const graph = assembleVisual(landing, withoutDistinctFrom(filled), meta, contract, retranscribed);
                 if(job.purpose==='detail'&&truth(job.question)){
                     const view=new ModuleGraph(mid,graph,'',row(contract.graph.actor_dossier)),target=view.find(string(job.focus));
+                    // §191.3: the read of a thing resolves the same question on every node of it (a need on a copy is the survivor's).
+                    const standing=rawSurvivors(graph),thing=target?standing.id(string(target.node_id)):undefined;
                     const resolved=array(graph.source_needs).filter(need=>['deferred','source_read','uncertain'].includes(need.kind)&&need.source_sha256===meta.file_sha256&&
-                        need.node_id===target?.node_id&&string(need.question).trim()===string(job.question).trim());
+                        typeof need.node_id==='string'&&standing.id(need.node_id)===thing&&string(need.question).trim()===string(job.question).trim());
                     if(resolved.length){
                         const keys=new Set(resolved.map(sourceNeedKey));
                         graph.source_needs=array(graph.source_needs).filter(need=>!keys.has(sourceNeedKey(need)));

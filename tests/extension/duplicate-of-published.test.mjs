@@ -33,6 +33,9 @@ await build({stdin: {contents: [
 	`export {CAST_VERSION} from './kernel-ts/read/cast.ts';`,
 	`export {checkSourceDraft} from './kernel-ts/check.ts';`,
 	`export {pythonJsonDumps} from './kernel-ts/json.ts';`,
+	`export {ModuleStore} from './kernel-ts/modules/store.ts';`,
+	`export {publishIdentities} from './kernel-ts/modules/identity.ts';`,
+	`export {publishedDuplicates} from './kernel-ts/modules/published-duplicates.ts';`,
 ].join('\n'), resolveDir: ROOT, sourcefile: 'duplicate-of-published-api.ts', loader: 'ts'},
 	outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(directory, 'api.mjs')).href);
@@ -82,7 +85,7 @@ async function book(name, {cast} = {}) {
 	await writeFile(file, pdf());
 	const sha = createHash('sha256').update(await readFile(file)).digest('hex');
 	const {module_id: mid} = await kernel('module.source.bind', {source: {path: file, page_count: 2, file_sha256: sha}});
-	const b = {workspace, mid, sha, kernel};
+	const b = {workspace, mid, sha, kernel, context};
 	b.call = (method, params = {}) => kernel(method, {module_id: mid, ...params});
 	b.claim = (params = {}) => b.call('module.read.claim', {owner: 'test-host', ...params});
 	b.moduleDir = campaign => campaign ? join(workspace, '.coc/module-campaigns', campaign, 'modules', mid) : join(workspace, '.coc/modules', mid);
@@ -309,6 +312,78 @@ test('§191.2 the packet starts with the roster of the job\'s own pages, and tas
 	assert.equal(readerTaskText(plain), JSON.stringify(plain, null, 2) + '\n');
 	assert.deepEqual(JSON.parse(readerTaskText({roster: [], ...plain})), {roster: [], ...plain});
 	assert.deepEqual(JSON.parse(readerTaskText({roster: []})), {roster: []});
+});
+
+/**
+ * A published copy of the general store, as generation 55 left Blood Road's: written by a later reading (now only with a reviewed
+ * distinct_from), then joined to the store by a kernel identity relation (§191.3, DUP-02's writer). `need` adds a retained
+ * deferred question to the copy's draft.
+ */
+async function storeWithCopy(b, {copyNeeds = [], storeNeeds = []} = {}) {
+	const need = (focus, question) => ({kind: 'deferred', focus, question, reason: 'The page names it for later.', trigger: 'When the party shops.', source_refs: P1});
+	const withNeeds = (draft, needs, focus) => needs.length ? {...draft, source_needs: needs.map(question => need(focus, question))} : draft;
+	await b.publish(await claimDetail(b, 'general store'), withNeeds(delta([STORE]), storeNeeds, STORE.node_id));
+	const copy = scene('scene-store-copy', 'General Store', P2, {aliases: ['Corner shop'], summary: 'The shop again.', distinct_from: [STORE.node_id]});
+	await b.publish(await claimDetail(b, 'the shop again'), withNeeds(delta([copy]), copyNeeds, copy.node_id));
+	const joined = await api.publishIdentities(new api.ModuleStore(b.context), b.mid, [{nodes: [STORE.node_id, copy.node_id], review: {by: 'test', rule: 'fixture'}}]);
+	assert.deepEqual(joined.written.map(row => [row.from, row.to]), [[copy.node_id, STORE.node_id]], 'the copy reads as the store');
+	return copy;
+}
+
+test('§191.1 against survivors: a drafted node that meets a published copy is paired with its survivor, and reusing the survivor\'s id publishes', async () => {
+	const b = await book('survivors');
+	const copy = await storeWithCopy(b);
+	const job = await claimDetail(b, 'the shop a third time');
+	const view = JSON.parse(await readFile(join(job.work_dir, 'graph-view.json'), 'utf8'));
+	assert.deepEqual(view.survivors, {[copy.node_id]: STORE.node_id}, 'the claim\'s view says which node stands for the copy');
+	// The roster of a job on the copy's page lists the thing once, as the store, with the copy's names and pages (§191.2).
+	await b.call('module.read.request', {purpose: 'detail', focus: 'Tower', question: 'Read the tower page.', source_unit: {section: 'Tower', first: 2, last: 2}, foreground: true});
+	const unit = await b.claim();
+	assert.deepEqual(unit.roster.filter(entry => entry.kind === 'scene'), [
+		{id: STORE.node_id, kind: 'scene', name: 'General Store', aliases: ['Corner shop'], pages: [1, 2]},
+		{id: 'scene-tower', kind: 'scene', name: 'Tower', aliases: [], pages: [2]}], 'the copy is listed as its survivor');
+	await b.call('module.read.finish', {job_id: unit.job_id, lease: unit.lease, outcome: 'cancelled'});
+	const third = delta([scene('scene-shop', 'Corner shop', P1)]);
+	const checked = await b.check(job, third);
+	assert.deepEqual(checked.error.details.duplicates.map(pair => [pair.drafted, pair.published.node_id, pair.shared]), [['scene-shop', STORE.node_id, 'Corner shop']],
+		'one finding, naming the survivor, never the copy');
+	assert.deepEqual(checked.error.details.duplicates[0].published.pages, [1, 2], 'the pages of every node that reads as the store');
+	const error = await refusal(b.publish(job, third));
+	assert.deepEqual(error.details.duplicates.map(pair => pair.published.node_id), [STORE.node_id], 'publication pairs against the landing graph\'s survivor');
+	// Answered against the copy, the answer is the survivor's: the check takes it, and the kept verdict is keyed by the survivor.
+	const apart = delta([scene('scene-shop', 'Corner shop', P1, {distinct_from: [copy.node_id]})]);
+	assert.equal((await b.check(job, apart)).ok, true);
+	await b.publish(job, apart);
+	assert.deepEqual(Object.keys((await b.meta()).reading.identity).filter(key => key.includes('scene-shop')), [`${b.sha}:scene:scene-general-store:scene-shop`]);
+	// The reader's other answer: the survivor's id, which publishes onto the node that stands for the store.
+	const fourth = await claimDetail(b, 'the shop a fourth time');
+	await b.publish(fourth, delta([{node_id: STORE.node_id, node_kind: 'scene', name: 'General Store', aliases: ['Mather store'], source_refs: P2}]));
+	assert.ok((await b.graph()).nodes.get(STORE.node_id).aliases.includes('Mather store'));
+	// The survivor's names include what only the copy carried: without the map the copy would be a candidate of its own.
+	const nodes = [{...STORE, source_refs: P1, aliases: []}, {...copy, aliases: ['Corner shop']}];
+	const drafted = [scene('scene-shop', 'Corner shop', P1)];
+	const through = api.publishedDuplicates(drafted, nodes, b.mid, [], {}, b.sha, id => id === copy.node_id ? STORE.node_id : id);
+	assert.deepEqual(through.map(pair => [pair.published.node_id, pair.shared, pair.published.aliases]), [[STORE.node_id, 'Corner shop', ['Corner shop']]]);
+	assert.deepEqual(api.publishedDuplicates(drafted, nodes, b.mid, [], {}, b.sha).map(pair => pair.published.node_id), [copy.node_id]);
+});
+
+test('§191.3 retained needs read through survivors: a need on a copy is read as the survivor\'s, and one question about one thing is asked once', async () => {
+	const b = await book('needs');
+	await storeWithCopy(b, {storeNeeds: ['What does the shop sell?'], copyNeeds: ['What does the shop sell?', 'Who keeps the ledger?']});
+	const before = new Set((await b.queue()).map(job => job.job_id));
+	await b.call('module.read.ahead', {});
+	const asked = (await b.queue()).filter(job => !before.has(job.job_id) && job.source_need);
+	const graph = await b.graph(), handle = graph.handle(graph.nodes.get(STORE.node_id));
+	assert.deepEqual(asked.map(job => [job.question, job.focus]).sort(), [['What does the shop sell?', handle], ['Who keeps the ledger?', handle]],
+		'each question once, both read as the store');
+	const sells = asked.find(job => job.question === 'What does the shop sell?');
+	assert.equal(JSON.parse(sells.source_need.key)[1], STORE.node_id, 'the survivor\'s own need stands for the question its copy repeats');
+	// The read of the store answers the question on both nodes: neither retained need is left.
+	const job = await b.claim();
+	assert.equal(job.job_id, asked.find(row => row.job_id === job.job_id)?.job_id, 'a need read is claimed');
+	await b.publish(job, delta([{node_id: STORE.node_id, node_kind: 'scene', name: 'General Store', source_refs: P1, properties: {keeper_notes: 'The answer, on the page.'}}]));
+	const left = (await b.raw()).source_needs.filter(need => need.question === job.question);
+	assert.deepEqual(left, [], `the question ${job.question} was answered for the store and its copy`);
 });
 
 test('§191.1 the host keeps the identity pointer: its own review unit, never advisory, never cleared by the claim check, the published node in view', async () => {
