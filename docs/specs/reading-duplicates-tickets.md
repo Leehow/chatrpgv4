@@ -16,7 +16,7 @@ Waves:
 
 ## DUP-01 — The landing check and the reader packet roster
 
-Status: ready-for-agent · contract §191.1, §191.2 · branch `…-landing`
+Status: done — fa5db2f3f, 37ccb8891, 9980eae18 (merged)
 
 - **The `duplicate_of_published` check, in two places:**
   - `checkDraft`, against the claim-time view, so the reader's own check and `submit_reading` report it;
@@ -38,7 +38,7 @@ Acceptance:
 
 ## DUP-02 — One survivor map and carry
 
-Status: ready-for-agent · contract §191.3, §191.4 · branch `…-survivors`
+Status: done — 040336734, ee09af3b9 (merged)
 
 - **The relation:** kernel identity relations `rel-identity-<later>-to-<earlier>`, written as `writeVariants` writes them.
 - **One survivor map in `ModuleGraph`:**
@@ -60,7 +60,7 @@ Mutation evidence for each reader. ext, py and loop on leehow-pc.
 
 ## DUP-03 — Repairing graphs that already have duplicates
 
-Status: needs-triage (wave 2, after DUP-02) · contract §191.5 · branch `…-repair`
+Status: done — db623f2d2…5721ae612, incl. DUP-03b `unsure` never splits (merged)
 
 - **Candidates:** found from the published graph by the 191.1 trigger.
 - **Same kind, same own name and overlapping pages:** the kernel writes the identity relation directly, with
@@ -71,7 +71,7 @@ Status: needs-triage (wave 2, after DUP-02) · contract §191.5 · branch `…-r
 
 ## DUP-04 — Real table and merge
 
-Status: needs-triage (the lead runs it after DUP-01..03)
+Status: done — table nr07-blood-road-1 passed S1–S7 (acceptance home NR07-PREREG.md)
 
 - A new campaign on the repaired library, with the pre-registered lines of §191.7.
 - Then merge into the mainline and package, on the owner's word.

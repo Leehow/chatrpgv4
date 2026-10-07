@@ -121,7 +121,7 @@ Status: done — tables nr06-blood-road-2 and -3 passed the pre-registered lines
 
 ## NR-07 — Page readings duplicate people the graph already has
 
-Status: needs-triage (found by NR-02; producer side, outside §188)
+Status: done — implemented as §191 (`reading-duplicates-tickets.md`, DUP-01..04)
 
 On Blood Road the campaign fork's generation 55 (a page reading of pp. 25–26, 2026-10-07 02:05Z) wrote
 `npc-daniel-mather` beside the existing `npc-book-4-daniel-mather`: same name, same page, same biography. At generation
@@ -133,5 +133,20 @@ for an existing person are unchanged.
 
 What to decide: where the reading merge must recognise an existing node (cast row identity, `source_refs` page and the
 same whole name), and whether existing duplicates are merged in the graph or only grouped at read time.
+
+---
+
+## NR-08 — A shared untold name is never written as joined words
+
+Status: done — 281491ba2 + e441a032f (NR-08b), contract §188.8
+
+Found on table `nr07-blood-road-1`: Blood Road's two 皮特 got their joined roster word written into the player's prose,
+in 4 turns. The second-delivery replacement had substituted the joined word.
+
+Fix:
+- A shared name is held every time, with each person's own word and `say_name`.
+- A joined word in prose, in a say token or in a document is held.
+- Re-tests: `nr08-blood-road-1` found that the name could not be said, which NR-08b fixed; `nr08-blood-road-2` passed
+  J1–J4.
 
 ## Comments
