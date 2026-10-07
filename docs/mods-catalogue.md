@@ -4,8 +4,9 @@ Written 2026-10-04 from the shipped files under `mods/` (before §183 sectioned 
 
 ## How a package reaches the table
 
-Game Clock (`game-clock` 1.0.0, default on for new campaigns; added 2026-10-06)
-is a presentation-only package requiring `ui.clock.v1`. It places the game's
+Game Clock (`game-clock` 1.0.1, default on for new campaigns; added 2026-10-06)
+is a presentation-only package requiring `ui.clock.v1` and `mods.package-files.v1`,
+with `package_files: []` (only `mod.json` ships). It places the game's
 clock at the upper right of the transcript. Reading history follows the centered
 message's committed time; returning to the bottom restores current time. It has
 no Keeper instructions, settings, model calls or state writer. Existing campaigns

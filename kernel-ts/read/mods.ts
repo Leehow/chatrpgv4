@@ -283,8 +283,8 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     if (scoped !== Array.isArray(declared))
         invalid("mods.package-files.v1 and package_files must be declared together");
     if (scoped) {
-        if (!declared.length || new Set(declared).size !== declared.length)
-            invalid("package_files must be a non-empty list of distinct runtime files");
+        if (new Set(declared).size !== declared.length)
+            invalid("package_files must be a list of distinct runtime files");
         for (const name of declared) {
             if (typeof name !== "string" || !name || name.startsWith("/") || name.includes("\\")
                 || name.split("/").some(part => !part || part === "." || part === "..")

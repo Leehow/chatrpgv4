@@ -6333,9 +6333,12 @@ language table and no language branch.
 
 ### 23.5 Game Clock Mod (2026-10-06)
 
-The built-in `game-clock` 1.0.0 package requires `ui.clock.v1`, is enabled by
-default for new campaigns, and uses the normal immutable campaign lock and
+The built-in `game-clock` 1.0.1 package requires `ui.clock.v1` and
+`mods.package-files.v1`, declares `package_files: []`, and is enabled by
+default for new campaigns. It uses the normal immutable campaign lock and
 `mods.configure` boundary. Existing campaigns opt in through the Mods panel.
+The package contains only its implicit `mod.json`; the host supplies the clock
+renderer. Frozen 1.0.0 packages keep their bytes and locks until an explicit upgrade.
 It contributes presentation only: no clock writer, timer, model call or Keeper
 instruction. `apply time` and other existing settled effects remain the writers.
 
@@ -18643,6 +18646,15 @@ directory to validate the manifest, but digesting, installation and freezing use
 that declares the field without the capability, or the capability without the field, refuses its
 own package. An older kernel sees the unknown capability and marks the package incompatible instead
 of reverting to the legacy all-files default.
+
+A package with no contributed runtime files may declare `package_files: []`;
+its digest, installation and freeze contain only the implicit `mod.json`.
+Required file contributions, path validation, uniqueness and the prohibition on
+engineering files still apply. This permits presentation-only packages such as
+Game Clock without adding an unused Keeper prompt. The implicit manifest follows
+[npm's mandatory package manifest](https://docs.npmjs.com/cli/v11/configuring-npm/package-json/#files);
+the array has no minimum length, as in [JSON Schema's array constraints](https://json-schema.org/understanding-json-schema/reference/array#length).
+Unlike npm, no README or other source material is automatically included here.
 
 Legacy packages without the capability keep their historical all-files digest and remain readable
 without migration. A scoped version is therefore a new semantic version, never different bytes
