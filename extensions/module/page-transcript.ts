@@ -74,12 +74,16 @@ function lastCodePoint(value: string): number | undefined {
 
 /**
  * A run's lines as one stretch of reading text: no separator when either side of a join is East Asian Wide or Fullwidth,
- * else one space -- and none when a side already ends or begins with whitespace, so a join never doubles one.
+ * else one space -- and none when a side already ends or begins with whitespace, so a join never doubles one, or when the
+ * left line ends in a hyphen (a word broken at the line end keeps its hyphen and loses the gap: typography, not language).
  */
+/** Hyphen-minus, hyphen and soft hyphen at the end of a line. */
+const LINE_END_HYPHEN = /[\u002D\u2010\u00AD]$/u;
 export function joinRun(parts: readonly string[]): string {
 	let out = "";
 	for (const part of parts) {
-		if (out && part && !eastAsianWide(lastCodePoint(out)) && !eastAsianWide(part.codePointAt(0)) && !/\s$/u.test(out) && !/^\s/u.test(part))
+		if (out && part && !eastAsianWide(lastCodePoint(out)) && !eastAsianWide(part.codePointAt(0)) && !/\s$/u.test(out) && !/^\s/u.test(part)
+			&& !LINE_END_HYPHEN.test(out))
 			out += " ";
 		out += part;
 	}

@@ -85,6 +85,9 @@ test("§191.3 runs join wide characters without a separator and everything else 
 	assert.equal(joinRun(["混合", "Latin"]), "混合Latin", "either side wide: no separator");
 	assert.equal(joinRun(["ends with space ", "next"]), "ends with space next", "a join never doubles a space");
 	assert.equal(joinRun(["ＡＢＣ", "x"]), "ＡＢＣx", "fullwidth forms are F");
+	assert.equal(joinRun(["the sce-", "nario"]), "the sce-nario", "a line-end hyphen joins without a space");
+	assert.equal(joinRun(["human\u2010", "seeming"]), "human\u2010seeming");
+	assert.equal(joinRun(["a dash -", "x"]), "a dash -x");
 	assert.equal(eastAsianWide("𠀀".codePointAt(0)), true, "a supplementary-plane ideograph");
 	assert.equal(eastAsianWide("é".codePointAt(0)), false);
 	const result = assembleLayout("{L1-L2}", ["中文第一行", "中文第二行"]);
