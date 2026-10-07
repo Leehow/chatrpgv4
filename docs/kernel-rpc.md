@@ -36451,15 +36451,29 @@ complete, of the bound file, and the row prints the graph person's own name in t
 - `castNodes(graph, node)` gives the nodes the cast holds as one individual.
 - `isTold` (person-words.ts) and `untoldBlock` (capsule.ts) count a node as told when any of those nodes is told (journal
   `named_at` or a delivery).
-- `untoldRoster` shows the person by the first of their nodes that has a word. A legacy campaign renames every node's
-  id and handle.
+- `rosterWord` (capsule.ts) shows the person by their first node's word, else the first other copy's that has one. The
+  roster and §188.3's undo both read it. `rosterNames`, the one row builder, renames every node's id and handle in a legacy
+  campaign.
+- `protectedNames` (§188.1) protects a person's names when any of their nodes is told.
 - `newcomerRefusal` counts every node's word.
 - The journal's book-name check finds the person by any of their nodes.
+
+**One candidate in `resolve`** (lead's ruling after the merge with NR-01, NR-03 and NR-04a, 2026-10-07).
+- The campaign loader installs `ModuleGraph.individuals` with the undo rows (`individualNodes`, `read/rename-undo.ts`): each
+  node of an individual the cast holds more than once, to their first node (`CastPerson.node`). That is the node whose
+  handle the roster's rows carry as `id` and whose word `rosterWord` shows first.
+- `resolve` counts those nodes once, as the first node, wherever a name reaches several: the graph's names, the phrase at
+  one end of a name (§2), and each spelling of §188.3's undo. So 「丹尼尔·马瑟」 in a call is the store owner's first node,
+  not `ambiguous` between his copies. A joined word for two men is still ambiguous, with one candidate for each man.
+- A handle, a node id or a legacy slug still names its own node: a copy placed in a scene is still moved by its handle. A
+  copy's own handle reached by an undo spelling (a legacy slug) counts as the individual too.
+- Only a campaign's graph has the map; a graph no campaign serves resolves as before.
+- When the first node has no word yet, the roster shows the other copy's word, and a call by that word reaches the other
+  copy through the junction (§87.8). It is the same person; the two meet again once the lane words the first node.
 
 **Not changed, open.**
 - The producer: the page reading merge writes a second node for someone the graph already has. On book-4 generation 55
   that was the store owner, the squatter, the sand rats and the general store.
-- `ModuleGraph.resolve("丹尼尔·马瑟")` is still ambiguous between the two copies. That is §188.3/§188.4's side.
 - Presence and capsules still show each copy by its own word.
 - Brenner's `npc-book-4-dr-brenner` (「布伦纳医生」) does not carry the row's fullest form, so 「布伦纳医生」 still shows two words.
 - A label the fiction established on a later copy is not preferred over the first copy's epithet.
@@ -36476,6 +36490,10 @@ Tests, in `tests/extension/module-cast.test.mjs`:
   - with no word on the first copy, the second copy's word is shown.
 - Both ways and the longest name: a partial cast without the squatter's row, and a later row printing 「皮特」 alone.
 - On the real kernel, the journal lane's label check on the second copy uses the names her row gives her.
+- On the real kernel, `apply person` by a name two copies carry lands on the node the roster names him by.
+- In process: Blood Road's name resolves to the first copy; the squatter/hardware owner joined word is ambiguous with two
+  candidates, each by his own word; a phrase at one end of a name finds one candidate; told through the second copy, his
+  names are protected spans.
 
 Mutations, each turning at least one case red (reverted by copy):
 - the four files back to base;
@@ -36487,4 +36505,6 @@ Mutations, each turning at least one case red (reverted by copy):
 - newcomer words without the copies;
 - fold on either clause;
 - no longest-name choice;
-- the journal by the first node only.
+- the journal by the first node only;
+- after the merge: `protectedNames` told by the first node; `rosterWord` from the first node only; `resolve`'s names path,
+  phrase path and undo spellings not collapsed; `individuals` not installed by the loader.

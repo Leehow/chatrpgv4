@@ -267,9 +267,10 @@ export function knownNamePieces(graph: ModuleGraph, known: readonly CastPerson[]
  */
 export function protectedNames(graph: ModuleGraph, world: Row, journal: Row, records: Iterable<Row>): string[] {
     const history = prepareNameHistory(records);
-    // The told test the roster makes (`untoldBlock`, `untoldUnread`): the journal's `named_at` or a delivery that showed the name.
+    // The told test the roster makes (`untoldBlock`, `untoldUnread`): the journal's `named_at` or a delivery that showed the name;
+    // §188.2: of any node of an individual the graph holds more than once (`isTold`).
     const told = (person: CastPerson): boolean => person.node
-        ? !!integer(row(row(journal.entries)[string(person.node.node_id)]).named_at) || toldTurn(graph, person.node, history) !== null
+        ? person.nodes.some(node => !!integer(row(row(journal.entries)[string(node.node_id)]).named_at) || toldTurn(graph, node, history) !== null)
         : castToldTurn(person, history) !== null;
     const words: unknown[] = [
         ...graph.investigatorNames,

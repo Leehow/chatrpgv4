@@ -49,6 +49,15 @@ export function renameUndoRows(graph: ModuleGraph, world: Row, journal: Row): { 
 }
 
 /**
+ * §188.2: each node of an individual the graph holds more than once, by node id, to the node that stands for them: their
+ * first node (`CastPerson.node`), whose word the roster shows first (`rosterWord`). `resolve` counts them as one candidate.
+ */
+export function individualNodes(graph: ModuleGraph): Map<string, string> {
+    return new Map(bookCast(graph).filter(person => person.node && person.nodes.length > 1)
+        .flatMap(person => person.nodes.map(node => [string(node.node_id), string(person.node!.node_id)] as [string, string])));
+}
+
+/**
  * Install the rows on a campaign's loaded graph, in both schemes (§188.3). The roster shows a graph person by the journal's
  * label until the label is folded into the world (§176.4), so the journal is read beside the world. Handle rows come only
  * where the roster makes them, a legacy campaign: a name-free graph's handles carry no name and are never renamed (§185.7).
@@ -60,4 +69,5 @@ export async function installRenameUndo(context: KernelContext, campaign: string
     const { rows, words } = renameUndoRows(graph, world, journal);
     graph.renameUndo = rows;
     graph.shownWords = words;
+    graph.individuals = individualNodes(graph);
 }
