@@ -38105,3 +38105,11 @@ had already put the copy's alias on the survivor, and the case above was added f
 - `conflicts-reported` (`survivors.ts`): survivor-map.test.mjs: 1 red (the writer)
 
 25 of 25 DUP-02b mutations turn a case red; each file was restored by copy and checked by digest.
+
+*leehow-pc at `33dbf797e`.*
+- ext: 5054 pass, 6 fail. Five are the base's (SL-00 inventory, four `timeline:`).
+- The sixth, `module-command.test.mjs` "/coc module outside an interactive terminal", fails on the box with or without this
+  slice's kernel files: a box copy with every kernel file this slice changed put back to `a6c7080d8` fails it the same way.
+  The test runs on the fake kernel and sees a background `memory.job`.
+- py on 27 related kernel files: 301 pass; the one failure is the known `test_npc_act_options` case.
+- loop: 333 of 333.
