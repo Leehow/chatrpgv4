@@ -164,7 +164,11 @@ test('guidance review inspects a host-assigned alternate entrance outside the au
    return {ok:true,ms:1,stderr:''};
   }});
  assert.deepEqual(observed.sort((a,b)=>a-b),[1,2,94]);
- assert.match(JSON.parse(await readFile(join(cwd,'review.json'),'utf8')).guidance.public_fields_sha256,/^[a-f0-9]{64}$/);
+ const written=JSON.parse(await readFile(join(cwd,'review.json'),'utf8'));
+ assert.match(written.guidance.public_fields_sha256,/^[a-f0-9]{64}$/);
+ // The reviewer's verdict rides with the digests: the kernel's checkGuidance refuses a review whose guidance has no approved/issues
+ // (the first RD-08 table lost it in the §187.8 unit merge and never seated its investigator).
+ assert.equal(written.guidance.approved,false);assert.deepEqual(written.guidance.issues,['Present both starts.']);
 });
 
 test('an oversized focused input names its own readable file instead of forcing full-task ingestion',async t=>{

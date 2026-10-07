@@ -676,7 +676,9 @@ export async function reviewCandidate(options: {
 			}
 			const kept: Row = {checked: [] as Row[], missing: [] as unknown[]}, keptPages = new Set<number>(), evidence: string[] = [];
 			let carriedFrom: Row | undefined, restDone = !rest.length;
-			const keep = (review: Row, pages: number[]) => { kept.checked.push(...review.checked); kept.missing.push(...review.missing); for (const page of pages) keptPages.add(page); };
+			// A guidance unit's review carries `guidance: {approved, issues}` beside its rows (§22.4.1); the kernel's `checkGuidance`
+			// refuses a review without it, so the field rides with the rows it was written beside.
+			const keep = (review: Row, pages: number[]) => { kept.checked.push(...review.checked); kept.missing.push(...review.missing); if (review.guidance !== undefined) kept.guidance = review.guidance; for (const page of pages) keptPages.add(page); };
 			// §186.4: a records-only targeted repair carries the repaired round's coverage verdict; no reviewer answers it.
 			const carry = carriedCoverage(rest, pagesFor(rest));
 			if (carry && 'review' in carry) { keep(carry.review, carry.pages); carriedFrom = carry.carried_from; restDone = true; }
