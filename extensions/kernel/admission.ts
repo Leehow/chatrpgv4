@@ -123,6 +123,41 @@ export function clipBytes(text: string, maxBytes: number): string {
 	return kept;
 }
 
+/** §190.3: one move of the turn that admission refused, as the turn record keeps it. */
+export interface RefusedMove { to: string; reason: string }
+/** §190.3: the most refused moves one turn record keeps; the kernel refuses a longer list. */
+export const REFUSED_MOVES_MAX = 16;
+/** §190.3: a refused move's `to` is kept to this many code points (§135.31's argument ceiling). */
+const REFUSED_MOVE_TO_MAX = 200;
+
+/**
+ * §190.3: what an `apply` batch admission refused leaves for the turn record -- one `{to, reason}` per `move` effect of the
+ * batch as it stood when it was refused (a split batch's landed lines are already gone from it, §32.12.3). `reason` is the
+ * refusal's own `details.reason` (`action_not_authorized`, `admission_unavailable`, `review_timeout`, ...) or its code.
+ * `review_pending` is not a refusal (§32.12.2: the identical resend collects the review), and a `resolve` moves nothing.
+ */
+export function refusedMovesOf(tool: string, effects: unknown, error: unknown): RefusedMove[] {
+	if (tool !== "apply" || !(error instanceof KernelError) || !Array.isArray(effects)) return [];
+	// Never an empty reason: the kernel refuses a delivery whose `refused_moves` carries one.
+	const reason = String(error.details?.reason || error.code || "refused");
+	if (reason === REVIEW_PENDING) return [];
+	return effects.flatMap((effect) => {
+		const move = effect && typeof effect === "object" ? effect as { kind?: unknown; to?: unknown } : undefined;
+		if (move?.kind !== "move" || typeof move.to !== "string" || !move.to.trim()) return [];
+		return [{ to: [...move.to.trim()].slice(0, REFUSED_MOVE_TO_MAX).join(""), reason }];
+	});
+}
+
+/** §190.3: the turn's refused moves with `moves` added: an identical pair once, at most `REFUSED_MOVES_MAX`, oldest first. */
+export function withRefusedMoves(list: readonly RefusedMove[], moves: readonly RefusedMove[]): RefusedMove[] {
+	const kept = [...list];
+	for (const move of moves) {
+		if (kept.length >= REFUSED_MOVES_MAX) break;
+		if (!kept.some((held) => held.to === move.to && held.reason === move.reason)) kept.push({ to: move.to, reason: move.reason });
+	}
+	return kept;
+}
+
 /** Waits `ms` on the review's clock; returns at once when `signal` aborts (a cancelled round does not wait out its retry). */
 function pause(clock: TaskClock, ms: number, signal?: AbortSignal): Promise<void> {
 	return new Promise((resolve) => {

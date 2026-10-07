@@ -48,6 +48,25 @@ export function deliveryRecord(turn: Row, text: string | null, receipts: Row[], 
     };
 }
 
+/** Contract §190.3: at most this many moves admission refused ride on a turn's delivery. */
+export const REFUSED_MOVES_MAX = 16;
+/**
+ * Contract §190.3: the moves admission refused this turn, as the host carries them on the delivery (`refused_moves`,
+ * host-only, §135.31's channel), for the turn record's `refused_moves`: `{to, reason}` each, `to` the move's destination as
+ * the Keeper proposed it and `reason` the refusal's own reason. Not part of the call's digest. Absent: none.
+ */
+export function refusedMoves(value: unknown): Row[] {
+    if (value == null)
+        return [];
+    if (!Array.isArray(value) || value.length > REFUSED_MOVES_MAX)
+        throw new RpcError('invalid_params', `refused_moves must be a list of at most ${REFUSED_MOVES_MAX} moves`);
+    return value.map((entry, index) => {
+        const move = isJsonObject(entry) ? entry : undefined;
+        if (!move || typeof move.to !== 'string' || !move.to.trim() || typeof move.reason !== 'string' || !move.reason.trim())
+            throw new RpcError('invalid_params', `refused_moves[${index}] must be {to: string, reason: string}`);
+        return { to: move.to, reason: move.reason };
+    });
+}
 /** Contract §135.31: at most this many of a turn's `look`/`lookup` calls ride on its delivery. */
 export const KEEPER_READS_MAX = 64;
 /**
