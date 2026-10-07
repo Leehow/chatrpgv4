@@ -1,13 +1,13 @@
 /**
- * Contract §191.3/§191.4 (DUP-02, owner rulings 2026-10-07): one survivor map for every kind, and carry.
+ * Contract §192.3/§192.4 (DUP-02, owner rulings 2026-10-07): one survivor map for every kind, and carry.
  *
  * Blood Road's generation 55 published a second node for things the graph already had: the general store, the town centre,
  * the store owner. The places resolved `ambiguous`, read material looked unread by name, and facts split across the copies.
  * Here, on the real kernel over a bound three-page PDF: the campaign's fork holds an old tower, its lamp oil and Old Mae twice
  * (written straight into a generation, as a graph that already holds duplicates does), the table finds a copy's clue and seats
  * the lamp keeper in the copy before anything is joined, and then the kernel's identity writer joins each copy to the node
- * published first. Every reader §191.3 lists then reads through the node that stands for each thing, and the survivor carries
- * what only its copy had (§191.4). A reader-authored `variant-of`, which states a state, never joins anything.
+ * published first. Every reader §192.3 lists then reads through the node that stands for each thing, and the survivor carries
+ * what only its copy had (§192.4). A reader-authored `variant-of`, which states a state, never joins anything.
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
@@ -182,7 +182,7 @@ const IDENTITIES = [
 const JOINED = [['scene-tower-copy', 'scene-tower'], ['clue-lamp-oil-copy', 'clue-lamp-oil'], ['npc-mae-copy', 'npc-mae'],
 	['conclusion-keeper-alive-copy', 'conclusion-keeper-alive']];
 
-test('§191.3: before the identity relations the copies split the tower; after them every reader reads one tower', async t => {
+test('§192.3: before the identity relations the copies split the tower; after them every reader reads one tower', async t => {
 	const h = await tower(t);
 	const [tower_, copy, cellar, silas, oil, oilCopy, key, mae, maeCopy] = await Promise.all(['scene-tower', 'scene-tower-copy', 'scene-cellar', 'npc-silas-marsh',
 		'clue-lamp-oil', 'clue-lamp-oil-copy', 'clue-cellar-key', 'npc-mae', 'npc-mae-copy'].map(h.handle));
@@ -230,7 +230,7 @@ test('§191.3: before the identity relations the copies split the tower; after t
 	assert.equal(capsule.module.people.filter(row => row.name === 'Old Mae').length, 1, JSON.stringify(capsule.module.people));
 });
 
-test('§191.3: the in-process readers -- scene groups, placeOf, material, the cast, a reader\'s own variant-of', async t => {
+test('§192.3: the in-process readers -- scene groups, placeOf, material, the cast, a reader\'s own variant-of', async t => {
 	const h = await tower(t);
 	const before = (await h.loaded()).graph;
 	assert.throws(() => before.resolve('Old Mae', ['npc']), /ambiguous/);
@@ -288,7 +288,7 @@ test('§191.3: the in-process readers -- scene groups, placeOf, material, the ca
 	assert.equal(brief.more, undefined, 'a copy is not a roster line the fit dropped');
 });
 
-test('§191.4: the survivor takes what only the copy had; a contradiction stays on the copy; the relation is the kernel\'s', async t => {
+test('§192.4: the survivor takes what only the copy had; a contradiction stays on the copy; the relation is the kernel\'s', async t => {
 	const h = await tower(t);
 	await h.join(IDENTITIES);
 	const raw = await h.store.readGraph(h.mid), node = id => raw.nodes.find(each => each.node_id === id);
@@ -323,7 +323,7 @@ test('§191.4: the survivor takes what only the copy had; a contradiction stays 
 	assert.deepEqual(refused, {generation: generation + 1, written: [], skipped: [{from: 'scene-cellar', to: 'scene-dock', reason: 'verdict_different', nodes: ['scene-cellar', 'scene-dock']}]});
 });
 
-test('§191.3: the lanes skip a copy; a copy\'s need asks about the survivor; two foci that are one thing are one reading', async t => {
+test('§192.3: the lanes skip a copy; a copy\'s need asks about the survivor; two foci that are one thing are one reading', async t => {
 	const h = await tower(t);
 	await h.call('table.player_input', {text: 'I watch the dock.'});
 	const asked = async () => (await h.call('handles.job')).nodes?.map(row => row.id) ?? [];
@@ -349,7 +349,7 @@ test('§191.3: the lanes skip a copy; a copy\'s need asks about the survivor; tw
 	assert.deepEqual([second.job_id, second.attached], [first.job_id, true], JSON.stringify(second));
 });
 
-test('§191.3: the identity writer joins two nodes of one kind, decided by a review, and never a node twice', () => {
+test('§192.3: the identity writer joins two nodes of one kind, decided by a review, and never a node twice', () => {
 	const graph = {module_id: 'book', nodes: [
 		{node_id: 'scene-a', node_kind: 'scene', name: 'A'}, {node_id: 'scene-b', node_kind: 'scene', name: 'A'},
 		{node_id: 'location-a', node_kind: 'location', name: 'A'}, {node_id: 'handout-a', node_kind: 'handout', name: 'H'},
@@ -374,7 +374,7 @@ test('§191.3: the identity writer joins two nodes of one kind, decided by a rev
 			{relation_id: 'rel-identity-scene-c-to-npc-a', relation_kind: 'variant-of', from_node_id: 'scene-c', to_node_id: 'npc-a', properties: {identity_review: REVIEW}}]}, '', {});
 	assert.equal(forged.isVariant(forged.nodes.get('npc-b')), false);
 	assert.equal(forged.isVariant(forged.nodes.get('scene-c')), false);
-	// §191.3 (lead ruling): a recorded `different` verdict and an identity relation cannot both stand. The writer refuses to join
+	// §192.3 (lead ruling): a recorded `different` verdict and an identity relation cannot both stand. The writer refuses to join
 	// such a pair, through any node of their relation groups; a graph that holds one anyway is reported, the relation left alone.
 	const apart = new Set([api.pairKey('scene-a', 'scene-c2')]);
 	const kept = {module_id: 'book', nodes: [{node_id: 'scene-a', node_kind: 'scene', name: 'A'}, {node_id: 'scene-b', node_kind: 'scene', name: 'A'},
@@ -399,7 +399,7 @@ test('§191.3: the identity writer joins two nodes of one kind, decided by a rev
 		'old:scene:a:d': {verdict: 'different', nodes: ['a', 'd']}}, 'sha')], [api.pairKey('a', 'b')]);
 });
 
-test('§191.3 with §188.2: an identity relation makes two people one cast person before any cast row; the roster shows one word', () => {
+test('§192.3 with §188.2: an identity relation makes two people one cast person before any cast row; the roster shows one word', () => {
 	const raw = {nodes: [
 		{node_id: 'npc-book-4-daniel-mather', node_kind: 'npc', name: '丹尼尔·马瑟', aliases: ['丹', '丹·马瑟'], source_refs: ref(26)},
 		{node_id: 'npc-daniel-mather', node_kind: 'npc', name: '丹尼尔·马瑟', aliases: ['丹·马瑟'], source_refs: ref(26)}],
@@ -415,7 +415,7 @@ test('§191.3 with §188.2: an identity relation makes two people one cast perso
 	assert.equal(graph.resolve('丹尼尔·马瑟', ['npc']).node_id, 'npc-book-4-daniel-mather', 'no cast fold needed');
 });
 
-test('§191.3 (DUP-02b): lookup lists the tower once; maps, a copy\'s claims and every discovered-clue reader read through survivors', async t => {
+test('§192.3 (DUP-02b): lookup lists the tower once; maps, a copy\'s claims and every discovered-clue reader read through survivors', async t => {
 	const h = await tower(t);
 	const [tower_, copy, cellar] = await Promise.all(['scene-tower', 'scene-tower-copy', 'scene-cellar'].map(h.handle));
 	await h.join(IDENTITIES);

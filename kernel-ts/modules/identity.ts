@@ -1,10 +1,10 @@
 /**
- * Contract §191.3/§191.4 (owner rulings 2026-10-07): the writer of one thing's copies as one. A duplicate is never deleted and
+ * Contract §192.3/§192.4 (owner rulings 2026-10-07): the writer of one thing's copies as one. A duplicate is never deleted and
  * no id is rewritten; the kernel writes an identity relation from the later node to the earlier one
  * (`rel-identity-<later>-to-<earlier>`, `properties.identity_review`, as §152.4's `writeVariants` writes them) in a new
  * generation, and every reader then reads the later node through the earlier (`read/survivors.ts`).
  *
- * Carry (§191.4): when the relation is written, the survivor takes what only the variant has -- its names it lacks (as
+ * Carry (§192.4): when the relation is written, the survivor takes what only the variant has -- its names it lacks (as
  * aliases), its `source_refs`, and the properties it lacks or that merge without contradiction (`mergeValue`, publication's
  * own merge), with their field spans. A contradiction stays on the variant, still readable through it. The fields that say
  * what a node is called or where play starts are the survivor's own and never travel; a printed visual's crops and regions
@@ -40,7 +40,7 @@ const IDENTITY_FIELDS: readonly string[] = ['name', 'display_name', 'title', 'se
 const pointer = (key: string): string => key.replace(/~/g, '~0').replace(/\//g, '~1');
 
 /**
- * §191.3 (lead ruling 2026-10-07): the recorded `different` verdict, by pair key, that keeps a node of `later`'s relation group
+ * §192.3 (lead ruling 2026-10-07): the recorded `different` verdict, by pair key, that keeps a node of `later`'s relation group
  * apart from a node of `earlier`'s, or null. A `different` verdict and an identity relation for one pair cannot both stand.
  */
 export function apartVerdict(graph: Row, later: string, earlier: string, apart: ReadonlySet<string>): string | null {
@@ -83,7 +83,7 @@ export function writeIdentity(graph: Row, later: string, earlier: string, review
     return { relation, survivor: string(survivor.node_id), carried: carry(graph, variant, survivor, visual) };
 }
 
-/** §191.4: the variant's names, references and properties the survivor lacks, onto the survivor, with their field spans. */
+/** §192.4: the variant's names, references and properties the survivor lacks, onto the survivor, with their field spans. */
 function carry(graph: Row, variant: Row, survivor: Row, visual: boolean): IdentityCarry {
     const vid = string(variant.node_id), sid = string(survivor.node_id), carried: IdentityCarry = { aliases: [], source_refs: 0, properties: [], kept: [] };
     const spans = isJsonObject(graph.field_spans) ? graph.field_spans as Row : null;
@@ -143,7 +143,7 @@ function carry(graph: Row, variant: Row, survivor: Row, visual: boolean): Identi
  * generation writer (`ModuleStore.writeGraph`, then `module.json`), under the module's metadata lock, the lock every
  * publication of that module holds. Each pair is ordered by publication (§152.4's `publicationOrder`: the first
  * `reading.materials` generation that lists the node; a node no row lists is later; a tie falls to node id order), so the node
- * published first survives (§191.3). Each review is stamped with the generation it is published in, as `writeVariants` stamps
+ * published first survives (§192.3). Each review is stamped with the generation it is published in, as `writeVariants` stamps
  * its own. Nothing is written when no decision lands. Offering a fork's generation to the library (§184.1) is the caller's.
  */
 export async function publishIdentities(store: ModuleStore, mid: string, writes: readonly IdentityWrite[]): Promise<Row> {
@@ -151,9 +151,9 @@ export async function publishIdentities(store: ModuleStore, mid: string, writes:
 }
 
 /**
- * `publishIdentities` for a caller that already holds module `mid`'s metadata lock (§191.5: the read-ahead's repair, an
+ * `publishIdentities` for a caller that already holds module `mid`'s metadata lock (§192.5: the read-ahead's repair, an
  * identity job's finish). `verdicts` are the `different` and `unsure` answers the same publication records in `module.json`
- * `reading.identity` (§191.1's key and record, without `generation`): they are kept before any relation is written, so no
+ * `reading.identity` (§192.1's key and record, without `generation`): they are kept before any relation is written, so no
  * write joins a pair a `different` keeps apart (an `unsure` keeps nothing apart, DUP-03b), and each is stamped with the
  * generation the publication lands on (the current one when no relation lands). The record is written whenever a verdict is
  * new, even when no relation lands.
@@ -180,7 +180,7 @@ export async function publishIdentitiesHeld(store: ModuleStore, mid: string, wri
         if (!Array.isArray(write.nodes) || write.nodes.length !== 2 || write.nodes.some(id => typeof id !== 'string'))
             throw new RpcError('invalid_params', 'an identity names two node ids', { details: { field: 'nodes' } });
         const [earlier, later] = write.nodes.map(node).sort(order).map(item => string(item.node_id));
-        // §191.3: a pair a recorded `different` verdict keeps apart is refused, never joined and never guessed.
+        // §192.3: a pair a recorded `different` verdict keeps apart is refused, never joined and never guessed.
         const kept = apartVerdict(graph, later, earlier, apart);
         if (kept !== null) { skipped.push({ from: later, to: earlier, reason: 'verdict_different', nodes: kept.split('\u0000') }); continue; }
         const done = writeIdentity(graph, later, earlier, { ...row(write.review), generation: row(write.review).generation ?? generation }, apart);
@@ -188,7 +188,7 @@ export async function publishIdentitiesHeld(store: ModuleStore, mid: string, wri
         else skipped.push({ from: later, to: earlier, reason: 'survivor_taken' });
     }
     for (const record of added) record.generation = written.length ? generation : number(meta.generation || 0);
-    // §191.3: a graph that already joins a pair a verdict keeps apart is reported, never repaired by guessing.
+    // §192.3: a graph that already joins a pair a verdict keeps apart is reported, never repaired by guessing.
     const conflicts: IdentityConflict[] = rawSurvivors(graph, apart).conflicts();
     const recorded = added.length ? { recorded: added.length } : {};
     if (!written.length) {

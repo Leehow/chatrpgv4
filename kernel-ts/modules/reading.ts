@@ -553,7 +553,7 @@ export class Reading {
         const graph = await this.store.readGraph(mid) || {}, key = normalize(name);
         const matched = array(graph.nodes).filter(node => [node.node_id, node.node_id.startsWith(node.node_kind + '-') ? node.node_id.slice(node.node_kind.length + 1) : node.node_id, node.name ?? '', ...array(node.aliases)].some(value => normalize(value) === key)).map(node => node.node_id);
         const ready = new Set(array(row(meta.reading).materials).flatMap(material => array(material.node_ids)));
-        // §191.3: every thing the name names is read when any node of that thing was (its survivor or a copy the map joins).
+        // §192.3: every thing the name names is read when any node of that thing was (its survivor or a copy the map joins).
         const survivors = rawSurvivors(graph), things = [...new Set(matched.map(id => survivors.id(id)))];
         return things.length > 0 && things.every(id => survivors.group(id).some(each => ready.has(each)));
     }
@@ -928,7 +928,7 @@ export class Reading {
      * window re-opens an unlocated need only for material added there; a long book asks only the needs whose entity cites a
      * page of its window.
      *
-     * §191.3: a need on a copy is its survivor's (`rawSurvivors`, the graph's identity relations). One question about one thing
+     * §192.3: a need on a copy is its survivor's (`rawSurvivors`, the graph's identity relations). One question about one thing
      * is one need: the survivor's own need stands for it, else the first in the graph's order; a question done for any node
      * of the thing is done for all of them; the window reads the pages of every node of the thing. `queueNeedReads` focuses
      * the read on the survivor.
@@ -955,7 +955,7 @@ export class Reading {
     /** §151.4: the retained needs' background reads (`needsToAsk`), asked after this pass's streamed units, two per pass. */
     private async queueNeedReads(mid: string, graph: ModuleGraph, ask: (request: Row) => Promise<Row | null>, window: ReadingWindow): Promise<void> {
         const meta = await this.store.module(mid), queue = ownAsks(await this.store.queue(mid));
-        // §191.3: a need on a copy is read as its survivor's.
+        // §192.3: a need on a copy is read as its survivor's.
         const survivors = rawSurvivors(graph.raw);
         for (const need of (await this.needsToAsk(mid, meta, graph.raw, queue, window)).slice(0, 2)) {
             const node = graph.nodes.get(survivors.id(string(need.node_id)));
@@ -1059,7 +1059,7 @@ export class Reading {
      */
     async queueAheadReading(params: Row): Promise<Row> {
         const mid = validateModuleId(params.module_id);
-        // §191.5: the repair is maintenance; its failure is reported and never stops the read-ahead's own asks.
+        // §192.5: the repair is maintenance; its failure is reported and never stops the read-ahead's own asks.
         let repair: Row | null;
         try { repair = await this.repairIdentities(mid); }
         catch (error) {
@@ -1072,15 +1072,15 @@ export class Reading {
         return { ...result, queued: [...new Set([...array(result.queued), ...array(repair.asked)])], identity_repair: repair };
     }
     /**
-     * §191.5: whether a repair is news for the read-ahead's answer -- it wrote, recorded or failed, asked a verdict, or offered
+     * §192.5: whether a repair is news for the read-ahead's answer -- it wrote, recorded or failed, asked a verdict, or offered
      * something to the library. A quiet repair (nothing to do, a job already live, a library left to its lineage fork) leaves
-     * the answer exactly as it was before §191.5.
+     * the answer exactly as it was before §192.5.
      */
     private static repairNews(repair: Row): boolean {
         const changed = (state: unknown) => ['published', 'recorded', 'failed'].includes(string(state));
         return changed(repair.state) || array(repair.asked).length > 0 || isJsonObject(repair.library_sync) || changed(row(repair.library_repair).state);
     }
-    /** `queueAheadReading` after §191.5's repair. */
+    /** `queueAheadReading` after §192.5's repair. */
     private async aheadReading(params: Row): Promise<Row> {
         const mid = validateModuleId(params.module_id), queued: string[] = [];
         if (!await this.store.exists(mid)) return { queued };
@@ -1406,7 +1406,7 @@ export class Reading {
         const raw = row(await this.store.readGraph(mid));
         return Reading.identityOver(array(raw.nodes), rawSurvivors(raw));
     }
-    /** §22.2.1's focus identity over these graph nodes; §191.3: with `survivors`, each node as the node that stands for it. */
+    /** §22.2.1's focus identity over these graph nodes; §192.3: with `survivors`, each node as the node that stands for it. */
     private static identityOver(nodes: Row[], survivors?: SurvivorMap): (focus: any) => Set<string> {
         // §22.4.3 (SL-36): a place is also named by its display name and the names the book gives the destination
         // (`destination_identity`), which is how a Keeper spells "The Corbitt House" for `corbitt-house-ground`.
@@ -1503,7 +1503,7 @@ export class Reading {
             if (params.source_need !== undefined) {
                 needGraph = await this.store.graph(mid);
                 const need = retainedNeed(needGraph.raw, params.source_need);
-                // §191.3: the focus names the need's thing: its node, or the survivor a need on a copy is read as (`queueNeedReads`).
+                // §192.3: the focus names the need's thing: its node, or the survivor a need on a copy is read as (`queueNeedReads`).
                 const focused = needGraph.find(focus), standing = rawSurvivors(needGraph.raw);
                 if (purpose !== 'detail' || material !== undefined || params.source_unit !== undefined || !need || typeof need.node_id !== 'string' || !focused
                     || standing.id(string(focused.node_id)) !== standing.id(need.node_id) || string(need.question).trim() !== question.trim())
@@ -1532,7 +1532,7 @@ export class Reading {
                 if(!keys.length)return {...result,state:'ready'};
                 visualIdentity={page:number(value.page),keys};
             }
-            // §191.5: the published pairs an identity job asks, by their `reading.identity` keys; the kernel keeps only those
+            // §192.5: the published pairs an identity job asks, by their `reading.identity` keys; the kernel keeps only those
             // still waiting for a verdict now, never the caller's view of them.
             let nodeIdentity:Row|undefined;
             if(params.node_identity!==undefined){
@@ -1910,7 +1910,7 @@ export class Reading {
                     // §152.4: an identity job is claimed with its page's pairs as they stand now, both crops of each.
                     const identityTask: Row = job.visual_identity ? { visual_identity: { page: job.visual_identity.page,
                         pairs: publishedIdentityPairs(graph, meta).filter(pair => pair.page === job.visual_identity.page) } } : {};
-                    // §191.5: an identity job is claimed with its pairs as they stand now; one answered or joined since is not asked.
+                    // §192.5: an identity job is claimed with its pairs as they stand now; one answered or joined since is not asked.
                     if (job.node_identity) {
                         const asked = new Set(array(job.node_identity.pairs));
                         identityTask.node_identity = { protocol: NODE_IDENTITY_PROTOCOL,
@@ -1920,8 +1920,8 @@ export class Reading {
                     const castNames = job.purpose === 'index' || job.visual_identity || job.node_identity ? [] : await this.castNames(mid, meta);
                     // §187.5: the author's packet is cut to the job; the check reads the whole graph from the view beside it.
                     const wholeVocabulary = vocabulary(contract, contributed), wholeClaims = array(graph.claims);
-                    // §191.1: the identity answers already recorded for this source, so the check never raises an answered pair again.
-                    // §191.3: and which node stands for each copy, so the check pairs against survivors as publication does.
+                    // §192.1: the identity answers already recorded for this source, so the check never raises an answered pair again.
+                    // §192.3: and which node stands for each copy, so the check pairs against survivors as publication does.
                     const standing = rawSurvivors(graph), survivors = Object.fromEntries(array(graph.nodes).map(node => string(row(node).node_id))
                         .filter(id => standing.id(id) !== id).map(id => [id, standing.id(id)]));
                     const view = { generation: meta.generation ?? 0, known_nodes: known, known_claims: wholeClaims, field_spans: pageSpans(graph.field_spans), vocabulary: wholeVocabulary,
@@ -1935,7 +1935,7 @@ export class Reading {
                             string(truth(job.focus) ? named.find(string(job.focus))?.node_id ?? '' : '')];
                         scoped = scopeGraph(known, wholeClaims, array(graph.relations), scopePages, scopeView, keep);
                     }
-                    // §191.2: a job with pages meets the published nodes on its own pages first, ahead of the cast and the index.
+                    // §192.2: a job with pages meets the published nodes on its own pages first, ahead of the cast and the index.
                     const roster = scopePages.length ? packetRoster(known, scopePages, survivors) : null;
                     const packet: Row = { ...(roster ? { roster } : {}), ...visibleJob, ...identityTask, ...(needTask ? { source_need: needTask } : {}), ...(carried.length ? { carried_needs: carried } : {}),
                         ...(castNames.length ? { cast_names: castNames } : {}),...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: scoped.nodes, known_claims: scoped.claims, vocabulary: scopedVocabulary(wholeVocabulary, job), coverage_domains: [...array(contract.graph.coverage_domains)],
@@ -1975,7 +1975,7 @@ export class Reading {
             // the library. Source consultations stay private to their campaign (§184.4): their answers are never adopted.
             if (params.outcome !== 'completed' || truth(result.replayed) || result.state === 'queued') return result;
             const job = (await this.store.queue(mid)).find(job => job.job_id === params.job_id);
-            // §191.5: an identity job's verdicts reach the library as the read-ahead's repair does (`repairFollows`).
+            // §192.5: an identity job's verdicts reach the library as the read-ahead's repair does (`repairFollows`).
             if (job?.node_identity && job.state === 'completed') {
                 const campaign = this.forkCampaign(await this.store.module(mid));
                 return campaign ? { ...result, ...await this.repairFollows(mid, campaign, true) } : result;
@@ -2150,9 +2150,9 @@ export class Reading {
                         await this.store.writeModule(meta);
                     judgeDraftIdentity(identityPairs, meta);
                 }
-                // §191.1: one thing, one node, judged again against the generation this draft lands on: a reading claimed beside
+                // §192.1: one thing, one node, judged again against the generation this draft lands on: a reading claimed beside
                 // this one may have published the same thing since. A distinct_from answer is reviewed (`checkReview`) and kept.
-                // §191.3: against survivors only, by the landing graph's own relations.
+                // §192.3: against survivors only, by the landing graph's own relations.
                 const standing = rawSurvivors(landing ?? {}), standsFor = (id: string) => standing.id(id);
                 const duplicates = publishedDuplicates(array(filled.nodes), array(landing?.nodes), mid, await this.castNames(mid, meta),
                     row(row(meta.reading).identity), identitySource(meta), standsFor).filter(pair => !pair.declared);
@@ -2167,7 +2167,7 @@ export class Reading {
                 const graph = assembleVisual(landing, withoutDistinctFrom(filled), meta, contract, retranscribed);
                 if(job.purpose==='detail'&&truth(job.question)){
                     const view=new ModuleGraph(mid,graph,'',row(contract.graph.actor_dossier)),target=view.find(string(job.focus));
-                    // §191.3: the read of a thing resolves the same question on every node of it (a need on a copy is the survivor's).
+                    // §192.3: the read of a thing resolves the same question on every node of it (a need on a copy is the survivor's).
                     const standing=rawSurvivors(graph),thing=target?standing.id(string(target.node_id)):undefined;
                     const resolved=array(graph.source_needs).filter(need=>['deferred','source_read','uncertain'].includes(need.kind)&&need.source_sha256===meta.file_sha256&&
                         typeof need.node_id==='string'&&standing.id(need.node_id)===thing&&string(need.question).trim()===string(job.question).trim());
@@ -2389,7 +2389,7 @@ export class Reading {
         await this.release(mid, job.job_id);
         return { state: job.state, held: holds, ...(job.state === 'failed' ? { refusal: job.refusal } : {}) };
     }
-    /** §191.5: the published pairs of this store's graph still waiting for an identity verdict (the owner's rule decides none). */
+    /** §192.5: the published pairs of this store's graph still waiting for an identity verdict (the owner's rule decides none). */
     private async openIdentityPairs(mid: string, meta: Row): Promise<RepairPair[]> {
         return repairCandidates(mid, await this.store.readGraph(mid), meta, await this.castNames(mid, meta)).filter(pair => pair.rule === null);
     }
@@ -2400,7 +2400,7 @@ export class Reading {
     }
     private libraryStore(): ModuleStore { return new ModuleStore({ ...this.store.context, moduleRoot: join(this.store.context.stateRoot, 'modules') }); }
     /**
-     * §191.5, under this fork's metadata lock: a repair of the fork reaches the library. A fork's new generation is offered as
+     * §192.5, under this fork's metadata lock: a repair of the fork reaches the library. A fork's new generation is offered as
      * any fork publication is, by §184.1's adoption (`syncLibraryFromCampaign`; never §184.5's merge, which a table's own
      * read-ahead does not wait on). When the library does not take it -- or the fork wrote nothing -- the library is repaired
      * by its own publication with this fork's reviewed decisions (`repairLibrary`), which writes only while no live fork holds
@@ -2426,7 +2426,7 @@ export class Reading {
             ...(outcome.conflicts ? { conflicts: outcome.conflicts } : {}), open: array(outcome.open).length };
     }
     /**
-     * §191.5 at a read-ahead -- a book's load (a table opening, setup) and each later read-ahead: this store's published graph is
+     * §192.5 at a read-ahead -- a book's load (a table opening, setup) and each later read-ahead: this store's published graph is
      * repaired (`repairHeld`: the owner's rule, and the decisions the other store already reviewed, as one new generation under
      * this module's metadata lock), a fork's repair reaches the library (`repairFollows`), the library's own read-ahead repairs
      * the library only while no live fork holds its lineage (`repairLibrary`), and the first pairs still waiting for a verdict
@@ -2476,10 +2476,10 @@ export class Reading {
         return { ...Reading.repairSummary(outcome), ...follows, ...(asked.length ? { asked } : {}) };
     }
     /**
-     * §191.5: an identity job over published pairs. The reader's checked answers (`node_identity_path`, protocol
+     * §192.5: an identity job over published pairs. The reader's checked answers (`node_identity_path`, protocol
      * `node-identity-v1`) answer every pair the job asks that still waits for a verdict, and the reader opened a page of each
      * side that has pages (`observations.json`'s `read_pages`). A `same` writes the identity relation (`identity_review:
-     * {by: "review", job_id, key, reason}`); a `different` is kept in `reading.identity` as §191.1 keeps a reviewed
+     * {by: "review", job_id, key, reason}`); a `different` is kept in `reading.identity` as §192.1 keeps a reviewed
      * `distinct_from`; an `unsure` is kept there under the same key, which asks the pair no more and keeps nothing apart
      * (DUP-03b: doubt never splits). All in one publication (`publishIdentitiesHeld`); nothing else is published.
      */

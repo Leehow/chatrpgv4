@@ -95,7 +95,7 @@ function learnedBy(graph: ModuleGraph, world: Row, id: unknown): Row | null {
     const node = typeof id === "string" ? graph.nodes.get(id) : undefined;
     if (node?.node_kind !== "conclusion")
         return null;
-    // §191.3: a clue found through any of its copies is found.
+    // §192.3: a clue found through any of its copies is found.
     const clues = graph.supportingClues(node);
     return { conclusion: graph.handle(node), found: clues.filter(clue => graph.discovered(world, clue)).length, of: clues.length };
 }

@@ -121,7 +121,7 @@ Status: done — tables nr06-blood-road-2 and -3 passed the pre-registered lines
 
 ## NR-07 — Page readings duplicate people the graph already has
 
-Status: done — implemented as §191 (`reading-duplicates-tickets.md`, DUP-01..04)
+Status: done — implemented as §192 (`reading-duplicates-tickets.md`, DUP-01..04)
 
 On Blood Road the campaign fork's generation 55 (a page reading of pp. 25–26, 2026-10-07 02:05Z) wrote
 `npc-daniel-mather` beside the existing `npc-book-4-daniel-mather`: same name, same page, same biography. At generation

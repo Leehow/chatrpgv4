@@ -50,7 +50,7 @@ export function renameUndoRows(graph: ModuleGraph, world: Row, journal: Row): { 
 
 /**
  * §188.2: each node of an individual the graph holds more than once, by node id, to the node that stands for them: their
- * first node (`CastPerson.node`), whose word the roster shows first (`rosterWord`). Since §191.3 this is the cast's fold, one
+ * first node (`CastPerson.node`), whose word the roster shows first (`rosterWord`). Since §192.3 this is the cast's fold, one
  * source of the graph's survivor map (`ModuleGraph.castFold`); a person whose copies an identity relation joins is one cast
  * person already, with the survivor as their first node.
  */

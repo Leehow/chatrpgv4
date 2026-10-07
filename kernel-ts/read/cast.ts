@@ -155,7 +155,7 @@ const addNames = (into: string[], names: readonly string[]) => {
 export function bookCast(graph: ModuleGraph): CastPerson[] {
     const cached = memo.get(graph);
     if (cached) return cached;
-    // §191.3: nodes a kernel identity relation makes one thing are one person from the start, the node that stands for them
+    // §192.3: nodes a kernel identity relation makes one thing are one person from the start, the node that stands for them
     // first; the cast's own fold below joins people further. Each person sits where the first of their nodes does.
     const linked = new Map<string, Row[]>();
     for (const node of graph.kind('npc').filter(node => !graph.isTablePerson(node))) {
@@ -174,7 +174,7 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
     // (`own`), or the row's fullest form is one of the person's names (`fullest`). Table 24: the reader gave the bar owner and
     // the doctor one bare first name, which the bar owner's node also carries as an alias; the doctor's row must not join him
     // by it. Read from the graph's own names and the row alone, so no row's join depends on the rows read before it.
-    // §191.3: a person whose copies are joined owns the own names of every copy.
+    // §192.3: a person whose copies are joined owns the own names of every copy.
     const ownNames = people.map(person => new Set(person.nodes.flatMap(node => [node.name, graph.displayName(node)])
         .filter((value): value is string => typeof value === 'string' && !!value.trim()).map(normalize)));
     const keys = people.map(person => new Set(person.names.map(normalize)));
@@ -199,7 +199,7 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
         if (top.length === 1) rowOf.set(index, top[0]!.at);
     });
     const into = people.map((_, index) => index), joins = new Map<number, number>();
-    // §191.3 (lead ruling 2026-10-07): a recorded `different` verdict between any nodes of two people beats this name rule.
+    // §192.3 (lead ruling 2026-10-07): a recorded `different` verdict between any nodes of two people beats this name rule.
     const apart = (a: CastPerson, b: CastPerson): boolean => a.nodes.some(x => b.nodes.some(y => graph.isApart(string(x.node_id), string(y.node_id))));
     rows.forEach((_, at) => {
         const members = people.flatMap((_, index) => rowOf.get(index) === at ? [index] : []);

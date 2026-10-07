@@ -1,5 +1,5 @@
 /**
- * Contract §191.5: the independent identity reviewer's question about two published nodes that one name or one cast row
+ * Contract §192.5: the independent identity reviewer's question about two published nodes that one name or one cast row
  * joins. A tool-enabled Pi reader opens both nodes' pages of each pair with the `pdf` tool and answers `same` (one thing in
  * the book), `different` (the pages show two things that share a name) or `unsure` (they do not let it tell; DUP-03b); the host checks that it opened a page of every side that has
  * pages before the answers go to the kernel. Nothing here decides sameness: the kernel's trigger only raised the question.

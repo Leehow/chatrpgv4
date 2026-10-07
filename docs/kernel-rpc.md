@@ -37690,7 +37690,7 @@ Counted (TP-02): one `told-position` row per delivery (`outcome`: `owed`, `dropp
 owed rows with `source: "told-position"` in `owed.json` and on the record, and the clerk's `apply:owed:*` bind rows and
 receipts that land them. The lane's own read is `table.owe.options`; TP-04 reads the shadow rows before `on`.
 
-## 191. One thing, one node: a reading may not duplicate what the graph has (owner rulings 2026-10-07; `docs/specs/reading-duplicates-survey.md`; amends §22.3, §152.4 and §188.2)
+## 192. One thing, one node: a reading may not duplicate what the graph has (owner rulings 2026-10-07; `docs/specs/reading-duplicates-survey.md`; amends §22.3, §152.4 and §188.2)
 
 The NR-07 survey traced Blood Road's generation 55 (a page reading of pp. 25–26). The reader declared eight new nodes for
 things the graph already had: `npc-daniel-mather` beside `npc-book-4-daniel-mather`, the general store, the town centre
@@ -37703,7 +37703,7 @@ The copies propagated through the library (§184.1) into every later campaign. A
 same-name pairs are true duplicates. They make places, objects and clues ambiguous, split clues across copies, keep read
 material "unread" by name, and show extra people and places.
 
-### 191.1 The landing check (prevention)
+### 192.1 The landing check (prevention)
 
 - **Where.** In `checkDraft` (the reader's own `coc-read-check` / `submit_reading`, against the claim-time view), and again
   in `module.read.finish` inside the module lock, against the landing generation (two readings claimed in parallel).
@@ -37714,7 +37714,7 @@ material "unread" by name, and show extra people and places.
     kernel's `normalize`.
   - for `npc`, also when the two join the same cast row both ways (§188.2).
   - Pages are evidence in the refusal, never a condition.
-  - **It pairs against survivors (191.3).** A published node another stands for is no candidate. Its names count as its
+  - **It pairs against survivors (192.3).** A published node another stands for is no candidate. Its names count as its
     survivor's, and the finding, its pages and the verdict key name the survivor, so a reader that reuses the id writes under
     the node that stands for the thing. A `distinct_from` naming a copy answers for its survivor.
 - **The answer.** Every finding is reported at once (§186.3), as `duplicate_of_published`. The fix names the published
@@ -37726,12 +37726,12 @@ material "unread" by name, and show extra people and places.
 - **The verdict.** Publication records it in `module.json` as `reading.identity[<source digest>:<kind>:<id a>:<id b>]`, so
   the pair is never raised again.
 
-### 191.2 The reader packet names what exists
+### 192.2 The reader packet names what exists
 
 The reader packet puts a compact roster first, ahead of `cast_names` and `index`: the published nodes on the job's pages
-as `{id, kind, name, aliases, pages}`. This is a cost saver, not the guard; 191.1 is the guard.
+as `{id, kind, name, aliases, pages}`. This is a cost saver, not the guard; 192.1 is the guard.
 
-### 191.3 One survivor map for every kind (read-time grouping)
+### 192.3 One survivor map for every kind (read-time grouping)
 
 - **No graph merge and no deletion.**
   - `world.node_handles` entries never change (§185.4).
@@ -37745,12 +37745,12 @@ as `{id, kind, name, aliases, pages}`. This is a cost saver, not the guard; 191.
   - For non-visual kinds only kernel-written identity hops collapse.
   - A reader-authored `variant-of` claim expresses a state (Dust to Dust: the revived Virginia) and never collapses.
   - **A recorded `different` verdict beats the cast fold** (lead ruling 2026-10-07). Two nodes that `module.json`
-    `reading.identity` records as `different` (a reviewed `distinct_from`, §191.1, or a verdict job, 191.5) are never joined
+    `reading.identity` records as `different` (a reviewed `distinct_from`, §192.1, or a verdict job, 192.5) are never joined
     by the survivor map, even when §188.2's both-ways fold would join them: a verdict from reading the pages beats a name
     rule. Kernel identity relations and visual survivors are unaffected.
   - A `different` verdict and a kernel identity relation for the same pair cannot both stand. The writer refuses to write
     such a relation; a graph that holds one anyway is flagged (its conflicts are reported) and never resolved by a guess.
-- **Readers that read through survivors** (each recorded under 191.8 with a test):
+- **Readers that read through survivors** (each recorded under 192.8 with a test):
   - `resolve` / `oneEach` and `placeOf`;
   - `materialReady`;
   - presence (`npcsPresent`);
@@ -37764,15 +37764,15 @@ as `{id, kind, name, aliases, pages}`. This is a cost saver, not the guard; 191.
   - source needs and focus identity.
 - A variant's handle and node id stay input keys and resolve to the survivor.
 
-### 191.4 Carry
+### 192.4 Carry
 
 When an identity relation is written, the survivor takes what only the variant has: aliases, `source_refs`, and properties
 it lacks, through `mergeValue` (§152.4's `carried_regions`, for facts). A contradiction stays on the variant and is still
 readable through it.
 
-### 191.5 Repairing graphs that already have duplicates
+### 192.5 Repairing graphs that already have duplicates
 
-- **Candidates.** The trigger of 191.1, run by the read-ahead over the published graph, for pairs with no recorded verdict.
+- **Candidates.** The trigger of 192.1, run by the read-ahead over the published graph, for pairs with no recorded verdict.
 - **Merged without a model** (owner ruling 2026-10-07, 「同名加页码重叠就直接合并」; 39 of 39 true on the census). Two
   conditions together:
   - same `node_kind` and the same own name under `normalize`;
@@ -37798,7 +37798,7 @@ readable through it.
     own repair reaches the library by adoption, so no lineage ends.
   - A store takes the reviewed decisions another store of the same book already holds, instead of asking again.
 
-### 191.6 Limits
+### 192.6 Limits
 
 - Cross-kind twins are out of scope (scene and location, faction and npc).
 - A duplicate under a different name (a misspelling or a new transliteration) is caught only where an alias or the cast
@@ -37808,7 +37808,7 @@ readable through it.
   - check messages vague enough that a reader deleted its claims;
   - §152.4 missing a visual duplicate when one node has no `image_sources`.
 
-### 191.7 Tests
+### 192.7 Tests
 
 On the real path, as the survey's §5 plans:
 
@@ -37827,13 +37827,13 @@ On the real path, as the survey's §5 plans:
    - no `material_pending` for a place already read;
    - no new same-name node in the fork afterwards.
 
-### 191.8 Kernel decisions
+### 192.8 Kernel decisions
 
 (Recorded by the implementing slices.)
 
 #### DUP-01
 
-The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branch `claude/reading-duplicates-20261007-landing`.
+The landing check and the reader packet roster (192.1, 192.2), 2026-10-07, branch `claude/reading-duplicates-20261007-landing`.
 
 - **Where.** `kernel-ts/modules/published-duplicates.ts` holds the trigger (`publishedDuplicates`), the refusal
   (`duplicateRefusal`, `DUPLICATE_FIX`), the verdict key (`identityPairKey`) and the record (`recordDistinct`).
@@ -37882,7 +37882,7 @@ The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branc
   - `module.read.claim` writes `identity_verdicts` (the whole map) and `identity_source` into `graph-view.json`; the check
     skips a pair whose key is recorded, whatever the verdict. DUP-03's verdicts use the same map and key.
   - §184.1's adoption carries `identity` (`ADOPTED_READING`), so a fork's answer reaches the library with its node.
-- **The roster (191.2).** `packetRoster` (`packet-scope.ts`): the non-module nodes citing one of the job's own pages
+- **The roster (192.2).** `packetRoster` (`packet-scope.ts`): the non-module nodes citing one of the job's own pages
   (`jobPages`, not the window), as `{id, kind, name, aliases, pages}` with every page the node cites, sorted by kind then
   id.
   - It is the first key of `packet.json` and of the claim's result for a job with pages, an empty list when nothing is
@@ -37900,7 +37900,7 @@ The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branc
     The cast join counts a joined copy as its survivor. A pair is skipped when a verdict is recorded for the drafted node
     with any node of the group. The pair's key and `published` name the survivor.
   - `recordDistinct` maps each listed id to its survivor before keying and recording.
-  - The roster (191.2) lists a thing once, as its survivor: a survivor any of whose group's nodes cites one of the job's
+  - The roster (192.2) lists a thing once, as its survivor: a survivor any of whose group's nodes cites one of the job's
     pages, with the group's other names among its aliases and the group's pages.
   - **Retained needs** (`needsToAsk`, which DUP-02 left here). A need on a copy is its survivor's:
     - one question (kind and trimmed question) about one thing is one need, the survivor's own need first, else the first in
@@ -37916,11 +37916,11 @@ The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branc
 - **Existing fixtures.** `tests/extension/module-cast.test.mjs`'s four §188.2 cases built their second copy of a person with
   a later reading under another id, which this check now refuses. DUP-01 had them publish it with a reviewed
   `distinct_from`; DUP-02b replaced that with copies written straight into the fork, since a recorded `different` verdict
-  now keeps a pair apart (§191.3).
+  now keeps a pair apart (§192.3).
 - **After DUP-02b (fixture, not product).** On the integration head the two survivor cases of
   `duplicate-of-published.test.mjs` failed at their setup: the fixture published the store's copy with a reviewed
   `distinct_from` (so `reading.identity` held `different` for the pair) and then asked `publishIdentities` to join the two,
-  which DUP-02b now skips as `verdict_different`. DUP-02b's behaviour is the intended one (§191.3, lead ruling 2026-10-07: a
+  which DUP-02b now skips as `verdict_different`. DUP-02b's behaviour is the intended one (§192.3, lead ruling 2026-10-07: a
   `different` verdict and an identity relation for one pair cannot both stand), so the expectation was stale: the fixture now
   writes the copy straight into a generation, with no verdict, as the NR-02 fixtures do, and the cases assert what they did.
 - **Evidence.**
@@ -37933,7 +37933,7 @@ The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branc
   - `tests/extension/duplicate-of-published.test.mjs`, eleven cases since DUP-01b; reverting each behaviour (30 mutations,
     scratch copies) fails at least one of them.
 
-#### DUP-02 (191.3, 191.4; `claude/reading-duplicates-20261007-survivors`)
+#### DUP-02 (192.3, 192.4; `claude/reading-duplicates-20261007-survivors`)
 
 **The survivor map** (`kernel-ts/read/survivors.ts`, `SurvivorMap`). One map, built lazily per graph and per cast fold:
 - **A hop** is the first relation in relation order that leaves a node toward the node that stands for it:
@@ -37971,7 +37971,7 @@ The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branc
   nothing when `later` already reads as another node or `earlier` already reads as `later` (one survivor per node, as
   `writeVariants`). Writing the same decision again replaces its relation and carries nothing new.
 
-**Carry (191.4)**, in the same step, onto the node that now stands for both (the end of the chain, not only `earlier`):
+**Carry (192.4)**, in the same step, onto the node that now stands for both (the end of the chain, not only `earlier`):
 - names: the variant's own name and aliases the survivor does not carry (normalized), appended to the survivor's `aliases`
   (`mergeValue` at `/aliases`); `source_refs`: the union (`mergeValue` at `/source_refs`);
 - properties, for every kind but a printed visual: a key the survivor lacks is taken; a key both hold goes through `mergeValue`
@@ -38020,7 +38020,7 @@ The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branc
 - `calledPerson` (`capsule.ts:77`): two ids carrying one word that resolve to one person were "more than one person" → one owner.
 
 **Decisions and deviations.**
-- **The cast fold makes variants too.** §191.3 builds one map from the cast fold as well, and says a variant's handle and node id
+- **The cast fold makes variants too.** §192.3 builds one map from the cast fold as well, and says a variant's handle and node id
   resolve to the survivor, so NR-02's "a handle, a node id or a legacy slug still names its own node" is amended for cast-fold
   copies as for relation copies. Visible: a word submitted to `epithets.submit` under a copy's id lands on the survivor, and a
   second word for the same person in one batch is `settled`. Three NR-02 tests were adapted, not weakened
@@ -38117,9 +38117,9 @@ copy at generation 60; the Thunderbird pair is where the union shows.
 
 **DUP-02b (lead rulings 2026-10-07, after the merge with DUP-01; line numbers in this record are at `ee09af3b9`).**
 
-*Ruling 1: a recorded `different` verdict wins over the cast fold* (191.3 amended).
+*Ruling 1: a recorded `different` verdict wins over the cast fold* (192.3 amended).
 - The verdicts: `apartPairs(identity, sourceSha)` (`kernel-ts/read/survivors.ts:48`) reads `module.json` `reading.identity`
-  (§191.1's `<sha>:<kind>:<id>:<id>` → `{verdict, nodes}`) and keeps each `different` verdict of the bound source as a pair
+  (§192.1's `<sha>:<kind>:<id>:<id>` → `{verdict, nodes}`) and keeps each `different` verdict of the bound source as a pair
   key (`pairKey`). The campaign loader installs them before anything reads the cast (`ModuleGraph.apart`,
   `kernel-ts/read/campaign.ts:264`; `isApart`, `module-graph.ts:352`).
 - The fold: `bookCast` (`kernel-ts/read/cast.ts:203-208`) folds a row's both-ways people only when no `different` verdict lies
@@ -38219,7 +38219,7 @@ had already put the copy's alias on the survivor, and the case above was added f
 - py on 27 related kernel files: 301 pass; the one failure is the known `test_npc_act_options` case.
 - loop: 333 of 333.
 
-#### DUP-03 (191.5; `claude/reading-duplicates-20261007-repair`)
+#### DUP-03 (192.5; `claude/reading-duplicates-20261007-repair`)
 
 **Where it runs.** `Reading.queueAheadReading` (`kernel-ts/modules/reading.ts:1060`) calls `repairIdentities` first, then the
 read-ahead as before (`aheadReading`). Every read-ahead runs it:
@@ -38233,7 +38233,7 @@ from 330 ms to 375 ms. A store's last plan with nothing to write is remembered b
 `reading.identity`, cast rows, and the same of the other store), so an unchanged book reads no graph twice.
 
 The read-ahead's answer carries `identity_repair` only when the repair is news: it wrote, recorded or failed, asked a
-verdict, or offered something to the library. A quiet repair leaves the answer exactly as it was before §191.5. That covers
+verdict, or offered something to the library. A quiet repair leaves the answer exactly as it was before §192.5. That covers
 nothing to do, a job already live, and a library left to its lineage fork. Two pytest cases compare the whole answer
 (`test_read_ahead_follows_authored_exits_not_index_page_order`, `test_an_opening_published_ready_stays_ready_under_a_later_rule`).
 
@@ -38243,7 +38243,7 @@ still repaired, and the library's sync and repair report `failed`.
 
 **Candidates** (`publishedPairs`, `kernel-ts/modules/published-duplicates.ts:210`; `repairCandidates`,
 `kernel-ts/modules/identity-repair.ts:66`):
-- **One trigger.** §191.1's trigger has one implementation, `TriggerView` (`:92`). It holds each node's whole and own names,
+- **One trigger.** §192.1's trigger has one implementation, `TriggerView` (`:92`). It holds each node's whole and own names,
   each survivor's names per kind, and the cast fold, for the landing check (`publishedDuplicates`, unchanged in behaviour;
   DUP-01c's version of its tests passes 11 of 11 on this branch) and for published pairs. A published pair is two survivors
   of one kind where one's own name meets the other's names (every node of each group counting for its survivor), or two
@@ -38252,7 +38252,7 @@ still repaired, and the library's sync and repair report `failed`.
   in `reading.identity` covers any node of each side is not raised again. The recorded `different` pairs also keep the cast
   fold from joining them (`graph.apart`; DUP-02b ruling).
 - **Excluded entirely:** a pair that a reader-authored `variant-of` links. The reader said one node is a state of the other
-  (§191.3), and no verdict job is asked to undo that.
+  (§192.3), and no verdict job is asked to undo that.
 - **Relations.** Each pair carries `related`: the relations between a node of one side and a node of the other.
 
 **The owner's rule** (`identity_review: {by: "kernel", rule: "same-name-same-page"}`). It needs one node from each side such
@@ -38265,7 +38265,7 @@ that:
 
 It compares `name` with `name` because that is what the census measured as `name=name` (39 of 39 true): a display name or an
 alias never takes this path. A pair the graph relates (`member-of`, `part-of`, `knows`, and so on) waits for a verdict job.
-The reader who wrote the relation treated the nodes as two things, as §191.6 does for a group and its members.
+The reader who wrote the relation treated the nodes as two things, as §192.6 does for a group and its members.
 
 So did a reader who published both nodes in one reading. It saw both and kept them apart, as with two fishermen of one name
 on one page (`rename-undo-names.test.mjs`, which the rule without this clause broke). That is not how the census's duplicates
@@ -38317,7 +38317,7 @@ Such a pair also waits for a verdict job.
   - Why: the pairs the cast fold joins under different own names (Blood Road's Sutton, Alissya and Brenner) now reach
     verdict jobs. A `different` given from doubt would split people NR-02 joined, because a `different` beats the fold
     (DUP-02b).
-  - `different` is for the pages showing two different people or things. It stays the blocking verdict of §191.1's record.
+  - `different` is for the pages showing two different people or things. It stays the blocking verdict of §192.1's record.
   - `unsure` is kept as `reading.identity[key] = {verdict: "unsure", kind, nodes, by: "review", job_id, reason,
     generation}`, the same key format.
     - It blocks nothing: `apartPairs` reads only `different`, so the cast fold and the identity writer ignore it.
@@ -38433,7 +38433,7 @@ Such a pair also waits for a verdict job.
 *leehow-pc at `c641ff749`.*
 - **ext:** 5064 pass, 7 fail.
   - Five are the base's: the SL-00 inventory and four `timeline:` cases.
-  - Two are DUP-01's stale survivor fixtures in `duplicate-of-published.test.mjs` (§191.1 against survivors, §191.3 retained
+  - Two are DUP-01's stale survivor fixtures in `duplicate-of-published.test.mjs` (§192.1 against survivors, §192.3 retained
     needs). DUP-01c (`9980eae18`, on the integration branch after this branch's base) rewrites them. Its version of that file
     passes 11 of 11 against this branch.
 - **First ext run, at `db623f2d2`:** it shared the box with another session's ext (load about 40) and also failed:

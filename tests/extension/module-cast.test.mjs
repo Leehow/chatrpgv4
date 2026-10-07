@@ -105,7 +105,7 @@ const DRAFT = {people: [
 
 /**
  * A second node for someone the graph has, written straight into the campaign's fork, as a page reading published one before
- * §191.1's landing check refused it: no `distinct_from`, so no `different` verdict (a recorded one keeps the two apart, §191.3).
+ * §192.1's landing check refused it: no `distinct_from`, so no `different` verdict (a recorded one keeps the two apart, §192.3).
  * The copy counts as read, as the readings that wrote them listed theirs.
  */
 async function writeCopy(h, node) {
@@ -118,7 +118,7 @@ async function writeCopy(h, node) {
 	await store.writeModule(meta);
 }
 
-/** The handles of these nodes as the campaign's loaded graph gives them (a copy is listed once by lookup since §191.3). */
+/** The handles of these nodes as the campaign's loaded graph gives them (a copy is listed once by lookup since §192.3). */
 async function handlesOf(h, ids) {
 	const graph = (await api.loadCampaignModule(h.context, h.mid, await h.world(), CAMPAIGN)).graph;
 	return ids.map(id => graph.handle(graph.nodes.get(id)));
@@ -670,18 +670,18 @@ test('§188.2: a later reading that writes someone the graph has again, under an
 	const {place} = await readCast(h);
 	// Blood Road (`nfh-accept-blood-road-1`, generation 55): a page reading in the campaign's fork wrote the store owner a second
 	// node with his name. The cast row both nodes answered was read as someone else, and his name had three owners.
-	// Since §191.1 a reading publishes a second node under a published name only with a reviewed `distinct_from`, whose verdict
-	// keeps the two apart (§191.3, the next test); this fixture stands for the copies written before it.
+	// Since §192.1 a reading publishes a second node under a published name only with a reviewed `distinct_from`, whose verdict
+	// keeps the two apart (§192.3, the next test); this fixture stands for the copies written before it.
 	await writeCopy(h, {node_id: 'npc-mae-net-mender', node_kind: 'npc', name: 'Old Mae', aliases: ['Mae'], source_refs: [{page: 3}],
 		summary: 'She mends nets; her boy drowned.'});
 	const copies = await handlesOf(h, ['npc-old-mae', 'npc-mae-net-mender']);
 	const listed = (await h.call('table.lookup', {kind: 'module', query: 'Old Mae'})).entities.filter(entity => entity.display_name === 'Old Mae').map(entity => entity.name);
-	assert.ok(new Set(copies).size === 2 && listed.length === 1 && copies.includes(listed[0]), `the graph holds her twice; lookup lists her once (§191.3): ${listed}`);
+	assert.ok(new Set(copies).size === 2 && listed.length === 1 && copies.includes(listed[0]), `the graph holds her twice; lookup lists her once (§192.3): ${listed}`);
 	const stored = JSON.parse(await readFile(join(dirname(dirname(dirname(dirname(place.cwd)))), 'cast.json'), 'utf8'));
 	const hers = stored.people.find(row => row.book.includes('Old Mae')).id;
 	const job = await h.call('epithets.job');
 	assert.ok(!job.people.some(person => person.id === hers), `her row is no one the lane is asked to word: ${JSON.stringify(job.people)}`);
-	// §191.3: the cast's fold makes her second node a variant; the lane words the node that stands for her, once, and a word
+	// §192.3: the cast's fold makes her second node a variant; the lane words the node that stands for her, once, and a word
 	// sent under the copy's handle is hers, so the second one in a batch is already settled.
 	const asked = job.people.filter(person => copies.includes(person.id)).map(person => person.id);
 	assert.equal(asked.length, 1, `the lane is asked to word her once: ${JSON.stringify(job.people)}`);
@@ -791,7 +791,7 @@ test('§188.2: the journal lane reads a second copy of someone as that person, w
 	const h = await harbor(t);
 	// The copy carries only "Old Mae"; the book also prints "Mae" alone, which only her cast row holds.
 	await writeCopy(h, {node_id: 'npc-old-mae-nets', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 3}], summary: 'She mends nets; her boy drowned.'});
-	// Each node was worded while the two stood apart; then the cast reader's row joins them (§188.2), and since §191.3 the copy
+	// Each node was worded while the two stood apart; then the cast reader's row joins them (§188.2), and since §192.3 the copy
 	// reads as the node that stands for her: her copy's word still names her.
 	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}, {id: 'old-mae-nets', word: 'the woman by the cellar'}]});
 	await readCast(h);
@@ -807,7 +807,7 @@ test('§188.2: the journal lane reads a second copy of someone as that person, w
 test('§188.1 with §188.2: a copy\'s own word never shields that person\'s name from the told check', async t => {
 	const h = await harbor(t);
 	await writeCopy(h, {node_id: 'npc-old-mae-nets', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 3}], summary: 'She mends nets; her boy drowned.'});
-	// Worded apart before the cast joined them (§191.3: since then the lane words only the node that stands for her).
+	// Worded apart before the cast joined them (§192.3: since then the lane words only the node that stands for her).
 	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}, {id: 'old-mae-nets', word: 'the woman by the cellar'}]});
 	await readCast(h);
 	await h.call('table.player_input', {text: 'I ask them both their names.'});
@@ -823,7 +823,7 @@ test('§188.2: a name two copies of one person carry resolves to that person, on
 	const h = await harbor(t);
 	await readCast(h);
 	// Two later readings in the campaign's fork each write the lamp keeper, under ids that are no slug of his name.
-	// The first is a reading; the second is written as a reading before §191.1 wrote it (no `distinct_from`, no verdict).
+	// The first is a reading; the second is written as a reading before §192.1 wrote it (no `distinct_from`, no verdict).
 	await h.read('detail', {nodes: [{node_id: 'npc-silas-keeper', node_kind: 'npc', name: 'Silas Marsh', source_refs: [{page: 2}], summary: 'He trims the lamp.'}],
 		claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['npc-silas-keeper']}, ['/nodes/0', '/coverage'], {focus: 'Tower', campaign: CAMPAIGN});
 	await writeCopy(h, {node_id: 'npc-lamp-keeper', node_kind: 'npc', name: 'Silas Marsh', source_refs: [{page: 2}], summary: 'He trims the lamp.'});
@@ -838,10 +838,10 @@ test('§188.2: a name two copies of one person carry resolves to that person, on
 	assert.deepEqual(Object.keys((await h.world()).person_labels ?? {}), [owner], 'the word lands on the node the roster names him by');
 });
 
-test('§191.3 (lead ruling 2026-10-07): a reviewed distinct_from beats the cast fold; two people of one name stay two (roster, resolve, told)', async t => {
+test('§192.3 (lead ruling 2026-10-07): a reviewed distinct_from beats the cast fold; two people of one name stay two (roster, resolve, told)', async t => {
 	const h = await harbor(t);
 	await readCast(h);
-	// The page reader drafted a second Old Mae and its reviewer supported that she is someone else (§191.1): the verdict is
+	// The page reader drafted a second Old Mae and its reviewer supported that she is someone else (§192.1): the verdict is
 	// recorded `different`, and the cast row both nodes answer both ways no longer makes them one.
 	await h.read('detail', {nodes: [{node_id: 'npc-old-mae-nets', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 3}],
 		summary: 'Another net mender of the same name.', distinct_from: ['npc-old-mae']}], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [],
@@ -860,7 +860,7 @@ test('§191.3 (lead ruling 2026-10-07): a reviewed distinct_from beats the cast 
 	// Roster: the name both carry is shown as both their words, owned by neither alone.
 	const rows = (await h.call('table.untold')).people.filter(row => row.name === 'Old Mae');
 	assert.ok(rows.length === 1 && rows[0].shown.includes('the net mender') && rows[0].shown.includes('the woman by the cellar'), JSON.stringify(rows));
-	// Resolve: the second one's handle names her, never the first (a fold would read it as the first node, §191.3).
+	// Resolve: the second one's handle names her, never the first (a fold would read it as the first node, §192.3).
 	const named = await h.attempt('table.apply', {call_id: 't1-c1', effects: [{kind: 'person', who: second, name: 'the cellar widow', why: 'the fiction calls her so'}]});
 	assert.equal(named.ok, true, JSON.stringify(named.error?.details ?? named.error?.message));
 	assert.deepEqual(Object.keys((await h.world()).person_labels ?? {}), [second]);

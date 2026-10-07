@@ -6,7 +6,7 @@ import { RuleTables } from '../rules/tables.js';
 import { mechanicsRules, type MechanicsRules } from './mechanics-shape.js';
 export const VISUAL_CONTRACT_ID = 'coc.module-graph-shard.v4';
 export const SHARD_KEYS = ['contract_id', 'nodes', 'claims', 'node_refs', 'coverage', 'dependencies', 'critical', 'ready_nodes', 'interaction_scene', 'source_needs'];
-/** `distinct_from` (§191.1) is a reading-time answer to `duplicate_of_published`; publication keeps it in `reading.identity`, not on the node. */
+/** `distinct_from` (§192.1) is a reading-time answer to `duplicate_of_published`; publication keeps it in `reading.identity`, not on the node. */
 export const NODE_KEYS = ['node_id', 'node_kind', 'name', 'aliases', 'summary', 'properties', 'visibility', 'source_refs', 'distinct_from'];
 export const CLAIM_KEYS = ['claim_id', 'subject_id', 'predicate', 'object', 'truth_status', 'visibility', 'source_refs', 'reason', 'known_by_ids', 'asserted_by_ids', 'validity'];
 /**
@@ -83,7 +83,7 @@ export function vocabulary(contract: ModuleContract, contributed: Row | null = n
 }
 /**
  * §187.5.2: the vocabulary an author's packet carries is the one its job can write. A visual job (scan, asset, identity,
- * map scope) and §191.5's node identity job write no person or creature, so it does not receive the actor or creature dossier or the weakness shape.
+ * map scope) and §192.5's node identity job write no person or creature, so it does not receive the actor or creature dossier or the weakness shape.
  * The closed values (`visibility`, `truth_status`, `relation_kinds`, `node_kinds`) and every other key stay, because the
  * check's findings cite them. The checker reads the whole vocabulary from the graph view, never this cut.
  */

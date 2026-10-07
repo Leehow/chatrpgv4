@@ -74,14 +74,14 @@ export function pushedFailPending(record?: Row | null): boolean {
     return receipts.some((r, i) => r.kind === "roll" && truth(r.pushed) && !truth(r.passed) && !receipts.slice(i + 1).some(n => n.kind === "delta" && integer(n.before) && integer(n.after) && number(n.after) < number(n.before) || n.kind === "roll" && n.form === "dice" || n.kind === "session" && n.transition === "start"));
 }
 export const structureType = (graph: ModuleGraph): string => typeof moduleDeclaration(graph.moduleNode).structure_type === "string" && moduleDeclaration(graph.moduleNode).structure_type || "branching_investigation";
-/** The Director's reveal rows: up to five clues here the table has not found (§191.3: found through any copy). */
+/** The Director's reveal rows: up to five clues here the table has not found (§192.3: found through any copy). */
 export function revealRows(graph: ModuleGraph, world: Row, scene: Row): Row[] {
     return graph.sceneClueIds(scene).map(id => graph.nodes.get(id)!).filter(node => !graph.discovered(world, node)).slice(0, 5).map(node => ({
         clue: graph.handle(node),
         gate: clueGate(graph, node, world)
     }));
 }
-/** §191.3: a conclusion once (a copy is its survivor), its clues as the ones that stand for them, each found through any copy. */
+/** §192.3: a conclusion once (a copy is its survivor), its clues as the ones that stand for them, each found through any copy. */
 export function mainLineComplete(graph: ModuleGraph, world: Row): boolean {
     return graph.kind("conclusion").filter(node => !graph.isVariant(node)).some(node => {
         const clues = graph.supportingClues(node);

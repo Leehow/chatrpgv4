@@ -29,7 +29,7 @@ export function threadSection(graph: ModuleGraph, world: Row, scene: Row, presen
             neighbours.set(node.node_id, { node, exit: null });
     }
     const lines: Row[] = [];
-    // §191.3: a conclusion once, as the node that stands for it; its clues are the survivors (`supportingClues`).
+    // §192.3: a conclusion once, as the node that stands for it; its clues are the survivors (`supportingClues`).
     for (const conclusion of graph.kind("conclusion").filter(node => !graph.isVariant(node))) {
         // The one reading of a conclusion's clues; §180.9's weakness chain counts `found`/`of` through it too.
         const clues = graph.supportingClues(conclusion);

@@ -1,5 +1,5 @@
 /**
- * Contract §191.5: the shape of the independent identity reviewer's answer about two published nodes -- each pair answered
+ * Contract §192.5: the shape of the independent identity reviewer's answer about two published nodes -- each pair answered
  * once, `same`, `different` or `unsure` (DUP-03b, lead ruling 2026-10-07: doubt never splits), with the reason the pages
  * gave. Whether two nodes are one thing is the reviewer's answer, never this file's.
  *

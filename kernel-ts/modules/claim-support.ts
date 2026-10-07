@@ -96,7 +96,7 @@ export function claimSupportIneligibility(draft: unknown, root: string, hasText:
     const record = claimRecord(draft, root);
     if (!record) return "not_a_record";
     if (root.startsWith("/nodes/")) {
-        // §191.1: a node that declares itself distinct from a published one keeps the vision reviewer, which judges that answer.
+        // §192.1: a node that declares itself distinct from a published one keeps the vision reviewer, which judges that answer.
         if (Object.hasOwn(record, "distinct_from")) return "identity";
         const properties = plain(record.properties) ? record.properties : {};
         if (Array.isArray(properties.image_sources) && properties.image_sources.length) return "image_source";

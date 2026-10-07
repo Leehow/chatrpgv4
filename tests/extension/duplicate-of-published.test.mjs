@@ -1,6 +1,6 @@
 import {playtestScratch} from './playtest-scratch.mjs';
 /**
- * Contract §191.1, §191.2 (DUP-01): one thing, one node.
+ * Contract §192.1, §192.2 (DUP-01): one thing, one node.
  *
  * Blood Road's generation 55 (NR-07 survey §1): a page reading of pp. 25-26 declared `npc-daniel-mather` beside the published
  * `npc-book-4-daniel-mather`, the general store, the town centre under its very same name and five more; it had read 400 lines
@@ -8,7 +8,7 @@ import {playtestScratch} from './playtest-scratch.mjs';
  * path: a kernel runtime over a bound PDF, `module.read.claim` and `module.read.finish` doing the claiming and the publishing,
  * the checker the reader's `coc-read-check` runs (`checkSourceDraft`, over the attempt's own `packet.json` and the claim's
  * `graph-view.json`), and the host's ReadingService with its reader and reviewer children played by a fixture runtime. The
- * replay of generation 55 itself, on a clone of the acceptance home, is recorded in the DUP-01 report (§191.8).
+ * replay of generation 55 itself, on a clone of the acceptance home, is recorded in the DUP-01 report (§192.8).
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
@@ -133,7 +133,7 @@ async function refusal(promise) {
 	assert.fail('the publication was expected to be refused');
 }
 
-test('§191.1 landing: two readings claimed on one generation both mint one name; the second is refused against the generation it lands on', async () => {
+test('§192.1 landing: two readings claimed on one generation both mint one name; the second is refused against the generation it lands on', async () => {
 	const b = await book('landing');
 	const first = await claimDetail(b, 'general store'), second = await claimDetail(b, 'the store');
 	assert.equal(first.base_generation, second.base_generation, 'both readings were claimed on one generation');
@@ -161,7 +161,7 @@ test('§191.1 landing: two readings claimed on one generation both mint one name
 	assert.equal(graph.kind('scene').filter(node => node.name === 'General Store').length, 1, 'one store');
 });
 
-test('§191.1 check: coc-read-check reports every duplicate at once, by own name either way and by the book cast, and leaves a new thing alone', async () => {
+test('§192.1 check: coc-read-check reports every duplicate at once, by own name either way and by the book cast, and leaves a new thing alone', async () => {
 	const b = await book('findings', {cast: [SUTTON_ROW]});
 	const setup = await claimDetail(b, 'people');
 	await b.publish(setup, delta([STORE,
@@ -195,7 +195,7 @@ test('§191.1 check: coc-read-check reports every duplicate at once, by own name
 	assert.equal(error.details.rule, 'duplicate_of_published');
 });
 
-test('§191.1 distinct_from: a supported answer publishes the node, keeps the verdict, and an answered pair is not raised again', async () => {
+test('§192.1 distinct_from: a supported answer publishes the node, keeps the verdict, and an answered pair is not raised again', async () => {
 	const b = await book('distinct');
 	await b.publish(await claimDetail(b, 'pharmacy'), delta([PHARMACY]));
 	const job = await claimDetail(b, 'hospital');
@@ -226,7 +226,7 @@ test('§191.1 distinct_from: a supported answer publishes the node, keeps the ve
 	assert.equal((await b.check(later, again)).error.details.rule, 'duplicate_of_published', 'the same pair without the verdict is raised');
 });
 
-test('§191.1 a fork\'s kept answer travels with the generation the library follows (§184.1 adopts reading.identity)', async () => {
+test('§192.1 a fork\'s kept answer travels with the generation the library follows (§184.1 adopts reading.identity)', async () => {
 	const b = await book('fork');
 	await b.publish(await claimDetail(b, 'pharmacy'), delta([PHARMACY]));
 	await b.kernel('campaign.create', {id: 'c1', module: b.mid, play_language: 'en'});
@@ -239,7 +239,7 @@ test('§191.1 a fork\'s kept answer travels with the generation the library foll
 	assert.ok((await b.graph()).nodes.has('scene-hospital-pharmacy'));
 });
 
-test('§191.1 distinct_from: an answer the review does not support refuses, advisory or not, and keeps nothing', async () => {
+test('§192.1 distinct_from: an answer the review does not support refuses, advisory or not, and keeps nothing', async () => {
 	const b = await book('unsupported');
 	await b.publish(await claimDetail(b, 'pharmacy'), delta([PHARMACY]));
 	const job = await claimDetail(b, 'pharmacy again');
@@ -257,7 +257,7 @@ test('§191.1 distinct_from: an answer the review does not support refuses, advi
 	assert.equal((await b.meta()).reading.identity, undefined, 'no verdict was kept');
 });
 
-test('§191.1 distinct_from shape: a new node answers with published ids of its own kind, each once', async () => {
+test('§192.1 distinct_from shape: a new node answers with published ids of its own kind, each once', async () => {
 	const b = await book('shape');
 	await b.publish(await claimDetail(b, 'pharmacy'), delta([PHARMACY]));
 	const job = await claimDetail(b, 'shape');
@@ -272,7 +272,7 @@ test('§191.1 distinct_from shape: a new node answers with published ids of its 
 	assert.deepEqual(await rules(scene('scene-x', 'Pharmacy', P1, {distinct_from: [PHARMACY.node_id]})), []);
 });
 
-test('§191.2 the packet starts with the roster of the job\'s own pages, and task.json\'s first lines are that roster', async () => {
+test('§192.2 the packet starts with the roster of the job\'s own pages, and task.json\'s first lines are that roster', async () => {
 	const b = await book('roster');
 	await b.publish(await claimDetail(b, 'tower people'), delta([npc('npc-keeper', 'Lighthouse Keeper', P2, {aliases: ['Old Tom']}), STORE]));
 	await b.call('module.read.request', {purpose: 'detail', focus: 'Tower', question: 'Read the tower page.', source_unit: {section: 'Tower', first: 2, last: 2}, foreground: true});
@@ -316,8 +316,8 @@ test('§191.2 the packet starts with the roster of the job\'s own pages, and tas
 
 /**
  * A published copy of the general store, as generation 55 left Blood Road's: written straight into a generation, as a page
- * reading published one before §191.1's landing check refused it (no `distinct_from`, so no `different` verdict: a recorded one
- * keeps the pair apart and the identity writer refuses to join it, §191.3), then joined to the store by a kernel identity
+ * reading published one before §192.1's landing check refused it (no `distinct_from`, so no `different` verdict: a recorded one
+ * keeps the pair apart and the identity writer refuses to join it, §192.3), then joined to the store by a kernel identity
  * relation (DUP-02's writer). `storeNeeds` and `copyNeeds` add retained deferred questions to the store's reading and the copy.
  */
 async function storeWithCopy(b, {copyNeeds = [], storeNeeds = []} = {}) {
@@ -338,13 +338,13 @@ async function storeWithCopy(b, {copyNeeds = [], storeNeeds = []} = {}) {
 	return copy;
 }
 
-test('§191.1 against survivors: a drafted node that meets a published copy is paired with its survivor, and reusing the survivor\'s id publishes', async () => {
+test('§192.1 against survivors: a drafted node that meets a published copy is paired with its survivor, and reusing the survivor\'s id publishes', async () => {
 	const b = await book('survivors');
 	const copy = await storeWithCopy(b);
 	const job = await claimDetail(b, 'the shop a third time');
 	const view = JSON.parse(await readFile(join(job.work_dir, 'graph-view.json'), 'utf8'));
 	assert.deepEqual(view.survivors, {[copy.node_id]: STORE.node_id}, 'the claim\'s view says which node stands for the copy');
-	// The roster of a job on the copy's page lists the thing once, as the store, with the copy's names and pages (§191.2).
+	// The roster of a job on the copy's page lists the thing once, as the store, with the copy's names and pages (§192.2).
 	await b.call('module.read.request', {purpose: 'detail', focus: 'Tower', question: 'Read the tower page.', source_unit: {section: 'Tower', first: 2, last: 2}, foreground: true});
 	const unit = await b.claim();
 	assert.deepEqual(unit.roster.filter(entry => entry.kind === 'scene'), [
@@ -375,7 +375,7 @@ test('§191.1 against survivors: a drafted node that meets a published copy is p
 	assert.deepEqual(api.publishedDuplicates(drafted, nodes, b.mid, [], {}, b.sha).map(pair => pair.published.node_id), [copy.node_id]);
 });
 
-test('§191.3 retained needs read through survivors: a need on a copy is read as the survivor\'s, and one question about one thing is asked once', async () => {
+test('§192.3 retained needs read through survivors: a need on a copy is read as the survivor\'s, and one question about one thing is asked once', async () => {
 	const b = await book('needs');
 	await storeWithCopy(b, {storeNeeds: ['What does the shop sell?'], copyNeeds: ['What does the shop sell?', 'Who keeps the ledger?']});
 	const before = new Set((await b.queue()).map(job => job.job_id));
@@ -394,7 +394,7 @@ test('§191.3 retained needs read through survivors: a need on a copy is read as
 	assert.deepEqual(left, [], `the question ${job.question} was answered for the store and its copy`);
 });
 
-test('§191.1 the host keeps the identity pointer: its own review unit, never advisory, never cleared by the claim check, the published node in view', async () => {
+test('§192.1 the host keeps the identity pointer: its own review unit, never advisory, never cleared by the claim check, the published node in view', async () => {
 	const draft = delta([scene('scene-hospital-pharmacy', 'Pharmacy', P2, {distinct_from: [PHARMACY.node_id]})]);
 	const units = reviewUnits(draft, ['/nodes/0/distinct_from', '/nodes/0/summary'], undefined, true);
 	assert.ok(units.some(unit => unit.includes('/nodes/0/distinct_from')), 'module-logic-v1 folds fields into their record, but not the identity pointer');
@@ -413,7 +413,7 @@ test('§191.1 the host keeps the identity pointer: its own review unit, never ad
 	assert.deepEqual(await distinctReviewContext(attempt, {known_nodes: []}, delta([STORE])), [], 'nothing when no node answers with distinct_from');
 });
 
-test('§191.1 through the host: the repair round reads duplicate_of_published, answers with distinct_from, and the reviewer owes the pointer', async () => {
+test('§192.1 through the host: the repair round reads duplicate_of_published, answers with distinct_from, and the reviewer owes the pointer', async () => {
 	const b = await book('host');
 	await b.publish(await claimDetail(b, 'pharmacy'), delta([PHARMACY]));
 	const job = await claimDetail(b, 'hospital');

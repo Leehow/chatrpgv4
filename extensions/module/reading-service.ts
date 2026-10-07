@@ -60,7 +60,7 @@ export function omittedReviewOnly(required:unknown,review:Row,guidance=false):bo
 	return required.some(path=>typeof path==='string'&&!checked.has(path));
 }
 /**
- * §191.2: `task.json` as the author reads it. The roster of published nodes on the job's pages comes first, one node per
+ * §192.2: `task.json` as the author reads it. The roster of published nodes on the job's pages comes first, one node per
  * line, so the first lines the reader opens name what the graph already has (generation 55's reader read 400 lines and
  * never reached `known_nodes`); everything after it stays pretty-printed as before.
  */
@@ -71,7 +71,7 @@ export function readerTaskText(task: Row): string {
 	return `{\n  "roster": [${roster.length ? `\n${rows}\n  ` : ""}]${body === "{}" ? "\n}" : `,\n${body.slice(2)}`}\n`;
 }
 /**
- * §191.1: the published nodes the draft's `distinct_from` names that the author's cut packet lacks, from the claim's
+ * §192.1: the published nodes the draft's `distinct_from` names that the author's cut packet lacks, from the claim's
  * whole-graph view beside it, so each reviewer of such a node has the published one in its connected context.
  */
 export async function distinctReviewContext(cwd: string, task: Row, draft: Row): Promise<Row[]> {
@@ -848,7 +848,7 @@ export class ReadingService implements ReadingBridge {
 	}
 
 	/**
-	 * §191.5: ask the independent identity reviewer whether each pair of published nodes is one thing. Its Pi child runs
+	 * §192.5: ask the independent identity reviewer whether each pair of published nodes is one thing. Its Pi child runs
 	 * through the job's reviewer owner (`run`); the checked answer file lands in `dir`, inside the job's attempt, and its path
 	 * is what the kernel takes as `node_identity_path`, with the pages the reviewer opened. Throws `IdentityReviewUnavailable`
 	 * when the reviewer cannot answer.
@@ -880,7 +880,7 @@ export class ReadingService implements ReadingBridge {
 			}
 		}
 		this.recordLibrarySync(result, { module_id: params.module_id, campaign });
-		// §191.5: a repair that wrote, failed or asked a verdict is one row (a library left to its lineage fork is the steady
+		// §192.5: a repair that wrote, failed or asked a verdict is one row (a library left to its lineage fork is the steady
 		// state, not news); its offer to the library is the sync row.
 		const repair = result?.identity_repair, changed = (state: unknown) => ["published", "recorded", "failed"].includes(String(state));
 		if (repair && typeof repair === "object" && !Array.isArray(repair)) {
@@ -1209,7 +1209,7 @@ export class ReadingService implements ReadingBridge {
 			await this.readAhead({ module_id: job.module_id }, campaign).catch(() => undefined);
 			return;
 		}
-		// §191.5: an identity job over published pairs of nodes has no author either. Its reviewer opens both nodes' pages and
+		// §192.5: an identity job over published pairs of nodes has no author either. Its reviewer opens both nodes' pages and
 		// answers each pair; the kernel writes a `same` as an identity relation and keeps a `different`. A reviewer that cannot
 		// answer, or an answer the kernel refuses, fails the job, and a later read-ahead asks again until it has failed three times.
 		if (job.node_identity) {
@@ -1241,7 +1241,7 @@ export class ReadingService implements ReadingBridge {
 		}
 		const commands = { page: `coc-source --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
 			check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
-		// §191.2: the roster of published nodes on the job's pages comes first, ahead of the cast and the index.
+		// §192.2: the roster of published nodes on the job's pages comes first, ahead of the cast and the index.
 		const task: Row = { ...(Array.isArray(job.roster) ? { roster: job.roster } : {}), purpose: job.purpose,
             ...Object.fromEntries(['review_policy','source_unit','visual_scan','visual_asset','map_scope','visual_hints','review_scope_pages','source_need','carried_needs','cast_names'].filter(field=>job[field]!==undefined).map(field=>[field,job[field]])), ...(job.material ? { material: job.material } : {}), ...(job.purpose === "opening" ? {opening_batch:true,...(job.opening_scope?{opening_scope:job.opening_scope}:{})} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
 			...(job.purpose === "guidance" ? {guidance_key:job.guidance_key,public_progress_required:job.public_progress===true,

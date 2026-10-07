@@ -263,7 +263,7 @@ export function nearTableFirst(graph: ModuleGraph, seeds: readonly Row[], presen
  */
 export function handlesJob(campaign: string, graph: ModuleGraph, stored: Row, order: readonly Row[] = bookNodes(graph)): Row {
     const settled = row(stored.nodes);
-    // §191.3: a node another stands for is named by that node; its own id and interim handle stay input keys, never asked.
+    // §192.3: a node another stands for is named by that node; its own id and interim handle stay input keys, never asked.
     const wanting = order.filter(node => !Object.hasOwn(settled, String(node.node_id)) && !graph.isVariant(node));
     if (!wanting.length) return { job_id: null };
     const nodes = wanting.slice(0, HANDLES_PER_JOB).map(node => ({ id: String(node.node_id), kind: graph.bookKind(node), name: text(node.name),

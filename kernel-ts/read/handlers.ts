@@ -564,7 +564,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                     if (person) found = [person];
                 }
                 // §185.7: the row as the Keeper reads it -- a book's raw properties name other nodes by their ids (a weakness's `needs`).
-                // §191.3: a thing with copies is listed once (`search`), its copies' names among its aliases.
+                // §192.3: a thing with copies is listed once (`search`), its copies' names among its aliases.
                 const entities: Row[] = found.filter(node => !expected || node.node_kind === expected).slice(0, 8).map(node => ({...graph.shownIds(graph.entityView(node)),
                     ...(graph.groupOf(node).length > 1 ? {aliases: graph.groupAliases(node)} : {}),
                     ...(sourceScope?{material:graph.isTableEntity(node)||graph.isTablePerson(node)||graph.isTableCreature(node)?'ready':graph.materialOverride?graph.materialOverride(node.node_id):prepared.has(node.node_id)?'ready':'unprepared',

@@ -1,8 +1,8 @@
 /**
- * Contract §191.5 (owner rulings 2026-10-07): repairing graphs that already hold duplicates.
+ * Contract §192.5 (owner rulings 2026-10-07): repairing graphs that already hold duplicates.
  *
- * The census found 88 true duplicates across 49 graphs, written before §191.1's landing check existed. When a book loads, the
- * read-ahead runs §191.1's trigger over the published graph (`publishedPairs`): every pair of two things of one kind that one
+ * The census found 88 true duplicates across 49 graphs, written before §192.1's landing check existed. When a book loads, the
+ * read-ahead runs §192.1's trigger over the published graph (`publishedPairs`): every pair of two things of one kind that one
  * name or one cast row joins, which no verdict answers and which do not already read as one.
  *
  * - **Without a model** (owner ruling 2026-10-07: same name and overlapping pages merge directly; 39 of 39 true on the
@@ -13,13 +13,13 @@
  *   or an alias never takes this path.
  * - **Never without a verdict:** a pair the graph itself relates (any relation between a node of one and a node of the other:
  *   a member of a group, a part of a place, two people who know each other) is two things to the reader who wrote that
- *   relation, so it waits for a verdict job (§191.6: group versus member is different by default). So do two nodes one reading
+ *   relation, so it waits for a verdict job (§192.6: group versus member is different by default). So do two nodes one reading
  *   published together (one `reading.materials` row lists both): that reader saw both and kept them apart, which is not how
  *   the census's duplicates arose (a later reading that never saw the published node; none of Blood Road's 32 pairs).
  * - **Never at all:** a pair a reader-authored `variant-of` links. The reader said one is a state of the other (Dust to Dust's
- *   revived Virginia); §191.3 never collapses that, and no verdict job is asked to.
+ *   revived Virginia); §192.3 never collapses that, and no verdict job is asked to.
  * - **Everything else** is asked of an independent reader in a background identity job (`node_identity`), a few pairs a job;
- *   its `same` writes the relation (`{by: "review", ...}`), its `different` is kept in `reading.identity` as §191.1 keeps a
+ *   its `same` writes the relation (`{by: "review", ...}`), its `different` is kept in `reading.identity` as §192.1 keeps a
  *   reviewed `distinct_from`, so the pair is never asked again. Doubt never splits (DUP-03b, lead ruling 2026-10-07): an
  *   `unsure` is kept there too, under the same key, so the pair is not asked again, but it keeps nothing apart -- the cast
  *   fold still joins what it joined -- and writes no relation.
@@ -41,7 +41,7 @@ import type { ModuleStore } from './store.js';
 export { NODE_IDENTITY_PROTOCOL, nodeIdentityVerdicts, type NodeVerdict };
 import { identitySource } from './visual-identity.js';
 
-/** The owner's rule (§191.5), as the relation's `identity_review.rule` names it. */
+/** The owner's rule (§192.5), as the relation's `identity_review.rule` names it. */
 export const SAME_NAME_SAME_PAGE = 'same-name-same-page';
 /** The read-ahead's focus and question for an identity job (a detail job carrying `node_identity`). */
 export const NODE_IDENTITY_FOCUS = 'Node identity review';
@@ -53,7 +53,7 @@ export const NODE_IDENTITY_FAILURES = 3;
 
 /** One candidate: two survivors of one kind, the relations between their nodes, and the owner's rule when it decides the pair. */
 export interface RepairPair extends PublishedPair {
-    /** `reading.identity`'s key for the two survivors (§191.1). */
+    /** `reading.identity`'s key for the two survivors (§192.1). */
     key: string;
     /** `same-name-same-page` when the pair is merged without a model; null when it waits for a verdict. */
     rule: string | null;
@@ -64,7 +64,7 @@ export interface RepairPair extends PublishedPair {
 const ownName = (node: Row | undefined): string => typeof node?.name === 'string' ? normalize(node.name) : '';
 
 /**
- * §191.5's candidates in a published graph: §191.1's trigger over survivors (kernel identity relations and §152.4's visual
+ * §192.5's candidates in a published graph: §192.1's trigger over survivors (kernel identity relations and §152.4's visual
  * survivors, `rawSurvivors`; recorded `different` verdicts keep the cast fold apart), less the pairs a reader-authored
  * `variant-of` links, each marked with the owner's rule when it applies. `cast` are the book's cast rows (`{book, play}`).
  */
@@ -117,7 +117,7 @@ export interface Decision { verdict: 'same' | 'different' | 'unsure'; nodes: [st
 
 /**
  * The reviewed decisions a store holds for its bound source: the identity relations a review wrote (`identity_review.by` is
- * `review`), and the `different` (a verdict job's, or §191.1's reviewed `distinct_from`) and `unsure` verdicts of
+ * `review`), and the `different` (a verdict job's, or §192.1's reviewed `distinct_from`) and `unsure` verdicts of
  * `reading.identity`.
  */
 export function reviewedDecisions(raw: Row | null, meta: Row): Decision[] {
@@ -143,7 +143,7 @@ export interface LazySource { meta: Row; label: Row; raw(): Promise<Row | null> 
 export interface RepairPlan { writes: IdentityWrite[]; verdicts: { key: string; record: Row }[]; merged: number; imported: number; open: RepairPair[]; generation: number }
 
 /**
- * §191.5's plan for one store's published graph (`raw`, `meta`): each candidate pair a reviewed decision of `from` answers (the
+ * §192.5's plan for one store's published graph (`raw`, `meta`): each candidate pair a reviewed decision of `from` answers (the
  * same bound source, both nodes in this graph) decided by it, then every pair the owner's rule decides. `open` are the pairs
  * left for a verdict job.
  */
@@ -193,7 +193,7 @@ async function planFor(store: ModuleStore, mid: string, meta: Row, cast: Row[], 
 }
 
 /**
- * §191.5 under module `mid`'s metadata lock, which the caller holds: `repairPlan` over `store`'s published graph, written as
+ * §192.5 under module `mid`'s metadata lock, which the caller holds: `repairPlan` over `store`'s published graph, written as
  * one new generation (`publishIdentitiesHeld`). Returns the publication with `merged` (the owner's rule), `imported`
  * (decisions taken from `from`) and `open` (the pairs left for a verdict job, after the write).
  */
@@ -220,7 +220,7 @@ export function nextIdentityAsk(open: readonly RepairPair[], queue: readonly Row
 }
 
 /**
- * §191.5 for the library, by its own publication: `repairPlan` over `library` (the module store of `<stateRoot>/modules`)
+ * §192.5 for the library, by its own publication: `repairPlan` over `library` (the module store of `<stateRoot>/modules`)
  * under the library module's metadata lock, taken here -- a fork's caller holds only its own fork's, which is §184.1's lock
  * order. The library is written only while no live fork holds its lineage (`lineageHolders`): that fork's own repair reaches
  * the library through §184.1's adoption, and a library publication now would end its lineage (§184.4). `from` is the loading

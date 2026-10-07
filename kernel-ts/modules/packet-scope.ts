@@ -32,11 +32,11 @@ export function jobPages(job: Row, needTask?: Row, pageCount = Number.MAX_SAFE_I
 }
 
 /**
- * §191.2: what the author meets first in its packet -- the published things that cite one of the job's own pages (not the
+ * §192.2: what the author meets first in its packet -- the published things that cite one of the job's own pages (not the
  * window), each as `{id, kind, name, aliases, pages}`, grouped by kind. `known` are the packet's node rows (pages 1-based).
- * §191.3: a thing is listed once, as its survivor (`survivors`, variant id to survivor id): a copy on the job's pages lists the
+ * §192.3: a thing is listed once, as its survivor (`survivors`, variant id to survivor id): a copy on the job's pages lists the
  * node that stands for it, with the copy's names among its aliases and the copy's pages among its pages, so the id the author
- * reuses is the survivor's. A cost saver, not the guard: the draft check's `duplicate_of_published` is the guard (§191.1).
+ * reuses is the survivor's. A cost saver, not the guard: the draft check's `duplicate_of_published` is the guard (§192.1).
  */
 export function packetRoster(known: Row[], pages: number[], survivors: Row = {}): Row[] {
     const assigned = new Set(pages), byId = new Map(known.map(node => [string(node.node_id), node]));

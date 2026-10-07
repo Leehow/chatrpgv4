@@ -270,8 +270,8 @@ export function mergeValue(old: any, proposed: any, path = '', transcription?: R
 export interface DraftCheckOptions { openingBatch?: boolean; graph?: Row }
 /**
  * The packet as the check reads it: the job's own fields with the graph view's nodes, claims, spans and vocabulary, and the
- * identity answers already recorded for the bound source (§191.1: `identity_verdicts`, `identity_source`), and which node
- * stands for each copy (§191.3: `survivors`, variant id to survivor id).
+ * identity answers already recorded for the bound source (§192.1: `identity_verdicts`, `identity_source`), and which node
+ * stands for each copy (§192.3: `survivors`, variant id to survivor id).
  */
 export function withGraphView(packet: Row, view: Row | null | undefined): Row {
     if (!view || !object(view)) return packet;
@@ -370,7 +370,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
             records.note(refusal('properties must be an object and aliases an array', `/nodes/${i}`), ...shapes);
         if (array(node.aliases).some(alias => typeof alias !== 'string'))
             records.note(refusal('aliases must contain names'), { path: `/nodes/${i}/aliases`, rule: 'alias_names', value: node.aliases });
-        // §191.1: a new node's answer to `duplicate_of_published` names published nodes of its own kind, each once.
+        // §192.1: a new node's answer to `duplicate_of_published` names published nodes of its own kind, each once.
         if (Object.hasOwn(node, DISTINCT_FROM)) {
             const answer = node[DISTINCT_FROM], at = `/nodes/${i}/${DISTINCT_FROM}`;
             if (existing.has(id))
@@ -603,12 +603,12 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         graph.run(() => checkObligations(filled, packet, contract), {}, item => `obligation ${item.node}: ${item.path}: ${item.message}`);
     graph.run(() => checkMechanics(filled, packet, contract), {}, item => `mechanics ${item.node}: ${item.path}: ${item.message}`);
     graph.run(() => checkBeings(filled, packet, contract), {}, item => `${item.claim ? `claim ${item.claim}` : `node ${item.node}`}: ${item.path}: ${item.message}`);
-    // §191.1: one thing, one node. A new node named like a published node of its kind, and not answered by its distinct_from or
+    // §192.1: one thing, one node. A new node named like a published node of its kind, and not answered by its distinct_from or
     // by a verdict already recorded, is refused here before any review is spent; `module.read.finish` asks again, against the
     // generation the draft lands on.
     const identitySource = typeof packet.identity_source === 'string' ? packet.identity_source
         : typeof row(packet.source).file_sha256 === 'string' ? row(packet.source).file_sha256 : '';
-    // §191.3: pairs are made against survivors, as the claim's view names them.
+    // §192.3: pairs are made against survivors, as the claim's view names them.
     const survivors = row(packet.survivors);
     const duplicates = publishedDuplicates(nodes, array(packet.known_nodes), typeof packet.module_id === 'string' ? packet.module_id : 'module',
         array(packet.cast_names), row(packet.identity_verdicts), identitySource, id => typeof survivors[id] === 'string' ? survivors[id] : id).filter(pair => !pair.declared);
@@ -630,7 +630,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     }
     for (const i of (filled.claims as Row[]).keys())
         required.add(`/claims/${i}`);
-    // §191.1: a node's distinct_from is reviewed as written under either policy; an unsupported one refuses (`checkReview`).
+    // §192.1: a node's distinct_from is reviewed as written under either policy; an unsupported one refuses (`checkReview`).
     for (const [i, node] of nodes.entries())
         if (Object.hasOwn(node, DISTINCT_FROM))
             required.add(`/nodes/${i}/${DISTINCT_FROM}`);
@@ -954,7 +954,7 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
                 supported.add(path);
                 continue;
             }
-            // §191.1: a distinct_from is an identity statement, never a classification and never advisory.
+            // §192.1: a distinct_from is an identity statement, never a classification and never advisory.
             if (!identityReviewPath(path) && REVIEW_VERDICTS.includes(item.verdict) && (moduleLogicReview(filled)?advisoryModuleFinding(item):classifies(path))) {
                 contested.push({ path, verdict: item.verdict, reason: string(item.reason ?? ''), source_refs: refs,...(item.impact?{impact:item.impact}:{}) });
                 continue;

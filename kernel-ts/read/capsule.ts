@@ -75,7 +75,7 @@ export function calledOwners(world: Row, name: string): string[] {
  * the Keeper meant is not something a record can answer, so it is refused, never picked.
  */
 export function calledPerson(graph: ModuleGraph, world: Row, name: string): Row | null {
-    // §191.3: two ids that read as one person (a copy's handle and the handle of the node that stands for it) are one owner.
+    // §192.3: two ids that read as one person (a copy's handle and the handle of the node that stands for it) are one owner.
     const owners = [...new Map(calledOwners(world, name).flatMap(id => { const node = graph.find(id, ['npc']); return node ? [[string(node.node_id), node] as [string, Row]] : []; })).values()];
     if (owners.length > 1)
         throw new RpcError('unknown_entity', `this table calls more than one person ${repr(name)}`, {
@@ -269,7 +269,7 @@ export function rosterWord(graph: ModuleGraph, world: Row, journal: Row, person:
     if (!person.node)
         return tableWord(world, person.id) || person.id;
     // §188.2: an individual the graph holds more than once is shown by one word: their first node's, the node `resolve` lands
-    // on (`ModuleGraph.survivorOf`, §191.3), else the first other copy's that has one.
+    // on (`ModuleGraph.survivorOf`, §192.3), else the first other copy's that has one.
     const word = (node: Row) => (tableWord(world, graph.handle(node)) || string(row(row(journal.entries)[string(node.node_id)]).label || "")).trim();
     return person.nodes.map(word).find(Boolean) || person.id;
 }
@@ -430,7 +430,7 @@ export function withinSection(graph: ModuleGraph, world: Row, scene: Row, materi
     const relation = (graph.out.get(scene.node_id) ?? []).find(rel => rel.relation_kind === "located-in" && graph.nodes.has(rel.to_node_id));
     if (!relation)
         return undefined;
-    // §191.3: the place is the node that stands for it; its people are its group's, seated by an entry under any handle.
+    // §192.3: the place is the node that stands for it; its people are its group's, seated by an entry under any handle.
     const place = graph.survivorOf(graph.nodes.get(relation.to_node_id)!), here = sceneHandles(graph, scene), presence = presenceThrough(graph, world);
     const display = graph.placeName(place);
     const within: Row = {
@@ -461,7 +461,7 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         // The cue and what taking it yields belong in one row (contract §31.3, §32.5). The authored
         // field is `grants_clue_ids`; `clue_id` is the older singular spelling, and the first
         // granted clue keeps the `clue` key the §6 shape has always had.
-        // §191.3: each granted clue as the clue that stands for it, once.
+        // §192.3: each granted clue as the clue that stands for it, once.
         const granted = [...new Set([...array(aff.grants_clue_ids), ...(typeof aff.clue_id === "string" ? [aff.clue_id] : [])]
             .filter(id => typeof id === "string" && graph.nodes.has(id)).map(id => graph.survivorId(id)))]
             .map(id => graph.nodes.get(id)!);
@@ -545,7 +545,7 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
     return where;
 }
 /**
- * §191.3: where the ledger has each actor (`world.npc_presence`), read through survivors: an entry under a variant's handle is
+ * §192.3: where the ledger has each actor (`world.npc_presence`), read through survivors: an entry under a variant's handle is
  * the node that stands for it. The survivor's own entry wins over a variant's, which only stands in while the survivor has none
  * (a write after an identity relation lands under the survivor's handle). Each actor once, in the ledger's order.
  */
@@ -559,14 +559,14 @@ export function presenceThrough(graph: ModuleGraph, world: Row): Map<string, { n
     }
     return new Map([...found].map(([id, { node, at }]) => [id, { node, at }]));
 }
-/** §191.3: the scene handles that are this scene -- every node of its group -- for a presence value written under any of them. */
+/** §192.3: the scene handles that are this scene -- every node of its group -- for a presence value written under any of them. */
 const sceneHandles = (graph: ModuleGraph, scene: Row): Set<string> => new Set(graph.groupOf(scene).map(node => graph.handle(node)));
 export function npcsPresent(graph: ModuleGraph, world: Row, scene: Row): Row[] {
     const here = sceneHandles(graph, scene);
     return [...presenceThrough(graph, world).values()].flatMap(({ node, at }) => here.has(at) ? [node] : []);
 }
 /**
- * §191.3: whether the table found a clue: `world.discovered_clues` holds the handle of any node of the clue's group, the clue
+ * §192.3: whether the table found a clue: `world.discovered_clues` holds the handle of any node of the clue's group, the clue
  * that stands for it or a copy found before the two were joined.
  */
 export function clueDiscovered(graph: ModuleGraph, world: Row, clue: Row): boolean {
@@ -1206,7 +1206,7 @@ export function windowOrder(nodes: Row[], window: RosterWindow): Row[] {
     const near = (node: Row) => array(node.source_refs).some(ref => integer(row(ref).pdf_index) && number(ref.pdf_index) + 1 >= window.first && number(ref.pdf_index) + 1 <= window.last);
     return [...nodes.filter(near), ...nodes.filter(node => !near(node))];
 }
-/** §191.3: the brief lists each thing once: a node another stands for is never a roster line of its own. */
+/** §192.3: the brief lists each thing once: a node another stands for is never a roster line of its own. */
 function rosterNodes(graph: ModuleGraph, kind: string): Row[] {
     return (kind === 'location' ? array(graph.raw.nodes).filter(node => node.node_kind === 'location') : graph.kind(kind)).filter(node => !graph.isVariant(node));
 }

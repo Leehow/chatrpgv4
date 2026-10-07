@@ -1,5 +1,5 @@
 /**
- * Contract §191.1: one thing, one node. A reading may not publish a second node for something the graph already has.
+ * Contract §192.1: one thing, one node. A reading may not publish a second node for something the graph already has.
  *
  * Blood Road's generation 55 (NR-07 survey §1): a page reading of pp. 25-26 declared `npc-daniel-mather` beside the published
  * `npc-book-4-daniel-mather`, the general store beside `scene-book-4-mather-store`, the town centre under its very same name,
@@ -26,7 +26,7 @@ import { array, integer, normalize, number, repr, row, string, type Row } from '
 
 /** The refusal's `rule`, and each finding's. */
 export const DUPLICATE_RULE = 'duplicate_of_published';
-/** The drafted node's field that answers a finding with "a different thing" (§191.1); reviewed, never advisory. */
+/** The drafted node's field that answers a finding with "a different thing" (§192.1); reviewed, never advisory. */
 export const DISTINCT_FROM = 'distinct_from';
 /** A published node's summary is cut to this many characters in a finding and in `details.duplicates`. */
 export const DUPLICATE_SUMMARY_CHARS = 240;
@@ -41,7 +41,7 @@ export interface DuplicatePair {
 
 /**
  * `reading.identity`'s key for one pair: the bound source's digest, the kind and the two node ids in code-point order, so
- * the key is the same whichever node was drafted (§191.1).
+ * the key is the same whichever node was drafted (§192.1).
  */
 export function identityPairKey(sourceSha: string, kind: string, a: string, b: string): string {
     const [first, second] = [a, b].sort(compareUnicode);
@@ -64,7 +64,7 @@ const clip = (text: string): string => {
     return chars.length <= DUPLICATE_SUMMARY_CHARS ? text : chars.slice(0, DUPLICATE_SUMMARY_CHARS - 3).join('') + '...';
 };
 
-/** The published thing a finding names: the survivor, with every name and page of the nodes that read as it (§191.3). */
+/** The published thing a finding names: the survivor, with every name and page of the nodes that read as it (§192.3). */
 function published(node: Row, names: string[], pages: number[]): PublishedView {
     return { node_id: string(node.node_id), node_kind: string(node.node_kind), name: typeof node.name === 'string' ? node.name : '', aliases: names.filter(name => name !== node.name),
         pages, summary: clip(typeof node.summary === 'string' ? node.summary.trim() : '') };
@@ -76,7 +76,7 @@ export function distinctFrom(node: Row): string[] {
     return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
 }
 
-/** §191.1 with §191.3: the published node that stands for a node id; without a survivor map every node stands for itself. */
+/** §192.1 with §192.3: the published node that stands for a node id; without a survivor map every node stands for itself. */
 export type SurvivorOf = (id: string) => string;
 const itself: SurvivorOf = id => id;
 
@@ -84,10 +84,10 @@ const itself: SurvivorOf = id => id;
 interface Lent { all: string[]; own: string[]; keys: Set<string>; pages: number[] }
 
 /**
- * §191.1's trigger over one graph: the published nodes `graphRows` grouped under the node that stands for each (`survivorOf`),
+ * §192.1's trigger over one graph: the published nodes `graphRows` grouped under the node that stands for each (`survivorOf`),
  * with `extra` (the drafted nodes, at landing) beside them in the same view, so the landing check and the repair of graphs
- * that already hold duplicates (§191.5) raise a pair by one rule. `apart`: the pairs a recorded `different` verdict keeps
- * apart, for the cast fold (§191.3, lead ruling 2026-10-07); the landing check passes none.
+ * that already hold duplicates (§192.5) raise a pair by one rule. `apart`: the pairs a recorded `different` verdict keeps
+ * apart, for the cast fold (§192.3, lead ruling 2026-10-07); the landing check passes none.
  */
 class TriggerView {
     readonly byId: Map<string, Row>;
@@ -136,7 +136,7 @@ class TriggerView {
     }
 }
 const unique = (values: string[]) => [...new Set(values)];
-/** The name by which `mine` meets `theirs` (§191.1's own-name clause, both ways, under `normalize`), or undefined. */
+/** The name by which `mine` meets `theirs` (§192.1's own-name clause, both ways, under `normalize`), or undefined. */
 const sharedName = (mine: { own: string[]; keys: Set<string> }, theirs: { own: string[]; keys: Set<string> }): string | undefined =>
     mine.own.find(name => theirs.keys.has(normalize(name))) ?? theirs.own.find(name => mine.keys.has(normalize(name)));
 /** The printed form a cast person is named by in a finding: the longest one, else their first name. */
@@ -144,10 +144,10 @@ const castShared = (person: ReturnType<typeof bookCast>[number]): string =>
     [...person.printed].sort((a, b) => Array.from(b).length - Array.from(a).length)[0] ?? person.names[0] ?? '';
 
 /**
- * Every pair of a drafted node new to `graphNodes` and a published thing it meets by §191.1's trigger, in draft order and
+ * Every pair of a drafted node new to `graphNodes` and a published thing it meets by §192.1's trigger, in draft order and
  * then the published nodes' order. A pair `recorded` already holds a verdict for (`reading.identity`) is not raised again.
  *
- * §191.1 pairs against survivors only (§191.3): `survivorOf` names the node that stands for each published node (at
+ * §192.1 pairs against survivors only (§192.3): `survivorOf` names the node that stands for each published node (at
  * publication `rawSurvivors` over the landing graph, in the check the claim's `graph-view.json` `survivors`). A variant is no
  * candidate; its names count as its survivor's, and the finding, its pages and the verdict key name the survivor, so a reader
  * that reuses the id writes under the node that stands for the thing.
@@ -193,7 +193,7 @@ export function publishedDuplicates(drafted: Row[], graphNodes: Row[], moduleId:
     return pairs;
 }
 
-/** Two published things one name or one cast row joins (§191.5): `a` and `b` are survivors, in node id order. */
+/** Two published things one name or one cast row joins (§192.5): `a` and `b` are survivors, in node id order. */
 export interface PublishedPair {
     kind: string; a: PublishedView; b: PublishedView; by: 'name' | 'cast'; shared: string;
     /** Every node of each side's group, the survivor first. */
@@ -201,11 +201,11 @@ export interface PublishedPair {
 }
 
 /**
- * Contract §191.5: §191.1's trigger run over a graph that is already published -- every pair of two survivors of one kind
+ * Contract §192.5: §192.1's trigger run over a graph that is already published -- every pair of two survivors of one kind
  * that one's own name meets the other's names (both ways, every node of each group counting for its survivor), or, for
  * people, that the cast holds as one individual. Two nodes that already read as one (`survivorOf`) are no pair; a pair any
  * of whose nodes `recorded` holds a verdict for is not raised again; `apart` (the recorded `different` pairs) keeps the
- * cast fold from joining what a verdict keeps apart (§191.3). Sorted by kind, then the two survivors' ids.
+ * cast fold from joining what a verdict keeps apart (§192.3). Sorted by kind, then the two survivors' ids.
  */
 export function publishedPairs(graphNodes: Row[], moduleId: string, cast: Row[], recorded: Row, sourceSha: string,
     survivorOf: SurvivorOf = itself, apart?: ReadonlySet<string>): PublishedPair[] {
@@ -260,8 +260,8 @@ export function duplicateMessage(pair: DuplicatePair): string {
         + `summary ${repr(target.summary)}`;
 }
 
-/** Contract §191.1: the literal repair (the wording of §180.7's `ONE_BEING_FIX` and §152.4's `same_print_duplicate`). */
-export const DUPLICATE_FIX = 'one thing is one node (contract 191.1): each finding names a node the graph already publishes with the same kind and name '
+/** Contract §192.1: the literal repair (the wording of §180.7's `ONE_BEING_FIX` and §152.4's `same_print_duplicate`). */
+export const DUPLICATE_FIX = 'one thing is one node (contract 192.1): each finding names a node the graph already publishes with the same kind and name '
     + '(details.duplicates[].published: its node_id, kind, names, pages and summary). When your page describes that same thing, delete your new node '
     + 'and write under the published node_id instead: only the facts it does not already hold, cited to your pages, and point every claim, node_ref, '
     + 'ready_nodes entry, critical pointer and source need that named your id at the published id. Only when your page names a different thing that '
@@ -280,11 +280,11 @@ export function duplicateRefusal(pairs: DuplicatePair[]): RpcError {
 }
 
 /**
- * Publication's record of the reviewed `distinct_from` answers (§191.1): for every drafted node new to the landing graph, each
+ * Publication's record of the reviewed `distinct_from` answers (§192.1): for every drafted node new to the landing graph, each
  * id it lists that names a published node of its kind, kept in `reading.identity` under the pair's key. The review gate has
  * already refused the reading unless every `distinct_from` was supported (`checkReview`), so each record is `different`.
  * `reasons` gives the reviewer's reason for a draft pointer, when the review stated one. A listed copy is recorded as its
- * survivor (`survivorOf`, §191.3), the node the pair is keyed by.
+ * survivor (`survivorOf`, §192.3), the node the pair is keyed by.
  */
 export function recordDistinct(meta: Row, drafted: Row[], graphNodes: Row[], sourceSha: string, jobId: string, generation: number,
     reasons: (path: string) => string | undefined, survivorOf: SurvivorOf = itself): number {

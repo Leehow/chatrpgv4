@@ -207,7 +207,7 @@ export async function ensureCampaignModule(context: KernelContext, campaign: str
  * §184.1: the `module.json` fields the library adopts from the fork it follows. The index (`index_file` with
  * `reading.index_complete`) travels as a pair, below. `reading.map_candidates` is the index's own output, read beside
  * `index_file` by the map gate and by every assembly, so it travels with the index rows it came from. §182.2: a short
- * book's `build_complete` travels too, so every later fork starts complete. §191.1: `identity`, the answered same-name pairs,
+ * book's `build_complete` travels too, so every later fork starts complete. §192.1: `identity`, the answered same-name pairs,
  * travels with the nodes it answers for, so the library never raises them again.
  */
 const ADOPTED_READING = ['materials', 'scene_index', 'visual_scans', 'visual_candidates', 'visual_identity', 'identity', 'missing', 'retranscriptions',
@@ -283,7 +283,7 @@ export async function libraryLineage(context: KernelContext, campaign: string, m
 }
 
 /**
- * §191.5: the live campaigns whose fork of `moduleId` is the library's lineage by §184.1's test against `libraryMeta` (the
+ * §192.5: the live campaigns whose fork of `moduleId` is the library's lineage by §184.1's test against `libraryMeta` (the
  * library's record as the caller read it under the library module's metadata lock). A fork is live while its campaign is: a
  * fork left behind by a campaign that no longer exists holds nothing. The repair writes the library itself only when this is
  * empty; otherwise the library takes the repair from that fork's own publication, so no lineage ends (§184.1, §184.4).

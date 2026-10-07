@@ -1,6 +1,6 @@
 # One thing, one node — tickets (NR-07)
 
-Survey and decisions: `docs/specs/reading-duplicates-survey.md`. Contract: `docs/kernel-rpc.md` §191. The contract is the
+Survey and decisions: `docs/specs/reading-duplicates-survey.md`. Contract: `docs/kernel-rpc.md` §192. The contract is the
 source of truth.
 
 Integration branch: `claude/reading-duplicates-20261007`, in the lead-owned worktree `chatrpgv4-wt-dups`. It was cut from
@@ -45,7 +45,7 @@ Status: done — 040336734, ee09af3b9 (merged)
   - built from those relations, §152.4's visual survivors and §188.2's cast fold;
   - NR-02's `individuals` becomes a view of it;
   - for non-visual kinds, only kernel-written identity hops count.
-- **Every reader in §191.3 reads through survivors.** Each one is recorded under §191.8 with a test.
+- **Every reader in §192.3 reads through survivors.** Each one is recorded under §192.8 with a test.
 - **Carry:** aliases, `source_refs` and missing properties go to the survivor through `mergeValue`. A contradiction stays
   on the variant.
 - A variant's handle and node id still resolve, to the survivor.
@@ -62,7 +62,7 @@ Mutation evidence for each reader. ext, py and loop on leehow-pc.
 
 Status: done — db623f2d2…5721ae612, incl. DUP-03b `unsure` never splits (merged)
 
-- **Candidates:** found from the published graph by the 191.1 trigger.
+- **Candidates:** found from the published graph by the 192.1 trigger.
 - **Same kind, same own name and overlapping pages:** the kernel writes the identity relation directly, with
   `identity_review {by: "kernel", rule: "same-name-same-page"}`. This is the owner ruling.
 - **Every other candidate:** a background identity job, a tool-using Pi reader opening both nodes' pages, answers `same`
@@ -73,7 +73,7 @@ Status: done — db623f2d2…5721ae612, incl. DUP-03b `unsure` never splits (mer
 
 Status: done — table nr07-blood-road-1 passed S1–S7 (acceptance home NR07-PREREG.md)
 
-- A new campaign on the repaired library, with the pre-registered lines of §191.7.
+- A new campaign on the repaired library, with the pre-registered lines of §192.7.
 - Then merge into the mainline and package, on the owner's word.
 
 ## Comments

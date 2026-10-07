@@ -1,14 +1,14 @@
 import {playtestScratch} from './playtest-scratch.mjs';
 /**
- * Contract §191.5: repairing graphs that already hold duplicates.
+ * Contract §192.5: repairing graphs that already hold duplicates.
  *
- * Blood Road's forks and library hold copies written before §191.1's landing check (the general store, the town centre, the
+ * Blood Road's forks and library hold copies written before §192.1's landing check (the general store, the town centre, the
  * store owner, eight more on generation 60). These cases travel the real path: a kernel runtime over a bound PDF, its index
  * and opening published through `module.read.finish`, copies written straight into a generation as those readings left them,
  * and `module.read.ahead` -- the read-ahead a table's opening and the host send -- doing the repair. The verdict jobs run
  * through the host's ReadingService with its reviewer child played by a fixture runtime, or through `module.read.finish`
  * directly where the kernel's own checks are the point. The clone of the acceptance home's generation-60 fork is in the
- * DUP-03 record (§191.8).
+ * DUP-03 record (§192.8).
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
@@ -71,7 +71,7 @@ const STORE_COPY = scene('scene-store-copy', 'General Store', P1, {summary: 'The
 /** A doctor read on two pages (Blood Road's p. 50 Brenner node): one name, no shared page. */
 const BRENNER = npc('npc-brenner', 'Dr Brenner', P1, {summary: 'The town doctor.'});
 const BRENNER_COPY = npc('npc-brenner-later', 'Dr Brenner', P2, {summary: 'The doctor at the base.'});
-/** Two men a short form joins (Pete and Peter Benson, §191's census: different). */
+/** Two men a short form joins (Pete and Peter Benson, §192's census: different). */
 const PETE = npc('npc-pete', 'Pete', P1, {summary: 'A drifter in the trailer.'});
 const BENSON = npc('npc-peter-benson', 'Peter Benson', P2, {aliases: ['Pete'], summary: 'The hardware store owner.'});
 
@@ -131,7 +131,7 @@ async function book(name) {
 }
 
 /**
- * Nodes written straight into a new generation of the library (or a campaign's fork), as a page reading before §191.1 left
+ * Nodes written straight into a new generation of the library (or a campaign's fork), as a page reading before §192.1 left
  * them: runtime source refs and one `reading.materials` row each, so the earlier written is the earlier published
  * (`oneReading`: one row lists them all, as one reading's publication does).
  */
@@ -195,7 +195,7 @@ const differentPete = pair => [pair.a.node_id, pair.b.node_id].includes(PETE.nod
 	? {verdict: 'different', reason: 'Page 1 is a drifter; page 2 is the hardware store owner.'}
 	: {verdict: 'same', reason: 'Both pages describe the one town doctor.'};
 
-test('§191.5 owner rule: one kind, one name, a shared page is merged by the read-ahead, even on a built book; a second read-ahead writes nothing', async () => {
+test('§192.5 owner rule: one kind, one name, a shared page is merged by the read-ahead, even on a built book; a second read-ahead writes nothing', async () => {
 	const b = await book('owner-rule');
 	await seed(b, [STORE]);
 	await seed(b, [STORE_COPY]);
@@ -214,7 +214,7 @@ test('§191.5 owner rule: one kind, one name, a shared page is merged by the rea
 	assert.deepEqual(relation.properties.identity_review, {by: 'kernel', rule: 'same-name-same-page', generation: before + 1});
 	const graph = await b.graph();
 	assert.equal(graph.resolve('General Store', ['scene']).node_id, STORE.node_id, 'one store answers its name');
-	assert.ok(graph.nodes.get(STORE.node_id).aliases.includes('Mather\'s'), 'the survivor took the copy\'s alias (§191.4)');
+	assert.ok(graph.nodes.get(STORE.node_id).aliases.includes('Mather\'s'), 'the survivor took the copy\'s alias (§192.4)');
 	assert.equal((await b.meta()).generation, before + 1, 'one new generation');
 	const second = await b.ahead();
 	assert.equal(second.identity_repair, undefined, `a quiet repair leaves the read-ahead's answer as it was: ${JSON.stringify(second.identity_repair)}`);
@@ -222,7 +222,7 @@ test('§191.5 owner rule: one kind, one name, a shared page is merged by the rea
 	assert.deepEqual(await b.identityJobs(), [], 'nothing waits for a verdict');
 });
 
-test('§191.5 never without a verdict: a pair the graph relates, one reading\'s two, a shared alias and disjoint pages are asked; a reader\'s variant-of is neither merged nor asked', async () => {
+test('§192.5 never without a verdict: a pair the graph relates, one reading\'s two, a shared alias and disjoint pages are asked; a reader\'s variant-of is neither merged nor asked', async () => {
 	const b = await book('never-owner');
 	const rats = npc('npc-sand-rats', 'Sand Rats', P1, {summary: 'The gang that runs the junkyard.'});
 	const hick = npc('npc-sand-rat', 'Sand Rats', P1, {summary: 'One of the gang, a hick with a shotgun.'});
@@ -253,7 +253,7 @@ test('§191.5 never without a verdict: a pair the graph relates, one reading\'s 
 	assert.equal((await b.identityJobs()).length, 1);
 });
 
-test('§191.5 a verdict job: the reviewer opens both nodes\' pages; same writes the relation, different is kept and never asked again', async () => {
+test('§192.5 a verdict job: the reviewer opens both nodes\' pages; same writes the relation, different is kept and never asked again', async () => {
 	const b = await book('verdict-job');
 	await seed(b, [BRENNER, PETE]);
 	await seed(b, [BRENNER_COPY, BENSON]);
@@ -274,7 +274,7 @@ test('§191.5 a verdict job: the reviewer opens both nodes\' pages; same writes 
 	const meta = await b.meta();
 	assert.deepEqual(relation.properties.identity_review, {by: 'review', job_id: job.job_id, key, reason: 'Both pages describe the one town doctor.', generation: meta.generation});
 	assert.deepEqual(meta.reading.identity[apart], {verdict: 'different', kind: 'npc', nodes: [PETE.node_id, BENSON.node_id], by: 'review', job_id: job.job_id,
-		reason: 'Page 1 is a drifter; page 2 is the hardware store owner.', generation: meta.generation}, '§191.1\'s record of a reviewed distinct_from');
+		reason: 'Page 1 is a drifter; page 2 is the hardware store owner.', generation: meta.generation}, '§192.1\'s record of a reviewed distinct_from');
 	assert.equal((await b.queue()).find(row => row.job_id === job.job_id).state, 'completed');
 	assert.ok(host.rows.some(row => row.event === 'node_identity_published' && row.same === 1 && row.different === 1));
 	// The host's read-ahead after the finish found nothing left to ask; neither pair is a candidate again.
@@ -284,7 +284,7 @@ test('§191.5 a verdict job: the reviewer opens both nodes\' pages; same writes 
 	assert.equal((await b.graph()).resolve('Dr Brenner', ['npc']).node_id, BRENNER.node_id);
 });
 
-test('§191.5 a reviewer that opens no page of a side is asked once more, then fails the job; the read-ahead asks again until three failures', async () => {
+test('§192.5 a reviewer that opens no page of a side is asked once more, then fails the job; the read-ahead asks again until three failures', async () => {
 	const b = await book('unread');
 	await seed(b, [BRENNER]);
 	await seed(b, [BRENNER_COPY]);
@@ -304,7 +304,7 @@ test('§191.5 a reviewer that opens no page of a side is asked once more, then f
 	assert.equal((await b.identityJobs()).filter(row => ['queued', 'running'].includes(row.state)).length, 0, 'three failures end the asking');
 });
 
-test('§191.5 the kernel refuses an identity answer that skips a pair, a side the reader never opened, or the protocol', async () => {
+test('§192.5 the kernel refuses an identity answer that skips a pair, a side the reader never opened, or the protocol', async () => {
 	const b = await book('kernel-checks');
 	await seed(b, [BRENNER, PETE]);
 	await seed(b, [BRENNER_COPY, BENSON]);
@@ -333,7 +333,7 @@ test('§191.5 the kernel refuses an identity answer that skips a pair, a side th
 	assert.throws(() => nodeIdentityVerdicts({verdicts: [{key: 'x', verdict: 'same', reason: 'r'}]}, [{key: 'k'}], {complete: true}), /not asked/);
 });
 
-test('§191.5 the library is never written while a live fork holds its lineage; that fork\'s repair is adopted and keeps it', async () => {
+test('§192.5 the library is never written while a live fork holds its lineage; that fork\'s repair is adopted and keeps it', async () => {
 	const b = await book('lineage');
 	await seed(b, [STORE]);
 	await seed(b, [STORE_COPY]);
@@ -359,7 +359,7 @@ test('§191.5 the library is never written while a live fork holds its lineage; 
 	assert.equal((await b.meta()).generation, library + 1, 'a second load writes nothing');
 });
 
-test('§191.5 with no fork holding its lineage, the library is repaired by its own publication and takes the loading fork\'s reviewed decisions', async () => {
+test('§192.5 with no fork holding its lineage, the library is repaired by its own publication and takes the loading fork\'s reviewed decisions', async () => {
 	const b = await book('library-own');
 	await seed(b, [STORE, BRENNER]);
 	await seed(b, [STORE_COPY, BRENNER_COPY]);
@@ -383,7 +383,7 @@ test('§191.5 with no fork holding its lineage, the library is repaired by its o
 	assert.equal((await b.ahead()).identity_repair, undefined);
 });
 
-test('§191.5 a fork takes the library\'s reviewed decisions instead of asking again', async () => {
+test('§192.5 a fork takes the library\'s reviewed decisions instead of asking again', async () => {
 	const b = await book('fork-takes');
 	const guard = npc('npc-guard', 'Guard', P1, {summary: 'A guard at the gate.'}), gateGuard = npc('npc-guard-base', 'Guard', P2, {summary: 'A guard at the base.'});
 	await seed(b, [BRENNER, PETE, guard]);
@@ -406,7 +406,7 @@ test('§191.5 a fork takes the library\'s reviewed decisions instead of asking a
 	assert.ok((await b.relations('early')).some(rel => rel.from_node_id === BRENNER_COPY.node_id && rel.properties.identity_review.imported_from.store === 'library'));
 });
 
-test('§191.5 the repair is maintenance: a library record it cannot read is reported, and the table opening\'s read-ahead repairs the fork and goes on', async () => {
+test('§192.5 the repair is maintenance: a library record it cannot read is reported, and the table opening\'s read-ahead repairs the fork and goes on', async () => {
 	const b = await book('library-unreadable');
 	await seed(b, [STORE]);
 	await seed(b, [STORE_COPY]);
@@ -423,7 +423,7 @@ test('§191.5 the repair is maintenance: a library record it cannot read is repo
 	assert.deepEqual((await b.relations('table')).map(rel => rel.relation_id), [`rel-identity-${STORE_COPY.node_id}-to-${STORE.node_id}`]);
 });
 
-test('§191.5 DUP-03b doubt never splits: unsure keeps a cast-folded pair one person and is never asked again; different splits; same writes the relation', async () => {
+test('§192.5 DUP-03b doubt never splits: unsure keeps a cast-folded pair one person and is never asked again; different splits; same writes the relation', async () => {
 	const b = await book('doubt');
 	// Three people the cast holds as one individual each, read twice under two different own names (Blood Road's Sutton,
 	// Alissya and Brenner): no name raises them, the cast does, and a verdict job is asked.
