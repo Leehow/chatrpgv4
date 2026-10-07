@@ -315,17 +315,25 @@ test('§191.2 the packet starts with the roster of the job\'s own pages, and tas
 });
 
 /**
- * A published copy of the general store, as generation 55 left Blood Road's: written by a later reading (now only with a reviewed
- * distinct_from), then joined to the store by a kernel identity relation (§191.3, DUP-02's writer). `need` adds a retained
- * deferred question to the copy's draft.
+ * A published copy of the general store, as generation 55 left Blood Road's: written straight into a generation, as a page
+ * reading published one before §191.1's landing check refused it (no `distinct_from`, so no `different` verdict: a recorded one
+ * keeps the pair apart and the identity writer refuses to join it, §191.3), then joined to the store by a kernel identity
+ * relation (DUP-02's writer). `storeNeeds` and `copyNeeds` add retained deferred questions to the store's reading and the copy.
  */
 async function storeWithCopy(b, {copyNeeds = [], storeNeeds = []} = {}) {
 	const need = (focus, question) => ({kind: 'deferred', focus, question, reason: 'The page names it for later.', trigger: 'When the party shops.', source_refs: P1});
 	const withNeeds = (draft, needs, focus) => needs.length ? {...draft, source_needs: needs.map(question => need(focus, question))} : draft;
 	await b.publish(await claimDetail(b, 'general store'), withNeeds(delta([STORE]), storeNeeds, STORE.node_id));
-	const copy = scene('scene-store-copy', 'General Store', P2, {aliases: ['Corner shop'], summary: 'The shop again.', distinct_from: [STORE.node_id]});
-	await b.publish(await claimDetail(b, 'the shop again'), withNeeds(delta([copy]), copyNeeds, copy.node_id));
-	const joined = await api.publishIdentities(new api.ModuleStore(b.context), b.mid, [{nodes: [STORE.node_id, copy.node_id], review: {by: 'test', rule: 'fixture'}}]);
+	const copy = scene('scene-store-copy', 'General Store', P2, {aliases: ['Corner shop'], summary: 'The shop again.'});
+	const store = new api.ModuleStore(b.context), meta = await store.module(b.mid), graph = await store.readGraph(b.mid);
+	const runtime = refs => refs.map(ref => ({source_id: `pdf:${b.mid}`, pdf_index: ref.page - 1}));
+	graph.nodes.push({...copy, visibility: 'keeper-only', properties: {}, source_refs: runtime(copy.source_refs)});
+	graph.source_needs = [...(graph.source_needs ?? []), ...copyNeeds.map(question => ({...need('store-copy', question), source_refs: runtime(P1),
+		node_id: copy.node_id, source_sha256: meta.file_sha256}))];
+	await store.writeGraph(meta, graph);
+	meta.reading.materials.push({key: `copy-${copy.node_id}`, purpose: 'detail', focus: copy.name, question: '', node_ids: [copy.node_id], generation: meta.generation});
+	await store.writeModule(meta);
+	const joined = await api.publishIdentities(store, b.mid, [{nodes: [STORE.node_id, copy.node_id], review: {by: 'test', rule: 'fixture'}}]);
 	assert.deepEqual(joined.written.map(row => [row.from, row.to]), [[copy.node_id, STORE.node_id]], 'the copy reads as the store');
 	return copy;
 }

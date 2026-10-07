@@ -37840,9 +37840,15 @@ The landing check and the reader packet roster (191.1, 191.2), 2026-10-07, branc
   - Tests: `duplicate-of-published.test.mjs` adds the copy case (a copy written by a reviewed `distinct_from`, then joined by
     DUP-02's `publishIdentities`) and the retained-needs case; 30 mutations in scratch copies, each failing a case.
 - **Existing fixtures.** `tests/extension/module-cast.test.mjs`'s four §188.2 cases built their second copy of a person with
-  a later reading under another id, which this check now refuses. They publish it with a reviewed `distinct_from`, the
-  only way a reading still can; they stand for the copies written before §191 and for a review that wrongly supported one,
-  and the cast fold must still join them.
+  a later reading under another id, which this check now refuses. DUP-01 had them publish it with a reviewed
+  `distinct_from`; DUP-02b replaced that with copies written straight into the fork, since a recorded `different` verdict
+  now keeps a pair apart (§191.3).
+- **After DUP-02b (fixture, not product).** On the integration head the two survivor cases of
+  `duplicate-of-published.test.mjs` failed at their setup: the fixture published the store's copy with a reviewed
+  `distinct_from` (so `reading.identity` held `different` for the pair) and then asked `publishIdentities` to join the two,
+  which DUP-02b now skips as `verdict_different`. DUP-02b's behaviour is the intended one (§191.3, lead ruling 2026-10-07: a
+  `different` verdict and an identity relation for one pair cannot both stand), so the expectation was stale: the fixture now
+  writes the copy straight into a generation, with no verdict, as the NR-02 fixtures do, and the cases assert what they did.
 - **Evidence.**
   - Replay of generation 55 on a `cp -c` clone of the acceptance home's fork at generation 54, `read-2/attempt-2`'s own
     draft and review through `module.read.finish`: refused `duplicate_of_published` naming
