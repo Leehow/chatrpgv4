@@ -27,15 +27,13 @@ import { createRuntime } from "../../runtime/host.ts";
 import { firstLines, runWindowPlaces } from "../../runtime/jev/window-places.ts";
 import { createSourceReaderDriver } from "../../runtime/jev/source-reader-driver.ts";
 import { checkPrescreenSourceCheckpoint, preparePrescreenSources } from "../../runtime/jev/prescreen-source-provider.ts";
+import { waitFor } from "./wait.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CONTENT = join(ROOT, "content");
 const sha = value => createHash("sha256").update(value).digest("hex");
 const tick = () => new Promise(resolve => setTimeout(resolve, 5));
-async function until(check, what) {
-	for (let i = 0; i < 400 && !check(); i++) await tick();
-	assert.ok(check(), `timed out waiting for ${what}`);
-}
+const until = (check, label) => waitFor(() => check(), { label });
 
 /** A PDF whose pages carry the given native lines (PDF.js ends each with a line break); an empty list is a page without text. */
 function linesPdf(pages) {
@@ -223,8 +221,8 @@ test("§191.6 the module extension hands pages another reader wanted to the tran
 	await until(() => runs.length === 1, "the layout child");
 	assert.equal(runs[0].cwd, join(home, ".coc", "source-transcripts", "b".repeat(64), "work", "p0007-1"));
 	const store = new TranscriptStore({ home, contentRoot: CONTENT, extractionVersion: sourceTextVersion });
-	for (let i = 0; i < 200 && !(await store.read("b".repeat(64), 7)); i++) await tick();
-	assert.equal((await store.read("b".repeat(64), 7))?.record.text, "Only line", "the wanted page was made");
+	const made = await waitFor(() => store.read("b".repeat(64), 7), { label: "the wanted page's record" });
+	assert.equal(made.record.text, "Only line", "the wanted page was made");
 	await hooks.get("session_shutdown")();
 });
 
