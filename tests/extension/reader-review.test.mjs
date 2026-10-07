@@ -6,6 +6,8 @@ import {join,resolve} from 'node:path';
 import {reviewCandidate,reviewUnits,checkReviewEvidence,detailReviewInput,readReviewPlan,REVIEW_PLAN_FILE} from '../../extensions/module/reader-review.ts';
 import {createRuntime} from '../../runtime/host.ts';
 import {reviewOfCandidate} from '../../extensions/module/targeted-repair.ts';
+// The pre-§187.8 grouping (one page per unit, up to 8 records): tests whose subject is not grouping keep their units with it.
+const PAGE_UNITS={images:1,maxRecords:8};
 
 test('opening review retains kernel-issued retranscription pointers and reviews the interaction choice once',()=>{
  const draft={nodes:[{node_id:'scene-entry',source_refs:[{page:1}],properties:{}}],claims:[],ready_nodes:['scene-entry'],
@@ -21,7 +23,7 @@ test('opening review retains kernel-issued retranscription pointers and reviews 
 
 test('bounded first-interaction review packs nearby evidence without losing any required pointer',()=>{
  const draft={nodes:Array.from({length:9},(_,i)=>({node_id:'npc-'+i,source_refs:[{page:i%3+1}],properties:{value:i}})),claims:[],critical:[],ready_nodes:['npc-0'],coverage:{}};
- const ordinary=reviewUnits(draft).flat().sort(),packed=reviewUnits(draft,[],4);
+ const ordinary=reviewUnits(draft).flat().sort(),packed=reviewUnits(draft,[],{images:4,maxRecords:8});
  assert.deepEqual(packed.flat().sort(),ordinary);
  assert.equal(packed.length,3,'eight fact records, one remaining fact, and independent coverage');
  assert.deepEqual(packed.at(-1),['/coverage']);
@@ -213,7 +215,7 @@ test('§186.2: the units of one round share a cache identity and a shared-first 
  assert.deepEqual(rows.filter(row=>row.phase==='verify'&&row.ok).map(row=>row.first_call_uncached),rows.filter(row=>row.phase==='verify'&&row.ok).map(()=>900));
  const briefs=requests.map(request=>request.brief);
  for(const brief of briefs){
-  assert.match(brief,/^Independently review only task\.required_review against original images using pdf\./,'unit-independent instructions first');
+  assert.match(brief,/^Independently review only task\.required_review against original images\. The host delivered the cited original pages into this context; they are the evidence\. Call pdf only for a page that was not delivered or for a closer view of a region\./,'unit-independent instructions first');
   const input=brief.indexOf('<input_json>'),pointers=brief.indexOf('"required_review"');
   for(const sentence of ['Never edit the draft.','Pass the review directly to submit_reading as your sole final tool call; no separate write or final prose is needed.',
    'review_records is keyed by ORIGINAL draft pointers, not a replacement graph.'])
@@ -237,7 +239,7 @@ test('§186.2: a whole-input review (no focused projection) puts the shared draf
  const cwd=await mkdtemp(join(tmpdir(),'coc-review-shared-input-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
  const briefs=[];
  const draft={nodes:[{node_id:'scene-dock',name:'Dock',source_refs:[{page:1}],properties:{}},{node_id:'npc-pilot',name:'Pilot',source_refs:[{page:2}],properties:{}}],claims:[],critical:[]};
- await reviewCandidate({cwd,task:{purpose:'skeleton',focus:'',question:'',required_review:['/nodes/0','/nodes/1'],source:{page_count:4}},draft,
+ await reviewCandidate({cwd,reviewBudget:PAGE_UNITS,task:{purpose:'skeleton',focus:'',question:'',required_review:['/nodes/0','/nodes/1'],source:{page_count:4}},draft,
   instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,progress(){},record(){},
   async run(request){
    briefs.push(request.brief);
@@ -263,7 +265,7 @@ test('§186.2: a whole-input review (no focused projection) puts the shared draf
 test('omitted fields retry only their unit and retained complete units survive a resumed batch',async t=>{
  const cwd=await mkdtemp(join(tmpdir(),'coc-review-omission-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
  const counts=new Map(),records=[];let omit=true;
- const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture',task:{purpose:'detail',focus:'Room',question:'',review_scope_pages:[1,2,3]},
+ const options={cwd,reviewBudget:PAGE_UNITS,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture',task:{purpose:'detail',focus:'Room',question:'',review_scope_pages:[1,2,3]},
   draft:{nodes:[{node_id:'scene-room',source_refs:[{page:1}],properties:{}},{node_id:'rule-cold',source_refs:[{page:2}],properties:{temperature:3}}],claims:[],ready_nodes:['scene-room']},
   instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(row){records.push(row)},
   async run(request){
@@ -354,7 +356,7 @@ test('every independent reviewer attempt uses the owner timeout despite ambient 
 test('source-page groups bound work without dropping root, numeric or critical checks',()=>{
  const nodes=Array.from({length:10},(_,i)=>({node_id:`npc-${i}`,source_refs:[{page:2}],properties:{HP:i+1}}));
  const groups=reviewUnits({nodes,claims:[{source_refs:[{page:3}]}],critical:['/nodes/9/properties']});
- assert.equal(groups.length,3);
+ assert.equal(groups.length,1,'§187.8.1: eleven records over two pages are one page set within the image and record budget');
  const paths=groups.flat();assert.equal(new Set(paths).size,paths.length);
  for(let i=0;i<10;i++){assert.ok(paths.includes(`/nodes/${i}`));assert.ok(paths.includes(`/nodes/${i}/properties/HP`));}
  assert.ok(paths.includes('/claims/0'));assert.ok(paths.includes('/nodes/9/properties'));
@@ -365,7 +367,7 @@ test('unchanged source retries reuse only completed positive review groups and i
  const draft={nodes:[{node_id:'npc-one',source_refs:[{page:1}],properties:{}},{node_id:'npc-two',source_refs:[{page:2}],properties:{}}],claims:[]};
  let fail=true,runs=0;const records=[];
  // A run that fails without timing out is a transport loss and gets its own retries (below); zero waits keep the case quick.
- const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',task:{purpose:'opening'},draft,transportBackoffMs:[0,0,0],
+ const options={cwd,reviewBudget:PAGE_UNITS,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',task:{purpose:'opening'},draft,transportBackoffMs:[0,0,0],
   instructions:'unused',round:1,model:{id:'fixture/vision',thinking:'low'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(row){records.push(row)},
   async run(request){
    runs++;assert.match(request.brief, /input_json/);const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));const pointer=task.required_review[0];
@@ -537,7 +539,7 @@ test('§151.2.1 an edit to one record re-runs only its unit and coverage; round 
   {node_id:'npc-keeper',node_kind:'npc',name:'Keeper',source_refs:[{page:3}],properties:{}}],
   claims:[{subject_id:'npc-keeper',predicate:'present-in',object:{node_id:'scene-dock'},source_refs:[{page:3}]}],ready_nodes:['scene-dock'],coverage:{}};
  const task={purpose:'detail',focus:'Dock',question:'',review_scope_pages:[1,2,3]};
- const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',extractionVersion:'native-v1',task,draft,instructions:'unused',round:1,
+ const options={cwd,reviewBudget:PAGE_UNITS,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',extractionVersion:'native-v1',task,draft,instructions:'unused',round:1,
   model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(row){rows.push(row)},run:unitReviewer(ran)};
  await reviewCandidate(options);
  assert.deepEqual(ran.map(paths=>paths[0]).sort(),['/coverage','/nodes/0','/nodes/1','/nodes/2']);
@@ -560,7 +562,7 @@ test('§151.2.1 a deleted record keeps every surviving unit whole, and reused ro
  const ran=[],rows=[];
  const claim=i=>({subject_id:`npc-${i}`,predicate:'present-in',object:{node_id:`scene-${i}`},truth_status:'authorial',source_refs:[{page:3}]});
  const draft={nodes:[],claims:Array.from({length:17},(_,i)=>claim(i))};
- const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',task:{purpose:'detail',focus:'Street',question:''},draft,instructions:'unused',round:1,
+ const options={cwd,reviewBudget:PAGE_UNITS,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',task:{purpose:'detail',focus:'Street',question:''},draft,instructions:'unused',round:1,
   model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(row){rows.push(row)},run:unitReviewer(ran)};
  await reviewCandidate(options);
  assert.deepEqual(ran.map(paths=>paths.length).sort((a,b)=>a-b),[1,8,8]);
@@ -570,8 +572,9 @@ test('§151.2.1 a deleted record keeps every surviving unit whole, and reused ro
  ran.length=0;rows.length=0;
  const repaired={...draft,claims:draft.claims.filter((_,i)=>i!==1)};
  await reviewCandidate({...options,round:2,draft:repaired,previousPlan:plan});
- assert.deepEqual(ran,[['/claims/0','/claims/1','/claims/2','/claims/3','/claims/4','/claims/5','/claims/6']],'only the unit that lost a record is reviewed again');
- assert.equal(rows.filter(row=>row.reused).length,2);
+ // §187.8.1: reuse is record by record, so the unit that lost a record reuses each surviving record's own verdict too.
+ assert.deepEqual(ran,[],'no surviving record is reviewed again');
+ assert.equal(rows.filter(row=>row.reused).length,3);
  const review=JSON.parse(await readFile(join(cwd,'review.json'),'utf8'));
  const answered=review.checked.flatMap(row=>row.paths).sort();
  assert.deepEqual(answered,repaired.claims.map((_,i)=>`/claims/${i}`).sort(),'every claim answered once, at its new position');
@@ -581,7 +584,7 @@ test('§151.2.1 a reused unit review never carries a row about a record outside 
  const cwd=await mkdtemp(join(tmpdir(),'coc-unit-foreign-row-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
  const draft={nodes:[{node_id:'npc-one',source_refs:[{page:1}],properties:{}},{node_id:'npc-two',source_refs:[{page:2}],properties:{}}],claims:[]};
  let runs=0;
- const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',task:{purpose:'detail',focus:'',question:''},draft,instructions:'unused',round:1,
+ const options={cwd,reviewBudget:PAGE_UNITS,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',task:{purpose:'detail',focus:'',question:''},draft,instructions:'unused',round:1,
   model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(){},
   async run(request){
    runs++;const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));
@@ -616,7 +619,7 @@ function harborUnits(){
 async function contextFixture(t){
  const cwd=await mkdtemp(join(tmpdir(),'coc-unit-context-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
  const ran=[],{node,claim,draft}=harborUnits();
- const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',task:{purpose:'detail',focus:'Dock',question:'',review_scope_pages:[1,2,3,4,5]},draft,instructions:'unused',round:1,
+ const options={cwd,reviewBudget:PAGE_UNITS,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',task:{purpose:'detail',focus:'Dock',question:'',review_scope_pages:[1,2,3,4,5]},draft,instructions:'unused',round:1,
   model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(){},run:unitReviewer(ran)};
  await reviewCandidate(options);
  assert.equal(ran.length,5);ran.length=0;
@@ -631,8 +634,8 @@ test('§151.2.1 removing a connected record reuses every unit whose own records 
 test('§151.2.1 a changed connected record re-runs the units that saw it',async t=>{
  const {draft,again}=await contextFixture(t);
  const claims=[draft.claims[0],{...draft.claims[1],reason:'Now a regular at the dock.'}];
- assert.deepEqual(await again({...draft,claims}),['/claims/1','/coverage','/nodes/0','/nodes/1','/nodes/2,/claims/0'],
-  'its own unit, and the dock, the sailor and the keeper (through the dock), whose context holds it');
+ assert.deepEqual(await again({...draft,claims}),['/claims/0','/claims/1','/coverage','/nodes/0','/nodes/1'],
+  'its own record, and the dock, the sailor and the keeper\'s claim on the dock, whose context holds it; §187.8.1 keys the keeper by its own context, which does not');
 });
 test('§151.2.1 an added connected record re-runs the units it connects to, and only those',async t=>{
  const {claim,draft,again}=await contextFixture(t);

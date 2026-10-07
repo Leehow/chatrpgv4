@@ -206,7 +206,7 @@ test("§151.3 shadow asks Jev and changes no review outcome: the same units run,
 	const requests = installJev(t);
 	const shadow = await verifyRound(t, { claimSupport: createClaimSupport({ env: { ...KEY }, contentRoot: await contentRoot(t) }) });
 	assert.deepEqual(unitNames(shadow.assigned).sort(), unitNames(baseline.assigned).sort(), "every unit still goes to the vision reviewer");
-	assert.equal(shadow.assigned.length, 4);
+	assert.equal(shadow.assigned.length, 2, "§187.8.1: one page-set reviewer for the fact records, one for coverage");
 	assert.deepEqual(shadow.review, baseline.review, "shadow writes no row into the review");
 	assert.equal(requests.length, 1, "one fanned-out request for the fragment");
 	// §186.6: the claim is one statement; each node is its identity, each summary sentence and each property leaf.
@@ -235,7 +235,7 @@ test("§151.3 on: cleared records skip the vision reviewer, a unit left empty is
 	for (const path of ["/nodes/0", "/claims/0"]) assert.ok(!given.includes(path), `${path} was cleared and not sent to vision`);
 	for (const path of ["/nodes/1", "/nodes/1/properties/age", "/nodes/2", "/nodes/3", "/claims/1", "/coverage"])
 		assert.ok(given.includes(path), `${path} still goes to vision`);
-	assert.equal(on.assigned.length, 3, "the page-1 unit held only cleared records and was not run");
+	assert.equal(on.assigned.length, 2, "§187.8.1: the cleared records leave the page-set unit; the rest of it and coverage still run");
 	const jev = on.review.checked.filter((row) => row.reviewer === "jev");
 	assert.deepEqual(jev.map((row) => row.paths).sort(), [["/claims/0"], ["/nodes/0"]]);
 	for (const row of jev) {
@@ -267,14 +267,14 @@ test("§151.3 an outage equals off: every record goes to vision and no Jev row i
 	const requests = installJev(t, { status: 503 });
 	const down = await verifyRound(t, { claimSupport: createClaimSupport({ env: { ...KEY, PI_COC_CLAIM_SUPPORT: "on" }, contentRoot: await contentRoot(t) }) });
 	assert.ok(requests.length >= 1, "Jev was asked");
-	assert.equal(down.assigned.length, 4);
+	assert.equal(down.assigned.length, 2);
 	assert.ok(down.assigned.flat().includes("/nodes/0"));
 	assert.equal(down.review.checked.filter((row) => row.reviewer === "jev").length, 0);
 	assert.equal(claimRows(down.rows)[0].status, "unanswered");
 	const before = requests.length;
 	const off = await verifyRound(t, { claimSupport: createClaimSupport({ env: { ...KEY, PI_COC_CLAIM_SUPPORT: "off" }, contentRoot: await contentRoot(t) }) });
 	assert.equal(requests.length, before, "off asks nothing");
-	assert.equal(off.assigned.length, 4);
+	assert.equal(off.assigned.length, 2);
 	assert.equal(claimRows(off.rows).length, 0);
 });
 

@@ -131,9 +131,10 @@ test("§151.2.2 a refusal without missing repairs only the refused record, and t
 	assert.deepEqual(repair.pages, [4], "the refused record's own page, not the whole candidate's");
 	assert.ok(result.reads[1].brief.includes(TARGETED_REPAIR_ASK));
 	assert.doesNotMatch(result.reads[1].brief, /Read findings\.json/);
-	// Round 2 reviews the dock's surviving records and coverage; the tower's unit is the same records and context: reused.
-	const second = result.units.slice(-2).map(paths => paths.join(",")).sort();
-	assert.deepEqual(second, ["/coverage", "/nodes/0,/nodes/1"]);
+	// Round 1 is one page-set unit and coverage (§187.8.1). Round 2 reviews coverage only: every surviving record is unchanged
+	// and lost only a connected record, so each reuses its own verdict record by record.
+	const second = result.units.slice(2).map(paths => paths.join(",")).sort();
+	assert.deepEqual(second, ["/coverage"]);
 	assert.ok(result.rows.some(row => row.phase === "verify" && row.round === 2 && row.reused === true));
 	const review = JSON.parse(await readFile(join(result.cwd, "review.json"), "utf8"));
 	const tower = review.checked.find(row => row.paths.includes("/claims/0"));
@@ -147,7 +148,7 @@ test("§151.2.2 a refusal without missing repairs only the refused record, and t
 	const [spent] = result.accounting;
 	assert.equal(spent.repair, "targeted");
 	assert.equal(spent.units_reused, 1);
-	assert.equal(spent.units_run, 5, "three units in round 1, two in round 2");
+	assert.equal(spent.units_run, 3, "two units in round 1, coverage in round 2");
 	assert.equal(spent.author_ms, 10);
 	assert.equal(spent.salvaged, false);
 	assert.ok(spent.review_wall_ms >= 0);
@@ -308,7 +309,8 @@ test("§186.4 a records-only targeted repair carries the coverage verdict, and t
 	});
 	assert.equal(result.reads[1].task.repair.kind, "targeted");
 	assert.equal(coverageRuns(result), 1, "the coverage reviewer ran in round 1 only");
-	assert.deepEqual(result.units.slice(3), [["/nodes/0", "/nodes/1", "/claims/0"]], "round 2 runs only the unit of the corrected record");
+	assert.deepEqual(result.units.slice(2), [["/nodes/0", "/nodes/1", "/claims/0"]],
+		"round 2 runs only the corrected record and the records whose context holds it (§187.8.1: one page-set unit in round 1)");
 	const carried = result.rows.find(row => row.phase === "verify" && row.round === 2 && row.carried_from);
 	assert.ok(carried, "the carried unit has its verify row");
 	assert.equal(carried.reused, true);
@@ -333,7 +335,7 @@ test("§186.4 a records-only targeted repair carries the coverage verdict, and t
 	assert.deepEqual([unit.checked, unit.missing, unit.pages, typeof unit.scope], [1, 0, [4, 6], "string"]);
 	assert.deepEqual(carryRefusals(result), []);
 	const [spent] = result.accounting;
-	assert.deepEqual([spent.units_run, spent.units_reused], [4, 2], "three units in round 1; in round 2 one runs, the tower is reused and coverage carried");
+	assert.deepEqual([spent.units_run, spent.units_reused], [3, 1], "two units in round 1; in round 2 one runs (the tower's record reused inside it) and coverage is carried");
 });
 
 test("§186.4 a targeted repair the host refused is followed by a full read: coverage runs even when that read only corrects the refused record", async t => {
