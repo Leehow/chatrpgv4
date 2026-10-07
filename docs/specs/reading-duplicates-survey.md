@@ -411,3 +411,37 @@ Run ext, py and loop on the box.
 - `seen.py` and `attention.py`: reader attempts, reuse vs new, same-name mints, and whether the original's id appears in
   the session;
 - `attrib.py`: first generation of each copy and the job that published it.
+
+## Decisions (2026-10-07)
+
+**Owner rulings**
+- **Existing duplicates, deterministic part.** A pair of the same kind, with the same own name and overlapping source
+  pages, is merged by the kernel directly, with no model verdict (owner: 「同名加页码重叠就直接合并」; 39 of 39 were true on
+  the census). This is an explicit owner exception to the rule against hardcoded semantics, and it is scoped to this
+  trigger only.
+  - Every other same-kind, same-name candidate pair is judged by a model.
+- **Repair scope.** The product repairs the library and live campaign forks itself: a book with unjudged candidate pairs
+  queues them when it loads, and the verdicts are written as kernel identity relations in a new generation (owner:
+  「产品自己修，书库和在用的分支」). No one-off script runs against App data.
+
+**Lead decisions**
+- **Prevent at landing.** In `checkDraft`, and again in `module.read.finish`, a drafted node whose own name meets a
+  published same-kind node's names (kernel name normalization; for npcs also the §188.2 cast join) is refused. The refusal
+  gives the published id and summary.
+  - The reader either reuses the id, or declares `distinct_from` with a reason the reviewer must support.
+  - The verdict is recorded so the same pair is never raised again.
+  - Add a compact roster of known nodes for the job's pages at the top of the reader packet.
+- **Existing duplicates, read-time grouping.** No node deletion and no graph merge (`world.node_handles` and stored state
+  are keyed by node id; §185.4).
+  - A kernel identity relation (copy → survivor) is written in a new generation, generalizing §152.4's `variant-of`
+    survivors and NR-02's per-person grouping into one survivor map for every kind.
+  - Facts that only a copy holds are carried onto the survivor.
+  - Only kernel-written identity hops collapse. A reader-authored `variant-of` (a state change) never does.
+- **Verdicts for the non-deterministic pairs** run as a tool-using Pi job. Agents.md's single-completion criteria do not
+  both hold, because the job is not on a turn's critical path.
+- **Group vs member** (a gang vs its members) are different things by default; the verdict job decides.
+- **Out of scope; follow-up tickets:** cross-kind twins (scene/location, faction/npc); the vague check messages that led
+  the reader to delete claims and mint a node to satisfy a rule; §152.4 missing a visual duplicate when one node has no
+  `image_sources`.
+
+**Timing.** Implementation waits until the owner is back. Test boxes: leehow-pc (owner, 2026-10-07).
