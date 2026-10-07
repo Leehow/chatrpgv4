@@ -132,7 +132,13 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
         // §135.30.4: a move row says what the place is, and an unmet unlock names what opens it (the book's own data).
         const conditions=new Map(graph.sceneExits(scene).map(exit=>[string(exit.to),exit.when]));
         const referenceIds=new Set(array(row(module.meta.reading).materials).filter(material=>material.reference_only===true).flatMap(material=>array(material.node_ids)));
-        const referenced=graph.kind('scene').filter(node=>(row(node.properties).source_reference_anchor===true||referenceIds.has(node.node_id))&&node.node_id!==scene.node_id)
+        // §190.1: a referenced place is offered only when it cites a page inside the reading window of the active scene (or of
+        // the book place it lies in: `briefWindow`, the §187.4 window), so the route request stays bounded as places are
+        // minted chapter by chapter; an exit or a way back is offered above whatever its pages. No window (a short book, a
+        // starter): every referenced place, as before.
+        const window=await briefWindow(context,module,campaign.world);
+        const inWindow=(node:Row)=>!window||citedPages(node).some(page=>page>=window.first&&page<=window.last);
+        const referenced=graph.kind('scene').filter(node=>(row(node.properties).source_reference_anchor===true||referenceIds.has(node.node_id))&&node.node_id!==scene.node_id&&inWindow(node))
             .map(node=>({to:graph.handle(node),display_name:graph.displayName(node),material:module.material?.(node.node_id),source_identity:true}));
         for (const exit of [...array(where.exits),...array(where.back),...referenced]) {
             if (typeof exit.to!=='string' || destinations.has(exit.to)) continue;

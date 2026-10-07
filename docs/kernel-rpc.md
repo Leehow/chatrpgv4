@@ -36814,8 +36814,17 @@ request), `max_entries` 64 (the window's first entries in book order). No enviro
   `place_min`, `noul`, `answer: asked | kept`, `outcome: minted | reused | not_place | shadow | unavailable | no_text |
   mint_failed`, `scene`, `reason`, `usage {requests, input_tokens, entries}`, `ms`. An entry a scene already is, or one kept
   below the bar, writes none. A pass that fails writes one `event: "failed"` row.
-- **Known limit (reported, not solved here).** `apply-operation` offers every referenced place on every turn whatever the
-  window, so the route request's candidates grow with each chapter the table reads; bounding them belongs to their consumer.
+- **A referenced move candidate is offered only inside the window, so the route batch stays bounded as places are
+  minted.** Evidence: `table.apply.options` offered every scene with `source_reference_anchor` (or reference-only material)
+  on every turn whatever the window; `runtime/jev/candidates.ts` turns each into a move candidate carrying the scene's
+  summary as `source_context` and a `routeFact` question of its own; `routeBatch` (`runtime/jev/step-policy.ts`) puts every
+  candidate in one request and, at `packing_limit`, shrinks only the material previews before it gives up. Nothing capped
+  the count, and each chapter's window places would have added to it for the rest of the campaign. `apply-operation` now
+  keeps a referenced scene only when one of its cited pages lies inside `briefWindow` (the §187.4 window: the active scene's,
+  or through `bookAnchor` its `within` place's); a scene in `where.exits` or `where.back` is offered as before whatever its
+  pages, since those rows come first. A book with no window (no page count, or read whole) offers every referenced place,
+  as before. `apply move` is unchanged: it never read these rows, and a move to a place that is not an exit or on the trail
+  still needs `via`.
 - **Tests.** `tests/extension/window-places.test.mjs`.
 
 ### 190.2 The ledger follows the told position

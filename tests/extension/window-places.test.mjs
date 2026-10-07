@@ -18,12 +18,12 @@ import {after, test} from 'node:test';
 import {mkdir, mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {join, resolve} from 'node:path';
+import {dirname, join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {KernelError} from '../../extensions/kernel/client.ts';
 import {ReadingService} from '../../extensions/module/reading-service.ts';
-import {flattenBookmarks, firstLines, placeExcerpt, windowEntries, PLACE_EXCERPT_CHARS} from '../../runtime/jev/window-places.ts';
+import {flattenBookmarks, firstLines, placeExcerpt, windowEntries, writePlaceAttempt, PLACE_EXCERPT_CHARS} from '../../runtime/jev/window-places.ts';
 import {selectReferencePacket} from '../../runtime/jev/source-reference.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..'), CONTENT = join(ROOT, 'content');
@@ -65,11 +65,15 @@ const TEXT = {
 	43: 'Town history\nThe town was founded in 1820 by whalers.',
 	45: 'The mine\nThe old mine above the town, closed since the collapse.',
 	46: 'Mine shaft\nA dark shaft drops away behind a rusted gate.',
+	// Outside the harbor's window (pages 41-48); only the referenced-move cases mint these, never the lane.
+	1: 'Front matter\nCredits and contents.',
+	49: 'The base\nA fenced compound in the hills.',
+	91: 'Finale\nThe last night at the lighthouse.',
 };
 const PLACES = {'The inn': 'scene-source-place-42-3', 'The mine': 'scene-source-place-45-5', 'Mine shaft': 'scene-source-place-46-6'};
 
 /** A bound 120-page PDF with chapters, its fast reference path published with the harbor as the opening (as setup does). */
-async function book(name) {
+async function book(name, {pages = PAGES} = {}) {
 	const workspace = await mkdtemp(join(directory, `${name}-`));
 	const context = await api.createKernelContext({workspace, content: CONTENT, seed: name, locks: api.nativeAdvisoryLocks(),
 		env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
@@ -83,7 +87,7 @@ async function book(name) {
 	const file = join(workspace, 'original.pdf'), bytes = Buffer.from(`%PDF-1.7\n${name} window places fixture\n`);
 	await writeFile(file, bytes);
 	const source = sha(bytes);
-	const {module_id: mid} = await kernel('module.source.bind', {source: {path: file, page_count: PAGES, file_sha256: source, bookmarks: BOOKMARKS}});
+	const {module_id: mid} = await kernel('module.source.bind', {source: {path: file, page_count: pages, file_sha256: source, bookmarks: BOOKMARKS}});
 	const library = join(workspace, '.coc/modules', mid), work = join(library, 'work', 'source-reference-fixture');
 	await mkdir(work, {recursive: true});
 	const text = TEXT[42], span = {id: `p42-0-${text.length}`, page: 42, start: 0, end: text.length, text};
@@ -277,4 +281,60 @@ test('§190.1: an entry whose page has no native text is not asked and not minte
 	assert.deepEqual(Object.values(batches[0].state.book_headings).map(entry => entry.heading), ['The town', 'The inn', 'Town history', 'The mine']);
 	assert.equal(outcomes(rows)['Mine shaft'], 'no_text');
 	assert.equal((await b.graph('table')).nodes.some(node => node.node_id === PLACES['Mine shaft']), false);
+});
+
+/**
+ * A bookmark entry minted as a referenced place through the kernel's own `module.reference.materialize`, from the attempt the
+ * lane writes (the lane would only mint the window's entries; these cases need places on both sides of it).
+ */
+async function mint(b, campaign, name) {
+	const entry = flattenBookmarks(BOOKMARKS).find(row => row.name === name);
+	const snapshot = await b.kernel('module.source.snapshot', {module_id: b.mid, campaign});
+	const work = await writePlaceAttempt({workRoot: join(dirname(snapshot.pdf), 'work'), moduleId: b.mid, sourceSha: b.sha, pageCount: snapshot.page_count,
+		extractionVersion: 'fixture', entry, pageText: TEXT[entry.page]});
+	const published = await b.kernel('module.reference.materialize', {module_id: b.mid, campaign, work_dir: work});
+	assert.equal(published.state, 'ready', JSON.stringify(published));
+	return entry.id;
+}
+/**
+ * The display names of the moves `table.apply.options` offers, by the row they came from: a referenced place
+ * (`source_identity`), an exit (`where.exits` rows carry the destination's `material`) or a way back (`where.back`).
+ */
+async function moves(call) {
+	const rows = (await call('table.apply.options')).candidates.filter(row => row.effect.kind === 'move');
+	const names = list => list.map(row => row.description.display_name).sort();
+	const routes = rows.filter(row => row.description.source_identity !== true);
+	return {referenced: names(rows.filter(row => row.description.source_identity === true)),
+		exits: names(routes.filter(row => Object.hasOwn(row.description, 'material'))), back: names(routes.filter(row => !Object.hasOwn(row.description, 'material')))};
+}
+
+test('§190.1: a referenced place is offered only inside the reading window; an exit or a way back outside it still is', async () => {
+	const b = await book('referenced-window'), call = await b.table('table');
+	await mint(b, 'table', 'The inn');
+	await mint(b, 'table', 'Mine shaft');
+	await mint(b, 'table', 'The base');
+	const finale = await mint(b, 'table', 'Finale');
+	await call('table.player_input', {text: 'I look around the harbor.'});
+	assert.deepEqual(await moves(call), {referenced: ['Mine shaft', 'The inn'], exits: [], back: []},
+		'at the harbor (window pages 41-48): the inn and the shaft; not the base (49) nor the finale (91)');
+	// The party goes to the finale: its window is the last chapter, where none of the others lies.
+	await call('table.apply', {call_id: 't1-c1', effects: [{kind: 'move', to: finale, via: 'The night road north'}]});
+	await call('table.narrate', {call_id: 't1-c2', text: 'You take the night road to the lighthouse.'});
+	await call('table.player_input', {text: 'I look around the lighthouse.'});
+	assert.deepEqual(await moves(call), {referenced: [], exits: [], back: ['Harbor']}, 'the harbor is outside this window and is still offered as the way back');
+	// A cellar minted inside the inn from the lighthouse: its window is the inn's (41-48), and its way out to the lighthouse is an exit.
+	await call('table.apply', {call_id: 't2-c1', effects: [{kind: 'move', to: 'Inn cellar', via: 'Through a trapdoor', establish: {summary: 'A damp cellar under the inn.', within: 'scene-source-place-42-3'}}]});
+	await call('table.narrate', {call_id: 't2-c2', text: 'A trapdoor drops you into the cellar under the inn.'});
+	await call('table.player_input', {text: 'I look around the cellar.'});
+	assert.deepEqual(await moves(call), {referenced: ['Mine shaft', 'The inn'], exits: ['Finale'], back: ['Harbor']},
+		'inside the inn\'s window again (the base still outside it); the exit to the lighthouse (page 91) is offered outside the window');
+});
+
+test('§190.1: a book with no reading window (read whole) offers every referenced place, as before', async () => {
+	const b = await book('referenced-whole', {pages: 60}), call = await b.table('table');
+	await mint(b, 'table', 'Front matter');
+	await mint(b, 'table', 'Mine shaft');
+	await mint(b, 'table', 'The base');
+	await call('table.player_input', {text: 'I look around the harbor.'});
+	assert.deepEqual((await moves(call)).referenced, ['Front matter', 'Mine shaft', 'The base']);
 });
