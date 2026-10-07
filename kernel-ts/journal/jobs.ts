@@ -289,7 +289,8 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
     const carriesBookName = (text: string, id: string) => {
         const node = graph?.nodes.get(id);
         if (!node) return false;
-        const person = bookCast(graph!).find(entry => entry.node && string(entry.node.node_id) === id);
+        // §188.2: a node the cast holds as one individual with others carries that person's names.
+        const person = bookCast(graph!).find(entry => entry.nodes.some(each => string(each.node_id) === id));
         return namePieces(person ? person.names : bookNames(graph!, node)).map(normalize).some(piece => !!piece && occurs(normalize(text), piece));
     };
     // §177.4: nor a name of anyone else the investigator has not been told about -- the other untold people of the graph and

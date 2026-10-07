@@ -5,9 +5,9 @@ import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionS
 import { entries, values, array, row, number, integer, truth, string, normalize, chars, length, words, clone, repr, type Row } from "./values.js";
 import { clueGate, structureType } from "./director.js";
 import { incapacitatedBy } from "../healing/conditions.js";
-import { namePieces, toldTurn } from "../journal/naming.js";
+import { namePieces } from "../journal/naming.js";
 import { prepareNameHistory } from '../journal/name-history.js';
-import { tableWord } from "./person-words.js";
+import { isTold, tableWord } from "./person-words.js";
 import { bookCast, knownNamePieces, untoldUnread, type CastPerson } from "./cast.js";
 import { nameToken } from "../write/names.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
@@ -176,7 +176,8 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
     if (!graph.isPerson(node))
         return null;
     const entry = row(row(journal.entries)[string(node.node_id)]);
-    if (integer(entry.named_at) || toldTurn(graph, node, records) !== null)
+    // §188.2: told as the individual the cast holds them as, though the graph has them more than once.
+    if (isTold(graph, journal, node, records))
         return null;
     // §176.1/§176.4: the table's word (what the fiction established, else the epithet), else the journal's label.
     const label = (tableWord(world, graph.handle(node)) || string(entry.label || "")).trim();
@@ -229,8 +230,10 @@ export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, recor
 export function rosterWord(graph: ModuleGraph, world: Row, journal: Row, person: CastPerson): string {
     if (!person.node)
         return tableWord(world, person.id) || person.id;
-    const entry = row(row(journal.entries)[string(person.node.node_id)]);
-    return (tableWord(world, graph.handle(person.node)) || string(entry.label || "")).trim() || person.id;
+    // §188.2: an individual the graph holds more than once is shown by one word: their first node's, the node `resolve` lands
+    // on (`ModuleGraph.individuals`), else the first other copy's that has one.
+    const word = (node: Row) => (tableWord(world, graph.handle(node)) || string(row(row(journal.entries)[string(node.node_id)]).label || "")).trim();
+    return person.nodes.map(word).find(Boolean) || person.id;
 }
 /** One string the request's rename replaces: the words of everyone who carries it (§177.4), their ids, and whether it is a handle row. */
 export interface RosterName { readonly name: string; readonly shown: readonly string[]; readonly ids: readonly string[]; readonly handle: boolean }
@@ -250,7 +253,9 @@ export function rosterNames(graph: ModuleGraph, people: readonly { person: CastP
         const node = person.node, id = person.id;
         // §176.5: a handle is the book's name as a slug, so the handle and the node id are renamed too, once there is a word.
         // §185.7: not in a name-free campaign, whose handles carry no name; the rename there touches names only.
-        const slugs = graph.nameFree || !node || shown === id ? [] : [string(node.node_id), id].filter((value, at, all) => value && all.indexOf(value) === at);
+        // §188.2: every node of an individual the graph holds more than once.
+        const slugs = graph.nameFree || !node || shown === id ? [] : person.nodes.flatMap(each => [string(each.node_id), graph.handle(each)])
+            .filter((value, at, all) => value && all.indexOf(value) === at);
         const names = person.names;
         for (const name of [...names, ...namePieces(names).filter(piece => !names.includes(piece)), ...slugs]) {
             // Keyed by the exact string the rename replaces: a handle normalizes to its name ("steven-knott") and is its own row.

@@ -324,6 +324,12 @@ export class ModuleGraph {
     renameUndo: readonly RenameUndoRow[] = [];
     /** §188.3: each book person's word as the request shows them (node id to word), for the candidates of an ambiguous undo. */
     shownWords: ReadonlyMap<string, string> = new Map();
+    /**
+     * §188.2: each node of an individual the cast holds more than once (a later page reading wrote someone the graph had again,
+     * under another id), by node id, to the node that stands for them -- their first, whose word the roster shows first.
+     * Installed by the campaign loader with the undo rows (`read/rename-undo.ts`); a name they share is one candidate.
+     */
+    individuals: ReadonlyMap<string, string> = new Map();
     private undoing = false;
     readonly moduleNode: Row | null;
     /** §185.4: each book node's kind as the book gave it (a projected location stays a location) and its interim handle. */
@@ -689,7 +695,8 @@ export class ModuleGraph {
                 candidates: sorted(ids).map(id => this.describe(this.nodes.get(id)!))
             }
         }), ids);
-        const ids = [...(this.names.get(key) ?? [])].filter(wanted);
+        // §188.2: the copies of one individual are one candidate, the node that stands for them.
+        const ids = this.oneEach([...(this.names.get(key) ?? [])].filter(wanted));
         if (ids.length === 1)
             return this.nodes.get(ids[0])!;
         if (ids.length > 1)
@@ -707,10 +714,11 @@ export class ModuleGraph {
                     for (const id of holders)
                         if (wanted(id))
                             owners.add(id);
-            if (owners.size === 1)
-                return this.nodes.get([...owners][0])!;
-            if (owners.size > 1)
-                throw ambiguous([...owners]);
+            const one = this.oneEach(owners);
+            if (one.length === 1)
+                return this.nodes.get(one[0])!;
+            if (one.length > 1)
+                throw ambiguous(one);
         }
         // Last: the place layer. A scene asked for by one of the names its own module gives the
         // place -- or by a part, entrance or counter of it -- is that scene, not an absent
@@ -769,8 +777,9 @@ export class ModuleGraph {
         try {
             for (const spelling of spellings) {
                 try {
-                    const node = this.resolve(spelling, kinds, what);
-                    found.set(string(node.node_id), node);
+                    // §188.2: a spelling that reaches a copy by its own handle (a legacy slug) is the individual's first node.
+                    const [id] = this.oneEach([string(this.resolve(spelling, kinds, what).node_id)]);
+                    found.set(id!, this.nodes.get(id!)!);
                 }
                 catch (error) {
                     if (!(error instanceof RpcError))
@@ -792,6 +801,10 @@ export class ModuleGraph {
             fix: "use one of details.candidates by its name; two of them shown by one word are told apart by giving one another word with apply person",
             details: { query: name, reason: "ambiguous", candidates: sorted(ids).map(id => this.shownCandidate(this.nodes.get(id)!)) },
         }), ids);
+    }
+    /** §188.2: node ids with the copies of one individual counted once, as the node that stands for them; order kept. */
+    private oneEach(ids: Iterable<string>): string[] {
+        return [...new Set([...ids].map(id => this.individuals.get(id) ?? id))];
     }
     /**
      * §188.3: a candidate of an ambiguous undo as the request shows it -- a book person by their word (`shownWords`), anything

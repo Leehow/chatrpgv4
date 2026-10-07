@@ -9,7 +9,8 @@
  * submit (refusing a row whose name no cited page prints); the stored rows joining the graph's person or standing as people
  * not read yet; the newcomer refusal; the Keeper's rename and the epithet lane over the whole cast; lookup by the table's
  * word; a write naming an unread person landing on the cast's pages; the replacement by cast id; a book with no text layer;
- * and an authored module, whose cast is its graph.
+ * and an authored module, whose cast is its graph. §188.2: a later reading that writes someone again under another id, and
+ * Blood Road's rows and copies, stay one person each.
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
@@ -27,7 +28,8 @@ export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';
 export {createKernelRuntime} from './kernel-ts/registry.ts';
 export {ModuleGraph} from './kernel-ts/read/module-graph.ts';
 export {replacePassagePeople} from './kernel-ts/read/table-people.ts';
-export {bookCast, newcomerRefusal, readServedCast} from './kernel-ts/read/cast.ts';
+export {bookCast, newcomerRefusal, protectedNames, readServedCast} from './kernel-ts/read/cast.ts';
+export {individualNodes, renameUndoRows} from './kernel-ts/read/rename-undo.ts';
 export {checkCastDraft, mergeCastRows, notesInUse} from './kernel-ts/cast/draft.ts';
 export {untoldRoster} from './kernel-ts/read/capsule.ts';
 export {foldPersonWords} from './kernel-ts/read/person-words.ts';
@@ -58,13 +60,15 @@ async function harbor(t) {
 	await writeFile(pdf, `%PDF-1.7\n% ${PAGES.join(' | ')}\n%%EOF\n`);
 	const sha = createHash('sha256').update(await readFile(pdf)).digest('hex');
 	const {module_id: mid} = await k.raw('module.source.bind', {source: {path: pdf, page_count: PAGES.length, file_sha256: sha}});
-	const read = async (purpose, draft, paths) => {
-		await k.raw('module.read.request', {module_id: mid, purpose});
-		const job = await k.raw('module.read.claim', {module_id: mid, owner: 'test-host'});
+	// `extra` reaches the request; its `campaign` scopes the claim and the finish too (a reading done in a campaign's fork).
+	const read = async (purpose, draft, paths, extra = {}) => {
+		const scope = extra.campaign === undefined ? {} : {campaign: extra.campaign};
+		await k.raw('module.read.request', {module_id: mid, purpose, ...extra});
+		const job = await k.raw('module.read.claim', {module_id: mid, owner: 'test-host', ...scope});
 		await writeFile(join(job.work_dir, 'observations.json'), JSON.stringify({file_sha256: sha, read_pages: [1, 2, 3], full_pages: [1, 2, 3], review_pages: [1, 2, 3]}));
 		await writeFile(join(job.work_dir, 'draft.json'), JSON.stringify(draft));
 		await writeFile(join(job.work_dir, 'review.json'), JSON.stringify({checked: [{paths, verdict: 'supported', source_refs: REFS, reason: 'fixture support'}], missing: []}));
-		return k.raw('module.read.finish', {module_id: mid, job_id: job.job_id, lease: job.lease, lease: job.lease, outcome: 'completed',
+		return k.raw('module.read.finish', {module_id: mid, ...scope, job_id: job.job_id, lease: job.lease, lease: job.lease, outcome: 'completed',
 			draft_path: join(job.work_dir, 'draft.json'), review_path: join(job.work_dir, 'review.json')});
 	};
 	await read('index', {title: 'The Harbor', language: 'en', sections: [{name: 'Harbor and tower', pages: [[1, 3]], source_refs: [{page: 1}],
@@ -85,7 +89,7 @@ async function harbor(t) {
 	const call = (method, params = {}) => k.raw(method, {campaign: CAMPAIGN, ...params});
 	const attempt = (method, params = {}) => k.attempt(method, {campaign: CAMPAIGN, ...params});
 	const world = async () => JSON.parse(await readFile(join(k.home, '.coc', 'campaigns', CAMPAIGN, 'world.json'), 'utf8'));
-	return {...k, mid, sha, call, attempt, world};
+	return {...k, mid, sha, call, attempt, world, read};
 }
 
 const DRAFT = {people: [
@@ -634,4 +638,155 @@ ${hold ? 'process.stdin.resume();' : 'await rt.close();'}`;
 	assert.equal((await h.raw('cast.submit', {...nextOwn, index: 0})).state, 'complete');
 	await h.raw('cast.release', nextOwn);
 	assert.deepEqual(await h.raw('cast.job', {module_id: h.mid, claim: true}), {job_id: null, state: 'complete'}, 'a second host starts no completed range');
+});
+
+test('§188.2: a later reading that writes someone the graph has again, under another id, leaves one person: the row both answer joins them', async t => {
+	const h = await harbor(t);
+	const {place} = await readCast(h);
+	// Blood Road (`nfh-accept-blood-road-1`, generation 55): a page reading in the campaign's fork wrote the store owner a second
+	// node with his name. The cast row both nodes answered was read as someone else, and his name had three owners.
+	await h.read('detail', {nodes: [{node_id: 'npc-mae-net-mender', node_kind: 'npc', name: 'Old Mae', aliases: ['Mae'], source_refs: [{page: 3}],
+		summary: 'She mends nets; her boy drowned.'}], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['npc-mae-net-mender']},
+		['/nodes/0', '/coverage'], {focus: 'Tower', campaign: CAMPAIGN});
+	const copies = (await h.call('table.lookup', {kind: 'module', query: 'Old Mae'})).entities.filter(entity => entity.display_name === 'Old Mae').map(entity => entity.name);
+	assert.equal(copies.length, 2, 'the campaign\'s graph holds her twice');
+	const stored = JSON.parse(await readFile(join(dirname(dirname(dirname(dirname(place.cwd)))), 'cast.json'), 'utf8'));
+	const hers = stored.people.find(row => row.book.includes('Old Mae')).id;
+	const job = await h.call('epithets.job');
+	assert.ok(!job.people.some(person => person.id === hers), `her row is no one the lane is asked to word: ${JSON.stringify(job.people)}`);
+	const words = {[copies[0]]: 'the net mender', [copies[1]]: 'the woman by the cellar'};
+	assert.equal((await h.call('epithets.submit', {entries: copies.map(id => ({id, word: words[id]}))})).written.length, 2);
+	await h.call('table.player_input', {text: 'I walk along the dock.'});
+	const roster = (await h.call('table.untold')).people;
+	const rows = roster.filter(row => ['Old Mae', 'Mae'].includes(row.name));
+	assert.equal(rows.length, 2, JSON.stringify(roster));
+	const [one] = new Set(rows.map(row => row.shown));
+	assert.ok(rows.every(row => row.shown === one && !row.shown.includes(' / ')), `one person, one word: ${JSON.stringify(rows)}`);
+	assert.ok(copies.includes(rows[0].id) && rows.every(row => row.id === rows[0].id), 'owned by one of her nodes, never by the row\'s id');
+	assert.match(roster.find(row => row.name === 'Silas Marsh')?.id ?? '', /^cast-/, 'someone the graph does not have stays unread');
+});
+
+test('§188.2: Blood Road\'s cast: two graph copies of one man and his row are one person shown by one word; two men sharing a name keep both words', () => {
+	// Book-4 at generation 60 of `nfh-accept-blood-road-1`: the store owner and the trailer squatter were each written twice, the
+	// second time by a reading on pages 24-25; the hardware owner is another man the book also calls 皮特.
+	const ref = page => [{source_id: 'pdf:road', pdf_index: page - 1}];
+	const raw = {nodes: [
+		{node_id: 'npc-book-4-daniel-mather', node_kind: 'npc', name: '丹尼尔·马瑟', aliases: ['丹', '丹·马瑟'], source_refs: ref(26)},
+		{node_id: 'npc-book-4-pete', node_kind: 'npc', name: '皮特', aliases: ['彼得·M·史密斯', '彼得', '皮特'], source_refs: ref(24)},
+		{node_id: 'npc-book-4-peter-benson', node_kind: 'npc', name: '彼得·本森', aliases: ['皮特'], source_refs: ref(36)},
+		{node_id: 'npc-daniel-mather', node_kind: 'npc', name: '丹尼尔·马瑟', aliases: ['丹·马瑟'], source_refs: ref(26)},
+		{node_id: 'npc-pete', node_kind: 'npc', name: '皮特', aliases: ['彼得·M·史密斯', '彼得'], source_refs: ref(25)}], relations: []};
+	const castStore = {version: 5, source_sha256: 'x', state: 'complete', people: [
+		{id: 'cast-78239617e2', book: ['丹尼尔·马瑟', '丹·马瑟'], play: ['丹尼尔·马瑟', '丹·马瑟'], notes: ['Daniel Mather', 'Dan Mather', 'Dan', '丹尼尔·马瑟'], pages: [26, 27]},
+		{id: 'cast-1db3205ddc', book: ['皮特', '彼得·M·史密斯', '彼得'], play: ['皮特', '彼得·M·史密斯', '彼得'], notes: ['Pete', 'Peter M. Smith', 'Peter', '皮特', '彼得·M·史密斯'], pages: [24, 25]},
+		{id: 'cast-a2d5d621cc', book: ['彼得·本森', '皮特'], play: ['彼得·本森', '皮特'], notes: ['Peter Benson', 'Pete', '彼得·本森'], pages: [36, 40]}]};
+	const load = () => { const graph = new api.ModuleGraph('road', raw, 'digest', {}); graph.castStore = castStore; return graph; };
+	const graph = load(), cast = api.bookCast(graph);
+	const [mather, pete] = ['npc-book-4-daniel-mather', 'npc-book-4-pete'].map(id => graph.handle(graph.nodes.get(id)));
+	const [copy, petesCopy, benson] = ['npc-daniel-mather', 'npc-pete', 'npc-book-4-peter-benson'].map(id => graph.handle(graph.nodes.get(id)));
+	assert.deepEqual(cast.map(person => [person.id, person.nodes.map(node => node.node_id), person.castIds]), [
+		[mather, ['npc-book-4-daniel-mather', 'npc-daniel-mather'], ['cast-78239617e2']],
+		[pete, ['npc-book-4-pete', 'npc-pete'], ['cast-1db3205ddc']],
+		[benson, ['npc-book-4-peter-benson'], ['cast-a2d5d621cc']]], 'no row stands as someone else, and each copy is its man');
+	// The words the table had (2026-10-07): the lane worded each node, and the row while it stood unread.
+	const world = {person_epithets: {[mather]: {word: '抓胡茬的红发杂货店主', by: 'graph'}, [copy]: {word: '站在基地里的住民', by: 'graph'},
+		'cast-78239617e2': {word: '红发棕眼的来客', by: 'graph'}, [pete]: {word: '穿不合身旧衣的禁酒拖车客', by: 'graph'},
+		[petesCopy]: {word: '住在房车里的禁酒者', by: 'graph'}, 'cast-1db3205ddc': {word: '拿猎枪的持斧暴徒', by: 'graph'},
+		[benson]: {word: '戴眼镜的金发五金店老板', by: 'graph'}, 'cast-a2d5d621cc': {word: '金发的陌生来客', by: 'graph'}}};
+	const roster = api.untoldRoster(graph, world, {}, []);
+	const shown = name => roster.filter(row => row.name === name).map(row => [row.id, row.shown]);
+	for (const name of ['丹尼尔·马瑟', '丹·马瑟', 'Daniel Mather', 'Dan', '马瑟'])
+		assert.deepEqual(shown(name), [[mather, '抓胡茬的红发杂货店主']], `${name}: one man, one word`);
+	assert.deepEqual(shown('彼得·M·史密斯'), [[pete, '穿不合身旧衣的禁酒拖车客']]);
+	assert.deepEqual(shown('彼得·本森'), [[benson, '戴眼镜的金发五金店老板']]);
+	assert.deepEqual(shown('皮特'), [[pete, '穿不合身旧衣的禁酒拖车客 / 戴眼镜的金发五金店老板']], 'two men the book calls 皮特 keep both words');
+	assert.ok(!roster.some(row => /站在基地里的住民|红发棕眼的来客|住在房车里的禁酒者|拿猎枪的持斧暴徒|金发的陌生来客/.test(row.shown)),
+		'neither the second copy\'s word nor the row\'s ever owns a name');
+	// A legacy graph's handles are slugs of the name: the second copy's id and handle are renamed with the man's word.
+	assert.deepEqual(shown('npc-daniel-mather'), [[mather, '抓胡茬的红发杂货店主']]);
+	assert.deepEqual(shown(copy), [[mather, '抓胡茬的红发杂货店主']]);
+	assert.match(api.newcomerRefusal(graph, world, '站在基地里的住民')?.message ?? '', /already calls/, 'the word the table calls his second copy is still his');
+	// Told through either copy, he is told: the journal named the second node only.
+	const told = api.untoldRoster(load(), world, {entries: {'npc-daniel-mather': {named_at: 3}}}, []);
+	assert.ok(!told.some(row => ['丹尼尔·马瑟', 'Daniel Mather', 'Dan', '马瑟'].includes(row.name)), JSON.stringify(told.filter(row => /马瑟|Mather/.test(row.name))));
+	assert.ok(['丹尼尔·马瑟', 'Daniel Mather'].every(name => api.protectedNames(load(), world, {entries: {'npc-daniel-mather': {named_at: 3}}}, []).includes(name)),
+		'told through his second copy, his names are protected spans (§188.1)');
+	// His name written into a call is him, on the node the roster names him by; a joined word for two men is ambiguous between
+	// two candidates, one for each man, each by his own word (§188.3).
+	const resolver = load(), undo = api.renameUndoRows(resolver, world, {});
+	Object.assign(resolver, {renameUndo: undo.rows, shownWords: undo.words, individuals: api.individualNodes(resolver)});
+	for (const name of ['丹尼尔·马瑟', '丹·马瑟']) assert.equal(resolver.resolve(name, ['npc']).node_id, 'npc-book-4-daniel-mather', name);
+	assert.throws(() => resolver.resolve('穿不合身旧衣的禁酒拖车客 / 戴眼镜的金发五金店老板', ['npc']), error => error?.details?.reason === 'ambiguous'
+		&& JSON.stringify(error.details.candidates.map(candidate => candidate.shown).sort()) === JSON.stringify(['戴眼镜的金发五金店老板', '穿不合身旧衣的禁酒拖车客']));
+	// The first copy without a word: the man is shown by his other copy's, never as two.
+	const unworded = {person_epithets: {...world.person_epithets}};
+	delete unworded.person_epithets[mather];
+	assert.deepEqual(api.untoldRoster(load(), unworded, {}, []).filter(row => row.name === '丹尼尔·马瑟').map(row => row.shown), ['站在基地里的住民']);
+});
+
+test('§188.2: a copy joins only the row it shares a whole identity with both ways, and the row it shares the longest name with', () => {
+	const ref = page => [{source_id: 'pdf:road', pdf_index: page - 1}];
+	const raw = {nodes: [
+		{node_id: 'npc-book-4-pete', node_kind: 'npc', name: '皮特', aliases: ['彼得·M·史密斯', '彼得', '皮特'], source_refs: ref(24)},
+		{node_id: 'npc-book-4-peter-benson', node_kind: 'npc', name: '彼得·本森', aliases: ['皮特'], source_refs: ref(36)},
+		{node_id: 'npc-pete', node_kind: 'npc', name: '皮特', aliases: ['彼得·M·史密斯', '彼得'], source_refs: ref(25)}], relations: []};
+	const smith = {id: 'cast-1db3205ddc', book: ['皮特', '彼得·M·史密斯', '彼得'], play: ['皮特', '彼得·M·史密斯', '彼得'], notes: ['Pete', 'Peter M. Smith', 'Peter'], pages: [24, 25]};
+	const benson = {id: 'cast-a2d5d621cc', book: ['彼得·本森', '皮特'], play: ['彼得·本森', '皮特'], notes: ['Peter Benson', 'Pete'], pages: [36, 40]};
+	const lone = {id: 'cast-0000000001', book: ['皮特'], play: ['皮特'], notes: ['Pete'], pages: [60]};
+	const cast = people => {
+		const graph = new api.ModuleGraph('road', raw, 'digest', {});
+		graph.castStore = {version: 5, source_sha256: 'x', state: 'partial', people};
+		return api.bookCast(graph).map(person => [person.id, person.nodes.map(node => node.node_id), person.castIds]);
+	};
+	// A partial cast without the squatter's row: the hardware owner's row prints 皮特, the squatter copies' own name, but they do
+	// not carry the row's fullest form; it joins the hardware owner alone, and the squatter's copies stay apart.
+	assert.deepEqual(cast([benson]), [['book-4-pete', ['npc-book-4-pete'], []], ['book-4-peter-benson', ['npc-book-4-peter-benson'], ['cast-a2d5d621cc']],
+		['pete', ['npc-pete'], []]]);
+	// A row printing only 皮特 (a later range): the squatter's copies share 彼得·M·史密斯 with his own row, a longer name, and are his;
+	// the lone row, answered by him and by the hardware owner, is nobody the graph can tell.
+	assert.deepEqual(cast([lone, smith, benson]), [['book-4-pete', ['npc-book-4-pete', 'npc-pete'], ['cast-1db3205ddc']],
+		['book-4-peter-benson', ['npc-book-4-peter-benson'], ['cast-a2d5d621cc']], ['cast-0000000001', [], ['cast-0000000001']]]);
+	// The words of a name at one end of it (§2's phrase) find both copies of one man: one candidate, his first node.
+	const professor = new api.ModuleGraph('road', {nodes: [{node_id: 'npc-nemesio', node_kind: 'npc', name: 'Professor Nemesio Sánchez', source_refs: ref(4)},
+		{node_id: 'npc-sanchez-lecturer', node_kind: 'npc', name: 'Professor Nemesio Sánchez', source_refs: ref(9)}], relations: []}, 'digest', {});
+	professor.castStore = {version: 5, source_sha256: 'x', state: 'complete', people: [
+		{id: 'cast-0000000002', book: ['Professor Nemesio Sánchez'], play: ['Professor Nemesio Sánchez'], notes: ['Professor Nemesio Sánchez'], pages: [4, 9]}]};
+	professor.individuals = api.individualNodes(professor);
+	assert.equal(professor.resolve('Nemesio Sánchez', ['npc']).node_id, 'npc-nemesio');
+});
+
+test('§188.2: the journal lane reads a second copy of someone as that person, with every name the cast gives them', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	// The copy carries only "Old Mae"; the book also prints "Mae" alone, which only her cast row holds.
+	await h.read('detail', {nodes: [{node_id: 'npc-old-mae-nets', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 3}],
+		summary: 'She mends nets; her boy drowned.'}], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['npc-old-mae-nets']},
+		['/nodes/0', '/coverage'], {focus: 'Tower', campaign: CAMPAIGN});
+	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}, {id: 'old-mae-nets', word: 'the woman by the cellar'}]});
+	await h.call('table.player_input', {text: 'I ask the woman by the cellar about the tide.'});
+	const said = await h.call('table.narrate', {call_id: 't1-c1', text: 'She shrugs. {{say:the woman by the cellar}}"Mind the cellar at high tide."{{/say}}'});
+	assert.equal(said.speech[0].who.npc, await handleOf(h, 'npc-old-mae-nets'), 'the second copy speaks');
+	const job = await h.call('journal.job', {turn: 1});
+	await assert.rejects(h.call('journal.submit', {job_id: job.job_id, lease: job.lease, entries: [{name: 'Old Mae', label: 'Mae by the cellar'}]}),
+		error => error?.details?.reason === 'untold_name' && /the book gives 'Old Mae'/.test(error?.message ?? ''),
+		'the label carries her own name, which the copy holds through her row');
+});
+
+test('§188.2: a name two copies of one person carry resolves to that person, on the node the roster names them by', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	// Two later readings in the campaign's fork each write the lamp keeper, under ids that are no slug of his name.
+	const copy = (id, focus) => h.read('detail', {nodes: [{node_id: id, node_kind: 'npc', name: 'Silas Marsh', source_refs: [{page: 2}], summary: 'He trims the lamp.'}],
+		claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: [id]}, ['/nodes/0', '/coverage'], {focus, campaign: CAMPAIGN});
+	await copy('npc-silas-keeper', 'Tower');
+	await copy('npc-lamp-keeper', 'Old Mae');
+	const copies = (await h.call('table.lookup', {kind: 'module', query: 'Silas Marsh'})).entities.filter(entity => entity.display_name === 'Silas Marsh');
+	assert.equal(copies.length, 2, 'the graph holds him twice');
+	await h.call('table.player_input', {text: 'I watch the tower.'});
+	const owner = (await h.call('table.untold')).people.find(row => row.name === 'Silas Marsh')?.id;
+	assert.ok(copies.some(entity => entity.name === owner), `the roster names him by one of his nodes: ${owner}`);
+	// Blood Road: "丹尼尔·马瑟" written into a call was refused ambiguous between the store owner's two copies.
+	const named = await h.attempt('table.apply', {call_id: 't1-c1', effects: [{kind: 'person', who: 'Silas Marsh', name: 'the lamp keeper', why: 'the fiction calls him so'}]});
+	assert.equal(named.ok, true, JSON.stringify(named.error?.details ?? named.error?.message));
+	assert.deepEqual(Object.keys((await h.world()).person_labels ?? {}), [owner], 'the word lands on the node the roster names him by');
 });
