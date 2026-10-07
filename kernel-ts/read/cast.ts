@@ -17,7 +17,7 @@
  * "a deep one" is the book's body already (§136.12).
  */
 import type { ModuleGraph } from './module-graph.js';
-import { bookNames, namePieces, occurs } from '../journal/naming.js';
+import { bookNames, namePieces, occurs, toldTurn } from '../journal/naming.js';
 import { prepareNameHistory } from '../journal/name-history.js';
 import { array, integer, normalize, number, row, string, type Row } from './values.js';
 import { isJsonObject } from '../json.js';
@@ -250,6 +250,36 @@ export function castNodes(graph: ModuleGraph, node: Row): Row[] {
  */
 export function knownNamePieces(graph: ModuleGraph, known: readonly CastPerson[]): Set<string> {
     return new Set(namePieces([...known.flatMap(person => person.names), ...graph.investigatorNames]).map(normalize).filter(Boolean));
+}
+
+/**
+ * §188.1: every whole name the investigator's side owns, as written: the names the investigators at this table are registered
+ * under (`graph.investigatorNames`, the party sheet's `name` and `id`, which `actor` matches), every name of a cast person the
+ * investigator has been told about, and this table's words for people -- the names of the people the table established,
+ * `world.person_labels` (`called.name`), the folded epithets and the journal's labels. No piece is added: a place of a
+ * protected name protects that whole occurrence, and a piece would also shield an untold person's full name that begins with it.
+ *
+ * Wherever the request's rename (`table.untold`) or the delivery gate (`table.untold_spans`, §177.11) finds an untold name, a
+ * place that overlaps an occurrence of one of these is left as written. The §185 acceptance table: the book also prints the
+ * untold store owner by the first character of his given name alone, the investigator shares that given name, and the
+ * one-character alias was renamed inside the investigator's own name, which the Keeper copied into tool calls and a note.
+ * Read from the strings the kernel holds, never from what they mean.
+ */
+export function protectedNames(graph: ModuleGraph, world: Row, journal: Row, records: Iterable<Row>): string[] {
+    const history = prepareNameHistory(records);
+    // The told test the roster makes (`untoldBlock`, `untoldUnread`): the journal's `named_at` or a delivery that showed the name.
+    const told = (person: CastPerson): boolean => person.node
+        ? !!integer(row(row(journal.entries)[string(person.node.node_id)]).named_at) || toldTurn(graph, person.node, history) !== null
+        : castToldTurn(person, history) !== null;
+    const words: unknown[] = [
+        ...graph.investigatorNames,
+        ...bookCast(graph).filter(told).flatMap(person => person.names),
+        ...graph.kind('npc').filter(node => graph.isTablePerson(node)).flatMap(node => [node.name, graph.displayName(node)]),
+        ...Object.values(row(world.person_labels)).map(record => row(record).name),
+        ...Object.values(row(world.person_epithets)).map(record => row(record).word),
+        ...Object.values(row(journal.entries)).map(entry => row(entry).label),
+    ];
+    return [...new Set(words.map(text).filter(Boolean))];
 }
 
 /** The people of the cast the graph does not have yet (§177.1): named by the book, not yet reached by the reader. */

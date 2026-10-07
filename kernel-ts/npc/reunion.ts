@@ -12,7 +12,7 @@ function presence(snapshot:Row,handle:string,names:Set<string>):boolean {
 function encounter(graph:ModuleGraph,node:Row,record:Row):boolean {
     const handle=graph.handle(node),names=new Set(graph.nameKeys(node).map(normalize));
     return array(record.speech).some(line=>row(line.who).npc===handle)
-        ||array(record.receipts).some(receipt=>['npc','target_npc','from','with','actor','subject'].some(key=>
+        ||array(record.receipts).some(receipt=>['npc','target_npc','from','from_id','with','actor','subject'].some(key=>
             typeof receipt[key]==='string'&&names.has(normalize(receipt[key]))));
 }
 export function reunionInterval(graph:ModuleGraph,world:Row,node:Row,records:Row[],scope:Row):Row|null {
