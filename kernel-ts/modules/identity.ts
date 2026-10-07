@@ -17,11 +17,11 @@ import { join } from 'node:path';
 import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
 import { withExclusiveLock } from '../locks.js';
-import { identityRelationId, rawSurvivors, VISUAL_KINDS } from '../read/survivors.js';
+import { apartPairs, identityRelationId, pairKey, rawSurvivors, VISUAL_KINDS, type IdentityConflict } from '../read/survivors.js';
 import { array, clone, entries, equal, normalize, number, row, string, type Row } from '../read/values.js';
 import type { ModuleStore } from './store.js';
 import { mergeValue } from './visual.js';
-import { publicationOrder } from './visual-identity.js';
+import { identitySource, publicationOrder } from './visual-identity.js';
 
 /**
  * One decision to write: the two nodes are one thing, decided by `review` (kept on the relation as `identity_review`). Which of
@@ -40,12 +40,24 @@ const IDENTITY_FIELDS: readonly string[] = ['name', 'display_name', 'title', 'se
 const pointer = (key: string): string => key.replace(/~/g, '~0').replace(/\//g, '~1');
 
 /**
+ * §191.3 (lead ruling 2026-10-07): the recorded `different` verdict, by pair key, that keeps a node of `later`'s relation group
+ * apart from a node of `earlier`'s, or null. A `different` verdict and an identity relation for one pair cannot both stand.
+ */
+export function apartVerdict(graph: Row, later: string, earlier: string, apart: ReadonlySet<string>): string | null {
+    if (!apart.size) return null;
+    const survivors = rawSurvivors(graph), a = survivors.group(later), b = survivors.group(earlier);
+    for (const x of a) for (const y of b) if (apart.has(pairKey(x, y))) return pairKey(x, y);
+    return null;
+}
+
+/**
  * Write the identity relation `later` → `earlier` into `graph` (a raw graph clone the caller publishes) and carry the
  * variant's facts onto the node that now stands for both. Returns null, writing nothing, when `later` already reads as
  * another node or `earlier` already reads as `later` (every node keeps one survivor, as `writeVariants` keeps it). Writing
- * the same decision again replaces its relation and carries nothing new.
+ * the same decision again replaces its relation and carries nothing new. `apart`, the pairs a recorded `different` verdict
+ * keeps apart (`apartPairs`): a decision that would join such a pair is refused `identity_verdict_different`, never written.
  */
-export function writeIdentity(graph: Row, later: string, earlier: string, review: Row): IdentityWritten | null {
+export function writeIdentity(graph: Row, later: string, earlier: string, review: Row, apart: ReadonlySet<string> = new Set()): IdentityWritten | null {
     const nodes = new Map(array(graph.nodes).filter(isJsonObject).map(node => [string(node.node_id), node as Row]));
     const variant = nodes.get(later), target = nodes.get(earlier);
     if (!variant || !target)
@@ -58,6 +70,10 @@ export function writeIdentity(graph: Row, later: string, earlier: string, review
             { details: { later, earlier, reason: 'cross_kind' } });
     if (!isJsonObject(review))
         throw new RpcError('invalid_params', 'an identity carries the review that decided it', { details: { field: 'identity_review' } });
+    const kept = apartVerdict(graph, later, earlier, apart);
+    if (kept !== null)
+        throw new RpcError('invalid_params', `${later} and ${earlier} cannot be one thing: a recorded verdict says ${kept.split('\u0000').join(' and ')} are different`,
+            { details: { later, earlier, reason: 'identity_verdict_different', nodes: kept.split('\u0000') } });
     const id = identityRelationId(later, earlier);
     const before = rawSurvivors({ nodes: graph.nodes, relations: array(graph.relations).filter(rel => row(rel).relation_id !== id) });
     if (before.linkedId(later) !== later || before.linkedId(earlier) === later) return null;
@@ -136,19 +152,25 @@ export async function publishIdentities(store: ModuleStore, mid: string, writes:
         if (!raw)
             throw new RpcError('campaign_not_ready', `module ${mid} has no graph yet`, { fix: 'publish identities once the book has a graph' });
         const graph = clone(raw), generation = number(meta.generation || 0) + 1, written: Row[] = [], skipped: Row[] = [];
+        const apart = apartPairs(row(meta.reading).identity, identitySource(meta));
         const order = publicationOrder(meta), node = (id: string): Row => array(graph.nodes).find(item => row(item).node_id === id) ?? { node_id: id };
         for (const write of writes) {
             if (!Array.isArray(write.nodes) || write.nodes.length !== 2 || write.nodes.some(id => typeof id !== 'string'))
                 throw new RpcError('invalid_params', 'an identity names two node ids', { details: { field: 'nodes' } });
             const [earlier, later] = write.nodes.map(node).sort(order).map(item => string(item.node_id));
-            const done = writeIdentity(graph, later, earlier, { ...row(write.review), generation: row(write.review).generation ?? generation });
+            // §191.3: a pair a recorded `different` verdict keeps apart is refused, never joined and never guessed.
+            const kept = apartVerdict(graph, later, earlier, apart);
+            if (kept !== null) { skipped.push({ from: later, to: earlier, reason: 'verdict_different', nodes: kept.split('\u0000') }); continue; }
+            const done = writeIdentity(graph, later, earlier, { ...row(write.review), generation: row(write.review).generation ?? generation }, apart);
             if (done) written.push({ from: later, to: earlier, survivor: done.survivor, carried: done.carried });
             else skipped.push({ from: later, to: earlier, reason: 'survivor_taken' });
         }
-        if (!written.length) return { generation: meta.generation ?? 0, written, skipped };
+        // §191.3: a graph that already joins a pair a verdict keeps apart is reported, never repaired by guessing.
+        const conflicts: IdentityConflict[] = rawSurvivors(graph, apart).conflicts();
+        if (!written.length) return { generation: meta.generation ?? 0, written, skipped, ...(conflicts.length ? { conflicts } : {}) };
         await store.writeGraph(meta, graph);
         await store.writeModule(meta);
-        await store.appendBuildLog(mid, { event: 'identity', generation: meta.generation, written, skipped });
-        return { generation: meta.generation, written, skipped };
+        await store.appendBuildLog(mid, { event: 'identity', generation: meta.generation, written, skipped, ...(conflicts.length ? { conflicts } : {}) });
+        return { generation: meta.generation, written, skipped, ...(conflicts.length ? { conflicts } : {}) };
     });
 }

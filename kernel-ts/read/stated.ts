@@ -228,6 +228,6 @@ export function statedEndingReward(graph: ModuleGraph, world: Row, ending: any):
     const scene = typeof world.active_scene === "string" ? graph.sceneByHandle(world.active_scene) : null;
     if (!scene)
         return null;
-    const stated = graph.statedRewards(scene).filter(reward => typeof reward.sanity === "string" && (reward.when == null || conditionStatus(reward.when, world) === true));
+    const stated = graph.statedRewards(scene).filter(reward => typeof reward.sanity === "string" && (reward.when == null || conditionStatus(reward.when, world, graph) === true));
     return stated.length === 1 ? { rule: string(stated[0].rule), expression: stated[0].sanity } : null;
 }

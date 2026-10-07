@@ -11,12 +11,13 @@
  *   only these hops count: a reader-authored `variant-of` claim states a state (Dust to Dust's revived Virginia), never an
  *   identity;
  * - §152.4's `variant-of` between two printed visuals (`asset`, `handout`), whoever wrote it;
- * - §188.2's cast fold for people (`castFold`, installed by the campaign loader from `bookCast`).
+ * - §188.2's cast fold for people (`castFold`, installed by the campaign loader from `bookCast`), which never joins two nodes a
+ *   recorded `different` verdict keeps apart (`apartPairs`; lead ruling 2026-10-07).
  *
  * Read from relation ids, relation kinds and node kinds alone; nothing here reads what a name or a summary says.
  */
 import { compareUnicode, isJsonObject } from "../json.js";
-import { row, string, type Row } from "./values.js";
+import { entries, row, string, type Row } from "./values.js";
 
 /** Contract §152.4: the node kinds a printed visual is published as, the only ends any `variant-of` hop is read between. */
 export const VISUAL_KINDS: readonly string[] = ["asset", "handout"];
@@ -36,13 +37,37 @@ export function isIdentityRelation(rel: Row): boolean {
         && rel.relation_id === identityRelationId(rel.from_node_id, rel.to_node_id) && isJsonObject(row(rel.properties).identity_review);
 }
 
-/** What the map reads of a graph: its nodes, its outgoing relations, each node's kind as the book gave it, and the cast fold. */
+/** Two node ids as one key, whichever order they come in. */
+export const pairKey = (a: string, b: string): string => [a, b].sort(compareUnicode).join("\u0000");
+
+/**
+ * §191.3 (lead ruling 2026-10-07): the pairs a recorded `different` verdict keeps apart -- `module.json` `reading.identity`
+ * (`<source sha>:<kind>:<id>:<id>` → `{verdict, nodes}`, §191.1), of the bound source `sourceSha` (every key when it is empty).
+ * A verdict from reading the pages beats the cast's name rule: the fold never joins such a pair (`bookCast`).
+ */
+export function apartPairs(identity: unknown, sourceSha: string): Set<string> {
+    const out = new Set<string>();
+    for (const [key, value] of entries(row(identity))) {
+        const verdict = row(value), nodes = Array.isArray(verdict.nodes) ? verdict.nodes.filter((id: unknown): id is string => typeof id === "string") : [];
+        if (verdict.verdict !== "different" || (sourceSha && !key.startsWith(sourceSha + ":")) || nodes.length !== 2 || nodes[0] === nodes[1]) continue;
+        out.add(pairKey(nodes[0], nodes[1]));
+    }
+    return out;
+}
+
+/**
+ * What the map reads of a graph: its nodes, its outgoing relations, each node's kind as the book gave it, the cast fold, and
+ * the pairs a `different` verdict keeps apart.
+ */
 export interface SurvivorSource {
     readonly nodes: ReadonlyMap<string, Row>;
     readonly out: ReadonlyMap<string, Row[]>;
     bookKind(node: Row): string;
     readonly castFold: ReadonlyMap<string, string>;
+    readonly apart: ReadonlySet<string>;
 }
+/** A pair a `different` verdict keeps apart that kernel identity relations nevertheless join (§191.3: flagged, never resolved). */
+export interface IdentityConflict { nodes: [string, string]; survivor: string }
 
 /** The hops a node takes toward the node that stands for it: the nodes visited, the relations taken, where a cycle closes. */
 export interface SurvivorWalk { path: Row[]; hops: Row[]; cycle: number }
@@ -108,6 +133,22 @@ export class SurvivorMap {
         return folded === undefined ? linked : this.linkedId(folded);
     }
 
+    /**
+     * §191.3: the pairs a `different` verdict keeps apart whose nodes kernel identity relations lead to one survivor. The two
+     * cannot both stand: the writer refuses such a relation (`publishIdentities`), and a graph that holds one anyway is reported
+     * here, the relation left as it is (the ruling leaves identity relations unaffected) and nothing guessed.
+     */
+    conflicts(): IdentityConflict[] {
+        const out: IdentityConflict[] = [];
+        for (const key of this.graph.apart) {
+            const [a, b] = key.split("\u0000") as [string, string];
+            if (!this.graph.nodes.has(a) || !this.graph.nodes.has(b)) continue;
+            const survivor = this.linkedId(a);
+            if (survivor === this.linkedId(b)) out.push({ nodes: [a, b], survivor });
+        }
+        return out;
+    }
+
     /** §191.3: every node id that reads as the same thing as `id`, its survivor first, then the graph's order. */
     group(id: string): string[] {
         if (!this.grouped) {
@@ -129,11 +170,11 @@ export class SurvivorMap {
  * the file and no `ModuleGraph` (the reading layer's `materialReady` and focus identity). Relations only: a book graph carries
  * no cast fold, which only a campaign's loaded graph has.
  */
-export function rawSurvivors(raw: Row): SurvivorMap {
+export function rawSurvivors(raw: Row, apart: ReadonlySet<string> = new Set()): SurvivorMap {
     const nodes = new Map<string, Row>(), out = new Map<string, Row[]>();
     for (const node of Array.isArray(raw.nodes) ? raw.nodes : [])
         if (isJsonObject(node) && typeof node.node_id === "string") nodes.set(node.node_id, node);
     for (const rel of Array.isArray(raw.relations) ? raw.relations : [])
         if (isJsonObject(rel) && typeof rel.from_node_id === "string") out.set(rel.from_node_id, [...(out.get(rel.from_node_id) ?? []), rel]);
-    return new SurvivorMap({ nodes, out, bookKind: node => string(node.node_kind), castFold: new Map() });
+    return new SurvivorMap({ nodes, out, bookKind: node => string(node.node_kind), castFold: new Map(), apart });
 }

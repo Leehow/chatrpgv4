@@ -199,9 +199,13 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
         if (top.length === 1) rowOf.set(index, top[0]!.at);
     });
     const into = people.map((_, index) => index), joins = new Map<number, number>();
+    // §191.3 (lead ruling 2026-10-07): a recorded `different` verdict between any nodes of two people beats this name rule.
+    const apart = (a: CastPerson, b: CastPerson): boolean => a.nodes.some(x => b.nodes.some(y => graph.isApart(string(x.node_id), string(y.node_id))));
     rows.forEach((_, at) => {
         const members = people.flatMap((_, index) => rowOf.get(index) === at ? [index] : []);
         if (!members.length) return;
+        // The row makes nobody one when two of them are kept apart: it is then a row two different people answer (below).
+        if (members.some((index, n) => members.slice(n + 1).some(other => apart(people[index]!, people[other]!)))) return;
         for (const index of members.slice(1)) into[index] = members[0]!;
         joins.set(at, members[0]!);
     });

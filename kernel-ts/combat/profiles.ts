@@ -230,7 +230,7 @@ export function combatOperationFor(graph: ModuleGraph, scene: Row, npcHandle: st
 export function combatOperationDestinations(graph: ModuleGraph, world: Row, scene: Row, npcHandle: string, weapon: Row | string | null): Row[] {
     const result: Row[] = [];
     for (const exit of graph.sceneExits(scene)) {
-        if (truth(exit.when) && conditionStatus(exit.when, world) !== true)
+        if (truth(exit.when) && conditionStatus(exit.when, world, graph) !== true)
             continue;
         const destination = graph.sceneByHandle(string(exit.to));
         if (!destination)

@@ -196,7 +196,7 @@ export function chaseLocationChain(context: SettleContext): Row[] {
             barrier: null
         }];
     for (const exit of graph.sceneExits(scene)) {
-        if (truth(exit.when) && !conditionMet(exit.when, context.world))
+        if (truth(exit.when) && !conditionMet(exit.when, context.world, graph))
             continue;
         if (chain.length >= DEFAULT_LOCATION_COUNT)
             break;
