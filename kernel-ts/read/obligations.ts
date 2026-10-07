@@ -50,11 +50,19 @@ export function obligationNodes(graph: ModuleGraph, scene: Row | null): Row[] {
         .map((node, index) => ({ node, index, depth: afterDepth(graph, node) }))
         .sort((a, b) => a.depth - b.depth || a.index - b.index).map(entry => entry.node);
 }
-/** The stated obligation a handle (or node id) names, or null. */
+/**
+ * The stated obligation a reference names, or null. Contract §188.4: its handle or node id as written, else what
+ * `ModuleGraph.resolve` reads it as -- a stored handle from before a fold, the requirement's name, §2's anchored run, §185.3's
+ * retry -- compared as the node it is. A name two requirements share, and one that is no stated obligation, name none.
+ */
 export function obligationByHandle(graph: ModuleGraph, name: any): Row | null {
     if (!text(name))
         return null;
-    return statedObligations(graph).find(node => node.node_id === name || graph.handle(node) === name.trim()) ?? null;
+    const stated = statedObligations(graph), exact = stated.find(node => node.node_id === name || graph.handle(node) === name.trim());
+    if (exact)
+        return exact;
+    const node = graph.find(name.trim(), ["requirement"]);
+    return node && stated.some(value => value.node_id === node.node_id) ? node : null;
 }
 /** §134.9: a meeting is met when the person sits in the obligation's scene and the table has introduced them. */
 export function meetingMet(graph: ModuleGraph, world: Row, node: Row, npcId: any): boolean {

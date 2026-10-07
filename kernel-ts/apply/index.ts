@@ -32,7 +32,7 @@ import { effectIntent } from './intent.js';
 import { armDrawn } from './draw.js';
 import type {MaterialGate,TextLanding} from '../modules/reading.js';
 import {stagePerson} from './person.js';
-import {personNode} from '../read/capsule.js';
+import {calledPerson,personNode} from '../read/capsule.js';
 import {castPersonNamed, newcomerRefusal} from '../read/cast.js';
 import {presentArrivalMaps,revealMap} from '../read/maps.js';
 import {stageItem,stageCash,commitInventorySheets} from './inventory.js';
@@ -139,7 +139,11 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const names = seated.map(effect => {
                 const name = effect[authored[string(effect.kind)]];
                 if (typeof name !== 'string') return name;
-                const node = ['handout','map'].includes(string(effect.kind)) ? graph.find(name, ['handout']) ?? graph.find(name, ['asset']) : graph.find(name, kinds[string(effect.kind)]);
+                // §188.4 (§87.8): an `npc` effect's person is read by the junction, so a person this table calls by its own
+                // word meets the gate as the book's person it is; a word two people carry is left to `apply npc`'s refusal.
+                let person: Row | null = null;
+                if (effect.kind === 'npc') try { person = graph.find(name, ['npc']) ?? calledPerson(graph, transaction.world, name); } catch { person = null; }
+                const node = person ?? (['handout','map'].includes(string(effect.kind)) ? graph.find(name, ['handout']) ?? graph.find(name, ['asset']) : graph.find(name, kinds[string(effect.kind)]));
                 return node?.node_id ?? name;
             });
             if (playsFromReading(module.meta) && (!contributions.requireMaterial || !contributions.materialReady))

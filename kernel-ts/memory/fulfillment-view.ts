@@ -17,6 +17,13 @@ export interface PromiseTermsBinding {
     conditionReceipts:string[];coverage:{complete:true;used:SourceRef[];omitted:[]};digest:string;
 }
 export interface FulfillmentSelection {binding:PromiseTermsBinding;effects:Array<{effect:number;term:number;amountSource?:SourceRef}>}
+/**
+ * §188.4: whether a cash receipt's stored counterparty (`with`) is the term's payer. This module reads no graph, so a caller
+ * that has one passes the junction's identity comparison (`samePersonReference`, kernel-ts/read/capsule.ts); without one the
+ * stored string is compared, as before.
+ */
+export type SamePayer=(stored:unknown,payer:string)=>boolean;
+const sameSpelling:SamePayer=(stored,payer)=>stored===payer;
 export interface PromiseFulfillmentView {status:'open'|'partial'|'complete';terms:Array<Row>}
 const ZERO:Decimal={coefficient:0n,exponent:0};
 const fail=(reason:string,message:string):never=>{throw new RpcError('needs',message,{details:{reason}});};
@@ -79,11 +86,11 @@ function linkBinding(link:Row):PromiseTermsBinding {
     const binding={version:link.version,promiseId:link.promise,promiseRefs:link.promise_source_refs,scope:link.scope,terms:link.terms,digest:link.terms_digest} as PromiseTermsBinding;
     validateFulfillmentTerms(binding,false);return binding;
 }
-export function fulfillmentReceiptAmount(receipt:Row,term:PromiseTerm,link?:Row):Decimal {
+export function fulfillmentReceiptAmount(receipt:Row,term:PromiseTerm,link?:Row,samePayer:SamePayer=sameSpelling):Decimal {
     if(!text(receipt.id)||!text(receipt.call_id)||receipt.subject!==term.beneficiary) return fail('fulfillment_receipt_invalid','The canonical effect receipt has a different beneficiary');
     let value:Decimal|null;
     if(term.kind==='cash') {
-        if(receipt.kind!=='cash'||receipt.currency!==term.currency||receipt.with!==term.payer||receipt.settlement==='spending_level')
+        if(receipt.kind!=='cash'||receipt.currency!==term.currency||!samePayer(receipt.with,term.payer)||receipt.settlement==='spending_level')
             return fail('fulfillment_receipt_invalid','The canonical cash receipt has a different currency, source or settlement');
         value=cashDecimal(receipt.delta);
         const before=cashDecimal(receipt.before),after=cashDecimal(receipt.after);
@@ -105,7 +112,7 @@ export function fulfillmentReceiptAmount(receipt:Row,term:PromiseTerm,link?:Row)
     return value;
 }
 /** Rebuild from receipts only. No memory row or auxiliary fulfillment counter is changed. */
-export function derivePromiseFulfillment(promiseId:string,receipts:readonly Row[],expected?:PromiseTermsBinding|{scope:PromiseScope;promiseRefs?:SourceRef[]}):PromiseFulfillmentView {
+export function derivePromiseFulfillment(promiseId:string,receipts:readonly Row[],expected?:PromiseTermsBinding|{scope:PromiseScope;promiseRefs?:SourceRef[]},samePayer:SamePayer=sameSpelling):PromiseFulfillmentView {
     let binding=expected&&'terms' in expected?expected:undefined;
     if(binding) validateFulfillmentTerms(binding,false);
     const seen=new Map<string,Row>(),totals=new Map<number,Decimal>(),knownReceipts=new Set(receipts.map(receipt=>receipt.id));
@@ -124,7 +131,7 @@ export function derivePromiseFulfillment(promiseId:string,receipts:readonly Row[
         const previous=seen.get(receipt.id);
         if(previous) {if(!same(previous,receipt)) return fail('fulfillment_receipt_invalid','Duplicate receipt identity has different effect data');continue;}
         seen.set(receipt.id,receipt);
-        const value=fulfillmentReceiptAmount(receipt,binding.terms[link.term],link);
+        const value=fulfillmentReceiptAmount(receipt,binding.terms[link.term],link,samePayer);
         totals.set(link.term,addCash(totals.get(link.term)??ZERO,value));
     }
     if(!binding) return {status:'open',terms:[]};
