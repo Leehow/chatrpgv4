@@ -9,10 +9,13 @@ import {forcedResolution, scoreText, type ForcedResolution} from './forced-resol
  * a world turn, and `forced` records what was uncertain and why.
  */
 export type InteractionMode = 'world' | 'reference';
+/** This enables a read-only outcome check; execution authority keeps its own higher gates. */
+export const DOCUMENT_RECORDING_INTENT_MIN = .8;
 export interface InteractionScope {
   mode: InteractionMode;
   worldAction?: number;
   systemRequest?: number;
+  documentRecording?: number;
   reason: string;
   calls: number;
   forced?: {uncertain: string[]; why: 'below_confidence_gate' | 'jev_unanswered'};
@@ -43,23 +46,32 @@ export function interactionScopeBatch(message: string, previous: Json, scope: Sc
       instructions: 'Is the user asking the Keeper or system as an information assistant, rather than speaking or acting as the investigator toward fictional characters? '
         + 'A request to explain, consult sources or discuss the game without advancing fiction is addressed to the assistant even when an NPC is present.',
       criteria: {true: 'An out-of-fiction answer or reference lookup is requested.', false: 'This is only an in-fiction action or speech.'}},
+    {key: 'physical_document_recording', target: 'a current physical recording by the player-controlled investigator', type: 'noul',
+      instructions: 'Does the current user choose a physical writing or copying action by their investigator in a document? '
+        + 'Judge the choice to record now, not whether it can be executed, whether the carrier is registered or whether exact characters are supplied. '
+        + 'A first-person declaration of copying readable text counts, including a mixed request to write and then read it back or ask someone to check it. '
+        + 'Reading existing writing, a mental note, a quoted question without a recording action, hypothetical writing and out-of-fiction requests do not qualify. '
+        + 'Previous dialogue may resolve a short reference, but must not supply an old writing action the user did not continue. Do not choose a carrier, text or outcome.',
+      criteria: {true: 'The investigator is directed to physically record something in their held document now.',
+        false: 'No such current physical recording is directed.'}},
   ];
   return {id: createHash('sha256').update(JSON.stringify([state, scope])).digest('hex'), model: JEV_MODEL,
-    family: 'interaction-scope', familyVersion: '2', scope, readSet: [], state, questions};
+    family: 'interaction-scope', familyVersion: '4', scope, readSet: [], state, questions};
 }
 
 export function interpretInteractionScope(result: DecisionResult | undefined, calls = 1): InteractionScope {
   const read = (key: string): number | undefined => {
     const answer = result?.answers[key];
-    return result?.status === 'complete' && answer?.status === 'answered' && answer.type === 'noul'
-      && Number.isFinite(answer.noul) ? answer.noul : undefined;
+    return result?.status !== 'unavailable' && answer?.status === 'answered' && answer.type === 'noul'
+      && Number.isFinite(answer.noul) && answer.noul >= 0 && answer.noul <= 1 ? answer.noul : undefined;
   };
   const worldAction = read('world_action'), systemRequest = read('system_request');
-  const scores = {worldAction, systemRequest, calls};
+  const documentRecording = read('physical_document_recording');
+  const scores = {worldAction, systemRequest, calls, ...(documentRecording === undefined ? {} : {documentRecording})};
   if (worldAction !== undefined && worldAction >= 0.8) return {...scores, mode: 'world', reason: 'world_action_authorized'};
   if (worldAction !== undefined && worldAction <= 0.35 && systemRequest !== undefined && systemRequest >= 0.8)
     return {...scores, mode: 'reference', reason: 'out_of_fiction_request'};
-  const answered = result?.status === 'complete' && worldAction !== undefined && systemRequest !== undefined;
+  const answered = worldAction !== undefined && systemRequest !== undefined;
   return {...scores, mode: 'world', reason: answered ? 'scope_unclear' : 'scope_unavailable',
     forced: {uncertain: [`world action ${scoreText(worldAction)}`, `out-of-fiction request ${scoreText(systemRequest)}`],
       why: answered ? 'below_confidence_gate' : 'jev_unanswered'}};

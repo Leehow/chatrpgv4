@@ -560,6 +560,7 @@ interface RunState {
   steer?: Row;
   /** §163.9: close at the next policy boundary so a queued forced-choice repair precedes another Keeper proposal. */
   forceTurnClose?: boolean;
+  forceTurnCloseReason?: string;
   /**
    * §135.6 (SL-22 addendum): the run's previous read, by scene, with the prescreen outcome it ran or reused (absent when it
    * ran none): reuse requires the same scene, source evidence and player need; read_more refreshes it. The packet excludes issued bodies.
@@ -1108,6 +1109,28 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           const issued = await readCandidateBodies({candidates: fresh.candidates, capsule, call}).catch(() => undefined);
           if (invocation.signal.aborted || run.checkInputsClosed || currentRunId !== run.runId) { run.checkInputs?.clear(); throw new ContractError('check_catalog_binding_changed'); }
           packet = withIssuedBodies(packet, issued);
+          let sourcePresenceMetadata: Row = {status: 'packet_missing'};
+          if (packet) {
+            try {
+              const serialized = object(JSON.parse(String(packet.content))), bodies = object(serialized.issued).bodies;
+              if (!Array.isArray(bodies)) sourcePresenceMetadata = {status: 'issued_bodies_missing'};
+              else {
+                const references = bodies.map(object).filter(entry => entry.family === 'source_presence');
+                const presentKeys = (value: Row) => Object.keys(value).filter(key => value[key] != null);
+                sourcePresenceMetadata = {status: 'serialized_packet', total: references.length, count: Math.min(references.length, 8),
+                  omitted: Math.max(0, references.length - 8), reference_only_count: references.filter(entry => entry.reference_only === true).length,
+                  entries: references.slice(0, 8).map(entry => {
+                    const body = object(entry.body), behavior = object(body.behavior), runtime = object(body.runtime_reference), wants = behavior.wants;
+                    return {reference_only: entry.reference_only === true, reference_only_missing: entry.reference_only == null,
+                      behavior_keys: presentKeys(behavior), behavior_missing: body.behavior == null,
+                      runtime_reference_keys: presentKeys(runtime), runtime_reference_missing: body.runtime_reference == null,
+                      knowledge_count: Array.isArray(behavior.knowledge) ? behavior.knowledge.length : null, knowledge_missing: behavior.knowledge == null,
+                      wants_bytes: wants == null ? null : Buffer.byteLength(typeof wants === 'string' ? wants : JSON.stringify(wants), 'utf8'), wants_missing: wants == null,
+                      truncated: entry.truncated === true, omitted_fields: array(entry.omitted_fields).filter(value => typeof value === 'string')};
+                  })};
+              }
+            } catch { sourcePresenceMetadata = {status: 'packet_parse_failed'}; }
+          }
           // §135.31: a person whose card went to the Keeper as an issued body is not carried again this run.
           for (const entry of issued?.bodies ?? []) if (entry.family === 'person') for (const name of [entry.name, text(entry.body.id)]) if (name) run.shown.people.add(name);
           if (packet && table.binding && bridge?.campaign)
@@ -1115,8 +1138,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           const ms = stepNow() - began;
           record({lane: 'run', event: 'read', run: run.runId, stepId: invocation.stepId, ms, scene: table.context.scene,
             candidates: fresh.candidates.map(candidate => candidate.key), prescreen,
-            ...(issued ? {bodies: {count: issued.bodies.length, bytes: issued.bytes, reads: issued.reads, ms: issued.ms,
-              truncated: issued.bodies.filter(entry => entry.truncated).length, omitted: issued.omitted.map(entry => `${entry.key}:${entry.reason}`)}} : {})});
+            bodies: {...(issued ? {count: issued.bodies.length, bytes: issued.bytes, reads: issued.reads, ms: issued.ms,
+              truncated: issued.bodies.filter(entry => entry.truncated).length, omitted: issued.omitted.map(entry => `${entry.key}:${entry.reason}`)} : {}),
+              source_presence: sourcePresenceMetadata}});
           // SL-76 (§135.32, §135.3.1): this read's D1 candidates are kept for the turn-close route, never asked
           // here. A read is not a decision (§135.6, SL-22), and the run's own route/compile/bind Jev calls stay
           // exactly what they were before SL-76 -- a mid-read consequence call was found, live-gate style, to move
@@ -1198,6 +1222,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       ? await proposeStep(run, proposal.toolCall.id, object(proposal.params).key, stepId) : undefined;
     if (proposal.operation === 'lookup' && object(proposal.params).kind === 'historical_reference') run.historyAttempted = true;
     const toolResult = await execute();
+    // This narrow final-outcome refusal uses the existing turn-close steer, not a new batch adjudication/rewrite loop.
+    if (object(object(toolResult.details).coc_error).details?.reason === 'refused_document_outcome') {
+      run.forceTurnClose = true; run.forceTurnCloseReason = 'refused_document_outcome';
+    }
     if (!toolResult.isError && proposal.operation === 'lookup' && object(proposal.params).kind === 'historical_reference'
       && object(object(toolResult.details).retrieval).state === 'closed' && run.history && !run.history.closed) {
       run.history.closed = true;
@@ -1235,6 +1263,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       fresh = refreshed?.fresh;
     }
     const returnedIds = new Set(array(object(toolResult.details).receipts).filter(value => typeof value === 'string'));
+    // A failed embedded delivery can return committed effects; retain that receipt boundary across later inferences.
+    const modelRefusal = toolResult.isError && WRITE_VERBS.has(proposal.operation) ? {
+      origin: 'model', proposed: structuredClone(object(proposal.params)), model_write_receipts: [...returnedIds],
+      returned_receipts: returnedIds.size, not_landed: returnedIds.size === 0,
+      coc_error: Object.keys(object(toolResult.details?.coc_error)).length ? structuredClone(toolResult.details.coc_error) : null,
+    } : undefined;
     const proposedMoves = array(object(proposal.params).effects).filter(effect => object(effect).kind === 'move');
     const returnedMoves = (refreshed?.receipts ?? []).filter(receipt => returnedIds.has(receipt.id) && receipt.kind === 'move');
     const ordinaryMoves = proposal.origin === 'model' && proposal.operation === 'apply' && proposedMoves.length === returnedMoves.length
@@ -1262,6 +1296,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     return {status: toolResult.isError ? 'refused' as const : 'ok' as const, toolResult, ...(delivery ? {delivery} : {}),
       artifact: {kind: 'execute', executed: {ok: !toolResult.isError, summary: {tool: proposal.operation, ...(queued ? {proposed: queued.key} : {}),
+        ...(modelRefusal ?? {}),
         ...(canonicalMove ? {canonical_move: canonicalMove} : {})}},
         ...(fresh ? {fresh} : {}), ...(fell ? {fell} : {}), ...(narrowed ? {narrator: true} : {}), ...(queued && !toolResult.isError ? {proposed: queued} : {})}};
   }
@@ -2014,6 +2049,22 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const head = !run.headShown;
     const content: Row = {kind: 'single_loop_step', ...(head ? {head: CLERK_NOTE_HEAD} : {}), purpose: step.purpose, reason: step.reason};
     const observations = array(view.policyState.view.observations);
+    const modelRefused = observations.filter(value => (step.purpose === 'adjudicate' || step.purpose === 'compose')
+      && value.kind === 'direct' && value.purpose === 'execute' && value.status === 'refused')
+      .flatMap(value => {
+        const result = object(object(value.summary).result);
+        return result.origin === 'model' && WRITE_VERBS.has(text(result.tool)) ? [{origin: 'model', operation: result.tool,
+          proposed: result.proposed, coc_error: result.coc_error, not_landed: result.not_landed,
+          returned_receipts: array(result.model_write_receipts).length}] : [];
+      });
+    if (modelRefused.length) Object.assign(content, {model_refused: modelRefused,
+      model_refused_note: 'These original model-origin world-tool calls returned errors. Their proposed arguments are not successful results. '
+        + 'Entries marked not_landed returned no committed receipts: do not narrate those writes as completed. '
+        + 'Entries with returned receipts already committed effects even though the tool failed; preserve the actual receipts and do not resend that whole write. '
+        + 'Read each canonical coc_error and its fix. change_input means repair tool arguments, not withdraw an already chosen player action. '
+        + 'Use the existing world-parameter owner and normal admission for any permitted correction of the same target and method; this note grants no retry or correction allowance. '
+        + 'A later successful correction is settled only by its own receipts; these entries describe the original failed calls. '
+        + 'Do not redo committed effects or replace host-owned check/time selection. A successful inference or turn-close steer does not settle a failed world tool.'});
     const held = [...observations].reverse().find(value => value.kind === 'decide'
       && value.purpose === 'route' && value.reason === 'destination_binding_unresolved');
     // Independent authority may have failed before this handoff; its refusal does not erase the held batch.
@@ -2030,7 +2081,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     run.interactionScope = view.policyState.view.interactionScope ?? run.interactionScope;
     if (run.interactionScope && bridge?.campaign && run.turn !== undefined) {
       api?.events?.emit?.('coc:interaction-scope', {campaign: bridge.campaign, turn: run.turn, run: run.runId,
-        player_text: run.rawInput, mode: run.interactionScope.mode});
+        player_text: run.rawInput, mode: run.interactionScope.mode,
+        ...(run.interactionScope.documentRecording === undefined ? {} : {documentRecording:run.interactionScope.documentRecording})});
       if (run.interactionScope.mode === 'reference') Object.assign(content, {interaction_scope: 'reference', interaction_scope_note: REFERENCE_SCOPE_NOTE});
     }
     run.unresolvedAttack = view.policyState?.view?.fightDeclared === true && view.policyState?.view?.fightLanded !== true;
@@ -2237,7 +2289,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (shown) content.carried = shown;
     const messages: Row[] = [];
     // Nothing new to say: no message (§135.8) -- except the run's first note, whose head is something to say (§135.11.2).
-    if (head || unseen.length || preparations.length || Object.keys(content).length > base || fresh.length) {
+    if (head || unseen.length || preparations.length || Object.keys(content).length > base || fresh.length || modelRefused.length) {
       messages.push({role: 'custom', customType: CLERK_TYPE, content: JSON.stringify(content), display: false,
         details: {coc_host: true, run: run.runId, step: stepId, ...(run.turn !== undefined ? {turn: run.turn} : {})}, timestamp: Date.now()});
       run.headShown = true;
@@ -2258,7 +2310,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       if (forceTurnClose) {
         run.forceTurnClose = undefined;
         record({lane: 'run', event: 'turn_close_forced', run: run.runId, turn: run.turn, step: `${run.runId}:s${driver.steps + 1}`,
-          reason: 'forced_choice_repair'});
+          reason: run.forceTurnCloseReason ?? 'forced_choice_repair'});
+        run.forceTurnCloseReason = undefined;
       }
       const request: DriverStepRequest = forceTurnClose
         ? {kind: 'operate', reason: 'turn_close', proposals: [{origin: 'policy', operation: 'turn_close', readOnly: false, label: 'close the turn'}]}

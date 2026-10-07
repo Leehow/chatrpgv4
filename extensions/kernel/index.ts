@@ -6,7 +6,8 @@ import {decimalSpelling} from '../../shared/cash-decimal.js';
 import {preparePriceArguments} from './price-arguments.ts';
 import {patchCard} from "../table/card-patch.ts";
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
-import {permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
+import {RefusedDocumentOutcome, REFUSED_DOCUMENT_OUTCOME_FAMILY, REFUSED_DOCUMENT_OUTCOME_REASON, documentOutcomeDigest, type DocumentOutcomeVerdict} from '../../runtime/jev/refused-document-outcome.ts';
+import {DOCUMENT_RECORDING_INTENT_MIN, permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
 /**
  * The pi-coc kernel extension: it starts the Python kernel, wires the seven verbs onto RPC,
  * and mirrors the turn state machine on the extension side. Responsibilities in
@@ -530,6 +531,9 @@ interface TableState {
 	/** Contract §78: an effect in this message was refused while the delivery behind it was still
 	 * pending. Read by the `narrate` call that follows, once. */
 	effectRefusedBeforeDelivery?: boolean;
+  documentWorldline?: string;
+  documentRecording?: number;
+  documentRecordingSettlement?: {turn:number;worldline?:string;playerText:string;name:string;version:string;receipts:string[];suffixHash:string};
 	/** Contract §78: each ordering refusal is spent once per turn, like §34.17's, so a Keeper that
 	 * writes the same shape again is never left unable to deliver at all. */
 	deliveryOrderRefused?: boolean;
@@ -1479,6 +1483,8 @@ export default function (pi: ExtensionAPI) {
 		if (!table || value?.campaign !== table.campaign || value.turn !== table.turn
 			|| value.player_text !== table.playerText || !['world', 'reference'].includes(value.mode)) return;
 		table.interactionScope = value.mode;
+    table.documentRecording = typeof value.documentRecording === 'number' && Number.isFinite(value.documentRecording)
+      && value.documentRecording >= 0 && value.documentRecording <= 1 ? value.documentRecording : undefined;
 	});
 	pi.events.on('coc:forced-player-choice-cue', (value: unknown) => {
 		const state = table, data = value && typeof value === 'object' ? value as Record<string, unknown> : undefined;
@@ -1755,9 +1761,15 @@ export default function (pi: ExtensionAPI) {
 	 */
 	function takeTurnCloseSteer(state: TableState): { kind: string; text: string } | { none: string } {
 		if (state.closedThisRun || state.renderedText) return { none: "delivered" };
+    if (refusedDocuments.get(state)?.terminal) return {none: 'refused_document_unconfirmed'};
 		if (state.reviewUnavailable) return { none: "review_unavailable" };
 		if (state.runAbandoned) return { none: "run_abandoned" };
 		if (state.steeredThisTurn) return { none: "steer_spent" };
+    if (state.deliveryFix?.kind === REFUSED_DOCUMENT_OUTCOME_REASON) {
+      const fix = state.deliveryFix; state.deliveryFix = undefined; state.steeredThisTurn = true;
+      refusedDocuments.get(state)?.issuedCorrection();
+      return {kind: fix.kind, text: fix.text};
+    }
 		if (state.preparationWait) {
 			state.steeredThisTurn = true;
 			const kind = `${state.preparationWait.kind}-wait`;
@@ -2949,14 +2961,107 @@ export default function (pi: ExtensionAPI) {
 		};
 	}
 
-	async function bindAppendArguments(state: TableState, payload: Record<string, unknown>, signal?: AbortSignal, parent?: TaskProviderBudget): Promise<void> {
+  const refusedDocuments = new WeakMap<TableState, RefusedDocumentOutcome>();
+  type BoundAppend = {name: string; version: string; originalText: string; actualBoundSuffix: string; proposedName: string; turn:number; worldline?:string; playerText:string};
+  async function guardRefusedDocumentDelivery(state: TableState, draft: string, signal?: AbortSignal, parent?: TaskProviderBudget): Promise<void> {
+    let boundary = refusedDocuments.get(state), basis = boundary?.basis;
+    if (basis?.kind === 'selected_no_write' || (!basis && state.interactionScope === 'world' && state.documentRecording !== undefined && state.documentRecording >= DOCUMENT_RECORDING_INTENT_MIN)) {
+      const turn = state.turn, playerText = state.playerText, worldline = state.documentWorldline;
+      const same = () => table === state && state.turn === turn && state.playerText === playerText && state.documentWorldline === worldline
+        && !state.lanes.signal.aborted && !signal?.aborted;
+      const unconfirmed = async () => {
+        if (!same()) throw new KernelError({code:'revision_conflict',message:'The recording input changed',details:{reason:'refused_document_outcome_stale'}});
+        await record({lane:'document_recording_intent',turn,probability:state.documentRecording,status:'unconfirmed'});
+        if (!same()) throw new KernelError({code:'revision_conflict',message:'The recording input changed',details:{reason:'refused_document_outcome_stale'}});
+        if (!same()) throw new KernelError({code:'revision_conflict',message:'The recording input changed',details:{reason:'refused_document_outcome_stale'}});
+        boundary ??= new RefusedDocumentOutcome(); boundary.terminal = true; refusedDocuments.set(state,boundary);
+        state.deliveryFix = undefined; state.floorDraft = undefined; scheduleTurnUnfinishedNotice(state,turn);
+        throw new KernelError({code:'needs',message:'The selected recording has no confirmed writing outcome',
+          fix:'Stop unconfirmed and preserve all settled effects. Do not assert a completed recording or rewrite again.',
+          details:{reason:REFUSED_DOCUMENT_OUTCOME_REASON,outcome:'terminal'}});
+      };
+      try {
+        if (!playerText || !worldline || state.interactionScope !== 'world') return await unconfirmed();
+        if (basis && (basis.turn !== turn || basis.worldline !== worldline || basis.playerText !== playerText))
+          throw new KernelError({code:'revision_conflict',message:'The recording input changed',details:{reason:'refused_document_outcome_stale'}});
+        const actual = await state.kernel.call<{turn:number;receipts:Array<Record<string,unknown>>}>('table.status',
+          {campaign:state.campaign,projection:'receipts',expected_turn:turn});
+        if (!same()) throw new KernelError({code:'revision_conflict',message:'The recording input changed',details:{reason:'refused_document_outcome_stale'}});
+        if (actual.turn !== turn || !Array.isArray(actual.receipts) || actual.receipts.some(value=>!value || typeof value.kind!=='string'
+          || value.unknown===true || value.partial===true || value.status==='unknown')) return await unconfirmed();
+        const options = await state.kernel.call<{actor:string|null;documents:DocumentCandidate[]}>('mods.document.options',{campaign:state.campaign});
+        if (!same()) throw new KernelError({code:'revision_conflict',message:'The recording input changed',details:{reason:'refused_document_outcome_stale'}});
+        const settled = state.documentRecordingSettlement;
+        if (settled?.turn===turn && settled.worldline===worldline && settled.playerText===playerText && settled.suffixHash
+          && actual.receipts.some(value=>settled.receipts.includes(String(value.id))&&value.document_changed===true&&value.name===settled.name)
+          && options.documents?.some(value=>value.name===settled.name&&value.version===settled.version)) { boundary?.settleSelected(); return; }
+        if (boundary?.terminal || actual.receipts.some(value=>value.document_changed===true) || !options.actor || !Array.isArray(options.documents)) return await unconfirmed();
+        boundary ??= new RefusedDocumentOutcome(); refusedDocuments.set(state,boundary);
+        if (!basis) {
+          boundary.arm({kind:'selected_no_write',campaign:state.campaign,worldline,turn,playerText,writer:options.actor,
+            catalog:options.documents.map(value=>({name:value.name,version:value.version}))}); basis=boundary.basis;
+          await record({lane:'document_recording_intent',turn,probability:state.documentRecording,status:'selected_no_write',
+            basis_hash:basis?documentOutcomeDigest(basis):null});
+        }
+        if (!same()) throw new KernelError({code:'revision_conflict',message:'The recording input changed',details:{reason:'refused_document_outcome_stale'}});
+      } catch(error) {
+        if (isKernelError(error) && [REFUSED_DOCUMENT_OUTCOME_REASON,'refused_document_outcome_stale'].includes(String(error.details?.reason))) throw error;
+        return await unconfirmed();
+      }
+    }
+    if (!boundary || !basis) return;
+    const turn = state.turn, worldline = state.documentWorldline;
+    const current = async () => {
+      if (table !== state || state.turn !== turn || state.documentWorldline !== worldline || state.playerText !== basis.playerText
+        || refusedDocuments.get(state) !== boundary || state.lanes.signal.aborted || signal?.aborted) return false;
+      const options = await state.kernel.call<{documents: DocumentCandidate[]}>('mods.document.options', {campaign: state.campaign});
+      return table === state && state.turn === turn && state.documentWorldline === worldline
+        && !state.lanes.signal.aborted && !signal?.aborted
+        && (basis.carrier ? options.documents.some(value => value.name === basis.carrier!.name && value.version === basis.carrier!.version)
+          : documentOutcomeDigest(options.documents.map(value=>({name:value.name,version:value.version}))) === documentOutcomeDigest(basis.catalog));
+    };
+    let result: DocumentOutcomeVerdict;
+    try { result = await boundary.check({draft, current, signal: signal ? AbortSignal.any([signal, state.lanes.signal]) : state.lanes.signal,
+      deadlineAt: parent?.deadlineAt, correctionAvailable: !state.steeredThisTurn,
+      decision: createDecisionAdapter({retryPolicies: {[REFUSED_DOCUMENT_OUTCOME_FAMILY]: {maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000}}})}); }
+    catch { boundary.terminal = true; result = {status:'terminal',reason:'outcome_validation_unavailable',attempt:boundary.attempts,
+      basisHash:documentOutcomeDigest(basis),draftHash:documentOutcomeDigest(draft)}; }
+    const sameInput = () => table === state && state.turn === turn && state.documentWorldline === worldline && state.playerText === basis.playerText
+      && refusedDocuments.get(state) === boundary && !state.lanes.signal.aborted && !signal?.aborted;
+    if (!sameInput()) throw new KernelError({code:'revision_conflict',message:'The document delivery input changed',details:{reason:'refused_document_outcome_stale'}});
+    if (!boundary.basis) return;
+    if ((result.status === 'stale' && boundary.basis === basis) || (result.status === 'steer' && state.steeredThisTurn)) {
+      boundary.terminal = true; result = {...result,status:'terminal',reason:'outcome_binding_unconfirmed'};
+    }
+    await record({lane: 'refused_document_outcome', turn, status: result.status, reason: result.reason, attempt: result.attempt,
+      basis_hash: result.basisHash ?? null, draft_hash: result.draftHash ?? null, probability: result.probability ?? null});
+    if (!sameInput()) throw new KernelError({code:'revision_conflict',message:'The document delivery input changed',details:{reason:'refused_document_outcome_stale'}});
+    if (result.status === 'clean' || result.status === 'inactive') return;
+    if (result.status === 'stale') throw new KernelError({code: 'revision_conflict', message: 'The refused-document delivery binding changed', details: {reason: 'refused_document_outcome_stale'}});
+    if (result.status === 'steer') state.deliveryFix = {kind: REFUSED_DOCUMENT_OUTCOME_REASON,
+      text: (basis.kind==='selected_no_write' ? 'The player selected a physical recording, but no writing receipt confirms it; no canonical refusal is claimed. '
+        : 'The document recording was refused before any writing landed. ')
+        + 'Correct only the claim that this recording was completed; preserve every settled event and the original player declaration. Do not invent text, a new carrier, a new authorization or another operation to reconcile it. Deliver a truthful outcome once with narrate or ask.'};
+    else { state.deliveryFix = undefined; state.floorDraft = undefined; scheduleTurnUnfinishedNotice(state, turn); }
+    throw new KernelError({code: 'needs', message: 'The selected document recording has no confirmed final outcome',
+      fix: result.status === 'steer' ? 'The existing turn-close steer owns the one targeted correction; do not retry this draft.' : 'Stop this input unconfirmed; preserve all settled effects and do not rewrite again.',
+      details: {reason: REFUSED_DOCUMENT_OUTCOME_REASON, outcome: result.status}});
+  }
+	async function bindAppendArguments(state: TableState, payload: Record<string, unknown>, signal?: AbortSignal, parent?: TaskProviderBudget, modelOrigin = false): Promise<BoundAppend[]> {
 		const effects = Array.isArray(payload.effects) ? payload.effects as Array<Record<string, any>> : [];
 		const edits = effects.filter(effect => effect?.kind === 'object' && effect.document?.action === 'append' && typeof effect.document.text === 'string');
-		if (!edits.length || !state.playerText) return;
+		if (!edits.length || !state.playerText) return [];
+		const bindingTurn = state.turn, bindingPlayerText = state.playerText, bindingWorldline = state.documentWorldline;
+    const currentBinding = () => table === state && state.turn === bindingTurn && state.playerText === bindingPlayerText
+      && state.documentWorldline === bindingWorldline && !state.lanes.signal.aborted && !signal?.aborted;
+    const requireCurrentBinding = () => {
+      if (!currentBinding()) throw new KernelError({code:'revision_conflict',message:'The document input changed',details:{reason:'refused_document_outcome_stale'}});
+    };
 		const options = await state.kernel.call<{actor:string|null;documents:DocumentCandidate[];known:Array<{query:string;actor_owned:boolean|null}>}>('mods.document.options',
 			{campaign:state.campaign,names:edits.map(effect=>effect.name)});
+    requireCurrentBinding();
 		const normalize = (value: unknown) => typeof value === 'string' ? value.normalize('NFKC').trim().toLowerCase() : '';
-		const pending:Array<{effect:Record<string,any>;result:Extract<Awaited<ReturnType<typeof bindDocumentAppend>>,{status:'bound'}>}>=[];
+		const pending:Array<{effect:Record<string,any>;originalText:string;proposedName:string;turn:number;worldline?:string;playerText:string;result:Extract<Awaited<ReturnType<typeof bindDocumentAppend>>,{status:'bound'}>}>=[];
 		for (const effect of edits) {
 			// Known other-owner carriers and canonical multi-investigator operations retain ordinary validation.
 			if (options.known?.some(item=>item.query===effect.name&&item.actor_owned!==true)) continue;
@@ -2985,9 +3090,25 @@ export default function (pi: ExtensionAPI) {
 					? {target:result.document.name,text_origin:result.origin,target_probability:result.targetProbability,content_probability:result.contentProbability,content_confidence:result.contentConfidence,
 						execution_probability:result.executionProbability,execution_confidence:result.executionConfidence}
 					: {reason:result.reason,judgements:result.judgements})});
-				if (result.status !== 'bound') throw new KernelError({code:'needs',message:'The existing document addition could not be bound unambiguously',
+        requireCurrentBinding();
+				if (result.status !== 'bound') {
+          // This producer precedes the atomic kernel write. A leading carrier is retained only for identity tracking, never execution authority.
+          const ranked = options.documents.map((document, index) => ({document, p: result.judgements?.[`document_${index}`]?.probability ?? -1})).sort((a,b) => b.p-a.p);
+          if (modelOrigin && edits.length === 1 && bindingWorldline) {
+            const actual = await state.kernel.call<{turn:number}>('table.status', {campaign:state.campaign,projection:'receipts',expected_turn:bindingTurn});
+            requireCurrentBinding();
+            if (actual.turn === bindingTurn) {
+              const boundary = refusedDocuments.get(state) ?? new RefusedDocumentOutcome(); refusedDocuments.set(state,boundary);
+              boundary.arm({campaign:state.campaign,worldline:bindingWorldline,turn:bindingTurn,playerText:bindingPlayerText,writer:options.actor,
+                name:effect.name,text:effect.document.text,cause:result.reason,catalog:options.documents.map(value=>({name:value.name,version:value.version})),
+                ...(ranked[0]?.p > .5 && ranked[0].p > (ranked[1]?.p ?? -1)
+                  ? {carrier:{name:ranked[0].document.name,version:ranked[0].document.version}} : {})});
+            }
+          }
+          throw new KernelError({code:'needs',message:'The existing document addition could not be bound unambiguously',
 					fix:'No document changed. This is an internal binding failure, not a registration mismatch or physical obstacle in the fiction. Keep the original declared addition; do not invent a target, ask for the same authorization again or claim the writing happened. The binding is unresolved.',
 					details:{reason:'document_binding_unresolved',cause:result.reason}});
+        }
 				const body=(text:string)=>text.replace(/^[ \t\r\n]*/u,'');
 				if (pending.some(prior=>prior.result.document.name===result.document.name
 					&& (prior.result.span&&result.span
@@ -2996,7 +3117,7 @@ export default function (pi: ExtensionAPI) {
 					throw new KernelError({code:'needs',message:'This batch repeats a document addition without a distinct declared occurrence',
 						fix:'No document changed. Keep each separately chosen addition once. Repeated bindings of the same player span cannot establish another writing occurrence.',
 						details:{reason:'document_binding_unresolved',cause:'unsupported_repeated_occurrence'}});
-				pending.push({effect,result});
+				pending.push({effect,result,originalText:effect.document.text,proposedName:effect.name,turn:input.turn,worldline:bindingWorldline,playerText:input.playerText});
 			} finally {lease.close();accounting.close();}
 		}
 		// Bind the complete atomic batch before changing any of its proposed arguments.
@@ -3004,6 +3125,8 @@ export default function (pi: ExtensionAPI) {
 			effect.name=result.document.name;effect.from=result.document.owner;effect.to=result.document.owner;
 			effect.document={action:'append',text:result.suffix};
 		}
+    return pending.map(value=>({name:value.result.document.name,version:value.result.document.version,originalText:value.originalText,
+      actualBoundSuffix:value.result.suffix,proposedName:value.proposedName,turn:value.turn,worldline:value.worldline,playerText:value.playerText}));
 	}
 
 	/**
@@ -4997,6 +5120,7 @@ export default function (pi: ExtensionAPI) {
 		// §32.12.3: a batch admitted line by line lands its admitted lines; the result (or the kernel's refusal of them) says
 		// what did not land.
 		let partial: AdmissionPartial | undefined;
+    let documentBindings: BoundAppend[] = [];
 		// Progress frames (contract §1) are requested only when the runtime gave us its
 		// update channel; each frame becomes one partial result on the tool status line.
 		const onProgress = onUpdate ? (frame: KernelProgressFrame) => onUpdate(progressPartial(frame)) : undefined;
@@ -5010,6 +5134,8 @@ export default function (pi: ExtensionAPI) {
 				await reviewForcedPlayerChoiceCue(state, payload.text, signal, narratePath, ctx);
 			}
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery(undefined, 'committing');
+      if (spec.name === 'narrate' || spec.name === 'ask') await guardRefusedDocumentDelivery(state,
+        [payload.text, payload.prompt].filter(value=>typeof value==='string').join('\n'), signal, providerBudget);
 			// §135.31: the delivery carries the turn's look/lookup calls to its turn record (host-only; after the Mod hooks).
 			if (spec.name === 'narrate' || spec.name === 'ask') {
 				const reads = readsOfTurn(state);
@@ -5018,7 +5144,34 @@ export default function (pi: ExtensionAPI) {
 			// §145.2: so does the time reading (host-only, outside the digest).
 			if (spec.name === 'narrate' && timeReading) payload.time_reading = timeReading; else delete payload.time_reading;
 			await dispatcher.beforeKernelInvoke(toolCallId, spec.method, payload);
-			return state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress);
+      const result = await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress);
+      if (spec.name === 'apply' && documentBindings.length && Array.isArray(result.receipts) && result.receipts.length) {
+        try {
+          const actual = await state.kernel.call<{turn:number;receipts:Array<Record<string,unknown>>}>('table.status', {campaign:state.campaign,projection:'receipts',expected_turn:state.turn});
+          const ids = new Set(result.receipts), boundary = refusedDocuments.get(state);
+          if (actual.turn === state.turn && Array.isArray(actual.receipts)) for (const binding of documentBindings)
+            if (binding.turn===state.turn && binding.worldline===state.documentWorldline && binding.playerText===state.playerText && binding.actualBoundSuffix.length>0
+              && actual.receipts.some(receipt=>ids.has(receipt.id)&&receipt.document_changed===true&&receipt.name===binding.name)) {
+              boundary?.settle(binding.name,binding.version,binding.originalText,binding.actualBoundSuffix,binding.proposedName);
+              if (documentBindings.length===1) {
+                const options=await state.kernel.call<{documents:DocumentCandidate[]}>('mods.document.options',{campaign:state.campaign});
+                const after=options.documents.find(value=>value.name===binding.name);
+                if (table===state&&state.turn===binding.turn&&state.documentWorldline===binding.worldline&&state.playerText===binding.playerText&&after&&after.version!==binding.version)
+                  state.documentRecordingSettlement={turn:binding.turn,worldline:binding.worldline,playerText:binding.playerText,name:binding.name,version:after.version,
+                    receipts:actual.receipts.filter(value=>ids.has(value.id)&&value.document_changed===true&&value.name===binding.name).map(value=>String(value.id)),
+                    suffixHash:documentOutcomeDigest(binding.actualBoundSuffix)};
+              }
+            }
+          if (boundary && !boundary.basis && state.deliveryFix?.kind === REFUSED_DOCUMENT_OUTCOME_REASON) state.deliveryFix = undefined;
+        } catch {
+          // Observing a committed write must not turn its success into an error or authorize a replay.
+          const boundary = refusedDocuments.get(state);
+          if (boundary?.basis && documentBindings.some(value=>value.turn===state.turn&&value.worldline===state.documentWorldline
+            &&value.playerText===state.playerText&&value.name===boundary.basis?.carrier?.name)) boundary.terminal = true;
+          await record({lane:'refused_document_outcome',turn:state.turn,status:'settlement_unknown'});
+        }
+      }
+      return result;
 		};
 			try {
 			if (state.forcedPlayerChoiceCueRejects?.turn === state.turn && state.forcedPlayerChoiceCueRejects.count >= 1
@@ -5179,7 +5332,7 @@ export default function (pi: ExtensionAPI) {
 			if((spec.name==='narrate'||spec.name==='ask')&&!referenceDelivery)payload.quotes=await purchaseRecovery(state).offers(payload.quotes,state.turn);
 			delete payload._cash_requests;
 			if((spec.name==='narrate'||spec.name==='ask')&&!referenceDelivery)payload._cash_requests=await purchaseRecovery(state).requests(state.turn);
-			if (spec.name === 'apply') await bindAppendArguments(state,payload,signal,providerBudget);
+      if (spec.name === 'apply') documentBindings = await bindAppendArguments(state,payload,signal,providerBudget,!host);
 			if (spec.name === "resolve" || spec.name === "apply") partial = await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence);
 			if(replacements.length){
 				const remaining=new Set((Array.isArray(payload.effects)?payload.effects:[]).map(effectSignature));
@@ -5634,7 +5787,7 @@ export default function (pi: ExtensionAPI) {
 				...(admissionVerdict ? { admission: admissionVerdict } : {}) });
 			return {
 				content: [{ type: "text", text: errorText(error) + (besideNote ? `\nprose_dropped: ${JSON.stringify(besideNote)}` : "") }],
-				...(state.reviewUnavailable || state.commitUnavailable || stopForChoiceRepair ? {terminate: true} : {}),
+        ...(state.reviewUnavailable || state.commitUnavailable || stopForChoiceRepair || refusedDocuments.get(state)?.terminal ? {terminate: true} : {}),
 				details: {
 					...(besideNote ? { prose_dropped: besideNote } : {}),
 					coc_error: {
@@ -6350,6 +6503,7 @@ export default function (pi: ExtensionAPI) {
 				payload._cash_requests=await purchaseRecovery(state).requests(state.turn);
 				if (mods && !SINGLE_PASS_NARRATION) await mods.prepare("narrate", payload, state.lanes.signal);
 				await reviewForcedPlayerChoiceCue(state, String(payload.text ?? ''), state.lanes.signal, 'implicit');
+        await guardRefusedDocumentDelivery(state,String(payload.text??''),state.lanes.signal,foregroundProviderBudget?.());
 				const result = await state.kernel.call<Record<string, unknown>>("table.narrate", payload);
 				if (mods?.after) await mods.after("narrate", payload, state.lanes.signal);
 				state.floorDraft = undefined;
@@ -6480,6 +6634,9 @@ export default function (pi: ExtensionAPI) {
 			}
 			state.turn = typeof result.turn === "number" ? result.turn : state.turn + 1;
 			state.state = result.state ?? "open";
+      refusedDocuments.delete(state);
+      state.documentWorldline = asString((result._context as Record<string,unknown> | undefined)?.worldline);
+      state.documentRecording = undefined; state.documentRecordingSettlement = undefined;
 			state.forcedPlayerChoiceCue = undefined;
 			state.forcedPlayerChoiceCueChecked = undefined;
 			state.forcedPlayerChoiceCueRejects = undefined;
@@ -7350,6 +7507,7 @@ export default function (pi: ExtensionAPI) {
 					// §91: the host's own closing delivery is reviewed on the same terms as an explicit one.
 					notePrepared(state, prepared);
 					await reviewForcedPlayerChoiceCue(state, String(params.text ?? ''), state.lanes.signal, 'implicit', ctx);
+          await guardRefusedDocumentDelivery(state,String(params.text??''),state.lanes.signal,foregroundProviderBudget?.());
 					await guardTaskDelivery(event.message, 'committing');
 					// §135.31: the host's own close carries the turn's look/lookup calls to its record too (after the Mod hooks).
 					const reads = readsOfTurn(state);
@@ -7372,6 +7530,10 @@ export default function (pi: ExtensionAPI) {
 					break;
 				} catch (error) {
 					const detail = refusalDetail(error);
+					if (isKernelError(error) && [REFUSED_DOCUMENT_OUTCOME_REASON,'refused_document_outcome_stale'].includes(String(error.details?.reason))) {
+            state.floorDraft = undefined;
+            return dropText('refused_document_outcome', {code:error.code,reason:error.details?.reason});
+          }
 					// The kernel's own `reason` travels on this row as it does on an explicit verb's (§12.8):
 					// without it a continuity review that timed out and a Mod repair were both a bare `needs`.
 					const reason = asString((error as { details?: { reason?: unknown } })?.details?.reason);

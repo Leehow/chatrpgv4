@@ -30,7 +30,7 @@ export const CANDIDATE_BODY_BYTES = 1024;
 /** All bodies of one read: half the run's prescreen packet (16 KB), so the packet and its bodies fit one request slot. */
 export const CANDIDATE_BODIES_BYTES = 8 * 1024;
 /** The candidate families that carry a body, in the order the budget serves them (closed kinds of §135.2). */
-export const BODY_FAMILIES: readonly string[] = Object.freeze(['clue', 'handout', 'person', 'obligation_check', 'move']);
+export const BODY_FAMILIES: readonly string[] = Object.freeze(['clue', 'handout', 'person', 'source_presence', 'obligation_check', 'move']);
 
 export interface CandidateBody {
   /** The candidate's host key (`apply:clue:<handle>`); host-side only, the Keeper sees family and name. */
@@ -109,6 +109,17 @@ function personLine(look: Row, handle: string): Row {
     ...(look.untold ? {untold: look.untold} : {}), ...(look.wants ? {wants: look.wants} : {})};
 }
 
+/** Keep source behavior and the original runtime reference ahead of optional descriptive prose. */
+function sourcePresenceBody(look: Row): Row {
+  const runtimeKeys = ['scene', 'state', 'visibility'];
+  const behaviorKeys = ['role', 'wants', 'knowledge', 'knows', 'agenda', 'believes', 'hides', 'hides_claims', 'would_lie_about', 'fears', 'personality', 'social_role'];
+  const fields = (keys: string[]): Row => Object.fromEntries(keys.filter(key => Object.hasOwn(look, key)).map(key => [key, look[key]]));
+  const priority = new Set(['name', 'summary', ...runtimeKeys, ...behaviorKeys]);
+  return {name: look.name, runtime_reference: fields(runtimeKeys), behavior: fields(behaviorKeys),
+    ...Object.fromEntries(Object.entries(look).filter(([key]) => !priority.has(key))),
+    ...(Object.hasOwn(look, 'summary') ? {summary: look.summary} : {})};
+}
+
 /**
  * Read the bodies of `candidates` (the builder's families above; the rest carry none). `capsule` is the read's
  * `table.capsule`; `call` is the kernel bridge. Read-only.
@@ -136,8 +147,9 @@ export async function readCandidateBodies(input: {candidates: readonly Candidate
   const answers = await Promise.all(wanted.map(async item => {
     // An obligation's body is the issued row the candidate carries: no second read.
     if (item.candidate.family === 'obligation_check') return {params: {section: 'obligations'} as Row, answer: undefined};
-    const params = item.candidate.family === 'person' ? {focus: 'npc', name: item.name} : {kind: 'module', query: item.name, expected_kind: expected[item.candidate.family]};
-    return {params, answer: await read(item.candidate.family === 'person' ? 'table.look' : 'table.lookup', params)};
+    const person = item.candidate.family === 'person' || item.candidate.family === 'source_presence';
+    const params = person ? {focus: 'npc', name: item.name} : {kind: 'module', query: item.name, expected_kind: expected[item.candidate.family]};
+    return {params, answer: await read(person ? 'table.look' : 'table.lookup', params)};
   }));
   // Who the book puts at each destination, read the way the Keeper would look them up.
   const destinationPeople = new Map<string, string[]>();
@@ -153,7 +165,7 @@ export async function readCandidateBodies(input: {candidates: readonly Candidate
   let total = 0;
   for (const [index, {candidate, name}] of wanted.entries()) {
     const skip = (reason: CandidateBodies['omitted'][number]['reason']) => omitted.push({key: candidate.key, family: candidate.family, name, reason});
-    const {params, answer} = answers[index], method = candidate.family === 'person' ? 'table.look' : 'table.lookup';
+    const {params, answer} = answers[index], method = candidate.family === 'person' || candidate.family === 'source_presence' ? 'table.look' : 'table.lookup';
     const entities = array(answer?.entities).map(object);
     let body: Row | undefined, from: CandidateBody['read'] = [{method, params}];
     if (candidate.family === 'obligation_check') {
@@ -173,10 +185,10 @@ export async function readCandidateBodies(input: {candidates: readonly Candidate
       const entity = entityOf(entities, name, 'handout') ?? entities.find(value => value.kind === 'handout');
       if (!entity) { skip('not_found'); continue; }
       body = {name: text(entity.name), ...graphRow(entity)};
-    } else if (candidate.family === 'person') {
+    } else if (candidate.family === 'person' || candidate.family === 'source_presence') {
       if (!answer) { skip('read_failed'); continue; }
       const {kind: _kind, ...look} = answer;
-      body = look;
+      body = candidate.family === 'source_presence' ? sourcePresenceBody(look) : look;
     } else {
       if (!answer) { skip('read_failed'); continue; }
       const scene = entityOf(entities, name, 'scene');
@@ -206,6 +218,8 @@ export const ISSUED_BODIES_HEAD = 'The bodies of what can be done here this turn
 /** One body as the Keeper reads it: family, name and body; the host key and read list stay on the artifact. */
 function keeperView(entry: CandidateBody): Row {
   return {family: entry.family, name: entry.name, body: entry.body,
+    ...(entry.family === 'source_presence' ? {reference_only: true,
+      reference_note: 'Source-authored profile for context only. Reading it establishes no current presence, settles no appearance condition, changes no world state and creates no progression obligation. Actual world positions and present-person views remain authoritative. Use normal operations for a supported appearance; do not reveal private source knowledge to the player.'} : {}),
     ...(entry.truncated ? {truncated: true} : {}), ...(entry.omitted_fields ? {omitted_fields: entry.omitted_fields} : {})};
 }
 /** The Keeper-facing section of the run's packet. */
