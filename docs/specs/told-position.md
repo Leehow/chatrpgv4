@@ -35,7 +35,9 @@ Four causes, read from the turn records, the driver's tool calls and the campaig
 3. **One transient provider error refuses a move for the whole turn.** Turn 7's `apply move` to the station failed
    admission with `reason: model_error` after 524 ms and one attempt; §143.15 retries only a malformed answer. The
    refusal tells the Keeper not to retry and not to narrate the move; the Keeper narrated the drive into town anyway. The
-   admission row carries no failure detail, so the cause cannot be read afterwards.
+   admission row's `detail` reads `flapcode API error (429): Rate limit exceeded`: the provider throttled. *(Corrected
+   2026-10-07 after TP-03: the first draft of this spec said the row carried no detail; the lead had filtered the row's
+   keys and missed `detail`. What was missing is a structured status and a byte bound, which TP-03 adds.)*
 4. **So the minted places float.** Turns 11 and 19 minted 警长办公室 and 旅馆外的街道 from the prologue: §187 gave them a way
    back, but the way back led to the prologue, and the placement lane placed them inside the town that the party was never
    recorded as having entered.

@@ -36764,7 +36764,8 @@ motel on turns 8–10 while the ledger kept the party in `source-entry-16` until
 `present` and the Keeper told the player nobody was there. Causes: §166's `SINGLE_PASS_NARRATION` starts no post-delivery
 review, and that review was §158's only producer of owed moves (no `owed.json`, no continuity-review row on the table);
 a reference book's places are minted only on a destination request; turn 7's `apply move` was refused by one 524 ms
-`model_error` of the admission lane, which §143.15 does not retry, and the Keeper narrated the move anyway.
+`model_error` of the admission lane (its `detail`: the provider's HTTP 429, rate limited), which §143.15 does not retry, and
+the Keeper narrated the move anyway.
 
 ### 190.1 The window's places exist before they are read
 
