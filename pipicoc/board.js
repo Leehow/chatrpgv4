@@ -26,7 +26,7 @@ const CSS = `
 .coc-board{--coc-serif:ui-serif,"Songti SC","Noto Serif CJK SC",Georgia,serif;
   box-sizing:border-box;container-type:inline-size;display:flex;flex-direction:column;
   height:100%;min-height:0;min-width:0;overflow:auto;padding:16px 16px 28px;
-  color:var(--text);font-size:13px;line-height:1.6;scrollbar-width:thin}
+  color:var(--text);font-size:13px;line-height:1.6}
 .coc-board>*{flex-shrink:0}
 .coc-board :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .coc-sheet-tools{display:flex;justify-content:flex-end;margin:-4px 0 6px}

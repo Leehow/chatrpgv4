@@ -10,6 +10,25 @@ const TimelinePanel = createComponent(React);
 
 afterEach(cleanup);
 
+test('delivery labels navigate without hover or focus previews', async () => {
+  const invoke = vi.fn(async (method: string) => ({ok: true, data: method === 'timeline.graph' ? {
+    active: 'main', ui: ui('zh-Hans', {timeline: timelineWords}),
+    anchors: [{commit: 'abc'}],
+    lines: [{name: 'main', kind: 'main', status: 'active', last_commit: 'abc'}],
+    nodes: [{sha: 'abc', turn: 2, kind: 'turn', title: 'Short title', clock: 100,
+      when: {day: 1, hh: 1, mm: 40}, parents: [], tip_of: ['main']}],
+  } : {}}));
+  const {container} = render(<TimelinePanel api={{invoke}} />);
+  const node = await screen.findByRole('button', {name: /main/});
+  const label = container.querySelector('.coc-tl-summary')!;
+  fireEvent.mouseEnter(label);
+  expect(screen.queryByRole('tooltip')).toBeNull();
+  fireEvent.focus(node);
+  expect(screen.queryByRole('tooltip')).toBeNull();
+  fireEvent.click(label);
+  expect(invoke).toHaveBeenCalledWith('timeline.navigate', {commit: 'abc'});
+});
+
 test('mounts while the first timeline answer is pending', () => {
   const invoke = vi.fn(() => new Promise(() => {}));
   const {container} = render(<TimelinePanel api={{invoke}} />);
@@ -34,8 +53,6 @@ test('renders an undated node with the sheet day-clock words', async () => {
     .replace('{d}', '2').replace('{hh}', '01').replace('{mm}', '05');
   const node = await screen.findByRole('button', {name: new RegExp(caption)});
   expect(node.getAttribute('aria-label')).toContain(caption);
-  fireEvent.mouseEnter(node);
-  expect(container.querySelector('.coc-tl-tip-time')?.textContent).toBe(caption);
   const previous = say('zh-Hans', 'sheet', 'day.clock')
     .replace('{d}', '1').replace('{hh}', '23').replace('{mm}', '59');
   expect(Array.from(container.querySelectorAll('.coc-tl-caption'), node => node.textContent))
