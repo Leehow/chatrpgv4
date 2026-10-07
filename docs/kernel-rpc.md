@@ -35604,3 +35604,176 @@ adjudicated labels (15 of 61 strict negatives relabeled supported by two blind j
 `source_claim_support` S/C in `host-budgets.json` are set to 0.93 / 0.2, so the shadow rows on new books measure the
 pre-registered point (as 2026-09-29 did with v1's). No second attempt on this held-out
 (`docs/specs/reading-cost-tickets.md`, RC-06).
+
+## 187. Reading serves the table: what the Keeper receives, where a minted place sits, who the book puts here, and reading jobs cut to what the table needs (owner ruling 2026-10-06, 「按你的建议来就行」 on the measured assessment; `docs/specs/reading-delivery.md`; amends the §22 implementation decision on reviewers, §151.2's targeted repair, §151.4's candidate pages, §135.30's `source_presence` candidates, `apply move`'s `establish` of §49 and §168.3, the module brief of §30 and the roster fit of §180.4, and §182.3's window anchor)
+
+**Evidence.** One real table: 554 reading calls, 15.8M input tokens, itemised by cause: review 35 % of calls (53 % of
+uncached; 84 of 94 reviews reopened with `pdf` pages the host had already delivered; 97.9 % of verdicts `supported`),
+author exploration 29 % (32 of 42 authors read `task.json` in slices because the packet, 14 KB on an empty graph and
+153 KB later, passed the 48 KiB inline bound; `field_spans` is in it and no prompt reads it), the fix loop 23 % (now
+answered by §186.3; the 61.8 KB instruction file remains one document for every job kind), full rework 23 % (7 of 9
+repairs were a coverage `missing` and re-read everything), need reads 36 % of input in 6 jobs (up to 20 candidate pages
+with 6,000 characters each while Jev's leads named 2–5). On the consumer side, a scene the Keeper minted with
+`apply move establish` is a node with no relation, so `where.exits`, `cluesHere`, the `source_presence` candidates
+and `queueAdjacentReading` -- all of which walk relations from the active scene -- are empty for it; `npc_presence`
+is seeded once at creation and never on a new generation; the brief's roster is cut from the end at 2,048 bytes, so
+the persons read last are lost first. Four tables on 2026-10-04 each read 174–707 nodes into their fork and their
+Keeper saw the names of 7–17 %.
+
+### 187.1 Three tiers of module material, each with a producer
+
+The Keeper's knowledge of the book arrives in three tiers; this section names them so that a reading change can be
+asked "which tier does it feed, and does it arrive".
+
+1. **The whole-book brief** (`context_brief`'s `module`: title, era, synopsis, factions, places, people, creatures,
+   endings, conclusions, structure). Producer: `moduleSection` from the current graph; rebuilt when the source
+   revision or the window changes (187.4); fitted to its budget.
+2. **The scene's material**, every turn: `where` (scene, summary, exits, back, affordances, keeper notes, assets, and
+   from this section `within`), `present` and `voices` from the table's ledger, clues here, the director's thread,
+   `reading` (sections and what is read), and the `apply` candidates (`source_presence`, `move`, `clue`). Producers:
+   the capsule's sections and `apply-operation`'s candidates from the current graph and world.
+3. **Original text on demand** (§148): `lookup kind=source`, `reference_lookup`, the material gate's foreground read.
+
+A publication reaches tier 1 at the next brief rebuild and tier 2 at the next capsule: the kernel reloads the module
+every turn, so the only way a published node fails to arrive is a path that walks relations the current scene does not
+have (187.2) or a budget that cuts it (187.4). What the book says and what the table says stay apart: tier 1 and the
+candidates say what the book holds; `present`, `discovered_clues` and the trail say what happened here.
+
+### 187.2 A minted place sits in the book
+
+**187.2.1 The mint always has a way back, and may have a place it lies in.** `apply {effects: [{kind: "move", to,
+via, establish: {summary, within?}}]}`: `establish` keeps its one required field and gains an optional `within`, the
+handle of a book `scene` or `location` node (a handle that is not one is `invalid_params`, `details.reason:
+within_not_a_place`; a table entity is not a book place). The kernel writes the mint as today and, in the same
+transaction, two things: a `route-to` relation from the minted scene to the scene the party left (the one relation a
+mint is sure of, as the adaptation's `add_scene` already writes `route-to` to `based_on`), and, when `within` is given,
+a `located-in` relation from the minted scene to the `within` node. The `table_entities` record carries `from` and
+`within`, and `withTableEntities` restores both relations at load, so a minted room is never again a node without a
+relation. `sceneExits` of the minted scene therefore lists the departed scene; the §182.3 anchor of a minted scene is
+its `within` place's pages, else the departed scene's; `queueAdjacentReading` from a minted scene follows the same two
+edges.
+
+**187.2.2 `where.within`.** When the active scene has a `located-in` relation to a book place, `where.within` is
+`{name, display_name?, summary, exits: [<the place's exits as `where.exits` renders them>], people: [{name,
+display_name?, seated: boolean}], clues: integer, material}`: the book place's own exits and people, so the book's
+topology and cast are one hop from any room the Keeper improvised inside it. `seated` is whether `npc_presence` puts
+the person in the active scene. `clues` is a count only; a clue is found where the book puts it. Budget 2,048 bytes,
+fitted like `where`. Absent when the scene has no such relation.
+
+**187.2.3 The placement is the host's, by Jev, before the kernel sees the mint.** A `move` effect that carries
+`establish` passes through a host lane (the §12.5 pattern; family `scene-placement`) before `table.apply`. The host
+enumerates the candidates from the current graph: the book scenes and locations whose pages lie in the reading window
+(§182.3) of the active scene, the active scene's exits, the active scene itself, and `none`. State: the effect's `to`,
+`via` and `establish.summary`, the active scene's name and summary, and the candidates' names, aliases and one-line
+summaries; nothing else. Questions, one request, fanned out: a Choice `place` (which candidate the described
+destination is, or lies inside; `none` is a candidate) and two Nouls per non-`none` candidate, `same` (the described
+destination is this place itself, by another name or a part the book registered whole) and `inside` (the described
+destination is a smaller place within this one, not this one). Bars are data (`host-budgets.json` `scene_placement`:
+`same_min`, `inside_min`, `choice_confidence_min`), calibrated before `on` is the default: the lane ships `shadow`
+(rows written, effect unchanged) and the owner turns it on after RD-08's rows are read. When the lane is `on` and the
+chosen candidate's `same` clears, the host rewrites the effect to `{kind: "move", to: <candidate handle>, via}` and
+drops `establish` (the kernel's own `establish cannot replace an authored scene` rule stays the backstop); when
+`inside` clears, the host adds `within: <candidate handle>`; otherwise the effect goes through as written. A single
+word in common with a book name is not a placement (the kernel's `placeOf` rule stands); the lane decides on the
+description. Telemetry: one `lane: "scene-placement"` row per effect with the question, distribution, confidence,
+outcome (`same | inside | mint | shadow`) and the handle chosen. The lane never refuses a move: an outage is `mint`.
+
+### 187.3 Who the book puts here follows publication; who stayed is the table's
+
+**187.3.1** `source_presence` candidates (§135.30) are computed on every `apply` candidates call from the current graph
+for the active scene **and**, when `where.within` exists, for the `within` place: a person with `present-in` either, or
+in either's `npc_ids`, who is not in `npc_presence` and not an alias duplicate of someone who is. A person a
+publication added after the campaign was created therefore reaches the Keeper as a candidate on the next turn,
+whatever generation seated the others. `initialWorld` is unchanged: it seeds once, and a `source_reference` book
+keeps deferring to this offer.
+
+**187.3.2 The ledger wins.** A person the table's ledger records as dead, or whom a receipt of this campaign moved out
+of the active scene (a `move` with them, an `apply npc` to another scene, a departure the §138 initiative recorded), is
+not offered by the book again for that scene; the offer carries `authority: authored_initial_presence_not_a_new_arrival`
+as today, and the exclusion names its receipt in telemetry. `present` keeps reading `npc_presence` only: reading
+completes nothing on the table.
+
+### 187.4 The brief's rosters follow the reading window
+
+`moduleSection`'s `people`, `places` and `creatures` are ordered: entries whose `source_refs` cite a page inside the
+reading window (§182.3) of the active scene (or of its `within` place) first, in book order, then the rest in book
+order; the fit of `fittedModuleSection` cuts from the end as today, so what the table is near survives the cut. The
+section gains `more: {people, places, creatures}` -- the lines the fit removed -- so the Keeper knows the book holds
+more than the brief shows (`lookup kind=module` reaches them). A book without a window keeps graph order. The host's
+`briefingKey` includes the active scene's chapter so a window change rebuilds the brief.
+
+### 187.5 The author's task is cut to the job (amends §22's packet)
+
+**187.5.1 Scoped graph.** For a job with pages (a source unit, a need read, a visual or identity job), `known_nodes`
+are the nodes whose `source_refs` cite a page in the job's pages or in the reading window around them, the nodes one
+relation away from those, the module node, and nothing else; `known_claims` are the claims whose both ends are in
+`known_nodes`. `cast_names` (§177.8) stay whole. A job without pages (`index`, `guidance`, `opening`) keeps the whole
+graph. `field_spans` leaves the packet: the draft check (`checkDraft`, `coc-read-check`, `module.read.finish`) takes
+the spans from the graph it already reads, and the same-span rule of §22.3 is unchanged. The packet records
+`scope: {pages, window, known_nodes, known_claims, packet_bytes}`.
+
+**187.5.2 Scoped vocabulary.** `vocabulary` carries the keys, kinds and closed values the job's purpose can write:
+a detail unit does not receive the index phase's section shape or the guidance's public fields; a visual job does
+not receive the actor dossier. The closed values (`visibility`, `truth_status`, `relation_kinds`, `node_kinds`) are
+always present, because §186.3's findings cite them.
+
+**187.5.3 Instructions per purpose.** `content/setup/visual-reader.md` becomes a directory of one common file and one
+file per phase (`index`, `opening`, `detail`, `visual`, `identity`, `answer`, `review`); the host assembles the
+common file and the job's phase for the author, and the common file and `review` for a reviewer. The words of a rule
+do not change when the file is split; a rule that applies to one phase lives in that phase's file. Telemetry: the
+`job_accounting` row (§151.2.4) gains `packet_bytes`, `inlined: boolean`, `instruction_bytes`.
+
+### 187.6 A coverage `missing` inside the job's pages is an append repair (amends §151.2.2)
+
+**187.6.1** `repairDecision` answers `{kind: "append", missing, pages}` when the review is bound to the candidate,
+every `missing` item names at least one page and every such page lies in the job's pages, and the review refuses no
+record path (a review that both refuses and misses is `full`, as today). An append repair's brief carries the draft,
+the missing list with its pages and reasons, and those pages' images; the author adds nodes and claims and submits.
+The host refuses the repair when any existing record is not byte-identical (`reason: append_changed_existing`) or a
+record was removed; review runs the new records' units and the coverage unit again (§186.4's carry does not apply);
+the accounting row says `repair: append`. A `missing` that names a page outside the job's pages is `full` as today
+(it is a reading, not a repair).
+
+### 187.7 A need read's candidates are the need's pages (amends §151.4)
+
+**187.7.1** For a `source_need` task the candidate pages are: the need facet's leads at or above `PAGE_LEAD_GATE`,
+by score, at least `need_read.min_lead_pages` (data, shipped 2) and at most `need_read.lead_pages` (shipped 5) of
+them, and the pages the entity's accepted material cites. The structural pages, the focus pages and the short-section
+pages do not join a need read. Native text is complete for the lead pages and a title line (the page's first line)
+for the rest; page images are the lead pages first within the existing image count. The author keeps `pdf` and the
+native search, and `source_retrieval_remaining` is unchanged: the lead pages are where the read starts, not where it
+must end. The need receipt records `candidates` as today, so the saving is read from it.
+
+### 187.8 One independent reviewer per page set (amends the §22 implementation decision and §151.2.1's grouping)
+
+**187.8.1** `reviewUnits` groups records by page-set *overlap*: a record joins a unit when the union of their pages
+stays within `reading_review.images` (data, shipped 12) distinct pages and the unit holds fewer than
+`reading_review.max_records` (shipped 32) records; the former 8-record / 24 KB bound is retired. The coverage pointers
+(`/coverage`, `/interaction_scene`, `/source_needs`) ride in the unit whose page set equals the job's pages; a job
+with no such unit keeps a separate coverage unit. §22's "up to 40 fresh tool-enabled Pi reviewers … bounded node/claim
+groups" now reads: fresh reviewers independent of the author and of the previous round, one per page set within the
+image budget. Reuse (§151.2.1) stays per record: a merged unit's retained verdicts are reused record by record.
+
+**187.8.2 Delivered images are the evidence.** The reviewer brief says: "The host delivered the cited original pages
+into this context; they are the evidence. Call pdf only for a page that was not delivered or for a closer view of a
+region." The Verify phase's "reopen the relevant physical pages yourself" is removed; the Source access rule that the
+host's images are usable stands for authors and reviewers alike. A reviewer's `required_review` must still have had
+every cited page delivered (§22's rule), so the host delivers them before the first call.
+
+### 187.9 What this section does not do
+
+The job unit stays the two-page source unit. The assessment's fourth step -- cutting jobs by the book's chapters or
+scenes and producing scene material directly for tier 2 -- is the unit refactor, decided after RD-08's numbers. §182's
+window and §184's library rules are unchanged. No evidence rule changes: every published record is reviewed against
+original page images by a reviewer independent of its author.
+
+### 187.10 Three ends (§31)
+
+Writer: `apply move` (the two relations, `from`/`within` on the record), the host placement lane (`within`, the
+rewrite), `moduleSection` (ordering, `more`), the claim packet (`scope`, scoped vocabulary), `repairDecision`
+(`append`), the need locate (candidates), `reviewUnits` (page-set units). Reader: the capsule (`where.within`),
+`apply-operation` (candidates from the `within` place; the ledger exclusion), the draft check (spans from the graph),
+the reviewer brief. Actor: the Keeper, who moves to a book place instead of minting it when the placement says so,
+seats a candidate with `apply npc`, and reads a brief that lists what is near first. Limits: a placement is a hop into
+the book, not a merge of nodes; a candidate is an offer, not a seating; a scoped packet is the author's input, not the
+checker's.
