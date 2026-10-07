@@ -1,8 +1,10 @@
 /** Snapshot-only identity, candidate ranking and continuity ledgers. No extraction jobs. */
 import { compareUnicode, isJsonObject, jsonDigest } from "../json.js";
+import { RpcError } from "../errors.js";
 import { ModuleGraph } from "./module-graph.js";
+import { calledOwners } from "./capsule.js";
 import { entries, values, array, row, truth, string, normalize, sorted, number, chars, type Row } from "./values.js";
-import {derivePromiseFulfillment,fulfillmentDecimal} from '../memory/fulfillment-view.js';
+import {derivePromiseFulfillment,fulfillmentDecimal,type SamePayer} from '../memory/fulfillment-view.js';
 import {assertSourceRef} from '../../runtime/jev/source-ref.ts';
 import type {SourceRef} from '../../runtime/jev/value-contracts.ts';
 
@@ -18,7 +20,7 @@ export function canonicalMemoryReceipts(records:readonly Row[],current:readonly 
     // An undelivered close still retains real atomic apply receipts even when no narration was committed.
     return [...records.flatMap(record=>array(record.receipts)),...current];
 }
-export function withPromiseFulfillment(rows:readonly Row[],evidence:{campaign?:string;receipts:readonly Row[];world?:Row;available?:boolean}):Row[] {
+export function withPromiseFulfillment(rows:readonly Row[],evidence:{campaign?:string;receipts:readonly Row[];world?:Row;available?:boolean;samePayer?:SamePayer}):Row[] {
     return rows.map(value=>{
         if(value.kind!=='promise'||DERIVED_FULFILLMENT.has(value)) return value;
         let fulfillment:Row={status:'open',terms:[]};
@@ -35,7 +37,7 @@ export function withPromiseFulfillment(rows:readonly Row[],evidence:{campaign?:s
                     ||scope.campaign!==(evidence.campaign??scope.campaign)
                     ||typeof scope.worldline!=='string'||!Number.isSafeInteger(scope.loop)||scope.audience!=='keeper'
                     ||value.worldline!==scope.worldline||Number(value.loop)!==scope.loop) throw new Error('foreign_promise_scope');
-                const derived=derivePromiseFulfillment(string(value.id),evidence.receipts,{scope:{campaign:scope.campaign,worldline:scope.worldline,loop:scope.loop!},promiseRefs:refs});
+                const derived=derivePromiseFulfillment(string(value.id),evidence.receipts,{scope:{campaign:scope.campaign,worldline:scope.worldline,loop:scope.loop!},promiseRefs:refs},evidence.samePayer);
                 fulfillment={status:derived.status,terms:derived.terms.map(term=>{
                     const world=evidence.world??{},definition=row(row(row(world.objects).definitions)[term.definition]),instance=row(row(row(world.objects).instances)[term.instance]);
                     const receipt=related.find(receipt=>row(receipt.fulfillment).term===term.ordinal&&receipt.kind==='item'
@@ -75,7 +77,13 @@ export const kindRank = (kind: any): number => {
     return index < 0 ? CANDIDATE_TIERS.length : index;
 };
 export class EntityIndex {
-    constructor(readonly graph: ModuleGraph, readonly party: Row[], readonly labels: Row = {}, readonly allowed: string[] | null = null) {
+    /** §188.4: the junction's answer per normalized word, read once per index. */
+    private readonly referenced = new Map<string, string[]>();
+    /**
+     * `world` is the campaign's world, for this table's words for people (§79, §87.8); a caller without one reads the
+     * graph's names alone, as before.
+     */
+    constructor(readonly graph: ModuleGraph, readonly party: Row[], readonly labels: Row = {}, readonly allowed: string[] | null = null, readonly world: Row = {}) {
     }
     matches(name: string, options: {
         reserved?: readonly string[];
@@ -101,7 +109,32 @@ export class EntityIndex {
                 if (id && (this.allowed === null || this.allowed.includes(node!.node_id)) && !found.includes(id))
                     found.push(id);
             }
+        // §188.4 (§87.8): a word nothing above answers is read as a person by the one junction: `ModuleGraph.resolve` (§2's
+        // anchored run, §185.3's retry), then this table's word. Two owners come back as two keys, which every caller
+        // refuses as ambiguous.
+        if (!found.length && (options.kinds ?? ["npc", "scene", "clue"]).includes("npc"))
+            found.push(...this.people(name).filter(id => this.allowed === null || this.allowed.includes(id)).map(id => `npc:${id}`));
         return found;
+    }
+    /** The node ids of the people `name` names through `ModuleGraph.resolve` and then this table's word (§87.8). */
+    private people(name: string): string[] {
+        const key = normalize(name), cached = this.referenced.get(key);
+        if (cached)
+            return cached;
+        let ids: string[];
+        try {
+            ids = [string(this.graph.npc(name).node_id)];
+        }
+        catch (error) {
+            if (!(error instanceof RpcError))
+                throw error;
+            ids = [...new Set(calledOwners(this.world, name).flatMap(id => {
+                const node = this.graph.find(id, ["npc"]);
+                return node ? [string(node.node_id)] : [];
+            }))];
+        }
+        this.referenced.set(key, ids);
+        return ids;
     }
     looseMatches(name: string, kinds: readonly string[] = ["npc", "scene", "clue"]): string[] {
         const key = normalize(name), people: string[] = [], others: string[] = [];
@@ -266,8 +299,12 @@ export function latestNamed(rows: Row[], status: string): Row[] {
     return [...latest.values()].filter(value => value.status === status);
 }
 const newest = (rows: Row[]) => [...rows].sort((a, b) => number(b.turn) - number(a.turn) || number(b.seq) - number(a.seq));
-export function noteObligations(rows: Row[], present: string[], here: string[]): Row[] {
-    const notes = latestNamed(rows, "open"), names = new Set([...present, ...here].filter(Boolean).map(normalize)), linked = notes.filter(note => array(note.entities).some(entity => names.has(normalize(entity))));
+export function noteObligations(rows: Row[], present: string[], here: string[], index?: EntityIndex): Row[] {
+    // §188.4: with an index, a note's entities and the people and place here are compared as what they name (`lenientKey`,
+    // the §87.8 junction included), so a note written under any word for a person links where that person is; a word that
+    // names nothing compares its spelling, as every note did before.
+    const key = (name: unknown): string => index ? index.lenientKey(string(name)) : normalize(name);
+    const notes = latestNamed(rows, "open"), names = new Set([...present, ...here].filter(Boolean).map(key)), linked = notes.filter(note => array(note.entities).some(entity => names.has(key(entity))));
     return [...linked, ...newest(notes.filter(note => !linked.includes(note))).slice(0, 3)].map(note => ({
         kind: "note",
         name: string(note.name),
@@ -277,7 +314,11 @@ export function noteObligations(rows: Row[], present: string[], here: string[]):
         ...(array(note.entities).length ? { cue: note.entities.map(string).join(", ") } : {})
     }));
 }
-export function rulingsForCapsule(rows: Row[], session: string | null, present: string[], scene: string, module: string, party: string[] = []): Row[] {
+/**
+ * `current` reads a stored anchor as the handle of what it names now (§188.4, §185.6.1: `rulings.jsonl` is append-only, so an
+ * anchor written under a node's interim handle keeps it after the fold); the default compares the stored string, as before.
+ */
+export function rulingsForCapsule(rows: Row[], session: string | null, present: string[], scene: string, module: string, party: string[] = [], current: (stored: string) => string = stored => stored): Row[] {
     const families: Row = {
         combat: "combat",
         chase: "chase",
@@ -291,7 +332,7 @@ export function rulingsForCapsule(rows: Row[], session: string | null, present: 
         if (value.scope === "scene" && value.scene !== scene || value.scope === "module" && value.module != null && value.module !== module)
             return false;
         const anchor = row(value.anchor), judged = values(families).includes(anchor.family);
-        return value.scope === "scene" && value.scene === scene || (judged || truth(anchor.entities)) && (!judged || anchor.family == null || anchor.family === family) && (!truth(anchor.entities) || array(anchor.entities).some(entity => here.includes(entity)));
+        return value.scope === "scene" && value.scene === scene || (judged || truth(anchor.entities)) && (!judged || anchor.family == null || anchor.family === family) && (!truth(anchor.entities) || array(anchor.entities).some(entity => here.includes(current(string(entity)))));
     });
     return newest(hits).slice(0, 3).map(value => ({
         name: string(value.name),

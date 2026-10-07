@@ -49,21 +49,22 @@ export function namePieces(names: readonly string[]): string[] {
 
 /**
  * §188.1: whether an owner key of a guarded word (a world map's key: a handle, a cast row's id, an investigator's sheet id; a
- * journal entry's node id) is this graph person's own: their handle or node id, a handle they had (§185.6.1), or a cast row
- * they absorbed.
+ * journal entry's node id) is this person's own: the handle or node id of any node that is them (§188.2: the graph can hold one
+ * individual more than once), a handle one of those had (§185.6.1), or a cast row they absorbed.
  */
-export function ownerOf(graph: ModuleGraph, node: Row, castIds: readonly string[] = []): (owner: string) => boolean {
-    const keys = new Set([graph.handle(node), string(node.node_id), ...castIds]);
-    return owner => keys.has(owner) || sameNode(graph, owner, node);
+export function ownerOf(graph: ModuleGraph, nodes: readonly Row[], castIds: readonly string[] = []): (owner: string) => boolean {
+    const keys = new Set([...nodes.flatMap(node => [graph.handle(node), string(node.node_id)]), ...castIds]);
+    return owner => keys.has(owner) || nodes.some(node => sameNode(graph, owner, node));
 }
 
 /**
  * The first committed delivery that actually displayed the authored name, not merely the NPC id. §188.1: an occurrence inside
  * an investigator's registered name or another person's word at this table (the history's guard) is not this person's name.
  */
-export function toldTurn(graph: ModuleGraph, node: Row, records: Iterable<Row>, upTo = Infinity, castIds: readonly string[] = []): number | null {
+export function toldTurn(graph: ModuleGraph, node: Row, records: Iterable<Row>, upTo = Infinity,
+    own: (owner: string) => boolean = ownerOf(graph, [node])): number | null {
     const words = nameWords(graph, node);
-    const history = prepareNameHistory(records), own = ownerOf(graph, node, castIds);
+    const history = prepareNameHistory(records);
     for (const record of history.graphRecords()) {
         if (!(number(record.turn) <= upTo)) continue;
         // §185.6.1: a record keeps the handle the person had then (an interim one, before a fold): compared by identity.

@@ -183,39 +183,44 @@ const phraseWithin = (phrase: string[], key: string[]): boolean => {
         closes = phrase.every((word, i) => key[key.length - phrase.length + i] === word);
     return opens || closes;
 };
-/** §185.3: one person's word as the request showed it, and what it stood for there: their handle, then their node id. */
-export interface RenameUndoRow { readonly shown: string; readonly names: readonly string[] }
+/**
+ * §185.3/§188.3: one word as the request showed it, and every string the rename put it in place of: a person's names, aliases
+ * and pieces, and in a legacy campaign their node id and handle; for a joined word (§177.4), the name its owners share, then
+ * each owner's own names. `called` marks a word the §87.8 junction reads as a person's (`calledOwners`).
+ */
+export interface RenameUndoRow { readonly shown: string; readonly names: readonly string[]; readonly called?: boolean }
+/** §188.3: the most spellings one miss tries; a reference holds one or two places, each a handful of names. */
+export const UNDO_SPELLINGS = 48;
 const latinRun = (char: string | undefined): boolean => !!char && /^[A-Za-z0-9]$/.test(char);
 /**
- * §185.3: the spellings `reference` had before the request's rename (`extensions/kernel/untold-view.ts`) put a person's
- * word where their handle or node id stood. A word counts where it stands as the rename leaves one -- no Latin letter or
- * digit running on past an end where the name it replaced has one (the rename's own boundary test) -- and is read back
- * as the handle, then as the node id. A reference that is one word and nothing else is that person's word, which the
- * junction reads (§87.8), and is left alone. Pure string data from the rows; nothing is classified.
+ * §185.3/§188.3: every spelling `reference` may have had before the request's rename (`extensions/kernel/untold-view.ts`) put
+ * a word where a name stood. A word counts where it stands as the rename leaves one: the longer word first where two overlap,
+ * and only with the names that have no Latin letter or digit running on past an end where the name has one (the rename's
+ * own boundary test, read backwards). Each place is read back as each of its names, in the rows' order, up to
+ * `UNDO_SPELLINGS`. A reference that is one person's word and nothing else, a word the junction reads (§87.8), is the
+ * junction's and is left alone. Pure string data from the rows; nothing is classified.
  */
 function renameUndone(reference: string, rows: readonly RenameUndoRow[]): string[] {
-    const ordered = [...rows].sort((a, b) => b.shown.length - a.shown.length), spellings: string[] = [];
-    for (const pick of [0, 1]) {
-        const places: { start: number; end: number; name: string }[] = [];
-        for (const row of ordered) {
-            const name = row.names[pick] ?? row.names[0];
-            if (!row.shown || !name) continue;
-            for (let at = reference.indexOf(row.shown); at >= 0; at = reference.indexOf(row.shown, at + 1)) {
-                const end = at + row.shown.length;
-                if ((latinRun(name[0]) && latinRun(reference[at - 1])) || (latinRun(name[name.length - 1]) && latinRun(reference[end]))) continue;
-                if (!places.some(place => at < place.end && place.start < end)) places.push({ start: at, end, name });
-            }
+    const ordered = [...rows].sort((a, b) => b.shown.length - a.shown.length);
+    const places: { start: number; end: number; names: string[]; called: boolean }[] = [];
+    for (const row of ordered) {
+        if (!row.shown) continue;
+        for (let at = reference.indexOf(row.shown); at >= 0; at = reference.indexOf(row.shown, at + 1)) {
+            const end = at + row.shown.length;
+            if (places.some(place => at < place.end && place.start < end)) continue;
+            const names = row.names.filter(name => name && !(latinRun(name[0]) && latinRun(reference[at - 1])) && !(latinRun(name[name.length - 1]) && latinRun(reference[end])));
+            if (names.length) places.push({ start: at, end, names, called: row.called === true });
         }
-        if (!places.length || (places.length === 1 && places[0].start === 0 && places[0].end === reference.length)) continue;
-        let out = "", from = 0;
-        for (const place of places.sort((a, b) => a.start - b.start)) {
-            out += reference.slice(from, place.start) + place.name;
-            from = place.end;
-        }
-        out += reference.slice(from);
-        if (!spellings.includes(out)) spellings.push(out);
     }
-    return spellings;
+    if (!places.length || (places.length === 1 && places[0].called && places[0].start === 0 && places[0].end === reference.length))
+        return [];
+    let spellings = [""], from = 0;
+    for (const place of places.sort((a, b) => a.start - b.start)) {
+        const between = reference.slice(from, place.start);
+        spellings = spellings.flatMap(prefix => place.names.map(name => prefix + between + name)).slice(0, UNDO_SPELLINGS);
+        from = place.end;
+    }
+    return [...new Set(spellings.map(spelling => spelling + reference.slice(from)))].filter(spelling => spelling !== reference);
 }
 /**
  * SL-73 (§11.5.7 addendum, gate #12): `resolve()`'s own `unknown_entity` (`no ${what} named … in the
@@ -237,8 +242,9 @@ function renameUndone(reference: string, rows: readonly RenameUndoRow[]): string
  * beside the error rather than in it: `resolve`'s error JSON is compared field for field against the
  * frozen Python oracle, which never had one.
  */
-const ambiguities = new WeakSet<RpcError>();
-const markAmbiguity = (error: RpcError): RpcError => (ambiguities.add(error), error);
+const ambiguities = new WeakMap<RpcError, readonly string[]>();
+/** The mark carries the node ids the word named, so §188.3's undo can count a spelling that names several. */
+const markAmbiguity = (error: RpcError, ids: readonly string[]): RpcError => (ambiguities.set(error, ids), error);
 export const isAmbiguity = (error: unknown): boolean => error instanceof RpcError && ambiguities.has(error);
 export function personRefusal(error: unknown, name: string, graph: ModuleGraph, party: readonly Row[]): unknown {
     if (!(error instanceof RpcError) || error.code !== "unknown_entity" || typeof name !== "string")
@@ -312,10 +318,18 @@ export class ModuleGraph {
     readonly tableEntityNames = new Map<string, string>();
     readonly sourcePlaceNames = new Map<string, string>();
     /**
-     * §185.3: in a legacy campaign, each book person's word beside their handle and node id -- the inverse of the request
-     * rename's handle rows -- installed by the campaign loader (`read/rename-undo.ts`). Empty otherwise: no retry.
+     * §185.3/§188.3: the request rename read backwards -- every word the roster can show beside the strings it stood for --
+     * installed by the campaign loader in both schemes (`read/rename-undo.ts`). Empty for a graph no campaign serves: no retry.
      */
     renameUndo: readonly RenameUndoRow[] = [];
+    /** §188.3: each book person's word as the request shows them (node id to word), for the candidates of an ambiguous undo. */
+    shownWords: ReadonlyMap<string, string> = new Map();
+    /**
+     * §188.2: each node of an individual the cast holds more than once (a later page reading wrote someone the graph had again,
+     * under another id), by node id, to the node that stands for them -- their first, whose word the roster shows first.
+     * Installed by the campaign loader with the undo rows (`read/rename-undo.ts`); a name they share is one candidate.
+     */
+    individuals: ReadonlyMap<string, string> = new Map();
     private undoing = false;
     readonly moduleNode: Row | null;
     /** §185.4: each book node's kind as the book gave it (a projected location stays a location) and its interim handle. */
@@ -680,8 +694,9 @@ export class ModuleGraph {
                 query: name,
                 candidates: sorted(ids).map(id => this.describe(this.nodes.get(id)!))
             }
-        }));
-        const ids = [...(this.names.get(key) ?? [])].filter(wanted);
+        }), ids);
+        // §188.2: the copies of one individual are one candidate, the node that stands for them.
+        const ids = this.oneEach([...(this.names.get(key) ?? [])].filter(wanted));
         if (ids.length === 1)
             return this.nodes.get(ids[0])!;
         if (ids.length > 1)
@@ -699,10 +714,11 @@ export class ModuleGraph {
                     for (const id of holders)
                         if (wanted(id))
                             owners.add(id);
-            if (owners.size === 1)
-                return this.nodes.get([...owners][0])!;
-            if (owners.size > 1)
-                throw ambiguous([...owners]);
+            const one = this.oneEach(owners);
+            if (one.length === 1)
+                return this.nodes.get(one[0])!;
+            if (one.length > 1)
+                throw ambiguous(one);
         }
         // Last: the place layer. A scene asked for by one of the names its own module gives the
         // place -- or by a part, entrance or counter of it -- is that scene, not an absent
@@ -716,11 +732,15 @@ export class ModuleGraph {
             if (place && wanted(place.node_id))
                 return place;
         }
-        // §185.3: a legacy campaign's request showed a person's word where their handle stood, inside longer handles too
-        // (`<word>-home`). Only after every path above missed is the reference read once more with the rename undone.
-        const undone = this.undoRename(name, kinds);
+        // §185.3/§188.3: the request showed a word where a name stood -- a person's word for their names, inside longer names and
+        // handles too (`<word>-home`), and a joined word for a name several people share. Only after every path above missed is
+        // the reference read once more with the rename undone.
+        const undone = this.undoRename(name, kinds, what);
         if (undone)
             return undone;
+        // A spelling the undo tries and misses is only counted; the ranked candidates are for the Keeper's own miss.
+        if (this.undoing)
+            throw new RpcError("unknown_entity", `no ${what} named ${repr(name)} in the module graph`);
         throw new RpcError("unknown_entity", `no ${what} named ${repr(name)} in the module graph`, {
             fix: "pick a name from details.candidates or look first",
             details: {
@@ -739,22 +759,61 @@ export class ModuleGraph {
             throw error;
         }
     }
-    /** §185.3: the one retry -- each spelling with the rename undone, resolved as written; the first that resolves. */
-    private undoRename(name: string, kinds?: string[]): Row | null {
+    /**
+     * §188.3 (amends §185.3): the one retry. Every spelling with the rename undone is resolved as written. The spellings that
+     * name exactly one node decide: all the same node, that node; different nodes, the reference is ambiguous. When none names
+     * exactly one and some name several, those several are the candidates. The refusal is `resolve`'s own ambiguity
+     * (`unknown_entity`, marked, so no caller mints a newcomer under it), with `details.reason: "ambiguous"` and each
+     * candidate named by the word the request shows them by -- never a book name.
+     */
+    private undoRename(name: string, kinds: string[] | undefined, what: string): Row | null {
         if (this.undoing || !this.renameUndo.length)
             return null;
+        const spellings = renameUndone(name, this.renameUndo);
+        if (!spellings.length)
+            return null;
+        const found = new Map<string, Row>(), several = new Set<string>();
         this.undoing = true;
         try {
-            for (const spelling of renameUndone(name, this.renameUndo)) {
-                const node = this.find(spelling, kinds);
-                if (node)
-                    return node;
+            for (const spelling of spellings) {
+                try {
+                    // §188.2: a spelling that reaches a copy by its own handle (a legacy slug) is the individual's first node.
+                    const [id] = this.oneEach([string(this.resolve(spelling, kinds, what).node_id)]);
+                    found.set(id!, this.nodes.get(id!)!);
+                }
+                catch (error) {
+                    if (!(error instanceof RpcError))
+                        throw error;
+                    for (const id of ambiguities.get(error) ?? [])
+                        several.add(id);
+                }
             }
-            return null;
         }
         finally {
             this.undoing = false;
         }
+        if (found.size === 1)
+            return [...found.values()][0];
+        const ids = found.size ? [...found.keys()] : [...several];
+        if (ids.length < 2)
+            return null;
+        throw markAmbiguity(new RpcError("unknown_entity", `${what} ${repr(name)} is ambiguous`, {
+            fix: "use one of details.candidates by its name; two of them shown by one word are told apart by giving one another word with apply person",
+            details: { query: name, reason: "ambiguous", candidates: sorted(ids).map(id => this.shownCandidate(this.nodes.get(id)!)) },
+        }), ids);
+    }
+    /** §188.2: node ids with the copies of one individual counted once, as the node that stands for them; order kept. */
+    private oneEach(ids: Iterable<string>): string[] {
+        return [...new Set([...ids].map(id => this.individuals.get(id) ?? id))];
+    }
+    /**
+     * §188.3: a candidate of an ambiguous undo as the request shows it -- a book person by their word (`shownWords`), anything
+     * else by its handle -- never by the book's name. `name` is what names it in a call: the handle in a name-free campaign,
+     * which carries no name (§185.7); the word in a legacy one, whose handles are the book's names as slugs.
+     */
+    private shownCandidate(node: Row): Row {
+        const handle = this.handle(node), shown = this.shownWords.get(string(node.node_id)) ?? handle;
+        return { name: this.nameFree ? handle : shown, kind: node.node_kind, shown };
     }
     /**
      * The ranked part of `candidates()` alone -- name overlap, then similarity -- never the roster

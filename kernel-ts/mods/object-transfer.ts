@@ -29,6 +29,8 @@ export function objectTransferReceipt(input: {world: Row; id: string; callId: st
     const ground = row(input.ground ?? {});
     const receipt: Row = {id: input.id, kind: 'item', name: input.name, label: input.name, subject: input.owner.id, subject_label: ownerLabel(input.world, input.owner),
         quantity: input.quantity, instance: input.item.id, from: input.source ? ownerLabel(input.world, input.source) : null,
+        // §188.4: a person who gave it is stored by identity beside the word the card shows, so the NPC ledger finds them.
+        ...(row(input.source).kind === 'npc' ? {from_id: string(row(input.source).id)} : {}),
         weapon: row(input.definition).category === 'weapon' ? input.item.id : null, call_id: input.callId, why: input.why ?? null, state: clone(input.item.state),
         ...(truth(input.item.source_object) ? {source_object:clone(input.item.source_object)} : {}),
         ...(truth(ground.handover) ? {handover: string(ground.handover)} : {}), ...(truth(ground.check) ? {check: string(ground.check)} : {}),

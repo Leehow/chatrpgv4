@@ -87,7 +87,7 @@ function bindSpeakers(job: Row, source: OriginalSource, graph: ModuleGraph, part
     return next;
 }
 class ReferencedEntityIndex extends EntityIndex {
-    constructor(graph: ModuleGraph, party: Row[], labels: Row, allowed: string[], readonly bindings: Row[]) { super(graph, party, labels, allowed); }
+    constructor(graph: ModuleGraph, party: Row[], labels: Row, allowed: string[], readonly bindings: Row[], world: Row = {}) { super(graph, party, labels, allowed, world); }
     override matches(name: string, options: Parameters<EntityIndex['matches']>[1] = {}): string[] {
         const found = super.matches(name, options);
         for (const binding of this.bindings) {
@@ -255,7 +255,7 @@ export async function submitReferenced(campaign: CampaignWriter, graph: ModuleGr
     const packet = makePacket(job, catalog), indices = array(packet.step.segments).map(segment => catalog.segments.findIndex(value => value.alias === segment.alias));
     if (job.status === 'done' || value.step !== packet.step.key || value.decisions.length !== indices.length)
         return invalid('Memory decisions must cover exactly the current kernel-issued step');
-    const index = new ReferencedEntityIndex(graph, party, row((await campaign.readWorld()).scene_labels), array(job.allowed), array(job.name_bindings));
+    const referencedWorld = await campaign.readWorld(), index = new ReferencedEntityIndex(graph, party, row(referencedWorld.scene_labels), array(job.allowed), array(job.name_bindings), referencedWorld);
     const existing = await logs(campaign, 'memory/candidates.jsonl'), rows: Row[] = [], resolved: number[] = [], deferred: number[] = [];
     const at = nowIso();
     for (const [position, sourceIndex] of indices.entries()) {

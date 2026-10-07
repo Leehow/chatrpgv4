@@ -36138,7 +36138,7 @@ punctuation piece, a one-character alias, matched as a substring in CJK. The §1
   which writes `named_at`) and its `named_quote` / `named_as` check. The guarded words are only the investigators' registered
   names and this table's words for people (`tableWord`, `called.name`, epithets, journal labels; the names of people the
   table established), never told cast names, since whether someone is told is what these tests decide. A person's own words
-  never shield their own name. Matching is the rename's, with the same containment rule: a longer occurrence of the name that
+  never shield their own name, and with §188.2 the words of every copy the cast holds as that individual are their own. Matching is the rename's, with the same containment rule: a longer occurrence of the name that
   holds a guarded occurrence whole still counts. Without it the investigator 「丹尼尔·怀特」 in the prose told an unread
   「丹尼尔」, whose names then left the roster and reached the Keeper.
 
@@ -36203,6 +36203,73 @@ All tests go through the kernel in process plus the installed context runtime: `
 
 (Recorded by the implementing slices.)
 
+#### NR-04a (188.4 batch A, 2026-10-07, `claude/names-rename-20261007-junctionA`)
+
+**The junction.** One reader is added beside `npcNode`, for a field that may also be free text:
+`referencedPerson(graph, world, name)` (`kernel-ts/read/capsule.ts:117`). It reads the graph's npc (`ModuleGraph.resolve`,
+§185.3's retry included), then this table's word (`calledPerson`); a plain miss is `null`, and the graph's ambiguity or a word
+two people carry is refused (`unknown_entity` with `details.candidates`, §87.8's shape). It is NFH-01's `cashCounterparty`
+moved to the junction; `cashCounterparty` (`kernel-ts/apply/purchases.ts:39`) now returns it, so quotes read exactly as before.
+`objectOwner` is split into `ownerIn(party, graph, world, name)` (`kernel-ts/mods/stage.ts:34`), synchronous over a party
+already read, so an owed row can compare a stored owner; `objectOwner` reads the party and calls it.
+
+**Converted entrances (before → after).**
+- **Owed cash `with`** (`kernel-ts/owed/land.ts:73`, `lands`): `effect.with === owed.with` → both sides read by
+  `referencedPerson` and compared as handles. The row stores the handle; the Keeper's handle, told name or table word all
+  land it, another person is `owed_mismatch`, a word two people carry is refused naming both. When either side names nobody
+  (free text, or `with` absent with `source: found`) the comparison is `===`, as before.
+- **Owed cash `subject`** (`kernel-ts/owed/land.ts:72`): `===` → both read as `apply cash` reads its purse (`actor()`:
+  sheet id or registered name) and compared as sheet ids. A value that is no investigator compares by `===`. An omitted
+  subject is not read as the only investigator here: the row is landed by naming it.
+- **Owed object `to`** (`kernel-ts/owed/land.ts:64`): the same sweep found it beside the cash fields, `===` against the row's
+  registered name. Now both read by `ownerIn` and compared as `kind:id`; a value no owner answers compares by `===`.
+  `name`, `definition`, `adopt` and `quantity` are object fields, not references, and still compare by `===`.
+- **`apply item from`** (`kernel-ts/apply/inventory.ts:75`): `EntityIndex.matches` (graph names only), else
+  `looseMatches`, stored as the book's display name or the raw spelling → `referencedPerson`; only a miss falls back to the
+  one-word `looseMatches` reading it had. A person is stored by identity: the receipt carries `from_id` (the handle) beside
+  `from`, and `from` (on the receipt and on the sheet row) is now what this table calls them (`personLabel`: the table's
+  word, else the book's display name), the same word an object transfer's `from` carries. Free text stays as written with
+  no `from_id`. A word two people carry, and the graph's ambiguity, are refused (before, the raw spelling was stored).
+  The readers that matched the stored `from` by spelling read `from_id` first: the NPC ledger's exchanges
+  (`kernel-ts/write/contributions.ts:256`, `receipt.from_id ?? receipt.from`) and the reunion's meetings
+  (`kernel-ts/npc/reunion.ts:15`, `from_id` among the keys).
+- **`apply object to/from`, `apply ability to`** (`objectOwner` → `ownerIn`, `kernel-ts/mods/stage.ts:38`): the party,
+  then `graph.find` answering an npc, then the container and the scene → the party, then `graph.find` answering an npc, then
+  `calledPerson`, then the container and the scene. The stored owner row is minted from the node or the sheet as before, so
+  `equal(prior.owner, source)` and the offer's `from`/`to` compare one identity whichever spelling named it. A person who
+  gives an object is stored by identity on the transfer receipt too (`from_id`, `kernel-ts/mods/object-transfer.ts:33`), so
+  the NPC ledger finds a giver this table calls by its own word. Free text that names no owner is refused as before
+  (`unknown_entity`, `details.field: "object.owner"`). The same reader serves `mods/resolve.ts` and the fulfillment
+  receipt's payer and recipient, which call `objectOwner`.
+- **`apply damage` `subject`** (`kernel-ts/apply/index.ts:205`, the apply context's `settlement`): `graph.actor`, then the
+  party → read first by `readCalledPeople`, the resolve entrance's reader (§87.8): a word the graph's actor or an
+  investigator answers is left as written; a word only `calledPerson` answers is read as that person's handle; two owners
+  are refused before anything is rolled. Recovery passes a sheet id and is unchanged.
+
+**Investigators** are read as before everywhere above: by sheet id or registered name (`actor()`, or the party loop in
+`ownerIn`); §79 gives an investigator no table word.
+
+**Not converted here, and why.**
+- `apply cash` `subject` at the entrance: a purse is an investigator's, read by `actor()` as before; its stored form (the
+  sheet id in `cash_quotes`) was already compared by identity.
+- `projectOwed` (`kernel-ts/owed/index.ts`): the review lane's own output, matched against the party by exact name or id and
+  against people by `personNode`. It is not a Keeper entrance; the rows it writes carry the handle and the registered name
+  that the landing now compares by identity.
+- `memory/fulfillment-view.ts` (`receipt.with !== term.payer`) and `fulfillment-receipt.ts` (`receipt.from !==
+  sourceLabel`): the memory side, batch B. The second compares the label both sides mint from one owner row.
+- `objectOwner`'s container lookup and the host's purchase recovery (`extensions/kernel/purchase-recovery.ts`, a seller
+  compared by its own reader): an object is not a person, and the host is outside the kernel's entrances.
+
+**Tests.** `tests/extension/reference-junction-batch-a.test.mjs`, the kernel in process with The Haunting (the object-usages
+fixture): per entrance, this table's word (`apply person`), the book's name and the handle land on the same person; another
+person is refused (owed `with`, object `from`) or lands on that person (item giver, ability, damage); a word two people carry
+(written on the record directly, since `apply person` refuses a taken word) is refused with both candidates; free text keeps
+its behaviour. The item and object givers are read back from `npc-ledger.json`; the reunion case runs on a table with
+`natural-npc` disabled, because a first-impression roll would itself be the meeting. Mutations by copy, each red in the
+test that names it: owed `with`, `subject` and object `to` back to `===`; `apply item from` back to `EntityIndex`; the
+ledger reading `from` only; the reunion ignoring `from_id`; `ownerIn` without `calledPerson`; the transfer receipt without
+`from_id`; the damage subject not read by `readCalledPeople`; `referencedPerson` without the table layer.
+
 #### NR-01 (2026-10-07, `claude/names-rename-20261007-spans`; protected spans, 188.1)
 
 - **The one function.** `protectedNames(graph, world, journal, records)` (`kernel-ts/read/cast.ts`, beside `knownNamePieces`)
@@ -36262,9 +36329,11 @@ All tests go through the kernel in process plus the installed context runtime: `
     caller's history. A history prepared without a guard reads as before.
   - *The test.* `NameHistory.says(text, word, own)`: the word's occurrences in the normalized text, at least one `clearOf`
     the guarded occurrences whose owners are not the person's (`kernel-ts/journal/name-spans.ts` now holds `nameSpans` and
-    `clearOf`, which the gate's `write/names.ts` imports). Own keys: a graph person's handle, node id, any handle `sameNode`
-    accepts and the cast rows they absorbed (`ownerOf`, `journal/naming.ts`; `castIdsOf`); an unread person's row id and
-    cast ids. `toldTurn` takes the cast ids as a fifth argument.
+    `clearOf`, which the gate's `write/names.ts` imports). Own keys (`ownerOf(graph, nodes, castIds)`, `journal/naming.ts`;
+    `ownedBy(graph, node)`, `read/cast.ts`): with §188.2, every node the cast holds as the same individual -- its handle, node
+    id and any handle `sameNode` accepts -- and the cast rows they absorbed, so a copy's own words never shield that person's
+    own name; an unread person's row id and cast ids. `toldTurn` takes the owner test as a fifth argument (default: the node
+    alone); `isTold`, `protectedNames` and the journal's floor and quote check pass the individual's.
   - *The journal lane.* A `named_quote` that carries the person's names only inside others' guarded words carries none
     (`not_a_book_name`, so the lane is asked `named_as`), and a `named_as` found in the quote only inside them is refused the
     same way. `journal.submit` passes the world for the guard (`submit(..., world)`).
@@ -36299,3 +36368,302 @@ All tests go through the kernel in process plus the installed context runtime: `
   unguarded; the `named_quote` check unguarded; the `named_as` check removed; `untoldBlock` unguarded; no `person_labels` in
   the guard (the unread Daniel inside the store owner's word); `untoldRoster` and `table.untold` both unguarded (either one
   alone is masked by the other, by design).
+- **With NR-02 and NR-03 (merge of 2026-10-07).** `isTold` keeps NR-02's told-together over `castNodes` and passes every
+  node the individual's owner test (`ownedBy`); `untoldBlock` calls `isTold` with the guarded history; `protectedNames`
+  counts someone told when any copy is, each read with `ownerOf(graph, person.nodes, person.castIds)`; NR-03's single
+  builder (`rosterNames`) reads no told state, and `untoldRoster` attaches the guard before it computes who is untold.
+  `castIdsOf` is gone (`ownedBy` replaces it). Test: `module-cast.test.mjs`, two copies of Old Mae, the second named by the
+  name token (so her name is that copy's own word): the journal's floor lists neither copy unnamed and the roster no longer
+  hides her. Mutations, each red: `ownedBy` covering only the node it is given; the journal floor's `toldTurn` without the
+  individual's owner test.
+
+#### NR-03 (2026-10-07, `claude/names-rename-20261007-undo`; 188.3)
+
+- **The rows come from the roster's own builder.** `untoldRoster`'s body is split, its answer unchanged
+  (`kernel-ts/read/capsule.ts`): `rosterWord` is the word a cast person is shown by (the table's word, else a graph
+  person's journal label, else the handle or the cast row's id), and `rosterNames` builds every row the rename replaces
+  (names, aliases, punctuation pieces, one-character aliases, a legacy person's node id and handle once they have a word,
+  and the joined words of shared names, with each row's owners). `untoldRoster` hands it the untold. `renameUndoRows`
+  (`kernel-ts/read/rename-undo.ts`) hands it the whole cast, with only the investigators' names known
+  (`knownNamePieces(graph, [])`, as the roster leaves them out), and groups the rows by shown string. A new row kind
+  added to the roster is undone without a second copy.
+  - A joined word's names are the names its owners share, then each owner's own names. The shared name is often a first
+    name, a piece that no node answers to (the names index holds names, aliases and display names, not pieces); the
+    joined word stood for one of the owners, so the owners' names are what can resolve.
+  - Words come from the world and `npc-journal.json`, read at install. NFH-01's limit "a journal label not yet folded has
+    no row" is gone.
+  - A row whose word the junction reads (`calledOwners`: a `person_labels` name or an epithet) is marked `called`.
+  - `ModuleGraph.shownWords` (node id to word) names the candidates of a refusal.
+  - NFH-01's "a word two people carry has no row" is dropped: such a word is undone and refused `ambiguous` when its
+    spellings name two nodes.
+- **Installed in both schemes** (`installRenameUndo`, called from `loadCampaignModule`). The scheme is no longer read from
+  `campaign.json` here: `rosterNames` makes no slug rows when `graph.nameFree`, which the same marker sets. It now runs
+  after `investigatorNames` is installed; before, the order left `knownNamePieces` without them.
+- **The retry** (`renameUndone`, `undoRename`, `kernel-ts/read/module-graph.ts`).
+  - Places: longest word first, no overlap. A name is offered for a place only where it passes the rename's boundary test
+    there.
+  - Spellings: each place read as each of its names, at most `UNDO_SPELLINGS` (48).
+  - Each spelling goes through `resolve` (not `find`, which hides an ambiguity). A spelling that misses inside the retry
+    throws without ranking candidates.
+  - The spellings that resolve to exactly one node decide: all one node, that node; two or more, `ambiguous`. When none
+    does and some are ambiguous, the nodes those name are the candidates. The ambiguity mark now carries the node ids
+    (`WeakMap`), so the retry can read them.
+  - Reading of 188.3's "the first that resolves wins": the first wins only when the others agree. Taken literally, the
+    rows' order would pick between a joined word's owners.
+- **The refusal.** `unknown_entity` (the code set is closed and has no `ambiguous`), `details.reason: "ambiguous"`,
+  marked as `resolve`'s ambiguity so `apply npc` never mints a newcomer under it.
+  - Message `<what> '<query>' is ambiguous`; `query` is the Keeper's string.
+  - `candidates[]: {name, kind, shown}`. `shown` is a book person's word (`shownWords`), else the node's handle. `name` is
+    what to write: the handle in a name-free campaign, the word in a legacy one, whose handles are the book's names.
+  - No `describe()`, whose `display_name` is the book's name. `resolve`'s existing ambiguity refusals are unchanged; their
+    JSON is compared with the frozen oracle.
+- **NFH-01's single-word guard, re-examined.** It now applies only to a reference that is exactly one word the junction
+  reads (`called`). Such a word is not retried, so §87.8 keeps refusing a word two people answer to, rather than the graph
+  picking the one the roster shows by it.
+  - Retried whole: a joined word (no junction reads it), a journal label not yet folded, a cast row's id.
+  - NFH-01's example, `replacePassagePeople`, runs on a freshly loaded graph before the rows are installed. A table
+    person's name resolves as written before any retry.
+- **What the wider set can do.** Rows for told people and for every owner act only after a miss.
+  - A spurious spelling can turn a miss into the node the word stood for.
+  - It can turn a single answer into `ambiguous` when two spellings name different nodes, e.g. a lookup across all kinds
+    for a word whose piece is exactly another node's name.
+- **Limits.**
+  - Entrances that read the graph through `find` (`graph.actor`, `personNode`) swallow the refusal and answer their own
+    miss. The ambiguity reaches the Keeper where the entrance calls `resolve`, `npc`, `clue` or `scene` (`apply npc`,
+    `apply clue`, `apply move`). NR-04 decides per entrance.
+  - The junction's own refusals (`calledPerson`'s two owners) and `resolve`'s other ambiguities still describe candidates
+    with `display_name`, the book's name, which only the host rename hides. Outside this ticket.
+  - The request keeps a word changed mid-turn until the next turn (§103.5), and that old word has a row only while
+    someone still answers to it.
+- **Tests:** `tests/extension/rename-undo-names.test.mjs`, kernel in process with the context hooks as installed.
+  - Fixtures:
+    - a reader-built book (name-free) with 「丹尼尔·马瑟」 (alias 「丹」), an unread 「丹尼尔·罗斯」 sharing 「丹尼尔」, two
+      graph people sharing 「艾米」, two men printed only as 「汤姆」, and the clues 「马瑟的账本」 and 「丹的钥匙」;
+    - a starter (legacy) with the same people and clues, plus a letter whose handle begins with Mather's.
+  - Each string is taken from the assembled request (a source lookup's text, or the capsule) and sent as `npc.name` or
+    `clue`:
+    - the whole name, the piece and the one-character alias resolve, in both schemes;
+    - the legacy handle resolves;
+    - the joined 「丹尼尔」 word resolves to Mather;
+    - 「艾米」 (both schemes) and 「汤姆」 (no spelling names one) are refused `ambiguous` with each person's word, no book
+      name and no slug, and nobody is minted;
+    - the candidate's `name` then lands on that person.
+  - Also covered: the installed rows (name rows in both schemes, handle rows in legacy only); a stored collision (one
+    person's label is another's epithet), refused by the junction, not picked; a journal label not yet folded, undone
+    whole and inside a joined word.
+  - `legacy-rename-round-trip`'s name-free case is retitled: it now asserts that no handle is undone there.
+  - Mutations, each reverted by copy (checksum-verified) and each red:
+    - rows not installed in name-free;
+    - handle rows only;
+    - joined words without their owners' names;
+    - the first spelling wins;
+    - `describe()` candidates;
+    - the whole-word guard for every word;
+    - no guard for a junction word;
+    - ambiguous spellings counted as misses;
+    - no journal read.
+
+#### NR-02
+
+**The cause (data, 2026-10-07).** Not a script or language mismatch and not a served-cast version: `cast.json` is version 5,
+complete, of the bound file, and the row prints the graph person's own name in the same script.
+- The graph held the store owner twice. `npc-book-4-daniel-mather` (「丹尼尔·马瑟」, aliases 「丹」, 「丹·马瑟」, handle
+  `red-haired-store-owner-smoker`) came from the first reading. Generation 55 of the campaign's fork (02:05:43Z, a page
+  reading of pages 25–26) added `npc-daniel-mather` (「丹尼尔·马瑟」, alias 「丹·马瑟」, same page, same biography), under
+  another id; its handle is `rough-red-haired-smoking-shopkeeper`.
+- Row `cast-78239617e2` (book 「丹尼尔·马瑟」, 「丹·马瑟」) was then answered by both nodes, and §177.1's "a row two answer
+  is unread" made it a third person. The epithet lane worded it at 02:06:29 (「红发棕眼的来客」) and the copy at the same
+  time (「站在基地里的住民」).
+- Replayed read-only on a clone of the acceptance home: `table.untold` at generation 54 shows every Mather form, including
+  "Daniel Mather", by 「抓胡茬的红发杂货店主」 alone. At generation 60 it shows the three words joined.
+- 「站在基地里的住民」 is the second graph copy, not another man.
+- The same shape on book-4 at generation 60: 7 rows answered by two or more graph people. The duplicated people are
+  Alissya, Brenner (three nodes), Scott, Sutton (the book prints him as Peter and as Matthew), Mather and Pete Smith.
+  Before the fix, `table.untold` had 70 joined-word rows; after it, 43. The rest are different people who share a name.
+
+**The join** (`bookCast`, `kernel-ts/read/cast.ts`).
+- A link between a row and a graph person keeps §177.1's two clauses: the person's own name or display name is one of
+  the row's forms, or the row's fullest form is one of the person's names. §188.2's shorter wording ("one of the row's
+  forms equals one of the person's names") is not taken literally: it would join table 24's shared short forms again.
+- Links are read from the graph's own names and the row alone, so no row's join depends on the rows read before it.
+  Before, a later row could join through names an earlier row had added.
+- **Both ways.** A graph person linked by both clauses is that row's individual. Several such people are the graph holding
+  one individual more than once; the row makes them one cast person. `node` is the first in graph order, and
+  `CastPerson.nodes` holds them all.
+  - Both clauses, not either: the hardware owner's row prints 「皮特」, which is also the trailer squatter's nodes' own name.
+    Only the squatter's own row carries his fullest form, 「彼得·M·史密斯」.
+- **The longest shared name.** A person linked both ways to several rows goes to the row they share the longest whole name
+  with, in characters. A tie leaves them their own person. Example: a row printing 「皮特」 alone loses the squatter to his
+  own row.
+- **Any other row** joins the one cast person (folds counted) that answers it. A row that nobody answers, or that two
+  different people answer, stays unread with all its names, as before.
+- A joined row owns no roster entry, and its words never own a name.
+
+**What reads the person.**
+- `castNodes(graph, node)` gives the nodes the cast holds as one individual.
+- `isTold` (person-words.ts) and `untoldBlock` (capsule.ts) count a node as told when any of those nodes is told (journal
+  `named_at` or a delivery).
+- `rosterWord` (capsule.ts) shows the person by their first node's word, else the first other copy's that has one. The
+  roster and §188.3's undo both read it. `rosterNames`, the one row builder, renames every node's id and handle in a legacy
+  campaign.
+- `protectedNames` (§188.1) protects a person's names when any of their nodes is told.
+- `newcomerRefusal` counts every node's word.
+- The journal's book-name check finds the person by any of their nodes.
+
+**One candidate in `resolve`** (lead's ruling after the merge with NR-01, NR-03 and NR-04a, 2026-10-07).
+- The campaign loader installs `ModuleGraph.individuals` with the undo rows (`individualNodes`, `read/rename-undo.ts`): each
+  node of an individual the cast holds more than once, to their first node (`CastPerson.node`). That is the node whose
+  handle the roster's rows carry as `id` and whose word `rosterWord` shows first.
+- `resolve` counts those nodes once, as the first node, wherever a name reaches several: the graph's names, the phrase at
+  one end of a name (§2), and each spelling of §188.3's undo. So 「丹尼尔·马瑟」 in a call is the store owner's first node,
+  not `ambiguous` between his copies. A joined word for two men is still ambiguous, with one candidate for each man.
+- A handle, a node id or a legacy slug still names its own node: a copy placed in a scene is still moved by its handle. A
+  copy's own handle reached by an undo spelling (a legacy slug) counts as the individual too.
+- Only a campaign's graph has the map; a graph no campaign serves resolves as before.
+- When the first node has no word yet, the roster shows the other copy's word, and a call by that word reaches the other
+  copy through the junction (§87.8). It is the same person; the two meet again once the lane words the first node.
+
+**Not changed, open.**
+- The producer: the page reading merge writes a second node for someone the graph already has. On book-4 generation 55
+  that was the store owner, the squatter, the sand rats and the general store.
+- Presence and capsules still show each copy by its own word.
+- Brenner's `npc-book-4-dr-brenner` (「布伦纳医生」) does not carry the row's fullest form, so 「布伦纳医生」 still shows two words.
+- A label the fiction established on a later copy is not preferred over the first copy's epithet.
+
+Tests, in `tests/extension/module-cast.test.mjs`:
+- On the real kernel, a reading in the campaign's fork writes Old Mae again under another id. Her row is not offered to
+  the epithet lane, and `table.untold` shows her forms by one word owned by one of her nodes.
+- On Blood Road's real rows and nodes (Mather, the squatter and the hardware owner):
+  - one person each, with every Mather form shown by one word;
+  - 「皮特」 still shows two words;
+  - the legacy slugs of the second copy are renamed;
+  - the copy's word refuses a newcomer;
+  - told through the second copy, the man is told;
+  - with no word on the first copy, the second copy's word is shown.
+- Both ways and the longest name: a partial cast without the squatter's row, and a later row printing 「皮特」 alone.
+- On the real kernel, the journal lane's label check on the second copy uses the names her row gives her.
+- On the real kernel, `apply person` by a name two copies carry lands on the node the roster names him by.
+- In process: Blood Road's name resolves to the first copy; the squatter/hardware owner joined word is ambiguous with two
+  candidates, each by his own word; a phrase at one end of a name finds one candidate; told through the second copy, his
+  names are protected spans.
+
+Mutations, each turning at least one case red (reverted by copy):
+- the four files back to base;
+- no fold;
+- `isTold` per node;
+- `untoldBlock` per node;
+- the roster's word from the first node only;
+- slugs of the first node only;
+- newcomer words without the copies;
+- fold on either clause;
+- no longest-name choice;
+- the journal by the first node only;
+- after the merge: `protectedNames` told by the first node; `rosterWord` from the first node only; `resolve`'s names path,
+  phrase path and undo spellings not collapsed; `individuals` not installed by the loader.
+
+#### NR-04b (188.4 batch B, 2026-10-07, `claude/names-rename-20261007-junctionB`)
+
+**The junction, once more.** No new resolver. Entrances that take a person read `npcNode` / `personNode` / `calledPerson` /
+`referencedPerson` (§87.8, NR-04a); entrances that take any entity read `ModuleGraph.resolve` (its §2 anchored run and §185.3's
+retry included). Two readers are added beside them:
+- `EntityIndex` (`kernel-ts/read/memory.ts:79`) takes the world as a fifth argument. A word its own steps (reserved, an
+  investigator, the graph's exact names, a scene label) leave unanswered is read by the junction (`people`, :120):
+  `graph.npc`, then every owner of the table's word, so two owners come back as two keys and every caller refuses them as
+  ambiguous. A caller that passes no world gets `resolve` without the table layer.
+- `samePersonReference(graph, world)` (`kernel-ts/read/capsule.ts:138`): whether a stored reference and another name one
+  person (`referencedPerson` on both sides); a value that names nobody matches only its own spelling. For
+  `memory/fulfillment-view.ts`, which reads no graph and now takes it as an optional `samePayer`.
+
+**Converted entrances (before → after).**
+- **Memory lane `subject` / `knowers` / `entities`, legacy and referenced protocol** (`memory/jobs.ts:332` `submit`,
+  `memory/referenced.ts:258` `submitReferenced`, through `validateCandidates`): `EntityIndex.matches` over the graph's exact
+  names → the same, then the junction. The row still stores the graph's display name (`canonicalName`), so the stored format
+  is unchanged; a table word that was refused `not a known name` is now that person. `memory.evidence`'s `filters.about`
+  (`memory/evidence.ts:81`) reads the same way. `table.recall` already reached the table's word (§177.13) and is unchanged.
+- **`apply note` `entities`** (`apply/bookkeeping.ts:164`): the same index with the world. *Stored format:* a table word (or
+  an anchored run, or a renamed spelling) is now stored as the person's display name, as a book name always was; before, it was
+  stored as written. The receipt's `entities` and the capsule's note `cue` show that name (§103.5's rename still hides an untold
+  one in the Keeper's request). A word two people carry, and free text, stay as written.
+- **Notes linked to who is here** (`noteObligations`, `read/memory.ts:302`, called at `read/assemble.ts:450`): stored entities
+  and the present people and place compared by `normalize` → by `lenientKey` of an index with the world and the scene labels,
+  so a note an older kernel stored under the table's word links where that person stands.
+- **`apply ruling` anchor `entities`** (`apply/bookkeeping.ts:197`): an investigator, else `graph.resolve` → the same, then
+  `calledPerson` when the graph misses. Stored as the handle, as before; a word two people carry is refused naming both.
+- **Ruling anchors in the capsule** (`rulingsForCapsule`, `read/memory.ts:321`, given `currentHandle` at
+  `read/assemble.ts:496`): a stored anchor compared by spelling with the present handles → read as the current handle of the
+  node it names. `rulings.jsonl` is append-only history (§185.6.1), so a ruling anchored before a fold kept the interim handle
+  and stopped surfacing.
+- **`resolve` `action.obligation`** (`obligationByHandle`, `read/obligations.ts:58`): an exact handle or node id → that, else
+  `graph.find(name, ["requirement"])` kept only when it is a stated obligation. The requirement's name, an anchored run and a
+  renamed handle now bind; a name that is no obligation is `obligation_unknown` as before. `continuedClaim` and the offer
+  ledger read stored handles through the same function.
+- **Mod dossier `name`** (`beingNamed`, `mods/dossier-door.ts:34`): `graph.npc`, then a creature → `npcNode` (the table's word
+  after the graph's npc; two owners refused naming both), then a creature. The receipt still names the display name.
+- **The material gate's pre-pass** (`apply/index.ts:145`): an `npc` effect's name read by `graph.find(name, ["npc"])` → that,
+  then `calledPerson`. *Visible:* a book person whose record is not read, named by the table's word, is now held
+  `material_pending` with his handle as `focus`, as his book name always was; before, the word reached the gate as nobody and
+  the person was placed with no material. A word two people carry is left to `apply npc`'s own refusal.
+- **Chase** (`kernel-ts/chase/bindings.ts`, one reader `chaseBeing` :27 = `personNode`):
+  - `chase_roster[].actor` (:294) and `riding_with` (:322, `participantOf`): spelling against a present opponent's handle or
+    display name, and `riding_with` against the roster's own spelling of the driver → the acting investigator by sheet id or
+    name, anyone else by the junction, matched to a present opponent by node. The table's word now names a runner and a driver.
+  - `action.target` at the start (:396): spelling against handle or display name, silently ignored on a miss → the being the
+    target names, by node. A target that names nobody present still leaves every pursuer (unchanged).
+  - `action.target` on `conflict` (:499): spelling against the participant id or label → an investigator by sheet, anyone else
+    by `sameNode` with the saved participant; a word that names nobody compares its spelling as before.
+- **The say token** (`speakerResolver`, `write/speech.ts:64`): the graph step was an exact name key over every npc → `graph.find(
+  name, ["npc"])`. *Visible:* a token in §2's anchored run (`{{say:Hall of Records clerk}}` for "the Hall of Records clerk")
+  now attributes the line to that person instead of leaving a label. Present people, the party and `calledPerson` are unchanged.
+- **`lookup kind=module`** (`read/handlers.ts:553`): after `search` and `handleList` miss, `graph.find(query, expected ? [expected]
+  : undefined)` before the person junction and the unread cast. *Visible:* a handle the request's rename rewrote
+  (`<word>-house`), an anchored run and, with `expected_kind: scene`, a part of a place (§32's place layer) are found instead of
+  `not_found`.
+- **The clue-label matcher** (`knownLabel`, `read/mods.ts:975`): the labelled keys were counted as strings, and two keys failed
+  over silently to the graph's names → each key read as the clue it names (`graph.find(key, ["clue"])`), deduplicated by node.
+  One clue filed under two spellings of its handle is that clue; *visible:* a label two different clues carry is refused
+  `unknown_entity` with both as candidates.
+- **A promise's cash counterparty** (`fulfillmentReceiptAmount` / `derivePromiseFulfillment`, `memory/fulfillment-view.ts`):
+  `receipt.with !== term.payer` → `samePayer`, given `samePersonReference` by `prepareFulfillments`
+  (`memory/fulfillment-receipt.ts:193`, the write path), the capsule (`read/assemble.ts:428`) and `presentSection`
+  (`read/capsule.ts:772`, the card and `look`). Kernel-written linked receipts carry the handle the payer carries; this reads a
+  stored receipt whose `with` holds another spelling of the same person as that person.
+- **A promised item's giver** (`effectOwners`, `memory/fulfillment-receipt.ts:175`): `EntityIndex` over the graph's names, and
+  the label `canonicalName` → the payer `objectOwner` already read (NR-04a's `ownerIn`), labelled `personLabel`. NR-04a made
+  `apply item` store what this table calls the giver as `from`, so the prepared label (the display name) no longer matched the
+  staged receipt and a promised item from a worded person could not attach. *Stored format:* the link's `source_label` is the
+  table's word when there is one.
+
+**Not converted, and why.**
+- `effectTarget` (`mods/effects.ts`): no caller hands it an unread word. Its default and `castNpc`'s target are `action.target`,
+  read at the resolve entrance (`readCalledPeople`); `castNpc`'s caster is `objectOwner`'s display name; the magic executor passes
+  a stored handle. A conversion would be unreachable, so no test could fail on its revert.
+- `castPersonNamed` (`read/cast.ts`): every caller asks the junction first (lookup: `personNode`; the gate: `graph.find` after the
+  resolve entrance or the pre-pass above). The unread cast has no node for `resolve` to answer, and its comparison is equality
+  with the row's names, epithet and id, which is the cast's identity (§177.1). (`cast.ts` is NR-01/NR-02's file.)
+- `newcomerRefusal`: not a reference. It asks whether a new name carries a book name, after `personNode` (`apply/index.ts:165`)
+  has found nobody; undoing the rename there would refuse a newcomer whose description holds someone's shown word.
+- `EntityIndex` without the world, where stored memory (always the display name since validation) is compared with internal
+  names: `buildJob` and `correctionJob` (`memory/jobs.ts`), the supersede key, `recall`, `worldline`, `continuity`, the
+  continuity audit, the capsule's memory anchors and the referenced job's preference index. The table's word never reaches
+  them as input; `resolve`'s layers reach them through the same `matches`.
+- `withPromiseFulfillment` without `samePayer`: recall (no graph in scope), the referenced job, worldline, continuity, the
+  continuity audit, the NPC perspective and situation, and the fulfillment options lane. They keep the spelling comparison;
+  kernel-written receipts do not differ there.
+- Found and not in batch B: `canonicalOwner` (`memory/fulfillment-receipt.ts`) compares a stored term owner with the current
+  owner id by spelling, so a partial promise bound before a §185.6 fold is refused `fulfillment_target_changed` after it.
+  A Mod document seed's `handout` (`mods/jobs.ts`, in NFH-01's list) is on neither batch of 188.4.
+
+**Tests.** `tests/extension/reference-junction-batch-b.test.mjs` (The Haunting in process, the object-usages fixture: memory
+lane legacy and referenced, `memory.evidence`, recall, notes and their capsule link, ruling anchors, obligations, dossier, say
+token, clue labels, chase start / roster / passenger / conflict), `reference-junction-batch-b-fulfillment.test.mjs` (a cash and
+an item promise of the worded Knott: prepare, attach, the capsule's obligation row, the card and `look`), and
+`reference-junction-batch-b-books.test.mjs` (the reader-built harbor book: the gate holds the worded harbormaster; a ruling on
+Old Mae survives a fold; the legacy rename fixture: `lookup` finds `<word>-house`). Per entrance the table's word, the told name
+and the handle (or node id) reach the same person or entity; another lands on that other one or is refused; a word two people
+carry is refused naming both; free text keeps its behaviour. Mutations by copy, each red in the test that names it: the
+`EntityIndex` junction removed; the world dropped at `submit`, `submitReferenced`, `memory.evidence` and `apply note`;
+`noteObligations` back to `normalize`; the ruling anchor without `calledPerson`; the capsule without `currentHandle`;
+`obligationByHandle` without `resolve`; `beingNamed` back to `graph.npc`; the say token back to the exact key; the clue
+labels counted by key, and the two-clue refusal removed; the chase start, roster actor, `riding_with` and conflict back to
+spelling; `samePayer` dropped at `prepareFulfillments`, the capsule and `presentSection`; the item giver labelled by display
+name; the gate pre-pass without the junction; `lookup` without `resolve`.

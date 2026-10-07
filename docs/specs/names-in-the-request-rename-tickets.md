@@ -119,4 +119,19 @@ Status: needs-triage (the lead runs it once NR-01..04 have merged)
   - no corrupted name in any delivered text or document.
 - Then merge into the mainline and package on the owner's word.
 
+## NR-07 — Page readings duplicate people the graph already has
+
+Status: needs-triage (found by NR-02; producer side, outside §188)
+
+On Blood Road the campaign fork's generation 55 (a page reading of pp. 25–26, 2026-10-07 02:05Z) wrote
+`npc-daniel-mather` beside the existing `npc-book-4-daniel-mather`: same name, same page, same biography. At generation
+60, book-4 has seven cast rows answered by two or more graph nodes: Alissya, Brenner (three nodes), Scott, Sutton,
+Mather and Pete Smith. The same reading also duplicated the squatter, 沙漠地痞, and the general store.
+
+NR-02 makes the cast and the roster treat a man's nodes as one individual. The reader and merge that mint a second node
+for an existing person are unchanged.
+
+What to decide: where the reading merge must recognise an existing node (cast row identity, `source_refs` page and the
+same whole name), and whether existing duplicates are merged in the graph or only grouped at read time.
+
 ## Comments

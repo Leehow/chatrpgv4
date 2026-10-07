@@ -329,7 +329,7 @@ export async function submit(campaign: CampaignWriter, graph: ModuleGraph, party
         await writeJob(campaign, {...job, status: 'done', candidates_sha256: digest, submitted: candidates, result, completed_at: nowIso()});
         await recoverBacklog(campaign, id); return [result, false];
     }
-    const world = await campaign.readWorld(), index = new EntityIndex(graph, party, row(world.scene_labels), array(job.allowed));
+    const world = await campaign.readWorld(), index = new EntityIndex(graph, party, row(world.scene_labels), array(job.allowed), world);
     let validated: Row[];
     let assessed: Row | null;
     try {

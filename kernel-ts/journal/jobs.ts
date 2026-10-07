@@ -7,10 +7,10 @@ import { CampaignWriter, nowIso } from '../write/store.js';
 import { ModuleGraph } from '../read/module-graph.js';
 import { sceneLabel } from '../read/capsule.js';
 import { tableWord } from '../read/person-words.js';
-import { bookNames, namePieces, occurs, nameWords, ownerOf, toldTurn } from './naming.js';
+import { bookNames, namePieces, occurs, nameWords, toldTurn } from './naming.js';
 import { NameHistory, prepareNameHistory, type TellGuard } from './name-history.js';
 import { nameSpans } from './name-spans.js';
-import { bookCast, castIdsOf, knownNamePieces, tellGuard, type CastPerson } from '../read/cast.js';
+import { bookCast, knownNamePieces, ownedBy, tellGuard, type CastPerson } from '../read/cast.js';
 import { array, row, clone, string, number, integer, truth, repr, sorted, length, normalize, type Row } from '../read/values.js';
 import { FAILURE_REASONS, committedRecords, logs, proseOf, writeLines } from '../memory/jobs.js';
 import { isStakesRoll } from '../npc/stakes-receipt.js';
@@ -143,7 +143,7 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
         if (!node || words[id] !== undefined)
             continue;
         words[id] = nameWords(graph, node);
-        const at = toldTurn(graph, node, history, turn, castIdsOf(graph, node));
+        const at = toldTurn(graph, node, history, turn, ownedBy(graph, node));
         if (at != null)
             told[id] = at;
     }
@@ -291,7 +291,8 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
     const carriesBookName = (text: string, id: string) => {
         const node = graph?.nodes.get(id);
         if (!node) return false;
-        const person = bookCast(graph!).find(entry => entry.node && string(entry.node.node_id) === id);
+        // §188.2: a node the cast holds as one individual with others carries that person's names.
+        const person = bookCast(graph!).find(entry => entry.nodes.some(each => string(each.node_id) === id));
         return namePieces(person ? person.names : bookNames(graph!, node)).map(normalize).some(piece => !!piece && occurs(normalize(text), piece));
     };
     // §188.1 (told detection): a quote that says the name only inside an investigator's registered name or another person's word
@@ -299,9 +300,9 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
     const tellCheck = (id: string) => {
         const node = graph?.nodes.get(id);
         if (!node || !guard) return null;
-        const person = bookCast(graph!).find(entry => entry.node && string(entry.node.node_id) === id);
+        const person = bookCast(graph!).find(entry => entry.nodes.some(each => string(each.node_id) === id));
         return { names: namePieces(person ? person.names : bookNames(graph!, node)).map(normalize).filter(Boolean),
-            own: ownerOf(graph!, node, person?.castIds ?? []), reader: new NameHistory([], guard) };
+            own: ownedBy(graph!, node), reader: new NameHistory([], guard) };
     };
     const quoteCarriesBookName = (text: string, id: string) => {
         const check = tellCheck(id);

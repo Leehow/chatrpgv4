@@ -549,6 +549,13 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 const referenceSource=!!module.meta.source_reference||module.meta.source==='pdf'&&!!row(module.meta.source_document).file_sha256,sourceScope=referenceSource||row(module.meta.reading).opening_scope==='first_interaction';
                 const prepared=new Set(array(row(module.meta.reading).materials).flatMap(material=>array(material.node_ids)));
                 let found = searched.length ? searched : graph.handleList(query) ?? [];
+                // §188.4: a query search and the handle list both miss is read as every other entrance reads a reference,
+                // through `ModuleGraph.resolve` -- a stored or interim handle, §2's anchored run, a place's part (§32), §185.3's
+                // retry -- so a handle the request's rename rewrote is found as the entity it names.
+                if (!found.length) {
+                    const resolved = graph.find(query, expected ? [expected] : undefined);
+                    if (resolved) found = [resolved];
+                }
                 // §177.7: the word this table calls a person -- their epithet, the fiction's word -- finds them through the person
                 // junction every write already uses (§87.8). Table 23 asked lookup by an epithet and got not_found.
                 if (!found.length && (!expected || expected === 'npc')) {
