@@ -972,9 +972,16 @@ export function findNamedObject(objects: Row,name: any): Row|undefined {
 function knownLabel(world: Row, graph: ModuleGraph, name: any): Row | undefined {
     if (typeof name !== "string" || !name.trim())
         return undefined;
-    const key = normalize(name),
-        labelled = entries(row(world.clue_labels)).filter(([, label]) => typeof label === "string" && normalize(label) === key).map(([handle]) => handle),
-        clue = (labelled.length === 1 ? graph.find(labelled[0], ["clue"]) : null) ?? graph.find(name, ["clue"]),
+    // §188.4: a label is filed under a stored handle; each is read as the clue it names, so one clue filed under several
+    // spellings of its handle is that clue, and a label two different clues carry is refused naming both.
+    const key = normalize(name), filed = (handle: string): Row | null => graph.find(handle, ["clue"]),
+        labelled = [...new Map(entries(row(world.clue_labels)).filter(([, label]) => typeof label === "string" && normalize(label) === key)
+            .flatMap(([handle]) => { const node = filed(handle); return node ? [[string(node.node_id), node] as [string, Row]] : []; })).values()];
+    if (labelled.length > 1)
+        throw new RpcError("unknown_entity", "No registered object or definition has that name; this table filed it as more than one clue", {
+            details: { query: name, candidates: labelled.map(node => graph.describe(node)) }
+        });
+    const clue = labelled[0] ?? graph.find(name, ["clue"]),
         handout = graph.find(name, ["handout"]);
     if (clue && handout)
         throw new RpcError("unknown_entity", "No registered object or definition has that name; a clue and a handout both do", {
@@ -983,7 +990,9 @@ function knownLabel(world: Row, graph: ModuleGraph, name: any): Row | undefined 
     const node = clue ?? handout;
     if (!node)
         return undefined;
-    const handle = graph.handle(node), label = node === clue ? row(world.clue_labels)[handle] : undefined;
+    const handle = graph.handle(node), labels = row(world.clue_labels),
+        label = node !== clue ? undefined : typeof labels[handle] === "string" ? labels[handle]
+            : entries(labels).find(([stored, value]) => typeof value === "string" && filed(stored)?.node_id === node.node_id)?.[1];
     return {
         kind: node === clue ? "clue" : "handout",
         // §185.7: the book's raw properties may name other nodes by id; the Keeper reads them by handle.

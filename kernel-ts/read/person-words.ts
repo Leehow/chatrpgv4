@@ -20,7 +20,7 @@ import { isJsonObject } from '../json.js';
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
 import { namePieces, occurs, toldTurn } from '../journal/naming.js';
 import { prepareNameHistory } from '../journal/name-history.js';
-import { bookCast, knownNamePieces, untoldUnread, type CastPerson } from './cast.js';
+import { bookCast, castNodes, knownNamePieces, ownedBy, tellGuard, untoldUnread, type CastPerson } from './cast.js';
 import type { CampaignWriter } from '../write/store.js';
 import { nowIso } from '../write/store.js';
 
@@ -45,8 +45,11 @@ export function tableWord(world: Row, handle: string): string {
  * showed it. The same test `untoldBlock` makes.
  */
 export function isTold(graph: ModuleGraph, journal: Row, node: Row, records: Iterable<Row> = []): boolean {
-    const entry = row(row(journal.entries)[string(node.node_id)]);
-    return !!integer(entry.named_at) || toldTurn(graph, node, records) !== null;
+    const history = prepareNameHistory(records);
+    // §188.2: the nodes the cast holds as one individual are told together; told one of his names, the investigator knows him.
+    // §188.1: read with the caller's told guard, every copy's words his own.
+    const own = ownedBy(graph, node);
+    return castNodes(graph, node).some(each => !!integer(row(row(journal.entries)[string(each.node_id)]).named_at) || toldTurn(graph, each, history, Infinity, own) !== null);
 }
 
 /** The book people a word may be given to: npc nodes the book has (never a table person), untold. */
@@ -129,14 +132,15 @@ export { readStored as readEpithets };
  * epithet. Returns whether the world changed; the caller writes it.
  */
 export async function foldPersonWords(campaign: CampaignWriter, graph: ModuleGraph, world: Row, journal: Row, records: Row[]): Promise<boolean> {
-    const history = prepareNameHistory(records);
+    // §188.1: the told checks read this table's words as they stand before the fold.
+    const history = prepareNameHistory(records, tellGuard(graph, world, journal));
     const stored = await readStored(campaign);
     const storedWord = (id: string): string => text(row(row(stored.people)[id]).word).trim();
     let changed = false;
     // §177.5 (table 24): a word that carries a name of someone still untold is withdrawn, though it was accepted when written:
     // the cast can learn a form (a bare surname) after the lane used it, and a word once written was never checked again.
     // The lane is asked for a new one; the world's copy goes with it.
-    const pieces = untoldPieces(graph, journal, records);
+    const pieces = untoldPieces(graph, journal, history);
     let withdrawn = false;
     for (const [id, entry] of entries(row(stored.people))) {
         const word = text(row(entry).word).trim();
@@ -172,7 +176,7 @@ export async function foldPersonWords(campaign: CampaignWriter, graph: ModuleGra
 
 /** One `epithets.submit` entry checked and, when accepted, written to `epithets.json` (§176.3). */
 export async function submitEpithets(campaign: CampaignWriter, graph: ModuleGraph, world: Row, journal: Row, records: Row[], entriesIn: unknown): Promise<Row> {
-    const history = prepareNameHistory(records);
+    const history = prepareNameHistory(records, tellGuard(graph, world, journal));
     const stored = await readStored(campaign), pieces = untoldPieces(graph, journal, history);
     const untold = new Set(untoldBookPeople(graph, journal, history).map(node => graph.handle(node)));
     // §177.5: the people the book names whom the reader has not reached are given a word too, under the row's id.

@@ -4,7 +4,7 @@ import { DirectorGraph, TextGraph, Ontology } from "./content.js";
 import { RuleObservations } from "./rule-facts.js";
 import { SessionView } from "./session-view.js";
 import { briefWindow } from "./brief-window.js";
-import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, fitBudget, fittedModuleSection, sceneLabel, voicesSection } from "./capsule.js";
+import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, fitBudget, fittedModuleSection, sceneLabel, voicesSection, samePersonReference } from "./capsule.js";
 import { OWN_BUDGET, ownSection } from "./own.js";
 import { playedRecords, signals, directorSection } from "./director.js";
 import { EntityIndex, capsuleMemory, noteObligations, rulingsForCapsule, promiseObligations, withPromiseFulfillment, canonicalMemoryReceipts } from "./memory.js";
@@ -23,7 +23,7 @@ import { unrecordedTime } from "./time-reading.js";
 import { playLanguageOf } from "./languages.js";
 import { RpcError } from "../errors.js";
 import { array, row, number, string, truth, chars, clone, normalize, type Row } from "./values.js";
-import type { ModuleGraph } from "./module-graph.js";
+import { currentHandle, type ModuleGraph } from "./module-graph.js";
 import {openIntents, shownIntentRef} from '../npc/intents.js';
 import {allReceipts, coercionPressures} from '../resolve/coercion.js';
 import { capsuleOwed } from "../owed/index.js";
@@ -426,7 +426,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         });
     const session = new SessionView(campaign, graph, party, world).activeSession(),
         situations = options.situations ?? await rules.situations(campaign, graph, world, turn),
-        memory = withPromiseFulfillment(campaign.logs.get("memory/candidates.jsonl") ?? [],{campaign:campaign.id,receipts:canonicalMemoryReceipts(campaign.records,array(turn.receipts)),world}),
+        memory = withPromiseFulfillment(campaign.logs.get("memory/candidates.jsonl") ?? [],{campaign:campaign.id,receipts:canonicalMemoryReceipts(campaign.records,array(turn.receipts)),world,samePayer:samePersonReference(graph,world)}),
         story = campaign.logs.get("memory/story.jsonl") ?? [];
     const where = whereSection(graph, world, scene, material, true);
     where.clock = clockSection(graph, world);
@@ -448,7 +448,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         receipts: [...campaign.records.flatMap(record => array(record.receipts)), ...array(turn.receipts)],
         modChecks: active.flatMap(mod => array(mod.contributes.checks).map(check => ({ mod: string(mod.id), check })))
     }).map(capsuleRow) : [];
-    const obligations = [...choiceObligation(turn.pending_choice), ...sessionObligation(session), ...continuationRows(continuations), ...sceneRows, ...promiseObligations(memory), ...questObligations(graph, world), ...noteObligations(campaign.logs.get("notes.jsonl") ?? [], presentNames, here), ...loopObligation(worldlines), ...offerObligations(world)];
+    const obligations = [...choiceObligation(turn.pending_choice), ...sessionObligation(session), ...continuationRows(continuations), ...sceneRows, ...promiseObligations(memory), ...questObligations(graph, world), ...noteObligations(campaign.logs.get("notes.jsonl") ?? [], presentNames, here, new EntityIndex(graph, party, row(world.scene_labels), null, world)), ...loopObligation(worldlines), ...offerObligations(world)];
     const sig = signals({
         graph,
         world,
@@ -494,7 +494,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         director,
         situations,
         worldlines,
-        rulings: rulingsForCapsule(campaign.logs.get("rulings.jsonl") ?? [], session?.kind ?? null, present.map(n => graph.handle(n)), graph.handle(scene), graph.moduleId, party.map(sheet => `investigator:${string(sheet.id)}`)),
+        rulings: rulingsForCapsule(campaign.logs.get("rulings.jsonl") ?? [], session?.kind ?? null, present.map(n => graph.handle(n)), graph.handle(scene), graph.moduleId, party.map(sheet => `investigator:${string(sheet.id)}`), stored => currentHandle(graph, stored)),
         memory: capsuleMemory(memory, new EntityIndex(graph, party, row(world.scene_labels)), memoryAnchors),
         // Contract §137.3: language and register on every table; the craft lines only from the enabled provider.
         style: styleSection(craft, language, string(meta.register || "purist"), styleProvider(active), dg.beats, director.beat, full, legacy),

@@ -16,6 +16,8 @@ import { calledPerson, personRecord } from '../read/capsule.js';
 import { CampaignSnapshot } from '../read/campaign.js';
 import { occurs } from '../journal/naming.js';
 import { tableWord, untoldPieces } from '../read/person-words.js';
+import { tellGuard } from '../read/cast.js';
+import { prepareNameHistory } from '../journal/name-history.js';
 import { normalize, repr, row, string, type Row } from '../read/values.js';
 import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
@@ -91,7 +93,9 @@ async function refuseUntoldName(context: ApplyContext, handle: string, name: str
     const { graph } = context, node = graph.find(handle, ['npc']);
     if (!node || graph.isTablePerson(node)) return;
     const snapshot = new CampaignSnapshot(context.kernel, context.campaign.id);
-    const journal = row(await snapshot.optional('npc-journal.json')), records = await snapshot.files('turns');
+    const journal = row(await snapshot.optional('npc-journal.json'));
+    // §188.1: who is untold is read with the told guard, as the roster reads it.
+    const records = prepareNameHistory(await snapshot.files('turns'), tellGuard(graph, context.world, journal));
     const said = normalize(name);
     if (!untoldPieces(graph, journal, records).some(piece => occurs(said, piece))) return;
     throw new RpcError('invalid_params', `${repr(name)} uses the name the book gives this person, and nobody has said it to the investigator`, {

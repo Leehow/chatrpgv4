@@ -81,6 +81,26 @@ export function untoldPeople(answer: unknown): UntoldPerson[] {
 	});
 }
 
+/**
+ * Contract §188.1: the whole answer of `table.untold` -- the rows the request's rename replaces, and `protected`, every whole
+ * name the investigator's side owns (the investigators' registered names, told people's names, this table's words for people),
+ * read from the kernel's `protectedNames`. The rename finds every occurrence of those first and renames no place overlapping
+ * one, nor asks §177.15's judge about it. The §185 acceptance table: a one-character alias of the untold store owner was
+ * renamed inside the investigator's own name, and the Keeper copied the result into tool calls and into a note.
+ */
+export interface UntoldRoster { people: readonly UntoldPerson[]; protected: readonly string[] }
+export const NO_UNTOLD: UntoldRoster = Object.freeze({ people: Object.freeze([]) as readonly UntoldPerson[], protected: Object.freeze([]) as readonly string[] });
+
+/** The kernel's `table.untold` answer as a roster: `untoldPeople`'s rows, with the protected names it carries. */
+export function untoldRoster(answer: unknown): UntoldRoster {
+	const names = object(answer).protected;
+	return { people: untoldPeople(answer), protected: Array.isArray(names) ? [...new Set(names.map(text).filter(Boolean))] : [] };
+}
+
+/** A roster, or bare rows with nothing protected (a caller that has only the rows). */
+const rosterOf = (value: UntoldRoster | readonly UntoldPerson[]): UntoldRoster => Array.isArray(value)
+	? { people: value as readonly UntoldPerson[], protected: [] } : value as UntoldRoster;
+
 /** A string's JSON-escaped body, so a name is found the same way inside a serialized payload and in plain text. */
 const escaped = (value: string): string => JSON.stringify(value).slice(1, -1);
 
@@ -88,16 +108,37 @@ const latin = (char: string | undefined): boolean => !!char && /^[A-Za-z0-9]$/.t
 
 /** §177.15: one place a host message or tool result writes an untold person's name, as the rename finds it in `source`. */
 export interface RenamePlace { source: string; start: number; end: number; person: UntoldPerson }
+/** Every occurrence of `word` in `source`, a Latin word only where no Latin or digit run goes on past either end (the kernel's
+ *  `occurs`, journal/naming.ts): "Arty" is not found inside "Party". */
+function occurrences(source: string, word: string): Array<{ start: number; end: number }> {
+	const found: Array<{ start: number; end: number }> = [];
+	if (!word || !source.includes(word)) return found;
+	for (let at = source.indexOf(word); at >= 0; at = source.indexOf(word, at + 1)) {
+		if ((latin(word[0]) && latin(source[at - 1])) || (latin(word[word.length - 1]) && latin(source[at + word.length]))) continue;
+		found.push({ start: at, end: at + word.length });
+	}
+	return found;
+}
+
+/**
+ * §188.1: whether a place stands clear of the protected occurrences: it overlaps none, or it is a longer name holding the one it
+ * overlaps whole (a name inside a longer name's place goes with that place: a told person's bare first name does not shield an
+ * untold person's full name that begins with it). The kernel's gate reads places the same way (`clearOf`, write/names.ts).
+ */
+function clearOf(start: number, end: number, guarded: ReadonlyArray<{ start: number; end: number }>): boolean {
+	return guarded.every(span => end <= span.start || span.end <= start || (start <= span.start && span.end <= end && end - start > span.end - span.start));
+}
+
 /** The places of `source`, longer names first where two overlap, a Latin name only where no Latin or digit run goes on past
- *  either end (the kernel's `occurs`, journal/naming.ts): "Arty" is not renamed inside "Party". */
-function placesIn(source: string, ordered: readonly UntoldPerson[]): RenamePlace[] {
+ *  either end: "Arty" is not renamed inside "Party". §188.1: none overlapping an occurrence of a protected name. */
+function placesIn(source: string, ordered: readonly UntoldPerson[], protectedNames: readonly string[] = []): RenamePlace[] {
 	const found: RenamePlace[] = [];
+	let guarded: Array<{ start: number; end: number }> | undefined;
 	for (const person of ordered) {
 		const word = escaped(person.name);
-		if (!word || !source.includes(word)) continue;
-		for (let at = source.indexOf(word); at >= 0; at = source.indexOf(word, at + 1)) {
-			if ((latin(word[0]) && latin(source[at - 1])) || (latin(word[word.length - 1]) && latin(source[at + word.length]))) continue;
-			const end = at + word.length;
+		for (const { start: at, end } of occurrences(source, word)) {
+			guarded ??= protectedNames.flatMap(name => occurrences(source, escaped(name)));
+			if (!clearOf(at, end, guarded)) continue;
 			if (!found.some(other => at < other.end && other.start < end)) found.push({ source, start: at, end, person });
 		}
 	}
@@ -105,9 +146,9 @@ function placesIn(source: string, ordered: readonly UntoldPerson[]): RenamePlace
 }
 
 /** `source` with each place renamed to its person's word, but the places `keep` keeps (§177.15); the words used go in `shown`. */
-function renameText(source: string, people: readonly UntoldPerson[], shown?: Set<string>, keep?: (place: RenamePlace) => boolean): string {
+function renameText(source: string, roster: UntoldRoster, shown?: Set<string>, keep?: (place: RenamePlace) => boolean): string {
 	let out = "", from = 0;
-	for (const place of placesIn(source, people)) {
+	for (const place of placesIn(source, roster.people, roster.protected)) {
 		if (keep?.(place)) continue;
 		out += source.slice(from, place.start) + escaped(place.person.shown);
 		from = place.end;
@@ -137,11 +178,13 @@ function renamedParts(message: unknown): string[] {
 	return Array.isArray(row.content) ? row.content.flatMap((part) => { const piece = object(part); return piece.type === "text" && typeof piece.text === "string" ? [piece.text] : []; }) : [];
 }
 
-/** §177.15: every place `renameUntold` would rename in `messages`, so the host can ask which are the name. */
-export function renamePlaces(messages: readonly unknown[], people: readonly UntoldPerson[]): RenamePlace[] {
-	if (!people.length) return [];
-	const ordered = [...people].sort((a, b) => b.name.length - a.name.length);
-	return messages.flatMap((message) => renamedParts(message).flatMap((part) => placesIn(part, ordered)));
+/** §177.15: every place `renameUntold` would rename in `messages`, so the host can ask which are the name. §188.1: never a place
+ *  overlapping a protected name. */
+export function renamePlaces(messages: readonly unknown[], untold: UntoldRoster | readonly UntoldPerson[]): RenamePlace[] {
+	const roster = rosterOf(untold);
+	if (!roster.people.length) return [];
+	const ordered = [...roster.people].sort((a, b) => b.name.length - a.name.length);
+	return messages.flatMap((message) => renamedParts(message).flatMap((part) => placesIn(part, ordered, roster.protected)));
 }
 
 /**
@@ -154,9 +197,11 @@ export function renamePlaces(messages: readonly unknown[], people: readonly Unto
  * note, with the book's names, and on turn 2 the Keeper wrote "Russell" into the prose. A list of message kinds to
  * rename would miss the next kind; the request is where they all meet. Input messages are not changed.
  */
-export function renameUntold<T>(messages: readonly T[], people: readonly UntoldPerson[], keep?: (place: RenamePlace) => boolean): T[] {
-	if (!people.length) return [...messages];
-	const ordered = [...people].sort((a, b) => b.name.length - a.name.length);
+export function renameUntold<T>(messages: readonly T[], untold: UntoldRoster | readonly UntoldPerson[], keep?: (place: RenamePlace) => boolean): T[] {
+	const roster = rosterOf(untold);
+	if (!roster.people.length) return [...messages];
+	// §188.1: a place overlapping a protected name (the investigator's own, a told person's, this table's word) stays as written.
+	const ordered: UntoldRoster = { people: [...roster.people].sort((a, b) => b.name.length - a.name.length), protected: roster.protected };
 	return messages.map((message) => {
 		const row = object(message);
 		if (row.role === "custom" && row.customType === "coc-history") return message;

@@ -204,10 +204,11 @@ export async function loadCampaignModule(context: KernelContext, id: string, wor
     const module = await campaignModule(context, id, world, handles) ?? await loadModule(context, id, campaign, handles);
     module.graph.projectSourcePlaces();
     const loaded = withTableCreatures(withTablePeople(withTableEntities(module, world), world), world);
-    // §185.3: a legacy campaign's references are read once more with the request's rename undone, after a miss.
-    if (campaign !== undefined) await installRenameUndo(context, campaign, loaded.graph, world);
     // §185.13: the investigators at this table are people the investigator knows; no name they go by is an untold name.
     if (campaign !== undefined) loaded.graph.investigatorNames = await investigatorNames(context, campaign);
+    // §188.3: a campaign's references are read once more with the request's rename undone, after a miss, in both schemes.
+    // After the investigators' names, which the rename leaves alone.
+    if (campaign !== undefined) await installRenameUndo(context, campaign, loaded.graph, world);
     return loaded;
 }
 /** §185.13: every name the investigators at this table are registered under: each party sheet's name and id, as `actor` reads them. */

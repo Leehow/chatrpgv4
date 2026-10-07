@@ -3,8 +3,8 @@ import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
 import {gameDayOf} from '../healing/day.js';
 import {array,clone,normalize,number,row,string,type Row} from '../read/values.js';
-import {isAmbiguity,type ModuleGraph} from '../read/module-graph.js';
-import {calledPerson} from '../read/capsule.js';
+import type {ModuleGraph} from '../read/module-graph.js';
+import {referencedPerson} from '../read/capsule.js';
 import {addCash,cashDecimal,cashStorage,compareCash,multiplyCash,type Decimal} from './cash.js';
 import {decimalSpelling} from '../../shared/cash-decimal.js';
 import type {ApplyContext} from './index.js';
@@ -33,17 +33,11 @@ export function purchaseItems(value:unknown):{items:Row[];total:Decimal} {
 /**
  * The person a cash counterparty names (§185.2, §87.8): the graph's npc, then this table's word; null when it names
  * nobody, which is free text (a front desk). The graph's ambiguity and a word two people carry are refused, never picked.
- * Read the same way when a quote is registered and when it is settled.
+ * Read the same way when a quote is registered and when it is settled. §188.4: the junction's `referencedPerson`, which
+ * an owed row's `with` and an item's giver read too.
  */
 export function cashCounterparty(graph:ModuleGraph,world:Row,name:string):Row|null {
-    try{return graph.npc(name);}
-    catch(error){
-        if(!(error instanceof RpcError))throw error;
-        const called=calledPerson(graph,world,name);
-        if(called)return called;
-        if(error.code!=='unknown_entity'||isAmbiguity(error))throw error;
-        return null;
-    }
+    return referencedPerson(graph,world,name);
 }
 /**
  * §185.2 (amends §58.9): whether a settlement's `with` names the quote's counterparty. Both sides are read as people --

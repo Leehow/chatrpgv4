@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
 import { NAME_SPAN_AT, markSpan } from "../../runtime/jev/untold-name-spans.ts";
 import { judgePlaces } from "../kernel/untold-spans.ts";
-import { renamePlaces, type RenamePlace, type UntoldPerson } from "../kernel/untold-view.ts";
+import { renamePlaces, type RenamePlace, type UntoldPerson, type UntoldRoster } from "../kernel/untold-view.ts";
 
 type Row = Record<string, unknown>;
 
@@ -27,10 +27,11 @@ export function createRenameJudge(deps: { decision: () => DecisionPort | undefin
 	};
 	const keyOf = (place: RenamePlace): string => `${digest(place.source)}:${place.start}:${place.person.name}`;
 	return {
-		/** Judge the places of `messages` not decided yet; returns when they are decided, by Jev or by the fallback. */
-		async prepare(messages: readonly unknown[], people: readonly UntoldPerson[], campaign?: string): Promise<void> {
+		/** Judge the places of `messages` not decided yet; returns when they are decided, by Jev or by the fallback. §188.1: a place
+		 *  overlapping a protected name is never renamed, so it is never asked about. */
+		async prepare(messages: readonly unknown[], untold: UntoldRoster | readonly UntoldPerson[], campaign?: string): Promise<void> {
 			const fresh = new Map<string, RenamePlace>();
-			for (const place of renamePlaces(messages, people)) {
+			for (const place of renamePlaces(messages, untold)) {
 				if (place.person.handle) continue;
 				const key = keyOf(place);
 				if (!decided.has(key) && !fresh.has(key)) fresh.set(key, place);

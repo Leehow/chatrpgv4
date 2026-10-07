@@ -59,7 +59,9 @@ export function speakerResolver(graph: ModuleGraph, world: Row, party: Row[], un
         if (here) return npc(here, name);
         const investigators = party.filter(sheet => [sheet.name, sheet.id].map(normalize).includes(key));
         if (investigators.length === 1) return sheetSpeaker(investigators[0]);
-        const anyone = only([...graph.nodes.values()].filter(node => node.node_kind === 'npc'), key);
+        // §188.4: any person of the graph as every entrance reads one, through `ModuleGraph.resolve` -- an exact name or handle,
+        // §2's anchored run, §185.3's retry; a name or a run two people carry resolves to nobody here.
+        const anyone = graph.find(name, ['npc']);
         if (anyone) return npc(anyone, name);
         // §87.8's junction: the one person this table gave the word. Two of them leave it a label -- a token is a
         // rendering hint and never a reason to refuse (§34.14), and picking one would put the line in the wrong mouth.

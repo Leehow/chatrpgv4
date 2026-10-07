@@ -19,8 +19,9 @@ import { lastExchange, lastInteraction } from "./exchange.js";
 import { contextBinding } from "./context.js";
 import { workspaceRead } from "./workspace.js";
 import { clockSection, sceneLabel, personLabel, clueLabel, npcNode, personNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, creatureView, investigatorView, fittedModuleSection, untoldRoster, personRecord } from "./capsule.js";
-import { castPersonNamed } from './cast.js';
+import { castPersonNamed, protectedNames, tellGuard } from './cast.js';
 import { tableWord } from './person-words.js';
+import { prepareNameHistory } from '../journal/name-history.js';
 import { incapacitatedBy } from "../healing/conditions.js";
 import { crossLineReader } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
@@ -446,10 +447,12 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
             return { ...view, _context: await contextBinding(campaign, module, view) };
         },
         // Contract §103.5: who is still untold, campaign-wide, for the host's rename of the Keeper's request. Read-only.
+        // §188.1: with the whole names the investigator's side owns, whose places the rename leaves as written.
         "table.untold": async (params) => {
             const { campaign, module } = await readCampaign(context, params, false, true, contributions, true);
-            const journal = row(await campaign.optional("npc-journal.json")), records = await campaign.turnRecords();
-            return { people: untoldRoster(module.graph, campaign.world, journal, records) };
+            const journal = row(await campaign.optional("npc-journal.json")),
+                records = prepareNameHistory(await campaign.turnRecords(), tellGuard(module.graph, campaign.world, journal));
+            return { people: untoldRoster(module.graph, campaign.world, journal, records), protected: protectedNames(module.graph, campaign.world, journal, records) };
         },
         "table.look": async (params) => {
             const contextRead = params._context_read === true;
@@ -546,6 +549,13 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 const referenceSource=!!module.meta.source_reference||module.meta.source==='pdf'&&!!row(module.meta.source_document).file_sha256,sourceScope=referenceSource||row(module.meta.reading).opening_scope==='first_interaction';
                 const prepared=new Set(array(row(module.meta.reading).materials).flatMap(material=>array(material.node_ids)));
                 let found = searched.length ? searched : graph.handleList(query) ?? [];
+                // §188.4: a query search and the handle list both miss is read as every other entrance reads a reference,
+                // through `ModuleGraph.resolve` -- a stored or interim handle, §2's anchored run, a place's part (§32), §185.3's
+                // retry -- so a handle the request's rename rewrote is found as the entity it names.
+                if (!found.length) {
+                    const resolved = graph.find(query, expected ? [expected] : undefined);
+                    if (resolved) found = [resolved];
+                }
                 // §177.7: the word this table calls a person -- their epithet, the fiction's word -- finds them through the person
                 // junction every write already uses (§87.8). Table 23 asked lookup by an epithet and got not_found.
                 if (!found.length && (!expected || expected === 'npc')) {

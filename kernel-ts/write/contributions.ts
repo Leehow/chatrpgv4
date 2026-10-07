@@ -252,7 +252,8 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
         }
         else if (kind === 'clue' || kind === 'item' || kind === 'cash') {
             if(kind==='cash'&&receipt.settlement==='quote')continue;
-            const id = npcId(graph, kind === 'cash' ? receipt.with : receipt.from);
+            // §188.4: a giver is read by the identity stored with it (`from_id`); `from` is the word the card shows.
+            const id = npcId(graph, kind === 'cash' ? receipt.with : receipt.from_id ?? receipt.from);
             if (!id)
                 continue;
             const item = entry(ledger, id);
