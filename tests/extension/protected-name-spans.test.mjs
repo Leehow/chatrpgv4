@@ -31,6 +31,8 @@ export {createKernelRuntime} from './kernel-ts/registry.ts';
 export {untoldRoster, renameUntold} from './extensions/kernel/untold-view.ts';
 export {createRenameJudge} from './extensions/table/untold-rename-judge.ts';
 export {prosePlaces, untoldNamesSaid} from './kernel-ts/write/names.ts';
+export {toldTurn} from './kernel-ts/journal/naming.ts';
+export {prepareNameHistory} from './kernel-ts/journal/name-history.ts';
 export * from './extensions/table/context-runtime.ts';
 export * from './extensions/table/workspace/workpad-store.ts';`, resolveDir: root},
 	outfile: join(temporary, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
@@ -81,18 +83,22 @@ const INVESTIGATOR = '丹尼尔·怀特', OWNER = '丹尼尔·马瑟';
 const PAGES = ['The harbor dock smells of tar. 丹尼尔·马瑟 keeps the store; 丹尼尔 smokes at the door, and the regulars call him 丹尼.',
 	'The old tower stands beyond the harbor.', 'A cellar floods at high tide.'];
 const REFS = [{page: 1}];
+const STORE_OWNER = {node_id: 'npc-daniel-mather', name: OWNER, aliases: ['丹'], summary: 'The store owner.'};
 
 /**
  * A reader-built book (name-free): the Dock with the store owner in it. His node records the one-character alias 「丹」 (the cast
  * reader's forms are two characters or more, so the alias is the graph's), and the cast prints 「丹尼尔·马瑟」, 「丹尼尔」 and the
  * nickname 「丹尼」, which, unlike 「丹尼尔」, is no piece of the investigator's name and so is still a gated name (§177.11).
  */
-async function readerBuilt(t) {
+const DOCK = {pages: PAGES, people: [STORE_OWNER],
+	cast: [{book: [OWNER, '丹尼尔', '丹尼'], play: [OWNER, '丹尼尔', '丹尼'], notes: ['Daniel Mather', 'Daniel', 'Danny'], pages: [1]}]};
+
+async function readerBuilt(t, book = DOCK) {
 	const k = await kernel(t, 'protected-name-spans');
 	const pdf = join(k.home, 'harbor.pdf');
-	await writeFile(pdf, `%PDF-1.7\n% ${PAGES.join(' | ')}\n%%EOF\n`);
+	await writeFile(pdf, `%PDF-1.7\n% ${book.pages.join(' | ')}\n%%EOF\n`);
 	const sha = createHash('sha256').update(await readFile(pdf)).digest('hex');
-	const {module_id: mid} = await k.raw('module.source.bind', {source: {path: pdf, page_count: PAGES.length, file_sha256: sha}});
+	const {module_id: mid} = await k.raw('module.source.bind', {source: {path: pdf, page_count: book.pages.length, file_sha256: sha}});
 	const read = async (purpose, draft, paths) => {
 		await k.raw('module.read.request', {module_id: mid, purpose});
 		const job = await k.raw('module.read.claim', {module_id: mid, owner: 'test-host'});
@@ -103,19 +109,18 @@ async function readerBuilt(t) {
 			draft_path: join(job.work_dir, 'draft.json'), review_path: join(job.work_dir, 'review.json')});
 	};
 	await read('index', {title: 'The Harbor', language: 'en', sections: [{name: 'Harbor', pages: [[1, 3]], source_refs: REFS, entities: ['Dock', 'Tower']}]}, []);
+	const people = book.people.map(person => ({...person, node_kind: 'npc', source_refs: REFS}));
 	await read('opening', {nodes: [
 		{node_id: 'scene-dock', node_kind: 'scene', name: 'Dock', source_refs: REFS, properties: {is_entrance: true}},
-		{node_id: 'scene-tower', node_kind: 'scene', name: 'Tower', source_refs: [{page: 2}], summary: 'An old tower beyond the harbor.'},
-		{node_id: 'npc-daniel-mather', node_kind: 'npc', name: OWNER, aliases: ['丹'], source_refs: REFS, summary: 'The store owner.'}],
+		{node_id: 'scene-tower', node_kind: 'scene', name: 'Tower', source_refs: [{page: 2}], summary: 'An old tower beyond the harbor.'}, ...people],
 		claims: [{subject_id: 'scene-dock', predicate: 'route-to', object: {node_id: 'scene-tower'}, truth_status: 'authored-fact', source_refs: REFS},
-			{subject_id: 'npc-daniel-mather', predicate: 'present-in', object: {node_id: 'scene-dock'}, truth_status: 'authored-fact', source_refs: REFS}],
-		node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['scene-dock', 'npc-daniel-mather']},
-		['/nodes/0', '/nodes/2', '/claims/0', '/claims/1', '/coverage']);
+			...people.map(person => ({subject_id: person.node_id, predicate: 'present-in', object: {node_id: 'scene-dock'}, truth_status: 'authored-fact', source_refs: REFS}))],
+		node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['scene-dock', ...people.map(person => person.node_id)]},
+		['/nodes/0', ...people.map((_person, at) => `/nodes/${at + 2}`), '/claims/0', ...people.map((_person, at) => `/claims/${at + 1}`), '/coverage']);
 	const cast = await k.raw('cast.job', {module_id: mid, claim: true});
-	await k.raw('cast.source', {module_id: mid, job_id: cast.job_id, lease: cast.lease, pages: PAGES.map((text, index) => ({page: index + 1, text}))});
+	await k.raw('cast.source', {module_id: mid, job_id: cast.job_id, lease: cast.lease, pages: book.pages.map((text, index) => ({page: index + 1, text}))});
 	const range = await k.raw('cast.range', {module_id: mid, job_id: cast.job_id, lease: cast.lease, index: 0});
-	await writeFile(join(range.cwd, 'draft.json'), JSON.stringify({people: [{book: [OWNER, '丹尼尔', '丹尼'], play: [OWNER, '丹尼尔', '丹尼'],
-		notes: ['Daniel Mather', 'Daniel', 'Danny'], pages: [1]}]}));
+	await writeFile(join(range.cwd, 'draft.json'), JSON.stringify({people: book.cast}));
 	assert.equal((await k.raw('cast.submit', {module_id: mid, job_id: cast.job_id, lease: cast.lease, index: 0})).state, 'complete');
 	await k.raw('campaign.create', {id: 'card-source', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'zh-Hans'});
 	const saved = await k.raw('investigator.save', {campaign: 'card-source'});
@@ -233,4 +238,79 @@ test('§188.1: a protected name inside a longer untold name does not shield it; 
 	assert.deepEqual(api.prosePlaces(text, said, roster.protected).map(place => [place.name, place.start]),
 		[[OWNER, 0], ['丹尼', `${OWNER}来了，${INVESTIGATOR}看见`.length]], 'the gate reads the same places');
 	assert.deepEqual(api.untoldNamesSaid(`${INVESTIGATOR}来了。`, none, {find: () => null}, ['丹尼'], roster.protected), [], 'said only inside a protected name: not said');
+});
+
+/**
+ * §188.1 (told detection): a book where two other people's names stand inside the investigator's 「丹尼尔·怀特」: an unread cast
+ * row printed 「丹尼尔」 alone (a second Daniel; the notes render him "Daniel" and "Dan"), and the postmaster 「怀特」, a graph person. The
+ * store owner 「丹尼尔·马瑟」 keeps the alias 「丹」. Before, the investigator's name in a delivery made both of them told: the unread
+ * row's names left the roster with it (and "Daniel", a notes word it shares with the store owner, reached the Keeper), and the
+ * journal's floor would have written the postmaster's `named_at` for good.
+ */
+const TOLD = {pages: ['The harbor dock smells of tar. 丹尼尔·马瑟 keeps the store. 丹尼尔 smokes at the door. 怀特 sorts the mail.',
+	'The old tower stands beyond the harbor.', 'A cellar floods at high tide.'],
+people: [STORE_OWNER, {node_id: 'npc-mr-white', name: '怀特', summary: 'The postmaster.'}],
+cast: [{book: [OWNER], play: [OWNER], notes: ['Daniel Mather'], pages: [1]}, {book: ['丹尼尔'], play: ['丹尼尔'], notes: ['Daniel', 'Dan'], pages: [1]},
+	{book: ['怀特'], play: ['怀特'], notes: ['White'], pages: [1]}]};
+
+/** The roster's ids: the unread Dan's row id, the postmaster's handle, the store owner's handle. */
+async function toldCast(h) {
+	const roster = (await h.call('table.untold')).people, idOf = name => roster.find(row => row.name === name)?.id;
+	const ids = {dan: idOf('Dan'), white: idOf('White'), owner: idOf(OWNER)};
+	assert.ok(ids.dan && ids.white && ids.owner && ids.dan !== ids.owner, JSON.stringify(roster));
+	assert.ok(roster.some(row => row.name === 'Daniel'), 'the store owner\'s notes word is hidden');
+	return ids;
+}
+const untoldIn = (input, id) => input.capsule.present.find(person => person.untold?.id === id || person.id === id)?.untold ?? null;
+
+test('§188.1 (told detection): the investigator\'s name in the prose tells nobody whose name stands inside it', async t => {
+	const h = await readerBuilt(t, TOLD);
+	const ids = await toldCast(h);
+	await h.call('table.narrate', {call_id: 't0-c1', text: `${INVESTIGATOR}推开杂货店的门。`});
+	const after = (await h.call('table.untold')).people;
+	assert.ok(after.some(row => row.name === 'Dan' && row.id === ids.dan), `the unread Daniel is still untold: ${JSON.stringify(after)}`);
+	assert.ok(after.some(row => row.name === 'Daniel'), 'and "Daniel", which the store owner\'s notes share, is still hidden (before, the second Daniel was told and it reached the Keeper)');
+	assert.ok(after.some(row => row.name === OWNER) && after.some(row => row.name === 'White'), 'nobody else was told either');
+	const input = await h.call('table.player_input', {text: '我看看四周。'});
+	assert.ok(untoldIn(input, ids.white), `the postmaster is still untold: ${JSON.stringify(input.capsule.present)}`);
+
+	// The journal lane: its floor does not count the postmaster as named, and a quote that says his name only inside the
+	// investigator's is no naming of him, by itself or with named_as.
+	const job = await h.call('journal.job', {turn: 0});
+	assert.ok(job.unnamed.includes('怀特'), `the floor leaves him unnamed: ${JSON.stringify(job.unnamed)}`);
+	const quote = `${INVESTIGATOR}推开杂货店的门。`;
+	await assert.rejects(h.call('journal.submit', {job_id: job.job_id, lease: job.lease, entries: [{name: '怀特', named: true, named_quote: quote}]}),
+		error => error?.details?.reason === 'not_a_book_name', 'the quote carries his name only inside the investigator\'s');
+	await assert.rejects(h.call('journal.submit', {job_id: job.job_id, lease: job.lease, entries: [{name: '怀特', named: true, named_quote: quote, named_as: '怀特'}]}),
+		error => error?.details?.reason === 'not_a_book_name', 'nor does named_as found only there');
+});
+
+test('§188.1 (told detection): a person\'s own name said in the prose still tells them, and their own word never shields it', async t => {
+	const h = await readerBuilt(t, TOLD);
+	const ids = await toldCast(h);
+	await h.call('table.narrate', {call_id: 't0-c1', text: '港口很安静。'});
+	const input = await h.call('table.player_input', {text: '我问邮差他叫什么。'});
+	await h.call('table.narrate', {call_id: `t${input._context.turn}-c1`, text: '怀特先生点了点头。'});
+	const next = await h.call('table.player_input', {text: '我问店主他叫什么。'});
+	assert.equal(untoldIn(next, ids.white), null, 'the postmaster\'s own name alone tells him');
+	assert.ok(!(await h.call('table.untold')).people.some(row => row.name === 'White'));
+	// The name token puts the store owner's book name in the prose and makes it this table's word for him (§103.8): his own word
+	// stands exactly where his name does, and does not shield it. It does shield the second Daniel, whose name stands inside it.
+	await h.call('table.narrate', {call_id: `t${next._context.turn}-c1`, text: `店主抬起头：“我是{{name:${ids.owner}}}。”`});
+	const roster = (await h.call('table.untold')).people;
+	assert.ok(!roster.some(row => row.name === OWNER), `the store owner is told: ${JSON.stringify(roster)}`);
+	assert.ok(roster.some(row => row.name === 'Dan' && row.id === ids.dan), 'the unread Daniel inside his name is not');
+});
+
+test('§188.1 (told detection): a say token\'s shown word reads the same guard as the prose', () => {
+	// A speech row's `shown` is the token's own text when it matched one of the person's names (§103.5), and the told check
+	// reads it. On the real path a token by the table's word shows nothing, so this pins the speech branch on its own: a shown
+	// word holding the person's name inside an investigator's registered name tells nobody; their own word does not shield it.
+	const graph = {handle: node => node.handle, displayName: node => node.name, nodeHandles: null};
+	const node = {node_id: 'npc-wang', handle: 'wang', name: '王铁柱'};
+	const records = [{closed_by: 'narrate', commit: true, turn: 1, rendered_text: '伙计擦着桌子。', speech: [{who: {npc: 'wang', name: '王铁柱', shown: '王铁柱·怀特'}}]}];
+	const guard = owners => ({key: JSON.stringify(owners), words: [{word: '王铁柱·怀特', owners}]});
+	assert.equal(api.toldTurn(graph, node, api.prepareNameHistory(records)), 1, 'unguarded, the shown word tells him');
+	assert.equal(api.toldTurn(graph, node, api.prepareNameHistory(records, guard([]))), null, 'inside an investigator\'s name it does not');
+	assert.equal(api.toldTurn(graph, node, api.prepareNameHistory(records, guard(['wang']))), 1, 'his own word never shields his name');
 });

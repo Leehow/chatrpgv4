@@ -16,7 +16,7 @@ import type { ModuleGraph } from '../read/module-graph.js';
 import { npcsPresent } from '../read/capsule.js';
 import { EPITHETS_PER_JOB, WORD_LIMIT, readEpithets, submitEpithets, tableWord, untoldBookPeople, wordsInUse } from '../read/person-words.js';
 import { personDescribed } from '../first-sight/index.js';
-import { untoldUnread } from '../read/cast.js';
+import { tellGuard, untoldUnread } from '../read/cast.js';
 import { prepareNameHistory } from '../journal/name-history.js';
 import { array, repr, row, string, type Row } from '../read/values.js';
 
@@ -56,7 +56,7 @@ export function createEpithetHandlers(context: KernelContext, writer: ReturnType
             if (!graph) return { job_id: null, waiting: 'graph' };
             const stored = await readEpithets(campaign);
             const has = (id: string) => !!tableWord(world, id) || !!text(row(row(stored.people)[id]).word);
-            const history = prepareNameHistory(records);
+            const history = prepareNameHistory(records, tellGuard(graph, world, journal));
             const wanting = untoldBookPeople(graph, journal, history).filter(node => !has(graph.handle(node)));
             // §177.5: the people the book names whom the reader has not reached are given a word too, after the graph's people,
             // so the request's rename can show them by it rather than by the cast row's id.

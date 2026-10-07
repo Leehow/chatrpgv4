@@ -17,7 +17,7 @@
  */
 import type { ModuleGraph } from './module-graph.js';
 import { bookNames, namePieces, occurs, toldTurn } from '../journal/naming.js';
-import { prepareNameHistory } from '../journal/name-history.js';
+import { prepareNameHistory, type TellGuard } from '../journal/name-history.js';
 import { array, integer, normalize, number, row, string, type Row } from './values.js';
 import { isJsonObject } from '../json.js';
 import { join } from 'node:path';
@@ -161,44 +161,79 @@ export function knownNamePieces(graph: ModuleGraph, known: readonly CastPerson[]
 }
 
 /**
- * §188.1: every whole name the investigator's side owns, as written: the names the investigators at this table are registered
- * under (`graph.investigatorNames`, the party sheet's `name` and `id`, which `actor` matches), every name of a cast person the
- * investigator has been told about, and this table's words for people -- the names of the people the table established,
- * `world.person_labels` (`called.name`), the folded epithets and the journal's labels. No piece is added: a place of a
- * protected name protects that whole occurrence, and a piece would also shield an untold person's full name that begins with it.
+ * §188.1: the words the investigator's side owns that are not a told person's name, as written, each with the keys of whose
+ * word it is: the names the investigators at this table are registered under (`graph.investigatorNames`, the party sheet's
+ * `name` and `id`, which `actor` matches), and this table's words for people -- the names of the people the table established,
+ * `world.person_labels` (`called.name`, under a handle or a sheet id), the folded epithets (under a handle or a cast row's id)
+ * and the journal's labels (under a node id). Read from the strings the kernel holds, never from what they mean.
+ */
+export function tableWords(graph: ModuleGraph, world: Row, journal: Row): Array<{ word: string; owners: string[] }> {
+    const owned = (owners: string[]) => (value: unknown) => ({ word: text(value), owners });
+    return [
+        ...graph.investigatorNames.map(owned([])),
+        ...graph.kind('npc').filter(node => graph.isTablePerson(node))
+            .flatMap(node => [node.name, graph.displayName(node)].map(owned([graph.handle(node), string(node.node_id)]))),
+        ...Object.entries(row(world.person_labels)).map(([key, record]) => owned([key])(row(record).name)),
+        ...Object.entries(row(world.person_epithets)).map(([key, record]) => owned([key])(row(record).word)),
+        ...Object.entries(row(journal.entries)).map(([key, entry]) => owned([key])(row(entry).label)),
+    ].filter(entry => entry.word);
+}
+
+/**
+ * §188.1 (told detection): `tableWords`, normalized, as the told checks read them (`NameHistory.says`). Told people's names are
+ * not here: whether someone is told is what these checks decide, so the list a told check reads cannot depend on it.
+ */
+export function tellGuard(graph: ModuleGraph, world: Row, journal: Row): TellGuard {
+    const merged = new Map<string, Set<string>>();
+    for (const { word, owners } of tableWords(graph, world, journal)) {
+        const key = normalize(word);
+        if (!key) continue;
+        const into = merged.get(key) ?? new Set<string>();
+        owners.forEach(owner => into.add(owner));
+        merged.set(key, into);
+    }
+    const words = [...merged.entries()].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([word, owners]) => ({ word, owners: [...owners].sort() }));
+    return { key: JSON.stringify(words), words };
+}
+
+/** §188.1: the cast rows a graph person absorbed, whose words are that person's own. */
+export const castIdsOf = (graph: ModuleGraph, node: Row): string[] => bookCast(graph).find(person => person.node === node)?.castIds ?? [];
+
+/**
+ * §188.1: every whole name the investigator's side owns, as written: `tableWords`, and every name of a cast person the
+ * investigator has been told about. No piece is added: a place of a protected name protects that whole occurrence, and a piece
+ * would also shield an untold person's full name that begins with it.
  *
  * Wherever the request's rename (`table.untold`) or the delivery gate (`table.untold_spans`, §177.11) finds an untold name, a
  * place that overlaps an occurrence of one of these is left as written. The §185 acceptance table: the book also prints the
  * untold store owner by the first character of his given name alone, the investigator shares that given name, and the
  * one-character alias was renamed inside the investigator's own name, which the Keeper copied into tool calls and a note.
- * Read from the strings the kernel holds, never from what they mean.
  */
 export function protectedNames(graph: ModuleGraph, world: Row, journal: Row, records: Iterable<Row>): string[] {
-    const history = prepareNameHistory(records);
+    const history = prepareNameHistory(records, tellGuard(graph, world, journal));
     // The told test the roster makes (`untoldBlock`, `untoldUnread`): the journal's `named_at` or a delivery that showed the name.
     const told = (person: CastPerson): boolean => person.node
-        ? !!integer(row(row(journal.entries)[string(person.node.node_id)]).named_at) || toldTurn(graph, person.node, history) !== null
+        ? !!integer(row(row(journal.entries)[string(person.node.node_id)]).named_at) || toldTurn(graph, person.node, history, Infinity, person.castIds) !== null
         : castToldTurn(person, history) !== null;
-    const words: unknown[] = [
-        ...graph.investigatorNames,
-        ...bookCast(graph).filter(told).flatMap(person => person.names),
-        ...graph.kind('npc').filter(node => graph.isTablePerson(node)).flatMap(node => [node.name, graph.displayName(node)]),
-        ...Object.values(row(world.person_labels)).map(record => row(record).name),
-        ...Object.values(row(world.person_epithets)).map(record => row(record).word),
-        ...Object.values(row(journal.entries)).map(entry => row(entry).label),
-    ];
+    const words = [...tableWords(graph, world, journal).map(entry => entry.word), ...bookCast(graph).filter(told).flatMap(person => person.names)];
     return [...new Set(words.map(text).filter(Boolean))];
 }
 
 /** The people of the cast the graph does not have yet (§177.1): named by the book, not yet reached by the reader. */
 export const unreadCast = (graph: ModuleGraph): CastPerson[] => bookCast(graph).filter(person => !person.node);
 
-/** Whether a committed delivery showed one of an unread person's names (the test `toldTurn` makes for a graph person). */
+/**
+ * Whether a committed delivery showed one of an unread person's names (the test `toldTurn` makes for a graph person). §188.1:
+ * an occurrence inside an investigator's registered name or another person's word at this table (the history's guard) is not
+ * this person's name: the investigator "Daniel White" in the prose tells no unread "Daniel".
+ */
 export function castToldTurn(person: CastPerson, records: Iterable<Row>): number | null {
     const words = person.names.map(normalize).filter(Boolean);
-    const history = prepareNameHistory(records);
-    for (const record of history.castRecords())
-        if (words.some(word => occurs(history.text(record), word))) return number(record.turn);
+    const history = prepareNameHistory(records), own = (owner: string) => owner === person.id || person.castIds.includes(owner);
+    for (const record of history.castRecords()) {
+        const text = history.text(record);
+        if (words.some(word => history.says(text, word, own, () => history.shields(record)))) return number(record.turn);
+    }
     return null;
 }
 

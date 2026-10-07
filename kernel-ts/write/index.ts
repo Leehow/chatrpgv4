@@ -40,7 +40,7 @@ import { markupInProse, describeMarkup, bareWrapper, unwrap, MARKUP_STEER } from
 import { timeGap, timeReading, timeRefusal, timeWarning } from '../read/time-reading.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
 import { foldPersonWords, untoldWholeNames } from '../read/person-words.js';
-import { protectedNames } from '../read/cast.js';
+import { protectedNames, tellGuard } from '../read/cast.js';
 import { foldNodeHandles, handleScheme, handlesDirectory, nodeHandleMap, readHandles, rewriteCampaignFiles, rewriteHandles, type HandleMove } from '../read/node-handles.js';
 import { prepareNameHistory } from '../journal/name-history.js';
 import { presenceRolls, type PresenceRolled } from '../mods/presence.js';
@@ -194,7 +194,8 @@ function timeRow(gap: Row, turn: Row, callId: string, params: Row): Row {
  */
 /** §177.15: the places of `text` where it writes an untold person's printed name, outside its markers. */
 async function untoldPlaces(snapshot: CampaignSnapshot, graph: ModuleGraph, text: string, speakers: SpeakerResolver): Promise<{ said: string[]; places: ProsePlace[]; guarded: string[] }> {
-    const journal = row(await snapshot.optional('npc-journal.json')), records = prepareNameHistory(await snapshot.turnRecords());
+    const journal = row(await snapshot.optional('npc-journal.json'));
+    const records = prepareNameHistory(await snapshot.turnRecords(), tellGuard(graph, snapshot.world, journal));
     // §188.1: the places of a name the investigator's side owns are skipped, from the list the request's rename skips
     // (`table.untold`'s `protected`): a delivery naming the investigator in full is not held for a name inside it.
     const guarded = protectedNames(graph, snapshot.world, journal, records);
@@ -263,7 +264,8 @@ async function untoldNamesGate(snapshot: CampaignSnapshot, campaign: CampaignWri
     return { text: replaced, replaced: left, ...(open.length < places.length ? { told: replacePlaces(text, places, place => blank(place) ?? replacements.get(place.name)) } : {}) };
 }
 async function untoldAt(snapshot: CampaignSnapshot, graph: ModuleGraph): Promise<(node: Row) => boolean> {
-    const journal = row(await snapshot.optional('npc-journal.json')), records = prepareNameHistory(await snapshot.turnRecords());
+    const journal = row(await snapshot.optional('npc-journal.json'));
+    const records = prepareNameHistory(await snapshot.turnRecords(), tellGuard(graph, snapshot.world, journal));
     return node => !graph.isTablePerson(node) && untoldBlock(graph, snapshot.world, journal, node, records) !== null;
 }
 async function refuseRepeatedLine(snapshot: CampaignSnapshot, campaign: CampaignWriter, speech: unknown,

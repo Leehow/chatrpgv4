@@ -8,7 +8,7 @@ import { incapacitatedBy } from "../healing/conditions.js";
 import { namePieces, toldTurn } from "../journal/naming.js";
 import { prepareNameHistory } from '../journal/name-history.js';
 import { tableWord } from "./person-words.js";
-import { bookCast, knownNamePieces, untoldUnread } from "./cast.js";
+import { bookCast, castIdsOf, knownNamePieces, tellGuard, untoldUnread } from "./cast.js";
 import { nameToken } from "../write/names.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
 import {personalityView} from '../npc/material.js';
@@ -156,7 +156,8 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
     if (!graph.isPerson(node))
         return null;
     const entry = row(row(journal.entries)[string(node.node_id)]);
-    if (integer(entry.named_at) || toldTurn(graph, node, records) !== null)
+    // §188.1: an occurrence inside an investigator's registered name or another person's word at this table tells nobody.
+    if (integer(entry.named_at) || toldTurn(graph, node, prepareNameHistory(records, tellGuard(graph, world, journal)), Infinity, castIdsOf(graph, node)) !== null)
         return null;
     // §176.1/§176.4: the table's word (what the fiction established, else the epithet), else the journal's label.
     const label = (tableWord(world, graph.handle(node)) || string(entry.label || "")).trim();
@@ -189,7 +190,7 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
  * fakes helping the owner with the cars, calling him by an alias the graph records, and only the display name was renamed.
  */
 export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, records: Iterable<Row>): Row[] {
-    const history = prepareNameHistory(records);
+    const history = prepareNameHistory(records, tellGuard(graph, world, journal));
     // §177.4: the whole cast -- the graph's people with every name the cast gives them, and the people the book names whom
     // the reader has not reached, untold until a delivery shows one of their names. Table 23's turn 9 had 54 people in the
     // graph; a page carried for a scene could name someone else, and that name reached the Keeper as printed.

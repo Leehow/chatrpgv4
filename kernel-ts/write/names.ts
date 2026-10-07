@@ -10,6 +10,7 @@
  */
 import type { ModuleGraph } from '../read/module-graph.js';
 import { normalize, type Row } from '../read/values.js';
+import { clearOf, nameSpans } from '../journal/name-spans.js';
 import type { SpeakerResolver } from './speech-pass.js';
 
 const NAME_TOKEN = /\{\{name:([^{}\n]{1,80})\}\}/g;
@@ -55,27 +56,6 @@ export function untoldNamesSaid(text: string, speakers: SpeakerResolver, graph: 
     return names.filter(name => { const key = normalize(name); return !!key && nameSpans(said, [key]).some(place => clearOf(place, spans)); });
 }
 
-/** §188.1: one occurrence of a name in a text, as a place is found: the exact string, a Latin name only between non-letters. */
-export interface NameSpan { start: number; end: number }
-const latinChar = (char: string | undefined) => !!char && /^[A-Za-z0-9]$/.test(char);
-/** §188.1: every occurrence in `text` of each of `names`, overlapping ones included (`occurs` and `prosePlaces` read the same way). */
-export function nameSpans(text: string, names: readonly string[]): NameSpan[] {
-    const spans: NameSpan[] = [];
-    for (const name of new Set(names.filter(Boolean))) for (let at = text.indexOf(name); at >= 0; at = text.indexOf(name, at + 1)) {
-        if ((latinChar(name[0]) && latinChar(text[at - 1])) || (latinChar(name[name.length - 1]) && latinChar(text[at + name.length]))) continue;
-        spans.push({ start: at, end: at + name.length });
-    }
-    return spans;
-}
-/**
- * §188.1: whether a place stands clear of the protected occurrences `spans`: it overlaps none of them, or it is a longer name
- * that holds the one it overlaps whole (a name inside a longer name's place goes with that place, §177.15: a told person's
- * bare first name does not shield an untold person's full name that begins with it).
- */
-export function clearOf(place: NameSpan, spans: readonly NameSpan[]): boolean {
-    return spans.every(span => place.end <= span.start || span.end <= place.start
-        || (place.start <= span.start && span.end <= place.end && place.end - place.start > span.end - span.start));
-}
 
 /** One place the prose writes `name`, outside every marker; `nth` counts that name's places in the order they stand. */
 export interface ProsePlace { name: string; nth: number; start: number; end: number }

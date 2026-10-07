@@ -47,17 +47,31 @@ export function namePieces(names: readonly string[]): string[] {
         .filter(piece => Array.from(piece).length >= 2))];
 }
 
-/** The first committed delivery that actually displayed the authored name, not merely the NPC id. */
-export function toldTurn(graph: ModuleGraph, node: Row, records: Iterable<Row>, upTo = Infinity): number | null {
+/**
+ * §188.1: whether an owner key of a guarded word (a world map's key: a handle, a cast row's id, an investigator's sheet id; a
+ * journal entry's node id) is this graph person's own: their handle or node id, a handle they had (§185.6.1), or a cast row
+ * they absorbed.
+ */
+export function ownerOf(graph: ModuleGraph, node: Row, castIds: readonly string[] = []): (owner: string) => boolean {
+    const keys = new Set([graph.handle(node), string(node.node_id), ...castIds]);
+    return owner => keys.has(owner) || sameNode(graph, owner, node);
+}
+
+/**
+ * The first committed delivery that actually displayed the authored name, not merely the NPC id. §188.1: an occurrence inside
+ * an investigator's registered name or another person's word at this table (the history's guard) is not this person's name.
+ */
+export function toldTurn(graph: ModuleGraph, node: Row, records: Iterable<Row>, upTo = Infinity, castIds: readonly string[] = []): number | null {
     const words = nameWords(graph, node);
-    const history = prepareNameHistory(records);
+    const history = prepareNameHistory(records), own = ownerOf(graph, node, castIds);
     for (const record of history.graphRecords()) {
         if (!(number(record.turn) <= upTo)) continue;
         // §185.6.1: a record keeps the handle the person had then (an interim one, before a fold): compared by identity.
-        if (history.speech(record).some(who => sameNode(graph, who.npc, node) && words.some(word => occurs(who.shown, word))))
+        if (history.speech(record).some(who => sameNode(graph, who.npc, node) && words.some(word => history.says(who.shown, word, own))))
             return number(record.turn);
         // §177.15: `told_text` where the delivery had places the host cleared as part of another word, blanked there.
-        if (words.some(word => occurs(history.text(record), word)))
+        const text = history.text(record);
+        if (words.some(word => history.says(text, word, own, () => history.shields(record))))
             return number(record.turn);
     }
     return null;

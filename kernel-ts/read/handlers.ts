@@ -19,7 +19,7 @@ import { lastExchange, lastInteraction } from "./exchange.js";
 import { contextBinding } from "./context.js";
 import { workspaceRead } from "./workspace.js";
 import { clockSection, sceneLabel, personLabel, clueLabel, npcNode, personNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, creatureView, investigatorView, fittedModuleSection, untoldRoster, personRecord } from "./capsule.js";
-import { castPersonNamed, protectedNames } from './cast.js';
+import { castPersonNamed, protectedNames, tellGuard } from './cast.js';
 import { tableWord } from './person-words.js';
 import { prepareNameHistory } from '../journal/name-history.js';
 import { incapacitatedBy } from "../healing/conditions.js";
@@ -450,7 +450,8 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
         // §188.1: with the whole names the investigator's side owns, whose places the rename leaves as written.
         "table.untold": async (params) => {
             const { campaign, module } = await readCampaign(context, params, false, true, contributions, true);
-            const journal = row(await campaign.optional("npc-journal.json")), records = prepareNameHistory(await campaign.turnRecords());
+            const journal = row(await campaign.optional("npc-journal.json")),
+                records = prepareNameHistory(await campaign.turnRecords(), tellGuard(module.graph, campaign.world, journal));
             return { people: untoldRoster(module.graph, campaign.world, journal, records), protected: protectedNames(module.graph, campaign.world, journal, records) };
         },
         "table.look": async (params) => {

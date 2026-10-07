@@ -36132,6 +36132,15 @@ punctuation piece, a one-character alias, matched as a substring in CJK. The §1
   the same function.
 - A one-character alias stays a name. It is still matched by substring and still renamed elsewhere (§177.15 judges a
   place inside another word). Protected spans are what keep it out of an investigator's name.
+- **Told detection (coordinator ruling 2026-10-07, after NR-01's open item).** No "was this name said" test that feeds told
+  state counts an occurrence of a person's name inside an occurrence of a guarded word that is not that person's own:
+  `toldTurn` (the delivered text and a speech row's `shown`), `castToldTurn`, the journal lane's floor (`buildJob`'s `told`,
+  which writes `named_at`) and its `named_quote` / `named_as` check. The guarded words are only the investigators' registered
+  names and this table's words for people (`tableWord`, `called.name`, epithets, journal labels; the names of people the
+  table established), never told cast names, since whether someone is told is what these tests decide. A person's own words
+  never shield their own name. Matching is the rename's, with the same containment rule: a longer occurrence of the name that
+  holds a guarded occurrence whole still counts. Without it the investigator 「丹尼尔·怀特」 in the prose told an unread
+  「丹尼尔」, whose names then left the roster and reached the Keeper.
 
 ### 188.2 The cast joins its duplicates
 
@@ -36237,12 +36246,33 @@ All tests go through the kernel in process plus the installed context runtime: `
   protected place.
 - **Both schemes.** Nothing branches on the scheme. A legacy starter has no cast, so its gate holds nothing (§177.11); its
   rename is covered.
-- **Not changed (open, for the lead): the told check.** `toldTurn` and `castToldTurn` still read a protected occurrence as
-  telling. A graph person is told only by their name or display name, so the acceptance table's store owner is not affected;
-  an unread cast person is told by any of their names. Measured on this branch: an unread row printed 「丹尼尔」 becomes told
-  when a delivery says 「丹尼尔·怀特」, and its names (here the notes word "Daniel" it shares with the graph person) leave the
-  roster. Skipping protected occurrences there needs a rule for the circularity (told people's names are themselves
-  protected), so it is not in this slice.
+- **Told detection (188.1's last bullet; was the open item of the first commit).**
+  - *The guard.* `tableWords(graph, world, journal)` (`kernel-ts/read/cast.ts`) lists the investigators' registered names
+    (no owner) and the table's words, each with the key it is stored under: `world.person_labels` and `world.person_epithets`
+    by handle, sheet id or cast row id, the journal's `entries[*].label` by node id, and a table-established person's names by
+    handle and node id. `protectedNames` is now `tableWords` plus the told cast names. `tellGuard` normalizes `tableWords`
+    into a `TellGuard {key, words}` (`kernel-ts/journal/name-history.ts`); `key` is the sorted list as JSON.
+  - *The carrier.* The told checks read records through `NameHistory`, which now carries the guard:
+    `prepareNameHistory(records, guard)`; a history already prepared keeps its guard when none is passed, and one prepared
+    with the same `key` is reused, sharing the filtered rows and normalized texts (JEV-OPEN-01's preparation, unchanged).
+    Every reader that holds the world and the journal attaches it: `untoldBlock` and `untoldRoster` (`read/capsule.ts`),
+    `table.untold`, `protectedNames`, `foldPersonWords` and `submitEpithets` (`read/person-words.ts`), `epithets.job`, the
+    gate's `untoldPlaces` and `untoldAt` (`write/index.ts`), `refuseUntoldName` (`apply/person.ts`) and the journal's
+    `buildJob`. `isTold`, `untoldBookPeople`, `untoldPieces`, `untoldWholeNames`, `untoldUnread` and `castToldTurn` take the
+    caller's history. A history prepared without a guard reads as before.
+  - *The test.* `NameHistory.says(text, word, own)`: the word's occurrences in the normalized text, at least one `clearOf`
+    the guarded occurrences whose owners are not the person's (`kernel-ts/journal/name-spans.ts` now holds `nameSpans` and
+    `clearOf`, which the gate's `write/names.ts` imports). Own keys: a graph person's handle, node id, any handle `sameNode`
+    accepts and the cast rows they absorbed (`ownerOf`, `journal/naming.ts`; `castIdsOf`); an unread person's row id and
+    cast ids. `toldTurn` takes the cast ids as a fifth argument.
+  - *The journal lane.* A `named_quote` that carries the person's names only inside others' guarded words carries none
+    (`not_a_book_name`, so the lane is asked `named_as`), and a `named_as` found in the quote only inside them is refused the
+    same way. `journal.submit` passes the world for the guard (`submit(..., world)`).
+  - *Retroactive.* Told state is computed from all records with the current guard. Someone made told only by an occurrence
+    inside a guarded word (the defect) becomes untold again on the next read. Someone told by a clear occurrence stays told,
+    and a `named_at` already written stays (no migration).
+  - *Speech.* On the real path a token by the table's word carries `shown: ""`, and a token by a name shows the person's own
+    key, so the speech branch is pinned by a unit case on `toldTurn` rather than at the seam.
 - Tests: `tests/extension/protected-name-spans.test.mjs` (kernel in process, context hooks as installed). Name-free: a
   reader-built book whose store owner 「丹尼尔·马瑟」 carries the graph alias 「丹」 and the printed forms 「丹尼尔」 and 「丹尼」,
   beside the investigator 「丹尼尔·怀特」: `table.untold` carries `protected` (the investigator's name and sheet id, no untold
@@ -36253,7 +36283,19 @@ All tests go through the kernel in process plus the installed context runtime: `
   place; a nickname said only in an unresolved name token is held with no place. Legacy (voice-bench): the investigator
   「玛丽·斯通纳」 holds the untold 「玛丽·斯通」 whole; the request keeps it and renames the untold name and its piece elsewhere; a
   person told in prose and every folded epithet are protected. A unit case pins the containment exception on both sides.
+  Told detection (a book with an unread second 「丹尼尔」, notes "Daniel"/"Dan", and the postmaster 「怀特」, a graph person):
+  the investigator's name in the prose leaves the unread Daniel untold ("Dan" and "Daniel" still on the roster) and the
+  postmaster untold in the capsule; the journal's floor lists him unnamed, and a quote saying his name only inside the
+  investigator's is refused `not_a_book_name`, with and without `named_as`. 「怀特先生点了点头。」 tells the postmaster; the
+  name token tells the store owner although it also makes his name his own `called.name`, and the unread Daniel inside it
+  stays untold. A unit case on `toldTurn`'s speech branch: a shown word holding the name inside an investigator's name tells
+  nobody; the person's own word does not shield it.
 - Mutations, each reverted by copy, each red: the host ignoring `protected` (request, judge, legacy, unit); the gate ignoring
   it (gate); `table.untold` without `protected` (request, judge, legacy); no investigator names (all four kernel cases); no told
   cast names (legacy); no epithets (legacy); the containment exception removed on the host, and in the kernel (unit); the
   judge's places ignoring `protected` (judge); `inProse`, `untoldNamesSaid` and `prosePlaces` each without it (gate).
+  Told detection, each red: `castToldTurn` unguarded; `toldTurn`'s prose unguarded; its speech branch unguarded (unit); no
+  investigator names in the guard; own words shielding the person's own name (store owner; unit); the journal floor
+  unguarded; the `named_quote` check unguarded; the `named_as` check removed; `untoldBlock` unguarded; no `person_labels` in
+  the guard (the unread Daniel inside the store owner's word); `untoldRoster` and `table.untold` both unguarded (either one
+  alone is masked by the other, by design).
