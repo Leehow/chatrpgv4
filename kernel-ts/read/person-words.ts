@@ -20,7 +20,7 @@ import { isJsonObject } from '../json.js';
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
 import { namePieces, occurs, toldTurn } from '../journal/naming.js';
 import { prepareNameHistory } from '../journal/name-history.js';
-import { bookCast, untoldUnread, type CastPerson } from './cast.js';
+import { bookCast, knownNamePieces, untoldUnread, type CastPerson } from './cast.js';
 import type { CampaignWriter } from '../write/store.js';
 import { nowIso } from '../write/store.js';
 
@@ -67,7 +67,7 @@ export function untoldPieces(graph: ModuleGraph, journal: Row, records: Iterable
     const unread = new Set(untoldUnread(graph, records).map(person => person.id));
     const isUntold = (person: CastPerson) => person.node ? untold.has(string(person.node.node_id)) : unread.has(person.id);
     const cast = bookCast(graph);
-    const known = new Set(namePieces(cast.filter(person => !isUntold(person)).flatMap(person => person.names)).map(normalize));
+    const known = knownNamePieces(graph, cast.filter(person => !isUntold(person)));
     return [...new Set(namePieces(cast.filter(isUntold).flatMap(person => person.names))
         .map(normalize).filter(piece => piece && !known.has(piece)))];
 }
@@ -85,7 +85,7 @@ export function untoldWholeNames(graph: ModuleGraph, journal: Row, records: Iter
     const unread = new Set(untoldUnread(graph, records).map(person => person.id));
     const isUntold = (person: CastPerson) => person.node ? untold.has(string(person.node.node_id)) : unread.has(person.id);
     const cast = bookCast(graph);
-    const known = new Set(namePieces(cast.filter(person => !isUntold(person)).flatMap(person => person.names)).map(normalize));
+    const known = knownNamePieces(graph, cast.filter(person => !isUntold(person)));
     return [...new Set(cast.filter(person => isUntold(person) && !isJsonObject(person.node?.campaign_origin)).flatMap(person => person.printed)
         .map(name => name.trim()).filter(name => [...name].length >= 2 && !known.has(normalize(name))))];
 }

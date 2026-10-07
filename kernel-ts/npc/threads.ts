@@ -79,7 +79,7 @@ export function speakerThreads(graph: ModuleGraph, campaign: CampaignSnapshot, l
         const own = receipts.filter(receipt => receiptGenerated(receipt) && me.is(row(receipt.intent).npc));
         const trigger = own.length ? 'act' : conversationOf(graph, world, me, turn, previous) ? 'conversation' : null;
         if (!trigger) continue;
-        const threads = threadsOf(intentHistory(entryNow(graph, ledger, table, turn, node)), n);
+        const threads = threadsOf(intentHistory(entryNow(graph, ledger, table, turn, node), graph.handle(node)), n);
         if (threads.length) out.push({npc: handle, name: spoken.name, trigger, lines: spoken.lines, threads});
     }
     return out;

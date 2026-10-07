@@ -4,7 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from module_helpers import bind, request, claim, observed, write, finish, opening
+from module_helpers import bind, request, claim, observed, write, finish, opening, handle_of
 from setup_helpers import confirmed_investigator
 
 KEY = "a" * 64
@@ -59,11 +59,12 @@ def test_guidance_opens_setup_but_not_world_or_play_and_preserves_confirmation(k
     assert result["prologue"]["opening"] == "Who are you?"
     assert "way_on" not in result["reading"], "an opening with a way on asks for no repair"
     world = json.loads((directory / "world.json").read_text())
-    assert world["npc_presence"]["lena"] == "dock"
     meta = json.loads((directory / "campaign.json").read_text())
     assert meta["setup"]["confirmed_revision"] == confirmed["revision"]
     assert kernel.ok("setup.complete", {"campaign": "early"})["replayed"]
     kernel.ok("table.open", {"campaign":"early"})
+    # The world setup.complete wrote, read with the handles the kernel shows this campaign (contract section 185).
+    assert world["npc_presence"][handle_of(kernel, "early", "Lena")] == handle_of(kernel, "early", "Dock")
     mods = kernel.ok("mods.list", {"campaign":"early"})
     assert next(r for r in mods["mods"] if r["id"] == "natural-npc")["active"]["enabled"] is False
     reused = request(kernel, mid, "guidance", guidance_key=KEY, play_language="en", occupations=[])
@@ -114,10 +115,13 @@ def test_the_start_scene_seats_its_own_cast_before_any_other_scene_claims_them(k
     confirmed_investigator(kernel, "seated")
     kernel.ok("setup.complete", {"campaign": "seated"})
     world = json.loads((kernel.workspace / ".coc/campaigns/seated/world.json").read_text())
-    assert world["active_scene"] == "dock"
+    # The world setup.complete wrote, read with the handles the kernel shows this campaign (contract section 185).
+    kernel.ok("table.open", {"campaign": "seated"})
+    dock = handle_of(kernel, "seated", "Dock")
+    assert world["active_scene"] == dock
     # `scene-attic` sorts first and lists her too; the start scene still seats her, because it is
     # the one scene the table is certainly in.
-    assert world["npc_presence"]["lena"] == "dock"
+    assert world["npc_presence"][handle_of(kernel, "seated", "Lena")] == dock
 
 
 def test_review_binds_both_files_and_requires_source_support(kernel, tmp_path):
@@ -225,7 +229,7 @@ def test_an_opening_published_ready_stays_ready_under_a_later_rule(kernel, tmp_p
     done = kernel.ok("setup.complete", {"campaign": "installed"})
     assert done["module_id"] == mid
     # The connection point is missing, so the handoff asks the reader for exactly that edge, in the background.
-    assert done["reading"]["way_on"]["scene"] == "scene-dock" and done["reading"]["way_on"]["state"] == "queued"
+    assert done["reading"]["way_on"]["state"] == "queued"
     # A running campaign never repairs the shared library on its own behalf (contract 22.6/§90.5).
     # The accepted generation is forked first, and only the private queue receives the bounded way-on job.
     private_dir = kernel.workspace / ".coc/module-campaigns/installed/modules" / mid
@@ -236,14 +240,18 @@ def test_an_opening_published_ready_stays_ready_under_a_later_rule(kernel, tmp_p
     assert private_queue[0]["resume_from"]
     shared_queue = json.loads((module_dir / "deepen-queue.json").read_text())
     assert not [row for row in shared_queue if row["state"] == "queued"]
+    kernel.ok("table.open", {"campaign": "installed"})
+    # The handoff names the Dock as the kernel shows this campaign: the reading layer's answer crosses back as the
+    # campaign's handle (contract 185.12), while its own queue keeps the book's (above).
+    dock = handle_of(kernel, "installed", "Dock")
+    assert done["reading"]["way_on"]["scene"] == dock
     # Contract 182.4: the read-ahead reports its reading window; this two-page book is read whole and streams no units.
     assert done["reading"]["ahead"] == {
         "queued": [private_queue[0]["job_id"]],
-        "scene": "scene-dock",
+        "scene": dock,
         "way_on": done["reading"]["way_on"],
         "window": {"mode": "whole", "first": 1, "last": 2, "chapters": [], "complete": False},
     }
-    kernel.ok("table.open", {"campaign": "installed"})
     reading = kernel.ok("table.capsule", {"campaign": "installed"})["reading"]
     assert reading["index_complete"] is True
     assert reading["sections"] == [{"name": "The harbor", "pages": [[1, 2]], "read": False}], \

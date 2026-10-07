@@ -145,7 +145,9 @@ test("§22.3.3 on the emitted kernel: a refused detail read is read once more in
 	// The scene still lands on its index text, and a check there passes; nothing is read for it.
 	ok(workspace, [["table.open", { campaign: CAMPAIGN }], ["table.player_input", { campaign: CAMPAIGN, text: "I climb to the tower." }]]);
 	const [moved] = ok(workspace, [["table.apply", { campaign: CAMPAIGN, call_id: "t1-c1", effects: [{ kind: "move", to: "Tower" }] }]]);
-	assert.equal(moved.world.active_scene, "tower");
+	// The campaign is on a reader-built book, so its handles are name-free (§185): the kernel says which is the Tower's.
+	const [{ entities: [tower] }] = ok(workspace, [["table.lookup", { campaign: CAMPAIGN, kind: "module", query: "Tower" }]]);
+	assert.equal(moved.world.active_scene, tower.name);
 	const [checked] = rpc(workspace, [["table.resolve", { campaign: CAMPAIGN, call_id: "t1-c2", action: { intent: "investigate", goal: "look around",
 		method: "look around the lamp room", skill: "Spot Hidden", decision: "core-check:ordinary-check" } }]]);
 	assert.equal(checked.ok, true, JSON.stringify(checked.error));

@@ -24,7 +24,7 @@ import { playLanguageOf } from "./languages.js";
 import { RpcError } from "../errors.js";
 import { array, row, number, string, truth, chars, clone, normalize, type Row } from "./values.js";
 import type { ModuleGraph } from "./module-graph.js";
-import {openIntents} from '../npc/intents.js';
+import {openIntents, shownIntentRef} from '../npc/intents.js';
 import {allReceipts, coercionPressures} from '../resolve/coercion.js';
 import { capsuleOwed } from "../owed/index.js";
 import { FIRST_SIGHT_BUDGET, firstSightSection, fitFirstSight } from "../first-sight/index.js";
@@ -606,7 +606,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         // Contract §142.3: what the people present set out to do and have no result for yet, read from the ledger, not
         // from present[] (whose rows the budget may already have cut).
         intents: present.flatMap(node => openIntents(row(row(campaign.jsonFiles.get("npc-ledger.json"))[string(node.node_id)]))
-            .map(item => ({who: graph.displayName(node), ref: item.ref, intent: item.text, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null})))
+            .map(item => ({who: graph.displayName(node), ref: shownIntentRef(item.ref, graph.handle(node)), intent: item.text, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null})))
     });
     // Offer rows go first when the section is over budget; because and grounded_by are the Director's account of itself.
     const fitted = row(capsule.director);

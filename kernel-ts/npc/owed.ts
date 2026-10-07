@@ -6,7 +6,7 @@
 import type {ModuleGraph} from '../read/module-graph.js';
 import {npcsPresent} from '../read/capsule.js';
 import {array, clone, number, row, type Row} from '../read/values.js';
-import {foldIntent, intentsOf} from './intents.js';
+import {foldIntent, intentsOf, shownIntentRef} from './intents.js';
 
 export function owedIntents(graph: ModuleGraph, world: Row, ledger: Row, turn: Row): Row[] {
     const n = number(turn.turn), owed: Row[] = [];
@@ -16,11 +16,11 @@ export function owedIntents(graph: ModuleGraph, world: Row, ledger: Row, turn: R
         const handle = graph.handle(node), entry = clone(row(ledger[node.node_id]));
         for (const receipt of array(turn.receipts)) {
             const intent = row(row(receipt).intent);
-            if (typeof intent.ref === 'string' && intent.npc === handle) foldIntent(entry, intent, n, row(receipt).id);
+            if (typeof intent.ref === 'string' && intent.npc === handle) foldIntent(entry, intent, n, row(receipt).id, false, true);
         }
         for (const item of intentsOf(entry))
             if (item.status === 'attempted' && number(item.last_turn) < n)
-                owed.push({who: graph.displayName(node), npc: handle, ref: item.ref, intent: item.text, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null});
+                owed.push({who: graph.displayName(node), npc: handle, ref: shownIntentRef(item.ref, handle), intent: item.text, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null});
     }
     return owed;
 }

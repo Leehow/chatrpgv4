@@ -1,35 +1,39 @@
 /** Source relationships stay useful after acquisition. This view never infers comprehension. */
 import { RpcError } from '../errors.js';
 import { pythonJsonDumps } from '../json.js';
-import { ModuleGraph, recordOf } from './module-graph.js';
+import { ModuleGraph, recordOf, sameNode } from './module-graph.js';
 import { resolveReference } from './references.js';
 import {EntityIndex, queryCandidates, memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts} from './memory.js';
 import { array, chars, row, string, type Row } from './values.js';
 
 /** A handout is a causal carrier only through the graph's closed evidence roles. */
 export function evidenceHandouts(graph: ModuleGraph, node: Row): string[] {
+    return evidenceCarriers(graph, node).map(carrier => graph.handle(carrier));
+}
+/** The carrier handout nodes behind `evidenceHandouts`. */
+function evidenceCarriers(graph: ModuleGraph, node: Row): Row[] {
     if (node.node_kind !== 'clue') return [];
     return (graph.incoming.get(node.node_id) ?? []).flatMap(edge => {
         const carrier = graph.nodes.get(edge.from_node_id);
-        return carrier?.node_kind === 'handout' && ['supports', 'depicts'].includes(edge.relation_kind)
-            ? [graph.handle(carrier)] : [];
+        return carrier?.node_kind === 'handout' && ['supports', 'depicts'].includes(edge.relation_kind) ? [carrier] : [];
     });
 }
 
 /** Receipts prove that a clue or one of its handout carriers actually reached play. */
 export function evidenceDeliveryRecords(graph: ModuleGraph, node: Row, records: Row[]): Row[] {
-    const name = graph.handle(node), handouts = new Set(evidenceHandouts(graph, node));
+    // §185.6.1: a receipt keeps the handle a node had then (an interim one, before a fold); compared by identity.
+    const carriers = evidenceCarriers(graph, node);
     return records.filter(record => array(record.receipts).some(receipt =>
-        receipt.clue === name || receipt.handout === name || handouts.has(string(receipt.handout))));
+        sameNode(graph, receipt.clue, node) || sameNode(graph, receipt.handout, node) || carriers.some(carrier => sameNode(graph, receipt.handout, carrier))));
 }
 
 export function evidenceAcquired(graph: ModuleGraph, world: Row, node: Row, records: Row[]): boolean {
     const name = graph.handle(node);
     if (node.node_kind === 'clue' && array(world.discovered_clues).includes(name)) return true;
     if (node.node_kind === 'handout' && array(world.handouts_shown).includes(name)
-        && records.some(record => array(record.receipts).some(receipt => receipt.handout === name))) return true;
-    const handouts = new Set(evidenceHandouts(graph, node));
-    return handouts.size > 0 && records.some(record => array(record.receipts).some(receipt => handouts.has(string(receipt.handout))));
+        && records.some(record => array(record.receipts).some(receipt => sameNode(graph, receipt.handout, node)))) return true;
+    const carriers = evidenceCarriers(graph, node);
+    return carriers.length > 0 && records.some(record => array(record.receipts).some(receipt => carriers.some(carrier => sameNode(graph, receipt.handout, carrier))));
 }
 
 /** Compact evidence keeps every acquired row up to this cap; unacquired rows are optional context.
@@ -65,7 +69,8 @@ export function continuityView(graph: ModuleGraph, world: Row, records: Row[] = 
     const source = (node: Row): Row => ({
         origin: graph.adaptationOrigin(node.campaign_origin) ?? 'source',
         references: array(node.source_refs).length ? node.source_refs : array(node.source_references),
-        claims: (graph.claimsBySubject.get(node.node_id) ?? []).slice(0, 4).map(c => ({predicate: c.predicate, object: c.object, source_refs: c.source_refs ?? []}))
+        // §185.7: a claim's object names its node by id; the Keeper reads it by handle (a legacy graph shows it as written).
+        claims: (graph.claimsBySubject.get(node.node_id) ?? []).slice(0, 4).map(c => ({predicate: c.predicate, object: graph.shownIds(c.object), source_refs: c.source_refs ?? []}))
     });
     const connections = graph.kind('conclusion').flatMap(conclusion => {
         const relations = (graph.incoming.get(conclusion.node_id) ?? []).filter(edge => ['supports', 'contradicts'].includes(edge.relation_kind));

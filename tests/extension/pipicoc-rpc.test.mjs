@@ -53,7 +53,7 @@ test('UI transport survives while coding persona and tools cannot replace the Ke
   const mounted = result.flatMap((value, index) => value === '-e' ? [result[index + 1]] : []);
   assert.deepEqual(mounted, [
     '/repo/build/host/runtime/kernel/pipiui-ext-invoke.mjs',
-    ...['kernel','mods','onboarding','module','memory','npc','table','npc-journal','npc-voice','npc-epithets','speech-edit','thinking-schedule'].map(name => `/repo/build/extensions/${name}/index.mjs`),
+    ...['kernel','mods','onboarding','module','memory','npc','table','npc-journal','npc-voice','npc-epithets','node-handles','speech-edit','thinking-schedule'].map(name => `/repo/build/extensions/${name}/index.mjs`),
     '/repo/build/pipicoc/agent.mjs',
     '/repo/build/extensions/image-gen/agent/index.mjs',
     '/repo/build/extensions/rerank/agent/index.mjs',
@@ -66,6 +66,9 @@ test('UI transport survives while coding persona and tools cannot replace the Ke
     const args = keeperArguments([], '/repo', mode);
     assert.ok(args.flatMap((value, index) => value === '-e' ? [args[index + 1]] : []).includes('/repo/build/extensions/thinking-schedule/index.mjs'),
       `${mode}: the App's launch mounts the thinking schedule`);
+    // The handle lane (contract §185.5) names a reader-built book during character creation as well as at a table.
+    assert.ok(args.flatMap((value, index) => value === '-e' ? [args[index + 1]] : []).includes('/repo/build/extensions/node-handles/index.mjs'),
+      `${mode}: the App's launch mounts the handle lane`);
   }
   const explicitNoExtensions = keeperArguments(['--no-extensions'], '/repo');
   assert.equal(explicitNoExtensions.filter(value => value === '--no-extensions').length, 2,

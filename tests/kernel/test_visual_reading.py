@@ -17,7 +17,7 @@ from coc.module_graph import ModuleGraph, record_of
 from coc.modules.store import ModuleStore
 from coc.modules.reading import Reading
 from coc.modules.visual import check_draft
-from module_helpers import write, bind, request, claim, finish, observed, indexed, opening
+from module_helpers import write, bind, request, claim, finish, observed, indexed, opening, handle_of
 
 
 def test_a_reader_cannot_publish_an_arbitrary_local_file_as_a_handout():
@@ -233,7 +233,8 @@ def test_published_material_remains_usable_without_the_original_pdf(kernel, tmp_
     kernel.ok("campaign.create", {"id": "c1", "module": mid, "play_language": "en"})
     confirmed_investigator(kernel)
     kernel.ok("setup.complete", {"campaign": "c1"})
-    assert kernel.table("open")["scene"]["name"] == "dock"
+    opened = kernel.table("open")
+    assert opened["scene"]["name"] == handle_of(kernel, "c1", "Dock")
     kernel.table("narrate", call_id="t0-c1", text="The harbor waits.")
     kernel.table("player_input", text="I stay on the dock.")
     assert kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 5}])["world"]["clock"]["minutes"] == 5
@@ -352,7 +353,7 @@ def test_material_preflight_precedes_the_whole_effect_batch_and_rng(kernel, tmp_
     assert record_of(tower)["facts"] == ["The upper room contains a ledger."]
     movement = {"call_id": "t1-c1", "effects": [{"kind": "move", "to": "Tower"}]}
     result = kernel.table("apply", **movement)
-    assert result["world"]["active_scene"] == "tower"
+    assert result["world"]["active_scene"] == handle_of(kernel, "c1", "Tower")
     assert kernel.table("apply", **movement)["replayed"] is True
     turn = json.loads((directory / "turn.json").read_text())
     assert len([r for r in turn["receipts"] if r["kind"] == "move"]) == 1

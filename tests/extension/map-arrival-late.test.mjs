@@ -35,6 +35,8 @@ function rpc(workspace, requests) {
 	return frames.map((frame) => frame.result);
 }
 const save = (path, value) => writeFileSync(path, JSON.stringify(value));
+/** A node's handle as the kernel shows this campaign: a campaign on a reader-built book has name-free handles (§185), not slugs. */
+const handleOf = (workspace, name) => rpc(workspace, [["table.lookup", { campaign: CAMPAIGN, kind: "module", query: name }]])[0].entities[0]?.name;
 
 /**
  * The reader's side of a job: its observations, draft and independent review in the attempt directory, then the
@@ -81,7 +83,7 @@ function towerWithALateMap(published) {
 			ready_nodes: ["scene-tower"] }, ["/nodes/0", "/coverage"], { campaign: CAMPAIGN });
 		const [moved] = rpc(workspace, [["table.apply", { campaign: CAMPAIGN, call_id: "t1-c1", effects: [{ kind: "move", to: "Tower" }] }],
 			["table.narrate", { campaign: CAMPAIGN, call_id: "t1-c2", text: "塔门半掩着。" }]]);
-		assert.equal(moved.world.active_scene, "tower", "the move landed with the Tower's text while its map was unread");
+		assert.equal(moved.world.active_scene, handleOf(workspace, "Tower"), "the move landed with the Tower's text while its map was unread");
 		if (!published) return;
 		const job = claim(CAMPAIGN);
 		assert.equal(job.material, "map");
@@ -118,7 +120,8 @@ test("§107.1 at the seam: the map published after the arrival is on the next tu
 	const turn = JSON.parse(readFileSync(join(table.workspace, ".coc/campaigns", CAMPAIGN, "turns/0002.json"), "utf8"));
 	const [receipt] = turn.receipts.filter((row) => row.kind === "map");
 	assert.ok(receipt, "the late first-arrival card was minted on this turn");
-	assert.deepEqual([receipt.map, receipt.late, receipt.scene, receipt.why], ["tower-plan", true, "tower", "arrival"]);
+	const plan = handleOf(table.workspace, "Tower plan"), tower = handleOf(table.workspace, "Tower");
+	assert.deepEqual([receipt.map, receipt.late, receipt.scene, receipt.why], [plan, true, tower, "arrival"]);
 
 	// The host's map hop rendered the derivative, and the card rode this turn's delivery beside the prose.
 	const delivered = table.entries("coc-mechanics").find((entry) => entry.turn === 2);
@@ -130,7 +133,7 @@ test("§107.1 at the seam: the map published after the arrival is on the next tu
 	const notes = [...new Map(requests.flatMap(clerkNotes).filter((note) => note.map_arrived).map((note) => [JSON.stringify(note), note])).values()];
 	assert.equal(notes.length, 1, "the note says the map arrived exactly once");
 	assert.ok(clerkNotes(requests[0]).some((note) => note.map_arrived), "on the first model step");
-	assert.deepEqual(notes[0].map_arrived, [{ map: "tower-plan", scene: "tower", receipt: receipt.id }]);
+	assert.deepEqual(notes[0].map_arrived, [{ map: plan, scene: tower, receipt: receipt.id }]);
 	assert.match(notes[0].map_arrived_note, /Do not mention a map/);
 	for (const context of requests) {
 		assert.ok(!everything(context).includes("tower-plate.png"), "no source path reaches the Keeper");

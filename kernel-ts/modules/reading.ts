@@ -38,6 +38,7 @@ import {MODULE_LOGIC_REVIEW,moduleGuidanceApproved} from './module-review-policy
 import {backgroundSourceUnits,referenceSourceUnits,sourceUnitKey,sourceUnitPages,type SourceUnit} from './background-source.js';
 import {publishReferencePlace,publishReferenceContext,referenceReady as sourceReferenceReady} from './reference.js';
 import {libraryLineage,syncLibraryFromCampaign} from './campaign-scope.js';
+import {readingFocus} from './reading-boundary.js';
 import {MERGE_INTERRUPTED,mergeForkReadings,ownAsks,refusedMerge} from './library-merge.js';
 import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,visualCandidates,type VisualScan} from './visual-discovery.js';
 import {IDENTITY_FAILURES,IDENTITY_HOLDS,IDENTITY_QUESTION,draftIdentityPairs,identitySource,judgeDraftIdentity,publishedIdentityPairs,recordIdentityVerdicts,writeVariants,type IdentityPair} from './visual-identity.js';
@@ -228,7 +229,7 @@ export async function sourcePreparationSnapshot(context:KernelContext,campaignId
         if(module.adapted||meta.id!==moduleId||meta.campaign_scope!==campaignId||typeof meta.graph_digest!=='string'||!Number.isSafeInteger(meta.generation))
             throw new RpcError('needs','The candidate publication does not belong to this source owner',{details:{reason:'source_preparation_stale'}});
         // writeGraph has created and hashed this immutable generation, but module.json still points at the old one.
-        module={...module,meta,generation:meta.generation,graph:new ModuleGraph(moduleId,publication.graph,meta.graph_digest,module.graph.dossier)};
+        module={...module,meta,generation:meta.generation,graph:new ModuleGraph(moduleId,publication.graph,meta.graph_digest,module.graph.dossier,undefined,false,module.graph.nodeHandles)};
     }
     const active=await activeMods(context,campaign.world);
     const capsule={mods:{active:active.map(mod=>({id:mod.id}))}},revision=await sourceRevision(campaign,module,capsule),worldline=string(campaign.meta.active_worldline||'main');
@@ -585,7 +586,9 @@ export class Reading {
             });
         const mid = graph.moduleId, meta = await this.store.module(mid);
         if (meta.source !== 'pdf') return;
-        const ready = array(meta.reading?.materials).some(material => material.material === 'map' && normalize(material.focus ?? '') === normalize(bounded));
+        // §185.12: a map asked for by a name-free campaign's handle was read under the node's book handle.
+        const known = graph.nameFree ? graph.nodeOfHandle(requested) : null, read = known && graph.isBookNode(known) ? graph.bookHandle(known) : bounded;
+        const ready = array(meta.reading?.materials).some(material => material.material === 'map' && [bounded, read].some(value => normalize(material.focus ?? '') === normalize(value)));
         if (ready) return;
         const candidates = array(meta.reading?.map_candidates).filter(candidate =>
             !params.name || normalize(candidate.name) === normalize(params.name) || normalize(candidate.focus ?? '') === normalize(params.name));
@@ -605,7 +608,8 @@ export class Reading {
     async queueArrivalMap(graph: ModuleGraph, scene: Row): Promise<Row> {
         if (mapsDepictingScene(graph, scene).length || graph.materialOverride) return { state: 'none' };
         const candidates = array(row(scene.properties).map_candidates);
-        const focus = graph.handle(scene), names = candidates.map(candidate => string(row(candidate).name)).filter(Boolean);
+        // §185.12: the scene by its book handle in a name-free campaign; the caller tells the campaign its handle.
+        const focus = readingFocus(graph, scene), names = candidates.map(candidate => string(row(candidate).name)).filter(Boolean);
         const pages = [...new Set(candidates.flatMap(candidate => array(row(candidate).pages).filter(integer).map(number)))].filter(page => page > 0).sort((a, b) => a - b);
         const mid = graph.moduleId;
         if (!pages.length || !await this.store.exists(mid)) return { state: 'none' };
@@ -744,7 +748,7 @@ export class Reading {
             for (const index of own) add(index + 1);
             return pages;
         }
-        return this.indexPagesOf(graph, node, graph.handle(node), sections);
+        return this.indexPagesOf(graph, node, readingFocus(graph, node), sections);
     }
     /**
      * §22.4.7.1 (SL-56): a person's index pages, structure only: the pages the node's own `source_refs` cite in the bound
@@ -800,7 +804,9 @@ export class Reading {
         if (!playsFromReading(meta)) return landed;
         const indexed = new Set((await this.store.sections(mid)).flatMap(section => [section.name ?? '', ...array(section.entities)]).filter(value => typeof value === 'string').map(normalize));
         for (const name of names) {
-            if (typeof name !== 'string' || !name || await this.materialReady(mid, name))
+            // §185.12: a name-free campaign's handle is matched here by the node's id; a name is the reader's word as it is.
+            const known = typeof name === 'string' && graph.nameFree ? graph.nodeOfHandle(name) : null;
+            if (typeof name !== 'string' || !name || await this.materialReady(mid, known && graph.isBookNode(known) ? String(known.node_id) : name))
                 continue;
             const node = graph.find(name);
             // §22.4.7.1 (SL-56): a person this table established is not book material; nothing is read for them (§87).
@@ -812,11 +818,14 @@ export class Reading {
             const unread = node === null && gate.people?.has(name) ? (gate.cast ? gate.cast(name) : castPersonNamed(graph, {}, name)) : null;
             if (node === null && !unread && !indexed.has(normalize(name)))
                 continue;
-            const focus = node ? graph.handle(node) : unread ? unread.names[0]! : name, settled = !!Reading.textSettlement(meta, focus);
+            // `focus` is what the campaign is told (its handle: the landing, the refusal the host echoes); `read` what this layer
+            // keeps and matches (§185.12: the node's book handle in a name-free campaign).
+            const focus = node ? graph.handle(node) : unread ? unread.names[0]! : name, read = node ? readingFocus(graph, node) : focus;
+            const settled = !!Reading.textSettlement(meta, read);
             const person = !!gate.people?.has(name) && (node === null || ['npc', 'creature'].includes(string(node.node_kind)));
             if (person) {
                 if (gate.textPeople?.has(focus)) continue;
-                const indexPages = await this.personIndexPages(graph, node, focus);
+                const indexPages = await this.personIndexPages(graph, node, read);
                 const pages = unread ? [...new Set([...unread.pages, ...indexPages])].slice(0, SCENE_INDEX_PAGES) : indexPages;
                 // §22.3.3 (SL-57): a settled focus is not read again; it still lands on the text when it has some.
                 if (settled && !pages.length) continue;
@@ -874,12 +883,14 @@ export class Reading {
         // §187.2.1: a minted scene also reads ahead the book place it lies in (its `located-in`), beside its way back.
         const within = (graph.out.get(scene.node_id) ?? []).filter(rel => rel.relation_kind === 'located-in')
             .map(rel => graph.nodes.get(rel.to_node_id)).filter((node): node is Row => node?.node_kind === 'scene').map(node => graph.handle(node));
-        for (const target of [...new Set([...graph.sceneExits(scene).map(exit => string(exit.to)), ...within])]) {
-            if (await this.materialReady(mid, graph.scene(target).node_id))
+        for (const handle of [...new Set([...graph.sceneExits(scene).map(exit => string(exit.to)), ...within])]) {
+            const target = graph.scene(handle);
+            if (await this.materialReady(mid, target.node_id))
                 continue;
             let reply: Row;
             try {
-                reply = await this.request({ module_id: mid, purpose: 'detail', focus: target });
+                // §185.12: the place by the node's book handle in a name-free campaign.
+                reply = await this.request({ module_id: mid, purpose: 'detail', focus: graph.nameFree ? readingFocus(graph, target) : handle });
             }
             catch (error) {
                 if (!(error instanceof RpcError) && !(error instanceof Error && typeof (error as NodeJS.ErrnoException).code === 'string' && typeof (error as NodeJS.ErrnoException).syscall === 'string'))

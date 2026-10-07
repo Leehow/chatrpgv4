@@ -8,11 +8,11 @@ import { incapacitatedBy } from "../healing/conditions.js";
 import { namePieces, toldTurn } from "../journal/naming.js";
 import { prepareNameHistory } from '../journal/name-history.js';
 import { tableWord } from "./person-words.js";
-import { bookCast, untoldUnread } from "./cast.js";
+import { bookCast, knownNamePieces, untoldUnread } from "./cast.js";
 import { nameToken } from "../write/names.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
 import {personalityView} from '../npc/material.js';
-import { intentsView } from '../npc/intents.js';
+import { intentsView, shownIntentRef } from '../npc/intents.js';
 import { moodNow } from '../npc/mood.js';
 import {npcRelationships,npcRecentSpeech,npcCommitments} from '../npc/perspective.js';
 import {reunionView} from '../npc/reunion.js';
@@ -195,8 +195,9 @@ export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, recor
     // graph; a page carried for a scene could name someone else, and that name reached the Keeper as printed.
     const unread = new Set(untoldUnread(graph, history).map(person => person.id));
     const people = bookCast(graph).map(person => ({ person, untold: person.node ? untoldBlock(graph, world, journal, person.node, history) : unread.has(person.id) ? {} : null }));
-    // A name someone the investigator already knows also goes by stays theirs: hiding it would hide them.
-    const known = new Set(namePieces(people.filter(entry => !entry.untold).flatMap(entry => entry.person.names)).map(normalize));
+    // A name someone the investigator already knows also goes by stays theirs: hiding it would hide them. The investigators
+    // themselves are known (§185.13): table 30's investigator shared a first name with the untold store owner.
+    const known = knownNamePieces(graph, people.filter(entry => !entry.untold).map(entry => entry.person));
     // §176.5: the pieces a name separates with punctuation are renamed too. Table 23 (turn 5): the book's own scene summary
     // said the three men under the awning were "Lars, Nate and Steve" by first name; the whole names and the aliases were
     // renamed, the bare first names were not, and the Keeper wrote one of them.
@@ -210,7 +211,8 @@ export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, recor
         // §177.4: an unread person is shown by the word the lane gave them, else by the row's id, which is opaque (no slug).
         const shown = node ? string(untold.label || "").trim() || id : tableWord(world, id) || id;
         // §176.5: a handle is the book's name as a slug, so the handle and the node id are renamed too, once there is a word.
-        const slugs = !node || shown === id ? [] : [string(node.node_id), id].filter((value, at, all) => value && all.indexOf(value) === at);
+        // §185.7: not in a name-free campaign, whose handles carry no name; the rename there touches names only.
+        const slugs = graph.nameFree || !node || shown === id ? [] : [string(node.node_id), id].filter((value, at, all) => value && all.indexOf(value) === at);
         const names = person.names;
         for (const name of [...names, ...namePieces(names).filter(piece => !names.includes(piece)), ...slugs]) {
             // Keyed by the exact string the rename replaces: a handle normalizes to its name ("steven-knott") and is its own row.
@@ -570,12 +572,12 @@ function promiseOrder(left: Row, right: Row): number {
     const turns = number(left.valid_from_turn ?? left.turn) - number(right.valid_from_turn ?? right.turn);
     return leftOpen !== rightOpen ? leftOpen ? -1 : 1 : leftOpen ? turns : -turns;
 }
-function npcHistory(ledger: Row, memories: Map<string, Row>, shownPromises: Set<string>): Row | null {
+function npcHistory(ledger: Row, handle: string, memories: Map<string, Row>, shownPromises: Set<string>): Row | null {
     const result: Row = {},
         seen = row(ledger.turns_present),
         disclosed = array(ledger.disclosed).filter(item => truth(item.clue)).map(item => string(item.clue));
     // Contract §142.3: what this person set out to do and where each stands -- under way first, then the latest settled.
-    const intents = intentsView(ledger);
+    const intents = intentsView(ledger, handle);
     if (intents.length)
         result.intents = intents;
     const selected = array(ledger.promises).flatMap(item => {
@@ -700,7 +702,7 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     if (toward)
         entry.toward_party = toward;
     const shownPromises = new Set<string>();
-    const history = npcHistory(saved, memories, shownPromises);
+    const history = npcHistory(saved, graph.handle(node), memories, shownPromises);
     if (history)
         entry.history = history;
     const relationships=npcRelationships(graph,node,[...memories.values()],scope),recent=npcRecentSpeech(graph,node,records,scope);
@@ -786,7 +788,8 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
         ...(calledBlock(world, handle, graph.displayName(node)) ? {called: calledBlock(world, handle, graph.displayName(node))} : {}),
         ...(untold ? {untold} : {}),
         id: handle,
-        node_id: node.node_id,
+        // §185.7: where the book's node id stood, a name-free campaign shows the handle.
+        node_id: graph.shownIds(node.node_id),
         scene: row(world.npc_presence)[handle] ?? null,
         summary: node.summary ?? null,
         visibility: node.visibility ?? null,
@@ -815,7 +818,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
             to: tie.to,
             kind_of: tie.node.node_kind
         }));
-    view.ledger = ledger[node.node_id] ?? null;
+    view.ledger = ledgerView(graph, node, ledger[node.node_id]);
     const record = recordOf(node);
     if (truth(record))
         Object.assign(view, {
@@ -832,7 +835,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     // table reads the rest in the fight itself. `combat` is the saved fight, so a Keeper's hold shows only in its round.
     // With the disposition table, a person without a disposition also carries what one is inferred from.
     Object.assign(view, cardAction(graph, world, node, combat, dispositions));
-    const authored = withoutChainIds(graph.entityView(node).properties, chain);
+    const authored = withoutChainIds(graph.shownIds(graph.entityView(node).properties), chain);
     if (truth(authored))
         view.properties = authored;
     const relationships=npcRelationships(graph,node,memory,scope),recent=npcRecentSpeech(graph,node,records,scope);
@@ -843,6 +846,21 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     const reunion=reunionView(graph,world,node,records,scope);
     if(reunion)view.reunion=reunion;
     return view;
+}
+/**
+ * §185.7 (and NFH-02's note): a person's ledger row as a single read shows it. Each intention reads by its canonical reference,
+ * built from the person's current handle and the row's digest (`shownIntentRef`, §185.2) -- what the card shows and what settles
+ * it; a row recorded before a fold keeps its interim owner in the file. A node id the row stores reads as its handle in a
+ * name-free campaign (`shownIds`). For a row the kernel wrote in a legacy campaign both are the stored strings.
+ */
+function ledgerView(graph: ModuleGraph, node: Row, entry: unknown): Row | null {
+    if (!isJsonObject(entry))
+        return (entry ?? null) as Row | null;
+    const handle = graph.handle(node);
+    const view = Array.isArray(entry.intents)
+        ? {...entry, intents: entry.intents.map(item => isJsonObject(item) && typeof item.ref === "string" ? {...item, ref: shownIntentRef(item.ref, handle)} : item)}
+        : entry;
+    return graph.shownIds(view);
 }
 /** The authored properties a single read dumps, less the raw `weaknesses` (node ids) when the chain carries them by name. */
 function withoutChainIds(properties: Row, chain: Row): Row {
@@ -865,7 +883,8 @@ export function creatureView(graph: ModuleGraph, world: Row, node: Row, ledger: 
         ...(graph.adaptationOrigin(node.campaign_origin) ? {origin: graph.adaptationOrigin(node.campaign_origin)} : {}),
         name: graph.displayName(node),
         id: handle,
-        node_id: node.node_id,
+        // §185.7: where the book's node id stood, a name-free campaign shows the handle.
+        node_id: graph.shownIds(node.node_id),
         scene: row(world.npc_presence)[handle] ?? null,
         summary: node.summary ?? null,
         visibility: node.visibility ?? null,
@@ -874,7 +893,7 @@ export function creatureView(graph: ModuleGraph, world: Row, node: Row, ledger: 
         ...chain,
         ...(truth(record.keeper_note) ? {keeper_note: record.keeper_note} : {}),
         ...(toward ? {toward_party: toward} : {}),
-        ledger: ledger[node.node_id] ?? null,
+        ledger: ledgerView(graph, node, ledger[node.node_id]),
         mechanics: truth(graph.mechanicsOf(node)) ? graph.mechanicsOf(node) : null,
     };
     // A body the engine fights with (§136.12): how it defends and what it does in a fight, as a person's card says.
@@ -882,7 +901,7 @@ export function creatureView(graph: ModuleGraph, world: Row, node: Row, ledger: 
         view.combat_tactic = cardTactic(graph, world, node);
         Object.assign(view, cardAction(graph, world, node, combat, dispositions));
     }
-    const authored = withoutChainIds(graph.entityView(node).properties, chain);
+    const authored = withoutChainIds(graph.shownIds(graph.entityView(node).properties), chain);
     if (truth(authored))
         view.properties = authored;
     return view;

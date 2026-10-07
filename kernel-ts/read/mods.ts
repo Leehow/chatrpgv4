@@ -283,8 +283,8 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     if (scoped !== Array.isArray(declared))
         invalid("mods.package-files.v1 and package_files must be declared together");
     if (scoped) {
-        if (!declared.length || new Set(declared).size !== declared.length)
-            invalid("package_files must be a non-empty list of distinct runtime files");
+        if (new Set(declared).size !== declared.length)
+            invalid("package_files must be a list of distinct runtime files");
         for (const name of declared) {
             if (typeof name !== "string" || !name || name.startsWith("/") || name.includes("\\")
                 || name.split("/").some(part => !part || part === "." || part === "..")
@@ -986,7 +986,8 @@ function knownLabel(world: Row, graph: ModuleGraph, name: any): Row | undefined 
     const handle = graph.handle(node), label = node === clue ? row(world.clue_labels)[handle] : undefined;
     return {
         kind: node === clue ? "clue" : "handout",
-        entity: graph.entityView(node),
+        // §185.7: the book's raw properties may name other nodes by id; the Keeper reads them by handle.
+        entity: graph.shownIds(graph.entityView(node)),
         ...(typeof label === "string" && label.trim() ? { label } : {}),
         ...(node === clue ? { discovered: array(world.discovered_clues).includes(handle) } : { shown: array(world.handouts_shown).includes(handle) }),
         note: node === clue

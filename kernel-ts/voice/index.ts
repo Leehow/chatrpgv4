@@ -8,6 +8,7 @@ import { RpcError } from '../errors.js';
 import { CampaignSnapshot, loadCampaignModule } from '../read/campaign.js';
 import { playLanguageOf } from '../read/languages.js';
 import { npcView } from '../read/capsule.js';
+import { sameNode } from '../read/module-graph.js';
 import { array, number, repr, row, string, type Row } from '../read/values.js';
 import { createWriteRuntime } from '../write/index.js';
 import { readNpcLedger } from '../write/contributions.js';
@@ -74,7 +75,7 @@ export function createVoiceHandlers(context: KernelContext, writer: ReturnType<t
             if (!node)
                 return { job_id: null };
             const ledger = await readNpcLedger(campaign), dossier = npcView(graph, snapshot.world, node, ledger);
-            const handle = graph.handle(node), said = (await campaign.records()).flatMap((record: Row) => array(record.speech).filter(line => row(row(line).who).npc === handle).map(line => string(row(line).text)));
+            const said = (await campaign.records()).flatMap((record: Row) => array(record.speech).filter(line => sameNode(graph, row(row(line).who).npc, node)).map(line => string(row(line).text)));
             const packet = buildPacket(campaign, graph, snapshot.world, owner, node, await playLanguageOf(context, snapshot.meta), dossier, await laneInstruction(context, owner, snapshot.world, catalog), said, await investigatorIdentity(campaign, snapshot.world));
             return openJob(campaign, owner, graph.handle(node), packet);
         },

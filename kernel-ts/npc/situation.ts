@@ -29,7 +29,7 @@ import {array, chars, clone, normalize, number, row, string, values, type Row} f
 import {stanceNow} from '../combat/standing.js';
 import {npcProfileOf} from '../resolve/context.js';
 import {emptyLedgerEntry, foldNpcTurn, stanceTable} from '../write/contributions.js';
-import {intentsOf, isSettled, receiptGenerated} from './intents.js';
+import {intentsOf, isSettled, receiptGenerated, shownIntentRef} from './intents.js';
 import {npcPerspective} from './perspective.js';
 import {isStakesRoll, stakesView} from './stakes-receipt.js';
 
@@ -254,11 +254,11 @@ export function entryNow(graph: ModuleGraph, ledger: Row, table: Row, turn: Row,
  * without the card's cap of three settled rows (the byte budget bounds this section), and a later row of the same turn
  * counts as the newer one.
  */
-export function intentHistory(entry: Row): Row[] {
+export function intentHistory(entry: Row, handle: string): Row[] {
     const all = intentsOf(entry).map((item, index) => ({item, index}))
         .sort((a, b) => number(b.item.last_turn) - number(a.item.last_turn) || b.index - a.index).map(({item}) => item);
     return [...all.filter(item => !isSettled(item.status)), ...all.filter(item => isSettled(item.status))]
-        .map(item => ({ref: item.ref, intent: item.text, status: item.status, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null,
+        .map(item => ({ref: shownIntentRef(item.ref, handle), intent: item.text, status: item.status, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null,
             // §143.6: a row the table's own act opened says so, as the card does.
             ...(item.generated === true ? {by: 'table'} : {})}));
 }
@@ -313,8 +313,11 @@ function atHand(graph: ModuleGraph, world: Row, party: Row[], me: Person, place:
  */
 export function broughtOut(world: Row, me: Person, done: Row[]): Row[] {
     const status = new Map(done.map(entry => [string(entry.ref), string(entry.status)]));
-    const origin = (name: string, turn: unknown, ref: unknown): Row => ({name, turn: typeof turn === 'number' ? turn : null,
-        ...(typeof ref === 'string' && ref ? {ref, ...(status.has(ref) ? {status: status.get(ref)} : {})} : {})});
+    // §185.2: a recorded ref is this person's (the write checked its owner) and is shown canonical, as `done` is.
+    const origin = (name: string, turn: unknown, stored: unknown): Row => {
+        const ref = typeof stored === 'string' && stored ? shownIntentRef(stored, me.handle) : '';
+        return {name, turn: typeof turn === 'number' ? turn : null, ...(ref ? {ref, ...(status.has(ref) ? {status: status.get(ref)} : {})} : {})};
+    };
     const weapons = array(row(world.npc_weapons)[me.handle]).map(row)
         .map(weapon => origin(string(weapon.name || weapon.weapon_id), weapon.turn, weapon.ref));
     const things = values(row(row(world.objects).instances)).map(row)
@@ -477,7 +480,7 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
             const session = new SessionView(campaign, graph, party, world).activeSession();
             const {place, constraints} = await placedConstraints(context, campaign, graph, me);
             const happened = happenedSentences(me, world, party, turn, previous, heard);
-            const done = intentHistory(entryNow(graph, ledger, table, turn, node));
+            const done = intentHistory(entryNow(graph, ledger, table, turn, node), graph.handle(node));
             // §143.29: what an earlier act of theirs brought out, present only when there is something.
             const brought = broughtOut(world, me, done);
             // §143.30: what anyone at this table has brought out, present only when there is something.

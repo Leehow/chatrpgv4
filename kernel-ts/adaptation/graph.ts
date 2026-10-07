@@ -79,7 +79,8 @@ export function adaptedGraph(source: ModuleGraph, changes: Row[]): ModuleGraph {
             setRecord(npc, {facts});
         } else throw new RpcError('invalid_params', 'Unknown normalized adaptation change');
     }
-    return new ModuleGraph(source.moduleId, raw, jsonDigest([source.digest, changes]), source.dossier, semanticNames, true);
+    // §185.4: the adapted view keeps the source's handle scheme; an adaptation's own names come before the map.
+    return new ModuleGraph(source.moduleId, raw, jsonDigest([source.digest, changes]), source.dossier, semanticNames, true, source.nodeHandles);
 }
 
 export function normalizeChanges(source: ModuleGraph, previous: Row[], world: Row, input: unknown, proposal: string): Row[] {
