@@ -124,3 +124,13 @@ Branching investigation with real `scene_edges`:
 3. Corbitt house ground floor → upper-floor poltergeist → basement rites → confrontation
 
 Critical conclusions require multiple independent clue routes (R-5).
+
+## Page transcripts of the shipped window (contract §191.8)
+
+`content/source-transcripts/31e36f72d0ac9a3654b61a09b1f071d3d82f25d78641e5069bfe343e44c5c7db/` holds one record per page of
+`source.pdf` (the same 17 pages, physical pages 447-463 of the 40th Anniversary Keeper Rulebook; no other page). Each
+record's `text` is the page's own PDF.js lines in reading order (a checked permutation, never rewritten), its `markdown`
+the reading version, and `image_text` what a model read off the two map pages, labelled. The table reads them through
+before its own store, so the Keeper and the reader see this window in reading order with no transcript call. Made with
+`node scripts/build-source-transcripts.ts --pdf content/starters/the-haunting/source.pdf --model grok-build/grok-4.5`
+(2026-10-07); re-run only when `transcript_version` or the native extraction version changes.
