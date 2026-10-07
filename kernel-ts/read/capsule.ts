@@ -1,7 +1,7 @@
 /** Keeper and player read projections preserve the existing authored/state boundary. */
 import { pythonJsonDumps, compareUnicode, isJsonObject } from "../json.js";
 import { RpcError } from "../errors.js";
-import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionStatus, dossierLabels } from "./module-graph.js";
+import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionStatus, dossierLabels, isAmbiguity } from "./module-graph.js";
 import { entries, values, array, row, number, integer, truth, string, normalize, chars, length, words, clone, repr, type Row } from "./values.js";
 import { clueGate, structureType } from "./director.js";
 import { incapacitatedBy } from "../healing/conditions.js";
@@ -107,6 +107,26 @@ export function npcNode(graph: ModuleGraph, world: Row, name: string): Row {
         if (called)
             return called;
         throw error;
+    }
+}
+/**
+ * Contract §188.4 (from §185.2's cash counterparty): the same junction for a field that may also be free text -- a cash
+ * counterparty, an owed row's `with`, the giver of an item. The graph's npc, then this table's word; `null` on a plain
+ * miss, which the entrance keeps as written. The graph's ambiguity and a word two people carry are refused, never picked.
+ */
+export function referencedPerson(graph: ModuleGraph, world: Row, name: string): Row | null {
+    try {
+        return graph.npc(name);
+    }
+    catch (error) {
+        if (!(error instanceof RpcError))
+            throw error;
+        const called = calledPerson(graph, world, name);
+        if (called)
+            return called;
+        if (error.code !== 'unknown_entity' || isAmbiguity(error))
+            throw error;
+        return null;
     }
 }
 /**

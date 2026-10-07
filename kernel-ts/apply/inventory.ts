@@ -5,7 +5,7 @@ import {moduleDeclaration} from '../read/module-graph.js';
 import {findNamedObject} from '../read/mods.js';
 import {EntityIndex} from '../read/memory.js';
 import {actor} from '../read/handlers.js';
-import {personLabel} from '../read/capsule.js';
+import {personLabel,referencedPerson} from '../read/capsule.js';
 import {array,clone,integer,normalize,number,repr,row,string,type Row} from '../read/values.js';
 import {RuleTables} from '../rules/tables.js';
 import {weaponBandOptions,weaponRowNamed} from '../rules/bands.js';
@@ -67,12 +67,24 @@ export async function stageItem(context:ApplyContext,effect:Row,staged:Map<strin
     if(!integer(quantity)||quantity===0||quantity===0n)throw new RpcError('invalid_params','quantity must be a non-zero integer (negative is a loss)');
     const sheet=await stagedSheet(context,staged,effect.to),id=string(sheet.id),label=typeof effect.label==='string'&&effect.label.trim()?effect.label.trim():null,why=typeof effect.why==='string'?effect.why:null,subject=string(sheet.name||sheet.id);
     const from=effect.from;if(from!=null&&(typeof from!=='string'||!from.trim()))throw new RpcError('invalid_params','from must be an NPC name');
-    let source:string|null=null;
-    if(from){const index=new EntityIndex(context.graph,await context.campaign.party() as Row[]),exact=index.matches(from,{kinds:['npc'],investigators:false}),found=exact.length?exact:index.looseMatches(from,['npc']);source=found.length===1?index.canonicalName(found[0]):from.trim();}
+    let source:string|null=null,sourceId:string|null=null;
+    if(from){
+        // §188.4: the giver is a person reference read at the junction (§87.8), the table's word and §185.3's retry included,
+        // and is stored by identity (`from_id`, the handle) beside the word this table calls them. Only a miss falls back to
+        // the one-word reading this entrance always had; free text stays as written.
+        let person=referencedPerson(context.graph,context.world,from.trim());
+        if(!person){
+            const index=new EntityIndex(context.graph,await context.campaign.party() as Row[]),loose=index.looseMatches(from,['npc']);
+            if(loose.length===1&&loose[0].startsWith('npc:'))person=context.graph.nodes.get(loose[0].slice('npc:'.length))??null;
+            else if(loose.length===1)source=index.canonicalName(loose[0]);
+        }
+        if(person){sourceId=context.graph.handle(person);source=personLabel(context.world,sourceId,context.graph.displayName(person));}
+        else source??=from.trim();
+    }
     const profile=effect.weapon!=null?await weaponProfile(context,sheet,effect.weapon,await catalog()):null,key=normalize(name),before=held(sheet,key);
     if(quantity>0)addItem(sheet,name,quantity,number(context.turn.turn),source,label,profile);
     else {if(before<negate(quantity))throw new RpcError('invalid_params',`${subject} holds ${before} × ${repr(name)}; cannot lose ${negate(quantity)}`,{fix:'an item leaves the sheet only if it is on it: apply the gain first, or a smaller loss',details:{name,held:before,quantity}});removeItem(sheet,name,negate(quantity));}
-    const after=held(sheet,key),receipt={id:effectId(context,'item',name),kind:'item',call_id:context.callId,name,label:label||name,subject:id,subject_label:personLabel(context.world,id,subject),from:source,weapon:profile?string(profile.weapon_id):null,quantity,before,after,why,at:nowIso()};
+    const after=held(sheet,key),receipt={id:effectId(context,'item',name),kind:'item',call_id:context.callId,name,label:label||name,subject:id,subject_label:personLabel(context.world,id,subject),from:source,...(sourceId?{from_id:sourceId}:{}),weapon:profile?string(profile.weapon_id):null,quantity,before,after,why,at:nowIso()};
     return {receipt,event:{type:'item-transferred',data:{name,to:id,quantity,...(source?{from:source}:{}),...(profile?{weapon:string(profile.weapon_id)}:{})}}};
 }
 export async function stagePendingItemIdentity(context:ApplyContext,effect:Row,staged:Map<string,Row>):Promise<StagedEffect&{identity:Row}>{

@@ -14,6 +14,7 @@ import { RuleTables } from '../rules/tables.js';
 import { RuleObservations } from '../read/rule-facts.js';
 import { CheckArithmetic } from '../resolve/arithmetic.js';
 import { SettleContext } from '../resolve/context.js';
+import { readCalledPeople } from '../resolve/pipeline.js';
 import { npcPatient } from '../healing/patient.js';
 import { requirePatientBlock } from '../combat/stat-block.js';
 import { markersOf, modResolveEvents } from '../resolve/projection.js';
@@ -197,6 +198,11 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     // arrangement `resolveActor` already makes when an NPC acts inside a session.
                     // Before this, `selectActor` refused every name but a party member's, which is
                     // why a settled check about an NPC had nowhere to put its result.
+                    // §188.4 (§87.8): a body named by this table's word is that person, read as their handle, exactly as the
+                    // resolve entrance reads a seat: the graph's actor and an investigator answer first, and a word two people
+                    // carry is refused before anything is rolled.
+                    if (typeof subject === 'string' && subject.trim())
+                        subject = readCalledPeople(snapshot.party, graph, staged, { target: subject }).target;
                     // §180.6 (CK-F2): a body whose block lacks what its hit points are read from is refused with its completion.
                     if (typeof subject === 'string' && snapshot.party.length)
                         await requirePatientBlock(kernel, graph, staged, subject);

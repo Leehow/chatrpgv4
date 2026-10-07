@@ -36193,3 +36193,70 @@ All tests go through the kernel in process plus the installed context runtime: `
 ### 188.7 Kernel decisions
 
 (Recorded by the implementing slices.)
+
+#### NR-04a (188.4 batch A, 2026-10-07, `claude/names-rename-20261007-junctionA`)
+
+**The junction.** One reader is added beside `npcNode`, for a field that may also be free text:
+`referencedPerson(graph, world, name)` (`kernel-ts/read/capsule.ts:117`). It reads the graph's npc (`ModuleGraph.resolve`,
+§185.3's retry included), then this table's word (`calledPerson`); a plain miss is `null`, and the graph's ambiguity or a word
+two people carry is refused (`unknown_entity` with `details.candidates`, §87.8's shape). It is NFH-01's `cashCounterparty`
+moved to the junction; `cashCounterparty` (`kernel-ts/apply/purchases.ts:39`) now returns it, so quotes read exactly as before.
+`objectOwner` is split into `ownerIn(party, graph, world, name)` (`kernel-ts/mods/stage.ts:34`), synchronous over a party
+already read, so an owed row can compare a stored owner; `objectOwner` reads the party and calls it.
+
+**Converted entrances (before → after).**
+- **Owed cash `with`** (`kernel-ts/owed/land.ts:73`, `lands`): `effect.with === owed.with` → both sides read by
+  `referencedPerson` and compared as handles. The row stores the handle; the Keeper's handle, told name or table word all
+  land it, another person is `owed_mismatch`, a word two people carry is refused naming both. When either side names nobody
+  (free text, or `with` absent with `source: found`) the comparison is `===`, as before.
+- **Owed cash `subject`** (`kernel-ts/owed/land.ts:72`): `===` → both read as `apply cash` reads its purse (`actor()`:
+  sheet id or registered name) and compared as sheet ids. A value that is no investigator compares by `===`. An omitted
+  subject is not read as the only investigator here: the row is landed by naming it.
+- **Owed object `to`** (`kernel-ts/owed/land.ts:64`): the same sweep found it beside the cash fields, `===` against the row's
+  registered name. Now both read by `ownerIn` and compared as `kind:id`; a value no owner answers compares by `===`.
+  `name`, `definition`, `adopt` and `quantity` are object fields, not references, and still compare by `===`.
+- **`apply item from`** (`kernel-ts/apply/inventory.ts:75`): `EntityIndex.matches` (graph names only), else
+  `looseMatches`, stored as the book's display name or the raw spelling → `referencedPerson`; only a miss falls back to the
+  one-word `looseMatches` reading it had. A person is stored by identity: the receipt carries `from_id` (the handle) beside
+  `from`, and `from` (on the receipt and on the sheet row) is now what this table calls them (`personLabel`: the table's
+  word, else the book's display name), the same word an object transfer's `from` carries. Free text stays as written with
+  no `from_id`. A word two people carry, and the graph's ambiguity, are refused (before, the raw spelling was stored).
+  The readers that matched the stored `from` by spelling read `from_id` first: the NPC ledger's exchanges
+  (`kernel-ts/write/contributions.ts:256`, `receipt.from_id ?? receipt.from`) and the reunion's meetings
+  (`kernel-ts/npc/reunion.ts:15`, `from_id` among the keys).
+- **`apply object to/from`, `apply ability to`** (`objectOwner` → `ownerIn`, `kernel-ts/mods/stage.ts:38`): the party,
+  then `graph.find` answering an npc, then the container and the scene → the party, then `graph.find` answering an npc, then
+  `calledPerson`, then the container and the scene. The stored owner row is minted from the node or the sheet as before, so
+  `equal(prior.owner, source)` and the offer's `from`/`to` compare one identity whichever spelling named it. A person who
+  gives an object is stored by identity on the transfer receipt too (`from_id`, `kernel-ts/mods/object-transfer.ts:33`), so
+  the NPC ledger finds a giver this table calls by its own word. Free text that names no owner is refused as before
+  (`unknown_entity`, `details.field: "object.owner"`). The same reader serves `mods/resolve.ts` and the fulfillment
+  receipt's payer and recipient, which call `objectOwner`.
+- **`apply damage` `subject`** (`kernel-ts/apply/index.ts:205`, the apply context's `settlement`): `graph.actor`, then the
+  party → read first by `readCalledPeople`, the resolve entrance's reader (§87.8): a word the graph's actor or an
+  investigator answers is left as written; a word only `calledPerson` answers is read as that person's handle; two owners
+  are refused before anything is rolled. Recovery passes a sheet id and is unchanged.
+
+**Investigators** are read as before everywhere above: by sheet id or registered name (`actor()`, or the party loop in
+`ownerIn`); §79 gives an investigator no table word.
+
+**Not converted here, and why.**
+- `apply cash` `subject` at the entrance: a purse is an investigator's, read by `actor()` as before; its stored form (the
+  sheet id in `cash_quotes`) was already compared by identity.
+- `projectOwed` (`kernel-ts/owed/index.ts`): the review lane's own output, matched against the party by exact name or id and
+  against people by `personNode`. It is not a Keeper entrance; the rows it writes carry the handle and the registered name
+  that the landing now compares by identity.
+- `memory/fulfillment-view.ts` (`receipt.with !== term.payer`) and `fulfillment-receipt.ts` (`receipt.from !==
+  sourceLabel`): the memory side, batch B. The second compares the label both sides mint from one owner row.
+- `objectOwner`'s container lookup and the host's purchase recovery (`extensions/kernel/purchase-recovery.ts`, a seller
+  compared by its own reader): an object is not a person, and the host is outside the kernel's entrances.
+
+**Tests.** `tests/extension/reference-junction-batch-a.test.mjs`, the kernel in process with The Haunting (the object-usages
+fixture): per entrance, this table's word (`apply person`), the book's name and the handle land on the same person; another
+person is refused (owed `with`, object `from`) or lands on that person (item giver, ability, damage); a word two people carry
+(written on the record directly, since `apply person` refuses a taken word) is refused with both candidates; free text keeps
+its behaviour. The item and object givers are read back from `npc-ledger.json`; the reunion case runs on a table with
+`natural-npc` disabled, because a first-impression roll would itself be the meeting. Mutations by copy, each red in the
+test that names it: owed `with`, `subject` and object `to` back to `===`; `apply item from` back to `EntityIndex`; the
+ledger reading `from` only; the reunion ignoring `from_id`; `ownerIn` without `calledPerson`; the transfer receipt without
+`from_id`; the damage subject not read by `readCalledPeople`; `referencedPerson` without the table layer.
