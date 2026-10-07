@@ -49,7 +49,7 @@ export function identityPairKey(sourceSha: string, kind: string, a: string, b: s
 }
 
 /** A node's physical pages, 1-based, read from page refs (`{page}`, the claim-time view) or runtime refs (`{pdf_index}`). */
-function citedPages(node: Row): number[] {
+export function citedPages(node: Row): number[] {
     const pages = array(node.source_refs).flatMap(ref => {
         const value = row(ref);
         if (integer(value.page)) return [number(value.page)];
@@ -80,6 +80,69 @@ export function distinctFrom(node: Row): string[] {
 export type SurvivorOf = (id: string) => string;
 const itself: SurvivorOf = id => id;
 
+/** A survivor's names for one kind: every name of each node of its group that has the kind, its own names, their keys, its pages. */
+interface Lent { all: string[]; own: string[]; keys: Set<string>; pages: number[] }
+
+/**
+ * §191.1's trigger over one graph: the published nodes `graphRows` grouped under the node that stands for each (`survivorOf`),
+ * with `extra` (the drafted nodes, at landing) beside them in the same view, so the landing check and the repair of graphs
+ * that already hold duplicates (§191.5) raise a pair by one rule. `apart`: the pairs a recorded `different` verdict keeps
+ * apart, for the cast fold (§191.3, lead ruling 2026-10-07); the landing check passes none.
+ */
+class TriggerView {
+    readonly byId: Map<string, Row>;
+    /** Each survivor with the nodes that read as it, the survivor first. */
+    readonly groups = new Map<string, Row[]>();
+    readonly graph: ModuleGraph;
+    private readonly lentCache = new Map<string, Lent | null>();
+    private readonly rows: { id: string; book: unknown[]; play: unknown[] }[];
+    constructor(readonly graphRows: Row[], extra: Row[], moduleId: string, cast: Row[], private readonly survivorOf: SurvivorOf, apart?: ReadonlySet<string>) {
+        this.byId = new Map(graphRows.map(node => [string(node.node_id), node]));
+        for (const node of graphRows) {
+            const id = string(node.node_id), survivor = this.stands(id), members = this.groups.get(survivor) ?? [];
+            if (id === survivor) members.unshift(node); else members.push(node);
+            this.groups.set(survivor, members);
+        }
+        this.graph = new ModuleGraph(moduleId, { nodes: [...graphRows, ...extra] }, '', {});
+        if (apart) this.graph.apart = apart;
+        this.rows = cast.filter(isJsonObject).map((entry, index) => ({ id: `cast-row-${index}`, book: array(entry.book), play: array(entry.play) }));
+        this.graph.castStore = this.rows.length ? { state: 'complete', people: this.rows } : null;
+    }
+    /** The published node standing for `id`: its survivor when the map names a node the graph has, else itself. */
+    stands(id: string): string { const value = this.survivorOf(id); return this.byId.has(value) ? value : id; }
+    /** Every whole name of a node (`bookNames`), and its own: name and display name, the handle and the id left out. */
+    names(node: Row): { all: string[]; own: string[] } {
+        const all = bookNames(this.graph, node), handles = new Set([this.graph.handle(node), string(node.node_id)]);
+        const own = [...new Set([node.name, this.graph.displayName(node)].filter((value): value is string => typeof value === 'string' && !!value.trim())
+            .map(value => value.trim()))].filter(value => !handles.has(value));
+        return { all, own };
+    }
+    /** A survivor's names for one kind: every name of each node of its group that has that kind; null when none has it. */
+    lent(survivor: string, kind: string): Lent | null {
+        const at = `${kind}:${survivor}`;
+        if (!this.lentCache.has(at)) {
+            const members = (this.groups.get(survivor) ?? []).filter(member => member.node_kind === kind), each = members.map(member => this.names(member));
+            const all = unique(each.flatMap(item => item.all));
+            this.lentCache.set(at, members.length ? { all, own: unique(each.flatMap(item => item.own)), keys: new Set(all.map(normalize)),
+                pages: [...new Set(members.flatMap(citedPages))].sort((a, b) => a - b) } : null);
+        }
+        return this.lentCache.get(at)!;
+    }
+    /** §188.2: the people the cast holds as one individual when they answer one row both ways; none without cast rows. */
+    people(): ReturnType<typeof bookCast> { return this.rows.length ? bookCast(this.graph) : []; }
+    /** Whether a verdict is recorded for a node of `a`'s group and a node of `b`'s, of `kind` (`reading.identity`). */
+    recorded(recorded: Row, sourceSha: string, kind: string, a: string[], b: string[]): boolean {
+        return a.some(x => b.some(y => Object.hasOwn(recorded, identityPairKey(sourceSha, kind, x, y))));
+    }
+}
+const unique = (values: string[]) => [...new Set(values)];
+/** The name by which `mine` meets `theirs` (§191.1's own-name clause, both ways, under `normalize`), or undefined. */
+const sharedName = (mine: { own: string[]; keys: Set<string> }, theirs: { own: string[]; keys: Set<string> }): string | undefined =>
+    mine.own.find(name => theirs.keys.has(normalize(name))) ?? theirs.own.find(name => mine.keys.has(normalize(name)));
+/** The printed form a cast person is named by in a finding: the longest one, else their first name. */
+const castShared = (person: ReturnType<typeof bookCast>[number]): string =>
+    [...person.printed].sort((a, b) => Array.from(b).length - Array.from(a).length)[0] ?? person.names[0] ?? '';
+
 /**
  * Every pair of a drafted node new to `graphNodes` and a published thing it meets by §191.1's trigger, in draft order and
  * then the published nodes' order. A pair `recorded` already holds a verdict for (`reading.identity`) is not raised again.
@@ -94,63 +157,33 @@ const itself: SurvivorOf = id => id;
  */
 export function publishedDuplicates(drafted: Row[], graphNodes: Row[], moduleId: string, cast: Row[], recorded: Row, sourceSha: string,
     survivorOf: SurvivorOf = itself): DuplicatePair[] {
-    const graphRows = graphNodes.filter(isJsonObject), byId = new Map(graphRows.map(node => [string(node.node_id), node]));
-    const fresh = drafted.flatMap((node, index) => isJsonObject(node) && typeof node.node_id === 'string' && node.node_id && !byId.has(node.node_id)
+    const graphRows = graphNodes.filter(isJsonObject), ids = new Set(graphRows.map(node => string(node.node_id)));
+    const fresh = drafted.flatMap((node, index) => isJsonObject(node) && typeof node.node_id === 'string' && node.node_id && !ids.has(node.node_id)
         && typeof node.node_kind === 'string' && node.node_kind !== 'module' ? [{ node: node as Row, index }] : []);
     if (!fresh.length) return [];
-    /** The published node standing for `id`: its survivor when the map names a node the graph has, else itself. */
-    const stands = (id: string): string => { const value = survivorOf(id); return byId.has(value) ? value : id; };
-    // Each survivor with the nodes that read as it, the survivor first: the candidates and the names and pages they lend it.
-    const groups = new Map<string, Row[]>();
-    for (const node of graphRows) {
-        const id = string(node.node_id), survivor = stands(id), members = groups.get(survivor) ?? [];
-        if (id === survivor) members.unshift(node); else members.push(node);
-        groups.set(survivor, members);
-    }
+    const view = new TriggerView(graphRows, fresh.map(item => item.node), moduleId, cast, survivorOf);
     const kinds = new Set(fresh.map(item => string(item.node.node_kind)));
-    const candidates = graphRows.filter(node => stands(string(node.node_id)) === node.node_id
-        && groups.get(string(node.node_id))!.some(member => kinds.has(string(member.node_kind))));
+    const candidates = graphRows.filter(node => view.stands(string(node.node_id)) === node.node_id
+        && view.groups.get(string(node.node_id))!.some(member => kinds.has(string(member.node_kind))));
     if (!candidates.length) return [];
-    const graph = new ModuleGraph(moduleId, { nodes: [...graphRows, ...fresh.map(item => item.node)] }, '', {});
-    const rows = cast.filter(isJsonObject).map((entry, index) => ({ id: `cast-row-${index}`, book: array(entry.book), play: array(entry.play) }));
-    graph.castStore = rows.length ? { state: 'complete', people: rows } : null;
-    /** Every whole name of a node (`bookNames`), and its own: name and display name, the handle and the id left out. */
-    const names = (node: Row) => {
-        const all = bookNames(graph, node), handles = new Set([graph.handle(node), string(node.node_id)]);
-        const own = [...new Set([node.name, graph.displayName(node)].filter((value): value is string => typeof value === 'string' && !!value.trim())
-            .map(value => value.trim()))].filter(value => !handles.has(value));
-        return { all, own };
-    };
-    const unique = (values: string[]) => [...new Set(values)];
-    /** A survivor's names for one kind: every name of each node of its group that has that kind; null when none has it. */
-    const lent = new Map<string, { all: string[]; own: string[]; keys: Set<string>; pages: number[] } | null>();
-    const theirsFor = (survivor: string, kind: string) => {
-        const at = `${kind}:${survivor}`;
-        if (!lent.has(at)) {
-            const members = groups.get(survivor)!.filter(member => member.node_kind === kind), each = members.map(names);
-            const all = unique(each.flatMap(item => item.all));
-            lent.set(at, members.length ? { all, own: unique(each.flatMap(item => item.own)), keys: new Set(all.map(normalize)),
-                pages: [...new Set(members.flatMap(citedPages))].sort((a, b) => a - b) } : null);
-        }
-        return lent.get(at)!;
-    };
     // §188.2: the cast holds two people as one individual when both answer one row both ways; read only when people were drafted.
-    const people = fresh.some(item => item.node.node_kind === 'npc') && rows.length ? bookCast(graph) : [];
+    const people = fresh.some(item => item.node.node_kind === 'npc') ? view.people() : [];
     const pairs: DuplicatePair[] = [];
     for (const { node, index } of fresh) {
-        const kind = string(node.node_kind), drafted = string(node.node_id), mine = names(node), mineKeys = new Set(mine.all.map(normalize));
-        const declared = new Set(distinctFrom(node).map(stands));
+        const kind = string(node.node_kind), drafted = string(node.node_id), names = view.names(node);
+        const mine = { own: names.own, keys: new Set(names.all.map(normalize)) };
+        const declared = new Set(distinctFrom(node).map(id => view.stands(id)));
         const individual = kind === 'npc' ? people.find(person => person.nodes.some(each => each.node_id === drafted)) : undefined;
         for (const other of candidates) {
-            const id = string(other.node_id), theirs = theirsFor(id, kind);
+            const id = string(other.node_id), theirs = view.lent(id, kind);
             if (!theirs) continue;
             const key = identityPairKey(sourceSha, kind, drafted, id);
-            if (groups.get(id)!.some(member => Object.hasOwn(recorded, identityPairKey(sourceSha, kind, drafted, string(member.node_id))))) continue;
-            let shared = mine.own.find(name => theirs.keys.has(normalize(name))) ?? theirs.own.find(name => mineKeys.has(normalize(name)));
+            if (view.recorded(recorded, sourceSha, kind, [drafted], view.groups.get(id)!.map(member => string(member.node_id)))) continue;
+            let shared = sharedName(mine, theirs);
             let by: 'name' | 'cast' = 'name';
-            if (shared === undefined && individual?.nodes.some(each => each.node_id !== drafted && stands(string(each.node_id)) === id)) {
+            if (shared === undefined && individual?.nodes.some(each => each.node_id !== drafted && view.stands(string(each.node_id)) === id)) {
                 by = 'cast';
-                shared = [...individual.printed].sort((a, b) => Array.from(b).length - Array.from(a).length)[0] ?? individual.names[0] ?? '';
+                shared = castShared(individual);
             }
             if (shared === undefined) continue;
             pairs.push({ path: `/nodes/${index}`, draft_index: index, drafted, kind, published: published(other, theirs.all, theirs.pages), by, shared, key,
@@ -158,6 +191,62 @@ export function publishedDuplicates(drafted: Row[], graphNodes: Row[], moduleId:
         }
     }
     return pairs;
+}
+
+/** Two published things one name or one cast row joins (§191.5): `a` and `b` are survivors, in node id order. */
+export interface PublishedPair {
+    kind: string; a: PublishedView; b: PublishedView; by: 'name' | 'cast'; shared: string;
+    /** Every node of each side's group, the survivor first. */
+    members: [string[], string[]];
+}
+
+/**
+ * Contract §191.5: §191.1's trigger run over a graph that is already published -- every pair of two survivors of one kind
+ * that one's own name meets the other's names (both ways, every node of each group counting for its survivor), or, for
+ * people, that the cast holds as one individual. Two nodes that already read as one (`survivorOf`) are no pair; a pair any
+ * of whose nodes `recorded` holds a verdict for is not raised again; `apart` (the recorded `different` pairs) keeps the
+ * cast fold from joining what a verdict keeps apart (§191.3). Sorted by kind, then the two survivors' ids.
+ */
+export function publishedPairs(graphNodes: Row[], moduleId: string, cast: Row[], recorded: Row, sourceSha: string,
+    survivorOf: SurvivorOf = itself, apart?: ReadonlySet<string>): PublishedPair[] {
+    const graphRows = graphNodes.filter(node => isJsonObject(node) && typeof node.node_id === 'string' && node.node_id
+        && typeof node.node_kind === 'string' && node.node_kind !== 'module');
+    const view = new TriggerView(graphRows, [], moduleId, cast, survivorOf, apart);
+    const found = new Map<string, PublishedPair>();
+    const add = (kind: string, x: string, y: string, by: 'name' | 'cast', shared: string): void => {
+        const [a, b] = [x, y].sort(compareUnicode), at = `${kind}\u0000${a}\u0000${b}`;
+        if (a === b || found.has(at)) return;
+        const membersA = view.groups.get(a)!.map(node => string(node.node_id)), membersB = view.groups.get(b)!.map(node => string(node.node_id));
+        if (view.recorded(recorded, sourceSha, kind, membersA, membersB)) return;
+        const lentA = view.lent(a, kind)!, lentB = view.lent(b, kind)!;
+        found.set(at, { kind, a: published(view.byId.get(a)!, lentA.all, lentA.pages), b: published(view.byId.get(b)!, lentB.all, lentB.pages), by, shared,
+            members: [membersA, membersB] });
+    };
+    // Names: index each survivor's keys per kind, then meet each survivor's own names against the index.
+    const survivors = [...view.groups.keys()].sort(compareUnicode), byKey = new Map<string, string[]>();
+    const kindsOf = (survivor: string) => [...new Set(view.groups.get(survivor)!.map(member => string(member.node_kind)))].sort(compareUnicode);
+    for (const survivor of survivors)
+        for (const kind of kindsOf(survivor))
+            for (const key of view.lent(survivor, kind)!.keys) {
+                const at = `${kind}\u0000${key}`;
+                byKey.set(at, [...(byKey.get(at) ?? []), survivor]);
+            }
+    for (const survivor of survivors)
+        for (const kind of kindsOf(survivor)) {
+            const mine = view.lent(survivor, kind)!;
+            for (const own of mine.own)
+                for (const other of byKey.get(`${kind}\u0000${normalize(own)}`) ?? []) {
+                    if (other === survivor) continue;
+                    add(kind, survivor, other, 'name', sharedName(mine, view.lent(other, kind)!) ?? own);
+                }
+        }
+    // §188.2: people the cast holds as one individual, each pair of the survivors they stand for.
+    for (const person of view.people()) {
+        const standing = [...new Set(person.nodes.map(node => view.stands(string(node.node_id))))].filter(id => view.lent(id, 'npc')).sort(compareUnicode);
+        for (let i = 0; i < standing.length; i++)
+            for (let j = i + 1; j < standing.length; j++) add('npc', standing[i], standing[j], 'cast', castShared(person));
+    }
+    return [...found.values()].sort((x, y) => compareUnicode(x.kind, y.kind) || compareUnicode(x.a.node_id, y.a.node_id) || compareUnicode(x.b.node_id, y.b.node_id));
 }
 
 /** One finding's message: the drafted node, the shared name, and the published node with its names, pages and summary. */

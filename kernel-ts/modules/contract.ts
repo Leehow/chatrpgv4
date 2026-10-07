@@ -83,12 +83,12 @@ export function vocabulary(contract: ModuleContract, contributed: Row | null = n
 }
 /**
  * §187.5.2: the vocabulary an author's packet carries is the one its job can write. A visual job (scan, asset, identity,
- * map scope) writes no person or creature, so it does not receive the actor or creature dossier or the weakness shape.
+ * map scope) and §191.5's node identity job write no person or creature, so it does not receive the actor or creature dossier or the weakness shape.
  * The closed values (`visibility`, `truth_status`, `relation_kinds`, `node_kinds`) and every other key stay, because the
  * check's findings cite them. The checker reads the whole vocabulary from the graph view, never this cut.
  */
 export function scopedVocabulary(whole: Row, job: Row): Row {
-    if (!['visual_scan', 'visual_asset', 'visual_identity', 'map_scope'].some(field => job[field] !== undefined)) return whole;
+    if (!['visual_scan', 'visual_asset', 'visual_identity', 'node_identity', 'map_scope'].some(field => job[field] !== undefined)) return whole;
     const { actor_dossier: _actor, creature_dossier: _creature, actor_weaknesses: _weaknesses, ...rest } = whole;
     return rest;
 }

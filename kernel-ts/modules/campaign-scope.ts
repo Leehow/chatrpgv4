@@ -1,6 +1,6 @@
 /** A reusable library publication seeds one independently writable campaign source. */
 import { constants } from 'node:fs';
-import { copyFile, mkdir, readFile, rename, rm } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { KernelContext } from '../context.js';
@@ -280,6 +280,30 @@ export async function libraryLineage(context: KernelContext, campaign: string, m
     if (!await library.exists(id)) return 'library_missing';
     return withOptionalExclusiveLock(context.locks, join(library.moduleDir(id), '.metadata.lock'),
         async () => lineageRefusal(campaign, id, await fork.module(id), await library.module(id)) ?? 'lineage');
+}
+
+/**
+ * §191.5: the live campaigns whose fork of `moduleId` is the library's lineage by §184.1's test against `libraryMeta` (the
+ * library's record as the caller read it under the library module's metadata lock). A fork is live while its campaign is: a
+ * fork left behind by a campaign that no longer exists holds nothing. The repair writes the library itself only when this is
+ * empty; otherwise the library takes the repair from that fork's own publication, so no lineage ends (§184.1, §184.4).
+ */
+export async function lineageHolders(context: KernelContext, moduleId: string, libraryMeta: Row): Promise<string[]> {
+    const id = validateModuleId(moduleId), root = join(context.stateRoot, 'module-campaigns'), holders: string[] = [];
+    let campaigns: string[];
+    try { campaigns = (await readdir(root, { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name).sort(); }
+    catch { return []; }
+    for (const campaign of campaigns) {
+        let fork: ModuleStore;
+        try { fork = new ModuleStore(moduleContext(context, campaign)); }
+        catch { continue; }
+        if (!await fork.exists(id) || !await context.snapshots.pathExists(join(context.campaignsRoot, campaign, 'campaign.json'))) continue;
+        let forkMeta: Row;
+        try { forkMeta = await fork.module(id); }
+        catch { continue; }
+        if (lineageRefusal(campaign, id, forkMeta, libraryMeta) === null) holders.push(campaign);
+    }
+    return holders;
 }
 
 async function followFork(context: KernelContext, campaign: string, moduleId: string): Promise<Row> {
