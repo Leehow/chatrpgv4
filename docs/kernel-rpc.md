@@ -38382,3 +38382,10 @@ Such a pair also waits for a verdict job.
   - Two pytest whole-answer cases (`test_visual_reading`, `test_fast_guidance`): the quiet-repair rule fixed them.
 - **py**, on 24 reading and module kernel files: 210 pass. The one failure is the known `test_npc_act_options` case.
 - **loop:** 333 of 333.
+
+*DUP-03b on leehow-pc at `f029a41b4`.*
+- **ext:** 5065 pass, 7 fail.
+  - Six are known: the SL-00 inventory, four `timeline:` cases, and `/coc module` (§19.1).
+  - The seventh, "§32.12 (b): the clerk's obligation check..." in `admission-within-turn.test.mjs`, failed on a typed-reviewer
+    call count. That file run alone on the box at the same commit passes 41 of 41, three times out of three, and it passed in
+    the full run at `c641ff749`.
