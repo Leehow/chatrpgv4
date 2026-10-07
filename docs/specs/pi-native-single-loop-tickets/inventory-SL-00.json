@@ -1045,6 +1045,18 @@
       ]
     },
     {
+      "file": "extensions/lanes/subsession.ts",
+      "symbol": "observedFetch.observing",
+      "kind": "network",
+      "callee": "globalThis.fetch",
+      "count": 1,
+      "owner": "lanes (shared)",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "tests: admission-transient-retry (a local endpoint answering 503, 401, 429 and a dropped socket)",
+      "note": "Contract \u00a7190.3: the admission lane's runLaneAttempt hands its adapter this fetch (only with observeTransport, only for the wire APIs in OBSERVED_FETCH_APIS); it passes the adapter's own one HTTP request to the global fetch unchanged and records its status or that the transport ended. It starts no request of its own."
+    },
+    {
       "file": "extensions/memory/index.ts",
       "symbol": "attempt",
       "kind": "lane",
