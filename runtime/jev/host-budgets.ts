@@ -564,3 +564,59 @@ async function readNeedReadBudget(contentRoot: string): Promise<NeedReadBudget> 
 
 /** Test-only: forgets the cached values, so a test that rewrites a content root sees its own fixture. */
 export function resetNeedReadBudgetCache(): void { needReadCached.clear(); }
+
+/**
+ * Contract §190.2: the told-position read after a delivery. `mode` (`off | shadow | on`, shipped `shadow`; the
+ * environment's `PI_COC_TOLD_POSITION` overrides it alone), the three bars an owed move must clear -- the `moved` Noul,
+ * the `place` Choice's confidence and the `sentence` Choice's confidence -- how many places the kernel is asked for, and
+ * the read's own deadline. Data, calibrated from the shadow rows (TP-04), never a literal in the lane.
+ */
+export interface ToldPositionBudget {
+  mode: 'off' | 'shadow' | 'on';
+  /** `told_position.moved_min`: the `moved` Noul (the party ends the text somewhere other than where it stood). */
+  movedMin: number;
+  /** `told_position.place_min`: the `place` Choice's confidence. */
+  placeMin: number;
+  /** `told_position.sentence_min`: the `sentence` Choice's confidence. */
+  sentenceMin: number;
+  /** `told_position.max_candidates`: how many places `table.owe.options` lists (1..64). */
+  maxCandidates: number;
+  /** `told_position.timeout_ms`: the read's own deadline; nothing waits on it. */
+  timeoutMs: number;
+}
+
+/** Used only if the file or its `told_position` section cannot be read; the shipped file carries the real values. */
+export const TOLD_POSITION_FALLBACK: ToldPositionBudget = Object.freeze({mode: 'shadow', movedMin: 0.85, placeMin: 0.7, sentenceMin: 0.5,
+  maxCandidates: 24, timeoutMs: 10_000});
+
+let toldPositionCached: Promise<ToldPositionBudget> | undefined;
+
+/** §190.2's budget, read once per process and cached. `contentRoot` is for tests only and is never cached. */
+export function toldPositionBudget(contentRoot?: string): Promise<ToldPositionBudget> {
+  if (contentRoot !== undefined) return readToldPositionBudget(contentRoot);
+  return toldPositionCached ??= readToldPositionBudget();
+}
+
+async function readToldPositionBudget(contentRoot?: string): Promise<ToldPositionBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot ?? extensionContentRoot(), 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      told_position?: Record<string, unknown>;
+    };
+    const block = raw.told_position ?? {}, fallback = TOLD_POSITION_FALLBACK;
+    const bar = (value: unknown, otherwise: number): number => finite(value) && value > 0 && value <= 1 ? value : otherwise;
+    const max = block.max_candidates, timeout = block.timeout_ms;
+    return {
+      mode: block.mode === 'off' || block.mode === 'shadow' || block.mode === 'on' ? block.mode : fallback.mode,
+      movedMin: bar(block.moved_min, fallback.movedMin),
+      placeMin: bar(block.place_min, fallback.placeMin),
+      sentenceMin: bar(block.sentence_min, fallback.sentenceMin),
+      maxCandidates: finite(max) && Number.isInteger(max) && max >= 1 && max <= 64 ? max : fallback.maxCandidates,
+      timeoutMs: finite(timeout) && timeout > 0 ? timeout : fallback.timeoutMs,
+    };
+  } catch {
+    return TOLD_POSITION_FALLBACK;
+  }
+}
+
+/** Test-only: forgets the cached value. */
+export function resetToldPositionBudgetCache(): void { toldPositionCached = undefined; }

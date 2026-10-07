@@ -147,6 +147,7 @@ import {
 } from "./admission.ts";
 import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-domain.ts";
 import { watchOwedReview } from "./owed-review.ts";
+import { startToldPosition } from "./told-position.ts";
 import { openingInstruction } from "./opening-instruction.ts";
 import { leaveOutRefused, leaveOutUnknownOwed, owedLeftOutNote, type OwedLeftOut } from "./owed-left-out.ts";
 import { splitNpcMood } from "./npc-mood-split.ts";
@@ -3951,6 +3952,20 @@ export default function (pi: ExtensionAPI) {
 		});
 	}
 
+	/**
+	 * Contract §190.2: after every delivery, read where the delivered text leaves the investigators, in the background.
+	 * Nothing here is awaited by the delivery and the prose is never reviewed or edited (§190.2's one exception to §166).
+	 * When the mode may owe, the read is the turn's flight for §158.4's watch: the next run's first read watches it, and
+	 * an owed move it names before that read ends is read before any candidate is built.
+	 */
+	function afterDeliveryToldPosition(state: TableState, turn: number, prose: string | undefined): void {
+		const kernel = state.kernel, campaign = state.campaign;
+		const flight = startToldPosition({ env: process.env, campaign, turn, text: prose, signal: state.lanes.signal,
+			call: (method, params) => kernel.call(method, params), record: (row) => record(row) },
+			() => { if (flight && state.reviewInFlight === flight) state.reviewInFlight = undefined; });
+		if (flight) state.reviewInFlight = flight;
+	}
+
 	function pauseReview(state: TableState, error: unknown): void {
 		const cause = isKernelError(error) ? String(error.details?.cause ?? error.message) : String(error);
 		// Contract §38.9: the streak counts *service* outages, never the guard doing its job. A review
@@ -5634,6 +5649,7 @@ export default function (pi: ExtensionAPI) {
 				});
 				afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
 				afterDeliveryFirstSight(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
+				afterDeliveryToldPosition(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
 			}
 			// The delivery truly landed: the kernel returned and the bookkeeping above ran. Only now is
 			// the bound patch published; every failure mode — abort, refusal, split delivery, revision
@@ -7530,6 +7546,7 @@ export default function (pi: ExtensionAPI) {
 					await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
 					afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
 					afterDeliveryFirstSight(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
+					afterDeliveryToldPosition(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
 					rendered = asString(result.rendered_text);
 					break;
 				} catch (error) {
