@@ -36098,3 +36098,98 @@ refusals, and the journal's label check. No untold row, gate place or refusal is
 **The trade.** An untold person's name piece equal to an investigator's piece is no longer hidden: 「丹尼尔」 alone reaches the
 Keeper as written, and a delivery may say it. It is the trade §177.4 already makes for a piece a told person carries. The
 untold person's own full name and their other pieces are still renamed and gated.
+
+## 188. Names in the request rename: hide the untold name, never corrupt a name the table owns (owner ruling 2026-10-06, 「名字那类问题另开 spec」, then 「名字那份 spec 开工吧」; `docs/specs/names-in-the-request-rename.md`; amends §103.5, §176.5, §177.4, §177.11, §177.15, §185.3 and §185.13)
+
+The request rename (§103.5) and the delivery gate (§177.11) find untold names by string: a whole name, an alias, a
+punctuation piece, a one-character alias, matched as a substring in CJK. The §185 acceptance table (`nfh-accept-blood-road-1`,
+2026-10-06) showed them corrupting names the table owns:
+
+- The investigator 「丹尼尔·怀特」 shares 「丹尼尔」 and 「丹」 with the untold 「丹尼尔·马瑟」 (whose book also prints 「丹」 alone).
+  §185.13 removed the shared piece as a key. The one-character alias still matched inside the name, giving
+  「抓胡茬的红发杂货店主尼尔·怀特」, and the Keeper copied that into `object.to`, `item.to` and `cash.subject`. Play-2 turns 4
+  and 7 were refused, and the string reached a note the investigator wrote.
+- A name three cast rows share was shown as their joined words 「抓胡茬的红发杂货店主 / 站在基地里的住民 / 红发棕眼的来客」.
+  - The rows are one man: the graph node `red-haired-store-owner-smoker`, plus an unread cast row `cast-78239617e2`
+    ("Daniel Mather") that never joined it.
+  - The Keeper wrote the joined string as `npc.name`, and it was refused (play-2 turn 8).
+
+### 188.1 Protected spans (both schemes)
+
+- **`protectedNames(graph, world, journal, records)`** (kernel, one function, beside `knownNamePieces`) returns every
+  whole name the investigator's side owns:
+  - each investigator's registered names (party sheet `name`, and any name `actor()` matches);
+  - every told cast person's whole names;
+  - this table's words for people (`tableWord`, `called.name`, epithets, journal labels).
+
+  Pieces are not added: a span protects a whole occurrence.
+- **`table.untold`** answers `{people, protected: string[]}`.
+- The host rename (`renameUntold` / `renameText` / `placesIn`, `extensions/kernel/untold-view.ts`) first finds every
+  occurrence of every protected name in the text, using the same matching as places (exact string; a Latin name bounded
+  by letters and digits; CJK as a substring). No place overlapping one of those occurrences is renamed or offered to
+  §177.15's judge.
+- The kernel gate (`untoldWholeNames` / `table.untold_spans` / the `untold_name` delivery hold) skips the same places, from
+  the same function.
+- A one-character alias stays a name. It is still matched by substring and still renamed elsewhere (§177.15 judges a
+  place inside another word). Protected spans are what keep it out of an investigator's name.
+
+### 188.2 The cast joins its duplicates
+
+- A stored cast row joins a graph person whenever the two share a whole identity (§177.1's rule): one of the row's forms
+  equals one of the person's names, or the row's fullest form is one of the person's names.
+- The implementer finds why `cast-78239617e2` "Daniel Mather" did not join `red-haired-store-owner-smoker` on Blood Road and
+  fixes the join, not the display.
+- A row that joins a graph person is that person. It owns no separate roster entry, and its words never become a second
+  owner of the person's names.
+
+### 188.3 Undo the rename on a miss, every row, both schemes (amends §185.3)
+
+- The rows `ModuleGraph.renameUndo` holds (§185.3) now include every name→shown pair the roster can produce, built
+  over-inclusively (every book person treated as untold, because `resolve` is synchronous):
+  - each name, alias and piece;
+  - the joined word a shared name is shown as.
+- They are installed in name-free and legacy campaigns alike. Handle rows stay legacy-only, since name-free handles are
+  never renamed.
+- The retry still runs only after a miss.
+  - Every spelling with the rename undone is tried. The first that resolves to exactly one node wins.
+  - When the spellings resolve to more than one node, the reference is refused `ambiguous` with each candidate's own
+    shown word, never a book name.
+  - A joined word whose names all resolve to one node therefore resolves to that node.
+
+### 188.4 One junction for every reference (was NFH-06)
+
+- Every tool entrance that names a person or entity resolves through `ModuleGraph.resolve` plus the §87.8 junction, and a
+  stored reference is compared by resolved identity, never by spelling. The inventory is §185.11 `#### NFH-01` ("The
+  sweep"). Each converted entrance is recorded under 188.7 with a test that fails when the conversion is reverted.
+- Batches, in the order of the owner's failure scan:
+  - **A:** cash / owed `with` and `subject`; `apply item from`; `apply object to/from` and `apply ability to`
+    (`objectOwner`); `apply damage` subject.
+  - **B:** memory `subject` / `knowers` / `entities` and `apply note entities` (`EntityIndex`); chase targets and roster;
+    `resolve action.obligation`; Mod dossier `name` and a Mod effect's target; the material gate's pre-pass; investigator
+    anchors on `apply ruling`; `lookup kind=module`; the say-token resolver; the cast and clue-label matchers.
+
+### 188.5 `say_name`: measured, not changed
+
+A read-only script over retained tables (driver runs and campaign turn records) counts, for each book person the player
+asked the name of, whether the Keeper:
+- copied that person's `say_name`;
+- wrote another name;
+- deflected.
+
+The report goes in `docs/specs/names-say-name-measurement.md`. No product change follows from it in this section.
+
+### 188.6 Tests
+
+All tests go through the kernel in process plus the installed context runtime: `untold-name-path`,
+`investigator-name-known`, `legacy-rename-round-trip`. Each fix has a test that fails when the fix is reverted.
+
+- **Fixture.** An investigator 「丹尼尔·怀特」 beside an untold 「丹尼尔·马瑟」, who is also printed as 「丹」. A cast with an
+  unread duplicate of a graph person. A legacy starter with the same shape.
+- **Round trip.** Cover every rename row kind: whole name, piece, one-character alias, joined word, and handle (legacy
+  only). Take the assembled request, copy the string into the tool call that uses it, and assert it resolves to the
+  original, or is refused `ambiguous` with candidates when truly ambiguous.
+- **Delivery.** A delivery naming the investigator in full is not held. A delivery naming the untold person is held.
+
+### 188.7 Kernel decisions
+
+(Recorded by the implementing slices.)

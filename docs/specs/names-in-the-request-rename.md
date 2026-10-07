@@ -1,6 +1,6 @@
 # Names in the request rename: hide the untold name, never corrupt a name the table owns (2026-10-06)
 
-Status: ready-for-agent. The owner asked for a separate spec (「名字那类问题另开 spec」, 2026-10-06), after the
+Status: in progress since 2026-10-07 (owner: 「名字那份 spec 开工吧」); contract §188; tickets in `names-in-the-request-rename-tickets.md`. Previously ready-for-agent. The owner asked for a separate spec (「名字那类问题另开 spec」, 2026-10-06), after the
 name-free handles acceptance table. A contract section is written first, at the next free number, and amends §103.5,
 §176.5, §177.4, §177.11, §177.15 and §185.3.
 
