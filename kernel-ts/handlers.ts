@@ -15,7 +15,7 @@ export type HandlerGroup = Readonly<Record<string, KernelHandler>>;
 export const KNOWN_METHODS = Object.freeze([
   "kernel.hello", "kernel.retarget", "campaign.list", "campaign.create",
   "table.open", "table.status", "table.call_status", "table.capsule", "table.player_input", "table.release", "table.look",
-  "table.view", "table.maps", "table.graph", "table.lookup", "table.recall", "table.workspace.read", "table.resolve", "table.resolve.options", "table.apply", "table.apply.options", "table.fulfillment.options", "table.fulfillment.prepare", "table.ask",
+  "table.view", "table.maps", "table.graph", "table.lookup", "table.recall", "table.workspace.read", "table.resolve", "table.resolve.options", "table.apply", "table.apply.options", "table.apply.placement", "table.fulfillment.options", "table.fulfillment.prepare", "table.ask",
   "table.narrate", "table.quotes.flush", "table.warn", "table.first_sight", "table.first_sight.view", "table.untold", "table.untold_spans", "table.branch", "table.switch", "memory.source", "memory.evidence", "memory.job", "memory.submit", "memory.fail",
   "journal.job", "journal.submit", "journal.fail", "voice.job", "voice.submit", "voice.fail", "speech.job", "speech.edit", "epithets.job", "epithets.submit", "cast.job", "cast.release", "cast.source", "cast.range", "cast.submit",
   "npc.job", "npc.submit", "npc.fail", "npc.perspective", "npc.perspectives", "npc.situation", "npc.stakes", "npc.act.options", "npc.threads",

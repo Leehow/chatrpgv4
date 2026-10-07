@@ -50,7 +50,7 @@ test("the public vocabulary and error frames match the locked Python reference",
     "npc.job", "npc.submit", "npc.fail", "npc.perspective", "npc.perspectives", "npc.situation", "npc.stakes", "npc.act.options", "npc.threads",
     "adaptation.prepare", "adaptation.status", "adaptation.draft", "adaptation.review", "adaptation.fail", "adaptation.cancel",
     "mods.prefetch.accept", "mods.prefetch.targets", "mods.identity.plan", "mods.expression", "mods.sections", "module.read.unwait", "module.read.yield",
-    "memory.evidence", "memory.source", "module.source.answer.peek", "module.source.snapshot", "module.source.outline", "module.source.materials.snapshot", "module.source.upgrade", "table.apply.options",
+    "memory.evidence", "memory.source", "module.source.answer.peek", "module.source.snapshot", "module.source.outline", "module.source.materials.snapshot", "module.source.upgrade", "table.apply.options", "table.apply.placement",
     "table.call_status", "table.quotes.flush", "table.fulfillment.options", "table.fulfillment.prepare", "table.resolve.options", "mods.document.options", "rules.bands",
     "kernel.retarget", "module.reference.publish", "module.reference.status", "module.reference.materialize", "table.first_sight", "table.first_sight.view", "table.untold", "table.untold_spans"]);
   assert.deepEqual([...api.KNOWN_METHODS].filter(name => !currentOnly.has(name)).sort(), reference.rpc.methods);

@@ -10,7 +10,9 @@ import {whereSection, cluesHere, npcsPresent} from '../read/capsule.js';
 import {SessionView} from '../read/session-view.js';
 import {taskWorldRevision} from '../read/context.js';
 import {fulfillmentHandlers, fulfillmentPromiseNavigation} from './fulfillment-options.js';
-import {array, normalize, row, string, type Row} from '../read/values.js';
+import {array, chars, integer, normalize, row, string, words, type Row} from '../read/values.js';
+import {briefWindow, citedPages} from '../read/brief-window.js';
+import type {ModuleGraph} from '../read/module-graph.js';
 import {obligationNodes, openGuards, sceneObligations} from '../read/obligations.js';
 import {unstatedDamage} from '../read/stated.js';
 import {activeMods} from '../read/mods.js';
@@ -33,8 +35,42 @@ function tableTookOver(receipts:Row[],entry:Row,handle:string,place:string):Row|
     return null;
 }
 
+/** Contract §187.2.3: the most book places the placement lane is offered, and its default. */
+export const PLACEMENT_LIMIT = {max: 64, fallback: 24};
+/**
+ * Contract §187.2.3: the book places a destination the Keeper is about to mint may be, or lie inside, enumerated by the
+ * kernel for the host's placement lane -- the active scene itself (when the book has it), its exits, then the book scenes
+ * and locations citing a page in the reading window (§182.3, `briefWindow`; every book place when there is no window), in
+ * book order. A place the table minted is never a candidate: `within` names a book place.
+ */
+function placementCandidates(graph:ModuleGraph,scene:Row,window:{first:number;last:number}|null,limit:number):Row[]{
+    const rows:Row[]=[],seen=new Set<string>();
+    const add=(node:Row|null|undefined,source:string)=>{
+        if(!node||rows.length>=limit||seen.has(string(node.node_id))||graph.isTableEntity(node)||!['scene','location'].includes(string(node.node_kind)))return;
+        seen.add(string(node.node_id));
+        const name=graph.handle(node),display=graph.placeName(node);
+        const aliases=[...new Set(array(node.aliases).filter(value=>typeof value==='string'&&value.trim()&&value!==display&&value!==name).map(string))].slice(0,6);
+        rows.push({name,...(display!==name?{display_name:display}:{}),...(aliases.length?{aliases}:{}),summary:chars(words(string(node.summary||graph.prose(node))),160),source});
+    };
+    add(scene,'here');
+    for(const exit of graph.sceneExits(scene))add(graph.find(string(exit.to),['scene']),'exit');
+    for(const node of [...graph.kind('scene'),...graph.kind('location')])
+        if(!window||citedPages(node).some(page=>page>=window.first&&page<=window.last))add(node,'window');
+    return rows;
+}
+
 export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
-    return {...fulfillmentHandlers(context), 'table.apply.options': async (params): Promise<Row> => {
+    return {...fulfillmentHandlers(context), 'table.apply.placement': async (params): Promise<Row> => {
+        if (Object.keys(params).some(key=>key!=='campaign'&&key!=='limit')) throw new RpcError('invalid_params','Placement candidates accept the bound campaign and optional limit');
+        if (params.limit!==undefined&&(!integer(params.limit)||number(params.limit)<1||number(params.limit)>PLACEMENT_LIMIT.max))
+            throw new RpcError('invalid_params',`limit must be an integer from 1 to ${PLACEMENT_LIMIT.max}`);
+        const campaign=await CampaignSnapshot.open(context,params.campaign);
+        await campaign.preload('view');
+        const module=await loadCampaignModule(context,string(campaign.meta.module_id),campaign.world,campaign.id),graph=module.graph;
+        const scene=graph.scene(campaign.world.active_scene),window=await briefWindow(context,module,campaign.world);
+        return {version:1,scene:{name:graph.handle(scene),display_name:graph.placeName(scene),summary:chars(words(string(scene.summary||graph.prose(scene))),300)},
+            candidates:placementCandidates(graph,scene,window,params.limit===undefined?PLACEMENT_LIMIT.fallback:number(params.limit)),window};
+    }, 'table.apply.options': async (params): Promise<Row> => {
         if (Object.keys(params).some(key=>key!=='campaign'&&key!=='cash_effects')) throw new RpcError('invalid_params','Ordinary apply options accept the bound campaign and optional cash_effects preview');
         const campaign=await CampaignSnapshot.open(context,params.campaign);
         if (campaign.meta.status!=='active' || !['open','acting'].includes(campaign.turn.state))

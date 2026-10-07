@@ -92,5 +92,13 @@
     "interest_row_min": 0.5,
     "interest_row_ratio": 1,
     "interest_skill_max": 6
+  },
+  "scene_placement": {
+    "mode": "shadow",
+    "same_min": 0.8,
+    "inside_min": 0.75,
+    "choice_confidence_min": 0.5,
+    "max_candidates": 24,
+    "timeout_ms": 2500
   }
 }

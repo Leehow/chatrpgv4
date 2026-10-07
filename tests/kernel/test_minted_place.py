@@ -204,3 +204,18 @@ def test_a_book_without_a_window_keeps_graph_order_and_says_nothing_cut(tmp_path
         capsule = client.table("capsule", rehydrate=True)
         assert capsule["_context"]["brief_window"] is None
         assert "more" not in capsule["module"] or capsule["module"]["more"]["people"] >= 0
+
+
+def test_placement_candidates_are_book_places_only(tmp_path):
+    """§187.2.3: the host's placement lane reads the book places through `table.apply.placement`."""
+    with closing(RpcClient(tmp_path / "ws")) as client:
+        open_turn(client, "I slip round to the back of the newspaper building.")
+        before = client.table("apply.placement")
+        sources = {row["name"]: row["source"] for row in before["candidates"]}
+        assert sources[ORIGIN] == "here" and sources[MORGUE] == "exit" and before["window"] is None
+        assert next(row for row in before["candidates"] if row["name"] == MORGUE)["display_name"] == "Boston Globe offices"
+        mint(client, "t1-c1")
+        after = client.table("apply.placement", limit=4)
+        assert LOBBY not in [row["name"] for row in after["candidates"]], "a minted place is never a candidate"
+        assert after["scene"]["name"] == LOBBY and len(after["candidates"]) == 4
+        assert client.table_err("apply.placement", limit=0)["code"] == "invalid_params"

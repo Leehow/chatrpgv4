@@ -59,6 +59,7 @@ import { createDecisionAdapter, jevFailureTelemetry } from "../../runtime/jev/de
 import { FORCED_CHOICE_CUE_MIN, FORCED_CHOICE_OUTCOME_MAX, type ForcedChoiceCueReview, type ForcedPlayerChoice } from "../../runtime/jev/forced-resolution.ts";
 import { BAND_TABLES, askBand, bandNeeds, dossierOf, pinWhy, recoveryNote, weaponProfilesOf, type BandNeeds, type ShadowQuestion } from "./band-recovery.ts";
 import { speechRoster, type RosterPerson } from "./speech-roster.ts";
+import { placeEstablishedMoves } from "./scene-placement.ts";
 import { bandShadowGate, readBandRows, shadowRow, shadowTargets, skippedRow, unaskedRow } from "./band-shadow.ts";
 import { SHADOW_FIELDS, type ShadowKind } from "../../runtime/jev/band-shadow-domain.ts";
 import type { BandResult } from "../../runtime/jev/band-recovery-domain.ts";
@@ -5333,6 +5334,9 @@ export default function (pi: ExtensionAPI) {
 			delete payload._cash_requests;
 			if((spec.name==='narrate'||spec.name==='ask')&&!referenceDelivery)payload._cash_requests=await purchaseRecovery(state).requests(state.turn);
       if (spec.name === 'apply') documentBindings = await bindAppendArguments(state,payload,signal,providerBudget,!host);
+			// §187.2.3: a place the Keeper is about to mint is placed in the book before admission and the kernel see it.
+			if (spec.name === "apply" && !host) await placeEstablishedMoves(payload, {env: process.env, campaign: state.campaign, turn: state.turn,
+				callId: String(payload.call_id ?? ""), call: (method, params) => state.kernel.call(method, params), record: row => record(row), signal: state.lanes.signal});
 			if (spec.name === "resolve" || spec.name === "apply") partial = await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence);
 			if(replacements.length){
 				const remaining=new Set((Array.isArray(payload.effects)?payload.effects:[]).map(effectSignature));
