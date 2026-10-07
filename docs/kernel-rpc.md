@@ -35678,6 +35678,25 @@ word in common with a book name is not a placement (the kernel's `placeOf` rule 
 description. Telemetry: one `lane: "scene-placement"` row per effect with the question, distribution, confidence,
 outcome (`same | inside | mint | shadow`) and the handle chosen. The lane never refuses a move: an outage is `mint`.
 
+**Implementation decisions (RD-01, 2026-10-07).** The record keeps `from` and `within` as handles (as a table clue
+keeps `scene`); a handle the current generation no longer resolves writes no relation and the record is kept. A minted
+scene is never listed among its `within` place's assets (`sceneAssetNodes`), though the place's maps are the room's
+(§39.4 `placesOutward`). `bookAnchor` follows `located-in`, else `route-to`, through earlier mints to a book scene; it
+anchors the campaign-open read-ahead (`readingFocus`) and the brief window (187.4). `where.within` is cut by
+`fitBudget` and then its summary to 400 characters when still over 2,048 bytes. The host reads its candidates through
+one read-only method, `table.apply.placement {campaign, limit?}` (1..64, default `max_candidates`) →
+`{version, scene: {name, display_name, summary}, candidates: [{name, display_name?, aliases?, summary, source: "here" |
+"exit" | "window"}], window}`, the active scene, its exits, then the window's book scenes and locations in book order;
+without a window (a starter, a short book) every book place, up to the limit. Table entities are never candidates. The
+lane lives in `extensions/kernel/scene-placement.ts` (the apply tool path is in `extensions/kernel/index.ts`, not
+`extensions/table/`) and runs on model-origin `apply` before admission, so admission reviews the effect that lands.
+Jev sees candidates by alias (`c0`...) with names, aliases and summaries, never handles. The active scene is never
+`same` (a move to where the party stands is no move): for it only `inside` applies. `shadow` runs in the background and
+never holds the move; `on` waits at most `timeout_ms` (data, shipped 2,500). The row's `outcome` is `shadow` in shadow
+mode, with `decision` saying what `on` would do. `PI_COC_SCENE_PLACEMENT=off|shadow|on` overrides the mode alone per
+process. Shipped bars (`same_min` 0.8, `inside_min` 0.75, `choice_confidence_min` 0.5, `max_candidates` 24) are
+placeholders until RD-08's rows are read.
+
 ### 187.3 Who the book puts here follows publication; who stayed is the table's
 
 **187.3.1** `source_presence` candidates (§135.30) are computed on every `apply` candidates call from the current graph
@@ -35693,6 +35712,16 @@ not offered by the book again for that scene; the offer carries `authority: auth
 as today, and the exclusion names its receipt in telemetry. `present` keeps reading `npc_presence` only: reading
 completes nothing on the table.
 
+**Implementation decisions (RD-02, 2026-10-07).** A candidate from the `within` place is offered as `{kind: "npc",
+name, to: <the within place>}` (where the book puts them; the Keeper moves them `here` when the fiction does) with
+`within: true` on its description. The ledger's death is `npc-ledger.json` `<node_id>.dead` (folded by `foldNpcTurn`
+from an `npc` receipt's `dead: true` or an HP `delta` to 0); a `dead` value on this campaign's own `npc` receipts,
+latest first, wins over the ledger, so a death this turn counts before the ledger folds it. "Moved out" is the latest
+`npc` receipt for the person with a `to` (`away` or a scene handle; §138 departures write the same receipt) naming any
+place but the one offering them: once the table has moved a person, the book no longer seats them anywhere else. The
+exclusion is returned on the read itself as `source_presence_excluded: [{name, scene, reason: "dead" | "moved",
+receipt, to?}]`, since `table.apply.options` is read-only and writes no telemetry.
+
 ### 187.4 The brief's rosters follow the reading window
 
 `moduleSection`'s `people`, `places` and `creatures` are ordered: entries whose `source_refs` cite a page inside the
@@ -35701,6 +35730,14 @@ order; the fit of `fittedModuleSection` cuts from the end as today, so what the 
 section gains `more: {people, places, creatures}` -- the lines the fit removed -- so the Keeper knows the book holds
 more than the brief shows (`lookup kind=module` reaches them). A book without a window keeps graph order. The host's
 `briefingKey` includes the active scene's chapter so a window change rebuilds the brief.
+
+**Implementation decisions (RD-03, 2026-10-07).** The window is `briefWindow` (`kernel-ts/read/brief-window.ts`): null
+for a book without `page_count` or one at or under `reading.whole_book_max_pages` (read whole, so book order), else
+§182.3's window on `bookAnchor`'s pages, chapters from the outline or, with the index complete, the index sections.
+The order is a stable partition, so a window every entry lies inside is book order. `more` counts the roster lines the
+fit dropped and is present only when one is non-zero; its few bytes ride beside the 2,048-byte fit. The kernel puts
+the window on the capsule's host-only `_context` as `brief_window: {first, last, chapters} | null`, and the host's
+`briefingKey` adds it only when non-null, so a book without a window keeps the key it always had.
 
 ### 187.5 The author's task is cut to the job (amends §22's packet)
 

@@ -3,6 +3,7 @@ import { CampaignSnapshot, loadModule, type LoadedModule } from "./campaign.js";
 import { DirectorGraph, TextGraph, Ontology } from "./content.js";
 import { RuleObservations } from "./rule-facts.js";
 import { SessionView } from "./session-view.js";
+import { briefWindow } from "./brief-window.js";
 import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, fitBudget, fittedModuleSection, sceneLabel, voicesSection } from "./capsule.js";
 import { OWN_BUDGET, ownSection } from "./own.js";
 import { playedRecords, signals, directorSection } from "./director.js";
@@ -567,7 +568,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
             truncated.push("reading");
     }
     if (options.moduleBrief ?? full) {
-        const [brief, cut] = fittedModuleSection(graph);
+        // §187.4: the rosters follow the reading window of the scene in play.
+        const [brief, cut] = fittedModuleSection(graph, 2048, await briefWindow(context, module, world));
         sections.module = brief;
         if (cut)
             truncated.push("module");

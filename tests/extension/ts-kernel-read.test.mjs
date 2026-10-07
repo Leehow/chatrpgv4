@@ -482,8 +482,17 @@ test('capsule budget cuts match Python for nested lists, Unicode and module rost
   // §180.4: `creatures` is the TS kernel's own roster, which Python never had. It rides only on what the parity fit leaves,
   // so every other field must still match Python exactly; the roster itself is asserted against the fixture graph below.
   for(const [index,budget] of budgets.entries())await t.test(`module budget ${budget}`,()=>{
-    const [section,cut]=api.fittedModuleSection(graph,budget),{creatures:_creatures,...rest}=section;
+    // §187.4: `more` (the lines the fit dropped) is the TS kernel's own too; it is checked below against the graph.
+    const [section,cut]=api.fittedModuleSection(graph,budget),{creatures:_creatures,more:_more,...rest}=section;
     same([rest,cut],expected[index],`module ${budget}`);
+  });
+  await t.test('more counts the roster lines the fit dropped (§187.4)',()=>{
+    for(const budget of budgets){
+      const [section]=api.fittedModuleSection(graph,budget),people=graph.kind('npc').length-section.people.length;
+      if(people>0)assert.equal(section.more.people,people,`budget ${budget}`);
+      else assert.equal(section.more?.people??0,0,`budget ${budget}`);
+    }
+    assert.equal(Object.hasOwn(api.fittedModuleSection(graph,1e6)[0],'more'),false,'nothing cut, nothing said');
   });
   await t.test('the creatures roster takes only the budget the rest leaves',()=>{
     const creatures=graph.kind('creature').map(node=>graph.displayName(node));

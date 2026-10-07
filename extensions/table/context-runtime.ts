@@ -43,7 +43,8 @@ function requestSegments(messages: readonly Row[]): Row {
     }));
     return {segments, ...(messages.length > SEGMENT_LIMIT ? {segments_truncated: messages.length - SEGMENT_LIMIT} : {})};
 }
-const briefingKey = (binding: ContextBinding, capsule: Row): string => {
+/** The key the brief is rebuilt on (§183, §187.4); exported for its test. */
+export const briefingKey = (binding: ContextBinding, capsule: Row): string => {
     const instructions = object(capsule.mods).instructions;
     // Frozen package versions bind their bytes, and a package's form (§183.3: full or indexed) follows from the set and
     // its order; never reuse an old effective provider or its settings after activation.
@@ -51,7 +52,9 @@ const briefingKey = (binding: ContextBinding, capsule: Row): string => {
         const row = object(value);
         return {mod: row.mod, version: row.version, settings: row.settings, form: row.form};
     }) : [];
-    return fingerprint([sourceOf(binding), providers]);
+    // Contract §187.4: the brief's rosters follow the reading window of the scene in play, so a new window is a new brief.
+    const window = object((binding as Row).brief_window);
+    return fingerprint([sourceOf(binding), providers, ...(Object.keys(window).length ? [[window.first, window.last, window.chapters]] : [])]);
 };
 function payloadContains(value:unknown,content:string,seen=new Set<object>()):boolean {
     if(typeof value==='string')return value===content||value.includes(content);

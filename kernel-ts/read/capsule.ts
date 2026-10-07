@@ -320,9 +320,9 @@ function contestedRows(graph: ModuleGraph, scene: Row): Row[] {
     }
     return rows.slice(0, CONTESTED_ROWS);
 }
-export function whereSection(graph: ModuleGraph, world: Row, scene: Row, material: (name: string) => string = () => "ready", compact = false): Row {
-    const record = recordOf(scene),
-        exits = graph.sceneExits(scene).map(exit => ({
+/** The scene's exits as `where.exits` renders them (also `where.within.exits`, §187.2.2). */
+function exitRows(graph: ModuleGraph, world: Row, scene: Row, material: (name: string) => string): Row[] {
+    return graph.sceneExits(scene).map(exit => ({
         to: exit.to,
         // The way out was named by its handle alone, so a Keeper reading the capsule saw a slug and
         // wrote the player a slug; the place the module named was one lookup away and never taken.
@@ -334,6 +334,40 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
             } } : {}),
         material: material(graph.scene(exit.to).node_id)
     }));
+}
+/** Contract §187.2.2: the budget of `where.within`, fitted like `where`. */
+export const WITHIN_BUDGET = 2048;
+/**
+ * Contract §187.2.2: the book place the active scene lies in (`located-in`), with its own exits and people, so the
+ * book's topology and cast are one hop from a room the Keeper improvised inside it. `seated` is whether the ledger
+ * (`npc_presence`) puts the person in the active scene; `clues` is a count. Undefined when there is no such place.
+ */
+export function withinSection(graph: ModuleGraph, world: Row, scene: Row, material: (name: string) => string = () => "ready"): Row | undefined {
+    const relation = (graph.out.get(scene.node_id) ?? []).find(rel => rel.relation_kind === "located-in" && graph.nodes.has(rel.to_node_id));
+    if (!relation)
+        return undefined;
+    const place = graph.nodes.get(relation.to_node_id)!, here = graph.handle(scene), presence = row(world.npc_presence);
+    const display = graph.placeName(place);
+    const within: Row = {
+        name: graph.handle(place),
+        ...(display !== graph.handle(place) ? { display_name: display } : {}),
+        summary: place.summary || graph.prose(place),
+        exits: place.node_kind === "scene" ? exitRows(graph, world, place, material) : [],
+        people: graph.sceneNpcIds(place).map(id => {
+            const node = graph.nodes.get(id)!, name = graph.handle(node), shown = graph.displayName(node);
+            return { name, ...(shown !== name ? { display_name: shown } : {}), seated: presence[name] === here };
+        }),
+        clues: graph.sceneClueIds(place).length,
+        material: material(place.node_id)
+    };
+    fitBudget(within, WITHIN_BUDGET, "last");
+    if (jsonSize(within) > WITHIN_BUDGET && typeof within.summary === "string")
+        within.summary = chars(within.summary, 400);
+    return within;
+}
+export function whereSection(graph: ModuleGraph, world: Row, scene: Row, material: (name: string) => string = () => "ready", compact = false): Row {
+    const record = recordOf(scene),
+        exits = exitRows(graph, world, scene, material);
     const affordances = array(record.affordances).map(aff => {
         const entry: Row = {
             id: aff.id ?? null,
@@ -392,6 +426,10 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         endings: graph.sceneEndings(scene),
         material: material(scene.node_id)
     };
+    // §187.2.2: the book place a minted room lies in.
+    const within = withinSection(graph, world, scene, material);
+    if (within)
+        where.within = within;
     // §22.3.2: a classification a reviewer disputed on this scene or a record one relation from it. `look` only.
     const contested = compact ? [] : contestedRows(graph, scene);
     if (contested.length) {
@@ -1033,14 +1071,28 @@ function oneLine(graph: ModuleGraph, node: Row, size: number): string {
     candidates.push(graph.prose(node));
     return chars(candidates.map(words).find(Boolean) || "", size);
 }
-export function moduleSection(graph: ModuleGraph, size = 120): Row {
+/** Contract §187.4: the pages of the reading window the brief's rosters are ordered by, or null for graph order. */
+export type RosterWindow = { first: number; last: number } | null | undefined;
+/**
+ * Contract §187.4: the roster's nodes with those citing a page inside `window` first, each part in book (graph) order. A
+ * stable partition, so no window, or a window every node is inside, is the graph's order unchanged.
+ */
+export function windowOrder(nodes: Row[], window: RosterWindow): Row[] {
+    if (!window)
+        return nodes;
+    const near = (node: Row) => array(node.source_refs).some(ref => integer(row(ref).pdf_index) && number(ref.pdf_index) + 1 >= window.first && number(ref.pdf_index) + 1 <= window.last);
+    return [...nodes.filter(near), ...nodes.filter(node => !near(node))];
+}
+function rosterNodes(graph: ModuleGraph, kind: string): Row[] {
+    return kind === 'location' ? array(graph.raw.nodes).filter(node => node.node_kind === 'location') : graph.kind(kind);
+}
+export function moduleSection(graph: ModuleGraph, size = 120, window?: RosterWindow): Row {
     const module = graph.moduleNode || {},
         record = recordOf(module),
-        roster = (kinds: string[]) => kinds.flatMap(kind => (kind === 'location'
-            ? array(graph.raw.nodes).filter(node => node.node_kind === 'location') : graph.kind(kind)).map(node => ({
+        roster = (kinds: string[]) => windowOrder(kinds.flatMap(kind => rosterNodes(graph, kind)), window).map(node => ({
         name: graph.displayName(node),
         line: oneLine(graph, node, size)
-    })));
+    }));
     return {
         title: graph.title(),
         ...(typeof record.era === "string" && record.era.trim() ? { era: record.era } : {}),
@@ -1053,17 +1105,17 @@ export function moduleSection(graph: ModuleGraph, size = 120): Row {
         structure_type: structureType(graph)
     };
 }
-export function fittedModuleSection(graph: ModuleGraph, budget = 2048): [
+export function fittedModuleSection(graph: ModuleGraph, budget = 2048, window?: RosterWindow): [
     Row,
     boolean
 ] {
-    let section = moduleSection(graph),
+    let section = moduleSection(graph, 120, window),
         cut = false,
         lineSize = 120;
     for (const size of [80, 40, 20, 0]) {
         if (jsonSize(section) <= budget)
             break;
-        section = moduleSection(graph, size);
+        section = moduleSection(graph, size, window);
         lineSize = size;
         cut = true;
     }
@@ -1071,8 +1123,8 @@ export function fittedModuleSection(graph: ModuleGraph, budget = 2048): [
     // §180.4: the book's creatures, in the same roster form as its people, ride only on what the fit above leaves. They
     // are cut first and never cost a person, a place or an ending its line, and the roster is absent when the book has
     // none or none fits.
-    const creatures: Row[] = [];
-    for (const node of graph.kind("creature")) {
+    const creatures: Row[] = [], bookCreatures = windowOrder(graph.kind("creature"), window);
+    for (const node of bookCreatures) {
         const entry = { name: graph.displayName(node), line: oneLine(graph, node, lineSize) };
         if (jsonSize({ ...section, creatures: [...creatures, entry] }) > budget) {
             cut = true;
@@ -1082,5 +1134,13 @@ export function fittedModuleSection(graph: ModuleGraph, budget = 2048): [
     }
     if (creatures.length)
         section.creatures = creatures;
+    // §187.4: how many lines of each roster the fit removed, so the Keeper knows the book holds more than it shows.
+    const more = {
+        people: graph.kind("npc").length - array(section.people).length,
+        places: rosterNodes(graph, "location").length - array(section.places).length,
+        creatures: bookCreatures.length - creatures.length
+    };
+    if (more.people > 0 || more.places > 0 || more.creatures > 0)
+        section.more = more;
     return [section, cut];
 }

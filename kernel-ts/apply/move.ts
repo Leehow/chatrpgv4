@@ -6,7 +6,7 @@ import { array, integer, number, repr, row, sorted, string, type Row } from '../
 import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
 import { advanceClock } from './clock.js';
-import { establishTableEntity, validateEstablishment } from '../read/table-entities.js';
+import { establishTableEntity, establishedWithin, validateEstablishment } from '../read/table-entities.js';
 import { isAmbiguity, recordOf, type ModuleGraph } from '../read/module-graph.js';
 export function stageMove(context: ApplyContext, effect: Row): {
     receipt: Row;
@@ -15,7 +15,9 @@ export function stageMove(context: ApplyContext, effect: Row): {
     const { graph, world, turn, callId, ordinal } = context;
     const to = required(effect, 'to')!, current = graph.scene(world.active_scene), from = graph.handle(current);
     const exits = new Map(graph.sceneExits(current).map(exit => [exit.to, exit]));
-    const summary = validateEstablishment(effect.establish);
+    const summary = validateEstablishment(effect.establish, ['summary', 'within']);
+    // §187.2.1: the book place the mint lies in, checked before anything is written.
+    const within = summary === undefined ? undefined : establishedWithin(graph, row(effect.establish).within);
     let established = false;
     let destination: Row;
     try { destination = graph.scene(to); }
@@ -25,7 +27,7 @@ export function stageMove(context: ApplyContext, effect: Row): {
         if (summary !== undefined) {
             if (graph.find(to)) throw new RpcError('invalid_params', 'This name already identifies another entity');
             if (typeof effect.via !== 'string' || !effect.via.trim()) throw new RpcError('invalid_params', 'Establishing a destination requires via to describe the route');
-            destination = establishTableEntity(graph, world, turn, 'scene', to, summary);
+            destination = establishTableEntity(graph, world, turn, 'scene', to, summary, undefined, {from, ...(within ? {within: graph.handle(within)} : {})});
             established = true;
         } else {
             throw new RpcError('unknown_entity', `The destination ${repr(to)} is not an identified scene`, {

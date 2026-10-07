@@ -24,6 +24,7 @@ import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } fr
 import { playLanguages, playLanguageOf, declaredPlayLanguage } from '../read/languages.js';
 import { modContext, kernelGaps, readModCatalog } from '../read/mods.js';
 import { array, entries, values, row, clone, number, string, truth, repr, chars, words, equal, integer, normalize, type Row } from '../read/values.js';
+import { readingFocus } from '../read/table-entities.js';
 import { CampaignWriter, freshTurn, nowIso, required, missingContribution, createTurnTransaction, rememberCall, turnStateError, parseCallId } from './store.js';
 import { checked, commit, CommitFailed, head } from './history.js';
 import { registerStarter } from './source.js';
@@ -812,7 +813,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // Source maintenance is optional and must never revoke an already playable campaign.
         if (moduleReading && !module.graph.materialOverride) {
             try {
-                await queueAheadReading({ module_id: module.graph.moduleId, campaign: campaign.id, focus: snapshot.world.active_scene });
+                await queueAheadReading({ module_id: module.graph.moduleId, campaign: campaign.id, focus: readingFocus(module.graph, snapshot.world) });
             } catch (error) {
                 await appendJsonl(campaign.path('telemetry.jsonl'), { lane: 'reading', event: 'read-ahead-unavailable', detail: error instanceof Error ? error.message : String(error) });
             }
