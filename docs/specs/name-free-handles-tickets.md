@@ -16,7 +16,7 @@ Waves:
 
 ## NFH-01 — References compare by identity; legacy campaigns undo the rename on a miss
 
-Status: ready-for-agent
+Status: done — merged into the integration branch (cd43d85aa)
 
 Contract: §185.2, §185.3. Branch: `claude/name-free-handles-20261006-identity`.
 
@@ -47,7 +47,7 @@ Out of scope: anything in §185.4–185.7.
 
 ## NFH-02 — Scheme, handle map, interim handle, fold, and the kernel side of the lane
 
-Status: ready-for-agent
+Status: done — merged into the integration branch (0e31e5904 + 9f894206a)
 
 Contract: §185.1, §185.4, §185.5 (kernel methods and `handles.json`), §185.6, and §185.7's first bullet (no handle rows in
 `table.untold` for name-free campaigns). Branch: `claude/name-free-handles-20261006-map`.
@@ -84,7 +84,7 @@ Out of scope: the lane runner (NFH-03); node-id egress (NFH-04); anything in §1
 
 ## NFH-03 — The handle lane
 
-Status: needs-triage (starts after NFH-02 is merged into the integration branch)
+Status: done — merged into the integration branch (a1083b2c5)
 
 Contract: §185.5 (the lane bullets). Branch: `claude/name-free-handles-20261006-lane`.
 
@@ -105,7 +105,7 @@ Acceptance:
 
 ## NFH-04 — No node id or old slug reaches the Keeper
 
-Status: needs-triage (starts after NFH-02 is merged into the integration branch)
+Status: done — merged into the integration branch (e2bd78ee5)
 
 Contract: §185.7. Branch: `claude/name-free-handles-20261006-egress`.
 
