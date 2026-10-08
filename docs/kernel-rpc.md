@@ -1786,7 +1786,7 @@ acceptance remain pending until their dedicated checks are recorded.
 
 **为什么要改。** 原来 `where` 超出 4KB 时，与其他节一样交给 `fitBudget`：每次从最大的叶子列表末尾弹一项。热闹的场景里最大的列表是 `exits`，而 `back` 每走一步就长一项，于是先没的是出路，留着的是历史。
 - The Haunting 的礼拜堂在长路线上丢过一条出口。
-- 科比特宅一楼挂上书里的六个房间之后，走过四个地方再进屋，出口从 7 条掉到 6 条，长路线掉到 3 条（`docs/specs/haunting-graph-v2.md` §4）。
+- 曾把科比特宅一楼的六个房间作为地点挂上（后来改成了楼层的 keeper note，见 `docs/specs/haunting-graph-v2.md` §6），走过四个地方再进屋，出口就从 7 条掉到 6 条，长路线掉到 3 条。
 
 **现在的顺序**（`kernel-ts/read/assemble.ts` 的 `fitWhere`，只作用于胶囊的紧凑 `where`）。超出预算时依次裁：
 1. `back` 从最远的一项删起，留下最近的一步：那是最常用的退路，`table.apply move` 的 `back` 仍按完整的 `world.scene_trail` 判可达。
@@ -1795,7 +1795,7 @@ acceptance remain pending until their dedicated checks are recorded.
 
 任何一步裁过，都和以前一样记入 `truncated` 并给 `where.truncated: true`。没超预算的 `where` 一字不变。
 
-测试：`tests/extension/haunting-graph-v2.test.mjs`。在 12 场景的长路线上，一楼（7 条出口加 6 个房间）和礼拜堂的出口一条不少，`back` 至少留一项。把 `fitWhere` 换回 `fitBudget` 的变异会让它变红。
+测试：`tests/extension/haunting-graph-v2.test.mjs`。在 12 场景的长路线上，一楼（7 条出口加整层房间的 keeper note）和礼拜堂的出口一条不少，`back` 至少留一项。把 `fitWhere` 换回 `fitBudget` 的变异会让它变红。
 
 ### 13.2 `pressures` 与 `obligations` 的来源
 

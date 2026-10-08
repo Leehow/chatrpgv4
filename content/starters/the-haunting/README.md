@@ -55,7 +55,8 @@ referenced from `../../../rulesets/coc7/rules-json/monsters.json`.
 
 Each scene carries a short `summary` for every turn and a `properties.description` of what a newcomer sees on arrival. Each
 person met openly carries a `properties.biography` of looks and manner and is `player-safe`, so §168.5's first sight owes
-them. The house's floors and rooms are `location` nodes. Everything is the book's (pages cited in `source_refs`), written in
+them. The house's rooms are one keeper note per floor scene, not `location` nodes (a source location becomes a playable
+scene of its own). Everything is the book's (pages cited in `source_refs` and the notes), written in
 the contributors' own words under the boundary above; nothing the book leaves to the Keeper is filled in. See
 `docs/specs/haunting-graph-v2.md`.
 
