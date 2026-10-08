@@ -14,7 +14,7 @@ import {prescreenFollowTargets} from './prescreen-loop.ts';
 import {runEvidenceAgent,type EvidenceOperation} from '../../runtime/jev/evidence-agent.ts';
 import {keeperSupportView,validateKeeperSupport,supportRequest,validateSupportRequest,unknownCheck,type SupportRequest} from '../../runtime/jev/keeper-support-contract.ts';
 import {prepareCheckPreflight,recheckPreflight,type CheckPreflightResult,type CheckPreflightCheckpoint} from '../../runtime/jev/check-preflight.ts';
-import {checkPrescreenSourceCheckpoint,preparePrescreenSources,type PrescreenSourceCheckpoint,type PrescreenSourceRuntime,type PrescreenSourceResult,type PrescreenSourceSnapshot} from '../../runtime/jev/prescreen-source-provider.ts';
+import {checkPrescreenSourceCheckpoint,preparePrescreenSources,type PrescreenSourceCheck,type PrescreenSourceCheckpoint,type PrescreenSourceRuntime,type PrescreenSourceResult,type PrescreenSourceSnapshot} from '../../runtime/jev/prescreen-source-provider.ts';
 
 const FAMILY='keeper-support-agent', LIMIT=64, READ_LIMIT=12, MESSAGE_BYTES=16*1024;
 // Final owner validation measured 0.76-1.1 s on a real table; the reserve scales with the configured allowance.
@@ -35,6 +35,14 @@ const PAGE_BINDING_KEYS=[...RUN_BINDING_KEYS,'catalog_revision'] as const;
 const VOLATILE_BINDING_KEYS=['stateStamp','memory_revision','npc_revision','records_revision'] as const;
 /** The preparation's binding moved on a key its result depends on; the fallback row names the key. */
 class BindingChanged extends Error {readonly key:string;constructor(key:string){super('binding_changed');this.key=key;}}
+/**
+ * §195.1: the source materials the prescreen supplied changed and one re-selection did not make them current. The fallback
+ * row names the check's own reason (`source_answer_changed`, `source_extraction_changed`, ...), not only its status.
+ */
+class SourceCheckFailed extends Error {
+    readonly check:Row;
+    constructor(status:string,reason:string,check:Row){super(reason.startsWith('source_')?reason:`source_${status}`);this.check={status,reason,...check};}
+}
 const KINDS=new Set(['investigator','npc','object','catalog','rule','memory','session']);
 export const prescreenEnabled=(env:NodeJS.ProcessEnv=process.env):boolean=>readJevPreselectEnabled(env)&&Boolean(readJevApiKey(env));
 const clip=(value:unknown,limit:number):string=>typeof value==='string'?Array.from(value).slice(0,limit).join(''):'';
@@ -653,15 +661,16 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
         const checkResult=await checkWork;
         const finalWorkspaceKeys=materialized.map(candidate=>candidate.key).filter(key=>!sourceKeys.has(key)&&!memoryKeys.has(key)),
             memoryRefresh:string[]=[];
+        // §195.1: the source check reads back what the prescreen supplied from the source provider, nothing else.
+        const suppliedSourceKeys=()=>materialized.filter(candidate=>sourceKeys.has(candidate.key)).map(candidate=>candidate.key);
+        const sourceOutcome:{check?:PrescreenSourceCheck}={};
         const [checkValidity,check]=await Promise.all([
             checkResult.checkpoint?checkResult.check(signal,deadlineAt-25):Promise.resolve({status:'unavailable' as const,reason:'check_unavailable'}),
             rpc('table.workspace.read',{binding:withoutUnbound(bound),candidate_limit:1,
                 ...(version===2?{query,preselect:{version:2,mode:'check',keys:finalWorkspaceKeys}}:{})}),
             (async()=>{for(const {finalizer,key} of memoryFinalizers){const final=await rpc('memory.evidence',finalizer);
                 if(final.status==='refresh')memoryRefresh.push(key);}})(),
-            (async()=>{if(sourceResult&&input.source){const sourceCheck=await checkPrescreenSourceCheckpoint({
-                call:async(method,params)=>object(await input.call(method,{...params,campaign:input.campaign})),source:input.source.runtime,scope,signal,deadlineAt,
-                checkpoint:sourceResult.checkpoint});if(sourceCheck.status!=='current')throw new Error(`source_${sourceCheck.status}`);}})(),
+            (async()=>{if(sourceResult&&input.source)sourceOutcome.check=await sourceResult.check(signal,deadlineAt,suppliedSourceKeys());})(),
         ]);
         content.check=checkValidity.status==='current'?checkResult.advice:unknownCheck(checkValidity.reason);
         // §124.11: a run key voids the result. A volatile key's change drops exactly the materials the owner names as
@@ -689,6 +698,38 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             const [removed]=materialized.splice(index,1);content.materials.splice(index,1);dropped++;loopGap(removed,'binding_changed',key);
         }
         const bindingRefresh=volatileDrift.size?{changed:VOLATILE_BINDING_KEYS.filter(key=>volatileDrift.has(key)),dropped}:undefined;
+        // §195.1: a supplied source material that changed is re-selected once against the current materials, within the
+        // remaining allowance; the packet is published only when the re-selected set reads back current.
+        let sourceSummary:Row|undefined;
+        const sourceCheck=sourceOutcome.check;
+        if(sourceResult&&sourceCheck){
+            const supplied=suppliedSourceKeys().length;
+            if(sourceCheck.status!=='current'){
+                const first=sourceCheck,changed=first.status==='stale'?first.changed??[]:[];
+                if(!changed.length)throw new SourceCheckFailed(first.status,first.reason,{changed:0,reselect:'not_attempted'});
+                let replaced:Awaited<ReturnType<PrescreenSourceResult['reselect']>>;
+                try{replaced=await sourceResult.reselect(changed,signal,deadlineAt);}
+                catch(error){if(signal.aborted)throw error;throw new SourceCheckFailed(first.status,first.reason,{changed:changed.length,reselect:'failed',
+                    detail:error instanceof Error?error.message.slice(0,160):'reselect_failed'});}
+                let reselected=0;
+                for(const {key,candidates} of replaced){
+                    const index=materialized.findIndex(candidate=>candidate.key===key);if(index<0)continue;
+                    const [removed]=materialized.splice(index,1);content.materials.splice(index,1);
+                    let at=index;
+                    for(const value of candidates){
+                        const candidate=candidateOf(value,pool.length);if(!candidate)continue;
+                        const visible=publicMaterial(candidate,`material_${++materialOrdinal}`),trial=[...content.materials];trial.splice(at,0,visible);
+                        if(requestSize([supportMessage({...content,materials:trial},availableBytes-512)])>availableBytes-512)break;
+                        content.materials=trial;materialized.splice(at,0,candidate);sourceKeys.add(candidate.key);at++;reselected++;
+                    }
+                    if(at===index)loopGap(removed,'source_changed',first.reason);
+                }
+                const second=await sourceResult.check(signal,deadlineAt,suppliedSourceKeys());
+                if(second.status!=='current')throw new SourceCheckFailed(first.status,first.reason,{changed:changed.length,reselect:second.status,
+                    reselect_reason:second.reason});
+                sourceSummary={status:'current',supplied,changed:changed.length,reason:first.reason,reselected,...(second.revalidated?{revalidated:true}:{})};
+            }else sourceSummary={status:'current',supplied,...(sourceCheck.revalidated?{revalidated:true}:{})};
+        }
         signal.throwIfAborted();validationMs=now()-validationBegan;
         if(assessment)content.assessment=assessment;
         const publicGaps=gaps.length>12?[...gaps.slice(0,8),...gaps.slice(-4)]:gaps;
@@ -732,7 +773,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             volatile_keys:materialized.filter(candidate=>memoryKeys.has(candidate.key)).map(candidate=>candidate.key),
             source_module_id:input.source?.moduleId,source_pdf:sourcePdf,
             source_read_set:sourceResult?.readSet,
-            source_checkpoint:sourceResult?.checkpoint,
+            source_checkpoint:sourceResult?.checkpointFor(materialized.filter(candidate=>sourceKeys.has(candidate.key)).map(candidate=>candidate.key)),
             check_checkpoint:checkValidity.status==='current'&&content.check===checkResult.advice?checkResult.checkpoint:undefined,
             refs:Object.fromEntries(materialized.filter(candidate=>candidate.refs?.length).map(candidate=>[candidate.key,candidate.refs])),
             binding:structuredClone(bound),coverage:structuredClone(content.coverage),gap_details:structuredClone(gaps),selection_trace:selectionTrace,loop_trace:loopTrace,
@@ -750,12 +791,14 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             supplied_sources:materialized.map(({kind,label,authority})=>({kind,label,authority})),
             pending_reads:gaps.map(({kind,label,reason,key})=>({kind,label,reason,...(key?{key}:{})})),prepared_digest:preparedDigest,supplied_context_digest:supplied.digest,
             decision_batches:batches,jev_calls:calls,qualification_calls:qualificationCalls,jev_input_tokens:inputTokens,jev_output_tokens:outputTokens,
-            jev_input_upper_bound:inputUpperBound,...outcome,...(bindingRefresh?{binding_refresh:bindingRefresh}:{}),loop_trace:loopTrace,
+            jev_input_upper_bound:inputUpperBound,...outcome,...(bindingRefresh?{binding_refresh:bindingRefresh}:{}),
+            ...(sourceSummary?{source_check:sourceSummary,...(sourceSummary.revalidated?{revalidated:true}:{})}:{}),loop_trace:loopTrace,
             selection_trace:selectionTrace,usage_complete:decisionGroupsTimedOut===0&&decisionGroupsUnavailable===0&&optionalDecisionTimeouts===0&&optionalDecisionUnavailable===0
                 &&qualificationStatus!=='unavailable',...timing()});
         charge();return message;
     }catch(error){charge();note({event:'fallback',reason:signal.aborted?'cancelled_or_timeout':error instanceof Error?error.message:'unavailable',
         ...(!signal.aborted&&error instanceof BindingChanged?{key:error.key}:{}),
+        ...(!signal.aborted&&error instanceof SourceCheckFailed?{source_check:error.check}:{}),
         ms:now()-began,decision_batches:batches,jev_calls:calls,jev_input_tokens:inputTokens,jev_output_tokens:outputTokens,
         jev_input_upper_bound:inputUpperBound,stop_reason:retrievalOutcome?.stop_reason??'not_run',retrieval:retrievalOutcome??null,locate:locateSummary,
         usage_complete:false,...timing()});return undefined;}

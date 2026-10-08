@@ -20427,7 +20427,8 @@ key of the prescreen, neither a run key nor a volatile one:
 - **What still guards the book.** A change of the module itself (a new graph or generation) is not a mid-turn event: it comes
   from registering the module or changing the campaign's configuration, never from a lane. The prescreen's source materials
   (when a run carries them) keep their own checkpoint (`checkPrescreenSourceCheckpoint`: the answers' and the file's revision),
-  which this addendum does not change. The locate's index cache stays keyed by `source_revision`: a key for reuse, not a
+  which this addendum does not change. *(Amended by §195.1: that checkpoint is now the read set of what the prescreen
+  supplied, and a book read during play does publish new generations mid-turn, §182.)* The locate's index cache stays keyed by `source_revision`: a key for reuse, not a
   binding, so a bump only means the index is read again.
 - **Not changed.** `source_revision` stays in the context binding the kernel reports, in the lease's read set and in every
   other consumer (§124.1's key dependencies, reuse of a packet across requests, KIC). The host-only `task_source_revision`
@@ -20444,7 +20445,8 @@ the graph material and no fallback; landing between the run's binding and the fi
 index are still taken. `tests/extension/prescreen-source-request.test.mjs` (a packet that carries the reading store's own
 answers): an answer landing before the source materials are read is among them and the packet reaches the provider; one landing
 after they were read voids them through their own checkpoint (`source_stale`), so the stale packet never reaches provider
-conversion. That file's earlier case, "a public source-owner answer change during selection prevents the stale packet", asserted
+conversion. *(Superseded by §195.1: an answer to another question leaves the supplied materials current and the packet is
+delivered, `revalidated: true`; only a change to what the packet supplied re-selects or falls back.)* That file's earlier case, "a public source-owner answer change during selection prevents the stale packet", asserted
 the voiding by `source_revision` this addendum retires; it is replaced by the two cases above. The mutation record is in the
 SL-44 ticket's Comments.
 
@@ -39204,6 +39206,62 @@ of play on a 48-page book and re-read pages across jobs (read-55..58).
 The prescreen's validity check compares its own read set (the units, records and pages it supplied, by digest), not the
 whole materials revision. Unchanged → delivered. Changed → re-selected once against the current materials within the
 remaining allowance; failing that, the fallback of today, with the actual reason in telemetry.
+
+**What TR-F's two fallbacks had supplied.** Nothing from the source provider. Every `prepared` row of the table lists
+`supplied_sources` of authority `module_source`, `rules_source`, `table_record` and `current_read` only (turns 1-12), and
+the source catalog at turns 11 and 13 had `checked_answers.inspected: 0`; both loops read graph entities and rule clauses.
+The graph material is checked per key by its own owner (`table.workspace.read` mode `check`, §124.11) and passed; the packet
+was thrown away only because the source provider's checkpoint compared the module's materials `revision`, which every
+publication moves. So the discard was of material the provider never contributed.
+
+**Implementation decision (PS-01, 2026-10-08).**
+- **The binding is per candidate.** `preparePrescreenSources` keeps every candidate it issues (checked answers, native
+  excerpts, continuation pages, a qualified consultation, re-selections) and `checkpointFor(keys)` builds a version-2
+  `PrescreenSourceCheckpoint` whose `used` lists, for each named candidate, its read set: a checked answer as
+  `{key: <reading-store cache key>, revision: <draft sha256>, focus, question}` (from its record ref
+  `source-answer:<module>:<key>`), an excerpt or consultation as its pages `{page, layer, version, revision}` (from its refs'
+  `pdf:<sha>:page:<n>:<layer>:<version>` resource and page revision). The checkpoint still carries the materials `revision`,
+  `answers_revision` and `generation` it was prepared on, only to say whether the materials moved. `result.checkpoint` is
+  the binding over every issued candidate; the host uses `checkpointFor` over what it supplied.
+- **The check** (`checkPrescreenSourceCheckpoint`) reads back exactly `used`: supplied answers by paging
+  `module.source.materials.snapshot` (64 per page) until each key is found, current when the key is still listed with the
+  same draft digest (an answer is bound to its context generation, §22.4.3, so a new generation retires it: a real change);
+  pages by re-reading them in the layer they were read in (§191.7) and comparing each page's text revision; with no answer
+  supplied, `module.source.snapshot` gives the bound file's identity and generation. The bound PDF's bytes are re-hashed only
+  when a page was supplied. Reasons: `source_material_changed` (the bound file), `source_extraction_changed` (a page),
+  `source_answer_changed` (an answer), each with `changed: [candidate keys]`. A current result whose materials moved is
+  `revalidated: true`. An empty `used` (TR-F's turns 11 and 13) checks nothing but the module's identity.
+- **One re-selection.** On `stale` with changed keys the host calls `reselect(changed)` once, before the deadline the
+  check had: the provider re-reads the current materials and takes, for an answer, the answer now accepted for the same
+  focus and question; for an excerpt or consultation, the current native units of the same pages (raw text: a qualification
+  does not carry over to changed text). The host replaces the changed materials in place under the same byte trial; a
+  material with no replacement becomes a `source_changed` gap. It then checks the supplied set once more and publishes only
+  if that is current. Otherwise it falls back.
+- **Telemetry.** `prepared` gains `source_check: {status, supplied, changed?, reason?, reselected?, revalidated?}` and a
+  top-level `revalidated: true` when kept across a move. `fallback` names the check's own reason (`source_answer_changed`,
+  `source_extraction_changed`, `source_material_changed`, `source_material_deadline`; any other check reason is
+  `source_<status>`) and carries `source_check: {status, reason, changed, reselect: not_attempted | failed | stale |
+  unavailable, ...}`. The reused packet (`reusePrescreen`) stores and checks the same per-candidate binding.
+- **Not changed.** A qualified native consultation materialized while a publication lands still compares the module
+  snapshot's `revision` (`materializeNativeConsultation`), so its qualification falls to a `native_*` gap and the raw
+  excerpts are delivered; the packet is not discarded. Out of this slice; recorded for the owner.
+
+*Three ends (§31).* Writer: the provider (`used`, from the candidates it issued). Reader: the host's final check and the
+reuse check. Actor: the Keeper, who gets the packet a publication no longer discards; the operator, who reads
+`source_check` and `revalidated` on TR-F2 (PS-03).
+
+*Tests.* `tests/extension/prescreen-source-request.test.mjs` (the real host context hook, kernel and PDF): an unrelated
+answer landing after the source read → delivered, `revalidated`; TR-F's shape (no answers) with a campaign publication of
+an unrelated node during the loop → delivered, `revalidated`; a publication that retires an answer the provider offered
+but the prescreen did not supply → current, nothing changed; a publication that retires the supplied answer while the
+same question is answered again → re-selected (`source_answer_changed`, the new answer delivered, the old one not); the
+bound PDF replaced → fallback `source_material_changed` with `reselect: failed`.
+`tests/extension/prescreen-source-materials.test.mjs`: per-candidate binding, `revalidated`, the extraction case reading
+exactly the supplied page. `page-transcript-readers.test.mjs` and `prescreen-request-supply.test.mjs` follow the new shape.
+Mutations (each reverted by copying the saved file back): restoring the whole-revision comparison (4 host cases + the
+provider case red), checking every issued candidate instead of the supplied ones (the offered-not-supplied case red),
+skipping the re-selection (the re-selection and the PDF case red), ignoring a changed answer (the re-selection case red),
+ignoring a changed page (the extraction case red), naming only the status in the fallback (the PDF case red).
 
 ### 195.2 A page is read again only for a reason the earlier read did not cover
 (Recorded by PS-02 with the producer it found.)

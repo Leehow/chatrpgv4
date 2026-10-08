@@ -43,7 +43,7 @@ function sourcePdf(){
 }
 const save=(path,value)=>writeFile(path,JSON.stringify(value));
 
-async function fixture(t){
+async function fixture(t,{answer=true}={}){
   const home=await mkdtemp(join(tmpdir(),'prescreen-source-request-')),pdf=join(home,'source.pdf'),bytes=sourcePdf();await writeFile(pdf,bytes);
   const context=await api.createKernelContext({workspace:home,content:join(ROOT,'content'),seed:'prescreen-source-request',
     locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(context);
@@ -80,25 +80,35 @@ async function fixture(t){
     await save(join(job.work_dir,'observations.json'),{file_sha256:job.source.file_sha256,read_pages:[1],full_pages:[],review_pages:[1]});
     return call('module.read.finish',{module_id:mid,...scope,job_id:job.job_id,lease:job.lease,outcome:'completed',draft_path:draftPath,review_path:reviewPath});
   };
-  await acceptAnswer(undefined,'When does the harbor bell ring?','The harbor bell rings at midnight.');
+  if(answer)await acceptAnswer(undefined,'When does the harbor bell ring?','The harbor bell rings at midnight.');
   await call('campaign.create',{id:'card-source',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});
   const saved=await call('investigator.save',{campaign:'card-source'});await call('campaign.create',{id:'c1',module:mid,play_language:'en'});
   await call('investigator.load',{campaign:'c1',library_id:saved.library_id});await call('setup.complete',{campaign:'c1'});
   const opened=await call('table.open',{campaign:'c1'}),input=await call('table.player_input',{campaign:'c1',text:'When does the harbor bell ring, and what exactly does the original notice say?'}),view=await call('table.capsule',{campaign:'c1',rehydrate:true});
   const {_context,...capsule}=view,source={home,sourceInfo:({pdf:path})=>api.sourceInfo(path),sourceText:({pdf:path,...options},signal)=>api.sourceText(path,options,signal)};
-  return{home,mid,call,finish,opened,input,capsule,binding:_context,source,acceptAnswer,fileSha:sha(bytes)};
+  // §195.1: a reading that publishes to the campaign's book during play (a new generation), about something the prescreen
+  // never supplied.
+  const publishUnrelated=async()=>{
+    await call('module.read.request',{campaign:'c1',module_id:mid,purpose:'detail',focus:'Dock',question:'Who keeps the dock at night?'});
+    const job=await call('module.read.claim',{campaign:'c1',module_id:mid,owner:'publish-fixture'});
+    return finish(job,{nodes:[{node_id:'npc-watchman',node_kind:'npc',name:'Watchman',summary:'An authored night watchman.',properties:{},source_refs:refs}],
+      claims:[{subject_id:'npc-watchman',predicate:'present-in',object:{node_id:'scene-dock'},truth_status:'authored-fact',source_refs:refs}],
+      node_refs:['scene-dock'],coverage:{},dependencies:[],critical:[],ready_nodes:['npc-watchman']},'c1');
+  };
+  return{home,mid,call,finish,opened,input,capsule,binding:_context,source,acceptAnswer,publishUnrelated,fileSha:sha(bytes)};
 }
 
 /** `onFirst` runs once, before answering the first request `trigger` accepts (by default the first request of all). */
-function deterministicFetch(onFirst,trigger=()=>true){let fired=false;return async(_url,options)=>{const sent=JSON.parse(options.body);
+const SOURCES=c=>c.kind==='source'?'necessary':'skip';
+function deterministicFetch(onFirst,trigger=()=>true,select=SOURCES){let fired=false;return async(_url,options)=>{const sent=JSON.parse(options.body);
 if(!fired&&onFirst&&trigger(sent)){fired=true;await onFirst();}
-return Response.json(supportWire(sent,c=>c.kind==='source'?'necessary':'skip',{qualify:true}));};}
+return Response.json(supportWire(sent,select,{qualify:true}));};}
 /** The first request of the preparation's loop (its `operation` question): the source materials were read before it. */
 const loopRequest=sent=>Object.hasOwn(sent.questions??{},'operation');
 
-async function project(t,f,onFirst,trigger){
+async function project(t,f,onFirst,trigger,select){
   const oldFlag=process.env.PI_COC_JEV_PRESELECT,oldKey=process.env.TYPESAFE_API_KEY,oldFetch=globalThis.fetch;
-  process.env.PI_COC_JEV_PRESELECT='1';process.env.TYPESAFE_API_KEY='deterministic-request-test';globalThis.fetch=deterministicFetch(onFirst,trigger);
+  process.env.PI_COC_JEV_PRESELECT='1';process.env.TYPESAFE_API_KEY='deterministic-request-test';globalThis.fetch=deterministicFetch(onFirst,trigger,select);
   t.after(()=>{if(oldFlag===undefined)delete process.env.PI_COC_JEV_PRESELECT;else process.env.PI_COC_JEV_PRESELECT=oldFlag;
     if(oldKey===undefined)delete process.env.TYPESAFE_API_KEY;else process.env.TYPESAFE_API_KEY=oldKey;globalThis.fetch=oldFetch;});
   const hooks=new Map(),bus=new Map(),events=[];api.installContextPolicy({on:(name,handler)=>hooks.set(name,handler),events:{on:(name,handler)=>bus.set(name,handler)},
@@ -144,16 +154,88 @@ test('a source-owner answer landing before the source materials are read is part
   await result.hooks.get('session_shutdown')();
 });
 
-// A source answer that lands after the source materials were read makes them stale: their own checkpoint (the reading store's
-// answers) voids them at the final check, and the stale packet never reaches provider conversion.
-test('a public source-owner answer change after the source materials were read prevents the stale packet from reaching provider conversion',async t=>{
+// §195.1 (supersedes the §124.11.1 case "an answer landing after they were read voids them"): the check reads back what the
+// prescreen supplied. An answer landing on another question after the source materials were read moves the materials
+// revision and changes nothing the packet carries: it is delivered, and the prepared row says it was revalidated.
+const prepared=events=>events.find(row=>row.lane==='prescreen'&&row.event==='prepared');
+const fallback=events=>events.find(row=>row.lane==='prescreen'&&row.event==='fallback');
+async function deliver(result){
+  await result.hooks.get('before_provider_request')({type:'before_provider_request',payload:{model:'fixture',input:api.convertToLlm(structuredClone(result.projected.messages))}},{});
+  return result.events.findLast(row=>row.lane==='prescreen'&&row.event==='delivered');
+}
+test('§195.1 an unrelated answer landing after the source materials were read leaves the packet current: delivered, revalidated',async t=>{
   const f=await fixture(t),result=await project(t,f,()=>f.acceptAnswer('c1','Who posted the harbor notice?','The inspected notice does not name its author.'),loopRequest);
-  assert.equal(result.events.find(row=>row.lane==='prescreen'&&row.event==='fallback')?.reason,'source_stale','voided by the source materials\' own checkpoint');
-  assert(!result.projected.messages.some(row=>row.customType===PRESCREEN_TYPE),JSON.stringify(result.events));
-  const current=await f.call('module.source.materials.snapshot',{campaign:'c1',module_id:f.mid,answer_limit:8,answer_cursor:0});
+  assert.equal(fallback(result.events),undefined,JSON.stringify(fallback(result.events)));
+  const packet=result.projected.messages.find(row=>row.customType===PRESCREEN_TYPE);assert(packet,JSON.stringify(result.events));
+  const current=await f.call('module.source.materials.snapshot',{campaign:'c1',module_id:f.mid,answer_limit:8});
   assert(current.checked_answers.some(row=>row.question==='Who posted the harbor notice?'),'the public owner change actually landed');
-  await result.hooks.get('before_provider_request')({type:'before_provider_request',payload:{model:'fixture',input:api.convertToLlm(result.projected.messages)}},{});
-  assert(!result.events.some(row=>row.lane==='prescreen'&&row.event==='delivered'&&row.delivered===true));
+  assert(JSON.parse(packet.content).materials.some(row=>row.content==='The harbor bell rings at midnight.'),'the supplied answer is delivered');
+  assert.equal(prepared(result.events)?.revalidated,true,'kept across the change');
+  assert.equal(prepared(result.events)?.source_check?.status,'current');
+  assert.equal((await deliver(result))?.delivered,true,JSON.stringify(result.events));
+  await result.hooks.get('session_shutdown')();
+});
+
+// §195.1, TR-F's shape: a book with no checked answers, read during play. A reading publishes a new generation about
+// something else while the prescreen runs; the native pages it supplied read back unchanged, so the packet is delivered.
+test('§195.1 a library publish of unrelated nodes during the prescreen does not discard it: the supplied pages read back, the packet is delivered',async t=>{
+  const f=await fixture(t,{answer:false}),before=await f.call('module.status',{campaign:'c1',module_id:f.mid});
+  const result=await project(t,f,()=>f.publishUnrelated(),loopRequest);
+  const after=await f.call('module.status',{campaign:'c1',module_id:f.mid});
+  assert(after.generation>before.generation,'the reading published a new generation during the prescreen');
+  assert.equal(fallback(result.events),undefined,JSON.stringify(fallback(result.events)));
+  const packet=result.projected.messages.find(row=>row.customType===PRESCREEN_TYPE);assert(packet,JSON.stringify(result.events));
+  assert.match(packet.content,/ORIGINAL NOTICE: The harbor bell rings at midnight/,'the supplied original page is delivered');
+  const row=prepared(result.events);
+  assert.equal(row?.revalidated,true);assert(row.source_check.supplied>0,JSON.stringify(row.source_check));
+  assert.equal((await deliver(result))?.delivered,true,JSON.stringify(result.events));
+  await result.hooks.get('session_shutdown')();
+});
+
+// §195.1: the check is of what was supplied, not of everything the provider offered. The publish retires the checked
+// answer the provider offered, but the prescreen chose only the original page: nothing it used changed.
+test('§195.1 a publish that retires an offered answer the prescreen did not supply leaves the packet current',async t=>{
+  const f=await fixture(t);
+  const result=await project(t,f,()=>f.publishUnrelated(),loopRequest,c=>c.kind==='source'&&c.authority!=='reviewed_source'?'necessary':'skip');
+  assert.equal(fallback(result.events),undefined,JSON.stringify(fallback(result.events)));
+  const packet=result.projected.messages.find(row=>row.customType===PRESCREEN_TYPE);assert(packet,JSON.stringify(result.events));
+  assert(!JSON.parse(packet.content).materials.some(row=>row.authority==='reviewed_source'),'the answer was offered, not supplied');
+  const check=prepared(result.events)?.source_check;
+  assert.deepEqual([check?.status,check?.changed,check?.revalidated],['current',undefined,true],JSON.stringify(check));
+  assert.equal((await deliver(result))?.delivered,true,JSON.stringify(result.events));
+  await result.hooks.get('session_shutdown')();
+});
+
+// §195.1: a publish that changes what the prescreen supplied. The new generation retires the checked answer it delivered
+// (an answer is bound to its context generation, §22.4.3) and the same question is answered again under it; the one
+// re-selection takes that answer, the set reads back current, and the packet is delivered with it.
+test('§195.1 a publish that changes a supplied answer re-selects it once against the current materials',async t=>{
+  const f=await fixture(t);
+  const result=await project(t,f,async()=>{await f.publishUnrelated();
+    await f.acceptAnswer('c1','When does the harbor bell ring?','The harbor bell rings at midnight, twice.');},loopRequest);
+  assert.equal(fallback(result.events),undefined,JSON.stringify(fallback(result.events)));
+  const packet=result.projected.messages.find(row=>row.customType===PRESCREEN_TYPE);assert(packet,JSON.stringify(result.events));
+  const materials=JSON.parse(packet.content).materials;
+  assert(materials.some(row=>row.content==='The harbor bell rings at midnight, twice.'),'the answer accepted now is delivered');
+  assert(!materials.some(row=>row.content==='The harbor bell rings at midnight.'),'the retired answer is not');
+  const check=prepared(result.events)?.source_check;
+  assert.deepEqual([check?.status,check?.reason,check?.changed],['current','source_answer_changed',1],JSON.stringify(check));
+  assert(check.reselected>=1);
+  assert.equal((await deliver(result))?.delivered,true,JSON.stringify(result.events));
+  await result.hooks.get('session_shutdown')();
+});
+
+// §195.1: when the re-selection cannot make the supplied set current, the fallback stands and its row names the check's
+// own reason, not only "stale".
+test('§195.1 a supplied page whose PDF changed falls back with the actual reason',async t=>{
+  const f=await fixture(t,{answer:false});
+  const result=await project(t,f,async()=>{
+    const snapshot=await f.call('module.source.materials.snapshot',{campaign:'c1',module_id:f.mid,answer_limit:1});
+    await api.closeSourceDocuments();await writeFile(snapshot.pdf,Buffer.concat([await readFile(snapshot.pdf),Buffer.from('\n% changed\n')]));},loopRequest);
+  const row=fallback(result.events);
+  assert.equal(row?.reason,'source_material_changed',JSON.stringify(row));
+  assert.equal(row.source_check.status,'stale');assert.equal(row.source_check.reselect,'failed');
+  assert(!result.projected.messages.some(message=>message.customType===PRESCREEN_TYPE));
   await result.hooks.get('session_shutdown')();
 });
 

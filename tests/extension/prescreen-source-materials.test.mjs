@@ -44,17 +44,20 @@ async function fixture(t,pages=['Opening notices.','Unrelated middle.','The harb
   const runtime=api.createKernelRuntime(context),call=(method,params={})=>runtime.handlers[method](params);
   t.after(async()=>{await runtime.close();await context.git.close();await rm(home,{recursive:true,force:true});});
   const {module_id}=await call('module.source.bind',{module_id:'source-book',source:{path:pdf,file_sha256:sha(bytes),page_count:4}});
-  const requested=await call('module.read.request',{module_id,purpose:'answer',focus:'Harbor bell',question:'When does the harbor bell ring?',foreground:true});
-  const job=await call('module.read.claim',{module_id,owner:'fixture-reader'});assert.equal(job.job_id,requested.job_id);assert.equal(job.purpose,'answer');
-  const draft={status:'answered',answer:'The harbor bell rings at midnight.',source_refs:[{page:3}],limitations:'Only the cited authored sentence is established.'};
-  const draftPath=join(job.work_dir,'draft.json'),reviewPath=join(job.work_dir,'review.json');
-  await writeFile(draftPath,JSON.stringify(draft));
-  await writeFile(reviewPath,JSON.stringify({draft_sha256:sha(await readFile(draftPath)),checked:[{
-    paths:['/status','/answer','/source_refs','/limitations'],verdict:'supported',source_refs:[{page:3}],reason:'The original page supports the answer and limitation.',
-  }],missing:[]}));
-  await writeFile(join(job.work_dir,'observations.json'),JSON.stringify({file_sha256:job.source.file_sha256,read_pages:[3],full_pages:[],review_pages:[3]}));
-  await call('module.read.finish',{module_id,job_id:job.job_id,lease:job.lease,outcome:'completed',draft_path:draftPath,review_path:reviewPath});
-  return{home,pdf,bytes,moduleId:module_id,call};
+  const accept=async(focus,question,answer,memo=true)=>{
+    const requested=await call('module.read.request',{module_id,purpose:'answer',focus,question,foreground:true,...(memo?{}:{memo:false})});
+    const job=await call('module.read.claim',{module_id,owner:'fixture-reader'});assert.equal(job.job_id,requested.job_id);assert.equal(job.purpose,'answer');
+    const draft={status:'answered',answer,source_refs:[{page:3}],limitations:'Only the cited authored sentence is established.'};
+    const draftPath=join(job.work_dir,'draft.json'),reviewPath=join(job.work_dir,'review.json');
+    await writeFile(draftPath,JSON.stringify(draft));
+    await writeFile(reviewPath,JSON.stringify({draft_sha256:sha(await readFile(draftPath)),checked:[{
+      paths:['/status','/answer','/source_refs','/limitations'],verdict:'supported',source_refs:[{page:3}],reason:'The original page supports the answer and limitation.',
+    }],missing:[]}));
+    await writeFile(join(job.work_dir,'observations.json'),JSON.stringify({file_sha256:job.source.file_sha256,read_pages:[3],full_pages:[],review_pages:[3]}));
+    await call('module.read.finish',{module_id,job_id:job.job_id,lease:job.lease,outcome:'completed',draft_path:draftPath,review_path:reviewPath});
+  };
+  await accept('Harbor bell','When does the harbor bell ring?','The harbor bell rings at midnight.');
+  return{home,pdf,bytes,moduleId:module_id,call,accept};
 }
 
 test('module source material snapshot enumerates integrity-checked accepted answers with their original task',async t=>{
@@ -102,7 +105,9 @@ test('source provider supplies reviewed answers and exact native excerpts beyond
   assert.deepEqual(await result.check(),{status:'current',readSet:result.readSet});
   await api.closeSourceDocuments();
   await writeFile(snapshot.pdf,Buffer.from(textPdf([stream('Changed one.'),stream('Changed two.'),stream('Changed three.'),stream('Changed four.')])));
-  assert.deepEqual(await result.check(),{status:'stale',reason:'source_material_changed'});
+  const stale=await result.check();
+  assert.deepEqual([stale.status,stale.reason],['stale','source_material_changed']);
+  assert.deepEqual(new Set(stale.changed),new Set(result.candidates.map(row=>row.key)),'a changed PDF changes every use');
 });
 
 test('source provider revalidates one materialized page against the current extraction version',async t=>{
@@ -122,9 +127,11 @@ test('source provider revalidates one materialized page against the current extr
     budget:{deadlineAt,candidateBytes:64*1024,materialBytes:8*1024,maxNativePages:2},snapshot});
   assert(result.readSet.some(row=>row.kind==='extraction'));assert(result.coverage.native.materialized_pages.length>0);
   changed=true;
+  // §195.1: the check reads back exactly what was supplied -- here one native excerpt, so one page.
+  const supplied=result.candidates.find(row=>row.authority==='native_text');assert(supplied);
   assert.deepEqual(await api.checkPrescreenSourceCheckpoint({call:f.call,source,scope,signal:new AbortController().signal,
-    deadlineAt,checkpoint:structuredClone(result.checkpoint)}),{status:'stale',reason:'source_extraction_changed'});
-  assert.equal(pageCalls.at(-1).length,1,'freshness reads exactly one page already materialized by preparation');
+    deadlineAt,checkpoint:structuredClone(result.checkpointFor([supplied.key]))}),{status:'stale',reason:'source_extraction_changed',changed:[supplied.key]});
+  assert.deepEqual(pageCalls.at(-1),[supplied.data.page],'freshness reads exactly the page the supplied excerpt quotes');
   assert(result.coverage.native.materialized_pages.includes(pageCalls.at(-1)[0]));
   const unread=result.coverage.native.unmaterialized_pages[0];
   if(unread)await assert.rejects(result.readNativePages([unread],new AbortController().signal),/source_extraction_changed/);
@@ -212,4 +219,26 @@ test('historical answers recover only from one matching completed task and ambig
   const ambiguous=await f.call('module.source.materials.snapshot',{campaign:'c1',module_id:f.moduleId});
   assert.equal(ambiguous.checked_answers.length,0);assert.equal(ambiguous.checked_answers_invalid,1);
   assert.notEqual(ambiguous.answers_revision,recovered.answers_revision,'validity and recovered task attribution belong to the snapshot revision');
+});
+
+// §195.1: the check reads back what was supplied. Another answer landing moves the materials revision and leaves the
+// supplied answer and page current (`revalidated`).
+test('§195.1 a supplied answer and page stay current across an unrelated answer landing',async t=>{
+  const f=await fixture(t),snapshot=await f.call('module.source.materials.snapshot',{campaign:'c1',module_id:f.moduleId,answer_limit:8});
+  const scope={owner:'campaign:c1',campaign:'c1',worldline:'main',loop:0,audience:'keeper'};
+  const source={home:f.home,sourceInfo:({pdf})=>api.sourceInfo(pdf),sourceText:({pdf,...options},signal)=>api.sourceText(pdf,options,signal)};
+  const result=await api.preparePrescreenSources({call:f.call,campaign:'c1',moduleId:f.moduleId,scope,query:'When does the harbor bell ring?',capsule:{},source,
+    signal:new AbortController().signal,budget:{deadlineAt:Date.now()+10000,candidateBytes:64*1024,materialBytes:8*1024,maxNativePages:4},snapshot});
+  const answer=result.candidates.find(row=>row.authority==='reviewed_source'),page=result.candidates.find(row=>row.authority==='native_text'&&row.data.page===3);
+  assert(answer&&page);
+  const supplied=[answer.key,page.key];
+  assert.deepEqual(result.checkpointFor(supplied).used.map(use=>use.key),supplied,'the binding names the supplied candidates only');
+  assert.equal(result.checkpointFor(['not-issued']),undefined);
+  assert.deepEqual(await result.check(undefined,undefined,supplied),{status:'current',readSet:result.readSet},'nothing moved: no revalidation to report');
+  await f.accept('Harbor notice','Who posted the harbor notice?','The notice does not name its author.',false);
+  const moved=await f.call('module.source.materials.snapshot',{campaign:'c1',module_id:f.moduleId,answer_limit:8});
+  assert.notEqual(moved.answers_revision,snapshot.answers_revision,'the unrelated answer moved the materials revision');
+  assert.deepEqual(await result.check(undefined,Date.now()+10000,supplied),{status:'current',readSet:result.readSet,revalidated:true},
+    'what the prescreen supplied is unchanged: current, revalidated across the move');
+  // A supplied answer that changes, and its re-selection, travel the host path: prescreen-source-request.test.mjs (§195.1).
 });
