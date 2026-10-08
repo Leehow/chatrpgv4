@@ -1,6 +1,6 @@
 # A book's pregenerated investigators are offered
 
-Status: BP-01..BP-04 implemented in the continuation integration; BP-05 live source verification pending; BP-06..BP-08 deferred.
+Status: BP-01..BP-04 implemented in the continuation integration; BP-05 source read/list/load verified in an isolated clone; BP-06..BP-08 deferred.
 
 Contract: `docs/kernel-rpc.md` §207. Amends §21.2, §21.5, §22.2's `material`, §22.3's review, §151.3's claim check and §174.3.
 
@@ -115,7 +115,7 @@ Status: implemented; integrated focused/all verification pending
 
 ### BP-05 Cold Harvest through the pipeline
 
-Status: live verification pending
+Status: source-pipeline verified; App acceptance pending
 
 - `experiments/book-pregens/cold-harvest.mjs`: a `cp -c` clone of the App's library, this worktree's kernel and host, live
   reader and reviewer children on the model the App's readings ran on today (`openai-codex/gpt-6-luna`, thinking low);
@@ -156,3 +156,5 @@ The stopped draft lacked the list/load and setup consumers. The continuation add
 External comparison: [Foundry actors](https://foundryvtt.com/article/actors/) exposes JSON character intake; [Roll20 character sheets](https://wiki.roll20.net/Character_sheet) places sheet values in persistent attributes. These support distinguishing stored-card intake from a fresh generation workflow. Neither provides PDF transcription accuracy or this project's source-review gate; those remain local obligations. No importer dependency was added.
 
 BP-05 run `book-pregens-01` opened Appendix A and returned zero templates. The host settled the empty material without running any reviewer. The run failed its preregistered eight-sheet bar and remains preserved. The system correction requires `/coverage` even for empty pregen drafts, treats that inventory verdict as strict, and instructs the existing fresh coverage reader to compare source to candidate. No book-specific roster or statistics are added to production. The original App metadata hash stayed unchanged.
+
+BP-05 Grok 4.7/low source run `book-pregens-03-grok47` reached generation 76 on the isolated library and offered/loaded eight sheets. The original 20-minute probe was interrupted during review; its ordinary retry retained the draft, had transport timeouts and then completed source-grounded repairs. Final review has zero missing items and 547 sheet pointers; preserved load checks cover 72 non-weapon fields, 21 weapons and 31 numeric weapon properties under the contract's engine spelling. The first two stat blocks were visually compared with p38. This validates the producer/reviewer/list/load spine, not an installed App table or independent second digit transcription. All earlier failures remain retained. The original App metadata hash is unchanged.
