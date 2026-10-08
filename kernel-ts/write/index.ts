@@ -37,7 +37,7 @@ import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcL
 import { asciiSlug, facts, publicContext, directorAdoption, offerLedger } from './text.js';
 import { obligationByHandle, obligationState } from '../read/obligations.js';
 import { statedHandleOf } from '../read/stated.js';
-import { deliveryText, deliveryRecord, keeperReads, refusedMoves } from './delivery.js';
+import { deliveryText, deliveryRecord, keeperReads, refusedMoves, unconfirmedRecordings } from './delivery.js';
 import { markupInProse, describeMarkup, bareWrapper, unwrap, MARKUP_STEER } from './markup.js';
 import { timeGap, timeReading, timeRefusal, timeWarning } from '../read/time-reading.js';
 import { speakerResolver, repeatedLine, repeatedLines, sayRanges } from './speech.js';
@@ -1315,7 +1315,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     async function ask(params: Row): Promise<Row> {
         // §135.31: the turn's Keeper reads ride on the delivery for its record; they are not part of the call's digest.
         // §190.3: nor are the moves admission refused this turn.
-        const { keeper_reads: readsIn, refused_moves: refusedIn, ...delivered } = params, reads = keeperReads(readsIn), admissionRefusedMoves = refusedMoves(refusedIn);
+        // §200.4: nor are the recordings the turn closes with unconfirmed.
+        const { keeper_reads: readsIn, refused_moves: refusedIn, unconfirmed_recordings: unconfirmedIn, ...delivered } = params, reads = keeperReads(readsIn),
+            admissionRefusedMoves = refusedMoves(refusedIn), unconfirmed = unconfirmedRecordings(unconfirmedIn);
         params = delivered;
         const { campaign, snapshot, module } = await load(params), turn = snapshot.turn;
         const started = await createTurnTransaction(campaign, snapshot.world, turn).beginWrite('table.ask', params, {
@@ -1394,6 +1396,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             director_adoption: await adoption(campaign, module, turn, world, 'ask', snapshot.world),
             ...(reads.length ? { reads } : {}),
             ...(admissionRefusedMoves.length ? { refused_moves: admissionRefusedMoves } : {}),
+            ...(unconfirmed.length ? { unconfirmed_recordings: unconfirmed } : {}),
             ...(askDocuments.record.length ? { told_documents: askDocuments.record } : {})
         };
         await campaign.writeTurnRecord(record);
@@ -1441,8 +1444,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     async function narrate(params: Row, report?: ProgressReporter): Promise<Row> {
         // §135.31: the turn's Keeper reads ride on the delivery for its record; they are not part of the call's digest.
         // §145.2: nor is the host's reading of a time skip. §190.3: nor are the moves admission refused this turn.
-        const { keeper_reads: readsIn, time_reading: timeIn, refused_moves: refusedIn, ...delivered } = params, reads = keeperReads(readsIn),
-            reading = timeReading(timeIn), admissionRefusedMoves = refusedMoves(refusedIn);
+        // §200.4: nor are the recordings the turn closes with unconfirmed.
+        const { keeper_reads: readsIn, time_reading: timeIn, refused_moves: refusedIn, unconfirmed_recordings: unconfirmedIn, ...delivered } = params, reads = keeperReads(readsIn),
+            reading = timeReading(timeIn), admissionRefusedMoves = refusedMoves(refusedIn), unconfirmed = unconfirmedRecordings(unconfirmedIn);
         params = delivered;
         const interactionScope = params._interaction_scope;
         if (interactionScope !== undefined && !['reference', 'uncertain'].includes(interactionScope))
@@ -1610,6 +1614,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...(reads.length ? { reads } : {}),
             // §190.3: the moves admission refused this turn; a refused move the delivery then told is still owed (§190.2).
             ...(admissionRefusedMoves.length ? { refused_moves: admissionRefusedMoves } : {}),
+            // §200.4: the recordings the turn closed with and no writing result settled; the capsule shows them to the next turns.
+            ...(unconfirmed.length ? { unconfirmed_recordings: unconfirmed } : {}),
             // §128.3: a repeat inside a line the host wrapped is a finding on the delivery, the same
             // `warnings` rows the verifier's `unmarked_speech` lands in, never a refusal.
             // §145.3: so is a time skip the books do not hold, on a delivery that went out anyway.

@@ -337,6 +337,23 @@ export function untoldReceipts(records: Row[], turn: number): Row[] {
             }] : [];
         });
 }
+/** Contract §200.4: the capsule budget of `unconfirmed_recordings`, trimmed from the end (the older turn). */
+export const UNCONFIRMED_RECORDINGS_BUDGET = 640;
+/** Contract §200.4: what each row tells the Keeper; `reason` says which of the three cases it was. */
+export const UNCONFIRMED_RECORDING_LINE = "the player chose to write this down; the host could not confirm it: not in the document "
+    + "unless a document view shows it, so do not tell it as written; append it if the player asks again";
+/**
+ * Contract §200.4's reader: the document recordings that a turn `recent` shows closed with and that no writing result
+ * settled (its record's `unconfirmed_recordings`, which the delivery that closed it carried), newest turn first.
+ * Information, not an offer or an obligation (§31's boundary): nothing retracts a row and it leaves with the window; a
+ * later append needs no retraction, because the line defers to the document itself.
+ */
+export function unconfirmedRecordings(shown: Row[]): Row[] {
+    return [...shown].sort((a, b) => number(b.turn) - number(a.turn)).flatMap(record => array(record.unconfirmed_recordings)
+        .map(entry => row(entry)).filter(entry => typeof entry.reason === "string" && entry.reason.length > 0)
+        .map(entry => ({ turn: record.turn, ...(typeof entry.document === "string" && entry.document ? { document: entry.document } : {}),
+            reason: entry.reason, line: UNCONFIRMED_RECORDING_LINE })));
+}
 /** present[] under its budget with every person kept: full rows are cut from the end as `fitBudget` cuts
  *  them, and each person cut comes back as a stub; if the stubs themselves do not fit, more full rows give
  *  way to stubs until they do. Returns whether anything was cut. */
@@ -532,6 +549,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
             ...unrecordedPeople(graph, world, scene, campaign.records, number(turn.turn)),
             ...unrecordedTime(campaign.records, number(turn.turn), clockSection(graph, world))],
         untold: untoldReceipts(campaign.records, number(turn.turn)),
+        // §200.4: a recording a recent turn closed with unconfirmed; only when there is one, so other capsules are unchanged.
+        ...(() => { const rows = unconfirmedRecordings(shown); return rows.length ? { unconfirmed_recordings: rows } : {}; })(),
         // §194.2: the player's ledger beside the book's truth; it fits its own budget (PLAYER_KNOWS_BUDGET), newest first.
         player_knows: playerKnowsSection(graph, world, row(campaign.jsonFiles.get("npc-journal.json")), campaign.records, number(turn.turn),
             campaign.jsonFiles.get("first-sight.json"))
@@ -548,6 +567,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         truncated.push("first_sight");
     if (fitBudget(sections.known.flags, 512, "last"))
         truncated.push("known.flags");
+    if (sections.unconfirmed_recordings && fitBudget(sections.unconfirmed_recordings, UNCONFIRMED_RECORDINGS_BUDGET, "last"))
+        truncated.push("unconfirmed_recordings");
     if (sections.player_knows.omitted)
         truncated.push("player_knows");
     for (const [name, budget] of Object.entries(BUDGETS)) {
