@@ -5967,6 +5967,10 @@ export class PiHostBackend implements HostBackend {
       await this.loadManualThinkingLevel();
       this.assertSessionGeneration(id, generation);
       const desired = this.desiredModelFor(found);
+      if (desired.model.provider !== "unknown" && desired.model.id !== "unknown"
+        && !this.models.some(model => model.provider === desired.model.provider && model.id === desired.model.id)) {
+        throw new Error(`The selected model ${desired.model.provider}/${desired.model.id} is not registered exactly. Select an available model before starting this session.`);
+      }
       const previousModelSnapshot = this.sessionModelSnapshots.get(id);
       const hadModelSnapshot = this.sessionModelSnapshots.has(id);
       rollback.push(() => {
@@ -6061,6 +6065,17 @@ export class PiHostBackend implements HostBackend {
     const sessionWorkspace = await this.readUsableSessionWorkspace(id, canonicalRoot, isolated?.sessionsDir);
     this.assertSessionGeneration(id, generation);
     const spawnCwd = sessionWorkspace?.workspaceCwd ?? canonicalRoot;
+    // §206: Pi starts on the session's own model. Left to itself, Pi 1.0 resolves a session that has
+    // no messages yet to the agent home's settings default and appends that as a `model_change`
+    // before any command is read; the set_model below then wrote the session's model back. Every new
+    // table on 2026-10-08 carried that flip (flapcode for 0.33 s, then openai-codex), and the
+    // extension's session_start ran inside it.
+    const spawnModelKnown = desired.model.provider !== "unknown" && desired.model.id !== "unknown";
+    const spawnThinkingLevel = resolveThinkingLevel(
+      desired.thinkingLevel,
+      desired.availableThinkingLevels,
+      this.modelState.thinkingLevel,
+    );
     const output = assemblePiSpawn({
       sessionPath: found.path,
       sessionId: id,
@@ -6078,6 +6093,9 @@ export class PiHostBackend implements HostBackend {
       subagentNativeSearchFile: this.nativeSearchRuntimeFile(),
       subagentModelCatalogFile: this.subagentModelCatalogFile(),
       model: desired.model,
+      ...(spawnModelKnown
+        ? { startModel: { provider: desired.model.provider, id: desired.model.id, thinkingLevel: spawnThinkingLevel } }
+        : {}),
       bridgePort,
       bridgeRoutingKey: id,
       sessionCapability,
@@ -6303,15 +6321,12 @@ export class PiHostBackend implements HostBackend {
       finish();
     });
     this.assertSessionGeneration(id, generation);
-    if (desired.model.provider !== "unknown" && desired.model.id !== "unknown") {
+    // Pi was told the model at start; this only verifies it (and corrects a Pi that matched a
+    // sibling id, or fails the spawn), and writes nothing when Pi already runs it.
+    if (spawnModelKnown) {
       await this.selectExactModel(live, desired.model.provider, desired.model.id);
       this.assertSessionGeneration(id, generation);
     }
-    const spawnThinkingLevel = resolveThinkingLevel(
-      desired.thinkingLevel,
-      desired.availableThinkingLevels,
-      this.modelState.thinkingLevel,
-    );
     if (spawnThinkingLevel !== undefined) {
       await this.writeCommand(live, {
         type: "set_thinking_level",
@@ -7698,6 +7713,10 @@ export class PiHostBackend implements HostBackend {
     // Spawn initialization already owns this exact live process. Routing these
     // commands back through ensure() would await the initialization promise
     // that is currently executing and deadlock every spawn.
+    // §206: Pi appends a `model_change` for every set_model, even to the model it is already on.
+    // Asking first keeps a selection that changes nothing out of the session file.
+    const current = await this.writeCommand(live, { type: "get_state" });
+    if (current.model?.provider === provider && current.model?.id === modelId) return;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       await this.writeCommand(live, { type: "set_model", provider, modelId });
       const state = await this.writeCommand(live, { type: "get_state" });
@@ -9866,10 +9885,10 @@ export class PiHostBackend implements HostBackend {
         });
         // The start screen draws its auto-create toggle from the host's reading of the setting (§174.5).
         if (request.action === "catalog") data.auto_investigator = await this.cocAutoInvestigatorSetting();
-        if (sid && ["begin", "select", "converse"].includes(String(request.action)) && state.model.provider !== "unknown") {
-          await this.setModel(sid, state.model.provider, state.model.id);
-          await this.setThinking(sid, state.thinkingLevel);
-        }
+        // §206: the onboarding does not write a model back. `state` was read before the worker ran
+        // (begin/converse can take half a minute), so applying it afterwards undid a model the owner
+        // picked in the meantime, and through setModel/setThinking it was also stored as their manual
+        // choice. The session keeps the model it is on; its first spawn records it (spawnLive).
         if (sid && data.name && ["begin", "select", "resume"].includes(String(request.action))) {
           const selected = await this.locate(sid);
           if (!selected.name || ["Session", "New session"].includes(selected.name)) await this.renameSession(sid, data.name.replace(/\.pdf$/i, ""));

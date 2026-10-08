@@ -41583,3 +41583,84 @@ Tests: `material-gap.test.mjs` checks segmentation, questions, gates and loop fr
 `prescreen-material-gap.test.mjs` travels through the real preparation entry, kernel, PDF and transcript store for
 host supply, named lookups, no-gap decisions, freshness, fallback and reuse. These deterministic tests are not a table.
 Live latency and prose acceptance remain pending and must retain the handoff's pre-registered bars.
+## 206. The model changes only when the owner chooses (owner rule, standing since 2026-09-29 and restated 2026-10-03: never switch a model or provider without the owner's explicit choice; `docs/specs/no-silent-provider-switch.md`; amends §68's spawn path and §85's chip)
+
+**Evidence.** Every new App table on 2026-10-08 (`2026-10-08T12-52-28-304Z_3fc2f27a…`, `14-19-49-867Z_58c7e45e…`,
+`14-51-49-179Z_e8f5cec8…`) records `model_change openai-codex/gpt-6-luna`, then `flapcode/gpt-6-luna`, then
+`openai-codex/gpt-6-luna` 0.33-0.44 s later; 10-03 and 10-04 tables have the same three rows. The agent home's Pi default is
+flapcode/gpt-6-luna, the owner's remembered pick openai-codex/gpt-6-luna. On 10-03 a table also moved from flapcode to
+openai-codex in the middle of its second play turn.
+
+### 206.1 The rule
+
+A session's model and provider change only by the owner's own pick: the composer's model menu (host `setModel`) or
+`/coc model`. Nothing else writes a `model_change` naming another model into a session, and only the composer's pick is
+stored as `manualModelSelection`. A model the owner cannot currently use is shown as such; it is never replaced.
+
+### 206.2 Pi starts on the session's model
+
+The id shape names each row's writer: host rows carry a UUID, Pi's `SessionManager` mints 8 hex characters.
+
+1. The flapcode row (8-hex, before the extension's `kernel.hello`) is Pi's own. Pi 1.0's `createAgentSession` restores a
+   recorded model only for a session with messages; a new table has none, so Pi took the agent home's
+   `defaultProvider/defaultModel` and appended it with a thinking row. The host started Pi without naming a model.
+2. The openai-codex row after it (8-hex, after `coc-setup-opening`) is the host's `selectExactModel` correcting Pi, once
+   Pi read commands after `session_start`. The extension's `session_start` ran on flapcode in between.
+
+`spawnLive` now passes `--provider <provider> --model <id> --thinking <level>` for a known model (`assemblePiSpawn`
+`startModel`, Pi's CLI port; no Pi patch). `selectExactModel` asks `get_state` first and sends `set_model` only on a
+mismatch, because Pi appends a row for every `set_model`, even to its current model. A new table therefore gains one row
+restating its own model; a resumed one gains none.
+
+### 206.3 The onboarding writes no model
+
+After `begin`, `select` and `converse` the host used to apply the model state it had read before the worker ran
+(`setModel` + `setThinking`, which also remembered both as the owner's choice). A worker can run for half a minute; a pick
+made meanwhile was undone. The worker still receives the model of the moment the step began; afterwards nothing is
+written. The session's first spawn records its model (§206.2).
+
+### 206.4 A catalog miss is a state
+
+When the loaded catalog does not list the session's model, the composer used to switch to `catalog[0]` and persist it
+through `setModel` (the 10-03 mid-turn writer: a live 8-hex `set_model` row during play, no respawn before it, and
+`manualModelSelection` changed). Now `catalogLacksModel` (an empty catalog or the §85 placeholder claims nothing) marks the
+chip (`data-catalog-missing`, `!`) and a dismissible notice says the session keeps the model and nothing was switched. No
+call reaches the host. The state is derived from the catalog, so it clears when the model is listed again; dismissing the
+notice leaves the mark.
+
+### 206.5 Boundaries
+
+- A model Pi's registry lacks: Pi's `--model` can fall back to a substring match inside the named provider. The host now
+  requires exact registration before spawning; an absent provider/id pair fails before a sibling row or session-start
+  hook can run. The post-spawn exact check remains as a verification boundary.
+- A new session whose remembered pick is unavailable starts on the configured default (§68's test "falls back to the
+  configured default"); after an extension provider is removed the backend's default becomes the first listed model.
+  Neither changes an existing session; whether a new table should instead start on the missing pick and show §206.4's
+  state is left to the owner.
+
+### 206.6 Implementation decisions (NS-01..NS-03, 2026-10-08)
+
+- `SpawnInput.startModel {provider, id, thinkingLevel?}` is separate from `model` (which only steers tool exclusion), so
+  callers that pass `model` for tools do not start passing CLI flags. The thinking level is the one `spawnLive` already
+  sent after start (`resolveThinkingLevel(desired…)`), now computed before the child exists and reused.
+- The placeholder model (`unknown/unknown`: the host knows no configured, remembered or recorded model) passes no flags;
+  Pi then resolves its own default as before (§68, §85).
+- The onboarding route keeps its read: it is the model handed to the worker.
+- The chip notice text is the shell's own Chinese, like the rest of `App.tsx`; it is not a COC file (§23's guard).
+
+*Three ends (§31).* Writer: the owner's pick (`setModel`, `/coc model`) and Pi's record of the model it was told to start
+on. Reader: `desiredModelFor` and Pi's session restore. Actor: the owner, who sees a missing model marked and picks one;
+the operator, who reads `model_change` rows and finds one provider per table.
+
+*Tests.* `Electron/packages/pi-backend/test/no-silent-provider-switch.test.ts` runs the real host against the real Pi CLI
+(the vendored build when built, else the installed 1.0 package; the model resolution is unpatched code) with Pi's default
+flapcode and the remembered pick relay: an owner-picked table records relay twice and nothing else (it recorded relay,
+flapcode, relay), a brand-new table records relay once (flapcode, relay), a played table's resume records nothing (one
+redundant row), the §206.5 sibling boundary refuses to start and names no other provider; and the onboarding route with a
+stub worker (begin, select, converse) keeps a pick made while the worker ran, in the session and as the remembered pick.
+`Electron/packages/ui/src/App.test.tsx` "model catalog miss (§206)": the chip keeps the model and is marked, the notice names
+it, neither `setModel` nor `stop` is called, the mark outlives a dismissed notice and clears when the catalog lists the
+model again; `catalogLacksModel` claims nothing for an empty catalog or the placeholder. Mutations, each reverted by
+copying the saved file back, each turned a test red: no `--provider/--model` at spawn (2 red: the flapcode row); `set_model`
+sent regardless of `get_state` (3 red); the onboarding re-apply restored (3 red); `catalogLacksModel` never true (2 red);
+a `setModel` to the first listed model on a miss (1 red).

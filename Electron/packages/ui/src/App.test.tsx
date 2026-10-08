@@ -89,7 +89,7 @@ vi.mock('@xterm/xterm', () => {
 
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit = vi.fn(); dispose = vi.fn() } }))
 
-import { App, fitBrowserToolsWidth, mergeAgentSnapshot, mergeAgentSummary, mergeSessionSnapshot, sidebarPreferencesKey, sidebarModelForSession, sidebarStatusForSession, normalizeArchiveTimestamps, expiredArchivedSessionIds, ARCHIVE_RETENTION_MS, CHAT_MIN_WIDTH, PANE_HANDLE_TRACKS } from './App'
+import { App, catalogLacksModel, fitBrowserToolsWidth, mergeAgentSnapshot, mergeAgentSummary, mergeSessionSnapshot, sidebarPreferencesKey, sidebarModelForSession, sidebarStatusForSession, normalizeArchiveTimestamps, expiredArchivedSessionIds, ARCHIVE_RETENTION_MS, CHAT_MIN_WIDTH, PANE_HANDLE_TRACKS } from './App'
 import { createMockHost, DEMO_MODEL_STORAGE_KEY, DEMO_SESSION_MODELS_STORAGE_KEY, mockCapabilities } from './mock-host'
 import { registerHeaderAction } from './workbench/header-actions'
 
@@ -4138,13 +4138,14 @@ describe('extensions settings tab', () => {
   })
 })
 
-describe('model catalog fallback', () => {
-  it('falls back when the selected model disappears and does not abort an in-flight response', async () => {
+describe('model catalog miss (§206)', () => {
+  // 2026-10-03: the catalog came back without flapcode mid-turn; the shell switched the table to
+  // `catalog[0]` (openai-codex) through setModel, which the host also stored as the owner's pick.
+  it('keeps the selected model when the catalog stops listing it, marks it, never calls setModel, and clears when it is back', async () => {
     const host = createMockHost()
     const full = await host.listModels()
     let models = full
     const grok = full.find(model => model.provider === 'xai' && model.id === 'grok-4')!
-    const fallback = full[0]
     const listeners = new Set<(event: { type: 'catalog_changed'; reason: 'auth' | 'extension' | 'refresh' }) => void>()
     host.listModels = vi.fn(async () => models)
     host.subscribeModelCatalog = listener => {
@@ -4173,6 +4174,10 @@ describe('model catalog fallback', () => {
     fireEvent.click(screen.getByLabelText('发送消息'))
     await waitFor(() => expect(host.sendPrompt).toHaveBeenCalled())
     expect(screen.getByTestId('waiting-stop')).toBeTruthy()
+    // The owner's own pick went through setModel; nothing after this may.
+    expect(setModel).toHaveBeenCalledWith('welcome', grok.provider, grok.id)
+    setModel.mockClear()
+    expect(screen.getByTestId('model-chip').getAttribute('data-catalog-missing')).toBeNull()
 
     models = full.filter(model => model.id !== grok.id)
     host.getModelState = vi.fn(async (): Promise<ModelState> => ({
@@ -4184,14 +4189,37 @@ describe('model catalog fallback', () => {
       for (const listener of listeners) listener({ type: 'catalog_changed', reason: 'auth' })
     })
 
-    await waitFor(() => expect(screen.getByTestId('model-chip').textContent).toContain(fallback.name))
-    const notice = await screen.findByTestId('catalog-fallback-notice')
-    expect(notice.textContent).toContain(`已切换到 ${fallback.name}`)
+    const notice = await screen.findByTestId('catalog-missing-notice')
+    expect(notice.textContent).toContain(grok.name)
+    expect(notice.textContent).toContain('is not in the available catalog')
+    const chip = screen.getByTestId('model-chip')
+    expect(chip.textContent).toContain(grok.name)
+    expect(chip.getAttribute('data-catalog-missing')).toBe('true')
+    expect(setModel).not.toHaveBeenCalled()
     expect(stop).not.toHaveBeenCalled()
     expect(screen.getByTestId('waiting-stop')).toBeTruthy()
-    expect(setModel).toHaveBeenCalledWith('welcome', fallback.provider, fallback.id)
+
+    // Dismissing the explanation does not end the state: the chip still says it.
     fireEvent.click(screen.getByRole('button', { name: '关闭错误提示' }))
-    expect(screen.queryByTestId('catalog-fallback-notice')).toBeNull()
+    expect(screen.queryByTestId('catalog-missing-notice')).toBeNull()
+    expect(screen.getByTestId('model-chip').getAttribute('data-catalog-missing')).toBe('true')
+
+    // The catalog lists it again: the mark goes by itself, and still nothing was switched.
+    models = full
+    await act(async () => {
+      for (const listener of listeners) listener({ type: 'catalog_changed', reason: 'refresh' })
+    })
+    await waitFor(() => expect(screen.getByTestId('model-chip').getAttribute('data-catalog-missing')).toBeNull())
+    expect(screen.getByTestId('model-chip').textContent).toContain(grok.name)
+    expect(setModel).not.toHaveBeenCalled()
+  })
+
+  it('an empty or unread catalog claims nothing about the model', () => {
+    const model = { provider: 'flapcode', id: 'gpt-6-luna', name: 'Luna' } as Model
+    expect(catalogLacksModel(model, [])).toBe(false)
+    expect(catalogLacksModel({ provider: 'unknown', id: 'unknown', name: 'Unknown' } as Model, [{ provider: 'relay', id: 'x', name: 'X' } as Model])).toBe(false)
+    expect(catalogLacksModel(model, [{ provider: 'openai-codex', id: 'gpt-6-luna', name: 'Luna' } as Model])).toBe(true)
+    expect(catalogLacksModel(model, [model])).toBe(false)
   })
 })
 

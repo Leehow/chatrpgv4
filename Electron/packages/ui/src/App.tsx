@@ -286,30 +286,16 @@ function reconcileModelStateWithCatalog(state: ModelState, catalog: readonly Mod
   }
 }
 
-function fallbackModelIfMissing(state: ModelState, catalog: readonly Model[]): { state: ModelState; fellBack: boolean } {
-  if (catalog.length === 0) return { state, fellBack: false }
-  const known = catalog.find(model => model.provider === state.model.provider && model.id === state.model.id)
-  if (known) {
-    const availableThinkingLevels = thinkingLevelsForHydratedModel(known, state.availableThinkingLevels)
-    return {
-      state: {
-        ...state,
-        model: known,
-        thinkingLevel: resolveThinkingLevel(state.thinkingLevel, availableThinkingLevels) ?? state.thinkingLevel,
-        availableThinkingLevels,
-      },
-      fellBack: false,
-    }
-  }
-  const next = catalog[0]
-  return {
-    state: {
-      model: next,
-      thinkingLevel: resolveThinkingLevel(state.thinkingLevel, thinkingLevelsForModel(next)) ?? 'off',
-      availableThinkingLevels: thinkingLevelsForModel(next),
-    },
-    fellBack: true,
-  }
+/**
+ * §206: true when a loaded catalog does not list the session's model. That is a state to show, never
+ * a reason to pick another model: the shell used to switch to `catalog[0]` here and persist it through
+ * `setModel`, which the host stores as the owner's manual choice. On 2026-10-03 that moved a table
+ * from flapcode to openai-codex in the middle of a turn. An empty catalog says nothing (it may simply
+ * not have loaded), and the unread placeholder is not a model (§85).
+ */
+export function catalogLacksModel(model: Model | null | undefined, catalog: readonly Model[]): boolean {
+  if (!model || isUnreadModel(model) || catalog.length === 0) return false
+  return !catalog.some(item => item.provider === model.provider && item.id === model.id)
 }
 
 /** Swift-style priority: live activity (selected streaming / observed running / running subagents)
@@ -696,19 +682,16 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   const [subagentModelsOpen, setSubagentModelsOpen] = useState(false)
   const browserOccluded = modalOpen || remoteOpen || subagentModelsOpen
   const modalVisibility = useModelVisibility(host, modelState?.model)
-  const [catalogNotice, setCatalogNotice] = useState<string | null>(null)
-  const lastCatalogFallbackKeyRef = useRef('')
-  const announceCatalogFallback = useCallback((sessionId: string, previous: Model, next: ModelState) => {
-    const key = `${sessionId}:${previous.provider}/${previous.id}->${next.model.provider}/${next.model.id}`
-    if (lastCatalogFallbackKeyRef.current === key) return
-    lastCatalogFallbackKeyRef.current = key
-    setCatalogNotice(`当前模型已不可用，已切换到 ${next.model.name}`)
-    if (!sessionId) return
-    // Persist the fallback for future turns. Never stop an in-flight response.
-    void host.setModel(sessionId, next.model.provider, next.model.id).catch(() => {
-      // Local chip already shows the fallback; a host persist miss must not abort the turn.
-    })
-  }, [host])
+  // §206: a model the loaded catalog does not list stays the session's model. The chip marks it and
+  // the notice says so; nothing here calls setModel, so only the owner's own pick changes it, and a
+  // running turn is left alone. The state is derived, so it clears by itself when the catalog lists
+  // the model again. Dismissing the notice hides it for that session and model only.
+  const modelMissingFromCatalog = !modalVisibility.loading && catalogLacksModel(modelState?.model, modalVisibility.models)
+  const missingModelKey = modelMissingFromCatalog && modelState ? `${selectedSession}:${modelState.model.provider}/${modelState.model.id}` : ''
+  const [dismissedMissingModelKey, setDismissedMissingModelKey] = useState('')
+  const catalogNotice = missingModelKey && modelState && dismissedMissingModelKey !== missingModelKey
+    ? `The selected model ${modelState.model.name || modelState.model.id} (${modelState.model.provider}) is not in the available catalog. This session keeps its selection; choose another model explicitly to change it.`
+    : null
   const copiedTimerRef = useRef<number | null>(null)
   const archiveCleanupInFlightRef = useRef(new Set<string>())
   const sidebarStorageKey = useMemo(() => sidebarPreferencesKey(projects), [projects])
@@ -1378,19 +1361,6 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
       })
     return () => { current = false }
   }, [host, modalVisibility.models, selectedSession])
-  useEffect(() => {
-    if (modalVisibility.catalogEpoch === 0 || modalVisibility.loading) return
-    const sessionId = selectedSessionRef.current
-    if (!sessionId) return
-    const current = modelStatesBySessionRef.current.get(sessionId) ?? modelState
-    if (!current) return
-    const { state, fellBack } = fallbackModelIfMissing(current, modalVisibility.models)
-    if (!fellBack) return
-    modelStatesBySessionRef.current.set(sessionId, state)
-    rememberSessionModel(sessionId, state.model)
-    setModelState(state)
-    announceCatalogFallback(sessionId, current.model, state)
-  }, [announceCatalogFallback, modalVisibility.catalogEpoch, modalVisibility.loading, modalVisibility.models, modelState])
   useEffect(() => {
     const request = ++historyLoadRef.current
     const requestLiveRevision = transcriptLiveRevisionRef.current
@@ -3102,7 +3072,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
         <div id={EXT_CONFIRM_SLOT_ID} data-testid="extui-confirm-slot" />
         {planProductEnabled && <PlanApprovalBar host={host} sessionId={selectedSession} readOnly={leaseReadOnly} busy={sessionWorking} lastUser={lastUserForPlanApproval} onSend={send} />}
         <MessageQueue items={sessionQueue.items} expanded={sessionQueue.expanded} pending={sessionQueue.pending} mutationsDisabled={leaseReadOnly} canSteer={sessionQueue.busy || leftoverQueued} onToggle={() => sessionQueue.setExpanded(!sessionQueue.expanded)} onPromote={id => { if (!leaseReadOnly) void sessionQueue.promote(id).catch(() => undefined) }} onEdit={(id, text) => { if (!leaseReadOnly) void sessionQueue.edit(id, text).catch(() => undefined) }} onRemove={id => { if (!leaseReadOnly) void sessionQueue.remove(id).catch(() => undefined) }} onRetry={id => { if (!leaseReadOnly) void sessionQueue.retry(id).catch(() => undefined) }} onSteer={id => { if (!leaseReadOnly) void sessionQueue.cutIn(id).catch(() => undefined) }} />
-        <Composer thinkingPending={Boolean(selectedSession) && thinkingKnownFor !== selectedSession} onboarding={onboardingActive} streaming={streaming} working={sessionWorking} stopping={selectedStopping} stopError={stopError?.sessionId === selectedSession ? stopError.message : null} compacting={compacting} compactingLabel={compactingLabel} queueBusy={queueLocksComposer} readOnly={leaseReadOnly} leaseOwner={packSnapshotMismatch ? undefined : (leaseReadOnly ? leaseOwnerLabel(lease) : undefined)} onTakeover={packSnapshotMismatch ? undefined : async () => { if (selectedSession) setLease(await host.forceTakeoverSessionLease(selectedSession)) }} readOnlyMessage={packSnapshotMismatch ? `此会话在 ${selectedConversationPackId} 扩展包下开始，当前项目启用的是 ${activeProductPackId}。在「扩展」里为这个项目重新启用 ${selectedConversationPackId}，这一局就接着打——记录都在，不用新建会话。` : undefined} placeholder={composerPlaceholder} modelState={modelState} host={host} sessionId={selectedSession} initialDraft={selectedSession ? (draftsBySessionRef.current.get(selectedSession) ?? '') : ''} initialAttachments={selectedSession ? (attachmentsBySessionRef.current.get(selectedSession) ?? EMPTY_COMPOSER_ATTACHMENTS) : EMPTY_COMPOSER_ATTACHMENTS} initialDocuments={selectedSession ? (documentsBySessionRef.current.get(selectedSession) ?? EMPTY_COMPOSER_DOCUMENTS) : EMPTY_COMPOSER_DOCUMENTS} onDraftChange={persistComposerDraft} onAttachmentsChange={persistComposerAttachments} onDocumentsChange={persistComposerDocuments} statsRefreshKey={statsRefreshKey} visibility={modalVisibility} catalogNotice={catalogNotice} onDismissCatalogNotice={() => setCatalogNotice(null)} onOpenModelManager={openModelManager} onCompact={compact} onSend={send} onStop={stopSelectedSession} onDismissStopError={() => setStopError(current => current?.sessionId === selectedSession ? null : current)} onModel={applySelectedModelState} onEnsureSession={ensureSession} />
+        <Composer thinkingPending={Boolean(selectedSession) && thinkingKnownFor !== selectedSession} onboarding={onboardingActive} streaming={streaming} working={sessionWorking} stopping={selectedStopping} stopError={stopError?.sessionId === selectedSession ? stopError.message : null} compacting={compacting} compactingLabel={compactingLabel} queueBusy={queueLocksComposer} readOnly={leaseReadOnly} leaseOwner={packSnapshotMismatch ? undefined : (leaseReadOnly ? leaseOwnerLabel(lease) : undefined)} onTakeover={packSnapshotMismatch ? undefined : async () => { if (selectedSession) setLease(await host.forceTakeoverSessionLease(selectedSession)) }} readOnlyMessage={packSnapshotMismatch ? `此会话在 ${selectedConversationPackId} 扩展包下开始，当前项目启用的是 ${activeProductPackId}。在「扩展」里为这个项目重新启用 ${selectedConversationPackId}，这一局就接着打——记录都在，不用新建会话。` : undefined} placeholder={composerPlaceholder} modelState={modelState} host={host} sessionId={selectedSession} initialDraft={selectedSession ? (draftsBySessionRef.current.get(selectedSession) ?? '') : ''} initialAttachments={selectedSession ? (attachmentsBySessionRef.current.get(selectedSession) ?? EMPTY_COMPOSER_ATTACHMENTS) : EMPTY_COMPOSER_ATTACHMENTS} initialDocuments={selectedSession ? (documentsBySessionRef.current.get(selectedSession) ?? EMPTY_COMPOSER_DOCUMENTS) : EMPTY_COMPOSER_DOCUMENTS} onDraftChange={persistComposerDraft} onAttachmentsChange={persistComposerAttachments} onDocumentsChange={persistComposerDocuments} statsRefreshKey={statsRefreshKey} visibility={modalVisibility} catalogNotice={catalogNotice} onDismissCatalogNotice={() => setDismissedMissingModelKey(missingModelKey)} modelMissingFromCatalog={modelMissingFromCatalog} onOpenModelManager={openModelManager} onCompact={compact} onSend={send} onStop={stopSelectedSession} onDismissStopError={() => setStopError(current => current?.sessionId === selectedSession ? null : current)} onModel={applySelectedModelState} onEnsureSession={ensureSession} />
       </div> : null}
     </section>
     {rightPaneAvailable && <ResizeHandle label="调整工具栏宽度" side="right" onPointerDown={resizeTools} />}
@@ -3270,16 +3240,16 @@ function toPromptAttachment(a: ComposerAttachment): Promise<PromptAttachment> {
 /** Stable composer chrome (model chip, quick menu, thinking control, stats/quota/balance
  * pills). Memoized with useCallback-backed handlers so per-keystroke draft updates,
  * which re-render only the Composer, never re-render this row. */
-const ComposerOptions = memo(function ComposerOptions({ thinkingPending = false, readOnly, working, streaming, compacting, compactingLabel, statsRefreshKey, host, sessionId, modelState, visibility, quickOpen, onSelectModel, onThinkingChange, onQuickOpenChange }: { thinkingPending?: boolean; readOnly: boolean; working: boolean; streaming: boolean; compacting: boolean; compactingLabel?: string | null; statsRefreshKey: number; host: PipiHostAPI; sessionId: string; modelState: ModelState | null; visibility: ModelVisibilityController; quickOpen: boolean; onSelectModel: (model: Model) => void; onThinkingChange: (level: ThinkingLevel) => void; onQuickOpenChange: (value: boolean | ((previous: boolean) => boolean)) => void }) {
+const ComposerOptions = memo(function ComposerOptions({ thinkingPending = false, readOnly, working, streaming, compacting, compactingLabel, statsRefreshKey, host, sessionId, modelState, modelMissingFromCatalog = false, visibility, quickOpen, onSelectModel, onThinkingChange, onQuickOpenChange }: { thinkingPending?: boolean; readOnly: boolean; working: boolean; streaming: boolean; compacting: boolean; compactingLabel?: string | null; statsRefreshKey: number; host: PipiHostAPI; sessionId: string; modelState: ModelState | null; modelMissingFromCatalog?: boolean; visibility: ModelVisibilityController; quickOpen: boolean; onSelectModel: (model: Model) => void; onThinkingChange: (level: ThinkingLevel) => void; onQuickOpenChange: (value: boolean | ((previous: boolean) => boolean)) => void }) {
   const composerActions = useComposerActions()
   // §85: `thinkingPending` is one fact — this session's model state has not been read yet —
   // and it gates both chips. It was plumbed for the thinking level alone (§63), so the model
   // name went on rendering the host's placeholder: a ✦ and the word Unknown, measured at 12.5
   // seconds on screen per session, stating a model nobody chose.
-  return <div className="composer-options"><div className="composer-options-left"><div className="quick-menu-anchor"><button className="model-chip" aria-label="当前模型" title="切换模型" data-testid="model-chip" disabled={readOnly} onClick={() => { if (!readOnly) onQuickOpenChange(value => !value) }}>{!isUnreadModel(modelState?.model) && modelState?.model && <ProviderLogo provider={modelState.model.provider} modelId={modelState.model.id} size={13} />}<span className="model-chip-name">{isUnreadModel(modelState?.model) ? '加载模型…' : (modelState?.model.name ?? '加载模型…')}</span></button>{quickOpen && !readOnly && <ModelQuickMenu groups={visibility.quickGroups} current={modelState?.model ?? null} onSelect={model => void onSelectModel(model)} onClose={() => onQuickOpenChange(false)} />}</div><ThinkingChip pending={thinkingPending} level={modelState?.thinkingLevel ?? 'off'} levels={modelState?.availableThinkingLevels ?? []} onChange={level => void onThinkingChange(level)} />{composerActions.map(action => <Fragment key={action.id}>{action.render({sessionId, model: modelState?.model, disabled: readOnly || working || streaming || compacting})}</Fragment>)}</div><div className="composer-stats" data-testid="composer-session-stats"><SessionStatsPill host={host} sessionId={sessionId} isStreaming={streaming} isCompacting={compacting} compactingLabel={compactingLabel ?? undefined} refreshKey={statsRefreshKey} /><QuotaPill host={host} sessionId={sessionId} provider={modelState?.model.provider} modelId={modelState?.model.id} refreshKey={statsRefreshKey} /><BalancePill host={host} sessionId={sessionId} provider={modelState?.model.provider} refreshKey={statsRefreshKey} /></div></div>
+  return <div className="composer-options"><div className="composer-options-left"><div className="quick-menu-anchor"><button className={modelMissingFromCatalog ? 'model-chip model-chip-missing' : 'model-chip'} aria-label="当前模型" title={modelMissingFromCatalog ? 'Selected model is absent from the catalog; its selection is preserved' : '切换模型'} data-testid="model-chip" data-catalog-missing={modelMissingFromCatalog ? 'true' : undefined} disabled={readOnly} onClick={() => { if (!readOnly) onQuickOpenChange(value => !value) }}>{!isUnreadModel(modelState?.model) && modelState?.model && <ProviderLogo provider={modelState.model.provider} modelId={modelState.model.id} size={13} />}{modelMissingFromCatalog && <span className="model-chip-missing-mark" aria-hidden="true">!</span>}<span className="model-chip-name">{isUnreadModel(modelState?.model) ? '加载模型…' : (modelState?.model.name ?? '加载模型…')}</span></button>{quickOpen && !readOnly && <ModelQuickMenu groups={visibility.quickGroups} current={modelState?.model ?? null} onSelect={model => void onSelectModel(model)} onClose={() => onQuickOpenChange(false)} />}</div><ThinkingChip pending={thinkingPending} level={modelState?.thinkingLevel ?? 'off'} levels={modelState?.availableThinkingLevels ?? []} onChange={level => void onThinkingChange(level)} />{composerActions.map(action => <Fragment key={action.id}>{action.render({sessionId, model: modelState?.model, disabled: readOnly || working || streaming || compacting})}</Fragment>)}</div><div className="composer-stats" data-testid="composer-session-stats"><SessionStatsPill host={host} sessionId={sessionId} isStreaming={streaming} isCompacting={compacting} compactingLabel={compactingLabel ?? undefined} refreshKey={statsRefreshKey} /><QuotaPill host={host} sessionId={sessionId} provider={modelState?.model.provider} modelId={modelState?.model.id} refreshKey={statsRefreshKey} /><BalancePill host={host} sessionId={sessionId} provider={modelState?.model.provider} refreshKey={statsRefreshKey} /></div></div>
 })
 
-function Composer({ thinkingPending = false, onboarding = false, streaming, working, stopping, stopError, compacting, compactingLabel, queueBusy, readOnly, leaseOwner, onTakeover, readOnlyMessage, placeholder = '给 PipiUI 发送消息…', modelState, host, sessionId, initialDraft = '', initialAttachments = EMPTY_COMPOSER_ATTACHMENTS, initialDocuments = EMPTY_COMPOSER_DOCUMENTS, onDraftChange, onAttachmentsChange, onDocumentsChange, statsRefreshKey, visibility, catalogNotice, onDismissCatalogNotice, onOpenModelManager, onCompact, onSend, onStop, onDismissStopError, onModel, onEnsureSession }: { thinkingPending?: boolean; onboarding?: boolean; streaming: boolean; working: boolean; stopping: boolean; stopError: string | null; compacting: boolean; compactingLabel?: string | null; queueBusy: boolean; readOnly: boolean; leaseOwner?: string; onTakeover?: () => void; readOnlyMessage?: string; /** What the empty composer says to type; a product pack sets it by phase. */ placeholder?: string; modelState: ModelState | null; host: PipiHostAPI; sessionId: string; initialDraft?: string; initialAttachments?: ComposerAttachment[]; initialDocuments?: ComposerDocument[]; onDraftChange?: (draft: string) => void; onAttachmentsChange?: (attachments: ComposerAttachment[]) => void; onDocumentsChange?: (documents: ComposerDocument[]) => void; statsRefreshKey: number; visibility: ModelVisibilityController; catalogNotice?: string | null; onDismissCatalogNotice?: () => void; onOpenModelManager: () => void; onCompact: () => void; onSend: (draft: string, attachments?: ComposerAttachment[], documents?: ComposerDocument[], hasReadyInputFiles?: boolean) => Promise<boolean>; onStop: () => void; onDismissStopError: () => void; onModel: (state: ModelState) => void; onEnsureSession: () => Promise<string | null> }) {
+function Composer({ thinkingPending = false, onboarding = false, streaming, working, stopping, stopError, compacting, compactingLabel, queueBusy, readOnly, leaseOwner, onTakeover, readOnlyMessage, placeholder = '给 PipiUI 发送消息…', modelState, host, sessionId, initialDraft = '', initialAttachments = EMPTY_COMPOSER_ATTACHMENTS, initialDocuments = EMPTY_COMPOSER_DOCUMENTS, onDraftChange, onAttachmentsChange, onDocumentsChange, statsRefreshKey, visibility, catalogNotice, onDismissCatalogNotice, modelMissingFromCatalog = false, onOpenModelManager, onCompact, onSend, onStop, onDismissStopError, onModel, onEnsureSession }: { thinkingPending?: boolean; onboarding?: boolean; streaming: boolean; working: boolean; stopping: boolean; stopError: string | null; compacting: boolean; compactingLabel?: string | null; queueBusy: boolean; readOnly: boolean; leaseOwner?: string; onTakeover?: () => void; readOnlyMessage?: string; /** What the empty composer says to type; a product pack sets it by phase. */ placeholder?: string; modelState: ModelState | null; host: PipiHostAPI; sessionId: string; initialDraft?: string; initialAttachments?: ComposerAttachment[]; initialDocuments?: ComposerDocument[]; onDraftChange?: (draft: string) => void; onAttachmentsChange?: (attachments: ComposerAttachment[]) => void; onDocumentsChange?: (documents: ComposerDocument[]) => void; statsRefreshKey: number; visibility: ModelVisibilityController; catalogNotice?: string | null; onDismissCatalogNotice?: () => void; /** §206: the loaded catalog does not list the session's model; the chip marks it. */ modelMissingFromCatalog?: boolean; onOpenModelManager: () => void; onCompact: () => void; onSend: (draft: string, attachments?: ComposerAttachment[], documents?: ComposerDocument[], hasReadyInputFiles?: boolean) => Promise<boolean>; onStop: () => void; onDismissStopError: () => void; onModel: (state: ModelState) => void; onEnsureSession: () => Promise<string | null> }) {
   const [draft, setDraft] = useState(initialDraft)
   const [attachments, setAttachments] = useState<ComposerAttachment[]>(initialAttachments)
   const [documents, setDocuments] = useState<ComposerDocument[]>(initialDocuments)
@@ -3585,13 +3555,13 @@ function Composer({ thinkingPending = false, onboarding = false, streaming, work
     </div>}
     <InputFileAttachments ref={inputFilesApiRef} host={host} sessionId={sessionId} model={modelState?.model} readOnly={readOnly} working={working} refreshKey={inputFilesEpoch} onEnsureSession={onEnsureSession} onGateChange={setInputFileGate} onNotice={setAttachError} />
     {catalogNotice && onDismissCatalogNotice && (
-      <div data-testid="catalog-fallback-notice">
+      <div data-testid="catalog-missing-notice">
         <DismissibleError className="composer-catalog-notice" message={catalogNotice} onDismiss={onDismissCatalogNotice} />
       </div>
     )}
     {(attachError || sendError || stopError) && <div className="composer-error" data-testid="composer-error"><span>{stopError ?? sendError ?? attachError}</span><button className="composer-error-close" aria-label="关闭错误提示" data-testid="composer-error-close" onClick={() => { setSendError(null); setAttachError(null); onDismissStopError() }}>×</button></div>}
     <div className="composer-card"><div className="composer-shell"><textarea ref={textareaRef} className={inputStateClass} aria-label="消息输入框" disabled={readOnly || onboarding} value={draft} placeholder={onboarding ? '先在上方选择剧本，准备好后开始游戏' : readOnly ? '会话由另一版本运行中' : queueBusy ? 'Boss 正在工作，发送将进入队列，待当前回复完成后处理…' : placeholder} rows={1} style={{ height: `${estimatedTextareaHeight(draft)}px` }} onChange={event => changeDraft(event.target.value)} onKeyDown={onKeyDown} onPaste={onPaste} />{working && <button aria-label={stopping ? '正在停止' : '停止生成'} className="send stop" disabled={stopping} onClick={onStop}>{stopping ? '…' : '■'}</button>}<button aria-label="发送消息" title={queueBusy ? '加入队列，待 Boss 当前回复完成后发送' : undefined} className="send" disabled={!canSend} onClick={() => void submit()}>↑</button></div></div>
-    <ComposerOptions thinkingPending={thinkingPending} readOnly={readOnly} working={working} streaming={streaming} compacting={compacting} compactingLabel={compactingLabel} statsRefreshKey={statsRefreshKey} host={host} sessionId={sessionId} modelState={modelState} visibility={visibility} quickOpen={quickOpen} onSelectModel={handleQuickSelect} onThinkingChange={setThinking} onQuickOpenChange={setQuickOpen} />
+    <ComposerOptions thinkingPending={thinkingPending} readOnly={readOnly} working={working} streaming={streaming} compacting={compacting} compactingLabel={compactingLabel} statsRefreshKey={statsRefreshKey} host={host} sessionId={sessionId} modelState={modelState} modelMissingFromCatalog={modelMissingFromCatalog} visibility={visibility} quickOpen={quickOpen} onSelectModel={handleQuickSelect} onThinkingChange={setThinking} onQuickOpenChange={setQuickOpen} />
     {lightboxIndex !== null && attachments[lightboxIndex] && <div className="lightbox-backdrop" data-testid="lightbox" onMouseDown={event => { if (event.target === event.currentTarget) setLightboxIndex(null) }}><img src={attachments[lightboxIndex].url} alt="图片预览" /><button className="lightbox-close" aria-label="关闭预览" onClick={() => setLightboxIndex(null)}>×</button></div>}
   </footer>
 }

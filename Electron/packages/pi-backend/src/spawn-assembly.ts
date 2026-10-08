@@ -111,6 +111,13 @@ export type SpawnInput = {
   subagentNativeSearchFile?: string;
   /** Selected session model; used to hide generic web_search when native web_search is effective. */
   model?: { provider?: string; id?: string; capabilities?: import("@pipi/host-api").ModelCapabilities };
+  /**
+   * The model (and thinking level) the session is on, handed to Pi as `--provider/--model/--thinking`
+   * so the child starts on it (contract §206). Without it Pi 1.0 picks its own: a session with no
+   * messages yet ignores its recorded `model_change` and appends the agent home's settings default
+   * (`core/sdk.ts`), which is how every new table briefly ran on a provider nobody chose.
+   */
+  startModel?: { provider: string; id: string; thinkingLevel?: string };
   /** The user's Settings → 工具开关 denylist. Merged with the Boss read-only policy; never passed to workers. */
   disabledToolNames?: readonly string[];
   /** Unused disk path kept only so callers do not infer a project vault. */
@@ -272,6 +279,11 @@ export function assemblePiSpawn(input:SpawnInput):SpawnOutput {
   }
   if(input.sessionsRoot)env.PI_CODING_AGENT_SESSION_DIR=input.sessionsRoot;
   if(input.sessionPath)args.push("--session",input.sessionPath);
+  // §206: the session's own model, so Pi never starts on (and never records) a default of its own.
+  if(input.startModel?.provider&&input.startModel.id){
+    args.push("--provider",input.startModel.provider,"--model",input.startModel.id);
+    if(input.startModel.thinkingLevel)args.push("--thinking",input.startModel.thinkingLevel);
+  }
 
   const mounts:MountRecord[]=[];
   for(const entry of kernelMountEntries(true))appendKernelMount(args,env,mounts,entry,kernel);
