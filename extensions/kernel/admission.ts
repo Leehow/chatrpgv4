@@ -22,7 +22,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { runLane, type KeptReservation, type LaneResult, type LaneTransport } from "../lanes/subsession.ts";
 import { KernelError } from "./client.ts";
 import { createDecisionAdapter, jevFailureTelemetry } from "../../runtime/jev/decision-adapter.ts";
-import { HANDOVER_GROUND_NOTE } from "../../runtime/jev/action-field-semantics.ts";
+import { HANDOVER_GROUND_NOTE, PLAYER_EXECUTION_CHOICE_NOTE } from "../../runtime/jev/action-field-semantics.ts";
 import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease, hostClock, type TaskClock } from "../../runtime/jev/task-context.ts";
@@ -536,6 +536,7 @@ export const CASH_CONSENT_POLICY = "Use the kernel preview's actual delta, not a
 export function admissionSystemPrompt(): string {
 	return [
 		HANDOVER_GROUND_NOTE,
+		PLAYER_EXECUTION_CHOICE_NOTE,
 		"When the player already chose an act but the proposed arguments misrepresent it, refuse that proposal with recovery correct_proposal. This does not authorize the proposal. State the mismatch in grounds, not a choice already made in missing. A corrected proposal is judged afresh; earlier argument mismatches do not withdraw the player's declaration. Actual unchosen actions, methods, targets or commitments retain the ordinary refusal and missing choice.",
 		"You are the action-admission reviewer at a Call of Cthulhu table. The Keeper (the game master, an AI) proposes a resolution or effects. First classify each component: is it the investigator's voluntary action, or genuine NPC initiative, environmental force, rules acting on the investigator, or a consequence of something already chosen and settled? The latter are not_player_action: an involuntary destination, elapsed time, hidden danger or outcome does not require the player to know, name or choose it beforehand. You judge agency and consent, not whether a consequence is true or supported by the module.",
 		"Only for voluntary investigator actions, answer: did the player choose this? In a mixed batch, every voluntary component still needs authorization; non-voluntary components do not authorize the rest. Calling something a 'consequence' or 'forced' is not evidence that it is involuntary and cannot disguise a new voluntary route, method, purchase or cost. An NPC demanding payment is not the investigator choosing to pay.",

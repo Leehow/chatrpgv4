@@ -2,8 +2,8 @@
  * SL-97 phase 2b (contract §32.12.3.2): the role-first typed admission design as the product ships it
  * (`runtime/jev/admission-roles-domain.ts`).
  *
- * - The request is the measured one: for the same input the product sends exactly the Jev request (state and questions)
- *   that revision 2a.3 of the experiment module sent in SL-97 phase 2a, the holdout included.
+ * - The request retains measured revision 2a.3 except explicit handover semantics and the current-execution boundary.
+ *   The historical experiment requests are never edited to match the product.
  * - The host arithmetic: the role mixture, the weakest-judgment min over gate and order, the two-option confidence, and
  *   the lane-shaped verdict of each line.
  * - The family interface: every non-verdict is a named fallback, as §32.10's v1.
@@ -26,6 +26,7 @@ import {
 	runAdmissionRoles,
 } from "../../runtime/jev/admission-roles-domain.ts";
 import { rolesBatches } from "../../experiments/admission-jev-bank/admission-roles.ts";
+import { PLAYER_EXECUTION_CHOICE_NOTE } from "../../runtime/jev/action-field-semantics.ts";
 
 const kindOf = (line) => line.startsWith("resolve") ? "resolve" : line.slice("apply ".length, line.indexOf(":"));
 const input = (overrides = {}) => {
@@ -72,7 +73,7 @@ const answering = (line, p, extra = {}) => (question) => {
 
 // ---- the measured request ------------------------------------------------------------------------------------------------
 
-test("§32.12.3.2: the product preserves measured questions and arithmetic while carrying explicit transaction semantics", () => {
+test("§32.12.3.2: only handover semantics and the execution-choice question differ from measured requests", () => {
 	const cases = [
 		input(),
 		input({ proposal: ['apply time: minutes=10; why="search"'] }),
@@ -86,17 +87,31 @@ test("§32.12.3.2: the product preserves measured questions and arithmetic while
 		const product = admissionRolesBatches({ ...value, kinds: value.tool === "apply" ? value.kinds : undefined });
 		const { kinds: _kinds, ...measured } = value;
 		const experiment = rolesBatches(measured, undefined, { revision: "2a.3" });
-		assert.equal(product.batches.length, experiment.batches.length);
-		for (const [index, batch] of product.batches.entries()) {
+		const expectedRequests = experiment.batches.map((batch) => packDecisionBatch(batch).request);
+		const expectedQuestions = Object.assign({}, ...expectedRequests.map((request) => request.questions));
+		const actualQuestions = {};
+		for (const batch of product.batches) {
 			const actual = structuredClone(packDecisionBatch(batch).request);
 			assert.ok(actual.state.fieldNotes.handover.includes("consent ground"));
 			delete actual.state.fieldNotes.handover;
-			assert.deepEqual(actual, packDecisionBatch(experiment.batches[index]).request);
-			assert.deepEqual([batch.family, batch.familyVersion], [experiment.batches[index].family, "2a.4"]);
+			for (const [key, question] of Object.entries(actual.questions)) {
+				if (!key.startsWith("choice_")) continue;
+				assert.ok(question.instructions.instruction.endsWith(` ${PLAYER_EXECUTION_CHOICE_NOTE}`));
+				question.instructions.instruction = question.instructions.instruction.slice(0, -(PLAYER_EXECUTION_CHOICE_NOTE.length + 1));
+				assert.match(question.criteria.chosen.what, /choose execution of this action now/);
+				assert.match(question.criteria.chosen.not_for, /utterance itself may be chosen/);
+				question.criteria.chosen = expectedQuestions[key].criteria.chosen;
+			}
+			assert.deepEqual(actual.state, expectedRequests[0].state);
+			assert.equal(actual.model, expectedRequests[0].model);
+			Object.assign(actualQuestions, actual.questions);
+			assert.deepEqual([batch.family, batch.familyVersion], [experiment.batches[0].family, "2a.5"]);
 		}
+		// The added policy can change byte-bounded batch cuts, but never drops or adds a semantic question.
+		assert.deepEqual(actualQuestions, expectedQuestions);
 		assert.deepEqual([...product.passages.keys()], [...experiment.passages.keys()]);
 	}
-	assert.deepEqual([ADMISSION_ROLES_FAMILY, ADMISSION_ROLES_VERSION], ["action-admission-roles", "2a.4"]);
+	assert.deepEqual([ADMISSION_ROLES_FAMILY, ADMISSION_ROLES_VERSION], ["action-admission-roles", "2a.5"]);
 });
 
 test("§32.12.3.2: per line the design asks role, choice, result, span, target, gate, order, missing and basis; each line carries its closed kind", () => {

@@ -8653,6 +8653,25 @@ The refusal counts against §8's identical-resend strike like any kernel refusal
 `why`, `goal`, `method` and `stakes` are the proposal, never evidence of consent — the reviewer is told
 so, and the Keeper cannot mint authority by writing a rationale.
 
+**Speech about an action is not execution of that action (2026-10-08).** Read the player's complete
+contribution in context. An investigator's plan, promise, threat, bluff, hypothetical or quoted text
+establishes what they said, not execution of the physical act described. Telling an officer "I will
+leave for the farm today" while examining a letter and asking names does not itself choose immediate
+departure or arrival. Settle the examination and speech, answer within the established knowledge
+boundary, and leave departure to the player. A spoken threat may choose a social act, and a spoken
+promise may establish that promise; neither authorizes the threatened attack or promised payment.
+
+Quotation marks are not a prohibition on action. "Let's go now" can choose departure in context,
+and a plain "I go to the farm" needs neither an action label nor another confirmation. Explicit
+ordering and conditions bind; accompanying questions do not defer a clearly chosen current action.
+Mere speech about future execution is `not_authorized` for that execution; genuine ambiguity is
+`uncertain`. The Keeper prompt and both admission designs carry this semantic boundary, with no
+keyword, quotation or language classifier. Role-first family revision `2a.5` updates the choice
+question and its chosen/unchosen criteria; the `roles-2a.3` design selector, host arithmetic, thresholds,
+closed verdicts and fallback route remain unchanged. Historical experiment requests stay frozen.
+Verification uses targeted live reviewer probes for the distinction and controlled extension tests
+for refusal before mutation. Neither is a real-table acceptance claim.
+
 **Picking one of the options the delivery named is a choice (2026-09-11 ruling).** The same six words,
 「那看看报纸」, were refused on one table and admitted on another, and a five-model probe split three to
 two: the rule as first written did not decide the case. It does now. Where the delivery the player just
