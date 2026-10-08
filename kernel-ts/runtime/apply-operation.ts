@@ -113,8 +113,9 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
         const excluded:Row[]=[];
         const places=[scene,...(graph.out.get(scene.node_id)??[]).filter(rel=>rel.relation_kind==='located-in').map(rel=>graph.nodes.get(rel.to_node_id)).filter((node):node is Row=>!!node)];
         const offered=new Set<string>();
-        for(const place of places)for(const id of graph.sceneNpcIds(place)){
-            const node=graph.nodes.get(id),handle=node?graph.handle(node):'';
+        // §198.2: through the scenes that happen at a place and the openings an anchor displaced, too; `via` says which.
+        for(const place of places)for(const {id,via} of graph.scenePeople(place)){
+            const node=graph.nodes.get(id),handle=node?graph.handle(node):'',at=via??place;
             if(!node||!handle||offered.has(handle)||Object.hasOwn(row(campaign.world.npc_presence),handle))continue;
             const names=new Set([node.name,...array(node.aliases)].filter(value=>typeof value==='string').map(normalize));
             if(Object.keys(row(campaign.world.npc_presence)).some(existing=>{const known=graph.actor(existing);return known&&[known.name,...array(known.aliases)].some(value=>typeof value==='string'&&names.has(normalize(value)));}))continue;
@@ -123,9 +124,10 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
             offered.add(handle);
             add({kind:'npc',name:handle,to:graph.handle(place)},{kind:'source_presence',name:graph.displayName(node),scene:graph.displayName(place),
                 ...(place!==scene?{within:true}:{}),
+                ...(via?{placed_by:{name:graph.handle(via),display_name:graph.displayName(via),summary:via.summary??''}}:{}),
                 actor:{name:handle,display_name:graph.displayName(node),summary:graph.summary(node),source_needs:graph.sourceNeeds(node,true),
                     placement_conditions:{...Object.fromEntries(['when','unlock_when','conditions'].filter(key=>Object.hasOwn(row(node.properties),key)).map(key=>[key,row(node.properties)[key]])),
-                        relations:(graph.out.get(id)??[]).filter(rel=>rel.relation_kind==='present-in'&&rel.to_node_id===place.node_id).map(rel=>row(rel.properties))}},
+                        relations:(graph.out.get(id)??[]).filter(rel=>rel.relation_kind==='present-in'&&rel.to_node_id===at.node_id).map(rel=>row(rel.properties))}},
                 scene_context:place.summary??'',authority:'authored_initial_presence_not_a_new_arrival'},guards.people.get(id));
         }
         const destinations=new Set<string>();

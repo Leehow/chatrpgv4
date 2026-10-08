@@ -231,6 +231,28 @@ test('§192.3: before the identity relations the copies split the tower; after t
 	assert.equal(capsule.module.people.filter(row => row.name === 'Old Mae').length, 1, JSON.stringify(capsule.module.people));
 });
 
+test('§198.1 with §192.3: walk_on on a person the graph holds twice is their arrival under the node that stands for them, and clears the copy\'s entry', async t => {
+	const h = await tower(t);
+	const [dock, copy, mae, maeCopy] = await Promise.all(['scene-dock', 'scene-tower-copy', 'npc-mae', 'npc-mae-copy'].map(h.handle));
+	await h.call('table.player_input', {text: 'I look up at the tower.'});
+	// Old Mae seated under her copy's handle, in the tower's copy, before the two are joined.
+	await h.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'npc', name: maeCopy, to: copy}]});
+	await h.call('table.narrate', {call_id: 't1-c2', text: 'Someone moves at the top of the tower.'});
+	await h.join(IDENTITIES);
+	await h.call('table.player_input', {text: 'I wave Old Mae down to the dock.'});
+	assert.equal((await h.world()).active_scene, dock);
+	assert.deepEqual((await h.world()).npc_presence, {[maeCopy]: copy}, 'before: her copy\'s entry, in the tower');
+	// TR-F2's shape: walk_on on someone the table has, with no `to`.
+	const applied = await h.call('table.apply', {call_id: 't2-c1', effects: [{kind: 'npc', name: 'Old Mae', walk_on: true, why: 'she comes down to the dock'}]});
+	assert.deepEqual(applied.walk_on_read?.map(row => [row.name, row.read_as]), [['Old Mae', 'arrival']]);
+	// The arrival is the `to` write: one entry, under the node that stands for her; her copy's entry, which would stand in
+	// again once this one went away, is gone. Nobody is minted.
+	const world = await h.world();
+	assert.deepEqual(world.npc_presence, {[mae]: dock}, JSON.stringify(world.npc_presence));
+	assert.equal(world.table_people, undefined);
+	assert.deepEqual((await h.call('table.look', {focus: 'npc'})).present.map(row => [row.name, row.untold?.id]), [['Old Mae', mae]]);
+});
+
 test('§192.3: the in-process readers -- scene groups, placeOf, material, the cast, a reader\'s own variant-of', async t => {
 	const h = await tower(t);
 	const before = (await h.loaded()).graph;

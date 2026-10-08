@@ -16814,6 +16814,8 @@ What `walk_on: true` does, case by case:
   `invalid_params` with `field: "npc.walk_on"`, and nothing is written. Accepting it would write the "newcomer" onto
   that person's record, which is §87's turn-106 substitution. A table person already established is accepted
   idempotently: no second row, and no `established` on the receipt.
+  *Amended by §198.1 (2026-10-08):* on a **person** the table has, `walk_on` is read as their arrival (`to: here` when
+  the effect names no `to`) and nothing is minted; a creature keeps this refusal.
 - **A word the graph calls ambiguous**, by an exact key or as a run inside two names, keeps the graph's refusal,
   flag or no flag: a third person under it would shadow both. `ModuleGraph.resolve` marks its own ambiguity
   refusals (`isAmbiguity`), so no caller reads the message to tell the two refusals apart. The mark rides beside the
@@ -31145,7 +31147,7 @@ Bookmarks are optional navigation. When absent, the host enumerates exact origin
 
 Existing PDF graphs may gain an original-reference packet and accepted guide without replacing established scene nodes, relations, opening choice or NPC state. The reference publisher must align an existing entrance before reuse; uncertainty remains an explicit choice or source fallback. A missing graph dossier alone does not invalidate bound original evidence.
 
-New original-context campaigns do not seed every source-linked NPC into world presence. A present-in source edge can carry a conditional or future appearance. The existing source-presence candidate supplies original actor/scene conditions for Jev to evaluate before ordinary apply npc establishes current presence. Fixed starter setup retains its authored seeding behavior. Existing campaign presence and past receipts are not rewritten by reference migration.
+New original-context campaigns do not seed every source-linked NPC into world presence. A present-in source edge can carry a conditional or future appearance. The existing source-presence candidate supplies original actor/scene conditions for Jev to evaluate before ordinary apply npc establishes current presence. Fixed starter setup retains its authored seeding behavior. Existing campaign presence and past receipts are not rewritten by reference migration. *Amended by §198.3 (2026-10-08):* the opening scene's people are judged by Jev when the table opens, before the opening is narrated, and seated when the judge puts them there; every other scene keeps this deferral.
 
 Before the first hybrid read, one bounded Jev question may identify an explicitly chosen destination absent from current movement candidates. The kernel bridge delegates exact-source preparation to the existing reading owner; on publication the hybrid read refreshes its binding and candidate rows. Original-reference scene anchors can be movement candidates without a fully authored exit graph, but the route checks copied source access conditions and ordinary admission still owns the actual move. Preflight only prepares source identity and cannot move anyone. It runs at most once per player input and retains failure/timeout as an explicit fallback.
 
@@ -40247,6 +40249,219 @@ Instance Patch" warns of.
 
 Not shown: other lane models, other books, the product's retry, or a table. That is RR-04.
 
+
+## 198. A person the book places here is here (lead ruling 2026-10-08 on TR-F2 run 2; `docs/specs/roster-presence.md`; amends §87.7, §87.8's `apply npc` row, §149.1's deferral at the opening and §187.3.1)
+
+**Evidence** (real table TR-F2 run 2, App `4ce2e4cab`, Cold Harvest, campaign `game-565055f1`, generation 74/75 of `book-2`).
+
+- **Turn 0.** `look` at the opening `commander-briefs-investigators-at-hq` (`scene-source-entry-9`) answered `present: []`,
+  although the scene's own text (the book's §2.1) puts Captain Aganin behind the desk; the Keeper narrated 「屋里没有人」.
+- **Turns 1, 5 and 18.** The Keeper sent `apply npc {name, walk_on: true, to: here}` for Aganin, Gapon and Pyotr Abramov,
+  each a book person this table already had. Each was refused `invalid_params` (`npc.walk_on`, "whom this table already
+  has"), a model round trip each; on turn 18 the Keeper gave up and narrated 「屋里仍没有回应，门也没有打开」 at Pyotr's door.
+- **Every turn.** The hybrid read's `source_presence` metadata was `total: 0` on all 19 turns: the offer that is a
+  reference book's only road to presence (§149.1, §187.3) never had anybody to offer.
+
+**Root causes.** Three, each read off the graph and the code, none in the Keeper:
+
+1. **The opening is an identity-only anchor that displaced the openings the graph had.** Generations 1-3 held two read
+   openings on page 9, `scene-investigator-introduction-1` and `-2` (the book's §2.1 and §2.2, both `is_entrance`, both in
+   `entry_scene_ids`, Aganin `present-in` both). Generation 4's source-reference bind (`publishReferenceContext`,
+   `kernel-ts/modules/reference.ts`) reuses an existing entrance only when exactly one cites the entry page
+   (`samePage.length === 1`); with two it minted `scene-source-entry-9` (`source_reference_anchor`, the page's text, no
+   relation of any kind) and made it the only entry. Nothing relates the anchor to the openings it displaced, so
+   `sceneNpcIds(anchor)` is empty. This is the bind's artifact, not the reader's: the reader linked Aganin correctly, to the
+   nodes the campaign no longer opens on.
+2. **A place shows nobody, because its people are linked to the scenes that happen there.** The farm
+   (`location-krasivyi-oktabur-3`) and the Abramov house (`location-abramov-house`) are source locations projected into
+   playable scenes (§150.2). Gapon is `present-in` `scene-source-place-15-4`, which `occurs-at` the farm; Pyotr, Dmitri and
+   Ekaterina are `present-in` `scene-abramov-house-arrival`, which `occurs-at` the house. `sceneNpcIds` read `present-in`
+   into the scene's own group only, so the offer was empty at both places.
+3. **A reference book can never seat anyone before its opening is narrated.** Since §149.1 it seeds no presence at
+   creation, and turn 0 admits no `npc` write, so the offer -- judged on a later turn's route -- comes after the opening
+   narration has already told the player who is there.
+
+### 198.1 `walk_on` on someone this table already has is their arrival (amends §87.7)
+
+An `apply npc` with `walk_on: true` whose `name` is a **person** this table already has -- the book's or an adaptation's
+(the graph's npc, alias or §2's anchored run), the word §79 or the epithet lane gave them (§87.8's junction, §176.2), or a
+person §87 already established -- is accepted. Nothing is minted. It is staged as the same effect without `walk_on`, and:
+
+- when the effect names no `to` and carries none of the variants that stand alone (`mood` §161.1; `intends`, `outcome`,
+  `intent_outcome` §142.2; `defense`, `action`, `disposition` §11.5.2-§11.5.3; `conditions`; `reunion`; the host's
+  `_draws`/`_produces`), it is staged with `to: "here"` -- the write `{kind: npc, name, to: here}` makes;
+- when it names `to`, that `to` stands as written;
+- when it carries a standalone variant, that variant stages as written and nobody moves.
+
+The receipt carries `walk_on_read: {read_as, person}`, `read_as` being `"arrival"` (this effect placed them) or
+`"person"` (a standalone variant staged). The result carries `walk_on_read: [{index, name, person, read_as}]` (`name` as the Keeper wrote it, `person` this table's
+word for them: §177.3's `tableWord`, their epithet while untold, never the book's name in its place) and one
+`walk_on_note`: walk_on brings in someone this table does not have yet; for anyone it already has, leave it out.
+
+**Every other gate is unchanged:** a creature is still `not_a_person` without `creature`, and a `creature` declaration on
+a book creature is still refused; a word the graph finds ambiguous, or that two people carry (§87.8), is refused, not
+picked; §177.3's `newcomerRefusal` still refuses a word that names nobody the table has but carries a cast name or piece;
+the investigator's name and a place's are still SL-73's; the `to` write still deletes a copy's entry (§192.3).
+
+**Why this keeps §87.7 and §87.8.** §87.7's refusal existed for one danger: writing a declared newcomer onto an authored
+person's record (§87's turn-106 substitution, temper-c's duplicate). Its "nothing is written" was the remedy for that
+case, and the declaration it requires is for minting. Reading `walk_on` on an existing person as their arrival mints
+nothing and writes only to the person the word already names, through the junction §87.8 made the one reader, which is
+what `{name, to: here}` writes and §87.7 always accepted. Minting still takes the declaration; a word nobody carries is
+still refused without it.
+
+### 198.2 Who the book places in a scene (amends §187.3.1)
+
+`ModuleGraph.sceneNpcIds(scene)` -- and `scenePeople(scene)`, which also says through which scene each person came --
+reads the book's placement through structure the graph already has. Relations only; nothing reads prose:
+
+1. `present-in` into the scene's group and the group's `npc_ids` (as before);
+2. **a place is where its scenes happen:** the people (`present-in` and `npc_ids`) of every scene that `occurs-at` a node
+   of this scene's group. One hop: a scene's sibling at the same place, or the place's own place, adds nobody;
+3. **an anchor opening stands for the openings it displaced:** for a scene marked both `source_reference_anchor` and
+   `is_entrance`, the people of every other `is_entrance` scene, not itself an anchor, that cites one of the anchor's pages.
+   This is the bind's own reuse rule (`samePage`) for the case it could not settle: with one such entrance it reuses it,
+   with two it mints the anchor, which stands for both.
+
+`present-in` stays the only person-to-scene relation read (the graph standard's `actor_in_no_scene`); a person's
+`located-in` a place is not presence. Every reader of `sceneNpcIds` gains the chain: `initialWorld`'s seat (start scene
+first), `table.apply.options`' `source_presence` offer, `where.within.people` (§187.2.2), the entrance company (§168.3),
+the confluence base, the setup guide check, the obligation shape check and the handle jobs' order. A `source_presence`
+row of a person who came through another scene carries `placed_by: {name, display_name, summary}` (that scene) and that
+scene's `present-in` relations in `placement_conditions.relations`.
+
+### 198.3 The opening is judged before it is narrated (amends §149.1)
+
+**Kernel.**
+
+- `table.open`, while the opening is owed (turn 0, `awaiting_player`), carries `opening_people` when §198.2 places anyone
+  in the opening scene whom nobody has placed (no node of their group has an `npc_presence` entry; `unplacedPeople`,
+  `kernel-ts/read/capsule.ts`): `{scene: {name, display_name, text}, people: [{name, display_name, summary,
+  conditions?, placed_by?: {name, summary}}]}`. `name` is the handle to seat them by; `text`, `summary` and
+  `placed_by.summary` are the book's (cut at 3,000, 800 and 1,500 characters). It also carries `opening_call_ordinal`,
+  the highest ordinal the opening's own calls have used, so a table opened again before the opening is narrated mints
+  after them.
+- At the opening `table.apply` admits, beside the kinds it already admits there, an `npc` effect shaped as a seat: only
+  `kind`, `name`, `to`, `why` and `walk_on` (`openingSeatShape`). A seat-shaped effect lands only when the person is
+  one `unplacedPeople` lists for the active scene, is not established by this call, and `to` is `here` or the active
+  scene; otherwise it is refused `invalid_params` with `details.reason: "opening_seat"` and nothing lands. Any other
+  `npc` effect keeps the opening's turn-state refusal. The seat is the ordinary `to` write, receipt and first-impression
+  roll (§178). A batch made only of seats commits without moving turn 0 off `awaiting_player` (`keepOpening`): the
+  opening stays owed and its gate stays shut to everything else, as after `table.open`'s own presence rolls.
+- The material gate (§22.4.7) applies to a seat as to any `npc` effect: a person whose source material is not prepared
+  is not seated (`needs`, `material_pending`).
+
+**Host.** `extensions/kernel/opening-presence.ts`: when the table opens with the opening owed and `opening_people`, and Jev
+is configured, the host asks one Jev batch (family `opening-presence`, `runtime/jev/opening-presence.ts`), one Noul per
+person: going by the book's text for the scene and the person's card, is this person physically there as play starts --
+not someone the book brings in only later or only if something happens first, not someone only mentioned, remembered or
+dead. People at or above `OPENING_PRESENCE_AT` (0.7) are seated with one `table.apply` under a minted call id (`why`:
+"The book places them in the opening scene as play starts."). The opening run is sent after it, at most
+`OPENING_PRESENCE_WAIT_MS` (4,000 ms) later; Jev unconfigured, failing or late seats nobody, and the opening goes on with
+the offer and the Keeper's own `apply npc` (198.1) as the roads. Telemetry: one row `lane: "opening-presence"`, `event:
+"seated" | "fallback"`, with `people`, `names`, `nouls`, `seated`, `reason` and `ms`.
+
+A book that seats at creation has no unrecorded opening person, so its rows are empty and Jev is not asked.
+
+**Why this keeps §149.1.** §149.1 deferred a reference book's presence because a `present-in` edge can carry a
+conditional or future appearance -- Dust to Dust's Eric Helverson, `present-in` the briefing although the book has him
+hire the investigators only if they refuse the hook, was in `present` from turn 0 and became an identity contradiction
+-- and handed the decision to Jev's judgement of the source. That judgement stays; it moves from a later turn's route,
+where it could never precede the opening narration, to the table's open, where it does. No other scene of a reference
+book is seated before its offer is judged.
+
+### 198.4 Three ends (§31)
+
+*Writer:* `personOfEffect` / `stageNpc` (`kernel-ts/apply/entities.ts`) for the arrival; `ModuleGraph.scenePeople`
+(`kernel-ts/read/module-graph.ts`) for who the book places; `openingPeopleView` (`kernel-ts/read/capsule.ts`) for the
+opening's list on `table.open`; the opening judge's `table.apply` for the seat. *Reader:* `world.npc_presence`, read by
+`look`'s and the capsule's `present` and every presence reader; the `source_presence` offer; the host's opening judge,
+which reads `opening_people`. *Actor:* the Keeper, who finds the book's person present at the opening and whose `walk_on`
+on someone the table has lands instead of costing a round trip (the result's `walk_on_note` says how it was read); Jev,
+who judges the opening's people once.
+
+### 198.5 What this does not do
+
+- It does not join the anchor with the openings it displaced for anything but people: their exits, clues and assets do
+  not reach the anchor (TR-F2's opening listed no way to the farm). RP-05.
+- It does not repair extraction: Vasili Smolsky is not in the graph; nothing relates Gapon to `location-gapon-house`;
+  a person's `located-in` a place is not read as presence. Those belong to the reader.
+- It does not seat a reference book's other scenes at creation (§149.1 stands); they come through the offer.
+- The host's move body (`people_there`, `runtime/jev/candidate-bodies.ts`) still reads the destination's own `present-in`
+  relations. RP-06.
+- A campaign past its opening gets 198.1 and 198.2 but no opening seat. The opening bar (0.7) is not yet calibrated on
+  live rows.
+- A person the book's cast has and the graph does not yet (an unread person, §177: TR-F2's Vasili) is no person this
+  table has in 198.1's sense: `walk_on` under their name is still §177.3's `book_name` refusal, whose fix says to leave
+  `walk_on` out, and without it the write lands on the cast's pages (§177.6). Reading `walk_on` there as that write would
+  be a further amendment of §177.3; it is not made here.
+- When Jev is unconfigured, fails or answers after `OPENING_PRESENCE_WAIT_MS`, nobody is seated and the opening's
+  `present` is empty, as on TR-F2 run 2; from turn 1 the Keeper's own `apply npc` (with or without `walk_on`) and the offer
+  are the roads. Nothing at the opening tells the Keeper the book places someone there whom nobody seated.
+
+### 198.6 Implementation decisions and evidence (RP-01..RP-04, 2026-10-08)
+
+- `walk_on` on an existing person is decided in `personOfEffect` after the junction answered and before any refusal
+  (`walked_on`: the table's word). A creature keeps every refusal it had; a table person re-declared with `walk_on` is read
+  the same way as a book person.
+- The opening's seat check reads the staged world, so two seats of one person in one batch are refused on the second. A
+  seat that the material gate holds (`material_pending`) is not seated; the host reports `seat_refused` and the opening
+  goes on.
+- `keepOpening` is set only on a batch made entirely of seat-shaped effects at the opening; the existing opening
+  preparations (`define`, `object`, `ability`, `usage`, `clock`) still move turn 0 to `acting` as before.
+- The extension mints the seat's call id from the table's ordinal and reads `opening_call_ordinal` on open, so the
+  Keeper's first opening call never collides with the seat after a restart.
+
+**On the library** (clones of the App's `book-2`, `book-4` and `book-5`, current kernel in process, a new campaign each):
+Cold Harvest's opening (`scene-source-entry-9`) lists 格里戈里·帕维洛维奇·阿加宁 (placed by 开场 1 给调查员的信息) with the
+§2.1 page text; seated, `look` shows him and the opening stays owed. At the farm the offer lists Gapon (placed by
+`scene-source-place-15-4`); at the Abramov house it lists Pyotr, Dmitri and Ekaterina (placed by
+`scene-abramov-house-arrival`), and Gapon as the settlement's (`within`). TR-F2 turn 18's batch (`walk_on` on Pyotr and
+Ekaterina, `to: here`) lands both as arrivals. Blood Road's prologue lists Lars Williams, Nate Patterson and Steve Brown;
+Dust to Dust's briefing lists Eric Helverson, whom the judge is there to leave unseated.
+
+Re-run on resumption (the same clones, App generations `book-2` 75, `book-4` 79, `book-5` 5; scratch scripts, the seat sent
+as the judge's would be): Cold Harvest's `table.open` lists one person, handle `captain-at-desk-in-command-room`, placed by
+开场 1 给调查员的信息; after the seat `look` and `table.capsule` at turn 0 both show him, his first-impression roll lands
+with it, and the reopened table is still owed with `opening_call_ordinal` 1 and nobody left to list. Blood Road's prologue
+(`scene-8dd0ae`) lists its three people through its own `present-in` (no `placed_by`); seated, `look` and the capsule show
+all three. On a clone of the TR-F2 campaign itself (`game-565055f1`, turn 19, its generation 74 fork) the Abramov house
+offers Dmitri, Ekaterina and Pyotr placed by 阿布拉莫夫家的初次到访, and turn 18's own batch lands both effects as
+arrivals: the note names Pyotr by his name (told on turn 2) and Ekaterina by her epithet, and `table_people` still holds
+only turn 12's walk-on. Every starter's seat at creation (`the-haunting`, `the-haunting-rulebook`, `mystery-house`,
+`voice-bench`) is identical under `4ce2e4cab` and under this section: the place chain moves nobody a seeded book seats.
+
+*Tests.* `tests/extension/roster-presence.test.mjs` (in-process kernel over `roster-book.mjs`, Cold Harvest's history in
+three pages): the anchor opening lists the people of the two openings it displaced and not the clerk of a non-entrance
+scene on the same page; a seat puts the captain in `look` and the capsule and leaves the opening owed, the reopened table
+minting after it; the opening refuses a stance (turn state), a seat with a change beside it, a person the book places
+elsewhere, a seat elsewhere, a newcomer and a second seat (`opening_seat`), landing nothing; the anchor offers both
+people with the opening that places each, the house offers the farmer through the scene that happens there and the offer
+lands; `walk_on` with no `to` brings the captain back, a written `to` stands, a mood moves nobody, an epithet names him in
+the note and resolves in `walk_on`, a newcomer is still established. `tests/extension/opening-presence.test.mjs` (the
+lane): one batch, the scene's text, `placed_by` and the stated conditions reach Jev; the bar; no Jev, an unavailable
+answer and a refused seat seat nobody and throw nothing. `tests/extension/opening-presence-table.test.mjs` (the real
+entry: the kernel extension on the real kernel, the product's Jev adapter with `fetch` answered): after the table opens
+the captain is in `npc_presence` and the visitor is not, the opening is still owed and the seat is one of its receipts;
+and, with Jev's answer held back 600 ms as a round trip would, the opening run's first request carries a capsule whose
+`present` is the captain alone, the Keeper's `look` in that run answers the captain, and turn 0's record holds the seat and
+the narration. `tests/extension/survivor-map.test.mjs` (§198.1 with §192.3): Old Mae seated under her copy's handle in
+the tower's copy, the two joined, then `walk_on` on her with no `to` at the dock: one entry, under the node that stands
+for her, at the dock, the copy's entry gone, nobody minted. `tests/kernel/test_walk_on_gate.py::test_walk_on_for_someone_this_table_has_is_their_arrival` replaces the refusal test
+(§87.7), by the book's name and by the §79 word. `tests/extension/module-cast.test.mjs` §177.2's walk_on on a graph
+person keeps `ok: false`, now asserting the refusal it actually meets (`material_pending`) and that nobody is minted.
+Mutations, each reverted by copying the saved file back, each turned a test red: the arrival branch removed; no `to: here`;
+the note by the book's name; standalone variants ignored; the place chain dropped; the displaced openings dropped; the
+entrance mark not required; no `opening_people`; no `opening_call_ordinal`; `keepOpening` ignored; the gate admitting no
+seat; the seat check removed; a seat not required to be unplaced; a seat not required to be in the opening scene; the bar
+exclusive; every answered person seated; the scene's text or the placing scene not sent; a failed verdict still seating.
+Re-checked on resumption (`tests/extension`, same method), each red: the arrival branch removed and no `to: here` (the
+§198.1 test and the §192.3 one); an arrival that skips the copy's entry; the note by the book's name; a newcomer read as
+walked on; a newcomer not established; the displaced openings dropped, a seat moving the opening to `acting` and the
+opening refusing every seat (in process and, on a rebuilt kernel, at the real entry); the unplaced list ignoring who is
+placed; the place's scenes dropped; the host seating nobody; the host seating everyone answered; the opening run sent
+without waiting for the seat (red only once Jev's answer takes a round trip: with an instant answer the seat still landed
+first).
 
 ## 199. The module graph states only what its source states (owner request 2026-10-08 after real table TR-F2 run 2; `docs/specs/graph-grounding.md`; amends §22.3, §151.3/§186.6, §168.5, §176.3 and §194.4)
 

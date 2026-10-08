@@ -567,6 +567,34 @@ export function npcsPresent(graph: ModuleGraph, world: Row, scene: Row): Row[] {
     return [...presenceThrough(graph, world).values()].flatMap(({ node, at }) => here.has(at) ? [node] : []);
 }
 /**
+ * Contract §198.3: the people the book places in `scene` (§198.2, `scenePeople`) whom nobody has placed anywhere -- no node of
+ * their group has an `npc_presence` entry. At the opening these are who the host's judge is asked about and the only people an
+ * opening seat may write; `via` is the scene through which the book places them, when it is another one.
+ */
+export function unplacedPeople(graph: ModuleGraph, world: Row, scene: Row): Array<{ node: Row; via: Row | null }> {
+    const presence = row(world.npc_presence);
+    return graph.scenePeople(scene).flatMap(({ id, via }) => {
+        const node = graph.nodes.get(id);
+        return node && !graph.groupOf(node).some(each => Object.hasOwn(presence, graph.handle(each))) ? [{ node, via }] : [];
+    });
+}
+/**
+ * Contract §198.3: what `table.open` hands the host while the opening is owed -- the opening scene with the book's text for it,
+ * and each person `unplacedPeople` lists with their card, the placement conditions the book states and the scene that places
+ * them. Null when there is nobody to ask about.
+ */
+export function openingPeopleView(graph: ModuleGraph, world: Row, scene: Row): Row | null {
+    const people = unplacedPeople(graph, world, scene).map(({ node, via }) => {
+        const conditions = Object.fromEntries(["when", "unlock_when", "conditions"].filter(key => Object.hasOwn(row(node.properties), key)).map(key => [key, row(node.properties)[key]]));
+        return {
+            name: graph.handle(node), display_name: graph.displayName(node), summary: chars(graph.summary(node), 800),
+            ...(Object.keys(conditions).length ? { conditions } : {}),
+            ...(via ? { placed_by: { name: graph.displayName(via), summary: chars(string(via.summary || graph.prose(via)), 1500) } } : {}),
+        };
+    });
+    return people.length ? { scene: { name: graph.handle(scene), display_name: graph.displayName(scene), text: chars(string(scene.summary || graph.prose(scene)), 3000) }, people } : null;
+}
+/**
  * §192.3: whether the table found a clue: `world.discovered_clues` holds the handle of any node of the clue's group, the clue
  * that stands for it or a copy found before the two were joined.
  */
