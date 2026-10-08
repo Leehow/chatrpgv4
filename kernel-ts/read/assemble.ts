@@ -405,7 +405,14 @@ function fitWhere(where: Row, budget: number): boolean {
             where[key].pop();
             cut = true;
         }
-    return fitBudget(where, budget) || cut;
+    // §13.1.1 with §204: secondary ancestor previews give way before this place's ways out and room notes.
+    if (jsonSize(where) > budget) {
+        const retained = new Set(['exits', 'back', 'keeper_notes']);
+        const rest = Object.fromEntries(Object.entries(where).filter(([key]) => !retained.has(key)));
+        const reserved = jsonSize(where) - jsonSize(rest);
+        cut = fitBudget(rest, Math.max(0, budget - reserved)) || cut;
+    }
+    return (jsonSize(where) > budget && fitBudget(where, budget)) || cut;
 }
 /**
  * §176.8: a person cut to their name keeps their untold block, without its line. Whether they are untold, and the

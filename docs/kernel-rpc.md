@@ -1791,11 +1791,14 @@ acceptance remain pending until their dedicated checks are recorded.
 **现在的顺序**（`kernel-ts/read/assemble.ts` 的 `fitWhere`，只作用于胶囊的紧凑 `where`）。超出预算时依次裁：
 1. `back` 从最远的一项删起，留下最近的一步：那是最常用的退路，`table.apply move` 的 `back` 仍按完整的 `world.scene_trail` 判可达。
 2. `places` 从末尾删起，可以删光：`look focus=scene` 仍返回全部地点与全文。
-3. 还超才交给通用的 `fitBudget`，这时才可能裁到 `exits`、`affordances` 或 `keeper_notes`。
+3. 还超时，先把当前地点的 `exits`、最近一步 `back` 和 `keeper_notes` 留在预算内，通用 `fitBudget` 裁其余的次要信息与祖先地点预览。§204 的 `within` 增大后，这一步防止重复的祖先信息把当前地点的出路挤掉。
+4. 如果这些当前地点信息与不可裁的标量本身仍放不进预算，才对全节运行通用裁剪；仍明确标记截断。完整内容始终由 `look focus=scene` 返回。
 
 任何一步裁过，都和以前一样记入 `truncated` 并给 `where.truncated: true`。没超预算的 `where` 一字不变。
 
 测试：`tests/extension/haunting-graph-v2.test.mjs`。在 12 场景的长路线上，一楼（7 条出口加整层房间的 keeper note）和礼拜堂的出口一条不少，`back` 至少留一项。把 `fitWhere` 换回 `fitBudget` 的变异会让它变红。
+
+实施补充：S8 合入后，祖先预览使一楼回归到 5/7 出口。优先保留的是当前地点的完整行动行，出口的代价和门槛没有被改写，预算没有扩大。对照 [Google AIP-157](https://google.aip.dev/157) 的基本/完整资源视图和 [JSON:API 稀疏字段](https://jsonapi.org/format/#fetching-sparse-fieldsets)，本项目已有紧凑胶囊/完整 look 两条读取路径；这里修复紧凑路径的优先级，不引入新的视图参数或截断模组指令。
 
 ### 13.2 `pressures` 与 `obligations` 的来源
 
