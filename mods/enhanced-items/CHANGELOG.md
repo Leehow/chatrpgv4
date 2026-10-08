@@ -1,3 +1,8 @@
+# 1.3.4
+- "Documents on carriers" is resident (it rode only on the `readable` topic before) and covers the physical document operations of contract §179.3a: `append` replaces `write`; `show`, `observe` (shown or glimpsed, with the exact visible passage) and `close`; a sidebar save or reset is a physical edit request the turn settles (`turn.document_edit`), not a restore; long documents are read through `look focus` with `document_query` or `document_page` (§179.3b).
+- The auditor checks a claimed NPC reading against that person's document observation.
+- 1.3.3 was never committed; this entry was written when the work was committed as found (2026-10-07). This file is not one of the package files, so the 1.3.4 digest is unchanged.
+
 # 1.3.2
 - Declares the sections of `agent.md` (`sections.json`, `instructions.sections.v1`, contract §183): which ride every turn and which a turn loads by its topics, the table's state or the Keeper's calls, for a table whose instructions exceed the instruction budget. Under the budget, as every table is today, the whole text goes as before.
 - `brief.md` is gone. A 2026-10-04 probe of real provider requests found the Keeper received the full `agent.md` every turn; the brief existed only in the capsule (§183, evidence).

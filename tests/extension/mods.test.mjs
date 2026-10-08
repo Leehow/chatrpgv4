@@ -54,13 +54,20 @@ test('the panel adapter binds mutations to its own campaign and ignores supplied
     pi.events.emit('coc:kernel-bridge',{campaign:'selected',call:async(method,params)=>{calls.push({method,params});return{};}});
     await handlers.get('mods.configure')({campaign:'another',id:'natural-npc',enabled:false});
     assert.equal(calls[0].params.campaign,'selected');
-    await handlers.get('mods.document.apply')({campaign:'another',actor:'Investigator',name:'Notebook',version:'host-version',action:'reset'});
-    assert.equal(calls[1].params.campaign,'selected');
-    assert.equal(calls[1].method,'mods.document.apply');
+    // §179.3a: a sidebar save or reset is a physical edit request that the owning game session queues and settles;
+    // the host routes it there, so the panel registers neither a direct apply nor a request of its own.
+    assert.equal(handlers.has('mods.document.apply'),false);
+    assert.equal(handlers.has('mods.document.request'),false);
     await handlers.get('mods.order')({order:['enhanced-items','natural-npc']});
+    assert.equal(calls[1].params.campaign,'selected');
+    const retried=[];
+    pi.events.on('coc:equipment-retry',()=>retried.push(true));
+    await handlers.get('mods.equipment.retry')({campaign:'another'});
+    assert.equal(calls[2].method,'mods.equipment.retry');
     assert.equal(calls[2].params.campaign,'selected');
+    assert.equal(retried.length,1,'a retry wakes the equipment preparation worker');
     pi.events.emit('coc:kernel-bridge',{campaign:'selected',call:async()=>{throw Object.assign(new Error('Paper changed'),{code:'revision_conflict'});}});
-    assert.deepEqual(await handlers.get('mods.document.apply')({name:'Notebook',action:'save',text:'draft'}),
+    assert.deepEqual(await handlers.get('mods.document.request_status')({name:'Notebook'}),
       {ok:false,error:{code:'revision_conflict',message:'Paper changed'}});
     pi.events.emit('coc:kernel-bridge',{call:async()=>({})});
     await assert.rejects(()=>handlers.get('mods.configure')({id:'natural-npc',enabled:true}),/Select a campaign/);

@@ -495,13 +495,18 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
             const brought = broughtOut(world, me, done);
             // §143.30: what anyone at this table has brought out, present only when there is something.
             const seen = tableBroughtOut(graph, world);
+            const hand = atHand(graph, world, party, me, place), editRequest = documentEditInput(turn.player_text);
+            // §179.3a: the authority note is fixed text that fitSituation cannot cut, so it rides only when the packet
+            // carries document material; a packet without any keeps the whole §143 budget for what can be cut.
+            const documentMaterial = Boolean(editRequest) || array(view.observed_documents).length > 0
+                || array(hand.open_documents).length > 0;
             const packet: Row = {
                 npc: {handle: me.handle, name: graph.displayName(node), kind: person ? 'npc' : 'creature'},
                 canonical_context: {
-                    authority:'Privileged author context, not NPC perception. Private writing requires this person observed_documents; a control request is not outward behavior.',
+                    ...(documentMaterial ? {authority: 'Privileged author context, not NPC perception. Private writing requires this person observed_documents; a control request is not outward behavior.'} : {}),
                     scene: place ? chars(graph.summary(place), 1600) : '',
                     previous_narration: chars(string(previous?.rendered_text ?? ''), 2000),
-                    player_declaration: documentEditInput(turn.player_text)?'':string(row(turn.player_input).text ?? turn.player_text ?? ''),
+                    player_declaration: editRequest ? '' : string(row(turn.player_input).text ?? turn.player_text ?? ''),
                 },
                 // §180.3: the act author's material -- a person's personality and the rest of their perspective; for a
                 // creature, what the book says it is, its habits and the Keeper's note.
@@ -509,7 +514,7 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
                     commitments: view.commitments ?? [], relationships: view.relationships ?? []} : creatureMaterial(graph, world, node),
                 happened,
                 state: stateOf(graph, world, me, session, stanceNow(graph, ledger, table, turn, me.handle)),
-                at_hand: {...atHand(graph, world, party, me, place), ...(brought.length ? {brought_out: brought} : {})},
+                at_hand: {...hand, ...(brought.length ? {brought_out: brought} : {})},
                 ...(seen.length ? {table_brought_out: seen} : {}),
                 done,
                 recent_speech: array(view.recent_speech).map(line => `turn ${string(row(line).turn)}: ${flat(row(line).statement)}`),
