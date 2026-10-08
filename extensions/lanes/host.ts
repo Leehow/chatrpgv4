@@ -43,12 +43,29 @@ export function cocHome(cwd: string): string {
 	return isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
 }
 
+/**
+ * Appends still being written, so a host that owns the process can wait for them to land before it reads the file
+ * back (the test harness does, after each prompt). Callers fire telemetry without awaiting it, and a reader that
+ * lands mid-append sees half a line. Kept on `globalThis` because one process can load this module more than once.
+ */
+const APPENDS_IN_FLIGHT = Symbol.for("pi-coc.jsonl-appends-in-flight");
+function appendsInFlight(): Set<Promise<void>> {
+	const scope = globalThis as { [APPENDS_IN_FLIGHT]?: Set<Promise<void>> };
+	return (scope[APPENDS_IN_FLIGHT] ??= new Set());
+}
+
 /** Append one JSON line, creating the directory if needed. Every failure is swallowed. */
-export async function appendJsonl(path: string, line: Record<string, unknown>): Promise<void> {
-	try {
-		await mkdir(dirname(path), { recursive: true });
-		await appendFile(path, `${JSON.stringify(line)}\n`, "utf8");
-	} catch {
-		/* a log line that cannot be written must not escape */
-	}
+export function appendJsonl(path: string, line: Record<string, unknown>): Promise<void> {
+	const write = (async () => {
+		try {
+			await mkdir(dirname(path), { recursive: true });
+			await appendFile(path, `${JSON.stringify(line)}\n`, "utf8");
+		} catch {
+			/* a log line that cannot be written must not escape */
+		}
+	})();
+	const pending = appendsInFlight();
+	pending.add(write);
+	void write.finally(() => pending.delete(write));
+	return write;
 }

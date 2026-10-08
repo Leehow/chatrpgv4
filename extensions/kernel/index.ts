@@ -22,7 +22,7 @@ import {HistoricalReference, historyEnabled, historyContext, historyBindingMatch
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
-import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
 import { takeHostNotices } from "../../runtime/host-notices.ts";
@@ -30,7 +30,7 @@ import { hostNoticeMessage, isHostNoticeMessage } from "./host-notices.ts";
 import { adaptationModel, adaptationService, adaptationWaitMs } from './adaptation.ts';
 import { fastLaneChoice } from '../lanes/subsession.ts';
 export { kernelCommand } from "../../runtime/host.ts";
-import { cocHome, cocMode } from "../lanes/host.ts";
+import { appendJsonl, cocHome, cocMode } from "../lanes/host.ts";
 import { automaticDefense, isDefenseChoice, readDefensePreference } from '../../runtime/combat-defense.ts';
 import { agentHomeOf, openingHelp } from "../ui/hints.ts";
 import { extensionContentRoot, extensionSurface, type ExtensionWords } from "../ui/words.ts";
@@ -1755,12 +1755,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		const path = table?.telemetryPath;
 		if (!path) return;
-		try {
-			await mkdir(dirname(path), { recursive: true });
-			await appendFile(path, `${JSON.stringify(line)}\n`, "utf8");
-		} catch {
-			/* same as above */
-		}
+		await appendJsonl(path, line);
 	}
 
 	// ---- Host messages ----------------------------------------------------

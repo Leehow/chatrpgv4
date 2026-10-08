@@ -422,6 +422,17 @@ export async function openTable({
 		...(ui ? { uiContext: ui.context } : {}),
 		onError: (error) => extensionErrors.push({ path: error.extensionPath, error: error.error }),
 	});
+	// Telemetry and other JSONL rows are appended without being awaited, so a prompt can resolve while its last row is
+	// still being written. Settle those appends before the prompt returns: a test that reads the file right after a turn
+	// then sees every row that turn wrote, whole.
+	const prompt = created.session.prompt.bind(created.session);
+	created.session.prompt = async (...args) => {
+		try {
+			return await prompt(...args);
+		} finally {
+			await appendsSettled();
+		}
+	};
 
 	const table = {
 		workspace,
@@ -465,21 +476,10 @@ export async function openTable({
 		 */
 		emit: (channel, data) => api?.events.emit(channel, data),
 		/** 假内核收到的请求，按到达顺序。 */
-		kernelRequests: () =>
-			existsSync(requestLog)
-				? readFileSync(requestLog, "utf8")
-						.split("\n")
-						.filter((line) => line.trim())
-						.map((line) => JSON.parse(line))
-				: [],
+		kernelRequests: () => (existsSync(requestLog) ? completeJsonLines(readFileSync(requestLog, "utf8")) : []),
 		telemetry: (campaignId = campaign) => {
 			const path = join(workspace, ".coc", "campaigns", campaignId, "telemetry.jsonl");
-			return existsSync(path)
-				? readFileSync(path, "utf8")
-						.split("\n")
-						.filter((line) => line.trim())
-						.map((line) => JSON.parse(line))
-				: [];
+			return existsSync(path) ? completeJsonLines(readFileSync(path, "utf8")) : [];
 		},
 		async dispose() {
 			// AgentSession.dispose() 不发 session_shutdown（只有 AgentSessionRuntime 发），
@@ -532,6 +532,33 @@ export function laneByLine(cases, { count = 8 } = {}) {
 	return Array.from({ length: count }, () => step);
 }
 
+/**
+ * The rows of a JSONL file that are whole. A row is whole once its newline is written; whatever follows the last
+ * newline is an append still in flight and is left for the next read. A whole row that does not parse still throws.
+ */
+export function completeJsonLines(text) {
+	return text
+		.slice(0, text.lastIndexOf("\n") + 1)
+		.split("\n")
+		.filter((line) => line.trim())
+		.map((line) => JSON.parse(line));
+}
+
+/**
+ * Wait for the JSONL appends in flight (`appendJsonl`, extensions/lanes/host.ts) to land. Appends that start while
+ * waiting are waited for too; the deadline only guards a write that never settles, which `appendJsonl` does not do.
+ */
+export async function appendsSettled({ timeoutMs = 5_000 } = {}) {
+	const pending = globalThis[Symbol.for("pi-coc.jsonl-appends-in-flight")];
+	const deadline = Date.now() + timeoutMs;
+	while (pending?.size && Date.now() < deadline) {
+		let timer;
+		const expired = new Promise((resolve) => (timer = setTimeout(resolve, Math.max(0, deadline - Date.now()))));
+		await Promise.race([Promise.allSettled([...pending]), expired]);
+		clearTimeout(timer);
+	}
+}
+
 /** 等宿主自己发起的那一轮（开桌、恢复、催收）跑完。 */
 export async function waitForIdle(session, { timeoutMs = 15_000 } = {}) {
 	const deadline = Date.now() + timeoutMs;
@@ -544,6 +571,7 @@ export async function waitForIdle(session, { timeoutMs = 15_000 } = {}) {
 		await new Promise((resolve) => setTimeout(resolve, 10));
 	}
 	await new Promise((resolve) => setTimeout(resolve, 50));
+	await appendsSettled();
 }
 
 export function assistantTexts(session) {
