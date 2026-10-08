@@ -72,7 +72,7 @@ def discover_everything_effects() -> list[dict]:
 
 
 def build_rich_state(client: RpcClient) -> None:
-    """Every scene visited and all 39 clues discovered (stresses `where`,
+    """Every scene visited and all 39 clues already known (stresses `where`,
     `present`, `known`), a live combat session (`pressures`/`obligations`/
     `situations`/the third-layer override), nine long memory candidates
     (`memory`), and ten long verifier findings (`warnings`) -- one rich
@@ -83,7 +83,7 @@ def build_rich_state(client: RpcClient) -> None:
     # this turn; finding one without its roll is covered by the real clue-gate tests, not this all-scenes stress setup.
     world_path = campaign_dir(client.workspace) / "world.json"
     world = read_json(world_path)
-    world["discovered_clues"] = ["flesh-ward-active", "rusted-basement-dagger"]
+    world["discovered_clues"] = [clue for _scene, clues in WALK for clue in clues]
     world_path.write_text(json.dumps(world, ensure_ascii=False), encoding="utf-8")
     client.table("player_input", text="We visit the house's rooms and finally confront Corbitt in the cellar.")
     client.table("apply", call_id="t1-c1", effects=discover_everything_effects())

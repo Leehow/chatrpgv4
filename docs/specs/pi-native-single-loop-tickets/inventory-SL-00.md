@@ -461,3 +461,9 @@ One app-play-gated leaf, `extensions/kernel/index.ts` `bindAppendArguments` `cre
 ### First sight: the check of a delivery (§168.5, 2026-10-02)
 
 One app-play-gated leaf, `runtime/jev/first-sight.ts` `createFirstSightLane.check` `runLane`. After a delivery whose capsule carried `first_sight`, the kernel extension starts the check in the background (`extensions/kernel/first-sight.ts`, never awaited by the delivery): one zero-tool completion on the fast model (`PI_COC_FIRST_SIGHT_MODEL`, then the fast-model setting, then the table), bounded to 20 s, reads the delivered prose beside each owed item's book words and names what a newcomer could see or hear that the prose did not show. The anchored answer lands through `table.first_sight`; any failure records nothing and the items stay owed. It cannot start, continue or steer a Keeper run.
+
+### Delivered clues and establishing review (2026-10-08 continuation)
+
+`extensions/kernel/told-clue.ts#ask` constructs one DecisionAdapter for the delivered-clue read (§201): a bounded leaf after delivery, sharing the owner's deadline, transport policy and provider allowance. It returns readings for the existing owed-state writer and cannot drive a Keeper run. Controlled evidence: `tests/extension/clue-ledger.test.mjs`.
+
+`runtime/jev/establish-review.ts#createEstablishReviewLane.review` calls `runLane` for one short establishing verdict (§203). The owner approved the pre-delivery exception: at most 20 seconds, one possible rewrite, then delivery; unavailable review delivers the original. The existing caller owns that continuation. Controlled evidence: `tests/extension/scene-establish-host.test.mjs`; live App acceptance remains pending.

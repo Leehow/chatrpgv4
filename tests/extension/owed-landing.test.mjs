@@ -72,7 +72,9 @@ test('the kernel refuses a name that is not open, an effect that does not land t
     await assert.rejects(apply([{...move.effect, owed: 't99-owed-1'}]), error => reason(error) === 'owed_unknown');
     await assert.rejects(apply([{kind: 'move', to: 'newspaper-morgue', via: 'Elsewhere.', owed: move.name}]), error => reason(error) === 'owed_mismatch',
         'the Keeper\'s own word cannot turn a told arrival into another place');
-    await assert.rejects(apply([{kind: 'clue', clue: 'knott-keys', owed: move.name}]), error => reason(error) === 'owed_kind');
+    // Clue is now a supported landing kind (§201); putting one against a move row is a mismatch.
+    await assert.rejects(apply([{kind: 'clue', clue: 'knott-keys', owed: move.name}]), error => reason(error) === 'owed_mismatch');
+    await assert.rejects(apply([{kind: 'note', scope: 'scene', summary: 'Not a landing.', owed: move.name}]), error => reason(error) === 'owed_kind');
     await assert.rejects(apply([{...time.effect, owed: time.name}, {...time.effect, owed: time.name}]), error => reason(error) === 'owed_repeated');
     // What turn 1 delivered no longer holds the sentence the row quotes: the row cannot be landed as told state.
     const path = join(game.directory, 'turns', `${String(turn).padStart(4, '0')}.json`), delivered = await record(game, turn);

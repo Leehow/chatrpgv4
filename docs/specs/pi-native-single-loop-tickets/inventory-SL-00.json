@@ -2246,6 +2246,32 @@
       "trace": "not observed (no window-places rows yet)",
       "note": "Gate: a reference book with a reading window, a Jev key, window_places.mode != off (shipped on). Background, at table open and on a read_window change, once per entry per campaign; mints identity-only place scenes through module.reference.materialize; an outage mints nothing and blocks nothing.",
       "lines_at_0b729e8fb": []
+    },
+    {
+      "file": "extensions/kernel/told-clue.ts",
+      "symbol": "ask",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "kernel ext: delivered clue reconciliation (contract 201)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "controlled host-path evidence: tests/extension/clue-ledger.test.mjs; no live table acceptance yet",
+      "note": "One bounded typed decision batch per delivered text, after delivery. Uses the original deadline, fixed transport retries and provider allowance. Returns clue readings; the host writes owed rows and the current Keeper loop owns continuation.",
+      "lines_at_0b729e8fb": []
+    },
+    {
+      "file": "runtime/jev/establish-review.ts",
+      "symbol": "createEstablishReviewLane.review",
+      "kind": "lane",
+      "callee": "runLane",
+      "count": 1,
+      "owner": "kernel ext: establishing delivery review (contract 203)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "controlled host-path evidence: tests/extension/scene-establish-host.test.mjs; owner approved the bounded pre-delivery exception",
+      "note": "One short verdict on an establishing delivery, at most 20 seconds. The caller may steer one rewrite and then delivers; no second verdict. An unavailable check delivers the original. This leaf owns no Keeper loop or operation authority.",
+      "lines_at_0b729e8fb": []
     }
   ]
 }
