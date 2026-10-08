@@ -172,7 +172,7 @@ export async function runSpeechAttribution(input: SpeechAttributionInput, decisi
     const batch = speechAttributionBatch(input, bindings);
     try { packDecisionBatch(batch); }
     catch (error) { return fallback(error instanceof PackingError ? error.failure : 'schema_error'); }
-    const result = await decision.decide(batch, lease); calls++;
+    const result = await decision.decide(batch, lease); calls += result.attempts ?? 1;
     usage.inputTokens += result.usage?.inputTokens ?? 0;
     usage.outputTokens += result.usage?.outputTokens ?? 0;
     usage.costUsd += result.usage?.costUsd ?? 0;

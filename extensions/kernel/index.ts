@@ -2665,8 +2665,15 @@ export default function (pi: ExtensionAPI) {
 			const bound = parent ? AbortSignal.any([outer, parent.signal]) : outer;
 			const bindings = speechAttributionBindings(input);
 			accounting = preparationBudget({
-				decision: createDecisionAdapter({ env, maxConcurrency: 4, retryPolicies: {
-					[SPEECH_ATTRIBUTION_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } } }),
+				decision: createDecisionAdapter({ env, maxConcurrency: 4, trace: event => {
+					jevFailureTelemetry(row => { void record({...row, turn: state.turn}); })(event);
+					if (event.kind === 'retry' && event.reason === 'hedge') void record({lane: 'jev', event: 'request_hedged',
+						family: SPEECH_ATTRIBUTION_FAMILY, turn: state.turn, after_ms: event.delayMs});
+					if (event.kind === 'usage' && event.cost.unknownRetryBoundUsd > 0) void record({lane: 'jev', event: 'hedge_usage',
+						family: SPEECH_ATTRIBUTION_FAMILY, turn: state.turn, requests: event.attempts, unknown_cost_bound_usd: event.cost.unknownRetryBoundUsd});
+				}, retryPolicies: {
+					[SPEECH_ATTRIBUTION_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000,
+						hedgeAfterMs: Math.min(750, Math.max(1, speechAttributeTimeoutMs(env) / 3)) } } }),
 				campaign: state.campaign, deadlineAt, signal: bound, ...(parent ? { parent } : {}),
 				owner: SPEECH_ATTRIBUTION_FAMILY, goal: "Attribute quoted passages of a delivery to the people present",
 			});

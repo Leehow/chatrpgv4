@@ -664,9 +664,14 @@ export const COC_COMMAND = "coc";
 export function registerCocCommand(pi: ExtensionAPI, deps: CommandDeps): void {
 	// The ingest job (contract §20.2) reports on the bus, whoever started it. Its progress belongs to
 	// the person watching, so it goes through `ctx.ui` like every other line here and never into the
-	// Keeper's context. Only stage changes and every tenth page are shown: a 41-page book must not
-	// scroll the table away.
-	let lastStage: string | undefined;
+	// Keeper's context. The reading service (§22.5) puts every reading job's progress on the same
+	// channel: the ingest a person started, and the reading a table does on its own (read-ahead, the
+	// Keeper's lookups, the cast). Only the first is anyone's to watch (§22.5.1): lines show while an
+	// ingest requested on this bus runs, until its `-done` or `-failed`, each stage once and every
+	// tenth page; background reading reaches no one's screen. TR-F: 70 background reading jobs in 15
+	// turns toasted about 118 stage lines over the play, none of them asked for.
+	let ingests = 0;
+	const shownStages = new Set<string>();
 	/** One unprompted line, in the campaign's own words; a content root that cannot be read drops the line rather than throwing into the bus. */
 	function report(draw: (words: ExtensionWords) => string, type: "info" | "error"): void {
 		void deps
@@ -676,20 +681,35 @@ export function registerCocCommand(pi: ExtensionAPI, deps: CommandDeps): void {
 				/* one progress line is not worth an exception */
 			});
 	}
-	pi.events.on("coc:module-ingest", () => {
-		lastStage = undefined;
+	pi.events.on("coc:module-ingest", (data) => {
+		// The same test as the module extension's: a request with neither a PDF nor a module starts nothing, and would never end.
+		const row = rec(data);
+		if (!row.pdf && !row.module_id) return;
+		if (++ingests === 1) shownStages.clear();
 	});
 	pi.events.on("coc:module-ingest-progress", (data) => {
+		if (ingests <= 0) return;
 		const row = rec(data);
-		const stage = str(row.stage);
+		const stage = str(row.stage) ?? "";
 		const page = num(row.page);
 		const of = num(row.of);
-		const worthShowing = stage !== lastStage || (page !== undefined && of !== undefined && of > 0 && (page % 10 === 0 || page === of));
-		lastStage = stage;
+		const worthShowing = !shownStages.has(stage) || (page !== undefined && of !== undefined && of > 0 && (page % 10 === 0 || page === of));
+		shownStages.add(stage);
 		if (worthShowing) report((words) => ingestProgressLine(row, words), "info");
 	});
-	pi.events.on("coc:module-ingest-done", (data) => report((words) => ingestDoneLine(rec(data), words), "info"));
-	pi.events.on("coc:module-ingest-failed", (data) => report((words) => ingestFailedLine(rec(data), words), "error"));
+	// Requests less answers, not clamped: an answer the module extension sends from inside the request's own emit (no
+	// reading service) reaches this listener before the request does, and the request then brings the count back to none.
+	const ended = () => {
+		ingests -= 1;
+	};
+	pi.events.on("coc:module-ingest-done", (data) => {
+		ended();
+		report((words) => ingestDoneLine(rec(data), words), "info");
+	});
+	pi.events.on("coc:module-ingest-failed", (data) => {
+		ended();
+		report((words) => ingestFailedLine(rec(data), words), "error");
+	});
 
 	pi.registerCommand(COC_COMMAND, {
 		description: "COC table: status, model, thinking, lanes, evidence, module, investigator",

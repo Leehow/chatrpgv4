@@ -84,6 +84,63 @@ function nonOkResponse(status, headers = {}, onCancel = () => {}) {
 	};
 }
 
+test('a slow attempt gets one identical hedge, cancels its loser and charges both request bounds', async () => {
+  const calls = [], traces = [], owner = lease(), before = owner.context.budget;
+  const policy = {maxRetries: 0, backoffInitialMs: 0, backoffMaxMs: 0, hedgeAfterMs: 1};
+  const adapter = createDecisionAdapter({apiKey: 'test-only', retryPolicies: {routing: policy}, trace: event => traces.push(event),
+    fetcher: (_url, init) => {
+      calls.push(init);
+      if (calls.length === 1) return new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason), {once: true}));
+      return Promise.resolve(response(answer()));
+    }});
+  try {
+    const pending = adapter.decide(batch(), owner);
+    await waitUntil(() => calls.length === 2, 'the bounded hedge');
+    const result = await pending;
+    assert.equal(result.status, 'complete');assert.equal(result.attempts, 2);
+    assert.equal(calls[0].body, calls[1].body);
+    assert.equal(calls[0].signal.aborted, true);
+    assert.equal(owner.context.budget.remainingActions, before.remainingActions - 1);
+    assert.equal(owner.context.budget.remainingInputTokens, before.remainingInputTokens - 120 - packDecisionBatch(batch()).estimate.totalUpperBound);
+    assert(traces.some(event => event.kind === 'usage' && event.attempts === 2 && event.cost.unknownRetryBoundUsd > 0));
+  } finally {owner.close();}
+});
+
+test('a fast answer sends no hedge, while a hedge must fit the original owner budget before either request', async () => {
+  const policy = {maxRetries: 0, backoffInitialMs: 0, backoffMaxMs: 0, hedgeAfterMs: 1};
+  let calls = 0;
+  const adapter = createDecisionAdapter({apiKey: 'test-only', retryPolicies: {routing: policy}, fetcher: async () => {calls++;return response(answer());}});
+  const owner = lease();
+  try {assert.equal((await adapter.decide(batch(), owner)).attempts, 1);assert.equal(calls, 1);} finally {owner.close();}
+  const short = lease({budget: {...generousBudget(), remainingInputTokens: packDecisionBatch(batch()).estimate.totalUpperBound * 2 - 1}});
+  try {const denied = await adapter.decide(batch(), short);assert.equal(denied.failure.code, 'budget_exhausted');assert.equal(calls, 1);} finally {short.close();}
+});
+
+test('cancellation settles a hedged attempt even when its transport ignores the abort signal', async () => {
+  const controller = new AbortController(), owner = lease({signal: controller.signal});let calls = 0;
+  const adapter = createDecisionAdapter({apiKey: 'test-only', retryPolicies: {routing: {maxRetries: 0, backoffInitialMs: 0, backoffMaxMs: 0, hedgeAfterMs: 100}},
+    fetcher: () => {calls++;return new Promise(() => {});}});
+  try {
+    const pending = adapter.decide(batch(), owner);
+    await waitUntil(() => calls === 1, 'initial request');controller.abort(new Error('test cancellation'));
+    const result = await pending;
+    assert.equal(result.status, 'unavailable');assert.equal(result.failure.code, 'cancelled');assert.equal(calls, 1);
+  } finally {owner.close();}
+});
+
+test('a transient reply after a hedge does not discard a successful request already in flight', async () => {
+  let primary, calls = 0;
+  const owner = lease(), adapter = createDecisionAdapter({apiKey: 'test-only', retryPolicies: {routing: {maxRetries: 0, backoffInitialMs: 0, backoffMaxMs: 0, hedgeAfterMs: 1}},
+    fetcher: () => {
+      if (++calls === 1) return new Promise(resolve => {primary = resolve;});
+      primary(nonOkResponse(503));return Promise.resolve(response(answer()));
+    }});
+  try {
+    const pending = adapter.decide(batch(), owner);await waitUntil(() => calls === 2, 'second request');
+    assert.equal((await pending).status, 'complete');
+  } finally {owner.close();}
+});
+
 async function waitUntil(probe, label) {
 	const deadline = Date.now() + 2_000;
 	while (!probe()) {

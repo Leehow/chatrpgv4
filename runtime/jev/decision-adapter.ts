@@ -16,6 +16,14 @@ export interface RetryPolicy {
   attemptTimeoutMs?: number;
   retryNetwork?: boolean;
   retryTimeout?: boolean;
+  /**
+   * Contract §128.3.1: an attempt with no response after this long sends the same request once more, and the first
+   * response answers the attempt; the other request is aborted. Jev's slow responses come one request at a time
+   * (TR-F2 run 2: parallel batches of one moment, some answered in 0.4 s and some past 3.5 s), so a second request
+   * inside the same deadline answers where waiting longer would not. Each hedge is reserved and charged as one more
+   * request of unknown size.
+   */
+  hedgeAfterMs?: number;
 }
 export interface AnswerSchemaDiagnostic {
   key: string;
@@ -123,12 +131,55 @@ function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
 async function cancelResponseBody(response: Response): Promise<void> {
   try { await response.body?.cancel(); } catch { /* transport cleanup is advisory */ }
 }
+/**
+ * §128.3.1: one attempt's response. Without `hedgeAfterMs` it is the one request. With it, a request that has not
+ * answered after `hedgeAfterMs` is joined by a second, identical one: the first successful or permanent-error response
+ * answers, and the other is aborted (its body cancelled should it still arrive). A transient error after both were sent
+ * waits for the request already in flight; it starts no extra request. A request that fails before the hedge
+ * fails the attempt as before; after the hedge, the attempt fails only when both have.
+ */
+function hedgedSend(send: (signal: AbortSignal) => Promise<Response>, signal: AbortSignal, hedgeAfterMs: number | undefined,
+    onHedge: () => void): Promise<Response> {
+  if (hedgeAfterMs === undefined) return send(signal);
+  return new Promise<Response>((resolve, reject) => {
+    const controllers: AbortController[] = [];
+    let settled = false, pending = 0, timer: NodeJS.Timeout | undefined, lastResponse: Response | undefined;
+    const stop = () => { if (!settled) settle(() => reject(signal.reason ?? new Error('cancelled'))); };
+    const settle = (finish: () => void) => {
+      settled = true; clearTimeout(timer); signal.removeEventListener('abort', stop);
+      for (const controller of controllers) controller.abort();
+      finish();
+    };
+    const launch = () => {
+      const own = new AbortController(); controllers.push(own); pending += 1;
+      Promise.resolve().then(() => send(AbortSignal.any([signal, own.signal]))).then(response => {
+        pending -= 1;
+        if (settled) { void cancelResponseBody(response); return; }
+        controllers.splice(controllers.indexOf(own), 1);
+        if (!response.ok && [429, 500, 502, 503, 504, 529].includes(response.status) && pending > 0) {
+          lastResponse = response; void cancelResponseBody(response); return;
+        }
+        settle(() => resolve(response));
+      }, error => {
+        pending -= 1;
+        if (settled) return;
+        if (pending === 0) settle(() => lastResponse ? resolve(lastResponse) : reject(error));
+      });
+    };
+    signal.addEventListener('abort', stop, { once: true });
+    if (signal.aborted) { stop(); return; }
+    launch();
+    timer = setTimeout(() => { if (settled || signal.aborted) return; onHedge(); launch(); }, hedgeAfterMs);
+    timer.unref?.();
+  });
+}
 function policy(value: RetryPolicy | undefined): RetryPolicy {
   const result = value ?? { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 };
   if (!Number.isSafeInteger(result.maxRetries) || result.maxRetries < 0 || result.maxRetries > 5
     || !Number.isFinite(result.backoffInitialMs) || result.backoffInitialMs < 0
     || !Number.isFinite(result.backoffMaxMs) || result.backoffMaxMs < result.backoffInitialMs
-    || result.attemptTimeoutMs !== undefined && (!Number.isFinite(result.attemptTimeoutMs) || result.attemptTimeoutMs <= 0))
+    || result.attemptTimeoutMs !== undefined && (!Number.isFinite(result.attemptTimeoutMs) || result.attemptTimeoutMs <= 0)
+    || result.hedgeAfterMs !== undefined && (!Number.isFinite(result.hedgeAfterMs) || result.hedgeAfterMs <= 0))
     throw new ContractError('invalid_retry_policy');
   return result;
 }
@@ -266,9 +317,11 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
       trace({ kind: 'packing', batchId: batch.id, estimate: packed.estimate, cache: 'disabled' });
       const retry = policy(options.retryPolicies?.[batch.family]);
       const maxAttempts = retry.maxRetries + 1;
-      const inputBound = packed.estimate.totalUpperBound * maxAttempts;
+      // §128.3.1: at most one hedge per attempt, reserved as one more request each.
+      const maxRequests = maxAttempts * (retry.hedgeAfterMs === undefined ? 1 : 2);
+      const inputBound = packed.estimate.totalUpperBound * maxRequests;
       const outputPerAttemptBound = packed.estimate.responseUpperBound;
-      const outputBound = outputPerAttemptBound * maxAttempts;
+      const outputBound = outputPerAttemptBound * maxRequests;
       const costBound = inputBound * JEV_INPUT_USD_PER_MILLION / 1_000_000;
       let releaseConcurrency: (() => void) | undefined;
       try {
@@ -287,17 +340,19 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
       let released = false;
       /** SL-84: the most recent attempt's HTTP status, or its network/timeout code when no response ever arrived. */
       let lastStatus: number | string | undefined;
+      /** §128.3.1: requests a hedge sent beside an attempt's own, each of unknown size. */
+      let hedges = 0;
       const settleUnknown = (code: NonNullable<DecisionResult['failure']>['code'], retryable: boolean, attempts: number) => {
-        const unknownInput = packed.estimate.totalUpperBound * attempts;
+        const unknownInput = packed.estimate.totalUpperBound * (attempts + hedges);
         const unknownCost = unknownInput * JEV_INPUT_USD_PER_MILLION / 1_000_000;
         if (!released) {
-          reservation.settle({ inputTokens: unknownInput, outputTokens: outputPerAttemptBound * attempts,
+          reservation.settle({ inputTokens: unknownInput, outputTokens: outputPerAttemptBound * (attempts + hedges),
             costUsd: unknownCost, actions: 1 });
           released = true;
         }
-        trace({ kind: 'failure', batchId: batch.id, attempts, family: batch.family, code, ...(lastStatus !== undefined ? { status: lastStatus } : {}),
+        trace({ kind: 'failure', batchId: batch.id, attempts: attempts + hedges, family: batch.family, code, ...(lastStatus !== undefined ? { status: lastStatus } : {}),
           cost: { kind: 'reserved_bound_actual_unknown', usd: unknownCost } });
-        return unavailable(batch, code, retryable, now() - began, attempts, lastStatus);
+        return unavailable(batch, code, retryable, now() - began, attempts + hedges, lastStatus);
       };
       let attempted = 0;
       try {
@@ -311,8 +366,12 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
           let response: Response;
           try {
             attempted = attempt;
-            response = await fetcher(JEV_ENDPOINT, { method: 'POST', redirect: 'error', signal: attemptSignal,
-              headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(packed.request) });
+            const body = JSON.stringify(packed.request);
+            response = await hedgedSend(signal => fetcher(JEV_ENDPOINT, { method: 'POST', redirect: 'error', signal,
+              headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body }), attemptSignal, retry.hedgeAfterMs, () => {
+              hedges += 1;
+              trace({ kind: 'retry', batchId: batch.id, attempt, delayMs: retry.hedgeAfterMs!, reason: 'hedge' });
+            });
           } catch (error) {
             if (lease.signal.aborted) return settleUnknown(now() >= lease.context.budget.deadlineAt ? 'timeout' : 'cancelled', false, attempt);
             const timedOut = attemptSignal.aborted;
@@ -356,8 +415,8 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
           catch { return settleUnknown(now() >= lease.context.budget.deadlineAt ? 'timeout' : 'cancelled', false, attempt); }
           if (!strictEnvelope(raw)) return settleUnknown('schema_error', false, attempt);
           const costUsd = raw.usage.input_tokens * JEV_INPUT_USD_PER_MILLION / 1_000_000;
-          const priorUnknownInput = packed.estimate.totalUpperBound * (attempt - 1);
-          const priorUnknownOutput = outputPerAttemptBound * (attempt - 1);
+          const priorUnknownInput = packed.estimate.totalUpperBound * (attempt - 1 + hedges);
+          const priorUnknownOutput = outputPerAttemptBound * (attempt - 1 + hedges);
           const priorUnknownCost = priorUnknownInput * JEV_INPUT_USD_PER_MILLION / 1_000_000;
           try {
             reservation.settle({ inputTokens: raw.usage.input_tokens + priorUnknownInput,
@@ -365,16 +424,16 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
             released = true;
           } catch {
             released = true;
-            return unavailable(batch, 'budget_exhausted', false, now() - began, attempt);
+            return unavailable(batch, 'budget_exhausted', false, now() - began, attempt + hedges);
           }
-          trace({ kind: 'usage', batchId: batch.id, attempts: attempt, inputTokens: raw.usage.input_tokens,
+          trace({ kind: 'usage', batchId: batch.id, attempts: attempt + hedges, inputTokens: raw.usage.input_tokens,
             outputTokens: raw.usage.output_tokens, cost: { kind: 'listed_price_estimate', usd: costUsd,
               inputUsdPerMillion: JEV_INPUT_USD_PER_MILLION, unknownRetryBoundUsd: priorUnknownCost } });
           const result = bindDecisionAnswers(batch, normalizedAnswers(batch, raw.answers),
             { inputTokens: raw.usage.input_tokens, outputTokens: raw.usage.output_tokens, costUsd });
           if (result.status === 'incomplete') trace({ kind: 'answer_schema', batchId: batch.id, status: 'incomplete',
             diagnostics: answerSchemaDiagnostics(batch, raw.answers) });
-          return { ...result, elapsedMs: now() - began, attempts: attempt,
+          return { ...result, elapsedMs: now() - began, attempts: attempt + hedges,
             ...(result.status === 'complete' ? {} : { failure: { code: 'schema_error' as const, retryable: false } }) };
         }
         return settleUnknown('service_error', false, maxAttempts);

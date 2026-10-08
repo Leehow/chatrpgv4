@@ -109,8 +109,11 @@ test("/coc module parse forwards the original quoted path and keeps progress out
  assert.deepEqual(started[0].data,{pdf:"/tmp/a book.pdf",module_id:"a-book"});
  assert.ok(table.ui.notifications.some(r=>r.message.includes("/tmp/a book.pdf")));
  await waitFor(()=>table.bus("coc:module-ingest-failed")[0],{label:"missing source is reported"});
- // Command-view fixtures; source processing is tested at its own seam.
+ // Command-view fixtures; source processing is tested at its own seam. A progress line shows while an ingest runs (§22.5.1):
+ // the request opens it, and the row lands before the module extension's own answer to that request closes it.
+ table.emit("coc:module-ingest",{pdf:"/tmp/a book.pdf",module_id:"a-book"});
  table.emit("coc:module-ingest-progress",{stage:"index",page:10,of:20});
+ await waitFor(()=>table.bus("coc:module-ingest-failed")[1],{label:"the second request is answered"});
  table.emit("coc:module-ingest-done",{module_id:"a-book",opening_ready:true});
  // The parse job's unprompted lines read their words from the campaign's `extension` surface
  // (contract §23); the page numbers and the module id inside them stay the job's own.
@@ -121,6 +124,45 @@ test("/coc module parse forwards the original quoted path and keeps progress out
  await waitFor(()=>table.ui.notifications.some(r=>r.message.includes(page)),{label:"the progress line reaches the person"});
  await waitFor(()=>lastNotice(table).message.includes(words.word("parse_opening_ready")),{label:"the done line reaches the person"});
  assert.equal(table.session.messages.filter(m=>m.role==="user").length,1);
+});
+
+test("§22.5.1: background reading during play reaches no one; an ingest the person started shows each stage once, until it ends", async (t) => {
+	const table = await openWithLibrary(t);
+	const words = await extensionWords("zh-Hans");
+	const stageLine = (stage) => words.line("parse_stage", { stage });
+	const settled = () => new Promise((resolve) => setTimeout(resolve, 200));
+	// TR-F: the read-ahead's jobs during play, as the reading service writes them on this channel (interleaved, with review units).
+	const background = [
+		{ module_id: "book-2", campaign: "game-x", job_id: "read-1", purpose: "detail", stage: "read", focus: "Original pages 9-10", of: 48 },
+		{ module_id: "book-2", campaign: "game-x", job_id: "read-2", purpose: "detail", stage: "read", focus: "Original pages 11-12", of: 48 },
+		{ module_id: "book-2", campaign: "game-x", job_id: "read-1", purpose: "detail", stage: "verify", reviewed: 0, review_total: 2 },
+		{ module_id: "book-2", campaign: "game-x", job_id: "read-2", purpose: "detail", stage: "verify", reviewed: 1, review_total: 2 },
+		{ module_id: "book-2", campaign: "game-x", job_id: "read-1", purpose: "detail", stage: "read", focus: "Original pages 9-10", of: 48 },
+		{ module_id: "book-2", campaign: "game-x", job_id: "read-3", purpose: "answer", stage: "index", of: 48 },
+	];
+	for (const row of background) table.emit("coc:module-ingest-progress", row);
+	await settled();
+	assert.deepEqual(table.ui.notifications.map((row) => row.message), [], "nothing on the player's screen");
+
+	// The person starts an ingest; the module extension answers it a microtask later, so these rows land inside it.
+	table.emit("coc:module-ingest", { pdf: "/tmp/a book.pdf" });
+	for (const row of background) table.emit("coc:module-ingest-progress", row);
+	await waitFor(() => table.bus("coc:module-ingest-failed")[0], { label: "the ingest ends" });
+	await waitFor(() => table.ui.notifications.some((row) => row.type === "error"), { label: "its failed line" });
+	const shown = table.ui.notifications.filter((row) => row.type === "info").map((row) => row.message);
+	for (const stage of ["read", "verify", "index"])
+		assert.equal(shown.filter((message) => message.startsWith(stageLine(stage))).length, 1, `${stage} once: ${JSON.stringify(shown)}`);
+	assert.equal(shown.length, 3, "one line per stage, nothing else");
+
+	table.ui.notifications.length = 0;
+	for (const row of background) table.emit("coc:module-ingest-progress", row);
+	await settled();
+	assert.deepEqual(table.ui.notifications.map((row) => row.message), [], "after its end, nothing again");
+	// A request that names neither a PDF nor a module starts nothing (the module extension ignores it), so it opens nothing.
+	table.emit("coc:module-ingest", {});
+	for (const row of background) table.emit("coc:module-ingest-progress", row);
+	await settled();
+	assert.deepEqual(table.ui.notifications.map((row) => row.message), []);
 });
 
 test("/coc module parse does not require the player to identify the source language", async (t) => {

@@ -45,7 +45,7 @@ function distribution(keys, chosen, confidence) {
  * every other family that happens to run (the post-delivery verifier) is answered with its first
  * issued option. `failure` replaces the whole reply for attribution requests.
  */
-function installJev(t, attribute, { failure } = {}) {
+function installJev(t, attribute, { failure, slowFirst = false } = {}) {
 	const original = globalThis.fetch;
 	const attribution = [];
 	globalThis.fetch = async (url, init) => {
@@ -54,6 +54,8 @@ function installJev(t, attribute, { failure } = {}) {
 		const mine = Object.keys(body.questions).some((key) => key.startsWith("speaker_"));
 		if (mine) {
 			attribution.push(body);
+			if (slowFirst && attribution.length === 1) return new Promise((_resolve, reject) =>
+				init.signal.addEventListener('abort', () => reject(init.signal.reason), {once: true}));
 			if (failure === "throw") throw new TypeError("fetch failed");
 			if (failure) return new Response("unavailable", { status: failure });
 		}
@@ -86,8 +88,8 @@ function liveTurns(text = TURN2) {
 	];
 }
 
-async function playLive(t, { env = {}, attribute = knott, failure, text } = {}) {
-	const requests = installJev(t, attribute, { failure });
+async function playLive(t, { env = {}, attribute = knott, failure, text, slowFirst } = {}) {
+	const requests = installJev(t, attribute, { failure, slowFirst });
 	const table = await openTable({ env: { ...ENV, ...env }, responses: liveTurns(text) });
 	t.after(() => table.dispose());
 	await table.session.prompt("我坐下");
@@ -97,6 +99,17 @@ async function playLive(t, { env = {}, attribute = knott, failure, text } = {}) 
 	await waitFor(() => speechRows(table).length >= 2, { label: "the second delivery's speech row" });
 	return { table, requests };
 }
+
+test('S10: a slow attribution copy is cancelled; its fast peer inserts the missing speech spans without a rewrite', async t => {
+	const {table, requests} = await playLive(t, {slowFirst: true});
+	assert.equal(requests.length, 2);
+	assert.deepEqual(requests[0], requests[1], 'the peer judges the same request and the same candidates');
+	assert(narrateTexts(table).at(-1).includes(`{{say:${KNOTT}}}`));
+	assert.equal(speechRows(table).at(-1).attributed, 2);
+	assert.equal(speechRows(table).at(-1).attribute_failure, undefined);
+	assert.equal(speechRows(table).at(-1).jev_calls, 2);
+	assert.deepEqual(customMessages(table.session, 'coc-host').filter(message => message.details?.kind === 'speech'), []);
+});
 
 test("section 166: both first-draft lines are attributed without rewriting any words", async (t) => {
 	const { table, requests } = await playLive(t);

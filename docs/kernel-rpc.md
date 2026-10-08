@@ -4361,6 +4361,28 @@ setup 用 `prepare-module` 替换 `build-bundle/bind-source/build-opening` 的�
 
 沿用 `coc:module-ingest` 及其 `-progress/-done/-failed` 频道接入宿主。进度统一为 `{module_id?, stage: "source"|"index"|"read"|"verify", page?, of?, focus?}`；`-done` 表示开场可用，不表示全书精读完成。新路径不再发旧 build 专属频道，命令与 setup 调用同一个宿主阅读服务。当前不新增任何 Electron IPC 或 UI。
 
+#### 22.5.1 Progress lines are for the ingest a person started (TR-F, owner 2026-10-08)
+
+The host's reading service writes every reading job's progress on `coc:module-ingest-progress`: the ingest a person started
+(`/coc module parse`, a front end's request on `coc:module-ingest`), and the reading a table does on its own during play
+(read-ahead, the Keeper's lookups, the cast, review units). The table's command surface (`extensions/table/commands.ts`,
+`registerCocCommand`) shows a progress line only while an ingest requested on this bus is running, from its
+`coc:module-ingest` (with a `pdf` or `module_id`, the module extension's own test) to its `-done` or `-failed`: each stage once
+per ingest, and every tenth page; the done and failed lines as before. Background reading reaches no one's screen; its
+telemetry (`lane: "reading"`) and the reading-status notice (§32.2's shape) are the operator's. The channel's payload is
+unchanged.
+
+*Evidence.* TR-F (App `d944b6b07`, Cold Harvest, session `2026-10-08T02-23-57`): 70 background reading jobs (`purpose:
+"detail"`) in 15 turns, about 339 progress frames over 35 minutes; the old rule (a line on every stage change, one `lastStage`
+shared by interleaved jobs) toasted about 118 of them at the top of the play view. The App never emits `coc:module-ingest`
+(its setup prepares books through the onboarding worker, which shows its own `public_preparation`), so none of those lines
+belonged to anything the player had asked for.
+
+*Tests* (`tests/extension/module-command.test.mjs`, the harness's real extensions): background reading rows during play
+show nothing; an ingest's rows show each stage once and end with its failed line; rows after it ended show nothing.
+Mutations, each turning a case red, reverted by copying the saved file back: progress shown with no ingest running; a stage
+shown twice in one ingest; the window left open after `-failed`.
+
 RPC 顶层错误枚举沿用 §1；具体原因放在 `details.reason`：`bad_pdf, vision_required, unreadable_pages, needs_source, material_pending, reading_timeout, reading_failed`。拒绝须有英文 `fix`；候选选择给 `details.candidates`。不可读的必要页面会阻断相关范围；不相关页面可保留为缺口，但不得声称全书可玩性已验证。
 
 旧图谱、资产、campaign 与回合证据继续可读。无原 PDF 的旧模块可玩已有内容，新细读返回 `needs_source`；摘要匹配后可建立新阅读索引，绝不把旧全书“已接受”标记冒充视觉验证。旧资料包不再接受新的生产导入，不保留 OCR fallback。退役执行清单和删除后的验证以规格为准。
@@ -20755,6 +20777,30 @@ steer switched off; against the real kernel, a host-wrapped repeat of the same N
 stripped), `tests/extension/jev-speech-attribution-domain.test.mjs` (closed set, state, packing, typed
 outcomes, fallbacks, bounds), `tests/extension/unwrapped-speech.test.mjs` (offsets into the repair, wrapping,
 surrounding sentences, span ordinals).
+
+### 128.3.1 A slow attribution request gets one bounded hedge (S10, 2026-10-08)
+
+TR-F2 run 2 T7 delivered Gapon's dialogue without a say span. Its existing attribution lane recorded
+`attribute_failure: timeout`, `jev_ms: 2505`, one request. The quote was discovered; the semantic decision did not arrive.
+This is a transport-tail failure, not a new dialogue classifier or a pre-delivery prose reviewer.
+
+Only the speech-attribution family enables one identical read-only request after the lesser of 750 ms and one third of
+its existing allowance. The first successful response wins; an already-started peer may finish after a transient error,
+while a permanent error stops both. Losing requests and late response bodies are cancelled. Parent cancellation settles
+the attempt even if a transport ignores its signal. No retry is added after the shared deadline.
+
+The adapter reserves the upper bound for both requests before sending either, counts physical requests in attempts and
+telemetry, and charges an unknown-size bound for the losing request. Existing token, cost, action, confidence and deadline
+ceilings remain. Every other family's default still sends one request. Words and quoted-document classification remain
+with the existing semantic attribution questions; the host inserts spans only for an attributed answer.
+
+External comparison: [gRPC request hedging](https://grpc.io/docs/guides/request-hedging/) documents delayed duplicate
+requests, a shared deadline, loser cancellation and nonfatal-status handling; [The Tail at Scale](https://research.google/pubs/the-tail-at-scale/)
+explains selective redundancy against latency tails. Unlike backend load balancing, both copies here use the same Jev
+endpoint and incur inference charges, so the bound is one extra copy for this family only, with conservative accounting.
+
+Tests: adapter controlled ports cover slow-primary/fast-peer, no hedge on a fast response, cancellation and double-request
+reservation; the existing speech-attribution path verifies marker insertion without rewriting. Live latency remains pending.
 
 ## 129. An object's details never hold the card (2026-09-22, amends §16.2 and §26 "Preparation progress")
 
