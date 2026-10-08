@@ -56,10 +56,18 @@ try{
  if(!openings.length)throw Error('the source has no prepared opening candidate');
  for(const opening of openings)await run({purpose:'opening',opening_scope:'first_interaction',focus:opening.scene??opening.name});
  await run({purpose:'detail',material:'pregens'});
- await call('campaign.create',{id:'rebuilt-source-check',module:bound.module_id,play_language:'en'});
+ await call('campaign.create',{id:'rebuilt-source-check',module:bound.module_id,start_scene:openings[0].scene,play_language:'en'});
  const listing=await call('investigator.list',{campaign:'rebuilt-source-check'});await writeFile(join(out,'listing.json'),JSON.stringify(listing,null,2)+'\n');
  if(listing.pregens_read!=='read'||listing.pregens?.length!==8)throw Error('source-backed card inventory not ready');
- console.log(JSON.stringify({module:bound.module_id,cards:listing.pregens.length,evidence:out}));
+ for (const [index, opening] of openings.entries()) {
+  const id = `source-opening-check-${index + 1}`;
+  await call('campaign.create', {id, module: bound.module_id, start_scene: opening.scene, play_language: 'en'});
+  await call('investigator.load', {campaign: id, pregen: listing.pregens[0].pregen});
+  const ready = await call('setup.complete', {campaign: id});
+  await writeFile(join(out, `opening-ready-${index + 1}.json`), JSON.stringify(ready, null, 2) + '\n');
+  if (ready.status !== 'ready_for_table') throw Error('an explicit source opening is not ready');
+ }
+ console.log(JSON.stringify({module:bound.module_id,cards:listing.pregens.length,preparedOpenings:openings.length,evidence:out}));
 }finally{
  await reading?.close();await runtime?.close();await kernel?.close();await writes;
  await rm(agent,{recursive:true});
