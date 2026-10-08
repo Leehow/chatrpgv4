@@ -39830,8 +39830,8 @@ person §87 already established -- is accepted. Nothing is minted. It is staged 
 - when it names `to`, that `to` stands as written;
 - when it carries a standalone variant, that variant stages as written and nobody moves.
 
-The receipt carries `walk_on_read: "arrival"` (this effect moved them) or `"person"` (a standalone variant staged). The
-result carries `walk_on_read: [{index, name, person, read_as}]` (`name` as the Keeper wrote it, `person` this table's
+The receipt carries `walk_on_read: {read_as, person}`, `read_as` being `"arrival"` (this effect placed them) or
+`"person"` (a standalone variant staged). The result carries `walk_on_read: [{index, name, person, read_as}]` (`name` as the Keeper wrote it, `person` this table's
 word for them: §177.3's `tableWord`, their epithet while untold, never the book's name in its place) and one
 `walk_on_note`: walk_on brings in someone this table does not have yet; for anyone it already has, leave it out.
 
