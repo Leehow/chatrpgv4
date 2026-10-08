@@ -523,12 +523,23 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
             graph.note(refusal('Invalid visual asset page'), { rule: 'visual_asset_page' });
         else if (seen && !seen.has(page))
             graph.note(refusal('Visual asset preparation requires the nominated original page'), { rule: 'visual_asset_page', value: page });
+        // §204.6: a portrait depicts its person. The draft may name a person as a thin identity (`npc`, no dossier); a place
+        // identity carrying a person's name -- of the draft, the known roster or the book's cast -- is refused, because it is
+        // the person, and a place-only identity was the only target a portrait's `depicts` had (Cold Harvest p37, p39).
+        const nameKeys = (value: Row): string[] => [value.name, ...array(value.aliases)].filter((name): name is string => typeof name === 'string').map(normalize).filter(Boolean);
+        const people = new Set([...nodes, ...array(packet.known_nodes)].filter(value => object(value) && value.node_kind === 'npc').flatMap(nameKeys));
+        for (const person of array(packet.cast_names)) for (const name of [...array(row(person).book), ...array(row(person).play)]) if (typeof name === 'string' && normalize(name)) people.add(normalize(name));
         for (const [i, node] of nodes.entries()) {
-            if (!['asset','handout','scene','location'].includes(node.node_kind))
-                graph.note(refusal('Visual discovery prepares visual assets and place identities only', '/nodes'),
-                    { path: `/nodes/${i}/node_kind`, rule: 'visual_asset_kind', value: node.node_kind, allowed: ['asset', 'handout', 'scene', 'location'] });
+            if (!['asset','handout','scene','location','npc'].includes(node.node_kind))
+                graph.note(refusal('Visual discovery prepares visual assets, place identities and the people a picture depicts only', '/nodes'),
+                    { path: `/nodes/${i}/node_kind`, rule: 'visual_asset_kind', value: node.node_kind, allowed: ['asset', 'handout', 'scene', 'location', 'npc'] });
             if (['scene','location'].includes(node.node_kind) && Object.keys(row(node.properties)).length)
                 graph.note(refusal('Visual discovery must preserve existing place dossiers', '/nodes'), { path: `/nodes/${i}/properties`, rule: 'visual_asset_place' });
+            if (node.node_kind === 'npc' && Object.keys(row(node.properties)).length)
+                graph.note(refusal('Visual discovery names a pictured person as a thin identity; their dossier is read elsewhere', '/nodes'), { path: `/nodes/${i}/properties`, rule: 'visual_asset_person' });
+            if (['scene','location'].includes(node.node_kind) && nameKeys(node).some(name => people.has(name)))
+                graph.note(refusal('A place identity cannot carry a person\'s name: a picture of a person depicts that person. Link the asset to the person (node_refs, or a thin npc identity) and drop this place', '/nodes'),
+                    { path: `/nodes/${i}`, rule: 'visual_place_is_person', value: node.name });
             if (filled.ready_nodes.includes(node.node_id) && !['asset','handout'].includes(node.node_kind))
                 graph.note(refusal('Visual discovery cannot grant scene readiness', '/ready_nodes'), { path: `/ready_nodes/${filled.ready_nodes.indexOf(node.node_id)}`, rule: 'visual_asset_readiness', value: node.node_id });
             if (['asset','handout'].includes(node.node_kind) && !array(row(node.properties).image_sources).length)

@@ -324,6 +324,14 @@ export interface AdmissionDestination {
 	aliases?: string[];
 	/** The module's own answer to "can they walk in": `public`/`independent` and their opposites. */
 	access?: Record<string, string>;
+	/** §204.7: the places the destination lies in, nearest first, by their display names. */
+	inside?: string[];
+	/** §204.1: how the destination stands to the party's place: `here`, `around` (the party stands inside it), `inside` (it lies inside the party's place), `shared`. */
+	relation_to_party?: string;
+	/** §204.1: the place both lie in, by its display name, when `relation_to_party` is `shared`. */
+	shared?: string;
+	/** §204.5: the person whose name the move gave; the destination is where they are. */
+	person?: string;
 }
 
 export interface AdmissionScope {
@@ -381,6 +389,9 @@ export function registeredDestination(requested: string, entity: Record<string, 
 	const access = Object.fromEntries(["discoverability", "direct_entry"]
 		.map((key) => [key, text(declared[key])])
 		.filter((pair): pair is [string, string] => pair[1] !== undefined));
+	// §204.7: where the place lies and how it stands to the party's place; §204.5: the person the move named instead of a place.
+	const inside = (Array.isArray(entity.inside) ? entity.inside : []).map((value) => text(value)).filter((value): value is string => value !== undefined).slice(0, 4);
+	const person = (entity.reached_through ?? {}) as Record<string, unknown>;
 	return {
 		requested,
 		...(text(entity.name) ? { handle: text(entity.name) } : {}),
@@ -389,6 +400,10 @@ export function registeredDestination(requested: string, entity: Record<string, 
 		...(canonical ? { canonical_name: canonical } : {}),
 		...(aliases.length ? { aliases } : {}),
 		...(Object.keys(access).length ? { access } : {}),
+		...(inside.length ? { inside } : {}),
+		...(text(entity.relation_to_party) ? { relation_to_party: text(entity.relation_to_party) } : {}),
+		...(text(entity.shared) ? { shared: text(entity.shared) } : {}),
+		...(text(person.display_name) ?? text(person.person) ? { person: text(person.display_name) ?? text(person.person) } : {}),
 	};
 }
 
@@ -530,7 +545,9 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 			if (acting) fields.push(`acting_party=${JSON.stringify(acting)} (not an investigator)`);
 			return `apply ${kind}: ${fields.join("; ")}${scope.selectedDocumentRecording&&kind==='object'&&['write','append','requested_edit'].includes(String((effect.document as any)?.action))?'; selected_document_recording=true (judge the selected physical writing, not the truth of its literal contents)':''}${kind === 'cash' && scope.cash ? `; registered_cash_context=${JSON.stringify(scope.cash)}` : ''}${registered ? `; registered_destination=${JSON.stringify({handle: registered.handle, label: registered.label, summary: registered.summary,
 					...(registered.canonical_name ? {canonical_name: registered.canonical_name} : {}), ...(registered.aliases?.length ? {also_called: registered.aliases} : {}),
-					...(registered.access ? {access: registered.access} : {})})}` : ''}`;
+					...(registered.access ? {access: registered.access} : {}), ...(registered.inside?.length ? {inside: registered.inside} : {}),
+					...(registered.relation_to_party ? {relation_to_party: registered.relation_to_party} : {}), ...(registered.shared ? {shared: registered.shared} : {}),
+					...(registered.person ? {person: registered.person} : {})})}` : ''}`;
 		};
 		const signatures = effects.map(effectSignature);
 		// Each line's own signature, taken before the sort below reorders `signatures` in place.
@@ -596,7 +613,7 @@ export function admissionSystemPrompt(): string {
 		"An object pickup or a transfer the investigator makes is a real proposed action, even beside definition or usage preparation. A usage describes the chosen way an object will be used; preparing it must not invent an attack the player only contemplated. Choosing to take a chair and swing it entails the necessary pickup and parameter preparation, not a different target or method. A different object's or usage's permission is not reusable. Pure owned-equipment adoption and same-owner state recording are bookkeeping; an NPC's own initiative remains not_player_action. Preparing parameters does not settle the attack or grant an extra action.",
 		"A line may end with acting_party: the person the effect's own fields say performs it (the one who gives or holds out a thing, the one who takes it, the one who told a clue), printed only when that person is not an investigator. What they do there is their own initiative, not the investigator's voluntary action: answer not_player_action, and do not refuse it because the player planned something else, did not ask for it, or made a plan conditional on nobody acting. Only a voluntary commitment on the investigator's own side of it (paying, promising, accepting a bargain, keeping something the player refused) still needs the player's choice. A line that names no acting party may still be another person's act: read who acts from the line as a whole, the Keeper's why included (it describes the proposal; it never shows consent). A thing put into the investigator's hands by someone else is that person's act.",
 		"For a voluntary move, the following destination-choice and commitment restrictions apply; they do not require consent to an involuntary displacement or its hidden destination or elapsed time. registered_destination is authoritative evidence of what the target scene physically is. Read it by its names, not by its handle: handle is a file name, often the slug of one room, while canonical_name is the module's own name for the place and also_called lists the other names it is known by. A player who names the place by any of those names, in any language, has named this destination. A label may present that same place in the player's language; it cannot substitute a different city, building or destination. If the player chooses Athens but the registered target is a Boston hotel, answer not_authorized even when label says Athens. A genuinely new chosen destination can be registered atomically by move.establish with a summary and via. This addition does not require source publication or adaptation review. Judge whether the player chose that destination and the proposed action; missing graph coverage is not missing player authorization.",
-		"For that voluntary move, a part, entrance, room, floor, counter or aspect of a registered place is that place; only a genuinely different physical place is a different destination. A registered scene is the module's whole grain for a place, so a move to it is arrival at that place's threshold -- its street door, its lobby, the counter or desk on the way in. It is never a claim about how far inside the investigator gets: whoever waits inside, and any permission, price, gate, search or danger staged there, remain proposals of their own, judged on their own when the Keeper puts them. So a player who names the outside of the place and a player who names a room inside it while saying they will first deal with the person at the door are both choosing this same move. Do not refuse it as reaching too far in, and do not refuse it as not naming the registered room: a place refused from both sides cannot be reached by any wording the player has, and a player who describes where they are going in more detail must not be refused for the detail.",
+		"For that voluntary move, a part, entrance, room, floor, counter or aspect that has no separately registered destination names the registered place; only a genuinely different physical place is a different destination. A registered scene is the module's whole grain for a place, so a move to it is arrival at that place's threshold -- its street door, its lobby, the counter or desk on the way in. It is never a claim about how far inside the investigator gets: whoever waits inside, and any permission, price, gate, search or danger staged there, remain proposals of their own, judged on their own when the Keeper puts them. So a player who names the outside of the place and a player who names a room inside it while saying they will first deal with the person at the door are both choosing this same move. Do not refuse it as reaching too far in, and do not refuse it as not naming the registered room: a place refused from both sides cannot be reached by any wording the player has, and a player who describes where they are going in more detail must not be refused for the detail. Places lie inside places (contract §204): registered_destination.inside names the places the destination lies in, nearest first, and relation_to_party says how it stands to where the party is. A move between two places inside one place (shared) is a move within that place; a move out to a place the party already stands inside (around), on the way to a place in it the player chose, is the route of that one choice, not a second destination the player must name. A place the book registers inside another is still its own place: standing at its door or looking into it from where the party is does not choose entering it. When registered_destination.person is present, the move named that person and goes to the place where they are.",
 		"This grain never overrides the player holding back. When the player stops short of a place or an act -- not yet, only looking in, staying at the door or the top of the stairs, first doing something else -- the move into that place or that act is not chosen, whatever the place's threshold: answer not_authorized with open_choice keeper_added. Finding a door, opening it or looking through it is not going through it.",
 		"Judge meaning, never wording. The player, the Keeper's lines and the registered names may be in different languages: a translation, a paraphrase, a description, or a part or room of a registered name names that same place or thing (a player who asks, in their own language, for the newspaper's archive room has named a place also_called the Globe clipping archive). Never refuse because the player's words differ from a listed name, a label or an earlier plan's wording; refuse only when what they mean differs.",
 		"The player's current words are their latest choice. A request made now need not repeat the person, place or wording of an earlier plan: asking the clerk on duty to fetch the records the player came for carries that plan out; an earlier plan never makes a current, explicit request unchosen.",

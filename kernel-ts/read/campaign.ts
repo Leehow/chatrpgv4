@@ -12,6 +12,7 @@ import { scopedModuleRoot } from '../modules/campaign-scope.js';
 import { ModuleStore } from '../modules/store.js';
 import { withTablePeople } from './table-people.js';
 import { withTableEntities } from './table-entities.js';
+import { installPlaceBindings, readPlaceBindings } from './place-bindings.js';
 import { withTableCreatures } from './table-creatures.js';
 import { standingTables, type StandingTables } from '../combat/standing.js';
 import { array, row, clone, normalize, stripPrefix, number, repr, type Row } from "./values.js";
@@ -205,6 +206,8 @@ export async function loadCampaignModule(context: KernelContext, id: string, wor
     const module = await campaignModule(context, id, world, handles) ?? await loadModule(context, id, campaign, handles);
     module.graph.projectSourcePlaces();
     const loaded = withTableCreatures(withTablePeople(withTableEntities(module, world), world), world);
+    // §204.4: the places this table established that the host bound to the book's mention cite the book's pages.
+    if (campaign !== undefined) installPlaceBindings(loaded.graph, await readPlaceBindings(context, campaign));
     // §185.13: the investigators at this table are people the investigator knows; no name they go by is an untold name.
     if (campaign !== undefined) loaded.graph.investigatorNames = await investigatorNames(context, campaign);
     // §188.3: a campaign's references are read once more with the request's rename undone, after a miss, in both schemes.

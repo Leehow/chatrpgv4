@@ -72,14 +72,14 @@ async function placeOne(effect: Row, index: number, deps: PlacementDeps, budget:
 			via: typeof effect.via === "string" ? effect.via : "", summary: typeof establish.summary === "string" ? establish.summary : "",
 			scene: {name: String(scene.name ?? ""), ...(scene.display_name ? {display_name: String(scene.display_name)} : {}), summary: String(scene.summary ?? "")}, candidates};
 		const result = await ask(input, deps, began + (wait ? budget.timeoutMs : Math.max(budget.timeoutMs, 10_000)));
-		const decided = placementOutcome(result, budget, input.scene.name);
+		const decided = placementOutcome(result, budget, input.scene.name, candidates);
 		const applied = budget.mode === "on" ? decided : undefined;
 		await deps.record({...base, ok: result.status === "answered",
 			question: {place: "choice", candidates: candidates.map(candidate => candidate.name), nouls: ["same", "inside"]},
 			...(result.status === "answered" ? {chosen: result.chosen, distribution: result.distribution, confidence: result.confidence,
 				same: result.same, inside: result.inside} : {reason: result.reason}),
 			outcome: applied ? applied.outcome : "shadow", decision: decided.outcome,
-			...(decided.outcome === "mint" ? {why: decided.reason} : {handle: decided.handle}), window: read?.window ?? null,
+			...(decided.outcome === "mint" ? {why: decided.reason} : 'handle' in decided ? {handle: decided.handle} : {within: null}), window: read?.window ?? null,
 			ms: Date.now() - began});
 		return applied ? placedEffect(effect, applied) : effect;
 	} catch (error) {

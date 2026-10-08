@@ -41291,6 +41291,172 @@ The default-on instruction total and the package forms are in §203.10.
 
 To be filled at implementation.
 
+## 204. A place is inside places (lead request 2026-10-08 after TR-F2 runs 2 and 3; `docs/specs/locus-containment.md`; amends `apply move`'s reachability and `establish` (§5, §49, §187.2.1), the placement lane (§187.2.3), `where.within` (§187.2.2), the book's people for a place (§187.3.1), the told-position candidates (§190.2), the move rows of `table.apply.options` (§135.30.4), `registered_destination` (§32) and the visual-asset draft check)
+
+**Evidence.** TR-F2 run 2 (Cold Harvest, `game-565055f1`, App 4ce2e4cab) and run 3 (The Haunting, `game-af36b938`).
+Run 2 T10: the Keeper minted `smolskaya-home` from the farm; the placement lane's `inside` Nouls for the farm were 0.91
+and 0.91, but its Choice spread over two farm nodes and `none` (0.32 / 0.29 / 0.36) and its 0.5 confidence bar vetoed
+the placement, so the mint lay inside nothing. T16: from that house the only way out the capsule listed was the farm,
+so the Keeper routed "farm, then the Abramov house"; admission refused the farm line and the turn did not advance. Of
+the nine places minted across every App campaign none has `within`. Run 2 T3: the Keeper used Gapon's person handle as
+a move destination and nothing said that a person is not a place. Run 2 opening: `module.places` listed three people,
+`location` nodes the visual-asset job wrote for three portraits (p37, p39) because that job may draft only `asset`,
+`handout`, `scene` and `location` nodes and a portrait's `depicts` had to point somewhere. Run 2 T9–T13: the book
+names Galena's house only in prose (p21 §6.2, "her house on the farm's main road"); the mint at T10 landed, but nothing
+tied it to page 21, which never reached the Keeper (Vasili, the Medicine and Spot Hidden outcomes; T12–T13 invented a
+husband). Run 3 T11: `not_reachable chapel-of-contemplation-ruins from hall-of-records`: the book's road runs
+`chapel → hall-of-records` (travel, always), and the kernel read routes one way only.
+
+### 204.1 The place hierarchy
+
+A **place** is a `scene` or `location` node (after `projectSourcePlaces`) or a place this table established
+(`table_entities` kind `scene`), except a person-named location (204.6). The module node is not a place.
+
+**Edges**, read through §192.3's survivors, both authored directions: `A located-in B`, `A part-of B` and `B contains A`
+(A and B places) say A lies inside B; `S occurs-at P` (S a scene, P a place) says the scene is played *at* P — the same
+place, not a smaller one. A table place's `within` writes `located-in` (§187.2.1) and its binding writes nothing (204.4).
+
+- `samePlace(p)`: p, the places p occurs at, the scenes that occur at p.
+- `containers(p)`: walking out from `samePlace(p)` along `located-in`, `part-of` and incoming `contains`, nearest
+  first, each once, at most eight steps (§39.4's walk, widened). The places a container is `samePlace` with join it.
+- **Co-location.** A scene that occurs at two places says they are one area: the other places a scene occurring at a
+  container occurs at are containers too, at the same step. (Cold Harvest's "4. About Krasivyi Oktabur-3" occurs at the
+  farm and at the farm settlement; the Abramov house lies in the settlement, the minted house in the farm.)
+- `area(p)` = `samePlace(p)` ∪ `containers(p)`.
+- **The relation** of a destination `d` to the party's place `h`: `here` when `d ∈ samePlace(h)`; `around` when
+  `d ∈ containers(h)` (the party already stands inside it); `inside` when `h ∈ containers(d)`; `shared` when the two
+  areas meet otherwise, the **shared place** being the first of `containers(h)` that is in `area(d)`; else none.
+
+Kernel: `kernel-ts/read/places.ts`. Structure only: no name is compared except for 204.6's equality.
+
+### 204.2 Moving within a place
+
+`apply move` reaches a destination without `via` when it is an exit, on the trail, **a place whose own book route
+leads here** (`route-to` read backwards: a road runs both ways, as the travel fill already times one road for both
+directions), or **a place related to here** by 204.1 (`around`, `inside`, `shared`). Going from a house to another
+house on the same farm is a move within the farm, never "go to the farm first". The receipt says why when it is one of
+the two new grounds: `within: <the shared place's handle>` (`shared`), `within: <here>` (`inside`), `within: <the
+destination>` (`around`), or `return_route: true`. `travel_minutes` is the exit's, else the reverse route's, else 0,
+as before. `via` still reaches anywhere; `not_reachable` is unchanged for a place with no ground at all.
+
+### 204.3 A minted place lies in the place the party stood in
+
+The placement catalog marks an improvised candidate with `table_place: true`; the host uses that structural origin to
+keep `same` for book places. `inside` carries the host-issued ancestor handles used for innermost ordering. These fields
+are written by `table.apply.placement`, read by the placement owner, and determine the existing `move.establish.within`
+effect. Placement family revision `2` keeps the wire's `book_places` key and labels the origin without exposing ancestor
+handles to the model. Explicit `establish.within`, including `null`, is preserved for every outcome except `same`.
+
+`establish.within` (now in the Keeper's tool schema): a place's name, a book place or one this table established;
+`null` says the new place lies in no place the table has (another town, the road between). **Omitted, it is the
+active scene** — the place the investigator stood in — so every mint has a container unless the Keeper or the lane
+says otherwise. A person or any other name stays `invalid_params` `within_not_a_place`.
+
+The placement lane (§187.2.3) decides from the description, before the kernel's default:
+
+- `same`: unchanged (the Choice's candidate, its confidence and its `same` Noul).
+- `inside`: the candidates whose `inside` Noul clears `inside_min`, **whatever the Choice's confidence**; of those the
+  innermost (one no other clearing candidate lies inside, by each row's `inside` list), then the highest Noul, then
+  the Choice's probability, then candidate order. The effect gains `within: <it>`.
+- `outside`: no `inside` clears and the Choice's top is `none` at or above `choice_confidence_min`: `within: null`.
+- `mint`: anything else; the effect goes as written and the kernel's default applies.
+
+The Keeper's own `within` (a name or `null`) is never replaced; only `same` still applies. Candidates
+(`table.apply.placement`): the active scene whatever its origin (a table place is a candidate for `inside` only, never
+`same`), its containers (`source: "within"`), its exits, the window's book places; every row carries `inside:
+[<handles of its containers>]`. The row's `outcome` gains `outside`.
+
+### 204.4 A place the Keeper establishes binds to the book's mention
+
+**Decision: the binding, not a reader rule.** Reading is windowed and runs behind the table: page 21 had never been
+read when the player named the house (T9), so no rule asking the reader to write every dwelling or body-place could have
+produced the node in time, and a book like this one has nineteen houses on one farm. The mint is the one moment the
+system knows a place is needed, and at T10 it landed; what was missing afterwards was the book's text for it.
+
+After a model-origin `apply` lands a move that established a place (receipt `established: "table"`), the host asks the
+book in the background — never holding the turn — through the source reference read `lookup kind=source` already
+runs (`ReadingService.reference`, purpose `answer`): focus the place's label (else its name), question "Where does the
+book describe this place, and who and what is there? The table established it as: <summary>". When the read returns
+excerpts, the host calls the private kernel method **`table.place.bind`** `{campaign, place, pages, excerpt}`: `pages`
+the excerpts' pages in their order, at most 4, each `1..page_count`; `excerpt` the excerpts on those pages, at most
+1,200 characters. The kernel checks `place` is a place this table established and writes
+`place-bindings.json` (`{version: 1, places: {<table entity id>: {place, pages, excerpt, at}}}`; its own file for
+§168.5's reason). Answers `{bound: true, place, pages}` or `{bound: false, reason: "not_a_table_place" |
+"already_bound"}`; the first binding stands. Telemetry: one `lane: "place-binding"` row per mint, `{turn, place,
+outcome: "bound" | "unbound" | "unavailable" | "refused", pages?, reason?, ms}`. A book read through a window (a
+starter) answers no reference: no binding.
+
+**Consumers.** On load the bound place's node cites its pages (`source_refs`, `pdf:<module>`), so `bookAnchor` anchors on
+it (the read-ahead window moves to the mention's chapter and §189.4 reads its section next), and the capsule's
+`where.book` is `{pages, text, source_refs}` while the party stands there: the book's own words for the place, which the
+prescreen's cited pages also read.
+
+### 204.5 A person is never a place
+
+`apply move` whose `to` names no place but names a person (the §87.8 junction: handle, alias, this table's word) goes to
+where that person is: the ledger's `npc_presence` scene; else the one place the book says they are `located-in` (their
+home); else the one scene the book seats them in (`present-in`). The receipt carries `person: <handle>`; the effect's
+`label` is not applied (it named the person's place in the Keeper's words, not the registered place). With no place or
+more than one, `invalid_params` `details.reason: "person_not_place"`, `details.places` the candidates, fix: "<name> is a
+person, not a place: move to the place where they are (one of details.places), or establish their home: move to the
+home in your words with establish {summary} and via". `establish` on a person's name is the same refusal.
+`table.lookup kind=module expected_kind=scene` for a person answers that place with `reached_through: {person,
+display_name}`, so admission's `registered_destination` names the place the move lands on.
+
+### 204.6 The graph's place list holds no people
+
+**Producer.** The visual-asset draft (`checkDraft` with `packet.visual_asset`) may now declare a thin `npc` identity
+(empty properties, never ready) beside `asset`, `handout`, `scene` and `location`; a `scene` or `location` identity whose
+name or an alias equals, normalized, the name or an alias of a person in the draft or the known roster is refused
+(`rule: visual_place_is_person`, fix: link the asset to that person). The instruction says a portrait depicts its person.
+
+**Graphs already published.** A `location` whose normalized name or alias equals a person's name or alias in the same
+graph is that person's identity drafted by a place-only reader: not projected as a scene, not on the brief's places
+roster, not a placement or told candidate, not a container. Equality only (§2), never a search in prose.
+
+### 204.7 What the Keeper and the candidates read
+
+- `where.within` (§187.2.2) is the nearest container by 204.1, for any active scene, and gains `places`: the other places
+  in its area (up to 12, book order, the table's last) as `{name, display_name?}`. A move to one is a move within it.
+- `table.apply.options` move rows: after the exits and the trail, the places related to here (204.1, up to 12, nearest
+  container's first), each with `within: <shared place>` and `authority: available_route_not_player_choice`.
+- §187.3.1's book people: of `samePlace(here)` and the nearest container.
+- §190.2's `within` candidates: the containers, nearest first.
+- `registered_destination` (§32): `inside` (display names of the destination's containers, nearest first, at most 4),
+  `relation_to_party` (`here | around | inside | shared`), `shared` (the shared place's display name) and `person` when
+  reached through a person. The reviewer is told: a move between two places inside one place is a move within it; a
+  move out to a place the party already stands inside goes nowhere new; neither is a separate destination the player
+  must name. A place inside another is still its own place: standing at its door, or looking into it, is not entering it.
+
+### 204.8 Three ends (§31)
+
+*Writers:* the book's relations; the kernel's `establish` default and the placement lane (`within`); the host's binding
+lane (`place-bindings.json`); the reader and the visual draft (no person-named places). *Readers:* `apply move`, the
+capsule's `where.within` and `where.book`, the move candidates, the placement and told candidates, admission's
+destination rows, `bookAnchor`. *Actors:* the Keeper, who moves within a place without routing through its container and
+narrates a mint from the book's words; the reviewer, who reads a move within a place as one choice; Jev, who places a
+mint by its description.
+
+### 204.9 Tests
+
+**Integration decision (2026-10-08).** Complete the missing host caller in `extensions/kernel/place-binding.ts` after a
+successful model-origin mint. It uses the existing tool-enabled `ReadingService.reference`, keeps only checked original
+source excerpts, and never waits on the foreground turn. The reader's 120-second lifetime is independent of later player
+turns; the captured source owner cancels its tasks on shutdown. Binding writes serialize on a dedicated campaign file
+lock, preserving simultaneous mints without changing `world.json`. Existing speech-versus-action instructions remain in
+both admission designs alongside the containment evidence; prompt revisions become v1 `4` and role-first `2a.7`.
+
+External comparison: [IfcOpenShell containment](https://docs.ifcopenshell.org/autoapi/ifcopenshell/util/element/index.html#ifcopenshell.util.element.get_container)
+distinguishes direct and indirect spatial containers, confirming an explicit hierarchy walk rather than name parsing.
+[NetworkX directed graphs](https://networkx.org/documentation/stable/reference/classes/digraph.html) preserve edge direction,
+so reversal here is the explicit §204.2 rule for `route-to` only; containment and other graph relations are not globally
+made bidirectional. Neither precedent supplies player authorization or source facts, which remain with the existing owners.
+
+`tests/extension/place-containment.test.mjs` (current real kernel: nested/sibling moves, source binding, file-lock
+ownership, person destinations and reversed roads); `place-binding.test.mjs` (source owner and receipt projection);
+`place-binding-host.test.mjs` (the model tool path); `scene-placement-outcomes.test.mjs`, `scene-placement.test.mjs`,
+`visual-person-identity.test.mjs` and the admission destination rows. Mutation checks in `docs/specs/locus-containment.md`.
+
 ## 205. A turn that lacks material says so, and looks
 
 ### 205.1. Needs and ownership

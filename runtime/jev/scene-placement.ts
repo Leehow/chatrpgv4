@@ -21,7 +21,7 @@ import { clip, digest16 as digest } from './text.ts';
 import { extensionContentRoot } from '../../extensions/ui/words.ts';
 
 export const SCENE_PLACEMENT_FAMILY = 'scene-placement';
-export const SCENE_PLACEMENT_VERSION = '1';
+export const SCENE_PLACEMENT_VERSION = '2';
 
 /** `host-budgets.json` `scene_placement`: the lane's mode and its bars (data, calibrated from shadow rows, §187.2.3). */
 export interface ScenePlacementBudget {
@@ -69,7 +69,7 @@ async function readBudget(contentRoot?: string): Promise<ScenePlacementBudget> {
 }
 
 /** One book place as `table.apply.placement` lists it. */
-export interface PlacementCandidate {name: string; display_name?: string; aliases?: string[]; summary: string; source: 'here' | 'exit' | 'window'}
+export interface PlacementCandidate {name: string; display_name?: string; aliases?: string[]; summary: string; source: 'here' | 'within' | 'exit' | 'window'; inside?: string[]; table_place?: boolean}
 export interface PlacementInput {
   campaign: string;
   turn: number;
@@ -118,24 +118,24 @@ export function placementState(input: PlacementInput): Json {
     party_is_at: {name: input.scene.display_name ?? input.scene.name, summary: clip(input.scene.summary, 300)},
     book_places: Object.fromEntries(input.candidates.map((candidate, index) => [alias(index), {
       name: candidate.display_name ?? candidate.name, ...(candidate.aliases?.length ? {also_called: candidate.aliases} : {}),
-      summary: clip(candidate.summary, 160)}])),
+      summary: clip(candidate.summary, 160), ...(candidate.table_place ? {origin: 'table'} : {})}])),
   };
 }
 
 /** The Choice and the two Nouls per candidate, in one batch. */
 export function placementQuestions(input: PlacementInput): DecisionQuestion[] {
   const criteria: Record<string, string> = Object.fromEntries(input.candidates.map((candidate, index) =>
-    [alias(index), `${candidate.display_name ?? candidate.name}: the book place \`book_places.${alias(index)}\``]));
-  criteria.none = 'The described destination is none of these book places and lies inside none of them.';
+    [alias(index), `${candidate.display_name ?? candidate.name}: the known place \`book_places.${alias(index)}\``]));
+  criteria.none = 'The described destination is none of these known places and lies inside none of them.';
   const questions: DecisionQuestion[] = [{key: 'place', target: 'the book place the described destination is, or lies inside', type: 'choice',
-    instructions: 'The Keeper is about to add a new place to the story: `destination` gives the name the Keeper used, the route there and the description. `book_places` are places the book already describes. Which book place is the destination, or which book place is it inside? Judge by what the description says the destination is and where it is, not by a word the names share. Choose none when the destination is a different place from all of them and lies inside none of them.',
+    instructions: 'The Keeper is about to add a new place to the story: `destination` gives the name the Keeper used, the route there and the description. `book_places` is the known-place catalog: origin table marks a place this table established; otherwise the book described it. Which known place is the destination, or which known place is it inside? Judge by what the description says the destination is and where it is, not by a word the names share. Choose none when the destination is a different place from all of them and lies inside none of them.',
     criteria}];
   input.candidates.forEach((candidate, index) => {
     const name = candidate.display_name ?? candidate.name;
     questions.push({key: `same_${alias(index)}`, target: `whether the destination is ${name} itself`, type: 'noul',
-      instructions: `Is the described destination (\`destination\`) the book place \`book_places.${alias(index)}\` (${name}) itself -- the same place under another name, or the whole of it -- rather than a different place or one smaller part of it?`});
+      instructions: `Is the described destination (\`destination\`) the known place \`book_places.${alias(index)}\` (${name}) itself -- the same place under another name, or the whole of it -- rather than a different place or one smaller part of it?`});
     questions.push({key: `inside_${alias(index)}`, target: `whether the destination lies inside ${name}`, type: 'noul',
-      instructions: `Is the described destination (\`destination\`) a smaller place within the book place \`book_places.${alias(index)}\` (${name}) -- a room, a corner, a building or a spot inside it -- and not the whole of that place?`});
+      instructions: `Is the described destination (\`destination\`) a smaller place within the known place \`book_places.${alias(index)}\` (${name}) -- a room, a corner, a building or a spot inside it -- and not the whole of that place?`});
   });
   return questions;
 }
@@ -180,20 +180,25 @@ export async function runScenePlacement(input: PlacementInput, decision: Decisio
   }
 }
 
-export type PlacementOutcome = {outcome: 'same'; handle: string} | {outcome: 'inside'; handle: string} | {outcome: 'mint'; reason: string};
+export type PlacementOutcome = {outcome: 'same'; handle: string} | {outcome: 'inside'; handle: string} | {outcome: 'outside'} | {outcome: 'mint'; reason: string};
 
 /**
- * The outcome the bars give: `same` when the chosen candidate's `same` clears `sameMin`, else `inside` when its `inside`
- * clears `insideMin`, else `mint`. The active scene is never `same`: a move to where the party stands is no move, so
- * for it only `inside` applies. A failed or low-confidence answer, and `none`, mint as written.
+ * §204.3: `same` retains its Choice gate and book origin. Independent inside Nouls select the innermost clearing
+ * candidate, even when the Choice is uncertain. A confident none with no inside candidate means outside all known places.
  */
-export function placementOutcome(result: PlacementResult, budget: ScenePlacementBudget, activeScene: string): PlacementOutcome {
+export function placementOutcome(result: PlacementResult, budget: ScenePlacementBudget, activeScene: string, candidates: readonly PlacementCandidate[] = []): PlacementOutcome {
   if (result.status !== 'answered') return {outcome: 'mint', reason: result.reason};
-  if (result.chosen === null) return {outcome: 'mint', reason: 'none'};
-  if (result.confidence < budget.choiceConfidenceMin) return {outcome: 'mint', reason: 'low_confidence'};
-  if (result.chosen !== activeScene && (result.same[result.chosen] ?? 0) >= budget.sameMin) return {outcome: 'same', handle: result.chosen};
-  if ((result.inside[result.chosen] ?? 0) >= budget.insideMin) return {outcome: 'inside', handle: result.chosen};
-  return {outcome: 'mint', reason: 'below_bar'};
+  const chosen = candidates.find(candidate => candidate.name === result.chosen);
+  if (result.chosen && result.confidence >= budget.choiceConfidenceMin && result.chosen !== activeScene && !chosen?.table_place
+    && (result.same[result.chosen] ?? 0) >= budget.sameMin) return {outcome: 'same', handle: result.chosen};
+  const offered: readonly PlacementCandidate[] = candidates.length ? candidates : Object.keys(result.inside).map(name => ({name, summary: '', source: 'window' as const}));
+  const inside = offered.filter(candidate => (result.inside[candidate.name] ?? 0) >= budget.insideMin);
+  const nearest = inside.filter(candidate => !inside.some(other => other !== candidate && other.inside?.includes(candidate.name)));
+  const ranked = [...(nearest.length ? nearest : inside)].sort((left, right) => (result.inside[right.name] ?? 0) - (result.inside[left.name] ?? 0)
+    || (result.distribution[right.name] ?? 0) - (result.distribution[left.name] ?? 0));
+  if (ranked[0]) return {outcome: 'inside', handle: ranked[0].name};
+  if (result.chosen === null && result.confidence >= budget.choiceConfidenceMin) return {outcome: 'outside'};
+  return {outcome: 'mint', reason: result.confidence < budget.choiceConfidenceMin ? 'low_confidence' : 'below_bar'};
 }
 
 /**
@@ -205,7 +210,10 @@ export function placedEffect(effect: Record<string, unknown>, outcome: Placement
     const {establish: _establish, ...rest} = effect;
     return {...rest, to: outcome.handle};
   }
+  if (Object.hasOwn((effect.establish as Record<string, unknown>) ?? {}, 'within')) return effect;
   if (outcome.outcome === 'inside')
     return {...effect, establish: {...(effect.establish as Record<string, unknown>), within: outcome.handle}};
+  if (outcome.outcome === 'outside')
+    return {...effect, establish: {...(effect.establish as Record<string, unknown>), within: null}};
   return effect;
 }

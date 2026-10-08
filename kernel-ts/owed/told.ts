@@ -26,6 +26,7 @@ import { nowIso } from '../write/store.js';
 import { stripMarkers } from '../write/text.js';
 import { closeSatisfied, clueOf, describe, mergeOwed, owedNames, owedSatisfied, readOwed, resolveOwedEquipment, sceneOf, writeOwed } from './index.js';
 import { checkPassed, clueCheck } from '../read/clue-check.js';
+import { containers, sceneOfPlace } from '../read/places.js';
 
 /** The source `table.owe` takes for a move (closed). */
 export const TOLD_SOURCE = 'told-position';
@@ -82,7 +83,8 @@ export function toldCandidates(graph: ModuleGraph, world: Row, scene: Row, windo
     };
     for (const exit of graph.sceneExits(scene)) add(graph.find(string(exit.to), ['scene']), 'exit');
     for (const handle of [...array(world.scene_trail)].reverse()) add(graph.find(string(handle), ['scene']), 'back');
-    for (const rel of graph.out.get(scene.node_id) ?? []) if (rel.relation_kind === 'located-in') add(graph.nodes.get(rel.to_node_id), 'within');
+    // §204.7: the places it lies in, nearest first (§204.1), each as the scene it is walked to by.
+    for (const place of containers(graph, scene)) add(sceneOfPlace(graph, place), 'within');
     for (const node of graph.kind('scene')) if (graph.isTableEntity(node)) add(node, 'table');
     for (const node of graph.kind('scene'))
         if (!graph.isTableEntity(node) && (!window || placePages(node).some(page => page >= window.first && page <= window.last))) add(node, 'window');

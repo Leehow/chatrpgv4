@@ -4,6 +4,7 @@ import {RpcError} from '../errors.js';
 import type {LoadedModule} from './campaign.js';
 import type {ModuleGraph} from './module-graph.js';
 import {array, normalize, row, string, type Row} from './values.js';
+import {isPlace} from './places.js';
 
 export function tableEntityId(kind: string, name: string): string {
     return `${kind}-table-${jsonDigest(normalize(name)).slice(0, 20)}`;
@@ -17,15 +18,17 @@ export function validateEstablishment(value: unknown, fields: readonly string[] 
 }
 
 /**
- * Contract §187.2.1: the book place a minted scene lies in. `within` names a book `scene` or `location` node; a table
- * entity, a person or anything else is `invalid_params` with `details.reason: within_not_a_place`.
+ * Contract §187.2.1 as amended by §204.3: the place a minted scene lies in. `within` names a place -- a book `scene` or
+ * `location`, or a place this table established -- and `null` says the new place lies in no place the table has. Absent
+ * (`undefined`), the caller places the mint in the active scene. A person or any other name is `invalid_params` with
+ * `details.reason: within_not_a_place`.
  */
-export function establishedWithin(graph: ModuleGraph, value: unknown): Row | undefined {
-    if (value === undefined) return undefined;
+export function establishedWithin(graph: ModuleGraph, value: unknown): Row | null | undefined {
+    if (value === undefined || value === null) return value;
     const node = typeof value === 'string' && value.trim() ? graph.find(value.trim(), ['scene', 'location']) : null;
-    if (!node || graph.isTableEntity(node))
-        throw new RpcError('invalid_params', 'establish.within must name a scene or location the book registered', {
-            fix: 'name a book place the new scene lies inside, or leave within out',
+    if (!node || !isPlace(graph, node))
+        throw new RpcError('invalid_params', 'establish.within must name a place: a book scene or location, or a place this table established', {
+            fix: 'name the place the new one lies inside, null when it lies in no place the table has, or leave within out to place it where the party stands',
             details: {reason: 'within_not_a_place', field: 'establish.within', within: typeof value === 'string' ? value : null}
         });
     return node;

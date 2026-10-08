@@ -5,6 +5,7 @@ import { canonicalJson, compareUnicode, isJsonObject, type JsonValue } from "../
 import { entries, values, array, row, truth, string, repr, integer, normalize, normalizeText, kebab, stripPrefix, sorted, similarity, words, chars, pick, type Row } from "./values.js";
 import { SHAPE_KINDS } from "../modules/mechanics-catalog.js";
 import { SurvivorMap, VISUAL_KINDS, pairKey, type IdentityConflict } from "./survivors.js";
+import { personNamedLocations } from "./places.js";
 export const TEMPLATE_NOTE = "the book's pregenerated investigator, not at this table; the table's investigators are in the capsule's known.investigator";
 /** Contract §185.4: a name-free campaign's map from a book node's id to its handle (`world.node_handles`). */
 export type NodeHandles = ReadonlyMap<string, string>;
@@ -617,10 +618,11 @@ export class ModuleGraph {
     projectSourcePlaces(): void {
         const locations = this.kind('location');
         const registered = new Set(this.kind('scene').flatMap(scene => this.nameKeys(scene).map(normalize)));
-        const retained: Row[] = [];
+        const retained: Row[] = [], people = personNamedLocations(this);
         for (const location of locations) {
-            // An authored scene already representing this exact place keeps precedence.
-            if (this.nameKeys(location).some(name => registered.has(normalize(name)))) { retained.push(location); continue; }
+            // An authored scene already representing this exact place keeps precedence. §204.6: a location named exactly as a
+            // person of the book is that person's identity a place-only reader drafted; it is never a place to walk to.
+            if (people.has(string(location.node_id)) || this.nameKeys(location).some(name => registered.has(normalize(name)))) { retained.push(location); continue; }
             this.sourcePlaceNames.set(location.node_id, this.handle(location));
             const scene = {...location, node_kind: 'scene', source_kind: 'location'};
             this.nodes.set(location.node_id, scene);
@@ -651,6 +653,7 @@ export class ModuleGraph {
             this.out.set(id, [...(this.out.get(id) ?? []), relation]);
             this.incoming.set(to.node_id, [...(this.incoming.get(to.node_id) ?? []), relation]);
         };
+        // §204.3: `within` may name a place this table established earlier (installed before this one, in record order).
         if (kind === 'scene' && typeof record.within === 'string') relate(this.find(record.within, ['scene', 'location']), 'located-in');
         if (kind === 'scene' && typeof record.from === 'string') relate(this.find(record.from, ['scene']), 'route-to');
         if (kind === 'clue' && record.scene) {
@@ -1653,11 +1656,11 @@ export class ModuleGraph {
         return out;
     }
     /** §192.3: the relations leaving any node of `node`'s group, the survivor's first. */
-    private groupOut(node: Row): Row[] {
+    groupOut(node: Row): Row[] {
         return this.groupOf(node).flatMap(each => this.out.get(string(each.node_id)) ?? []);
     }
     /** §192.3: the relations reaching any node of `node`'s group, the survivor's first. */
-    private groupIncoming(node: Row): Row[] {
+    groupIncoming(node: Row): Row[] {
         return this.groupOf(node).flatMap(each => this.incoming.get(string(each.node_id)) ?? []);
     }
     /**

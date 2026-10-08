@@ -447,7 +447,7 @@ test("§197.4: both reviewers read the two-way boundary, the families are bumped
 	const prompt = admissionSystemPrompt();
 	assert.ok(prompt.includes(PLAYER_EXECUTION_CHOICE_NOTE), "the lane reads the note");
 	assert.ok(ADMISSION_JEV_RULES.includes(PLAYER_EXECUTION_CHOICE_NOTE), "the v1 typed rules read it");
-	assert.deepEqual([ADMISSION_JEV_VERSION, ADMISSION_ROLES_VERSION], ["3", "2a.6"]);
+	assert.deepEqual([ADMISSION_JEV_VERSION, ADMISSION_ROLES_VERSION], ["4", "2a.7"]);
 	// The answer shape names the field shapeVerdict reads, with each of its values.
 	for (const value of PLAYER_WORDS) assert.ok(prompt.includes(`"${value}"`), value);
 	assert.equal(shapeVerdict({ player_words: "say", verdict: "not_authorized", grounds: "g", missing: "m" }).player_words, "say");

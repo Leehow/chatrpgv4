@@ -30,8 +30,11 @@ assets ready merely to finish.
 
 Each node has node_id (kind-prefixed semantic kebab name), node_kind, name,
 properties, visibility and source_refs:[{page,box?}]. Optional summary is brief.
-Allowed kinds are asset, handout and thin scene/location identities needed for
-links. Place properties stay empty; do not grant place readiness. Only prepared
+Allowed kinds are asset, handout and thin scene/location/npc identities needed for
+links. A portrait or other picture of a person depicts that person: reuse their node
+through node_refs, or name them as a thin npc identity with the printed name; a scene
+or location is only ever a place and never carries a person's name. Place and person
+properties stay empty; do not grant place readiness. Only prepared
 asset/handout IDs enter ready_nodes. node_refs names existing referenced nodes.
 Use the supplied vocabulary and source language for names, English for system
 reasoning. Never invent local paths, asset_ref or asset_digest.

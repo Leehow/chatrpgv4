@@ -106,6 +106,7 @@ import { PUBLIC_FIGURES_FAMILY } from "../../runtime/jev/public-figures.ts";
 import { OPENING_PRESENCE_FAMILY } from "../../runtime/jev/opening-presence.ts";
 import { createPublicFigureJudge } from "./public-figures.ts";
 import { seatOpeningPeople } from "./opening-presence.ts";
+import { PlaceBindings } from "./place-binding.ts";
 import { PendingAnswers, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs, type SourceAnswerScope } from "./source-answers.ts";
 import {sourceAnswerPage} from '../../runtime/jev/source-answer-pages.ts';
 import { PERSON_TEXT_NOTE, SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
@@ -1714,6 +1715,7 @@ export default function (pi: ExtensionAPI) {
 	const firstSightLane = createFirstSightLane(pi, { ctx: () => sessionCtx, campaign: () => table?.campaign });
 	// Contract §203.6: the establishing check of a draft, on the fast model, before the delivery.
 	const establishLane = createEstablishReviewLane(pi, { ctx: () => sessionCtx, campaign: () => table?.campaign });
+	const placeBindings = new PlaceBindings();
 
 	// Contract §177.15: the places a delivery writes an untold person's name are asked of Jev before the kernel's gate reads them.
 	// §194.5: the same adapter asks whether each cast row is a public figure of the world outside the story (`cast.public.job`).
@@ -5524,6 +5526,15 @@ export default function (pi: ExtensionAPI) {
       if(spec.name==='apply')writingMatches=await prepareWritingMatches(state,payload,documentBindings,evidence.run);
       const result = await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress);
       if(spec.name==='apply')await observeWritingCompletion(state,result,writingMatches);
+      // §204.4: a model's committed mint is bound to the book in the background, independently of the next player turn.
+      if (spec.name === 'apply' && !host && evidence.label === 'model' && Array.isArray(payload.effects)
+        && payload.effects.some(effect => effect && typeof effect === 'object' && effect.kind === 'move' && effect.establish !== undefined)) {
+        const sourceReader = reading;
+        placeBindings.start({campaign: state.campaign, turn: state.turn, moduleId: readingModule,
+          receipts: Array.isArray(result.receipts) ? result.receipts : [],
+          ...(sourceReader?.reference ? {reference: (moduleId, args, ownedSignal) => sourceReader.reference!(moduleId, args, ownedSignal)} : {}),
+          call: (method, args) => state.kernel.call(method, args), record: row => record(row)});
+      }
       // §203.4: the Keeper looked the place over; the kernel said what establishing it owes, so the delivery is checked.
       if (spec.name === 'look' && result && typeof result === 'object' && (result as Record<string, unknown>).establish) establishTurn(state).look = true;
       return result;

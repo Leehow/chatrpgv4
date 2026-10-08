@@ -106,14 +106,14 @@ test("inside: the mint carries within and sits in the book place", async t => {
 test("below the bars the move is minted as written", async t => {
 	const { table, row } = await play(t, { mode: "on", same: 0.4, inside: 0.4 });
 	assert.equal(world(table.workspace).table_entities[0].name, STAIR);
-	assert.ok(!("within" in world(table.workspace).table_entities[0]));
+	assert.equal(world(table.workspace).table_entities[0].within, 'commission-briefing', '§204.3: an unplaced mint defaults to the active place');
 	assert.equal(row.outcome, "mint"); assert.equal(row.why, "below_bar");
 });
 
 test("shadow (the env override): the row says what it would do, the effect is unchanged", async t => {
 	const { table, row } = await play(t, { mode: "shadow", same: 0.95 });
 	assert.equal(world(table.workspace).table_entities[0].name, STAIR);
-	assert.ok(!("within" in world(table.workspace).table_entities[0]), "shadow changes nothing");
+	assert.equal(world(table.workspace).table_entities[0].within, 'commission-briefing', 'shadow leaves the effect for the kernel\'s §204.3 default');
 	assert.equal(row.outcome, "shadow"); assert.equal(row.decision, "same"); assert.equal(row.handle, MORGUE);
 	// Owner ruling 2026-10-07 after RD-08: the shipped mode is `on`; `shadow` stays reachable through PI_COC_SCENE_PLACEMENT.
 	assert.equal(JSON.parse(readFileSync(join(root, "content/rulesets/coc7/host-budgets.json"), "utf8")).scene_placement.mode, "on");

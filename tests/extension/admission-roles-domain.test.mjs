@@ -106,13 +106,13 @@ test("§32.12.3.2: only handover semantics and the execution-choice question dif
 			assert.deepEqual(actual.state, expectedRequests[0].state);
 			assert.equal(actual.model, expectedRequests[0].model);
 			Object.assign(actualQuestions, actual.questions);
-			assert.deepEqual([batch.family, batch.familyVersion], [experiment.batches[0].family, "2a.6"]);
+			assert.deepEqual([batch.family, batch.familyVersion], [experiment.batches[0].family, "2a.7"]);
 		}
 		// The added policy can change byte-bounded batch cuts, but never drops or adds a semantic question.
 		assert.deepEqual(actualQuestions, expectedQuestions);
 		assert.deepEqual([...product.passages.keys()], [...experiment.passages.keys()]);
 	}
-	assert.deepEqual([ADMISSION_ROLES_FAMILY, ADMISSION_ROLES_VERSION], ["action-admission-roles", "2a.6"]);
+	assert.deepEqual([ADMISSION_ROLES_FAMILY, ADMISSION_ROLES_VERSION], ["action-admission-roles", "2a.7"]);
 });
 
 test("§32.12.3.2: per line the design asks role, choice, result, span, target, gate, order, missing and basis; each line carries its closed kind", () => {

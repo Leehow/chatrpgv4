@@ -24,7 +24,8 @@ export async function briefWindow(context: KernelContext, module: LoadedModule, 
     const budget = await readingBudget(context);
     if (pageCount <= budget.wholeBookMaxPages) return null;
     const graph = module.graph, scene = graph.find(string(world.active_scene), ['scene']);
-    const anchorNode = scene ? bookAnchor(graph, scene) : null;
+    // §204.4: a minted place bound to the book's mention cites the book's pages itself, and the window is anchored there.
+    const anchorNode = scene ? (citedPages(scene).length ? scene : bookAnchor(graph, scene)) : null;
     let start: Row | null = null;
     try { start = graph.startScene(); } catch (error) { if (!(error instanceof RpcError)) throw error; }
     const inBook = (pages: number[]) => pages.filter(page => page >= 1 && page <= pageCount);

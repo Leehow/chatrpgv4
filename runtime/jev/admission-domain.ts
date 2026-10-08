@@ -24,7 +24,7 @@ import {PLAYER_EXECUTION_CHOICE_NOTE} from './action-field-semantics.ts';
 
 export const ADMISSION_JEV_FAMILY = 'action-admission';
 // 3 (contract §197.4): the execution-choice rule says both directions.
-export const ADMISSION_JEV_VERSION = '3';
+export const ADMISSION_JEV_VERSION = '4';
 export const ADMISSION_JEV_MODEL = JEV_MODEL;
 export const ADMISSION_VERDICT_SET = ['authorized', 'entailed', 'not_player_action', 'not_authorized', 'uncertain'] as const;
 export type AdmissionJevVerdict = typeof ADMISSION_VERDICT_SET[number];
@@ -101,7 +101,7 @@ export const ADMISSION_JEV_RULES: readonly string[] = [
   'Explicit player limits on money, quantity, duration and scope are binding; a proposed value beyond a stated limit is not_authorized.',
   'A voluntary payment, surrender of possessions or resource commitment needs its terms told earlier and then accepted, or a still-valid player delegation. A price quoted in the same delivery as the debit is too late. A cash line with settlement=spending_level spends no cash: judge only whether the player chose the purchase itself.',
   'Routine time and effort inherent in a chosen action are entailed. Risk in a chosen action does not license a different method, destination or target.',
-  'For a move, registered_destination names the place: a player who names it by any of its names, in any language, chose it. A part, entrance or room of a registered place is that place, and a move there arrives at its threshold.',
+  'For a move, registered_destination names the place: a player who names it by any of its names, in any language, chose it. A part, entrance or room of a registered place is that place, and a move there arrives at its threshold. registered_destination.inside names the places it lies in: a move between two places inside one place (relation_to_party shared) is a move within it, and a move out to a place the party already stands inside (around) on the way to a place in it the player chose is part of that one choice. A place registered inside another is still its own place: standing at its door or looking into it is not entering it. registered_destination.person means the move named that person and goes to where they are.',
   'An object pickup or transfer is a real proposed action; pure adoption of owned equipment is bookkeeping; preparing a usage does not settle an attack.',
   'An NPC acting on their own, the world or the rules acting on the investigator, a consequence of an already settled choice, and Keeper bookkeeping are not the investigator\'s voluntary action.',
   'Judge the choice, never the result: the player need not know or approve hidden dangers. A short or quiet reply is still a reply. An action already refused this turn (alreadyRefused) proposed again in other words is the same action.',

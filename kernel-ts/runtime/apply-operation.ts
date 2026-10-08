@@ -6,7 +6,8 @@ import {jsonDigest,isJsonObject} from '../json.js';
 import {stageCash,type CashContext} from '../apply/inventory.js';
 import {clone,number} from '../read/values.js';
 import {CampaignSnapshot, loadCampaignModule} from '../read/campaign.js';
-import {whereSection, cluesHere, npcsPresent} from '../read/capsule.js';
+import {whereSection, cluesHere, npcsPresent, sceneLabel} from '../read/capsule.js';
+import {containers, isPlace, placesWithin, samePlace, sceneOfPlace} from '../read/places.js';
 import {SessionView} from '../read/session-view.js';
 import {taskWorldRevision} from '../read/context.js';
 import {fulfillmentHandlers, fulfillmentPromiseNavigation} from './fulfillment-options.js';
@@ -39,25 +40,50 @@ function tableTookOver(receipts:Row[],entry:Row,handle:string,place:string):Row|
 /** Contract §187.2.3: the most book places the placement lane is offered, and its default. */
 export const PLACEMENT_LIMIT = {max: 64, fallback: 24};
 /**
- * Contract §187.2.3: the book places a destination the Keeper is about to mint may be, or lie inside, enumerated by the
- * kernel for the host's placement lane -- the active scene itself (when the book has it), its exits, then the book scenes
- * and locations citing a page in the reading window (§182.3, `briefWindow`; every book place when there is no window), in
- * book order. A place the table minted is never a candidate: `within` names a book place.
+ * Contract §187.2.3 as amended by §204.3: the places a destination the Keeper is about to mint may be, or lie inside,
+ * enumerated by the kernel for the host's placement lane -- the active scene itself whatever its origin (a place this table
+ * established is a candidate for `inside` only), the places it lies in (§204.1, nearest first), its exits, then the book
+ * scenes and locations citing a page in the reading window (§182.3, `briefWindow`; every book place when there is no
+ * window), in book order. Each row carries `inside`: the handles of the places it lies in, so the lane can take the
+ * innermost of several. Any other table place, and a person-named location (§204.6), is never a candidate.
  */
 function placementCandidates(graph:ModuleGraph,scene:Row,window:{first:number;last:number}|null,limit:number):Row[]{
-    const rows:Row[]=[],seen=new Set<string>();
+    const rows:Row[]=[],seen=new Set<string>(),around=new Set(containers(graph,scene).map(node=>string(node.node_id)));
     const add=(node:Row|null|undefined,source:string)=>{
-        if(!node||rows.length>=limit||seen.has(string(node.node_id))||graph.isTableEntity(node)||!['scene','location'].includes(string(node.node_kind)))return;
+        if(!node||rows.length>=limit||seen.has(string(node.node_id))||!isPlace(graph,node))return;
+        if(graph.isTableEntity(node)&&source!=='here'&&!around.has(string(node.node_id)))return;
         seen.add(string(node.node_id));
         const name=graph.handle(node),display=graph.placeName(node);
         const aliases=[...new Set(array(node.aliases).filter(value=>typeof value==='string'&&value.trim()&&value!==display&&value!==name).map(string))].slice(0,6);
-        rows.push({name,...(display!==name?{display_name:display}:{}),...(aliases.length?{aliases}:{}),summary:chars(words(string(node.summary||graph.prose(node))),160),source});
+        rows.push({name,...(display!==name?{display_name:display}:{}),...(aliases.length?{aliases}:{}),summary:chars(words(string(node.summary||graph.prose(node))),160),source,
+            ...(graph.isTableEntity(node)?{table_place:true}:{}),
+            inside:containers(graph,node).map(place=>graph.handle(place))});
     };
     add(scene,'here');
+    for(const place of containers(graph,scene))add(place,'within');
     for(const exit of graph.sceneExits(scene))add(graph.find(string(exit.to),['scene']),'exit');
     for(const node of [...graph.kind('scene'),...graph.kind('location')])
         if(!window||citedPages(node).some(page=>page>=window.first&&page<=window.last))add(node,'window');
     return rows;
+}
+/** Contract §204.7: the most move rows for places related to here (`table.apply.options`). */
+export const WITHIN_MOVES = 12;
+/**
+ * Contract §204.7: the places a move within a place reaches from the active scene -- each container, nearest first, then the
+ * other places in it -- as `[destination, container]`, each destination once, never the active scene's own place.
+ */
+function movesWithin(graph:ModuleGraph,scene:Row):Array<[Row,Row]>{
+    const out:Array<[Row,Row]>=[],seen=new Set(samePlace(graph,scene).map(node=>string(node.node_id)));
+    for(const container of containers(graph,scene)){
+        for(const node of [container,...placesWithin(graph,container,scene,WITHIN_MOVES)]){
+            const target=sceneOfPlace(graph,node);
+            if(out.length>=WITHIN_MOVES)return out;
+            if(!target||seen.has(string(target.node_id)))continue;
+            seen.add(string(target.node_id));
+            out.push([target,container]);
+        }
+    }
+    return out;
 }
 
 export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
@@ -117,7 +143,8 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
         let ledger:Row={};
         try{ledger=row(await campaign.optional('npc-ledger.json'));}catch{/* an unreadable ledger reads as empty, as for look */}
         const excluded:Row[]=[];
-        const places=[scene,...(graph.out.get(scene.node_id)??[]).filter(rel=>rel.relation_kind==='located-in').map(rel=>graph.nodes.get(rel.to_node_id)).filter((node):node is Row=>!!node)];
+        // §204.7: the active scene's own place (the places it is played at, the scenes played there) and the place it lies in.
+        const same=samePlace(graph,scene),nearest=containers(graph,scene)[0],places=[...same,...(nearest?[nearest]:[])];
         const offered=new Set<string>();
         // §198.2: through the scenes that happen at a place and the openings an anchor displaced, too; `via` says which.
         for(const place of places)for(const {id,via} of graph.scenePeople(place)){
@@ -125,11 +152,13 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
             if(!node||!handle||offered.has(handle)||Object.hasOwn(row(campaign.world.npc_presence),handle))continue;
             const names=new Set([node.name,...array(node.aliases)].filter(value=>typeof value==='string').map(normalize));
             if(Object.keys(row(campaign.world.npc_presence)).some(existing=>{const known=graph.actor(existing);return known&&[known.name,...array(known.aliases)].some(value=>typeof value==='string'&&names.has(normalize(value)));}))continue;
-            const leave=tableTookOver(receipts,row(ledger[id]),handle,graph.handle(place));
-            if(leave){excluded.push({name:handle,scene:graph.handle(place),...leave});continue;}
+            // A person the book seats in the scene's own place is seated here; one the book seats in the place it lies in, there.
+            const seat=same.includes(place)?scene:place;
+            const leave=tableTookOver(receipts,row(ledger[id]),handle,graph.handle(seat));
+            if(leave){excluded.push({name:handle,scene:graph.handle(seat),...leave});continue;}
             offered.add(handle);
-            add({kind:'npc',name:handle,to:graph.handle(place)},{kind:'source_presence',name:graph.displayName(node),scene:graph.displayName(place),
-                ...(place!==scene?{within:true}:{}),
+            add({kind:'npc',name:handle,to:graph.handle(seat)},{kind:'source_presence',name:graph.displayName(node),scene:graph.displayName(seat),
+                ...(seat!==scene?{within:true}:{}),
                 ...(via?{placed_by:{name:graph.handle(via),display_name:graph.displayName(via),summary:via.summary??''}}:{}),
                 actor:{name:handle,display_name:graph.displayName(node),summary:graph.summary(node),source_needs:graph.sourceNeeds(node,true),
                     placement_conditions:{...Object.fromEntries(['when','unlock_when','conditions'].filter(key=>Object.hasOwn(row(node.properties),key)).map(key=>[key,row(node.properties)[key]])),
@@ -157,6 +186,16 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
             const guarded=unlock&&unlock.met===false?{unlock_when:{...unlock,...unlockGuard(graph,campaign.world,conditions.get(exit.to)),...guardedWay(graph,campaign.world,scene)}}:{};
             add({kind:'move',to:exit.to},{kind:'move',...exit,...guarded,...(Object.keys(destination).length?{destination}:{}),...(exit.source_identity?{source_context:node?.summary??''}:{}),authority:'available_route_not_player_choice'},
                 guards.exits.get(string(node?.node_id)));
+        }
+        // §204.7: a move within a place the active scene lies in -- to the place itself or to another place in it -- after the
+        // exits and the trail; going from one house on a farm to another is a move within the farm.
+        for (const [node,container] of movesWithin(graph,scene)) {
+            const to=graph.handle(node);
+            if (destinations.has(to)) continue;
+            destinations.add(to);
+            const shown=sceneLabel(graph,campaign.world,node),destination=destinationView(graph,campaign.world,node,shown);
+            add({kind:'move',to},{kind:'move',to,...(shown!==to?{display_name:shown}:{}),within:graph.handle(container),material:module.material?.(node.node_id),
+                ...(Object.keys(destination).length?{destination}:{}),authority:'available_route_not_player_choice'},guards.exits.get(string(node.node_id)));
         }
         // Complete and untruncated, bound to the same revision; absent when the scene states none (§134.10).
         const obligations=obligationNodes(graph,scene).length?sceneObligations(graph,campaign.world,scene,{

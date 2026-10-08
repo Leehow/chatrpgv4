@@ -20,6 +20,7 @@ import { contextBinding } from "./context.js";
 import { workspaceRead } from "./workspace.js";
 import { clockSection, sceneLabel, personLabel, clueLabel, npcNode, personNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, creatureView, investigatorView, fittedModuleSection, untoldRoster, personRecord } from "./capsule.js";
 import { castPersonNamed, protectedNames, tellGuard } from './cast.js';
+import { containers, isPlace, personPlaces, placeRelation } from './places.js';
 import { tableWord } from './person-words.js';
 import { prepareNameHistory } from '../journal/name-history.js';
 import { incapacitatedBy } from "../healing/conditions.js";
@@ -589,6 +590,27 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 const unread = !entities.length && (!expected || expected === 'npc') ? castPersonNamed(graph, world, query) : null;
                 if (unread) entities.push({ name: tableWord(world, unread.id) || unread.id, kind: 'npc', material: 'unread', original_pages: unread.pages,
                     note: 'The book names this person and their record is not read yet. A write that names them by this name lands on the book\'s text and their record is read.' });
+                // §204.5: a destination asked for by a person's name is where that person is, when one place says so.
+                if (!entities.length && expected === 'scene') {
+                    let person: Row | null = null;
+                    try { person = personNode(graph, world, query); } catch { person = null; }
+                    const found = person ? personPlaces(graph, world, person) : null;
+                    if (person && found?.places.length === 1)
+                        entities.push({ ...graph.shownIds(graph.entityView(found.places[0]!)),
+                            reached_through: { person: graph.handle(person), display_name: graph.displayName(person), basis: found.basis } });
+                }
+                // §204.7: where each place lies and how it stands to the party's place, for a destination's reviewer.
+                if (expected === 'scene') {
+                    const here = graph.find(string(world.active_scene), ['scene']);
+                    for (const entity of entities) {
+                        const node = graph.find(string(entity.name), ['scene']);
+                        if (!node || !isPlace(graph, node)) continue;
+                        const inside = containers(graph, node).slice(0, 4).map(place => place.node_kind === 'scene' ? sceneLabel(graph, world, place) : graph.placeName(place));
+                        const relation = here ? placeRelation(graph, here, node) : null;
+                        Object.assign(entity, { ...(inside.length ? { inside } : {}), ...(relation ? { relation_to_party: relation.relation } : {}),
+                            ...(relation?.relation === 'shared' ? { shared: relation.place.node_kind === 'scene' ? sceneLabel(graph, world, relation.place) : graph.placeName(relation.place) } : {}) });
+                    }
+                }
                 const missingScene = !entities.length && expected === 'scene';
                 return {
                     query,

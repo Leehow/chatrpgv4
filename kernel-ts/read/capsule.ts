@@ -20,6 +20,7 @@ import {cardAction,cardTactic} from '../combat/standing.js';
 import {mechRow} from './mech-line.js';
 import { MASK_KEY } from '../voice/fields.js';
 import { weaknessChain, type ChainReads } from "./weaknesses.js";
+import { containers, placesWithin, personNamedLocations } from "./places.js";
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
 /**
  * The one name this table uses for a place, by its handle: the campaign label the Keeper gave it,
@@ -423,22 +424,27 @@ function exitRows(graph: ModuleGraph, world: Row, scene: Row, material: (name: s
 /** Contract §187.2.2: the budget of `where.within`, fitted like `where`. */
 export const WITHIN_BUDGET = 2048;
 /**
- * Contract §187.2.2: the book place the active scene lies in (`located-in`), with its own exits and people, so the
- * book's topology and cast are one hop from a room the Keeper improvised inside it. `seated` is whether the ledger
- * (`npc_presence`) puts the person in the active scene; `clues` is a count. Undefined when there is no such place.
+ * Contract §187.2.2 as amended by §204.7: the place the active scene lies in -- the nearest of its containers (§204.1), for
+ * any scene, not only a mint -- with its own exits and people, so the book's topology and cast are one hop away, and the
+ * other places in it (`places`): a move to one is a move within it. `seated` is whether the ledger (`npc_presence`) puts
+ * the person in the active scene; `clues` is a count. Undefined when the scene lies in no place.
  */
 export function withinSection(graph: ModuleGraph, world: Row, scene: Row, material: (name: string) => string = () => "ready"): Row | undefined {
-    const relation = (graph.out.get(scene.node_id) ?? []).find(rel => rel.relation_kind === "located-in" && graph.nodes.has(rel.to_node_id));
-    if (!relation)
+    const place = containers(graph, scene)[0];
+    if (!place)
         return undefined;
     // §192.3: the place is the node that stands for it; its people are its group's, seated by an entry under any handle.
-    const place = graph.survivorOf(graph.nodes.get(relation.to_node_id)!), here = sceneHandles(graph, scene), presence = presenceThrough(graph, world);
-    const display = graph.placeName(place);
+    const here = sceneHandles(graph, scene), presence = presenceThrough(graph, world);
+    const display = place.node_kind === "scene" ? sceneLabel(graph, world, place) : graph.placeName(place);
     const within: Row = {
         name: graph.handle(place),
         ...(display !== graph.handle(place) ? { display_name: display } : {}),
         summary: place.summary || graph.prose(place),
         exits: place.node_kind === "scene" ? exitRows(graph, world, place, material) : [],
+        places: placesWithin(graph, place, scene).map(node => {
+            const name = graph.handle(node), shown = sceneLabel(graph, world, node);
+            return { name, ...(shown !== name ? { display_name: shown } : {}) };
+        }),
         people: graph.sceneNpcIds(place).map(id => {
             const node = graph.nodes.get(id)!, name = graph.handle(node), shown = graph.displayName(node);
             return { name, ...(shown !== name ? { display_name: shown } : {}), seated: here.has(presence.get(id)?.at ?? "") };
@@ -450,6 +456,19 @@ export function withinSection(graph: ModuleGraph, world: Row, scene: Row, materi
     if (jsonSize(within) > WITHIN_BUDGET && typeof within.summary === "string")
         within.summary = chars(within.summary, 400);
     return within;
+}
+/** Contract §204.4: the most characters of the book's words a bound place carries into `where.book`. */
+export const BOOK_TEXT_CHARS = 1200;
+/**
+ * Contract §204.4: the book's mention of a place this table established, once the host bound it (`place-bindings.json`): its
+ * pages, the excerpt and the pages as `source_refs`, which the prescreen's cited pages read too. Undefined for any other place.
+ */
+export function bookSection(graph: ModuleGraph, scene: Row): Row | undefined {
+    const book = row(scene.book), pages = array(book.pages).filter(page => integer(page) && number(page) >= 1).map(number);
+    if (!graph.isTableEntity(scene) || !pages.length)
+        return undefined;
+    return { pages, ...(typeof book.excerpt === "string" && book.excerpt ? { text: chars(book.excerpt, BOOK_TEXT_CHARS) } : {}),
+        source_refs: pages.map(page => ({ source_id: `pdf:${graph.moduleId}`, pdf_index: page - 1 })) };
 }
 export function whereSection(graph: ModuleGraph, world: Row, scene: Row, material: (name: string) => string = () => "ready", compact = false): Row {
     const record = recordOf(scene),
@@ -513,10 +532,14 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         endings: graph.sceneEndings(scene),
         material: material(scene.node_id)
     };
-    // §187.2.2: the book place a minted room lies in.
+    // §187.2.2 / §204.7: the place the active scene lies in.
     const within = withinSection(graph, world, scene, material);
     if (within)
         where.within = within;
+    // §204.4: the book's own words for a place this table established and the host bound to them.
+    const book = bookSection(graph, scene);
+    if (book)
+        where.book = book;
     // §22.3.2: a classification a reviewer disputed on this scene or a record one relation from it. `look` only.
     const contested = compact ? [] : contestedRows(graph, scene);
     if (contested.length) {
@@ -1237,7 +1260,9 @@ export function windowOrder(nodes: Row[], window: RosterWindow): Row[] {
 }
 /** §192.3: the brief lists each thing once: a node another stands for is never a roster line of its own. */
 function rosterNodes(graph: ModuleGraph, kind: string): Row[] {
-    return (kind === 'location' ? array(graph.raw.nodes).filter(node => node.node_kind === 'location') : graph.kind(kind)).filter(node => !graph.isVariant(node));
+    // §204.6: a location named exactly as a person of the book is that person's identity, never a line of the places roster.
+    const people = personNamedLocations(graph);
+    return (kind === 'location' ? array(graph.raw.nodes).filter(node => node.node_kind === 'location' && !people.has(string(node.node_id))) : graph.kind(kind)).filter(node => !graph.isVariant(node));
 }
 export function moduleSection(graph: ModuleGraph, size = 120, window?: RosterWindow): Row {
     const module = graph.moduleNode || {},

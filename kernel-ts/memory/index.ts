@@ -27,6 +27,7 @@ import {activeMods, effectiveMods} from '../read/mods.js';
 import {establishItem, establishProvider, establishReviewOwners, HEAD_ESTABLISH} from '../read/establish.js';
 import {historicalSetting} from '../read/historical-setting.js';
 import {npcsPresent} from '../read/capsule.js';
+import {bindPlace} from '../read/place-bindings.js';
 /** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
 const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch', 'unmarked_speech', 'investigator_identity_mismatch'];
 /**
@@ -249,6 +250,11 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
             return toldOptions(loaded, await briefWindow(context, loaded.module, loaded.snapshot.world), params);
         },
         'table.owe': async (params) => oweTold(context, await load(params), params, FORWARD.owed_state),
+        // Contract §204.4: the host binds a place this table established to the book's mention it found in the background.
+        'table.place.bind': async (params) => {
+            const { campaign, module } = await load(params), pages = module.meta.page_count;
+            return bindPlace(context, campaign.id, module.graph, integer(pages) && number(pages) >= 1 ? number(pages) : null, params);
+        },
         // Contract §168.5: the first sight owed where the party stands now, for a run that moved after its capsule was read.
         'table.first_sight.view': async (params): Promise<Row> => {
             const { campaign, snapshot, module } = await load(params);
