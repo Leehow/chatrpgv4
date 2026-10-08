@@ -9,7 +9,7 @@
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
@@ -18,7 +18,6 @@ import {playtestScratch} from './playtest-scratch.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
 const temporary = playtestScratch('prescreen-binding-drift');
-after(() => rm(temporary, {recursive: true, force: true}));
 await build({stdin: {contents: `
 export {createKernelContext} from './kernel-ts/context.ts';
 export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';
