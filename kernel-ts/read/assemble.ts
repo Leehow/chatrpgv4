@@ -334,22 +334,6 @@ export function untoldReceipts(records: Row[], turn: number): Row[] {
             }] : [];
         });
 }
-/**
- * §13.1.1 (owner decision G, 2026-10-08): the compact `where` gives up its history before its ways out. `fitBudget` pops
- * the largest list, which in a busy scene is the exits, while the trail (`back`) grows with every move; the Haunting's
- * Chapel lost a road that way, and the Corbitt House lost three once its rooms were listed. Over budget, the trail goes
- * first, down to the one step back, then the places from the end; only then does the general cut run. The whole trail
- * stays in `world.scene_trail`, and `look focus=scene` returns every place.
- */
-function fitWhere(where: Row, budget: number): boolean {
-    let cut = false;
-    for (const [key, keep] of [["back", 1], ["places", 0]] as const)
-        while (jsonSize(where) > budget && Array.isArray(where[key]) && where[key].length > keep) {
-            where[key].pop();
-            cut = true;
-        }
-    return fitBudget(where, budget) || cut;
-}
 /** present[] under its budget with every person kept: full rows are cut from the end as `fitBudget` cuts
  *  them, and each person cut comes back as a stub; if the stubs themselves do not fit, more full rows give
  *  way to stubs until they do. Returns whether anything was cut. */
@@ -382,6 +366,22 @@ export function fitPresent(rows: Row[], budget: number): boolean {
     };
     rows.splice(0, rows.length, ...rows.map(kindBack), ...stubbed.map(entry => presentStub(kindBack(entry))));
     return cut;
+}
+/**
+ * §13.1.1 (owner decision G, 2026-10-08): the compact `where` gives up its history before its ways out. `fitBudget` pops
+ * the largest list, which in a busy scene is the exits, while the trail (`back`) grows with every move; the Haunting's
+ * Chapel lost a road that way, and the Corbitt House lost three once its rooms were listed. Over budget, the trail goes
+ * first, down to the one step back, then the places from the end; only then does the general cut run. The whole trail
+ * stays in `world.scene_trail`, and `look focus=scene` returns every place.
+ */
+function fitWhere(where: Row, budget: number): boolean {
+    let cut = false;
+    for (const [key, keep] of [["back", 1], ["places", 0]] as const)
+        while (jsonSize(where) > budget && Array.isArray(where[key]) && where[key].length > keep) {
+            where[key].pop();
+            cut = true;
+        }
+    return fitBudget(where, budget) || cut;
 }
 /**
  * §176.8: a person cut to their name keeps their untold block, without its line. Whether they are untold, and the
