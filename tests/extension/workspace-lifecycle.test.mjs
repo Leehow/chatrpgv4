@@ -26,7 +26,9 @@ test('source bodies survive a real same-turn scene round trip and a context-runt
   const call = (method, params = {}) => runtime.handlers[method]({campaign: 'c1', ...params});
   await call('campaign.create', {id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
   await call('table.open');
-  await call('mods.configure', {id: 'keeper-context', enabled: true, settings: {mode: 'on'}});
+  const previousMode = process.env.PI_COC_WORKSPACE_MODE;
+  process.env.PI_COC_WORKSPACE_MODE = 'on';
+  t.after(() => { if (previousMode === undefined) delete process.env.PI_COC_WORKSPACE_MODE; else process.env.PI_COC_WORKSPACE_MODE = previousMode; });
   const input = await call('table.player_input', {text: 'I visit the newspaper archive and then return to the commission office.'});
   const rows = [], ctx = {model: {contextWindow: 1000000}};
   const setup = () => {

@@ -166,6 +166,41 @@ that host consumption is not claimed implemented by this contract amendment.
 
 ### table.workspace.read（宿主向；KIC-02 read-side snapshot）
 
+#### Host ownership amendment (2026-10-07)
+
+Keeper Context is retired as a Mod. Its workspace, evidence reuse, Workpad and optional
+rerank already belong to the host; their operation no longer depends on a package, its
+instructions or its capability registration. The source selector's data-only guidance and
+Workpad guidance live in the transport-only workspace message. All existing authority,
+scope, request-generation, byte-budget and admission isolation boundaries still apply.
+
+Host configuration uses `PI_COC_WORKSPACE_MODE` (`off`, `shadow`, `on`, default `off`),
+`PI_COC_WORKSPACE_BYTES` (ceiling 24576), `PI_COC_WORKSPACE_CANDIDATES` (ceiling 128),
+`PI_COC_WORKSPACE_RERANK_CANDIDATES` (ceiling 48), and independent boolean
+`PI_COC_WORKSPACE_WORKPAD`, `PI_COC_WORKSPACE_RERANK`, `PI_COC_WORKSPACE_RERANK_REMOTE`
+(defaults true, false, false; explicit values `true`/`false`). Invalid explicit modes
+fail closed to off. Remote ranking still requires both flags and a configured provider.
+The current Jev prescreen continues to own source projection when enabled, without an
+additional workspace source projection.
+
+For existing campaigns only, `_context.workspace_settings` carries the retired active
+lock's scalar settings as host-only compatibility input; a disabled lock means off.
+Explicit host settings take precedence. This read does not rewrite saves, version locks,
+pending changes, installed immutable packages or evidence. The retired id is excluded from
+the package catalog, active contributions and effective load order, including queued old
+orders; it cannot block reopening a campaign when its package is absent. Pending retired
+lock settings remain archival and are never replayed. New campaigns do not create this lock.
+The retired `context.workspace.v1` capability is no longer offered.
+
+Writers: host environment or existing locked settings; readers: the table request policy
+and the delivery Workpad gate; actions: transport-only projection and successful-delivery
+publication. No Mod owns this path. This follows the host configuration ownership used by
+[OpenClaw session pruning](https://docs.openclaw.ai/concepts/session-pruning); the
+[VS Code extension boundary](https://code.visualstudio.com/api/extension-capabilities/overview)
+also separates package contributions from host facilities. Neither precedent changes this
+project's authority or persistence rules. The older KIC package descriptions below are
+historical and superseded by this amendment.
+
 #### Completion amendment (2026-09-19, spec #92)
 
 The reference-only implementation below is a baseline, not completion of the v2.0 evidence
@@ -189,8 +224,8 @@ as bounded quoted source data. Current state remains the capsule/tool chain. Dor
 references survive a move and a restart; they do not restore world snapshots. The final
 workspace contains at most 24 evidence groups within 24 KiB, with explicit omissions.
 
-`keeper-context` keeps its own `mode` and adds independent `workpad_enabled`, `rerank_enabled`
-and `rerank_allow_remote` settings. Remote ranking requires both ranking flags and a configured
+The host keeps an independent workspace mode, Workpad flag, rerank flag and remote-ranking
+permission (configured as described in the 2026-10-07 ownership amendment). Remote ranking requires both ranking flags and a configured
 provider. Scope, authority, audience, version and coverage filtering precede any transmission.
 Everything that already fits skips ranking. Shadow observes deterministic local selection only.
 The shared candidate limit is at most 128; rank sees at most 48 candidates and 48 KiB total
@@ -2877,11 +2912,11 @@ metadata floor that cannot fit the budget all omit the message (fail-open), neve
 Admissible references
 deduplicate by locator and pack in stable source order — `module_source` by locator,
 `campaign_adaptation` by locator, then
-`table_record` by turn — into the `keeper-context` settings budget (clamped to the 24 KiB KIC
+`table_record` by turn — into the host workspace budget (clamped to the 24 KiB KIC
 ceiling), carrying locator/kind/turn names only, never hashes, cache paths or claimed body
 truth, with filtered and omitted counts always reported; the message is explicitly advisory and
-names where verified material lives, never the material. The mode is the package's own scalar
-setting read from the capsule the host already holds: `off` (and no package, or an unknown
+names where verified material lives, never the material. The mode comes from host configuration
+and private old-save compatibility metadata: `off` (or no preference, or an unknown
 value) reads nothing and injects nothing; `shadow` selects and records telemetry without
 injecting; `on` injects. Selection and omission are recorded on the `workspace` telemetry lane.
 The request path keeps at most one current `coc-workspace` message per
@@ -2982,15 +3017,12 @@ binding immediately falls back to the deterministic candidate order without a re
 main-model explanation round. Scores only order already-authorized candidates: they never
 establish truth, completeness, permission, action admission or tool arguments.
 
-The package contribution is deliberately inert. `context.workspace.v1` is the TypeScript
-production capability that permits the future `keeper-context` package to declare only English
-`instructions` plus per-turn `brief` and scalar mode/budget settings. The package has no
-executable payload, Keeper tool, kernel/Pi object, cache, workspace body or world-state write;
-without the package, or with its `mode` set to `off`, the existing bounded context and seven
-Keeper verbs are unchanged. The package is default-off so A/B/C/D/E experiments can enable
-static workspace guidance, Workpad and rerank independently. An enabled package still cannot make later consumers available: `coc-workspace` projection,
-Workpad and rerank remain core host work; `table.workspace.read` and its caches remain outside
-package code.
+The former Keeper Context package contributed only guidance and preferences. It is retired:
+workspace guidance now belongs to the transport-only message, and host configuration preserves
+the default-off ablation path and independent Workpad/rerank controls. No package can make a
+reader, cache, projection, Workpad or rerank consumer available or grant them world authority.
+Old immutable package bytes and campaign locks are retained as historical evidence; the effective
+catalog and contribution set exclude the retired id. See the 2026-10-07 ownership amendment.
 
 This is the TypeScript production contract. The retired Python kernel is not a second
 implementation, compatibility registration point or fallback for this method or capability.
@@ -6567,27 +6599,14 @@ these contributions into the seven verbs, the existing transaction and host jobs
 The kernel owns dice, identities, validation, world changes and persistence; a Mod
 owns its policy, prompts, presets and tests. No Mod may overwrite authored source.
 
-### Host-only workspace capability (KIC-01; TypeScript production path)
+### Host-owned workspace (KIC; package retirement)
 
-`context.workspace.v1` is a closed TypeScript kernel capability registration for the optional
-`keeper-context` policy package. It does not grant a package access to the Pi session, kernel
-objects, player UI, secrets, evidence bodies, world state or executable code. A package requiring
-it may contribute only English `instructions`, a per-turn `brief`, and schema-checked scalar
-mode/budget settings. The capability exists so the package can be catalogued and version-locked;
-it does not itself install a reader, a cache, a projection, a Workpad, a candidate expander or a
-rerank consumer.
-
-`table.workspace.read` is the corresponding host-only method-table entry and read handler. It is
-not in the seven Keeper verbs; no Mod can add or implement it. The KIC-02 handler is binding-aware
-and read-only as specified in §19.2. The capability registration and package default-off remain;
-the KIC-03 selector/projection and KIC-04 Workpad strip/publish/projection are delivered as core
-host work in the table and kernel extensions; KIC-05 rerank is an optional host adapter only,
-with no Python registration or fallback path.
-
-The existing Mod safe boundary remains in force: package activation can change only the package's
-own instructions, brief and declared settings. `mode: "off"` is the default and is suitable for
-A/B/C/D/E ablation. Turning the package off or omitting it leaves bounded history, capsule,
-lookup, recall and all seven verbs unchanged and never deletes formal records or evidence.
+Keeper Context is no longer a Mod. The host owns `table.workspace.read`, source reuse,
+Workpad and rerank; configuration and read-only old-save compatibility follow §19.2's
+2026-10-07 ownership amendment. `context.workspace.v1` is no longer a package capability.
+Immutable old package bytes and locks remain historical evidence, outside the effective
+catalog, contribution set and load order. This does not change the seven Keeper verbs,
+ordinary lookup/recall, authority, scope validation or the current Jev prescreen path.
 
 The first implementation supports declarative percentile decisions (a maximum of
 named actor values, target-scoped reuse and result mappings), generated weapon,
@@ -35239,7 +35258,7 @@ When any row is indexed, `capsule.mods.topics` carries the definitions of the to
 
 ### 183.6 The packages
 
-Sectioned, with `brief.md` removed and no sentence changed: narration-craft 2.2.5 (only "Opening the table" is situational), natural-npc 1.4.6 (two headings: "First impression" over the opening paragraphs, "The impression in play" over the frozen result's use), enhanced-items 1.3.2 (six headings), keeper-pacing 1.3.1 (seven), story-thread 1.2.11 (four), historical-reference 1.0.10 (a title and five). Each package's `sections.json` follows `docs/mods-catalogue.md`; a section about a host event (the library lookup, a refused narration, a closed retrieval) is resident (§183.8). Not sectioned (full, as before; their `brief.md` is never read): zh-optimize, keeper-context, npc-voice. The default-on texts together are about 52 KB, within the budget: every table today stays whole.
+Sectioned, with `brief.md` removed and no sentence changed: narration-craft 2.2.5 (only "Opening the table" is situational), natural-npc 1.4.6 (two headings: "First impression" over the opening paragraphs, "The impression in play" over the frozen result's use), enhanced-items 1.3.2 (six headings), keeper-pacing 1.3.1 (seven), story-thread 1.2.11 (four), historical-reference 1.0.10 (a title and five). Each package's `sections.json` follows `docs/mods-catalogue.md`; a section about a host event (the library lookup, a refused narration, a closed retrieval) is resident (§183.8). Not sectioned (full, as before; their `brief.md` is never read): zh-optimize, npc-voice. The default-on texts together are about 52 KB, within the budget: every table today stays whole.
 
 ### 183.7 Writers, readers, actor (§31)
 
@@ -36172,7 +36191,7 @@ in process and the context hooks as installed.
   - `resolve` (a check, and a fight against the book's creature);
   - `recall` (memory, transcript, history timeline, events and diff);
   - the reading layer's answers (`module.read.request`, `module.reference.status`), carried as a host message;
-  - the workspace (`keeper-context` on).
+  - the host workspace (host mode `on`).
 
   Each request is assembled by the `context` hook while its turn is open, and every result and host message is checked to
   have reached it.

@@ -75,21 +75,19 @@ function entries(messages) {
     : {type: 'message', id: `entry-${i}`, parentId: i ? `entry-${i - 1}` : null, timestamp: new Date(i).toISOString(), message});
 }
 
-test('the mode gate reads the package settings the capsule already holds and defaults to off', () => {
-  const keeper = mode => ({mods: {instructions: [{mod: 'keeper-context', version: '1.0.0', settings: {mode}, form: 'full', instruction: 'x'}]}});
-  assert.equal(api.workspaceModeOf(undefined), 'off', 'no capsule is off');
-  assert.equal(api.workspaceModeOf({}), 'off', 'no mods section is off');
-  assert.equal(api.workspaceModeOf({mods: {instructions: [{mod: 'npc-voice', settings: {mode: 'on'}}]}}), 'off', 'no package is off');
-  assert.equal(api.workspaceModeOf(keeper('on')), 'on');
-  assert.equal(api.workspaceModeOf(keeper('shadow')), 'shadow');
-  assert.equal(api.workspaceModeOf(keeper('off')), 'off');
-  assert.equal(api.workspaceModeOf(keeper('enabled')), 'off', 'an unknown mode value is off');
-  assert.equal(api.workspaceModeOf(keeper(undefined)), 'off', 'a missing mode value is off');
-  const budget = bytes => ({mods: {instructions: [{mod: 'keeper-context', version: '1.0.0', settings: {mode: 'on', workspace_bytes: bytes}}]}});
-  assert.equal(api.workspaceBudgetOf(budget(4096)), 4096);
-  assert.equal(api.workspaceBudgetOf(budget(1024 * 1024)), api.WORKSPACE_CEILING_BYTES, 'the package budget never exceeds the KIC ceiling');
-  assert.equal(api.workspaceBudgetOf(budget(-5)), api.WORKSPACE_CEILING_BYTES, 'an invalid budget falls back to the ceiling');
-  assert.equal(api.workspaceBudgetOf(undefined), api.WORKSPACE_CEILING_BYTES, 'no package means the ceiling, not zero');
+test('workspace preferences belong to the host, with bounded old-save inheritance', () => {
+  const context = settings => ({workspace_settings: settings});
+  assert.equal(api.workspaceModeOf(undefined, {}), 'off');
+  assert.equal(api.workspaceModeOf({mods: {instructions: [{mod: 'keeper-context', settings: {mode: 'on'}}]}}, {}), 'off');
+  for (const mode of ['on', 'shadow', 'off']) assert.equal(api.workspaceModeOf(context({mode}), {}), mode);
+  assert.equal(api.workspaceModeOf(context({mode: 'on'}), {PI_COC_WORKSPACE_MODE: 'invalid'}), 'off');
+  assert.equal(api.workspaceModeOf(context({mode: 'off'}), {PI_COC_WORKSPACE_MODE: 'on'}), 'on');
+  assert.equal(api.workspaceBudgetOf(context({workspace_bytes: 4096}), {}), 4096);
+  assert.equal(api.workspaceBudgetOf(undefined, {PI_COC_WORKSPACE_BYTES: '999999'}), api.WORKSPACE_CEILING_BYTES);
+  assert.equal(api.workspaceBudgetOf(undefined, {PI_COC_WORKSPACE_BYTES: '-5'}), api.WORKSPACE_CEILING_BYTES);
+  assert.deepEqual(api.workspaceSettingsOf(undefined, {}), {mode: 'off', bytes: 24576, workpad: true, rerank: false, remote: false, candidates: 128, rankCandidates: 48});
+  assert.deepEqual(api.workspaceSettingsOf(context({mode: 'shadow', workspace_bytes: 9000, workpad_enabled: false, rerank_enabled: true, rerank_allow_remote: true}), {PI_COC_WORKSPACE_MODE: 'on', PI_COC_WORKSPACE_RERANK_REMOTE: 'false'}),
+    {mode: 'on', bytes: 9000, workpad: false, rerank: true, remote: false, candidates: 128, rankCandidates: 48});
 });
 
 test('the selector packs admissible references in stable source order and projects names only', () => {
@@ -138,14 +136,14 @@ test('budget packing is first-fit in stable order and every omission is counted'
   const wide = snapshot(4, {staticOmitted: 5, recordsOmitted: 3, truncated: true});
   const packed = api.selectWorkspace({snapshot: wide, binding: binding(4), budget: 1100});
   assert.equal(packed.status, 'selected');
-  assert.ok(api.sizeOf(packed.message) <= 1100, 'the message fits the package budget');
+  assert.ok(api.sizeOf(packed.message) <= 1100, 'the message fits the host budget');
   const view = JSON.parse(packed.message.content);
   assert.ok(view.evidence.length < 6, `a tight budget packs fewer entries: ${view.evidence.length}`);
   assert.ok(packed.counts.omitted.static.budget + packed.counts.omitted.records.budget > 0, 'budget omissions are counted');
   assert.deepEqual([packed.counts.omitted.static.manifest, packed.counts.omitted.records.manifest], [5, 3], 'manifest omissions ride through');
   assert.equal(view.truncated, true);
   assert.deepEqual(JSON.parse(api.selectWorkspace({snapshot: wide, binding: binding(4), budget: api.WORKSPACE_CEILING_BYTES + 4096}).message.content).evidence.length,
-    6, 'a package budget above the ceiling is clamped, never raised');
+    6, 'a host budget above the ceiling is clamped, never raised');
   const deduped = snapshot(4, {manifest: {version: 1, static: [staticRef('npc:gardener', 'npc')], records: [recordRef(1), recordRef(1)]}});
   const once = api.selectWorkspace({snapshot: deduped, binding: binding(4), budget: 24576});
   assert.deepEqual(JSON.parse(once.message.content).evidence.map(entry => entry.locator), ['npc:gardener', 'turn:1'], 'duplicate locators pack once');
@@ -176,11 +174,9 @@ test('an old coc-workspace before the current boundary is closed noise for proje
 function workspaceFixture({turn = 0, mode = 'on', workspace_bytes = 24576, failRead = false, getSnapshot, workpadRoot, settings = {}} = {}) {
   const hooks = new Map(), bus = new Map(), rows = [];
   const state = {turn, worldline: 'main', revision: SOURCE, calls: 0, methods: [], reads: 0, available: true, snapshot: getSnapshot ?? (() => snapshot(0, {turn: 0}))};
-  const instructions = mode === 'off' ? [] : [{mod: 'keeper-context', version: '1.0.0',
-    settings: {mode, workspace_bytes, candidate_limit: 128, rerank_candidates: 48, ...settings}, form: 'full', instruction: 'Read the index; verify before you rely on it.'}];
-  const cap = at => ({turn: {number: at, player_text: 'Input'}, recent: [], module: {title: 'Book'}, style: {floor: ['World response']},
-    mods: {instructions: [...instructions]}});
-  const meta = at => ({...binding(at), worldline: state.worldline, source_revision: state.available ? state.revision : null, unavailable: !state.available});
+  const workspace_settings = {mode, workspace_bytes, candidate_limit: 128, rerank_candidates: 48, ...settings};
+  const cap = at => ({turn: {number: at, player_text: 'Input'}, recent: [], module: {title: 'Book'}, style: {floor: ['World response']}});
+  const meta = at => ({...binding(at), workspace_settings, worldline: state.worldline, source_revision: state.available ? state.revision : null, unavailable: !state.available});
   const pi = {on: (name, handler) => hooks.set(name, handler), events: {on: (name, handler) => bus.set(name, handler)}, sendMessage() {}};
   api.installContextPolicy(pi, row => rows.push(row), workpadRoot);
   const safeRoot = () => { try { return workpadRoot?.(); } catch { return undefined; } };
@@ -497,16 +493,13 @@ function keeperTurn(text) {
     fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}), fauxAssistantMessage('Discarded post-delivery tail.')];
 }
 
-test('a live table with keeper-context on injects one advisory workspace and never persists or leaks it', async t => {
+test('a live table with the host workspace on injects one advisory workspace and never persists or leaks it', async t => {
   const requests = [];
   const table = await openTable({realKernel: true, campaign: 'workspace-projection-live', retainAt: directory,
-    env: {PI_COC_COMPACT_AT: '100'}, settings: {compaction: {enabled: false}},
+    env: {PI_COC_COMPACT_AT: '100', PI_COC_WORKSPACE_MODE: 'on'}, settings: {compaction: {enabled: false}},
     responses: [...keeperTurn('The house answers your first knock.'), ...keeperTurn('The letter opens; the seal was never intact.')]});
   t.after(() => table.dispose());
   await waitForIdle(table.session, {timeoutMs: 60000});
-  const bridge = table.runtimeBridges().findLast(value => typeof value.call === 'function');
-  await bridge.call('mods.configure', {campaign: 'workspace-projection-live', id: 'keeper-context', enabled: true,
-    settings: {mode: 'on', workspace_bytes: 24576}});
   const runner = table.session._extensionRunner, transform = runner.emitContext.bind(runner);
   runner.emitContext = async messages => {
     const result = await transform(messages);
@@ -530,6 +523,7 @@ test('a live table with keeper-context on injects one advisory workspace and nev
     assert.ok(views[0].evidence.some(entry => typeof entry.body === 'string' && entry.data_only), 'source bodies reach the actual model request');
     assert.ok(views[0].evidence.length <= 24, 'active evidence has a count limit as well as a byte limit');
     assert.equal(JSON.stringify(request.context).includes('"stateStamp"'), false);
+    assert.equal(JSON.stringify(request.context).includes('"workspace_settings"'), false);
     assert.ok(api.pairedTools(request.context.messages));
   }
   const selected = table.telemetry().filter(row => row.lane === 'workspace' && row.event === 'selected');
@@ -618,14 +612,14 @@ test('the workpad yields before current material and before packed evidence', as
       assert.equal(tight.messages.filter(message => message.customType === api.WORKSPACE_TYPE).length, 0,
         'under request-ceiling pressure the whole optional layer is omitted, workpad included');
     } finally { delete process.env.PI_COC_REQUEST_BYTES; }
-    // A small package budget: workpad entries are skipped one by one, evidence entries first.
+    // A small host budget: workpad entries are skipped one by one, evidence entries first.
     const small = workspaceFixture({mode: 'on', workspace_bytes: 1200, getSnapshot: () => snapshot(0, {turn: 0}), workpadRoot: () => api.workpadStoreRoot(home)});
     const result = await small.hooks.get('context')({messages: small.messages}, small.ctx);
     const workspaces = result.messages.filter(message => message.customType === api.WORKSPACE_TYPE);
     assert.equal(workspaces.length, 1);
     const content = JSON.parse(workspaces[0].content);
     assert.ok(content.evidence.length >= 1, 'evidence is packed before any workpad entry');
-    assert.ok(api.sizeOf(workspaces[0]) <= 1200, 'the message still fits the package budget');
+    assert.ok(api.sizeOf(workspaces[0]) <= 1200, 'the message still fits the host budget');
     assert.equal(content.workpad?.entries.length ?? 0, small.rows.filter(row => row.lane === 'workspace')[0].workpad_entries,
       'the projected entries match the telemetry count');
   } finally { await rm(home, {recursive: true, force: true}); }

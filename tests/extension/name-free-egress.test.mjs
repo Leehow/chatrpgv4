@@ -338,7 +338,9 @@ test('§185.7: in a name-free campaign no node id, slug or cast name inside an i
   // Turn 0, the opening: the host's opening message (§168.2), built from table.open, and the opening scene looked at.
   const open = await call('table.open');
   // The optional workspace (KIC-03): the hook injects the book's entities as evidence beside the capsule.
-  await call('mods.configure', {id: 'keeper-context', enabled: true, settings: {mode: 'on'}});
+  const previousMode = process.env.PI_COC_WORKSPACE_MODE;
+  process.env.PI_COC_WORKSPACE_MODE = 'on';
+  t.after(() => { if (previousMode === undefined) delete process.env.PI_COC_WORKSPACE_MODE; else process.env.PI_COC_WORKSPACE_MODE = previousMode; });
   const opening0 = hostMessage(api.openingInstruction({prologue: open.setup_prologue || undefined, playLanguage: 'en',
     party: open.investigators.map(row => row.name), modContext: open.mod_context}), 'opening');
   await keeper('table.look', {focus: 'scene'});
