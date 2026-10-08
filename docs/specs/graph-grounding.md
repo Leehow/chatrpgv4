@@ -108,7 +108,7 @@ set words through `epithets.submit`).
 
 ### GG-05 Replay read-30 and sweep the published graph
 Status: done. `experiments/graph-grounding/replay-read30.mjs` (live; evidence in the contract §199.2; outcomes pre-registered in `experiments/graph-grounding/PREREGISTERED.md`) and
-`experiments/graph-grounding/sweep-person-state.mjs` (§199.7: 1 of 27 person summaries refused, Vasili, in 3 runs over generations 74 and
+`experiments/graph-grounding/sweep-person-state.mjs` (§199.7: 1 of 27 person summaries refused, Vasili, in 4 runs over generations 74 and
 75).
 
 ### GG-06 Published graphs and the source-mapping merge

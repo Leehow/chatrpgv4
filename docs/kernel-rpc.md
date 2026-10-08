@@ -39948,12 +39948,12 @@ openai-codex/gpt-6-luna low -- over every `npc` node of a published generation (
 | generation | persons | summaries asked | refused | which |
 | --- | --- | --- | --- | --- |
 | 74 (TR-F2's) | 27 | 27 | 1 | `npc-vasili-viktorovich-smolsky` 「嘉琳娜已故的丈夫。」 (said dead, pages p8/p34 alive) |
-| 74, again | 27 | 27 | 1 | the same |
+| 74, twice more | 27 | 27 | 1 | the same, both times |
 | 75 (latest) | 27 | 27 | 1 | the same |
 
 The other death statements were read and held: Galena 「农场居民，已被杀害。」 (dead / pages dead), Nikita 「……承认杀害嘉琳娜。」
 (Galena dead / dead), Beniamin 「三岁男孩；母亲死后躲在炉子里。」 (he alive / alive). On the first run the statements reader also
-read 「嘉琳娜已故的丈夫。」 as calling Galena alive (pages: dead), a second mismatch on the same summary. So one ungrounded
+read 「嘉琳娜已故的丈夫。」 as calling Galena alive (pages: dead), a second mismatch on the same summary; so did the fourth. So one ungrounded
 living-state claim in 27 person summaries, the one the table tripped on. Kin and rank were not swept (199.6).
 
 **The epithet lane, live** (`experiments/graph-grounding/epithets-live.mjs`: TR-F2's campaign cloned with `cp -c`, its words and labels
