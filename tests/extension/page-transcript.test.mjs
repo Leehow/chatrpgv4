@@ -230,6 +230,27 @@ test("§191.2 one background child per page, shown the page render and the numbe
 	assert.equal(await exists(join(run.cwd, "layout.md")), true, "the layout stays as evidence");
 });
 
+test("§191.6 closing while a batch of native lines is read leaves no unhandled rejection for the pages nobody awaits", async t => {
+	// TR-F2 gather (2026-10-08): the in-process kernel closed while the service read pages 1-3 in one batch; the read was
+	// cancelled and pages 2 and 3, cached for later, rejected with nobody awaiting them.
+	const h = await harness(t, { pages: { 1: PAGE, 2: PAGE, 3: PAGE } });
+	let reading;
+	const started = new Promise(resolve => { reading = resolve; });
+	h.runtime.sourceLines = (request, signal) => new Promise((_, reject) => {
+		reading(request.pages);
+		signal.addEventListener("abort", () => reject(new Error("Runtime operation was cancelled")), { once: true });
+	});
+	const unhandled = [];
+	const listen = reason => unhandled.push(reason);
+	process.on("unhandledRejection", listen);
+	t.after(() => process.off("unhandledRejection", listen));
+	await h.service.ensure({ pdf: "source.pdf", file_sha256: FILE, pages: [1, 2, 3] });
+	assert.deepEqual(await started, [1, 2, 3], "one batch for the queued pages");
+	await h.service.close();
+	await new Promise(resolve => setTimeout(resolve, 50));
+	assert.deepEqual(unhandled.map(String), [], "no page's cached read rejects unhandled");
+});
+
 test("§191.3 lines the kept layout still leaves out are unplaced; no second child is started for them", async t => {
 	const h = await harness(t, { layouts: () => "{L1-L2}\n\n{L4-L8}\n\n<!-- drop: L9 -->", submitted: () => 2 });
 	await h.service.ensure({ pdf: "source.pdf", file_sha256: FILE, pages: [1] });

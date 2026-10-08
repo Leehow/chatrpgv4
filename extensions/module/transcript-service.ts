@@ -258,7 +258,13 @@ export class TranscriptService {
 			}
 			return pages;
 		})();
-		for (const member of batch) this.native.set(member.key, fetched.then(pages => pages.get(member.page)));
+		for (const member of batch) {
+			const own = fetched.then(pages => pages.get(member.page));
+			// A batch member nobody awaits yet (the service closes while the batch is read) must not reject unhandled; whoever
+			// awaits it still sees the error.
+			own.catch(() => undefined);
+			this.native.set(member.key, own);
+		}
 		return this.native.get(job.key)!;
 	}
 

@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {mkdtemp, rm} from 'node:fs/promises';
+import {mkdir, mkdtemp, rm} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 
 const root = resolve(import.meta.dirname, '../..');
+// A fresh checkout has no .coc yet, and run alone this file is the first to want it.
+await mkdir(join(root, '.coc'), {recursive: true});
 const temporary = await mkdtemp(join(root, '.coc', 'workspace-rerank-suite-'));
 after(() => rm(temporary, {recursive: true, force: true}));
 await build({stdin: {contents: `
