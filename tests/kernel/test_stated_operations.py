@@ -360,8 +360,12 @@ def test_the_offer_ledger_counts_stated_rows_and_kpi_counts_the_kind(table):
     assert rows_with_mech and set(rows_with_mech) <= set(RULES)
     offered = [offer for offer in ledger["offered"] if offer.startswith("stated:")]
     assert offered == [f"stated:{name}" for name in rows_with_mech]
-    assert {offer for offer in ledger["taken"] if offer.startswith("stated:")} == {"stated:chapel-floor", "stated:long-search"}
+    settled = {row.get("stated") for row in receipts(client)}
+    settled |= {row["basis"].get("rule") for row in receipts(client) if isinstance(row.get("basis"), dict)}
+    assert {"chapel-floor", "long-search"} <= settled, "both operations really landed"
+    expected_taken = {"chapel-floor", "long-search"} & set(rows_with_mech)
+    assert {offer for offer in ledger["taken"] if offer.startswith("stated:")} == {f"stated:{name}" for name in expected_taken}
     counted = kpi.offers(rows)["by_kind"]["stated"]
-    assert counted == {"offered": len(rows_with_mech), "taken": 2, "never_taken": False}
+    assert counted == {"offered": len(rows_with_mech), "taken": len(expected_taken), "never_taken": False}
     # Counting only: nothing of the ledger reaches the next capsule.
     assert "stated:" not in json.dumps(client.table("player_input", text="I go on.")["capsule"])

@@ -115,7 +115,7 @@ const toldWhereToDig = (workspace) => kernelSteps(workspace, [
 	["table.narrate", { call_id: "t1-c2", text: "他递给你一张写着地方的纸。" }],
 ]);
 
-test("§135.31 after a clerk move: the scene the run moved into and the people the fresh read's candidates name, each as look returns it, whole under the carried view's own 4 KiB", async (t) => {
+test("§135.31 after a clerk move: the scene the run moved into and the people the fresh read's candidates name, each from look, fitted under the carried view's own 4 KiB", async (t) => {
 	const table = await hybridTable({
 		prepareWorkspace: toldWhereToDig,
 		// The compile binds the player's Globe before moving (§135.11); the route then finishes for the Keeper's prose.
@@ -139,8 +139,10 @@ test("§135.31 after a clerk move: the scene the run moved into and the people t
 	assert.equal(scene?.name, "newspaper-morgue");
 	const [lookScene, lookArty, lookRuth] = asKeeperSees(table.table.workspace, kernelSteps(table.table.workspace, [["table.look", { focus: "scene" }],
 		["table.look", { focus: "npc", name: "Arty Wilmot" }], ["table.look", { focus: "npc", name: "Ruth Blake" }]]));
-	assert.equal(scene.truncated, undefined, `the Globe's scene view is ${size(lookScene)} bytes: carried whole`);
-	assert.deepEqual(scene.view.where, lookScene.where, "the scene view is look focus=scene");
+	assert.equal(scene.truncated, true, `the richer Globe view is ${size(lookScene)} bytes and exceeds one carried view`);
+  assert.ok(size(scene.view) <= CARRIED_VIEW_BYTES);
+  assert.equal(scene.view.where.scene, lookScene.where.scene);
+  assert.deepEqual(scene.view.where.exits, lookScene.where.exits, 'the current ways out precede prose when a full view does not fit');
 	// `present` is reduced to who is there: name, called and role; the dossiers are what the person cards carry.
 	assert.deepEqual(scene.view.present, lookScene.present.map((person) => Object.fromEntries(PRESENT_FIELDS.filter((key) => Object.hasOwn(person, key)).map((key) => [key, person[key]]))));
 	assert.ok(scene.view.present.length > 0 && scene.view.present.every((person) => Object.keys(person).every((key) => PRESENT_FIELDS.includes(key))));

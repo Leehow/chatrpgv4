@@ -8,7 +8,7 @@
  * §168.5 counts as a description and its people are keeper-only and name-only.
  */
 import assert from 'node:assert/strict';
-import {cp, mkdtemp, readFile, symlink, writeFile} from 'node:fs/promises';
+import {cp, mkdir, mkdtemp, readFile, readdir, symlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {test} from 'node:test';
@@ -31,16 +31,16 @@ process.on('exit', () => spawnSync('rm', ['-rf', temporary]));
 
 const OWES = ['space', 'people', 'things', 'senses', 'period', 'hook'];
 
-async function kernel(t) {
+async function kernel(t, content = join(ROOT, 'content')) {
   const home = await mkdtemp(join(temporary, 'home-'));
-  const context = await api.createKernelContext({workspace: home, content: join(ROOT, 'content'), seed: 'scene-establish',
+  const context = await api.createKernelContext({workspace: home, content, seed: 'scene-establish',
     locks: api.createAdvisoryLocks(async () => {}), env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
   const runtime = api.createKernelRuntime(context);
   t.after(async () => { await runtime.close(); await context.git.close?.(); });
   return {home, call: (method, params = {}) => runtime.handlers[method](params)};
 }
-async function haunting(t, language = 'zh-Hans') {
-  const game = await kernel(t), id = 'c1';
+async function haunting(t, language = 'zh-Hans', content) {
+  const game = await kernel(t, content), id = 'c1';
   const call = (method, params = {}) => game.call(method, {campaign: id, ...params});
   await call('campaign.create', {id, module: 'the-haunting', pregen: 'thomas-hayes', play_language: language});
   await call('table.open');
@@ -152,7 +152,23 @@ test('a place the party already stood in when nothing was owed is not owed by st
 });
 
 test('first sight carries every person present: a keeper-only person the book gives no words is carried undescribed', async t => {
-  const game = await haunting(t);
+  // This branch needs an explicit no-description fixture; the shipped v2 graph now supplies both people biographies.
+  const content = await mkdtemp(join(temporary, 'undescribed-content-'));
+  for (const name of await readdir(join(ROOT, 'content'))) if (name !== 'starters')
+    await symlink(join(ROOT, 'content', name), join(content, name));
+  await mkdir(join(content, 'starters'));
+  for (const name of await readdir(join(ROOT, 'content/starters'))) if (name !== 'the-haunting')
+    await symlink(join(ROOT, 'content/starters', name), join(content, 'starters', name));
+  await cp(join(ROOT, 'content/starters/the-haunting'), join(content, 'starters/the-haunting'), {recursive: true});
+  const graphPath = join(content, 'starters/the-haunting/module-graph.json');
+  const graph = JSON.parse(await readFile(graphPath, 'utf8'));
+  for (const [id, name] of [['npc-arty-wilmot', 'Arty Wilmot'], ['npc-ruth-blake', 'Ruth Blake']]) {
+    const person = graph.nodes.find(node => node.node_id === id);
+    person.visibility = 'keeper-only'; person.summary = name;
+    delete person.properties.biography; delete person.properties.appearance;
+  }
+  await writeFile(graphPath, JSON.stringify(graph));
+  const game = await haunting(t, 'zh-Hans', content);
   await game.call('table.narrate', {call_id: 't0-c1', text: '你推开诺特事务所的门。'});
   await game.call('table.player_input', {text: '我现在就去环球报社。'});
   await game.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'move', to: 'newspaper-morgue', travel_minutes: 30}]});
