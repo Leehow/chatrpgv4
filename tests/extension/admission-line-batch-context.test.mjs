@@ -214,9 +214,12 @@ test("§32.12.3.1.1 cash beside an item: a why-only resend is refused at once; w
 		"refused beside the revolver, refused at once on the why-only resend, reviewed again beside the lantern");
 	assert.notEqual(cashRows[2].key, cashRows[0].key, "the key carries the item it pays for");
 	const reusedRows = admissionRows(table).filter((row) => row.reused);
-	assert.deepEqual(reusedRows.map((row) => [row.verdict, row.proposed[0].split(";")[0]]), [["not_authorized", "apply cash: delta=-2"]],
-		"the why-only resend was refused at once on the kept cash line, under the same key");
-	assert.equal(reusedRows[0].key, cashRows[0].key, "a why-only change is outside the key, the line's and its batch-mate's");
+	// §197.1: the revolver line no longer stops when the cash line refuses first; it finishes, refused on its own, so the
+	// why-only resend is refused at once on both kept lines.
+	assert.deepEqual(reusedRows.map((row) => [row.verdict, row.proposed[0].split(";")[0]]),
+		[["not_authorized", 'apply item: name=".38 revolver"'], ["not_authorized", "apply cash: delta=-2"]],
+		"the why-only resend was refused at once on the kept lines, under the same keys");
+	assert.equal(reusedRows[1].key, cashRows[0].key, "a why-only change is outside the key, the line's and its batch-mate's");
 	assert.deepEqual(kernelCalls(table, "table.apply").map((entry) => entry.params.effects.map((effect) => effect.name ?? effect.kind)), [["brass lantern", "cash"]]);
 });
 

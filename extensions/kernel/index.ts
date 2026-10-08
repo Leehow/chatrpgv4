@@ -149,6 +149,8 @@ import {
 	lineProposal,
 	besideBatch,
 	batchRefusal,
+	RECOVERABLE_REASONS,
+	recoveryMatches,
 	REFUSING_VERDICTS,
 	refusedMovesOf,
 	withRefusedMoves,
@@ -184,6 +186,11 @@ interface AdmissionPartial {
 	wholeKey?: string;
 	landedSignatures?: string[];
 }
+/**
+ * §197.1: one call refused whole whose other lines were admitted on their own review. `lines` are those lines' identifying
+ * signatures (§32.4.1) and the verdicts kept for them; `digest` is the refused call's key digest, for the rows.
+ */
+interface AdmissionRecovery { digest: string; lines: Array<{ signature: string; verdict: AdmissionVerdict }> }
 /**
  * What `admitAction`'s `admitOne` is told beyond the proposal: the rows it adds (a split's remainder, §32.12.3; one line of a
  * batch, §32.12.3.1); a remainder's carried typed answer and the batch's clock; one line's outcome already in hand (its batch
@@ -692,6 +699,12 @@ interface TableState {
 	 * next player input.
 	 */
 	admissionSplit: Map<string, string[]>;
+	/**
+	 * §197.1: calls this turn refused whole although some of their lines were admitted on their own review -- those lines'
+	 * signatures and kept verdicts, so the Keeper's resend of exactly them lands without another review, once. Cleared with
+	 * the next player input.
+	 */
+	admissionRecovery: AdmissionRecovery[];
 	admissionRefused: string[];
 	/**
 	 * §190.3: the moves admission refused this turn, `{to, reason}`, which the delivery closing the turn carries to its record
@@ -1980,6 +1993,7 @@ export default function (pi: ExtensionAPI) {
 		table.admission = new Map();
 		table.admissionPending = new Map();
 		table.admissionSplit = new Map();
+		table.admissionRecovery = [];
 		table.admissionRefused = [];
 		table.refusedMoves = [];
 		table.admissionCorrections = [];
@@ -3313,6 +3327,10 @@ export default function (pi: ExtensionAPI) {
 		// A verdict already kept for the turn, or a round already running (a genuine §32.12.2 pending resend, or an
 		// earlier call of this same batch proposing the identical thing) -- either way there is nothing to start.
 		if (!proposal || state.admission.has(proposal.key) || state.admissionPending.has(proposal.key)) return;
+		// §197.1: the Keeper resending exactly the lines a refused batch admitted is a recovery; the real call reuses their
+		// verdicts, so a review started here would only be paid for and never read.
+		if (tool === "apply" && proposal.signatures && state.admissionRecovery.some((entry) =>
+			recoveryMatches(entry.lines.map((line) => line.signature), proposal.signatures!))) return;
 		// §32.12.3.1: a line of this batch already has a verdict or a running round under its own key -- the real call reuses
 		// or re-joins it line by line, so a prefetch of the whole batch would only review that line twice.
 		if (reviewedPerLine(proposal) && admissionLines(tool, proposal, effects, scopeFor)
@@ -3402,6 +3420,23 @@ export default function (pi: ExtensionAPI) {
 			await record({ lane: "admission", verb: tool, ok: true, skipped: "no_player_text", key: digest, path: "none", ms: 0, ...origin, ...who });
 			return alreadyLanded ? { landed: [], alreadyLanded } : undefined;
 		}
+		// §197.1: exactly the lines a call refused this turn had admitted on their own review, resent. Each line's kept verdict
+		// is put under the key this call looks it up by -- the call's own for one line, each line's batch-scoped key for more
+		// (§32.12.3.1.1) -- so §32.4's reuse admits it with no lane and no typed call. The entry is kept for the turn like a
+		// verdict, so a resend the kernel refused (its staging fixed) matches again. A line changed in an identifying field, a
+		// line added or an admitted line left out is no match, and the call is reviewed as any call is.
+		const recovered = tool === "apply" && proposal.signatures
+			? state.admissionRecovery.find((entry) => recoveryMatches(entry.lines.map((line) => line.signature), proposal!.signatures!)) : undefined;
+		if (recovered) {
+			const entry = recovered;
+			const kept = [...entry.lines];
+			const seed = (key: string, signature: string) => {
+				const [line] = kept.splice(kept.findIndex((row) => row.signature === signature), 1);
+				state.admission.set(key, { ...line!.verdict, recoveredFrom: entry.digest });
+			};
+			if (reviewedPerLine(proposal)) for (const line of admissionLines(tool, proposal, effectsOf(), scopeFor)) seed(line.proposal.key, effectSignature(line.effect));
+			else seed(proposal.key, proposal.signatures![0]!);
+		}
 		// §32.12: a clerk write the compile selected is admitted on the compile's evidence -- no lane call, no typed call.
 		// Not kept for the turn: it is this call's evidence, so a Keeper's identical proposal is reviewed.
 		const compiled = compileAdmission(evidence);
@@ -3468,7 +3503,10 @@ export default function (pi: ExtensionAPI) {
 				await emit({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}),
 					...(verdict.reviewer ? { reviewer: verdict.reviewer } : {}), path: verdict.path ?? "lane",
 					...(timedOut ? { timed_out: true, cap_ms: verdict.capMs ?? null } : {}), ...meta, ...partRows, ...origin, ...who,
-					grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), ...(correctable ? {recovery: verdict.recovery, correction_allowed: correctionAvailable} : {}), proposed: proposal.lines });
+					grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), ...(correctable ? {recovery: verdict.recovery, correction_allowed: correctionAvailable} : {}),
+					// §197: whose choice the refusal left open, and the refused call a recovery's reused verdict came from.
+					...(verdict.open_choice ? { open_choice: verdict.open_choice } : {}), ...(verdict.recoveredFrom ? { recovered_from: verdict.recoveredFrom } : {}),
+					proposed: proposal.lines });
 
 				if (admitted) return;
 				// §32.12: a review cut at its cap judged nothing a rewording could repeat, so the reviewer is not told it refused.
@@ -3687,6 +3725,15 @@ export default function (pi: ExtensionAPI) {
 		const lineRows = (frame: LineFrame, index: number, extra: Record<string, unknown> = {}) => ({ line_level: "line",
 			...(frame.remainder ? { remainder: true } : {}), lines: [frame.numbers[index]!], of_lines: frame.of, batch_key: frame.batchDigest, ...extra });
 		const known = (key: string) => state.admission.has(key) || state.admissionPending.has(key);
+		/**
+		 * §197.1: the lines of a proposal admitted on their own review -- admitted in this call, or holding an admitting verdict
+		 * under their own key (a line skipped because a batch-mate's kept refusal refused the batch again at once).
+		 */
+		const admittedLines = (lines: ReturnType<typeof admissionLines>, statuses?: LineStatus[]) => lines.filter((entry, index) => {
+			if (statuses?.[index]?.admitted) return true;
+			const kept = state.admission.get(entry.proposal.key);
+			return !!kept && ADMITTING_VERDICTS.has(kept.verdict);
+		});
 
 		/**
 		 * §32.12.3.1: the batch's verdict from its lines' own (§32.10's mapping, as §32.12.3 maps a remainder): admitted only
@@ -3709,7 +3756,8 @@ export default function (pi: ExtensionAPI) {
 				batch = { batch_admitted: true, ...(verdict ? { batch_verdict: verdict } : {}) };
 			} else {
 				const refused = statuses.flatMap((status, index) => "error" in status ? [{ line: p.lines[index]!, error: status.error }] : []);
-				const error = batchRefusal(tool, p.lines, refused);
+				// §197.1: the lines the player did choose travel with the refusal, for the Keeper to resend exactly.
+				const error = batchRefusal(tool, p.lines, refused, admittedLines(lines, statuses).map((entry) => entry.effect));
 				combined = p.lines.map(() => ({ admitted: false, error }));
 				batch = { batch_admitted: false, batch_reason: asString(error.details?.reason) ?? error.code,
 					...(typeof error.details?.verdict === "string" ? { batch_verdict: error.details.verdict } : {}) };
@@ -3861,7 +3909,17 @@ export default function (pi: ExtensionAPI) {
 		// Only §32.12.3's split lands part of a batch: every other outcome is one status for all of the proposal's lines.
 		const refusal = (statuses.find((status) => "error" in status) as { error: KernelError } | undefined)?.error
 			?? new KernelError({ code: "internal", message: "the batch's admission ended with no refusal to report" });
-		if (refused.length === statuses.length) throw refusal;
+		if (refused.length === statuses.length) {
+			// §197.1: a refusal that names admitted lines is one the Keeper recovers from by resending exactly them; keep their
+			// signatures and verdicts so that resend is recognised.
+			const named = refusal.details?.admitted;
+			if (Array.isArray(named) && named.length && reviewedPerLine(proposal) && RECOVERABLE_REASONS.has(String(refusal.details?.reason))) {
+				const lines = admittedLines(admissionLines(tool, proposal, effects, scopeFor));
+				if (lines.length && !state.admissionRecovery.some((entry) => entry.digest === digest)) state.admissionRecovery.push({ digest, lines: lines.map((entry) => ({ signature: effectSignature(entry.effect),
+					verdict: state.admission.get(entry.proposal.key)! })) });
+			}
+			throw refusal;
+		}
 		// Line indices are the reviewed effects' (§32.12.3); an effect no reviewer reads lands with the batch, so it goes with
 		// the admitted lines when the others do not land. This call carries them, in the batch's order.
 		const shown = proposal.effects ?? effects.map((_, index) => index);
@@ -6280,6 +6338,7 @@ export default function (pi: ExtensionAPI) {
 				admission: new Map(),
 				admissionPending: new Map(),
 				admissionSplit: new Map(),
+				admissionRecovery: [],
 				admissionRefused: [],
 				refusedMoves: [],
 				admissionCorrections: [],
@@ -6895,6 +6954,7 @@ export default function (pi: ExtensionAPI) {
 			state.admission = new Map();
 			state.admissionPending = new Map();
 			state.admissionSplit = new Map();
+			state.admissionRecovery = [];
 			state.admissionRefused = [];
 			state.refusedMoves = [];
 			state.admissionCorrections = [];

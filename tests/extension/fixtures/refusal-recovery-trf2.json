@@ -1,0 +1,191 @@
+{
+ "source": {
+  "table": "TR-F2 run 2, 2026-10-08, App 4ce2e4cab, Cold Harvest",
+  "campaign": "game-565055f1-8a99-4e69-9932-ca64c0e27d93",
+  "session": "agent/ui-sessions/play/<project>/2026-10-08T12-52-28-304Z_3fc2f27a-a6b5-4ad7-bfc6-92c71536e4ec.jsonl",
+  "note": "player words and apply arguments copied verbatim from the session; lane verdicts from the turn's lane=admission rows in telemetry.jsonl (ms, key and proposed as recorded). open_choice did not exist then: the replays add the value §197.2 asks the reviewer for."
+ },
+ "T1": {
+  "turn": 1,
+  "session_row_player": 405,
+  "session_row_call": 503,
+  "player": "我在办公桌前立正，朝门外问了一声：“索科洛夫奉命报到，调查3号农场。阿加宁上尉同志在吗？”没人应声的话，我就解开档案袋的麻绳，看看那两份文件写了什么。",
+  "call_id": "call_bf607e10ad7144e590a691edf1747551|fc_00b280c0765e37b9016ac795aa626c81988e0ba09994f49fa5",
+  "apply": {
+   "effects": [
+    {
+     "kind": "clock",
+     "local_datetime": "1937-10-01T09:00"
+    },
+    {
+     "kind": "npc",
+     "name": "指挥室桌后的高大上校",
+     "to": "here",
+     "why": "他已经在办公桌后值守，听见索科洛夫报到后回应。"
+    },
+    {
+     "kind": "object",
+     "name": "档案袋",
+     "definition": "档案夹",
+     "to": "伊万·彼得罗维奇·索科洛夫",
+     "condition": "intact",
+     "why": "桌后的上尉把系着麻绳的档案袋及其中两份文件递给特派员。"
+    }
+   ],
+   "narrate": "你在办公桌前立正，朝门外报上姓名和来意。屋里响起一声不耐烦的回应。办公桌后的上尉制服紧致，皮靴擦得铮亮；他用指节敲着桌面，冷冷看向你。{{say:指挥室桌后的高大上校}}“我在。进来，索科洛夫。站着报告就够了。”{{/say}}他解开麻绳，把两份文件递给你。逮捕令依据00447号令，列出彼得·米哈伊洛维奇·阿布拉莫夫一家，指控他们破坏国有资产、叛国，并判处流放、送往沃尔库塔劳动惩戒营；文件要求赶上1937年10月18日的火车。姓名栏把母亲与儿子的性别标注对调了。随附的信称，嘉琳娜·彼得罗夫娜·斯莫斯卡娅报告这家人破坏农场生产；另据生产监督员鲍里斯·加庞的报告，农场未达预期，四个月前还有一家人逃走。阿加宁仍敲着桌面，等你看完。"
+  },
+  "lane": [
+   {
+    "verdict": "not_authorized",
+    "grounds": "玩家说\"没人应声的话，我就解开档案袋的麻绳\"——无人应答时是自己动手解开，未说由上尉递交。",
+    "missing": "档案袋由上尉递交给索科洛夫这一转移；玩家选择的是无人应答时自己动手解绳。",
+    "ms": 2694,
+    "key": "2979b9c39d11",
+    "proposed": [
+     "apply object: name=\"档案袋\"; definition=\"档案夹\"; to=\"伊万·彼得罗维奇·索科洛夫\"; condition=\"intact\"; why=\"桌后的上尉把系着麻绳的档案袋及其中两份文件递给特派员。\""
+    ]
+   }
+  ]
+ },
+ "T3": {
+  "turn": 3,
+  "session_row_player": 817,
+  "session_row_call": 874,
+  "player": "我收好材料，不再耽搁，搭最早的车赶往卡西维依阿克塔伯3号农场。到了先找生产监督员鲍里斯。",
+  "call_id": "call_c5e5e0161a8445eeaae84417d66f4297|fc_0cbda18d12541879016ac79661673c8198b81a052b16fe056c",
+  "apply": {
+   "effects": [
+    {
+     "kind": "clock",
+     "local_datetime": "1937-10-14T09:04",
+     "why": "模组只给出1937年10月，开场时刻为上午。"
+    },
+    {
+     "kind": "move",
+     "to": "state-farm-number-three",
+     "label": "卡西维依阿克塔伯3号农场",
+     "travel_minutes": 600
+    },
+    {
+     "kind": "move",
+     "to": "production-supervisor-living-apart-from-farm",
+     "via": "抵达农场定居点后，循路找到生产监督员鲍里斯·加庞住得较偏的住所。",
+     "label": "加庞的住处"
+    }
+   ],
+   "narrate": "你收好两份材料，赶上最早的一班车。车窗外，古比雪夫州的田野在秋色里向后退去；等你抵达卡西维依阿克塔伯3号农场，太阳已经落下。十九座单层木屋散在田地之间，混凝土亚麻加工坊和拖拉机棚立在路旁；许多房屋失修，只有一处住家收拾得较整齐。你循路找到生产监督员鲍里斯·加庞的住处。屋里，他正摸着胡子，神情疲惫而受挫。听你说明来意，他抬眼看向你。{{say:鲍里斯·亚历山德罗维奇·加庞}}“你总算来了。农场的事，我会如实说；只是斯莫斯卡娅把信送进局里，实在叫人寒心。”{{/say}}"
+  },
+  "lane": [
+   {
+    "verdict": "authorized",
+    "grounds": "\"搭最早的车赶往卡西维依阿克塔伯3号农场\" names the registered destination state-farm-number-three by its canonical name",
+    "ms": 2272,
+    "lines": [
+     1
+    ],
+    "key": "87856d095a52",
+    "proposed": [
+     "apply move: to=\"state-farm-number-three\"; label=\"卡西维依阿克塔伯3号农场\"; travel_minutes=600; registered_destination={\"handle\":\"state-farm-number-three\",\"label\":\"卡西维依阿克塔伯3号农场\",\"summary\":\"小型国营农场：整个卡西维依阿克塔伯公社共十六户居民，分散于1号到3号农场，位于古比雪夫州首府古比雪夫市东南约二百公里、距离萨马拉河仅二公里处。3号农场有十九座单层木屋、一座混凝土亚麻加工坊和一座混凝土拖拉机棚；四周被大量农田环绕，主作物为亚麻，另种冬小麦和甜菜作为轮换作物。\"}"
+    ]
+   },
+   {
+    "verdict": "not_authorized",
+    "grounds": "Player chose the farm and to look for supervisor Boris there; the Keeper routes to a separate, remote dwelling instead of the farm the player named.",
+    "missing": "Whether to go to Boris's outlying separate residence rather than the farm settlement the player chose",
+    "ms": 2370,
+    "lines": [
+     2
+    ],
+    "key": "cf74dc317711",
+    "proposed": [
+     "apply move: to=\"production-supervisor-living-apart-from-farm\"; via=\"抵达农场定居点后，循路找到生产监督员鲍里斯·加庞住得较偏的住所。\"; label=\"加庞的住处\""
+    ]
+   }
+  ]
+ },
+ "T9": {
+  "turn": 9,
+  "session_row_player": 2243,
+  "session_row_call": 2422,
+  "player": "我盯着他的眼睛：“她是怎么死的？你怎么看？”然后让他指路，我去她家看尸体。",
+  "call_id": "call_0d14b9bd81fc4ea191b9aa0b8169f029|fc_044f65910e0764f7016ac797f60254819884ecbe236f2532d8",
+  "apply": {
+   "effects": [
+    {
+     "kind": "npc",
+     "name": "鲍里斯·亚历山德罗维奇·加庞",
+     "mood": "他不快地听着追问，仍愿意指出她家；谈及她的死时，他把自己的猜测说得迟疑。",
+     "why": "你追问死因和看法，并要求他指路。"
+    },
+    {
+     "kind": "npc",
+     "name": "鲍里斯·亚历山德罗维奇·加庞",
+     "intent_ref": "intent:production-supervisor-living-apart-from-farm:93beb3360584",
+     "intent_outcome": "done"
+    },
+    {
+     "kind": "move",
+     "to": "阿布拉莫夫家的房子",
+     "label": "斯莫斯卡娅家",
+     "via": "加庞应你的要求指路，你沿村中小路走到她家。"
+    }
+   ],
+   "narrate": "你盯着加庞的眼睛，追问嘉琳娜是怎么死的、他怎么看，又让他指路去她家。{{roll:psychology-t9-c1}}你看不出他是否在隐瞒什么。他摸了摸胡子，眉头紧着，说：“今早有人在北边池塘发现她，尸体送回家了。我听说她是喝醉后掉进水里的……究竟怎么回事，我没亲眼看见。她跟我说过，她亲眼看见彼得·阿布拉莫夫拔庄稼根、往拖拉机燃料里掺沙。我不相信阿布拉莫夫一家会干这种事；家家都没完成指标，拖拉机坏了，马也病着。”他给你指出村中一条通往她家的路。你沿着那条路走去。农舍低矮，木墙久经风雨；院里有人进出，屋内传出压低的交谈声。屋里停放着嘉琳娜的遗体。"
+  },
+  "lane": [
+   {
+    "verdict": "not_authorized",
+    "grounds": "player asked 让他指路，我去她家看尸体 (Smoskaya's house); proposed move is to 阿布拉莫夫家的房子, a different place",
+    "missing": "which household the player intends to visit — the dead witness's home, as the player said, or another place",
+    "ms": 4938,
+    "key": "590bc4c86963",
+    "proposed": [
+     "apply move: to=\"阿布拉莫夫家的房子\"; label=\"斯莫斯卡娅家\"; via=\"加庞应你的要求指路，你沿村中小路走到她家。\"; registered_destination={\"handle\":\"house-at-farm-north-end\",\"label\":\"阿布拉莫夫家的房子\",\"summary\":\"位于农场最北边，沿泥泞土路经过耶扎罗夫家后可到；调查员初到农场时一家人正在睡觉。\"}"
+    ]
+   }
+  ]
+ },
+ "T16": {
+  "turn": 16,
+  "session_row_player": 3775,
+  "session_row_call": 3872,
+  "player": "那就走。我现在就去最北头的阿布拉莫夫家，敲门。",
+  "call_id": "call_d6ef6f5e3aaa4920b6e04d34f2b2cf9c|fc_05ccc358d1eb04ec016ac799f916c4819a96deee686e5dbd0d",
+  "apply": {
+   "effects": [
+    {
+     "kind": "move",
+     "to": "state-farm-number-three",
+     "label": "卡西维依阿克塔伯3号农场",
+     "travel_minutes": 30
+    },
+    {
+     "kind": "move",
+     "to": "阿布拉莫夫家的房子",
+     "label": "阿布拉莫夫家的房子",
+     "travel_minutes": 10,
+     "via": "沿泥泞土路向农场最北端走，经过耶扎罗夫家；到门前敲门。"
+    }
+   ]
+  },
+  "lane": [
+   {
+    "verdict": "not_authorized",
+    "grounds": "玩家说“我现在就去最北头的阿布拉莫夫家，敲门”，选择的是阿布拉莫夫家，不是整个3号农场。",
+    "missing": "选择前往3号农场这一目的地，而非他所指定的阿布拉莫夫家。",
+    "ms": 9911,
+    "lines": [
+     1
+    ],
+    "key": "3e0f6fb084e2",
+    "proposed": [
+     "apply move: to=\"state-farm-number-three\"; label=\"卡西维依阿克塔伯3号农场\"; travel_minutes=30; registered_destination={\"handle\":\"state-farm-number-three\",\"label\":\"卡西维依阿克塔伯3号农场\",\"summary\":\"小型国营农场：整个卡西维依阿克塔伯公社共十六户居民，分散于1号到3号农场，位于古比雪夫州首府古比雪夫市东南约二百公里、距离萨马拉河仅二公里处。3号农场有十九座单层木屋、一座混凝土亚麻加工坊和一座混凝土拖拉机棚；四周被大量农田环绕，主作物为亚麻，另种冬小麦和甜菜作为轮换作物。\"}"
+    ]
+   }
+  ],
+  "line_ms": [
+   9911,
+   null
+  ]
+ }
+}

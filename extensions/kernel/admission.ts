@@ -182,7 +182,17 @@ export interface AdmissionVerdict {
 	path?: AdmissionPath;
 	/** `review_timeout` only: the cap the review ran into (§32.12). */
 	capMs?: number;
+	/**
+	 * §197.2: on a refusal with `missing`, whose choice is open -- the player's (`player_open`: ask them in the fiction) or
+	 * none, because the refused line added to a choice the player had made (`keeper_added`: leave it out, carry out theirs).
+	 */
+	open_choice?: OpenChoice;
+	/** §197.1: a kept verdict a recovery put under this call's key; the digest of the refused call it came from. */
+	recoveredFrom?: string;
 }
+/** §197.2: the closed values of a refusal's `open_choice`. */
+export const OPEN_CHOICES = ["keeper_added", "player_open"] as const;
+export type OpenChoice = typeof OPEN_CHOICES[number];
 /** Which path decided an admission row (§32.12, §32.12.2): the compile's evidence, the typed reviewer (at once, or late at the cap), the lane, or no review at all. */
 export type AdmissionPath = "compile" | "consequence" | "told" | "typed" | "typed_late" | "lane" | "none";
 
@@ -430,6 +440,28 @@ export function effectSignature(effect: Record<string, unknown>): string {
 }
 
 /**
+ * §197.3, pure: who performs an `apply` effect, read from its own closed fields, when that person is not an investigator
+ * (`party`: the investigators' names and sheet handles, matched as §143.18 matches `actor`). An `object` moved with a
+ * `offer` first: `made` is the holder, `from`; `accepted` or `declined` is the one who answers, `to` (an accepted offer's
+ * `handover` says how it moves, not who chose to take it). Otherwise its `handover` (the kernel requires one exactly when
+ * two people are on either side): `given` is the one who parts with it, `from`; `taken` is the one who takes it, `to`;
+ * `check` names no one (a roll decided it). A `clue` with `from`: the person who told it. Nothing else is read -- `item`'s
+ * `from` names who a thing came from whether they gave it, sold it or lost it -- and the agency judgement stays the
+ * reviewer's: this only says who the effect says acts.
+ */
+export function effectActingParty(effect: Record<string, unknown>, party: readonly string[]): string | undefined {
+	const kind = text(effect.kind);
+	let actor: string | undefined;
+	if (kind === "object") {
+		const handover = text(effect.handover), offer = text(effect.offer);
+		actor = offer === "made" ? text(effect.from) : offer === "accepted" || offer === "declined" ? text(effect.to)
+			: handover === "given" ? text(effect.from) : handover === "taken" ? text(effect.to) : undefined;
+	} else if (kind === "clue") actor = text(effect.from);
+	if (!actor) return undefined;
+	return party.map(norm).includes(norm(actor)) ? undefined : actor;
+}
+
+/**
  * Decide whether a call is put to review, and if so, what the reviewer reads. `null` means the
  * call is not a proposed voluntary investigator action and goes straight on: a pending choice
  * being settled (the player's own answer), a sanity or development settlement, an NPC actor, an
@@ -484,6 +516,9 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 				.filter(([k, v]) => k !== "kind" && !k.startsWith("_") && v !== undefined && v !== null && v !== "")
 				.map(([k, v]) => `${k}=${typeof v === "string" ? JSON.stringify(v) : JSON.stringify(v)}`);
 			const registered = kind === 'move' ? destination(effect) : undefined;
+			// §197.3: who the effect itself says performs it, when that is not an investigator.
+			const acting = effectActingParty(effect, scope.party);
+			if (acting) fields.push(`acting_party=${JSON.stringify(acting)} (not an investigator)`);
 			return `apply ${kind}: ${fields.join("; ")}${scope.selectedDocumentRecording&&kind==='object'&&['write','append','requested_edit'].includes(String((effect.document as any)?.action))?'; selected_document_recording=true (judge the selected physical writing, not the truth of its literal contents)':''}${kind === 'cash' && scope.cash ? `; registered_cash_context=${JSON.stringify(scope.cash)}` : ''}${registered ? `; registered_destination=${JSON.stringify({handle: registered.handle, label: registered.label, summary: registered.summary,
 					...(registered.canonical_name ? {canonical_name: registered.canonical_name} : {}), ...(registered.aliases?.length ? {also_called: registered.aliases} : {}),
 					...(registered.access ? {access: registered.access} : {})})}` : ''}`;
@@ -549,7 +584,8 @@ export function admissionSystemPrompt(): string {
 		"Judge living versus additional spending in the CURRENT purpose, not the last purchase's category. Routine personal refreshments, food, lodging and incidental travel may be living-standard coverage; buying additional goods for others is not made living by the goods' names. If the proposed category misrepresents that chosen ordinary expense, use recovery correct_proposal and identify the proper category; do not ask the player to authorize an avoidable debit. Category is contextual semantic judgment, never an item-name classifier.",
 		"Structured quotation drafts in narrate.quotes or beside apply's closing prose are also offers only, outside the proposed action lines. They cannot turn a proposed move or conversation into a purchase; judge the actual proposed effects, without importing an unproposed payment from their offer context. Cash mode=quote only records the Keeper's priced offer: it spends no money and transfers no object, so it is Keeper bookkeeping, not player acceptance. For a payment, category=living claims ordinary food, accommodation or incidental travel within the investigator's established living standard; judge this contextual claim, never accept an unrelated luxury or transfer as living expenses. Category=purchase is additional daily spending: the kernel enforces the current day's cumulative limit and charges its full total when exceeded, accounting for cash already charged. Coverage never authorizes an unchosen item or service. A covered chosen expense does not need an earlier price disclosure or a second confirmation. Still judge whether the player chose the service, item or activity itself. Actual cash commitments still need disclosed accepted terms or applicable delegation. A player's explicit request to pay the price the NPC names is a delegation, while asking the price alone is not. Do not invent or recompute a saved quote's amount.",
 		"Only for an actual cash debit, surrender of possessions or other new resource commitment, find terms in what the player was told and subsequently accepted, or a still-valid delegation. A chosen service with kernel-previewed zero actual cash delta needs no earlier price disclosure or second confirmation. 'Fill it up' chooses filling the tank; judge that full service, not an unproposed extra purchase. For an actual five-dollar cash debit, that request before any quote does not accept the price; accepting an earlier five-dollar quote does. A source price, affordability, custom or the Keeper's rationale is not consent. Quoting a price in the same delivery as an actual debit is too late. Routine time and effort of the chosen covered service stay entailed. An unchosen service or meaningful new scope still needs the player's choice. Without acceptance or delegation for actual cash commitments, answer not_authorized, or uncertain if genuinely unclear, and identify the missing acceptance.",
-		"An object pickup or transfer is a real proposed action, even beside definition or usage preparation. A usage describes the chosen way an object will be used; preparing it must not invent an attack the player only contemplated. Choosing to take a chair and swing it entails the necessary pickup and parameter preparation, not a different target or method. A different object's or usage's permission is not reusable. Pure owned-equipment adoption and same-owner state recording are bookkeeping; an NPC's own initiative remains not_player_action. Preparing parameters does not settle the attack or grant an extra action.",
+		"An object pickup or a transfer the investigator makes is a real proposed action, even beside definition or usage preparation. A usage describes the chosen way an object will be used; preparing it must not invent an attack the player only contemplated. Choosing to take a chair and swing it entails the necessary pickup and parameter preparation, not a different target or method. A different object's or usage's permission is not reusable. Pure owned-equipment adoption and same-owner state recording are bookkeeping; an NPC's own initiative remains not_player_action. Preparing parameters does not settle the attack or grant an extra action.",
+		"A line may end with acting_party: the person the effect's own fields say performs it (the one who gives or holds out a thing, the one who takes it, the one who told a clue), printed only when that person is not an investigator. What they do there is their own initiative, not the investigator's voluntary action: answer not_player_action, and do not refuse it because the player planned something else, did not ask for it, or made a plan conditional on nobody acting. Only a voluntary commitment on the investigator's own side of it (paying, promising, accepting a bargain, keeping something the player refused) still needs the player's choice. A line that names no acting party may still be another person's act: read who acts from the line as a whole, the Keeper's why included (it describes the proposal; it never shows consent). A thing put into the investigator's hands by someone else is that person's act.",
 		"For a voluntary move, the following destination-choice and commitment restrictions apply; they do not require consent to an involuntary displacement or its hidden destination or elapsed time. registered_destination is authoritative evidence of what the target scene physically is. Read it by its names, not by its handle: handle is a file name, often the slug of one room, while canonical_name is the module's own name for the place and also_called lists the other names it is known by. A player who names the place by any of those names, in any language, has named this destination. A label may present that same place in the player's language; it cannot substitute a different city, building or destination. If the player chooses Athens but the registered target is a Boston hotel, answer not_authorized even when label says Athens. A genuinely new chosen destination can be registered atomically by move.establish with a summary and via. This addition does not require source publication or adaptation review. Judge whether the player chose that destination and the proposed action; missing graph coverage is not missing player authorization.",
 		"For that voluntary move, a part, entrance, room, floor, counter or aspect of a registered place is that place; only a genuinely different physical place is a different destination. A registered scene is the module's whole grain for a place, so a move to it is arrival at that place's threshold -- its street door, its lobby, the counter or desk on the way in. It is never a claim about how far inside the investigator gets: whoever waits inside, and any permission, price, gate, search or danger staged there, remain proposals of their own, judged on their own when the Keeper puts them. So a player who names the outside of the place and a player who names a room inside it while saying they will first deal with the person at the door are both choosing this same move. Do not refuse it as reaching too far in, and do not refuse it as not naming the registered room: a place refused from both sides cannot be reached by any wording the player has, and a player who describes where they are going in more detail must not be refused for the detail.",
 		"Verdicts:",
@@ -561,7 +597,8 @@ export function admissionSystemPrompt(): string {
 		"- uncertain: the words and context do not settle it.",
 		"You judge the choice, never the result: do not ask that the player knew or approved hidden dangers, surprises or outcomes. A short, quiet or plain reply is still a reply — read what it says. An action already refused this turn and proposed again in other words is the same action.",
 		"Answer with one JSON object only, no code fence and no explanation:",
-		'{"verdict":"authorized"|"entailed"|"not_player_action"|"not_authorized"|"uncertain","grounds":"<=200 chars: the words you relied on","missing":"<only for not_authorized or uncertain: the choice the player has not made, <=160 chars, as a plain description of the choice, not a menu>"}',
+		'{"verdict":"authorized"|"entailed"|"not_player_action"|"not_authorized"|"uncertain","grounds":"<=200 chars: the words you relied on","missing":"<only for not_authorized or uncertain: the choice the player has not made, <=160 chars, as a plain description of the choice, not a menu>","open_choice":"keeper_added"|"player_open" (only beside missing)}',
+		"open_choice says whose choice is open. keeper_added: the player's words already make their own choice clear, and this line adds to it or departs from it -- a destination, stop, detour, route, method, target, cost or act the Keeper put in that the player did not choose, or what the player named mapped onto a different place or thing; missing then names what was added, and the Keeper will leave it out and carry out what the player chose without asking them again. player_open: the player's words genuinely leave this choice undecided (interest, a question, an alternative they left open), and the Keeper will put it to them in the fiction. A player who named where they go or what they do has made that choice: a line proposing something else is keeper_added, never a question back to them.",
 		"For an admitting cash verdict whose actual debit exceeds the goods price, include cash_limits in that same JSON object: [{index:0,amount:\"3\",basis:\"offer\",evidence:\"the exact prior quote name\"}]. For explicit cash acceptance instead use basis input and copy the exact current player phrase as evidence. An authorized verdict without cash_limits cannot settle that larger debit. This field is required here, not optional commentary.",
 		"Only for a refused representation of an already chosen act, include recovery: correct_proposal instead of missing. Never include recovery on an admitting verdict.",
 		"Write grounds and missing in English: they are read by the Keeper, who writes to the player in the player's own language. Quote the player's words as they are.",
@@ -634,7 +671,12 @@ export function shapeVerdict(parsed: unknown): AdmissionVerdict | undefined {
 			limits.push({index:limit.index,amount:limit.amount,basis:limit.basis,evidence:limit.evidence,...(limit.category?{category:limit.category}:{})});
 		}
 	}
-	return { verdict, grounds, ...(missing ? { missing } : {}), ...(row.recovery === "correct_proposal" ? {recovery: "correct_proposal" as const} : {}), ...(limits?{cash_limits:limits}:{}) };
+	// §197.2: whose choice is open, kept only where it means something -- one of its two values, beside `missing` on a refusal.
+	// Anything else is dropped, never `bad_output`: the field steers the refusal's text, it decides no verdict.
+	const openChoice = REFUSING_VERDICTS.has(verdict) && missing && row.recovery === undefined
+		&& (OPEN_CHOICES as readonly unknown[]).includes(row.open_choice) ? row.open_choice as OpenChoice : undefined;
+	return { verdict, grounds, ...(missing ? { missing } : {}), ...(openChoice ? { open_choice: openChoice } : {}),
+		...(row.recovery === "correct_proposal" ? {recovery: "correct_proposal" as const} : {}), ...(limits?{cash_limits:limits}:{}) };
 }
 
 /** The semantic reviewer chooses accepted terms; exact arithmetic bounds their financial authority. */
@@ -685,18 +727,31 @@ export function admissionRefusal(proposal: AdmissionProposal, verdict: Admission
 		message: verdict.verdict === "uncertain"
 			? "It is not clear from the player's words that they chose this action"
 			: "The player has not chosen this action",
-		fix: "Do not roll, move, spend time or money, or land clues, documents or items for it, and do not resend the same action in other words. Whatever this turn already settled with a receipt (a roll made, an effect that landed) did happen and is still narrated; only this refused batch is not. Close the turn with narrate: take up what the player actually said, and put the choice named in details.missing in front of them in the fiction, without a menu, so that they can make it.",
+		fix: verdict.open_choice === "keeper_added" ? KEEPER_ADDED_FIX : PLAYER_OPEN_FIX,
 		details: {
 			reason: "action_not_authorized",
 			verdict: verdict.verdict,
 			missing,
 			grounds: verdict.grounds,
+			...(verdict.open_choice ? { open_choice: verdict.open_choice } : {}),
 			proposed: proposal.lines,
 			tool: proposal.tool,
 			...(verdict.reviewer ? { reviewer: verdict.reviewer } : {}),
 		},
 	});
 }
+
+/**
+ * §32.2's refusal as it always read, for a choice the player left open (§197.2's `player_open`) and for a refusal that does
+ * not say (a host verdict, or a lane answer without the field): the Keeper puts the missing choice to the player.
+ */
+export const PLAYER_OPEN_FIX = "Do not roll, move, spend time or money, or land clues, documents or items for it, and do not resend the same action in other words. Whatever this turn already settled with a receipt (a roll made, an effect that landed) did happen and is still narrated; only this refused batch is not. Close the turn with narrate: take up what the player actually said, and put the choice named in details.missing in front of them in the fiction, without a menu, so that they can make it.";
+/**
+ * §197.2: the player had already chosen, and the refused proposal added to that choice or went elsewhere (TR-F2 T3: a stop
+ * at the supervisor's remote house beside the farm the player named; T9: the dead witness's home mapped onto another house).
+ * Asking the player again is what turned those turns into replies with nothing in them.
+ */
+export const KEEPER_ADDED_FIX = "The player already made their choice; this proposal added to it or went somewhere they did not choose, and details.missing names what was added. Do not roll, move, spend time or money, or land clues, documents or items for that, and do not resend it in other words. Do not ask the player to choose again or to repeat what they said: carry out what they chose. A proposal of their act as they chose it is reviewed afresh (a place the table does not have yet can be established with move establish). Whatever this turn already settled with a receipt (a roll made, an effect that landed) did happen and is still narrated. Close the turn with narrate on what landed.";
 
 /**
  * No review, no authority (contract §32.2): the Keeper is told the service status, and tells the
@@ -796,7 +851,7 @@ export type AdmissionOutcome =
 	 * §32.12.3 maps a remainder). `attempt` is the batch's typed answer when it came in.
 	 */
 	| { ok: "lines"; lines: AdmissionOutcome[]; ms: number; capMs: number; hardCapMs: number; startedAt: number; attempt?: TypedAttempt; meta: Record<string, unknown>;
-		/** Stops the rounds still running: a line already refused decides the batch (§32.10), so the rest need not answer. */
+		/** Stops the rounds still running at the cap: a line already refused decides the batch (§32.10), so the rest need not answer. */
 		abort: () => void };
 
 export interface AdmissionReviewOptions {
@@ -993,7 +1048,8 @@ export function lineReading(attempt: TypedAttempt | undefined, index: number): T
  * refusal is the batch's (its code, message, fix and details), with every line of the batch proposed, `line_outcomes`
  * naming each line that was not admitted and why, and for a pending batch `pending_lines` and the longest `wait_ms`.
  */
-export function batchRefusal(tool: AdmissionProposal["tool"], proposed: string[], entries: Array<{ line: string; error: KernelError }>): KernelError {
+export function batchRefusal(tool: AdmissionProposal["tool"], proposed: string[], entries: Array<{ line: string; error: KernelError }>,
+	admitted: ReadonlyArray<Record<string, unknown>> = []): KernelError {
 	const reasonOf = (error: KernelError) => String(error.details?.reason ?? error.code);
 	const find = (test: (error: KernelError) => boolean) => entries.find((entry) => test(entry.error));
 	const deciding = find((error) => reasonOf(error) === "action_not_authorized" && error.details?.verdict === "not_authorized")
@@ -1004,14 +1060,47 @@ export function batchRefusal(tool: AdmissionProposal["tool"], proposed: string[]
 		?? find((error) => reasonOf(error) === REVIEW_PENDING)
 		?? entries[0]!;
 	const error = deciding.error;
-	const pick = ["verdict", "missing", "grounds", "cause", "streak", "cap_ms", "wait_ms"];
+	const pick = ["verdict", "missing", "grounds", "open_choice", "cause", "streak", "cap_ms", "wait_ms"];
 	const outcomes = entries.map((entry) => ({ line: entry.line, reason: reasonOf(entry.error),
 		...Object.fromEntries(pick.filter((key) => entry.error.details?.[key] !== undefined).map((key) => [key, entry.error.details![key]])) }));
 	const pending = reasonOf(error) === REVIEW_PENDING ? entries.filter((entry) => reasonOf(entry.error) === REVIEW_PENDING) : [];
 	const waits = pending.map((entry) => Number(entry.error.details?.wait_ms)).filter(Number.isFinite);
-	return new KernelError({ code: error.code, message: error.message, ...(error.fix ? { fix: error.fix } : {}), retryable: error.retryable, next: error.next,
-		details: { ...(error.details ?? {}), proposed, tool, line_outcomes: outcomes,
+	// §197.1: the lines the review admitted travel with the refusal when it is one the Keeper can recover from by resending
+	// them. The deciding line's own fix is the base (a refusal already combined by a nested review keeps it apart).
+	const recover = admitted.length > 0 && RECOVERABLE_REASONS.has(reasonOf(error));
+	const base = baseFixes.get(error) ?? error.fix;
+	const fix = recover ? `${base ? `${base} ` : ""}${ADMITTED_LINES_FIX}` : base;
+	const { admitted: _inherited, ...inherited } = error.details ?? {};
+	const combined = new KernelError({ code: error.code, message: error.message, ...(fix ? { fix } : {}), retryable: error.retryable, next: error.next,
+		details: { ...inherited, proposed, tool, line_outcomes: outcomes,
+			...(recover ? { admitted: admitted.map(resendableEffect) } : {}),
 			...(pending.length ? { pending_lines: pending.map((entry) => entry.line), ...(waits.length ? { wait_ms: Math.max(...waits) } : {}) } : {}) } });
+	if (base !== undefined) baseFixes.set(combined, base);
+	return combined;
+}
+
+/**
+ * §197.1: the refusals a Keeper recovers from by resending exactly the lines its batch admitted. Not `review_pending` (the
+ * identical resend collects the lines still running and reuses the answered ones) and not `action_proposal_mismatch` (the
+ * correction path re-proposes the corrected batch whole, §173).
+ */
+export const RECOVERABLE_REASONS: ReadonlySet<string> = new Set(["action_not_authorized", "admission_unavailable", REVIEW_TIMEOUT]);
+/** The refusal's own `fix` before §197.1's paragraph was added, so a refusal combined twice carries the paragraph once. */
+const baseFixes = new WeakMap<KernelError, string>();
+/** §197.1's paragraph: what the Keeper does with `details.admitted`. Every `details.` key it names reaches the tool result (§8). */
+export const ADMITTED_LINES_FIX = "Only the lines in details.line_outcomes were refused; the effects in details.admitted were admitted on their own review. Resend exactly those effects, unchanged, as one apply call, once, before you narrate, with the refused lines left out (effects no review reads, such as npc or person staging, may go with them): the host recognises them and lands them without another review. Then narrate the turn from what landed. If an admitted effect only made sense beside a refused line, leave it out too; the call is then reviewed afresh. What this refusal says against resending or retrying applies to the refused lines only.";
+/** §197.1: an effect as the Keeper sent it, for `details.admitted`: host-only `_` fields are not the Keeper's to resend. */
+export function resendableEffect(effect: Record<string, unknown>): Record<string, unknown> {
+	return Object.fromEntries(Object.entries(effect).filter(([key]) => !key.startsWith("_")));
+}
+/**
+ * §197.1, pure: whether a call's reviewed lines are exactly the lines a refused batch admitted -- the same multiset of
+ * `effectSignature`s (§32.4.1), none missing, none added. Order does not matter; `why` and `how` are outside the signature.
+ */
+export function recoveryMatches(admitted: readonly string[], signatures: readonly string[]): boolean {
+	if (!admitted.length || admitted.length !== signatures.length) return false;
+	const a = [...admitted].sort(), b = [...signatures].sort();
+	return a.every((value, index) => value === b[index]);
 }
 
 /**
@@ -1198,10 +1287,10 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 	/**
 	 * §32.12.3.1 with §32.12.3.2: the per-line review. Each line's outcome is its own lane verdict with grounds, or the typed
 	 * reading's admission of that line under the settle rule (its lane call then cancelled), or its lane failure, or late.
-	 * The review returns when every line has its outcome, when a line is refused `not_authorized` on grounds (the batch's
-	 * verdict is then decided), or at the cap with the lines still running left `late` (their rounds kept running to the
-	 * hard cap, one per line). It never waits for the slowest line longer than the cap: its wall time is the slowest line's,
-	 * not the sum.
+	 * The review returns when every line has its outcome -- a line refused `not_authorized` included, since §197.1, so the
+	 * refusal can name the lines that were admitted -- or at the cap with the lines still running left `late` (their rounds
+	 * kept running to the hard cap, one per line). It never waits for the slowest line longer than the cap: its wall time is
+	 * the slowest line's, not the sum.
 	 */
 	async function perLineReview(): Promise<AdmissionOutcome> {
 		type LineEvent = { kind: "line"; index: number; value: AdmissionOutcome } | { kind: "typed"; value: TypedAttempt } | { kind: "cap" };
@@ -1270,9 +1359,10 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 				laneOut[event.index] = event.value;
 				if (!typedDone && isLaneVerdict(event.value)) laneFirst[event.index] = true;
 				// A line refused `not_authorized` on grounds decides the batch whatever the others say (§32.10's mapping puts it
-				// first): the review returns at once, and the caller stops the rounds still running.
-				const refused = event.value.ok === true && event.value.verdict.verdict === "not_authorized";
-				if (refused || allIn() && (typedDone || !wantsTyped())) return lines(typedDone);
+				// first), but since §197.1 it no longer ends the review: the other lines finish, up to the cap, so the refusal can
+				// name the lines the player did choose (TR-F2 T16: the house the player named was stopped unanswered beside a
+				// refused detour, and the turn did not advance). The caller stops what is still running at the cap.
+				if (allIn() && (typedDone || !wantsTyped())) return lines(typedDone);
 				continue;
 			}
 			// The cap. The typed attempt has its own, shorter cap: its answer is awaited, never raced away.

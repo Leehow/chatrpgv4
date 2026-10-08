@@ -64,8 +64,8 @@ for (const verdict of ['not_player_action', 'not_authorized', 'uncertain', 'forc
     if (applied.length) assert.deepEqual(applied[0].params.effects, effects);
     const requests = table.lanes.admission.requests();
     const telemetry = table.telemetry().filter(row => row.lane === 'admission');
-    // Even a claimed consequence is reviewed, one call per line; a not_authorized line decides the batch at once, so the
-    // other lines may be stopped before they reach the lane.
+    // Even a claimed consequence is reviewed, one call per line; a not_authorized line decides the batch, and since §197.1
+    // the other lines still finish (up to the cap) so the refusal can name any that were admitted.
     // §143.15: an unrecognized verdict is a malformed answer, which each line's round asks for once more.
     const perLine = verdict === 'forced' ? 2 : 1;
     assert.ok(requests.length >= 1 && requests.length <= effects.length * perLine, `${requests.length} lane calls`);

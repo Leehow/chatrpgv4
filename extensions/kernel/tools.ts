@@ -252,7 +252,7 @@ const ObjectEffect = Type.Object({
   source_object: Type.Optional(Type.String({description:"On first placement/adoption only: exact source_object handle supplied by lookup module when this is that authored physical thing. Never infer it from a display name or a similar weapon; omit for ordinary objects. Transfers preserve its identity"})),
   to: Type.String({description:"New owner: investigator, NPC, scene or existing container instance; here means the current scene"}),
   condition: Type.Optional(StringEnum(["intact","damaged","jammed","broken"] as const, {description:"Initial condition, or an explicit existing-object state change with the same from/to owner and a causal why; ownership transfers preserve state"})),
-  from: Type.Optional(Type.String({description:"Required actual current owner for any existing-instance transfer or physical document operation; reading/editing surface operations use that owner in both from and to"})),
+  from: Type.Optional(Type.String({description:"Required actual current owner for any existing-instance transfer or physical document operation; reading/editing surface operations use that owner in both from and to. On a first placement that a person hands over, name that person here too, with its handover: the giver is recorded, and the action review reads them as the one acting"})),
   // Contract §88.5: the kernel requires `handover` the moment it is rebuilt, and this schema is read
   // once at server start. Rebuild without restarting and the Keeper is refused for a field its tool
   // does not declare, on every retry, on every table. These three ship with the kernel half or not at all.
