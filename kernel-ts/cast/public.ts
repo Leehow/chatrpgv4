@@ -4,7 +4,7 @@
  *
  * Real table TR-F2 (Cold Harvest, turn 2): the letter says the workers toil in Stalin's name, and the cast lists him as a person
  * of the book (§177.16 asked the reader to leave such people out, and it did not), so §177.11's gate refused the name and the
- * Keeper wrote 「苏联领袖」 instead.
+ * Keeper wrote "the Soviet leader" instead.
  *
  * Whether someone is such a figure is a semantic question: the host asks Jev one question per stored row, from the row's own
  * entry (§194.4's cut), and sends the verdicts here. `cast.public.job` lists the rows with no verdict for what they say now;
@@ -23,7 +23,7 @@ import { isJsonObject, jsonDigest, type ReadonlyJson } from '../json.js';
 import { withExclusiveLock } from '../locks.js';
 import { loadCampaignModule } from '../read/campaign.js';
 import { CAST_PUBLIC_FILE, bookCast, castRowDigest, moduleSourceSha, printedNames, servedCast } from '../read/cast.js';
-import { array, repr, row, string, type Row } from '../read/values.js';
+import { array, number, numeric, repr, row, string, type Row } from '../read/values.js';
 import { nowIso, type CampaignWriter } from '../write/store.js';
 import type { createWriteRuntime } from '../write/index.js';
 import { castDirs, castEntry, castPages } from './entry.js';
@@ -89,8 +89,9 @@ export function createPublicFigureHandlers(context: KernelContext, writer: Retur
          */
         'cast.public.submit': async (params): Promise<Row> => {
             const verdicts = params.verdicts;
+            // A Noul crosses the transport as a Python float (`PythonFloat`), or an int at 0 and 1; in process it is a number.
             if (!Array.isArray(verdicts) || verdicts.some(raw => !isJsonObject(raw) || !text(raw.id) || !text(raw.row_sha256) || typeof raw.public !== 'boolean'
-                || typeof raw.noul !== 'number' || !(raw.noul >= 0 && raw.noul <= 1)))
+                || !(typeof raw.noul === 'number' || numeric(raw.noul)) || !(number(raw.noul) >= 0 && number(raw.noul) <= 1)))
                 throw new RpcError('invalid_params', 'params.verdicts must be a list of {id, row_sha256, noul (0..1), public (boolean)}', { details: { field: 'verdicts' } });
             const found = await served(context, writer, params);
             if (!found.table) throw new RpcError('invalid_params', 'this campaign\'s book has no cast to judge', { fix: 'ask cast.public.job first' });
@@ -102,7 +103,7 @@ export function createPublicFigureHandlers(context: KernelContext, writer: Retur
                 for (const raw of verdicts as Row[]) {
                     const id = text(raw.id);
                     if (current.get(id) !== text(raw.row_sha256)) { skipped += 1; continue; }
-                    rows[id] = { row_sha256: text(raw.row_sha256), public: raw.public, noul: Math.round(Number(raw.noul) * 1000) / 1000, ...(version ? { question: version } : {}), at: nowIso() };
+                    rows[id] = { row_sha256: text(raw.row_sha256), public: raw.public, noul: Math.round(number(raw.noul) * 1000) / 1000, ...(version ? { question: version } : {}), at: nowIso() };
                     written += 1;
                     if (raw.public) judged += 1;
                 }

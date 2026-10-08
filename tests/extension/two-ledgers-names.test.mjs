@@ -30,6 +30,7 @@ export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';
 export {createKernelRuntime} from './kernel-ts/registry.ts';
 export {castEntry} from './kernel-ts/cast/entry.ts';
 export {sayRanges} from './kernel-ts/write/speech-pass.ts';
+export {handleLine} from './kernel-ts/transport.ts';
 export {ModuleStore} from './kernel-ts/modules/store.ts';
 export {ensureCampaignModule, moduleContext} from './kernel-ts/modules/campaign-scope.ts';`, resolveDir: root},
 	outfile: join(temporary, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
@@ -42,7 +43,7 @@ async function kernel(t, seed, env = {}) {
 	const runtime = api.createKernelRuntime(context); t.after(() => runtime.close());
 	const raw = (method, params = {}) => runtime.handlers[method](params);
 	const attempt = async (method, params = {}) => { try { return {ok: true, result: await raw(method, params)}; } catch (error) { return {ok: false, error}; } };
-	return {home, context, raw, attempt};
+	return {home, context, runtime, raw, attempt};
 }
 
 /** The farm on the in-process kernel, its table open and its opening delivered (`farm-book.mjs`). */
@@ -512,6 +513,14 @@ test('§194.5: a verdict is bound to its row: a re-read row is asked again, alon
 	assert.ok(!(await untoldNames(h)).includes('斯大林'), 'judged again');
 	const refused = await refusalOf(h.call('cast.public.submit', {verdicts: [{id: row.id, row_sha256: 'x', noul: 2, public: true}]}));
 	assert.equal(refused?.code, 'invalid_params', 'a noul outside 0..1 is refused');
+	// Over the wire a Noul is a Python float, and 0 or 1 an int (the harness table found the in-process call hid it).
+	const current = (await h.call('cast.public.job', {version: '2'})).people.find(person => person.id === row.id);
+	const line = JSON.stringify({id: 'wire', method: 'cast.public.submit', params: {campaign: CAMPAIGN, version: '2',
+		verdicts: [{id: row.id, row_sha256: current.row_sha256, noul: 0.97, public: true}, ...table.people.filter(other => other !== row).slice(0, 1)
+			.map(other => ({id: other.id, row_sha256: 'old', noul: 0, public: false}))]}});
+	const wire = await api.handleLine(line, h.runtime.handlers);
+	assert.equal(wire.ok, true, JSON.stringify(wire));
+	assert.deepEqual(wire.result, {written: 1, public: 1, skipped: 1});
 });
 
 test('§194.5: a public figure a handout prints tells nobody, and a graph person his row joins is never untold', async t => {
