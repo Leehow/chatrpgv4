@@ -861,51 +861,6 @@
     },
     {
       "file": "extensions/kernel/index.ts",
-      "symbol": "emitProviderNotice",
-      "kind": "trigger-turn",
-      "callee": "pi.sendMessage{steer-when-streaming}",
-      "count": 1,
-      "owner": "kernel ext: service notices",
-      "path": "app-play",
-      "role": "leaf",
-      "trace": "not observed",
-      "note": "Service notice scheduled on the next task after settle, so it appends without starting a run; were a run streaming, Pi would steer it (no triggerTurn:false).",
-      "lines_at_0b729e8fb": [
-        2233
-      ]
-    },
-    {
-      "file": "extensions/kernel/index.ts",
-      "symbol": "emitCommitDownNotice",
-      "kind": "trigger-turn",
-      "callee": "pi.sendMessage{steer-when-streaming}",
-      "count": 1,
-      "owner": "kernel ext: service notices",
-      "path": "app-play",
-      "role": "leaf",
-      "trace": "not observed",
-      "note": "Service notice scheduled on the next task after settle, so it appends without starting a run; were a run streaming, Pi would steer it (no triggerTurn:false).",
-      "lines_at_0b729e8fb": [
-        2262
-      ]
-    },
-    {
-      "file": "extensions/kernel/index.ts",
-      "symbol": "emitTurnUnfinishedNotice",
-      "kind": "trigger-turn",
-      "callee": "pi.sendMessage{steer-when-streaming}",
-      "count": 1,
-      "owner": "kernel ext: service notices",
-      "path": "app-play",
-      "role": "leaf",
-      "trace": "not observed",
-      "note": "Service notice scheduled on the next task after settle, so it appends without starting a run; were a run streaming, Pi would steer it (no triggerTurn:false).",
-      "lines_at_0b729e8fb": [
-        2467
-      ]
-    },
-    {
-      "file": "extensions/kernel/index.ts",
       "symbol": "emitInputRefusedNotice",
       "kind": "trigger-turn",
       "callee": "pi.sendMessage{steer-when-streaming}",
@@ -2240,6 +2195,18 @@
       "role": "leaf",
       "trace": "document_binding",
       "note": "Bounded Jev carrier/text binding then final-operation validation for a plain investigator-owned append, under one shared deadline; exact player spans are copied by the host, no planner or LLM fallback."
+    },
+    {
+      "file": "extensions/kernel/index.ts",
+      "symbol": "guardRefusedDocumentDelivery",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "kernel ext: a narrate/ask that claims a refused or unconfirmed document recording",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "refused_document_outcome",
+      "note": "Gate: a Jev key, and this turn a document recording was refused before any writing landed or the player selected one with no writing receipt (state.documentRecording at or above DOCUMENT_RECORDING_INTENT_MIN). One bounded check of the draft (maxRetries 0) under the foreground deadline; steer once or stop unconfirmed, never writes."
     },
     {
       "file": "extensions/kernel/scene-placement.ts",

@@ -91,6 +91,9 @@ test('the scan recognises each inventoried kind and ignores a triggerTurn:false 
       'declare function runLane(x: any): any; declare function createDecisionAdapter(x: any): any;',
       'declare function runEvidenceAgent(x: any): any; declare function sendHost(a: string, b: string): void;',
     ].join('\n'));
+    // A test module beside the code it tests drives no run, whatever it stubs.
+    mkdirSync(join(root, 'extensions/probe/test'), {recursive: true});
+    writeFileSync(join(root, 'extensions/probe/test/offline.test.mjs'), 'export async function stubbed() { await fetch("https://mock.invalid"); }\n');
     const kinds = new Map();
     for (const site of scanControlFlow(root, ['extensions'])) kinds.set(`${site.symbol}:${site.kind}:${site.callee}`, true);
     const expected = [
@@ -109,5 +112,6 @@ test('the scan recognises each inventoried kind and ignores a triggerTurn:false 
     ];
     for (const key of expected) assert.ok(kinds.has(key), `scan missed ${key}; saw ${[...kinds.keys()].join(' | ')}`);
     assert.ok(![...kinds.keys()].some(key => key.startsWith('probe.on(turn_end)')), 'a triggerTurn:false send cannot start or extend a run');
+    assert.ok(!kinds.has('stubbed:network:fetch'), 'a test module is not a run-driving site');
   } finally { rmSync(root, {recursive: true, force: true}); }
 });

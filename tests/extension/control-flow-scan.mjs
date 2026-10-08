@@ -41,6 +41,9 @@ export function sourceFiles(root = REPO, trees = TREES) {
       if (!entry.isFile() || !SOURCE.test(entry.name) || entry.name.endsWith('.d.ts') || entry.name.endsWith('.d.mts')) continue;
       const path = join(entry.parentPath ?? entry.path, entry.name);
       if (path.includes(`${'/'}node_modules${'/'}`)) continue;
+      // A test module beside the code it tests (extensions/openai-fast/test/offline.test.mjs) is loaded by no product
+      // path; its stubbed fetch and session calls drive no run, the same reason tests/play/driver.py is out of scope.
+      if (/\.test\.(ts|mts|cts|js|mjs|cjs)$/.test(entry.name)) continue;
       // A stray emit beside its own source (extensions/kernel/client.js next to client.ts, gitignored) is the
       // same code twice; the inventory names the source, so the emit is skipped rather than double-counted.
       if (/\.(js|mjs|cjs)$/.test(entry.name) && existsSync(path.replace(/\.(js|mjs|cjs)$/, (_, ext) => ({js: '.ts', mjs: '.mts', cjs: '.cts'})[ext]))) continue;
