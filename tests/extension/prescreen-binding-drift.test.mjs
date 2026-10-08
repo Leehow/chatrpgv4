@@ -14,9 +14,10 @@ import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {supportChoices} from './support-agent-helpers.mjs';
+import {playtestScratch} from './playtest-scratch.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
-const temporary = await mkdtemp(join(root, '.coc', 'prescreen-binding-drift-'));
+const temporary = playtestScratch('prescreen-binding-drift');
 after(() => rm(temporary, {recursive: true, force: true}));
 await build({stdin: {contents: `
 export {createKernelContext} from './kernel-ts/context.ts';
