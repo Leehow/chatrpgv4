@@ -43,6 +43,8 @@ export class RefusedDocumentOutcome {
     if (this.basis?.kind !== 'selected_no_write') return;
     this.basis = undefined; this.revision++; this.terminal = false;
   }
+  /** Called only after the host matched a current authorized operation to canonical writing evidence. */
+  settleCanonical(): void { this.basis = undefined; this.revision++; this.terminal = false; }
   issuedCorrection(): void { this.correctionIssued = true; }
   async check(input: {draft: string; decision: DecisionPort; signal: AbortSignal; deadlineAt?: number;
     correctionAvailable: boolean; current: () => Promise<boolean>}): Promise<DocumentOutcomeVerdict> {

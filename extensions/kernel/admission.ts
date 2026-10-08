@@ -308,6 +308,8 @@ export interface AdmissionDestination {
 }
 
 export interface AdmissionScope {
+    /** Host-owned current recording eligibility; never model arguments or writing authority itself. */
+    selectedDocumentRecording?: boolean;
 	/** Investigator names at this table; an action by anyone else is NPC initiative, not a player action. */
 	party: string[];
 	/** The current scene's handle and player-facing label: a `move` to it is a rename, not travel. */
@@ -468,6 +470,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 			if (kind === "cash" && effect.mode === "quote") return false;
 			if (kind === "move" && here.includes(norm(effect.to)) && !text(effect.label)) return false;
 			if (kind === "object") {
+				if (scope.selectedDocumentRecording && ['write','append','requested_edit'].includes(String((effect.document as Record<string,unknown> | undefined)?.action))) return true;
 				// Adoption enriches an owned row; same-owner edits record state rather than transfer it.
 				if (!text(effect.to) || text(effect.adopt) || text(effect.from) && norm(effect.from) === norm(effect.to)) return false;
 			}
@@ -481,7 +484,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 				.filter(([k, v]) => k !== "kind" && !k.startsWith("_") && v !== undefined && v !== null && v !== "")
 				.map(([k, v]) => `${k}=${typeof v === "string" ? JSON.stringify(v) : JSON.stringify(v)}`);
 			const registered = kind === 'move' ? destination(effect) : undefined;
-			return `apply ${kind}: ${fields.join("; ")}${kind === 'cash' && scope.cash ? `; registered_cash_context=${JSON.stringify(scope.cash)}` : ''}${registered ? `; registered_destination=${JSON.stringify({handle: registered.handle, label: registered.label, summary: registered.summary,
+			return `apply ${kind}: ${fields.join("; ")}${scope.selectedDocumentRecording&&kind==='object'&&['write','append','requested_edit'].includes(String((effect.document as any)?.action))?'; selected_document_recording=true (judge the selected physical writing, not the truth of its literal contents)':''}${kind === 'cash' && scope.cash ? `; registered_cash_context=${JSON.stringify(scope.cash)}` : ''}${registered ? `; registered_destination=${JSON.stringify({handle: registered.handle, label: registered.label, summary: registered.summary,
 					...(registered.canonical_name ? {canonical_name: registered.canonical_name} : {}), ...(registered.aliases?.length ? {also_called: registered.aliases} : {}),
 					...(registered.access ? {access: registered.access} : {})})}` : ''}`;
 		};
@@ -489,7 +492,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		// Each line's own signature, taken before the sort below reorders `signatures` in place.
 		const lineSignatures = shown.map((index) => signatures[index]!);
 		const ordered = effects.some(effect => effect.kind === 'object' || effect.kind === 'usage');
-		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [], ...(scope.cash ? {cash:scope.cash} : {}) });
+		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [], ...(scope.selectedDocumentRecording?{selectedDocumentRecording:true}:{}), ...(scope.cash ? {cash:scope.cash} : {}) });
 		// The key stays the whole batch's (§32.4); the lines are only the reviewed effects (§32.12.3).
 		return { tool: "apply", key, lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown,
 			signatures: lineSignatures, ...(scope.cash?{cash:{...scope.cash,previews:(Array.isArray(scope.cash.previews)?scope.cash.previews:[]).flatMap((row:any)=>shown.includes(row.index)?[{...row,index:shown.indexOf(row.index)}]:[])}}:{}) };

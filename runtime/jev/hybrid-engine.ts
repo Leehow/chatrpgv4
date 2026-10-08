@@ -73,6 +73,7 @@ import { obligationClerkLine, obligationCrossing } from './obligation-candidates
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import { firstSightStep, type FirstSightViewPort } from './first-sight-step.ts';
 import { IMPROVISATION_GUIDANCE, CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
+import {withSourceQuestion} from './source-answer-pages.ts';
 import {
   CLERK_AUTHORITY, createStepPolicy, consumedByEffects, consumedByClaim, consumedByResolve, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, exhaustedBy, interpretRoute, missedUnlocks, npcScanDue, overRun, PROPOSED_REASON, ROUTE_FAMILY,
   type BindRecord, type Budget, type Candidate, type DeferredStep, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
@@ -169,10 +170,10 @@ export interface TurnClosePort {
 export interface SourceAnswersPort {
   campaign?: string;
   /** §135.20.1 (SL-102): `scene` is where the run is (held answers of another scene are dropped), `run` the run taking. */
-  take(at?: {scene?: string; run?: string}): {pending: Array<{focus: string; question: string; since_turn: number; purpose?: string; scene?: string; person?: string}>;
-    landed: Array<{focus: string; question: string; since_turn: number; answer?: Row; unavailable?: string}>;
+  take(at?: {scene?: string; run?: string; scope?: {worldline?: string; loop?: number}}): {pending: Array<{focus: string; question: string; since_turn: number; purpose?: string; scene?: string; person?: string}>;
+    landed: Array<{focus: string; question: string; since_turn: number; answer?: Row; unavailable?: string; cached?: boolean}>;
     /** §135.20.1: the answers held at `scene` that this run's request does not hold yet, newest first. */
-    held?: Array<{focus: string; question: string; since_turn: number; answer: Row}>;
+    held?: Array<{focus: string; question: string; since_turn: number; answer: Row; cached?: boolean}>;
     /** §135.20.1: landed answers not carried because the Keeper's own lookup returned them in this run. */
     handed?: Array<{focus: string; since_turn: number}>;
     /** §22.4.7 / §22.4.7.1: the book's text of a scene or person landed on it, once. */
@@ -183,7 +184,7 @@ export interface SourceAnswersPort {
    * §135.20.1 (SL-102): at the run's first model step, wait for the consultations asked at `scene` on an earlier turn that are
    * still being read, for what is left of one allowance after `elapsed_ms` (the run's time so far).
    */
-  settle?(input: {scene: string; turn: number; elapsed_ms: number}): Promise<{foci: string[]; waited_ms: number; bound_ms: number; landed: number; pending: number}>;
+  settle?(input: {scene: string; turn: number; elapsed_ms: number; scope?: {worldline?: string; loop?: number}}): Promise<{foci: string[]; waited_ms: number; bound_ms: number; landed: number; pending: number}>;
 }
 /** The kernel extension's canonical operation gateway (`coc:operation-dispatcher`). */
 export interface OperationGateway {
@@ -1984,19 +1985,21 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (port?.settle && !run.settleAsked && run.scene && run.turn !== undefined) {
       run.settleAsked = true;
       try {
-        const waited = await port.settle({scene: run.scene, turn: run.turn, elapsed_ms: Math.max(0, now() - run.startedAt)});
+        const waited = await port.settle({scene: run.scene, turn: run.turn, elapsed_ms: Math.max(0, now() - run.startedAt),
+          ...(run.scope ? {scope: {worldline: run.scope.worldline, loop: run.scope.loop}} : {})});
         if (waited.foci.length) record({lane: 'run', event: 'held_wait', run: run.runId, step: stepId, scene: run.scene, foci: waited.foci,
           waited_ms: waited.waited_ms, bound_ms: waited.bound_ms, landed: waited.landed, pending: waited.pending});
       } catch { /* the port never steers the run */ }
     }
     run.settleAsked = true;
     if (port) {
-      try { taken = port.take({...(run.scene ? {scene: run.scene} : {}), run: run.runId}); } catch { /* the port never steers the run */ }
+      try { taken = port.take({...(run.scene ? {scene: run.scene} : {}), run: run.runId,
+        ...(run.scope ? {scope: {worldline: run.scope.worldline, loop: run.scope.loop}} : {})}); } catch { /* the port never steers the run */ }
     }
-    const answers = taken.landed.map(entry => ({name: entry.focus, view: entry.answer ? {question: entry.question, ...entry.answer}
+    const answers = taken.landed.map(entry => ({name: entry.focus, cached: entry.cached, view: entry.answer ? withSourceQuestion(entry.question, entry.answer)
       : {question: entry.question, status: 'unavailable', reason: entry.unavailable ?? 'reading_failed'}}));
     // §135.20.1: what the Keeper was already handed at this scene and this run's request does not hold yet, newest first.
-    const held = (taken.held ?? []).map(entry => ({name: entry.focus, view: {question: entry.question, ...entry.answer}}));
+    const held = (taken.held ?? []).map(entry => ({name: entry.focus, cached: entry.cached, view: withSourceQuestion(entry.question, entry.answer)}));
     const pending = taken.pending.filter(entry => !run.shown.pending.has(JSON.stringify([entry.focus, entry.question])));
     // §22.4.7 (SL-47): the book's text of a scene a move landed on, once; a scene record that settled, once -- the scene view
     // itself when the party is still there, else a row saying it landed (or could not be read).
