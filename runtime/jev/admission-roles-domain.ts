@@ -20,7 +20,8 @@
  * lane-shaped verdict of a line comes from its dominant role (telemetry and grounds only; admission reads `admit`).
  *
  * The measured revision 2a.3's state, keys and arithmetic remain pinned against the experiment. Revision 2a.4 adds
- * explicit handover field semantics; 2a.5 clarifies current execution versus speech in the choice question and criteria.
+ * explicit handover field semantics; 2a.5 clarifies current execution versus speech in the choice question and criteria;
+ * 2a.6 (contract §197.4) says both directions: the player's own narration of steps is execution, speech to someone is not.
  * Those scoped request changes are pinned in `tests/extension/admission-roles-domain.test.mjs`. Jev judges every semantic question; the host
  * only packs, carries the closed effect kind of each line from the proposal, sums probabilities and gates. No list,
  * pattern or table decides anything semantic.
@@ -40,7 +41,7 @@ import type {AdmissionJevInput, AdmissionJevLine, AdmissionJevResult, AdmissionJ
 
 /** Stable family id and current prompt revision; historical experiment requests remain frozen. */
 export const ADMISSION_ROLES_FAMILY = 'action-admission-roles';
-export const ADMISSION_ROLES_VERSION = '2a.5';
+export const ADMISSION_ROLES_VERSION = '2a.6';
 export const ADMISSION_ROLES_MODEL = JEV_MODEL;
 /** Same bound as §32.10: a larger proposal goes to the lane. */
 export const ADMISSION_ROLES_MAX_LINES = 8;
@@ -93,8 +94,8 @@ interface Family {
 }
 
 const CHOSEN: DecisionDescriptor = {
-  what: 'The player\'s words choose execution of this action now: where the investigator goes, what they do, how, to whom or to what, and any price or promise. A current execution choice that picks one of the places or options `justTold` named chooses it, travel included. For a chosen move, `registered_destination` names the place: any of its names, in any language, or a room, floor or entrance of it names the same destination. A short or plain reply that chooses what to do now still chooses it.',
-  not_for: 'The investigator merely says a plan, promise, threat, bluff or hypothetical about doing the physical act, or quotes someone or a document about it, without choosing execution now. The utterance itself may be chosen; the physical act it describes is separate.',
+  what: 'The player\'s words choose this action: their own narration of what the investigator does -- now, next, or as one step of a sequence they lay out ("then", "on arrival", "first ... then") -- including asking someone in the scene to do something, and a conditional whose condition the fiction has met. Where the investigator goes, what they do, how, to whom or to what, and any price or promise. A choice that picks one of the places or options `justTold` named chooses it, travel included. For a chosen move, `registered_destination` names the place: any of its names, in any language, or a room, floor or entrance of it names the same destination. A short or plain reply that says what to do still chooses it.',
+  not_for: 'What the investigator says to someone in the fiction about a future act -- a plan, promise, threat, bluff or hypothetical spoken to another person -- or text quoted from a document, with no narration that the investigator does it: the utterance may be chosen, the physical act it describes is not. Also a step the player holds back from, or a conditional whose condition the fiction has not met.',
 };
 const UNCLEAR_CHOICE = 'The player\'s words and what they were told do not settle whether they chose this.';
 const CHOICE_CRITERIA: Record<string, DecisionDescriptor> = {

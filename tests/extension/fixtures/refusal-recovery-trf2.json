@@ -1,0 +1,460 @@
+{
+ "source": {
+  "table": "TR-F2 run 2, 2026-10-08, App 4ce2e4cab, Cold Harvest",
+  "campaign": "game-565055f1-8a99-4e69-9932-ca64c0e27d93",
+  "session": "agent/ui-sessions/play/<project>/2026-10-08T12-52-28-304Z_3fc2f27a-a6b5-4ad7-bfc6-92c71536e4ec.jsonl",
+  "note": "player words and apply arguments copied verbatim from the session; lane verdicts from the turn's lane=admission rows in telemetry.jsonl (ms, key and proposed as recorded). open_choice did not exist then: the replays add the value §197.2 asks the reviewer for.",
+  "run3": {
+   "table": "real table run 3, 2026-10-08, App 4ce2e4cab, The Haunting, lane openai-codex/gpt-6-luna",
+   "campaign": "game-af36b938-4ca6-421e-bdec-759080123f69",
+   "session": "agent/ui-sessions/play/<project>/2026-10-08T14-51-49-179Z_e8f5cec8-a956-40b5-84bc-60088ece43ab.jsonl"
+  },
+  "trf": {
+   "table": "TR-F, 2026-10-08, App d944b6b07, Cold Harvest (the turn the 2026-10-08 speech note, ab81805b2, was written for)",
+   "campaign": "game-56788eff-11bf-4bfb-98e0-b47712330b3e",
+   "note": "the move's arguments are read back from the lane row's proposed line; the session is not kept"
+  }
+ },
+ "T1": {
+  "turn": 1,
+  "session_row_player": 405,
+  "session_row_call": 503,
+  "player": "我在办公桌前立正，朝门外问了一声：“索科洛夫奉命报到，调查3号农场。阿加宁上尉同志在吗？”没人应声的话，我就解开档案袋的麻绳，看看那两份文件写了什么。",
+  "call_id": "call_bf607e10ad7144e590a691edf1747551|fc_00b280c0765e37b9016ac795aa626c81988e0ba09994f49fa5",
+  "apply": {
+   "effects": [
+    {
+     "kind": "clock",
+     "local_datetime": "1937-10-01T09:00"
+    },
+    {
+     "kind": "npc",
+     "name": "指挥室桌后的高大上校",
+     "to": "here",
+     "why": "他已经在办公桌后值守，听见索科洛夫报到后回应。"
+    },
+    {
+     "kind": "object",
+     "name": "档案袋",
+     "definition": "档案夹",
+     "to": "伊万·彼得罗维奇·索科洛夫",
+     "condition": "intact",
+     "why": "桌后的上尉把系着麻绳的档案袋及其中两份文件递给特派员。"
+    }
+   ],
+   "narrate": "你在办公桌前立正，朝门外报上姓名和来意。屋里响起一声不耐烦的回应。办公桌后的上尉制服紧致，皮靴擦得铮亮；他用指节敲着桌面，冷冷看向你。{{say:指挥室桌后的高大上校}}“我在。进来，索科洛夫。站着报告就够了。”{{/say}}他解开麻绳，把两份文件递给你。逮捕令依据00447号令，列出彼得·米哈伊洛维奇·阿布拉莫夫一家，指控他们破坏国有资产、叛国，并判处流放、送往沃尔库塔劳动惩戒营；文件要求赶上1937年10月18日的火车。姓名栏把母亲与儿子的性别标注对调了。随附的信称，嘉琳娜·彼得罗夫娜·斯莫斯卡娅报告这家人破坏农场生产；另据生产监督员鲍里斯·加庞的报告，农场未达预期，四个月前还有一家人逃走。阿加宁仍敲着桌面，等你看完。"
+  },
+  "lane": [
+   {
+    "verdict": "not_authorized",
+    "grounds": "玩家说\"没人应声的话，我就解开档案袋的麻绳\"——无人应答时是自己动手解开，未说由上尉递交。",
+    "missing": "档案袋由上尉递交给索科洛夫这一转移；玩家选择的是无人应答时自己动手解绳。",
+    "ms": 2694,
+    "key": "2979b9c39d11",
+    "proposed": [
+     "apply object: name=\"档案袋\"; definition=\"档案夹\"; to=\"伊万·彼得罗维奇·索科洛夫\"; condition=\"intact\"; why=\"桌后的上尉把系着麻绳的档案袋及其中两份文件递给特派员。\""
+    ]
+   }
+  ]
+ },
+ "T3": {
+  "turn": 3,
+  "session_row_player": 817,
+  "session_row_call": 874,
+  "player": "我收好材料，不再耽搁，搭最早的车赶往卡西维依阿克塔伯3号农场。到了先找生产监督员鲍里斯。",
+  "call_id": "call_c5e5e0161a8445eeaae84417d66f4297|fc_0cbda18d12541879016ac79661673c8198b81a052b16fe056c",
+  "apply": {
+   "effects": [
+    {
+     "kind": "clock",
+     "local_datetime": "1937-10-14T09:04",
+     "why": "模组只给出1937年10月，开场时刻为上午。"
+    },
+    {
+     "kind": "move",
+     "to": "state-farm-number-three",
+     "label": "卡西维依阿克塔伯3号农场",
+     "travel_minutes": 600
+    },
+    {
+     "kind": "move",
+     "to": "production-supervisor-living-apart-from-farm",
+     "via": "抵达农场定居点后，循路找到生产监督员鲍里斯·加庞住得较偏的住所。",
+     "label": "加庞的住处"
+    }
+   ],
+   "narrate": "你收好两份材料，赶上最早的一班车。车窗外，古比雪夫州的田野在秋色里向后退去；等你抵达卡西维依阿克塔伯3号农场，太阳已经落下。十九座单层木屋散在田地之间，混凝土亚麻加工坊和拖拉机棚立在路旁；许多房屋失修，只有一处住家收拾得较整齐。你循路找到生产监督员鲍里斯·加庞的住处。屋里，他正摸着胡子，神情疲惫而受挫。听你说明来意，他抬眼看向你。{{say:鲍里斯·亚历山德罗维奇·加庞}}“你总算来了。农场的事，我会如实说；只是斯莫斯卡娅把信送进局里，实在叫人寒心。”{{/say}}"
+  },
+  "lane": [
+   {
+    "verdict": "authorized",
+    "grounds": "\"搭最早的车赶往卡西维依阿克塔伯3号农场\" names the registered destination state-farm-number-three by its canonical name",
+    "ms": 2272,
+    "lines": [
+     1
+    ],
+    "key": "87856d095a52",
+    "proposed": [
+     "apply move: to=\"state-farm-number-three\"; label=\"卡西维依阿克塔伯3号农场\"; travel_minutes=600; registered_destination={\"handle\":\"state-farm-number-three\",\"label\":\"卡西维依阿克塔伯3号农场\",\"summary\":\"小型国营农场：整个卡西维依阿克塔伯公社共十六户居民，分散于1号到3号农场，位于古比雪夫州首府古比雪夫市东南约二百公里、距离萨马拉河仅二公里处。3号农场有十九座单层木屋、一座混凝土亚麻加工坊和一座混凝土拖拉机棚；四周被大量农田环绕，主作物为亚麻，另种冬小麦和甜菜作为轮换作物。\"}"
+    ]
+   },
+   {
+    "verdict": "not_authorized",
+    "grounds": "Player chose the farm and to look for supervisor Boris there; the Keeper routes to a separate, remote dwelling instead of the farm the player named.",
+    "missing": "Whether to go to Boris's outlying separate residence rather than the farm settlement the player chose",
+    "ms": 2370,
+    "lines": [
+     2
+    ],
+    "key": "cf74dc317711",
+    "proposed": [
+     "apply move: to=\"production-supervisor-living-apart-from-farm\"; via=\"抵达农场定居点后，循路找到生产监督员鲍里斯·加庞住得较偏的住所。\"; label=\"加庞的住处\""
+    ]
+   }
+  ]
+ },
+ "T9": {
+  "turn": 9,
+  "session_row_player": 2243,
+  "session_row_call": 2422,
+  "player": "我盯着他的眼睛：“她是怎么死的？你怎么看？”然后让他指路，我去她家看尸体。",
+  "call_id": "call_0d14b9bd81fc4ea191b9aa0b8169f029|fc_044f65910e0764f7016ac797f60254819884ecbe236f2532d8",
+  "apply": {
+   "effects": [
+    {
+     "kind": "npc",
+     "name": "鲍里斯·亚历山德罗维奇·加庞",
+     "mood": "他不快地听着追问，仍愿意指出她家；谈及她的死时，他把自己的猜测说得迟疑。",
+     "why": "你追问死因和看法，并要求他指路。"
+    },
+    {
+     "kind": "npc",
+     "name": "鲍里斯·亚历山德罗维奇·加庞",
+     "intent_ref": "intent:production-supervisor-living-apart-from-farm:93beb3360584",
+     "intent_outcome": "done"
+    },
+    {
+     "kind": "move",
+     "to": "阿布拉莫夫家的房子",
+     "label": "斯莫斯卡娅家",
+     "via": "加庞应你的要求指路，你沿村中小路走到她家。"
+    }
+   ],
+   "narrate": "你盯着加庞的眼睛，追问嘉琳娜是怎么死的、他怎么看，又让他指路去她家。{{roll:psychology-t9-c1}}你看不出他是否在隐瞒什么。他摸了摸胡子，眉头紧着，说：“今早有人在北边池塘发现她，尸体送回家了。我听说她是喝醉后掉进水里的……究竟怎么回事，我没亲眼看见。她跟我说过，她亲眼看见彼得·阿布拉莫夫拔庄稼根、往拖拉机燃料里掺沙。我不相信阿布拉莫夫一家会干这种事；家家都没完成指标，拖拉机坏了，马也病着。”他给你指出村中一条通往她家的路。你沿着那条路走去。农舍低矮，木墙久经风雨；院里有人进出，屋内传出压低的交谈声。屋里停放着嘉琳娜的遗体。"
+  },
+  "lane": [
+   {
+    "verdict": "not_authorized",
+    "grounds": "player asked 让他指路，我去她家看尸体 (Smoskaya's house); proposed move is to 阿布拉莫夫家的房子, a different place",
+    "missing": "which household the player intends to visit — the dead witness's home, as the player said, or another place",
+    "ms": 4938,
+    "key": "590bc4c86963",
+    "proposed": [
+     "apply move: to=\"阿布拉莫夫家的房子\"; label=\"斯莫斯卡娅家\"; via=\"加庞应你的要求指路，你沿村中小路走到她家。\"; registered_destination={\"handle\":\"house-at-farm-north-end\",\"label\":\"阿布拉莫夫家的房子\",\"summary\":\"位于农场最北边，沿泥泞土路经过耶扎罗夫家后可到；调查员初到农场时一家人正在睡觉。\"}"
+    ]
+   }
+  ]
+ },
+ "T16": {
+  "turn": 16,
+  "session_row_player": 3775,
+  "session_row_call": 3872,
+  "player": "那就走。我现在就去最北头的阿布拉莫夫家，敲门。",
+  "call_id": "call_d6ef6f5e3aaa4920b6e04d34f2b2cf9c|fc_05ccc358d1eb04ec016ac799f916c4819a96deee686e5dbd0d",
+  "apply": {
+   "effects": [
+    {
+     "kind": "move",
+     "to": "state-farm-number-three",
+     "label": "卡西维依阿克塔伯3号农场",
+     "travel_minutes": 30
+    },
+    {
+     "kind": "move",
+     "to": "阿布拉莫夫家的房子",
+     "label": "阿布拉莫夫家的房子",
+     "travel_minutes": 10,
+     "via": "沿泥泞土路向农场最北端走，经过耶扎罗夫家；到门前敲门。"
+    }
+   ]
+  },
+  "lane": [
+   {
+    "verdict": "not_authorized",
+    "grounds": "玩家说“我现在就去最北头的阿布拉莫夫家，敲门”，选择的是阿布拉莫夫家，不是整个3号农场。",
+    "missing": "选择前往3号农场这一目的地，而非他所指定的阿布拉莫夫家。",
+    "ms": 9911,
+    "lines": [
+     1
+    ],
+    "key": "3e0f6fb084e2",
+    "proposed": [
+     "apply move: to=\"state-farm-number-three\"; label=\"卡西维依阿克塔伯3号农场\"; travel_minutes=30; registered_destination={\"handle\":\"state-farm-number-three\",\"label\":\"卡西维依阿克塔伯3号农场\",\"summary\":\"小型国营农场：整个卡西维依阿克塔伯公社共十六户居民，分散于1号到3号农场，位于古比雪夫州首府古比雪夫市东南约二百公里、距离萨马拉河仅二公里处。3号农场有十九座单层木屋、一座混凝土亚麻加工坊和一座混凝土拖拉机棚；四周被大量农田环绕，主作物为亚麻，另种冬小麦和甜菜作为轮换作物。\"}"
+    ]
+   }
+  ],
+  "line_ms": [
+   9911,
+   null
+  ]
+ },
+ "R3_T1": {
+  "turn": 1,
+  "player": "我先去波士顿环球报的档案室，查这栋房子以前的旧报道。",
+  "call_id": "call_424758cdccc04956a6cd90dde44f8d19|fc_0873aff3cc686371016ac7af85c7f4819aada67087bdea394d",
+  "apply": {
+   "effects": [
+    {
+     "kind": "move",
+     "to": "newspaper-morgue",
+     "label": "《波士顿环球报》档案室",
+     "travel_minutes": 30,
+     "owed": ""
+    }
+   ]
+  },
+  "lane": [
+   {
+    "verdict": "not_authorized",
+    "grounds": "The player chose the Boston Globe archive, but the registered destination is the Boston Globe offices; the archive is not a listed name for that place.",
+    "missing": "Choosing to travel to the Boston Globe offices.",
+    "ms": 2453,
+    "key": "26cd93340d35",
+    "proposed": [
+     "apply move: to=\"newspaper-morgue\"; label=\"《波士顿环球报》档案室\"; travel_minutes=30; registered_destination={\"handle\":\"newspaper-morgue\",\"label\":\"newspaper-morgue\",\"summary\":\"scene newspaper morgue\",\"canonical_name\":\"Boston Globe offices\",\"also_called\":[\"Boston Globe\",\"Globe offices\",\"Globe clippings morgue\",\"Boston Globe newsroom\",\"Globe clipping archive\"],\"access\":{\"discoverability\":\"public\",\"direct_entry\":\"independent\"}}"
+    ]
+   }
+  ]
+ },
+ "R3_T9": {
+  "turn": 9,
+  "player": "我请档案职员帮我调出科比特家那栋房子的产权登记，看看沃尔特·科比特是怎么处置这房子的，他后来又怎么样了。",
+  "call_id": "call_dd442275156f4f6191f5062d2152e87c|fc_000b8b406add7bc2016ac7b28da9ac819b9a012e73ddfa8ccb",
+  "apply": {
+   "effects": [
+    {
+     "kind": "clue",
+     "clue": "will-executor-chapel",
+     "how": "你在市政档案中查到科比特遗嘱执行人的记录。"
+    },
+    {
+     "kind": "clue",
+     "clue": "chapel-closed-1912",
+     "how": "你查阅教会名录时发现这座教堂的结业记录。"
+    },
+    {
+     "kind": "handout",
+     "name": "the-haunting-handout-7-will-executor-chapel"
+    },
+    {
+     "kind": "npc",
+     "name": "档案职员",
+     "mood": "有人礼貌地询问产权和遗嘱记录；他愿意解释查到的范围。"
+    },
+    {
+     "kind": "time",
+     "minutes": 240,
+     "why": "你在市政档案中查阅产权、遗嘱及教会登记。"
+    }
+   ],
+   "narrate": "你向档案职员说明要查科比特家的产权登记，以及沃尔特·科比特后来如何处置房子。档案室里，城市登记簿按索引归档；职员把几册卷宗放到阅览桌上，供你逐项核对。{{time:t9-c1}}你查到科比特遗嘱的执行人是沉思礼拜堂的牧师迈克尔·托马斯；教会名录则记着，这座礼拜堂于一九一二年关闭。{{clue:will-executor-chapel}}{{clue:chapel-closed-1912}}{{handout:the-haunting-handout-7-will-executor-chapel}}这些记录没有说明科比特后来如何处置房屋，也没有给出他的埋葬结果。档案职员指了指登记簿的索引：「产权簿能告诉你房屋易手的记录；遗嘱档案只列执行人。至于刑事案件，市里的民事卷宗不收那些材料。」他抬眼看你，等你决定是否继续查产权簿。"
+  },
+  "lane": [
+   {
+    "verdict": "not_authorized",
+    "grounds": "You asked the Hall of Records clerk to retrieve the property records; the earlier plan named the municipal archive, not this clerk or a request to them.",
+    "missing": "Choosing to ask this clerk to retrieve the records.",
+    "ms": 3418,
+    "lines": [
+     1
+    ],
+    "key": "a396b2433fde",
+    "proposed": [
+     "apply clue: clue=\"will-executor-chapel\"; how=\"你在市政档案中查到科比特遗嘱执行人的记录。\""
+    ]
+   },
+   {
+    "verdict": "entailed",
+    "grounds": "The unfinished declaration chose to go to the municipal archives and check the property records; the current request continues that research. The settled time and this research time are routine.",
+    "ms": 3297,
+    "lines": [
+     4
+    ],
+    "key": "7cab93967dd2",
+    "proposed": [
+     "apply time: minutes=240; why=\"你在市政档案中查阅产权、遗嘱及教会登记。\""
+    ]
+   }
+  ]
+ },
+ "R3_T12": {
+  "turn": 12,
+  "player": "我忍着额头的刺痛，在废墟里仔细翻找，看有没有通往地下室的入口，或者牧师留下的文件、书信。",
+  "call_id": "call_fdc24739756e4ee1be40023ddd41d7ef|fc_070f176502efd8f9016ac7b31416e48198ab836a2c04fdf31f",
+  "apply": {
+   "effects": [
+    {
+     "kind": "clue",
+     "clue": "chapel-journal-burial",
+     "intent_outcome": "attempted",
+     "why": "翻开废墟间的柜子，找到其中发霉的教会日记。"
+    },
+    {
+     "kind": "clue",
+     "clue": "liber-ivonis-tome",
+     "intent_outcome": "attempted",
+     "why": "在柜子旁发现一本虫蛀严重、许多段落无法辨读的拉丁文手稿。"
+    }
+   ],
+   "narrate": "你在废墟中耐着刺痛搜寻，翻开腐朽的柜子，又检查柜底和周围散落的残物。{{clue:chapel-cellar-remains}}柜子里有一本发霉的教会日记，记着沃尔特·科比特依照自己的意愿、也依照“那位在黑暗中等待者”的意愿，葬在他家的地下室。柜旁还压着一本巨大的手写拉丁文书，虫蛀严重，许多段落已经无法辨读。{{clue:chapel-journal-burial}}{{clue:liber-ivonis-tome}}废墟里没有显露出通往地下室的入口；残墙与倒塌的梁木仍封着那处去路。"
+  },
+  "lane": [
+   {
+    "verdict": "not_authorized",
+    "grounds": "You chose to search the ruins for a cellar entrance or the pastor’s papers and letters; the Latin manuscript is a different proposed find.",
+    "missing": "Choosing to search for or take the Latin manuscript",
+    "ms": 3038,
+    "lines": [
+     2
+    ],
+    "key": "233867b62262",
+    "proposed": [
+     "apply clue: clue=\"liber-ivonis-tome\"; intent_outcome=\"attempted\"; why=\"在柜子旁发现一本虫蛀严重、许多段落无法辨读的拉丁文手稿。\""
+    ]
+   }
+  ]
+ },
+ "R3_T16": {
+  "turn": 16,
+  "player": "我先不管楼上的动静，顺着走廊找通往地下室的门。找到了就用手电照着往下看，先不急着下去。",
+  "call_id": "call_55db04c48251439bbf00aa04fd63e93f|fc_017468010a441070016ac7b3c44540819babbd205471860bcd",
+  "apply": {
+   "effects": [
+    {
+     "kind": "move",
+     "to": "basement-rites",
+     "label": "老宅地下室",
+     "travel_minutes": 0
+    }
+   ],
+   "narrate": "你沿着狭窄走廊往后走，逐处查看墙面与门口。家用杂物挤在厨房附近，窄道尽头有一扇通往地下室的门。你没有下去，只把手电光探入门后的黑暗；木阶向下延伸，扶手蒙尘，底下看不清。"
+  },
+  "lane": [
+   {
+    "verdict": "authorized",
+    "grounds": "You chose to search the hallway for the basement door: “顺着走廊找通往地下室的门。” The registered destination is the Corbitt House basement.",
+    "ms": 3193,
+    "key": "f230f0a79957",
+    "proposed": [
+     "apply move: to=\"basement-rites\"; label=\"老宅地下室\"; travel_minutes=0; registered_destination={\"handle\":\"basement-rites\",\"label\":\"basement-rites\",\"summary\":\"scene basement rites\",\"canonical_name\":\"Corbitt House basement\",\"also_called\":[\"the basement of the Corbitt House\",\"the Corbitt House cellar\",\"the sealed cellar\"]}"
+    ]
+   }
+  ]
+ },
+ "TRF_t3": {
+  "turn": 3,
+  "player": "我把信翻过来再看一遍署名：“上尉同志，写信的人叫什么名字？被点名的这户人家姓什么？我今天就动身去农场。”",
+  "apply": {
+   "effects": [
+    {
+     "kind": "move",
+     "to": "state-farm-overview-and-layout",
+     "label": "3号国营农场",
+     "via": "你已奉命离开古比雪夫前往农场；如今抵达其定居点。"
+    }
+   ]
+  },
+  "lane": [
+   {
+    "verdict": "authorized",
+    "grounds": "“我今天就动身去农场” — 玩家明确选择动身前往农场；registered_destination 即该农场。",
+    "ms": 1763,
+    "key": "585efd18a088",
+    "proposed": [
+     "apply move: to=\"state-farm-overview-and-layout\"; label=\"3号国营农场\"; via=\"你已奉命离开古比雪夫前往农场；如今抵达其定居点。\"; registered_destination={\"handle\":\"state-farm-overview-and-layout\",\"label\":\"4. 关于卡西维依阿克塔伯三号农场(ABOUT KRASIVYI OKTABUR-3)\",\"summary\":\"4. 关于卡西维依阿克塔伯三号农场(ABOUT\\nKRASIVYI OKTABUR-3)\\n3 号农场有十九座单层木屋，一座混凝土亚麻加工坊，\\n外加混凝土拖拉机棚(天冷时用作畜棚)。其他建筑都\\n呈现不同程度的失修，只有加庞的房子看上去才真\\n正在维护。\\n整个农场四周被大量农田环绕，地图 1 提供了该区域\\n概览，地图 2(23 页)是农场具体平面图。\"}"
+    ]
+   }
+  ]
+ },
+ "probe_round3": {
+  "note": "the live reviewer probe's round 3 (experiments/refusal-recovery/probe.mjs, openai-codex/gpt-6-luna, thinking off, the §197 prompt, 3 runs per line): the most frequent answer per line and its count; verdict fields only, no grounds",
+  "answers": {
+   "R3-T9-clerk": {
+    "player_words": "ask",
+    "verdict": "authorized",
+    "of": "2/3"
+   },
+   "R3-T1-alias": {
+    "player_words": "narrate",
+    "verdict": "authorized",
+    "of": "3/3"
+   },
+   "R3-T12-find": {
+    "player_words": "narrate",
+    "verdict": "entailed",
+    "of": "2/3"
+   },
+   "R3-T12-journal": {
+    "player_words": "narrate",
+    "verdict": "entailed",
+    "of": "3/3"
+   },
+   "R3-T16-holdback": {
+    "player_words": "hold",
+    "verdict": "not_authorized",
+    "open_choice": "keeper_added",
+    "of": "3/3"
+   },
+   "R3-T17-control": {
+    "player_words": "narrate",
+    "verdict": "authorized",
+    "of": "3/3"
+   },
+   "R3-T1-interest-control": {
+    "player_words": "none",
+    "verdict": "not_authorized",
+    "open_choice": "player_open",
+    "of": "2/3"
+   },
+   "F2-T1-handover": {
+    "player_words": "none",
+    "verdict": "not_player_action",
+    "of": "2/3"
+   },
+   "F2-T3-farm": {
+    "player_words": "narrate",
+    "verdict": "authorized",
+    "of": "3/3"
+   },
+   "F2-T3-added": {
+    "player_words": "narrate",
+    "verdict": "not_authorized",
+    "open_choice": "keeper_added",
+    "of": "3/3"
+   },
+   "F2-T9-mapped": {
+    "player_words": "narrate",
+    "verdict": "not_authorized",
+    "open_choice": "keeper_added",
+    "of": "3/3"
+   },
+   "F2-T16-detour": {
+    "player_words": "narrate",
+    "verdict": "not_authorized",
+    "open_choice": "keeper_added",
+    "of": "3/3"
+   },
+   "F2-T16-house": {
+    "player_words": "narrate",
+    "verdict": "authorized",
+    "of": "3/3"
+   },
+   "TRF-t3-speech": {
+    "player_words": "say",
+    "verdict": "not_authorized",
+    "open_choice": "keeper_added",
+    "of": "2/3"
+   }
+  }
+ }
+}

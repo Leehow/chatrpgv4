@@ -8626,7 +8626,7 @@ A refusal reaches the Keeper as an ordinary tool refusal (§8's `code: message` 
 - `needs` with `details.reason: "action_not_authorized"` — `details.missing` names the choice the player
   has not made, `details.verdict` and `details.grounds` say why. The `fix` tells the Keeper not to roll,
   move, spend or land anything for it, not to resend the same action in other words, and to close with
-  `narrate` putting that choice in front of the player in the fiction, without a menu.
+  `narrate` putting that choice in front of the player in the fiction, without a menu. *(Amended by §197, 2026-10-08: `details.open_choice` says whether the player left that choice open (`player_open`, this text) or the proposal added to a choice the player had made (`keeper_added`: leave it out and carry out what they chose, without asking); a refused batch whose other lines were admitted names them in `details.admitted`, to be resent exactly, once.)*
 - `needs` with `details.reason: "admission_unavailable"` (`details.cause` is the lane's failure reason:
   `model_unavailable`, `model_error`, `bad_output`, `timeout`, `session_gone`; `details.streak` is how
   many reviews in a row have failed) — no review, no authority.
@@ -8672,7 +8672,7 @@ keyword, quotation or language classifier. Role-first family revision `2a.5` upd
 question and its chosen/unchosen criteria; the `roles-2a.3` design selector, host arithmetic, thresholds,
 closed verdicts and fallback route remain unchanged. Historical experiment requests stay frozen.
 Verification uses targeted live reviewer probes for the distinction and controlled extension tests
-for refusal before mutation. Neither is a real-table acceptance claim.
+for refusal before mutation. Neither is a real-table acceptance claim. *(Amended by §197.4, 2026-10-08: this read one direction only, and the reviewers then refused the player's own narration of a trip as a plan; the boundary now says both directions -- speech to someone about a future act is not the act, the player's own narration of steps is -- with the reviewer filling `player_words` first; v1 family 3, role-first 2a.6.)*
 
 **Picking one of the options the delivery named is a choice (2026-09-11 ruling).** The same six words,
 「那看看报纸」, were refused on one table and admitted on another, and a five-model probe split three to
@@ -9745,7 +9745,7 @@ else the lines still under review (`review_pending`). The deciding line's refusa
 `fix`, and `details` with `missing` and `grounds` as that line's review gave them -- with every line of the batch in
 `details.proposed` and each line not admitted in `details.line_outcomes` (`{line, reason, verdict?, missing?, grounds?,
 cause?, streak?, cap_ms?, wait_ms?}`). A line refused `not_authorized` decides the batch at once, whatever the lines still
-running would say: the review returns and those rounds are stopped, unsettled, so nothing is left pending on them. A
+running would say: the review returns and those rounds are stopped, unsettled, so nothing is left pending on them. *(Amended by §197.1, 2026-10-08: the review waits for every line, up to the cap, so the refusal can name the lines that were admitted; the batch's verdict is unchanged.)* A
 line refused `uncertain` does not: a later `not_authorized` would decide instead, so the review waits for the others (at
 most to the cap).
 
@@ -9852,7 +9852,7 @@ signatures (`effectSignature`, §32.4's identifying fields) of the call's other 
   none of its lines, and each is reviewed again beside its new batch-mates. That includes the Keeper's retry without a
   refused line: §32.12.3.1's "the Keeper's retry without a refused line lands on the kept verdicts of the lines that were
   admitted, with no new review" no longer holds, because those verdicts were given beside the line that is gone (the time
-  of a trip admitted beside the trip is not a verdict on the time alone);
+  of a trip admitted beside the trip is not a verdict on the time alone); *(amended by §197.1, 2026-10-08: a resend of exactly the lines a refused batch admitted, as its refusal names them in `details.admitted`, reuses their verdicts once, with no review; any other retry is reviewed as written here)*
 - a one-line batch's key is what it was, and is never the key of a line of a larger batch.
 
 The batch's own key (§32.4: every effect's signature and the move targets) and the combined verdict it keeps when every
@@ -39938,6 +39938,315 @@ not seeded; the pool not ranked; seeded passages keeping their slots; located pa
 read first; the summary copy kept in the envelope; `offered` not recorded; passages rebuilt every turn; the key ignoring the
 records; the listing ignoring home; unjudged passages sent as located; native slices made passage cards; a moved store
 waiting for its rebuild; a first build not waited for.
+
+## 197. Refusal recovery carries the turn forward (lead's rulings, 2026-10-08, after TR-F2 run 2; `docs/specs/refusal-recovery.md`; amends §32.2 (its 2026-10-08 speech paragraph included), §32.8, §32.12.3.1, §32.12.3.1.1 and §32.12.3.2's role-first revision)
+
+**Why.** TR-F2 run 2 (App `4ce2e4cab`, Cold Harvest, campaign `game-565055f1-8a99-4e69-9932-ca64c0e27d93`, Keeper
+`openai-codex/gpt-6-luna` low, admission lane `opencode-go/deepseek-v4.1-flash`). Six of eighteen turns (T1, T3, T9, T15,
+T16, T18) ended with the player's intent not carried out and a reply that told the player nothing. Owner, 2026-10-08:
+「KP发了些没有什么有意义的信息的回复…肯定是系统问题」, 「玩家意图没有正确执行也是系统问题」. Four of them are the admission
+refusal's own path, read off the turn's `lane: "admission"` rows and the session's tool results:
+
+- **T3 and T16: all or nothing.** T3's `apply` carried two moves: line 1 to `state-farm-number-three`, the farm the player
+  named, `authorized` ("names the registered destination ... by its canonical name"); line 2 to
+  `production-supervisor-living-apart-from-farm`, `not_authorized` ("routes to a separate, remote dwelling instead of the
+  farm the player named"). `batch_admitted: false`, nothing landed, and the `fix` -- "do not resend the same action in other
+  words" -- forbade landing the line the player had chosen. T16: line 1 a detour via the farm, refused at 9 911 ms; line 2
+  the Abramov house the player named was **stopped unanswered** (`line_ms: [9911, null]`, §32.12.3.1's "a `not_authorized`
+  line decides the batch at once"); the "authorized" for it was Jev's typed reading (0.92), which may not settle a `move`
+  (§32.12.3.2). Neither turn advanced.
+- **T3 and T9: the player was asked a choice they had made.** T3's `missing` was the Keeper's own added step ("Whether to go
+  to Boris's outlying separate residence rather than the farm settlement the player chose"); T9's was a destination the
+  Keeper had mapped wrong ("which household the player intends to visit -- the dead witness's home, as the player said, or
+  another place"). The `fix` told the Keeper to put that choice in front of the player, and it did: 「是否特意去他单独的住处，
+  还没有定下」, 「要去看的，是嘉琳娜的家，还是你另有所指？」.
+- **T1: an NPC's act judged as the player's.** The book's captain hands the investigator the folder (p. 9 §2.1). The
+  Keeper's second try was `object {name 档案袋, definition 档案夹, to <the investigator>, condition intact, why
+  "桌后的上尉把系着麻绳的档案袋及其中两份文件递给特派员。"}` beside an unreviewed `npc` arrival. The lane refused it:
+  `missing` 「档案袋由上尉递交给索科洛夫这一转移；玩家选择的是无人应答时自己动手解绳」. The turn closed on 「屋里没有回应」, and the
+  player's own conditional (open the folder) was not done either. The first try, the same object line beside two
+  handouts, had been `entailed`: the verdict was unstable on a line that says nothing of who acts.
+
+T15 (`review_timeout`: no first byte within the 26 s hard cap, twice) is the review-timeout policy, which this section does
+not change. T18 (`walk_on` refused for a person already on the table) is not admission.
+
+### 197.1 A refused batch names its admitted lines
+
+**The lines all finish.** In §32.12.3.1's per-line review a line refused `not_authorized` no longer ends the review and stops
+the other lines' calls: the review returns when every line has its outcome or at the cap, as it already did for
+`uncertain` (`reviewAdmissionPrimary`). The batch's verdict is what it was -- admitted only when every line is, and
+otherwise refused whole on the refusal `batchRefusal` picks -- and a line still running at the cap of a batch already
+refused is stopped and left unsettled, as before. The cost is the slowest line's time up to the cap, which is what an
+admitted batch already waits; it buys the knowledge of which lines the player chose. T16 was refused before its line 2
+answered; under this rule its refusal names line 2 when line 2 answers within the cap.
+
+**The refusal names them.** When a batch of more than one reviewed line is refused for `action_not_authorized`,
+`admission_unavailable` or `review_timeout`, and one or more of its lines were admitted on their own review (a lane verdict
+with grounds, or the typed reading's settle, §32.12.3.2 -- the verdict kept under the line's own key), the refusal carries:
+
+- `details.admitted`: those lines' effects, verbatim as the Keeper sent them (host-only `_` fields left out), in the batch's
+  order;
+- one more paragraph of `fix`: only the lines in `details.line_outcomes` were refused; resend exactly the effects in
+  `details.admitted`, unchanged, as one `apply` call -- once, before the delivery -- with the refused lines left out
+  (effects no review reads, such as `npc` or `person` staging, may go with them); the host recognises them and lands them
+  without another review; narrate the turn from what landed; if an admitted effect only made sense beside a refused line,
+  leave it out too, and the call is then reviewed afresh; what the refusal says against resending or retrying ("in other words", "do not retry it") applies to the refused lines only.
+
+Not on `review_pending` (the identical resend collects the lines still running and reuses the answered ones, §32.12.3.1) and
+not on `action_proposal_mismatch` (the correction path re-proposes the corrected batch whole, §173).
+
+**Recognition: no second review, no changed line through.** The host keeps, per refused call of the turn
+(`state.admissionRecovery`, cleared with the next player input like §32.4's verdicts), its admitted lines' `effectSignature`s
+and kept verdicts. A later `apply` of the same turn whose reviewed lines are, as a multiset of `effectSignature`s
+(§32.4.1's identifying fields), exactly those lines -- none missing, none added, no refused line -- is a **recovery**
+(`recoveryMatches`, pure): each line's kept verdict is put under the key this call looks it up by (the call's key for one
+line; each line's batch-scoped key, §32.12.3.1.1, for more), and the call takes §32.4's reuse with no lane call and no typed
+call. Its rows say `reused: true` and `recovered_from` (the refused call's key digest). "Once" is the Keeper's
+instruction, not a host counter: the entry is kept for the turn as §32.4 keeps a verdict, so a recovery the kernel then
+refused for its own reasons (a `walk_on` in the staging, say) matches again when it is resent with the staging fixed, and
+reuses the same verdicts on the same lines -- never a verdict on anything else. A line changed in any field `effectSignature` reads
+(anything but `why` and `how`), a line added, or an admitted line left out does not match, and the call is reviewed as any
+call is (§32.12.3.1.1's keys). §32.12.4's prefetch starts no review for a call that matches.
+
+**What this relaxes.** §32.12.3.1.1 keeps a line's verdict only beside the same batch. A recovery reuses an admitted line's
+verdict without the refused lines it was judged beside. Each per-line call already judges its one line ("each is judged in
+its own review, not in yours", `BESIDE_HEADING`), and the Keeper, who knows why it proposed each effect, is told to leave out
+an admitted effect that only made sense beside a refused one -- the host does not judge that dependency, and no list could.
+A Keeper that resends such an effect anyway lands it on its own verdict: that is this rule's known boundary, and it has its
+own test.
+
+**What is unchanged.** Kernel atomicity: the host never applies anything on the Keeper's behalf; the admitted lines land
+only when the Keeper sends them, as one call with its own `call_id` and receipts. What §32.1 puts to review, the verdicts,
+the cap, late admission and pending, and §190.3's `refused_moves` (the refused batch's moves as it stood).
+
+### 197.2 The refusal says whose choice is open
+
+The lane's answer gains **`open_choice`**, beside `missing`, on `not_authorized` and `uncertain`:
+
+- `keeper_added`: the player's words already make their own choice clear, and the refused line adds to it or departs from it
+  -- a destination, stop, detour, route, method, target, cost or act the Keeper put in that the player did not choose, or
+  what the player named mapped onto a different place or thing. `missing` names what was added. The Keeper leaves the line
+  out and carries out what the player chose; the player is not asked again.
+- `player_open`: the player's words genuinely leave this choice undecided; the Keeper puts it to them in the fiction.
+
+The reviewer says it (`admissionSystemPrompt`, its answer shape); no list or pattern decides it. `shapeVerdict` keeps it only
+with one of the two values, on a refusing verdict that carries `missing`; any other value, or the field anywhere else, is
+dropped: an advisory field never turns an answer into `bad_output`. Absent, the refusal is today's.
+
+`admissionRefusal`'s `fix` branches on it. `player_open` and absent: today's (put the choice named in `details.missing` in
+front of the player in the fiction, without a menu). `keeper_added`: the player already chose; `details.missing` names what
+this proposal added; do not roll, move, spend or land anything for it and do not resend it in other words; do not ask the
+player to choose again or to repeat what they said; carry out what they chose -- a proposal of their act as they chose it
+(a place the table does not have yet may be established with `move` `establish`) is reviewed afresh; whatever this turn
+already settled with a receipt did happen and is narrated. `details.open_choice` and the row's `open_choice` carry the value.
+§197.1's paragraph is appended to either. The host's own refusing verdicts (§143.18's compile act refusal, the cash
+authority bound) carry none and keep today's text. The typed reviewer is unchanged: it never refuses (§32.12.3.2).
+
+### 197.3 An NPC's act is not the player's
+
+**How the review framed the actor (finding).** A `resolve` names its `actor`, and one who is not an investigator is not
+reviewed at all (§32.1). An `apply` line names none: the reviewer read who acts from the effect's fields and the Keeper's
+`why`, which the prompt calls not evidence of consent. The prompt then said "An object pickup or transfer is a real proposed
+action, even beside definition or usage preparation", and only afterwards "an NPC's own initiative remains
+not_player_action". T1's object line named no giver -- the hand-over was only in `why` -- and the lane judged the captain's
+hand-over against the player's own conditional plan.
+
+**Rule A: the line names the acting party, read from the effect's own closed fields** (`effectActingParty`, pure). When the
+effect says who performs it and that person is not an investigator (the investigators' names and their sheets' handles, as
+§143.18 reads `actor`), the line ends with `acting_party=<name> (not an investigator)`:
+
+- `object` whose `handover` is `given`: `from`, the one who parts with it willingly (the kernel requires `handover` exactly
+  when two people are on either side, so both are people); `taken`: `to`, the one who takes it; `check`: none (a roll decided
+  it);
+- `object` with `offer` `made`: `from`, who holds it out; `accepted` or `declined`: `to`, who answers;
+- `clue` with `from`: the person who told it (`from` is "the NPC who handed it over").
+
+`item`'s `from` is not read: it names who a thing came from whether they gave it, sold it or lost it. Closed enums and name
+matching only; the agency judgement stays the reviewer's. The reuse key is unchanged: `from`, `to`, `handover` and `offer`
+already identify the effect (§32.4.1).
+
+**Rule B: the instruction.** The object sentence now says a pickup or a transfer **the investigator makes** is a real
+proposed action, and the prompt adds: a line's `acting_party` performs it on their own initiative -- giving, handing over,
+holding out, taking, telling -- and that is not the investigator's voluntary action: `not_player_action`, never refused
+because the player planned something else, did not ask for it, or made a plan conditional on nobody acting; only a voluntary
+commitment on the investigator's own side of it (paying, promising, accepting a bargain, keeping what the player refused)
+still needs the player's choice. A line that names no acting party may still be another person's act: read who acts from the
+line as a whole, `why` included (it describes the proposal, never consent); a thing put into the investigator's hands by
+someone else is that person's act.
+
+**Rule C: the Keeper names the giver.** The `object` tool's `from` description gains: on a first placement that a person
+hands over, name them here too (with its `handover`); the kernel already records a first placement's giver
+(`moveObject`, `kernel-ts/mods/objects.ts`). The `clue` tool's `from` already asks for the person who told it.
+
+**"Against the fiction and the book".** Admission judges agency; it does not judge whether an NPC's act is true. §32.2's
+2026-09-21 clarification already keeps "consequence truth and source support ... with their existing authorities", and
+§32.3 keeps the book out of the lane. Whether the captain hands over the folder is the Keeper's to decide from the book it
+holds, the kernel's to check against state, and the verifier lane's (§12.5) to read against the facts. This section gives
+admission no book access; doing so would amend §32.3.
+
+### 197.4 Speech is not execution, and the player's own narration is (coordinator's ruling, 2026-10-08; amends §32.2's 2026-10-08 paragraph)
+
+**What ab81805b2 was for, and what it did.** Commit `ab81805b2` (Codex, 2026-10-08 03:18, "fix: distinguish dialogue plans
+from current actions") was written for TR-F turn 3 (`game-56788eff-…`): turning the denunciation letter over, the
+investigator asked the captain who wrote it and which family it names and said to him 「我今天就动身去农场」, and the table
+moved him to the farm (the lane: `authorized`, "chooses departure"). It added `PLAYER_EXECUTION_CHOICE_NOTE`
+(`runtime/jev/action-field-semantics.ts`) to the lane's system prompt and to both typed designs (v1 rules, family
+version 2; role-first choice question, `not_for` "merely says a plan, promise…", revision 2a.5). It read one direction
+only, and from the first App that carried it the reviewers read the player's own narration of a trip as a "plan":
+admission refusals went from 0 in 16 campaigns (10-02 to TR-F, the same Keeper model) to 4 in TR-F2 run 2 and 4 in run 3
+-- run 2 T3 「我收好材料…搭最早的车赶往…3号农场。到了先找生产监督员鲍里斯」, T16 「那就走。我现在就去最北头的阿布拉莫夫家」,
+run 3 T9 「我请档案职员帮我调出…产权登记」 (refused as "the earlier plan named the municipal archive").
+
+**The rule, both directions.** What the investigator says to someone in the fiction about a future act -- a plan, promise,
+threat, bluff or hypothetical spoken to another person -- or text quoted from a document establishes the speech, not the
+act: "I will leave for the farm today", said to the captain while asking names, is not departure. The player's own
+narration of what the investigator does -- now, next, or as a sequence of steps laid out in order -- is execution, each
+step in its order; asking someone in the scene to do something chooses that request; a conditional is executed when its
+condition is met in the fiction. The note says this with the paired real-table lines as examples (in English: the system
+language), for the model to judge -- never as a matcher. It is rewritten in place, so the lane, the v1 rules
+(`ADMISSION_JEV_VERSION` 3) and the role-first choice question (its `chosen.what` and `not_for` say both directions too,
+`ADMISSION_ROLES_VERSION` 2a.6) all read it; §32.12.3.2's measured state, keys, arithmetic and settle classes are
+unchanged (the choice question was already outside the measured bytes since 2a.5). `prompts/keeper.md`'s "Current actions
+and speech" paragraph says the narration half too.
+
+**`player_words`, the reviewer's first step (schema).** The lane's answer gains `player_words`, filled first: how the
+player's own words bear on this line -- `narrate` (the player narrates the investigator doing it, now, next, as a step of
+a sequence, or on a met condition), `ask` (asks someone in the scene to do it), `say` (only tells someone they will,
+would or might), `quote`, `hold` (the player says the investigator does not do it yet, or stops short of it) or `none`
+(the words do not speak of this line). `narrate` and `ask` choose the line as narrated or asked, by meaning; `say`,
+`quote` and `hold` never choose the act; `none` leaves it to the line's role (a routine step or result of a chosen act,
+not the investigator's act, or unchosen). It is the model's judgement; `shapeVerdict` keeps it only with one of the six
+values (anything else is dropped, never `bad_output`), the row records it, and the host decides nothing from it. Why a
+field and not only prose: on luna (thinking off) the note alone, with the TR-F line as its own example, still authorized
+that line in every answered run of round 1 (§197.9); asking for the reading before the verdict turned it.
+
+### 197.5 Meaning, finds and holding back (real table run 3, The Haunting, lane `openai-codex/gpt-6-luna`)
+
+Run 3 (`game-af36b938-…`, App `4ce2e4cab`) added four cases of the same family -- the reviewer reading words, not
+meaning -- in both directions:
+
+- **T1, cross-language alias.** 「去波士顿环球报的档案室」; the move to `newspaper-morgue` refused, "the archive is not a listed
+  name", while `also_called` held "Globe clipping archive".
+- **T9, over-literal plan wording.** The request to the records clerk refused against an earlier plan's wording (above).
+- **T12, a find of a chosen search, all or nothing.** The player searched the ruins for the priest's papers; the batch
+  held the church journal and a Latin tome; the tome was refused as "a different proposed find", the journal (stopped
+  unanswered) died with it, and the turn closed hollow.
+- **T16, the other direction.** 「找通往地下室的门…先不急着下去」; the move into `basement-rites` was authorized ("searching
+  the hallway for the basement door") and landed while the prose said 「你没有下去」: state and fiction split. §32.8's
+  "a move to a registered scene is arrival at that place's threshold" read finding the door as arriving.
+
+The instruction (`admissionSystemPrompt`) now says, before the verdicts: the threshold grain never overrides the player
+holding back (not yet, only looking in, staying at the door or the top of the stairs: the move into the place is not
+chosen, `keeper_added`; finding, opening or looking through a door is not going through it); judge meaning, never
+wording, across the table's languages (a translation, paraphrase, description, part or room of a registered name names
+it; never refuse for differing from a listed name, a label or an earlier plan's wording); the player's current words are
+their latest choice (a request now need not repeat an earlier plan's person, place or wording); a search, look, question
+or request chooses the act, not what it turns up (a find the player did not name or expect, or a record other than the
+one asked for, is the act's result whether or not it answers what they wanted to learn; opening or moving aside what lies
+in the search's way is a routine step of it; taking, using or acting on a find is a choice of its own). The verdict
+definitions carry the same: `authorized` by meaning in any language (walking down the cellar stairs is going to the
+cellar); `entailed` includes what a chosen search turns up; `not_player_action` is never an act the investigator would
+perform themselves (going somewhere, searching, opening, paying), chosen or not -- spoken of, held back from or unchosen,
+it is `not_authorized` or `uncertain`; `not_authorized` names speech-only and held-back acts, and never a find of a chosen
+search or the player's own choice in other words, another language or another person's name. With §197.1, T12's journal
+now finishes and is named for the resend.
+
+*Amended after §197.9's confirmation round (2026-10-08, resumed slice).* Round 3's find clause read "a record other than
+the one asked for **that answers what they wanted to learn**"; on the committed prompt the reviewer refused run 3 T9's
+executor record on exactly that condition ("not ... an answer to your question about Walter's later fate"), and once
+answered TR-F's speech line `not_player_action` -- an admitting verdict -- on grounds that it was speech, not travel. The
+condition is dropped and `not_player_action`'s definition gains the sentence above (round 4).
+
+### 197.6 The Keeper's prompt (§32.8)
+
+`prompts/keeper.md`'s paragraph on whose choice it is now says: the refusal names what the player has not chosen and whose
+choice is open; when the player left it open, put that choice in front of them in the fiction; when they had already chosen
+and the proposal added something or went elsewhere, leave out what was added and carry out what they chose, without asking
+again; either way never send the refused action back in other words; when only part of a batch was refused, the refusal
+lists the effects that were admitted -- resend exactly those once, unchanged, before the delivery.
+
+### 197.7 Three ends (§31)
+
+*Writer:* the per-line review (every line finishes), `combineLines` (`details.admitted`, `state.admissionRecovery`), the lane
+(`open_choice`, `player_words`), `effectActingParty` (`acting_party`), the two-way note in all three reviewers. *Reader:* `admitActionReviewed`'s recovery match and the prefetch's;
+the lane, which reads `acting_party` and is told what it means; the Keeper, through `details.admitted`, `details.open_choice`
+and the branched `fix` (every key the `fix` names reaches the tool result, §8). *Actor:* the Keeper, who resends the admitted
+effects or carries out the player's choice instead of asking; the operator, through `recovered_from` and `open_choice` on the
+rows.
+
+### 197.8 Tests
+
+`tests/extension/refusal-recovery.test.mjs`, at the extension seam with a deterministic review lane (the scripted
+`admission/a1`, answering by line), the fake kernel for the replays and the emitted kernel for the landing:
+
+- the pure rules: `recoveryMatches` (multiset, order-free, exact), `effectActingParty` (each ground, an investigator, a
+  place, `item` not read), `shapeVerdict`'s `open_choice`, `batchRefusal`'s `admitted` and its paragraph only on the three
+  reasons, the two `fix` branches;
+- a two-line batch with one refused line on the emitted kernel: every line finishes, the refusal names the admitted line,
+  the Keeper's resend of exactly it lands with no lane call (`recovered_from`), the scene moves; a changed resend (one
+  identifying field) is reviewed, and so is a resend that adds a line;
+- the same on the App's run engine (`PI_COC_LOOP_ENGINE=hybrid-v1`, play's default, `runtime/loop-engine.ts`): the refused
+  batch step falls (§135.5), the run returns to the Keeper, whose next step holds the admitted effects both in the tool
+  result and in the run's `model_refused` note (`coc_error.details.admitted`), and the resend lands with its receipt and no
+  lane call;
+- the boundary: an admitted effect resent alone after its batch-mate was refused lands on its own verdict;
+- `keeper_added` against `player_open`: the `fix` differs and names `details.missing`; absent is today's;
+- an NPC hand-over line reads `acting_party`, and the lane's system prompt explains the field it prints;
+- replays of TR-F2's T1, T3, T9 and T16 batches, run 3's T1, T9, T12 and T16 and TR-F's turn 3, their arguments copied
+  verbatim from the sessions (TR-F's from its admission row) into `tests/extension/fixtures/refusal-recovery-trf2.json`,
+  with the lane's recorded verdicts (plus `open_choice`) and the live probe's round-3 answers (§197.9): TR-F's speech line
+  refused and three execution lines landing on the probe's answers, rows recording `player_words`; run 3 T12's journal
+  named beside the refused tome and landed on resend; run 3 T16's cellar move landing on the recorded verdict and refused
+  as the Keeper's addition on the probe's (`hold`); run 3 T1's move on the emitted kernel (the starter's `newspaper-morgue`
+  is the table's place), its line carrying the same `canonical_name` and `also_called` the table's reviewer was shown --
+  "Globe clipping archive" included -- and landing with its receipt on the probe's answer (`narrate`);
+- §197.4's pairing: the note in the lane prompt and the v1 rules, the families at 3 and 2a.6, every `player_words` value
+  named in the answer shape, `shapeVerdict` keeping, dropping and never deciding on it.
+
+Mutations and existing tests changed are in the spec's Comments.
+
+### 197.9 The live reviewer probe (what the instruction changes did to the model's answers)
+
+Deterministic tests show what the host does with a verdict; whether the reviewer reads the boundary right is the
+model's, so it was measured: `experiments/refusal-recovery/probe.mjs` (cases built by `build_cases.py` from the tables'
+own evidence, read only; the case file stays outside the repository), the product's `admissionRequest`, `lineProposal`
+and `buildAdmissionInput`, lane `openai-codex/gpt-6-luna` thinking off (run 3's setting), credentials read the product's
+way and never printed, 3 runs per line, single attempts (the product's one retry on a malformed answer is not applied).
+Pre-registered per round before any call (in the scratchpad `PREREGISTER.md`, summarized in the spec's Comments).
+Fourteen lines: TR-F2 T1 (hand-over), T3 (farm; added stop), T9 (mapped house), T16 (detour; house); run 3 T1 (alias),
+T9 (clerk), T12 (journal; tome), T16 (held back), a T17-words control (walks down the stairs) and an interest-only control
+(「那看看报纸」 in T1's context); TR-F turn 3 (speech).
+
+- **Round 1**, `old` = the whole 4ce2e4cab prompt (its note included) against the first rewrite: old met 7 of 14 lines'
+  expectations counting any refusal as one (4 counting `keeper_added`, a value the old prompt did not have; it authorized
+  run 3 T16's held-back move 3/3 and refused the alias, the clerk, both T12 finds and the hand-over 3/3 each); new met 10. Missed by new: T12 tome 0/3 and journal 1/3, the stairs control 0/3, and TR-F's speech line,
+  which old and new both authorized whenever they answered.
+- **Round 2**, with `player_words` and the verdict definitions: 13 of 14 met; run 3 T9 0/3 ("asks for the deed register,
+  not the executor's record").
+- **Round 3**, the find paragraph naming a record that answers what the player wanted to learn: **14 of 14 met**
+  (at least 2 of 3 runs each; 0 malformed answers): speech line refused 3/3 (`say`; 2 `keeper_added`, 1 `player_open`); the execution lines
+  admitted (TR-F2 T3 farm 3/3, T16 house 3/3, run 3 T9 3/3 `ask`, the stairs control 3/3); run 3 T1 alias 3/3; T12 journal 3/3 and
+  tome 2/3 `entailed`; T16 held back refused 3/3 (`hold`, `keeper_added`); TR-F2 T1 hand-over 3/3 `not_player_action`; the
+  four Keeper additions refused 3/3 with `keeper_added`; the interest control refused 3/3, `player_open`.
+
+- **Confirmation** (resumed slice): round 3 predates the last edit of `admission.ts` in `28e5290e1`, so the committed
+  prompt (sha256 `32a7de21…`) was measured on its own, pre-registered, 3 runs per line: **13 of 14** met. Missed: run 3 T9,
+  1/3 (two refusals, `keeper_added`, `player_words` `ask`: "the proposed clue is an executor record, not the requested
+  record or an answer to your question"). TR-F's speech line met 2/3, but one answer was `not_player_action` (an
+  admitting verdict) with grounds saying it was speech.
+- **Round 4**, the two amendments in §197.5, pre-registered, 5 runs per line, `old` = the committed prompt as `base`:
+  the change met 13 of 14 at the pre-registered bar (4 of 5), base 13 of 14. The change met every run of thirteen lines
+  (5/5), including TR-F's speech line refused 5/5 (`say`, no admitting verdict; base 4/5, one `authorized`) and the
+  hand-over 5/5; run 3 T9 3/5 (base 2/5) -- **missed**: two refusals read the Keeper's `how` ("found in the municipal
+  archives") as a different search from the clerk's register. Summed over the fourteen lines, 68 of 70 runs met against
+  base 63; on no line did the change meet fewer runs than base. 0 failed calls for the change, 1 `bad_output` for base.
+
+Run 3 T9 stays the reviewer's unstable line on luna (the confirmation 1/3, round 4 3/5). It is reported, not tuned further
+inside this slice: a sentence written for one line's wording is the instance patch Agents.md's "System Gap Before
+Instance Patch" warns of.
+
+Not shown: other lane models, other books, the product's retry, or a table. That is RR-04.
+
 
 ## 199. The module graph states only what its source states (owner request 2026-10-08 after real table TR-F2 run 2; `docs/specs/graph-grounding.md`; amends §22.3, §151.3/§186.6, §168.5, §176.3 and §194.4)
 

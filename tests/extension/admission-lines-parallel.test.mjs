@@ -6,8 +6,8 @@
  * - An `apply` batch of more than one reviewed line sends one lane call per line, all at once, on the same lane model;
  *   each call reads the same §32.3 context and exactly one proposed line. The call waits for its slowest line, not the sum.
  * - The batch's verdict is the lines' combined (§32.10's mapping, as §32.12.3 maps a remainder): admitted only when every
- *   line is; a line refused on grounds refuses the batch whole, and `not_authorized` decides it at once, stopping the
- *   lines still running.
+ *   line is; a line refused on grounds refuses the batch whole. Since §197.1 the other lines still finish (up to the cap),
+ *   so the refusal can name the lines that were admitted.
  * - The cap, the late admission and `review_pending` apply per call: the batch is pending only on the lines still under
  *   review, and its resend re-joins only those.
  * - Verdict reuse (§32.4) keys by line. Since §32.12.3.1.1 (SL-104) each line's call also reads its batch-mates, and its key
@@ -274,7 +274,7 @@ test("§32.12.3.1: the cap applies per call -- a line past it is admitted late o
 
 // ---- the batch's verdict ------------------------------------------------------------------------------------------------
 
-test("§32.12.3.1: a line refused not_authorized decides the batch at once -- the other calls are stopped, nothing lands, nothing is left pending", async (t) => {
+test("§32.12.3.1 with §197.1: a line refused not_authorized decides the batch, but the other calls finish so the refusal can name them; nothing lands, nothing is left pending", async (t) => {
 	const clock = manualClock(), T0 = clock.at();
 	const lane = clockLane(clock, T0, [[/apply time/, ok("reporting back takes the walk"), 1000],
 		[/corbitt-diaries/, { verdict: "not_authorized", grounds: "the player only said he would report back", missing: "whether to ask Knott about the house" }, 200],
@@ -288,23 +288,30 @@ test("§32.12.3.1: a line refused not_authorized decides the batch at once -- th
 	const prompt = table.session.prompt(WORDS).finally(() => { ended = true; });
 	await waitFor(() => lane.calls.length === 3, { timeoutMs: 60_000, label: "three lane calls" });
 	await advance(table, clock, T0, 200, 1);
-	// Refused at 200 ms: the Keeper reads it, resends the same batch (refused again on the kept line), and closes.
-	await waitFor(() => ended, { timeoutMs: 60_000, label: "the run's end, with the clock still at 200 ms" });
+	// §197.1: the refusal at 200 ms no longer ends the review; the other two lines answer at 1 s, inside the cap.
+	assert.equal(ended, false, "the call waits for the lines still running");
+	assert.equal(toolResults(table.session, "apply").length, 0);
+	await advance(table, clock, T0, 1000, 3);
+	// Refused at 1 s: the Keeper reads it, resends the same batch (refused again on the kept line), and closes.
+	await waitFor(() => ended, { timeoutMs: 60_000, label: "the run's end, with the clock at 1 s" });
 	await prompt;
-	assert.equal(clock.at() - T0, 200, "the call did not wait for the lines still running");
+	assert.equal(clock.at() - T0, 1000, "the call waited for its slowest line, not past it");
 	assert.equal(kernelCalls(table, "table.apply").length, 0);
 	const [first, second] = toolResults(table.session, "apply");
 	assert.equal(first.details.coc_error.details.reason, "action_not_authorized");
 	assert.equal(first.details.coc_error.details.missing, "whether to ask Knott about the house");
 	assert.equal(first.details.coc_error.details.proposed.length, 3, "the batch is refused whole");
+	assert.deepEqual(first.details.coc_error.details.admitted, [TIME, COMMISSION], "and names the lines that were admitted");
 	assert.equal(second.details.coc_error.details.reason, "action_not_authorized");
+	assert.deepEqual(second.details.coc_error.details.admitted, [TIME, COMMISSION], "the resend refused at once names them too, from their kept verdicts");
 	const rows = admissionRows(table);
 	assert.deepEqual(rows.map((row) => [row.lines[0], row.verdict, row.reused, row.batch_admitted]),
-		[[2, "not_authorized", false, false], [2, "not_authorized", true, false]], "only the refusing line answered; its resend is refused at once by line");
-	assert.equal(rows[0].ms, 200);
-	assert.deepEqual(rows[0].line_ms, [null, 200, null], "the other two calls were stopped unanswered");
+		[[1, "authorized", false, false], [2, "not_authorized", false, false], [3, "authorized", false, false], [2, "not_authorized", true, false]],
+		"every line answered once; the resend is refused at once by line");
+	assert.equal(rows[1].ms, 200);
+	assert.deepEqual(rows[0].line_ms, [1000, 200, 1000], "each call's own time");
 	assert.equal(lane.calls.length, 3, "the resend made no lane call");
-	// Past every round's end: the stopped calls leave no pending review and no late row.
+	// Past every round's end: nothing was left running, so no pending review and no late row.
 	clock.advanceTo(T0 + 20_000);
 	await sleep(200);
 	assert.ok(!table.telemetry().some((row) => row.lane === "admission-late"), "nothing was left running for a resend");
@@ -367,8 +374,8 @@ test("§32.12.3.1 with §32.12.3.1.1: verdict reuse keys by line beside its batc
 	await table.session.prompt(WORDS);
 	const proposed = table.lanes.admission.requests().map((text) => proposedLines(text)[0].split(";")[0]);
 	assert.deepEqual(proposed.sort(), ['- apply clue: clue="corbitt-diaries"', '- apply clue: clue="knott-commission"',
-		"- apply time: minutes=45", "- apply time: minutes=45", "- apply time: minutes=45"],
-		"the rationale-only resend made no call; the batch without the diaries line and the time line alone were each reviewed again");
+		"- apply time: minutes=45", "- apply time: minutes=45"],
+		"the rationale-only resend made no call; the batch without the diaries line was reviewed again; the time line alone is the first refusal's admitted line, resent exactly (§197.1)");
 	const applies = kernelCalls(table, "table.apply");
 	assert.deepEqual(applies.map((entry) => entry.params.effects.map((effect) => effect.clue ?? effect.kind)), [["time", "knott-commission"], ["time"]]);
 	const results = toolResults(table.session, "apply");
@@ -379,10 +386,12 @@ test("§32.12.3.1 with §32.12.3.1.1: verdict reuse keys by line beside its batc
 	assert.deepEqual(rows.slice(0, 2).map(shape), [["entailed", false, "apply time"], ["not_authorized", false, "apply clue"]]);
 	assert.deepEqual(rows.slice(2, 3).map(shape), [["not_authorized", true, "apply clue"]], "the same batch reworded: the kept refusal, no call");
 	assert.equal(rows[2].key, rows[1].key);
-	// The time line was admitted beside the diaries line; beside the commission, and alone, it is a different proposal.
+	// The time line was admitted beside the diaries line; beside the commission it is a different proposal (§32.12.3.1.1).
 	assert.deepEqual(rows.slice(3, 5).map(shape).sort(), [["authorized", false, "apply clue"], ["entailed", false, "apply time"]]);
 	assert.ok(rows.slice(3, 5).every((row) => row.batch_admitted === true));
-	assert.deepEqual(rows.slice(5).map(shape), [["entailed", false, "apply time"]]);
+	// Alone, it is exactly what the first refusal named in details.admitted: a recovery, its kept verdict reused (§197.1).
+	assert.deepEqual(rows.slice(5).map(shape), [["entailed", true, "apply time"]]);
+	assert.equal(rows[5].recovered_from, rows[0].batch_key);
 	const timeKeys = new Set(rows.filter((row) => /^apply time/.test(row.proposed[0])).map((row) => row.key));
 	assert.equal(timeKeys.size, 3, "beside the diaries, beside the commission, and alone: three keys");
 	assert.equal(rows[5].line_level, undefined, "the time line alone is a one-line call");

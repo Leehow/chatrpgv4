@@ -23,7 +23,8 @@ import type {TaskLease} from './task-context.ts';
 import {PLAYER_EXECUTION_CHOICE_NOTE} from './action-field-semantics.ts';
 
 export const ADMISSION_JEV_FAMILY = 'action-admission';
-export const ADMISSION_JEV_VERSION = '2';
+// 3 (contract §197.4): the execution-choice rule says both directions.
+export const ADMISSION_JEV_VERSION = '3';
 export const ADMISSION_JEV_MODEL = JEV_MODEL;
 export const ADMISSION_VERDICT_SET = ['authorized', 'entailed', 'not_player_action', 'not_authorized', 'uncertain'] as const;
 export type AdmissionJevVerdict = typeof ADMISSION_VERDICT_SET[number];

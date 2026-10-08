@@ -52,7 +52,7 @@ function newspaperTurn() {
 
 test("a refused batch draws no dice, moves no scene and lands no clue: nothing reaches the kernel", async (t) => {
 	// §32.12.3.1: the lane reviews each line on its own call. The move's refusal decides the batch whatever the other lines
-	// would have said: they would admit, but only after it, and they are stopped unanswered.
+	// say: they admit, after it, and still nothing lands (§197.1: they now finish, so the refusal can name them).
 	const table = await openTable({
 		responses: newspaperTurn(),
 		laneResponses: {
@@ -75,7 +75,8 @@ test("a refused batch draws no dice, moves no scene and lands no clue: nothing r
 	assert.equal(kernelCalls(table, "table.narrate").length, 1);
 
 	const rows = admissionRows(table);
-	assert.equal(rows.length, 1, `only the refused line answered; the others were stopped: ${JSON.stringify(rows)}`);
+	assert.equal(rows.length, 3, `every line answered, the refused one first in the batch's order: ${JSON.stringify(rows)}`);
+	assert.ok(rows.slice(1).every((row) => row.admitted === true && row.batch_admitted === false), "an admitted line does not land beside a refused one");
 	assert.equal(rows[0].verdict, "not_authorized");
 	assert.equal(rows[0].admitted, false);
 	assert.equal(rows[0].batch_admitted, false);
