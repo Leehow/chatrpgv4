@@ -323,3 +323,70 @@ test('§194.3: the host asks about a document\'s places as about the prose\'s, a
 	const asked = await judge('table.ask', {campaign: 'c1', kind: 'mechanics', options: ['push', 'accept']}, direct);
 	assert.deepEqual(asked.untold_cleared, [{name: '瓦西里', nth: 0, handout: 'handout-7f'}], 'an ask without text still has its documents asked about');
 });
+
+/** A fake Jev port: each place's Noul from `score(marked text)`. */
+const spanPort = score => ({async decide(batch) {
+	const answers = Object.fromEntries(batch.questions.map(question => [question.key,
+		{status: 'answered', type: 'noul', noul: score(batch.state.items[question.target].text)}]));
+	return {batchId: batch.id, status: 'complete', answers, coverage: {required: [], answered: [], unknown: []}, issues: []};
+}});
+const refusalOf = async promise => { try { await promise; return null; } catch (error) { return error; } };
+
+test('§194.5: a delivery\'s own handouts tell before its gate: the names they print are delivered in its prose the first time, and told', async t => {
+	const h = await farm(t);
+	await addNodes(h, [{node_id: 'handout-note', node_kind: 'handout', name: 'The Note', visibility: 'player-safe', summary: 'Keeper: Aganin wrote it.',
+		properties: {authored_text: NOTE}}]);
+	await h.call('table.player_input', {text: '我读那张纸条。'});
+	await h.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'handout', name: 'The Note', why: 'Aganin hands it over.'}]});
+	// TR-F2 turn 2: the Keeper rendered the letter it handed over, and the gate refused the names the letter prints.
+	const prose = '纸条署名嘉琳娜·斯莫斯卡娅；她写道那晚 Captain Aganin 也在场。';
+	assert.deepEqual((await h.call('table.untold_spans', {text: prose})).spans, [], 'the prose\'s names are the document\'s: no place to ask about');
+	// A name the handout does not print is still held.
+	const other = await refusalOf(h.call('table.narrate', {call_id: 't1-c2', text: `${prose}安德烈·耶扎罗夫在门口等着。`}));
+	assert.equal(other?.details?.reason, 'untold_name', 'a resident the note does not print is refused');
+	assert.equal(other.details.places, 1, 'only his name');
+	await h.call('table.narrate', {call_id: 't1-c3', text: prose});
+	const record = (await records(h)).find(row => row.turn === 1);
+	assert.equal(record.rendered_text, prose, 'delivered as written, nothing replaced');
+	assert.deepEqual(record.told_documents[0].names, ['Captain Aganin', '瓦西里', '嘉琳娜·斯莫斯卡娅'], 'no Jev here: the village tells too');
+	const after = await untoldNames(h);
+	assert.ok(!after.includes('嘉琳娜·斯莫斯卡娅') && !after.includes('Captain Aganin'), 'and the people it prints are told');
+	assert.ok(after.includes('安德烈·耶扎罗夫'), 'the refused one stays untold');
+});
+
+test('§194.5: an ask\'s handouts tell before its gate too', async t => {
+	const h = await farm(t);
+	await addNodes(h, [{node_id: 'handout-letter', node_kind: 'handout', name: 'The Letter', visibility: 'player-safe', summary: 'A denunciation.',
+		properties: {image_sources: [{page: 3, box: [0, 0, 1, 0.6]}], asset_ref: await picture(h), media_type: 'image/png'}}]);
+	await storeTranscript(h.home, h.sha, 3, {text: '44', image_text: LETTER});
+	await h.call('table.player_input', {text: '信上写了什么？'});
+	await h.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'handout', name: 'The Letter', why: 'The letter is handed over.'}]});
+	const text = '信里说 Dimiri Kravchuk 偷了粮，Clerk Orlov 看见了。';
+	await h.call('table.ask', {call_id: 't1-c2', kind: 'story', prompt: '你要怎么做？', options: ['去农场', '再读一遍'], text});
+	const record = (await records(h)).find(row => row.turn === 1);
+	assert.equal(record.rendered_text, text, 'delivered the first time, as written');
+	const after = await untoldNames(h);
+	assert.ok(!after.includes('迪米尔·克拉夫楚克') && !after.includes('Clerk Orlov'), `told at the ask: ${after}`);
+});
+
+test('§194.5: a document place the host clears leaves its person untold, so the prose\'s places are asked again with that clearance', async t => {
+	const h = await farm(t);
+	await addNodes(h, [{node_id: 'handout-note', node_kind: 'handout', name: 'The Note', visibility: 'player-safe', summary: 'Keeper: Aganin wrote it.',
+		properties: {authored_text: NOTE}}]);
+	await h.call('table.player_input', {text: '我读那张纸条。'});
+	await h.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'handout', name: 'The Note', why: 'Aganin hands it over.'}]});
+	// The Keeper echoes the village the note was sent from, whose name opens with a resident's short form.
+	const prose = '纸条寄自瓦西里耶夫卡村。';
+	const rows = [];
+	const judge = createUntoldSpanJudge({record: row => rows.push(row), decision: () => spanPort(text => text.includes('⟦瓦西里⟧耶夫卡') ? 0.05 : 0.95)});
+	const direct = (method, params) => h.raw(method, params);
+	const sent = await judge('table.narrate', {campaign: CAMPAIGN, call_id: 't1-c2', text: prose}, direct);
+	const handout = sent.untold_cleared.find(place => place.handout)?.handout;
+	assert.ok(handout, JSON.stringify(sent.untold_cleared));
+	assert.deepEqual(sent.untold_cleared, [{name: '瓦西里', nth: 0, handout}, {name: '瓦西里', nth: 0}],
+		'the document\'s village, then the prose\'s, found once the village no longer tells the resident');
+	assert.deepEqual(rows.map(row => [row.event, row.round ?? 1, row.places, row.cleared]), [['judged', 1, 4, 1], ['judged', 2, 1, 1]]);
+	await h.raw('table.narrate', sent);
+	assert.equal((await records(h)).find(row => row.turn === 1)?.rendered_text, prose, 'delivered the first time');
+	assert.ok((await untoldNames(h)).includes('瓦西里·斯莫斯基'), 'the village told nobody');
+});
