@@ -39465,11 +39465,28 @@ Jev clearing still applies inside the line. Narration outside a say span, and th
   opens (`table.open` in `session_start`), and before a delivery whose `table.untold_spans` answers `public_pending: true`
   (rows without a current verdict); after kept verdicts the hook asks `table.untold_spans` again. One run per campaign at a
   time; the delivery's hook never waits for a run in flight (a background run's calls go through the kernel client's queue,
-  which the hook is holding). Requests of at most 40 rows, in parallel under one 2.5 s wait, the adapter the untold places use
-  (`maxRetries: 0` for both families). Jev unconfigured asks nothing; Jev failing or late submits nothing for the rows it did
-  not answer, and the campaign is not asked again for 60 s (`PUBLIC_FIGURES_PAUSE_MS`). Telemetry `lane: "public-figures"`,
-  `event: "judged"` (people, judged, public, written, figures, ms) or `"fallback"` (reason). The SL-00 inventory key is the
-  existing `extensions/kernel/index.ts#decision#jev-adapter#createDecisionAdapter`; its note now names both families.
+  which the hook is holding). Requests of at most 40 rows, in parallel, the adapter the untold places use (`maxRetries: 0`
+  for both families). Jev unconfigured asks nothing; Jev failing submits nothing for the rows it did not answer, and the
+  campaign is not asked again for 60 s (`PUBLIC_FIGURES_PAUSE_MS`). Telemetry `lane: "public-figures"`, `event: "judged"`
+  (people, judged, public, written, figures, ms) or `"fallback"` (reason). The SL-00 inventory key is the existing
+  `extensions/kernel/index.ts#decision#jev-adapter#createDecisionAdapter`; its note now names both families.
+- **The judgement has its own bound; a delivery waits only for its own share** (TR-F2 run 2, below). Jev's requests are
+  bounded by the judgement's 30 s (`PUBLIC_FIGURES_JUDGE_MS`), never by a delivery's wait. The run at the table's opening
+  waits for the whole judgement. A delivery's hook waits at most 2.5 s (`PUBLIC_FIGURES_WAIT_MS`) for the run it starts; a
+  judgement that misses that wait keeps running, and the verdicts it gets are held by the host and submitted by the
+  campaign's next run (the next delivery whose `table.untold_spans` still answers `public_pending`), through that run's own
+  call, so nothing reaches the kernel past the queue after the hook let go. While a judgement is in flight no other job is
+  asked for the campaign: a second job would list the same rows. Telemetry: the hook's moving on is `event: "deferred"`
+  (job_id, people, ms waited); the held verdicts' later `"judged"` row carries `late: true` and the judgement's own `ms`; a
+  late judgement that fails is the usual `"fallback"` and pauses the campaign.
+  *Evidence.* TR-F2 run 2 (App `4ce2e4cab`, `game-565055f1`, book-2, 47 rows): the opening judged 40 rows and cut 7
+  (`partial: "cancelled"`, 2504 ms); the deliveries of turns 1 and 2 each waited 2.5 s for those 7 and cut them again
+  (`fallback`, 2503 and 2502 ms), so turn 2's hook spent 5 s on Jev (2.5 s here, 2.5 s on the untold places); turn 3 judged
+  the same 7 in 488 ms. Nothing in the request was slow: packing is local and the lease's one action and $0.02 are never
+  short. Jev itself was in a slow spell for the table's first five turns: the prescreen's locate cut one or two of four
+  batches at its 3.5 s on turns 1-4, a route decision took 9.8 s at the opening, a window-places request 4.6 s; from turn 6
+  the locate took 0.6-0.9 s again (route decisions over the table: median 0.42 s, p90 1.9 s). The wait meant for a delivery
+  bounded a background judgement and threw its late answer away.
 
 *Item 3: a name spoken in a line tells it.*
 - **Which places.** `sayRanges` (`kernel-ts/write/speech-pass.ts`) gives each say span's offsets, closed exactly where
@@ -39511,11 +39528,15 @@ of the roster, the epithet job and the gate, his prose delivered the first time;
 failing he stays untold (and a failed run pauses); a re-read row losing its verdict and asked again alone, a stale verdict
 skipped, a bad Noul refused; a handout printing him telling only the character beside him, a graph person his row joins never
 untold and not in `player_knows`; an untold name inside his name no place; one run per campaign and a delivery's hook not
-waiting for one in flight; a verdict submitted through the transport (`handleLine`), where a Noul is a Python float.
+waiting for one in flight; a verdict submitted through the transport (`handleLine`), where a Noul is a Python float; a
+judgement slower than the delivery's wait (a slow Jev honouring the lease's signal): the delivery goes on at its wait with
+him untold, the next delivery's hook while it is out asks Jev nothing, nothing reaches the kernel after the hook let go, and
+the delivery after it lands submits the held verdicts first and is delivered as written (`late: true`, Jev asked once).
 `tests/extension/public-figures-table.test.mjs` (the harness: the real kernel extension and kernel subprocess, `fetch` answering
 Jev): the table opens and the whole cast is judged in the background, in one request, before the Keeper delivers anything; the
-host's and the kernel's telemetry rows. That test found the transport's Python floats refused by the first `cast.public.submit`,
-which the in-process cases had not sent. Mutations, each turning a case red and reverted by copying the saved file back: the narrate's gate
+host's and the kernel's telemetry rows; and with Jev answering 1 s past the delivery's 2.5 s, every row is still judged at the
+opening. That test found the transport's Python floats refused by the first `cast.public.submit`, which the in-process cases
+had not sent. Mutations, each turning a case red and reverted by copying the saved file back: the narrate's gate
 without its documents; the ask's; the pending record not read; no second round in the host; `untold_spans` ignoring the
 document clearances; `untold_spans` without the documents' tells; spoken places not excused; the investigator's lines
 excused; any line excused; `told_lines` not written; the told checks not reading it; a shared spoken name not blanked; the
@@ -39524,7 +39545,9 @@ line's label sync outside the narrate journal; a cleared place in a line still t
 a verdict not bound to its row; the job asking every row every time; submit keeping a verdict for an old row; a public graph
 person still untold; `player_knows` listing an unmet public figure; a public figure's names not protected; a public graph
 person still offered to the epithet lane; a delivery waiting for a run in flight; no dedupe of runs; a Noul over the wire
-refused; no background run at the table's opening (on the box, in the harness test).
+refused; no background run at the table's opening (on the box, in the harness test); the judgement bounded by the delivery's
+wait again; the late answer dropped; the late answer submitted past the queue after the hook let go; a second job asked while a
+judgement is out.
 
 ## 195. A prescreen survives a library publish; the read-ahead reads a page again only for a new reason (owner 2026-10-08: 「我发现自从你这边改了方法之后，kp出现找不到模组内容的情况比之前多了，你最好留意一下接线的问题」, 「开这个切片，和两本账一起在 TR-F2 验收」; `docs/specs/prescreen-survives-publish.md`)
 
