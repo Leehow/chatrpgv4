@@ -1,0 +1,188 @@
+{
+ "source": "TR-F2 run 3, real table 2026-10-08, App 4ce2e4cab, The Haunting, campaign game-af36b938-4ca6-421e-bdec-759080123f69, turn 8 (session 2026-10-08T14-51-49Z). Keeper calls copied verbatim, in order; Jev answers copied from the turn's telemetry.",
+ "player_text": "我把马卡里奥一家和罗克斯伯里记在本子上。然后去市政档案馆，查这栋房子的产权记录，看看沃尔特·科比特后来怎么样了。",
+ "just_told": "你接着往后翻，查后来住进科比特家的人家是否遭遇过事故、伤病或死亡。旧报纸和索引把你引到一份一九一八年的《波士顿环球报》内部稿：它没有刊出，稿中称，几代房客先后遭遇意外、久病和自尽。稿件还记载，马卡里奥一家在一九一八年初住进那栋房子，几周后便离开；邻人对他们离去的缘由说法不一，亲属只肯说家中有人正在罗克斯伯里接受照护。报社没有查明刑事原因，因此把稿件压下，等候房产记录、医院资料和仍在世的房客能相互印证。",
+ "document_recording": 0.94,
+ "calls": [
+  {
+   "name": "apply",
+   "arguments": {
+    "effects": [
+     {
+      "kind": "object",
+      "name": "笔记本",
+      "to": "托马斯·海斯",
+      "from": "托马斯·海斯",
+      "document": {
+       "action": "append",
+       "text": "马卡里奥一家：1918年初搬入科比特家，几周后离开；亲属称家中有人在罗克斯伯里接受照护。"
+      },
+      "why": "把刚查到的马卡里奥一家与罗克斯伯里的信息记入笔记。"
+     },
+     {
+      "kind": "clue",
+      "clue": "chapel-closed-1912",
+      "how": "查阅教会登记簿时，看到该教堂于1912年关闭的记录。"
+     },
+     {
+      "kind": "clue",
+      "clue": "will-executor-chapel",
+      "how": "在市政档案中查阅科比特的遗嘱执行人记录。"
+     },
+     {
+      "kind": "handout",
+      "name": "Handout 7: Corbitt's Executor and the Chapel"
+     },
+     {
+      "kind": "move",
+      "to": "hall-of-records",
+      "label": "市政档案馆"
+     }
+    ],
+    "narrate": "你把《波士顿环球报》那份未刊稿里的信息记进笔记本：马卡里奥一家在一九一八年初搬进科比特家，几周后离开；亲属只说家中有人在罗克斯伯里接受照护。{{object:笔记本}} 随后，你来到市政档案馆。大厅里，桌面摊着城市报告，厚重的年度市政名录列着各部门、职员与办公室；档案职员在桌后整理登记簿。你查阅教会登记簿，发现静观教堂于一九一二年关闭。{{clue:chapel-closed-1912}} 接着，你检索科比特的遗嘱执行人记录。档案把执行人指向静观教堂的牧师迈克尔·托马斯；这条线索也把遗嘱与教堂的关闭联系起来。{{clue:will-executor-chapel}} 档案职员将一份相关记录交给你阅读。{{handout:Handout 7: Corbitt's Executor and the Chapel}}"
+   }
+  },
+  {
+   "name": "apply",
+   "arguments": {
+    "effects": [
+     {
+      "kind": "object",
+      "name": "笔记本",
+      "to": "托马斯·海斯",
+      "from": "托马斯·海斯",
+      "document": {
+       "action": "append",
+       "text": "马卡里奥一家：1918年初搬入科比特家，几周后离开；亲属称家中有人在罗克斯伯里接受照护。"
+      },
+      "why": "按你刚才的要求，把马卡里奥一家和罗克斯伯里的信息记入笔记本。"
+     }
+    ]
+   }
+  },
+  {
+   "name": "narrate",
+   "arguments": {
+    "text": "你把刚才查到的马卡里奥一家与罗克斯伯里的信息记在心里：他们在一九一八年初搬进科比特家，几周后离开；亲属只说家中有人在罗克斯伯里接受照护。你来到市政档案馆，桌面摊着城市报告，厚重的年度市政名录列着各部门、职员与办公室。档案职员在桌后整理登记簿。你要查科比特家的产权记录，看看沃尔特·科比特后来怎么样了；档案职员抬眼看你，等你说明要查哪类登记。"
+   }
+  },
+  {
+   "name": "narrate",
+   "arguments": {
+    "text": "你来到市政档案馆，带着《波士顿环球报》那份未刊稿里的信息：马卡里奥一家在一九一八年初搬进科比特家，几周后离开；亲属只说家中有人在罗克斯伯里接受照护。大厅桌面摊着城市报告，年度市政名录列出各部门、职员与办公室。档案职员在桌后整理登记簿，抬眼看向你。你要查科比特家的产权记录，看看沃尔特·科比特后来怎么样了。"
+   }
+  },
+  {
+   "name": "narrate",
+   "arguments": {
+    "text": "你来到市政档案馆，带着《波士顿环球报》那份未刊稿里的信息：马卡里奥一家在一九一八年初搬进科比特家，几周后离开；亲属只说家中有人在罗克斯伯里接受照护。大厅桌面摊着城市报告，年度市政名录列出各部门、职员与办公室。档案职员在桌后整理登记簿，抬眼看向你。你要查科比特家的产权记录，看看沃尔特·科比特后来怎么样了。"
+   }
+  },
+  {
+   "name": "narrate",
+   "arguments": {
+    "text": "你来到市政档案馆，带着《波士顿环球报》那份未刊稿里的信息：马卡里奥一家在一九一八年初搬进科比特家，几周后离开；亲属只说家中有人在罗克斯伯里接受照护。大厅桌面摊着城市报告，年度市政名录列出各部门、职员与办公室。档案职员在桌后整理登记簿，抬眼看向你。你要查科比特家的产权记录，看看沃尔特·科比特后来怎么样了。"
+   }
+  },
+  {
+   "name": "narrate",
+   "arguments": {
+    "text": "你来到市政档案馆，带着《波士顿环球报》那份未刊稿里的信息：马卡里奥一家在一九一八年初搬进科比特家，几周后离开；亲属只说家中有人在罗克斯伯里接受照护。大厅桌面摊着城市报告，年度市政名录列出各部门、职员与办公室。档案职员在桌后整理登记簿，抬眼看向你。你要查科比特家的产权记录，看看沃尔特·科比特后来怎么样了。"
+   }
+  },
+  {
+   "name": "lookup",
+   "arguments": {
+    "kind": "source",
+    "query": "Hall of Records",
+    "source_mode": "answer",
+    "question": "In the original adventure text, what records can investigators find at the Hall of Records, and what exactly is the result of researching Walter Corbitt's will, executor, or burial? Is there a clue or handout and what does it say?"
+   }
+  },
+  {
+   "name": "apply",
+   "arguments": {
+    "effects": [
+     {
+      "kind": "clue",
+      "clue": "chapel-closed-1912",
+      "how": "你查阅教会登记簿，看到静观教堂于一九一二年关闭的记录。"
+     },
+     {
+      "kind": "clue",
+      "clue": "will-executor-chapel",
+      "how": "你检索科比特的遗嘱执行人记录，得知执行人是静观教堂的牧师迈克尔·托马斯。"
+     },
+     {
+      "kind": "handout",
+      "name": "Handout 7: Corbitt's Executor and the Chapel"
+     },
+     {
+      "kind": "move",
+      "to": "hall-of-records",
+      "label": "市政档案馆"
+     }
+    ]
+   }
+  },
+  {
+   "name": "narrate",
+   "arguments": {
+    "text": "你已经来到市政档案馆，准备查科比特家的产权记录，看看沃尔特·科比特后来怎么样了。城市报告和年度市政名录摊在大厅桌面上；档案职员在登记簿旁停下手里的整理工作，望向你。你要查的是产权记录；旁边另有教会登记簿，档案职员等着听你要查哪一类。"
+   }
+  },
+  {
+   "name": "narrate",
+   "arguments": {
+    "text": "你已经来到市政档案馆，准备查科比特家的产权记录，看看沃尔特·科比特后来怎么样了。城市报告和年度市政名录摊在大厅桌面上；档案职员在登记簿旁停下手里的整理工作，望向你。你要查的是产权记录；旁边另有教会登记簿，档案职员等着听你要查哪一类。"
+   }
+  },
+  {
+   "name": "narrate",
+   "arguments": {
+    "text": "你来到市政档案馆，准备查科比特家的产权记录，看看沃尔特·科比特后来怎么样了。大厅的桌面上摊着城市报告，年度市政名录列出各部门、职员与办公室。档案职员正在整理登记簿，停下手来望向你。关于产权记录，他还没听到你要查的具体内容。"
+   }
+  },
+  {
+   "name": "narrate",
+   "arguments": {
+    "text": "市政档案馆里，城市报告和年度市政名录摊在桌上，名录逐项列出市政部门、职员与办公室。档案职员正在登记簿旁整理文件，见你站到桌前便停下手来。你要查科比特家的产权记录，看看沃尔特·科比特后来怎么样了；他等你指出要查的记录。"
+   }
+  }
+ ],
+ "jev": {
+  "binding": [
+   {
+    "document_0": {
+     "value": 0.91,
+     "probability": 0.91
+    },
+    "document_1": {
+     "value": 0.15,
+     "probability": 0.15
+    },
+    "content": {
+     "value": "outside_selected_addition",
+     "probability": 0.84,
+     "confidence": 0.67
+    }
+   },
+   {
+    "document_0": {
+     "value": 0.91,
+     "probability": 0.91
+    },
+    "document_1": {
+     "value": 0.13,
+     "probability": 0.13
+    },
+    "content": {
+     "value": "outside_selected_addition",
+     "probability": 0.83,
+     "confidence": 0.65
+    }
+   }
+  ],
+  "outcome_probability": 0.12
+ }
+}
