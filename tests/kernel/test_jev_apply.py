@@ -120,8 +120,9 @@ def _move(snapshot, to):
 
 
 def test_move_row_says_what_the_place_is_from_the_graph_and_the_world(kernel):
-    """Contract §135.30.4: the sanatorium is named, and its where-words and people ride with it; a placeholder summary
-    (the graph's summary is its name) is not repeated. Expected values are read from the module on disk."""
+    """Contract §135.30.4: the sanatorium is named, and its where-words, people and the book's account of it ride with it
+    (a placeholder summary that only repeats the name is not; graph v2, 2026-10-08, gave every scene a real one).
+    Expected values are read from the module on disk."""
     open_turn(kernel)
     _, node, record = _haunting_scene("previous-tenants")
     identity = record["destination_identity"]
@@ -132,7 +133,7 @@ def test_move_row_says_what_the_place_is_from_the_graph_and_the_world(kernel):
     assert destination["names"] == [name for name in identity["aliases"] if name != identity["canonical_name"]]
     assert destination["where"] == record["location_tags"]
     assert destination["people"] == ["Gabriela Macario", "Vittorio Macario"]
-    assert node["summary"] == node["name"] and "summary" not in destination
+    assert node["summary"] != node["name"] and destination["summary"] == node["summary"]
     # The morgue's handout is a thing there; a place without people carries no `people` key.
     morgue = _move(options(kernel), "newspaper-morgue")["destination"]
     assert morgue["things"] and all(isinstance(thing, str) for thing in morgue["things"])

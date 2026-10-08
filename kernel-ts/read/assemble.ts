@@ -4,7 +4,7 @@ import { DirectorGraph, TextGraph, Ontology } from "./content.js";
 import { RuleObservations } from "./rule-facts.js";
 import { SessionView } from "./session-view.js";
 import { briefWindow } from "./brief-window.js";
-import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, fitBudget, fittedModuleSection, sceneLabel, voicesSection, samePersonReference } from "./capsule.js";
+import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, fitBudget, fittedModuleSection, sceneLabel, voicesSection, samePersonReference, jsonSize } from "./capsule.js";
 import { OWN_BUDGET, ownSection } from "./own.js";
 import { playerKnowsSection } from "./player-knows.js";
 import {currentOwnedDocuments} from '../mods/document-visibility.js';
@@ -392,6 +392,22 @@ export function fitPresent(rows: Row[], budget: number): boolean {
     return cut;
 }
 /**
+ * §13.1.1 (owner decision G, 2026-10-08): the compact `where` gives up its history before its ways out. `fitBudget` pops
+ * the largest list, which in a busy scene is the exits, while the trail (`back`) grows with every move; the Haunting's
+ * Chapel lost a road that way, and the Corbitt House lost three once its rooms were listed. Over budget, the trail goes
+ * first, down to the one step back, then the places from the end; only then does the general cut run. The whole trail
+ * stays in `world.scene_trail`, and `look focus=scene` returns every place.
+ */
+function fitWhere(where: Row, budget: number): boolean {
+    let cut = false;
+    for (const [key, keep] of [["back", 1], ["places", 0]] as const)
+        while (jsonSize(where) > budget && Array.isArray(where[key]) && where[key].length > keep) {
+            where[key].pop();
+            cut = true;
+        }
+    return fitBudget(where, budget) || cut;
+}
+/**
  * §176.8: a person cut to their name keeps their untold block, without its line. Whether they are untold, and the
  * token that has their name said, is the next step for them, not payload: the replay of game-24bb66cb (2026-10-04)
  * cut the navy veteran to `{name, truncated}` on every turn, and asked his name, three of four Keepers made one up.
@@ -579,7 +595,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         // A crowded room never loses a person to present[]'s budget (contract §40.7, the chat bench: nine
         // people in one teahouse and four of them gone): whoever the cut would drop arrives as their name
         // alone, and the Keeper knows to look focus=npc for the rest of them.
-        const cut = name === "present" ? fitPresent(sections.present, budget) : fitBudget(sections[name], budget);
+        const cut = name === "present" ? fitPresent(sections.present, budget)
+            : name === "where" ? fitWhere(sections.where, budget) : fitBudget(sections[name], budget);
         if (cut || !Array.isArray(sections[name]) && truth(row(sections[name]).truncated)) {
             truncated.push(name);
             if (!Array.isArray(sections[name]) && sections[name] && typeof sections[name] === "object")

@@ -51,6 +51,15 @@ Mechanical hooks (Flesh Ward, floating knife, own-dagger exception) align with
 `../../../rulesets/coc7/rules-json/the-haunting.json`. Walter Corbitt presentation/stats are
 referenced from `../../../rulesets/coc7/rules-json/monsters.json`.
 
+## What a newcomer sees (graph v2, 2026-10-08)
+
+Each scene carries a short `summary` for every turn and a `properties.description` of what a newcomer sees on arrival. Each
+person met openly carries a `properties.biography` of looks and manner and is `player-safe`, so §168.5's first sight owes
+them. The house's rooms are one keeper note per floor scene, not `location` nodes (a source location becomes a playable
+scene of its own). Everything is the book's (pages cited in `source_refs` and the notes), written in
+the contributors' own words under the boundary above; nothing the book leaves to the Keeper is filled in. See
+`docs/specs/haunting-graph-v2.md`.
+
 ## The built-in source window (SL-28, contract §14.16)
 
 By the owner's decision of 2026-09-24 this package ships the scenario's own pages: `source.pdf` is

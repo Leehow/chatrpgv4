@@ -92,12 +92,42 @@ export function withoutPostFreezeIdentity(view) {
  * asserted where they belong (`obligation-shape.test.mjs`, `tests/kernel/test_scene_obligations.py`).
  */
 export const POST_FREEZE_NODES = Object.freeze(["requirement-knott-accept-commission"]);
+/** Haunting graph v2 (2026-10-08): roads to the Chapel between scenes the reference already had, so no removed node names them. */
+export const POST_FREEZE_LINKS = Object.freeze(["hall-of-records", "higher-courts-central-police", "neighborhood-gossip"]
+  .map((scene) => `route-to-${scene}-chapel`));
 export function withoutPostFreezeNodes(graph) {
   // Claims and relations name a node in their own id fields (graph.v3): never serialised here, since a graph's numbers are
   // Python floats that only the Python JSON writer keeps.
   const names = (value) => [value?.object?.node_id, value?.subject_id, value?.from_node_id, value?.to_node_id].some((id) => POST_FREEZE_NODES.includes(id));
+  const later = (id) => POST_FREEZE_LINKS.some((link) => id === `claim-${link}` || id === `relation-${link}`);
   return {...graph, nodes: graph.nodes.filter((node) => !POST_FREEZE_NODES.includes(node.node_id)),
-    claims: (graph.claims ?? []).filter((claim) => !names(claim)), relations: (graph.relations ?? []).filter((relation) => !names(relation))};
+    claims: (graph.claims ?? []).filter((claim) => !names(claim) && !later(claim.claim_id)),
+    relations: (graph.relations ?? []).filter((relation) => !names(relation) && !later(relation.relation_id))};
+}
+
+/**
+ * Haunting graph v2 (2026-10-08) wrote what a newcomer sees into fields the reference read differently or not at all
+ * (scene summaries, descriptions, biographies, the people's visibility, clue checks, the roads' scene edges). Each field
+ * is put back to its freeze-time value, or removed where it did not exist (`fixtures/haunting-freeze-time-words.json`),
+ * so the captures compare against the graph they answered; the new words are asserted in `haunting-graph-v2.test.mjs`.
+ */
+export function withFreezeTimeWords(graph, frozen) {
+  const nodes = graph.nodes.map((node) => {
+    const fields = frozen.nodes[node.node_id];
+    if (!fields) return node;
+    // Copied along each path only: a graph's numbers are Python float objects the Python JSON writer keeps, so the node is
+    // never cloned whole.
+    const restored = {...node};
+    for (const [path, value] of Object.entries(fields)) {
+      const keys = path.split("/"), last = keys.pop();
+      let holder = restored;
+      for (const key of keys) holder = holder[key] = {...holder[key]};
+      if (value && value.$absent === true) delete holder[last];
+      else holder[last] = value;
+    }
+    return restored;
+  });
+  return {...graph, nodes};
 }
 
 /**
