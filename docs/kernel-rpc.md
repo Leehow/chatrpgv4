@@ -39525,3 +39525,26 @@ completes; a Keeper request reads afresh; refused for a non-deferred need. Mutat
 file back): `needEligible` re-opening it, `readUnitPages` counting unfinished units, the kernel's read-page check and its
 kind check removed, the child deciding it for any kind, without the read-page check, and with `read_pages` unwired.
 Each turned its test red.
+
+## 196. Jev reads the book by paragraph (owner 2026-10-08: 「开这个切片，按段落取」; `docs/specs/paragraph-units.md`; amends §147.3's source units and §191.7)
+
+**Evidence.** The consultation catalog's units are fixed-length page slices (`splitSourceText(text, 800)`): they cut
+paragraphs, mix two, never cross a page and carry no heading. On TR-F every catalog row materialized 16 of 48 pages and its
+search hit nothing in any layer.
+
+### 196.1 A transcript page's units are its paragraphs
+Block boundaries are recovered from the stored record by aligning `markdown` to `text` (§191.3's joins); one unit per
+body block, split inside the block only past the cap; offsets stay in `text`.
+
+### 196.2 A unit carries its section
+The heading path above it (carried across a page top) rides with the unit to Jev and to the Keeper.
+
+### 196.3 A paragraph broken by a page break is delivered whole
+Linked units (`continues`/`continued_from`) when the first page's last body block does not end at a `Sentence_Terminal`;
+selecting one supplies both within budget.
+
+### 196.4 Native pages
+Unchanged slices; blank-line paragraphs may be used.
+
+*Implementation decisions and the PU-03 finding are recorded below as they land.*
+
