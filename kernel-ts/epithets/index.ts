@@ -26,14 +26,25 @@ import type { createWriteRuntime } from '../write/index.js';
 
 const STATUSES: readonly string[] = ['setting_up', 'ready_for_table', 'active'];
 
+/**
+ * §199.5: what an investigator meets of a graph person, as the lane is shown it: `role` (`relationship_to_investigators`) and
+ * `looks` (§199.4's first-meeting appearance, else the role). Empty when the graph has neither: such a person is not offered.
+ */
+export function firstMeeting(graph: ModuleGraph, node: Row): { role?: string; looks?: string } {
+    const role = text(graph.npcProfile(node).relationship_to_investigators).trim();
+    const looks = (personAppearance(graph, node) ?? '').trim() || role;
+    return { ...(role ? { role } : {}), ...(looks ? { looks } : {}) };
+}
+const worded = (graph: ModuleGraph, node: Row): boolean => Object.keys(firstMeeting(graph, node)).length > 0;
+
 /** The lane's instruction (§176.3), in the system language; the word itself is written in the play language it names. */
 export function epithetInstruction(language: string): string {
     return [
-        `Give each person below the word this table will call them by until someone says their name, written in the play language ${language}.`,
+        `Give the person below the word this table will call them by until someone says their name, written in the play language ${language}.`,
         'It names who they are (the owner, the trucker, the cook, the old soldier) together with the one visible thing only they have here -- something they carry or wear, a mark, a habit -- joined the way a person would say it aloud, like a nickname: \'the owner with the oily rag\', \'the bad-teeth trucker\'. Never a run of nouns with nothing joining them, never without who they are, and never a sentence.',
         'The word is what an investigator would see of them, or be told about them, on first meeting (looks, trade, role); never a secret, a motive, a cause, what happens to them, or anything the book reveals later.',
-        'Each person\'s looks is about that person alone; take nothing from anyone else.',
-        'No name, nickname or part of a name of anyone; never age, height, build or sex alone; no word listed under taken, and no word you give another person here.',
+        'Their looks is about that person alone; take nothing from anyone else.',
+        'No name, nickname or part of a name of anyone; never age, height, build or sex alone; no word listed under taken.',
         'Each word must tell this person from everyone else at the table.',
     ].join(' ');
 }
@@ -60,7 +71,8 @@ export function createEpithetHandlers(context: KernelContext, writer: ReturnType
             const has = (id: string) => !!tableWord(world, id) || !!text(row(row(stored.people)[id]).word);
             const history = prepareNameHistory(records, tellGuard(graph, world, journal));
             // §192.3: a copy of someone is that person, shown by their word: the lane words the node that stands for them only.
-            const wanting = untoldBookPeople(graph, journal, history).filter(node => !has(graph.handle(node)) && !graph.isVariant(node));
+            // §199.5: a person the graph says nothing first-meeting of is not offered; a word for them could only be invented.
+            const wanting = untoldBookPeople(graph, journal, history).filter(node => !has(graph.handle(node)) && !graph.isVariant(node) && worded(graph, node));
             // §177.5: the people the book names whom the reader has not reached are given a word too, after the graph's people,
             // so the request's rename can show them by it rather than by the cast row's id.
             const unread = untoldUnread(graph, history).filter(person => !has(person.id));
@@ -72,13 +84,9 @@ export function createEpithetHandlers(context: KernelContext, writer: ReturnType
             catch { first = new Set(); }
             const ordered = [...wanting.filter(node => first.has(graph.handle(node))), ...wanting.filter(node => !first.has(graph.handle(node)))]
                 .slice(0, EPITHETS_PER_JOB);
-            const people: Row[] = ordered.map(node => {
-                // §194.4: what a stranger sees (the first-sight description), else how they stand to the investigators; never the
-                // node's summary, which is the Keeper's account of them (TR-F: the victim Pyotr Abramov was called "the creature that mutated two families").
-                const role = text(graph.npcProfile(node).relationship_to_investigators).trim();
-                const looks = (personAppearance(graph, node) ?? '').trim() || role;
-                return { id: graph.handle(node), ...(role ? { role } : {}), ...(looks ? { looks } : {}) };
-            });
+            // §194.4, §199.4: what a stranger sees (the first-meeting appearance), else how they stand to the investigators; never
+            // the node's summary or biography.
+            const people: Row[] = ordered.map(node => ({ id: graph.handle(node), ...firstMeeting(graph, node) }));
             // An unread person has no record yet; what the lane sees of them is their own entry on the page that first names them
             // (§194.4), from their printed name to the next printed name of someone else of the cast or the paragraph's end.
             const reading = unread.slice(0, Math.max(0, EPITHETS_PER_JOB - people.length));

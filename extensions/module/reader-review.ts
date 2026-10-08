@@ -10,7 +10,7 @@ import {mapReviewPreviews,reviewedMapNodes} from './map-review-preview.ts';
 import { obligationReviewPaths } from "../../kernel-ts/modules/obligation-review.ts";
 import { shapeReviewPaths } from "../../kernel-ts/modules/shape-review.ts";
 import { answerReviewShapeError } from "../../kernel-ts/modules/answer-review-shape.ts";
-import { REVIEW_VERDICTS, classificationMatcher, identityReviewPath } from "../../kernel-ts/modules/review-verdicts.ts";
+import { PERSON_STATEMENTS, REVIEW_VERDICTS, classificationMatcher, personStatementPath, statementReviewPath } from "../../kernel-ts/modules/review-verdicts.ts";
 import {validatePublicGuidance} from '../../kernel-ts/modules/public-guidance.ts';
 import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings,moduleGuidanceApproved} from '../../kernel-ts/modules/module-review-policy.ts';
 import {READING_REVIEW_FALLBACK,readingReviewBudget} from '../../runtime/jev/host-budgets.ts';
@@ -66,6 +66,11 @@ function reviewGroups(draft: Row, requiredPaths: string[], logicReview: boolean)
 		// Contract §39.4: a map's kind is checked against the original page, like its regions.
 		if (collection === "nodes" && row.properties && Object.hasOwn(row.properties, "map_scope"))
 			pointers.add(`${path}/properties/map_scope`);
+		// Contract §199.2: a person's summary and first-meeting appearance are their own pointers, as the checker owes them.
+		if (collection === "nodes") for (const tail of PERSON_STATEMENTS) {
+			const value = tail === "/summary" ? row.summary : row.properties?.appearance;
+			if (personStatementPath(draft, path + tail) && value !== undefined && value !== null && value !== "") pointers.add(path + tail);
+		}
 		// Contract §134.16: the publication gate requires every obligation field, listed in critical or not.
 		if (collection === "nodes" && !logicReview) for (const pointer of obligationReviewPaths(row, path)) pointers.add(pointer);
 		// Contract §136.26: and every leaf of a stated mechanical shape, dice strings included.
@@ -73,8 +78,9 @@ function reviewGroups(draft: Row, requiredPaths: string[], logicReview: boolean)
 		groups.set(path, pointers);
 	}
 	for (const rawPath of [...(draft.critical ?? []),...requiredPaths]) {
-        // §192.1: a distinct_from stays its own pointer under module-logic-v1 too; the gate judges it as written.
-        const path=logicReview&&!identityReviewPath(rawPath)?moduleReviewRoot(rawPath):rawPath;
+        // §192.1, §199.2: a distinct_from and a person's statements stay their own pointers under module-logic-v1 too; the gate
+        // judges them as written.
+        const path=logicReview&&!statementReviewPath(draft,rawPath)?moduleReviewRoot(rawPath):rawPath;
 		if(['/interaction_scene','/source_needs'].includes(path)&&draft.ready_nodes?.length)continue;
 		const parent = [...groups.keys()].find(p => path === p || path.startsWith(p + "/"));
 		if (parent) groups.get(parent)!.add(path);
@@ -236,9 +242,10 @@ export function carriedReviewUnits(draft: Row, requiredPaths: string[] = [], bud
  * What the publication gate's `checkReview` refuses on one path of one row (§151.2.2): a verdict other than `supported`
  * that is not a contest -- an advisory finding under module-logic-v1, a classification field otherwise.
  */
-export function gateRefusal(task: Row): (row: Row, path: string) => boolean {
+export function gateRefusal(task: Row, draft?: Row): (row: Row, path: string) => boolean {
 	const logic = moduleLogicReview(task ?? {}), classifies = classificationMatcher(task?.vocabulary?.classification_fields?.node);
-	return (row, path) => row?.verdict !== 'supported' && !(!identityReviewPath(path) && REVIEW_VERDICTS.includes(row?.verdict) && (logic ? advisoryModuleFinding(row) : classifies(path)));
+	// §199.2: `draft` says which pointers are a person's statements; without it only §192.1's distinct_from is one.
+	return (row, path) => row?.verdict !== 'supported' && !(!statementReviewPath(draft, path) && REVIEW_VERDICTS.includes(row?.verdict) && (logic ? advisoryModuleFinding(row) : classifies(path)));
 }
 
 /**
@@ -285,7 +292,7 @@ export function coverageCarry(previous: CoverageCarrySource, now: { draft: Row; 
 		|| !Array.isArray(review?.checked) || !Array.isArray(review?.missing) || !plan.units.every(unit => count(unit.checked) && count(unit.missing))
 		|| plan.units.reduce((sum, unit) => sum + unit.checked!, 0) !== review.checked.length || plan.units.reduce((sum, unit) => sum + unit.missing!, 0) !== review.missing.length)
 		return { reason: 'plan' };
-	const refuses = gateRefusal(now.task), refused = new Set<string>();
+	const refuses = gateRefusal(now.task, now.draft), refused = new Set<string>();
 	let atChecked = 0, atMissing = 0, coverage: { unit: ReviewPlanUnit; checked: Row[]; missing: unknown[] } | undefined;
 	for (const unit of plan.units) {
 		const checked: Row[] = review.checked.slice(atChecked, atChecked += unit.checked!), missing: unknown[] = review.missing.slice(atMissing, atMissing += unit.missing!);
@@ -600,6 +607,11 @@ export async function reviewCandidate(options: {
 	imageHistory?: number;
 	/** §187.8.1: the review unit budget; production reads `reading_review` from `host-budgets.json`. */
 	reviewBudget?: ReviewUnitBudget;
+	/**
+	 * §199.2: after every vision unit answered, the person-state reading's rows (`person-state.ts`); they ride as one more unit
+	 * of this round's review, in `review.json` and in the plan, so the gate and the repair read them as any reviewer's.
+	 */
+	statementCheck?(): Promise<Row[]>;
 }): Promise<number[]> {
 	const backoff = options.transportBackoffMs ?? TRANSPORT_BACKOFF_MS;
 	const guidanceBytes = options.task.purpose === "guidance" ? await readFile(join(options.cwd, "guidance.json"), "utf8") : undefined;
@@ -879,6 +891,14 @@ export async function reviewCandidate(options: {
 		throw new Error(failures.join("; "));
 	}
 	if (results.filter(Boolean).length !== units.length) throw new Error("Source review did not complete every unit");
+	// §199.2: the person-state rows are one more unit: the paths they answer, their rows, the pages their records cite.
+	const stated = options.statementCheck && !guidanceBytes && !answerTask ? await options.statementCheck() : [];
+	if (stated.length) {
+		units.push([...new Set(stated.flatMap(row => row.paths as string[]))]);
+		results.push({ checked: stated, missing: [] });
+		unitPages.push(pageSet(stated.flatMap(row => (row.source_refs as Row[]).map(ref => ref.page))));
+		for (const page of unitPages[unitPages.length - 1]) observed.add(page);
+	}
 	if ((guidanceBytes || answerTask) && !(await readFile(join(options.cwd,"draft.json"))).equals(candidateBytes)) throw new Error("Source candidate changed during review");
 	if (guidanceBytes && await readFile(join(options.cwd,"guidance.json"),"utf8") !== guidanceBytes) throw new Error("Source pair changed during review");
 	if(publicBytes&&await readFile(join(options.cwd,'public-fields.json'),'utf8')!==publicBytes)throw new Error('Public source fields changed during review');

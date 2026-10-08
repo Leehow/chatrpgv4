@@ -76,7 +76,7 @@ export async function reviewOfCandidate(dirs: string[], candidate: Row): Promise
  */
 export function repairDecision(candidate: Row, review: Row, task: Row): RepairDecision {
 	if (!Array.isArray(review?.checked) || !Array.isArray(review?.missing)) return { kind: "full", reason: "no_review" };
-	const refuses = gateRefusal(task);
+	const refuses = gateRefusal(task, candidate);
 	// §187.6.1: a review that both refuses and misses is a full round; one that only misses, on this job's own pages, appends.
 	if (review.missing.length) {
 		const refusing = review.checked.some((row: Row) => (Array.isArray(row?.paths) ? row.paths : [row?.path]).some((path: string) => refuses(row, path)));
@@ -257,7 +257,7 @@ export function appendUnitCarry(previous: { plan: ReviewPlan; plan_sha256: strin
 		const owed = unit.paths.filter(path => typeof path === "string" && recordRoot(path)).map(move);
 		if (owed.some(path => path === undefined) || canonical([...new Set(owed)].sort()) !== canonical([...new Set(now.paths)].sort())) continue;
 		if (!Array.isArray(unit.pages) || unit.pages.some(page => !Number.isSafeInteger(page) || page < 1)) return undefined;
-		const refuses = gateRefusal(now.task);
+		const refuses = gateRefusal(now.task, now.draft);
 		const carried_from = { round: Number(plan.round), plan_digest: previous.plan_sha256 };
 		const checked: Row[] = [];
 		for (const row of rows) {

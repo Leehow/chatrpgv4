@@ -81,7 +81,7 @@ test('§22.4.6.1 a displaced detail read resumes after another focus published, 
   await observed(resumed);
   await write(join(resumed.work_dir, 'draft.json'), {nodes: [{node_id: 'npc-lena', node_kind: 'npc', name: 'Lena', source_refs: [{page: 1}], summary: 'Lena carries the harbour keys.'}],
     claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['npc-lena']});
-  await write(join(resumed.work_dir, 'review.json'), {checked: [{paths: ['/nodes/0', '/coverage'], verdict: 'supported', source_refs: [{page: 1}], reason: 'Source support.'}], missing: []});
+  await write(join(resumed.work_dir, 'review.json'), {checked: [{paths: ['/nodes/0', '/nodes/0/summary', '/coverage'], verdict: 'supported', source_refs: [{page: 1}], reason: 'Source support.'}], missing: []});
   const published = await finish(f, resumed);
   assert.equal((await f.module()).generation, now + 1, 'the resumed detail published onto the current generation');
   assert.ok(published.generation >= now);

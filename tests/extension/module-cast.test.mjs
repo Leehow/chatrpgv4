@@ -19,6 +19,7 @@ import {mkdtemp, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {withPersonStatements} from './person-statements.mjs';
 const root = resolve(import.meta.dirname, '../..');
 await mkdir(join(root, '.coc'), {recursive: true});
 const temporary = await mkdtemp(join(root, '.coc', 'module-cast-'));
@@ -71,7 +72,7 @@ async function harbor(t) {
 		const job = await k.raw('module.read.claim', {module_id: mid, owner: 'test-host', ...scope});
 		await writeFile(join(job.work_dir, 'observations.json'), JSON.stringify({file_sha256: sha, read_pages: [1, 2, 3], full_pages: [1, 2, 3], review_pages: [1, 2, 3]}));
 		await writeFile(join(job.work_dir, 'draft.json'), JSON.stringify(draft));
-		await writeFile(join(job.work_dir, 'review.json'), JSON.stringify({checked: [{paths, verdict: 'supported', source_refs: REFS, reason: 'fixture support'}], missing: []}));
+		await writeFile(join(job.work_dir, 'review.json'), JSON.stringify({checked: [{paths: withPersonStatements(draft, paths), verdict: 'supported', source_refs: REFS, reason: 'fixture support'}], missing: []}));
 		return k.raw('module.read.finish', {module_id: mid, ...scope, job_id: job.job_id, lease: job.lease, lease: job.lease, outcome: 'completed',
 			draft_path: join(job.work_dir, 'draft.json'), review_path: join(job.work_dir, 'review.json')});
 	};
@@ -80,7 +81,9 @@ async function harbor(t) {
 	await read('opening', {nodes: [
 		{node_id: 'scene-dock', node_kind: 'scene', name: 'Dock', source_refs: REFS, properties: {is_entrance: true}},
 		{node_id: 'scene-tower', node_kind: 'scene', name: 'Tower', source_refs: [{page: 2}], summary: 'An old tower beyond the harbor.'},
-		{node_id: 'npc-old-mae', node_kind: 'npc', name: 'Old Mae', source_refs: REFS, summary: 'A net mender on the dock.'}],
+		{node_id: 'npc-old-mae', node_kind: 'npc', name: 'Old Mae', source_refs: REFS, summary: 'A net mender on the dock.',
+			// §199.5: the lane words a graph person from what an investigator meets of them.
+			properties: {appearance: 'A net mender on the dock.'}}],
 		claims: [{subject_id: 'scene-dock', predicate: 'route-to', object: {node_id: 'scene-tower'}, truth_status: 'authored-fact', source_refs: REFS}],
 		node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['scene-dock']}, ['/nodes/0', '/claims/0', '/coverage']);
 	await k.raw('campaign.create', {id: 'card-source', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
@@ -674,7 +677,7 @@ test('§188.2: a later reading that writes someone the graph has again, under an
 	// Since §192.1 a reading publishes a second node under a published name only with a reviewed `distinct_from`, whose verdict
 	// keeps the two apart (§192.3, the next test); this fixture stands for the copies written before it.
 	await writeCopy(h, {node_id: 'npc-mae-net-mender', node_kind: 'npc', name: 'Old Mae', aliases: ['Mae'], source_refs: [{page: 3}],
-		summary: 'She mends nets; her boy drowned.'});
+		summary: 'She mends nets; her boy drowned.', properties: {appearance: 'A net mender on the dock.'}});
 	const copies = await handlesOf(h, ['npc-old-mae', 'npc-mae-net-mender']);
 	const listed = (await h.call('table.lookup', {kind: 'module', query: 'Old Mae'})).entities.filter(entity => entity.display_name === 'Old Mae').map(entity => entity.name);
 	assert.ok(new Set(copies).size === 2 && listed.length === 1 && copies.includes(listed[0]), `the graph holds her twice; lookup lists her once (§192.3): ${listed}`);
@@ -845,7 +848,7 @@ test('§192.3 (lead ruling 2026-10-07): a reviewed distinct_from beats the cast 
 	// The page reader drafted a second Old Mae and its reviewer supported that she is someone else (§192.1): the verdict is
 	// recorded `different`, and the cast row both nodes answer both ways no longer makes them one.
 	await h.read('detail', {nodes: [{node_id: 'npc-old-mae-nets', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 3}],
-		summary: 'Another net mender of the same name.', distinct_from: ['npc-old-mae']}], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [],
+		summary: 'Another net mender of the same name.', properties: {appearance: 'A second net mender by the cellar.'}, distinct_from: ['npc-old-mae']}], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [],
 		ready_nodes: ['npc-old-mae-nets']}, ['/nodes/0', '/nodes/0/distinct_from', '/coverage'], {focus: 'Tower', campaign: CAMPAIGN});
 	const [first, second] = await handlesOf(h, ['npc-old-mae', 'npc-old-mae-nets']);
 	const load = async () => (await api.loadCampaignModule(h.context, h.mid, await h.world(), CAMPAIGN)).graph;

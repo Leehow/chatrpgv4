@@ -21,6 +21,7 @@ import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {validateToolArguments} from '@earendil-works/pi-ai';
 import {COC_TOOLS, DOSSIER_VALUE_MAX} from '../../extensions/kernel/tools.ts';
+import {withPersonStatements} from './person-statements.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
 const scratch = await mkdtemp(join(tmpdir(), 'table-creature-'));
@@ -485,7 +486,7 @@ test('§180.6: on a book played from its reading, a declared creature is never h
     const job = await call.bare('module.read.claim', {module_id: mid, owner: 'test-host'});
     await writeFile(join(job.work_dir, 'observations.json'), JSON.stringify({file_sha256: job.source.file_sha256, read_pages: [1, 2], full_pages: [1, 2], review_pages: [1, 2]}));
     await writeFile(join(job.work_dir, 'draft.json'), JSON.stringify(draft));
-    await writeFile(join(job.work_dir, 'review.json'), JSON.stringify({checked: [{paths, verdict: 'supported', source_refs: [{page: 1}], reason: 'fixture support'}], missing: []}));
+    await writeFile(join(job.work_dir, 'review.json'), JSON.stringify({checked: [{paths: withPersonStatements(draft, paths), verdict: 'supported', source_refs: [{page: 1}], reason: 'fixture support'}], missing: []}));
     await call.bare('module.read.finish', {module_id: mid, job_id: job.job_id, lease: job.lease, outcome: 'completed',
       draft_path: join(job.work_dir, 'draft.json'), review_path: join(job.work_dir, 'review.json')});
   };

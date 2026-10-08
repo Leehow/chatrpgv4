@@ -38,3 +38,28 @@ export function identityReviewPath(path: unknown): boolean {
     const tokens = typeof path === "string" ? path.split("/") : [];
     return tokens.length >= 4 && tokens[0] === "" && tokens[1] === "nodes" && /^\d+$/.test(tokens[2]) && tokens[3] === "distinct_from";
 }
+
+/** Contract §199.2: the person node kind whose statements of who they are are reviewed one by one. */
+export const PERSON_KIND = "npc";
+/** Contract §199.2: a person's statements, as pointer tails under their node: the summary and the first-meeting appearance. */
+export const PERSON_STATEMENTS: readonly string[] = Object.freeze(["/summary", "/properties/appearance"]);
+
+/**
+ * Contract §199.2: whether a draft pointer is one of a person's statements -- `/nodes/<i>/summary` or
+ * `/nodes/<i>/properties/appearance` of an `npc` node of `draft`. Like `distinct_from` it is reviewed as written under
+ * either policy, never folded into its record's root, never a classification, never advisory and never cleared by the claim
+ * check. Structural only: the node's kind and the pointer's place, never what the statement says.
+ */
+export function personStatementPath(draft: unknown, path: unknown): boolean {
+    if (typeof path !== "string") return false;
+    const match = /^\/nodes\/(0|[1-9][0-9]*)(\/.*)$/.exec(path);
+    if (!match || !PERSON_STATEMENTS.includes(match[2])) return false;
+    const nodes = draft !== null && typeof draft === "object" ? (draft as { nodes?: unknown }).nodes : undefined;
+    const node = Array.isArray(nodes) ? nodes[Number(match[1])] : undefined;
+    return node !== null && typeof node === "object" && (node as { node_kind?: unknown }).node_kind === PERSON_KIND;
+}
+
+/** A pointer the review answers as written and the gate never treats as a contest (§192.1, §199.2). */
+export function statementReviewPath(draft: unknown, path: unknown): boolean {
+    return identityReviewPath(path) || personStatementPath(draft, path);
+}

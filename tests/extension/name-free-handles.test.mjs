@@ -15,6 +15,7 @@ import {mkdtemp, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {withPersonStatements} from './person-statements.mjs';
 const root = resolve(import.meta.dirname, '../..');
 await mkdir(join(root, '.coc'), {recursive: true});
 const temporary = await mkdtemp(join(root, '.coc', 'name-free-handles-'));
@@ -49,7 +50,7 @@ async function book(t) {
 		const job = await raw('module.read.claim', {module_id: mid, owner: 'test-host'});
 		await writeFile(join(job.work_dir, 'observations.json'), JSON.stringify({file_sha256: sha, read_pages: [1, 2, 3], full_pages: [1, 2, 3], review_pages: [1, 2, 3]}));
 		await writeFile(join(job.work_dir, 'draft.json'), JSON.stringify(draft));
-		await writeFile(join(job.work_dir, 'review.json'), JSON.stringify({checked: [{paths, verdict: 'supported', source_refs: REFS, reason: 'fixture support'}], missing: []}));
+		await writeFile(join(job.work_dir, 'review.json'), JSON.stringify({checked: [{paths: withPersonStatements(draft, paths), verdict: 'supported', source_refs: REFS, reason: 'fixture support'}], missing: []}));
 		return raw('module.read.finish', {module_id: mid, job_id: job.job_id, lease: job.lease, outcome: 'completed',
 			draft_path: join(job.work_dir, 'draft.json'), review_path: join(job.work_dir, 'review.json')});
 	};

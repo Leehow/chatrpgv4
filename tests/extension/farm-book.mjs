@@ -52,16 +52,17 @@ export const CAST_DRAFT = {people: [
 	{book: ['卡特琳娜·克拉夫楚克', 'Katarina Kravchuk', '克拉夫楚克'], play: ['卡特琳娜·克拉夫楚克'], notes: ['Katarina Kravchuk'], pages: [2]},
 ]};
 
-/** The bound book read as far as its opening: the graph has the office, Captain Aganin and the clerk; the cast is read. */
+/** The bound book read as far as its opening: the graph has the office, Captain Aganin and the clerk (and `people`); the cast is read. */
 /** §194.5: the opening page with a real public figure the book only mentions (TR-F2: the letter's "in Stalin's name"), and his cast row. */
 export const FIGURE_LINE = '墙上挂着斯大林同志的画像。';
 export const FIGURE_ROW = {book: ['斯大林'], play: ['斯大林'], notes: ['Stalin'], pages: [1]};
 
 /**
  * The farm built through the kernel's own handlers (`raw(method, params)`) in the workspace `home`: the book bound and read, its cast
- * read, and the campaign set up; `open` also opens the table and delivers its opening. `figures` adds the public figure, `rows` more cast rows.
+ * read, and the campaign set up; `open` also opens the table and delivers its opening. `figures` adds the public figure, `rows` more cast rows,
+ * `people` more graph people (npc nodes) to the opening.
  */
-export async function buildFarm(raw, home, {transcript = false, figures = false, rows = [], open = true} = {}) {
+export async function buildFarm(raw, home, {transcript = false, figures = false, rows = [], open = true, people = []} = {}) {
 	const k = {raw, home};
 	const PAGES = figures ? [BOOK_PAGES[0] + FIGURE_LINE, ...BOOK_PAGES.slice(1)] : BOOK_PAGES;
 	const DRAFT = figures ? {people: [...CAST_DRAFT.people, FIGURE_ROW, ...rows]} : CAST_DRAFT;
@@ -86,12 +87,17 @@ export async function buildFarm(raw, home, {transcript = false, figures = false,
 		{node_id: 'npc-aganin', node_kind: 'npc', name: 'Captain Aganin', source_refs: REFS,
 			summary: 'Forged the denunciation himself to cover the failed harvest.',
 			properties: {relationship_to_investigators: 'the commissar who sends the investigators to the farm'}},
+		// §199.4: the clerk's first-meeting appearance; his biography is what the book reveals later.
 		{node_id: 'npc-clerk', node_kind: 'npc', name: 'Clerk Orlov', source_refs: REFS,
 			summary: 'Drowned the informer in the pond.',
-			properties: {biography: 'A stooped clerk with ink-stained cuffs.'}}],
+			properties: {appearance: 'A stooped clerk with ink-stained cuffs.', biography: 'Carried the informer to the pond the night she died.'}},
+		...people],
 		claims: [{subject_id: 'scene-office', predicate: 'route-to', object: {node_id: 'scene-farm'}, truth_status: 'authored-fact', source_refs: REFS}],
 		node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['scene-office']},
-		['/nodes/0', '/nodes/2', '/nodes/3', '/claims/0', '/coverage']);
+		// §199.2: each person's summary and appearance are their own pointers.
+		['/nodes/0', '/nodes/2', '/nodes/2/summary', '/nodes/3', '/nodes/3/summary', '/nodes/3/properties/appearance', '/claims/0', '/coverage',
+			...people.flatMap((person, index) => [`/nodes/${4 + index}`, ...(person.summary ? [`/nodes/${4 + index}/summary`] : []),
+				...(person.properties?.appearance ? [`/nodes/${4 + index}/properties/appearance`] : [])])]);
 	// The cast, as the host reads it (extensions/module/reading-service.ts `readCast`), with the reader's draft written by hand.
 	const job = await k.raw('cast.job', {module_id: mid, claim: true});
 	const staged = await k.raw('cast.source', {module_id: mid, job_id: job.job_id, lease: job.lease, pages: PAGES.map((text, index) => ({page: index + 1, text}))});

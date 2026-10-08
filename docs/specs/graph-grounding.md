@@ -1,6 +1,6 @@
 # The module graph states only what its source states
 
-Status: ready-for-agent (GG-01..GG-05 landed on `claude/graph-grounding-20261008`; GG-06..GG-09 open)
+Status: ready-for-agent (GG-01..GG-05 landed on `claude/graph-grounding-20261008`; GG-06..GG-10 open)
 
 Contract: `docs/kernel-rpc.md` §199. Amends §22.3, §151.3/§186.6, §168.5, §176.3 and §194.4.
 
@@ -78,8 +78,9 @@ reader's whole account of a person, reveals included. The page-10 residents (cas
 4. **The epithet lane asks about one person per request, by their role and looks alone** (§199.5): no id (a handle is the
    summary's paraphrase), no neighbour (Sofia). Concurrency 3; `taken` grows as words are accepted.
 5. **A graph person's `looks` is a reader-written first-meeting `properties.appearance`**, never the biography (§199.4); a
-   person with neither appearance nor role is not offered and a word for them is refused `no_material`. First sight (§168)
-   prefers `appearance` and keeps the biography for books read before §199.
+   person with neither appearance nor role is not offered (a word for them could only be invented; in Cold Harvest's
+   generation 74 that is 18 of 27 people until a re-read writes `appearance`). First sight (§168) prefers `appearance` and
+   keeps the biography for books read before §199.
 6. **No semantic word-to-person check.** The owner's suggestion was a Jev Noul ("is this word about this person's looks").
    Probe (2 repeats): right person 0.95 and 0.48/0.45, wrong person 0.07, 0.19/0.16 and 0.53/0.36: no threshold separates
    them. A per-sentence "first-meeting" Jev filter of biographies kept 2 of 7 visible-look sentences. Decision 4 removes the
@@ -102,7 +103,8 @@ Status: done. `kernel-ts/first-sight/index.ts` (`personAppearance` = `appearance
 
 ### GG-04 The epithet lane: one person, no id, no word without material
 Status: done. `extensions/npc-epithets/index.ts`, `kernel-ts/epithets/index.ts` (`firstMeeting`, the job's filter, the
-one-person instruction), `kernel-ts/read/person-words.ts` (`no_material`).
+one-person instruction). A submit-side `no_material` refusal was tried and dropped (no product caller needs it; six suites
+set words through `epithets.submit`).
 
 ### GG-05 Replay read-30 and sweep the published graph
 Status: done. `.coc/probe-gg/replay-read30.mjs` (gitignored probe; live; evidence in the contract §199.2) and
@@ -124,6 +126,12 @@ with neither is called.
 ### GG-08 The claim check skips a unit that carries `/coverage`
 Status: needs-triage. `factRecords` skips every record of a unit containing `/coverage`; since §187.8.1 rides coverage in a
 fact unit, small readings send Jev nothing (read-30: `records: 0`).
+
+### GG-10 A visible thing the book does not print
+Status: needs-triage. Live (§199.7), a person offered by a bare role is given an object the book does not print
+(「佩NKVD徽章的内务部特工」, 「夹公文包的NKVD特派员」), because §103.7's instruction asks for one visible thing. Either the
+instruction allows the role alone when the looks say nothing visible, or such a person waits for `appearance`; owner's call
+(it touches §103.7's ruling).
 
 ### GG-09 Kin and rank
 Status: needs-info. Whether to compare kinship as a closed reading (relation enum x roster key), and how to treat "was her

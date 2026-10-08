@@ -39917,8 +39917,9 @@ failure), so it cannot stand for this check.
   handle cannot reach the model, and a word cannot be written for a person other than the one the request was about.
   `taken` carries every word in use when the request is made; a word the kernel refuses (`taken` or any other reason) is
   asked again once, alone, with the kernel's refusal.
-- `epithets.submit` refuses a word for a graph person the job would not offer (`no_material`: "this person has no
-  first-meeting material in the graph; no word is written for them").
+- `epithets.submit` is unchanged: the lane only words the people the job offers, one per request. A submit-side refusal for a
+  person with no material was tried and dropped: it guards no caller the product has, and six suites use `epithets.submit`
+  to set words directly.
 - Not done: a semantic check that a word is about its person (the owner's suggestion, Jev Noul "is this word about this
   person's looks"). Probe (2026-10-08, 2 repeats): Timur's word against Timur 0.95, against Raisa 0.07, but against
   Aganing 0.53 and 0.36, and Raisa's own word against Raisa 0.48 and 0.45; a per-sentence "first-meeting" filter of
@@ -39955,6 +39956,14 @@ The other death statements were read and held: Galena 「农场居民，已被�
 read 「嘉琳娜已故的丈夫。」 as calling Galena alive (pages: dead), a second mismatch on the same summary. So one ungrounded
 living-state claim in 27 person summaries, the one the table tripped on. Kin and rank were not swept (199.6).
 
+**The epithet lane, live** (`.coc/probe-gg/epithets-live.mjs`: TR-F2's campaign cloned with `cp -c`, its words and labels
+cleared, generation 74, the fixed lane's requests on the App's lane model opencode-go/deepseek-v4.1-flash, thinking off). 9 of
+27 graph people are offered (each by a role; generation 74 has no `appearance` yet); the 18 with neither -- Maria, Vasili,
+Sofia, the Kravchuks, Genrikh and Grigori, Nikita Molodin, Beniamin among them -- are asked about by no one. No word states a
+secret, a fate or a wrong rank: Aganin is 「在NKVD指挥室发逮捕令的上级」 (TR-F2: 「指挥室桌后的高大上校」), Timur 「挂听诊器的NKVD特派员医生」,
+Raisa 「胆怯答话的受询者」. What remains: a person offered by a bare role is given a visible thing the book does not print
+(「佩NKVD徽章」「戴大檐帽」「夹公文包」), because the instruction asks for one; GG-10.
+
 *Implementation decisions and tests are recorded below per ticket (`docs/specs/graph-grounding.md`).*
 
 *GG-01..GG-05 implementation decisions (2026-10-08).*
@@ -39981,10 +39990,9 @@ living-state claim in 27 person summaries, the one the table tripped on. Kin and
   The row's reason names the persons and the cited pages, because the targeted author reads it verbatim (§151.2.2).
 - **Epithets.** `firstMeeting(graph, node)` (`kernel-ts/epithets/index.ts`) is the one place that says what the lane is
   shown of a graph person: `role` and `looks` (appearance, else role). `epithets.job` filters the wanting people by it before
-  the job's 24 are chosen, so a person with nothing never holds a slot; `epithets.submit` refuses `no_material` with the
-  same predicate (`submitEpithets`'s `offered`). The instruction now speaks of "the person below". The lane
-  (`extensions/npc-epithets/index.ts`) answers `{"word": ...}` per request; a refusal for who the person is (`unknown_entity`,
-  `settled`, `no_material`) is not asked again, any other once. The job's telemetry row keeps `people`, `written`,
+  the job's 24 are chosen, so a person with nothing never holds a slot. The instruction now speaks of "the person below".
+  The lane (`extensions/npc-epithets/index.ts`) answers `{"word": ...}` per request; a refusal for who the person is
+  (`unknown_entity`, `settled`) is not asked again, any other once. The job's telemetry row keeps `people`, `written`,
   `refused`, and adds `retried` (a count) and `failed`.
 - **Fixtures.** Every test that publishes an `npc` summary through `module.read.finish` with a hand-written review now
   answers the statement pointers too (`tests/extension/person-statements.mjs` `withPersonStatements`, or the pointer written
@@ -39992,7 +40000,11 @@ living-state claim in 27 person summaries, the one the table tripped on. Kin and
   candidate) and its eligibility test asserts `person`; `mechanics-reader-parent.json`'s three golden results differ from
   the parent commit only by `/nodes/3/summary` in `required_review` (checked by a script: everything else byte-equal), and
   were rewritten; `farm-book.mjs`'s clerk carries `appearance` and a biography with a later reveal, and
-  `name-free-egress.test.mjs`'s people carry their looks as `appearance`.
+  `name-free-egress.test.mjs`'s people carry their looks as `appearance`; the graph people `module-cast.test.mjs` and
+  `survivor-map.test.mjs` expect the lane to word carry an `appearance` beside what they had (a person with only a summary
+  is no longer offered); `reader-review.test.mjs` and `review-repair-salvage.test.mjs` expect a person's summary in the units
+  that review that person; `tests/kernel/test_npc_layer.py` adds the statements to the frozen checker's list (the oracle
+  itself is untouched); `test_mod_vocabulary.py`'s tenant review answers `/nodes/2/summary`.
 
 Tests: `tests/extension/graph-grounding.test.mjs` -- on the real kernel over a bound PDF with Cold Harvest's p34 words: the
 checker owes a person's summary and appearance and not a place's; 「嘉琳娜已故的丈夫。」 refused `review_unsupported` though the
@@ -40003,14 +40015,14 @@ false summary (the live verdict) is overruled by the person-state reading, the t
 the targeted repair corrects the summary and the living husband is published; the comparison's cases.
 `tests/extension/graph-grounding-epithets.test.mjs` -- the farm with Maria (p34 reveal as biography, p8 "how to play" as
 appearance), Dmitri (p33 biography only), Sofia (summary only) and Timur: Maria offered by her appearance and nothing of
-her tentacles, infection or summary reaches the job; Dmitri and Sofia not offered; Timur's word for Sofia refused
-`no_material`, for Timur written; first sight prefers the appearance. `tests/extension/npc-epithets-lane.test.mjs` -- one
+her tentacles, infection or summary reaches the job; Dmitri and Sofia not offered; TR-F2's job 2 (Sofia with nothing beside
+Timur) is no longer a job -- Sofia is never asked about and Timur's row is his own words; first sight prefers the appearance. `tests/extension/npc-epithets-lane.test.mjs` -- one
 person per request, no id and no other person in any request, each word submitted under its own id, the retry alone with
-the kernel's reason, no retry for `no_material`.
+the kernel's reason, no retry for a refusal about the person (`settled`).
 
 Mutations, each turning a case red and reverted by copying the saved file back: the checker owing no statement; the gate
 treating a statement as advisory; the host folding statements into the record; the host gate advisory; Jev clearing a
 person; the reading not wired into the service; a summary that calls a man dead whom the pages leave silent let through;
 the statements reader shown the pages; the hook dropping its rows; a summary calling a dead woman alive let through;
-`personAppearance` reading the biography; a person with no material offered; a word for one accepted; first sight ignoring
-the appearance; the person's id in the request; every person in one request; `no_material` retried.
+`personAppearance` reading the biography; a person with no material offered; first sight ignoring the appearance; the
+person's id in the request; every person in one request; `settled` retried.
