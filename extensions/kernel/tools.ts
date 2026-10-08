@@ -79,6 +79,66 @@ export function argumentLimitRefusal(tool: string, args: unknown): { code: strin
 	};
 }
 
+/** One branch of `apply`'s `effects[]` union: its kind and the properties it requires (read off the schema itself). */
+interface EffectBranch { kind: string; required: string[] }
+const branchCache = new WeakMap<object, EffectBranch[]>();
+function effectBranches(parameters: TSchema): EffectBranch[] {
+	const cached = branchCache.get(parameters);
+	if (cached) return cached;
+	const items = (parameters as { properties?: { effects?: { items?: { anyOf?: unknown[] } } } }).properties?.effects?.items;
+	const branches = (items?.anyOf ?? []).flatMap((branch): EffectBranch[] => {
+		const shape = branch as { properties?: { kind?: { enum?: unknown[]; const?: unknown } }; required?: unknown[] };
+		const kind = shape.properties?.kind, names = [...(kind?.enum ?? []), ...(kind?.const !== undefined ? [kind.const] : [])];
+		const required = (shape.required ?? []).filter((key): key is string => typeof key === "string" && key !== "kind");
+		return names.filter((name): name is string => typeof name === "string").map(name => ({ kind: name, required }));
+	});
+	branchCache.set(parameters, branches);
+	return branches;
+}
+/** How a clue the prose gives is written, for a fix that must say it (§201.3). */
+const CLUE_EFFECT_WORDS = 'a clue the book has is {kind: "clue", clue: <its name, as where.affordances or known.clues_here list it>}';
+
+/**
+ * Contract §201.3: an `apply` effect Pi's schema cannot take, refused before the schema check with how to write it -- the
+ * schema's own message lists every branch of the effect union (T7 of TR-F2 run 3: eight lines about `scope`, `name`, `to`
+ * and `clue` for an effect whose only fault was `kind: "narrate"`), and names no fix. Two cases, both ones the schema check
+ * refuses whatever coercion it applies: a `kind` that is not an effect kind (a tool's name among them, closing prose put
+ * in an effect), and a known kind missing a property its branch requires. Anything else is left to the schema check.
+ */
+export function effectShapeRefusal(tool: string, parameters: TSchema, args: unknown): { code: string; code_detail: string; message: string; fix: string; retryable: false; next: "change_input"; details: Record<string, unknown> } | undefined {
+	if (tool !== "apply" || !args || typeof args !== "object" || Array.isArray(args)) return undefined;
+	const effects = (args as Record<string, unknown>).effects;
+	if (!Array.isArray(effects)) return undefined;
+	const branches = effectBranches(parameters), kinds = branches.map(branch => branch.kind);
+	if (!kinds.length) return undefined;
+	const unchanged = "Nothing in this call was written; send it again corrected.";
+	for (const [index, value] of effects.entries()) {
+		if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+		const effect = value as Record<string, unknown>, kind = effect.kind, field = `effects[${index}]`;
+		const branch = typeof kind === "string" ? branches.find(entry => entry.kind === kind) : undefined;
+		if (!branch) {
+			const shown = typeof kind === "string" ? JSON.stringify(kind) : "missing";
+			const toolName = typeof kind === "string" && (COC_TOOL_NAMES as readonly string[]).includes(kind);
+			const prose = kind === "narrate"
+				? `Closing prose is not an effect: put it in this apply's own narrate field beside effects (it is delivered once every effect lands), or call narrate after this apply. `
+				: toolName ? `${kind} is a tool of its own, not an effect of apply: call it separately. ` : "";
+			return { code: "invalid_params", code_detail: "effect_kind_unknown", retryable: false, next: "change_input",
+				message: `apply: ${field}.kind is ${shown}, which is not an effect kind`,
+				fix: `${prose}What the prose gives the investigators lands as its own effect: ${CLUE_EFFECT_WORDS}; the effect kinds are ${kinds.join(", ")}. ${unchanged}`,
+				details: { field: `${field}.kind`, reason: "effect_kind_unknown", kind: typeof kind === "string" ? kind : null, kinds } };
+		}
+		const missing = branch.required.filter(key => effect[key] === undefined);
+		if (missing.length) {
+			const clue = branch.kind === "clue" ? ` For a clue: ${CLUE_EFFECT_WORDS}.` : "";
+			return { code: "invalid_params", code_detail: "effect_field_missing", retryable: false, next: "change_input",
+				message: `apply: ${field} (${branch.kind}) is missing ${missing.join(", ")}`,
+				fix: `Give ${field} its ${missing.join(", ")}: a ${branch.kind} effect requires ${branch.required.join(", ")}.${clue} ${unchanged}`,
+				details: { field, reason: "effect_field_missing", kind: branch.kind, missing } };
+		}
+	}
+	return undefined;
+}
+
 /**
  * The workpad patch is deliberately schema-permissive: Pi validates tool arguments against this
  * schema before the tool runs, and a schema refusal would block the delivery that carried the
@@ -144,12 +204,13 @@ const ClueEffect = Type.Object({
 	kind: StringEnum(["clue"] as const, { description: "the investigator obtains one clue" }),
 	clue: Type.String({
 		description:
-			"clue name; must be a clue obtainable in the current scene. An echo id from the capsule's worldlines.echoes (it starts with echo:) reveals what another worldline left standing here — you decide whether to show it and how to tell it, never what it says",
+			"clue name; must be a clue obtainable in the current scene, or the one an owed row says the player was already told. An echo id from the capsule's worldlines.echoes (it starts with echo:) reveals what another worldline left standing here — you decide whether to show it and how to tell it, never what it says",
 	}),
 	establish: Type.Optional(Type.Object({summary: Type.String({description: "new evidence discovered in this scene, consistent with established causes and the holder's knowledge; include how it was obtained. Existing authored clues use their existing names without establish. This records a campaign fact, not a quotation from the module"})})),
 	how: Type.Optional(Sentence("how they got it")),
 	from: Type.Optional(Type.String({ description: "the NPC who handed it over, when someone did; it goes on their ledger as something they disclosed" })),
 	label: Type.Optional(Type.String({ description: "short name of this clue in the player's language; omitted means the clue name" })),
+	owed: OwedRef,
 });
 
 /** Contract §136.22: the book's amount, named instead of the Keeper's own. */

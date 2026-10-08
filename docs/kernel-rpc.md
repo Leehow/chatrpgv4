@@ -40873,6 +40873,150 @@ What this does not change: §34.16's closed-turn cut (a delivered turn), §70's 
 the fallback narrate still runs), §135.11's steer, and the continuity-review pause (§38.9), which keeps its own handling
 (not measured here on the single-loop engine; a candidate for the same rule).
 
+## 201. A clue the prose gives is a clue the ledger holds (lead decision 2026-10-08 on TR-F2 run 3; `docs/specs/clue-ledger.md`; extends §190.2's exception to §166 from the told position to told clues; amends §5's `apply clue`, §51.4, §135.32's `clue_follow_up`, §158.3 and §158.4)
+
+**Evidence.** TR-F2 run 3: App `4ce2e4cab`, The Haunting, campaign `game-af36b938-4ca6-421e-bdec-759080123f69`, Keeper and
+lanes `openai-codex/gpt-6-luna`. Read from the turn records, the session file and the telemetry, per turn:
+
+- **T7** (central library). The Keeper sent `apply {effects: [{kind: "narrate", narrate: <prose>}]}`: closing prose inside an
+  effect. Pi's schema check refused it with eight lines, one per branch of the effect union (`scope, summary`, `name`, `to`,
+  `clue` required; `kind` not allowed), no `coc_error` and no fix. The Keeper then called `narrate` with the same prose. It
+  gives the newspaper morgue's `globe-unpublished-story` and `macario-tragedy`; the party had left the morgue on T6, so no
+  `apply clue` could have taken them at the library (`not_here`). Nothing reads a delivery for clues: §51.4's `unrecorded`
+  had one producer, the verifier, and §166 retired it.
+- **T9 → T10** (Hall of Records). T9's `apply` (both clues, handout 7, time, a mood, an embedded narrate) was refused whole by
+  admission (`not_authorized`, grounds about the clerk). T10's compile asked `will-executor-chapel` (`yes`, confidence 0.13,
+  not cleared) and `chapel-closed-1912` (`no`), check selection chose `no_roll` (now 0.48 / later 0.50), the consequence route
+  cleared nothing (`clue_follow_up` exists 0.44), and the Keeper closed with prose and no tool call (the implicit close). It
+  gives both clues; `will-executor-chapel` is the book's Library Use find, and no roll was made.
+- **T18** (basement). The compile's `ask_clue` filed `hollow-boards` and `corbitt-body-found` (clerk receipts `t18-c1`,
+  `t18-c2`, the Keeper told under `clerk_did`). The prose gives neither in full ("boards fitted unusually tight, no light
+  through the seams", "no hidden door or turned earth"). The ledger holds `corbitt-body-found`, which the book finds by
+  breaking the boards (`tear-boards`), on a declaration that only searched: the ask row asks whether the declaration *seeks*
+  a clue. The book needs no roll for the hollow areas ("a cursory inspection"); the Spot Hidden in that room is for the tool
+  pile's dagger, whose graph row reads `environmental: check unspecified`.
+- **A check the book names was skipped on a landing path**, same table: T6 the consequence route executed
+  `house-built-1835` (Library Use) after the time receipt only; T13 it executed `chapel-journal-burial` and
+  `liber-ivonis-tome` (Spot Hidden each) while check selection had decided `no_roll` (`player_choice`). `apply clue` never read
+  the clue's check, and `clueFollowUpCandidates` never did; only the compile's `ask_clue` did (§135.30.9).
+- **More told and unlanded clues on the same table**: T11 `chapel-eye-symbol`; T15 `catholic-wards` and
+  `upstairs-disturbance` (T14's `nailed-windows` too, landed on T15).
+
+### 201.1 The ledger follows the told clue (extends §190.2)
+
+**Exception to §166, recorded with this section.** The read below reads a delivered text only to bring the ledger's clues
+forward (§158's ruling, as §190.2 does for the position); it never reviews, edits, retracts or annotates prose, and its result
+reaches the Keeper only as §158's owed row.
+
+Family `told-clue` (Jev). After every delivery (explicit `narrate`/`ask`, an embedded narrate, the implicit close), in the
+background, the host reads `table.owe.options` and asks one Noul per clue in play, `given_c<n>`: does the delivered text give
+the investigators what this clue states, in substance, in any words or language (`false.not_for`: naming the thing only, a
+search that finds nothing or something else, a plan, a hint, a different fact about the same thing). The same Noul is asked
+of each clue the delivered turn landed (`given_l<n>`, §201.4). Clues reach Jev by alias with the book's own summary, never by
+handle. A clue whose `given ≥ told_clue.given_min` gets, in a second request, a Choice `sentence_c<n>` over the delivered
+sentences (§190.2's splitter, at most `TOLD_CLUE_SENTENCES_MAX` 48, the last ones of a longer text). When the sentence's
+confidence `≥ told_clue.sentence_min`, the host calls `table.owe {campaign, turn, effect: {kind: "clue", clue: <handle>},
+quote: <the sentence>, source: "told-clue"}`, once per clue.
+
+- **`table.owe.options`** gains `clue_limit` (1..64, default `told_clue.max_candidates`) and answers two more fields:
+  `clues: [{name, summary, scene, source: "here" | "left" | "back", delivery_kind, check?}]` -- the clues of the delivered
+  scene, then of the scenes the party left during that turn, then of the trail newest first, none the table has found or
+  that turn landed, in that order up to the limit (a told clue may be an earlier scene's: T7's were the morgue's) -- and
+  `clue_receipts: [{clue, summary, owed?}]`, the turn's clue receipts. `check` is §201.2's.
+- **`table.owe` with `source: "told-clue"`** takes `effect: {kind: "clue", clue}` and answers `{turn, owed: <name> | null,
+  dropped?, check?, check_skipped?}`; `dropped` (never an error) is `unknown_clue`, `clue_landed` (that turn landed it),
+  `quote_not_delivered` or `satisfied` (the table has found it since). The row is §158.3's: `{name, turn, kind: "clue",
+  effect: {kind: "clue", clue}, quote, what: "clue told: <summary> (<handle>)", source: "told-clue", check?, check_skipped?}`
+  on the record and in `owed.json`, with an `owed_state` warning row (`lane: "told-clue"`). One clue told twice is one debt
+  (the later telling is the row). A second call for the same turn, clue and quote answers the row it wrote.
+- **Landing.** The capsule's `owed` lists a clue row after time and before cash (`clerk: true`); §158.4's clerk lands it
+  first on the next run as `apply clue {clue, owed}` (`apply:owed:<name>`, `told_bookkeeping`, admitted `told`). `apply
+  clue` with `owed` naming an open clue row lands where the party stands now: it is not refused `not_here`, and §201.2's
+  check is not asked of it. A row closes when the clue is found by any landing (`owedSatisfied`: discovered).
+- **The flight.** The told-position and told-clue reads of one delivery are the turn's one §158.4 flight: it settles when
+  either wrote an owed row and is cleared once both ended (`afterDeliveryTold`). A read that cannot owe (mode not `on`, or
+  no Jev key) registers none.
+- **Bars and mode** (`host-budgets.json` `told_clue`; `toldClueBudget`; `PI_COC_TOLD_CLUE=off|shadow|on` overrides the mode
+  alone): `mode` `on`, `given_min` 0.6, `sentence_min` 0.5, `untold_max` 0.15, `max_candidates` 24, `timeout_ms` 10,000; an
+  unreadable file reads `shadow`. **Calibrated** on run 3's seventeen deliveries with live Jev, three passes (54 reads,
+  ~4.5k input tokens and ~0.7 s each, $0.0097 in all): the eight told clues answered 0.77-0.97 (T7 0.82-0.96, T10 0.95-0.97,
+  T11 0.92, T14 0.77-0.80, T15 0.82-0.88), every other candidate at most 0.21, every chosen sentence 0.83-1.0. At 0.6: 8/8
+  owed, no candidate wrongly owed. The landed clues the prose gave read 0.86-0.98; `corbitt-body-found` 0.05-0.06 and T12's
+  `chapel-cellar-remains` 0.03 (§201.4); `hollow-boards`, half given, 0.48-0.53.
+- **The row.** One `{lane: "told-clue", event: "read", turn, mode, ok, candidates, landed, sentences: {total, offered},
+  given, landed_given, sentence_request, sentences_chosen, usage, owe, stay: [{clue, why}], outcome: "owed" | "dropped" |
+  "shadow" | "stay", owed: [{clue, owed, check_skipped?}], dropped: [{clue, reason}], check_skipped, landed_untold, ms}` per
+  delivery; when nothing was asked, `skipped: "no_text" | "unconfigured" | "no_candidates"`, or `ok: false` with `reason:
+  "options_failed" | "lane_crashed"`. `why` is the first bar missed: `given_unanswered`, `not_given`, `sentence_unanswered`,
+  `low_sentence`, or the failed request's reason.
+
+### 201.2 A clue the book finds by a check lands after that check passed
+
+A clue whose profile (`clueProfile`) says `delivery_kind: "skill_check"` with an authored `skill` is found by that check
+(`clueCheck`, `kernel-ts/read/clue-check.ts`). A `skill_check` whose skill the graph does not carry (`check required (skill
+unspecified)`, §30.12) is not gated: which roll satisfies it is the Keeper's judgement.
+
+- **`apply clue`** refuses such a clue, unless an investigator's roll of that skill passed earlier in the same turn
+  (`checkPassed` over the turn's receipts and the batch's staged ones: `kind: "roll"`, `passed: true`, `skill` or
+  `check.skill` equal after NFKC, case and spacing folding, `actor_is_investigator` not `false`): `needs`, `code_detail:
+  "check_first"`, `details: {reason: "check_first", clue, check: {skill, difficulty?}}`, fix "Leave clue <c> out of this apply
+  and send the rest. It lands after a <skill> roll for it has passed this turn; until then narrate the attempt without what
+  the clue states. Do not land it another way or under another name." Not refused: a clue already found (a no-op), a clue the
+  table establishes, and an owed told row (§201.1: the story already gave it).
+- **`table.apply.options`** carries the check on such a clue row: `description.check: {skill, difficulty?, passed}`, `passed`
+  read from the turn's receipts at that read.
+- **The clerk does not offer what the kernel would refuse.** `clueFollowUpCandidates` (§135.32) and the plain `apply:clue`
+  candidates (`buildCandidates`) skip a row whose `check.passed` is `false`; once a roll passes, the next fresh read offers it
+  again. The compile's `ask` rows are unchanged (they read `table.apply.options` directly), and `ask_clue` already excluded
+  a `skill_check` clue.
+- **What the prose can still skip.** In the driven engine the Keeper cannot roll (`check_selection_owned`); a check the host's
+  check selection does not roll (T10: `no_roll` under the gate) leaves the Keeper "the attempt by your own judgement", and no
+  reader stands between a draft and the player (§166). A told clue whose check the told turn did not pass is still owed --
+  what the player was told stands (§158) -- and its row says `check_skipped: true`; the read counts it
+  (`check_skipped`). Keeping prose from giving such a clue before its roll is a delivery gate, which needs an owner exception
+  to §166 like §166.2's; this section adds none.
+
+### 201.3 An effect the schema cannot take is refused with how to write it
+
+`effectShapeRefusal` (`extensions/kernel/tools.ts`), called from the Keeper tools' `prepareArguments` after §135.21's limit
+and before Pi's schema check, reads the effect branches off `apply`'s own schema (each branch's `kind` enum or const and its
+`required`) and refuses the first effect that the schema check would refuse whatever its coercion:
+
+- a `kind` that is not an effect kind: `invalid_params`, `code_detail: "effect_kind_unknown"`, `details: {field:
+  "effects[<i>].kind", reason, kind, kinds}`. The fix says, for `narrate`, that closing prose goes in this apply's own
+  `narrate` field beside `effects` or in a `narrate` call after it; for another tool's name, that it is a tool of its own;
+  then, always, that what the prose gives lands as its own effect -- `a clue the book has is {kind: "clue", clue: <its name,
+  as where.affordances or known.clues_here list it>}` -- and the effect kinds;
+- a known kind missing a property its branch requires (absent, not `null`): `code_detail: "effect_field_missing"`,
+  `details: {field: "effects[<i>]", reason, kind, missing}`, fix naming what the kind requires (for a clue, the clue sentence).
+
+Nothing is written; the Keeper corrects the call. Telemetry `{lane: "arguments", event: "effect_shape_refused", tool,
+reason, field}`. Anything else is left to Pi's schema check as before.
+
+### 201.4 What the ledger holds that the prose did not give is counted
+
+The told-clue read asks `given` of each clue the delivered turn landed (not an owed landing) and lists those at or under
+`told_clue.untold_max` as `landed_untold` on its row (T18: `corbitt-body-found`; T12: `chapel-cellar-remains`). It is counted,
+never acted on: the receipt stands. Its cause on T18 is the compile's ask row ("does the declaration seek this thing",
+§135.30.9) filing a clue whose book finding is a further act; changing that question is left until these counts are read.
+
+### 201.5 Three ends (§31)
+
+*Writer:* the told-clue read through `table.owe` (owed clue rows); the kernel's `clueCheck` (the `check` on option rows and
+told rows); `effectShapeRefusal` (the refusal). *Reader:* the capsule's `owed`, the clerk's `apply:owed:*`, `apply clue`'s
+check gate, `clueFollowUpCandidates` and `buildCandidates`. *Actor:* the clerk, who lands a told clue first on the next run;
+the Keeper, who finds it on the sheet, rolls nothing for it, and is told how to write an effect; the operator, who reads
+`check_skipped`, `landed_untold` and `effect_shape_refused`.
+
+### 201.6 Tests
+
+`tests/extension/clue-ledger.test.mjs` (the told-clue lane, pure; the effect shape refusal, pure; T7, T10 and T18 through the
+real tool path -- `openTable` with the emitted kernel over the haunting, a typed Jev endpoint behind the real decision adapter,
+the deliveries and player inputs copied from run 3 in `tests/extension/fixtures/clue-ledger/run3.json`).
+`tests/extension/clue-ledger-kernel.test.mjs` (the emitted kernel's RPC: `table.owe.options`' clue rows, `table.owe`'s clue
+rows and drops, the told landing at another scene, the check gate and the option rows' `check`). Mutations are listed in the
+spec's tickets.
+
 ## 205. A turn that lacks material says so, and looks
 
 ### 205.1. Needs and ownership

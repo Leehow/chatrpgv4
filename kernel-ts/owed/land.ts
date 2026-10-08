@@ -14,7 +14,7 @@ import { actor } from '../read/handlers.js';
 import { ownerIn } from '../mods/stage.js';
 import { locateExcerpt } from '../read/excerpt.js';
 import { repr, row, type Row } from '../read/values.js';
-import { resolveOwedEquipment, owedSatisfied, closeSatisfied, readOwed, writeOwed, type OwedLedger } from './index.js';
+import { clueOf, resolveOwedEquipment, owedSatisfied, closeSatisfied, readOwed, writeOwed, type OwedLedger } from './index.js';
 
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
 /** A place as the kernel knows it: its handle when the graph has it, else the name (a place still to be established). */
@@ -54,6 +54,11 @@ function lands(graph: ModuleGraph, world: Row, party: readonly Row[], entry: Row
     const owed = row(entry.effect);
     if (entry.kind === 'move') return sceneKey(graph, effect.to) === sceneKey(graph, owed.to);
     if (entry.kind === 'time') return text(effect.band) !== '' && text(effect.band) === text(owed.band);
+    // §201.1: the clue is compared as the clue the graph names, and lands as the authored clue it was told as.
+    if (entry.kind === 'clue') {
+        const given = clueOf(graph, effect.clue), told = clueOf(graph, owed.clue);
+        return !!given && !!told && graph.handle(given) === graph.handle(told) && effect.establish === undefined;
+    }
     if (entry.kind === 'npc') {
         if (personKey(graph, world, effect.name) !== personKey(graph, world, owed.name)) return false;
         if (owed.to === 'away' || effect.to === 'away') return owed.to === effect.to;
@@ -85,8 +90,8 @@ export async function owedRowFor(campaign: { readTurnRecord(turn: number): Promi
     const party = await campaign.party();
     ledger = resolveOwedEquipment(ledger, party);
     const name = text(given.owed).trim(), open = ledger.open.map(entry => text(entry.name));
-    if (!['move', 'time', 'npc', 'cash', 'object'].includes(text(given.kind)))
-        throw refusal('owed_kind', `a ${text(given.kind)} effect cannot land owed state`, 'Leave owed out: only move, time, npc, cash and object effects land an owed row.', { kind: given.kind });
+    if (!['move', 'time', 'npc', 'clue', 'cash', 'object'].includes(text(given.kind)))
+        throw refusal('owed_kind', `a ${text(given.kind)} effect cannot land owed state`, 'Leave owed out: only move, time, npc, clue, cash and object effects land an owed row.', { kind: given.kind });
     const entry = ledger.open.find(value => value.name === name);
     if (!name || !entry)
         throw refusal('owed_unknown', `${repr(given.owed)} names no open owed row`, 'Leave owed out, or name a row of the capsule\'s owed section exactly as it is written.', { owed: given.owed ?? null, open });

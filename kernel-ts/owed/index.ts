@@ -82,6 +82,13 @@ export async function owedBands(kernel: KernelContext): Promise<{ travel: string
     };
 }
 
+/** §201.1: the graph clue `name` names, or null (an unknown or ambiguous name names nothing). */
+export function clueOf(graph: ModuleGraph, name: unknown): Row | null {
+    if (typeof name !== 'string' || !name.trim())
+        return null;
+    try { return graph.clue(name.trim()); }
+    catch { return null; }
+}
 /** The graph scene `name` names, or null. */
 export function sceneOf(graph: ModuleGraph, name: unknown): Row | null {
     if (typeof name !== 'string' || !name.trim())
@@ -113,6 +120,11 @@ export function describe(graph: ModuleGraph, effect: Row): string {
     if (effect.kind === 'time')
         return `time that passed beyond any journey: ${text(effect.band)}`;
     if (effect.kind === 'cash') return `${text(effect.subject)}: cash ${String(effect.delta)} ${text(effect.currency)}`;
+    // §201.1: a clue the delivered text gave, by the book's own words for it and its handle.
+    if (effect.kind === 'clue') {
+        const clue = clueOf(graph, effect.clue);
+        return chars(`clue told: ${clue ? `${text(clue.summary || clue.name)} (${graph.handle(clue)})` : text(effect.clue)}`, 200);
+    }
     const person = personNode(graph, {}, text(effect.name));
     const who = person ? graph.displayName(person) : text(effect.name);
     return chars(effect.to === 'away' ? `${who} is gone from the scene` : `${who} is present at ${text(effect.to)}`, 200);
@@ -219,6 +231,8 @@ function sameSubject(a: Row, b: Row): boolean {
     if (a.kind !== b.kind) return false;
     if (a.kind === 'move') return true;
     if (a.kind === 'npc') return row(a.effect).name === row(b.effect).name;
+    // §201.1: one clue told twice is one debt; the later telling is the row.
+    if (a.kind === 'clue') return row(a.effect).clue === row(b.effect).clue;
     if (a.kind === 'object') return normalized(row(a.object).name) === normalized(row(b.object).name) && normalized(row(a.object).owner) === normalized(row(b.object).owner);
     return false;
 }
@@ -255,6 +269,11 @@ export function owedSatisfied(graph: ModuleGraph, world: Row, entry: Row, party:
         if (effect.to === 'away') return !Object.hasOwn(presence, name);
         const scene = sceneOf(graph, effect.to);
         return !!scene && presence[name] === graph.handle(scene);
+    }
+    // §201.1: a told clue the table has since found, by any landing, is no longer owed.
+    if (entry.kind === 'clue') {
+        const clue = clueOf(graph, effect.clue);
+        return !!clue && graph.discovered(world, clue);
     }
     if (entry.kind === 'object') {
         if (ownedPrintedWeapon(entry, party)) return true;
@@ -304,10 +323,10 @@ export async function carryOwed(context: KernelContext, campaign: string, rows: 
 
 /**
  * The capsule's `owed` section (§158.4): what the player was told and the ledger still lacks, newest told first
- * within each kind's order (move, npc, time, cash, object). `clerk` requires a resolvable effect.
+ * within each kind's order (move, npc, time, clue, cash, object). `clerk` requires a resolvable effect.
  */
 export function capsuleOwed(graph: ModuleGraph, world: Row, stored: unknown, party: readonly Row[] = []): Row[] {
-    const order = ['move', 'npc', 'time', 'cash', 'object'];
+    const order = ['move', 'npc', 'time', 'clue', 'cash', 'object'];
     return resolveOwedEquipment(owedLedger(stored),party).open.filter(entry => !owedSatisfied(graph, world, entry, party))
         .sort((a, b) => order.indexOf(text(a.kind)) - order.indexOf(text(b.kind)) || number(b.turn) - number(a.turn))
         .map(entry => {

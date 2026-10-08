@@ -156,7 +156,8 @@ knownBudget();
  */
 export function startToldPosition(deps: ToldPositionDeps, ended?: () => void): ReviewFlight | undefined {
 	const mode = override(deps.env) ?? (deps.budget ?? knownBudget())?.mode;
-	if (mode === "off") return undefined;
+	// `ended` runs once whatever happens, so a caller holding several reads' flight knows when all of them are over (§201.1).
+	if (mode === "off") { ended?.(); return undefined; }
 	let settle: (() => void) | undefined;
 	const flight = mode === "on" && readJevApiKey(deps.env) ? {turn: deps.turn, done: new Promise<void>(resolve => { settle = resolve; })} : undefined;
 	const timer = setTimeout(() => {

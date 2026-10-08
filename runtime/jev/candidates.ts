@@ -367,7 +367,7 @@ export {buildConsequenceCandidates, clueFollowUpCandidates, NPC_REACTION_DECISIO
  * because the kernel hands a running session to its own resolution owner.
  */
 /**
- * §158.4: the capsule's owed rows the host can land -- a move, a presence, time the prose already told the player -- as the
+ * §158.4: the capsule's owed rows the host can land -- a move, a presence, time, a clue (§201.1) the prose already told the player -- as the
  * run's first steps. Forced: the delivered text established them, so nothing the player says this turn selects them. Every
  * parameter is the row's own effect, plus `owed` naming the row, which the kernel checks against the delivered record
  * (§158.5). A running session leaves them to its own steps; the Keeper sees the rows either way.
@@ -376,7 +376,7 @@ export function owedCandidates(capsule: Row, sessionLive: boolean): Candidate[] 
   if (sessionLive) return [];
   return array(capsule.owed).map(object).flatMap((row, index) => {
     const effect = object(row.effect), name = text(row.name);
-    if (row.clerk !== true || !name || !['move', 'time', 'npc', 'cash', 'object'].includes(text(effect.kind))) return [];
+    if (row.clerk !== true || !name || !['move', 'time', 'npc', 'clue', 'cash', 'object'].includes(text(effect.kind))) return [];
     return [{key: `apply:owed:${name}`, verb: 'apply' as const, family: 'owed', source: 'table.capsule',
       label: `Land what turn ${String(row.turn)} already told the player: ${text(row.what)}`,
       bound: {...effect, owed: name} as Record<string, Json>, unbound: [], clerk: 'told_bookkeeping' as const, forced: true,
@@ -419,6 +419,9 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     if (kind === 'move' && (unlock.met === false || sessionLive || owedMoveOpen(capsule))) continue;
     // A row an unsettled stated obligation guards is withheld until the kernel stops naming the guard (§135.26).
     if (text(row.guarded_by)) continue;
+    // §201.2: a clue the book finds by a check is not the clerk's to file before this turn passed that check (`apply clue`
+    // refuses it until then); the kernel row says whether it has (`check.passed`). Its compile `ask` row stays.
+    if (kind === 'clue' && object(description.check).passed === false) continue;
     if (kind === 'move') push({key: `apply:move:${text(effect.to)}`, verb: 'apply', family: 'move', source: 'table.apply.options',
       label: `Move the party to ${text(description.display_name) || text(effect.to)}`, bound: {kind: 'move', to: text(effect.to)},
       unbound: [{name: 'travel_minutes', required: false, vocabulary: 'open'}, {name: 'label', required: false, vocabulary: 'open'},

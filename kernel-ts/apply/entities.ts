@@ -29,12 +29,18 @@ import {stageDraw, stageProduce} from './draw.js';
 import {fightTurn} from '../combat/execution.js';
 import {establishTableEntity, validateEstablishment} from '../read/table-entities.js';
 import {tableWord} from '../read/person-words.js';
+import {checkPassed,clueCheck} from '../read/clue-check.js';
 /** §135.30.7 (SL-42): the scenes the party left during this turn, latest departure first, from the turn's own move receipts. */
 function departedThisTurn(context:ApplyContext):string[]{
     const moves=[...array(context.turn.receipts),...(context.staged?.()??[])].filter(receipt=>isJsonObject(receipt)&&receipt.kind==='move'&&receipt.renamed!==true&&typeof receipt.from==='string'&&receipt.from!==receipt.to);
     return [...new Set(moves.map(receipt=>string(receipt.from)).reverse())];
 }
-export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedEffect>{
+/**
+ * `told`: the effect lands a §201.1 told-clue row (`owed`, checked by `owedRowFor` before staging). The delivery told the
+ * player this clue wherever the party stood, so it lands where they stand now: it is not refused `not_here`, and the
+ * book's check (§201.2) is not asked of it: the story already gave it (the told row records whether that check passed).
+ */
+export async function stageClue(context:ApplyContext,effect:Row,told=false):Promise<StagedEffect>{
     const name=required(effect,'clue')!,{world,graph}=context,turn=context.turn.turn;
     const label=typeof effect.label==='string'&&effect.label.trim()?effect.label:null,how=typeof effect.how==='string'?effect.how:null;
     if(name.startsWith('echo:')){
@@ -63,7 +69,16 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
     // `from` of its move receipts (earlier calls, then earlier in this batch; a rename is not a departure), latest first.
     const left=here.includes(node.node_id)?undefined:departedThisTurn(context).map(handle=>graph.scene(handle)).find(value=>graph.sceneClueIds(value).includes(node.node_id));
     const scene=left??active;
-    if(!here.includes(node.node_id)&&!left)throw new RpcError('not_here',`clue ${repr(handle)} is not discoverable at ${repr(graph.handle(scene))}`,{fix:'discover one of details.clues_here, or move first',details:{clue:handle,scene:graph.handle(scene),clues_here:here.map(id=>graph.handle(graph.nodes.get(id)!))}});
+    if(!here.includes(node.node_id)&&!left&&!told)throw new RpcError('not_here',`clue ${repr(handle)} is not discoverable at ${repr(graph.handle(scene))}`,{fix:'discover one of details.clues_here, or move first',details:{clue:handle,scene:graph.handle(scene),clues_here:here.map(id=>graph.handle(graph.nodes.get(id)!))}});
+    // §201.2: a clue the book finds by a check of a named skill lands after that check passed this turn, never instead of
+    // it. A clue already found is a no-op below, and a told row (`told`) is the story's, not a new find.
+    const check=established||told||array(world.discovered_clues).includes(handle)?null:clueCheck(graph,node);
+    if(check&&!checkPassed(check,[...array(context.turn.receipts),...(context.staged?.()??[])])){
+        const named=`${check.skill}${check.difficulty?` (${check.difficulty})`:''}`;
+        throw new RpcError('needs',`the book finds clue ${repr(handle)} with a ${named} check, and no ${check.skill} roll has passed this turn`,{codeDetail:'check_first',
+            fix:`Leave clue ${handle} out of this apply and send the rest. It lands after a ${check.skill} roll for it has passed this turn; until then narrate the attempt without what the clue states. Do not land it another way or under another name.`,
+            details:{reason:'check_first',clue:handle,check:{skill:check.skill,...(check.difficulty?{difficulty:check.difficulty}:{})}}});
+    }
     let source:string|null=null;
     if(typeof effect.from==='string'&&effect.from.trim())source=graph.handle(npcNode(graph,world,effect.from));
     else {

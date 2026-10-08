@@ -707,6 +707,62 @@ async function readToldPositionBudget(contentRoot?: string): Promise<ToldPositio
 export function resetToldPositionBudgetCache(): void { toldPositionCached = undefined; }
 
 /**
+ * Contract §201.1: the told-clue read after a delivery. `mode` (`off | shadow | on`; the environment's `PI_COC_TOLD_CLUE`
+ * overrides it alone), the bar a clue's `given` Noul must clear to be owed, the bar its sentence Choice must clear, the
+ * Noul under which a clue the turn landed counts as untold (counted, never acted on), how many clues the kernel is asked
+ * for, and the read's own deadline. Data, never a literal in the lane.
+ */
+export interface ToldClueBudget {
+  mode: 'off' | 'shadow' | 'on';
+  /** `told_clue.given_min`: the `given` Noul (the delivered text gives the investigators what this clue states). */
+  givenMin: number;
+  /** `told_clue.sentence_min`: the sentence Choice's confidence. */
+  sentenceMin: number;
+  /** `told_clue.untold_max`: a landed clue whose `given` Noul is at or under this is counted `landed_untold`. */
+  untoldMax: number;
+  /** `told_clue.max_candidates`: how many clues `table.owe.options` lists (1..64). */
+  maxCandidates: number;
+  /** `told_clue.timeout_ms`: the read's own deadline; nothing waits on it. */
+  timeoutMs: number;
+}
+
+/** Used only if the file or its `told_clue` section cannot be read; the shipped file carries the real values. */
+export const TOLD_CLUE_FALLBACK: ToldClueBudget = Object.freeze({mode: 'shadow', givenMin: 0.6, sentenceMin: 0.5, untoldMax: 0.15,
+  maxCandidates: 24, timeoutMs: 10_000});
+
+let toldClueCached: Promise<ToldClueBudget> | undefined;
+
+/** §201.1's budget, read once per process and cached. `contentRoot` is for tests only and is never cached. */
+export function toldClueBudget(contentRoot?: string): Promise<ToldClueBudget> {
+  if (contentRoot !== undefined) return readToldClueBudget(contentRoot);
+  return toldClueCached ??= readToldClueBudget();
+}
+
+async function readToldClueBudget(contentRoot?: string): Promise<ToldClueBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot ?? extensionContentRoot(), 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      told_clue?: Record<string, unknown>;
+    };
+    const block = raw.told_clue ?? {}, fallback = TOLD_CLUE_FALLBACK;
+    const bar = (value: unknown, otherwise: number): number => finite(value) && value > 0 && value <= 1 ? value : otherwise;
+    const max = block.max_candidates, timeout = block.timeout_ms;
+    return {
+      mode: block.mode === 'off' || block.mode === 'shadow' || block.mode === 'on' ? block.mode : fallback.mode,
+      givenMin: bar(block.given_min, fallback.givenMin),
+      sentenceMin: bar(block.sentence_min, fallback.sentenceMin),
+      untoldMax: bar(block.untold_max, fallback.untoldMax),
+      maxCandidates: finite(max) && Number.isInteger(max) && max >= 1 && max <= 64 ? max : fallback.maxCandidates,
+      timeoutMs: finite(timeout) && timeout > 0 ? timeout : fallback.timeoutMs,
+    };
+  } catch {
+    return TOLD_CLUE_FALLBACK;
+  }
+}
+
+/** Test-only: forgets the cached value. */
+export function resetToldClueBudgetCache(): void { toldClueCached = undefined; }
+
+/**
  * Contract §191.2: the page-transcript producer's budget, from the same file's `transcript` section. `mode` (`on | off`,
  * shipped `on`; `off` makes `TranscriptService.ensure` a no-op and every reader native), how many layout children run at
  * once, one child's wall clock, the input and output tokens one child may spend (its own provider lease, never a reading

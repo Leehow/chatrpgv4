@@ -134,6 +134,9 @@ export function clueFollowUpCandidates(reads: ConsequenceReads): ConsequenceCand
     if (text(effect.kind) !== 'clue') continue;
     const clue = text(effect.clue);
     if (!clue || text(row.guarded_by) || guards.clues.has(clue)) continue;
+    // §201.2: a clue the book finds by a check is not reached by a settled action until that check passed; the kernel row
+    // says whether this turn passed it (`check.passed`), and `apply clue` refuses it before then.
+    if (object(description.check).passed === false) continue;
     const summary = text(description.summary);
     const cues = array(description.cues).filter((value): value is string => typeof value === 'string' && value.trim() !== '');
     out.push({

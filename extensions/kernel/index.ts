@@ -39,7 +39,7 @@ import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError
 import { progressPartial } from "./progress.ts";
 import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view.ts';
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
-import { argumentLimitRefusal, documentWriteRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
+import { argumentLimitRefusal, documentWriteRefusal, effectShapeRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { unwrapArgumentMarkup } from "./tool-argument-markup.ts";
 import { leanApplyEnabled, offeredTools } from "./lean-apply.ts";
 import { stripDialectPrefixes, omitEmptyEmbeddedArguments } from "./dialect-prefix.ts";
@@ -161,6 +161,7 @@ import {
 import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-domain.ts";
 import { watchOwedReview } from "./owed-review.ts";
 import { startToldPosition } from "./told-position.ts";
+import { startToldClue } from "./told-clue.ts";
 import { openingInstruction } from "./opening-instruction.ts";
 import { leaveOutRefused, leaveOutUnknownOwed, owedLeftOutNote, type OwedLeftOut } from "./owed-left-out.ts";
 import { splitNpcMood } from "./npc-mood-split.ts";
@@ -4219,17 +4220,22 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * Contract §190.2: after every delivery, read where the delivered text leaves the investigators, in the background.
-	 * Nothing here is awaited by the delivery and the prose is never reviewed or edited (§190.2's one exception to §166).
-	 * When the mode may owe, the read is the turn's flight for §158.4's watch: the next run's first read watches it, and
-	 * an owed move it names before that read ends is read before any candidate is built.
+	 * Contract §190.2 and §201.1: after every delivery, read where the delivered text leaves the investigators and which of
+	 * the book's clues it gave them, in the background. Nothing here is awaited by the delivery and the prose is never
+	 * reviewed or edited (§190.2's one exception to §166, extended to clues by §201.1). When either read may owe, the reads
+	 * are the turn's one flight for §158.4's watch: it settles when either wrote an owed row, so the next run's first read
+	 * reads the table again for what either named; it is cleared once both reads ended.
 	 */
-	function afterDeliveryToldPosition(state: TableState, turn: number, prose: string | undefined): void {
+	function afterDeliveryTold(state: TableState, turn: number, prose: string | undefined): void {
 		const kernel = state.kernel, campaign = state.campaign;
-		const flight = startToldPosition({ env: process.env, campaign, turn, text: prose, signal: state.lanes.signal,
-			call: (method, params) => kernel.call(method, params), record: (row) => record(row) },
-			() => { if (flight && state.reviewInFlight === flight) state.reviewInFlight = undefined; });
-		if (flight) state.reviewInFlight = flight;
+		const deps = { env: process.env, campaign, turn, text: prose, signal: state.lanes.signal,
+			call: (method: string, params: Record<string, unknown>) => kernel.call(method, params), record: (row: Record<string, unknown>) => record(row) };
+		let open = 2, flight: { turn: number; done: Promise<void> } | undefined;
+		const ended = () => { open -= 1; if (open === 0 && flight && state.reviewInFlight === flight) state.reviewInFlight = undefined; };
+		const flights = [startToldPosition(deps, ended), startToldClue(deps, ended)].filter((value): value is { turn: number; done: Promise<void> } => !!value);
+		flight = flights.length <= 1 ? flights[0]
+			: { turn, done: new Promise<void>(resolve => { for (const each of flights) void each.done.then(resolve, resolve); }) };
+		if (flight && open > 0) state.reviewInFlight = flight;
 	}
 
 	function pauseReview(state: TableState, error: unknown): void {
@@ -5944,7 +5950,7 @@ export default function (pi: ExtensionAPI) {
 				});
 				afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
 				afterDeliveryFirstSight(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
-				afterDeliveryToldPosition(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
+				afterDeliveryTold(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
 			}
 			// The delivery truly landed: the kernel returned and the bookkeeping above ran. Only now is
 			// the bound patch published; every failure mode — abort, refusal, split delivery, revision
@@ -6157,6 +6163,12 @@ export default function (pi: ExtensionAPI) {
 				if(embedded.fields.length)void record({lane:'arguments',event:'empty_embedded_omitted',tool:spec.name,fields:embedded.fields});
 				const refusal = argumentLimitRefusal(spec.name, embedded.args);
 				if (refusal) throw new Error(new KernelError(refusal).toToolText());
+				// Contract §201.3: an effect the schema cannot take is refused here, with how to write it, not with the union's dump.
+				const shape = effectShapeRefusal(spec.name, spec.parameters, embedded.args);
+				if (shape) {
+					void record({ lane: "arguments", event: "effect_shape_refused", tool: spec.name, reason: shape.code_detail, field: shape.details.field });
+					throw new Error(new KernelError(shape).toToolText());
+				}
 				return preparePriceArguments(spec.name,embedded.args) as never;
 			},
 			// The actions of a turn are ordered: run them serially, so the calls after narrate in the same batch can be stopped.
@@ -7882,7 +7894,7 @@ export default function (pi: ExtensionAPI) {
 					await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
 					afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
 					afterDeliveryFirstSight(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
-					afterDeliveryToldPosition(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
+					afterDeliveryTold(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
 					rendered = asString(result.rendered_text);
 					break;
 				} catch (error) {

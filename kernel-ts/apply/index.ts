@@ -283,7 +283,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     else if (kind === 'ending')
                         ({ receipt, event } = await contributions.ending!(context, effect));
                     else if(kind==='clue'){
-                        const clue=await stageClue(context,effect);receipt=clue.receipt;
+                        // §201.1: a told clue lands where the party stands; the owed row already proved the delivery told it.
+                        const clue=await stageClue(context,effect,owedRow?.kind==='clue');receipt=clue.receipt;
                         if(!clue.event){already.push(receipt.clue);ids.push(receipt.id);continue;}event=clue.event;
                     }
                     else if(kind==='npc')({receipt,event}=await stageNpc(context,effect) as {receipt:Row;event:DomainEvent});
