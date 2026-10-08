@@ -5,7 +5,7 @@ import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
 import {isAmbiguity,notAPerson,personRefusal,recordOf,type ModuleGraph} from '../read/module-graph.js';
 import {handoutFile} from '../read/handout-document.js';
-import {npcNode,npcsPresent,personLabel,personNode,personRecord,untoldBlock} from '../read/capsule.js';
+import {npcNode,npcsPresent,personLabel,personNode,personRecord,unplacedPeople,untoldBlock} from '../read/capsule.js';
 import {unsupported} from '../read/handlers.js';
 import {passageOf,tablePersonId} from '../read/table-people.js';
 import {array,entries,integer,normalize,number,repr,row,sorted,string,truth,type Row} from '../read/values.js';
@@ -115,7 +115,7 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
  * typo §87.2 guarded against is a Keeper reaching for someone the book has, and a Keeper who
  * declared a newcomer is not doing that. A reunion stays refused on a word nobody carries.
  */
-async function personOfEffect(context:ApplyContext,effect:Row,name:string,why:string|null,declared:CreatureDeclaration|null=null):Promise<{node:Row;established:false|'table'|'passage';from_passage?:Row}>{
+async function personOfEffect(context:ApplyContext,effect:Row,name:string,why:string|null,declared:CreatureDeclaration|null=null):Promise<{node:Row;established:false|'table'|'passage';from_passage?:Row;walked_on?:string}>{
     const {graph,world}=context,walkOn=effect.walk_on??null;
     if(walkOn!==null&&typeof walkOn!=='boolean')throw new RpcError('invalid_params','npc.walk_on must be true or false',{fix:'walk_on: true on the effect that brings in someone the book never had; leave it out for anyone this table already has',details:{field:'npc.walk_on'}});
     let node:Row|null=null,refusal:unknown=null;
@@ -135,6 +135,9 @@ async function personOfEffect(context:ApplyContext,effect:Row,name:string,why:st
         // only the request's rename kept out of the Keeper's copy before. §180.6: a table person, or a creature this table
         // declared, is accepted again idempotently.
         const shown=tableWord(world,graph.handle(node))||graph.displayName(node);
+        // §198.1: a person this table already has walks on -- read as their arrival, never as a newcomer. Nothing is minted
+        // and the write is the one their word already names; a creature declaration on a book creature keeps its refusal.
+        if(walkOn===true&&graph.isPerson(node)&&!declared)return{node,established:false,walked_on:shown};
         if(walkOn===true&&!graph.isTablePerson(node)&&!graph.isTableCreature(node))throw new RpcError('invalid_params',`${repr(name)} is ${shown}, whom this table already has; walk_on brings in someone it does not`,{fix:`leave walk_on out to write to ${shown}; call a newcomer by a word that carries nobody's name`,details:{field:'npc.walk_on',query:name,person:shown}});
         return{node,established:false};
     }
@@ -250,12 +253,53 @@ function refuseNotAPerson(graph:ApplyContext['graph'],node:Row,effect:Row):void{
     throw new RpcError('invalid_params',`${graph.displayName(node)} is a creature, not a person: npc.${field} is a person's`,{
         fix:NOT_A_PERSON[field],details:{reason:'not_a_person',field:`npc.${field}`,name:graph.displayName(node)}});
 }
+/**
+ * §198.1: the npc variants that are an effect of their own and cannot share it with `to` (§161.1's mood, §142.2's intention
+ * and its result, §11.5.2-§11.5.3's defense, action and disposition, conditions, a reunion, the host's draws). A `walk_on` on
+ * someone this table already has gains `to: here` only on an effect that opens none of them. Closed effect keys, read as keys.
+ */
+const STANDALONE_VARIANTS:readonly string[]=Object.freeze(['mood','intends','outcome','intent_outcome','defense','action','disposition','conditions','reunion','_draws','_produces']);
+/** §198.3: the keys a seat at the opening carries -- who, where, why, and the walk_on §198.1 reads as an arrival. */
+const OPENING_SEAT_KEYS:readonly string[]=Object.freeze(['kind','name','to','why','walk_on']);
+/** §198.3: an npc effect shaped as an opening seat; whether it is one is `refuseUnlessOpeningSeat`'s to say. */
+export const openingSeatShape=(effect:Row):boolean=>effect.kind==='npc'&&Object.keys(effect).every(key=>OPENING_SEAT_KEYS.includes(key));
+/**
+ * Contract §198.3: at the opening (turn 0, before it is narrated) an npc effect only seats a person the book places in the
+ * opening scene (§198.2) whom nobody has placed yet, there: the write a reference book's deferred seat (§149.1) waits for
+ * once a judge has read the source. Anything else is refused and nothing lands.
+ */
+function refuseUnlessOpeningSeat(context:ApplyContext,node:Row,established:false|'table'|'passage',effect:Row):void{
+    const {graph,world}=context,active=graph.scene(string(world.active_scene));
+    const to=typeof effect.to==='string'?effect.to.trim():'';
+    let target:Row|null=null;
+    if(to==='here')target=active;else if(to)try{target=graph.scene(to);}catch{target=null;}
+    const there=!!target&&graph.survivorId(string(target.node_id))===graph.survivorId(string(active.node_id));
+    const self=graph.survivorId(string(node.node_id));
+    const placed=graph.sceneNpcIds(active).includes(self);
+    const unplaced=unplacedPeople(graph,world,active).some(person=>graph.survivorId(string(person.node.node_id))===self);
+    if(established===false&&openingSeatShape(effect)&&there&&placed&&unplaced)return;
+    const word=tableWord(world,graph.handle(node))||graph.displayName(node);
+    throw new RpcError('invalid_params',`at the opening an npc effect only seats someone the book places in the opening scene whom nobody has placed yet; ${word} is not that`,{
+        fix:'leave this effect out of the opening; once the player has spoken, apply npc as on any turn',
+        details:{field:'npc',reason:'opening_seat',name:word,...(established?{established}:{}),placed,unplaced,there}});
+}
 export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEffect>{
     const {graph,world}=context;
     const why=typeof effect.why==='string'&&effect.why.trim()?effect.why:null;
     // §180.6: what `creature` declares, read against the rules catalog before anyone is found or established.
     const declared=await creatureDeclaration(context.kernel,effect);
-    const {node,established,from_passage:fromPassage}=await personOfEffect(context,effect,string(required(effect,'name')),why,declared);
+    const {node,established,from_passage:fromPassage,walked_on:walkedOn}=await personOfEffect(context,effect,string(required(effect,'name')),why,declared);
+    // §198.1: `walk_on` on someone this table already has is their arrival. The effect stages without it, and with `to: here`
+    // when it names no `to` and opens none of the variants that stand alone; such a variant stages as written, moving nobody.
+    let walkOnRead:Row={};
+    if(walkedOn!==undefined){
+        const {walk_on:_walkOn,...rest}=effect;
+        const arrives=effect.to!=null||!STANDALONE_VARIANTS.some(key=>effect[key]!=null);
+        effect=effect.to==null&&arrives?{...rest,to:'here'}:rest;
+        walkOnRead={walk_on_read:{read_as:arrives?'arrival':'person',person:walkedOn}};
+    }
+    const walked=(value:StagedEffect):StagedEffect=>{if(walkedOn!==undefined)Object.assign(value.receipt,walkOnRead);return value;};
+    if(number(context.turn.turn)===0&&context.turn.state==='awaiting_player')refuseUnlessOpeningSeat(context,node,established,effect);
     // A declaration that pins nothing (`true`, or an entry that prints no stat block) is part of the walk-on, as walk_on
     // is, and stands beside any variant. A catalog block is a pin, as an archetype is, and stands only where one does.
     if(declared&&!declared.block){const {creature:_declared,...rest}=effect;effect=rest;}
@@ -276,7 +320,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const ledger=row(await new CampaignSnapshot(context.kernel,context.campaign.id).optional('npc-ledger.json'));
         const mood={text,previous:moodLine(row(ledger[string(node.node_id)]))};
         const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),mood,...establishedOf(established,fromPassage,resolvedFrom),why,visibility:'keeper',at:nowIso()};
-        return {receipt,event:{type:'npc-changed',data:{npc:handle,mood,why}}};
+        return walked({receipt,event:{type:'npc-changed',data:{npc:handle,mood,why}}});
     }
     // Contract §142.2: what this person is trying to do, and how it went -- the Keeper's own account of a result no
     // other effect or roll carries (an announcement, a shout nobody answers, a plan dropped). Its own variant, like
@@ -308,13 +352,13 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
             passes=await ownTurn(context,node,handle,'npc.spend_turn');
         }
         const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),intent,previous:resolved.status,...(passes?{passes_turn:passes}:{}),...establishedOf(established,fromPassage,resolvedFrom),why,visibility:'keeper',at:nowIso()};
-        return {receipt,event:{type:'npc-changed',data:{npc:handle,intent:{ref:intent.ref,text:intent.text,outcome},why}}};
+        return walked({receipt,event:{type:'npc-changed',data:{npc:handle,intent:{ref:intent.ref,text:intent.text,outcome},why}}});
     }
     // §143.3 / spec D9, §143.19 / spec D10: what this person brings out, host-only -- a rulebook weapon (`_draws`), or
     // any other thing, the book's or the table's own (`_produces`); the act step sends either only on a surprise of the
     // stakes die, and the kernel extension strips both from every other call.
-    if(effect._draws!=null)return stageDraw(context,effect,node,handle);
-    if(effect._produces!=null)return stageProduce(context,effect,node,handle);
+    if(effect._draws!=null)return walked(await stageDraw(context,effect,node,handle));
+    if(effect._produces!=null)return walked(await stageProduce(context,effect,node,handle));
     if(effect.reunion!=null){
         if(['to','stance','dead','skill','archetype','creature','conditions','defense','action','disposition'].some(key=>effect[key]!=null))
             throw new RpcError('invalid_params','Reunion continuity is separate from mechanical or positional NPC effects');
@@ -322,9 +366,9 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const scope={worldline,loop:number(row(row(meta.worldlines)[worldline]).loop)};
         const snapshot=new CampaignSnapshot(context.kernel,context.campaign.id);
         const reunion=acceptReunion(graph,world,node,await snapshot.files('turns'),scope,effect.reunion,number(context.turn.turn));
-        return {receipt:{id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,
+        return walked({receipt:{id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,
             name:graph.displayName(node),reunion,...(resolvedFrom?{resolved_from:resolvedFrom}:{}),why,visibility:'keeper',at:nowIso()},
-            event:reunion.reused?null:{type:'npc-changed',data:{npc:handle,reunion}}};
+            event:reunion.reused?null:{type:'npc-changed',data:{npc:handle,reunion}}});
     }
     // §11.5.2: the Keeper's override of this person's standing defence. Its own variant, like conditions: one
     // closed word and the reason, an ordinary keeper-side receipt, and the world key the session view reads.
@@ -336,7 +380,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const tactics=world.npc_defense??={},previous=typeof row(tactics[handle]).defense==='string'?row(tactics[handle]).defense:null;
         tactics[handle]={defense:effect.defense,why,turn:number(context.turn.turn)};
         const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),defense:effect.defense,previous,...establishedOf(established,fromPassage,resolvedFrom),why,visibility:'keeper',at:nowIso()};
-        return {receipt,event:{type:'npc-changed',data:{npc:handle,defense:effect.defense,why}}};
+        return walked({receipt,event:{type:'npc-changed',data:{npc:handle,defense:effect.defense,why}}});
     }
     // §11.5.3: the Keeper's override of this person's standing action in a fight, and of their combat disposition.
     // Each its own variant, like `defense`: one closed word and the reason, an ordinary keeper-side receipt, and the
@@ -374,7 +418,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const {passes_turn:_passes,...kept}=scope;
         written[handle]={[field]:word,why,turn:number(context.turn.turn),...kept};
         const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),[field]:word,previous,...scope,...establishedOf(established,fromPassage,resolvedFrom),why,visibility:'keeper',at:nowIso()};
-        return {receipt,event:{type:'npc-changed',data:{npc:handle,[field]:word,why}}};
+        return walked({receipt,event:{type:'npc-changed',data:{npc:handle,[field]:word,why}}});
     }
     if(effect.conditions!=null){
         const combined=['to','stance','dead','skill','archetype','creature'].filter(key=>effect[key]!=null);
@@ -394,7 +438,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         ((world.npc_resources??={})[handle]??={}).conditions=[...after];
         const label=personLabel(world,handle,graph.displayName(node));
         const receipt={id:effectId(context,'condition',handle),kind:'condition',call_id:context.callId,subject:handle,subject_label:label,subject_is_investigator:false,npc:handle,before,after,gained:actualGained,lost:actualLost,incapacitated:incapacitatedBy(after),...(resolvedFrom?{resolved_from:resolvedFrom}:{}),visibility:'public',why,at:nowIso()};
-        return {receipt,event:{type:'npc-changed',data:{npc:handle,conditions:{before,after,gained:actualGained,lost:actualLost},why}}};
+        return walked({receipt,event:{type:'npc-changed',data:{npc:handle,conditions:{before,after,gained:actualGained,lost:actualLost},why}}});
     }
     const table=await stanceTable(context.kernel),words=array(table.levels).map(level=>level.value);
     if(dead!=null&&typeof dead!=='boolean')throw new RpcError('invalid_params','npc.dead must be true or false',{fix:'say true on the turn they died',details:{field:'npc.dead'}});
@@ -459,7 +503,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // never indistinguishable from one the book printed -- for the Keeper reading the result, and for
     // anything that folds receipts later (the ledger, a worldline rebuild, the KPI).
     const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?{profile:pinnedProfile}:{}),...establishedOf(established,fromPassage,resolvedFrom),why,at:nowIso()};
-    return {receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?typeof profile!.catalog==='string'?{catalog:profile!.catalog}:{archetype:profile!.archetype}:{}),...establishedOf(established,fromPassage,resolvedFrom),why}}};
+    return walked({receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?typeof profile!.catalog==='string'?{catalog:profile!.catalog}:{archetype:profile!.archetype}:{}),...establishedOf(established,fromPassage,resolvedFrom),why}}});
 }
 /**
  * Contract §152.4: the handout a name reaches, read through its survivor -- a printed visual the reviewer found to be the

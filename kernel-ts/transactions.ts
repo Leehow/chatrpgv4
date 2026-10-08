@@ -42,6 +42,8 @@ export interface ResolveCommit {
   readonly result: JsonObject;
   readonly receipts: readonly JsonObject[];
   readonly events: readonly DomainEvent[];
+  /** §198.3: an opening seat leaves the opening owed -- turn 0 stays `awaiting_player`, its preparations still gated. */
+  readonly keepOpening?: boolean;
 }
 
 /** One loaded mutable cursor; filesystem state remains authoritative between RPCs. */

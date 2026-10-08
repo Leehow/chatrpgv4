@@ -477,7 +477,11 @@ test('§177.2 (owner Q2): a book with no text layer has no cast, and the checks 
 	assert.deepEqual(await h.call('cast.job', {module_id: h.mid}), {job_id: null, state: 'unavailable'});
 	await h.call('table.player_input', {text: 'A man walks up.'});
 	const answer = await h.attempt('table.apply', {call_id: 't1-c1', effects: [{kind: 'npc', name: 'Old Mae', to: 'here', walk_on: true, why: 'x'}]});
+	// What refuses here is the material gate (her pages are unread); §198.1 would read walk_on on her as her arrival. Either
+	// way nobody is minted under the graph's own person's name.
 	assert.equal(answer.ok, false, 'the graph\'s own person still refuses a newcomer under her name');
+	assert.equal(answer.error?.details?.reason, 'material_pending', answer.error?.message);
+	assert.ok(!(await h.world()).table_people?.length, 'nobody was minted under her name');
 });
 
 test('§177.15: a place the host judged part of another word is no name: not refused, not replaced, and it tells nobody', async t => {

@@ -221,7 +221,10 @@ export function createTurnTransaction(campaign: CampaignWriter, world: Row, turn
         },
         async commitResolve(commit: ResolveCommit) {
             turn.receipts.push(...commit.receipts);
-            turn.state = 'acting';
+            // §198.3: a seat at the opening is the book's people taking their places before anything is narrated; the opening
+            // stays owed, and its gate stays shut to everything else.
+            if (!(commit.keepOpening && number(turn.turn) === 0 && turn.state === 'awaiting_player'))
+                turn.state = 'acting';
             rememberCall(turn, commit.callId, commit.params, commit.result);
             await campaign.writeTurn(turn);
             for (const event of commit.events)

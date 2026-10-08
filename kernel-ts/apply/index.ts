@@ -26,7 +26,7 @@ import { stageMove } from './move.js';
 import {appendJsonl} from '../fileio.js';
 import {join} from 'node:path';
 import {stageFlag,stageNote,stageRuling,stageThreat} from './bookkeeping.js';
-import {stageClue,stageNpc,stageHandout,landPeople,landRequests} from './entities.js';
+import {stageClue,stageNpc,stageHandout,landPeople,landRequests,openingSeatShape} from './entities.js';
 import { passNpcTurn } from '../combat/execution.js';
 import { effectIntent } from './intent.js';
 import { armDrawn } from './draw.js';
@@ -107,7 +107,10 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const transaction = await writer.transaction(params, { repairLegacyTrail: false, preload: false }), { campaign, turn } = transaction;
             const effects = params.effects;
             const callParams = Array.isArray(effects) ? { ...params, effects: effects.map(effect => isJsonObject(effect) ? Object.fromEntries(entries(effect).filter(([key]) => !key.startsWith('_'))) : effect) } : params;
-            const opening = Array.isArray(effects) && effects.length > 0 && effects.every(effect => isJsonObject(effect) && ['define', 'object', 'ability', 'usage', 'clock'].includes(string(effect.kind)));
+            // §198.3: beside the preparations the opening already admits, an npc effect shaped as a seat (stageNpc decides whether
+            // it is one: a person the book places in the opening scene whom nobody has placed yet).
+            const opening = Array.isArray(effects) && effects.length > 0 && effects.every(effect => isJsonObject(effect)
+                && (['define', 'object', 'ability', 'usage', 'clock'].includes(string(effect.kind)) || openingSeatShape(effect)));
             const started = await transaction.beginWrite('table.apply', callParams, { allowOpening: opening });
             if (started.kind === 'replay')
                 return started.result;
@@ -513,6 +516,16 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 result.person_text = personText;
             if (crossed)
                 result.obligation_open = crossed;
+            // §198.1: a walk_on on someone this table already has was read as their arrival; the Keeper is told so, by the word
+            // this table calls them, once per batch.
+            const walkedOn = [...effectReceipts].flatMap(([index, staged]) => staged.filter(receipt => isJsonObject(receipt.walk_on_read)).map(receipt =>
+                ({ index, name: string(row(effects[index]).name), person: string(row(receipt.walk_on_read).person), read_as: string(row(receipt.walk_on_read).read_as) })));
+            if (walkedOn.length) {
+                result.walk_on_read = walkedOn;
+                result.walk_on_note = walkedOn.map(entry => `${entry.person} is someone this table already has, so walk_on was read as `
+                    + (entry.read_as === 'arrival' ? 'their arrival' : 'naming them')).join('; ')
+                    + '. walk_on brings in someone this table does not have yet; leave it out for anyone it already has.';
+            }
             if (passedTurns.length)
                 result.turn_passed = passedTurns;
             if (recovery.recovered.length)
@@ -535,7 +548,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     before: beforeTaskRevision, after: worldRevision(staged, await campaign.party() as Row[], [...array(turn.receipts), ...receipts], turn.pending_choice),
                     task_before: beforeTaskCore, task_after: taskWorldRevision(staged, await campaign.party() as Row[], [...array(turn.receipts), ...receipts], turn.pending_choice) };
             }
-            await transaction.commitResolve({ callId: started.callId, params: callParams, result, receipts, events });
+            // §198.3: a batch of opening seats leaves the opening owed.
+            const keepOpening = number(turn.turn) === 0 && turn.state === 'awaiting_player' && effects.every(effect => isJsonObject(effect) && openingSeatShape(effect));
+            await transaction.commitResolve({ callId: started.callId, params: callParams, result, receipts, events, ...(keepOpening ? { keepOpening } : {}) });
             return result;
         } };
 }

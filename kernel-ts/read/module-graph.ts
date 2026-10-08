@@ -15,6 +15,11 @@ export type NodeHandles = ReadonlyMap<string, string>;
 export const interimHandle = (kind: string, nodeId: string): string =>
     `${kind || "node"}-${createHash("sha256").update(nodeId).digest("hex").slice(0, 6)}`;
 const EXIT_KINDS = ["route-to", "play-precedes", "may-lead-to", "alternative-to", "hands-off-to"];
+/** A node's physical pages, 1-based: page refs (`{page}`) and runtime refs (`{pdf_index}`), as `published-duplicates` reads them. */
+const citedPageNumbers = (node: Row): number[] => [...new Set(array(node.source_refs).flatMap(ref => {
+    const value = row(ref);
+    return integer(value.page) ? [Number(value.page)] : integer(value.pdf_index) ? [Number(value.pdf_index) + 1] : [];
+}))].filter(page => page >= 1);
 const CHARACTERISTICS = new Set(["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK", "SAN"]);
 const DERIVED = new Set(["HP", "MP", "BUILD", "MOVE", "MAGIC_POINTS", "DAMAGE_BONUS", "AGE", "ARMOR"]);
 /** Contract 28.3/28.4: the dossier spine as one list. `profile_keys` stays the core words the
@@ -1038,11 +1043,46 @@ export class ModuleGraph {
         return [...new Set([...group.flatMap(each => array(recordOf(each).available_clues)), ...this.groupIncoming(scene).filter(r => r.relation_kind === "discoverable-at").map(r => r.from_node_id)]
             .filter(id => typeof id === "string" && this.nodes.get(id)?.node_kind === "clue").map(id => this.survivorId(id)))];
     }
-    /** §192.3: the people of the scene's group (`present-in` and authored lists), each as the node that stands for them. */
+    /** §192.3, §198.2: the people the book places in the scene, each as the node that stands for them (`scenePeople`). */
     sceneNpcIds(scene: Row): string[] {
-        const group = this.groupOf(scene);
-        return [...new Set([...this.groupIncoming(scene).filter(r => r.relation_kind === "present-in").map(r => r.from_node_id), ...group.flatMap(each => array(recordOf(each).npc_ids))]
-            .filter(id => typeof id === "string" && this.isActor(this.nodes.get(id))).map(id => this.survivorId(id)))];
+        return this.scenePeople(scene).map(person => person.id);
+    }
+    /**
+     * Contract §198.2: who the book places in a scene, read off relations and marks the graph already has (nothing reads
+     * prose), each person as the node that stands for them (§192.3) with `via`, the scene that places them when it is not
+     * this one. In order: the scene's own people (`present-in` into its group, the group's `npc_ids`); a place's, the people
+     * of every scene that `occurs-at` it (a source location projected into a playable place, §150.2, holds the people of
+     * the scenes that happen there); an anchor opening's, the people of the read openings it displaced (`displacedOpenings`).
+     * One hop: a scene's sibling at the same place, or the place's own place, adds nobody.
+     */
+    scenePeople(scene: Row): Array<{ id: string; via: Row | null }> {
+        const found = new Map<string, Row | null>(), group = new Set(this.groupOf(scene).map(each => string(each.node_id)));
+        const own = (at: Row): string[] => [...this.groupIncoming(at).filter(r => r.relation_kind === "present-in").map(r => r.from_node_id),
+            ...this.groupOf(at).flatMap(each => array(recordOf(each).npc_ids))]
+            .filter((id): id is string => typeof id === "string" && this.isActor(this.nodes.get(id))).map(id => this.survivorId(id));
+        const add = (at: Row, via: Row | null) => { for (const id of own(at)) if (!found.has(id)) found.set(id, via); };
+        add(scene, null);
+        for (const rel of this.groupIncoming(scene)) {
+            const at = rel.relation_kind === "occurs-at" ? this.nodes.get(string(rel.from_node_id)) : undefined;
+            if (at?.node_kind === "scene" && !group.has(string(at.node_id))) add(at, this.survivorOf(at));
+        }
+        for (const opening of this.displacedOpenings(scene)) add(opening, opening);
+        return [...found].map(([id, via]) => ({ id, via }));
+    }
+    /**
+     * Contract §198.2: the read openings an identity-only opening displaced. The source-reference bind
+     * (`publishReferenceContext`) reuses an existing entrance only when exactly one cites the entry page; with two it mints
+     * an anchor (`source_reference_anchor`, `is_entrance`) that relates to nothing (Cold Harvest: §2.1 and §2.2, both on
+     * page 9). The anchor stands for them: every other `is_entrance` scene, not itself an anchor, citing one of its pages --
+     * the bind's own `samePage` rule. Empty for any other scene.
+     */
+    displacedOpenings(scene: Row): Row[] {
+        const marks = row(scene.properties);
+        if (marks.source_reference_anchor !== true || marks.is_entrance !== true) return [];
+        const pages = new Set(citedPageNumbers(scene)), group = new Set(this.groupOf(scene).map(each => string(each.node_id)));
+        if (!pages.size) return [];
+        return this.kind("scene").filter(other => !group.has(string(other.node_id)) && row(other.properties).is_entrance === true
+            && row(other.properties).source_reference_anchor !== true && citedPageNumbers(other).some(page => pages.has(page)));
     }
     /** The scene's assets; a handout already handed over says so (`shown`, from the world's `handouts_shown`; §135.2). */
     sceneAssets(scene: Row, shown: readonly unknown[] = []): Row[] {

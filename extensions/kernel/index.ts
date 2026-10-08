@@ -103,7 +103,9 @@ import { createUntoldSpanJudge, UNTOLD_HOST_PARAMS } from "./untold-spans.ts";
 import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
 import { NAME_SPANS_FAMILY } from "../../runtime/jev/untold-name-spans.ts";
 import { PUBLIC_FIGURES_FAMILY } from "../../runtime/jev/public-figures.ts";
+import { OPENING_PRESENCE_FAMILY } from "../../runtime/jev/opening-presence.ts";
 import { createPublicFigureJudge } from "./public-figures.ts";
+import { seatOpeningPeople } from "./opening-presence.ts";
 import { PendingAnswers, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs, type SourceAnswerScope } from "./source-answers.ts";
 import {sourceAnswerPage} from '../../runtime/jev/source-answer-pages.ts';
 import { PERSON_TEXT_NOTE, SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
@@ -284,6 +286,10 @@ interface OpenResult {
 	/** The resume checkpoint (contract §12.2): after a restart the first capsule carries this section itself, so the extension sends no separate host message for it. */
 	resume?: { turn?: number; commit?: string; one_line?: string; rebuilt?: boolean } | null;
 	opening_needed?: boolean;
+	/** Contract §198.3: the people the book places in the opening scene whom nobody has placed, while the opening is owed. */
+	opening_people?: unknown;
+	/** Contract §198.3: the highest call ordinal the opening turn has used, so a reopened opening mints after it. */
+	opening_call_ordinal?: number;
 	session?: SessionSummary | null;
   mod_context?: unknown;
   setup_prologue?: unknown;
@@ -1684,7 +1690,8 @@ export default function (pi: ExtensionAPI) {
 		if (!readJevApiKey(process.env)) return undefined;
 		return untoldSpanPort ??= createDecisionAdapter({ env: process.env, maxConcurrency: 4, retryPolicies: {
 			[NAME_SPANS_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 },
-			[PUBLIC_FIGURES_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } } });
+			[PUBLIC_FIGURES_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 },
+			[OPENING_PRESENCE_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } } });
 	};
 	const publicFigureJudge = createPublicFigureJudge({ record: (row) => void record(row), decision });
 	const untoldSpanJudge = createUntoldSpanJudge({ record: (row) => void record(row), decision, publicFigures: publicFigureJudge });
@@ -1923,8 +1930,9 @@ export default function (pi: ExtensionAPI) {
 		table.state = open.turn?.state ?? table.state;
 		table.session = open.session ?? null;
 		table.openingPending = open.opening_needed === true;
-		// A recovered turn goes on minting ordinals after the dead process, or the first write hits idempotency_conflict.
-		table.callOrdinal = open.pending_turn?.last_call_ordinal ?? 0;
+		// A recovered turn goes on minting ordinals after the dead process, or the first write hits idempotency_conflict; so does
+		// an opening opened again before it was narrated (§198.3: the opening's seat is one of its calls).
+		table.callOrdinal = open.pending_turn?.last_call_ordinal ?? open.opening_call_ordinal ?? 0;
 		table.mintedCallIds.clear();
 		table.rejected.clear();
 		table.callKeys.clear();
@@ -6479,6 +6487,13 @@ export default function (pi: ExtensionAPI) {
 				// release landed before the previous process died). It must not
 				// authorize stranding some later turn in this process.
 				if (watchdogRecovery) await clearWatchdogRecovery();
+				// §198.3: the people the book places in the opening are judged, and the ones Jev puts there seated, before the
+				// opening run is sent; the wait is bounded and a failure seats nobody.
+				if (open.opening_needed && open.opening_people && table) {
+					const state = table;
+					await seatOpeningPeople({ campaign, open, call: (method, params) => kernel.call(method, params), decision,
+						mintCallId: () => mintCallId(state), record: (row) => void record(row) });
+				}
 				if (open.opening_needed) sendHost(
 					openingInstruction({ prologue: open.setup_prologue || undefined, playLanguage: table.playLanguage,
 						party: Array.isArray(open.investigators) ? open.investigators.map((row: { name?: unknown }) => asString(row?.name)).filter((name: string | undefined): name is string => Boolean(name)) : undefined,

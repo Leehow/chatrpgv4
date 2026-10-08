@@ -86,18 +86,30 @@ def test_walk_on_establishes_a_newcomer_and_the_next_one_as_well(tmp_path):
         client.close()
 
 
-def test_walk_on_for_someone_this_table_has_is_refused(tmp_path):
+def test_walk_on_for_someone_this_table_has_is_their_arrival(tmp_path):
+    """Contract §198.1 (amends the §87.7 refusal): TR-F2 run 2 sent walk_on for Aganin, Gapon and Pyotr -- each the book's
+    person -- and each refusal cost a round trip; on turn 18 the Keeper gave up at Pyotr's door. Nothing is minted: the
+    effect is the person's arrival, `to: here` when it names no `to`, and the receipt and the result say how walk_on was read."""
     client = RpcClient(tmp_path / "ws")
     try:
         open_turn(client)
-        by_book = client.table_err("apply", call_id="t1-c1", effects=[
-            {"kind": "npc", "name": KNOTT, "stance": "wary", "walk_on": True, "why": "x"}])
-        assert by_book["code"] == "invalid_params" and by_book["details"]["field"] == "npc.walk_on"
-        client.table("apply", call_id="t1-c2", effects=[{"kind": "person", "who": KNOTT, "name": EPITHET}])
-        by_word = client.table_err("apply", call_id="t1-c3", effects=[
-            {"kind": "npc", "name": EPITHET, "stance": "wary", "walk_on": True, "why": "x"}])
-        # Contract §177.3: the refusal names the person by this table's word for them, never by the book's name.
-        assert by_word["code"] == "invalid_params" and by_word["details"]["person"] == EPITHET
+        active = world(client)["active_scene"]
+        client.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": KNOTT, "to": "away", "why": "he steps out"}])
+        assert "steven-knott" not in world(client)["npc_presence"]
+        applied = client.table("apply", call_id="t1-c2", effects=[
+            {"kind": "npc", "name": KNOTT, "stance": "wary", "walk_on": True, "why": "he comes back up the stairs"}])
+        [staged] = npc_receipts(client, applied)
+        assert staged["handle"] == "steven-knott" and "established" not in staged, staged
+        assert staged["to"] == active and world(client)["npc_presence"]["steven-knott"] == active
+        assert staged["walk_on_read"] == {"read_as": "arrival", "person": KNOTT}
+        assert applied["walk_on_read"] == [{"index": 0, "name": KNOTT, "person": KNOTT, "read_as": "arrival"}]
+        client.table("apply", call_id="t1-c3", effects=[{"kind": "person", "who": KNOTT, "name": EPITHET}])
+        by_word = client.table("apply", call_id="t1-c4", effects=[
+            {"kind": "npc", "name": EPITHET, "stance": "hostile", "walk_on": True, "why": "x"}])
+        [again] = npc_receipts(client, by_word)
+        # Contract §177.3: the note names the person by this table's word for them, never by the book's name.
+        assert again["handle"] == "steven-knott" and by_word["walk_on_read"][0]["person"] == EPITHET
+        assert KNOTT not in by_word["walk_on_note"]
         assert not world(client).get("table_people")
     finally:
         client.close()

@@ -19,7 +19,7 @@ import { mechanics } from '../read/mechanics.js';
 import { SessionView } from '../read/session-view.js';
 import { standingStates } from '../read/standing.js';
 import { authoredMapWords, presentPublishedArrivalMaps } from '../read/maps.js';
-import { clockSection, sceneLabel, untoldBlock, untoldRosterNames } from '../read/capsule.js';
+import { clockSection, openingPeopleView, sceneLabel, untoldBlock, untoldRosterNames } from '../read/capsule.js';
 import { SHARED_FIX, candidatesOf, joinedWritten, sharedNames, sharedNotice } from './shared-untold.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
 import { playLanguages, playLanguageOf, declaredPlayLanguage } from '../read/languages.js';
@@ -1036,8 +1036,15 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // once, out of fiction, to whoever can rebuild the kernel.
         const modGaps = kernelGaps(await readModCatalog(context));
         const quoteTurns=quotationRecords(snapshot.records,snapshot.meta).map(record=>number(record.turn));
+        // §198.3: while the opening is owed, the people the book places in the opening scene whom nobody has placed -- the host's
+        // judge asks Jev about them before the opening is narrated. A book seated at creation has nobody here.
+        const openingPeople = opening ? openingPeopleView(module.graph, snapshot.world, scene) : null;
         return {
             campaign: snapshot.meta,
+            ...(openingPeople ? { opening_people: openingPeople } : {}),
+            // §198.3: the opening's own calls (a seat, a preparation) are kept like any turn's, so a table opened again before the
+            // opening is narrated goes on minting after them rather than colliding with them.
+            ...(opening ? { opening_call_ordinal: Math.max(0, ...ordinals) } : {}),
             ...(quoteTurns.length?{quote_turns:quoteTurns}:{}),
             turn: {
                 number: turn.turn,

@@ -210,7 +210,7 @@ export function obligationRefusals(graph: ModuleGraph, rules: { skills: readonly
         const seated = sceneOk ? graph.sceneNpcIds(graph.nodes.get(ob.scene)!) : [];
         const person = (value: any, path: string) => {
             if (!kindOf(value, "npc")) refuse("obligation_unresolved", path, "must name an npc node");
-            else if (sceneOk && !seated.includes(value)) refuse("obligation_not_seated", path, "must be seated in the obligation's scene (present-in or npc_ids)");
+            else if (sceneOk && !seated.includes(value)) refuse("obligation_not_seated", path, "must be seated in the obligation's scene (present-in or npc_ids, or a scene that occurs at it: §198.2)");
         };
         if (Object.hasOwn(ob, "who")) person(ob.who, `${base}.who`);
         if (Object.hasOwn(ob, "reaction") && ob.reaction !== "preordained")
