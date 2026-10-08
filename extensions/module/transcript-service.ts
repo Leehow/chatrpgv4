@@ -2,12 +2,13 @@
  * Contract §191.2, §191.4, §191.6, §191.9: the page-transcript producer.
  *
  * `ensure` queues the pages of one source file that have no record and no live claim; foreground pages are served first
- * among transcript work. Each page is one tools Pi child (`read,write,edit`) on a background reader slot, run with the
- * reading lane's model and thinking at the time of the call, given `page.png` (the existing page render) and `lines.txt`
- * (§191.1's native lines). It writes `layout.md`; the host assembles it (§191.3), runs one repair child for lines the layout
- * left out, and publishes the page under the file's digest. Nothing ever awaits a transcript: `ensure` returns once the
- * pages are queued, never throws into its caller, and a page without a record keeps its native text. A failed page is not
- * tried again by this service; a later session may.
+ * among transcript work. Each page is one Pi child on a background reader slot, run with the reading lane's model and
+ * thinking at the time of the call and shown `page.png` (the existing page render) and `lines.txt` (§191.1's native lines)
+ * as attachments. Its one tool is `submit_layout` (`layout-submit.ts`): the child never names a path, the host writes
+ * `layout.md` and answers with the lines it left out, so a repair happens in the same session. The host assembles the kept
+ * layout again (§191.3) and publishes the page under the file's digest. Nothing ever awaits a transcript: `ensure` returns
+ * once the pages are queued, never throws into its caller, and a page without a record keeps its native text. A failed
+ * page is not tried again by this service; a later session may.
  */
 import { copyFile, mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -16,7 +17,7 @@ import type { ReaderOutcome } from "./reader.ts";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
 import { createTaskProviderBudget, type TaskProviderBudget } from "../../runtime/jev/provider-budget.ts";
 import { transcriptBudget, type TranscriptBudget } from "../../runtime/jev/host-budgets.ts";
-import { assembleLayout, linesFile, repairFile, TRANSCRIPT_VERSION, type PageAssembly } from "./page-transcript.ts";
+import { assembleLayout, linesFile, TRANSCRIPT_VERSION } from "./page-transcript.ts";
 import { isFileDigest, sha256, TRANSCRIPT_RECORD_SCHEMA, TranscriptRefused, TranscriptStore, type TranscriptRecord, type TranscriptSource } from "./transcript-store.ts";
 import { sourceTextVersion } from "./source.ts";
 
@@ -71,12 +72,12 @@ const CHILD_COST_USD = 10;
 const CHILD_ACTIONS = 16;
 const CLOSE_WAIT_MS = 10_000;
 
-/** The brief names the work directory's absolute paths: a child once wrote its layout to a path it made up (TR-C). */
-const firstBrief = (dir: string) => `Lay out this page: read ${join(dir, "page.png")} and ${join(dir, "lines.txt")}, then write ${join(dir, "layout.md")} `
-	+ "as your instructions say. Write exactly that path.";
-const repairBrief = (dir: string) => `Repair this page's layout: read ${join(dir, "repair.txt")}, ${join(dir, "layout.md")}, ${join(dir, "lines.txt")} and `
-	+ `${join(dir, "page.png")}, then edit ${join(dir, "layout.md")} so that every line repair.txt lists is placed where it belongs or added `
-	+ "to the drop list. Keep the rest of layout.md as it is.";
+/**
+ * §191.2: the brief names no path. A child given paths to write once wrote its layout to paths it retyped wrong (TR-C);
+ * now the host decides where the layout goes and the child only submits it.
+ */
+const BRIEF = "Lay out this page. The rendered page and its numbered text-layer lines are attached above. "
+	+ "Submit the whole layout with submit_layout, as your instructions say.";
 /** While the queue yields to a foreground reading or cools down, it looks again this often. */
 const YIELD_POLL_MS = 2_000;
 /** A Pi auto-retry whose provider error carries HTTP status 429. */
@@ -267,8 +268,8 @@ export class TranscriptService {
 		const started = Date.now(), signal = this.controller.signal, store = this.store(runtime);
 		const model = this.deps.model();
 		const usage: Usage = {inputTokens: 0, outputTokens: 0, costUsd: 0, actions: 0, unknownCalls: 0};
-		let attempts = 0, lineCount = 0;
-		const page = (outcome: string, fields: Row = {}) => this.note({event: "page", file_sha256: job.sha, page: job.page, outcome, attempts, lines: lineCount,
+		let attempts = 0, submissions = 0, lineCount = 0;
+		const page = (outcome: string, fields: Row = {}) => this.note({event: "page", file_sha256: job.sha, page: job.page, outcome, attempts, submissions, lines: lineCount,
 			placed: 0, dropped: 0, unplaced: 0, free_removed: 0, image_text_chars: 0, model: model.id || null, thinking: model.thinking ?? null,
 			ms: Date.now() - started, usage, ...fields});
 		if (!model.vision) { this.failed.add(job.key); page("no_vision"); return; }
@@ -285,7 +286,9 @@ export class TranscriptService {
 			lineCount = native.lines.length;
 			const rendered = await runtime.sourcePage({pdf: job.pdf, cache: store.renderCache(job.sha, job.page), page: job.page}, signal);
 			const image = String((rendered as Row).path ?? "");
-			const child = async (previous?: {layout: string; assembly: PageAssembly}): Promise<string | undefined> => {
+			// One child per page: it submits its layout and repairs it in the same session (§191.2, `1 + repair_attempts`
+			// submissions). The host writes the inputs; the child's only output is what it hands `submit_layout`.
+			const child = async (): Promise<string | undefined> => {
 				attempts++;
 				const dir = store.workDir(job.sha, job.page, attempts);
 				workDirs.push(dir);
@@ -294,39 +297,29 @@ export class TranscriptService {
 				await mkdir(dir, {recursive: true});
 				await copyFile(image, join(dir, "page.png"));
 				await writeFile(join(dir, "lines.txt"), linesFile(native.lines));
-				if (previous) {
-					await writeFile(join(dir, "layout.md"), previous.layout);
-					await writeFile(join(dir, "repair.txt"), repairFile(previous.assembly.unplaced, native.lines));
-				}
+				await writeFile(join(dir, "lines.json"), JSON.stringify(native.lines));
 				const lease = this.lease(budget, model);
 				let outcome: ReaderOutcome;
 				try {
-					outcome = await runtime.runTask({kind: "reader", request: {cwd: dir, brief: previous ? repairBrief(dir) : firstBrief(dir),
+					outcome = await runtime.runTask({kind: "reader", request: {cwd: dir, brief: BRIEF,
 						...(model.id ? {model: model.id} : {}), ...(model.thinking ? {thinking: model.thinking} : {}), priority: "background",
-						systemPrompt: join(runtime.contentRoot, "setup", "page-transcript.md"), tools: "read,write,edit",
+						systemPrompt: join(runtime.contentRoot, "setup", "page-transcript.md"), tools: "", attachments: ["page.png", "lines.txt"],
+						layout: {submissions: 1 + budget.repairAttempts},
 						timeoutMs: budget.timeoutMs, eventLog: join(dir, "run.jsonl"), providerBudget: lease.budget}}, signal);
 				} finally { lease.close(); }
 				for (const key of ["inputTokens", "outputTokens", "costUsd", "actions", "unknownCalls"] as const) usage[key] += outcome.usage?.[key] ?? 0;
 				await this.rateLimited(join(dir, "run.jsonl"), budget, job);
-				// The child is done when it exits; what it left in layout.md is read whatever its exit.
+				submissions += await submissionCount(dir);
+				// The child is done when it exits; the layout the host kept for it is read whatever its exit.
 				return readFile(join(dir, "layout.md"), "utf8").catch(() => undefined);
 			};
-			// A first child that leaves no layout gets one fresh child, counted against `repair_attempts` (TR-C: a 429 or a
-			// layout written elsewhere left none).
-			let first = await child();
+			// A child that submits no layout gets one fresh child when `repair_attempts` allows (TR-C: a 429 left none).
+			let layout = await child();
 			if (signal.aborted) return;
-			let fresh = 0;
-			if (first === undefined && budget.repairAttempts > 0) { fresh = 1; first = await child(); if (signal.aborted) return; }
-			if (first === undefined) { this.failed.add(job.key); page("failed", {reason: "no_layout"}); return; }
-			let best = {layout: first, assembly: assembleLayout(first, native.lines)};
-			for (let repair = fresh; repair < budget.repairAttempts && best.assembly.unplaced.length; repair++) {
-				const layout = await child(best);
-				if (signal.aborted) return;
-				if (layout === undefined) continue;
-				const assembly = assembleLayout(layout, native.lines);
-				if (assembly.unplaced.length <= best.assembly.unplaced.length) best = {layout, assembly};
-			}
-			const {assembly} = best;
+			if (layout === undefined && budget.repairAttempts > 0) { layout = await child(); if (signal.aborted) return; }
+			if (layout === undefined) { this.failed.add(job.key); page("failed", {reason: "no_layout"}); return; }
+			// The submission tool's findings were help for the model; the host assembles the kept layout itself.
+			const assembly = assembleLayout(layout, native.lines);
 			const record: TranscriptRecord = {schema: TRANSCRIPT_RECORD_SCHEMA, transcript_version: TRANSCRIPT_VERSION, file_sha256: job.sha, page: job.page,
 				pdf_label: native.pdf_label ?? null, native: {extraction_version: native.extraction_version, text_sha256: native.native_sha256, line_count: native.lines.length},
 				text: assembly.text, text_sha256: sha256(assembly.text), markdown: assembly.markdown, image_text: assembly.image_text, figures: assembly.figures,
@@ -338,7 +331,7 @@ export class TranscriptService {
 			try {
 				const stored = await store.put(record, native.lines);
 				this.known.set(job.key, "home");
-				page(assembly.unplaced.length ? "unplaced" : attempts > 1 ? "repaired" : "stored", {...counts, ...(stored === "exists" ? {already: true} : {})});
+				page(assembly.unplaced.length ? "unplaced" : attempts > 1 || submissions > 1 ? "repaired" : "stored", {...counts, ...(stored === "exists" ? {already: true} : {})});
 			} catch (error) {
 				if (!(error instanceof TranscriptRefused)) throw error;
 				this.failed.add(job.key);
@@ -355,6 +348,18 @@ export class TranscriptService {
 			for (const dir of workDirs) await unlink(join(dir, "page.png")).catch(() => undefined);
 		}
 	}
+}
+
+/** §191.2: the layouts a child submitted, from the rows `submit_layout` appends (a call without a layout does not count). */
+async function submissionCount(dir: string): Promise<number> {
+	let text = "";
+	try { text = await readFile(join(dir, "submissions.jsonl"), "utf8"); } catch { return 0; }
+	let count = 0;
+	for (const line of text.split("\n")) {
+		if (!line.trim()) continue;
+		try { if (Number.isSafeInteger(JSON.parse(line).submission)) count++; } catch { /* a torn row is not a submission */ }
+	}
+	return count;
 }
 
 /** §191.4: a claim older than every attempt's wall clock plus a minute belongs to a producer that is gone. */

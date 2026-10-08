@@ -91,6 +91,11 @@ export interface ReaderRequest {
 	audit?: {control: string};
 	/** A private adaptation phase submits one checked artifact and stops. */
 	adaptation?: {role: "create" | "review"};
+	/**
+	 * Contract §191.2: a page-transcript layout child. It mounts `submit_layout` (the host writes `layout.md` into `cwd` from
+	 * what the child submits; the child names no path) and may submit `submissions` layouts.
+	 */
+	layout?: {submissions: number};
 	onEvent?: (event: Record<string, any>) => void;
 }
 
@@ -141,7 +146,7 @@ export function readingCacheId(moduleId: string, jobId: string, round: number): 
 }
 
 /** The reader's command line, without the final `brief` argument. */
-export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext, tools?: string, audit = false, adaptation = false, nativeSource = false, sessionId?: string): string[] {
+export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext, tools?: string, audit = false, adaptation = false, nativeSource = false, sessionId?: string, layout = false): string[] {
 	const root = context?.resourceRoot ?? resourceRootFrom(import.meta.url);
 	const entries = context?.entrypoints ?? runtimeEntrypoints(root);
 	const override = context?.env.PI_COC_READER_CMD?.trim();
@@ -168,11 +173,13 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 		...extensionArgs(readerProviderExtensionPaths(entries)),
 		"--extension", entries.readerContext,
 		"--tools",
-		[tools ?? [pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : []), ...(nativeSource ? ["request_source"] : [])].join(","), ...(audit ? ['read_audit_evidence', 'submit_audit'] : []), ...(adaptation ? ['submit_adaptation'] : [])].join(','),
+		// An empty `tools` (no built-in tool) leaves only the private tools below.
+		[tools ?? [pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : []), ...(nativeSource ? ["request_source"] : [])].join(","), ...(audit ? ['read_audit_evidence', 'submit_audit'] : []), ...(adaptation ? ['submit_adaptation'] : []), ...(layout ? ['submit_layout'] : [])].filter(Boolean).join(','),
 		...(pdf ? ["--extension", entries.readerPdf] : []),
 		...(submission ? ["--extension", entries.readerSubmit] : []),
 		...(audit ? ['--extension', entries.auditSubmit] : []),
 		...(adaptation ? ['--extension', entries.adaptationSubmit] : []),
+		...(layout ? ['--extension', entries.layoutSubmit] : []),
 		"--system-prompt",
 		systemPrompt ?? join(context?.contentRoot ?? join(root, "content"), "setup", "visual-reader.md"),
 		...(model ? ["--model", model] : []),
@@ -301,7 +308,9 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 		const nativeSource = nativeSourceReaderEnabled(request,context.env);
 		if (request.cacheId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(request.cacheId))
 			throw new Error("A reading cache id is a UUID");
-		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context, request.tools, !!request.audit, !!request.adaptation, nativeSource, request.cacheId);
+		if (request.layout && (!Number.isSafeInteger(request.layout.submissions) || request.layout.submissions < 1))
+			throw new Error("A layout child may submit a positive whole number of layouts");
+		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context, request.tools, !!request.audit, !!request.adaptation, nativeSource, request.cacheId, !!request.layout);
 		if (request.providerBudget && context.env.PI_COC_READER_CMD?.trim()) throw new Error("A budgeted reader requires the host Pi launcher and private provider handshake");
 		if ((request.eventLog || request.providerBudget) && !context.env.PI_COC_READER_CMD?.trim()) command.splice(command.length - 1, 0, "--mode", "json");
 		// Without this the file below is read by nobody: pi loads project settings only for a trusted
@@ -335,6 +344,13 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 	} else {
 		delete env.PI_COC_ADAPTATION_SUBMIT_ROLE;
 		delete env.PI_COC_ADAPTATION_SUBMIT_DIR;
+	}
+	if (request.layout) {
+		env.PI_COC_LAYOUT_SUBMIT_DIR = resolvePath(request.cwd);
+		env.PI_COC_LAYOUT_SUBMISSIONS = String(request.layout.submissions);
+	} else {
+		delete env.PI_COC_LAYOUT_SUBMIT_DIR;
+		delete env.PI_COC_LAYOUT_SUBMISSIONS;
 	}
 	if(request.imageHistory)env.PI_COC_READER_IMAGE_HISTORY=String(request.imageHistory);else delete env.PI_COC_READER_IMAGE_HISTORY;
 	if (request.source) env.PI_COC_READER_SOURCE = JSON.stringify(request.source);
