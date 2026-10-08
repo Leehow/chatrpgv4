@@ -16,11 +16,13 @@ export const NEED_RECEIPT='need-disposition.json';
 export const NEED_FACET_KEY='source_need';
 /** The existing page-lead gate of the native locate: a page lead "clears" at or above it. */
 export const PAGE_LEAD_GATE=0.35;
-export type NeedDisposition='answered'|'unlocated'|'carried'|'read';
+export type NeedDisposition='answered'|'unlocated'|'carried'|'waits_for_play'|'read';
 export type SourceUnitRange={section:string;first:number;last:number};
 /** The claim packet's `source_need` as the reading service writes it into task.json. */
 export type NeedTask={key:string;kind:string;node_id:string;focus:string;question:string;reason:string;trigger:string;
- source_refs:Array<{page:number}>;accepted_pages:number[];material_digest:string;unread_units:SourceUnitRange[]};
+ source_refs:Array<{page:number}>;accepted_pages:number[];material_digest:string;unread_units:SourceUnitRange[];
+ /** §195.2: the pages the read-ahead already read (completed streamed units); absent on an older packet. */
+ read_pages:number[]};
 export type NeedLead={page:number;score:number};
 
 const sha=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
@@ -37,7 +39,8 @@ export function needTaskOf(task:{purpose?:string;source_unit?:unknown;required_r
    trigger:String(need.trigger??''),source_refs:(Array.isArray(need.source_refs)?need.source_refs:[]).filter(ref=>pageNumber(ref?.page)).map(ref=>({page:ref.page})),
    accepted_pages:need.accepted_pages.filter(pageNumber),material_digest:need.material_digest,
    unread_units:need.unread_units.filter(unit=>unit&&typeof unit.section==='string'&&pageNumber(unit.first)&&pageNumber(unit.last)&&unit.last>=unit.first)
-     .map(unit=>({section:unit.section,first:unit.first,last:unit.last}))};
+     .map(unit=>({section:unit.section,first:unit.first,last:unit.last})),
+   read_pages:(Array.isArray(need.read_pages)?need.read_pages:[]).filter(pageNumber)};
 }
 
 /** The locate's extra facet for a need task: the need's own question, one Noul per page and one section ranking. */
@@ -115,9 +118,13 @@ export function needAnsweredBatch(need:NeedTask,state:Record<string,unknown>,sco
  * §151.4 steps 2-4 from the locate's need leads, by page arithmetic only. A lead on a page the entity's accepted material
  * was not read from is new; none new is `unlocated`; all new inside units not yet read is `carried`; anything else, or an
  * incomplete page-lead pass, is `read`.
+ *
+ * §195.2: a `deferred` need (a later optional use with a play trigger) whose new pages were all already read by the
+ * read-ahead `waits_for_play`: reading them again would ask nothing the window's reads did not, and its trigger is play's.
  */
-export function needDisposition(input:{leads:NeedLead[];acceptedPages:number[];unreadUnits:SourceUnitRange[];complete:boolean}):
- {disposition:'unlocated'|'carried'|'read';newPages:number[];units:SourceUnitRange[]}{
+export function needDisposition(input:{leads:NeedLead[];acceptedPages:number[];unreadUnits:SourceUnitRange[];complete:boolean;
+ kind?:string;readPages?:number[]}):
+ {disposition:'unlocated'|'carried'|'waits_for_play'|'read';newPages:number[];units:SourceUnitRange[]}{
  const accepted=new Set(input.acceptedPages);
  const newPages=[...new Set(input.leads.filter(lead=>lead.score>=PAGE_LEAD_GATE&&!accepted.has(lead.page)).map(lead=>lead.page))].sort((a,b)=>a-b);
  if(!input.complete)return {disposition:'read',newPages,units:[]};
@@ -127,6 +134,8 @@ export function needDisposition(input:{leads:NeedLead[];acceptedPages:number[];u
    const units=[...new Map(newPages.map(page=>holding(page)!).map(unit=>[JSON.stringify([unit.section,unit.first,unit.last]),unit])).values()];
    return {disposition:'carried',newPages,units};
  }
+ const read=new Set(input.readPages??[]);
+ if(input.kind==='deferred'&&newPages.every(page=>read.has(page)))return {disposition:'waits_for_play',newPages,units:[]};
  return {disposition:'read',newPages,units:[]};
 }
 
@@ -151,7 +160,7 @@ export async function readNeedReceipt(input:{cwd:string;command?:readonly string
  catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return undefined;throw new Error('The source need receipt is unreadable');}
  if(modified<input.startedAt-1000)return undefined;
  if(receipt?.version!==1||typeof receipt.run_id!=='string'||!receipt.run_id||receipt.key!==input.key
-   ||!['answered','unlocated','carried','read'].includes(receipt.disposition)
+   ||!['answered','unlocated','carried','waits_for_play','read'].includes(receipt.disposition)
    ||receipt.task_sha256!==sha(await readFile(join(input.cwd,'task.json'))))
    throw new Error('The source need receipt does not match this source task');
  return receipt as NeedReceipt;

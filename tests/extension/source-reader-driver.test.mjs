@@ -158,7 +158,7 @@ function needPort({answered=0.2,leads={},unavailable=false}={}){
   return {batchId:batch.id,status:'complete',answers,coverage:{required:[],answered:Object.keys(answers),unknown:[]},issues:[],usage:{inputTokens:1,outputTokens:0}};
  }};
 }
-async function needDriver(t,{port,unread=[],cache}){
+async function needDriver(t,{port,unread=[],cache,read,kind='deferred'}){
  const cwd=await mkdtemp(join(tmpdir(),'source-need-driver-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
  const pdf=join(cwd,'source.pdf');
  await writeFile(pdf,needPdf(['Harbor. Lena keeps the ledgers at the dock.','The dock office and its clerks.','Appendix of later profiles.','Closing notes.']));
@@ -166,8 +166,8 @@ async function needDriver(t,{port,unread=[],cache}){
   known_nodes:[{node_id:'npc-lena',node_kind:'npc',name:'Lena',summary:'A harbor clerk.',properties:{agenda:'Keeps the ledgers.',runtime_projection:{record:{}}},source_refs:[{page:1}],ready:true},
    {node_id:'scene-dock',node_kind:'scene',name:'Dock',source_refs:[{page:1}]}],
   known_claims:[{subject_id:'npc-lena',predicate:'present-in',object:{node_id:'scene-dock'},truth_status:'authored-fact',reason:'She works at the dock.'}],
-  source_need:{key:'need-key',kind:'deferred',node_id:'npc-lena',focus:'lena',question:NEED_QUESTION,reason:'Not printed here.',trigger:'If a fight starts.',
-   source_refs:[{page:1}],accepted_pages:[1],material_digest:'d'.repeat(64),unread_units:unread}};
+  source_need:{key:'need-key',kind,node_id:'npc-lena',focus:'lena',question:NEED_QUESTION,reason:'Not printed here.',trigger:'If a fight starts.',
+   source_refs:[{page:1}],accepted_pages:[1],material_digest:'d'.repeat(64),unread_units:unread,...(read?{read_pages:read}:{})}};
  await writeFile(join(cwd,'task.json'),JSON.stringify(task));
  const driver=await createSourceReaderDriver({cwd,env:{},source:{pdf,cache:join(cache??join(cwd,'cache'),'pages')},adapter:port});
  const {policy,ports}=await driver.prepare({runId:'need-run',inputRevision:'v1',rawInput:'Read the source',session:{}});
@@ -225,6 +225,28 @@ test('a need with a new located page outside unread units reads as today on its 
  assert.equal(next.kind,'operate');assert.equal(next.proposals[0].operation,'source.project');
  assert.equal(receipt.disposition,'read');
  assert.ok(receipt.evidence.candidates.includes(3),'the need facet lead joins the read candidates');
+});
+
+// §195.2 (TR-F read-55..58): the read-ahead has read every page of the book; a deferred need's new leads fall on pages its
+// own units already read and published. Reading them again for a play-triggered question re-reads pages for no reason the
+// earlier read did not cover: the need waits for play, settled without an author.
+test('§195.2 a deferred need located only on pages the read-ahead already read waits for play, not read again',async t=>{
+ const port=needPort({leads:{2:0.66,3:0.85}});
+ const {next,receipt}=await needDriver(t,{port,read:[1,2,3,4]});
+ assert.deepEqual([next.kind,next.reason],['finish','source_need_settled_without_reading']);
+ assert.equal(receipt.disposition,'waits_for_play');
+ assert.deepEqual(receipt.evidence.need_leads.map(lead=>lead.page).sort(),[2,3]);
+ assert.ok(port.batches.some(batch=>batch.family==='source-need-answered'),'the answered check still ran first');
+});
+
+test('§195.2 a deferred need with a lead on a page no reading covered, or a current need, reads as today',async t=>{
+ const unread=await needDriver(t,{port:needPort({leads:{2:0.66,3:0.85}}),read:[1,2]});
+ assert.equal(unread.receipt.disposition,'read','page 3 was never read: a first read');
+ assert.ok(unread.receipt.evidence.candidates.includes(3));
+ const current=await needDriver(t,{port:needPort({leads:{2:0.66,3:0.85}}),read:[1,2,3,4],kind:'source_read'});
+ assert.equal(current.receipt.disposition,'read','a missing current fact is a reason of its own');
+ const older=await needDriver(t,{port:needPort({leads:{2:0.66,3:0.85}})});
+ assert.equal(older.receipt.disposition,'read','a packet without read pages decides as before');
 });
 
 test('a Jev outage in the answered check and the locate reads as today',async t=>{

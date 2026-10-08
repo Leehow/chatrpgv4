@@ -22,7 +22,7 @@ export interface ReadingAccounting {
 	/** §151.2.2: the repair round's kind, when a round repaired a reviewed candidate. */
 	repair?: "targeted" | "append" | "full";
 	/** §151.4: the need's disposition, when the job was queued from a retained source need and the host settled it. */
-	need?: "answered" | "unlocated" | "carried" | "read";
+	need?: "answered" | "unlocated" | "carried" | "waits_for_play" | "read";
 	/**
 	 * §186.2: per phase (`read`, `index`, `index-audit`, `verify`), the Pi children whose first call reported usage and the
 	 * sum of those first calls' uncached input tokens -- what a shared cache identity per round is meant to bring down.

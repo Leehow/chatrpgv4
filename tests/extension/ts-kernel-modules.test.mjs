@@ -913,6 +913,61 @@ test('§151.4: a speculative need waits for the unit frontier, rides on an unrea
  }finally{await book.close();}
 });
 
+// §195.2 (TR-F read-55..70): once the read-ahead has read the pages a deferred need's leads name, a read of them for that
+// need is a repeat. The claim packet names the pages already read; the reader settles `waits_for_play`; the read-ahead never
+// asks the need again, so it reads nothing twice and publishes nothing, while a page no reading covered still reads.
+test('§195.2: a deferred need located on pages the read-ahead already read waits for play and is not asked again',async()=>{
+ const book=await needBook('need-waits-for-play');
+ try{
+  const meta=await book.meta();meta.reading.opening_scope='first_interaction';await book.store().writeModule(meta);
+  await book.call('module.read.ahead',{});
+  // The first unit is read and published before the last one is asked (one unit per pass).
+  let unit=await book.claim('test-host');
+  while(!unit.source_unit){await book.call('module.read.finish',{job_id:unit.job_id,lease:unit.lease,outcome:'cancelled'});unit=await book.claim('test-host');}
+  const done=unit.source_unit,readPages=[done.first,done.first+1],other=done.first===1?3:1;
+  // A lead on a read page the entity's material does not cite (page 1 is its accepted page), and one on the unread unit.
+  const readLead=readPages.find(page=>page!==1),unreadLead=other===1?2:other;
+  await book.publish(unit,{nodes:[],claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:[]});
+  await book.call('module.read.ahead',{});
+  const [pending]=await needReads(book);assert.ok(pending?.source_need,'asked in the pass that asks the last unit');
+  const claimed=await book.claim('test-host');assert.equal(claimed.job_id,pending.job_id);
+  assert.deepEqual(claimed.source_need.read_pages,readPages,'the packet names the pages a completed unit read');
+  assert.deepEqual(claimed.source_need.unread_units.map(row=>[row.first,row.last]),[[other,other+1]]);
+  const digest=claimed.source_need.material_digest;
+  await assert.rejects(book.settle(claimed,{disposition:'waits_for_play',material_digest:digest,
+   evidence:{need_leads:[{page:readLead,score:0.7},{page:unreadLead,score:0.8}],accepted_pages:[1]}}),/already read/,'a page never read: not a repeat');
+  const settled=await book.settle(claimed,{disposition:'waits_for_play',material_digest:digest,
+   evidence:{need_leads:[{page:readLead,score:0.7}],accepted_pages:[1],candidates:[readLead,1]}});
+  assert.equal(settled.source_need.disposition,'waits_for_play');
+  const record=Object.values((await book.meta()).reading.source_need_dispositions)[0];
+  assert.deepEqual([record.disposition,record.kind],['waits_for_play','deferred']);
+  const graph=await book.graph();
+  assert.equal(graph.sourceNeeds(graph.find('Lena')).some(need=>need.question===NEED_Q),true,'the need is retained for play');
+  // The last unit completes; nothing is left to read, and the need is not read again.
+  const last=await book.claim('test-host');assert.equal(last.source_unit?.first,other);
+  await book.publish(last,{nodes:[],claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:[]});
+  await book.call('module.read.ahead',{});await book.call('module.read.ahead',{});
+  assert.deepEqual((await needReads(book)).map(job=>job.state),['completed'],'the read-ahead does not ask a need that waits for play');
+  // A Keeper meeting the trigger in play asks for it: a fresh read, never the settled attempt.
+  const keeper=await book.call('module.read.request',{purpose:'detail',focus:'Lena',question:NEED_Q,foreground:true});
+  assert.equal(keeper.state,'queued');assert.notEqual(keeper.job_id,claimed.job_id);
+ }finally{await book.close();}
+});
+
+test('§195.2: only a deferred need waits for play',async()=>{
+ const book=await needBook('need-waits-kind');
+ try{
+  await book.call('module.read.ahead',{});
+  const claimed=await book.claim('test-host');assert.equal(claimed.question,NEED_Q);
+  const store=book.store(),raw=await store.readGraph(book.mid);
+  assert.equal(raw.source_needs.find(need=>need.question===NEED_Q).kind,'deferred');
+  const queue=await store.queue(book.mid),job=queue.find(row=>row.job_id===claimed.job_id);
+  job.source_need={...job.source_need,kind:'source_read'};await store.writeQueue(book.mid,queue);
+  await assert.rejects(book.settle(claimed,{disposition:'waits_for_play',material_digest:claimed.source_need.material_digest,
+   evidence:{need_leads:[{page:2,score:0.7}],accepted_pages:[1]}}),/only a deferred need/);
+ }finally{await book.close();}
+});
+
 test('§151.4: a need read a waiting Keeper promoted reads as today and records its read',async()=>{
  const book=await needBook('need-promoted');
  try{

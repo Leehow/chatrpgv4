@@ -288,12 +288,15 @@ test('existing source owner contributes exact native content with host-only refs
   const sourceSnapshot={version:1,module_id:'book',generation:0,revision:'3'.repeat(64),pdf:'/owned/book.pdf',file_sha256:file,page_count:1,
     answers_revision:'4'.repeat(64),checked_answers:[],checked_answers_omitted:0,checked_answers_invalid:0,next:null};
   const empty={...snapshot,materials:{version:2,candidates:[],coverage:{}}};
+  // §195.1: the source check reads the bound PDF's identity from the source owner when no answer was supplied.
+  const bound={version:1,module_id:'book',generation:0,revision:sourceSnapshot.revision,pdf:sourceSnapshot.pdf,file_sha256:file,page_count:1};
+  const owner=method=>method==='module.source.materials.snapshot'?sourceSnapshot:method==='module.source.snapshot'?bound:undefined;
   const source={home:'/owned',sourceInfo:async()=>({file_sha256:file,page_count:1}),sourceText:async()=>({file_sha256:file,
     extraction_version:extraction,page_count:1,snapshots:[{page:1,pdf_label:null,text,text_sha256:textHash,
       revision:hash(JSON.stringify([extraction,file,1,textHash])),availability:'text'}],errors:[]})};
   const result=await api.preparePrescreen({campaign:'c1',binding,capsule,decision,signal:new AbortController().signal,record:()=>{},
     suppliedMessages:[{role:'user',content:capsule.turn.player_text}],byteBudget:8192,source:{moduleId:'book',runtime:source},
-    call:async(method,params)=>method==='module.source.materials.snapshot'?sourceSnapshot:empty});
+    call:async method=>owner(method)??empty});
   assert(result);const content=JSON.parse(result.content),material=content.materials.find(row=>row.authority==='native_text');assert(material);
   assert.equal(material.content,text);assert.equal(material.provenance.page,1);assert(!result.content.includes('selector'));
   assert.deepEqual(content.assessment,{coverage:'sufficient',consistency:'clear'});
@@ -301,7 +304,7 @@ test('existing source owner contributes exact native content with host-only refs
   const changedBaseline=[{role:'user',content:capsule.turn.player_text},{role:'toolResult',toolCallId:'look-1',toolName:'look',content:[{type:'text',text:'New current-state evidence.'}]}];
   const carried=await api.reusePrescreen({campaign:'c1',binding,query:capsule.turn.player_text,message:result,
     suppliedMessages:changedBaseline,byteBudget:8192,signal:new AbortController().signal,source:{moduleId:'book',runtime:source},
-    call:async(method)=>method==='module.source.materials.snapshot'?sourceSnapshot:{...empty,status:'unverifiable',authority:{checked:false},
+    call:async(method)=>owner(method)??{...empty,status:'unverifiable',authority:{checked:false},
       materials:{version:2,candidates:[],coverage:{},check:{status:'stale',changed:['stateStamp'],keys:[]}}}});
   assert(carried);const carriedContent=JSON.parse(carried.content);assert.equal(carriedContent.materials[0].content,text);
   assert.deepEqual(carriedContent.assessment,{coverage:'uncertain',consistency:'uncertain'});assert(carriedContent.gaps.some(row=>row.reason==='reassessment_required'));
@@ -309,7 +312,7 @@ test('existing source owner contributes exact native content with host-only refs
   extraction='native-v2';
   const reused=await api.reusePrescreen({campaign:'c1',binding,query:capsule.turn.player_text,message:result,
     suppliedMessages:[{role:'user',content:capsule.turn.player_text}],byteBudget:8192,signal:new AbortController().signal,source:{moduleId:'book',runtime:source},
-    call:async(method)=>method==='module.source.materials.snapshot'?sourceSnapshot:{...empty,materials:{version:2,candidates:[],coverage:{},
+    call:async(method)=>owner(method)??{...empty,materials:{version:2,candidates:[],coverage:{},
       check:{status:'current',changed:[],keys:[],dependencies:[]}}}});
   assert.equal(reused,undefined,'same PDF bytes with a changed native extraction cannot reuse old material');
 });

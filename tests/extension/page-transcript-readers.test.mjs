@@ -262,7 +262,10 @@ test("§191.7 consultation units: transcribed pages are units of their exact lay
 	assert.ok(first.length && first.every(row => resourceOf(row) === `pdf:${p.sha}:page:1:native:${sourceTextVersion}`), "a native page stays native");
 	assert.deepEqual(result.coverage.native.transcript_pages, [2]);
 	assert.deepEqual(result.coverage.native.search_layers, { transcript: 1, native: 0, image_text: 1 });
-	assert.deepEqual(result.checkpoint.extraction.layer, "native", "the check re-reads a native page when there is one");
+	// §195.1: the binding names each use's pages in the layer it was read in, so the check re-reads each in its own layer.
+	const layers = new Map(result.checkpoint.used.flatMap(use => use.pages ?? []).map(row => [row.page, row.layer]));
+	assert.equal(layers.get(1), "native", "a native page is re-read natively");
+	assert.equal(layers.get(2), "transcript", "a transcribed page is re-read in its transcript");
 	assert.deepEqual(result.readSet.filter(row => row.kind === "extraction").map(row => [row.resource, row.revision]),
 		[[`pdf:${p.sha}:native`, sourceTextVersion], [`pdf:${p.sha}:transcript`, "transcript-v1"]]);
 	assert.deepEqual(await result.check(), { status: "current", readSet: result.readSet });
@@ -270,17 +273,16 @@ test("§191.7 consultation units: transcribed pages are units of their exact lay
 
 test("§191.7 a checkpoint names its layer: taken on the transcript layer it stays current; a page that gains a transcript keeps an earlier one", async t => {
 	const p = await prescreen(t, "page-text-checkpoint-");
-	const earlier = await p.run("harbor");
-	assert.deepEqual(earlier.checkpoint.extraction, { version: sourceTextVersion, page: earlier.checkpoint.extraction.page, layer: "native" });
+	const earlier = await p.run("harbor"), pagesOf = checkpoint => checkpoint.used.flatMap(use => use.pages ?? []);
+	assert.ok(pagesOf(earlier.checkpoint).length && pagesOf(earlier.checkpoint).every(row => row.layer === "native" && row.version === sourceTextVersion));
 	for (const page of [1, 2, 3, 4]) await transcribe(p.store, p.pdf, page);
 	const later = await p.run("harbor");
 	assert.deepEqual(later.coverage.native.transcript_pages, [1, 2, 3, 4]);
-	assert.equal(later.checkpoint.extraction.layer, "transcript");
-	assert.equal(later.checkpoint.extraction.version, "transcript-v1");
+	assert.ok(pagesOf(later.checkpoint).length && pagesOf(later.checkpoint).every(row => row.layer === "transcript" && row.version === "transcript-v1"));
 	const check = checkpoint => checkPrescreenSourceCheckpoint({ call: p.call, source: p.source, scope: p.scope, signal: new AbortController().signal,
 		deadlineAt: Date.now() + 10000, checkpoint: structuredClone(checkpoint) });
 	assert.deepEqual(await check(later.checkpoint), { status: "current", readSet: later.readSet }, "re-read in the transcript layer");
-	assert.deepEqual(await check(earlier.checkpoint), { status: "current", readSet: earlier.readSet }, "every page gained a transcript; the earlier checkpoint re-reads its native page");
+	assert.deepEqual(await check(earlier.checkpoint), { status: "current", readSet: earlier.readSet }, "every page gained a transcript; the earlier checkpoint re-reads its native pages");
 });
 
 test("§191.7 a qualified consultation re-reads each selected part in its own layer; its native pages go to the front of the transcript queue", async t => {

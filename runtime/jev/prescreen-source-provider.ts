@@ -61,19 +61,33 @@ export interface PrescreenSourceRuntime {
   /** §191.6: pages a consultation wanted now and read natively, for the front of the transcript queue (never awaited). */
   wantTranscripts?(request:{pdf:string;file_sha256:string;pages:number[]}):void;
 }
+/**
+ * §195.1: one candidate's read set, by digest. A checked answer is its accepted record (the reading store's cache key and
+ * draft digest); a native excerpt or a qualified consultation is the pages it quotes, each in the layer it was read in with
+ * that page's text revision.
+ */
+export interface PrescreenSourceUse {
+  key:string;
+  answer?:{key:string;revision:string;focus:string;question:string};
+  pages?:Array<{page:number;layer:SourceCatalogLayer;version:string;revision:string}>;
+}
 export interface PrescreenSourceCheckpoint {
-  version:1;
+  version:2;
   campaign:string;
   module_id:string;
+  /** The materials the preparation read; a check that finds them moved while every use held reports `revalidated`. */
   revision:string;
   answers_revision:string;
+  generation:number;
   pdf:string;
   file_sha256:string;
   page_count:number;
-  /** One materialized page re-read at check time, in the layer it was read in (§191.7; absent `layer` is native). */
-  extraction?:{version:string;page:number;layer?:SourceCatalogLayer};
+  /** §195.1: what the check re-reads -- the candidates the prescreen supplied, never the whole materials revision. */
+  used:PrescreenSourceUse[];
   readSet:ReadSet;
 }
+export type PrescreenSourceCheck={status:'current';readSet:ReadSet;revalidated?:true}
+  |{status:'stale'|'unavailable';reason:string;changed?:string[]};
 export interface PrescreenSourceResult {
   candidates:PrescreenSourceCandidate[];
   coverage:{
@@ -88,11 +102,20 @@ export interface PrescreenSourceResult {
       search_layers?:{transcript:number;native:number;image_text:number}};
   };
   readSet:ReadSet;
-  /** Host-only serializable freshness binding for prepared-packet reuse. */
+  /** Host-only serializable freshness binding over every candidate the preparation emitted. */
   checkpoint:PrescreenSourceCheckpoint;
+  /** §195.1: the binding over the named candidates only (what the prescreen supplied); undefined for a key it never issued. */
+  checkpointFor(keys:readonly string[]):PrescreenSourceCheckpoint|undefined;
   /** Additional raw evidence only; never extends an earlier consultation qualification. */
   readNativePages?:(pages:readonly number[],signal:AbortSignal)=>Promise<PrescreenSourceCandidate[]>;
-  check(signal?:AbortSignal,validationDeadlineAt?:number):Promise<{status:'current';readSet:ReadSet}|{status:'stale'|'unavailable';reason:string}>;
+  /** §195.1: re-reads the named candidates' read sets (all issued candidates when `keys` is absent). */
+  check(signal?:AbortSignal,validationDeadlineAt?:number,keys?:readonly string[]):Promise<PrescreenSourceCheck>;
+  /**
+   * §195.1: the current materials for candidates whose read set changed, chosen once by the same identity -- a checked
+   * answer by its focus and question, an excerpt or consultation by its pages (raw native text; a qualification does not
+   * carry over to changed text). An answer no longer accepted has none.
+   */
+  reselect(keys:readonly string[],signal:AbortSignal,deadlineAt:number):Promise<Array<{key:string;candidates:PrescreenSourceCandidate[]}>>;
   nativeQualificationActions(selectedKeys:readonly string[]):number|undefined;
   qualifyNative(selectedKeys:readonly string[],decide:(request:{key:string;batch:Omit<DecisionBatch,'id'|'scope'|'readSet'>},signal:AbortSignal)=>Promise<DecisionResult>,
     signal?:AbortSignal):Promise<PrescreenNativeQualification>;
@@ -205,6 +228,46 @@ function wantTranscripts(source:PrescreenSourceRuntime,snapshot:{pdf:string;file
   try{source.wantTranscripts({pdf:snapshot.pdf,file_sha256:snapshot.file_sha256,pages:[...new Set(pages)]});}catch{/* the queue is never the read's failure */}
 }
 
+/** The page, layer and extraction version a native-text ref names (`pdf:<sha>:page:<n>:<layer>:<version>`). */
+function pageOfRef(ref:SourceRef):{page:number;layer:SourceCatalogLayer;version:string;revision:string}|undefined {
+  const parts=ref.resource.split(':'),page=Number(parts[3]);
+  if(parts[0]!=='pdf'||parts[2]!=='page'||!Number.isSafeInteger(page)||page<1||!['native','transcript'].includes(parts[4])||!parts.slice(5).join(':'))return undefined;
+  return {page,layer:parts[4] as SourceCatalogLayer,version:parts.slice(5).join(':'),revision:ref.revision};
+}
+function pagesOfRefs(refs:readonly SourceRef[]):PrescreenSourceUse['pages'] {
+  const out=new Map<string,NonNullable<PrescreenSourceUse['pages']>[number]>();
+  for(const ref of refs){const page=pageOfRef(ref);if(page)out.set(`${page.page}:${page.layer}`,page);}
+  return [...out.values()].sort((a,b)=>a.page-b.page||a.layer.localeCompare(b.layer));
+}
+function validUse(value:unknown,pageCount:number):value is PrescreenSourceUse {
+  if(!isPlainRecord(value)||typeof value.key!=='string'||!value.key)return false;
+  const answer=value.answer,pages=value.pages;
+  if(answer!==undefined&&(!isPlainRecord(answer)||typeof answer.key!=='string'||!answer.key||!sha(answer.revision)
+    ||typeof answer.focus!=='string'||typeof answer.question!=='string'))return false;
+  if(pages!==undefined&&(!Array.isArray(pages)||pages.some(row=>!isPlainRecord(row)||!Number.isSafeInteger(row.page)||Number(row.page)<1
+    ||Number(row.page)>pageCount||!['native','transcript'].includes(String(row.layer))||typeof row.version!=='string'||!row.version||!sha(row.revision))))return false;
+  return answer!==undefined||pages!==undefined;
+}
+/** Every accepted answer the materials list now, paged until each wanted key is found or the list ends. */
+async function currentAnswers(call:(method:string,params:Row)=>Promise<Row>,campaign:string,moduleId:string,wanted:Set<string>|undefined,signal:AbortSignal):Promise<{snapshot:PrescreenSourceSnapshot;answers:Row[]}> {
+  const answers:Row[]=[];let cursor:number|null=0,first:PrescreenSourceSnapshot|undefined;
+  for(let pages=0;cursor!==null&&pages<64;pages++){
+    signal.throwIfAborted();
+    const page=checkedSnapshot(await call('module.source.materials.snapshot',{campaign,module_id:moduleId,answer_limit:64,answer_cursor:cursor}),campaign,moduleId);
+    if(first&&(page.revision!==first.revision||page.answers_revision!==first.answers_revision))throw new Error('source_material_changed');
+    first??=page;answers.push(...page.checked_answers);cursor=page.next;
+    if(wanted&&[...wanted].every(key=>answers.some(row=>row.key===key)))break;
+  }
+  return {snapshot:first!,answers};
+}
+
+/**
+ * §195.1: a prescreen is checked against what it used. The answers it supplied must still be accepted with the same
+ * draft digest, and the pages it quoted must read back, in the layer they were read in, with the same text revision;
+ * whatever else a library publish added does not concern it. A check that finds the materials moved while every use held
+ * says `revalidated`. Reasons: `source_material_changed` (the bound PDF itself), `source_extraction_changed` (a quoted
+ * page), `source_answer_changed` (a supplied answer), each with the candidate keys that changed.
+ */
 export async function checkPrescreenSourceCheckpoint(input:{
   call(method:string,params:Row):Promise<Row>;
   source:PrescreenSourceRuntime;
@@ -212,45 +275,54 @@ export async function checkPrescreenSourceCheckpoint(input:{
   signal:AbortSignal;
   deadlineAt:number;
   checkpoint:PrescreenSourceCheckpoint;
-}):Promise<{status:'current';readSet:ReadSet}|{status:'stale'|'unavailable';reason:string}> {
+}):Promise<PrescreenSourceCheck> {
   try{
     input.signal.throwIfAborted();
     const checkpoint=structuredClone(input.checkpoint),remaining=input.deadlineAt-Date.now();
-    if(checkpoint.version!==1||!checkpoint.campaign||!checkpoint.module_id||!sha(checkpoint.revision)||!sha(checkpoint.answers_revision)
-      ||!checkpoint.pdf||!sha(checkpoint.file_sha256)||!Number.isSafeInteger(checkpoint.page_count)||checkpoint.page_count<1
-      ||!Array.isArray(checkpoint.readSet)||checkpoint.extraction!==undefined
-        &&(typeof checkpoint.extraction.version!=='string'||!checkpoint.extraction.version||!Number.isSafeInteger(checkpoint.extraction.page)
-          ||checkpoint.extraction.page<1||checkpoint.extraction.page>checkpoint.page_count
-          ||checkpoint.extraction.layer!==undefined&&!['native','transcript'].includes(checkpoint.extraction.layer)))return{status:'unavailable',reason:'invalid_source_checkpoint'};
+    if(!isPlainRecord(checkpoint)||checkpoint.version!==2||!checkpoint.campaign||!checkpoint.module_id||!sha(checkpoint.revision)||!sha(checkpoint.answers_revision)
+      ||!Number.isSafeInteger(checkpoint.generation)||!checkpoint.pdf||!sha(checkpoint.file_sha256)||!Number.isSafeInteger(checkpoint.page_count)||checkpoint.page_count<1
+      ||!Array.isArray(checkpoint.readSet)||!Array.isArray(checkpoint.used)||checkpoint.used.some(use=>!validUse(use,checkpoint.page_count)))
+      return{status:'unavailable',reason:'invalid_source_checkpoint'};
     if(!Number.isFinite(remaining)||remaining<=0)return{status:'stale',reason:'source_material_deadline'};
     const signal=AbortSignal.any([input.signal,AbortSignal.timeout(Math.max(1,remaining))]);
-    const [current,info]=await Promise.all([
-      input.call('module.source.materials.snapshot',{campaign:checkpoint.campaign,module_id:checkpoint.module_id,answer_limit:1,answer_cursor:0}),
-      input.source.sourceInfo({pdf:checkpoint.pdf,cache:input.source.home},signal),
-    ]),bound=checkedSnapshot(current,checkpoint.campaign,checkpoint.module_id);
-    if(bound.revision!==checkpoint.revision||bound.answers_revision!==checkpoint.answers_revision
-      ||info.file_sha256!==checkpoint.file_sha256||info.page_count!==checkpoint.page_count)return{status:'stale',reason:'source_material_changed'};
-    if(checkpoint.extraction){
-      // §191.7: the page is re-read in the layer it was read in, so a page that gained a transcript since keeps its checkpoint.
-      let catalog:NativeSourceCatalog;
-      if(checkpoint.extraction.layer==='transcript'){
-        if(!input.source.sourcePageText)return{status:'unavailable',reason:'source_extraction_unavailable'};
-        const read=await input.source.sourcePageText({pdf:checkpoint.pdf,pages:[checkpoint.extraction.page],
-          expected_file_sha256:checkpoint.file_sha256,layer:'preferred'},signal);
-        const bundles=layeredBundles(read,checkpoint.file_sha256,checkpoint.page_count);
-        if(!bundles.transcript)return{status:'stale',reason:'source_extraction_changed'};
-        catalog=nativeSourceCatalog(input.scope,bundles.transcript,checkpoint.file_sha256,'transcript');
-      }else{
-        const bundle=await input.source.sourceText({pdf:checkpoint.pdf,pages:[checkpoint.extraction.page],
-          expected_file_sha256:checkpoint.file_sha256},signal);
-        if(bundle.page_count!==checkpoint.page_count)return{status:'stale',reason:'source_material_changed'};
-        catalog=nativeSourceCatalog(input.scope,bundle,checkpoint.file_sha256);
+    const answers=checkpoint.used.filter(use=>use.answer),pages=checkpoint.used.flatMap(use=>use.pages??[]);
+    const bound=async():Promise<{moved:boolean;same:boolean;current?:Map<string,string>}>=>{
+      if(answers.length){
+        const read=await currentAnswers(input.call,checkpoint.campaign,checkpoint.module_id,new Set(answers.map(use=>use.answer!.key)),signal);
+        return {moved:read.snapshot.revision!==checkpoint.revision||read.snapshot.answers_revision!==checkpoint.answers_revision,
+          same:read.snapshot.file_sha256===checkpoint.file_sha256&&read.snapshot.page_count===checkpoint.page_count&&read.snapshot.pdf===checkpoint.pdf,
+          current:new Map(read.answers.filter(row=>typeof row.key==='string'&&isPlainRecord(row.evidence)).map(row=>[row.key,String(row.evidence.revision)]))};
       }
-      if(catalog.extractionVersion!==checkpoint.extraction.version)return{status:'stale',reason:'source_extraction_changed'};
-      if(!catalog.coverage.textPages.includes(checkpoint.extraction.page)&&!catalog.coverage.emptyPages.includes(checkpoint.extraction.page))
-        return{status:'unavailable',reason:'source_extraction_unavailable'};
+      const snapshot=await input.call('module.source.snapshot',{campaign:checkpoint.campaign,module_id:checkpoint.module_id});
+      return {moved:snapshot.generation!==checkpoint.generation,
+        same:snapshot.file_sha256===checkpoint.file_sha256&&snapshot.page_count===checkpoint.page_count&&snapshot.pdf===checkpoint.pdf};
+    };
+    const [kernel,info]=await Promise.all([bound(),pages.length?input.source.sourceInfo({pdf:checkpoint.pdf,cache:input.source.home},signal):Promise.resolve(undefined)]);
+    if(!kernel.same||info&&(info.file_sha256!==checkpoint.file_sha256||info.page_count!==checkpoint.page_count))
+      return{status:'stale',reason:'source_material_changed',changed:checkpoint.used.map(use=>use.key)};
+    // §191.7: each quoted page is re-read in the layer it was read in, so a page that gained a transcript since keeps its use.
+    const revisions=new Map<string,string>();
+    const nativePages=[...new Set(pages.filter(row=>row.layer==='native').map(row=>row.page))].sort((a,b)=>a-b);
+    const transcriptPages=[...new Set(pages.filter(row=>row.layer==='transcript').map(row=>row.page))].sort((a,b)=>a-b);
+    if(nativePages.length){
+      const bundle=await input.source.sourceText({pdf:checkpoint.pdf,pages:nativePages,expected_file_sha256:checkpoint.file_sha256},signal);
+      if(bundle.page_count!==checkpoint.page_count)return{status:'stale',reason:'source_material_changed',changed:checkpoint.used.map(use=>use.key)};
+      for(const unit of nativeSourceCatalog(input.scope,bundle,checkpoint.file_sha256).snapshots)
+        revisions.set(`${unit.resource.split(':')[3]}:native:${unit.resource.split(':').slice(5).join(':')}`,unit.revision);
     }
-    return{status:'current',readSet:checkpoint.readSet};
+    if(transcriptPages.length){
+      if(!input.source.sourcePageText)return{status:'unavailable',reason:'source_extraction_unavailable'};
+      const read=await input.source.sourcePageText({pdf:checkpoint.pdf,pages:transcriptPages,expected_file_sha256:checkpoint.file_sha256,layer:'preferred'},signal);
+      const bundles=layeredBundles(read,checkpoint.file_sha256,checkpoint.page_count);
+      if(bundles.transcript)for(const unit of nativeSourceCatalog(input.scope,bundles.transcript,checkpoint.file_sha256,'transcript').snapshots)
+        revisions.set(`${unit.resource.split(':')[3]}:transcript:${unit.resource.split(':').slice(5).join(':')}`,unit.revision);
+    }
+    const pageChanged=(use:PrescreenSourceUse)=>(use.pages??[]).some(row=>revisions.get(`${row.page}:${row.layer}:${row.version}`)!==row.revision);
+    const answerChanged=(use:PrescreenSourceUse)=>!!use.answer&&kernel.current?.get(use.answer.key)!==use.answer.revision;
+    const extraction=checkpoint.used.filter(pageChanged).map(use=>use.key),answer=checkpoint.used.filter(answerChanged).map(use=>use.key);
+    if(extraction.length||answer.length)return{status:'stale',reason:extraction.length?'source_extraction_changed':'source_answer_changed',
+      changed:[...new Set([...extraction,...answer])]};
+    return{status:'current',readSet:checkpoint.readSet,...(kernel.moved?{revalidated:true as const}:{})};
   }catch(error){return{status:input.signal.aborted?'stale':'unavailable',reason:input.signal.aborted?'cancelled':error instanceof Error?error.message:'source_material_check_failed'};}
 }
 
@@ -286,7 +358,7 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
   while(reserved.length>=maxPages)reserved.shift();
   const pages=[...samplePages(cited,maxPages-reserved.length),...reserved];
   for(const page of [...matches,...broad,...cited])if(pages.length<maxPages&&!pages.includes(page))pages.push(page);
-  let extractionVersion:string|undefined,recheckPage:number|undefined,recheckLayer:SourceCatalogLayer|undefined,emptyPages:number[]=[],errorPages:number[]=[],extractionError:string|undefined,
+  let extractionVersion:string|undefined,emptyPages:number[]=[],errorPages:number[]=[],extractionError:string|undefined,
     nativeCatalog:NativeSourceCatalog|undefined,nativeOwnerParts:NativeSourcePart[]=[];
   const materialized=new Set<number>(),candidatePartAliases=new Map<string,string>(),transcribed=new Set<number>();
   if(pages.length){
@@ -294,10 +366,9 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
       const catalog=await readCatalog(input.source,input.scope,snapshot,pages,signal);nativeCatalog=catalog;nativeOwnerParts=nativeSourceParts(catalog);
       const layerOf=pageLayers(catalog),read=[...catalog.coverage.textPages,...catalog.coverage.emptyPages];
       for(const [page,layer] of layerOf)if(layer==='transcript')transcribed.add(page);
-      // The page re-read at check time: a native one when there is one (§191.7 names its layer either way).
-      recheckPage=read.find(page=>layerOf.get(page)!=='transcript')??read[0];
-      recheckLayer=recheckPage===undefined?undefined:layerOf.get(recheckPage)??'native';
-      extractionVersion=recheckPage===undefined?undefined:catalog.layers?.[recheckLayer!]??catalog.extractionVersion;
+      // A read with no page in it has no extraction to bind (§191.7 names each layer's version either way).
+      const first=read.find(page=>layerOf.get(page)!=='transcript')??read[0];
+      extractionVersion=first===undefined?undefined:catalog.layers?.[layerOf.get(first)??'native']??catalog.extractionVersion;
       emptyPages=[...catalog.coverage.emptyPages];errorPages=[...catalog.coverage.errorPages];
       for(const page of catalog.coverage.textPages)materialized.add(page);
       const byPage=new Map<number,typeof catalog.units>();
@@ -322,11 +393,52 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
       .map(([layer,version])=>({kind:'extraction' as const,resource:`pdf:${snapshot.file_sha256}:${layer}`,revision:version})):[]),
     {kind:'family',resource:'prescreen-source-materials',revision:'1'},
   ];
-  const checkpoint:PrescreenSourceCheckpoint={version:1,campaign:input.campaign,module_id:input.moduleId,revision:snapshot.revision,
-    answers_revision:snapshot.answers_revision,pdf:snapshot.pdf,file_sha256:snapshot.file_sha256,page_count:snapshot.page_count,
-    ...(extractionVersion!==undefined&&recheckPage!==undefined?{extraction:{version:extractionVersion,page:recheckPage,layer:recheckLayer??'native'}}:{}),readSet};
-  const check=(checkSignal:AbortSignal=input.signal,validationDeadlineAt:number=deadlineAt)=>checkPrescreenSourceCheckpoint({call:input.call,source:input.source,scope:input.scope,
-    signal:checkSignal,deadlineAt:validationDeadlineAt,checkpoint});
+  // §195.1: every candidate this provider issues, by key, so a check can re-read exactly what the prescreen supplied.
+  const issued=new Map<string,PrescreenSourceCandidate>();
+  const issue=(values:readonly PrescreenSourceCandidate[])=>{for(const value of values)issued.set(value.key,value);};
+  issue(candidates);
+  const answerPrefix=`source-answer:${input.moduleId}:`;
+  const useOf=(candidate:PrescreenSourceCandidate):PrescreenSourceUse|undefined=>{
+    if(candidate.authority==='reviewed_source'){
+      const ref=candidate.refs?.[0],data=candidate.data??{};
+      if(!ref||!ref.resource.startsWith(answerPrefix))return undefined;
+      return {key:candidate.key,answer:{key:ref.resource.slice(answerPrefix.length),revision:ref.revision,focus:text(data.focus),question:text(data.question)}};
+    }
+    const pages=pagesOfRefs(candidate.refs??[]);return pages?.length?{key:candidate.key,pages}:undefined;
+  };
+  const checkpointFor=(keys:readonly string[]):PrescreenSourceCheckpoint|undefined=>{
+    const used:PrescreenSourceUse[]=[];
+    for(const key of new Set(keys)){const candidate=issued.get(key),use=candidate&&useOf(candidate);if(!use)return undefined;used.push(use);}
+    return {version:2,campaign:input.campaign,module_id:input.moduleId,revision:snapshot.revision,answers_revision:snapshot.answers_revision,
+      generation:snapshot.generation,pdf:snapshot.pdf,file_sha256:snapshot.file_sha256,page_count:snapshot.page_count,used,readSet};
+  };
+  const checkpoint=checkpointFor([...issued.keys()])!;
+  const check=async(checkSignal:AbortSignal=input.signal,validationDeadlineAt:number=deadlineAt,keys?:readonly string[]):Promise<PrescreenSourceCheck>=>{
+    const bound=checkpointFor(keys??[...issued.keys()]);if(!bound)return{status:'unavailable',reason:'invalid_source_checkpoint'};
+    return checkPrescreenSourceCheckpoint({call:input.call,source:input.source,scope:input.scope,signal:checkSignal,deadlineAt:validationDeadlineAt,checkpoint:bound});
+  };
+  const reselect=async(keys:readonly string[],caller:AbortSignal,reselectDeadlineAt:number):Promise<Array<{key:string;candidates:PrescreenSourceCandidate[]}>>=>{
+    const remaining=reselectDeadlineAt-Date.now();if(!Number.isFinite(remaining)||remaining<=0)throw new Error('source_material_deadline');
+    const active=AbortSignal.any([caller,AbortSignal.timeout(Math.max(1,remaining))]);
+    const uses=[...new Set(keys)].map(key=>{const candidate=issued.get(key),use=candidate&&useOf(candidate);if(!use)throw new Error('invalid_source_checkpoint');return use;});
+    const actual=await input.source.sourceInfo({pdf:snapshot.pdf,cache:input.source.home},active);
+    if(actual.file_sha256!==snapshot.file_sha256||actual.page_count!==snapshot.page_count)throw new Error('source_material_changed');
+    const asked=uses.filter(use=>use.answer),pages=[...new Set(uses.flatMap(use=>(use.pages??[]).map(row=>row.page)))].sort((a,b)=>a-b);
+    const [answers,catalog]=await Promise.all([
+      asked.length?currentAnswers(input.call,input.campaign,input.moduleId,undefined,active):Promise.resolve(undefined),
+      pages.length?readCatalog(input.source,input.scope,snapshot,pages,active):Promise.resolve(undefined)]);
+    active.throwIfAborted();
+    const out:Array<{key:string;candidates:PrescreenSourceCandidate[]}>=[];
+    for(const use of uses){
+      const found:PrescreenSourceCandidate[]=[];
+      if(use.answer&&answers){const row=answers.answers.find(value=>value.focus===use.answer!.focus&&value.question===use.answer!.question);
+        const candidate=row&&answerCandidate(row,answers.snapshot,input.scope,input.query);if(candidate)found.push(candidate);}
+      if(use.pages&&catalog){const wanted=new Set(use.pages.map(row=>row.page));
+        for(const unit of catalog.units)if(wanted.has(unit.page))found.push(nativeCandidate(unit,input.query,snapshot));}
+      issue(found);out.push({key:use.key,candidates:found});
+    }
+    return out;
+  };
   const nativeQualificationActions=(selectedKeys:readonly string[]):number|undefined=>{
     const keys=[...new Set(selectedKeys)];if(!nativeCatalog||!nativeOwnerParts.length||!keys.length||keys.some(key=>!candidatePartAliases.has(key)))return undefined;
     return nativeConsultationInitialBatches(input.query,[input.query],[],nativeOwnerParts).length+1;
@@ -363,14 +475,15 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
         approval:{question:input.query,verdict,classifications,coverage:nativeCatalog.coverage},signal:qualifiedSignal});
       const excerpts=materialized.sourceAnswer.excerpts as Row[],pages=[...new Set(excerpts.map(row=>Number(row.page)).filter(Number.isSafeInteger))],
         body=excerpts.map(row=>`[Original PDF page ${Number(row.page)}]\n${String(row.text??'')}`).join('\n\n'),proof=materialized.proof;
-      return{status:'qualified',selectedKeys:keys,calls,candidate:{key:digest(['native-consultation',input.query,keys,proof.refs]),kind:'source',
+      const qualified:PrescreenSourceCandidate={key:digest(['native-consultation',input.query,keys,proof.refs]),kind:'source',
         label:`Supported native source consultation: ${clip(input.query,160)}`,summary:clip(body),authority:'native_consultation',body,refs:proof.refs,
         coverage:{status:'complete',supported:true,derived:false,used:proof.coverage.used,omitted:proof.coverage.omitted,unknown:proof.coverage.unknown,
           limitations:materialized.sourceAnswer.limitations as Json},data:{question:input.query,status:'answered',supported:true,prepared:false,
-          ...(pages.length===1?{page:pages[0]}:{}),source_refs:materialized.sourceAnswer.source_refs as Json,excerpts:materialized.sourceAnswer.excerpts as Json}}};
+          ...(pages.length===1?{page:pages[0]}:{}),source_refs:materialized.sourceAnswer.source_refs as Json,excerpts:materialized.sourceAnswer.excerpts as Json}};
+      issue([qualified]);return{status:'qualified',selectedKeys:keys,calls,candidate:qualified};
     }catch(error){return gap('unavailable',caller.aborted?'cancelled':error instanceof Error?error.message:'native_qualification_unavailable');}
   };
-  const result:PrescreenSourceResult={candidates,readSet,checkpoint,check,nativeQualificationActions,qualifyNative,coverage:{checked_answers:{inspected:snapshot.checked_answers.length,emitted:candidates.filter(row=>row.authority==='reviewed_source').length,
+  const result:PrescreenSourceResult={candidates,readSet,checkpoint,checkpointFor,check,reselect,nativeQualificationActions,qualifyNative,coverage:{checked_answers:{inspected:snapshot.checked_answers.length,emitted:candidates.filter(row=>row.authority==='reviewed_source').length,
     omitted:checkedOmitted,invalid:snapshot.checked_answers_invalid},native:{searched_ranges:rangeSet(searched,snapshot.page_count),unsearched_ranges:complement(searched,snapshot.page_count),
       materialized_pages:[...materialized].sort((a,b)=>a-b),unmaterialized_pages:Array.from({length:snapshot.page_count},(_,i)=>i+1).filter(page=>!materialized.has(page)),
       empty_pages:emptyPages,error_pages:errorPages,candidate_omitted:candidateOmitted,material_omitted:0,
@@ -401,7 +514,7 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
     result.coverage.native.unmaterialized_pages=result.coverage.native.unmaterialized_pages.filter(page=>!pages.includes(page));
     result.coverage.native.empty_pages=[...new Set([...result.coverage.native.empty_pages,...catalog.coverage.emptyPages])];
     result.coverage.native.error_pages=[...new Set([...result.coverage.native.error_pages,...catalog.coverage.errorPages])];
-    candidates.push(...fetched);return fetched;
+    candidates.push(...fetched);issue(fetched);return fetched;
   };
   return result;
 }
