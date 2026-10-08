@@ -1,8 +1,9 @@
 /**
  * Contract §177.2: the host side of the book's cast (extensions/module/reading-service.ts `cast`), against a stubbed kernel
  * and runtime (not a playtest). The service asks for the job, extracts the native text in batches the source helper accepts,
- * hands it to the kernel, runs one background reader child per page range under the cast instructions with the cast check on
- * its path, submits, records, and announces each range; a stopped run resumes at the first range not read; a second run with
+ * hands it to the kernel, runs one background reader child per page range under the cast instructions -- shown its task and
+ * page files, its one tool `submit_cast` (the tool itself and a real child are in cast-submit.test.mjs) -- submits, records,
+ * and announces each range; a stopped run resumes at the first range not read; a second run with
  * the first's refusal follows a refused submit; a book with no text layer runs no child; one run per module at a time.
  */
 import assert from 'node:assert/strict';
@@ -41,9 +42,18 @@ function host(t, {texts = page => `Page ${page} names Jonah.`, submits, job: job
 		if (method === 'cast.release') return {released: true};
 		if (method === 'cast.source') return params.pages.some(page => page.text.trim()) ? {state: 'ready', ranges} : {state: 'unavailable', reason: 'no_text_layer'};
 		if (method === 'cast.range') {
+			// As the kernel writes it: the range's pages that have text, and task.json listing them.
 			const range = ranges[params.index], cwd = join(dir, `range-${params.index}`);
-			await mkdir(cwd, {recursive: true});
-			return {cwd, index: params.index, first: range.first, last: range.last, pages_with_text: range.last - range.first + 1, known: params.index};
+			await mkdir(join(cwd, 'pages'), {recursive: true});
+			const written = [];
+			for (let page = range.first; page <= range.last; page++) {
+				if (!texts(page).trim()) continue;
+				await writeFile(join(cwd, 'pages', `page-${String(page).padStart(4, '0')}.txt`), texts(page));
+				written.push(page);
+			}
+			await writeFile(join(cwd, 'task.json'), JSON.stringify({job_id: 'cast:aaaaaaaaaaaa', purpose: 'cast', play_language: 'zh-Hans',
+				range: {index: params.index, first: range.first, last: range.last}, pages_with_text: written, known_cast: []}));
+			return {cwd, index: params.index, first: range.first, last: range.last, pages_with_text: written.length, known: params.index};
 		}
 		if (method === 'cast.submit') {
 			const answer = submits.shift();
@@ -77,11 +87,14 @@ test('§177.2: job, text in batches, source, one background child per range unde
 	const [run, next] = h.runs;
 	assert.equal(run.priority, 'background', 'nothing waits on the cast');
 	assert.equal(run.systemPrompt, await readFile(join(ROOT, 'content', 'setup', 'module-cast.md'), 'utf8'));
-	assert.equal(run.tools, 'read,write,edit,bash');
-	assert.match(run.brief, /coc-read-check --kind module-cast --draft draft\.json/);
+	assert.deepEqual([run.tools, run.cast], ['', true], 'no built-in tool: the child cannot choose where anything is written');
+	assert.deepEqual(run.attachments, ['task.json', ...Array.from({length: 40}, (_, index) => `pages/page-${String(index + 1).padStart(4, '0')}.txt`)],
+		'it is shown its task and every page file of its range, in page order');
+	assert.equal(next.attachments.length, 1 + 30);
+	assert.match(run.brief, /submit_cast/);
 	assert.match(run.brief, /pages 1-40/);
 	assert.match(next.brief, /pages 41-70/);
-	assert.match(run.brief, /"play_language":"zh-Hans"/);
+	for (const name of ['task.json', 'draft.json', 'pages/', 'coc-read-check', run.cwd]) assert.equal(run.brief.includes(name), false, `${name} in: ${run.brief}`);
 	assert.deepEqual(h.rows.filter(row => row.lane === 'cast').map(row => [row.event, row.range]), [['range', 0], ['published', 1]]);
 	assert.deepEqual(h.published, [{module_id: 'book-4', people: 1, state: 'partial'}, {module_id: 'book-4', people: 2, state: 'complete'}],
 		'each range announces its rows: the lanes can use them before the book is done');

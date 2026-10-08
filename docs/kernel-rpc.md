@@ -34042,7 +34042,12 @@ A module that plays from reading (`playsFromReading`) gets its cast once per bou
 - Across ranges, a row joins a kept row only by a whole identity: the kept row's fullest printed form is one of the row's forms, or the row's fullest form is one of the kept row's, and exactly one kept row answers. The joined row keeps the kept row's id, so a word the epithet lane gave under it stays theirs. A first name, even one only one kept row carries, joins nobody, and rows of the same range never join each other.
 - Each row keeps `first`, the sentence of its first mention, cut by machine as §11.5.4 cuts one.
 
-**The reader** reads under `content/setup/module-cast.md` with `read,write,edit,bash`, at background priority, about ten pages per tool call. Its own check is `coc-read-check --kind module-cast --draft draft.json`, which runs the same function against the page files and `known_cast` it was handed.
+**The reader** reads under `content/setup/module-cast.md`, at background priority, and names no path (*amended 2026-10-07*; owner, after layout children wrote to paths they made up: 「那说明工具设计有问题啊，工具层面就不能让agent自己决定写到哪里，应该由系统来决定」, and for this reader the same day: 「cast 读者也按提交工具改，其他先不动」). Before, it had `read,write,edit,bash` and no tool guard (`createReaderToolGuard` binds only `source` readers), read about ten pages per `cat`, wrote `draft.json` itself and ran its own check through `bash`; a path it made up would have landed wherever the process could write.
+- **No built-in tool.** Its one tool is the private `submit_cast {draft}` (`extensions/module/cast-submit.ts`, mounted by `ReaderRequest.cast` and bound to the range directory by `PI_COC_CAST_SUBMIT_DIR`).
+- **Its inputs are attached.** `task.json` and the range's page files arrive as `@file` attachments (§191.2's mechanism; an attachment may name a file in a subdirectory of the working directory, so `pages/page-NNNN.txt` is one), in page order. The brief names no path and no longer carries its own copy of the task (which lacked `notes_in_use`); `task.json` no longer names a `draft` file.
+- **Each call is checked at once.** The host writes `draft.json` into the range directory and runs the reader's own check, `coc-read-check --kind module-cast` (the host-owned wrapper, `PI_COC_READER_CHECK`), which runs the same function against the page files and `known_cast` beside it. The call answers with the check's result -- the refused rows with their fixes, or a shape error -- and a draft the check passes ends the child (`terminate`). Otherwise the child repairs and submits the whole draft again in the same session; `draft.json` holds the latest draft, as the child's own write did. One row per call in `submissions.jsonl`.
+- **Reminder.** A child that stops without a submission, or with its last draft refused, is reminded once (a `followUp`, SL-00), judged only on a run whose model answered (§191.2's TR-D rule).
+- **Unchanged.** `cast.submit` still checks `draft.json` against the kernel's own copy and folds the accepted rows; the tool's check helps the child and decides nothing. A child that leaves no draft (`no_draft`) is the refusal the host's second run answers, as before.
 
 **The host** (`ReadingService.cast`, `extensions/module/reading-service.ts`):
 - extracts text 32 pages a call, only when the kernel keeps none;
@@ -34057,6 +34062,33 @@ A run that the setup process started stops when setup hands over to the table. T
 **Cross-process ownership (2026-10-05).** Setup and a table are different hosts: the service's promise map alone cannot make this a single read. The installed v4 reader submitted each of Blood Road's three ranges twice. `cast.job` without `claim` stays a query. With `claim: true`, the kernel takes a nonblocking exclusive descriptor lock at the book's `.cast-reader.lock`, then checks completion again and returns a fresh opaque `lease`. A held lock returns `{job_id: null, state: "busy", reason: "reader_owned"}`. Missing native locking refuses; it never starts an unlocked paid reader. The waiting host polls the claim without a reader child, until the holder finishes or the host stops.
 
 `cast.source`, `cast.range` and `cast.submit` require the same job's lease held by this kernel. The range's working directory is inside that lease's own directory, so a child left by a dead host cannot overwrite the next run's draft. A missing, released or foreign lease is refused with `details.reason: "cast_lease_lost"`; it cannot publish, rewrite source, clear staging or trigger another paid attempt. `cast.release` requires the module, job id and lease, and releases only its own descriptor; repeated release is harmless. The host releases in `finally` after its child settles, including failure and cancellation. Kernel close, retarget or process death releases its descriptors, so a new host resumes completed ranges without a stale file blocking it. An active owner is not expired by elapsed wall time: stealing a still-live paid reader's lock would recreate the duplicate cost. Old complete casts continue serving until the new table is complete, as §177.16 specifies.
+
+
+**Submission tool (2026-10-07).** Code: `extensions/module/cast-submit.ts` (`submit_cast`, new), `ReaderRequest.cast` and
+`readerCommand`'s `cast` in `extensions/module/reader.ts` (whose attachment grammar now takes a relative path of plain
+names, never `..`), the `castSubmit` entry in `runtime/deployment.mjs` / `.d.mts` and `pipicoc/runtime-dependencies.json`,
+`ReadingService.readCast`, `cast.range` in `kernel-ts/cast/index.ts` (no `draft` in `task.json`),
+`content/setup/module-cast.md` (the pages arrive attached and the draft goes through the tool; the steps that used `cat`,
+`grep` and incremental rewrites of `draft.json` are gone), and the SL-00 inventory. Decisions: the host lists the page
+files from the range directory the kernel wrote (zero-padded names sort in page order) rather than spelling the file name
+itself; the tool runs the checker through the same host-owned wrapper and `pi.exec` path `submit_reading` uses; a refused
+draft is not an error result, and the check's own output, refused rows and fixes included, is the answer; there is no
+submission limit beyond the child's lease and timeout, as when the child ran the check itself.
+
+Tests: `tests/extension/cast-submit.test.mjs` -- the tool driven directly (the host-written draft passed to the checker
+wrapper, the refusal's fix in the answer, a passing draft terminating, the invalid call not counted, one reminder, none on
+an error-ended run) and the real entry: the kernel in-process over a bound three-page book, `ReadingService.cast` with the
+host's own `runTask`, a vendored Pi child with the emitted extensions and the host's checker wrapper, against a local
+Responses endpoint scripted as a model that first calls `write` on a path it made up and submits a row no cited page
+prints, then drops exactly the rows the check named. The child is offered `submit_cast` alone. The `write` is answered
+`Tool write not found` and nothing appears at that path. The pages and `task.json` are attached and nothing names
+`draft.json`. The repair happens in the same child (two provider calls), and the cast is complete with three people from
+the host-written draft. An endpoint that answers 503 once and then a passing draft gets one submission and two calls.
+`tests/extension/module-cast-reader.test.mjs` -- the request shape (`tools: ""`, `cast`, `task.json` and every page file of
+the range in page order, a brief naming no path) over a fake kernel that now writes the range as the kernel does.
+Mutations, each killed: the old `read,write,edit,bash` request; inputs not attached; `task.json` naming the draft file; the
+attachment grammar back to plain names; the extension not mounted; the check skipped, the draft not written and the
+reminder armed on an error-ended run (in the source, and the first and last also in the emitted bundle).
 
 ### 177.3 A newcomer may not take a name the book gives anyone
 

@@ -187,7 +187,8 @@ export function createCastRuntime(context: KernelContext): { handlers: HandlerGr
             await writeJsonAtomic(join(cwd, 'task.json'), { job_id: jobIdOf(sha), purpose: 'cast', page_count: pageCount(meta), play_language: await languageOf(campaign),
                 range: { index: range.index, first: range.first, last: range.last }, pages_with_text: written, known_cast: known,
                 ...(notes.length ? { notes_in_use: notes } : {}),
-                page_files: 'pages/page-NNNN.txt (zero-padded to four digits)', draft: 'draft.json' });
+                // §177.2: no `draft` file is named: the reader hands its draft to `submit_cast`, and the host writes draft.json here.
+                page_files: 'pages/page-NNNN.txt (zero-padded to four digits)' });
             return { cwd, index: range.index, first: range.first, last: range.last, pages_with_text: written.length, known: known.length, notes_in_use: notes.length,
                 ...(cut ? { notes_in_use_cut: cut } : {}) };
         },
