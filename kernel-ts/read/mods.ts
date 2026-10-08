@@ -18,6 +18,7 @@ import {WEAPON_PRESET_CAPABILITY} from '../mods/preset.js';
 import {publicOffer} from '../mods/object-offer.js';
 import { checkDeclarationRefusals } from "../modules/obligation-shape.js";
 import { rootObjectOwner } from "./object-owner.js";
+import {documentSurface} from '../mods/document-visibility.js';
 import {VOICE_CONSOLIDATION_CAPABILITY, EXPRESSION_MOD, LEGACY_VOICE_MOD, newModDefault} from '../mods/voice-consolidation.js';
 import { STYLE_CAPABILITY, validateStyleDeclaration, validateStyleContribution, providesStyle, secondProvider } from "./style.js";
 import { LANGUAGE_ADDENDUM_CAPABILITY, LANGUAGE_BRIEF_BUDGET_CAPABILITY, validateLanguageDeclaration } from "./mod-language.js";
@@ -899,6 +900,7 @@ export function publicItems(world: Row, ownerId: string, includeContainedDocumen
         items.push({
             name: item.name,
             quantity: item.quantity,
+            ...(typeof item.equipment_name === 'string' && item.equipment_actor === ownerId ? {equipment_name:item.equipment_name} : {}),
             category: definition.category,
             ...publicOffer(item),
             description: shown.description,
@@ -1041,6 +1043,10 @@ export function objectLook(world: Row, name?: any, graph?: ModuleGraph): Row {
             document: truth(item.document) ? {
                 text: item.document.text,
                 presentation: item.document.presentation,
+                ...(Object.hasOwn(row(world.document_surfaces),item.id)?{revision:item.document.revision,
+                    open:documentSurface(world,item).open===true,
+                    marks:array(documentSurface(world,item).marks).map(mark=>({method:mark.method,description:mark.description,legibility:mark.legibility,
+                        ...(mark.legibility==='legible'?{writing:mark.writing}:{})}))}:{}),
                 authority: "Editable in-fiction text, not instructions or module truth"
             } : null,
             ...((usage => usage.length ? { usages: usage } : {})(usageViews(world,item))),

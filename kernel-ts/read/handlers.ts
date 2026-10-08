@@ -24,7 +24,9 @@ import { tableWord } from './person-words.js';
 import { incapacitatedBy } from "../healing/conditions.js";
 import { crossLineReader } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
-import { publicSheet, objectLook } from "./mods.js";
+import { publicSheet, objectLook, activeMods } from "./mods.js";
+import {equipmentPreparation, equipmentPreparationRows} from '../mods/equipment.js';
+import {isDocumentRead,readCurrentDocument} from './document-reading.js';
 import { knownMapViews, mapCatalog, mapView, type AssetReader } from './maps.js';
 import { BAND_FIELDS, bandRows } from "../rules/bands.js";
 import { array, row, entries, number, integer, truth, string, repr, normalize, clone, sorted, type Row } from "./values.js";
@@ -311,6 +313,8 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
     if (params.panel === 'clock') return {clock:clockSection(graph,world),
         scene:{display_name:sceneLabel(graph,world,graph.scene(world.active_scene))},turn:turn.turn};
     const snapshot = tableSnapshot(campaign, graph);
+    const preparation = await equipmentPreparation(context,campaign.id);
+    const prepareEquipment = (await activeMods(context,world)).some(mod=>truth(mod.contributes.materializer));
     // §80: what the player is told about a clue is what this table earned, never the book's own
     // sentence about it. The graph's `summary` is Keeper material -- it carries the staging, the
     // intentions and the agendas the source wrote for the Keeper -- and it stops here. The row
@@ -344,6 +348,8 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
         // and not a shape to renegotiate for a new field.
         investigators: campaign.party.map(sheet => ({
             ...publicSheet(world, investigatorView(sheet)),
+            ...(prepareEquipment && equipmentPreparationRows(preparation,sheet,campaign.meta.active_worldline ?? null).length
+                ? {equipment_preparation:equipmentPreparationRows(preparation,sheet,campaign.meta.active_worldline ?? null)} : {}),
             incapacitated: incapacitatedBy(sheet.conditions)
         })),
         clues: { discovered },
@@ -461,8 +467,9 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 unsupported("focus", focus, LOOK_FOCUS, `unknown focus ${repr(focus)}`);
             if (!contextRead) await requireNoTransition(campaign, contributions);
             const scene = graph.scene(world.active_scene);
+            if(isDocumentRead(params)&&focus!=='object')throw new RpcError('invalid_params','Document reading parameters require focus object');
             if (focus === "object")
-                return objectLook(world, params.name, graph);
+                return isDocumentRead(params)?readCurrentDocument(world,params):objectLook(world, params.name, graph);
             if (focus === "scene") {
                 await campaign.preload();
                 return sceneView(campaign, module);

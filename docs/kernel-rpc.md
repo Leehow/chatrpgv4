@@ -7414,6 +7414,18 @@ for a package without Python, uv, developer files or global runtimes.
 
 ### 27.4 Implementation record
 
+**Offline production dependency cache (owner ruling 2026-10-07).** App runtime
+assembly keeps a fresh dependency tree, private HOME and empty user/global npm
+configuration, but reuses the persistent npm archive cache at `~/.npm` (override:
+`PIPICOC_NPM_CACHE`). Production `npm ci` uses `--offline`; a missing or corrupt
+cache fails instead of fetching Internet payloads. Package-lock integrity and
+assembled resource checks remain authoritative. Staging cleanup never removes
+this external cache. Existing explicit Node/Git archive inputs are unchanged.
+This follows npm's content-addressed, integrity-checked cache and its strict
+offline option (https://docs.npmjs.com/cli/cache/ and
+https://docs.npmjs.com/cli/v10/using-npm/config/#offline); cache availability is not
+assumed to be permanent and no online fallback is enabled silently.
+
 2026-09-09: implementation restarted from the clean 0.9.2a baseline after the user
 requested deletion of two unmerged worker attempts. No code from those attempts
 is being integrated. The first slice provides host-owned kernel composition;
@@ -20894,6 +20906,49 @@ The recovery approach was cross-checked against BullMQ's stalled-worker requeue 
 durable task replay; this project reuses its existing job ledger and writer lease, with no new service.
 Sources: https://docs.bullmq.io/guide/workers/stalled-jobs and https://docs.temporal.io/tasks.
 
+### 129.7 Carried equipment is prepared beside play (owner ruling 2026-10-07)
+
+Opening or reopening a writable play session queues its unmanaged carried equipment
+under the active materializer. The host runs the existing tool-enabled creator in
+the background; neither opening prose nor player input waits for it. The kernel
+issues the exact row, owner and worldline binding. Names are structural handles;
+the creator decides readable/writable capability semantically and may return null
+for a financial placeholder rather than inventing a physical item. Existing known
+writing is preserved, unknown writing is never invented, and only established blank
+stationery may start empty. No keyword classifier or second equipment inventory is added.
+
+Host-only `mods.equipment.prepare`, `mods.equipment.publish` and
+`mods.equipment.fail` retain jobs in `save/equipment-preparation.json`.
+`mods.equipment.retry {actor,name}` resets only the selected failed job.
+Acceptance retains the ordinary definition/document gates. Publication rechecks
+the current row, owner, worldline and materializer, then stages the accepted define
+and exact-row adoption through the existing apply owner. It changes no quantity,
+condition, time, cash, player choice or turn cursor. It registers the document and
+its acquisition original before notifying the sheet, without waiting for another
+player turn. Stale completions cannot resurrect removed or transferred equipment.
+Pending work resumes with its retained job; failures remain explicit until retry.
+
+`table.view` projects `equipment_preparation: [{name,status}]` on each investigator
+for pending or failed rows. Such a row is already expandable: while open it shows
+the existing preparation animation, or an explicit retry control. Successful
+publication replaces that same row in place, preserving its expanded state; a
+document then offers the ordinary view/save/reset editor. No editing is enabled
+before canonical publication. Cold writable session reads may start the existing
+detail-recovery runtime, without a new player prompt or story continuation.
+
+Writers: the host's tool-enabled materializer and the guarded apply staging owner.
+Readers: the existing owned-item/document views and inventory preparation projection.
+Actor: the player opens the row, waits if necessary, then reads or writes through
+the existing editor. Background failures do not block play.
+
+Precedent: Jupyter's Contents API preserves entity metadata while content is loaded
+separately (https://jupyter-server.readthedocs.io/en/latest/developers/contents.html);
+VS Code's file providers separate resource identity from on-demand content access
+(https://code.visualstudio.com/api/extension-guides/virtual-documents). These confirm
+the UI separation, not authority to create missing fictional writing or bypass
+this product's ownership and publication gates.
+
+
 ## 130. The player reads first; the continuity review reads after (2026-09-22, amends §12.8, §36.14 and §91)
 
 The continuity review of §36.14 has been a gate before publication: `narrate` and `ask` waited inside
@@ -34357,6 +34412,148 @@ A capsule section for the card's first investigator (`party[0]`, as `known.inves
 - **The model decides whether the purpose sentences take.** That is the replay's to show (§179.4), not a test's.
 - **The capsule's `memory` ranking (#20) is unchanged.** It still anchors on who is present and puts `player_assertion` last.
 - **The tableau closer is untouched.** "who is here and how they stand" pulls a room recap into quiet turns (`claude/tableau-closer-20261004`).
+
+### 179.3a Physical writing, observation and sidebar edits (owner ruling 2026-10-07)
+
+The current text on a registered carrier is authoritative for reading that carrier.
+History, remembered facts and the card's description do not recreate deleted writing.
+`own.documents` carries bounded current writing and revision evidence for owned
+carriers; `look focus object` reads the complete current document. An explicit
+in-fiction write/append continues through the existing canonical object operation.
+Readable text remains in-fiction data, never instructions or proof that its claims
+are true. A book's physical possession does not grant its spells or secrets.
+
+The object document interface gains physical operations, all using the instance's
+actual same from/to owner and a causal `why`:
+
+- `open` / `close` change the paper's reading surface. Closing revokes directed
+  showing, but never retracts what someone already saw.
+- `show {reader}` opens the carrier to this present person. A request by that
+  person is not a showing; ordinary action admission still governs the owner's act.
+- `observe {reader,access:held|shown|glimpse,quote?}` records a reading after the
+  Keeper established its actual visibility, comprehension and any required check.
+  Held requires that person's custody; shown requires a live directed showing;
+  glimpse requires an open surface and actual proximity. No operation automatically
+  grants reading to everyone present. An optional quote must be one exact unique
+  substring of the current readable surface; omission captures that surface in full.
+  A partial glance never silently captures an entire page. The kernel copies the
+  observed bytes and their revision rather than accepting retyped knowledge.
+- `requested_edit {method,implements,marks,legibility}` settles the exact selected
+  sidebar request. Method is `erase|cross_out|rewrite`; implements names
+  actual available carried things, not a hard-coded tool-name classifier. The Keeper
+  establishes suitability, scene feasibility and any consequential method choice.
+  A positive elapsed-time receipt must precede settlement. Marks describe the actual
+  physical result; legibility is `legible|illegible|unknown`, never inferred from an
+  item-name list. The kernel retains the changed source span as trace evidence and
+  exposes its words to ordinary readers only when they remain legible. Uncertain
+  recovery is not automatic knowledge. Unsupported means, a missing choice or a
+  refused check leave the requested text uncommitted.
+
+`mods.document.request {actor,name,version,action:save|reset,text?}` is the player
+UI entry. It records a bounded, custody/worldline/version-bound target body without
+changing current writing. The owning host submits one closed
+`document_edit_request` player message through its ordinary queue. The Keeper
+receives bounded before/after evidence and the actual actor/carrier, not opaque
+request ids; `requested_edit` copies the exact host-retained body at settlement.
+`mods.document.request_status` reports queued, selected, needs-follow-up, applied,
+refused or stale. The editor retains an interrupted/refused draft and never labels
+an unperformed request saved. Reset is a requested physical rewrite from the
+retained acquisition original, not a world-history rollback. Player UI calls to
+the legacy `mods.document.apply` are routed through this physical request path;
+the direct low-level method remains only for developer/compatibility callers and
+is not exposed as a Keeper or player editing shortcut.
+
+The host serializes submissions for the same session. Its private
+`mods.document.dispatch {actor,name,request,accepted}` acknowledgement binds to
+the issued request token, which never enters player or Keeper messages. A queued
+body remains retryable until the ordinary message queue accepts it; an accepted
+submission is not resent by another click. Delivery or stranding without physical
+settlement leaves `needs_follow_up`, retaining the exact draft. A stale acknowledgement
+cannot change a newer request, and settlement status comes from committed world
+state rather than an optimistic host acknowledgement.
+An ordinary write/append whose resulting body is the exact selected editor target
+is refused while that request is pending: it must use `requested_edit`, preserving
+the physical-method checks and canonical applied marker. Other actual writing may
+change the carrier and make the retained request stale. The editor context offers
+the current directly carried implement names; those names bind custody, while the
+Keeper judges their suitability.
+
+Observation receipts retain observer, carrier, observed revision, exact observed
+writing, turn and worldline. `npc.perspective` and `npc.situation` receive only
+this person's observations. An NPC who saw an earlier version keeps that report
+after erasure, closure or transfer; an NPC reading later receives current writing
+and physically legible marks only. The words are an observed assertion, not newly
+authenticated scenario truth. NPCs may react to observed editing, but unseen sidebar
+requests do not themselves become NPC knowledge.
+
+Three ends: player/keeper writes and physical edit settlement update the carrier;
+owned reads and per-NPC observations project the appropriate version; the Keeper
+uses them for an actual reading, writing or response, with canonical receipts.
+Past writing and observed knowledge are preserved when later writing changes.
+Each offered current document carries `next` with the same-owner show/observe
+operation and its observation receipt requirement. A delivered description of
+reading alone is not observation evidence; live acceptance checks the actual
+per-person ledger as well as the visible reply.
+Enhanced Items 1.3.3 makes its carrier instructions resident: document surfaces
+and observations must remain actionable even when situational topic selection is
+unavailable. The package retains the same state version; an existing campaign
+updates through the normal Mod version control rather than replacing frozen bytes.
+
+External comparison: Inform's actor-relative scope separates an owner's possession
+from another actor's perception (https://ganelson.github.io/inform/CommandParserKit/prsr.html).
+Foundry separates limited/observer/owner document access
+(https://foundryvtt.com/article/users/), but its account permissions do not settle
+this game's physical visibility. Microsoft's immutable-event guidance supports
+retaining prior facts when later changes occur
+(https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing);
+this change uses the existing store and logs, not an event-store migration.
+
+### 179.3b Focused reading of long current documents (owner ruling 2026-10-07)
+
+The owner requested finding a particular entry in a heavily used notebook. The
+200-character `own.documents` preview is navigation, never proof of absence.
+`look {focus:object,name,document_query?,document_page?,document_revision?}` adds
+bounded current-document reads to the existing verb; a bare object look retains
+its compatible full object view.
+
+- With `document_query`, the kernel searches the complete current readable surface
+  for that exact literal, returning up to six original fragments with surrounding
+  context and code-point ranges. Matching is case-sensitive and does not interpret
+  meaning. `no_literal_match` means only that this literal is absent; a semantic
+  question can still require reading the pages. The count covers all literal hits,
+  and additional result pages have an explicit next call.
+- With `document_page` and no query, the kernel returns one bounded, overlapping
+  text window, its page count and next call. The Keeper supplies the semantic
+  judgement from the actual words, without a keyword classifier or a new lane.
+  Page two onward requires the returned integer document revision. Changed writing
+  refuses the old continuation as `revision_conflict`, never as not found.
+- `document_read` exposes only current body and physically legible retained marks.
+  Source ranges distinguish current writing from legible marks; acquisition
+  originals, erased/unknown words, conversation history and NPC memory are not
+  searched. Reading evidence grants no new NPC observation or scenario truth.
+- The host tracks pages actually supplied in this player turn, by document and
+  revision, and reports `all_pages_supplied`. A last page alone is not complete
+  coverage. Literal hit fragments do not count as full semantic reading. No read
+  counter enters future turns as an obligation. A semantic absence may be stated
+  only after sufficient current-page evidence; incomplete coverage remains unknown.
+- A returned `next` or `read_pages` call is a host-issued, one-use continuation.
+  It does not spend the generic repeated-look allowance: later document windows
+  supply new evidence rather than re-read a carried scene. Arbitrary/repeated calls
+  keep the usual allowance. Revision, task/provider, failure and delivery guards
+  remain in force; this adds no permission for world changes.
+
+Three ends: ordinary writing/edit settlement updates the source revision; bounded
+object reads and current-document offers supply actual passages; the Keeper uses
+those passages for the player's focused question. Interface tests cover middle/end
+entries, multiple hit pages, Unicode boundaries, revision changes, readable marks
+and deleted words. Real play checks actual tool use and grounded answers.
+
+Comparison: SQLite FTS5's snippet function returns bounded context around matches
+(https://www.sqlite.org/fts5.html); Elasticsearch distinguishes exact-term from
+analysed text queries (https://www.elastic.co/docs/reference/query-languages/query-dsl/term-query).
+These confirm useful fragments and distinct match semantics. This product keeps
+literal location deterministic and semantic judgement with the Keeper; no search
+database, embedding service or dependency is added.
 
 ### 179.4 Acceptance
 

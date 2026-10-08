@@ -5,6 +5,7 @@ import {memoryEvidenceView} from '../read/memory.js';
 import {array,normalize,number,row,string,type Row} from '../read/values.js';
 import {personalityView,personalitySourceRevision} from './material.js';
 import {reunionView} from './reunion.js';
+import {observedDocuments} from '../mods/document-visibility.js';
 
 function namesOf(graph:ModuleGraph,node:Row):Set<string>{
     return new Set(graph.nameKeys(node).map(normalize));
@@ -51,11 +52,13 @@ export function npcPerspective(graph:ModuleGraph,world:Row,node:Row,memory:Row[]
         &&array(value.knowers).some(name=>names.has(normalize(string(name))))&&typeof value.statement==='string')
         .sort((a,b)=>number(b.valid_from_turn??b.turn)-number(a.valid_from_turn??a.turn)).map(report);
     const commitments=npcCommitments(graph,node,memory,scope);
+    const documents=observedDocuments(world,string(node.node_id));
     const view={name:graph.displayName(node),personality:personalityView(graph,world,node),
         goals:profile.agenda??null,fears:profile.fear??null,
         authored_knowledge:[...graph.npcKnows(node).map(item=>({name:item.handle,statement:item.node.summary||item.node.name,authority:'source_authored'})),
             ...graph.authoredLines(node,'knowledge').map(statement=>({statement,authority:'source_authored'}))],
         authored_beliefs:graph.npcBeliefs(node),knowledge_reports:reports.slice(0,12),
+        ...(documents.length?{observed_documents:documents}:{}),
         commitments:commitments.slice(0,12),
         coverage:{knowledge_reports_omitted:Math.max(0,reports.length-12),commitments_omitted:Math.max(0,commitments.length-12),relationship_view:'bounded; use ordinary recall for older evidence',speech_view:'last six committed own utterances'},
         relationships:npcRelationships(graph,node,memory,scope),recent_speech:npcRecentSpeech(graph,node,records,scope),

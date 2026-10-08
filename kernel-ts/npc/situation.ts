@@ -17,6 +17,9 @@ import type {CampaignSnapshot} from '../read/campaign.js';
 import type {HandlerGroup} from '../handlers.js';
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
+import {documentEditInput} from '../mods/document-requests.js';
+import {documentSurface} from '../mods/document-visibility.js';
+import {rootObjectOwner} from '../read/object-owner.js';
 import {actorNode, creatureWhat, creatureWords, jsonSize, npcsPresent, personLabel, sceneLabel} from '../read/capsule.js';
 import {readCampaign} from '../read/handlers.js';
 import {canonicalMemoryReceipts, withPromiseFulfillment} from '../read/memory.js';
@@ -300,7 +303,13 @@ function atHand(graph: ModuleGraph, world: Row, party: Row[], me: Person, place:
         ...npcsPresent(graph, world, place).filter(node => node.node_id !== me.node.node_id)
             .map(node => personLabel(world, graph.handle(node), graph.displayName(node))),
     ]);
-    return {holdings, objects, exits, present};
+    const open_documents=instances.filter(item=>item.document&&row(item.owner).kind!=='object'&&documentSurface(world,item).open===true)
+        .filter(item=>{const owner=rootObjectOwner(world,item);return owner.kind==='scene'&&owner.id===here
+            ||owner.kind==='investigator'&&here===world.active_scene&&party.some(actor=>actor.id===owner.id)
+            ||owner.kind==='npc'&&npcsPresent(graph,world,place).some(node=>graph.handle(node)===owner.id);})
+        .map(item=>({name:item.name,presentation:item.document.presentation,
+            authority:'An open physical carrier nearby, not writing this person already read. Establish actual line of sight and comprehension before observing a passage.'}));
+    return {holdings, objects, exits, present,...(open_documents.length?{open_documents}: {})};
 }
 
 /**
@@ -384,12 +393,13 @@ function constraintsOf(graph: ModuleGraph, world: Row, party: Row[], me: Person,
 export function fitSituation(packet: Row, maxBytes: number, declared: boolean): void {
     const truncated: string[] = packet.truncated, over = () => jsonSize(packet) > maxBytes;
     const cut = (name: string) => { if (!truncated.includes(name)) truncated.push(name); };
-    for (const key of ['objects', 'exits', 'table_brought_out', 'brought_out', 'holdings', 'present']) {
+    for (const key of ['objects', 'exits', 'table_brought_out', 'brought_out', 'holdings', 'present','open_documents']) {
         const list = key === 'table_brought_out' ? packet.table_brought_out : packet.at_hand[key];
         while (over() && Array.isArray(list) && list.length) { list.pop(); cut(key === 'table_brought_out' ? key : 'at_hand'); }
     }
     while (over() && packet.done.length > 1) { packet.done.pop(); cut('history'); }
     while (over() && packet.recent_speech.length) { packet.recent_speech.shift(); cut('recent_speech'); }
+    while(over()&&Array.isArray(packet.observed_documents)&&packet.observed_documents.length){packet.observed_documents.shift();cut('observed_documents');}
     while (over() && packet.happened.length > (declared ? 1 : 0)) { packet.happened.shift(); cut('happened'); }
     for (const key of ['relationships', 'commitments'])
         while (over() && Array.isArray(packet.who[key]) && packet.who[key].length) { packet.who[key].pop(); cut('who'); }
@@ -488,9 +498,10 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
             const packet: Row = {
                 npc: {handle: me.handle, name: graph.displayName(node), kind: person ? 'npc' : 'creature'},
                 canonical_context: {
+                    authority:'Privileged author context, not NPC perception. Private writing requires this person observed_documents; a control request is not outward behavior.',
                     scene: place ? chars(graph.summary(place), 1600) : '',
                     previous_narration: chars(string(previous?.rendered_text ?? ''), 2000),
-                    player_declaration: string(row(turn.player_input).text ?? turn.player_text ?? ''),
+                    player_declaration: documentEditInput(turn.player_text)?'':string(row(turn.player_input).text ?? turn.player_text ?? ''),
                 },
                 // §180.3: the act author's material -- a person's personality and the rest of their perspective; for a
                 // creature, what the book says it is, its habits and the Keeper's note.
@@ -502,6 +513,8 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
                 ...(seen.length ? {table_brought_out: seen} : {}),
                 done,
                 recent_speech: array(view.recent_speech).map(line => `turn ${string(row(line).turn)}: ${flat(row(line).statement)}`),
+                ...(array(view.observed_documents).length?{observed_documents:array(view.observed_documents).slice(-3)
+                    .map(document=>({...document,writing:chars(document.writing,400),truncated:document.truncated||string(document.writing).length>400}))}:{}),
                 constraints,
                 stakes: stakesOf(turn, me),
                 truncated: [],

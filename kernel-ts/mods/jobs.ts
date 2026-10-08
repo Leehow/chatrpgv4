@@ -27,6 +27,7 @@ import {AUDIT_OWED, CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2, AUDIT_LIMITS, continu
 import {closeSatisfied, owedBands, readOwed} from '../owed/index.js';
 import {buildAuditReferences, materializeAuditReferences, auditReferenceIssues} from './audit-references.js';
 import {PRESET_TABLE, WEAPON_PRESET_CAPABILITY, gatePreset, presetBlock, presetOf, presetOffer, presetStamp, templateProfile} from './preset.js';
+import {EQUIPMENT_PREPARATION} from './equipment.js';
 
 export interface ModSources { asset?: (moduleId: string, name: string) => Promise<Row | null>; }
 const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(value, key) ? value[key] : fallback;
@@ -162,7 +163,7 @@ export class ModJobs {
      */
     private keyedRequest(input: any, role: any, request: Row): Row {
         const preset = presetOf(request);
-        return {input, role, ...(preset ? {preset: jsonDigest(preset)} : {})};
+        return {input, role, ...(preset ? {preset: jsonDigest(preset)} : {}), ...(request.equipment ? {equipment:request.equipment} : {})};
     }
     /**
      * Contract §138.7. Whether this job copies a preset, and which. None unless the materializer declares
@@ -273,6 +274,7 @@ export class ModJobs {
             scene: whereSection(graph, world, graph.scene(world.active_scene as string)), party, objects: objectContext(world), receipts: prefetch ? [] : field(turn, 'receipts', []),
             known_handouts: (await this.knownHandouts(graph, world)).map(item => ({name: item.name, preview: chars(item.text, 240)})),
             unregistered_equipment: unregisteredEquipment(party, claimedEquipment(world))};
+        if (role === 'create' && params._equipment) request.equipment = clone(params._equipment);
         if (role === 'audit') {
             request.present = presentSection(graph, world, graph.scene(world.active_scene as string));
             request.player_text = turn.player_text ?? null;
@@ -312,6 +314,7 @@ export class ModJobs {
                 ...(prefetch ? {usage_request_digest:jsonDigest(request)} : {})});
             const prompts: Buffer[] = [];
             for (const [index, mod] of candidates.entries()) { if (index) prompts.push(Buffer.from('\n\n')); prompts.push(mod.files.get(mod.contributes[promptField])); }
+            if (request.equipment) prompts.push(Buffer.from('\n\nBackground equipment preparation: equipment.row is an exact already-owned sheet row, not an acquisition. Prepare its ordinary physical definition and recognize readable/writable capability semantically. Preserve established writing and player wording; never invent unknown source writing or treat it as blank. Only established blank stationery may use empty text. If this row is solely a financial placeholder, generic wealth or an allowance rather than a physical thing, write JSON null to result.json. Do not transfer, award, consume or settle anything.\n'));
             if (prefetch) prompts.push(Buffer.from('\n\nUsage proposal variant: input.propose is true. This is preparation, not a player action. From usage_object and physical_basis, propose at most one most plausible attack usage. Supply its natural name and capability description yourself. Write the ordinary usage object to result.json, or JSON null if no reasonable attack usage exists. Do not invent a player action, rewrite physical facts or initialize instance state.\n'));
             await writeFile(join(root, 'prompt.md'), Buffer.concat(prompts));
             if (role === 'usage' && !prefetch) {
@@ -324,7 +327,7 @@ export class ModJobs {
             }
             if (role === 'create') {
                 const prior = findNamedObject(row(row(world.objects).definitions), string(params.input.name));
-                if (prior && prior.category === params.input.category && !isPlaceholder(prior)) {
+                if (!request.equipment && prior && prior.category === params.input.category && !isPlaceholder(prior)) {
                     const definition = Object.fromEntries(['name', 'category', 'description', 'basis', 'parameters', 'player_view', 'traits', 'document'].filter(name => Object.hasOwn(prior, name)).map(name => [name, clone(prior[name])]));
                     await writeJsonAtomic(join(root, 'accepted.json'), {definition, provenance: {mod: packageRow.id, digest: packageRow.digest, job: key, reused_definition: prior.id}});
                 }
@@ -332,6 +335,7 @@ export class ModJobs {
         }
         const taken = presetOf(request);
         return {enabled: true, job: key, cwd: root, system_prompt: join(root, 'prompt.md'), mod: packageRow.id, digest: packageRow.digest,
+            ...(request.equipment ? {equipment:true} : {}),
             accepted: await this.context.snapshots.pathExists(join(root, 'accepted.json')), role, ...(sourceAudit ? {source_review: true} : {}),
             ...(taken ? {preset: {weapon: taken.id, confidence: clone(taken.confidence ?? null)}} : {}),
             ...(continuity ? {continuity_review: true, ...(continuityV2 ? {continuity_schema:2} : {}), ...(continuityOwed ? {continuity_owed: true} : {}),
@@ -411,7 +415,10 @@ export class ModJobs {
         // A deferred registration is accepted after delivery, and narrate has already moved the turn on, so
         // the turn is not what pins this job -- the marker the kernel itself wrote is. Campaign, worldline
         // and the package digests below still have to match.
-        const deferred = queuedRegistrations(world).some(entry => entry.job === key);
+        const equipment = row(await campaign.readSave(EQUIPMENT_PREPARATION));
+        const deferred = queuedRegistrations(world).some(entry => entry.job === key)
+            || values(row(equipment.entries)).some(entry => entry.job === key && entry.worldline === (meta.active_worldline ?? null)
+                && ['pending','failed','ready','skipped'].includes(entry.status));
         // Contract §130.3: a continuity review read after its delivery closed. The live cursor has moved
         // on, so the pin is the delivered record itself, and its receipts stand in for the turn's.
         const afterDelivery = !prefetch && truth(params.after_delivery);
@@ -519,6 +526,8 @@ export class ModJobs {
             const gated = prefetch && raw === null ? null : await gatePreset(raw, preset, draft => this.checkedUsage(draft,prefetch ? null : string(request.input.name)));
             result = {usage:gated ? gated.value : null,physical_basis:identity.physical_basis,
                 provenance:{mod:identity.mod,digest:identity.digest,job:key,...(prefetch ? {prefetched:true} : {}),...copied(gated ? gated.deviations : null)}};
+        } else if (request.role === 'create' && request.equipment && raw === null) {
+            result = {skipped:true,provenance:{mod:identity.mod,digest:identity.digest,job:key}};
         } else if (request.role === 'create') {
             if (isJsonObject(raw) && Object.hasOwn(raw, 'document')) raw.document = await this.documentSeed(graph, world, raw.document);
             const {value, deviations} = await gatePreset(raw, preset, draft => validateDefinition(draft, {name: request.input.name ?? null, category: request.input.category ?? null}));

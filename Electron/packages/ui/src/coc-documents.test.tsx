@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import {render, screen, fireEvent, cleanup, waitFor} from '@testing-library/react';
+import {render, screen, fireEvent, cleanup, waitFor, act} from '@testing-library/react';
 import {afterEach, test, expect, vi} from 'vitest';
 import {createComponent, createDocumentEditor} from '../../../../pipicoc/panel.js';
 import {say, ui} from './fixtures/coc-ui-words';
@@ -107,4 +107,75 @@ test('inventory clicks use the document capability rather than an item-name keyw
   fireEvent.click(screen.getByRole('button',{name:/Folded leaf/}));
   await screen.findByRole('dialog',{name:'Folded leaf'});
   await waitFor(()=>expect(invoke).toHaveBeenCalledWith('mods.document.view',{name:'Folded leaf',actor:'i'}));
+});
+
+test('a pending inventory fold stays open when the background paper becomes readable and writable',async()=>{
+  let ready=false,notify=()=>{},written='The acquired writing.';
+  const invoke=vi.fn(async(method:string,params:any)=>{
+    if(method==='sheet')return {ok:true,data:{campaign:'c1',ui:ui('en'),view:{play_language:'en',investigators:[{
+      id:'i',name:'Investigator',weapons:[],equipment:[ready?{name:'Pocket record',object_id:'record'}:'Pocket record'],
+      ...(!ready?{equipment_preparation:[{name:'Pocket record',status:'pending'}]}:{}),
+      objects:ready?[{name:'Pocket record',equipment_name:'Pocket record',category:'item',description:'An acquired paper.',parameters:{},state:{},document:{presentation:'paper'}}]:[]}]}}};
+    if(method==='mods.document.apply')written=params.text;
+    return {ok:true,data:{name:'Pocket record',text:written,original:'The acquired writing.',version:'v1',editor:{renderer:'paper'}}};
+  });
+  const {container}=render(<Panel api={{invoke,subscribeExt:(listener:()=>void)=>{notify=listener;return()=>{};}}}/>);
+  const name=await screen.findByText('Pocket record');
+  const fold=name.closest('details')!;
+  fireEvent.click(fold.querySelector('summary')!);
+  expect(fold.open).toBe(true);
+  expect(fold.querySelector('.coc-inventory-wait')).toBeTruthy();
+  expect(screen.queryByRole('button',{name:/Read and write/})).toBeNull();
+  ready=true;await act(async()=>notify());
+  const open=await screen.findByRole('button',{name:/Pocket record.*Read and write/});
+  expect(open.closest('details')).toBe(fold);
+  expect(fold.open).toBe(true);
+  expect(fold.querySelector('.coc-inventory-wait')).toBeNull();
+  expect(container.querySelectorAll('.coc-inventory-entry')).toHaveLength(1);
+  fireEvent.click(open);
+  const body=await screen.findByLabelText('Document text');
+  await waitFor(()=>expect((body as HTMLTextAreaElement).value).toBe('The acquired writing.'));
+  fireEvent.change(body,{target:{value:'The player annotation.'}});
+  fireEvent.click(screen.getByRole('button',{name:'Save',exact:true}));
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('mods.document.apply',expect.objectContaining({name:'Pocket record',actor:'i',text:'The player annotation.'})));
+});
+
+test('a failed inventory preparation retains its fold and retries the selected owned row',async()=>{
+  let pending=false;
+  const invoke=vi.fn(async(method:string)=>{
+    if(method==='mods.equipment.retry'){pending=true;return {ok:true,data:{status:'pending'}};}
+    return {ok:true,data:{campaign:'c1',ui:ui('en'),view:{play_language:'en',investigators:[{id:'i',name:'Investigator',weapons:[],
+      equipment:['Pocket record'],objects:[],equipment_preparation:[{name:'Pocket record',status:pending?'pending':'failed'}]}]}}};
+  });
+  render(<Panel api={{invoke}}/>);
+  const fold=(await screen.findByText('Pocket record')).closest('details')!;
+  fireEvent.click(fold.querySelector('summary')!);
+  fireEvent.click(screen.getByRole('button',{name:say('en','sheet','retry')}));
+  await waitFor(()=>expect(fold.querySelector('.coc-inventory-wait')).toBeTruthy());
+  expect(invoke).toHaveBeenCalledWith('mods.equipment.retry',{name:'Pocket record',actor:'i'});
+  expect(fold.open).toBe(true);
+});
+
+test('physical saving submits a retained goal and closes to the story without calling the direct editor apply',async()=>{
+  const close=vi.fn(),invoke=vi.fn(async(method:string)=>method==='mods.document.view'
+    ?{ok:true,data:{text:'Old writing.',original:'Original.',version:'v1',editor:{renderer:'paper'},editing:'in_fiction'}}
+    :{ok:true,data:{queued_action:true,status:'queued'}});
+  render(<Editor api={{invoke}} name="Notebook" actor="i" ui={ui('en')} onClose={close}/>);
+  const body=await screen.findByLabelText('Document text');
+  await waitFor(()=>expect((body as HTMLTextAreaElement).value).toBe('Old writing.'));
+  expect(screen.getByText(say('en','paper','editHint'))).toBeTruthy();
+  fireEvent.change(body,{target:{value:'Requested exact writing.'}});
+  fireEvent.click(screen.getByRole('button',{name:say('en','paper','requestSave')}));
+  await waitFor(()=>expect(close).toHaveBeenCalledOnce());
+  expect(invoke).toHaveBeenCalledWith('mods.document.request',{name:'Notebook',actor:'i',version:'v1',action:'save',text:'Requested exact writing.'});
+  expect(invoke.mock.calls.some(([method])=>method==='mods.document.apply')).toBe(false);
+});
+
+test('an unfinished physical edit restores its draft while keeping current writing as the saved value',async()=>{
+  const invoke=vi.fn(async()=>({ok:true,data:{text:'Still on the paper.',original:'Original.',version:'v1',editor:{renderer:'paper'},editing:'in_fiction',
+    edit_request:{status:'needs_follow_up',text:'The retained requested draft.'}}}));
+  render(<Editor api={{invoke}} name="Notebook" actor="i" ui={ui('en')} onClose={()=>{}}/>);
+  await waitFor(()=>expect((screen.getByLabelText('Document text') as HTMLTextAreaElement).value).toBe('The retained requested draft.'));
+  expect(screen.getByText(say('en','paper','editPending'))).toBeTruthy();
+  expect(screen.getByText(say('en','paper','dirty'))).toBeTruthy();
 });

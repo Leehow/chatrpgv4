@@ -235,15 +235,24 @@ const ObjectEffect = Type.Object({
       presentation:StringEnum(["paper","notebook","book"] as const)}),
     Type.Object({action:StringEnum(["write"] as const),text:Type.String({maxLength:64000,description:"The carrier's current text after this writing, in the campaign's play_language"})}),
     Type.Object({action:StringEnum(["append"] as const),text:Type.String({maxLength:64000,description:"Only the exact new suffix, including any desired leading newline; the kernel preserves all existing text. Use when adding writing without changing old content"})}),
+    Type.Object({action:StringEnum(["open","close"] as const)}),
+    Type.Object({action:StringEnum(["show"] as const),reader:Type.String({description:"The present person to whom the owner actually shows this writing; asking to inspect does not authorize showing"})}),
+    Type.Object({action:StringEnum(["observe"] as const),reader:Type.String({description:"Person who actually read this writing after visibility, comprehension and any required check were established"}),
+      access:StringEnum(["held","shown","glimpse"] as const),quote:Type.Optional(Type.String({maxLength:64000,description:"One exact unique visible passage; mandatory for a partial glimpse. The kernel captures its bytes, not a rewritten report"}))}),
+    Type.Object({action:StringEnum(["requested_edit"] as const),method:StringEnum(["erase","cross_out","rewrite"] as const),
+      implements:Type.Array(Type.String(),{minItems:1,maxItems:8,description:"Actual directly available carried implements; judge suitability from their physical facts and the scene"}),
+      marks:Type.String({maxLength:2000,description:"Established physical appearance of the changed surface, in English; retain erasure/cross-out traces without inventing words"}),
+      legibility:StringEnum(["legible","illegible","unknown"] as const,{description:"Whether overwritten writing remains visibly readable, from the actual method/outcome. Settle editing time before this operation"})}),
+    Type.Object({action:StringEnum(["cancel_edit"] as const)}),
     Type.Object({action:StringEnum(["divide"] as const),
       part_text:Type.String({maxLength:64000,description:"Complete current text carried by the separated part after a document-bearing stack is divided, in the campaign's play_language"}),
       remainder_text:Type.String({maxLength:64000,description:"Complete current text carried by the original remainder after a document-bearing stack is divided, in the campaign's play_language"})}),
-  ],{description:"Initialize a writable carrier once, write its current text with a causal why, or atomically divide the text of a document-bearing stack together with part and a short quantity; ordinary writes use the same from/to owner, acquisition originals are retained unless physical division establishes two new baselines"})),
+  ],{description:"Physical writing and reading. Use the same from/to owner for open, close, show, observe, write, append or requested_edit. NPC reading needs show plus observe with actual reader and exact visible quote before narration; a glimpse requires an open surface and its actual quote. Initialize a carrier once; divide text atomically with its physical stack. Acquisition originals are retained"})),
   definition: Type.Optional(Type.String({description:"Accepted definition name when first placing the instance"})),
   source_object: Type.Optional(Type.String({description:"On first placement/adoption only: exact source_object handle supplied by lookup module when this is that authored physical thing. Never infer it from a display name or a similar weapon; omit for ordinary objects. Transfers preserve its identity"})),
   to: Type.String({description:"New owner: investigator, NPC, scene or existing container instance; here means the current scene"}),
   condition: Type.Optional(StringEnum(["intact","damaged","jammed","broken"] as const, {description:"Initial condition, or an explicit existing-object state change with the same from/to owner and a causal why; ownership transfers preserve state"})),
-  from: Type.Optional(Type.String({description:"Required current owner for any existing-instance transfer or document write/append; document edits use that owner in both from and to"})),
+  from: Type.Optional(Type.String({description:"Required actual current owner for any existing-instance transfer or physical document operation; reading/editing surface operations use that owner in both from and to"})),
   // Contract §88.5: the kernel requires `handover` the moment it is rebuilt, and this schema is read
   // once at server start. Rebuild without restarting and the Keeper is refused for a field its tool
   // does not declare, on every retry, on every table. These three ship with the kernel half or not at all.
@@ -681,7 +690,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		method: "table.look",
 		description:
 			"See the side the turn capsule did not answer. The capsule already carries the current value of all of this: the world clock, the scene and its exits, the way back (the scenes walked through, nearest first), the clues here that are still undiscovered and how they are obtained, the agendas and secrets of those present, and what is pressing — do not look those up again, the capsule is current. Use this for what the capsule does not have: with no parameters it re-reads the scene (dramatic question, pressure moves, exits, affordances, who is present); focus npc with a name gives the Keeper view of an entity the capsule did not list (agenda, fear, secret, voice, relationships, known facts); focus investigator gives the detail of the investigator sheet; focus clues gives what is discovered and what is obtainable here; focus time gives the world clock; focus session gives the whole of a fight, a chase or a bout of madness that is underway — the round, whose turn it is, what may be done, what is owed — which is the one thing that survives a restart nowhere else. The opening turn has no capsule, so look at the opening scene first. Everything it returns is Keeper-only and must never be copied into the player's text.",
-		promptSnippet: "See the side the capsule did not answer: scene, NPC, investigator, clues, the clock, or the session underway",
+		promptSnippet: "See missing current evidence. For a document, object name plus document_query locates exact words; document_page reads bounded current pages for semantic questions. A 200-character preview never proves absence.",
 		parameters: Type.Object({
 			using_skill: UsingSkill,
 			focus: Type.Optional(
@@ -690,6 +699,9 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 				}),
 			),
 			name: Type.Optional(Type.String({ description: "the entity name to look at when focus is npc, object, or map" })),
+            document_query: Type.Optional(Type.String({minLength:1,maxLength:256,description:"Object documents only: one exact case-sensitive literal to locate in ALL current readable writing, with original surrounding passages. No match means literal absence only; use document_page for a semantic question"})),
+            document_page: Type.Optional(Type.Integer({minimum:1,description:"Object documents only: bounded current text page, or result page with document_query. Start at 1; follow the returned next call. Do not claim semantic absence from incomplete page coverage"})),
+            document_revision: Type.Optional(Type.Integer({minimum:1,description:"Issued document revision; required after page 1. A changed revision needs fresh reading rather than an absence claim"})),
 		}),
 	},
 	{

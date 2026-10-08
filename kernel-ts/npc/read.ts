@@ -7,6 +7,7 @@ import {incapacitatedBy} from '../healing/conditions.js';
 import {jsonDigest} from '../json.js';
 import {npcPerspective} from './perspective.js';
 import {intentsView} from './intents.js';
+import {documentEditInput} from '../../runtime/document-edit-input.ts';
 
 export async function npcViews(input:{campaign:string;graph:ModuleGraph;world:Row;meta:Row;turn:Row;memory:Row[];records:Row[];ledger:Row;
     name?:string}):Promise<Row[]> {
@@ -23,7 +24,8 @@ export async function npcViews(input:{campaign:string;graph:ModuleGraph;world:Ro
         const entry=row(ledger[string(node.node_id)]);
         const projected=npcPerspective(graph,world,node,memory,records,scope);
         const tried=intentsView(entry,graph.handle(node));
-        const currentInput={turn:turn.turn,player_input:turn.player_text??null,state:turn.state},handle=graph.handle(node);
+        const currentInput={turn:turn.turn,player_input:documentEditInput(turn.player_text)?null:turn.player_text??null,state:turn.state,
+            authority:'Privileged author context, not this person perception. Private writing becomes observed knowledge only through observed_documents.'},handle=graph.handle(node);
         const present=row(world.npc_presence)[handle]===world.active_scene,conditions=row(row(world.npc_resources)[handle]).conditions;
         const death=array(turn.receipts).filter(receipt=>receipt.kind==='npc'&&[node.node_id,handle].includes(receipt.npc)&&typeof receipt.dead==='boolean').at(-1);
         const dead=death?death.dead:Boolean(row(ledger[string(node.node_id)]).dead);

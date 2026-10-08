@@ -64,13 +64,15 @@ export function registerModsPanel(pi: ExtensionAPI): void {
 
   async function invoke(method:string, params:Record<string, unknown> = {}) {
     if (!call) throw refuse("runtime_unavailable", "The game runtime is not ready");
+    if(['mods.document.apply','mods.document.request'].includes(method))throw refuse('capability_denied','Physical editor requests must pass through the owning game session queue');
     const owner = runtime;
     if (method === "mods.configure" && !campaign) throw refuse("campaign_unbound", "Select a campaign before changing its Mods");
     if (method.startsWith("mods.document.") && !campaign) throw refuse("campaign_unbound", "Select the document's campaign");
     let result = await call(method, {...params, ...(campaign ? {campaign} : {})});
     if (method === "mods.document.apply") void emitToPanel("coc-keeper", "sheet-changed");
+    if (method === 'mods.equipment.retry') pi.events.emit('coc:equipment-retry');
     else if (method !== "mods.list" && !method.startsWith("mods.document.")) notify();
-    if (method.startsWith("mods.document.")) {
+    if (['mods.document.view','mods.document.request_status'].includes(method)) {
       if (!owner || owner !== runtime || owner.signal.aborted) throw refuse("document_unavailable", "The document runtime is no longer available");
       result = documentPresentationStatus({owner, home:owner.home, resourceRoot:owner.resourceRoot,
         model:context?.model ? `${context.model.provider}/${context.model.id}` : undefined,
@@ -86,7 +88,7 @@ export function registerModsPanel(pi: ExtensionAPI): void {
     return ui && result && typeof result === "object" && !Array.isArray(result) ? {...result as any, ui} : result;
   }
   registerInvokeHandlers("coc-keeper", Object.fromEntries(
-    ["mods.list", "mods.install", "mods.defaults", "mods.configure", "mods.order", "mods.document.view", "mods.document.apply"].map(method => [method,
+    ["mods.list", "mods.install", "mods.defaults", "mods.configure", "mods.order", "mods.document.view", "mods.document.request_status", "mods.equipment.retry"].map(method => [method,
       (raw:unknown) => {
         if (raw !== undefined && (raw === null || typeof raw !== "object" || Array.isArray(raw))) throw refuse("invalid_params", "Expected Mod parameters");
         const params = {...(raw as Record<string, unknown> ?? {})};

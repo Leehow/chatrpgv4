@@ -127,16 +127,19 @@ export default function modsExtension(pi: ExtensionAPI): void {
   pi.events.on("coc:table-open", value => {
     language = (value as any)?.open?.campaign?.play_language;
     boundCampaign = (value as any)?.campaign;
+    if (boundCampaign) prepareEquipment(boundCampaign);
   });
   pi.events.on("coc:session-bound", value => { language = (value as any)?.play_language; });
   let record: ((row: Record<string, unknown>) => void) | undefined;
   pi.events.on("coc:kernel-bridge", (data) => {
+    if ((data as any)?.call !== call) {equipmentWork = undefined; equipmentAgain = false;}
     call = (data as any)?.call; runtime = (data as any)?.runtime; mintCallId = (data as any)?.mintCallId;
     record = (data as any)?.record;
   });
   pi.on("session_start", async (_event, ctx) => {
     context = ctx; stopped = false;
     if (boundCampaign) recoverDetails(boundCampaign);
+    if (boundCampaign) prepareEquipment(boundCampaign);
   });
   pi.on("before_agent_start", async (_event, ctx) => { cancelPrefetch(); context = ctx; inputToken = randomUUID(); });
   pi.on("input", () => { cancelPrefetch(); });
@@ -144,6 +147,44 @@ export default function modsExtension(pi: ExtensionAPI): void {
   let prefetchEpoch = 0, prefetching: Promise<void> | undefined;
   let prefetchController: AbortController | undefined;
   let stopped = false;
+  let equipmentWork: Promise<void> | undefined;
+  let equipmentAgain = false;
+  /** The worker owns only preparation; publication rebinds the exact owned row in the kernel. */
+  function prepareEquipment(campaign: string): void {
+    if (stopped || !call || !runtime || !context) return;
+    if (equipmentWork) {equipmentAgain = true; return;}
+    const current = call, owner = runtime;
+    const work = (async()=>{
+      await new Promise<void>(resolve=>setImmediate(resolve));
+      if (stopped || current !== call || owner !== runtime) return;
+      const prepared = await current('mods.equipment.prepare',{campaign});
+      if (stopped || current !== call || owner !== runtime) return;
+      if (prepared.jobs?.length) void emitToPanel('coc-keeper','sheet-changed');
+      for (const job of prepared.jobs ?? []) {
+        if (stopped || current !== call || owner !== runtime || owner.signal?.aborted) break;
+        try {
+          await task(campaign,'create',job.input,owner.signal,undefined,undefined,undefined,{job});
+          if (stopped || current !== call || owner !== runtime) break;
+          const result = await current('mods.equipment.publish',{campaign,job:job.job});
+          if (result.status === 'ready') warm(campaign,[{actor:result.actor,name:result.name}]);
+          note({lane:'equipment-preparation',campaign,job:job.job,status:result.status});
+        } catch(error) {
+          if (stopped || current !== call || owner !== runtime || owner.signal?.aborted) break;
+          await current('mods.equipment.fail',{campaign,job:job.job,code:isKernelError(error)?error.code:'preparation_failed'});
+          note({lane:'equipment-preparation',campaign,job:job.job,status:'failed',code:isKernelError(error)?error.code:'preparation_failed'});
+        }
+        if (!stopped && current === call && owner === runtime) void emitToPanel('coc-keeper','sheet-changed');
+      }
+    })().catch(error=>{
+      if (!stopped && current === call) note({lane:'equipment-preparation',campaign,status:'failed',code:isKernelError(error)?error.code:'preparation_failed'});
+    }).finally(()=>{
+      if (equipmentWork === work) equipmentWork = undefined;
+      if (equipmentAgain && !stopped && current === call) {equipmentAgain = false; prepareEquipment(campaign);}
+    });
+    equipmentWork = work;
+  }
+  pi.events.on('coc:equipment-retry',()=>{if(boundCampaign)prepareEquipment(boundCampaign);});
+  pi.events.on('coc:turn-committed',data=>{if(typeof (data as any)?.campaign==='string')prepareEquipment((data as any).campaign);});
   const prefetchedTurns = new Set<string>();
   function cancelPrefetch(): void {
     prefetchEpoch++;
@@ -471,7 +512,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       try {
         await guard?.();
         outcome = await owner.runTask({kind:"mod", request:{providerBudget, cwd:job.cwd, systemPrompt:job.system_prompt, model:modelName,
-          tools:job.source_review || role === "usage" ? "read,write,edit,bash" : "read,write,edit",
+          tools:job.equipment || job.source_review || role === "usage" ? "read,write,edit,bash" : "read,write,edit",
           eventLog:join(job.cwd, `agent-${attempt}.jsonl`), brief:base + repair}}, signal);
       }
       catch (error) {
@@ -494,7 +535,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
       try {
         // The ordinary usage checker accepts objects only. A proposal may explicitly decline with
         // JSON null; the same kernel acceptance gate validates that negative result and retains it.
-        const negative = proposal && JSON.parse(await readFile(join(job.cwd, 'result.json'), 'utf8')) === null;
+        const negative = (proposal || job.equipment === true) && JSON.parse(await readFile(join(job.cwd, 'result.json'), 'utf8')) === null;
         if ((role === "create" || role === "usage") && !negative) {
           const check = await owner.check({kind:role === "usage" ? "object-usage" : "mod-definition", draft:join(job.cwd,"result.json")}, signal);
           if (role === "usage") signal?.throwIfAborted();
