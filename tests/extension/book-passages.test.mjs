@@ -19,7 +19,7 @@ const temp=await mkdtemp(join(ROOT,'.tmp/book-passages-'));
 after(()=>rm(temp,{recursive:true,force:true}));
 await build({stdin:{contents:`
 export {cardView,locateCards,locatedSelection,LOCATE_ABSENT,LOCATE_FOUND,LOCATE_PASSAGE_BATCH_CARDS,LOCATE_PASSAGE_BATCH_CARD_BYTES} from './runtime/jev/semantic-locate.ts';
-export {bookPassages,passageHandle,passageSection} from './runtime/jev/book-passages.ts';
+export {bookPassages,bookPassageBuilds,passageHandle,passageSection} from './runtime/jev/book-passages.ts';
 export {rankPool} from './extensions/table/prescreen.ts';
 export {supportRequest} from './runtime/jev/keeper-support-contract.ts';
 export {TranscriptStore,transcriptListing} from './extensions/module/transcript-store.ts';
@@ -129,26 +129,36 @@ test('§196.7 the book passages are cut once per store revision and keyed by the
   const again=await api.bookPassages({source,roots,snapshot,signal});
   assert.equal(again.status,'cached');assert.equal(reads,1,'an unmoved store is not read again');assert.equal(again.key,first.key);
   assert.deepEqual(again.passages,first.passages);
-  // A new record (seed page 1's record published in home as page 30) moves the listing and the key, and its units are passages.
+  // A new record (seed page 1's record published in home as page 30) moves the listing. The preparation that sees the move is
+  // answered with the passages built before while the book is rebuilt beside it; the next one gets the new key and page 30.
   const dir=join(home,'.coc/source-transcripts',SEED);await mkdir(dir,{recursive:true});
   const record=JSON.parse(await readFile(join(CONTENT,'source-transcripts',SEED,'page-0001.json'),'utf8'));
   await writeFile(join(dir,'page-0030.json'),JSON.stringify({...record,page:30}));
+  const moving=await api.bookPassages({source,roots,snapshot,signal});
+  assert.equal(moving.status,'stale');assert.equal(moving.key,first.key);assert.deepEqual(moving.passages,first.passages);assert.equal(moving.read_pages,0);
+  await api.bookPassageBuilds();assert.equal(reads,2,'the rebuild ran once');
   const grown=await api.bookPassages({source,roots,snapshot,signal});
-  assert.equal(grown.status,'built');assert.equal(reads,2);assert.notEqual(grown.key,first.key);assert(grown.pages.includes(30));
+  assert.equal(grown.status,'cached');assert.equal(reads,2);assert.notEqual(grown.key,first.key);assert(grown.pages.includes(30));
   assert.equal(grown.passages.filter(row=>row.page===30).length,first.passages.filter(row=>row.page===1).length);
   // A listed file that is no record moves the listing and is read (it comes back native), but the records, so the key, are unchanged.
   await writeFile(join(dir,'page-0031.json'),'{}');
   const listed=await api.transcriptListing(roots,SEED);assert(listed.pages.includes(31));
+  assert.equal((await api.bookPassages({source,roots,snapshot,signal})).status,'stale');await api.bookPassageBuilds();
   const same=await api.bookPassages({source,roots,snapshot,signal});
-  assert.equal(same.status,'built');assert.equal(reads,3);assert.equal(nativeReads,1);assert.equal(same.key,grown.key);
+  assert.equal(same.status,'cached');assert.equal(reads,3);assert.equal(nativeReads,1);assert.equal(same.key,grown.key);
   assert.deepEqual(same.passages,grown.passages);
   // A readable record whose blocks cannot be recovered (its Markdown no longer matches its text) is read in its transcript
   // layer as line slices; those are never passages.
   await writeFile(join(dir,'page-0032.json'),JSON.stringify({...record,page:32,markdown:'# Unrelated\n\nNothing here matches the text.'}));
+  assert.equal((await api.bookPassages({source,roots,snapshot,signal})).status,'stale');await api.bookPassageBuilds();
   const unaligned=await api.bookPassages({source,roots,snapshot,signal});
-  assert.equal(unaligned.status,'built');assert.notEqual(unaligned.key,grown.key,'a new record is a new key');
+  assert.equal(unaligned.status,'cached');assert.notEqual(unaligned.key,grown.key,'a new record is a new key');
   assert(!unaligned.pages.includes(32));assert(!unaligned.passages.some(row=>row.page===32));
   assert.deepEqual(unaligned.passages,grown.passages);
+  // A new home with the same records is a book of its own: its first build is waited for.
+  const other=await mkdtemp(join(temp,'home-'));
+  const fresh=await api.bookPassages({source:{...source,home:other},roots:{home:other,contentRoot:CONTENT},snapshot,signal});
+  assert.equal(fresh.status,'built');assert.equal(fresh.key,first.key);
   // No content root, no seeds: the listing is home's alone.
   assert.equal((await api.transcriptListing({home,contentRoot:join(temp,'missing')},SEED)).pages.join(),'30,31,32');
   assert.deepEqual((await readdir(dir)).sort(),['page-0030.json','page-0031.json','page-0032.json']);

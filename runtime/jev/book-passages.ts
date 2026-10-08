@@ -25,6 +25,8 @@ const PAGE_TEXT_PAGES=32;
 /** Passages are cut, never issued: the catalog's references are validated and dropped, so no scope is bound. */
 const BUILD_SCOPE:ScopeBinding={owner:'book-passages',audience:'keeper'};
 const CACHE_LIMIT=4;
+/** A rebuild no preparation waits for is bounded by its own allowance, never by the turn that started it. */
+const BACKGROUND_BUILD_MS=60_000;
 
 export interface BookPassage {
   /** Host identity: `passage:<page>:<start>-<end>`, the unit's page and UTF-16 range in the transcript's exact layer. */
@@ -47,8 +49,10 @@ export interface BookPassages {
   pages:number[];
   passages:BookPassage[];
 }
-export type BookPassagesRead=BookPassages&{status:'built'|'cached';ms:number;
-  /** Pages read for this answer: every recorded page on a build, none from the cache. */
+export type BookPassagesRead=BookPassages&{
+  /** `built` waited for a build; `cached` is the store's current listing; `stale` an earlier listing, rebuilt in the background. */
+  status:'built'|'cached'|'stale';ms:number;
+  /** Pages read for this answer: every recorded page on a build waited for, none otherwise. */
   read_pages:number};
 
 export const passageHandle=(page:number,start:number,end:number)=>`passage:${page}:${start}-${end}`;
@@ -85,7 +89,9 @@ async function build(source:PrescreenSourceRuntime,snapshot:{pdf:string;file_sha
 /**
  * §196.7: the book's passages for this preparation. The store's listing decides: unchanged since the passages were built,
  * they are answered from this process; moved, every recorded page is read again (at most 32 per `sourcePageText` call) and
- * the passages are rebuilt, keeping the earlier object when the record digests did not change. A runtime without
+ * the passages are rebuilt, keeping the earlier object when the record digests did not change. Only the first build of a
+ * book is waited for: while a later one runs (a page gained a transcript), the passages built before are answered (`stale`;
+ * records are never rewritten, so each still names its unit), and the next preparation gets the new ones. A runtime without
  * `sourcePageText` has no passages. Concurrent preparations share one build.
  */
 export async function bookPassages(input:{source:PrescreenSourceRuntime;roots:{home:string;contentRoot:string};
@@ -102,10 +108,14 @@ export async function bookPassages(input:{source:PrescreenSourceRuntime;roots:{h
   const job=`${slot}:${listing.revision}`;
   let work=building.get(job);
   if(!work){
-    work=build(source,snapshot,pages,listing.revision,signal);building.set(job,work);
+    work=build(source,snapshot,pages,listing.revision,held?AbortSignal.timeout(BACKGROUND_BUILD_MS):signal);building.set(job,work);
     work.then(value=>{const prior=cache.get(slot)?.value;remember(slot,{revision:listing.revision,value:prior?.key===value.key?{...prior,revision:listing.revision}:value});},
       ()=>undefined).finally(()=>building.delete(job));
   }
+  if(held)return {...held.value,status:'stale',ms:Date.now()-began,read_pages:0};
   const value=await work;
   return {...value,status:'built',ms:Date.now()-began,read_pages:pages.length};
 }
+
+/** Tests only: settles once every build in flight has. */
+export const bookPassageBuilds=()=>Promise.allSettled([...building.values()]).then(()=>undefined);

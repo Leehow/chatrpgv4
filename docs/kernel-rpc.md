@@ -39819,15 +39819,21 @@ no readable, aligned transcript has no passage: native slices (on a transcript p
 side that already reads `sourcePageText {paragraphs:true}` for the prescreen. The store is the one the source runtime's
 reader uses (§191.7): the runtime's `home` and `contentRoot` (`PrescreenSourceRuntime.contentRoot`; a runtime that names
 none falls back to the environment's `PI_COC_CONTENT_ROOT`, as `transcriptStoreFromEnv` does; without either there are no
-passages and telemetry says `no_store`). Each preparation reads the store's listing (`transcriptListing` in
+passages and telemetry says `no_store`). The bound PDF's identity (`module.source.snapshot`: path, digest, page count) is
+read beside the entity index; the source materials snapshot with its checked answers is still read after the catalog, where
+§124.11.1 puts it (reading it before the locate made an answer landing during the locate miss the packet: the
+`prescreen-source-request` case on the test box). Each preparation reads the store's listing (`transcriptListing` in
 `extensions/module/transcript-store.ts`: every `page-NNNN.json` in the seeds and in home with its size and modification
 time, two directory listings and their stats, no record read). Records are published once and never rewritten (§191.4),
 so the listing moves exactly when a page gains or loses a record. An unmoved listing answers from this process; a moved
 one reads every recorded page again through the runtime's `sourcePageText {paragraphs:true}` (at most 32 pages a call, in
 parallel), cuts the units with the consultation catalog's own code (`layeredBundles` and `nativeSourceCatalog`, transcript
 rows only) and keys the result by the file digest and the record digests (each transcript page's text revision and the
-digest of its Markdown); a rebuild whose key did not change keeps the earlier passages. Concurrent preparations share one
-build; at most four books are kept. A passage's handle is `passage:<page>:<start>-<end>`, its page and UTF-16 range in the
+digest of its Markdown); a rebuild whose key did not change keeps the earlier passages. Only a book's first build is waited
+for: when the listing moved and passages were built before, the preparation is answered with those (`stale`; records are
+never rewritten, so each still names its unit) while the rebuild runs on its own 60 s allowance, and the next preparation
+gets the new ones; a store that is still being transcribed therefore never puts a 48-page read on the turn's path.
+Concurrent preparations share one build; at most four books are kept. A passage's handle is `passage:<page>:<start>-<end>`, its page and UTF-16 range in the
 transcript's exact layer, so the provider finds it again as the catalog unit with that page and range. The locate cache
 (§124.10) keys passages by this key, not by their text.
 
@@ -39868,7 +39874,7 @@ repeated on every candidate; `supported: false` and `omitted: ["visual_verificat
 envelope falls from 2,170 to 1,639 bytes: 15.1 to 20.0 candidates per 32 KiB.
 
 **Telemetry.** The `locate` row gains `passages: {cards, judged, batches, failed_batches, ms}`; the prepared row's `locate`
-(and the fallback's) gains `passages: {status: "built"|"cached"|"no_store"|"unavailable", cards, pages, read_pages,
+(and the fallback's) gains `passages: {status: "built"|"cached"|"stale"|"no_store"|"unavailable", cards, pages, read_pages,
 index_ms, judged, located, sent, seeded, batches, failed_batches, ms, offered}` (`ms` is the time until the family's last
 batch settled; `located` counts noul at least 0.35; `sent` the passages handed to the provider; `offered` those it made
 candidates). The `source_catalog` row's `coverage.native` gains `located_passages`, `passage_pages` and
@@ -39885,8 +39891,9 @@ the passage family partitioned by its own bounds, judged by the same Noul and po
 with per-family telemetry; a failed passage batch leaves passages unjudged and entities intact; `locatedSelection`'s one
 ranking, tie and seed limits; `rankPool`'s pairing, leftovers, no-graph and no-passage cases; the book's passages over the
 seventeen shipped Haunting seeds: built once, answered from the cache while the listing holds, rebuilt with a new key when
-a record is added, rebuilt with the same key when a listed file is no readable record, and no passage from a readable record
-whose blocks do not align. `tests/extension/prescreen-book-passages.test.mjs` (the host's `prepareKeeperSupport`, the real
+a record is added (the preparation that sees the move answered with the earlier passages, the next with the new), rebuilt
+with the same key when a listed file is no readable record, no passage from a readable record whose blocks do not align, and
+a new home's first build waited for. `tests/extension/prescreen-book-passages.test.mjs` (the host's `prepareKeeperSupport`, the real
 kernel, a real 40-page PDF whose eighteen wards each print a heading, a one-line "Map" paragraph and three long notes,
 transcripts by the real assembly and store, a deterministic Jev wire that answers passages by their text): today's
 rotation reads page 12 and offers its "Map 12" line but never the fact in its last note, while the located passages are
@@ -39901,4 +39908,5 @@ Mutations, each reverted by copying the saved file back, each turned a test red:
 of its section; passages never judged; passage batches on the entity bounds; passage batches issued first; found passages
 not seeded; the pool not ranked; seeded passages keeping their slots; located passages not offered first; their pages not
 read first; the summary copy kept in the envelope; `offered` not recorded; passages rebuilt every turn; the key ignoring the
-records; the listing ignoring home; unjudged passages sent as located; native slices made passage cards.
+records; the listing ignoring home; unjudged passages sent as located; native slices made passage cards; a moved store
+waiting for its rebuild; a first build not waited for.

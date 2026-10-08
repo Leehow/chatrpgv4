@@ -193,13 +193,17 @@ export function rankPool(pool:readonly PrescreenCandidate[],ranked:readonly Loca
  * the one the source runtime's own reader uses (§191.7): the runtime's home and content root, and for a runtime that names no
  * content root the environment's `PI_COC_CONTENT_ROOT` (as `transcriptStoreFromEnv` finds it).
  */
-async function bookPassagesFor(input:KeeperSupportInput,env:NodeJS.ProcessEnv,snapshotWork:Promise<PrescreenSourceSnapshot>|undefined,
+async function bookPassagesFor(input:KeeperSupportInput,env:NodeJS.ProcessEnv,snapshotWork:Promise<Row>|undefined,
     signal:AbortSignal):Promise<{read?:BookPassagesRead;summary?:Row}> {
     if(!input.source||!snapshotWork)return {};
+    snapshotWork.catch(()=>undefined);
     const runtime=input.source.runtime,contentRoot=runtime.contentRoot??env.PI_COC_CONTENT_ROOT?.trim();
     if(!runtime.sourcePageText||!runtime.home||!contentRoot)return {summary:{status:'no_store'}};
     try{
-        const read=await bookPassages({source:runtime,roots:{home:runtime.home,contentRoot},snapshot:await snapshotWork,signal});
+        const bound=await snapshotWork;
+        if(typeof bound.pdf!=='string'||typeof bound.file_sha256!=='string'||!Number.isSafeInteger(bound.page_count))throw new Error('source_unavailable');
+        const read=await bookPassages({source:runtime,roots:{home:runtime.home,contentRoot},signal,
+            snapshot:{pdf:bound.pdf,file_sha256:bound.file_sha256,page_count:Number(bound.page_count)}});
         return {read,summary:{status:read.status,cards:read.passages.length,pages:read.pages.length,read_pages:read.read_pages,index_ms:read.ms}};
     }catch(error){return {summary:{status:'unavailable',reason:error instanceof Error?error.message.slice(0,160):'passages_unavailable'}};}
 }
@@ -403,17 +407,14 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             }catch{decisionMs+=now()-started;const reason=semanticSignal.aborted?'timeout':'unavailable';
                 if(reason==='timeout')optionalDecisionTimeouts++;else optionalDecisionUnavailable++;return {reason};}
         };
-        // §196.7: the module's source snapshot is read once, before the locate, which judges the book's passages beside the entities.
-        const sourceSnapshotWork:Promise<PrescreenSourceSnapshot>|undefined=input.source?discoveryRpc('module.source.materials.snapshot',
-            {module_id:input.source.moduleId,answer_limit:24,answer_cursor:0}).then(value=>object(value) as PrescreenSourceSnapshot):undefined;
-        sourceSnapshotWork?.catch(()=>undefined);
         // Semantic locate (contract §124.10): Jev judges the whole closed entity/rule index before discovery.
         let selection:LocatedSelection={priority:[],rules:[],seed:[],passages:[],ranked:[],seeds:[]};
-        const passageByHandle=new Map<string,BookPassage>();let passageSummary:Row|undefined;
+        const passageByHandle=new Map<string,BookPassage>();let passageSummary:Row|undefined,passageFile:string|undefined;
         if(!input.initialSnapshot){
             const locateBegan=now();
-            // §196.7: the book's passages, from this process's store-revision cache, read while the entity index is read.
-            const passageWork=bookPassagesFor(input,env,sourceSnapshotWork,semanticSignal);
+            // §196.7: the book's passages, from this process's store-revision cache, read while the entity index is read. Only the
+            // bound PDF's identity is read here; the source materials (and their checked answers) are read where they always were.
+            const passageWork=bookPassagesFor(input,env,input.source?discoveryRpc('module.source.snapshot',{module_id:input.source.moduleId}):undefined,semanticSignal);
             try{
                 const indexKey=digest([input.campaign,input.binding.source_revision]);let index=indexCache.get(indexKey),current=Boolean(index);
                 if(!index){
@@ -423,7 +424,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                         &&(['campaign','worldline','loop','turn'] as const).every(key=>indexBinding[key]===input.binding[key]);
                     if(current)remember(indexCache,indexKey,index,4);
                 }
-                const book=await passageWork;passageSummary=book.summary;
+                const book=await passageWork;passageSummary=book.summary;passageFile=book.read?.fileSha256;
                 for(const passage of book.read?.passages??[])passageByHandle.set(passage.handle,passage);
                 const indexCards:LocateCard[]=current&&index?[
                     ...(Array.isArray(index.entities)?index.entities:[]).map(object).filter(card=>typeof card.handle==='string'&&card.handle&&typeof card.label==='string')
@@ -481,14 +482,14 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             ||bound.campaign!==input.binding.campaign||bound.worldline!==input.binding.worldline||bound.loop!==input.binding.loop
             ||bound.turn!==input.binding.turn)throw new Error('binding_unavailable');
         let sourceResult:PrescreenSourceResult|undefined,sourceFailure:string|undefined,sourcePdf:string|undefined;
-        if(input.source&&sourceSnapshotWork)try{
-            const sourceSnapshot=await sourceSnapshotWork;
+        if(input.source)try{
+            const sourceSnapshot=object(await discoveryRpc('module.source.materials.snapshot',{module_id:input.source.moduleId,answer_limit:24,answer_cursor:0})) as PrescreenSourceSnapshot;
             sourcePdf=sourceSnapshot.pdf;
             sourceResult=await preparePrescreenSources({call:async(method,params)=>object(await input.call(method,{...params,campaign:input.campaign})),
                 campaign:input.campaign,moduleId:input.source.moduleId,scope,query,capsule:input.capsule,source:input.source.runtime,
                 signal:semanticSignal,budget:{deadlineAt:semanticDeadlineAt,candidateBytes:Math.max(4096,availableBytes*2),materialBytes:availableBytes,maxNativePages:16},snapshot:sourceSnapshot,
                 located:locatedSources(snapshot,catalogPriority),
-                ...(passageSummary?{passages:selection.passages.flatMap(handle=>{const passage=passageByHandle.get(handle);
+                ...(passageSummary?{passages:(passageFile===sourceSnapshot.file_sha256?selection.passages:[]).flatMap(handle=>{const passage=passageByHandle.get(handle);
                     return passage?[{handle,page:passage.page,start:passage.start,end:passage.end}]:[];})}:{})});
         }catch(error){if(signal.aborted)throw error;sourceFailure=error instanceof Error?error.message.slice(0,160):'source_material_unavailable';}
         if(passageSummary&&locateSummary.passages)locateSummary.passages={...object(locateSummary.passages),offered:sourceResult?.passages.length??0};
