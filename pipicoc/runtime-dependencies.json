@@ -125,6 +125,7 @@
     "build/extensions/module/reader-pdf.mjs",
     "build/extensions/module/reader-submit.mjs",
     "build/extensions/module/layout-submit.mjs",
+    "build/extensions/module/cast-submit.mjs",
     "build/extensions/module/character-guidance.mjs",
     "build/extensions/module/character-presentation.mjs",
     "build/extensions/mods/document-presentation.mjs",

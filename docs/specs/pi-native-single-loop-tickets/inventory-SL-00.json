@@ -1260,10 +1260,25 @@
       "owner": "module ext: cast reader",
       "path": "app-play",
       "role": "driver",
-      "trace": "contract §177.2; tests/extension/module-cast-reader.test.mjs",
-      "note": "The book's cast: one background tool-enabled Pi agent (read,write,edit,bash) over the native text layer, once per bound file, after a book's preparation or at table open; a second run only when the kernel refused the first submit.",
+      "trace": "contract §177.2; tests/extension/module-cast-reader.test.mjs, tests/extension/cast-submit.test.mjs",
+      "note": "The book's cast: one background Pi agent per page range over the native text layer whose one tool is the private `submit_cast` (no file tool; task.json and the page files attached; the host writes draft.json, runs the cast check and answers with what it refused), once per bound file, after a book's preparation or at table open; a second run only when the kernel refused the first submit.",
       "lines_at_0b729e8fb": [
         660
+      ]
+    },
+    {
+      "file": "extensions/module/cast-submit.ts",
+      "symbol": "castSubmit.on(agent_end)",
+      "kind": "trigger-turn",
+      "callee": "pi.sendMessage{triggerTurn}",
+      "count": 1,
+      "owner": "cast reader child (reader subprocess)",
+      "path": "child-process",
+      "role": "driver",
+      "trace": "contract §177.2; tests/extension/cast-submit.test.mjs",
+      "note": "Loaded only inside a cast reader child Pi (ReaderRequest.cast). Once per child, on a run whose model answered, extends the child's own run (followUp) when it stopped without submit_cast or with its last draft refused.",
+      "lines_at_cast_submit": [
+        31
       ]
     },
     {

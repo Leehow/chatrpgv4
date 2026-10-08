@@ -380,23 +380,21 @@ for (const engine of ["hybrid-v1", "legacy"]) {
 		assert.equal(requests.length, 3);
 		const brief = (context) => context.messages.map(messageText).find((text) => text.includes('"kind":"context_brief"'));
 		assert.ok(brief(requests[1]) && brief(requests[2]));
-		// Legacy is unchanged: its brief carries only the style the request's capsule lacks (§13.6). Since 813b20006 the
-		// fixture answers player_input with its `_context`, as the real kernel does, so the capsule sent is the turn's own
-		// budget-trimmed one and the residue is not empty. (Before, the missing binding forced a rehydrated capsule that held
-		// every style entry, and this assertion read the empty residue that left.)
+		// The style a request carries, by directive id: in its capsule, and in its brief.
+		const capsule = (context) => context.messages.map(messageText).map((text) => { try { return JSON.parse(text); } catch { return undefined; } })
+			.find((value) => value?.style && value.turn && value.kind !== "context_brief");
+		const ids = (style) => (style?.directives ?? []).map((directive) => directive.id).sort();
+		const whole = ids(capsule(requests[1]).style), later = ids(capsule(requests[2]).style);
+		// The case under test happens: the later turn's capsule holds less style than the rehydrated one. Until the fake
+		// kernel's turn.start carried `_context`, as the kernel's always has, the next turn reused the first turn's capsule
+		// and both branches below passed without it.
+		assert.ok(later.length && later.length < whole.length, `the later capsule holds less style (${later} of ${whole})`);
 		if (engine === "legacy") {
-			const capsuleText = requests[2].messages.map(messageText).find((text) => text.includes('"turn":{"number":2'));
-			const briefStyle = JSON.parse(brief(requests[2])).style ?? {}, capsuleStyle = JSON.parse(capsuleText).style ?? {};
-			for (const [key, entries] of Object.entries(briefStyle)) {
-				if (!Array.isArray(entries) || !Array.isArray(capsuleStyle[key])) continue;
-				const sent = new Set(capsuleStyle[key].map((entry) => JSON.stringify(entry)));
-				assert.ok(entries.every((entry) => !sent.has(JSON.stringify(entry))), `no ${key} entry rides both the brief and the capsule`);
-			}
-			assert.doesNotMatch(capsuleText, /observable-first/, "the trimmed capsule lacks it");
-			assert.match(brief(requests[2]), /observable-first/, "so the residue carries it");
+			// Legacy is unchanged: its brief carries exactly the style the request's capsule lacks.
+			assert.deepEqual(ids(JSON.parse(brief(requests[2])).style), whole.filter((id) => !later.includes(id)), "legacy sends the residue");
 		} else {
 			assert.equal(brief(requests[2]), brief(requests[1]), "the next turn's first request shares the brief");
-			assert.match(brief(requests[2]), /observable-first/, "the brief carries the source's whole style");
+			assert.deepEqual(ids(JSON.parse(brief(requests[2])).style), whole, "the brief carries the source's whole style");
 		}
 	});
 }
