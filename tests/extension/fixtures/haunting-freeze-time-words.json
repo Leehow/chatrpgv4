@@ -1,0 +1,360 @@
+{
+  "why": "Haunting graph v2 (2026-10-08, docs/specs/haunting-graph-v2.md) added and rewrote these fields after the reference was captured: each node's value at the freeze, or $absent where the field did not exist. The live graph is read with them put back, so the captures compare against the graph they answered.",
+  "nodes": {
+    "clue-basement-burial-lawsuit": {
+      "properties/difficulty": {
+        "$absent": true
+      },
+      "properties/skill": {
+        "$absent": true
+      }
+    },
+    "clue-chapel-closed-1912": {
+      "properties/delivery_kind": "obvious",
+      "properties/difficulty": {
+        "$absent": true
+      },
+      "properties/skill": {
+        "$absent": true
+      }
+    },
+    "clue-chapel-journal-burial": {
+      "properties/difficulty": {
+        "$absent": true
+      },
+      "properties/skill": {
+        "$absent": true
+      }
+    },
+    "clue-chapel-ruins-location": {
+      "properties/difficulty": {
+        "$absent": true
+      },
+      "properties/skill": {
+        "$absent": true
+      }
+    },
+    "clue-dooley-macario-madness": {
+      "properties/difficulty": {
+        "$absent": true
+      },
+      "properties/skill": {
+        "$absent": true
+      }
+    },
+    "clue-flesh-ward-active": {
+      "properties/delivery_kind": "skill_check"
+    },
+    "clue-house-built-1835": {
+      "properties/difficulty": {
+        "$absent": true
+      },
+      "properties/skill": {
+        "$absent": true
+      }
+    },
+    "clue-liber-ivonis-tome": {
+      "properties/difficulty": {
+        "$absent": true
+      },
+      "properties/skill": {
+        "$absent": true
+      }
+    },
+    "clue-neighbor-lawsuit-1852": {
+      "properties/difficulty": {
+        "$absent": true
+      },
+      "properties/skill": {
+        "$absent": true
+      }
+    },
+    "clue-police-raid-chapel": {
+      "properties/difficulty": {
+        "$absent": true
+      },
+      "properties/skill": {
+        "$absent": true
+      }
+    },
+    "clue-rusted-basement-dagger": {
+      "properties/delivery_kind": "environmental",
+      "properties/difficulty": {
+        "$absent": true
+      },
+      "properties/skill": {
+        "$absent": true
+      }
+    },
+    "clue-second-lawsuit-outcome-unrecorded": {
+      "properties/difficulty": {
+        "$absent": true
+      },
+      "properties/skill": {
+        "$absent": true
+      }
+    },
+    "clue-will-executor-chapel": {
+      "properties/difficulty": {
+        "$absent": true
+      },
+      "properties/skill": {
+        "$absent": true
+      }
+    },
+    "npc-arty-wilmot": {
+      "properties/biography": {
+        "$absent": true
+      },
+      "visibility": "keeper-only"
+    },
+    "npc-dooley": {
+      "properties/biography": {
+        "$absent": true
+      },
+      "visibility": "keeper-only"
+    },
+    "npc-gabriela-macario": {
+      "properties/biography": {
+        "$absent": true
+      },
+      "visibility": "keeper-only"
+    },
+    "npc-kim-debrun": {
+      "properties/biography": {
+        "$absent": true
+      },
+      "visibility": "keeper-only"
+    },
+    "npc-records-clerk": {
+      "properties/biography": {
+        "$absent": true
+      },
+      "visibility": "keeper-only"
+    },
+    "npc-ruth-blake": {
+      "properties/biography": {
+        "$absent": true
+      },
+      "visibility": "keeper-only"
+    },
+    "npc-steven-knott": {
+      "properties/biography": {
+        "$absent": true
+      },
+      "visibility": "keeper-only"
+    },
+    "npc-vittorio-macario": {
+      "properties/biography": {
+        "$absent": true
+      },
+      "visibility": "keeper-only"
+    },
+    "npc-walter-corbitt": {
+      "properties/biography": {
+        "$absent": true
+      }
+    },
+    "scene-basement-rites": {
+      "properties/description": {
+        "$absent": true
+      },
+      "summary": "scene basement rites"
+    },
+    "scene-central-library": {
+      "properties/description": {
+        "$absent": true
+      },
+      "summary": "scene central library"
+    },
+    "scene-chapel-of-contemplation-ruins": {
+      "properties/description": {
+        "$absent": true
+      },
+      "summary": "scene chapel of contemplation ruins"
+    },
+    "scene-commission-briefing": {
+      "properties/description": {
+        "$absent": true
+      },
+      "summary": "Knott's Office"
+    },
+    "scene-corbitt-confrontation": {
+      "properties/description": {
+        "$absent": true
+      },
+      "summary": "scene corbitt confrontation"
+    },
+    "scene-corbitt-house-ground": {
+      "properties/description": {
+        "$absent": true
+      },
+      "summary": "scene corbitt house ground"
+    },
+    "scene-hall-of-records": {
+      "properties/description": {
+        "$absent": true
+      },
+      "properties/runtime_projection/record/scene_edges": [
+        {
+          "to": "higher-courts-central-police",
+          "kind": "unlock",
+          "when": {
+            "kind": "flag_set",
+            "flag_id": "records-serious-crime-destination-known"
+          }
+        },
+        {
+          "to": "newspaper-morgue",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "central-library",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "neighborhood-gossip",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "previous-tenants",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "corbitt-house-ground",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ],
+      "summary": "scene hall of records"
+    },
+    "scene-higher-courts-central-police": {
+      "properties/description": {
+        "$absent": true
+      },
+      "properties/runtime_projection/record/scene_edges": [
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "newspaper-morgue",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "central-library",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "neighborhood-gossip",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "previous-tenants",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "corbitt-house-ground",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ],
+      "summary": "scene higher courts central police"
+    },
+    "scene-neighborhood-gossip": {
+      "properties/description": {
+        "$absent": true
+      },
+      "properties/runtime_projection/record/scene_edges": [
+        {
+          "to": "newspaper-morgue",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "central-library",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "previous-tenants",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "corbitt-house-ground",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ],
+      "summary": "scene neighborhood gossip"
+    },
+    "scene-newspaper-morgue": {
+      "properties/description": {
+        "$absent": true
+      },
+      "properties/runtime_projection/record/keeper_notes": {
+        "$absent": true
+      },
+      "summary": "scene newspaper morgue"
+    },
+    "scene-previous-tenants": {
+      "properties/description": {
+        "$absent": true
+      },
+      "summary": "scene previous tenants"
+    },
+    "scene-upper-floor-bedroom": {
+      "properties/description": {
+        "$absent": true
+      },
+      "summary": "scene upper floor bedroom"
+    }
+  }
+}

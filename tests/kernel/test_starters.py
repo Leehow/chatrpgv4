@@ -284,6 +284,37 @@ SL52_CHANGES = sorted([
     "/relations[relation-has-requirement-knott-accept-commission]: added"])
 
 
+#: Haunting graph v2 (2026-10-08, docs/specs/haunting-graph-v2.md): what the book says a newcomer sees of each place and
+#: person, the checks it names for its clues, the house's floors and rooms, and the roads to the Chapel from where the book
+#: makes it known -- and nothing else.
+HG_SCENES = ("basement-rites", "central-library", "chapel-of-contemplation-ruins", "commission-briefing", "corbitt-confrontation",
+             "corbitt-house-ground", "hall-of-records", "higher-courts-central-police", "neighborhood-gossip", "newspaper-morgue",
+             "previous-tenants", "upper-floor-bedroom")
+HG_SEEN = ("arty-wilmot", "dooley", "gabriela-macario", "kim-debrun", "records-clerk", "ruth-blake", "steven-knott",
+           "vittorio-macario")
+HG_CHECKED = ("basement-burial-lawsuit", "chapel-closed-1912", "chapel-journal-burial", "chapel-ruins-location",
+              "dooley-macario-madness", "house-built-1835", "liber-ivonis-tome", "neighbor-lawsuit-1852", "police-raid-chapel",
+              "rusted-basement-dagger", "second-lawsuit-outcome-unrecorded", "will-executor-chapel")
+HG_PLACES = ("basement-coal-bin", "basement-crawl-space", "basement-hiding-place", "basement-storage", "corbitt-house-basement",
+             "corbitt-house-ground-floor", "corbitt-house-upper-floor", "ground-dining-room", "ground-kitchen", "ground-living-room",
+             "ground-mud-room", "ground-second-storage-room", "ground-storage-room", "upper-bathroom", "upper-childrens-bedroom",
+             "upper-main-bedroom", "upper-spare-bedroom")
+HG_LINKS = ([f"located-in-{place}" for place in HG_PLACES]
+            + [f"occurs-at-{scene}" for scene in ("basement-rites", "corbitt-confrontation", "upper-floor-bedroom")]
+            + [f"route-to-{scene}-chapel" for scene in ("hall-of-records", "higher-courts-central-police", "neighborhood-gossip")])
+HG_CHANGES = sorted(
+    [f"/nodes[scene-{scene}]/{key}" for scene in HG_SCENES for key in ("summary: changed", "properties/description: added")]
+    + ["/nodes[scene-newspaper-morgue]/properties/runtime_projection/record/keeper_notes: added"]
+    + [f"/nodes[scene-{scene}]/properties/runtime_projection/record/scene_edges: changed"
+       for scene in ("hall-of-records", "higher-courts-central-police", "neighborhood-gossip")]
+    + [f"/nodes[npc-{npc}]/properties/biography: added" for npc in HG_SEEN + ("walter-corbitt",)]
+    + [f"/nodes[npc-{npc}]/visibility: changed" for npc in HG_SEEN]
+    + [f"/nodes[clue-{clue}]/properties/{key}: added" for clue in HG_CHECKED for key in ("skill", "difficulty")]
+    + [f"/nodes[clue-{clue}]/properties/delivery_kind: changed" for clue in ("chapel-closed-1912", "flesh-ward-active", "rusted-basement-dagger")]
+    + [f"/nodes[location-{place}]: added" for place in HG_PLACES]
+    + [f"/{kind}s[{kind}-{link}]: added" for kind in ("claim", "relation") for link in HG_LINKS])
+
+
 def test_the_haunting_differs_from_its_pre_rd04_graph_only_by_the_migration():
     before = pre_rd04_graph()
     if before is None:
@@ -291,8 +322,11 @@ def test_the_haunting_differs_from_its_pre_rd04_graph_only_by_the_migration():
     after = read_json(CONTENT_DIR / "starters" / "the-haunting" / "module-graph.json")
     changes = sorted(_paths(before, after))
     # §138.9 (BR-05): the build step filled the roads' minutes; each filled road gains exactly its two keys.
+    # A road the graph gained later (HG_LINKS) arrives whole, minutes and all, and is ledgered as added.
+    existed = {r["relation_id"] for r in before["relations"]}
     roads = sorted(f"/relations[{r['relation_id']}]/properties/{key}: added" for r in after["relations"]
-                   if r["relation_kind"] == "route-to" and "travel_minutes" in (r.get("properties") or {}) for key in ROAD_TRAVEL)
+                   if r["relation_kind"] == "route-to" and r["relation_id"] in existed
+                   and "travel_minutes" in (r.get("properties") or {}) for key in ROAD_TRAVEL)
     assert roads and set(roads) <= set(changes)
     # §180.19 is a current authored-source constraint, separate from the historical migrations below.
     confrontation = next(n for n in after["nodes"] if n["node_id"] == "scene-corbitt-confrontation")
@@ -303,7 +337,7 @@ def test_the_haunting_differs_from_its_pre_rd04_graph_only_by_the_migration():
                    "affordances[strike-with-his-dagger]/rules_operation/investigator_usage_mode: added"}
     assert source_mode <= set(changes)
     rd04 = [change for change in RD04_CHANGES if not change.startswith(RETIRED_WITH_THE_TWIN)]
-    assert sorted(set(changes) - set(roads) - source_mode) == sorted(rd04 + SL25_CHANGES + SL52_CHANGES + CKF_CHANGES)
+    assert sorted(set(changes) - set(roads) - source_mode) == sorted(rd04 + SL25_CHANGES + SL52_CHANGES + CKF_CHANGES + HG_CHANGES)
 
 
 @pytest.mark.parametrize("module_id", sorted(STARTERS))
