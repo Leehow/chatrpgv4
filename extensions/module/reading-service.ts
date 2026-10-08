@@ -31,7 +31,7 @@ import {requireVisualOverview} from '../../kernel-ts/modules/visual-discovery.ts
 import {mapReviewPreviews} from './map-review-preview.ts';
 import {IdentityReviewUnavailable,reviewVisualIdentity} from './visual-identity-review.ts';
 import {reviewNodeIdentity} from './node-identity-review.ts';
-import {PREGENS_FOCUS, PREGENS_QUESTION} from '../../kernel-ts/modules/pregens.ts';
+import {PREGENS_FOCUS, PREGENS_QUESTION} from '../../kernel-ts/modules/pregens-material.ts';
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';

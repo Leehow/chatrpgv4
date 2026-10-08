@@ -11,14 +11,10 @@ import { isJsonObject } from "../json.js";
 import { array, row, string, type Row } from "../read/values.js";
 import type { ModuleContract } from "./contract.js";
 import { pregenSheetRefusals, SHEET_KIND, SHEET_PROPERTY } from "./pregen-sheet.js";
+import { PREGENS_MATERIAL } from './pregens-material.js';
+export { PREGENS_MATERIAL, PREGENS_FOCUS, PREGENS_QUESTION } from './pregens-material.js';
 
 /** §207.3: the material of the reading that finds a book's pregens, and the focus and question the kernel gives it. */
-export const PREGENS_MATERIAL = "pregens";
-export const PREGENS_FOCUS = "the book's pregenerated investigators";
-export const PREGENS_QUESTION = "Find every pregenerated investigator this book prints for a player to take -- an investigator sheet with characteristics, "
-    + "skills or a background written for a player, wherever the book prints them (an appendix, a handout section, the introduction) -- "
-    + "and write each as one investigator-template node whose properties.sheet transcribes that sheet as printed, citing the pages it is printed on. "
-    + "A book that prints none gets an empty draft.";
 
 /** §207.3: the settled row of the book's pregens reading (published or unusable), if any. */
 export function pregensSettlement(meta: Row): Row | undefined {

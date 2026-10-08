@@ -41807,6 +41807,9 @@ there were none. Two gaps, neither of them this book's:
 
 **207 continuation decisions.** BP-01..BP-04 are connected end to end. The list uses the campaign's private module workspace when one exists, follows the shared publication otherwise, and distinguishes a settled empty answer from a failed read. The same strict statement test applies when saving or reusing review evidence. Printed DB `0` is accepted as the rules table's `none` value and retained as printed. BP-05 live source verification is pending; BP-06..BP-08 stay deferred.
 
+The reading identity constants live in the import-free `kernel-ts/modules/pregens-material.ts`, shared by the kernel and
+host. The host does not import the kernel's validation/transaction module merely to name a reading.
+
 ### 124.12.1 Fit the operation frontier without discarding half a fitting page (continuation, 2026-10-08)
 
 The evidence loop keeps the longest ordered prefix of its current 48-operation frontier page that passes the existing
