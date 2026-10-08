@@ -39193,3 +39193,44 @@ as another word tells nobody.
   reveals later.
 
 *Implementation decisions and tests are recorded per ticket below as they land (`docs/specs/two-ledgers-tickets.md`).*
+
+*TL-05 implementation decisions* (2026-10-08):
+
+- **Computed when the lane asks; `CAST_VERSION` stays 5.** An unread person's entry is cut at `epithets.job` time
+  (`unreadEntry`, `kernel-ts/cast/entry.ts`), not stored: bumping the version would make every book's cast be read again
+  by a paid reader child only to change a derived field, and the text it is cut from is already the kernel's own. Stored
+  rows keep `first` (`{page, sentence}`) as written; `first.page` says which page, and `first.sentence` is only the last
+  fallback.
+- **The reading text of that page**, in order: the page transcript's `text` when the store holds a record for the bound
+  file and page (§191.4, read by the kernel from `<content>/source-transcripts/` then `<stateRoot>/source-transcripts/`,
+  `kernel-ts/read/page-transcripts.ts`; the kernel's workspace is the host's home); else the page in `cast-source.json`, the
+  copy the host sent `cast.source` (the transcript's reading version for a page transcribed by then, native text otherwise),
+  from the campaign's fork, then the library; else the stored sentence. A record is read when it is the v1 schema of this
+  file and page with an intact `text` digest. The kernel does not know the host's native extraction version and does not
+  check it: an older extraction's record still holds the book's own lines (§191.3's invariant).
+- **The cut** (`castEntry`): names are compared as §177.2 compares them (`passageKey`, so a name the text layer spaces out
+  letter by letter stands). The person's names are the forms the cast reader printed plus each of their graph nodes' own
+  name and display name (never aliases, which are as often roles); everyone else's the same. Places are taken longest
+  name first and never overlap, so a short form inside someone else's longer name is no place (Cold Harvest's 安德烈). The
+  entry runs from the person's first place to the start of the next place of someone else, or the first blank line after
+  their name (a transcript separates its blocks by one; native text has none), whitespace collapsed, at most
+  `CAST_SENTENCE_CHARS` (300) characters. A text that does not print them falls through to the next source. The
+  entry starts at the name, so words before it ("Mae's boy") are not in it; they name someone else anyway.
+- **A graph person's `looks`** is `personAppearance` (`kernel-ts/first-sight/index.ts`): `properties.biography` with the
+  §168 name check and without `personDescribed`'s summary fallback; else `relationship_to_investigators`. `personDescribed`
+  itself, which first sight (§168) reads, is unchanged.
+- **The instruction** says the word is what an investigator would see of them or be told about them at first meeting
+  (looks, trade, role), never a secret, motive, cause, what happens to them or anything the book reveals later, and that each
+  person's `looks` is about that person alone.
+
+Tests: `tests/extension/two-ledgers-names.test.mjs`, on the real kernel over a bound three-page book whose second page is
+Cold Harvest's resident list as the text layer has it (wrapped lines, one name spaced out letter by letter, no sentence
+ends): the stored first mention still holds a neighbour (the TR-F window), and `epithets.job` shows each resident only their
+own line, Dimiri his 46 and stonemason and no 49; the two Andreis apart; with a stored transcript the last resident's entry
+ends at its paragraph, without one it runs to the page's end; a graph person with only a role and a Keeper summary gets the
+role, one with a biography gets it, and no summary reaches the job; the instruction's words; `castEntry` string cases.
+`tests/extension/module-cast.test.mjs`: Jonah's `looks` is now "Jonah drowned there last spring." (the entry starts at his
+name). `tests/extension/name-free-egress.test.mjs`: the fixture people carry their looks as `biography`, which the lane
+now reads instead of the summary. Mutations, each turning a case red and reverted by copy: the stored sentence instead of
+the entry; no stop at the next person; no stop at the paragraph; the transcript not read; the summary fallback back; the
+"that person alone" instruction removed; shortest name first.

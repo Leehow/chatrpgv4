@@ -46,7 +46,7 @@ Status: ready-for-agent
   name; a place cleared as another word tells nobody; no text → nothing told. Mutation-check.
 
 ## TL-05 The epithet lane sees one person at a time
-Status: ready-for-agent
+Status: done (claude/two-ledgers-b-20261008; decisions in contract §194, *TL-05 implementation decisions*)
 
 - `kernel-ts/cast` (`first.sentence`, §177.2): cut an unread person's entry from their printed name to the start of the
   next printed name of a different cast person on that page, or the end of the paragraph, in the page's reading text

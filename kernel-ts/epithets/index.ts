@@ -15,8 +15,9 @@ import { playLanguageOf } from '../read/languages.js';
 import type { ModuleGraph } from '../read/module-graph.js';
 import { npcsPresent } from '../read/capsule.js';
 import { EPITHETS_PER_JOB, WORD_LIMIT, readEpithets, submitEpithets, tableWord, untoldBookPeople, wordsInUse } from '../read/person-words.js';
-import { personDescribed } from '../first-sight/index.js';
-import { tellGuard, untoldUnread } from '../read/cast.js';
+import { personAppearance } from '../first-sight/index.js';
+import { bookCast, moduleSourceSha, tellGuard, untoldUnread } from '../read/cast.js';
+import { castPages, unreadEntry } from '../cast/entry.js';
 import { prepareNameHistory } from '../journal/name-history.js';
 import { array, repr, row, string, type Row } from '../read/values.js';
 
@@ -30,28 +31,29 @@ export function epithetInstruction(language: string): string {
     return [
         `Give each person below the word this table will call them by until someone says their name, written in the play language ${language}.`,
         'It names who they are (the owner, the trucker, the cook, the old soldier) together with the one visible thing only they have here -- something they carry or wear, a mark, a habit -- joined the way a person would say it aloud, like a nickname: \'the owner with the oily rag\', \'the bad-teeth trucker\'. Never a run of nouns with nothing joining them, never without who they are, and never a sentence.',
-        'Use only what a stranger sees on first meeting (looks, role); never a secret, a motive or anything the book says is hidden.',
+        'The word is what an investigator would see of them, or be told about them, on first meeting (looks, trade, role); never a secret, a motive, a cause, what happens to them, or anything the book reveals later.',
+        'Each person\'s looks is about that person alone; take nothing from anyone else.',
         'No name, nickname or part of a name of anyone; never age, height, build or sex alone; no word listed under taken, and no word you give another person here.',
         'Each word must tell this person from everyone else at the table.',
     ].join(' ');
 }
 
 export function createEpithetHandlers(context: KernelContext, writer: ReturnType<typeof createWriteRuntime>): HandlerGroup {
-    async function load(params: Row): Promise<{ campaign: any; meta: Row; world: Row; graph: ModuleGraph | null; journal: Row; records: Row[] }> {
+    async function load(params: Row): Promise<{ campaign: any; meta: Row; world: Row; graph: ModuleGraph | null; moduleMeta: Row; journal: Row; records: Row[] }> {
         const campaign = await writer.campaign(params), meta = await campaign.readCampaign();
         if (!STATUSES.includes(string(meta.status)))
             throw new RpcError('campaign_not_ready', `campaign ${repr(campaign.id)} is ${repr(meta.status)}`, { details: { status: meta.status } });
         const world = await context.snapshots.pathExists(campaign.path('world.json')) ? await campaign.readWorld() : {};
-        let graph: ModuleGraph | null = null;
-        try { graph = (await loadCampaignModule(context, string(meta.module_id), world, campaign.id)).graph; }
+        let graph: ModuleGraph | null = null, moduleMeta: Row = {};
+        try { const loaded = await loadCampaignModule(context, string(meta.module_id), world, campaign.id); graph = loaded.graph; moduleMeta = row(loaded.meta); }
         catch { graph = null; }
         const snapshot = new CampaignSnapshot(context, campaign.id);
         const journal = row(await snapshot.optional('npc-journal.json')), records = await snapshot.files('turns');
-        return { campaign, meta, world, graph, journal, records };
+        return { campaign, meta, world, graph, moduleMeta, journal, records };
     }
     return Object.freeze({
         'epithets.job': async (params): Promise<Row> => {
-            const { campaign, meta, world, graph, journal, records } = await load(params);
+            const { campaign, meta, world, graph, moduleMeta, journal, records } = await load(params);
             // A module still being read has no graph yet; the next ask finds it.
             if (!graph) return { job_id: null, waiting: 'graph' };
             const stored = await readEpithets(campaign);
@@ -71,13 +73,22 @@ export function createEpithetHandlers(context: KernelContext, writer: ReturnType
             const ordered = [...wanting.filter(node => first.has(graph.handle(node))), ...wanting.filter(node => !first.has(graph.handle(node)))]
                 .slice(0, EPITHETS_PER_JOB);
             const people: Row[] = ordered.map(node => {
-                const looks = personDescribed(graph, node) || text(node.summary).trim();
+                // §194.4: what a stranger sees (the first-sight description), else how they stand to the investigators; never the
+                // node's summary, which is the Keeper's account of them (TR-F: the victim Pyotr Abramov was called "the creature that mutated two families").
                 const role = text(graph.npcProfile(node).relationship_to_investigators).trim();
+                const looks = (personAppearance(graph, node) ?? '').trim() || role;
                 return { id: graph.handle(node), ...(role ? { role } : {}), ...(looks ? { looks } : {}) };
             });
-            // An unread person has no record yet; what the lane sees of them is the sentence the book first names them in.
-            for (const person of unread.slice(0, Math.max(0, EPITHETS_PER_JOB - people.length)))
-                people.push({ id: person.id, ...(person.first ? { looks: person.first.sentence } : {}) });
+            // An unread person has no record yet; what the lane sees of them is their own entry on the page that first names them
+            // (§194.4), from their printed name to the next printed name of someone else of the cast or the paragraph's end.
+            const reading = unread.slice(0, Math.max(0, EPITHETS_PER_JOB - people.length));
+            if (reading.length) {
+                const pages = await castPages(context, campaign.id, string(meta.module_id), moduleSourceSha(moduleMeta)), cast = bookCast(graph);
+                for (const person of reading) {
+                    const looks = await unreadEntry(graph, cast, person, pages);
+                    people.push({ id: person.id, ...(looks ? { looks } : {}) });
+                }
+            }
             const language = await playLanguageOf(context, meta);
             const job_id = `epithets:${campaign.id}:${createHash('sha256').update(people.map(person => person.id).join('\n')).digest('hex').slice(0, 12)}`;
             return { job_id, play_language: language, people, taken: wordsInUse(world, journal, stored, graph), budget: { max_chars: WORD_LIMIT },

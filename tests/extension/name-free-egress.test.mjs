@@ -59,6 +59,7 @@ const node = (node_id, node_kind, name, summary, properties = {}, page = 1) => (
 const claim = (subject_id, predicate, object) => ({subject_id, predicate, object: {node_id: object}, truth_status: 'authored-fact', source_refs: REFS});
 const PAGES = ['Robert Taylor keeps the Harbor Bar. Mae Collins pours the drinks and rents the room upstairs from Ida Brooks. The rent ledger sits under the counter.',
   'Taylor\'s house stands up the hill; his hound guards the yard and fears the brass whistle.'];
+// §194.4: the epithet lane reads a person's appearance (`biography`), never the summary; the fixture gives both the same words.
 const OWNER_LOOKS = 'The bar owner with a pencil mustache.', BARMAID_LOOKS = 'A barmaid who watches the door.', LANDLADY_LOOKS = 'The landlady who lets the room upstairs.';
 /** The barmaid's room is in the book but not read yet: moving there meets the reading layer (§185.12). */
 const UNREAD = 'scene-mae-collins-room', LANDLADY = 'npc-ida-brooks';
@@ -68,9 +69,9 @@ function opening() {
     node('scene-harbor-bar', 'scene', 'Harbor Bar', 'A smoky bar on the dock.', {is_entrance: true}),
     node('scene-robert-taylor-home', 'scene', 'Taylor\'s house', 'A narrow house up the hill.', {is_final: true}, 2),
     node(UNREAD, 'scene', 'The room upstairs', 'A rented room above the bar.'),
-    node(LANDLADY, 'npc', 'Ida Brooks', LANDLADY_LOOKS),
-    node('npc-robert-taylor', 'npc', 'Robert Taylor', OWNER_LOOKS, {agenda: 'Keep the rent ledger hidden.', thread_refs: ['clue-robert-taylor-ledger']}),
-    node('npc-mae-collins', 'npc', 'Mae Collins', BARMAID_LOOKS, {agenda: 'Leave town before winter.'}),
+    node(LANDLADY, 'npc', 'Ida Brooks', LANDLADY_LOOKS, {biography: LANDLADY_LOOKS}),
+    node('npc-robert-taylor', 'npc', 'Robert Taylor', OWNER_LOOKS, {biography: OWNER_LOOKS, agenda: 'Keep the rent ledger hidden.', thread_refs: ['clue-robert-taylor-ledger']}),
+    node('npc-mae-collins', 'npc', 'Mae Collins', BARMAID_LOOKS, {biography: BARMAID_LOOKS, agenda: 'Leave town before winter.'}),
     // A reader's raw properties may name other nodes by id anywhere (§185.7: a raw dump shows them as handles).
     node('clue-robert-taylor-ledger', 'clue', 'Rent ledger', 'The rents taken from the house, year by year.', {thread_refs: ['clue-mae-collins-note']}),
     node('clue-mae-collins-note', 'clue', 'Folded note', 'A note in a barmaid\'s hand.'),

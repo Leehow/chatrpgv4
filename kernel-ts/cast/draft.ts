@@ -32,7 +32,7 @@ export interface CastRefusal { index: number; reason: string; message: string; f
 const KEYS = ['book', 'play', 'notes', 'pages'];
 
 /** `text` compacted the way `passageKey` compacts a name, with each kept unit's index in `text`. */
-function compacted(text: string): { key: string; at: number[] } {
+export function compacted(text: string): { key: string; at: number[] } {
     let key = '';
     const at: number[] = [];
     let index = 0;
