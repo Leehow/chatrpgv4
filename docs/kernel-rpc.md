@@ -6060,7 +6060,9 @@ corrects it conversationally before confirm; the kernel refuses a profile whose 
 is empty with a needs finding naming sex), concept, occupation_skills
 (eight concrete skills, including required catalog skills), interest_skills (concrete
 skills), own_language, backstory (3–6 populated first-six categories plus scenario_bound),
-key_connection (backstory_field and summary), equipment (named ordinary items),
+key_connection (backstory_field, one of the populated first-six categories and never
+scenario_bound, and summary; a refusal names the field given and the populated categories it may name
+instead), equipment (named ordinary items),
 weapons (optional: rules-table profile names, by the printable name or the table id,
 resolved and written onto the card as the printable name), aptitude (optional strong/weak characteristic
 abbreviations with their origin) and occupation_stated (optional: the player's own
