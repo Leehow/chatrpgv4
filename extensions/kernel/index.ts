@@ -8,6 +8,7 @@ import {patchCard} from "../table/card-patch.ts";
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import {documentEditInput} from '../../runtime/document-edit-input.ts';
 import {DocumentReadCoverage} from './document-read-coverage.ts';
+import {writingDigest,canonicalWritingResult,matchWritingResult,completesRefusedAddition,type WritingMatch,type WritingCompletion} from '../../runtime/jev/document-completion.ts';
 import {RefusedDocumentOutcome, REFUSED_DOCUMENT_OUTCOME_FAMILY, REFUSED_DOCUMENT_OUTCOME_REASON, documentOutcomeDigest, type DocumentOutcomeVerdict} from '../../runtime/jev/refused-document-outcome.ts';
 import {DOCUMENT_RECORDING_INTENT_MIN, permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
 /**
@@ -101,7 +102,8 @@ import { readJevApiKey } from "../jev/agent/config.js";
 import { createUntoldSpanJudge, UNTOLD_HOST_PARAMS } from "./untold-spans.ts";
 import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
 import { NAME_SPANS_FAMILY } from "../../runtime/jev/untold-name-spans.ts";
-import { PendingAnswers, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs } from "./source-answers.ts";
+import { PendingAnswers, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs, type SourceAnswerScope } from "./source-answers.ts";
+import {sourceAnswerPage} from '../../runtime/jev/source-answer-pages.ts';
 import { PERSON_TEXT_NOTE, SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
 import { bookText, CarriedText, findPassage } from "./carried-text.ts";
 import { speechPass } from "../../kernel-ts/write/speech-pass.ts";
@@ -540,8 +542,8 @@ interface TableState {
 	 * pending. Read by the `narrate` call that follows, once. */
 	effectRefusedBeforeDelivery?: boolean;
   documentWorldline?: string;
+  sourceAnswerScope?: SourceAnswerScope;
   documentRecording?: number;
-  documentRecordingSettlement?: {turn:number;worldline?:string;playerText:string;name:string;version:string;receipts:string[];suffixHash:string};
 	/** Contract §78: each ordering refusal is spent once per turn, like §34.17's, so a Keeper that
 	 * writes the same shape again is never left unable to deliver at all. */
 	deliveryOrderRefused?: boolean;
@@ -1542,7 +1544,7 @@ export default function (pi: ExtensionAPI) {
 	 */
 	const pendingAnswers = new PendingAnswers((row) => { void record(row); });
 	function sourceConsultationsForAudit(state:TableState):Record<string,unknown>|undefined{
-		const evidence=pendingAnswers.audit(state.campaign,{scene:state.scene?.handle,turn:state.turn});
+		const evidence=pendingAnswers.audit(state.campaign,{scene:state.scene?.handle,turn:state.turn,scope:state.sourceAnswerScope});
 		if(state.sourceWait?.question&&!evidence.unavailable.some(row=>row.focus===state.sourceWait?.focus&&row.question===state.sourceWait?.question))
 			evidence.unavailable.push({focus:state.sourceWait.focus??'',question:state.sourceWait.question,purpose:'source'});
 		return evidence.pending.length||evidence.unavailable.length||evidence.answers.length?evidence:undefined;
@@ -2935,6 +2937,7 @@ export default function (pi: ExtensionAPI) {
 				return index>=0?[{...value,index}]:[];
 			})}:undefined;
 			return { party: state.party.flatMap((member) => [member.name, ...(member.id ? [member.id] : [])]), scene: state.scene,
+                ...(recordingSelected(state)?{selectedDocumentRecording:true}:{}),
 				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}),
 				...(ownCash && effects.some(effect => effect.kind === 'cash') ? {cash:ownCash} : {}) };
 		};
@@ -2985,10 +2988,137 @@ export default function (pi: ExtensionAPI) {
 	}
 
   const refusedDocuments = new WeakMap<TableState, RefusedDocumentOutcome>();
+  const writingAuthorities = new WeakMap<TableState,Set<string>>();
+  type WritingLedger = {epoch:object;turn:number;worldline:string;playerText:string;signal:AbortSignal;run?:string;matches:WritingMatch[];completed:WritingCompletion[]};
+  const writingLedgers = new WeakMap<TableState,WritingLedger>();
+  const recordingSelected = (state:TableState) => state.interactionScope==='world' && (state.documentRecording??0)>=DOCUMENT_RECORDING_INTENT_MIN
+    || !!refusedDocuments.get(state)?.basis || !!documentEditInput(state.playerText);
+  function writingLedger(state:TableState,run?:string):WritingLedger|undefined {
+    if(!state.documentWorldline||!state.playerText)return;
+    let held=writingLedgers.get(state);
+    if(!held||held.turn!==state.turn||held.worldline!==state.documentWorldline||held.playerText!==state.playerText
+      ||held.signal!==state.lanes.signal||run&&held.run&&run!==held.run){
+      held={epoch:{},turn:state.turn,worldline:state.documentWorldline,playerText:state.playerText,signal:state.lanes.signal,
+        ...(run?{run}:{}),matches:[],completed:[]};writingLedgers.set(state,held);
+    }
+    return held;
+  }
+  async function prepareWritingMatches(state:TableState,payload:Record<string,unknown>,bindings:BoundAppend[],run?:string):Promise<WritingMatch[]> {
+    if(!recordingSelected(state))return [];
+    const ledger=writingLedger(state,run);if(!ledger)return [];
+    const issued=documentEditInput(ledger.playerText);
+    const rejectIssued=()=>{
+      const corrections=state.admissionCorrections??(state.admissionCorrections=[]),available=corrections.length===0;
+      if(corrections.length<2)corrections.push('The writing proposal does not match the current issued document selection.');
+      return new KernelError({code:'needs',message:'The writing proposal does not match the current selected physical edit',
+        fix:available?'Nothing of this writing proposal executed. Preserve the current selected actor, carrier and physical edit; correct these arguments once through the existing admission path. Do not ask for the same selection again.'
+          :'The correction allowance is spent. Do not execute or narrate this mismatched writing; preserve the current selected edit and settled receipts.',
+        details:{reason:'issued_document_scope_mismatch',recovery:'correct_proposal',correction_allowed:available}});
+    };
+    const effects=Array.isArray(payload.effects)?payload.effects as Record<string,any>[]:[],matches:WritingMatch[]=[],bodies=new Map<string,string>();
+    for(const [occurrence,effect] of effects.entries()){
+      const operation=effect.document?.action;
+      if(effect.kind!=='object'||!['append','write','requested_edit'].includes(operation)||typeof effect.name!=='string')continue;
+      // A closed editor selection names its issued operation, never a replacement body invented beside it.
+      if(issued&&operation!=='requested_edit')throw rejectIssued();
+      const bound=bindings.find(b=>b.name===effect.name&&b.turn===ledger.turn&&b.worldline===ledger.worldline&&b.playerText===ledger.playerText
+        &&operation==='append'&&b.actualBoundSuffix===effect.document.text);
+      const admitted=writingAuthorities.get(state)?.has(effectSignature(effect))===true;
+      try{
+        const view=await state.kernel.call<{name:string;actor:string;text:string;version:string;_writing_identity:WritingMatch['identity'];
+          _writing_request?:{turn:number;worldline:string|null};edit_request?:{text:string;status:string}}>('mods.document.view',
+          {campaign:state.campaign,name:effect.name,...(issued?{actor:issued.actor}:{}),_writing_identity:true});
+        if(writingLedgers.get(state)!==ledger||table!==state||state.turn!==ledger.turn||state.playerText!==ledger.playerText||ledger.signal.aborted)continue;
+        const request=view.edit_request;
+        const issuedAuthority=operation==='requested_edit'&&issued?.actor===view.actor&&issued.document===view.name
+          &&request?.status==='selected'&&view._writing_request?.turn===ledger.turn&&view._writing_request.worldline===ledger.worldline;
+        if(issued&&!issuedAuthority)throw rejectIssued();
+        if(!admitted&&!bound&&!issuedAuthority)continue;
+        const selectedText=operation==='requested_edit'?request?.text:effect.document.text;
+        if(typeof selectedText!=='string'||typeof view.text!=='string'||typeof view.version!=='string'||!view.version||!view._writing_identity)continue;
+        const match:WritingMatch={campaign:state.campaign,worldline:ledger.worldline,turn:ledger.turn,playerText:ledger.playerText,epoch:ledger.epoch,
+          call:String(payload.call_id),occurrence,name:view.name,actor:view.actor,beforeVersion:view.version,beforeText:bodies.get(view.name)??view.text,operation,selectedText,
+          authority:issuedAuthority?'issued_request':bound?'bound_append':'admission',identity:view._writing_identity};
+        matches.push(match);
+        bodies.set(view.name,operation==='append'?match.beforeText+selectedText:selectedText);
+      }catch(error){
+        if(issued){if(isKernelError(error)&&error.details?.reason==='issued_document_scope_mismatch')throw error;throw rejectIssued();}
+        /* A failed observation cannot authorize writing or replay an operation. */
+      }
+    }
+    ledger.matches.push(...matches);return matches;
+  }
+  async function observeWritingCompletion(state:TableState,result:Record<string,unknown>,matches:WritingMatch[]):Promise<void>{
+    const ledger=writingLedgers.get(state);if(!ledger||!matches.length||!Array.isArray(result.receipts))return;
+    const current=()=>table===state&&writingLedgers.get(state)===ledger&&state.turn===ledger.turn&&state.documentWorldline===ledger.worldline
+      &&state.playerText===ledger.playerText&&state.lanes.signal===ledger.signal&&!ledger.signal.aborted;
+    if(!current()||matches.some(m=>m.epoch!==ledger.epoch))return;
+    try{
+      const status=await state.kernel.call<{turn:number;receipts:Record<string,unknown>[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:ledger.turn});
+      if(!current()||status.turn!==ledger.turn||!Array.isArray(status.receipts))return;
+      const ids=new Set(result.receipts);
+      for(const name of new Set(matches.map(m=>m.name))){
+        const group=matches.filter(m=>m.name===name),after=await state.kernel.call<{name:string;actor:string;text:string;version:string;_writing_identity:WritingMatch['identity']}>('mods.document.view',{campaign:state.campaign,name,actor:group[0].actor,_writing_identity:true});
+        if(!current())return;
+        let version=group[0].beforeVersion;const completed:WritingCompletion[]=[],used=new Set<string>();
+        for(const original of group){
+          const match={...original,beforeVersion:version},text=match.operation==='append'?match.beforeText+match.selectedText:match.selectedText;
+          const candidates=status.receipts.filter(r=>ids.has(r.id)&&!used.has(String(r.id))&&r.call_id===match.call&&r.name===match.name);
+          const found=candidates.map(receipt=>matchWritingResult(match,receipt,{name,actor:after.actor,text,version:String((receipt.writing_result as any)?.after_version??''),_writing_identity:after._writing_identity},
+            {campaign:state.campaign,worldline:ledger.worldline,turn:ledger.turn,playerText:ledger.playerText,epoch:ledger.epoch})).find(Boolean);
+          if(!found)break;
+          if(completed.length&&(found.result.instance!==completed[0].result.instance||JSON.stringify(found.result.root_owner)!==JSON.stringify(completed[0].result.root_owner)
+            ||JSON.stringify(found.result.direct_owner)!==JSON.stringify(completed[0].result.direct_owner)))break;
+          completed.push(found);used.add(found.receipt);version=found.result.after_version;
+        }
+        if(!completed.length)continue;
+        // Keep proved committed prefixes even when this result omitted a later receipt. Canonical successors
+        // may prove how that historical prefix reaches current state; they do not confirm an omitted match.
+        let tail=completed.at(-1)!.result;
+        for(let index=0;index<status.receipts.length&&(tail.after_version!==after.version||tail.after_digest!==writingDigest(after.text));index++){
+          const next=status.receipts.find(r=>!used.has(String(r.id))&&r.call_id===group[0].call&&r.name===name
+            &&r.partial!==true&&r.unknown!==true&&(()=>{const w=canonicalWritingResult(r.writing_result);return !!w&&w.instance===tail.instance
+              &&JSON.stringify(w.root_owner)===JSON.stringify(tail.root_owner)&&JSON.stringify(w.direct_owner)===JSON.stringify(tail.direct_owner)
+              &&w.before_version===tail.after_version&&w.before_digest===tail.after_digest;})());
+          if(!next)break;used.add(String(next.id));tail=canonicalWritingResult(next.writing_result)!;
+        }
+        if(after.version!==tail.after_version||writingDigest(after.text)!==tail.after_digest)continue;
+        for(const complete of completed){
+          if(ledger.completed.some(c=>c.receipt===complete.receipt))continue;
+          ledger.completed.push(complete);
+          const boundary=refusedDocuments.get(state);
+          if(boundary?.basis&&boundary.basis.kind!=='selected_no_write'&&completesRefusedAddition(complete,boundary.basis))boundary.settleCanonical();
+          await record({lane:'document_completion',turn:ledger.turn,status:complete.outcome,operation:complete.match.operation,
+            content_hash:writingDigest(complete.match.selectedText)});
+        }
+      }
+      const boundary=refusedDocuments.get(state);
+      if(boundary&&!boundary.basis&&state.deliveryFix?.kind===REFUSED_DOCUMENT_OUTCOME_REASON)state.deliveryFix=undefined;
+      result.writing_outcomes=matches.map(m=>({name:m.name,operation:m.operation,
+        outcome:ledger.completed.find(c=>c.match.call===m.call&&c.match.occurrence===m.occurrence)?.outcome??'unknown'}));
+      if((result.writing_outcomes as Array<{outcome:string}>).some(row=>row.outcome==='unknown'))
+        await record({lane:'document_completion',turn:ledger.turn,status:'partial'});
+    }catch{await record({lane:'document_completion',turn:ledger.turn,status:'observation_unknown'});}
+  }
   type BoundAppend = {name: string; version: string; originalText: string; actualBoundSuffix: string; proposedName: string; turn:number; worldline?:string; playerText:string};
   async function guardRefusedDocumentDelivery(state: TableState, draft: string, signal?: AbortSignal, parent?: TaskProviderBudget): Promise<void> {
     let boundary = refusedDocuments.get(state), basis = boundary?.basis;
-    if (basis?.kind === 'selected_no_write' || (!basis && state.interactionScope === 'world' && state.documentRecording !== undefined && state.documentRecording >= DOCUMENT_RECORDING_INTENT_MIN)) {
+    const ledger=writingLedgers.get(state);
+    if(ledger&&ledger.matches.length&&ledger.turn===state.turn&&ledger.worldline===state.documentWorldline&&ledger.playerText===state.playerText
+      &&ledger.signal===state.lanes.signal&&!ledger.signal.aborted&&!signal?.aborted
+      &&ledger.matches.every(m=>ledger.completed.some(c=>c.match.call===m.call&&c.match.occurrence===m.occurrence))
+      &&(!basis||basis.kind==='selected_no_write')){
+      const actual=await state.kernel.call<{turn:number;receipts:Record<string,unknown>[]}>('table.status',{campaign:state.campaign,projection:'receipts',expected_turn:ledger.turn});
+      let confirmed=actual.turn===ledger.turn&&Array.isArray(actual.receipts)&&ledger.completed.every(c=>actual.receipts.some(r=>r.id===c.receipt&&r.call_id===c.match.call));
+      for(const name of new Set(ledger.completed.map(c=>c.match.name))){
+        const last=ledger.completed.filter(c=>c.match.name===name).at(-1)!;
+        const view=await state.kernel.call<{name:string;actor:string;text:string;version:string;_writing_identity:WritingMatch['identity']}>('mods.document.view',{campaign:state.campaign,name,actor:last.match.actor,_writing_identity:true});
+        confirmed=confirmed&&JSON.stringify(view._writing_identity)===JSON.stringify(last.match.identity)&&view.name===last.match.name&&view.actor===last.match.actor&&view.version===last.result.after_version&&writingDigest(view.text)===last.result.after_digest;
+      }
+      if(confirmed&&table===state&&writingLedgers.get(state)===ledger&&state.turn===ledger.turn&&state.documentWorldline===ledger.worldline
+        &&state.playerText===ledger.playerText&&state.lanes.signal===ledger.signal&&!ledger.signal.aborted&&!signal?.aborted){boundary?.settleSelected();return;}
+    }
+    if (basis?.kind === 'selected_no_write' || (!basis && recordingSelected(state))) {
       const turn = state.turn, playerText = state.playerText, worldline = state.documentWorldline;
       const same = () => table === state && state.turn === turn && state.playerText === playerText && state.documentWorldline === worldline
         && !state.lanes.signal.aborted && !signal?.aborted;
@@ -3014,10 +3144,6 @@ export default function (pi: ExtensionAPI) {
           || value.unknown===true || value.partial===true || value.status==='unknown')) return await unconfirmed();
         const options = await state.kernel.call<{actor:string|null;documents:DocumentCandidate[]}>('mods.document.options',{campaign:state.campaign});
         if (!same()) throw new KernelError({code:'revision_conflict',message:'The recording input changed',details:{reason:'refused_document_outcome_stale'}});
-        const settled = state.documentRecordingSettlement;
-        if (settled?.turn===turn && settled.worldline===worldline && settled.playerText===playerText && settled.suffixHash
-          && actual.receipts.some(value=>settled.receipts.includes(String(value.id))&&value.document_changed===true&&value.name===settled.name)
-          && options.documents?.some(value=>value.name===settled.name&&value.version===settled.version)) { boundary?.settleSelected(); return; }
         if (boundary?.terminal || actual.receipts.some(value=>value.document_changed===true) || !options.actor || !Array.isArray(options.documents)) return await unconfirmed();
         boundary ??= new RefusedDocumentOutcome(); refusedDocuments.set(state,boundary);
         if (!basis) {
@@ -3319,6 +3445,10 @@ export default function (pi: ExtensionAPI) {
 				// §135.11.1 (SL-50): the verdict of this call's review, for the drop row of the step the call came from.
 				evidence.onVerdict?.(verdict.verdict);
 				const admitted = ADMITTING_VERDICTS.has(verdict.verdict);
+                if(recordingSelected(state)&&['authorized','entailed'].includes(verdict.verdict)&&proposal.signatures){
+                    let selected=writingAuthorities.get(state);if(!selected){selected=new Set();writingAuthorities.set(state,selected);}
+                    for(const signature of proposal.signatures)selected.add(signature);
+                }
 				const timedOut = verdict.verdict === REVIEW_TIMEOUT;
 				const correctable = verdict.recovery === "correct_proposal";
 				const correctionAvailable = correctable && !reused && state.admissionCorrections.length === 0;
@@ -5177,6 +5307,7 @@ export default function (pi: ExtensionAPI) {
 		// update channel; each frame becomes one partial result on the tool status line.
 		const onProgress = onUpdate ? (frame: KernelProgressFrame) => onUpdate(progressPartial(frame)) : undefined;
 		let timeReading: Record<string, unknown> | undefined;
+        let writingMatches:WritingMatch[]=[];
         let documentContinuation=false;
 		const invokeOperation = async () => {
 			if ((spec.name === 'narrate' || spec.name === 'ask') && typeof payload.text === 'string') {
@@ -5200,33 +5331,9 @@ export default function (pi: ExtensionAPI) {
 			if (spec.name === 'narrate' && timeReading) payload.time_reading = timeReading; else delete payload.time_reading;
 			await dispatcher.beforeKernelInvoke(toolCallId, spec.method, payload);
       if(spec.name==='look')documentContinuation=state.documentReadCoverage?.consume(payload)??false;
+      if(spec.name==='apply')writingMatches=await prepareWritingMatches(state,payload,documentBindings,evidence.run);
       const result = await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress);
-      if (spec.name === 'apply' && documentBindings.length && Array.isArray(result.receipts) && result.receipts.length) {
-        try {
-          const actual = await state.kernel.call<{turn:number;receipts:Array<Record<string,unknown>>}>('table.status', {campaign:state.campaign,projection:'receipts',expected_turn:state.turn});
-          const ids = new Set(result.receipts), boundary = refusedDocuments.get(state);
-          if (actual.turn === state.turn && Array.isArray(actual.receipts)) for (const binding of documentBindings)
-            if (binding.turn===state.turn && binding.worldline===state.documentWorldline && binding.playerText===state.playerText && binding.actualBoundSuffix.length>0
-              && actual.receipts.some(receipt=>ids.has(receipt.id)&&receipt.document_changed===true&&receipt.name===binding.name)) {
-              boundary?.settle(binding.name,binding.version,binding.originalText,binding.actualBoundSuffix,binding.proposedName);
-              if (documentBindings.length===1) {
-                const options=await state.kernel.call<{documents:DocumentCandidate[]}>('mods.document.options',{campaign:state.campaign});
-                const after=options.documents.find(value=>value.name===binding.name);
-                if (table===state&&state.turn===binding.turn&&state.documentWorldline===binding.worldline&&state.playerText===binding.playerText&&after&&after.version!==binding.version)
-                  state.documentRecordingSettlement={turn:binding.turn,worldline:binding.worldline,playerText:binding.playerText,name:binding.name,version:after.version,
-                    receipts:actual.receipts.filter(value=>ids.has(value.id)&&value.document_changed===true&&value.name===binding.name).map(value=>String(value.id)),
-                    suffixHash:documentOutcomeDigest(binding.actualBoundSuffix)};
-              }
-            }
-          if (boundary && !boundary.basis && state.deliveryFix?.kind === REFUSED_DOCUMENT_OUTCOME_REASON) state.deliveryFix = undefined;
-        } catch {
-          // Observing a committed write must not turn its success into an error or authorize a replay.
-          const boundary = refusedDocuments.get(state);
-          if (boundary?.basis && documentBindings.some(value=>value.turn===state.turn&&value.worldline===state.documentWorldline
-            &&value.playerText===state.playerText&&value.name===boundary.basis?.carrier?.name)) boundary.terminal = true;
-          await record({lane:'refused_document_outcome',turn:state.turn,status:'settlement_unknown'});
-        }
-      }
+      if(spec.name==='apply')await observeWritingCompletion(state,result,writingMatches);
       return result;
 		};
 			try {
@@ -5316,60 +5423,79 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (spec.name === 'lookup' && params.source_mode !== undefined && (params.kind !== 'source' || !['answer', 'prepare'].includes(String(params.source_mode))))
 				throw new KernelError({code:'invalid_params', message:'source_mode is answer or prepare, and only applies to source lookup'});
+			if (spec.name === 'lookup' && params.answer_part !== undefined && (params.kind !== 'source' || params.source_mode !== 'answer'
+				|| !Number.isSafeInteger(params.answer_part) || Number(params.answer_part) < 0 || params.retry === true))
+				throw new KernelError({code:'invalid_params', message:'answer_part is a nonnegative cached source-answer part and cannot be combined with retry'});
 			if (spec.name === "lookup" && params.kind === "source") {
 				const answerOnly = params.source_mode === 'answer';
 				if (answerOnly && !asString(params.question)?.trim()) throw new KernelError({code:'invalid_params', message:'A source answer needs a nonempty question'});
 				if (!asString(params.query)?.trim()) throw new KernelError({
 					code: "invalid_params", message: "Source lookup needs a named query; question supplies additional scope",
 					fix: "pass the place or entity as query and describe the unresolved source question" });
-				if (!readingModule || !reading && !(answerOnly && nativeSource)) throw new KernelError({ code: "needs", message: "the source reading service is unavailable",
-					fix: "reopen the table with its module reading extension available", details: { reason: "reading_failed" } });
-				const sourceRead = { purpose: answerOnly ? "answer" : "detail", focus: params.query, question: params.question ?? "" };
 				dispatcher.requireCapability(toolCallId, answerOnly ? 'lookup.source.answer' : 'source.prepare');
-				try {
-					// §22.4.3 (SL-36) / §22.4.3.1 (SL-58): a consultation, checked or preparing, waits at most its allowance. Past
-					// it neither is the turn's provider work: an answer goes on in the background like a read-ahead, and a
-					// `prepare` keeps its blocking slot instead (§22.4.6) -- the Keeper asked for this material now, so it is not
-					// competing with background work for a slot the way a demoted answer is.
-					const consult = answerOnly && !nativeSource;
-					const original = reading?.reference ? await reading.reference(readingModule,{...sourceRead,campaign:state.campaign,...(!answerOnly?{materialize_place:true}:{})},signal) : undefined;
-					if(original?.material)sourceMaterial=original.material;
-					if(Array.isArray(original?.source_answer?.excerpts))carriedText.note(state.campaign,state.turn,original.source_answer.excerpts.map((span:Record<string,any>)=>({scene:sourceMaterial?.scene??state.scene?.handle??null,page:span.page,label:null,text:span.text})));
-					const response = original ?? (answerOnly && nativeSource
-						? await nativeSource({moduleId: readingModule, campaign: state.campaign, toolCallId, question: String(params.question)}, signal)
-						: consult
-							? await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, ...(params.retry === true ? { memo: false } : {}), foreground: true },
-								signal, {allowanceMs: sourceAnswerAllowanceMs()})
-							: await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, foreground: true }, signal,
-								{allowanceMs: sourceAnswerAllowanceMs(), blocking: true}));
-					// §135.20.1 (SL-102): the scene the party is at when the Keeper asks; an answer handed here is held while it stays.
-					const askedAt = state.scene?.handle;
-					if (consult && response.state === 'pending') {
-						const read = { focus: String(params.query), question: String(params.question) };
-						pendingAnswers.register(state.campaign, read, state.turn, asString(response.job_id), response.settled, 'answer', askedAt);
-						sourceAnswer = pendingAnswer(response, read);
-					} else if (consult && Array.isArray(response.memo) && response.memo.length) {
-						sourceAnswer = memoAnswer(response.memo);
-						void record({ lane: 'reading', event: 'answer_memo', turn: state.turn, focus: String(params.query), answers: response.memo.length });
-						// The kernel lists the memo newest first; the shelf keeps the newest last, so it is held oldest first.
-						pendingAnswers.hold(state.campaign, askedAt, [...(response.memo as Array<Record<string, any>>)].reverse().map(entry => ({
-							focus: asString(entry?.focus) ?? String(params.query), question: String(entry?.question ?? ''), answer: entry?.source_answer })),
-						state.turn, fromStep?.run);
-					} else if (answerOnly || original?.material) {
-						if (!response.source_answer || typeof response.source_answer !== 'object') throw new KernelError({code:'internal', message:'The source consultation returned no checked answer'});
-						sourceAnswer = response.source_answer;
-						pendingAnswers.hold(state.campaign, askedAt, [{ focus: String(params.query), question: String(params.question), answer: response.source_answer }],
-							state.turn, fromStep?.run);
-					} else if (!answerOnly && response.state === 'pending') {
-						// §22.4.3.1 (SL-58): past the allowance a `prepare` lookup answers `pending` too, with what the index holds;
-						// the reading goes on and its landing (material ready, unusable, or failed) is carried once on a later note.
-						const read = { focus: String(params.query), question: String(params.question ?? '') };
-						pendingAnswers.register(state.campaign, read, state.turn, asString(response.job_id), response.settled, 'prepare');
-						sourceAnswer = pendingPrepare(response, read);
+				if (params.answer_part !== undefined) {
+					sourceAnswer = pendingAnswers.read(state.campaign, {scene: state.scene?.handle, focus: String(params.query),
+						question: String(params.question), part: Number(params.answer_part), scope: state.sourceAnswerScope}).source_answer;
+				} else {
+					if (!readingModule || !reading && !(answerOnly && nativeSource)) throw new KernelError({ code: "needs", message: "the source reading service is unavailable",
+						fix: "reopen the table with its module reading extension available", details: { reason: "reading_failed" } });
+					const askedAt = state.scene?.handle, askedTurn = state.turn, askedScope = state.sourceAnswerScope ? {...state.sourceAnswerScope} : undefined;
+					const sourceRead = { purpose: answerOnly ? "answer" : "detail", focus: params.query, question: params.question ?? "" };
+					try {
+						// §22.4.3 (SL-36) / §22.4.3.1 (SL-58): a consultation, checked or preparing, waits at most its allowance. Past
+						// it neither is the turn's provider work: an answer goes on in the background like a read-ahead, and a
+						// `prepare` keeps its blocking slot instead (§22.4.6) -- the Keeper asked for this material now, so it is not
+						// competing with background work for a slot the way a demoted answer is.
+						const consult = answerOnly && !nativeSource;
+						const original = reading?.reference ? await reading.reference(readingModule,{...sourceRead,campaign:state.campaign,...(!answerOnly?{materialize_place:true}:{})},signal) : undefined;
+						if(original?.material)sourceMaterial=original.material;
+						if(Array.isArray(original?.source_answer?.excerpts))carriedText.note(state.campaign,state.turn,original.source_answer.excerpts.map((span:Record<string,any>)=>({scene:sourceMaterial?.scene??state.scene?.handle??null,page:span.page,label:null,text:span.text})));
+						const response = original ?? (answerOnly && nativeSource
+							? await nativeSource({moduleId: readingModule, campaign: state.campaign, toolCallId, question: String(params.question)}, signal)
+							: consult
+								? await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, ...(params.retry === true ? { memo: false } : {}), foreground: true },
+									signal, {allowanceMs: sourceAnswerAllowanceMs()})
+								: await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, foreground: true }, signal,
+									{allowanceMs: sourceAnswerAllowanceMs(), blocking: true}));
+						// §135.20.1 (SL-102): the scene the party is at when the Keeper asks; an answer handed here is held while it stays.
+						if (consult && response.state === 'pending') {
+							const read = { focus: String(params.query), question: String(params.question) };
+							pendingAnswers.register(state.campaign, read, askedTurn, asString(response.job_id), response.settled, 'answer', askedAt, askedScope);
+							sourceAnswer = pendingAnswer(response, read);
+						} else if (consult && Array.isArray(response.memo) && response.memo.length) {
+							sourceAnswer = memoAnswer(response.memo);
+							void record({ lane: 'reading', event: 'answer_memo', turn: state.turn, focus: String(params.query), answers: response.memo.length });
+							// The kernel lists the memo newest first; the shelf keeps the newest last, so it is held oldest first.
+							pendingAnswers.hold(state.campaign, askedAt, [...(response.memo as Array<Record<string, any>>)].reverse().map(entry => ({
+								focus: asString(entry?.focus) ?? String(params.query), question: String(entry?.question ?? ''), answer: entry?.source_answer })),
+							askedTurn, fromStep?.run, askedScope);
+						} else if (answerOnly || original?.material) {
+							if (!response.source_answer || typeof response.source_answer !== 'object') throw new KernelError({code:'internal', message:'The source consultation returned no checked answer'});
+							sourceAnswer = response.source_answer;
+							pendingAnswers.hold(state.campaign, askedAt, [{ focus: String(params.query), question: String(params.question), answer: response.source_answer }],
+								askedTurn, fromStep?.run, askedScope);
+						} else if (!answerOnly && response.state === 'pending') {
+							// §22.4.3.1 (SL-58): past the allowance a `prepare` lookup answers `pending` too, with what the index holds;
+							// the reading goes on and its landing (material ready, unusable, or failed) is carried once on a later note.
+							const read = { focus: String(params.query), question: String(params.question ?? '') };
+							pendingAnswers.register(state.campaign, read, askedTurn, asString(response.job_id), response.settled, 'prepare', askedAt, askedScope);
+							sourceAnswer = pendingPrepare(response, read);
+						}
+					}
+					catch (readFailure) { throw sourceMaterialRefusal(readFailure, sourceRead); }
+					if (sourceAnswer) {
+						const raw = sourceAnswer as Record<string, unknown>, focus = String(params.query), question = String(params.question ?? '');
+						if (raw.status !== 'pending') {
+							pendingAnswers.hold(state.campaign, askedAt, [{focus, question, answer: raw}], askedTurn, fromStep?.run, askedScope);
+							const page = sourceAnswerPage(raw, {focus, question, canContinue: pendingAnswers.retains(state.campaign,
+								{scene: askedAt, focus, question, scope: askedScope})});
+							sourceAnswer = 'unavailable' in page ? {status: 'unavailable', question, reason: 'source_answer_unavailable', cause: page.unavailable,
+								prepared: false, authority: 'cached-source-reference'} : page.view;
+						}
 					}
 				}
-				catch (readFailure) { throw sourceMaterialRefusal(readFailure, sourceRead); }
 				delete payload.source_mode;
+				delete payload.answer_part;
 				// A prepare lookup that landed within its allowance (ready or settled unusable) still becomes a module lookup, as
 				// before; one still pending carries its own result (`sourceAnswer`, above) instead.
 				if (!answerOnly && !sourceAnswer) { payload.kind = "module"; payload.canonical_source = true; }
@@ -6248,10 +6374,13 @@ export default function (pi: ExtensionAPI) {
 			} }));
 			// §135.31.2 (SL-36): a consultation that went pending is carried to the Keeper once, when it lands, through this port.
 			// §22.4.4 (SL-37): a text read this turn is still waiting on rides as pending too, while the reading service says it is in flight.
-			pi.events.emit('coc:source-answers', Object.freeze({ campaign, take: (at?: { scene?: string; run?: string }) => {
+			pi.events.emit('coc:source-answers', Object.freeze({ campaign, take: (at?: { scene?: string; run?: string; scope?: SourceAnswerScope }) => {
 				// §135.20.1 (SL-102): where the engine's run is decides which held answers ride; without it, the table's own scene.
 				const here = at?.scene ?? (table?.campaign === campaign ? table.scene?.handle : undefined);
-				const answers = pendingAnswers.take(campaign, { ...(here ? { scene: here } : {}), ...(at?.run ? { run: at.run } : {}) });
+				const state = table?.campaign === campaign ? table : undefined;
+				if (state && at?.scope) state.sourceAnswerScope = {...at.scope};
+				const answers = pendingAnswers.take(campaign, { ...(here ? { scene: here } : {}), ...(at?.run ? { run: at.run } : {}),
+					scope: at?.scope ?? state?.sourceAnswerScope });
 				const wait = table?.campaign === campaign ? table.sourceWait : undefined;
 				// §22.4.7 (SL-47): a scene entered on its index text -- its pages once, its pending read (naming the scene), its record once.
 				const scenes = sceneReadings.take(campaign);
@@ -6263,8 +6392,9 @@ export default function (pi: ExtensionAPI) {
 			},
 			// §135.20.1 (SL-102): the next turn's first model step waits out what is left of one allowance (§22.4.3, the same
 			// named default and override) for this scene's consultations still being read; past it they ride as pending.
-			settle: (input: { scene: string; turn: number; elapsed_ms: number }) =>
-				pendingAnswers.settle(campaign, { scene: input.scene, turn: input.turn, ms: sourceAnswerAllowanceMs() - Math.max(0, input.elapsed_ms) }),
+			settle: (input: { scene: string; turn: number; elapsed_ms: number; scope?: SourceAnswerScope }) =>
+				pendingAnswers.settle(campaign, { scene: input.scene, turn: input.turn, ms: sourceAnswerAllowanceMs() - Math.max(0, input.elapsed_ms),
+					scope: input.scope ?? (table?.campaign === campaign ? table.sourceAnswerScope : undefined) }),
 			}));
 			// Contract §39.2: the module's own map labels, projected into this campaign's play
 			// language before the first arrival can need them.
@@ -6701,8 +6831,12 @@ export default function (pi: ExtensionAPI) {
 			state.state = result.state ?? "open";
             state.documentReadCoverage=undefined;
       refusedDocuments.delete(state);
+      writingLedgers.delete(state);writingAuthorities.delete(state);
       state.documentWorldline = asString((result._context as Record<string,unknown> | undefined)?.worldline);
-      state.documentRecording = undefined; state.documentRecordingSettlement = undefined;
+      const sourceContext = result._context as Record<string,unknown> | undefined;
+      state.sourceAnswerScope = sourceContext ? {worldline: asString(sourceContext.worldline),
+        ...(typeof sourceContext.loop === 'number' && Number.isSafeInteger(sourceContext.loop) ? {loop: sourceContext.loop} : {})} : undefined;
+      state.documentRecording = undefined;
 			state.forcedPlayerChoiceCue = undefined;
 			state.forcedPlayerChoiceCueChecked = undefined;
 			state.forcedPlayerChoiceCueRejects = undefined;

@@ -10,7 +10,9 @@ import type { ApplyContext } from '../apply/index.js';
 import {stagedSheet,stagePendingItemIdentity} from '../apply/inventory.js';
 import { required } from '../write/store.js';
 import { validateDefinition } from './definition.js';
-import { appendDocument, initializeDocument, ownershipChanged, writeDocument } from './documents.js';
+import { appendDocument, documentVersion, initializeDocument, ownershipChanged, writeDocument } from './documents.js';
+import {rootObjectOwner} from '../read/object-owner.js';
+import {writingDigest} from '../../runtime/jev/document-completion.ts';
 import {PHYSICAL_DOCUMENT_ACTIONS,physicalDocumentAction,writingSurface} from './document-actions.js';
 import {pendingDocumentEdit} from './document-requests.js';
 import { defineObject, isPlaceholder, moveObject, objectInstance, objectRegistry } from './objects.js';
@@ -177,6 +179,9 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
             effect = {...effect, quantity: count, condition}; sheet.equipment.splice(index, 1);
         }
         const beforeCondition = prior?.state.condition ?? null;
+        const writingBefore = prior && ['write','append'].includes(row(effect.document).action)
+            ? {version:await documentVersion(campaign,world,prior),text:string(prior.document?.text),
+                root:rootObjectOwner(world,prior),direct:clone(prior.owner)} : null;
         if(prior&&PHYSICAL_DOCUMENT_ACTIONS.includes(row(effect.document).action)){
             if(!equal(source,owner))throw new RpcError('invalid_params','Physical document operations use the same actual from/to owner');
             return physicalDocumentAction(context,prior,effect);
@@ -235,7 +240,13 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                 instance: item.id, adopted: effect.adopt, subject: owner.id, visibility: 'keeper', call_id: callId, ...(effect._resumed === true ? {resumed: true} : {})},
                 event: {type: 'resource-changed', data: {resource: 'equipment_representation', subject: owner.id, item: name}}};
         }
-        if (!division && prior && Object.hasOwn(effect, 'document')) return {receipt: {id: mint(`definition:document-${callId}`), kind: 'definition', name, document_changed: true, visibility: 'keeper', call_id: callId},
+        if (!division && prior && Object.hasOwn(effect, 'document')) return {receipt: {id: mint(`definition:document-${callId}`), kind: 'definition', name:writing?item.name:name, document_changed: true, visibility: 'keeper', call_id: callId,
+                ...(writingBefore&&writing?{writing_result:{instance:item.id,root_owner:{kind:writingBefore.root.kind,id:writingBefore.root.id},
+                    direct_owner:{kind:writingBefore.direct.kind,id:writingBefore.direct.id},operation:effect.document.action,
+                    before_version:writingBefore.version,after_version:await documentVersion(campaign,world,item),
+                    before_digest:writingDigest(writingBefore.text),after_digest:writingDigest(string(item.document.text)),
+                    changed:writingBefore.text!==item.document.text,
+                    ...(effect.document.action==='append'?{suffix_digest:writingDigest(effect.document.text)}:{})}}:{})},
             event: {type: 'resource-changed', data: {resource: 'document', subject: owner.id, item: name}}};
         if (prior && equal(source, owner) && effect.condition != null) {
             const receipt = {id: mint(`delta:item-condition-${callId}`), kind: 'delta', resource: 'condition', subject: owner.id, subject_label: ownerLabel(world, owner),

@@ -112,7 +112,15 @@ export function createDocumentHandlers(writer: ReturnType<typeof createWriteRunt
             }) : [];
             return {actor:actor?.name ?? null, documents, known};
         },
-        'mods.document.view': async params => response(await owned(params)),
+        'mods.document.view': async params => {
+            const value=await owned(params),view=await response(value);
+            if(params._writing_identity!==true)return view;
+            const root=rootObjectOwner(value.world,value.item),direct=row(value.item.owner);
+            const request=row((await documentRequests(value.campaign)).entries)[value.item.id];
+            return {...view,_writing_identity:{instance:value.item.id,root_owner:{kind:root.kind,id:root.id},direct_owner:{kind:direct.kind,id:direct.id}},
+                ...(request&&await documentRequestState(value.campaign,value.world,value.item,request)==='selected'
+                    ?{_writing_request:{turn:request.turn,worldline:request.worldline}}:{})};
+        },
         'mods.document.request':async params=>{
             const {campaign,world,actor,item}=await owned(params);
             return requestDocumentEdit(campaign,world,item,actor,params);

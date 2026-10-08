@@ -22,8 +22,14 @@
  * into that step, after its note had already said `pending`.
  */
 import {CARRIED_VIEW_BYTES, HELD_ANSWERS_BYTES} from '../../runtime/jev/carried-views.ts';
+import {readableSourceAnswer, sourceAnswerPage, withSourceQuestion} from '../../runtime/jev/source-answer-pages.ts';
 
 type Row = Record<string, any>;
+export interface SourceAnswerScope {worldline?: string; loop?: number}
+export const HELD_SOURCE_RAW_BYTES = 64 * 1024;
+export const HELD_SOURCE_ENTRIES = 16;
+const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8');
+const sameScope = (left?: SourceAnswerScope, right?: SourceAnswerScope): boolean => left?.worldline === right?.worldline && left?.loop === right?.loop;
 
 /**
  * §22.4.3 (SL-36): the named default of the in-turn source-answer allowance. On the Haunting's window a consultation was a
@@ -76,6 +82,7 @@ export interface PendingAnswer {
 	kind: 'answer' | 'prepare';
 	/** §135.20.1 (SL-102): the scene the party was at when the Keeper asked (the table's active scene), when known. */
 	scene?: string;
+	scope?: SourceAnswerScope;
 }
 /**
  * §135.20.1 (SL-102): an answer the Keeper was handed at a scene, kept while the party stays there. `run` is the run whose
@@ -93,13 +100,15 @@ export interface HeldAnswer {
 	/** What the entry costs the carried section: its view's bytes, capped at one carried view (`CARRIED_VIEW_BYTES`). */
 	bytes: number;
 	run?: string;
+	rawBytes: number;
+	scope?: SourceAnswerScope;
 }
 /** What the engine takes before a model step: the consultations still reading, and those that settled and were not yet carried. */
 export interface SourceAnswersTake {
 	pending: Array<{focus: string; question: string; since_turn: number; purpose?: string; scene?: string}>;
-	landed: Array<{focus: string; question: string; since_turn: number; answer?: Row; unavailable?: string}>;
+	landed: Array<{focus: string; question: string; since_turn: number; answer?: Row; unavailable?: string; cached?: boolean}>;
 	/** §135.20.1 (SL-102): the answers held at the scene the engine is at, not yet in this run's request, newest first. */
-	held?: Array<{focus: string; question: string; since_turn: number; answer: Row}>;
+	held?: Array<{focus: string; question: string; since_turn: number; answer: Row; cached?: boolean}>;
 	/** §135.20.1: landed answers the Keeper's own lookup already returned in this run, so not carried again (named, never silent). */
 	handed?: Array<{focus: string; since_turn: number}>;
 	/** §22.4.7 (SL-47): the book's text of scenes a move landed on, once each. */
@@ -111,9 +120,10 @@ export interface SourceAnswersTake {
 export interface SourceAnswersPort {
 	campaign: string;
 	/** §135.20.1: `scene` is where the run is (held answers of any other scene are dropped); `run` is the run taking. */
-	take(at?: {scene?: string; run?: string}): SourceAnswersTake;
+	take(at?: {scene?: string; run?: string; scope?: SourceAnswerScope}): SourceAnswersTake;
+	read?(input: {scene?: string; focus: string; question: string; part: number; scope?: SourceAnswerScope}): Row;
 	/** §135.20.1: at a run's first model step, wait out what is left of one allowance for this scene's earlier consultations. */
-	settle?(input: {scene: string; turn: number; elapsed_ms: number}): Promise<SettleReport>;
+	settle?(input: {scene: string; turn: number; elapsed_ms: number; scope?: SourceAnswerScope}): Promise<SettleReport>;
 }
 /** §135.20.1: what a first-step wait did: the foci it waited on, how long, and how many landed or are still reading. */
 export interface SettleReport {
@@ -125,8 +135,8 @@ export interface SettleReport {
 }
 /** §135.20.1: the held key of an answer: its focus and the question it answered, as the Keeper sent them. */
 export const heldKey = (focus: string, question: string): string => JSON.stringify([focus, question]);
-/** §135.20.1: an answer worth holding carries a checked answer the Keeper can read (structure only: a nonempty `answer`). */
-const readable = (answer: Row | undefined): answer is Row => !!answer && typeof answer.answer === 'string' && answer.answer.trim().length > 0;
+/** §135.20.1: an answer worth holding has readable answer text, excerpts, values or memo entries. */
+const readable = readableSourceAnswer;
 
 /** A consultation's answer as the Keeper reads it: the checked answer or the memo's answers, never host keys. */
 export function settledAnswer(response: Row): Row | undefined {
@@ -136,7 +146,7 @@ export function settledAnswer(response: Row): Row | undefined {
 }
 /** The lookup's result for a memo hit: every memoised answer on the focus, each with its question. */
 export function memoAnswer(memo: Row[]): Row {
-	return {status: 'memo', answers: memo.map(entry => ({question: entry.question, ...(entry.source_answer ?? {})})), note: MEMO_ANSWER_NOTE};
+	return {status: 'memo', answers: memo.map(entry => withSourceQuestion(entry.question, entry.source_answer ?? {})), note: MEMO_ANSWER_NOTE};
 }
 /** The lookup's result past the allowance: `pending`, with the index rows the kernel returned for the focus. */
 export function pendingAnswer(response: Row, read: {focus: string; question: string}): Row {
@@ -167,11 +177,11 @@ export class PendingAnswers {
 	constructor(record: (row: Row) => void, now: () => number = Date.now) { this.record = record; this.now = now; }
 
 	/** Read-only evidence for delivery review; taking it never consumes a carried answer. */
-	audit(campaign:string,at:{scene?:string;turn:number}):{pending:Row[];unavailable:Row[];answers:Row[]}{
-		const entries=(this.lists.get(campaign)??[]).filter(entry=>!entry.scene||!at.scene||entry.scene===at.scene);
+	audit(campaign:string,at:{scene?:string;turn:number;scope?:SourceAnswerScope}):{pending:Row[];unavailable:Row[];answers:Row[]}{
+		const entries=(this.lists.get(campaign)??[]).filter(entry=>(!entry.scene||!at.scene||entry.scene===at.scene)&&sameScope(entry.scope,at.scope));
 		const project=(entry:PendingAnswer)=>({focus:entry.focus,question:entry.question,purpose:entry.kind});
 		const checked=new Map<string,Row>();
-		for(const entry of (this.shelves.get(campaign)??[]).filter(entry=>!at.scene||entry.scene===at.scene))
+		for(const entry of (this.shelves.get(campaign)??[]).filter(entry=>(!at.scene||entry.scene===at.scene)&&sameScope(entry.scope,at.scope)))
 			checked.set(entry.key,{focus:entry.focus,question:entry.question,answer:entry.answer});
 		for(const entry of entries.filter(entry=>entry.state==='landed'&&readable(entry.answer)))
 			checked.set(heldKey(entry.focus,entry.question),{focus:entry.focus,question:entry.question,answer:entry.answer});
@@ -187,13 +197,13 @@ export class PendingAnswers {
 	 * is where the party was when the Keeper asked.
 	 */
 	register(campaign: string, read: {focus: string; question: string}, turn: number, jobId: string | undefined, settled: Promise<Row> | undefined,
-		kind: 'answer' | 'prepare' = 'answer', scene?: string): PendingAnswer {
+		kind: 'answer' | 'prepare' = 'answer', scene?: string, scope?: SourceAnswerScope): PendingAnswer {
 		const key = JSON.stringify([kind, read.focus, read.question]), list = this.lists.get(campaign) ?? [];
 		this.lists.set(campaign, list);
-		const existing = list.find(entry => entry.key === key && entry.state === 'pending');
+		const existing = list.find(entry => entry.key === key && entry.state === 'pending' && sameScope(entry.scope, scope));
 		if (existing) return existing;
 		const entry: PendingAnswer = {key, focus: read.focus, question: read.question, ...(jobId ? {jobId} : {}), turn, since: this.now(), state: 'pending', kind,
-			...(scene ? {scene} : {})};
+			...(scene ? {scene} : {}), ...(scope ? {scope: {...scope}} : {})};
 		list.push(entry);
 		this.record({lane: 'reading', event: 'answer_pending', campaign, turn, focus: read.focus, purpose: kind, ...(jobId ? {job_id: jobId} : {})});
 		const settle = (state: 'landed' | 'unavailable', fields: Partial<PendingAnswer>) => {
@@ -217,7 +227,7 @@ export class PendingAnswers {
 	 * entry, and the newer answer replaces the older one. A scene's shelf keeps its newest answers within `HELD_ANSWERS_BYTES`;
 	 * an older one that no longer fits is dropped with a `held_dropped` row (reason `budget`), never silently.
 	 */
-	hold(campaign: string, scene: string | undefined, answers: ReadonlyArray<{focus: string; question: string; answer: Row | undefined}>, turn: number, run?: string): void {
+	hold(campaign: string, scene: string | undefined, answers: ReadonlyArray<{focus: string; question: string; answer: Row | undefined}>, turn: number, run?: string, scope?: SourceAnswerScope): void {
 		if (!scene) return;
 		const shelf = this.shelves.get(campaign) ?? [];
 		this.shelves.set(campaign, shelf);
@@ -225,9 +235,18 @@ export class PendingAnswers {
 			if (!readable(answer)) continue;
 			const key = heldKey(focus, question), at = shelf.findIndex(entry => entry.key === key && entry.scene === scene);
 			const previous = at >= 0 ? shelf.splice(at, 1)[0] : undefined;
-			const view = {question, ...answer};
-			shelf.push({key, focus, question, scene, turn, answer, bytes: Math.min(Buffer.byteLength(JSON.stringify(view), 'utf8'), CARRIED_VIEW_BYTES),
-				...(run ?? previous?.run ? {run: run ?? previous!.run} : {})});
+			const raw = withSourceQuestion(question, answer), rawBytes = bytes(raw);
+			if (rawBytes > HELD_SOURCE_RAW_BYTES) {
+				this.record({lane: 'reading', event: 'held_dropped', campaign, turn, reason: 'cache_unavailable', scene, foci: [focus]});
+				continue;
+			}
+			const page = sourceAnswerPage(raw, {focus, question, canContinue: true});
+			if ('unavailable' in page) {
+				this.record({lane: 'reading', event: 'held_dropped', campaign, turn, reason: page.unavailable, scene, foci: [focus]});
+				continue;
+			}
+			shelf.push({key, focus, question, scene, turn, answer: raw, rawBytes, bytes: bytes(page.view),
+				...(scope ? {scope: {...scope}} : {}), ...(run ?? previous?.run ? {run: run ?? previous!.run} : {})});
 		}
 		let total = 0;
 		const kept = new Set<HeldAnswer>();
@@ -240,6 +259,36 @@ export class PendingAnswers {
 		const dropped = shelf.filter(entry => !kept.has(entry));
 		if (dropped.length) this.record({lane: 'reading', event: 'held_dropped', campaign, turn, reason: 'budget', scene, foci: dropped.map(entry => entry.focus)});
 		this.shelves.set(campaign, shelf.filter(entry => kept.has(entry)));
+		this.boundShelves();
+	}
+
+	/** Exact local snapshot only; a cache miss never becomes a new source consultation. */
+	retains(campaign: string, input: {scene?: string; focus: string; question: string; scope?: SourceAnswerScope}): boolean {
+		return this.shelf(campaign).some(entry => entry.key === heldKey(input.focus, input.question) && entry.scene === input.scene && sameScope(entry.scope, input.scope));
+	}
+	read(campaign: string, input: {scene?: string; focus: string; question: string; part: number; scope?: SourceAnswerScope}): Row {
+		const matches = [...this.shelf(campaign)].reverse().filter(value => value.key === heldKey(input.focus, input.question));
+		const entry = matches.find(value => value.scene === input.scene && sameScope(value.scope, input.scope));
+		const unavailable = (cause: string): Row => ({source_answer: {status: 'unavailable', question: input.question,
+			reason: 'source_answer_unavailable', cause, prepared: false, authority: 'cached-source-reference'}});
+		if (!entry) return unavailable(!matches.length ? 'cache_unavailable'
+			: matches.some(value => value.scene === input.scene) ? 'scope_changed' : 'scene_changed');
+		const page = sourceAnswerPage(entry.answer, {focus: entry.focus, question: entry.question, part: input.part, canContinue: true});
+		return 'unavailable' in page ? unavailable(page.unavailable) : {source_answer: page.view};
+	}
+	private boundShelves(): void {
+		let total = 0, count = 0;
+		const keep = new Set<HeldAnswer>();
+		const ordered = [...this.shelves.values()].flat().reverse();
+		for (const entry of ordered) {
+			if (count >= HELD_SOURCE_ENTRIES || total + entry.rawBytes > HELD_SOURCE_RAW_BYTES) continue;
+			keep.add(entry); total += entry.rawBytes; count++;
+		}
+		for (const [campaign, shelf] of this.shelves) {
+			const kept = shelf.filter(entry => keep.has(entry)), dropped = shelf.filter(entry => !keep.has(entry));
+			if (dropped.length) this.record({lane: 'reading', event: 'held_dropped', campaign, reason: 'cache_unavailable', foci: dropped.map(entry => entry.focus)});
+			if (kept.length) this.shelves.set(campaign, kept); else this.shelves.delete(campaign);
+		}
 	}
 
 	/**
@@ -251,33 +300,42 @@ export class PendingAnswers {
 	 * again (`handed`); every answer held at `at.scene` that this run's request does not hold yet comes back as `held`, newest
 	 * first; and the shelves of every other scene are dropped (a `held_dropped` row, reason `scene_change`).
 	 */
-	take(campaign: string, at: {scene?: string; run?: string} = {}): SourceAnswersTake {
+	take(campaign: string, at: {scene?: string; run?: string; scope?: SourceAnswerScope} = {}): SourceAnswersTake {
 		const list = this.lists.get(campaign) ?? [];
-		const pending = list.filter(entry => entry.state === 'pending').map(entry => ({focus: entry.focus, question: entry.question, since_turn: entry.turn, purpose: entry.kind}));
+		const pending = list.filter(entry => entry.state === 'pending' && sameScope(entry.scope, at.scope)).map(entry => ({focus: entry.focus, question: entry.question, since_turn: entry.turn, purpose: entry.kind}));
 		const settled = list.filter(entry => entry.state !== 'pending' && !entry.carried);
 		for (const entry of settled) entry.carried = true;
 		this.lists.set(campaign, list.filter(entry => !entry.carried));
 		const landed: SourceAnswersTake['landed'] = [], handed: NonNullable<SourceAnswersTake['handed']> = [];
 		for (const entry of settled) {
+			if (!sameScope(entry.scope, at.scope)) {
+				landed.push({focus: entry.focus, question: entry.question, since_turn: entry.turn, unavailable: 'scope_changed', cached: false});
+				continue;
+			}
 			const answer = entry.state === 'landed' && entry.kind === 'answer' ? entry.answer : undefined;
 			const already = at.run !== undefined && readable(answer) && entry.scene !== undefined
-				&& this.shelf(campaign).some(held => held.key === heldKey(entry.focus, entry.question) && held.scene === entry.scene && held.run === at.run);
-			if (readable(answer) && (!at.scene || entry.scene === at.scene)) this.hold(campaign, entry.scene, [{focus: entry.focus, question: entry.question, answer}], entry.turn, at.run);
+				&& this.shelf(campaign).some(held => held.key === heldKey(entry.focus, entry.question) && held.scene === entry.scene && held.run === at.run && sameScope(held.scope, at.scope));
+			if (readable(answer) && (!at.scene || entry.scene === at.scene)) this.hold(campaign, entry.scene, [{focus: entry.focus, question: entry.question, answer}], entry.turn, at.run, at.scope);
 			if (already) { handed.push({focus: entry.focus, since_turn: entry.turn}); continue; }
 			landed.push({focus: entry.focus, question: entry.question, since_turn: entry.turn,
-				...(entry.state === 'landed' ? {answer: entry.answer} : {unavailable: entry.reason ?? 'reading_failed'})});
+				...(entry.state === 'landed' ? {answer: entry.answer ? withSourceQuestion(entry.question, entry.answer) : undefined,
+					cached: at.scene !== undefined && entry.scene === at.scene
+						&& this.retains(campaign, {scene: at.scene, focus: entry.focus, question: entry.question, scope: at.scope})} : {unavailable: entry.reason ?? 'reading_failed'})});
 		}
 		if (!at.scene) return {pending, landed, ...(handed.length ? {handed} : {})};
 		const shelf = this.shelf(campaign), gone = shelf.filter(entry => entry.scene !== at.scene);
 		if (gone.length) this.record({lane: 'reading', event: 'held_dropped', campaign, reason: 'scene_change', scene: at.scene, foci: gone.map(entry => entry.focus)});
-		const here = shelf.filter(entry => entry.scene === at.scene);
-		this.shelves.set(campaign, here);
+		const changed = shelf.filter(entry => entry.scene === at.scene && !sameScope(entry.scope, at.scope));
+		if (changed.length) this.record({lane: 'reading', event: 'held_dropped', campaign, reason: 'scope_changed', scene: at.scene, foci: changed.map(entry => entry.focus)});
+		const here = shelf.filter(entry => entry.scene === at.scene && sameScope(entry.scope, at.scope));
+		if (here.length) this.shelves.set(campaign, here); else this.shelves.delete(campaign);
 		// Without a run the landed ones of this take are the only thing known to be in hand: they are not repeated as held.
 		const now = new Set(landed.map(entry => heldKey(entry.focus, entry.question)));
 		const due = here.filter(entry => at.run === undefined ? !now.has(entry.key) : entry.run !== at.run).reverse();
 		for (const entry of due) if (at.run !== undefined) entry.run = at.run;
 		return {pending, landed, ...(handed.length ? {handed} : {}),
-			held: due.map(entry => ({focus: entry.focus, question: entry.question, since_turn: entry.turn, answer: entry.answer}))};
+			held: due.map(entry => ({focus: entry.focus, question: entry.question, since_turn: entry.turn,
+				answer: withSourceQuestion(entry.question, entry.answer), cached: true}))};
 	}
 
 	/**
@@ -285,9 +343,9 @@ export class PendingAnswers {
 	 * than `turn` that are still being read -- at most `ms` (what is left of one allowance), and not at all when there are none.
 	 * Past the bound the note carries them `pending`, as before. Never throws; the reading is never cancelled.
 	 */
-	async settle(campaign: string, input: {scene: string; turn: number; ms: number}): Promise<SettleReport> {
+	async settle(campaign: string, input: {scene: string; turn: number; ms: number; scope?: SourceAnswerScope}): Promise<SettleReport> {
 		const due = (this.lists.get(campaign) ?? []).filter(entry => entry.state === 'pending' && entry.kind === 'answer'
-			&& entry.scene === input.scene && entry.turn < input.turn);
+			&& entry.scene === input.scene && entry.turn < input.turn && sameScope(entry.scope, input.scope));
 		const bound = Math.max(0, input.ms), began = this.now();
 		if (due.length && bound > 0) {
 			let timer: ReturnType<typeof setTimeout> | undefined;

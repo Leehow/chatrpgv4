@@ -27,6 +27,7 @@ import { RpcError } from "../errors.js";
 import { array, row, number, string, truth, chars, clone, normalize, type Row } from "./values.js";
 import type { ModuleGraph } from "./module-graph.js";
 import {openIntents, shownIntentRef} from '../npc/intents.js';
+import {deferredNpcContext} from './deferred-context.js';
 import {allReceipts, coercionPressures} from '../resolve/coercion.js';
 import { capsuleOwed } from "../owed/index.js";
 import { FIRST_SIGHT_BUDGET, firstSightSection, fitFirstSight } from "../first-sight/index.js";
@@ -64,6 +65,9 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "obligations of kind note are your own open continuity notes; only those names can be closed with apply note. " +
     "Promise reminders belong to memory: respond to their fictional meaning, not by writing or closing a note. " +
     "A present person's coverage.commitments_omitted counts commitments outside the small card; look focus=npc with their name returns the full account. " +
+    "deferred_npcs carries related offstage undertakings and commitment reports; read_next reaches the named full account. " +
+    "It changes no local presence or authority, proves no report true, and requires no event or completion this turn. " +
+    "Interpret an actual report when available; a player changing method does not cancel an NPC undertaking or promise. " +
     "rulings are your earlier rulings that " +
     "bind here, reminders, not rules. worldlines is which line the table is on and which circuit of the " +
     "loop, where the anchor is, what a rewind would leave standing and who would remember it; " +
@@ -478,12 +482,15 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     // The turns before this one that said or told anything; `recent` carries the last two, `own` the player's words of the rest.
     const told = campaign.records.filter(record => number(record.turn) < number(turn.turn) && (truth(record.player_text) || truth(record.rendered_text))),
         shown = told.slice(-2);
+    const deferred = deferredNpcContext({graph, world, turn, ledger: row(campaign.jsonFiles.get('npc-ledger.json')),
+        memory, records: campaign.records, scope: npcScope, journal: row(campaign.jsonFiles.get('npc-journal.json')), party});
     const sections: Row = clone({
         where,
         historical_setting: await historicalSetting(campaign, module),
         // §168.5: before present, so the material for a first sight is read before the dossiers.
         ...(firstSight ? { first_sight: firstSight } : {}),
         present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true, campaign:campaign.id, currentReceipts:array(turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: campaign.records, scope:npcScope, chain: campaign.chainReads() }),
+        ...(deferred ? {deferred_npcs: deferred} : {}),
         voices: voicesSection(graph, world, scene),
         known: knownSection(graph, world, scene, party, campaign.records),
         // The body that cannot act goes first: `fitBudget(..., "last")` trims this section from the
@@ -526,6 +533,9 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     const gateTurn: TurnState = { opening: number(turn.turn) === 0, present: clone(array(sections.present)), stalled_turns: number(sig.stalled_turns),
         stall_threshold: number(dg.threshold("pressure-stalled-turns")), beat: string(director.beat), repeat_input: truth(sig.repeat_input) };
     const truncated: string[] = [];
+    const deferredCoverage = row(row(sections.deferred_npcs).coverage);
+    if (number(deferredCoverage.people_omitted) || number(deferredCoverage.undertakings_omitted)
+        || number(deferredCoverage.commitments_omitted)) truncated.push('deferred_npcs');
     // §168.5: its own budget, fitted on its own; no other section's budget cuts it.
     if (sections.first_sight && fitFirstSight(sections.first_sight, FIRST_SIGHT_BUDGET))
         truncated.push("first_sight");

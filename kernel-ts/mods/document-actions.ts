@@ -7,7 +7,8 @@ import type {ApplyContext} from '../apply/index.js';
 import type {DomainEvent} from '../transactions.js';
 import {observeWriting,changedWriting} from './document-visibility.js';
 import {pendingDocumentEdit,directlyCarriedNames} from './document-requests.js';
-import {writeDocument} from './documents.js';
+import {documentVersion,writeDocument} from './documents.js';
+import {writingDigest} from '../../runtime/jev/document-completion.ts';
 
 export const PHYSICAL_DOCUMENT_ACTIONS=['open','close','show','observe','requested_edit','cancel_edit'];
 
@@ -21,7 +22,7 @@ export async function physicalDocumentAction(context:ApplyContext,item:Row,effec
     if(!item.document)throw new RpcError('needs','Initialize the physical document before using its reading surface');
     if(!string(effect.why).trim())throw new RpcError('invalid_params','A physical document operation needs its actual causal why');
     const own=surface(world,item),root=rootObjectOwner(world,item),here=npcsPresent(graph,world,graph.scene(world.active_scene));
-    let observed:Row|undefined,reader:Row|undefined;
+    let observed:Row|undefined,reader:Row|undefined,writingResult:Row|undefined;
     if(['show','observe'].includes(action)){
         reader=npcNode(graph,world,string(operation.reader));
         if(!graph.isPerson(reader))throw new RpcError('invalid_params','A writing observer must be a person');
@@ -61,16 +62,21 @@ export async function physicalDocumentAction(context:ApplyContext,item:Row,effec
                 throw new RpcError('needs','Name the actual directly available carried implement; suitability is a Keeper judgement',{details:{implements:names}});
             const time=[...array(turn.receipts),...(context.staged?.()??[])].some(receipt=>receipt.kind==='time'&&number(receipt.minutes)>0);
             if(!time)throw new RpcError('needs','Settle the physical editing time before changing the writing');
-            const change=changedWriting(string(item.document.text),request.text),revision=item.document.revision;
+            const beforeText=string(item.document.text),beforeVersion=await documentVersion(campaign,world,item);
+            const change=changedWriting(beforeText,request.text),revision=item.document.revision;
             writeDocument(item,request.text);item.document.player_edited=request.action==='save';item.document.last_edit_request=request.id;own.open=true;
             if(change.before.length)own.marks=[...array(own.marks),{method:operation.method,description:operation.marks,
                 legibility:operation.legibility,writing:change.before,revision,turn:number(turn.turn)}];
+            writingResult={instance:item.id,root_owner:{kind:root.kind,id:root.id},direct_owner:{kind:item.owner.kind,id:item.owner.id},
+                operation:'requested_edit',before_version:beforeVersion,after_version:await documentVersion(campaign,world,item),
+                before_digest:writingDigest(beforeText),after_digest:writingDigest(string(item.document.text)),changed:beforeText!==item.document.text,
+                request:{id:request.id,turn:request.turn,worldline:request.worldline,actor:request.actor_id,instance:request.instance,content_digest:writingDigest(request.text)}};
         }
     }else throw new RpcError('invalid_params','Unknown physical document operation');
     const name=item.name,id=context.mint(`definition:document-${context.callId}`);
     return {receipt:{id,kind:'definition',name,document_operation:action,document_changed:action==='requested_edit',
         ...(reader?{reader:graph.displayName(reader)}:{}),...(observed?{observed_writing:observed.writing,observed_revision:observed.revision,observation_scope:observed.scope}:{}),
-        visibility:'keeper',call_id:context.callId},
+        ...(writingResult?{writing_result:writingResult}:{}),visibility:'keeper',call_id:context.callId},
         event:{type:'resource-changed',data:{resource:action==='observe'?'document_observation':'document',item:name,operation:action,
             ...(reader?{reader:graph.displayName(reader)}:{}),...(observed?{writing:observed.writing,revision:observed.revision,scope:observed.scope}:{})}}};
 }

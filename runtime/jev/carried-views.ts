@@ -24,6 +24,7 @@
  * cut. §135.20's own ceilings stay for the issued bodies.
  */
 import {fitBody} from './candidate-bodies.ts';
+import {SOURCE_ANSWER_PAGE_BYTES, sourceAnswerPage} from './source-answer-pages.ts';
 import type {Candidate, Json} from './step-policy.ts';
 
 type Row = Record<string, any>;
@@ -33,7 +34,7 @@ const text = (value: unknown): string => typeof value === 'string' ? value.trim(
 const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8');
 
 /** One carried view (§135.31): a whole scene view or card on the gate state is 4.0-4.5 KB before this cut. */
-export const CARRIED_VIEW_BYTES = 4 * 1024;
+export const CARRIED_VIEW_BYTES = SOURCE_ANSWER_PAGE_BYTES;
 /** All carried views of one `coc-clerk` message (§135.31). */
 export const CARRIED_VIEWS_BYTES = 12 * 1024;
 /**
@@ -93,12 +94,12 @@ export const SCENE_FIELD_ORDER: readonly string[] = Object.freeze(['where.scene'
 /** A person in a carried scene view's `present`: who is there; their dossier is what the person cards carry. */
 export const PRESENT_FIELDS: readonly string[] = Object.freeze(['name', 'called', 'role']);
 /** §135.31.2: a landed consultation's view: what it concluded and its limits before the references and the question. */
-export const ANSWER_FIELD_ORDER: readonly string[] = Object.freeze(['status', 'answer', 'answers', 'limitations', 'source_refs', 'question']);
+export const ANSWER_FIELD_ORDER: readonly string[] = Object.freeze(['question', 'status', 'authority', 'limitations', 'source_refs', 'excerpts', 'answer', 'answers']);
 /**
  * §135.20.1 (SL-102): a held answer leads with the question it answered. It rides on a later step or turn than the ask, so
  * the question is what tells the Keeper which of its questions this is; a long answer is clipped before the question goes.
  */
-export const HELD_ANSWER_FIELD_ORDER: readonly string[] = Object.freeze(['question', 'status', 'answer', 'answers', 'limitations', 'source_refs']);
+export const HELD_ANSWER_FIELD_ORDER: readonly string[] = ANSWER_FIELD_ORDER;
 /** The field order a carried view of `focus` is cut in (§135.31); none for the session, which `look` orders already. */
 export const FIELD_ORDER: Readonly<Record<string, readonly string[]>> = Object.freeze({npc: CARD_FIELD_ORDER, scene: SCENE_FIELD_ORDER,
   source_answer: ANSWER_FIELD_ORDER});
@@ -169,9 +170,9 @@ export interface CarriedViews {
  * active (then `look focus=session` is read). Read-only.
  */
 export async function readCarriedViews(input: {call: Call; scene?: string; people: readonly string[]; skip?: ReadonlySet<string>;
-  session?: Row | 'read'; passages?: {scene: string; view: Row}; answers?: Array<{name: string; view: Row}>; pending?: Row[];
+  session?: Row | 'read'; passages?: {scene: string; view: Row}; answers?: Array<{name: string; view: Row; cached?: boolean}>; pending?: Row[];
   /** §135.20.1 (SL-102): the answers held at the run's scene that this run's request does not hold yet, newest first. */
-  held?: Array<{name: string; view: Row}>;
+  held?: Array<{name: string; view: Row; cached?: boolean}>;
   /**
    * §22.4.7: the book's text of scenes a move landed on (once each), and the records of scenes that settled away from the
    * party; §22.4.7.1: an entry with `person` is a person's text (`person_text`) or record (`person_record`), named by them.
@@ -185,7 +186,7 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
     try { return {ok: true, value: object(await input.call(method, params))}; }
     catch (error) { return {ok: false, code: text(object(error).code) || text(object(object(error).error).code) || 'read_failed'}; }
   };
-  const due: Array<Omit<CarriedView, 'view'> & {view?: Row; reason?: 'read_failed' | 'not_found'; dropped?: string[]}> = [];
+  const due: Array<Omit<CarriedView, 'view'> & {view?: Row; reason?: 'read_failed' | 'not_found'; dropped?: string[]; cached?: boolean}> = [];
   const resolved: CarriedViews['resolved'] = [];
   if (input.session === 'read') {
     const params = {focus: 'session'}, answer = await read('table.look', params);
@@ -193,7 +194,7 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
     else due.push({focus: 'session', read: {method: 'table.look', params}, reason: 'read_failed'});
   } else if (input.session) due.push({focus: 'session', view: input.session, read: null});
   // §135.31.2: a consultation the Keeper asked for that has since landed, next after the session; nothing is read for it.
-  for (const answer of input.answers ?? []) due.push({focus: 'source_answer', name: answer.name, view: answer.view, read: null});
+  for (const answer of input.answers ?? []) due.push({focus: 'source_answer', name: answer.name, view: answer.view, cached: answer.cached, read: null});
   // §22.4.7: the book's text of a scene a move landed on, next; nothing is read for it (the host extracted it).
   // Whole pages in the book's order while they fit the ceiling; a page that does not fit is dropped and named, so the first
   // page arrives whole (a long string cut mid-page would lose the page's end, where the scene's own lines often are).
@@ -244,14 +245,17 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
   if (input.passages) due.push({focus: 'source', name: input.passages.scene, view: input.passages.view, read: null});
   // §135.20.1 (SL-102): the answers already handed at this scene, after everything else, so they never displace a view
   // that rode before them; nothing is read for them.
-  for (const answer of input.held ?? []) due.push({focus: 'source_answer', name: answer.name, view: answer.view, held: true, read: null});
+  for (const answer of input.held ?? []) due.push({focus: 'source_answer', name: answer.name, view: answer.view, held: true, cached: answer.cached, read: null});
   const views: CarriedView[] = [], omitted: CarriedViews['omitted'] = [];
   let total = 0;
   for (const item of due) {
     const named = item.name ? {name: item.name} : {};
     if (item.reason || !item.view) { omitted.push({focus: item.focus, ...named, reason: item.reason ?? 'read_failed'}); continue; }
-    const fitted = fitView(item.view, item.focus === 'scene_text' || item.focus === 'person_text' ? SCENE_TEXT_VIEW_BYTES : CARRIED_VIEW_BYTES,
-      item.held ? HELD_ANSWER_FIELD_ORDER : FIELD_ORDER[item.focus] ?? []);
+    const fitted = item.focus === 'source_answer'
+      ? sourceAnswerPage(item.view, {focus: item.name ?? '', question: typeof item.view.question === 'string' ? item.view.question : '', canContinue: item.cached === true})
+      : fitView(item.view, item.focus === 'scene_text' || item.focus === 'person_text' ? SCENE_TEXT_VIEW_BYTES : CARRIED_VIEW_BYTES,
+        item.held ? HELD_ANSWER_FIELD_ORDER : FIELD_ORDER[item.focus] ?? []);
+    if ('unavailable' in fitted) { omitted.push({focus: item.focus, ...named, reason: 'budget', ...(item.held ? {held: true as const} : {})}); continue; }
     const omittedFields = [...(item.dropped ?? []), ...(fitted.omitted_fields ?? [])];
     const entry: CarriedView = {focus: item.focus, ...named, ...(item.id ? {id: item.id} : {}), view: fitted.view, read: item.read,
       ...(fitted.truncated || item.dropped?.length ? {truncated: true as const} : {}), ...(omittedFields.length ? {omitted_fields: omittedFields} : {}),
@@ -284,7 +288,9 @@ export const CARRIED_DOCUMENT = 'lookup kind=source reads the original document 
 export const CARRIED_ANSWERS_HEAD = 'A view with focus source_answer is a source consultation you asked for earlier that has come back since: the '
   + 'checked answer with its question, carried once and kept in the campaign memo (the same lookup returns it at once). It is a source '
   + 'consultation, not prepared material. One marked unavailable could not be read: that is the clerk\'s business, never the fiction or the '
-  + 'player\'s; play on without it.';
+  + 'player\'s; play on without it. A partial answer carries exact retained_parts with declared original ranges. It is incomplete delivery, '
+  + 'not a complete answer: use its read_next only to read the locally retained next page. A cache_unavailable marker supplies no continuation '
+  + 'and does not authorize a new source read. Reference passages remain Keeper-only until an ordinary authorized handout or document operation exposes them.';
 /**
  * §135.20.1 (SL-102): what the Keeper is told about a held answer. A turn's request keeps nothing of an earlier turn's notes or
  * tool results, so an answer handed at this scene on an earlier turn is carried again, once per turn, while the party stays.
