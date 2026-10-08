@@ -773,8 +773,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             if(judged&&judged.materials===finalDigest&&known(readNeeds(judged.answers,needView))){verdicts=readNeeds(judged.answers,needView);judgedBy='loop';}
             // The prescreen's existing whole-request answer on the final materials (present only when no read followed it):
             // sufficient holds every need; missing on a one-need line is that need.
-            else if(loopResult?.assessment&&judged?.materials===finalDigest
-                &&(loopResult.assessment.coverage==='sufficient'||loopResult.assessment.coverage==='missing'&&needs.length===1)){
+            else if(loopResult?.assessment&&(loopResult.assessment.coverage==='sufficient'||loopResult.assessment.coverage==='missing'&&needs.length===1)){
                 const choice=loopResult.assessment.coverage==='sufficient'?'held' as const:'missing' as const;
                 verdicts=needs.map((text,index)=>({need:index+1,text,choice}));judgedBy='coverage';
             }else if(batches>=providerBudget.actions)reason='provider_budget';
