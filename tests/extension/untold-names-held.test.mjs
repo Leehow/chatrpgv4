@@ -4,8 +4,12 @@
  * Table 20 of the installed App (Blood Road): the Keeper's capsule carried each untold person's book name in `untold.name`,
  * and the trucker's biography (a look result) mentioned the owner by his alias "拉斯", which the request's rename did not
  * cover. In one step without thinking the Keeper wrote "史蒂夫·布朗" and "拉斯·威廉姆斯" as epithets, and the prose then
- * said "史蒂夫" and "拉斯". Here: the roster carries every book name, aliases too; the Keeper's copy carries none; an epithet
- * carrying one, or a piece of one, is refused; and `{{name:<who>}}` puts the book's name into a delivery, which tells it.
+ * said "史蒂夫" and "拉斯". Here: the roster carries every book name, aliases too; an epithet carrying one, or a piece of one,
+ * is refused; and `{{name:<who>}}` puts the book's name into a delivery, which tells it.
+ *
+ * §194.1 (owner ruling 2026-10-08, two ledgers) supersedes items 1–2: the Keeper holds the book's names again (`book_name`
+ * beside the word, host messages and tool results as written), because on real table TR-F the words it was given instead
+ * were wrong and it retold the module from them. The exit gate (§177.11) is the guard against the name reaching the player.
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
@@ -50,7 +54,7 @@ test('§103.8: the roster carries every untold name, and leaves a name someone t
 	assert.ok(roster.every(row => row.shown === row.id), 'with no epithet yet, the handle stands in');
 });
 
-test('§103.8: the Keeper holds no book name; an epithet carrying one is refused; {{name:…}} says it and tells it', async t => {
+test('§103.8/§194.1: the Keeper holds the book names; an epithet carrying one is refused; {{name:…}} says it and tells it', async t => {
 	const home = await mkdtemp(join(temporary, 'real-'));
 	const kernel = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed: 'untold-names-held',
 		locks: api.nativeAdvisoryLocks(), env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
@@ -73,10 +77,13 @@ test('§103.8: the Keeper holds no book name; an epithet carrying one is refused
 		{role: 'custom', customType: 'coc-clerk', content: JSON.stringify({note: 'Steven Knott waits; Mr. Dooley sells papers.'}), display: false}];
 	const {messages: sent} = await hooks.get('context')({messages}, {model: {contextWindow: 1000000}});
 	const written = sent.filter(message => message.role !== 'user').map(message => JSON.stringify(message.content)).join('\n');
-	assert.ok(!written.includes('Steven Knott') && !written.includes('Mr. Dooley'), 'no book name anywhere the host wrote, untold.name included');
+	assert.ok(written.includes('Steven Knott waits; Mr. Dooley sells papers.'), '§194.1: the host\'s note reaches the Keeper with the book\'s names');
 	const capsule = JSON.parse(sent.find(message => message.customType === 'coc-capsule').content);
 	const row = capsule.present.find(person => person.untold && person.name === knott.id);
-	if (row) assert.equal('name' in row.untold, false, 'the untold block keeps no seat for the name');
+	if (row) {
+		assert.equal('name' in row.untold, false, 'the untold block keeps no second seat for the name');
+		assert.equal(row.book_name, 'Steven Knott', 'the row carries it beside the word');
+	}
 
 	// The refusal repeats the Keeper's own word and names no book name the word did not already carry.
 	const refused = async (who, name, book, k) => assert.rejects(call('table.apply', {call_id: `t${input._context.turn}-c${k}`, effects: [{kind: 'person', who, name}]}),

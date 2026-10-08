@@ -39193,3 +39193,36 @@ as another word tells nobody.
   reveals later.
 
 *Implementation decisions and tests are recorded per ticket below as they land (`docs/specs/two-ledgers-tickets.md`).*
+
+*TL-02 implementation decisions (2026-10-08).*
+
+- **One rename, handles only.** `renameHandles` (`extensions/kernel/untold-view.ts`) is `renameUntold` over the roster's
+  `handle: true` rows, with the roster's `protected` names; every former call site in `extensions/table/context-runtime.ts`
+  (the degraded request, the selected messages before the fit, the outgoing request, the early returns, the expression
+  packet and the prescreen copy) goes through it. `table.untold` is unchanged: it still returns every untold book name, which
+  the exit gate's shared-name check, the §188.3 undo and the `untold_rows` telemetry still read. In a name-free campaign
+  (§185.7) there are no handle rows, so the request is not rewritten at all.
+- **The request's judge is retired, not idled.** `extensions/table/untold-rename-judge.ts` (§177.15's "the request's
+  rename asks too") existed only to decide book-name places in the request, and a handle place was never asked about, so
+  with handles alone it had nothing left to ask. It is deleted; no `lane: "untold-spans", method: "request"` row is written
+  any more. The exit's Jev check (`extensions/kernel/untold-spans.ts`, `untold_cleared` on `table.narrate`/`table.ask`) is
+  untouched.
+- **The Keeper's view.** An untold row is `{name: <the table's word, else the handle>, book_name: <the book's display name>,
+  …, untold: {label?, say_name, use}}`; a present stub carries `book_name` the same way, and a first-sight row whose name
+  the view replaced carries `book_name` too (`firstSightPeople`). The untold block keeps no `name` seat of its own.
+  `UNTOLD_VIEW_USE` now says the investigator has not heard the name, the Keeper knows it as `book_name` so the story stays
+  true to the book, prose and say tokens use `name`, and `say_name` goes where the fiction has the name said; the "you do
+  not have it" wording is gone from it, from `untoldNote` (which now rides only after a handle was renamed and says the
+  book's name stands as written) and from `prompts/keeper.md`'s writing paragraph. The narrate `text` description never
+  carried that wording and is unchanged. The kernel's own short `use` line on the untold block (§115) is unchanged.
+- Tests: `tests/extension/untold-request.test.mjs` (real kernel and installed hooks: the clerk's note and a tool result
+  keep "Steven Knott", the capsule row is the word with `book_name`; with an epithet the handle and node id are the word
+  and the note rides; a new reader-built book with a cast: the capsule row and the kernel's own `look` result carrying
+  "Old Mae" reach the request unchanged with no note and no span judging, and `table.narrate` printing "Old Mae" is refused
+  `untold_name` the first time, then the copied `say_name` delivers and tells her); `untold-view.test.mjs` (`book_name`,
+  the use line, `renameHandles`); `untold-names-held.test.mjs`, `untold-name-spans.test.mjs`,
+  `protected-name-spans.test.mjs` (the request now carries the store owner's names as written; the gate cases unchanged;
+  the judge's case removed with the judge); `untold-name-disclosure.test.mjs` (the prompt says `book_name`, never "you do
+  not have the book's name"). Mutations: the full-roster rename in the hook (3 of 3 red in `untold-request`), no
+  `book_name` (red in `untold-request` and `untold-view`), no handle rows renamed (red in both), the old use line and the
+  old prompt sentence (red) — each reverted by copying the saved file back.

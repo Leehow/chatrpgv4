@@ -8,7 +8,8 @@
  *
  * `protectedNames` (the kernel) lists every whole name the investigator's side owns; `table.untold` carries it as `protected`.
  * The host rename, its §177.15 judge and the kernel's gate (`table.untold_spans`, the `untold_name` hold) skip every place that
- * overlaps one of those occurrences. Here, on the kernel in process and the context hooks as installed: a reader-built book
+ * overlaps one of those occurrences. §194.1 (2026-10-08): the request no longer renames book names at all and its judge is
+ * gone, so the request now carries the store owner's names as written beside the investigator's; the gate still holds them. Here, on the kernel in process and the context hooks as installed: a reader-built book
  * (name-free) whose store owner is printed 「丹尼尔·马瑟」, 「丹尼尔」 and 「丹尼」 and recorded with the alias 「丹」, and a starter
  * (legacy) whose investigator 「玛丽·斯通纳」 holds the untold 「玛丽·斯通」 whole.
  */
@@ -29,7 +30,6 @@ await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/c
 export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';
 export {createKernelRuntime} from './kernel-ts/registry.ts';
 export {untoldRoster, renameUntold} from './extensions/kernel/untold-view.ts';
-export {createRenameJudge} from './extensions/table/untold-rename-judge.ts';
 export {prosePlaces, untoldNamesSaid} from './kernel-ts/write/names.ts';
 export {toldTurn} from './kernel-ts/journal/naming.ts';
 export {prepareNameHistory} from './kernel-ts/journal/name-history.ts';
@@ -78,15 +78,6 @@ async function keeperRequest(home, campaign, call, input, text) {
 	return messages;
 }
 const textOf = message => typeof message.content === 'string' ? message.content : (message.content ?? []).map(part => part.text ?? '').join('');
-
-/** A decision port that answers every place "the name", keeping each place it was asked about (§177.15's marked text). */
-const namePort = asked => ({async decide(batch) {
-	const answers = Object.fromEntries(batch.questions.map(question => {
-		asked.push(batch.state.items[question.target].text);
-		return [question.key, {status: 'answered', type: 'noul', noul: 0.95}];
-	}));
-	return {batchId: batch.id, status: 'complete', answers, coverage: {required: [], answered: [], unknown: []}, issues: []};
-}});
 
 const INVESTIGATOR = '丹尼尔·怀特', OWNER = '丹尼尔·马瑟';
 const PAGES = ['The harbor dock smells of tar. 丹尼尔·马瑟 keeps the store; 丹尼尔 smokes at the door, and the regulars call him 丹尼.',
@@ -143,7 +134,7 @@ async function readerBuilt(t, book = DOCK, appearance) {
 	return {...k, call, ids};
 }
 
-test('§188.1 (name-free): the request keeps the investigator\'s name whole and still renames the untold name, the alias and the nickname', async t => {
+test('§188.1/§194.1 (name-free): the request keeps the investigator\'s name whole, and now the untold name, the alias and the nickname as written', async t => {
 	const h = await readerBuilt(t);
 	const answer = await h.call('table.untold');
 	const names = answer.people.map(row => row.name);
@@ -158,21 +149,7 @@ test('§188.1 (name-free): the request keeps the investigator\'s name whole and 
 	const sent = await keeperSees(h.home, 'c1', h.call, input, `${INVESTIGATOR} 在码头遇见了 ${OWNER}。丹说今天不开张，丹尼也这么说。`);
 	assert.ok(sent.startsWith(`${INVESTIGATOR} 在码头遇见了 `), `the investigator's name reaches the Keeper whole: ${sent}`);
 	assert.equal(sent.split(INVESTIGATOR).length, 2, 'exactly once, as written');
-	assert.ok(!sent.includes(OWNER), `the store owner's full name is renamed: ${sent}`);
-	assert.ok(!sent.includes('丹说') && !sent.includes('丹尼也'), `the lone alias and the nickname are renamed elsewhere: ${sent}`);
-	assert.ok(!/丹/.test(sent.slice(INVESTIGATOR.length)), `no 丹 is left outside the investigator's name: ${sent}`);
-});
-
-test('§188.1 (name-free): the rename\'s judge is never asked about a place inside a protected name', async t => {
-	const h = await readerBuilt(t);
-	const roster = api.untoldRoster(await h.call('table.untold')), asked = [];
-	const judge = api.createRenameJudge({record: () => {}, decision: () => namePort(asked)});
-	const messages = [{role: 'toolResult', toolCallId: 'a', toolName: 'lookup', content: [{type: 'text', text: `${INVESTIGATOR}在码头遇见了${OWNER}。丹说今天不开张。`}]}];
-	await judge.prepare(messages, roster);
-	assert.equal(asked.length, 2, `the full name and the lone alias, and nothing inside the investigator's name: ${JSON.stringify(asked)}`);
-	assert.ok(asked.every(text => !text.includes('⟦丹⟧尼尔·怀特') && !text.includes('⟦丹尼⟧尔·怀特')), JSON.stringify(asked));
-	const [renamed] = api.renameUntold(messages, roster, judge.keep);
-	assert.ok(renamed.content[0].text.startsWith(`${INVESTIGATOR}在码头遇见了`), renamed.content[0].text);
+	assert.equal(sent, `${INVESTIGATOR} 在码头遇见了 ${OWNER}。丹说今天不开张，丹尼也这么说。`, `§194.1: the book's names reach the Keeper as written: ${sent}`);
 });
 
 test('§188.1 (name-free): the gate holds the untold name and never a name inside the investigator\'s', async t => {
@@ -227,8 +204,7 @@ test('§188.1 (legacy): a starter\'s investigator holding an untold name whole k
 	assert.ok(!after.protected.includes('玛丽·斯通') && !after.protected.includes('斯通'), 'the untold person\'s names are not');
 
 	const sent = await keeperSees(k.home, 'c1', call, input, '玛丽·斯通纳 在窗边看见了 玛丽·斯通。斯通没有回头。');
-	assert.ok(sent.startsWith('玛丽·斯通纳 在窗边看见了 '), `the investigator's name reaches the Keeper whole: ${sent}`);
-	assert.ok(!sent.includes('玛丽·斯通。') && !sent.includes('斯通没有'), `the untold name and its piece are renamed elsewhere: ${sent}`);
+	assert.equal(sent, '玛丽·斯通纳 在窗边看见了 玛丽·斯通。斯通没有回头。', `§194.1: the investigator's name and the untold name both reach the Keeper as written: ${sent}`);
 	const own = await call('table.narrate', {call_id: `t${input._context.turn}-c1`, text: '玛丽·斯通纳把伞靠在门边。'});
 	assert.match(own.rendered_text, /玛丽·斯通纳把伞靠在门边/);
 });
@@ -349,7 +325,7 @@ test('§188.1 (investigator\'s pieces): his given name alone stays whole in the 
 	assert.ok(sheet.every(text => text.includes('丹尼尔受托寻找她')), `the sheet's words reach the Keeper as written: ${sheet.map(text => text.slice(text.indexOf('受托') - 30, text.indexOf('受托') + 6))}`);
 	const result = textOf(messages.find(message => message.role === 'toolResult'));
 	assert.ok(result.includes('丹尼尔受托寻找她'), result);
-	assert.ok(!result.includes(OWNER) && !result.includes('丹说'), `the store owner's full name and a lone alias are still renamed: ${result}`);
+	assert.ok(result.includes(OWNER) && result.includes('丹说'), `§194.1: the store owner's full name and a lone alias reach the Keeper as written: ${result}`);
 
 	// The gate: 「丹尼尔」 alone means the investigator; the nickname 「丹尼」 inside it is no untold place.
 	assert.deepEqual((await h.call('table.untold_spans', {text: '丹尼尔走进杂货店。'})).spans, []);

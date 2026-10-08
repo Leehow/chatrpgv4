@@ -1,6 +1,7 @@
 /**
  * Contract §177.15: the places a text writes an untold person's printed name are asked of Jev -- the name, or part of another
- * word -- before the delivery gate reads them and before the request's rename rewrites them.
+ * word -- before the delivery gate reads them. §194.1 (2026-10-08): the request's rename no longer touches book names, so it
+ * asks nothing; the gate is the one reader of these answers.
  *
  * Table 27 (App e634c3eb0, Blood Road, turn 8): the Keeper wrote Dallas in Chinese, whose last two characters are the station
  * owner's printed nickname. The gate refused it, quoting the name, which the request then renamed into the owner's word; the
@@ -14,8 +15,7 @@ import test from 'node:test';
 import {build} from 'esbuild';
 import {KernelClient} from '../../extensions/kernel/client.ts';
 import {createUntoldSpanJudge, judgePlaces, UNTOLD_HOST_PARAMS} from '../../extensions/kernel/untold-spans.ts';
-import {createRenameJudge} from '../../extensions/table/untold-rename-judge.ts';
-import {renameUntold} from '../../extensions/kernel/untold-view.ts';
+import {renameHandles} from '../../extensions/kernel/untold-view.ts';
 import {NAME_SPAN_AT, nameSpanBatch} from '../../runtime/jev/untold-name-spans.ts';
 import {playtestScratch} from './playtest-scratch.mjs';
 
@@ -110,33 +110,16 @@ test('§177.15: many places go in several requests; a place the packer refuses a
 	assert.equal(judged.partial, 'packing_limit');
 });
 
-test('§177.15: the request keeps a place Jev judges part of another word, renames the name and every handle, and decides each place once', async () => {
-	const seen = [];
+test('§194.1: the request keeps the city and the nickname as written and asks nothing; only the handle is shown as the word', () => {
 	const roster = [{name: NICK, shown: OWNER, id: 'lars'}, {name: 'book-4-lars-williams', shown: OWNER, id: 'lars', handle: true}];
-	const judge = createRenameJudge({record: () => {}, decision: () => port(cityIsNoName, seen)});
 	const result = `他离开了${CITY}。${NICK}身材高瘦。 npc:book-4-lars-williams-t1-c2`;
 	const messages = [{role: 'toolResult', toolCallId: 'a', toolName: 'lookup', content: [{type: 'text', text: result}]},
 		{role: 'user', content: `寄到${CITY}`}];
-	await judge.prepare(messages, roster);
-	const [sent, user] = renameUntold(messages, roster, judge.keep);
-	const text = sent.content.map(part => part.text).join('\n');
-	assert.ok(text.includes(`离开了${CITY}。${OWNER}身材`), `the city stands, the name is renamed: ${text}`);
-	assert.ok(text.includes(`npc:${OWNER}-t1-c2`), 'a handle is renamed wherever it stands');
-	assert.equal(seen.length, 1);
-	assert.equal(seen[0].questions.length, 2, 'the handle is never asked about');
-	assert.equal(user.content, `寄到${CITY}`, 'the player\'s words are theirs');
-	await judge.prepare(messages, roster);
-	assert.equal(seen.length, 1, 'a place decided once is not asked again, so the request stays the same');
-
+	const [sent, user] = renameHandles(messages, roster);
+	assert.equal(sent.content[0].text, `他离开了${CITY}。${NICK}身材高瘦。 npc:${OWNER}-t1-c2`, 'the book\'s nickname stands; the handle is the word');
+	assert.equal(user, messages[1], 'the player\'s words are theirs');
 	const cityOnly = [{role: 'toolResult', toolCallId: 'b', toolName: 'lookup', content: [{type: 'text', text: `他离开了${CITY}。`}]}];
-	await judge.prepare(cityOnly, roster);
-	assert.deepEqual(renameUntold(cityOnly, roster, judge.keep), cityOnly, 'nothing renamed: no untold-names note either');
-
-	const down = createRenameJudge({record: () => {}, decision: () => ({async decide(batch) {
-		return {batchId: batch.id, status: 'unavailable', answers: {}, coverage: {required: [], answered: [], unknown: []}, issues: [], failure: {code: 'service_error', retryable: true}};
-	}})});
-	await down.prepare(messages, roster);
-	assert.ok(renameUntold(messages, roster, down.keep)[0].content[0].text.includes(`离开了达${OWNER}`), 'without an answer every place is renamed, as before');
+	assert.deepEqual(renameHandles(cityOnly, roster), cityOnly, 'nothing renamed: no untold-names note either');
 });
 
 test('§177.15: the client runs the host hook inside its queue, and the hook reaches the kernel past it', async t => {

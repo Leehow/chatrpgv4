@@ -7,7 +7,7 @@ Spec: `docs/specs/two-ledgers.md`. Contract: `docs/kernel-rpc.md` §194. Integra
 Status: done (lead)
 
 ## TL-02 The truth ledger: the request carries book names
-Status: ready-for-agent
+Status: done (claude/two-ledgers-a-20261008)
 
 - `extensions/table/context-runtime.ts`: the request no longer renames untold people's book names (every
   `renameUntold` call site). Handle rows (§176.8, `handle: true`) are still renamed to the table's word wherever they
