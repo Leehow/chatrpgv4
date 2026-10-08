@@ -8,7 +8,7 @@ import { incapacitatedBy } from "../healing/conditions.js";
 import { namePieces } from "../journal/naming.js";
 import { prepareNameHistory } from '../journal/name-history.js';
 import { isTold, tableWord } from "./person-words.js";
-import { bookCast, knownNamePieces, tellGuard, untoldUnread, type CastPerson } from "./cast.js";
+import { bookCast, isPublicFigure, knownNamePieces, tellGuard, untoldUnread, type CastPerson } from "./cast.js";
 import { nameToken } from "../write/names.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
 import {personalityView} from '../npc/material.js';
@@ -199,8 +199,9 @@ export function calledBlock(world: Row, id: string, authored: string): Row | nul
 /** The reminder starts before the first delivery, not after the asynchronous journal writes a label.
  * Committed deliveries and the lane's `named_at` ground disclosure; a table epithet is not disclosure. */
 export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: Row, records: Iterable<Row> = []): Row | null {
-    // §180.3: a creature has no name to learn, so it is never untold and never carries `say_name`.
-    if (!graph.isPerson(node))
+    // §180.3: a creature has no name to learn, so it is never untold and never carries `say_name`. §194.5: nor has a real public
+    // figure the book only mentions as such.
+    if (!graph.isPerson(node) || isPublicFigure(graph, node))
         return null;
     const entry = row(row(journal.entries)[string(node.node_id)]);
     // §188.2: told as the individual the cast holds them as, though the graph has them more than once. §188.1: an occurrence

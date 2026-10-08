@@ -17,6 +17,7 @@ import { TaskLease } from "../../runtime/jev/task-context.ts";
 import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
 import { NAME_SPAN_AT, NAME_SPANS_FAMILY, NAME_SPANS_PER_BATCH, NAME_SPANS_PER_CALL, NAME_SPANS_WAIT_MS, judgeNameSpans, markSpan, nameSpanBatch, nameSpanBindings, type NameSpan } from "../../runtime/jev/untold-name-spans.ts";
 import { packDecisionBatch } from "../../runtime/jev/question-packing.ts";
+import type { PublicFigureJudge } from "./public-figures.ts";
 
 type Row = Record<string, unknown>;
 type Span = { name: string; nth: number; start: number; end: number };
@@ -66,7 +67,9 @@ export async function judgePlaces(spans: readonly NameSpan[], decision: Decision
 	return { names, ...(reasons.length || spans.length > NAME_SPANS_PER_CALL ? { partial: reasons[0] ?? "per_call_limit" } : {}) };
 }
 
-export function createUntoldSpanJudge(deps: { decision: () => DecisionPort | undefined; record: (row: Row) => void; waitMs?: number }) {
+export function createUntoldSpanJudge(deps: { decision: () => DecisionPort | undefined; record: (row: Row) => void; waitMs?: number;
+	/** §194.5: judge the cast rows no public-figure verdict covers yet; true when a verdict was kept, so the places are asked again. */
+	publicFigures?: PublicFigureJudge }) {
 	/** `KernelClientOptions.prepareCall`: the delivering call's params with the host's `untold_cleared`. */
 	return async function prepareCall(method: string, params: Row, direct: (method: string, params: Row) => Promise<unknown>): Promise<Row> {
 		if (!DELIVERING.has(method)) return params;
@@ -82,7 +85,10 @@ export function createUntoldSpanJudge(deps: { decision: () => DecisionPort | und
 				.map(span => ({ name: span.name, nth: span.nth, text: markSpan(text, span.start, span.end) }));
 			let places: Place[] = [];
 			try {
-				const answer = (await direct("table.untold_spans", { campaign: own.campaign, text })) as Row;
+				let answer = (await direct("table.untold_spans", { campaign: own.campaign, text })) as Row;
+				// §194.5: the cast has rows nobody has judged yet; a public figure among them is no untold person, so judge them first.
+				if (answer?.public_pending === true && campaign && deps.publicFigures && await deps.publicFigures(campaign, direct, { wait: false }))
+					answer = (await direct("table.untold_spans", { campaign: own.campaign, text })) as Row;
 				places = spansOf(answer);
 				// §194.3: the documents this turn hands over, each place keyed by its handout and shown in the document's own words.
 				for (const document of Array.isArray(answer?.documents) ? answer.documents as Row[] : []) {

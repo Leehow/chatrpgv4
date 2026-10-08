@@ -1427,7 +1427,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const { places } = await untoldPlaces(snapshot, module.graph, text, speakers, told);
         return { spans: places.map(place => ({ name: place.name, nth: place.nth, start: place.start, end: place.end })),
             ...(documents.length ? { documents: documents.map(document => ({ handout: document.handout, text: document.text,
-                spans: document.places.map(place => ({ name: place.name, nth: place.nth, start: place.start, end: place.end })) })) } : {}) };
+                spans: document.places.map(place => ({ name: place.name, nth: place.nth, start: place.start, end: place.end })) })) } : {}),
+            // §194.5: the cast has rows no public-figure verdict covers yet; the host judges them (`cast.public.job`) and asks again.
+            ...(module.graph.castPublic?.pending ? { public_pending: true } : {}) };
     }
     async function narrate(params: Row, report?: ProgressReporter): Promise<Row> {
         // §135.31: the turn's Keeper reads ride on the delivery for its record; they are not part of the call's digest.

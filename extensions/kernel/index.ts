@@ -102,6 +102,8 @@ import { readJevApiKey } from "../jev/agent/config.js";
 import { createUntoldSpanJudge, UNTOLD_HOST_PARAMS } from "./untold-spans.ts";
 import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
 import { NAME_SPANS_FAMILY } from "../../runtime/jev/untold-name-spans.ts";
+import { PUBLIC_FIGURES_FAMILY } from "../../runtime/jev/public-figures.ts";
+import { createPublicFigureJudge } from "./public-figures.ts";
 import { PendingAnswers, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs, type SourceAnswerScope } from "./source-answers.ts";
 import {sourceAnswerPage} from '../../runtime/jev/source-answer-pages.ts';
 import { PERSON_TEXT_NOTE, SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
@@ -1676,12 +1678,16 @@ export default function (pi: ExtensionAPI) {
 	const firstSightLane = createFirstSightLane(pi, { ctx: () => sessionCtx, campaign: () => table?.campaign });
 
 	// Contract §177.15: the places a delivery writes an untold person's name are asked of Jev before the kernel's gate reads them.
+	// §194.5: the same adapter asks whether each cast row is a public figure of the world outside the story (`cast.public.job`).
 	let untoldSpanPort: DecisionPort | undefined;
-	const untoldSpanJudge = createUntoldSpanJudge({ record: (row) => void record(row), decision: () => {
+	const decision = (): DecisionPort | undefined => {
 		if (!readJevApiKey(process.env)) return undefined;
 		return untoldSpanPort ??= createDecisionAdapter({ env: process.env, maxConcurrency: 4, retryPolicies: {
-			[NAME_SPANS_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } } });
-	} });
+			[NAME_SPANS_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 },
+			[PUBLIC_FIGURES_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } } });
+	};
+	const publicFigureJudge = createPublicFigureJudge({ record: (row) => void record(row), decision });
+	const untoldSpanJudge = createUntoldSpanJudge({ record: (row) => void record(row), decision, publicFigures: publicFigureJudge });
 
 	// ---- Telemetry --------------------------------------------------------
 	type MessageShape = { messages: number; output_text: number; refusal: number; other: number; text_bytes: number; refusal_bytes: number };
@@ -6289,6 +6295,8 @@ export default function (pi: ExtensionAPI) {
 			};
 			const open = await kernel.call<OpenResult>("table.open", { campaign });
 			applyOpen(open);
+			// §194.5: the cast rows nobody has judged yet, in the background; a delivery that meets them first judges them itself.
+			void publicFigureJudge(campaign, (method, params) => kernel.call(method, params)).catch(() => undefined);
 			table.playLanguage = asString(open.campaign?.play_language);
 			pi.appendEntry("coc-session", {campaign, home: cocHome(ctx.cwd), play_language: table.playLanguage, mode: "play"});
 			// The startup record: which run engine and which Pi this table runs on (single-loop spec, story 35).

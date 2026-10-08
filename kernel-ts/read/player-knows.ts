@@ -58,13 +58,14 @@ function knownPeople(graph: ModuleGraph, world: Row, journal: Row, records: Row[
         const entries = person.nodes.map(each => row(journal.entries)[string(each.node_id)]).filter(entry => entry && typeof entry === "object").map(row);
         const handles = person.nodes.map(each => graph.handle(each));
         const untold = untoldBlock(graph, world, journal, node, history);
-        if (untold && !entries.length && !handles.some(labelled) && !handles.some(handle => seen.has(handle))) return;
+        const met = entries.length > 0 || handles.some(labelled) || handles.some(handle => seen.has(handle));
+        if (untold && !met) return;
         const book = graph.displayName(node);
         let at = Math.max(-1, ...entries.flatMap(entry => [entry.last_seen_turn, entry.named_at].filter(integer).map(value => number(value))));
-        if (!untold) {
-            const said = toldTurn(graph, node, history, Infinity, ownedBy(graph, node));
-            if (said !== null) at = Math.max(at, said);
-        }
+        const said = untold ? null : toldTurn(graph, node, history, Infinity, ownedBy(graph, node));
+        if (said !== null) at = Math.max(at, said);
+        // §194.5: a public figure is never untold; they are in the investigator's ledger once met or once a delivery named them.
+        if (person.public && !met && said === null) return;
         out.push({ row: untold ? { word: rosterWord(graph, world, journal, person), untold: true, book_name: book }
             : { word: personLabel(world, graph.handle(node), book), name: book }, at, order });
     });
