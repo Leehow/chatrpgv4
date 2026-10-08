@@ -63,21 +63,40 @@ test("the Globe's first sight carries the book's offices and both of its people"
     assert.ok(!capsule.first_sight.place.described.includes('boiler'));
 });
 
-test("the basement's rooms are the where section's places; the ground floor's wait on the where cut order", async () => {
+test("each floor's rooms are the where section's places, and the house keeps every road", async () => {
     const t = await table();
     for (const scene of ['central-library', 'newspaper-morgue', 'neighborhood-gossip', 'corbitt-house-ground'])
         await t.play(scene);
     const ground = await t.capsule();
     assert.equal(ground.where.scene, 'corbitt-house-ground');
-    // Its seven roads all survive the 4096-byte budget after a four-scene trail; attaching its six rooms cut three of them.
     const roads = graph.relations.filter(relation => relation.relation_kind === 'route-to' && relation.from_node_id === 'scene-corbitt-house-ground');
     assert.equal(ground.where.exits.length, roads.length);
-    assert.deepEqual(ground.where.places, []);
-    assert.equal(graph.relations.filter(relation => relation.relation_kind === 'located-in' && relation.to_node_id === 'location-corbitt-house-ground-floor').length, 6);
+    assert.deepEqual(ground.where.places.map(place => place.name), ['Storage room', 'Second storage room', 'Mud room', 'Living room', 'Dining room', 'Kitchen']);
     await t.play('basement-rites');
     const basement = await t.capsule();
     assert.deepEqual(basement.where.places.map(place => place.name), ['Basement storage room', 'Coal bin', 'Crawl space behind the boards', "Corbitt's hiding place"]);
     assert.equal(basement.where.places[0].line, node('location-basement-storage').summary);
+});
+
+// §13.1.1 (decision G): over budget, the compact where gives up the trail, then the places, before any exit.
+test('on the long walk the trail is cut before a single exit', async () => {
+    const walk = ['chapel-of-contemplation-ruins', 'higher-courts-central-police', 'hall-of-records', 'central-library', 'newspaper-morgue',
+        'neighborhood-gossip', 'previous-tenants', 'corbitt-house-ground'];
+    const t = await table();
+    const seen = new Map();
+    for (const scene of walk) {
+        await t.play(scene);
+        seen.set(scene, await t.capsule());
+    }
+    for (const scene of ['chapel-of-contemplation-ruins', 'corbitt-house-ground']) {
+        const where = seen.get(scene).where;
+        const roads = graph.relations.filter(relation => relation.relation_kind === 'route-to' && relation.from_node_id === `scene-${scene}`);
+        assert.equal(where.exits.length, roads.length, `${scene}: ${where.exits.map(exit => exit.to)}`);
+    }
+    const house = seen.get('corbitt-house-ground');
+    assert.ok(house.truncated.includes('where'), 'the walk is long enough to put the house over budget');
+    assert.ok(house.where.back.length >= 1 && house.where.back.length < walk.length, JSON.stringify(house.where.back));
+    assert.equal(house.where.back[0].to, 'previous-tenants');
 });
 
 test('the checks the book names reach the clue gates', async () => {

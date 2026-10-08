@@ -1,8 +1,8 @@
 {
   "module_id": "the-haunting",
   "play_language": "zh-Hans",
-  "graph_sha256": "d0ad450abf60f8cb9a608179bdb25e7eccf19cba1f4fccaa9edbe25d6db690b8",
-  "fingerprint": "19bf48edc4ef02eb4b8158111fe00c1a40bbdfe23a32b54a984b5dfb3d0815e2",
+  "graph_sha256": "23bec3aca57c30b8e76932fa64b6e4478c7dfc9dd1866bc5f698ec5d19ff292e",
+  "fingerprint": "f564f5206ac4c0bee82f87d68a929b117fd2cd2d5b14db293bd3df15b5d7de02",
   "approved": true,
   "guidance": {
     "opening": "一九二〇年秋，波士顿。你被一位房东约到他的事务所：他刚继承一栋老宅，房客住不久，他想见见你这个被请来帮忙的人。纸页和墨水味铺在桌上。\n\n房东史蒂文·诺特把帽子搁到椅背上，朝你点点头。「地方空着，名声也坏了。我按天雇人，弄清楚里头到底怎么回事，好让人肯再住进去。你不是来听我抱怨的——我要的是能出门办事的人。」\n\n他推开一叠租约，双手交叠，看着你。「先说说，你是谁？平时靠什么吃饭？随便讲讲就行。」",

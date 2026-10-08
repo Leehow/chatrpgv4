@@ -21933,6 +21933,29 @@
       ]
     },
     {
+      "claim_id": "claim-occurs-at-corbitt-house-ground",
+      "subject_id": "scene-corbitt-house-ground",
+      "predicate": "occurs-at",
+      "object": {
+        "node_id": "location-corbitt-house-ground-floor"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
+      "source_refs": [
+        {
+          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+          "pdf_index": 453,
+          "grep_anchor": "Ground Floor"
+        }
+      ]
+    },
+    {
       "claim_id": "claim-occurs-at-upper-floor-bedroom",
       "subject_id": "scene-upper-floor-bedroom",
       "predicate": "occurs-at",
@@ -25837,6 +25860,14 @@
       "from_node_id": "location-basement-hiding-place",
       "to_node_id": "location-corbitt-house-basement",
       "claim_id": "claim-located-in-basement-hiding-place",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-occurs-at-corbitt-house-ground",
+      "relation_kind": "occurs-at",
+      "from_node_id": "scene-corbitt-house-ground",
+      "to_node_id": "location-corbitt-house-ground-floor",
+      "claim_id": "claim-occurs-at-corbitt-house-ground",
       "properties": {}
     },
     {

@@ -300,7 +300,7 @@ HG_PLACES = ("basement-coal-bin", "basement-crawl-space", "basement-hiding-place
              "ground-mud-room", "ground-second-storage-room", "ground-storage-room", "upper-bathroom", "upper-childrens-bedroom",
              "upper-main-bedroom", "upper-spare-bedroom")
 HG_LINKS = ([f"located-in-{place}" for place in HG_PLACES]
-            + [f"occurs-at-{scene}" for scene in ("basement-rites", "corbitt-confrontation", "upper-floor-bedroom")]
+            + [f"occurs-at-{scene}" for scene in ("basement-rites", "corbitt-confrontation", "corbitt-house-ground", "upper-floor-bedroom")]
             + [f"route-to-{scene}-chapel" for scene in ("hall-of-records", "higher-courts-central-police", "neighborhood-gossip")])
 HG_CHANGES = sorted(
     [f"/nodes[scene-{scene}]/{key}" for scene in HG_SCENES for key in ("summary: changed", "properties/description: added")]
