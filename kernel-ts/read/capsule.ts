@@ -1,14 +1,14 @@
 /** Keeper and player read projections preserve the existing authored/state boundary. */
 import { pythonJsonDumps, compareUnicode, isJsonObject } from "../json.js";
 import { RpcError } from "../errors.js";
-import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionStatus, dossierLabels } from "./module-graph.js";
+import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionStatus, dossierLabels, isAmbiguity } from "./module-graph.js";
 import { entries, values, array, row, number, integer, truth, string, normalize, chars, length, words, clone, repr, type Row } from "./values.js";
 import { clueGate, structureType } from "./director.js";
 import { incapacitatedBy } from "../healing/conditions.js";
-import { namePieces, toldTurn } from "../journal/naming.js";
+import { namePieces } from "../journal/naming.js";
 import { prepareNameHistory } from '../journal/name-history.js';
-import { tableWord } from "./person-words.js";
-import { bookCast, knownNamePieces, untoldUnread } from "./cast.js";
+import { isTold, tableWord } from "./person-words.js";
+import { bookCast, knownNamePieces, tellGuard, untoldUnread, type CastPerson } from "./cast.js";
 import { nameToken } from "../write/names.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
 import {personalityView} from '../npc/material.js';
@@ -75,7 +75,8 @@ export function calledOwners(world: Row, name: string): string[] {
  * the Keeper meant is not something a record can answer, so it is refused, never picked.
  */
 export function calledPerson(graph: ModuleGraph, world: Row, name: string): Row | null {
-    const owners = calledOwners(world, name).flatMap(id => { const node = graph.find(id, ['npc']); return node ? [node] : []; });
+    // §192.3: two ids that read as one person (a copy's handle and the handle of the node that stands for it) are one owner.
+    const owners = [...new Map(calledOwners(world, name).flatMap(id => { const node = graph.find(id, ['npc']); return node ? [[string(node.node_id), node] as [string, Row]] : []; })).values()];
     if (owners.length > 1)
         throw new RpcError('unknown_entity', `this table calls more than one person ${repr(name)}`, {
             fix: 'name one of details.candidates by its name; apply person gives one of them another word',
@@ -108,6 +109,52 @@ export function npcNode(graph: ModuleGraph, world: Row, name: string): Row {
             return called;
         throw error;
     }
+}
+/**
+ * Contract §188.4 (from §185.2's cash counterparty): the same junction for a field that may also be free text -- a cash
+ * counterparty, an owed row's `with`, the giver of an item. The graph's npc, then this table's word; `null` on a plain
+ * miss, which the entrance keeps as written. The graph's ambiguity and a word two people carry are refused, never picked.
+ */
+export function referencedPerson(graph: ModuleGraph, world: Row, name: string): Row | null {
+    try {
+        return graph.npc(name);
+    }
+    catch (error) {
+        if (!(error instanceof RpcError))
+            throw error;
+        const called = calledPerson(graph, world, name);
+        if (called)
+            return called;
+        if (error.code !== 'unknown_entity' || isAmbiguity(error))
+            throw error;
+        return null;
+    }
+}
+/**
+ * Contract §188.4: whether a stored reference and another name one person -- the same string, or one npc node when both are
+ * read through `referencedPerson` (a handle, an interim handle, the book's name, this table's word, §185.3's retry). A value
+ * that names nobody, or two people, matches only its own spelling. For a reader that compares stored state and has no
+ * graph of its own (`memory/fulfillment-view.ts`).
+ */
+export function samePersonReference(graph: ModuleGraph, world: Row): (stored: unknown, other: string) => boolean {
+    const node = (value: unknown): Row | null => {
+        if (typeof value !== 'string' || !value.trim())
+            return null;
+        try {
+            return referencedPerson(graph, world, value.trim());
+        }
+        catch (error) {
+            if (error instanceof RpcError)
+                return null;
+            throw error;
+        }
+    };
+    return (stored, other) => {
+        if (stored === other)
+            return true;
+        const a = node(stored), b = a ? node(other) : null;
+        return !!a && !!b && a.node_id === b.node_id;
+    };
 }
 /**
  * Contract §180.5: the junction of an entrance a creature fills too -- the NPC act's reads (`npc.situation`,
@@ -156,7 +203,9 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
     if (!graph.isPerson(node))
         return null;
     const entry = row(row(journal.entries)[string(node.node_id)]);
-    if (integer(entry.named_at) || toldTurn(graph, node, records) !== null)
+    // §188.2: told as the individual the cast holds them as, though the graph has them more than once. §188.1: an occurrence
+    // inside an investigator's registered name or another person's word at this table tells nobody.
+    if (isTold(graph, journal, node, prepareNameHistory(records, tellGuard(graph, world, journal))))
         return null;
     // §176.1/§176.4: the table's word (what the fiction established, else the epithet), else the journal's label.
     const label = (tableWord(world, graph.handle(node)) || string(entry.label || "")).trim();
@@ -188,8 +237,18 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
  * §103.8: one row for each name the book gives them, aliases too. Table 20 (2026-10-03): the trucker's biography said he
  * fakes helping the owner with the cars, calling him by an alias the graph records, and only the display name was renamed.
  */
-export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, records: Row[]): Row[] {
-    const history = prepareNameHistory(records);
+export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, records: Iterable<Row>): Row[] {
+    return untoldRosterNames(graph, world, journal, records)
+        .map(entry => ({ name: entry.name, id: entry.ids[0], shown: joinedWord(entry.shown), ...(entry.handle ? { handle: true } : {}) }));
+}
+/**
+ * §188.8: the word a name several untold people share is shown by in the Keeper's request (§177.4): each owner's word, joined.
+ * Built here alone; the delivery gate finds it in a text by this exact string (`write/shared-untold.ts`), never by its form.
+ */
+export const joinedWord = (words: readonly string[]): string => words.join(" / ");
+/** §188.8: `untoldRoster`'s rows as the one builder gives them, each owner's word apart, for the gate's shared names. */
+export function untoldRosterNames(graph: ModuleGraph, world: Row, journal: Row, records: Iterable<Row>): RosterName[] {
+    const history = prepareNameHistory(records, tellGuard(graph, world, journal));
     // §177.4: the whole cast -- the graph's people with every name the cast gives them, and the people the book names whom
     // the reader has not reached, untold until a delivery shows one of their names. Table 23's turn 9 had 54 people in the
     // graph; a page carried for a scene could name someone else, and that name reached the Keeper as printed.
@@ -198,33 +257,56 @@ export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, recor
     // A name someone the investigator already knows also goes by stays theirs: hiding it would hide them. The investigators
     // themselves are known (§185.13): table 30's investigator shared a first name with the untold store owner.
     const known = knownNamePieces(graph, people.filter(entry => !entry.untold).map(entry => entry.person));
+    const untold = people.flatMap(({ person, untold }) => untold ? [{ person, shown: rosterWord(graph, world, journal, person) }] : []);
+    return rosterNames(graph, untold, known);
+}
+/**
+ * §103.5/§176.1/§177.4: the word the request's rename shows a person of the cast by -- this table's word for them, else, for a
+ * graph person, the journal's label, else their handle (a graph person) or the cast row's id (an unread one), which is opaque.
+ * `untoldRoster` shows the untold by it; §188.3's undo (`read/rename-undo.ts`) reads it back for everyone.
+ */
+export function rosterWord(graph: ModuleGraph, world: Row, journal: Row, person: CastPerson): string {
+    if (!person.node)
+        return tableWord(world, person.id) || person.id;
+    // §188.2: an individual the graph holds more than once is shown by one word: their first node's, the node `resolve` lands
+    // on (`ModuleGraph.survivorOf`, §192.3), else the first other copy's that has one.
+    const word = (node: Row) => (tableWord(world, graph.handle(node)) || string(row(row(journal.entries)[string(node.node_id)]).label || "")).trim();
+    return person.nodes.map(word).find(Boolean) || person.id;
+}
+/** One string the request's rename replaces: the words of everyone who carries it (§177.4), their ids, and whether it is a handle row. */
+export interface RosterName { readonly name: string; readonly shown: readonly string[]; readonly ids: readonly string[]; readonly handle: boolean }
+/**
+ * What the request's rename replaces for `people`, each shown by the word given beside them, `known` names left out. The one
+ * builder of the roster's rows: `untoldRoster` hands it the untold, §188.3's undo hands it the whole cast.
+ */
+export function rosterNames(graph: ModuleGraph, people: readonly { person: CastPerson; shown: string }[], known: ReadonlySet<string>): RosterName[] {
     // §176.5: the pieces a name separates with punctuation are renamed too. Table 23 (turn 5): the book's own scene summary
     // said the three men under the awning were "Lars, Nate and Steve" by first name; the whole names and the aliases were
     // renamed, the bare first names were not, and the Keeper wrote one of them.
     // §177.4 (table 24): a name or piece two untold people share was left alone, as naming neither for certain; with the
     // whole cast read, the bar owner and the doctor shared a first name, and it reached the Keeper as printed. A name two
     // untold people share is still a name: it is shown as both their words, "A / B", which hides it and blames nobody.
-    const owners = new Map<string, { name: string; shown: string[]; id: string; handle: boolean }>();
-    for (const { person, untold } of people) {
-        if (!untold) continue;
+    const owners = new Map<string, { name: string; shown: string[]; ids: string[]; handle: boolean }>();
+    for (const { person, shown } of people) {
         const node = person.node, id = person.id;
-        // §177.4: an unread person is shown by the word the lane gave them, else by the row's id, which is opaque (no slug).
-        const shown = node ? string(untold.label || "").trim() || id : tableWord(world, id) || id;
         // §176.5: a handle is the book's name as a slug, so the handle and the node id are renamed too, once there is a word.
         // §185.7: not in a name-free campaign, whose handles carry no name; the rename there touches names only.
-        const slugs = graph.nameFree || !node || shown === id ? [] : [string(node.node_id), id].filter((value, at, all) => value && all.indexOf(value) === at);
+        // §188.2: every node of an individual the graph holds more than once.
+        const slugs = graph.nameFree || !node || shown === id ? [] : person.nodes.flatMap(each => [string(each.node_id), graph.handle(each)])
+            .filter((value, at, all) => value && all.indexOf(value) === at);
         const names = person.names;
         for (const name of [...names, ...namePieces(names).filter(piece => !names.includes(piece)), ...slugs]) {
             // Keyed by the exact string the rename replaces: a handle normalizes to its name ("steven-knott") and is its own row.
             const key = name.trim();
             if (!key || known.has(normalize(name))) continue;
             // §177.15: a handle row is machine text, renamed wherever it stands; only a name's places are asked about.
-            const entry = owners.get(key) ?? { name, shown: [], id, handle: slugs.includes(name) };
+            const entry = owners.get(key) ?? { name, shown: [], ids: [], handle: slugs.includes(name) };
             if (!entry.shown.includes(shown)) entry.shown.push(shown);
+            if (!entry.ids.includes(id)) entry.ids.push(id);
             owners.set(key, entry);
         }
     }
-    return [...owners.values()].map(entry => ({ name: entry.name, id: entry.id, shown: entry.shown.join(" / "), ...(entry.handle ? { handle: true } : {}) }));
+    return [...owners.values()];
 }
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {
     const label = row(world.clue_labels)[handle];
@@ -332,7 +414,7 @@ function exitRows(graph: ModuleGraph, world: Row, scene: Row, material: (name: s
         ...(Object.hasOwn(exit, "travel_minutes") ? { travel_minutes: exit.travel_minutes } : {}),
         ...(truth(exit.when) && row(exit.when).kind !== "always" ? { unlock_when: {
                 condition: describeCondition(exit.when),
-                met: conditionStatus(exit.when, world)
+                met: conditionStatus(exit.when, world, graph)
             } } : {}),
         material: material(graph.scene(exit.to).node_id)
     }));
@@ -348,7 +430,8 @@ export function withinSection(graph: ModuleGraph, world: Row, scene: Row, materi
     const relation = (graph.out.get(scene.node_id) ?? []).find(rel => rel.relation_kind === "located-in" && graph.nodes.has(rel.to_node_id));
     if (!relation)
         return undefined;
-    const place = graph.nodes.get(relation.to_node_id)!, here = graph.handle(scene), presence = row(world.npc_presence);
+    // §192.3: the place is the node that stands for it; its people are its group's, seated by an entry under any handle.
+    const place = graph.survivorOf(graph.nodes.get(relation.to_node_id)!), here = sceneHandles(graph, scene), presence = presenceThrough(graph, world);
     const display = graph.placeName(place);
     const within: Row = {
         name: graph.handle(place),
@@ -357,7 +440,7 @@ export function withinSection(graph: ModuleGraph, world: Row, scene: Row, materi
         exits: place.node_kind === "scene" ? exitRows(graph, world, place, material) : [],
         people: graph.sceneNpcIds(place).map(id => {
             const node = graph.nodes.get(id)!, name = graph.handle(node), shown = graph.displayName(node);
-            return { name, ...(shown !== name ? { display_name: shown } : {}), seated: presence[name] === here };
+            return { name, ...(shown !== name ? { display_name: shown } : {}), seated: here.has(presence.get(id)?.at ?? "") };
         }),
         clues: graph.sceneClueIds(place).length,
         material: material(place.node_id)
@@ -378,15 +461,16 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         // The cue and what taking it yields belong in one row (contract §31.3, §32.5). The authored
         // field is `grants_clue_ids`; `clue_id` is the older singular spelling, and the first
         // granted clue keeps the `clue` key the §6 shape has always had.
-        const granted = [...array(aff.grants_clue_ids), ...(typeof aff.clue_id === "string" ? [aff.clue_id] : [])]
-            .filter((id, index, all) => typeof id === "string" && graph.nodes.has(id) && all.indexOf(id) === index)
+        // §192.3: each granted clue as the clue that stands for it, once.
+        const granted = [...new Set([...array(aff.grants_clue_ids), ...(typeof aff.clue_id === "string" ? [aff.clue_id] : [])]
+            .filter(id => typeof id === "string" && graph.nodes.has(id)).map(id => graph.survivorId(id)))]
             .map(id => graph.nodes.get(id)!);
         if (granted.length) {
             entry.clue = graph.handle(granted[0]);
             entry.clues = granted.map(node => ({
                 clue: graph.handle(node),
                 gate: clueGate(graph, node, world),
-                discovered: array(world.discovered_clues).includes(graph.handle(node))
+                discovered: clueDiscovered(graph, world, node)
             }));
         }
         const npc = row(aff.npc_interaction).npc_id;
@@ -460,13 +544,33 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         }
     return where;
 }
-export function npcsPresent(graph: ModuleGraph, world: Row, scene: Row): Row[] {
-    return entries(row(world.npc_presence)).flatMap(([handle, at]) => {
-        if (at !== graph.handle(scene))
-            return [];
+/**
+ * §192.3: where the ledger has each actor (`world.npc_presence`), read through survivors: an entry under a variant's handle is
+ * the node that stands for it. The survivor's own entry wins over a variant's, which only stands in while the survivor has none
+ * (a write after an identity relation lands under the survivor's handle). Each actor once, in the ledger's order.
+ */
+export function presenceThrough(graph: ModuleGraph, world: Row): Map<string, { node: Row; at: string }> {
+    const found = new Map<string, { node: Row; at: string; own: boolean }>();
+    for (const [handle, at] of entries(row(world.npc_presence))) {
         const node = graph.actor(handle);
-        return node ? [node] : [];
-    });
+        if (!node || typeof at !== "string") continue;
+        const id = string(node.node_id), own = handle === graph.handle(node) || (graph.nameFree && graph.sameNode(handle, node)), prior = found.get(id);
+        if (!prior || (own && !prior.own)) found.set(id, { node, at, own });
+    }
+    return new Map([...found].map(([id, { node, at }]) => [id, { node, at }]));
+}
+/** §192.3: the scene handles that are this scene -- every node of its group -- for a presence value written under any of them. */
+const sceneHandles = (graph: ModuleGraph, scene: Row): Set<string> => new Set(graph.groupOf(scene).map(node => graph.handle(node)));
+export function npcsPresent(graph: ModuleGraph, world: Row, scene: Row): Row[] {
+    const here = sceneHandles(graph, scene);
+    return [...presenceThrough(graph, world).values()].flatMap(({ node, at }) => here.has(at) ? [node] : []);
+}
+/**
+ * §192.3: whether the table found a clue: `world.discovered_clues` holds the handle of any node of the clue's group, the clue
+ * that stands for it or a copy found before the two were joined.
+ */
+export function clueDiscovered(graph: ModuleGraph, world: Row, clue: Row): boolean {
+    return graph.discovered(world, clue);
 }
 export function cluesHere(graph: ModuleGraph, world: Row, scene: Row): Row[] {
     return graph.sceneClueIds(scene).map(id => {
@@ -476,7 +580,7 @@ export function cluesHere(graph: ModuleGraph, world: Row, scene: Row): Row[] {
         return {
             ...view,
             gate: clueGate(graph, node, world),
-            discovered: array(world.discovered_clues).includes(view.name)
+            discovered: clueDiscovered(graph, world, node)
         };
     });
 }
@@ -761,7 +865,7 @@ export function creatureEntry(graph: ModuleGraph, world: Row, node: Row, ledger:
 /** `options.chain` is what §180.9's chain reads beyond the world (the investigators and their spells); without it a need
  *  still names itself, and an object placed as an instance still says who holds it. */
 export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledger: Row = {}, memory: Row[] = [], across: (node: Row) => Row[] = () => [], options: { voices?: boolean; journal?: Row; records?: Row[]; currentReceipts?: Row[]; campaign?:string; scope?:Row; chain?: ChainReads } = {}): Row[] {
-    const projected=withPromiseFulfillment(memory,{campaign:options.campaign,receipts:canonicalMemoryReceipts(options.records??[],options.currentReceipts??[]),world});
+    const projected=withPromiseFulfillment(memory,{campaign:options.campaign,receipts:canonicalMemoryReceipts(options.records??[],options.currentReceipts??[]),world,samePayer:samePersonReference(graph,world)});
     const memories=new Map<string,Row>();
     for(const value of projected.filter(m=>truth(m.id))) {
         const prior=memories.get(string(value.id));
@@ -1102,8 +1206,9 @@ export function windowOrder(nodes: Row[], window: RosterWindow): Row[] {
     const near = (node: Row) => array(node.source_refs).some(ref => integer(row(ref).pdf_index) && number(ref.pdf_index) + 1 >= window.first && number(ref.pdf_index) + 1 <= window.last);
     return [...nodes.filter(near), ...nodes.filter(node => !near(node))];
 }
+/** §192.3: the brief lists each thing once: a node another stands for is never a roster line of its own. */
 function rosterNodes(graph: ModuleGraph, kind: string): Row[] {
-    return kind === 'location' ? array(graph.raw.nodes).filter(node => node.node_kind === 'location') : graph.kind(kind);
+    return (kind === 'location' ? array(graph.raw.nodes).filter(node => node.node_kind === 'location') : graph.kind(kind)).filter(node => !graph.isVariant(node));
 }
 export function moduleSection(graph: ModuleGraph, size = 120, window?: RosterWindow): Row {
     const module = graph.moduleNode || {},
@@ -1119,8 +1224,8 @@ export function moduleSection(graph: ModuleGraph, size = 120, window?: RosterWin
         factions: roster(["faction", "organization"]),
         places: roster(["location"]),
         people: roster(["npc"]),
-        endings: graph.kind("ending").map(n => graph.displayName(n)),
-        conclusions: graph.kind("conclusion").map(n => graph.displayName(n)),
+        endings: rosterNodes(graph, "ending").map(n => graph.displayName(n)),
+        conclusions: rosterNodes(graph, "conclusion").map(n => graph.displayName(n)),
         structure_type: structureType(graph)
     };
 }
@@ -1142,7 +1247,7 @@ export function fittedModuleSection(graph: ModuleGraph, budget = 2048, window?: 
     // §180.4: the book's creatures, in the same roster form as its people, ride only on what the fit above leaves. They
     // are cut first and never cost a person, a place or an ending its line, and the roster is absent when the book has
     // none or none fits.
-    const creatures: Row[] = [], bookCreatures = windowOrder(graph.kind("creature"), window);
+    const creatures: Row[] = [], bookCreatures = windowOrder(rosterNodes(graph, "creature"), window);
     for (const node of bookCreatures) {
         const entry = { name: graph.displayName(node), line: oneLine(graph, node, lineSize) };
         if (jsonSize({ ...section, creatures: [...creatures, entry] }) > budget) {
@@ -1155,7 +1260,7 @@ export function fittedModuleSection(graph: ModuleGraph, budget = 2048, window?: 
         section.creatures = creatures;
     // §187.4: how many lines of each roster the fit removed, so the Keeper knows the book holds more than it shows.
     const more = {
-        people: graph.kind("npc").length - array(section.people).length,
+        people: rosterNodes(graph, "npc").length - array(section.people).length,
         places: rosterNodes(graph, "location").length - array(section.places).length,
         creatures: bookCreatures.length - creatures.length
     };

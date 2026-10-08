@@ -29,6 +29,7 @@ import {readNeedReceipt,type NeedReceipt} from '../../runtime/jev/source-need-re
 import {requireVisualOverview} from '../../kernel-ts/modules/visual-discovery.ts';
 import {mapReviewPreviews} from './map-review-preview.ts';
 import {IdentityReviewUnavailable,reviewVisualIdentity} from './visual-identity-review.ts';
+import {reviewNodeIdentity} from './node-identity-review.ts';
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
@@ -61,6 +62,32 @@ export function omittedReviewOnly(required:unknown,review:Row,guidance=false):bo
 		guidance&&(review.guidance?.approved!==true||!Array.isArray(review.guidance?.issues)||review.guidance.issues.length))return false;
 	const checked=new Set(review.checked.flatMap((row:Row)=>Array.isArray(row.paths)?row.paths:[row.path]));
 	return required.some(path=>typeof path==='string'&&!checked.has(path));
+}
+/**
+ * §192.2: `task.json` as the author reads it. The roster of published nodes on the job's pages comes first, one node per
+ * line, so the first lines the reader opens name what the graph already has (generation 55's reader read 400 lines and
+ * never reached `known_nodes`); everything after it stays pretty-printed as before.
+ */
+export function readerTaskText(task: Row): string {
+	const { roster, ...rest } = task;
+	if (!Array.isArray(roster)) return JSON.stringify(task, null, 2) + "\n";
+	const body = JSON.stringify(rest, null, 2), rows = roster.map((entry: unknown) => `    ${JSON.stringify(entry)}`).join(",\n");
+	return `{\n  "roster": [${roster.length ? `\n${rows}\n  ` : ""}]${body === "{}" ? "\n}" : `,\n${body.slice(2)}`}\n`;
+}
+/**
+ * §192.1: the published nodes the draft's `distinct_from` names that the author's cut packet lacks, from the claim's
+ * whole-graph view beside it, so each reviewer of such a node has the published one in its connected context.
+ */
+export async function distinctReviewContext(cwd: string, task: Row, draft: Row): Promise<Row[]> {
+	const named = new Set((Array.isArray(draft?.nodes) ? draft.nodes : []).flatMap((node: Row) => Array.isArray(node?.distinct_from) ? node.distinct_from : [])
+		.filter((id: unknown): id is string => typeof id === "string"));
+	const carried = new Set((Array.isArray(task.known_nodes) ? task.known_nodes : []).map((node: Row) => node?.node_id));
+	const wanted = [...named].filter(id => !carried.has(id));
+	if (!wanted.length) return [];
+	let view: Row;
+	// The kernel's `GRAPH_VIEW_FILE` (kernel-ts/modules/packet-scope.ts), named here as reader-context.ts names it.
+	try { view = JSON.parse(await readFile(join(cwd, "graph-view.json"), "utf8")); } catch { return []; }
+	return (Array.isArray(view?.known_nodes) ? view.known_nodes : []).filter((node: Row) => wanted.includes(node?.node_id));
 }
 /** Reuse an accepted entrance without asking the source author to transcribe its graph again. */
 export function selectedGuidanceProjection(knownNodes:unknown,focus:string,pageCount:number):{draft:Row;sourcePages:number[]}|null{
@@ -869,6 +896,22 @@ export class ReadingService implements ReadingBridge {
 	}
 
 	/**
+	 * §192.5: ask the independent identity reviewer whether each pair of published nodes is one thing. Its Pi child runs
+	 * through the job's reviewer owner (`run`); the checked answer file lands in `dir`, inside the job's attempt, and its path
+	 * is what the kernel takes as `node_identity_path`, with the pages the reviewer opened. Throws `IdentityReviewUnavailable`
+	 * when the reviewer cannot answer.
+	 */
+	private async reviewNodes(job: Row, pairs: Row[], dir: string, context: {campaign?: string; cache: string; signal: AbortSignal;
+		run(request: ReaderRequest): Promise<ReaderOutcome>}): Promise<{path: string; pages: number[]}> {
+		await mkdir(dir, { recursive: true });
+		const instructions = join(dir, "instructions-node-identity.md");
+		await writeFile(instructions, await readFile(join(this.runtime().contentRoot, "setup", "node-identity.md")));
+		return reviewNodeIdentity({ cwd: dir, pairs, instructions, model: this.deps.model(), signal: context.signal,
+			source: { pdf: job.source.path, cache: context.cache, file_sha256: job.source.file_sha256 }, run: context.run,
+			record: row => this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", campaign: context.campaign, ...row }) });
+	}
+
+	/**
 	 * The read-ahead (§22.4, §182), as every caller in this service asks it. A `window` that differs from the last one this
 	 * host saw for the campaign and module is one `read_window` row; a short book's completion in a fork carries the library's
 	 * answer, which is its `library_sync` row (§184.1). The window's `transcript` ranges (§191.5) are not the reading window:
@@ -888,6 +931,14 @@ export class ReadingService implements ReadingBridge {
 			}
 		}
 		this.recordLibrarySync(result, { module_id: params.module_id, campaign });
+		// §192.5: a repair that wrote, failed or asked a verdict is one row (a library left to its lineage fork is the steady
+		// state, not news); its offer to the library is the sync row.
+		const repair = result?.identity_repair, changed = (state: unknown) => ["published", "recorded", "failed"].includes(String(state));
+		if (repair && typeof repair === "object" && !Array.isArray(repair)) {
+			if (changed(repair.state) || repair.asked || changed(repair.library_repair?.state))
+				this.note({ lane: "reading", event: "identity_repair", module_id: params.module_id, campaign, ...repair });
+			this.recordLibrarySync(repair, { module_id: params.module_id, campaign });
+		}
 		return result;
 	}
 
@@ -1241,9 +1292,40 @@ export class ReadingService implements ReadingBridge {
 			await this.readAhead({ module_id: job.module_id }, campaign).catch(() => undefined);
 			return;
 		}
+		// §192.5: an identity job over published pairs of nodes has no author either. Its reviewer opens both nodes' pages and
+		// answers each pair; the kernel writes a `same` as an identity relation and keeps a `different`. A reviewer that cannot
+		// answer, or an answer the kernel refuses, fails the job, and a later read-ahead asks again until it has failed three times.
+		if (job.node_identity) {
+			const pairs: Row[] = Array.isArray(job.node_identity.pairs) ? job.node_identity.pairs : [];
+			let reviewed: {path: string; pages: number[]} | undefined, failure: Row | undefined;
+			try { if (pairs.length) reviewed = await this.reviewNodes(job, pairs, join(cwd, "identity"), { campaign, cache, signal, run: reviewers.run }); }
+			catch (error) {
+				if (signal.aborted) throw error;
+				const message = String(error instanceof Error ? error.message : error).slice(0, 1000);
+				failure = { message, rule: "node_identity_unavailable" };
+			}
+			await writeFile(join(cwd, "observations.json"), JSON.stringify({ file_sha256: job.source.file_sha256, read_pages: reviewed?.pages ?? [], full_pages: [], review_pages: [] }) + "\n");
+			const finish = (outcome: Row) => this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease, ...outcome }, campaign);
+			let published: Row | undefined;
+			if (!failure) {
+				try { published = await finish({ outcome: "completed", ...(reviewed ? { node_identity_path: reviewed.path } : {}) }); }
+				catch (error) {
+					if (!isKernelError(error)) throw error;
+					failure = { message: error.message, ...Object.fromEntries(["rule", "reason"].filter(key => typeof error.details?.[key] === "string").map(key => [key, error.details![key]])) };
+				}
+			}
+			if (failure) published = await finish({ outcome: "failed", detail: failure.message, refusal: failure }).catch(() => undefined);
+			this.deps.record({ lane: "reading", event: "node_identity_published", module_id: job.module_id, job_id: job.job_id, campaign,
+				...(published?.node_identity ?? { state: published?.state ?? null, ...(failure ? { refusal: failure } : {}) }) });
+			this.recordLibrarySync(published, { module_id: job.module_id, campaign, job_id: job.job_id });
+			// The next pairs are queued by the read-ahead, one identity job at a time.
+			await this.readAhead({ module_id: job.module_id }, campaign).catch(() => undefined);
+			return;
+		}
 		const commands = { page: `coc-source --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
 			check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
-		const task: Row = { purpose: job.purpose,
+		// §192.2: the roster of published nodes on the job's pages comes first, ahead of the cast and the index.
+		const task: Row = { ...(Array.isArray(job.roster) ? { roster: job.roster } : {}), purpose: job.purpose,
             ...Object.fromEntries(['review_policy','source_unit','visual_scan','visual_asset','map_scope','visual_hints','review_scope_pages','source_need','carried_needs','cast_names'].filter(field=>job[field]!==undefined).map(field=>[field,job[field]])), ...(job.material ? { material: job.material } : {}), ...(job.purpose === "opening" ? {opening_batch:true,...(job.opening_scope?{opening_scope:job.opening_scope}:{})} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
 			...(job.purpose === "guidance" ? {guidance_key:job.guidance_key,public_progress_required:job.public_progress===true,
 				play_language:job.play_language, occupations:job.occupations.map((row:Row)=>({name:row.name}))} : {}),
@@ -1275,7 +1357,7 @@ export class ReadingService implements ReadingBridge {
 			const { labels, bookmarks } = await this.runtime().sourceInfo({ pdf: job.source.path, cache }, signal);
 			task.source = { ...task.source, labels, bookmarks };
 		}
-		await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
+		await writeFile(join(cwd, "task.json"), readerTaskText(task));
 		const observations: Row = { file_sha256: job.source.file_sha256, read_pages: [], full_pages: [], review_pages: [] };
 		// §151.2.4: what this run spends, written once as the job's `job_accounting` row.
 		const accounting = readingAccounting();
@@ -1428,7 +1510,7 @@ export class ReadingService implements ReadingBridge {
 								const retained = JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"));
 								task.must_view_pages = previousDraft ? [] : draftPages(retained);
 								if(!guidanceProjection)task.repair = { draft: "draft.json", baseline: "baseline.json", findings: JSON.parse(await readFile(join(cwd, "findings.json"), "utf8").catch(() => "{}")) };
-								await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
+								await writeFile(join(cwd, "task.json"), readerTaskText(task));
 							} catch { /* the first draft has not been written */ }
 							// §151.2.2: this read repairs a reviewed candidate. A review of exactly this candidate that refused specific
 							// records and missed nothing makes it a targeted repair of those records; anything else is today's full round.
@@ -1442,14 +1524,14 @@ export class ReadingService implements ReadingBridge {
 									targeted = decision;
 									repairedReview = { plan: reviewed!.plan, plan_sha256: reviewed!.plan_sha256, review: reviewed!.review, draft: previousDraft };
 									task.repair = { ...task.repair, kind: "targeted", refused: decision.refused, pages: decision.pages };
-									await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
+									await writeFile(join(cwd, "task.json"), readerTaskText(task));
 									pendingNeeds = await readFile(join(cwd, "pending-source-needs.json")).catch(failure => { if (failure.code === "ENOENT") return null; throw failure; });
 								}
 								if (decision.kind === "append") {
 									appended = decision;
 									appendSource = { plan: reviewed!.plan, plan_sha256: reviewed!.plan_sha256, review: reviewed!.review };
 									task.repair = { ...task.repair, kind: "append", missing: decision.missing, pages: decision.pages };
-									await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
+									await writeFile(join(cwd, "task.json"), readerTaskText(task));
 									pendingNeeds = await readFile(join(cwd, "pending-source-needs.json")).catch(failure => { if (failure.code === "ENOENT") return null; throw failure; });
 								}
 								accounting.repair = decision.kind;
@@ -1470,7 +1552,7 @@ export class ReadingService implements ReadingBridge {
 								...currentCandidates.flatMap((candidate: Row) => integerList(candidate.pages)),
 								...integerList(currentRefs),
 							].filter(page => page > 0))].sort((a, b) => a - b);
-							await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
+							await writeFile(join(cwd, "task.json"), readerTaskText(task));
 						}
 						const promptPhase = phase === "index-audit" ? "index" : phase;
 						const instructions = join(cwd, `instructions-${promptPhase}.md`);
@@ -1507,7 +1589,9 @@ export class ReadingService implements ReadingBridge {
 								record: row => { tallyReadingRow(accounting, row); this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", ...row, campaign }); } }))?.skip);
 							const reviewBegan = Date.now();
 							try {
+								const distinct = await distinctReviewContext(cwd, task, candidate);
 								observations.review_pages = await reviewCandidate({ cwd, ...(claimSupport ? { claimSupport } : {}), task: {...task, review_scope_pages: reviewScope,
+									...(distinct.length ? { known_nodes: [...(Array.isArray(task.known_nodes) ? task.known_nodes : []), ...distinct] } : {}),
 									...(requiredReview?{required_review:requiredReview}:{})},
 									draft:candidate, instructions, round, previousPlan, coverageCarry, extractionVersion: sourceTextVersion,
 									...(appendSource ? { appendCarry: (paths: string[]) => appendUnitCarry(appendSource!, { draft: candidate, task, paths }) } : {}),

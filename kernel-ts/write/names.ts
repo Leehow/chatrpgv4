@@ -10,7 +10,7 @@
  */
 import type { ModuleGraph } from '../read/module-graph.js';
 import { normalize, type Row } from '../read/values.js';
-import { occurs } from '../journal/naming.js';
+import { clearOf, nameSpans } from '../journal/name-spans.js';
 import type { SpeakerResolver } from './speech-pass.js';
 
 const NAME_TOKEN = /\{\{name:([^{}\n]{1,80})\}\}/g;
@@ -42,7 +42,7 @@ export function withNames(text: string, speakers: SpeakerResolver, graph: Module
  * name. Table 25 (turn 8): asked his name, the toothless trucker said "call me Ernie", the name of another man of the book
  * the investigator had not met; delivered, it would also have counted that man as told from then on.
  */
-export function untoldNamesSaid(text: string, speakers: SpeakerResolver, graph: ModuleGraph, names: readonly string[]): string[] {
+export function untoldNamesSaid(text: string, speakers: SpeakerResolver, graph: ModuleGraph, names: readonly string[], guarded: readonly string[] = []): string[] {
     if (!names.length) return [];
     const own = text.replace(NAME_TOKEN, (_token, who: string) => {
         const speaker = speakers(who.trim()) as Row, handle = typeof speaker.npc === 'string' ? speaker.npc : '';
@@ -50,8 +50,12 @@ export function untoldNamesSaid(text: string, speakers: SpeakerResolver, graph: 
     // Every other marker is machine text, not prose: a say token's or a map's handle normalizes to the name it was made from.
     }).replace(/\{\{[^{}\n]*\}\}/g, ' ');
     const said = normalize(own);
-    return names.filter(name => occurs(said, normalize(name)));
+    // §188.1: a name said only inside an occurrence of a protected name (the investigator's own, a told person's, this table's
+    // word for someone) is not said.
+    const spans = nameSpans(said, guarded.map(normalize));
+    return names.filter(name => { const key = normalize(name); return !!key && nameSpans(said, [key]).some(place => clearOf(place, spans)); });
 }
+
 
 /** One place the prose writes `name`, outside every marker; `nth` counts that name's places in the order they stand. */
 export interface ProsePlace { name: string; nth: number; start: number; end: number }
@@ -62,14 +66,15 @@ export const placeKey = (place: { name: string; nth: number }): string => `${pla
  * only where no letter or digit goes on past either end (the request's rename reads the same way). Strings only: whether a
  * place is the name or part of another word (Chinese has no word boundaries) is the host's question to ask.
  */
-export function prosePlaces(text: string, names: readonly string[]): ProsePlace[] {
-    const latin = (char: string | undefined) => !!char && /^[A-Za-z0-9]$/.test(char);
+export function prosePlaces(text: string, names: readonly string[], guarded: readonly string[] = []): ProsePlace[] {
     const words = [...new Set(names.filter(name => !!name))].sort((a, b) => b.length - a.length);
     const found: Array<{ name: string; start: number; end: number }> = [];
     let offset = 0;
     text.split(/(\{\{[^{}\n]*\}\})/).forEach((part, index) => {
-        if (index % 2 === 0) for (const word of words) for (let at = part.indexOf(word); at >= 0; at = part.indexOf(word, at + 1)) {
-            if ((latin(word[0]) && latin(part[at - 1])) || (latin(word[word.length - 1]) && latin(part[at + word.length]))) continue;
+        // §188.1: a place overlapping an occurrence of a protected name is no place (unless it holds that occurrence whole).
+        const spans = index % 2 === 0 ? nameSpans(part, guarded) : [];
+        if (index % 2 === 0) for (const word of words) for (const { start: at } of nameSpans(part, [word])) {
+            if (!clearOf({ start: at, end: at + word.length }, spans)) continue;
             const start = offset + at, end = start + word.length;
             if (!found.some(other => start < other.end && other.start < end)) found.push({ name: word, start, end });
         }
@@ -82,9 +87,10 @@ export function prosePlaces(text: string, names: readonly string[]): ProsePlace[
         return { ...place, nth };
     });
 }
-/** Whether `name` stands anywhere in the prose of `text` (outside its markers), alone or inside a longer name's place. */
-export function inProse(text: string, name: string): boolean {
-    return prosePlaces(text.split(/(\{\{[^{}\n]*\}\})/).filter((_part, index) => index % 2 === 0).join('\n'), [name]).length > 0;
+/** Whether `name` stands anywhere in the prose of `text` (outside its markers), alone or inside a longer name's place; never
+ *  inside an occurrence of a protected name (§188.1). */
+export function inProse(text: string, name: string, guarded: readonly string[] = []): boolean {
+    return prosePlaces(text.split(/(\{\{[^{}\n]*\}\})/).filter((_part, index) => index % 2 === 0).join('\n'), [name], guarded).length > 0;
 }
 /** `text` with each of `places` replaced by the word `wordOf` gives it; a place it gives none stays as it is. */
 export function replacePlaces(text: string, places: readonly ProsePlace[], wordOf: (place: ProsePlace) => string | undefined): string {

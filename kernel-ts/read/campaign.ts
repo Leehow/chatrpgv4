@@ -19,6 +19,7 @@ import { playsFromReading } from "../modules/bound-source.js";
 import type { ChainReads } from "./weaknesses.js";
 import { moduleSourceSha, readServedCast } from "./cast.js";
 import { installRenameUndo } from "./rename-undo.js";
+import { apartPairs } from "./survivors.js";
 export class CampaignSnapshot {
     readonly dir: string;
     readonly jsonFiles = new Map<string, any>();
@@ -204,10 +205,11 @@ export async function loadCampaignModule(context: KernelContext, id: string, wor
     const module = await campaignModule(context, id, world, handles) ?? await loadModule(context, id, campaign, handles);
     module.graph.projectSourcePlaces();
     const loaded = withTableCreatures(withTablePeople(withTableEntities(module, world), world), world);
-    // §185.3: a legacy campaign's references are read once more with the request's rename undone, after a miss.
-    if (campaign !== undefined) await installRenameUndo(context, campaign, loaded.graph, world);
     // §185.13: the investigators at this table are people the investigator knows; no name they go by is an untold name.
     if (campaign !== undefined) loaded.graph.investigatorNames = await investigatorNames(context, campaign);
+    // §188.3: a campaign's references are read once more with the request's rename undone, after a miss, in both schemes.
+    // After the investigators' names, which the rename leaves alone.
+    if (campaign !== undefined) await installRenameUndo(context, campaign, loaded.graph, world);
     return loaded;
 }
 /** §185.13: every name the investigators at this table are registered under: each party sheet's name and id, as `actor` reads them. */
@@ -258,6 +260,8 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
         contract = row(await context.snapshots.readJson(join(context.content, "modules", "module-graph-contract-v3.json")));
     const graph = new ModuleGraph(id, raw, digest, dossierWith(row(contract.actor_dossier), row(meta.vocabulary), row(contract.creature_dossier)), undefined, false, handles ?? null);
     graph.sourceCampaign = inScope ? campaign : undefined;
+    // §192.3 (lead ruling 2026-10-07): the pairs a recorded `different` verdict keeps apart, before anything reads the cast.
+    graph.apart = apartPairs(row(meta.reading).identity, moduleSourceSha(meta));
     const store = inScope ? new ModuleStore(context) : undefined;
     const asset = store ? (name: string) => store.asset(id, name) : undefined;
     if (asset) graph.assetOverride = asset;
@@ -276,7 +280,10 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
             matches = array(raw.nodes).filter(n => [n.node_id, stripPrefix(n.node_id, n.node_kind), n.name || "", ...array(n.aliases),
                 ...(graph.nameFree ? [graph.handle(n), graph.interimHandle(n)] : [])].some(v => normalize(v) === key)).map(n => n.node_id);
         const ready = new Set(array(row(meta.reading).materials).flatMap(m => array(m.node_ids)));
-        return matches.length > 0 && matches.every(id => ready.has(id)) ? "ready" : "missing";
+        // §192.3: each thing the name names is read when any node of it was -- its survivor or a copy the survivor map joins
+        // (identity relations, and the cast's fold once the campaign loader installs it).
+        const things = [...new Set(matches.map(id => graph.survivorId(id)))];
+        return things.length > 0 && things.every(id => graph.groupOf(graph.nodes.get(id) ?? { node_id: id }).some(node => ready.has(node.node_id))) ? "ready" : "missing";
     };
     let sections: Row[] = [];
     if (registered && typeof meta.index_file === 'string') {

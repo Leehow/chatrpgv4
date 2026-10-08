@@ -3,6 +3,7 @@ import {join} from 'node:path';
 import {RpcError} from '../errors.js';
 import {canonicalJson,isJsonObject,jsonDigest,orderedObject} from '../json.js';
 import {EntityIndex} from '../read/memory.js';
+import {calledPerson} from '../read/capsule.js';
 import {RuleObservations,semanticName} from '../read/rule-facts.js';
 import {array,entries,kebab,length,normalize,number,repr,row,sorted,string,truth,words,type Row} from '../read/values.js';
 import {recordOf} from '../read/module-graph.js';
@@ -158,7 +159,9 @@ export async function stageNote(context:ApplyContext,effect:Row,staged:Row[]):Pr
     if(text!=null){
         const key=normalize(name),old=current.get(key);
         if(old?.status==='open'&&!(closes!=null&&normalize(closes)===key))throw new RpcError('invalid_params',`a note named ${repr(name)} is already open`,{fix:'pick another name, or close it first with closes',details:{name,open_since_turn:old.turn??null}});
-        const index=new EntityIndex(context.graph,await context.campaign.party() as Row[]),entities:string[]=[];
+        // §188.4: an entity is read as the memory lane reads one (`EntityIndex`, the §87.8 junction included: the table's word,
+        // the graph's anchored run and §185.3's retry) and stored as the name it resolved to; a name nobody answers is kept as written.
+        const index=new EntityIndex(context.graph,await context.campaign.party() as Row[],{},null,context.world),entities:string[]=[];
         for(const name of names(effect.entities,'entities')){const exact=index.matches(name),found=exact.length?exact:index.looseMatches(name),canonical=found.length===1?index.canonicalName(found[0]):name;if(!entities.includes(canonical))entities.push(canonical);}
         opened={name:name.trim(),text:words(text),entities,turn:context.turn.turn,status:'open'};
     }
@@ -191,7 +194,15 @@ async function anchorOf(context:ApplyContext,raw:any):Promise<Row>{
         for(const name of names(raw.entities,'anchor.entities')){
             const people=index.matches(name,{reserved:[],kinds:[]});
             if(people.length===1){if(!handles.includes(people[0]))handles.push(people[0]);continue;}
-            try{const handle=context.graph.handle(context.graph.resolve(name));if(!handles.includes(handle))handles.push(handle);}catch(error){if(error instanceof RpcError)throw new RpcError('invalid_params',`ruling.anchor.entities: ${error.message}`,{fix:'name an investigator in the party, or an entity of the module graph exactly, or one of details.candidates',details:{field:'entities',...error.details}});throw error;}}
+            // §188.4 (§87.8): the graph's entity, then the person this table calls by the word; a word two people carry is
+            // refused naming both (`calledPerson`), and a word nobody answers keeps the graph's refusal and its candidates.
+            let node:Row|null=null;
+            try{
+                try{node=context.graph.resolve(name);}
+                catch(error){if(!(error instanceof RpcError))throw error;node=calledPerson(context.graph,context.world,name);if(!node)throw error;}
+            }
+            catch(error){if(error instanceof RpcError)throw new RpcError('invalid_params',`ruling.anchor.entities: ${error.message}`,{fix:'name an investigator in the party, or an entity of the module graph exactly, or one of details.candidates',details:{field:'entities',...error.details}});throw error;}
+            const handle=context.graph.handle(node!);if(!handles.includes(handle))handles.push(handle);}
         if(!handles.length)throw new RpcError('invalid_params','ruling.anchor.entities must name at least one entity');anchor.entities=sorted(handles);
     }
     if(!truth(anchor))throw new RpcError('invalid_params','ruling.anchor must carry at least one of family, decision, skill, entities');

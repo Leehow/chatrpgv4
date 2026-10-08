@@ -74,10 +74,18 @@ export function pushedFailPending(record?: Row | null): boolean {
     return receipts.some((r, i) => r.kind === "roll" && truth(r.pushed) && !truth(r.passed) && !receipts.slice(i + 1).some(n => n.kind === "delta" && integer(n.before) && integer(n.after) && number(n.after) < number(n.before) || n.kind === "roll" && n.form === "dice" || n.kind === "session" && n.transition === "start"));
 }
 export const structureType = (graph: ModuleGraph): string => typeof moduleDeclaration(graph.moduleNode).structure_type === "string" && moduleDeclaration(graph.moduleNode).structure_type || "branching_investigation";
+/** The Director's reveal rows: up to five clues here the table has not found (§192.3: found through any copy). */
+export function revealRows(graph: ModuleGraph, world: Row, scene: Row): Row[] {
+    return graph.sceneClueIds(scene).map(id => graph.nodes.get(id)!).filter(node => !graph.discovered(world, node)).slice(0, 5).map(node => ({
+        clue: graph.handle(node),
+        gate: clueGate(graph, node, world)
+    }));
+}
+/** §192.3: a conclusion once (a copy is its survivor), its clues as the ones that stand for them, each found through any copy. */
 export function mainLineComplete(graph: ModuleGraph, world: Row): boolean {
-    return graph.kind("conclusion").some(node => {
-        const clues = (graph.incoming.get(node.node_id) ?? []).filter(r => r.relation_kind === "supports" && graph.nodes.get(r.from_node_id)?.node_kind === "clue").map(r => graph.handle(graph.nodes.get(r.from_node_id)!));
-        return clues.length > 0 && clues.every(c => array(world.discovered_clues).includes(c));
+    return graph.kind("conclusion").filter(node => !graph.isVariant(node)).some(node => {
+        const clues = graph.supportingClues(node);
+        return clues.length > 0 && clues.every(clue => graph.discovered(world, clue));
     });
 }
 export function memoryOverlap(rows: Row[], names: any[]): number {
@@ -151,7 +159,7 @@ export function signals(options: {
         undiscovered_here: options.undiscovered,
         agenda_npc_present: present.filter(n => truth(graph.npcProfile(n).agenda)).length,
         dramatic_question: truth(recordOf(scene).dramatic_question),
-        exit_condition_met: array(recordOf(scene).exit_conditions).some(c => conditionMet(c, world)),
+        exit_condition_met: array(recordOf(scene).exit_conditions).some(c => conditionMet(c, world, graph)),
         main_line_complete: mainLineComplete(graph, world),
         stalled_turns: stalled,
         blocked_attempts: blockedAttempts(played, string(graph.handle(scene))),
@@ -331,9 +339,6 @@ export function directorSection(dg: DirectorGraph, ontology: Ontology, graph: Mo
     if (scored.override)
         section.override = scored.override;
     if (scored.beat === "REVEAL")
-        section.reveal = graph.sceneClueIds(scene).map(id => graph.nodes.get(id)!).filter(node => !array(world.discovered_clues).includes(graph.handle(node))).slice(0, 5).map(node => ({
-            clue: graph.handle(node),
-            gate: clueGate(graph, node, world)
-        }));
+        section.reveal = revealRows(graph, world, scene);
     return section;
 }

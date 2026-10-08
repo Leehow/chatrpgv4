@@ -125,7 +125,11 @@ test('campaign length never reaches the provider: the branch outgrows the ceilin
 });
 
 test('a turn the policy cannot prepare is bounded, not answered with the whole stored branch', async t => {
-    const ceiling = 96 * 1024;
+    // 2026-10-07 (§179.3a, enhanced-items 1.3.4): 96 KiB -> 104 KiB. "Documents on carriers" became a resident section
+    // (1,637 B situational -> 4,010 B on every request) and the Keeper tools gained the document operations, so the
+    // degraded request (prompt and tool checkpoint plus the diagnostic) measured 98,290 B on the Mac against 98,304,
+    // and crossed it on the Linux box.
+    const ceiling = 104 * 1024;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-degraded', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: 4}, (_, turn) => keeperTurn(long(turn + 1))).flat()]});
@@ -164,7 +168,10 @@ test('a turn with more tool traffic than the ceiling allows keeps the newest evi
     // prompt (the opening's party and clock lines, the untold epithet line, the two packages' new sentences) put the
     // worst squeezed request at 196,720 and 196,815 B on the Linux box against 196,608: the floor itself, so nothing
     // was left to drop. The squeeze still has to bind at 200 KiB (`squeezed.length` below).
-    const ceiling = 200 * 1024;
+    // 2026-10-07 (§179.3a, enhanced-items 1.3.4): 200 KiB -> 212 KiB. The resident "Documents on carriers" section
+    // (+2,373 B on every request) and the document tool fields put the squeezed requests at 208,020-208,235 B on the
+    // Mac against 204,800: the floor again. The squeeze still has to bind at 212 KiB.
+    const ceiling = 212 * 1024;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-squeeze', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: 3}, (_, turn) => busyTurn(long(turn + 1), 14)).flat()]});

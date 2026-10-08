@@ -1,7 +1,8 @@
 /** The current action-to-chase slots and authored participant/route bindings. */
 import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
-import { conditionMet } from '../read/module-graph.js';
+import { conditionMet, sameNode } from '../read/module-graph.js';
+import { personNode } from '../read/capsule.js';
 import { SessionView, active } from '../read/session-view.js';
 import { array, integer, kebab, normalize, number, repr, row, string, truth, type Row } from '../read/values.js';
 import { SkillResolver } from '../rules/skills.js';
@@ -17,6 +18,15 @@ export { presentOpponents } from '../resolve/context.js';
  * `chase:start` too, read by the side the actor takes: a pursuer may declare any of them, a quarry flees.
  */
 export const CHASE_INTENTS = ['flee', 'move', 'combat'];
+/**
+ * Contract §188.4 (§87.8): the person or creature a chase field names -- `chase_roster[].actor` and `riding_with`,
+ * `action.target` at the start and on a conflict -- read by the junction (`personNode`: the graph's actor, §2's anchored run
+ * and §185.3's retry, then this table's word), so every field compares the being it names, never its spelling. Null for a
+ * word that names nobody; a word two people carry is refused naming both.
+ */
+function chaseBeing(context: SettleContext, word: unknown): Row | null {
+    return typeof word === 'string' && word.trim() ? personNode(context.graph, context.world, word.trim()) : null;
+}
 /** A flight on record that still stands: its receipt, the turn it was written in, and whether they were moved since. */
 type Flight = {
     receipt: string;
@@ -186,7 +196,7 @@ export function chaseLocationChain(context: SettleContext): Row[] {
             barrier: null
         }];
     for (const exit of graph.sceneExits(scene)) {
-        if (truth(exit.when) && !conditionMet(exit.when, context.world))
+        if (truth(exit.when) && !conditionMet(exit.when, context.world, graph))
             continue;
         if (chain.length >= DEFAULT_LOCATION_COUNT)
             break;
@@ -274,15 +284,20 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
     const action = context.action;
     if (suffix === 'start' && Array.isArray(action.chase_roster)) {
         const roster = action.chase_roster.map(row), known = presentOpponents(context), rules = await loadChaseRules(context.tables);
-        const participants: Row[] = [], names = new Map<string, string>(), drivers = new Map<string, Row>();
+        const participants: Row[] = [], drivers = new Map<string, Row>();
         if (roster.length < 2 || roster.length > 16 || new Set(roster.map(entry => normalize(entry.actor))).size !== roster.length)
             throw new RpcError('invalid_params', 'A chase roster requires distinct registered participants.');
         const self = roster.find(entry => [context.actorId, context.actor.name].some(name => normalize(name) === normalize(entry.actor)));
         if (!self || self.role === 'passenger') throw new RpcError('needs', 'The acting investigator must have a moving chase role.');
+        // §188.4: a roster row's actor, and a passenger's `riding_with`, is the participant the word names: the acting
+        // investigator by sheet id or name, anyone else by the junction, matched to a present opponent by identity.
+        const opponentOf = (word: unknown) => { const being = chaseBeing(context, word); return being ? known.find(([, node]) => node.node_id === being.node_id) : undefined; };
+        const participantOf = (word: unknown): string | undefined => [context.actorId, context.actor.name].some(name => normalize(name) === normalize(word))
+            ? context.actorId : opponentOf(word)?.[0];
         for (const entry of roster) {
             if (!['foot', 'driver', 'passenger'].includes(entry.role)) throw new RpcError('invalid_params', 'Unknown chase mobility role.');
             const acting = entry === self;
-            const opponent = acting ? null : known.find(([handle, node]) => [handle, context.graph.displayName(node)].some(name => normalize(name) === normalize(entry.actor)));
+            const opponent = acting ? null : opponentOf(entry.actor);
             if (!acting && (!opponent || !opponent[2])) throw new RpcError('needs', 'A chase participant needs present identity and a pinned profile.',
                 {details: {reason: 'chase_participant_unprepared', field: 'chase_roster'}});
             const id = acting ? context.actorId : opponent![0];
@@ -292,7 +307,6 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
                 : await npcCombatParticipant(context.tables, id, await requireBlock(context.kernel, context.graph, opponent![1], id, opponent![2]!, `a chase with ${context.graph.displayName(opponent![1])}`));
             const side = entry.role === 'passenger' ? 'passenger' : (string(action.intent) === 'flee') === acting ? 'quarry' : 'pursuer';
             const participant = participantFromCombatSpec(spec, side, 0);
-            names.set(normalize(entry.actor), id);
             if (entry.role === 'driver') {
                 const vehicle = vehicleStats(rules, string(entry.vehicle));
                 Object.assign(participant, {role: 'driver', is_vehicle: true, vehicle_key: vehicle.vehicle,
@@ -305,7 +319,7 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
         if (new Set(participants.map(participant => participant.actor_id)).size !== participants.length)
             throw new RpcError('invalid_params', 'A chase roster cannot name one actor through multiple aliases.');
         for (const entry of roster.filter(entry => entry.role === 'passenger')) {
-            const id = names.get(normalize(entry.actor))!, vehicle = names.get(normalize(entry.riding_with));
+            const id = participantOf(entry.actor)!, vehicle = participantOf(entry.riding_with);
             const driver = vehicle ? drivers.get(vehicle) : undefined;
             if (!driver || vehicle === id) throw new RpcError('needs', 'A passenger must name a registered driver in this roster.',
                 {details: {reason: 'chase_passenger_driver_unprepared', field: 'chase_roster'}});
@@ -377,7 +391,10 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
                 }
             });
         if (truth(action.target)) {
-            const chosen = opponents.filter(([handle, node]) => normalize(handle) === normalize(string(action.target)) || normalize(context.graph.displayName(node)) === normalize(string(action.target)));
+            // §188.4: the pursuer named is the being the target names, compared by identity; a target that names nobody
+            // present leaves every pursuer, as before.
+            const being = chaseBeing(context, action.target);
+            const chosen = being ? opponents.filter(([, node]) => node.node_id === being.node_id) : [];
             if (chosen.length)
                 opponents = chosen;
         }
@@ -475,7 +492,13 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
     else if (suffix === 'conflict') {
         const targets = [...participants].filter(([id, p]) => id !== actorId && int(get(p, 'position', -2)) === position && !truth(p.escaped) && !truth(p.captured)).map(([id]) => id);
         const target = action.target;
-        const chosen = truth(target) ? targets.find(id => normalize(id) === normalize(string(target)) || normalize(view.label(id)) === normalize(string(target))) : targets.length === 1 ? targets[0] : null;
+        // §188.4: the caught opponent is the participant the target names -- an investigator by sheet id or name, anyone else
+        // by the junction, compared with the saved participant by identity; a word that names nobody compares its spelling
+        // with the participant's id and label, as before.
+        const sheet = truth(target) ? context.sheetById(target) : null, being = truth(target) && !sheet ? chaseBeing(context, target) : null;
+        const names = (id: string): boolean => sheet ? id === string(sheet.id) : being ? sameNode(context.graph, id, being)
+            : normalize(id) === normalize(string(target)) || normalize(view.label(id)) === normalize(string(target));
+        const chosen = truth(target) ? targets.find(names) : targets.length === 1 ? targets[0] : null;
         if (!chosen)
             throw new RpcError('needs', 'the conflict needs the caught opponent as action.target', {
                 details: {

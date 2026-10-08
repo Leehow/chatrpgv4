@@ -36922,6 +36922,660 @@ seats a candidate with `apply npc`, and reads a brief that lists what is near fi
 the book, not a merge of nodes; a candidate is an offer, not a seating; a scoped packet is the author's input, not the
 checker's.
 
+## 188. Names in the request rename: hide the untold name, never corrupt a name the table owns (owner ruling 2026-10-06, 「名字那类问题另开 spec」, then 「名字那份 spec 开工吧」; `docs/specs/names-in-the-request-rename.md`; amends §103.5, §176.5, §177.4, §177.11, §177.15, §185.3 and §185.13)
+
+The request rename (§103.5) and the delivery gate (§177.11) find untold names by string: a whole name, an alias, a
+punctuation piece, a one-character alias, matched as a substring in CJK. The §185 acceptance table (`nfh-accept-blood-road-1`,
+2026-10-06) showed them corrupting names the table owns:
+
+- The investigator 「丹尼尔·怀特」 shares 「丹尼尔」 and 「丹」 with the untold 「丹尼尔·马瑟」 (whose book also prints 「丹」 alone).
+  §185.13 removed the shared piece as a key. The one-character alias still matched inside the name, giving
+  「抓胡茬的红发杂货店主尼尔·怀特」, and the Keeper copied that into `object.to`, `item.to` and `cash.subject`. Play-2 turns 4
+  and 7 were refused, and the string reached a note the investigator wrote.
+- A name three cast rows share was shown as their joined words 「抓胡茬的红发杂货店主 / 站在基地里的住民 / 红发棕眼的来客」.
+  - The rows are one man: the graph node `red-haired-store-owner-smoker`, plus an unread cast row `cast-78239617e2`
+    ("Daniel Mather") that never joined it.
+  - The Keeper wrote the joined string as `npc.name`, and it was refused (play-2 turn 8).
+
+### 188.1 Protected spans (both schemes)
+
+- **`protectedNames(graph, world, journal, records)`** (kernel, one function, beside `knownNamePieces`) returns every
+  whole name the investigator's side owns:
+  - each investigator's registered names (party sheet `name`, and any name `actor()` matches);
+  - every told cast person's whole names;
+  - this table's words for people (`tableWord`, `called.name`, epithets, journal labels).
+
+  Each investigator's registered names come with their pieces (`namePieces`: 「丹尼尔·怀特」 gives 「丹尼尔」 and 「怀特」), the
+  trade §185.13 already makes, applied at the span level (coordinator ruling 2026-10-07, after the real table
+  `nr06-blood-road-2`: the investigator's own sheet said 「委托人的女儿三个月前在这条公路上失踪，丹尼尔受托寻找她。」, his given name
+  alone; only his full name was protected, so the untold store owner's one-character alias 「丹」 was renamed inside 「丹尼尔」,
+  the Keeper read 「戴厚黑框眼镜的红发店主尼尔受托寻找她」, and on turn 5 had the store owner introduce himself as 「尼尔」). A
+  told cast person's pieces are not added. A longer untold place that holds a protected occurrence whole is still renamed,
+  so 「丹尼尔·马瑟」 is renamed although 「丹尼尔」 is protected.
+- **`table.untold`** answers `{people, protected: string[]}`.
+- The host rename (`renameUntold` / `renameText` / `placesIn`, `extensions/kernel/untold-view.ts`) first finds every
+  occurrence of every protected name in the text, using the same matching as places (exact string; a Latin name bounded
+  by letters and digits; CJK as a substring). No place overlapping one of those occurrences is renamed or offered to
+  §177.15's judge.
+- The kernel gate (`untoldWholeNames` / `table.untold_spans` / the `untold_name` delivery hold) skips the same places, from
+  the same function.
+- A one-character alias stays a name. It is still matched by substring and still renamed elsewhere (§177.15 judges a
+  place inside another word). Protected spans are what keep it out of an investigator's name.
+- **Told detection (coordinator ruling 2026-10-07, after NR-01's open item).** No "was this name said" test that feeds told
+  state counts an occurrence of a person's name inside an occurrence of a guarded word that is not that person's own:
+  `toldTurn` (the delivered text and a speech row's `shown`), `castToldTurn`, the journal lane's floor (`buildJob`'s `told`,
+  which writes `named_at`) and its `named_quote` / `named_as` check. The guarded words are only the investigators' registered
+  names with their pieces and this table's words for people (`tableWord`, `called.name`, epithets, journal labels; the names of people the
+  table established), never told cast names, since whether someone is told is what these tests decide. A person's own words
+  never shield their own name, and with §188.2 the words of every copy the cast holds as that individual are their own. Matching is the rename's, with the same containment rule: a longer occurrence of the name that
+  holds a guarded occurrence whole still counts. Without it the investigator 「丹尼尔·怀特」 in the prose told an unread
+  「丹尼尔」, whose names then left the roster and reached the Keeper.
+
+### 188.2 The cast joins its duplicates
+
+- A stored cast row joins a graph person whenever the two share a whole identity (§177.1's rule): one of the row's forms
+  equals one of the person's names, or the row's fullest form is one of the person's names.
+- The implementer finds why `cast-78239617e2` "Daniel Mather" did not join `red-haired-store-owner-smoker` on Blood Road and
+  fixes the join, not the display.
+- A row that joins a graph person is that person. It owns no separate roster entry, and its words never become a second
+  owner of the person's names.
+
+### 188.3 Undo the rename on a miss, every row, both schemes (amends §185.3)
+
+- The rows `ModuleGraph.renameUndo` holds (§185.3) now include every name→shown pair the roster can produce, built
+  over-inclusively (every book person treated as untold, because `resolve` is synchronous):
+  - each name, alias and piece;
+  - the joined word a shared name is shown as.
+- They are installed in name-free and legacy campaigns alike. Handle rows stay legacy-only, since name-free handles are
+  never renamed.
+- The retry still runs only after a miss.
+  - Every spelling with the rename undone is tried. The first that resolves to exactly one node wins.
+  - When the spellings resolve to more than one node, the reference is refused `ambiguous` with each candidate's own
+    shown word, never a book name.
+  - A joined word whose names all resolve to one node therefore resolves to that node.
+
+### 188.4 One junction for every reference (was NFH-06)
+
+- Every tool entrance that names a person or entity resolves through `ModuleGraph.resolve` plus the §87.8 junction, and a
+  stored reference is compared by resolved identity, never by spelling. The inventory is §185.11 `#### NFH-01` ("The
+  sweep"). Each converted entrance is recorded under 188.7 with a test that fails when the conversion is reverted.
+- Batches, in the order of the owner's failure scan:
+  - **A:** cash / owed `with` and `subject`; `apply item from`; `apply object to/from` and `apply ability to`
+    (`objectOwner`); `apply damage` subject.
+  - **B:** memory `subject` / `knowers` / `entities` and `apply note entities` (`EntityIndex`); chase targets and roster;
+    `resolve action.obligation`; Mod dossier `name` and a Mod effect's target; the material gate's pre-pass; investigator
+    anchors on `apply ruling`; `lookup kind=module`; the say-token resolver; the cast and clue-label matchers.
+
+### 188.5 `say_name`: measured, not changed
+
+A read-only script over retained tables (driver runs and campaign turn records) counts, for each book person the player
+asked the name of, whether the Keeper:
+- copied that person's `say_name`;
+- wrote another name;
+- deflected.
+
+The report goes in `docs/specs/names-say-name-measurement.md`. No product change follows from it in this section.
+
+### 188.6 Tests
+
+All tests go through the kernel in process plus the installed context runtime: `untold-name-path`,
+`investigator-name-known`, `legacy-rename-round-trip`. Each fix has a test that fails when the fix is reverted.
+
+- **Fixture.** An investigator 「丹尼尔·怀特」 beside an untold 「丹尼尔·马瑟」, who is also printed as 「丹」. A cast with an
+  unread duplicate of a graph person. A legacy starter with the same shape.
+- **Round trip.** Cover every rename row kind: whole name, piece, one-character alias, joined word, and handle (legacy
+  only). Take the assembled request, copy the string into the tool call that uses it, and assert it resolves to the
+  original, or is refused `ambiguous` with candidates when truly ambiguous.
+- **Delivery.** A delivery naming the investigator in full is not held. A delivery naming the untold person is held.
+
+### 188.7 Kernel decisions
+
+(Recorded by the implementing slices.)
+
+#### NR-04a (188.4 batch A, 2026-10-07, `claude/names-rename-20261007-junctionA`)
+
+**The junction.** One reader is added beside `npcNode`, for a field that may also be free text:
+`referencedPerson(graph, world, name)` (`kernel-ts/read/capsule.ts:117`). It reads the graph's npc (`ModuleGraph.resolve`,
+§185.3's retry included), then this table's word (`calledPerson`); a plain miss is `null`, and the graph's ambiguity or a word
+two people carry is refused (`unknown_entity` with `details.candidates`, §87.8's shape). It is NFH-01's `cashCounterparty`
+moved to the junction; `cashCounterparty` (`kernel-ts/apply/purchases.ts:39`) now returns it, so quotes read exactly as before.
+`objectOwner` is split into `ownerIn(party, graph, world, name)` (`kernel-ts/mods/stage.ts:34`), synchronous over a party
+already read, so an owed row can compare a stored owner; `objectOwner` reads the party and calls it.
+
+**Converted entrances (before → after).**
+- **Owed cash `with`** (`kernel-ts/owed/land.ts:73`, `lands`): `effect.with === owed.with` → both sides read by
+  `referencedPerson` and compared as handles. The row stores the handle; the Keeper's handle, told name or table word all
+  land it, another person is `owed_mismatch`, a word two people carry is refused naming both. When either side names nobody
+  (free text, or `with` absent with `source: found`) the comparison is `===`, as before.
+- **Owed cash `subject`** (`kernel-ts/owed/land.ts:72`): `===` → both read as `apply cash` reads its purse (`actor()`:
+  sheet id or registered name) and compared as sheet ids. A value that is no investigator compares by `===`. An omitted
+  subject is not read as the only investigator here: the row is landed by naming it.
+- **Owed object `to`** (`kernel-ts/owed/land.ts:64`): the same sweep found it beside the cash fields, `===` against the row's
+  registered name. Now both read by `ownerIn` and compared as `kind:id`; a value no owner answers compares by `===`.
+  `name`, `definition`, `adopt` and `quantity` are object fields, not references, and still compare by `===`.
+- **`apply item from`** (`kernel-ts/apply/inventory.ts:75`): `EntityIndex.matches` (graph names only), else
+  `looseMatches`, stored as the book's display name or the raw spelling → `referencedPerson`; only a miss falls back to the
+  one-word `looseMatches` reading it had. A person is stored by identity: the receipt carries `from_id` (the handle) beside
+  `from`, and `from` (on the receipt and on the sheet row) is now what this table calls them (`personLabel`: the table's
+  word, else the book's display name), the same word an object transfer's `from` carries. Free text stays as written with
+  no `from_id`. A word two people carry, and the graph's ambiguity, are refused (before, the raw spelling was stored).
+  The readers that matched the stored `from` by spelling read `from_id` first: the NPC ledger's exchanges
+  (`kernel-ts/write/contributions.ts:256`, `receipt.from_id ?? receipt.from`) and the reunion's meetings
+  (`kernel-ts/npc/reunion.ts:15`, `from_id` among the keys).
+- **`apply object to/from`, `apply ability to`** (`objectOwner` → `ownerIn`, `kernel-ts/mods/stage.ts:38`): the party,
+  then `graph.find` answering an npc, then the container and the scene → the party, then `graph.find` answering an npc, then
+  `calledPerson`, then the container and the scene. The stored owner row is minted from the node or the sheet as before, so
+  `equal(prior.owner, source)` and the offer's `from`/`to` compare one identity whichever spelling named it. A person who
+  gives an object is stored by identity on the transfer receipt too (`from_id`, `kernel-ts/mods/object-transfer.ts:33`), so
+  the NPC ledger finds a giver this table calls by its own word. Free text that names no owner is refused as before
+  (`unknown_entity`, `details.field: "object.owner"`). The same reader serves `mods/resolve.ts` and the fulfillment
+  receipt's payer and recipient, which call `objectOwner`.
+- **`apply damage` `subject`** (`kernel-ts/apply/index.ts:205`, the apply context's `settlement`): `graph.actor`, then the
+  party → read first by `readCalledPeople`, the resolve entrance's reader (§87.8): a word the graph's actor or an
+  investigator answers is left as written; a word only `calledPerson` answers is read as that person's handle; two owners
+  are refused before anything is rolled. Recovery passes a sheet id and is unchanged.
+
+**Investigators** are read as before everywhere above: by sheet id or registered name (`actor()`, or the party loop in
+`ownerIn`); §79 gives an investigator no table word.
+
+**Not converted here, and why.**
+- `apply cash` `subject` at the entrance: a purse is an investigator's, read by `actor()` as before; its stored form (the
+  sheet id in `cash_quotes`) was already compared by identity.
+- `projectOwed` (`kernel-ts/owed/index.ts`): the review lane's own output, matched against the party by exact name or id and
+  against people by `personNode`. It is not a Keeper entrance; the rows it writes carry the handle and the registered name
+  that the landing now compares by identity.
+- `memory/fulfillment-view.ts` (`receipt.with !== term.payer`) and `fulfillment-receipt.ts` (`receipt.from !==
+  sourceLabel`): the memory side, batch B. The second compares the label both sides mint from one owner row.
+- `objectOwner`'s container lookup and the host's purchase recovery (`extensions/kernel/purchase-recovery.ts`, a seller
+  compared by its own reader): an object is not a person, and the host is outside the kernel's entrances.
+
+**Tests.** `tests/extension/reference-junction-batch-a.test.mjs`, the kernel in process with The Haunting (the object-usages
+fixture): per entrance, this table's word (`apply person`), the book's name and the handle land on the same person; another
+person is refused (owed `with`, object `from`) or lands on that person (item giver, ability, damage); a word two people carry
+(written on the record directly, since `apply person` refuses a taken word) is refused with both candidates; free text keeps
+its behaviour. The item and object givers are read back from `npc-ledger.json`; the reunion case runs on a table with
+`natural-npc` disabled, because a first-impression roll would itself be the meeting. Mutations by copy, each red in the
+test that names it: owed `with`, `subject` and object `to` back to `===`; `apply item from` back to `EntityIndex`; the
+ledger reading `from` only; the reunion ignoring `from_id`; `ownerIn` without `calledPerson`; the transfer receipt without
+`from_id`; the damage subject not read by `readCalledPeople`; `referencedPerson` without the table layer.
+
+#### NR-01 (2026-10-07, `claude/names-rename-20261007-spans`; protected spans, 188.1)
+
+- **The one function.** `protectedNames(graph, world, journal, records)` (`kernel-ts/read/cast.ts`, beside `knownNamePieces`)
+  returns, trimmed and deduplicated, as written (not normalized):
+  - `graph.investigatorNames` (NFH-07: each party sheet's `name` and `id`, the two names `actor` matches);
+  - every name (`CastPerson.names`) of each cast person who is told, by the roster's own test: a graph person by the
+    journal's `named_at` or `toldTurn`, an unread person by `castToldTurn`;
+  - this table's words for people: the names of the people the table established (`isTablePerson`), every
+    `world.person_labels[*].name` (`called.name`, `tableWord`'s first layer), every folded `world.person_epithets[*].word`,
+    and every `npc-journal.json` `entries[*].label`.
+  No piece is added (but see the investigator's pieces below). Epithets the lane wrote but the kernel has not folded yet are
+  not the table's word yet (the request shows the folded one) and are not in the list.
+- **`table.untold`** answers `{people, protected}`; `people` is unchanged. The handler prepares the turn records once
+  (`prepareNameHistory`) for both (`untoldRoster` now takes any `Iterable<Row>`).
+- **Matching.** An occurrence of a protected name is found as a place is: the exact string, a Latin name only where no Latin
+  letter or digit goes on past either end, CJK as a substring; occurrences may overlap each other. On the host it is found in
+  the text as the rename reads it (JSON-escaped), as places are.
+- **The overlap rule, and its one exception (a deviation from 188.1's literal "no place overlapping").** A place is skipped
+  when it overlaps a protected occurrence, unless the place holds that occurrence whole and is longer than it: §177.15's "a
+  name inside a longer name's place goes with that place". Without the exception, a told person's bare first name (a whole
+  name of theirs, table 24's shape: the bar owner and the doctor printed with one first name) would shield an untold person's
+  full name that begins with it, and the request would carry that full name as printed, a leak §185.13 does not have. An
+  equal-length overlap is skipped (the protected name wins). `clearOf` in `kernel-ts/write/names.ts` and in
+  `extensions/kernel/untold-view.ts` state the same rule.
+- **The host.** `untoldRoster(answer)` (`extensions/kernel/untold-view.ts`) reads the answer as `UntoldRoster {people,
+  protected}`; `untoldPeople` still reads the rows alone. `renameUntold` and `renamePlaces` take a roster (bare rows mean
+  nothing protected), and `placesIn` drops every place that is not clear of the protected occurrences in that text before the
+  longest-first pass, so `renameText` never renames it and the §177.15 judge (`createRenameJudge().prepare`, which reads
+  `renamePlaces`) is never asked about it. The context hook (`extensions/table/context-runtime.ts`) keeps the roster it reads
+  with each snapshot (`NO_UNTOLD` before one) and passes it to every rename and every `prepare`; its `prepared` row adds
+  `untold_protected` (the count) beside `untold_rows`.
+- **The gate.** `untoldPlaces` (`kernel-ts/write/index.ts`) reads `protectedNames` once per call and passes it to:
+  - `untoldNamesSaid`: a name counts as said only where one of its occurrences in the Keeper's own words (normalized, as
+    before) is clear of the normalized protected occurrences;
+  - `prosePlaces`: no place where it is not clear, so `table.untold_spans`, the refusal's places and excerpts, the second
+    delivery's replacements and `told_text` all read the same places;
+  - `inProse`: a name said only inside an unresolved `{{name:}}` token, whose prose occurrences are all protected, is still
+    gated as "said where no prose stands".
+  `untoldWholeNames` is unchanged: the protection is per place, not per name. The host's spans hook
+  (`extensions/kernel/untold-spans.ts`) is unchanged: it asks Jev about the spans the kernel returns, which no longer include a
+  protected place.
+- **Both schemes.** Nothing branches on the scheme. A legacy starter has no cast, so its gate holds nothing (§177.11); its
+  rename is covered.
+- **Told detection (188.1's last bullet; was the open item of the first commit).**
+  - *The guard.* `tableWords(graph, world, journal)` (`kernel-ts/read/cast.ts`) lists the investigators' registered names
+    (no owner) and the table's words, each with the key it is stored under: `world.person_labels` and `world.person_epithets`
+    by handle, sheet id or cast row id, the journal's `entries[*].label` by node id, and a table-established person's names by
+    handle and node id. `protectedNames` is now `tableWords` plus the told cast names. `tellGuard` normalizes `tableWords`
+    into a `TellGuard {key, words}` (`kernel-ts/journal/name-history.ts`); `key` is the sorted list as JSON.
+  - *The carrier.* The told checks read records through `NameHistory`, which now carries the guard:
+    `prepareNameHistory(records, guard)`; a history already prepared keeps its guard when none is passed, and one prepared
+    with the same `key` is reused, sharing the filtered rows and normalized texts (JEV-OPEN-01's preparation, unchanged).
+    Every reader that holds the world and the journal attaches it: `untoldBlock` and `untoldRoster` (`read/capsule.ts`),
+    `table.untold`, `protectedNames`, `foldPersonWords` and `submitEpithets` (`read/person-words.ts`), `epithets.job`, the
+    gate's `untoldPlaces` and `untoldAt` (`write/index.ts`), `refuseUntoldName` (`apply/person.ts`) and the journal's
+    `buildJob`. `isTold`, `untoldBookPeople`, `untoldPieces`, `untoldWholeNames`, `untoldUnread` and `castToldTurn` take the
+    caller's history. A history prepared without a guard reads as before.
+  - *The test.* `NameHistory.says(text, word, own)`: the word's occurrences in the normalized text, at least one `clearOf`
+    the guarded occurrences whose owners are not the person's (`kernel-ts/journal/name-spans.ts` now holds `nameSpans` and
+    `clearOf`, which the gate's `write/names.ts` imports). Own keys (`ownerOf(graph, nodes, castIds)`, `journal/naming.ts`;
+    `ownedBy(graph, node)`, `read/cast.ts`): with §188.2, every node the cast holds as the same individual -- its handle, node
+    id and any handle `sameNode` accepts -- and the cast rows they absorbed, so a copy's own words never shield that person's
+    own name; an unread person's row id and cast ids. `toldTurn` takes the owner test as a fifth argument (default: the node
+    alone); `isTold`, `protectedNames` and the journal's floor and quote check pass the individual's.
+  - *The journal lane.* A `named_quote` that carries the person's names only inside others' guarded words carries none
+    (`not_a_book_name`, so the lane is asked `named_as`), and a `named_as` found in the quote only inside them is refused the
+    same way. `journal.submit` passes the world for the guard (`submit(..., world)`).
+  - *Retroactive.* Told state is computed from all records with the current guard. Someone made told only by an occurrence
+    inside a guarded word (the defect) becomes untold again on the next read. Someone told by a clear occurrence stays told,
+    and a `named_at` already written stays (no migration).
+  - *Speech.* On the real path a token by the table's word carries `shown: ""`, and a token by a name shows the person's own
+    key, so the speech branch is pinned by a unit case on `toldTurn` rather than at the seam.
+- Tests: `tests/extension/protected-name-spans.test.mjs` (kernel in process, context hooks as installed). Name-free: a
+  reader-built book whose store owner 「丹尼尔·马瑟」 carries the graph alias 「丹」 and the printed forms 「丹尼尔」 and 「丹尼」,
+  beside the investigator 「丹尼尔·怀特」: `table.untold` carries `protected` (the investigator's name and sheet id, no untold
+  name or piece); the assembled request keeps 「丹尼尔·怀特」 whole and renames 「丹尼尔·马瑟」, a lone 「丹」 and a lone 「丹尼」; the
+  judge is asked about exactly two places, none inside the investigator's name; `table.untold_spans` returns the store owner's
+  name and the lone nickname only; a delivery naming the investigator in full goes out; one naming the store owner is held;
+  one with the nickname beside the investigator's name is held with one place, and the second delivery replaces only that
+  place; a nickname said only in an unresolved name token is held with no place. Legacy (voice-bench): the investigator
+  「玛丽·斯通纳」 holds the untold 「玛丽·斯通」 whole; the request keeps it and renames the untold name and its piece elsewhere; a
+  person told in prose and every folded epithet are protected. A unit case pins the containment exception on both sides.
+  Told detection (a book with an unread second 「丹尼尔」, notes "Daniel"/"Dan", and the postmaster 「怀特」, a graph person):
+  the investigator's name in the prose leaves the unread Daniel untold ("Dan" and "Daniel" still on the roster) and the
+  postmaster untold in the capsule; the journal's floor lists him unnamed, and a quote saying his name only inside the
+  investigator's is refused `not_a_book_name`, with and without `named_as`. 「怀特先生点了点头。」 tells the postmaster; the
+  name token tells the store owner although it also makes his name his own `called.name`, and the unread Daniel inside it
+  stays untold. A unit case on `toldTurn`'s speech branch: a shown word holding the name inside an investigator's name tells
+  nobody; the person's own word does not shield it.
+- Mutations, each reverted by copy, each red: the host ignoring `protected` (request, judge, legacy, unit); the gate ignoring
+  it (gate); `table.untold` without `protected` (request, judge, legacy); no investigator names (all four kernel cases); no told
+  cast names (legacy); no epithets (legacy); the containment exception removed on the host, and in the kernel (unit); the
+  judge's places ignoring `protected` (judge); `inProse`, `untoldNamesSaid` and `prosePlaces` each without it (gate).
+  Told detection, each red: `castToldTurn` unguarded; `toldTurn`'s prose unguarded; its speech branch unguarded (unit); no
+  investigator names in the guard; own words shielding the person's own name (store owner; unit); the journal floor
+  unguarded; the `named_quote` check unguarded; the `named_as` check removed; `untoldBlock` unguarded; no `person_labels` in
+  the guard (the unread Daniel inside the store owner's word); `untoldRoster` and `table.untold` both unguarded (either one
+  alone is masked by the other, by design).
+- **An investigator's pieces (coordinator ruling 2026-10-07, after table `nr06-blood-road-2`; amends the first bullet).**
+  `tableWords` lists `namePieces(graph.investigatorNames)` (each whole name and every punctuation piece of two characters or
+  more) instead of the whole names alone. It is the one source, so the pieces reach all four readers: `protectedNames` (the
+  host rename and its §177.15 judge, through `table.untold`; the gate's `untoldNamesSaid` / `prosePlaces` / `inProse`) and
+  `tellGuard` (every told check). A told cast person's pieces are still not added. The containment rule is unchanged, so an
+  untold full name that begins with the investigator's given name is still renamed and still gated. The trade, as §185.13
+  makes it: an untold person whose whole name is an investigator's piece (the postmaster 「怀特」 beside 「丹尼尔·怀特」) is not
+  told by that piece alone in the prose; the name token tells them, because it makes the word their own `called.name`, and
+  `tellGuard` merges one word's owners, so their own word never shields them. Tests (`protected-name-spans.test.mjs`): the
+  sheet's `backstory.personal_description` set to the table's sentence reaches the Keeper's capsule copy with 「丹尼尔受托寻找她」
+  whole, while the store owner's full name and a lone 「丹」 in a tool result are renamed; `table.untold_spans` finds nothing in
+  「丹尼尔走进杂货店。」 and that delivery goes out; the journal lane is refused `not_a_book_name` for the store owner named by that
+  quote, with and without `named_as`; 「丹尼尔」 alone in the prose leaves the unread second Daniel and the store owner untold.
+  Mutations, each red: no pieces anywhere (request, told, the postmaster's trade); `protectedNames` without them (the
+  capsule copy renamed to 「…npc-b8ee1b尔受托寻找她」); the gate's list without them (`untold_spans` finds a place inside 「丹尼尔」); `tellGuard`
+  without them (the journal quote accepted; the unread Daniel told).
+- **With NR-02 and NR-03 (merge of 2026-10-07).** `isTold` keeps NR-02's told-together over `castNodes` and passes every
+  node the individual's owner test (`ownedBy`); `untoldBlock` calls `isTold` with the guarded history; `protectedNames`
+  counts someone told when any copy is, each read with `ownerOf(graph, person.nodes, person.castIds)`; NR-03's single
+  builder (`rosterNames`) reads no told state, and `untoldRoster` attaches the guard before it computes who is untold.
+  `castIdsOf` is gone (`ownedBy` replaces it). Test: `module-cast.test.mjs`, two copies of Old Mae, the second named by the
+  name token (so her name is that copy's own word): the journal's floor lists neither copy unnamed and the roster no longer
+  hides her. Mutations, each red: `ownedBy` covering only the node it is given; the journal floor's `toldTurn` without the
+  individual's owner test.
+
+- **NR-08 (2026-10-07, `claude/names-rename-20261007-joined`; a shared untold name is never written as joined words, 188.8).**
+  - *The roster apart.* `untoldRosterNames` (`kernel-ts/read/capsule.ts`) is `untoldRoster`'s body: NR-03's single builder's
+    rows (`RosterName`, each owner's word apart). `untoldRoster` maps them as before, joining with `joinedWord`, now the one
+    place the joined form is made (NR-03's undo rows use it too).
+  - *Shared names and joined words* (`kernel-ts/write/shared-untold.ts`): `sharedNames` are the roster's non-handle rows with
+    more than one word; `joinedWritten` finds a row's `joinedWord` in a text by exact string (markers included: a say or name
+    token by the joined word shows it too), never by the text's punctuation.
+  - *The gate* (`untoldNamesGate`, `kernel-ts/write/index.ts`) reads the roster with the same guarded history as its places.
+    A held place whose name is shared, or a joined word anywhere in the text, makes the refusal list each person by their
+    own word (`sharedNotice`; `details.shared` / `details.joined`, lists of words) with `SHARED_FIX`, and it is held every
+    time: the second delivery replaces only names one person carries (`shown.length === 1`). The refusal still quotes no
+    name. Telemetry adds `shared` and `joined` counts to the refused row.
+  - *Documents* (`refuseJoinedInDocument`, called from `stageModEffect`'s document write/append in `kernel-ts/mods/stage.ts`):
+    a joined word in the text is refused `invalid_params`, `details.reason: "untold_name"`, `field: "object.document.text"`.
+    Untold names in documents are not gated (unchanged).
+  - *Decided conservatively (owner asleep, lead delegated):* a shared name is held again rather than replaced on the second
+    delivery, because no word is that name; a turn can then take more than one refusal, bounded by the host's refusal budget,
+    and the fix names the words to use. The host's own request rename still shows a shared name as the joined word (§177.4:
+    it hides the name and blames nobody); only the player's text refuses it.
+  - *NR-08b (lead ruling 2026-10-07 after table `nr08-blood-road-1`).* `candidatesOf` (`shared-untold.ts`) gives each person
+    of a shared name or joined word as `{word, say_name?}`: `rosterWord`, and `nameToken(word)` for a person with a node (the
+    untold block's `say_name`); an unread person has no token, since no node lets the delivery name them. The message lists
+    each token beside the word; `SHARED_FIX` opens with the token path. `refuseUntoldName` (`kernel-ts/apply/person.ts`) adds
+    the person's `say_name` from `untoldBlock` to its fix and `details`. A delivery that names one of them by the token passes
+    the gate (a resolved name token is never the Keeper's own words, §177.11) and tells only that person; the other keeps
+    their names hidden and held. Test: the hold lists both tokens; `apply person` with the bare name is refused with the
+    token; the token delivers 「皮特·加西亚」, he leaves the roster, 「皮特·诺兰」 stays on it and is still held. Mutations, each red:
+    candidates without tokens; the message without them; the fix without the token path; `apply person` without the token.
+  - Tests (`tests/extension/protected-name-spans.test.mjs`, a book with 「皮特·诺兰」 and 「皮特·加西亚」 both printed 「皮特」, words
+    「拒绝饮酒的拖车住客」 and 「戴眼镜的五金店老板」): a delivery saying 「皮特」 is held with each word apart and the joined word in
+    neither message nor fix, and held again the second time; one man's own word goes out; the joined word verbatim is held,
+    every time, in prose and inside a say token, and refused in a notebook the investigator writes, while his own word is
+    written; 「皮特·诺兰」 (one owner) is held once and then delivered as 「拒绝饮酒的拖车住客」. Mutations, each red: the old second
+    delivery (shared names replaced by the joined word); the notice offering the joined word; joined words never found; the
+    document guard removed; no shared names.
+
+#### NR-03 (2026-10-07, `claude/names-rename-20261007-undo`; 188.3)
+
+- **The rows come from the roster's own builder.** `untoldRoster`'s body is split, its answer unchanged
+  (`kernel-ts/read/capsule.ts`): `rosterWord` is the word a cast person is shown by (the table's word, else a graph
+  person's journal label, else the handle or the cast row's id), and `rosterNames` builds every row the rename replaces
+  (names, aliases, punctuation pieces, one-character aliases, a legacy person's node id and handle once they have a word,
+  and the joined words of shared names, with each row's owners). `untoldRoster` hands it the untold. `renameUndoRows`
+  (`kernel-ts/read/rename-undo.ts`) hands it the whole cast, with only the investigators' names known
+  (`knownNamePieces(graph, [])`, as the roster leaves them out), and groups the rows by shown string. A new row kind
+  added to the roster is undone without a second copy.
+  - A joined word's names are the names its owners share, then each owner's own names. The shared name is often a first
+    name, a piece that no node answers to (the names index holds names, aliases and display names, not pieces); the
+    joined word stood for one of the owners, so the owners' names are what can resolve.
+  - Words come from the world and `npc-journal.json`, read at install. NFH-01's limit "a journal label not yet folded has
+    no row" is gone.
+  - A row whose word the junction reads (`calledOwners`: a `person_labels` name or an epithet) is marked `called`.
+  - `ModuleGraph.shownWords` (node id to word) names the candidates of a refusal.
+  - NFH-01's "a word two people carry has no row" is dropped: such a word is undone and refused `ambiguous` when its
+    spellings name two nodes.
+- **Installed in both schemes** (`installRenameUndo`, called from `loadCampaignModule`). The scheme is no longer read from
+  `campaign.json` here: `rosterNames` makes no slug rows when `graph.nameFree`, which the same marker sets. It now runs
+  after `investigatorNames` is installed; before, the order left `knownNamePieces` without them.
+- **The retry** (`renameUndone`, `undoRename`, `kernel-ts/read/module-graph.ts`).
+  - Places: longest word first, no overlap. A name is offered for a place only where it passes the rename's boundary test
+    there.
+  - Spellings: each place read as each of its names, at most `UNDO_SPELLINGS` (48).
+  - Each spelling goes through `resolve` (not `find`, which hides an ambiguity). A spelling that misses inside the retry
+    throws without ranking candidates.
+  - The spellings that resolve to exactly one node decide: all one node, that node; two or more, `ambiguous`. When none
+    does and some are ambiguous, the nodes those name are the candidates. The ambiguity mark now carries the node ids
+    (`WeakMap`), so the retry can read them.
+  - Reading of 188.3's "the first that resolves wins": the first wins only when the others agree. Taken literally, the
+    rows' order would pick between a joined word's owners.
+- **The refusal.** `unknown_entity` (the code set is closed and has no `ambiguous`), `details.reason: "ambiguous"`,
+  marked as `resolve`'s ambiguity so `apply npc` never mints a newcomer under it.
+  - Message `<what> '<query>' is ambiguous`; `query` is the Keeper's string.
+  - `candidates[]: {name, kind, shown}`. `shown` is a book person's word (`shownWords`), else the node's handle. `name` is
+    what to write: the handle in a name-free campaign, the word in a legacy one, whose handles are the book's names.
+  - No `describe()`, whose `display_name` is the book's name. `resolve`'s existing ambiguity refusals are unchanged; their
+    JSON is compared with the frozen oracle.
+- **NFH-01's single-word guard, re-examined.** It now applies only to a reference that is exactly one word the junction
+  reads (`called`). Such a word is not retried, so §87.8 keeps refusing a word two people answer to, rather than the graph
+  picking the one the roster shows by it.
+  - Retried whole: a joined word (no junction reads it), a journal label not yet folded, a cast row's id.
+  - NFH-01's example, `replacePassagePeople`, runs on a freshly loaded graph before the rows are installed. A table
+    person's name resolves as written before any retry.
+- **What the wider set can do.** Rows for told people and for every owner act only after a miss.
+  - A spurious spelling can turn a miss into the node the word stood for.
+  - It can turn a single answer into `ambiguous` when two spellings name different nodes, e.g. a lookup across all kinds
+    for a word whose piece is exactly another node's name.
+- **Limits.**
+  - Entrances that read the graph through `find` (`graph.actor`, `personNode`) swallow the refusal and answer their own
+    miss. The ambiguity reaches the Keeper where the entrance calls `resolve`, `npc`, `clue` or `scene` (`apply npc`,
+    `apply clue`, `apply move`). NR-04 decides per entrance.
+  - The junction's own refusals (`calledPerson`'s two owners) and `resolve`'s other ambiguities still describe candidates
+    with `display_name`, the book's name, which only the host rename hides. Outside this ticket.
+  - The request keeps a word changed mid-turn until the next turn (§103.5), and that old word has a row only while
+    someone still answers to it.
+- **Tests:** `tests/extension/rename-undo-names.test.mjs`, kernel in process with the context hooks as installed.
+  - Fixtures:
+    - a reader-built book (name-free) with 「丹尼尔·马瑟」 (alias 「丹」), an unread 「丹尼尔·罗斯」 sharing 「丹尼尔」, two
+      graph people sharing 「艾米」, two men printed only as 「汤姆」, and the clues 「马瑟的账本」 and 「丹的钥匙」;
+    - a starter (legacy) with the same people and clues, plus a letter whose handle begins with Mather's.
+  - Each string is taken from the assembled request (a source lookup's text, or the capsule) and sent as `npc.name` or
+    `clue`:
+    - the whole name, the piece and the one-character alias resolve, in both schemes;
+    - the legacy handle resolves;
+    - the joined 「丹尼尔」 word resolves to Mather;
+    - 「艾米」 (both schemes) and 「汤姆」 (no spelling names one) are refused `ambiguous` with each person's word, no book
+      name and no slug, and nobody is minted;
+    - the candidate's `name` then lands on that person.
+  - Also covered: the installed rows (name rows in both schemes, handle rows in legacy only); a stored collision (one
+    person's label is another's epithet), refused by the junction, not picked; a journal label not yet folded, undone
+    whole and inside a joined word.
+  - `legacy-rename-round-trip`'s name-free case is retitled: it now asserts that no handle is undone there.
+  - Mutations, each reverted by copy (checksum-verified) and each red:
+    - rows not installed in name-free;
+    - handle rows only;
+    - joined words without their owners' names;
+    - the first spelling wins;
+    - `describe()` candidates;
+    - the whole-word guard for every word;
+    - no guard for a junction word;
+    - ambiguous spellings counted as misses;
+    - no journal read.
+
+#### NR-02
+
+**The cause (data, 2026-10-07).** Not a script or language mismatch and not a served-cast version: `cast.json` is version 5,
+complete, of the bound file, and the row prints the graph person's own name in the same script.
+- The graph held the store owner twice. `npc-book-4-daniel-mather` (「丹尼尔·马瑟」, aliases 「丹」, 「丹·马瑟」, handle
+  `red-haired-store-owner-smoker`) came from the first reading. Generation 55 of the campaign's fork (02:05:43Z, a page
+  reading of pages 25–26) added `npc-daniel-mather` (「丹尼尔·马瑟」, alias 「丹·马瑟」, same page, same biography), under
+  another id; its handle is `rough-red-haired-smoking-shopkeeper`.
+- Row `cast-78239617e2` (book 「丹尼尔·马瑟」, 「丹·马瑟」) was then answered by both nodes, and §177.1's "a row two answer
+  is unread" made it a third person. The epithet lane worded it at 02:06:29 (「红发棕眼的来客」) and the copy at the same
+  time (「站在基地里的住民」).
+- Replayed read-only on a clone of the acceptance home: `table.untold` at generation 54 shows every Mather form, including
+  "Daniel Mather", by 「抓胡茬的红发杂货店主」 alone. At generation 60 it shows the three words joined.
+- 「站在基地里的住民」 is the second graph copy, not another man.
+- The same shape on book-4 at generation 60: 7 rows answered by two or more graph people. The duplicated people are
+  Alissya, Brenner (three nodes), Scott, Sutton (the book prints him as Peter and as Matthew), Mather and Pete Smith.
+  Before the fix, `table.untold` had 70 joined-word rows; after it, 43. The rest are different people who share a name.
+
+**The join** (`bookCast`, `kernel-ts/read/cast.ts`).
+- A link between a row and a graph person keeps §177.1's two clauses: the person's own name or display name is one of
+  the row's forms, or the row's fullest form is one of the person's names. §188.2's shorter wording ("one of the row's
+  forms equals one of the person's names") is not taken literally: it would join table 24's shared short forms again.
+- Links are read from the graph's own names and the row alone, so no row's join depends on the rows read before it.
+  Before, a later row could join through names an earlier row had added.
+- **Both ways.** A graph person linked by both clauses is that row's individual. Several such people are the graph holding
+  one individual more than once; the row makes them one cast person. `node` is the first in graph order, and
+  `CastPerson.nodes` holds them all.
+  - Both clauses, not either: the hardware owner's row prints 「皮特」, which is also the trailer squatter's nodes' own name.
+    Only the squatter's own row carries his fullest form, 「彼得·M·史密斯」.
+- **The longest shared name.** A person linked both ways to several rows goes to the row they share the longest whole name
+  with, in characters. A tie leaves them their own person. Example: a row printing 「皮特」 alone loses the squatter to his
+  own row.
+- **Any other row** joins the one cast person (folds counted) that answers it. A row that nobody answers, or that two
+  different people answer, stays unread with all its names, as before.
+- A joined row owns no roster entry, and its words never own a name.
+
+**What reads the person.**
+- `castNodes(graph, node)` gives the nodes the cast holds as one individual.
+- `isTold` (person-words.ts) and `untoldBlock` (capsule.ts) count a node as told when any of those nodes is told (journal
+  `named_at` or a delivery).
+- `rosterWord` (capsule.ts) shows the person by their first node's word, else the first other copy's that has one. The
+  roster and §188.3's undo both read it. `rosterNames`, the one row builder, renames every node's id and handle in a legacy
+  campaign.
+- `protectedNames` (§188.1) protects a person's names when any of their nodes is told.
+- `newcomerRefusal` counts every node's word.
+- The journal's book-name check finds the person by any of their nodes.
+
+**One candidate in `resolve`** (lead's ruling after the merge with NR-01, NR-03 and NR-04a, 2026-10-07).
+- The campaign loader installs `ModuleGraph.individuals` with the undo rows (`individualNodes`, `read/rename-undo.ts`): each
+  node of an individual the cast holds more than once, to their first node (`CastPerson.node`). That is the node whose
+  handle the roster's rows carry as `id` and whose word `rosterWord` shows first.
+- `resolve` counts those nodes once, as the first node, wherever a name reaches several: the graph's names, the phrase at
+  one end of a name (§2), and each spelling of §188.3's undo. So 「丹尼尔·马瑟」 in a call is the store owner's first node,
+  not `ambiguous` between his copies. A joined word for two men is still ambiguous, with one candidate for each man.
+- A handle, a node id or a legacy slug still names its own node: a copy placed in a scene is still moved by its handle. A
+  copy's own handle reached by an undo spelling (a legacy slug) counts as the individual too.
+- Only a campaign's graph has the map; a graph no campaign serves resolves as before.
+- When the first node has no word yet, the roster shows the other copy's word, and a call by that word reaches the other
+  copy through the junction (§87.8). It is the same person; the two meet again once the lane words the first node.
+
+**Not changed, open.**
+- The producer: the page reading merge writes a second node for someone the graph already has. On book-4 generation 55
+  that was the store owner, the squatter, the sand rats and the general store.
+- Presence and capsules still show each copy by its own word.
+- Brenner's `npc-book-4-dr-brenner` (「布伦纳医生」) does not carry the row's fullest form, so 「布伦纳医生」 still shows two words.
+- A label the fiction established on a later copy is not preferred over the first copy's epithet.
+
+Tests, in `tests/extension/module-cast.test.mjs`:
+- On the real kernel, a reading in the campaign's fork writes Old Mae again under another id. Her row is not offered to
+  the epithet lane, and `table.untold` shows her forms by one word owned by one of her nodes.
+- On Blood Road's real rows and nodes (Mather, the squatter and the hardware owner):
+  - one person each, with every Mather form shown by one word;
+  - 「皮特」 still shows two words;
+  - the legacy slugs of the second copy are renamed;
+  - the copy's word refuses a newcomer;
+  - told through the second copy, the man is told;
+  - with no word on the first copy, the second copy's word is shown.
+- Both ways and the longest name: a partial cast without the squatter's row, and a later row printing 「皮特」 alone.
+- On the real kernel, the journal lane's label check on the second copy uses the names her row gives her.
+- On the real kernel, `apply person` by a name two copies carry lands on the node the roster names him by.
+- In process: Blood Road's name resolves to the first copy; the squatter/hardware owner joined word is ambiguous with two
+  candidates, each by his own word; a phrase at one end of a name finds one candidate; told through the second copy, his
+  names are protected spans.
+
+Mutations, each turning at least one case red (reverted by copy):
+- the four files back to base;
+- no fold;
+- `isTold` per node;
+- `untoldBlock` per node;
+- the roster's word from the first node only;
+- slugs of the first node only;
+- newcomer words without the copies;
+- fold on either clause;
+- no longest-name choice;
+- the journal by the first node only;
+- after the merge: `protectedNames` told by the first node; `rosterWord` from the first node only; `resolve`'s names path,
+  phrase path and undo spellings not collapsed; `individuals` not installed by the loader.
+
+#### NR-04b (188.4 batch B, 2026-10-07, `claude/names-rename-20261007-junctionB`)
+
+**The junction, once more.** No new resolver. Entrances that take a person read `npcNode` / `personNode` / `calledPerson` /
+`referencedPerson` (§87.8, NR-04a); entrances that take any entity read `ModuleGraph.resolve` (its §2 anchored run and §185.3's
+retry included). Two readers are added beside them:
+- `EntityIndex` (`kernel-ts/read/memory.ts:79`) takes the world as a fifth argument. A word its own steps (reserved, an
+  investigator, the graph's exact names, a scene label) leave unanswered is read by the junction (`people`, :120):
+  `graph.npc`, then every owner of the table's word, so two owners come back as two keys and every caller refuses them as
+  ambiguous. A caller that passes no world gets `resolve` without the table layer.
+- `samePersonReference(graph, world)` (`kernel-ts/read/capsule.ts:138`): whether a stored reference and another name one
+  person (`referencedPerson` on both sides); a value that names nobody matches only its own spelling. For
+  `memory/fulfillment-view.ts`, which reads no graph and now takes it as an optional `samePayer`.
+
+**Converted entrances (before → after).**
+- **Memory lane `subject` / `knowers` / `entities`, legacy and referenced protocol** (`memory/jobs.ts:332` `submit`,
+  `memory/referenced.ts:258` `submitReferenced`, through `validateCandidates`): `EntityIndex.matches` over the graph's exact
+  names → the same, then the junction. The row still stores the graph's display name (`canonicalName`), so the stored format
+  is unchanged; a table word that was refused `not a known name` is now that person. `memory.evidence`'s `filters.about`
+  (`memory/evidence.ts:81`) reads the same way. `table.recall` already reached the table's word (§177.13) and is unchanged.
+- **`apply note` `entities`** (`apply/bookkeeping.ts:164`): the same index with the world. *Stored format:* a table word (or
+  an anchored run, or a renamed spelling) is now stored as the person's display name, as a book name always was; before, it was
+  stored as written. The receipt's `entities` and the capsule's note `cue` show that name (§103.5's rename still hides an untold
+  one in the Keeper's request). A word two people carry, and free text, stay as written.
+- **Notes linked to who is here** (`noteObligations`, `read/memory.ts:302`, called at `read/assemble.ts:450`): stored entities
+  and the present people and place compared by `normalize` → by `lenientKey` of an index with the world and the scene labels,
+  so a note an older kernel stored under the table's word links where that person stands.
+- **`apply ruling` anchor `entities`** (`apply/bookkeeping.ts:197`): an investigator, else `graph.resolve` → the same, then
+  `calledPerson` when the graph misses. Stored as the handle, as before; a word two people carry is refused naming both.
+- **Ruling anchors in the capsule** (`rulingsForCapsule`, `read/memory.ts:321`, given `currentHandle` at
+  `read/assemble.ts:496`): a stored anchor compared by spelling with the present handles → read as the current handle of the
+  node it names. `rulings.jsonl` is append-only history (§185.6.1), so a ruling anchored before a fold kept the interim handle
+  and stopped surfacing.
+- **`resolve` `action.obligation`** (`obligationByHandle`, `read/obligations.ts:58`): an exact handle or node id → that, else
+  `graph.find(name, ["requirement"])` kept only when it is a stated obligation. The requirement's name, an anchored run and a
+  renamed handle now bind; a name that is no obligation is `obligation_unknown` as before. `continuedClaim` and the offer
+  ledger read stored handles through the same function.
+- **Mod dossier `name`** (`beingNamed`, `mods/dossier-door.ts:34`): `graph.npc`, then a creature → `npcNode` (the table's word
+  after the graph's npc; two owners refused naming both), then a creature. The receipt still names the display name.
+- **The material gate's pre-pass** (`apply/index.ts:145`): an `npc` effect's name read by `graph.find(name, ["npc"])` → that,
+  then `calledPerson`. *Visible:* a book person whose record is not read, named by the table's word, is now held
+  `material_pending` with his handle as `focus`, as his book name always was; before, the word reached the gate as nobody and
+  the person was placed with no material. A word two people carry is left to `apply npc`'s own refusal.
+- **Chase** (`kernel-ts/chase/bindings.ts`, one reader `chaseBeing` :27 = `personNode`):
+  - `chase_roster[].actor` (:294) and `riding_with` (:322, `participantOf`): spelling against a present opponent's handle or
+    display name, and `riding_with` against the roster's own spelling of the driver → the acting investigator by sheet id or
+    name, anyone else by the junction, matched to a present opponent by node. The table's word now names a runner and a driver.
+  - `action.target` at the start (:396): spelling against handle or display name, silently ignored on a miss → the being the
+    target names, by node. A target that names nobody present still leaves every pursuer (unchanged).
+  - `action.target` on `conflict` (:499): spelling against the participant id or label → an investigator by sheet, anyone else
+    by `sameNode` with the saved participant; a word that names nobody compares its spelling as before.
+- **The say token** (`speakerResolver`, `write/speech.ts:64`): the graph step was an exact name key over every npc → `graph.find(
+  name, ["npc"])`. *Visible:* a token in §2's anchored run (`{{say:Hall of Records clerk}}` for "the Hall of Records clerk")
+  now attributes the line to that person instead of leaving a label. Present people, the party and `calledPerson` are unchanged.
+- **`lookup kind=module`** (`read/handlers.ts:553`): after `search` and `handleList` miss, `graph.find(query, expected ? [expected]
+  : undefined)` before the person junction and the unread cast. *Visible:* a handle the request's rename rewrote
+  (`<word>-house`), an anchored run and, with `expected_kind: scene`, a part of a place (§32's place layer) are found instead of
+  `not_found`.
+- **The clue-label matcher** (`knownLabel`, `read/mods.ts:975`): the labelled keys were counted as strings, and two keys failed
+  over silently to the graph's names → each key read as the clue it names (`graph.find(key, ["clue"])`), deduplicated by node.
+  One clue filed under two spellings of its handle is that clue; *visible:* a label two different clues carry is refused
+  `unknown_entity` with both as candidates.
+- **A promise's cash counterparty** (`fulfillmentReceiptAmount` / `derivePromiseFulfillment`, `memory/fulfillment-view.ts`):
+  `receipt.with !== term.payer` → `samePayer`, given `samePersonReference` by `prepareFulfillments`
+  (`memory/fulfillment-receipt.ts:193`, the write path), the capsule (`read/assemble.ts:428`) and `presentSection`
+  (`read/capsule.ts:772`, the card and `look`). Kernel-written linked receipts carry the handle the payer carries; this reads a
+  stored receipt whose `with` holds another spelling of the same person as that person.
+- **A promised item's giver** (`effectOwners`, `memory/fulfillment-receipt.ts:175`): `EntityIndex` over the graph's names, and
+  the label `canonicalName` → the payer `objectOwner` already read (NR-04a's `ownerIn`), labelled `personLabel`. NR-04a made
+  `apply item` store what this table calls the giver as `from`, so the prepared label (the display name) no longer matched the
+  staged receipt and a promised item from a worded person could not attach. *Stored format:* the link's `source_label` is the
+  table's word when there is one.
+
+**Not converted, and why.**
+- `effectTarget` (`mods/effects.ts`): no caller hands it an unread word. Its default and `castNpc`'s target are `action.target`,
+  read at the resolve entrance (`readCalledPeople`); `castNpc`'s caster is `objectOwner`'s display name; the magic executor passes
+  a stored handle. A conversion would be unreachable, so no test could fail on its revert.
+- `castPersonNamed` (`read/cast.ts`): every caller asks the junction first (lookup: `personNode`; the gate: `graph.find` after the
+  resolve entrance or the pre-pass above). The unread cast has no node for `resolve` to answer, and its comparison is equality
+  with the row's names, epithet and id, which is the cast's identity (§177.1). (`cast.ts` is NR-01/NR-02's file.)
+- `newcomerRefusal`: not a reference. It asks whether a new name carries a book name, after `personNode` (`apply/index.ts:165`)
+  has found nobody; undoing the rename there would refuse a newcomer whose description holds someone's shown word.
+- `EntityIndex` without the world, where stored memory (always the display name since validation) is compared with internal
+  names: `buildJob` and `correctionJob` (`memory/jobs.ts`), the supersede key, `recall`, `worldline`, `continuity`, the
+  continuity audit, the capsule's memory anchors and the referenced job's preference index. The table's word never reaches
+  them as input; `resolve`'s layers reach them through the same `matches`.
+- `withPromiseFulfillment` without `samePayer`: recall (no graph in scope), the referenced job, worldline, continuity, the
+  continuity audit, the NPC perspective and situation, and the fulfillment options lane. They keep the spelling comparison;
+  kernel-written receipts do not differ there.
+- Found and not in batch B: `canonicalOwner` (`memory/fulfillment-receipt.ts`) compares a stored term owner with the current
+  owner id by spelling, so a partial promise bound before a §185.6 fold is refused `fulfillment_target_changed` after it.
+  A Mod document seed's `handout` (`mods/jobs.ts`, in NFH-01's list) is on neither batch of 188.4.
+
+**Tests.** `tests/extension/reference-junction-batch-b.test.mjs` (The Haunting in process, the object-usages fixture: memory
+lane legacy and referenced, `memory.evidence`, recall, notes and their capsule link, ruling anchors, obligations, dossier, say
+token, clue labels, chase start / roster / passenger / conflict), `reference-junction-batch-b-fulfillment.test.mjs` (a cash and
+an item promise of the worded Knott: prepare, attach, the capsule's obligation row, the card and `look`), and
+`reference-junction-batch-b-books.test.mjs` (the reader-built harbor book: the gate holds the worded harbormaster; a ruling on
+Old Mae survives a fold; the legacy rename fixture: `lookup` finds `<word>-house`). Per entrance the table's word, the told name
+and the handle (or node id) reach the same person or entity; another lands on that other one or is refused; a word two people
+carry is refused naming both; free text keeps its behaviour. Mutations by copy, each red in the test that names it: the
+`EntityIndex` junction removed; the world dropped at `submit`, `submitReferenced`, `memory.evidence` and `apply note`;
+`noteObligations` back to `normalize`; the ruling anchor without `calledPerson`; the capsule without `currentHandle`;
+`obligationByHandle` without `resolve`; `beingNamed` back to `graph.npc`; the say token back to the exact key; the clue
+labels counted by key, and the two-clue refusal removed; the chase start, roster actor, `riding_with` and conflict back to
+spelling; `samePayer` dropped at `prepareFulfillments`, the capsule and `presentSection`; the item giver labelled by display
+name; the gate pre-pass without the junction; `lookup` without `resolve`.
+
+
+### 188.8 A shared untold name is never written as joined words (lead ruling 2026-10-07, NR-08; the owner delegated)
+
+**Evidence.** Real table `nr07-blood-road-1` (2026-10-07, turns 4, 5 and 11): Blood Road has two untold men called 「皮特」, the
+trailer squatter and the hardware store owner, so the request shows that name as their words joined,
+「拒绝饮酒的拖车住客 / 戴眼镜的五金店老板」 (§177.4). The player asked about 「皮特」 and the Keeper echoed it. §177.11 held the
+delivery, and the Keeper wrote 「皮特」 again; the second delivery replaced it with the roster's shown word, which for a shared
+name is the joined word. The player read it as one man's name four times, among them 「问镇上有没有叫拒绝饮酒的拖车住客 /
+戴眼镜的五金店老板的人」.
+
+- **The refusal names each person apart, with the path to say the name.** When the gate holds a place whose untold name
+  several people share, its message lists each by their own word and, for someone the graph has, their `say_name` token
+  (§176.8, the token their untold block carries). Its fix: when the fiction has one of them give the name or be called by
+  it, write that person's token exactly where it is said (the delivery puts in the name the book gives that person and
+  tells them, §103.8); otherwise their own word, or a description; never the name itself and never the words joined.
+  `details.shared` carries `{word, say_name?}` per person, one list per name. The refusal still quotes no name. (NR-08b,
+  real table `nr08-blood-road-1`, turns 8 and 9: without the token, the Keeper whose fiction had the hardware store's man
+  give his name was refused about thirty times, the refusal budget ran out and two turns delivered nothing.)
+- **`apply person` points at the token too.** Its `untold_name` refusal of a book name as someone's word carries that
+  person's `say_name` (`details.say_name`) and says to write it where the fiction names them.
+- **No substitution for a shared name.** The second delivery replaces only names one untold person carries. A shared name is
+  held every time it stands.
+- **The joined word is held.** A delivery (`table.narrate`, `table.ask`) or a document write that contains a joined word
+  verbatim is held with the same per-person fix (`details.joined`). The joined words are the roster's own strings, matched
+  exactly; nothing reads the text's punctuation.
+- Unchanged: §177.11 for names one person carries, §188.1's protected spans and told detection, and the request's rename,
+  which still shows a shared name joined.
 ## 189. Reading by the book's sections: a scene is read as a scene (proposed 2026-10-07, owner 「两个一起开 spec，按你推荐的来」; `docs/specs/scene-reading.md`; implementation waits for the owner's word; amends §148.3, §151.4's background units, §182.3, §187.5.1 and §187.9)
 
 **Evidence.** RD-08 and its control (§187, `docs/specs/reading-delivery.md` Comments): two-page units are 56–59 % of the
@@ -37511,6 +38165,773 @@ Decisions:
   existing caches stay valid): a page that gains one is ranked again. Trace rows gain `transcript_pages` and
   `searched_transcript_pages`.
 - **SL-00.** The layout child's inventory entry moves from `no-caller` to `app-play`.
+
+## 192. One thing, one node: a reading may not duplicate what the graph has (owner rulings 2026-10-07; `docs/specs/reading-duplicates-survey.md`; amends §22.3, §152.4 and §188.2)
+
+Numbering note: this section was written as §191 and renumbered on 2026-10-07, because the page-transcript branch
+(`claude/page-transcript-20261007`, already packaged) claimed §191 too. Commit messages for DUP-01 to DUP-04 and the
+NR-07 acceptance notes say §191; read them as §192.
+
+The NR-07 survey traced Blood Road's generation 55 (a page reading of pp. 25–26). The reader declared eight new nodes for
+things the graph already had: `npc-daniel-mather` beside `npc-book-4-daniel-mather`, the general store, the town centre
+and others.
+- It never saw them: `known_nodes` started at line 2,211 of a 68,652-line packet, and it read lines 1–400.
+- Nothing at landing compares a new node's name with published nodes of the same kind. §180.7 covers npc versus creature;
+  §152.4 covers only visual nodes with crops.
+
+The copies propagated through the library (§184.1) into every later campaign. Across 49 graphs, 88 of 109 same-kind,
+same-name pairs are true duplicates. They make places, objects and clues ambiguous, split clues across copies, keep read
+material "unread" by name, and show extra people and places.
+
+### 192.1 The landing check (prevention)
+
+- **Where.** In `checkDraft` (the reader's own `coc-read-check` / `submit_reading`, against the claim-time view), and again
+  in `module.read.finish` inside the module lock, against the landing generation (two readings claimed in parallel).
+- **Trigger.** Deterministic: names only, no meaning read. A drafted node with an id the graph lacks raises the question
+  when:
+  - the drafted node and a published node have the same `node_kind`, and the drafted node's own name or display name is
+    one of the published node's whole names, or the reverse. This is §177.1's own-name clause, symmetric, under the
+    kernel's `normalize`.
+  - for `npc`, also when the two join the same cast row both ways (§188.2).
+  - Pages are evidence in the refusal, never a condition.
+  - **It pairs against survivors (192.3).** A published node another stands for is no candidate. Its names count as its
+    survivor's, and the finding, its pages and the verdict key name the survivor, so a reader that reuses the id writes under
+    the node that stands for the thing. A `distinct_from` naming a copy answers for its survivor.
+- **The answer.** Every finding is reported at once (§186.3), as `duplicate_of_published`. The fix names the published
+  node: id, kind, names, pages, summary. The reader then either:
+  - reuses that id: it writes only new facts under it and points the draft's claims at it (the wording of §180.7's
+    `ONE_BEING_FIX` and §152.4's `same_print_duplicate`); or
+  - declares `distinct_from: [<published id>]` on the drafted node. The check adds this to `required_review`, and an
+    unsupported `distinct_from` refuses `review_unsupported` (§22.3.2).
+- **The verdict.** Publication records it in `module.json` as `reading.identity[<source digest>:<kind>:<id a>:<id b>]`, so
+  the pair is never raised again.
+
+### 192.2 The reader packet names what exists
+
+The reader packet puts a compact roster first, ahead of `cast_names` and `index`: the published nodes on the job's pages
+as `{id, kind, name, aliases, pages}`. This is a cost saver, not the guard; 192.1 is the guard.
+
+### 192.3 One survivor map for every kind (read-time grouping)
+
+- **No graph merge and no deletion.**
+  - `world.node_handles` entries never change (§185.4).
+  - `handles.json`, stored world state keyed by handle, history read by identity, and reading metadata keyed by node id
+    would all dangle.
+- **Identity relations.** A duplicate is recorded as a kernel identity relation, `rel-identity-<later>-to-<earlier>`, with
+  `properties.identity_review` (as §152.4's `writeVariants` writes it), in a new generation. The earlier node by
+  publication order survives.
+- **One map.** `ModuleGraph` builds one survivor map from these relations, from §152.4's visual `variant-of` survivors, and
+  from §188.2's cast fold for people. NR-02's `individuals` becomes a view of it.
+  - For non-visual kinds only kernel-written identity hops collapse.
+  - A reader-authored `variant-of` claim expresses a state (Dust to Dust: the revived Virginia) and never collapses.
+  - **A recorded `different` verdict beats the cast fold** (lead ruling 2026-10-07). Two nodes that `module.json`
+    `reading.identity` records as `different` (a reviewed `distinct_from`, §192.1, or a verdict job, 192.5) are never joined
+    by the survivor map, even when §188.2's both-ways fold would join them: a verdict from reading the pages beats a name
+    rule. Kernel identity relations and visual survivors are unaffected.
+  - A `different` verdict and a kernel identity relation for the same pair cannot both stand. The writer refuses to write
+    such a relation; a graph that holds one anyway is flagged (its conflicts are reported) and never resolved by a guess.
+- **Readers that read through survivors** (each recorded under 192.8 with a test):
+  - `resolve` / `oneEach` and `placeOf`;
+  - `materialReady`;
+  - presence (`npcsPresent`);
+  - `cluesHere` and discovered clues: the Director's reveal rows and main line, the thread, the weakness chain, and a
+    `clue_discovered` condition;
+  - scene exits, `sceneNpcIds` and `sceneClueIds` (the union of the group's relations), and the maps a scene presents;
+  - the brief's rosters;
+  - `search` and `lookup`, which list a thing once with its copies' names among its aliases;
+  - a person's claims (a copy's beliefs, lies and knowledge are the person's);
+  - the handles and epithet lanes, which skip variants;
+  - source needs and focus identity.
+- A variant's handle and node id stay input keys and resolve to the survivor.
+
+### 192.4 Carry
+
+When an identity relation is written, the survivor takes what only the variant has: aliases, `source_refs`, and properties
+it lacks, through `mergeValue` (§152.4's `carried_regions`, for facts). A contradiction stays on the variant and is still
+readable through it.
+
+### 192.5 Repairing graphs that already have duplicates
+
+- **Candidates.** The trigger of 192.1, run by the read-ahead over the published graph, for pairs with no recorded verdict.
+- **Merged without a model** (owner ruling 2026-10-07, 「同名加页码重叠就直接合并」; 39 of 39 true on the census). Two
+  conditions together:
+  - same `node_kind` and the same own name under `normalize`;
+  - overlapping `source_refs` pages.
+
+  The kernel writes the identity relation directly, with `identity_review: {by: "kernel", rule: "same-name-same-page"}`.
+  This is an explicit owner exception to "no hardcoded semantics", scoped to this trigger alone.
+- **Every other candidate** is queued as a background identity job, like §152.4's. A tool-using Pi reader opens both nodes'
+  pages and answers one of three. It is not a single-completion lane: the job is not on a turn's critical path.
+  - `same`: the relation is written.
+  - `different`: recorded in `reading.identity`, only when the pages show two different people or things. It keeps the pair
+    apart, the cast fold included.
+  - `unsure` (DUP-03b, lead ruling 2026-10-07: doubt never splits): recorded in `reading.identity` under the same key as
+    `{verdict: "unsure", ...}`. It writes no relation and keeps nothing apart, so the cast fold still joins what it joined.
+    The pair is not asked again.
+- **When it runs.** When a book loads, for the library and for each live campaign fork (owner: 「产品自己修，书库和在用的
+  分支」). A fork gets its own new generation; a campaign is a compile snapshot of its fork. No one-off script touches App
+  data.
+  - The load is every read-ahead (`module.read.ahead`; a table's opening and setup send one), which repairs the store it
+    reads ahead in. It runs before §182.2's return for a short book already built: the repair reads no source.
+  - **The library** (DUP-03). A fork's repair reaches the library as any fork publication does, by §184.1's adoption. The
+    library is written by its own publication only while no live campaign fork holds its lineage; while one does, that fork's
+    own repair reaches the library by adoption, so no lineage ends.
+  - A store takes the reviewed decisions another store of the same book already holds, instead of asking again.
+
+### 192.6 Limits
+
+- Cross-kind twins are out of scope (scene and location, faction and npc).
+- A duplicate under a different name (a misspelling or a new transliteration) is caught only where an alias or the cast
+  join links the two.
+- Group versus member (a gang and its members) is a different thing by default; only a verdict job may say otherwise.
+- Follow-ups:
+  - check messages vague enough that a reader deleted its claims;
+  - §152.4 missing a visual duplicate when one node has no `image_sources`.
+
+### 192.7 Tests
+
+On the real path, as the survey's §5 plans:
+
+1. **Replaying generation 55's landing** on a clone at generation 54 refuses. It names `npc-book-4-daniel-mather`,
+   `npc-book-4-pete`, `npc-book-4-sand-rats`, `scene-book-4-town-center` and `scene-book-4-mather-store`.
+   - `coc-read-check` reports the same findings.
+   - Reverting the check publishes the eight orphans.
+2. **Concurrency.** Two readings on one generation both mint the same name; the second is refused at finish.
+3. **Repair** on a clone of the generation-60 fork, after which:
+   - `resolve 马瑟综合商店 [scene]` gives one node, and both handles still resolve;
+   - `materialReady('马瑟综合商店')` is true;
+   - presence, the brief and `cluesHere` show one store, holding both copies' clues.
+4. **A real table** on a new campaign, with pre-registered lines:
+   - zero `is ambiguous` refusals on places, objects or clues;
+   - one roster line per person;
+   - no `material_pending` for a place already read;
+   - no new same-name node in the fork afterwards.
+
+### 192.8 Kernel decisions
+
+(Recorded by the implementing slices.)
+
+#### DUP-01
+
+The landing check and the reader packet roster (192.1, 192.2), 2026-10-07, branch `claude/reading-duplicates-20261007-landing`.
+
+- **Where.** `kernel-ts/modules/published-duplicates.ts` holds the trigger (`publishedDuplicates`), the refusal
+  (`duplicateRefusal`, `DUPLICATE_FIX`), the verdict key (`identityPairKey`) and the record (`recordDistinct`).
+  - `checkDraft` runs it as a stage-3 law against the claim-time view (`graph-view.json`; an attempt without one falls
+    back to the packet's own fields, as §187.5.4 does).
+  - `module.read.finish` runs it again inside the module lock against the landing graph, after §152.4's
+    `judgeDraftIdentity` and before `assembleVisual`. A drafted visual that overlaps a published crop is still asked
+    §152.4's geometry question first.
+- **The trigger as built.**
+  - A drafted node is new when the graph lacks its id; every kind but `module` is checked.
+  - Its own names are its name and display name (`ModuleGraph.displayName`), trimmed, without its handle or id; its whole
+    names are `bookNames`. Both sides are compared under `normalize`, in both directions.
+  - The cast join runs `bookCast` over the published nodes plus the drafted ones, with the cast rows as `{book, play}`
+    (the fold reads nothing else), and pairs a drafted npc with every published npc in its `CastPerson.nodes`. The check
+    reads the packet's `cast_names`; publication reads the book's current cast (`castNames`).
+  - Every published node a drafted node meets is its own pair. Superseded by DUP-01b below: pairs are made against
+    survivors.
+  - On Blood Road generation 55 the trigger also raises `npc-pete` against `npc-book-4-peter-benson`, whose aliases carry
+    皮特: the drafted node's own name is one of that node's names. That is one of the survey's six "different thing"
+    triggers, and the reader answers it.
+- **The finding.** `invalid_params`, `details {reason: "reading_failed", rule: "duplicate_of_published", path:
+  "/nodes/<i>", duplicates: [{path, drafted, kind, by: "name" | "cast", shared, published: {node_id, node_kind, name,
+  aliases, pages, summary}}], findings}`.
+  - One finding per pair at `/nodes/<i>`, `value` the shared name, its message naming the published id, its names, pages
+    and summary (cut at `DUPLICATE_SUMMARY_CHARS`, 240). The draft check settles it with the stage's other findings
+    (§186.3).
+  - The host treats it as any `invalid_params` refusal at finish: one repair round with the refusal in `findings.json`.
+- **`distinct_from`.**
+  - A node key (`NODE_KEYS`). Stage 2's law `rule: "distinct_from"`: only on a node the view lacks, and a non-empty list
+    of distinct ids of published nodes of the node's own kind. A listed id need not trigger.
+  - A listed pair is no finding. Every node carrying the field owes `/nodes/<i>/distinct_from` to the review as written,
+    under either review policy.
+  - `identityReviewPath` (`review-verdicts.ts`, read by both ends) names that pointer:
+    - `checkReview` refuses any verdict but `supported` on it as `review_unsupported`, never contested and never advisory;
+    - the host's `reviewGroups` does not fold it into its record's root under module-logic-v1, and `gateRefusal` counts
+      it as a refusal;
+    - `claimSupportIneligibility` answers `identity` for a node carrying the field, so the Jev claim check never clears it.
+  - The reviewer's connected context includes the listed published nodes (`detailReviewInput`). The host takes them from
+    the claim's `graph-view.json` when the author's cut packet lacks them (`distinctReviewContext`).
+- **The record.**
+  - After `checkReview` and the landing check, `recordDistinct` writes `reading.identity[<source sha256>:<kind>:<id>:<id>]`,
+    the ids in code-point order, for every listed id naming a published node of the drafted kind:
+    `{verdict: "different", kind, nodes: [<published>, <drafted>], by: "review", job_id, generation, reason?}`, `reason`
+    the reviewer's for that pointer. `module.json` is written with the generation, so a refused publication keeps nothing.
+  - The node is published without the field (`withoutDistinctFrom`).
+  - `module.read.claim` writes `identity_verdicts` (the whole map) and `identity_source` into `graph-view.json`; the check
+    skips a pair whose key is recorded, whatever the verdict. DUP-03's verdicts use the same map and key.
+  - §184.1's adoption carries `identity` (`ADOPTED_READING`), so a fork's answer reaches the library with its node.
+- **The roster (192.2).** `packetRoster` (`packet-scope.ts`): the non-module nodes citing one of the job's own pages
+  (`jobPages`, not the window), as `{id, kind, name, aliases, pages}` with every page the node cites, sorted by kind then
+  id.
+  - It is the first key of `packet.json` and of the claim's result for a job with pages, an empty list when nothing is
+    published there, and absent for a job without pages.
+  - The host puts it first in the task and writes `task.json` with `readerTaskText`: the roster one node per line, the
+    rest pretty-printed as before. An inlined task leads with it too.
+- **Instructions.** `content/setup/visual-reader/read.md` (the roster, the refusal, the two answers) and `review.md`
+  (judging `/nodes/<i>/distinct_from`).
+- **DUP-01b, against survivors (after DUP-02's map).**
+  - Both checks read one map, `rawSurvivors` (`kernel-ts/read/survivors.ts`, the graph's own relations, no cast fold).
+    `module.read.finish` builds it from the landing graph. `module.read.claim` writes it into `graph-view.json` as
+    `survivors: {<variant id>: <survivor id>}`, which `withGraphView` carries and `checkDraft` reads.
+  - `publishedDuplicates` takes the map (`survivorOf`). Each published node is grouped under its survivor; only a survivor is
+    a candidate, and the names, own names and pages of every node of its group that has the drafted kind count as its own.
+    The cast join counts a joined copy as its survivor. A pair is skipped when a verdict is recorded for the drafted node
+    with any node of the group. The pair's key and `published` name the survivor.
+  - `recordDistinct` maps each listed id to its survivor before keying and recording.
+  - The roster (192.2) lists a thing once, as its survivor: a survivor any of whose group's nodes cites one of the job's
+    pages, with the group's other names among its aliases and the group's pages.
+  - **Retained needs** (`needsToAsk`, which DUP-02 left here). A need on a copy is its survivor's:
+    - one question (kind and trimmed question) about one thing is one need, the survivor's own need first, else the first in
+      graph order;
+    - a question done (`needDone`) for any node of the thing is done for all of them;
+    - the window is judged on the pages of every node of the thing.
+    - `queueNeedReads` focuses the read on the survivor's handle. `module.read.request`'s `source_need` check accepts a focus
+      whose survivor is the need's node's survivor.
+    - The publication of that read resolves the same question on every node of the thing (the `resolved_source_needs` filter
+      compares survivors).
+  - Tests: `duplicate-of-published.test.mjs` adds the copy case (a copy written by a reviewed `distinct_from`, then joined by
+    DUP-02's `publishIdentities`) and the retained-needs case; 30 mutations in scratch copies, each failing a case.
+- **Existing fixtures.** `tests/extension/module-cast.test.mjs`'s four §188.2 cases built their second copy of a person with
+  a later reading under another id, which this check now refuses. DUP-01 had them publish it with a reviewed
+  `distinct_from`; DUP-02b replaced that with copies written straight into the fork, since a recorded `different` verdict
+  now keeps a pair apart (§192.3).
+- **After DUP-02b (fixture, not product).** On the integration head the two survivor cases of
+  `duplicate-of-published.test.mjs` failed at their setup: the fixture published the store's copy with a reviewed
+  `distinct_from` (so `reading.identity` held `different` for the pair) and then asked `publishIdentities` to join the two,
+  which DUP-02b now skips as `verdict_different`. DUP-02b's behaviour is the intended one (§192.3, lead ruling 2026-10-07: a
+  `different` verdict and an identity relation for one pair cannot both stand), so the expectation was stale: the fixture now
+  writes the copy straight into a generation, with no verdict, as the NR-02 fixtures do, and the cases assert what they did.
+- **Evidence.**
+  - Replay of generation 55 on a `cp -c` clone of the acceptance home's fork at generation 54, `read-2/attempt-2`'s own
+    draft and review through `module.read.finish`: refused `duplicate_of_published` naming
+    `npc-book-4-daniel-mather`, `npc-book-4-pete`, `npc-book-4-sand-rats`, `scene-book-4-town-center`,
+    `scene-book-4-mather-store` (and `npc-book-4-peter-benson`). `checkSourceDraft` on the same `task.json` and draft
+    reports the same six pairs. With the check reverted (a scratch copy), the same replay publishes generation 55 with
+    446 nodes and all eight drafted ids, as production did.
+  - `tests/extension/duplicate-of-published.test.mjs`, eleven cases since DUP-01b; reverting each behaviour (30 mutations,
+    scratch copies) fails at least one of them.
+
+#### DUP-02 (192.3, 192.4; `claude/reading-duplicates-20261007-survivors`)
+
+**The survivor map** (`kernel-ts/read/survivors.ts`, `SurvivorMap`). One map, built lazily per graph and per cast fold:
+- **A hop** is the first relation in relation order that leaves a node toward the node that stands for it:
+  - between two printed visuals (`asset`, `handout`), any `variant-of`, whoever wrote it (§152.4, unchanged);
+  - for every other node, only a kernel identity relation (`isIdentityRelation`): `relation_kind: "variant-of"`, the id
+    `rel-identity-<from>-to-<to>` (`identityRelationId`, the id §152.4's `writeVariants` writes) and an object
+    `properties.identity_review`, to a node of the same book kind. A reader's own `variant-of` (`rel-<subject>-variant-of-<object>`,
+    a state such as Dust to Dust's revived Virginia), a relation with the kernel's id but no review, and a cross-kind relation
+    are no hop.
+- **`linkedId`**: the walk's end, at most 64 hops; a cycle stands as its first node in node-id order (§152.4's rule, now every kind).
+- **`id`**: the linked survivor, then §188.2's cast fold (`castFold`, installed by the campaign loader from `individualNodes`), whose
+  target is read through `linkedId` again. **`group`**: every node whose `id` is the same, the survivor first, then graph order.
+- `rawSurvivors(raw)`: the same map over a stored graph file (no cast fold), for the reading layer, which holds no `ModuleGraph`.
+- `ModuleGraph` reads it through `survivorId`, `survivorOf`, `linkedSurvivorOf` (relations only: what `bookCast` groups by),
+  `isVariant`, `groupOf`; `regionCorrespondence` walks the same hops. `castFold` replaces the old `individuals` field.
+- **NR-02's `individuals` is a view**: a getter over the person nodes whose survivor is another node. Assigning to it installs the
+  cast fold, as the loader did before (the tests' `Object.assign(resolver, {individuals: ...})` keep working).
+- **The cast groups by identity relations first** (`bookCast`, `kernel-ts/read/cast.ts:160`): the npc nodes one relation chain
+  joins are one person from the start, the survivor as `CastPerson.node`, with every copy's names and pages; the both-ways row
+  fold then runs as before (a person owns the own names of every copy; a fold appends all of a person's nodes, `:220`). So
+  `castNodes`, `isTold`, `rosterWord`, `rosterNames`' slugs, `protectedNames` and `individualNodes` cover identity groups too.
+
+**The writer** (`kernel-ts/modules/identity.ts`), which DUP-03 calls:
+- `publishIdentities(store, moduleId, writes: {nodes: [a, b], review}[])`: one new generation of the store's module (the library's
+  or a campaign fork's, `new ModuleStore(moduleContext(context, campaign))`) through `ModuleStore.writeGraph` and `module.json`,
+  under the module's metadata lock (`<module dir>/.metadata.lock`, the lock every publication of that module takes). Each pair is
+  ordered by §152.4's `publicationOrder(meta)` (the first `reading.materials` generation listing the node; a node no row lists is
+  later; a tie falls to node id order), so the node published first survives whatever order the caller names them in. Each review is
+  stamped with the generation it lands in (`generation`, unless the caller set one). Answers `{generation, written: [{from, to,
+  survivor, carried}], skipped: [{from, to, reason: "survivor_taken"}]}` and appends a `build.jsonl` row `{event: "identity", ...}`;
+  nothing is written when no pair lands. Offering a fork's new generation to the library (§184.1) is the caller's: the library
+  follow lives in `Reading`, which this helper does not own.
+- `writeIdentity(graph, later, earlier, review)`: the pure step into a raw graph clone. Refuses `invalid_params` for a node the graph
+  lacks, two equal ids, two kinds (both visual is one kind, §152.4), or a review that is no object. Returns null and writes
+  nothing when `later` already reads as another node or `earlier` already reads as `later` (one survivor per node, as
+  `writeVariants`). Writing the same decision again replaces its relation and carries nothing new.
+
+**Carry (192.4)**, in the same step, onto the node that now stands for both (the end of the chain, not only `earlier`):
+- names: the variant's own name and aliases the survivor does not carry (normalized), appended to the survivor's `aliases`
+  (`mergeValue` at `/aliases`); `source_refs`: the union (`mergeValue` at `/source_refs`);
+- properties, for every kind but a printed visual: a key the survivor lacks is taken; a key both hold goes through `mergeValue`
+  at the survivor's path (objects key by key; an npc's `knowledge`/`beliefs`/`lies` as lists), and a contradiction (its
+  `needs_choice`) leaves the survivor's value and the variant's on the variant (`carried.kept`). The variant's
+  `runtime_projection.record` goes into the survivor's record when it has one, else into its properties (what `recordOf` reads);
+- never: the schema's identity fields (`name`, `display_name`, `title`, `semantic_name`, `scene_id`, `is_start`, `is_final`,
+  `is_entrance`: what `displayName`, `bookHandle`, `nameKeys`, `startScene` and the entrance law read; a closed list of field
+  names, no judgement of content), `visibility`, `summary`, claims and relations (read through the group instead);
+- a printed visual carries names and references only: its crops and regions move only by §152.4's reviewed correspondence;
+- `field_spans` under each carried path are copied to the survivor's path (unioned), so §22.3.1's same-span rule judges a later
+  reading of a carried field against the passage it came from.
+
+**Readers converted** (before → after; each with a test in `tests/extension/survivor-map.test.mjs` and a mutation below):
+- `resolve` (`kernel-ts/read/module-graph.ts:720`): the exact-handle and the name-free identifier paths returned the one node that
+  carried the key → `oneEach` over the matches, so a variant's handle, node id, interim handle and old slug name its survivor.
+  The names, phrase and undo paths already went through `oneEach`.
+- `oneEach` (`:852`): `individuals.get(id) ?? id` (people only) → `survivorId(id)` (every kind).
+- `placeOf` (`:527`): a tie counted node ids → it counts survivors, so two copies of one place are that place.
+- `materialReady` (`kernel-ts/modules/reading.ts:546`, the one function edited in that file besides focus identity): every node the
+  name matched had to be in `reading.materials` → every *thing* it matched must have one node there (`rawSurvivors(...).group`).
+- The kernel's `material` (`kernel-ts/read/campaign.ts:282`, `LoadedModule.material`, read by the apply gate, the capsule's
+  `material` fields, adaptation and the audit source): the same rule, through the loaded graph's map (cast fold included).
+- Presence: `npcsPresent` (`kernel-ts/read/capsule.ts:554`) compared each `npc_presence` value with the scene's own handle and
+  returned a node per entry → `presenceThrough` (`:542`) reads each entry's key as its survivor (the survivor's own entry wins;
+  a variant's entry stands in only while the survivor has none) and a value naming any node of the scene's group counts.
+  `withinSection` (`:424`, `:433`): the place a scene lies in is read as its survivor, with its group's people, `seated` by an
+  entry under any handle. Write side: `apply npc` with `to` (`kernel-ts/apply/entities.ts:443`)
+  deletes the entries the person's copies hold, so a copy's old entry never stands in again after `to: away`.
+- Clues: `clueDiscovered` (`capsule.ts:562`) → `cluesHere` (`:573`) and `whereSection`'s affordance rows (`:463`): a
+  `discovered_clues` entry under any node of the clue's group counts; an affordance's granted ids are read as their survivors
+  (`:455`).
+- Scene relations, the union of the group's (`groupOut` / `groupIncoming`): `sceneExits` (`module-graph.ts:976`; a target is
+  its survivor, a copy of the scene itself is no exit; `scene_edges` of every copy), `sceneClueIds` (`:1034`), `sceneNpcIds`
+  (`:1040`), and in the same way `entranceRelation` (`:1005`), `sceneEndings` (`:1010`), `sceneDanglingExits` (`:1030`),
+  `sceneAssetNodes` (`:1057`; Blood Road's Thunderbird tome sits on one copy), `placesOutward` (`:1089`), `scenePlaces`
+  (`:1130`) and `sceneRules` (`:1137`). Every id they return is a survivor.
+- The brief's rosters (`rosterNodes`, `capsule.ts:1200`): people, places, factions, creatures, endings and conclusions skip a
+  variant, and `more` counts what is left.
+- The lanes skip variants: `handlesJob` (`kernel-ts/read/node-handles.ts:267`) never offers one (its id and interim handle stay
+  input keys); `epithets.job` (`kernel-ts/epithets/index.ts:61`) words the survivor only.
+- `sourceNeeds` (`module-graph.ts:1546`): one node's needs, focused on its handle → the needs of every node of the group,
+  focused on the survivor's handle (the capsule's `runtime_inputs`, `look` and `entityView`).
+- Focus identity (`Reading.identityOver`, `reading.ts:1367`, given the map by `focusIdentity` `:1362`): a focus named a set of
+  node ids → of survivor ids, so a reading of a copy and a request about its survivor are one focus and attach.
+- `calledPerson` (`capsule.ts:77`): two ids carrying one word that resolve to one person were "more than one person" → one owner.
+
+**Decisions and deviations.**
+- **The cast fold makes variants too.** §192.3 builds one map from the cast fold as well, and says a variant's handle and node id
+  resolve to the survivor, so NR-02's "a handle, a node id or a legacy slug still names its own node" is amended for cast-fold
+  copies as for relation copies. Visible: a word submitted to `epithets.submit` under a copy's id lands on the survivor, and a
+  second word for the same person in one batch is `settled`. Three NR-02 tests were adapted, not weakened
+  (`tests/extension/module-cast.test.mjs`): the lane is now asked to word her once (asserted); the two words of the journal and
+  told-check tests are written while the copies stand apart and the cast is read after (the history a table that worded both
+  copies before the fold has), and the speaker asserted is the survivor.
+- `mapsForScene`, `search`/`lookup`, a person's claims and the discovered-clue readers other than `cluesHere` were left at first
+  and are converted by DUP-02b (below), on the lead's ruling.
+- Not converted, and why: `needsToAsk` (`reading.ts:928`) still queues a copy's own source need as a reading (DUP-01b converts
+  it, in `reading.ts`); `entranceCompany` reads presence by the survivor's own entry, and an entry written under a copy before
+  the relation landed is missed there.
+- For the integration with DUP-01: its trigger (`publishedDuplicates`) builds its graph from nodes alone, so it raises a published
+  copy beside its survivor. Proposed (not done here): pair against survivors only. At finish the landing graph has its
+  relations (`rawSurvivors(landing).id(id)` / `.group(id)`, or a `ModuleGraph` built with `relations` and `isVariant`); the
+  claim-time view (`graph-view.json`, `reading.ts:1858`) would carry `survivors: {<variant id>: <survivor id>}` from the same
+  `rawSurvivors` at claim. A candidate that is a variant is skipped, its names count as its survivor's, and the finding and its
+  verdict key name the survivor, so a reader that reuses the id writes under the node that stands for the thing. Both branches edit the same three NR-02
+  cases in `module-cast.test.mjs`: the merge keeps DUP-01's reviewed `distinct_from` on the copy and this branch's order (words
+  before the cast) and assertions. A `distinct_from` the review supported records "different", and since the lead's ruling
+  (DUP-02b) that verdict keeps the two people apart.
+
+**Tests.** `tests/extension/survivor-map.test.mjs` (real kernel in process over a bound three-page PDF; the fork's duplicates are
+written straight into a generation, as generation 55 left Blood Road's, so the test does not depend on DUP-01's landing check):
+before the relations the tower's name is held as unread material and its copies split; the table finds the copy of the lamp
+oil and seats the keeper and Old Mae in the copy; after `publishIdentities`: the name and the copy's handle land on the tower,
+`materialReady` is true, `look focus=npc` shows both people once, sending Old Mae away clears her copy's entry, `look
+focus=clues` shows one oil (discovered through its copy) and the copy's cellar key, the capsule's exits gain the copy's way
+down (and the copy's route to the tower it copies is no exit), the brief lists Old Mae once. In process: `resolve` by name,
+alias, copy handle and copy node id, `placeOf`, every scene reader, the kernel's `material`, the cast, `individuals`, a
+reader's own `variant-of`, the affordance row, presence's own-entry rule, `withinSection` of a room inside the copy,
+`calledPerson`. The writer orders each pair by publication (Old Mae's pair is named copy first); carry (aliases, pages, a
+lacked property with its spans, a contradiction kept on the copy, the relation's id and review, a second write that changes
+nothing and a third that is skipped as taken); the lanes, `source_needs` and focus identity; the writer's refusals and the
+visual rule; and Blood Road's two Mather nodes joined by a relation alone, one cast person and one roster word.
+
+**Clone evidence** (the acceptance home's `nfh-accept-blood-road-1` fork at generation 60, `cp -c` into a scratch home and its
+paths rewritten by the acceptance home's `tools/rewrite-home-path.mjs`: 1182 files, 0 left holding the old path, 0 stale
+digests). Read with the base kernel (`7350e80f6`) and with this branch, then `publishIdentities` on the clone's fork (generation
+61: the store, the town centre, Mather, Pete and the Thunderbird shop, each ordered by `publicationOrder`) and a reader-style
+`variant-of` from Brenner's p. 50 node to the doctor (generation 62):
+
+| read | base, gen 60 | this branch, gen 60 | this branch, after |
+| --- | --- | --- | --- |
+| `resolve 马瑟综合商店 [scene]` | ambiguous (`dusty-town-general-store`, `covered-porch-general-store`) | ambiguous | `scene-book-4-mather-store` |
+| the copy's handle `covered-porch-general-store` | the copy | the copy | `scene-book-4-mather-store` |
+| `resolve 阿巴托尔镇中心（主干道）` | ambiguous | ambiguous | `scene-book-4-town-center` |
+| `materialReady('马瑟综合商店')` / `('丹尼尔·马瑟')` | false / false | false / false | true / true |
+| kernel `material('scene-mather-general-store')` | missing | missing | ready |
+| present at the copy scene | none | none | the bald man and Mather, as at the store |
+| Thunderbird shop: clues / assets / rules | 4 / portrait + one tome / 1 | same | 6 (both copies') / portrait + both tomes / 2 |
+| brief people lines (unfitted): Mather, Pete, Alissya / total | 2, 2, 2 / 67 | 1, 1, 1 / 61 (the cast fold is a source) | 1, 1, 1 / 61 |
+| Brenner p. 50 under a reader's `variant-of` | ambiguous with the doctor | same | same: not joined |
+
+Carry on the clone: Mather's survivor took `knowledge`, `beliefs`, `motives` and kept his own `biography` (the copy's stays on
+the copy); Pete's took `knowledge`, `beliefs`, `motives`, `secrets`; the two scene copies' `keeper_notes` contradict the
+originals and stay on the copies; the Thunderbird shop took the alias "Thunderbird Gifts". The store holds no clue on either
+copy at generation 60; the Thunderbird pair is where the union shows.
+
+**Mutations** (each reverted by copy from a scratch backup, never git; `node --test` on the named file):
+- `resolve-exact-handle` (`module-graph.ts`): survivor-map.test.mjs: 2 red (in process, the table)
+- `resolve-identified` (`module-graph.ts`): survivor-map.test.mjs: 1 red (in process)
+- `oneEach` (`module-graph.ts`): survivor-map.test.mjs: 4 red (in process, lanes, the cast, the table); module-cast.test.mjs: 5 red (NR-02)
+- `placeOf` (`module-graph.ts`): survivor-map.test.mjs: 1 red (in process)
+- `materialReady` (`reading.ts`): survivor-map.test.mjs: 1 red (the table)
+- `kernel-material` (`campaign.ts`): survivor-map.test.mjs: 1 red (in process)
+- `npcsPresent` (`capsule.ts`): survivor-map.test.mjs: 1 red (the table)
+- `presence-own-wins` (`capsule.ts`): survivor-map.test.mjs: 1 red (in process)
+- `presence-clear-copies` (`entities.ts`): survivor-map.test.mjs: 1 red (the table)
+- `within-seated` (`capsule.ts`): survivor-map.test.mjs: 1 red (in process)
+- `clueDiscovered` (`capsule.ts`): survivor-map.test.mjs: 2 red (in process, the table)
+- `affordance-granted` (`capsule.ts`): survivor-map.test.mjs: 1 red (in process)
+- `sceneClueIds` (`module-graph.ts`): survivor-map.test.mjs: 2 red (in process, the table)
+- `sceneClueIds-survivor` (`module-graph.ts`): survivor-map.test.mjs: 1 red (in process)
+- `sceneNpcIds` (`module-graph.ts`): survivor-map.test.mjs: 1 red (in process)
+- `sceneExits` (`module-graph.ts`): survivor-map.test.mjs: 2 red (in process, the table)
+- `sceneExits-self` (`module-graph.ts`): survivor-map.test.mjs: 2 red (in process, the table)
+- `scene-other-readers` (`module-graph.ts`): survivor-map.test.mjs: 2 red (in process, the table)
+- `rosterNodes` (`capsule.ts`): survivor-map.test.mjs: 2 red (in process, the table)
+- `handles-lane` (`node-handles.ts`): survivor-map.test.mjs: 1 red (lanes)
+- `epithet-lane` (`index.ts`): survivor-map.test.mjs: 1 red (lanes)
+- `sourceNeeds` (`module-graph.ts`): survivor-map.test.mjs: 1 red (lanes)
+- `focusIdentity` (`reading.ts`): survivor-map.test.mjs: 1 red (lanes)
+- `bookCast-linked` (`cast.ts`): survivor-map.test.mjs: 2 red (in process, the cast)
+- `castFold-source` (`survivors.ts`): module-cast.test.mjs: 5 red (NR-02)
+- `calledPerson-dedupe` (`capsule.ts`): survivor-map.test.mjs: 1 red (in process)
+- `hop-reader-variant-collapses` (`survivors.ts`): survivor-map.test.mjs: 2 red (in process, the writer)
+- `identity-needs-review` (`survivors.ts`): survivor-map.test.mjs: 1 red (the writer)
+- `within-place` (`capsule.ts`): survivor-map.test.mjs: 1 red (in process)
+- `publish-order` (`identity.ts`): survivor-map.test.mjs: 4 red (carry, in process, lanes, the table)
+- `carry-off` (`identity.ts`): survivor-map.test.mjs: 1 red (carry)
+- `carry-contradiction-overwrites` (`identity.ts`): survivor-map.test.mjs: 1 red (carry)
+
+32 of 32 mutations turn a case red; each file was restored by copy and checked by digest.
+
+**DUP-02b (lead rulings 2026-10-07, after the merge with DUP-01; line numbers in this record are at `ee09af3b9`).**
+
+*Ruling 1: a recorded `different` verdict wins over the cast fold* (192.3 amended).
+- The verdicts: `apartPairs(identity, sourceSha)` (`kernel-ts/read/survivors.ts:48`) reads `module.json` `reading.identity`
+  (§192.1's `<sha>:<kind>:<id>:<id>` → `{verdict, nodes}`) and keeps each `different` verdict of the bound source as a pair
+  key (`pairKey`). The campaign loader installs them before anything reads the cast (`ModuleGraph.apart`,
+  `kernel-ts/read/campaign.ts:264`; `isApart`, `module-graph.ts:352`).
+- The fold: `bookCast` (`kernel-ts/read/cast.ts:203-208`) folds a row's both-ways people only when no `different` verdict lies
+  between any nodes of two of them. When one does, the row folds nobody, and §177.1's rule for a row two different people
+  answer takes it: the row stays an unread person with all its names, and a name the people share is shown as all their words.
+  The survivor map, `castNodes`, `isTold`, the roster and `resolve` all read the cast, so each sees two people.
+- Kernel identity relations and visual survivors are unaffected. A verdict and an identity relation for one pair cannot both
+  stand, so the kernel never writes one beside the other and never guesses between them:
+  - `writeIdentity` refuses `invalid_params` with `details.reason: "identity_verdict_different"` and the two kept-apart nodes
+    when any node of `later`'s relation group and any node of `earlier`'s carry a `different` verdict (`apartVerdict`,
+    `kernel-ts/modules/identity.ts:46`, refusal `:76`); `publishIdentities` reads the verdicts itself and skips such a pair as
+    `{reason: "verdict_different", nodes}` (`:163`).
+  - A graph that holds one anyway (written outside this writer) is reported, not repaired: `SurvivorMap.conflicts()`
+    (`survivors.ts:141`) / `ModuleGraph.identityConflicts()` (`module-graph.ts:1594`) list each pair a verdict keeps apart that
+    relations lead to one survivor, and `publishIdentities` returns them as `conflicts` (also in its `build.jsonl` row). The
+    relation stays as it is: the ruling leaves identity relations unaffected, and dropping it would be the guess.
+- Not covered: an adapted campaign's graph (§22.8 adaptation snapshot) carries no cast store, so it has no fold for a verdict
+  to stop.
+
+*Ruling 2: the remaining readers* (each with a test in `survivor-map.test.mjs` and a mutation below):
+- `search` (`module-graph.ts:1417`): a node per matching node → each thing once, as its survivor, where its first node ranked;
+  a copy's name finds the survivor. `lookup kind=module` (`kernel-ts/read/handlers.ts:569`) gives a thing with copies an
+  `aliases` row: its own aliases, then each copy's name and aliases it lacks (`groupAliases`, `module-graph.ts:1606`). The
+  §127.1 handle list (`handleList`, `:1453`) reads a copy's handle as its survivor.
+- `mapsForScene` (`kernel-ts/read/maps.ts:168`): the scene's own `depicts` → those of every node of its group.
+- A person's claims: `npcClaims` (`module-graph.ts:1334`) → the claims of every node of the person's group, so a copy's
+  beliefs, lies and claimed knowledge are the person's (`npcBeliefs`, `npcWouldSay`, `npcHasMaterial`); `npcKnows` (`:1337`)
+  reads every copy's facts too and gives each known thing as its survivor, once; `npcsKnowing` (`:1386`) counts a person once
+  (never a variant beside them) against the thing's survivor.
+- Discovered clues, all through `ModuleGraph.discovered` (`:1601`: a find under any node of the clue's group):
+  - the Director's reveal rows (`revealRows`, `kernel-ts/read/director.ts:78`, now its own function) and the main line
+    (`mainLineComplete`, `:85`, one line per conclusion survivor);
+  - the thread (`kernel-ts/read/thread.ts:33`, conclusions once; `:38`, missing clues);
+  - the weakness chain's learned-by count and false leads (`kernel-ts/read/weaknesses.ts:100`, `:121`);
+  - a `clue_discovered` condition: `conditionStatus(when, world, graph?)` (`module-graph.ts:148`) reads the named clue's group
+    when given the graph; every caller that has one passes it (the capsule's exits `capsule.ts:407`, the thread, the stated
+    rewards, the Director's exit conditions, the chase's and combat's exits). A caller without a graph reads the clue's own
+    handles, as before.
+  - `supportingClues` (`:1328`) and `misleadingClues` (`:1314`) read every node of the conclusion's or the being's group and
+    give survivors, once.
+- `needsToAsk` is left to DUP-01b (`reading.ts`).
+
+*Tests.*
+- `tests/extension/module-cast.test.mjs`: the new case "a reviewed distinct_from beats the cast fold" publishes a second Old Mae
+  through a real reading with a reviewed `distinct_from`, reads the cast, and checks the result:
+  - she is two cast people and no variant;
+  - the epithet lane words both;
+  - the roster shows the shared name as both their words;
+  - the second one's handle lands a word on her alone;
+  - a journal `named_at` on the first leaves the second untold.
+- The four NR-02 fold cases now write their copy straight into the fork (`writeCopy`: a copy from before the landing check,
+  no verdict). With DUP-01's reviewed `distinct_from` they would now test the opposite of what they state. They read the copies'
+  handles from the loaded graph, since `lookup` lists a person once.
+- `survivor-map.test.mjs`:
+  - the writer refuses a pair a verdict keeps apart, through a relation group, and `publishIdentities` skips it;
+  - a conflicting graph is reported with its relation left in place;
+  - `apartPairs` reads only the bound source's `different` verdicts;
+  - lookup's aliases include a copy's names when no carry put them on the survivor (a relation written raw);
+  - a seventh case covers the readers above on the tower fixture, which gains a map, two claims on Old Mae's copy, a
+    conclusion and its copy, a false lead, and a way down that a `clue_discovered` condition locks.
+
+*Mutations* (DUP-02b, reverted by copy from a scratch backup, never git; `groupAliases-copies` survived the first run, because carry
+had already put the copy's alias on the survivor, and the case above was added for it):
+- `search-survivors` (`module-graph.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers); module-cast.test.mjs: 1 red (NR-02)
+- `handleList-survivors` (`module-graph.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `lookup-aliases` (`handlers.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `groupAliases-copies` (`module-graph.ts`): survivor-map.test.mjs: 1 red (the writer)
+- `mapsForScene` (`maps.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `npcClaims-group` (`module-graph.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `npcKnows-survivor` (`module-graph.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `npcsKnowing-variants` (`module-graph.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `conditionStatus-group` (`module-graph.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `condition-caller-exits` (`capsule.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `revealRows` (`director.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `mainLineComplete-found` (`director.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `thread-missing` (`thread.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `thread-variants` (`thread.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `supportingClues-survivor` (`module-graph.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `weakness-learnedBy` (`weaknesses.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `weakness-leads` (`weaknesses.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `misleadingClues-survivor` (`module-graph.ts`): survivor-map.test.mjs: 1 red (DUP-02b readers)
+- `discovered-group` (`module-graph.ts`): survivor-map.test.mjs: 3 red (DUP-02b readers, in process, the table)
+- `verdict-beats-fold` (`cast.ts`): module-cast.test.mjs: 1 red (the ruling)
+- `verdict-loader` (`campaign.ts`): module-cast.test.mjs: 1 red (the ruling)
+- `verdict-source-only` (`survivors.ts`): survivor-map.test.mjs: 1 red (the writer)
+- `writer-refuses` (`identity.ts`): survivor-map.test.mjs: 1 red (the writer)
+- `publish-skips` (`identity.ts`): survivor-map.test.mjs: 1 red (carry)
+- `conflicts-reported` (`survivors.ts`): survivor-map.test.mjs: 1 red (the writer)
+
+25 of 25 DUP-02b mutations turn a case red; each file was restored by copy and checked by digest.
+
+*leehow-pc at `33dbf797e`.*
+- ext: 5054 pass, 6 fail. Five are the base's (SL-00 inventory, four `timeline:`).
+- The sixth, `module-command.test.mjs` "/coc module outside an interactive terminal", fails on the box with or without this
+  slice's kernel files: a box copy with every kernel file this slice changed put back to `a6c7080d8` fails it the same way.
+  The test runs on the fake kernel and sees a background `memory.job`.
+- py on 27 related kernel files: 301 pass; the one failure is the known `test_npc_act_options` case.
+- loop: 333 of 333.
+
+#### DUP-03 (192.5; `claude/reading-duplicates-20261007-repair`)
+
+**Where it runs.** `Reading.queueAheadReading` (`kernel-ts/modules/reading.ts:1060`) calls `repairIdentities` first, then the
+read-ahead as before (`aheadReading`). Every read-ahead runs it:
+- the kernel's table opening (`kernel-ts/write/index.ts:887`) and setup (`kernel-ts/setup/index.ts:87`), through
+  `createModuleRuntime(...).source.ahead`;
+- the host's `module.read.ahead`, sent after each publication and at a table's open.
+
+The repair runs before §182.2's return for a short book already built, and on the store the read-ahead reads ahead in (the
+campaign's fork, or the library). A steady read-ahead with nothing new pays about 45 ms: Blood Road's fork, median of 12, went
+from 330 ms to 375 ms. A store's last plan with nothing to write is remembered by its inputs (graph digest, generation,
+`reading.identity`, cast rows, and the same of the other store), so an unchanged book reads no graph twice.
+
+The read-ahead's answer carries `identity_repair` only when the repair is news: it wrote, recorded or failed, asked a
+verdict, or offered something to the library. A quiet repair leaves the answer exactly as it was before §192.5. That covers
+nothing to do, a job already live, and a library left to its lineage fork. Two pytest cases compare the whole answer
+(`test_read_ahead_follows_authored_exits_not_index_page_order`, `test_an_opening_published_ready_stays_ready_under_a_later_rule`).
+
+The repair is maintenance. If it fails, the failure is reported (`identity_repair: {state: "failed", detail}` and a
+`build.jsonl` row) and the read-ahead's own asks go on. A library record that cannot be read lends no decisions: the fork is
+still repaired, and the library's sync and repair report `failed`.
+
+**Candidates** (`publishedPairs`, `kernel-ts/modules/published-duplicates.ts:210`; `repairCandidates`,
+`kernel-ts/modules/identity-repair.ts:66`):
+- **One trigger.** §192.1's trigger has one implementation, `TriggerView` (`:92`). It holds each node's whole and own names,
+  each survivor's names per kind, and the cast fold, for the landing check (`publishedDuplicates`, unchanged in behaviour;
+  DUP-01c's version of its tests passes 11 of 11 on this branch) and for published pairs. A published pair is two survivors
+  of one kind where one's own name meets the other's names (every node of each group counting for its survivor), or two
+  people the cast holds as one individual.
+- **Survivors.** Read by `rawSurvivors(raw, apart)`. Two nodes that already read as one are no pair. A pair where a verdict
+  in `reading.identity` covers any node of each side is not raised again. The recorded `different` pairs also keep the cast
+  fold from joining them (`graph.apart`; DUP-02b ruling).
+- **Excluded entirely:** a pair that a reader-authored `variant-of` links. The reader said one node is a state of the other
+  (§192.3), and no verdict job is asked to undo that.
+- **Relations.** Each pair carries `related`: the relations between a node of one side and a node of the other.
+
+**The owner's rule** (`identity_review: {by: "kernel", rule: "same-name-same-page"}`). It needs one node from each side such
+that:
+- both have the pair's kind;
+- their `name` fields are equal under `normalize` and not empty;
+- their `source_refs` share a physical page;
+- no single reading published both (no `reading.materials` row lists both);
+- and the graph relates no node of one side to a node of the other.
+
+It compares `name` with `name` because that is what the census measured as `name=name` (39 of 39 true): a display name or an
+alias never takes this path. A pair the graph relates (`member-of`, `part-of`, `knows`, and so on) waits for a verdict job.
+The reader who wrote the relation treated the nodes as two things, as §192.6 does for a group and its members.
+
+So did a reader who published both nodes in one reading. It saw both and kept them apart, as with two fishermen of one name
+on one page (`rename-undo-names.test.mjs`, which the rule without this clause broke). That is not how the census's duplicates
+arose: they came from a later reading that never saw the published node, and none of Blood Road's 32 pairs shares a row.
+Such a pair also waits for a verdict job.
+
+**Writing** (`repairHeld`, `kernel-ts/modules/identity-repair.ts:186`, into `publishIdentitiesHeld`,
+`kernel-ts/modules/identity.ts:160`):
+- All decisions of one pass go into one new generation, under the store's metadata lock. The read-ahead holds the lock
+  through `Reading.mutex`, so `publishIdentities` is now a locking wrapper around `publishIdentitiesHeld`.
+- `publishIdentitiesHeld` also records `different` verdicts in the same `module.json` write. It records them before any
+  relation, so no write joins a pair that a new verdict keeps apart. Each verdict is stamped with the generation the write
+  lands on.
+- A chain (A with B, A with C, B with C) writes two relations; the third is skipped as `survivor_taken`.
+
+**Verdict jobs** (`node_identity`):
+- **Asking.**
+  - The read-ahead asks the first four open pairs (`NODE_IDENTITY_BATCH`), by key, in one background `detail` job:
+    `focus: "Node identity review"`, `node_identity: {pairs: [key, ...]}`.
+  - At most one such job is queued or running per store.
+  - A key that a completed job asked is not asked again. A key whose jobs failed three times (`NODE_IDENTITY_FAILURES`) is
+    not asked again.
+  - `node_identity` is in `JOB_MARKERS` and part of the reading key. It is not a §182.2 streamed marker, so it keeps no short
+    book's build open. It has no reading window: the repair covers the whole graph.
+  - `module.read.request` keeps only the keys still open at that moment, and answers `ready` when none is.
+- **The claim** carries `node_identity: {protocol: "node-identity-v1", pairs: [{key, kind, raised_by, shared, a, b,
+  related?}]}`. Each side gives `node_id`, `node_kind`, `name`, `aliases`, `pages` and `summary`, with its group's names and
+  pages. The claim carries no cast and no page window.
+- **The reviewer.** The host side is the branch in `extensions/module/reading-service.ts:1215`, with
+  `extensions/module/node-identity-review.ts` and the English instruction `content/setup/node-identity.md`.
+  - A tool-using Pi reader runs through the job's reviewer owner.
+  - It must open a page of each side that has pages: `pdf` tool deliveries, checked on the provider's own record.
+  - It must answer every pair.
+  - A slip gets one repair round with its reason, and a lost transport up to three retries. After that the job fails with
+    `node_identity_unavailable`, and the next read-ahead asks again with `retry`.
+  - The checked answer goes to the kernel as `node_identity_path`. The pages it opened become `observations.json`'s
+    `read_pages`.
+  - The verdict shape is import-free (`kernel-ts/modules/node-identity-shape.ts`) so the host and the kernel check the same
+    rules.
+- **The finish** (`finishNodeIdentity`, `kernel-ts/modules/reading.ts:2476`).
+  - It refuses with `node_identity_invalid` when the protocol is wrong, a pair still open has no verdict, or a side with
+    pages has none of them in `read_pages`.
+  - `same` writes the relation with `identity_review: {by: "review", job_id, key, reason, generation}`.
+  - `different` writes `reading.identity[key] = {verdict: "different", kind, nodes: [a, b], by: "review", job_id, reason,
+    generation}`, which is DUP-01's record.
+- **Doubt never splits** (DUP-03b, lead ruling 2026-10-07; this replaces this slice's first rule, which answered
+  `different` on doubt as §152.4's reviewer does). The reviewer answers one of three: `same`, `different` or `unsure`.
+  The kernel and the host both accept the three (`node-identity-shape.ts`).
+  - Why: the pairs the cast fold joins under different own names (Blood Road's Sutton, Alissya and Brenner) now reach
+    verdict jobs. A `different` given from doubt would split people NR-02 joined, because a `different` beats the fold
+    (DUP-02b).
+  - `different` is for the pages showing two different people or things. It stays the blocking verdict of §192.1's record.
+  - `unsure` is kept as `reading.identity[key] = {verdict: "unsure", kind, nodes, by: "review", job_id, reason,
+    generation}`, the same key format.
+    - It blocks nothing: `apartPairs` reads only `different`, so the cast fold and the identity writer ignore it.
+    - It writes no relation.
+    - It stops the pair being asked again, since a pair with any recorded verdict is no candidate, as after three failures.
+  - An `unsure` travels between stores like the other reviewed decisions, so a fork does not ask it again either.
+  - The instruction (`content/setup/node-identity.md`) says to answer `different` only when the pages show two different
+    people or things, and otherwise `unsure`.
+
+**The library and lineage:**
+- **Adoption only.** A fork's repair generation, whether from the owner's rule or a job, is offered to the library only by
+  §184.1's adoption (`syncLibraryFromCampaign`), never by §184.5's merge. The merge replays readings, and a table's own
+  read-ahead does not wait on one.
+- **The library's own repair.** When the library does not adopt the fork's repair, or the fork wrote nothing, `repairLibrary`
+  (`kernel-ts/modules/identity-repair.ts:216`) plans the library's own repair. It writes only when no live fork holds the
+  library's lineage.
+  - `lineageHolders` (`kernel-ts/modules/campaign-scope.ts:291`) lists the forks whose campaign still has its
+    `campaign.json` and that pass §184.1's lineage test.
+  - While a fork holds the lineage, the answer is `{state: "skipped", reason: "lineage_held", holders}`. That fork's own load
+    repairs it, and the library adopts that repair.
+  - A fork's load never asks verdicts in the library. The library's own read-ahead does, under the same rule.
+- **Decisions travel** (`reviewedDecisions`). A store takes the reviewed decisions that another store of the same source
+  holds about one of its open pairs: relations with `by: "review"`, and `different` verdicts. Each taken decision is marked
+  `imported_from: {store, campaign?, generation}`. A fork takes the library's at each read-ahead; the library takes the
+  loading fork's.
+
+**Clone evidence** (acceptance home cloned with `cp -c` into the session scratch, paths rewritten; the repair runs through
+`createModuleRuntime(context).source.ahead`, the table opening's path):
+- **Candidates.** Fork `nfh-accept-blood-road-1` at generation 60 has 32 candidate pairs: 16 by the owner's rule and 16 for
+  verdict jobs.
+- **First load.**
+  - The fork moves to generation 61 with 15 relations. The 16th rule pair was already joined through the other two pairs of
+    the church chain (`survivor_taken`).
+  - 15 pairs stay open, and the first four are asked in one job.
+  - The library does not take the repair: `library_sync` is `library_advanced`, and `library_repair` is skipped as
+    `lineage_held` with holder `nr06-blood-road-3`. The library stays at generation 63.
+  - `resolve 马瑟综合商店 [scene]` was ambiguous (two candidates) and now gives `scene-book-4-mather-store`. The town centre
+    likewise gives `scene-book-4-town-center`.
+- **Rosters without the cast.** These were read on a view of the generation with no cast rows and no fold, so only kernel
+  relations join anyone.
+  - Mather was 2 persons, untold row "book-4-daniel-mather / daniel-mather", 2 brief lines. He is now 1 person, untold
+    "book-4-daniel-mather", 1 brief line.
+  - Pete was 3 persons; he is now 2. Peter Benson stays apart, which is the census's "different".
+  - Brief people went from 67 to 64.
+- **Second load:** quiet, so the answer carries no `identity_repair`. The fork stays at generation 61, the library at 63,
+  and no new job is asked.
+- **The lineage holder's load** (`nr06-blood-road-3`, generation 63).
+  - The fork moves to generation 64 with 16 relations, and `library_sync` is `published`: the library is now at 64 with 16
+    relations.
+  - `nr06-blood-road-3` is still `lineage`, and `nfh-accept-blood-road-1` is still `library_advanced`.
+  - Its second load is quiet.
+
+**Tests** (`tests/extension/identity-repair.test.mjs`, 9 cases on the real path):
+- the owner's rule on a built book, and a second load writing nothing;
+- the pairs that are never merged without a verdict (a related pair, one reading's two, a shared alias, disjoint pages) and
+  the one never asked (a reader's `variant-of`);
+- the verdict job through the host's ReadingService;
+- a reviewer that opens no page, up to three failures;
+- the kernel's refusals;
+- the lineage held and adopted;
+- the library's own publication taking a fork's decision;
+- a fork taking the library's decisions;
+- an unreadable library record at the table opening's read-ahead.
+
+**Mutations** (each one literal change, restored by copy and checked by content; 19 of 19 turn a case red):
+- `owner-rule-ignores-pages`: 6 red
+- `owner-rule-any-name`: 1 red
+- `one-reading-pair-merged`: 1 red
+- `owner-rule-ignores-relations`: 1 red
+- `reader-variant-kept-as-candidate`: 1 red
+- `recorded-verdict-ignored`: 2 red
+- `candidates-not-survivor-aware`: 5 red
+- `library-written-under-lineage`: 1 red
+- `fork-repair-not-offered`: 2 red
+- `decisions-not-taken`: 2 red
+- `kernel-accepts-unread-side`: 1 red
+- `host-accepts-unread-side`: 1 red
+- `different-not-kept`: 3 red
+- `repair-after-built-return`: 1 red
+- `unreadable-library-stops-the-fork`: 1 red
+- `quiet-repair-reported`: 5 red
+- `two-live-identity-jobs`: 1 red
+- `failures-never-end-asking`: 1 red
+- `host-reports-no-pages`: 3 red
+
+**DUP-03b** (doubt never splits; `claude/reading-duplicates-20261007-repair`, merged from integration `08935f6bd`):
+- **The case** (`identity-repair.test.mjs`, "DUP-03b doubt never splits").
+  - Three people the cast holds as one individual each are read twice under different own names: Sutton, Alissya and
+    Brenner. The cast, not a name, raises each pair.
+  - The host's reviewer answers `unsure`, `different` and `same` respectively.
+  - Read through the campaign loader:
+    - the unsure pair stays one person in the cast, `resolve` gives one node for both names, and telling one copy tells
+      the person;
+    - the different pair is two people, and the other one stays untold;
+    - the same pair has its relation.
+  - None of the three is a candidate again, and the next read-ahead is quiet.
+- **Import.** "a fork takes the library's reviewed decisions" now carries an `unsure` from the library to a fork.
+- **Mutations:** six more, all red (25 of 25 in all; `different-not-kept` now drops `different` from the kept records and
+  turns 4 cases red):
+  - `unsure-kept-as-different`: 2 red
+  - `unsure-not-kept`: 2 red
+  - `unsure-merges`: 2 red
+  - `unsure-refused-by-shape`: 3 red
+  - `apart-counts-unsure`: 1 red
+  - `unsure-not-taken`: 1 red
+- **Mac, single files:**
+  - `identity-repair`: 10 of 10
+  - `survivor-map`: 7 of 7
+  - `module-cast`: 29 of 29
+  - `duplicate-of-published`: 11 of 11
+  - `tsc -p tsconfig.kernel.json`: clean
+
+*leehow-pc at `c641ff749`.*
+- **ext:** 5064 pass, 7 fail.
+  - Five are the base's: the SL-00 inventory and four `timeline:` cases.
+  - Two are DUP-01's stale survivor fixtures in `duplicate-of-published.test.mjs` (§192.1 against survivors, §192.3 retained
+    needs). DUP-01c (`9980eae18`, on the integration branch after this branch's base) rewrites them. Its version of that file
+    passes 11 of 11 against this branch.
+- **First ext run, at `db623f2d2`:** it shared the box with another session's ext (load about 40) and also failed:
+  - `historical-reference-request` and `/coc module` (§19.1). These are known concurrency reds, and both were green at
+    `c641ff749`.
+  - `system-language`: a Chinese quotation in a comment, now removed.
+  - Four `rename-undo-names` cases: the owner's rule merged that fixture's two fishermen of one name. The one-reading clause
+    fixed them.
+  - Two pytest whole-answer cases (`test_visual_reading`, `test_fast_guidance`): the quiet-repair rule fixed them.
+- **py**, on 24 reading and module kernel files: 210 pass. The one failure is the known `test_npc_act_options` case.
+- **loop:** 333 of 333.
+
+*DUP-03b on leehow-pc at `f029a41b4`.*
+- **ext:** 5065 pass, 7 fail.
+  - Six are known: the SL-00 inventory, four `timeline:` cases, and `/coc module` (§19.1).
+  - The seventh, "§32.12 (b): the clerk's obligation check..." in `admission-within-turn.test.mjs`, failed on a typed-reviewer
+    call count. That file run alone on the box at the same commit passes 41 of 41, three times out of three, and it passed in
+    the full run at `c641ff749`.
 
 
 ## 193. Original declaration, canonical execution and usable result (owner 2026-10-07: implement the three researched seams)

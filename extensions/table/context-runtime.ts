@@ -9,7 +9,7 @@ import {dirname, join} from 'node:path';
 import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-agent';
 import {getCurrentSystemMessage} from '@earendil-works/pi-ai';
 import {compactAt} from './fold.ts';
-import {renameUntold, untoldPeople, untoldView, type UntoldPerson} from '../kernel/untold-view.ts';
+import {NO_UNTOLD, renameUntold, untoldRoster as readUntold, untoldView, type UntoldRoster} from '../kernel/untold-view.ts';
 import {createRenameJudge} from './untold-rename-judge.ts';
 import {createWorkpadStore, type WorkpadView} from './workspace/workpad-store.ts';
 import {selectWorkspace, workspaceBudgetOf, workspaceModeOf, workspaceSettingsOf, workspaceCandidates, type WorkspaceMode} from './workspace/projection.ts';
@@ -105,8 +105,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // the player-input capsule already was: an item whose check is still running is left out, and what is carried is noted.
     let firstSight:{campaign:string;view:(capsule:Row)=>Row}|undefined;
     // Contract §103.5: who is still untold, campaign-wide (`table.untold`), read with each snapshot; the last one read
-    // renames every request, the degraded one included.
-    let untoldRoster:UntoldPerson[]=[];
+    // renames every request, the degraded one included. §188.1: with the names the rename never touches a place of.
+    let untoldRoster:UntoldRoster=NO_UNTOLD;
     pi.events.on('coc:first-sight',value=>{const port=object(value);
         firstSight=typeof port.campaign==='string'&&typeof port.view==='function'?port as unknown as typeof firstSight:undefined;});
     const firstSightView=(owner:string,view:Row):Row=>{
@@ -211,10 +211,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (!sourceChanged && !captured && !(stateChanged && (observedWorkspaceMode !== 'off' || prescreenEnabled() || expressionRefresh))) return;
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; invalidate();
     });
-    pi.on('session_start', async () => {expression.clear();renameJudge.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=[];turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
+    pi.on('session_start', async () => {expression.clear();renameJudge.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
         lastAttempt = undefined; sourceCalls.clear(); stateCalls.clear();prescreenDeadlineAt=0;prescreenMemo=undefined;reusablePrescreen=undefined;
         prescreenProviderBudget=preparationProviderBudget();});
-    pi.on('session_shutdown', async () => {expression.clear();renameJudge.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=[];sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
+    pi.on('session_shutdown', async () => {expression.clear();renameJudge.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
         prescreenMemo=undefined;reusablePrescreen=undefined;pendingProvider=undefined;prescreenDeadlineAt=0;
         prescreenProviderBudget={actions:0,inputTokens:0,outputTokens:0,costUsd:0};invalidate();});
 
@@ -248,7 +248,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 // §177.4 (table 25): a failed read was silent, so a name the Keeper wrote could not be told apart from a rename
                 // that never ran; the failure and the roster's size are recorded with the turn.
                 let untoldFailed: string | undefined;
-                try { untoldRoster = untoldPeople(await rpc('table.untold', {})); }
+                try { untoldRoster = readUntold(await rpc('table.untold', {})); }
                 catch (error) { untoldFailed = error instanceof Error ? error.message.slice(0, 160) : 'untold read failed'; }
                 if (ticket !== generation || signal.aborted) return undefined;
                 const source = briefingKey(binding, current);
@@ -425,7 +425,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 prepared = {binding, capsule: current, history, brief: brief!, key: epochOf(binding), answering, workspace, workspaceMode};
                 record({lane: 'context', event: 'prepared', version: POLICY_VERSION, turn: binding.turn,
                     history_bytes: sizeOf(history), briefing_bytes: sizeOf(brief), source_revision: binding.source_revision,
-                    read_calls: reads, read_bytes: readBytes, rehydrated, ms: Date.now() - began, untold_rows: untoldRoster.length,
+                    read_calls: reads, read_bytes: readBytes, rehydrated, ms: Date.now() - began, untold_rows: untoldRoster.people.length, untold_protected: untoldRoster.protected.length,
                     ...(untoldFailed ? {untold_failed: untoldFailed} : {}), ...(unavailable ? {history_unavailable: true} : {})});
                 return prepared;
             } catch (error) {

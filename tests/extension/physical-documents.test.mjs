@@ -53,7 +53,11 @@ test('a sidebar draft does not erase anything until its bound physical method, i
   await game.next(JSON.stringify({kind:'document_edit_request',actor:game.sheet.name,document:'Pocket notebook'}));
   const request=(await game.call('table.capsule')).turn.document_edit;
   assert.equal(request.document,'Pocket notebook');assert.equal(request.remove,'Plate LICENSE-A7.');
-  assert.equal((await game.call('npc.situation',{name:'Steven Knott'})).canonical_context.player_declaration,'');
+  const situation=await game.call('npc.situation',{name:'Steven Knott'});
+  assert.equal(situation.canonical_context.player_declaration,'');
+  // The authority note rides with document material (here an edit request and Knott's own observation), and only then:
+  // a packet without any keeps its whole budget (tests/kernel/test_npc_situation.py, the budget test).
+  assert.match(situation.canonical_context.authority,/observed_documents/);
   assert.equal((await game.call('npc.perspective',{name:'Steven Knott'})).input.player_input,null);
   const edit=game.doc({action:'requested_edit',method:'erase',implements:['Eraser'],marks:'A faint abrasion remains; the old pencil words are not readable.',legibility:'illegible'});
   await assert.rejects(game.apply([game.doc({action:'write',text:'Initial harmless note.\n'})]),/ordinary writing cannot bypass/);

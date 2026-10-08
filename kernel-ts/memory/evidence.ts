@@ -78,7 +78,7 @@ export function createMemoryEvidenceOwner(context: KernelContext, campaignFor: (
         const meta = await campaign.readCampaign(), scope = queryScope(campaign, meta, params.scope), filters = filtersOf(params.filters);
         const original = await corpus(campaign), values = await indexed(campaign, meta, filters), entries: Entry[] = [];
         const world = await campaign.readWorld(), party = await campaign.party(), turnState = await campaign.readTurn(), module = await loadCampaignModule(context, meta.module_id, world, campaign.id);
-        const index = new EntityIndex(module.graph, party, row(world.scene_labels));
+        const index = new EntityIndex(module.graph, party, row(world.scene_labels), null, world);
         const names = new Set(array(filters.about).map(name => index.lenientKey(name)));
         const range = filters.turns === undefined ? undefined : parseSpan(filters.turns, 0, 0);
         for (const {line, value} of values) {

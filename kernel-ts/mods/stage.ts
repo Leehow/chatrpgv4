@@ -3,6 +3,7 @@ import { RpcError } from '../errors.js';
 import { canonicalJson, isJsonObject, orderedObject,jsonDigest } from '../json.js';
 import { actor as selectActor } from '../read/handlers.js';
 import { findNamedObject } from '../read/mods.js';
+import { calledPerson } from '../read/capsule.js';
 import type { ModuleGraph } from '../read/module-graph.js';
 import { array, clone, entries, equal, integer, normalize, repr, row, string, truth, type Row } from '../read/values.js';
 import type { CampaignWritePort, DomainEvent } from '../transactions.js';
@@ -24,15 +25,23 @@ import type { ModJobs } from './jobs.js';
 import {registerUsage, validateUsage, validateUsageRequest} from './usages.js';
 import {stageDossier} from './dossier-door.js';
 import {bindSourceObject, sourceObjectIdentity} from './source-object.js';
+import {refuseJoinedInDocument} from '../write/shared-untold.js';
 
 const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(value, key) ? value[key] : fallback;
 export async function objectOwner(campaign: CampaignWritePort, graph: ModuleGraph, world: Row, name: any): Promise<Row> {
+    return ownerIn(await campaign.party(), graph, world, name);
+}
+/**
+ * `objectOwner` over a party already read, for a caller that compares a stored owner (§188.4: an owed object row's `to`).
+ * An investigator by sheet id or registered name; a person by the graph, then this table's word (§87.8: a word two people
+ * carry is refused naming both); then a container, then a scene.
+ */
+export function ownerIn(party: readonly Row[], graph: ModuleGraph, world: Row, name: any): Row {
     if (typeof name !== 'string' || !name.trim()) throw new RpcError('invalid_params', 'Object owner must be an investigator, NPC or scene name');
     if (name === 'here') { const scene = graph.scene(world.active_scene); return {kind: 'scene', id: graph.handle(scene), name: graph.displayName(scene)}; }
-    const party = await campaign.party();
     for (const sheet of party) if ([normalize(sheet.id), normalize(sheet.name)].includes(normalize(name))) return {kind: 'investigator', id: sheet.id, name: sheet.name};
-    const node = graph.find(name);
-    if (node?.node_kind === 'npc') return {kind: 'npc', id: graph.handle(node), name: graph.displayName(node)};
+    const node = graph.find(name), person = node?.node_kind === 'npc' ? node : calledPerson(graph, world, name);
+    if (person) return {kind: 'npc', id: graph.handle(person), name: graph.displayName(person)};
     const container = objectInstance(world, name);
     if (container) return {kind: 'object', id: container.id, name: container.name};
     try { const scene = graph.scene(name); return {kind: 'scene', id: graph.handle(scene), name: graph.displayName(scene)}; }
@@ -208,6 +217,8 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                          details:{reason:'physical_document_edit_required'}});
                 if (!string(effect.why || '').trim()) throw new RpcError('invalid_params', 'Document writing needs a causal why on the object effect',
                     {fix:'Add the causal reason to object.why, outside document; preserve the chosen writing scope.',details:{field:'object.why'}});
+                // §188.8: the player reads the document; a joined word of several untold people is nobody's name there.
+                await refuseJoinedInDocument(context.kernel, context.campaign.id, graph, world, value.text);
             } else seed = await jobs.documentSeed(graph, world, value);
         }
         const item = division

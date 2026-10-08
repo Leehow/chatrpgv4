@@ -95,8 +95,9 @@ function learnedBy(graph: ModuleGraph, world: Row, id: unknown): Row | null {
     const node = typeof id === "string" ? graph.nodes.get(id) : undefined;
     if (node?.node_kind !== "conclusion")
         return null;
-    const clues = graph.supportingClues(node), found = new Set(array(world.discovered_clues).map(string));
-    return { conclusion: graph.handle(node), found: clues.filter(clue => found.has(graph.handle(clue))).length, of: clues.length };
+    // §192.3: a clue found through any of its copies is found.
+    const clues = graph.supportingClues(node);
+    return { conclusion: graph.handle(node), found: clues.filter(clue => graph.discovered(world, clue)).length, of: clues.length };
 }
 
 /** §180.9's door: what an enabled package established at the table, read only while that package is on. */
@@ -117,8 +118,7 @@ export function weaknessChain(graph: ModuleGraph, world: Row, node: Row, reads: 
         const route = learnedBy(graph, world, entry.learned_by);
         return { book: present ? chars(book, PRESENT_BOOK_CHARS) : book, ...(needs.length ? { needs } : {}), ...(route ? { learned_by: route } : {}) };
     });
-    const discovered = new Set(array(world.discovered_clues).map(string));
-    const leads = graph.misleadingClues(node).map(clue => ({ clue: graph.handle(clue), discovered: discovered.has(graph.handle(clue)) }));
+    const leads = graph.misleadingClues(node).map(clue => ({ clue: graph.handle(clue), discovered: graph.discovered(world, clue) }));
     return {
         ...(weaknesses.length ? { weaknesses } : {}),
         ...(leads.length ? { false_leads: present ? leads.slice(0, PRESENT_WEAKNESSES) : leads } : {}),

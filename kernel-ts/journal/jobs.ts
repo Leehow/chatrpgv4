@@ -8,8 +8,9 @@ import { ModuleGraph } from '../read/module-graph.js';
 import { sceneLabel } from '../read/capsule.js';
 import { tableWord } from '../read/person-words.js';
 import { bookNames, namePieces, occurs, nameWords, toldTurn } from './naming.js';
-import { prepareNameHistory } from './name-history.js';
-import { bookCast, knownNamePieces, type CastPerson } from '../read/cast.js';
+import { NameHistory, prepareNameHistory, type TellGuard } from './name-history.js';
+import { nameSpans } from './name-spans.js';
+import { bookCast, knownNamePieces, ownedBy, tellGuard, type CastPerson } from '../read/cast.js';
 import { array, row, clone, string, number, integer, truth, repr, sorted, length, normalize, type Row } from '../read/values.js';
 import { FAILURE_REASONS, committedRecords, logs, proseOf, writeLines } from '../memory/jobs.js';
 import { isStakesRoll } from '../npc/stakes-receipt.js';
@@ -135,13 +136,14 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
     const journal = await readJournal(campaign), named = collectNamed(graph, record, journal.entries);
     const recordable = sorted(new Set(named.map(([name]) => name)));
     // §103: who the records have shown the player a name for, by turn -- the deterministic floor the lane's `named` sits on.
-    const told: Row = {}, words: Row = {}, history = prepareNameHistory(committed.values());
+    // §188.1: the floor reads the delivered text with the told guard: the investigator's own name tells nobody else's.
+    const told: Row = {}, words: Row = {}, history = prepareNameHistory(committed.values(), tellGuard(graph, world, journal));
     for (const [, id] of named) {
         const node = graph.nodes.get(id);
         if (!node || words[id] !== undefined)
             continue;
         words[id] = nameWords(graph, node);
-        const at = toldTurn(graph, node, history, turn);
+        const at = toldTurn(graph, node, history, turn, ownedBy(graph, node));
         if (at != null)
             told[id] = at;
     }
@@ -268,7 +270,7 @@ type Validated = { id: string; name: string; description: string | null; exchang
  * when given, refuses a label carrying any name the book gives the person or a piece of one (§103.8), as `apply person`
  * refuses that word: a label is what the table shows for someone untold.
  */
-function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:string[], graph?: ModuleGraph): Validated[] {
+function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:string[], graph?: ModuleGraph, guard?: TellGuard): Validated[] {
     if (!Array.isArray(entries))
         throw new RpcError('invalid_params', 'params.entries must be a list');
     if (entries.length > BUDGET.max_entries)
@@ -289,8 +291,29 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
     const carriesBookName = (text: string, id: string) => {
         const node = graph?.nodes.get(id);
         if (!node) return false;
-        const person = bookCast(graph!).find(entry => entry.node && string(entry.node.node_id) === id);
+        // §188.2: a node the cast holds as one individual with others carries that person's names.
+        const person = bookCast(graph!).find(entry => entry.nodes.some(each => string(each.node_id) === id));
         return namePieces(person ? person.names : bookNames(graph!, node)).map(normalize).some(piece => !!piece && occurs(normalize(text), piece));
+    };
+    // §188.1 (told detection): a quote that says the name only inside an investigator's registered name or another person's word
+    // at this table carries none of this person's names: the lane is asked `named_as`, as for a name in another script.
+    const tellCheck = (id: string) => {
+        const node = graph?.nodes.get(id);
+        if (!node || !guard) return null;
+        const person = bookCast(graph!).find(entry => entry.nodes.some(each => string(each.node_id) === id));
+        return { names: namePieces(person ? person.names : bookNames(graph!, node)).map(normalize).filter(Boolean),
+            own: ownedBy(graph!, node), reader: new NameHistory([], guard) };
+    };
+    const quoteCarriesBookName = (text: string, id: string) => {
+        const check = tellCheck(id);
+        if (!check) return carriesBookName(text, id);
+        const said = normalize(text);
+        return check.names.some(piece => check.reader.says(said, piece, check.own));
+    };
+    // The lane's `named_as` found in the quote only inside an investigator's registered name or another person's word.
+    const namedAsInsideOthers = (text: string, words: string, id: string) => {
+        const check = tellCheck(id), said = normalize(text), word = normalize(words);
+        return !!check && !!word && nameSpans(said, [word]).length > 0 && !check.reader.says(said, word, check.own);
     };
     // §177.4: nor a name of anyone else the investigator has not been told about -- the other untold people of the graph and
     // the people the book names whom the reader has not reached -- minus what a told person also carries.
@@ -357,8 +380,9 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
             // of game-24bb66cb the veteran said "call me Walter", the lane journaled it as his name, and the Keeper was then
             // handed the book's name. Which of the two it is, is the lane's to say: the kernel only asks the narrow question,
             // once, and takes `named_as` -- the words of the quote that are the name -- as the lane's answer.
-            if (graph && !carriesBookName(quote.trim(), id)
-                && (typeof namedAs !== 'string' || length(namedAs.trim()) < 1 || length(namedAs.trim()) > BUDGET.max_label_chars || locateExcerpt(quote.trim(), namedAs.trim()) === null))
+            if (graph && !quoteCarriesBookName(quote.trim(), id)
+                && (typeof namedAs !== 'string' || length(namedAs.trim()) < 1 || length(namedAs.trim()) > BUDGET.max_label_chars || locateExcerpt(quote.trim(), namedAs.trim()) === null
+                    || namedAsInsideOthers(quote.trim(), namedAs.trim(), id)))
                 return reject(i, `entries[${i}].named: true for ${repr(name)}: named_quote carries none of the names the book gives them as written`,
                     "if these words give that same name in another spelling, script or transliteration, send the entry again with named: true, " +
                     "the same named_quote, and named_as: the exact words of the quote that are that name; if they give a different name " +
@@ -422,7 +446,7 @@ async function recoverBacklog(campaign: CampaignWriter, id: string): Promise<voi
     if (changed)
         await writeLines(campaign, 'npc-journal/backlog.jsonl', rows);
 }
-export async function submit(campaign: CampaignWriter, job: Row, entries: any, graph?: ModuleGraph): Promise<[
+export async function submit(campaign: CampaignWriter, job: Row, entries: any, graph?: ModuleGraph, world?: Row): Promise<[
     Row,
     boolean
 ]> {
@@ -443,7 +467,7 @@ export async function submit(campaign: CampaignWriter, job: Row, entries: any, g
     let validated: Validated[],canonical:Row[]|undefined;
     try {
         const materialized=referenced?materializeJournalEntries(job,entries):undefined;canonical=materialized?.entries;
-        validated = validateEntries(job, canonical??entries, journal.entries,materialized?.ids, graph);
+        validated = validateEntries(job, canonical??entries, journal.entries,materialized?.ids, graph, graph && world ? tellGuard(graph, world, journal) : undefined);
     }
     catch (error) {
         if (error instanceof RpcError && error.code === 'invalid_params')

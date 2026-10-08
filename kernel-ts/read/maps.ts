@@ -164,7 +164,8 @@ export function mapsForScene(graph: ModuleGraph, scene: Row): Row[] {
         }
     };
     const [self, ...around] = graph.placesOutward(scene);
-    take(graph.incoming.get(self));
+    // §192.3: the maps that depict any node of the scene's group, the scene that stands for it first.
+    for (const each of graph.groupOf(graph.nodes.get(self) ?? scene)) take(graph.incoming.get(each.node_id));
     take(graph.incoming.get(graph.handle(scene)));
     for (const place of around) take(graph.incoming.get(place));
     return result;
