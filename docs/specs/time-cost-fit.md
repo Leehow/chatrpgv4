@@ -158,7 +158,7 @@ Mutations (copied aside, restored by copy, each run against the affected files):
 | `careful_house_search` min 2 | time-cost-fit 3/7 |
 | `record_lookup` max 480 | time-cost-fit 3/7 |
 | the instruction stops asking the extent | time-cost-fit 1/7 |
-| the kernel stops requiring `covers` (built on the box) | KERNEL_MUTATION_RESULT |
+| the kernel stops requiring `covers` (built on the box, `build-fetch`, then rebuilt clean) | time-cost-fit 1/7 (the blank-`covers` refusal) |
 
 ## Comments
 

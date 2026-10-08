@@ -39881,5 +39881,7 @@ criterion from `covers` and asks the extent. Through the hybrid engine over the 
 real kernel, the faux Keeper): run 3's turn-16 line at the Corbitt house, answered `brief_activity`, lands one time
 receipt of at most ten minutes with the band question offering the row and its `covers`; turn 9's request for the property
 register, answered `record_lookup`, lands at most 45; a search of the whole house and an afternoon in the library, answered
-with their rows, still take at least an hour. Existing tests that pinned the old criterion text over the real kernel, the
-shipped rows, the rows' shape and the category count are updated.
+with their rows, still take at least an hour. `jev-band-shadow-domain.test.mjs` pins that the host's read keeps `covers`
+(trimmed) and leaves a blank one out: without it the question stays name-only in production while the kernel lists
+`covers`. Existing tests that pinned the old criterion text over the real kernel, the shipped rows, the rows' shape, the
+category count and the current rule-catalog digest are updated.
