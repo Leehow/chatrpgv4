@@ -39193,3 +39193,17 @@ as another word tells nobody.
   reveals later.
 
 *Implementation decisions and tests are recorded per ticket below as they land (`docs/specs/two-ledgers-tickets.md`).*
+
+## 195. A prescreen survives a library publish; the read-ahead reads a page again only for a new reason (owner 2026-10-08: 「我发现自从你这边改了方法之后，kp出现找不到模组内容的情况比之前多了，你最好留意一下接线的问题」, 「开这个切片，和两本账一起在 TR-F2 验收」; `docs/specs/prescreen-survives-publish.md`)
+
+**Evidence.** TR-F (App `d944b6b07`): two prescreens were discarded as `source_stale` 1–3 s after a reading job published
+to the library (turns 11 and 13); none on the App's tables of 10-02..10-07. The read-ahead published 70 times in two hours
+of play on a 48-page book and re-read pages across jobs (read-55..58).
+
+### 195.1 A prescreen is checked against what it used
+The prescreen's validity check compares its own read set (the units, records and pages it supplied, by digest), not the
+whole materials revision. Unchanged → delivered. Changed → re-selected once against the current materials within the
+remaining allowance; failing that, the fallback of today, with the actual reason in telemetry.
+
+### 195.2 A page is read again only for a reason the earlier read did not cover
+(Recorded by PS-02 with the producer it found.)
