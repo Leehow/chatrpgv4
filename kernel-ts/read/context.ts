@@ -6,6 +6,7 @@ import { isJsonObject, jsonDigest, pythonJsonDumps, utf8Bytes } from '../json.js
 import type { CampaignSnapshot, LoadedModule } from './campaign.js';
 import { array, number, row, string, truth, chars, type Row } from './values.js';
 import {taskViews} from './task-views.js';
+import {legacyWorkspaceSettings} from '../mods/retired-workspace.js';
 
 export const MEMORY_COVERAGE_BYTES = 4096;
 const RECENT_TURNS = 20;
@@ -173,7 +174,8 @@ export function taskWorldRevision(world: Row, party: Row[], receipts: unknown, p
 }
 export async function contextBinding(campaign: CampaignSnapshot, module: LoadedModule, capsule: Row): Promise<Row> {
     const worldline = string(campaign.meta.active_worldline || 'main'),
-        source = await sourceRevision(campaign, module, capsule), views = taskViews(campaign.world);
+        source = await sourceRevision(campaign, module, capsule), views = taskViews(campaign.world),
+        workspaceSettings = legacyWorkspaceSettings(campaign.world);
     return {
         version: 1,
         campaign: campaign.id,
@@ -184,6 +186,7 @@ export async function contextBinding(campaign: CampaignSnapshot, module: LoadedM
         task_world_revision: worldRevision(views.world, campaign.party, campaign.turn.receipts, campaign.turn.pending_choice),
         task_presentation_revisions: views.presentation,
         ...source,
+        ...(workspaceSettings ? {workspace_settings: workspaceSettings} : {}),
         // §187.4: the window the brief's rosters were ordered by; the host rebuilds the brief when it changes.
         brief_window: await briefWindow(campaign.context, module, campaign.world),
         memory_coverage: await memoryCoverage(campaign)

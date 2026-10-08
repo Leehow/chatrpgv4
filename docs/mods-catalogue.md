@@ -157,9 +157,10 @@ coverage remain distinct.
 
 **Contributes.** `setup_instructions` 5.5 KB, `setup_slots`. **Index note.** Setup only; the play index never sees it.
 
-## 10. Keeper Context (`keeper-context` 1.1.0, default off) and NPC Voice (`npc-voice` 1.3.0, default off, superseded by narration-craft)
+## 10. NPC Voice (`npc-voice` 1.3.0, default off, superseded by narration-craft)
 
-- *Keeper Context*: guidance for a host-owned workspace of verified source bodies and a workpad (settings: mode off/shadow/on, bytes, candidate limits, rerank). `instructions` 1.6 KB, `brief` 0.3 KB. Due when a workspace was provided (state).
+Keeper Context was removed on 2026-10-07. Workspace preferences and guidance belong to the host (§19.2); old-save settings are inherited read-only.
+
 - *NPC Voice*: the earlier voice package; its register rules now live in Narration Craft's "The people here". `instructions` 2.9 KB, `brief` 0.2 KB. Kept for campaigns locked to it.
 
 ## 11. Hostile Creatures (`hostile-creatures` 1.0.0, default on)

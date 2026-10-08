@@ -365,7 +365,7 @@ interface TableState {
 	telemetryPath: string;
 	/** The campaign's play_language, used to tell the verifier lane which language to write `why` in; not mentioned when the kernel gives none. */
 	playLanguage?: string;
-	/** The keeper-context package's own mode from the current capsule (contract §19.2): off reads and writes nothing. */
+	/** The host workspace mode from private context metadata (contract §19.2): off reads and writes nothing. */
 	workpadMode: "off" | "shadow" | "on";
 	turn: number;
 	state: TurnState;
@@ -6916,9 +6916,9 @@ export default function (pi: ExtensionAPI) {
 			// §13.11: append host guidance to a fresh view; the raw kernel capsule is never changed.
 			// §168.5: the one exception, first-sight items whose check is still running, is the view's own.
 			let capsule = firstSightView(state, result.capsule ?? {}, state.turn);
-			// The package's own mode rides the capsule the table already holds (contract §19.2); the
-			// workpad gate reads it from here so a patch is bound only when the layer is enabled.
-			const workspaceSettings = workspaceSettingsOf(capsule);
+			// Host workspace preferences use private context metadata (contract §19.2);
+			// bind a Workpad patch only when the host layer is enabled.
+			const workspaceSettings = workspaceSettingsOf(result._context);
 			state.workpadMode = workspaceSettings.workpad ? workspaceSettings.mode : 'off';
 			if (state.skillRun?.enabled && runtime) {
 				try {

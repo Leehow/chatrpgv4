@@ -15,6 +15,7 @@ import { declaresLanguages, languageAdmits } from '../read/mod-language.js';
 import { array, row, values, entries, string, truth, clone, equal, sorted, type Row } from '../read/values.js';
 import { readZipPackage } from './zip.js';
 import {hostSettingsView} from './host-settings.js';
+import {RETIRED_WORKSPACE_MOD} from './retired-workspace.js';
 import {EXPRESSION_MOD, LEGACY_VOICE_MOD, isUnifiedExpression, newModDefault, inheritedVoiceSettings,
   stageVoiceOwner, handoverVoiceState, compatibilityView} from './voice-consolidation.js';
 
@@ -130,6 +131,7 @@ export class ModRuntime {
     const path = await realpath(resolve(expanded)).catch(() => resolve(expanded));
     const sourceFiles = await this.context.snapshots.isDirectory(path) ? await packageFiles(path) : await readZipPackage(path);
     const manifest = manifestFrom(sourceFiles), files = runtimePackageFiles(sourceFiles, manifest), digest = packageDigest(files), catalog = await this.catalog(), previous = catalog.get(`${manifest.id}\0${manifest.version}`);
+    if (manifest.id === RETIRED_WORKSPACE_MOD) return invalid('Keeper workspace preferences belong to the host; this retired Mod cannot be installed');
     if (compatibleManifest(manifest)) {
       // Contract §137.2/§137.4: the lines are measured before the version is published, and a default-on
       // provider beside another default-on provider would leave the catalog with two.
@@ -162,7 +164,8 @@ export class ModRuntime {
     return defaults;
   }
   async order(world: Row | null = null, catalog: Map<string, Row> | null = null): Promise<string[]> {
-    const ids = new Set<string>([...[...(catalog ?? await this.catalog()).values()].map(mod => mod.id), ...Object.keys(row(row(world).mods).active ?? {})]);
+    const ids = new Set<string>([...[...(catalog ?? await this.catalog()).values()].map(mod => mod.id), ...Object.keys(row(row(world).mods).active ?? {})]
+      .filter(id => id !== RETIRED_WORKSPACE_MOD));
     let preferred = row(row(world).mods).order;
     if (preferred == null) {
       const path = join(this.root, 'load-order.json');
@@ -271,10 +274,13 @@ export class ModRuntime {
     return outcome;
   }
   async applyPending(world: Row): Promise<boolean> {
-    const changes = values(row(row(world.mods).pending)), order = row(world.mods).pending_order, staged = clone(world);
+    const pending = row(row(world.mods).pending);
+    const changes = values(pending).filter(change => change.id !== RETIRED_WORKSPACE_MOD);
+    const oldOrder = row(world.mods).pending_order;
+    const order = Array.isArray(oldOrder) ? oldOrder.filter(id => id !== RETIRED_WORKSPACE_MOD) : oldOrder, staged = clone(world);
     // Replay only the already-admitted queue, in order. A later external configure still sees
     // pending handover and is rejected; earlier queued legacy settings must not block themselves.
-    staged.mods.pending = {};
+    staged.mods.pending = Object.hasOwn(pending, RETIRED_WORKSPACE_MOD) ? {[RETIRED_WORKSPACE_MOD]: clone(pending[RETIRED_WORKSPACE_MOD])} : {};
     if (order != null) await this.reorder(staged, order);
     for (const change of changes) await this.configure(staged, change, false);
     if (changes.length || order != null) world.mods = staged.mods;

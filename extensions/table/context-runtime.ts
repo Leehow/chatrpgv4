@@ -152,9 +152,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const previousEpoch=inputEpoch,nextEpoch=typeof value.epoch==='string'?value.epoch:undefined;
         inputPending = false;
         capsule = value.capsule ? structuredClone(value.capsule) : undefined;
-        observedWorkspaceMode = workspaceModeOf(capsule);
-        if (Number.isSafeInteger(object(capsule?.turn).number)) observedTurn = object(capsule?.turn).number;
         rawBinding = value.context;
+        observedWorkspaceMode = workspaceModeOf(object(rawBinding));
+        if (Number.isSafeInteger(object(capsule?.turn).number)) observedTurn = object(capsule?.turn).number;
         inputEpoch = nextEpoch;
         if(previousEpoch!==nextEpoch){resetPreparation();prescreenDeadlineAt=0;prescreenProviderBudget=preparationProviderBudget();
             prescreenMemo=undefined;reusablePrescreen=undefined;}
@@ -324,16 +324,16 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 if (ticket !== generation) return undefined;
                 const history = historyView(binding, quotes, unavailable);
                 expression.observe({...current,expression_exchange:history},binding,inputLifetime.signal);
-                // KIC-03 (contract §19.2): the optional workspace is host work behind the package's
-                // own mode. Off, unknown or missing reads nothing; shadow reads and records only;
+                // KIC-03 (contract §19.2): the optional workspace follows host preferences.
+                // Off, unknown or missing reads nothing; shadow reads and records only;
                 // on injects. Any failure here is a miss on the optional layer, never a degraded turn.
-                const workspaceMode = workspaceModeOf(current), workspaceBudget = workspaceBudgetOf(current);
+                const workspaceMode = workspaceModeOf(object(rawBinding)), workspaceBudget = workspaceBudgetOf(object(rawBinding));
                 observedWorkspaceMode = workspaceMode;
                 let workspace: Row | undefined;
                 if (workspaceMode !== 'off' && !prescreenEnabled()) {
                     const began = Date.now();
                     try {
-                        const settings = workspaceSettingsOf(current);
+                        const settings = workspaceSettingsOf(object(rawBinding));
                         const dormantLimit = Math.min(32, Math.floor(settings.candidates / 4));
                         const snapshot = await rpc('table.workspace.read', {query: String(object(current.turn).player_text ?? ''),
                             names: [...evidenceNames], rules: [...ruleNames], candidate_limit: settings.candidates - dormantLimit});

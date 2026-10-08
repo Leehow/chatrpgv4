@@ -203,7 +203,7 @@ describe('workpad projection', () => {
     const shown = view1.workpad?.entries ?? [];
     assert.deepEqual(tight.counts.workpad, {packed: shown.length, omitted: 6 - shown.length});
     if (shown.length) assert.equal(view1.workpad.omitted, tight.counts.workpad.omitted, 'the section reports its own omissions');
-    const floor = api.selectWorkspace({snapshot: snapshot(), binding: binding(4), budget: 700, workpad: view([entry('q1', STAMP)], 'focus')});
+    const floor = api.selectWorkspace({snapshot: snapshot(), binding: binding(4), budget: 1100, workpad: view([entry('q1', STAMP)], 'focus')});
     assert.equal(floor.status, 'selected');
     assert.equal(JSON.parse(floor.message.content).workpad, undefined, 'not even the focus fits: the workpad is omitted whole');
     assert.ok(floor.counts.workpad.omitted >= 1);

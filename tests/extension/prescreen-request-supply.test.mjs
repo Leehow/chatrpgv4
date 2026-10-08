@@ -446,7 +446,7 @@ test('actual context and provider hooks recover material dropped with an oversiz
   const ordinary={...snapshot,candidates:{static:[big(1),big(2),big(3)],records:[]}};
   const v2={...snapshot,materials:{version:2,candidates:[{key:'source:archive',kind:'source',label:'Archive excerpt',summary:'Relevant archive text',
     authority:'module_source',coverage:{status:'complete'},body:'Exact archive material.'}],coverage:{inspected:1,emitted:1,omitted:0,unavailable:0}}};
-  const current={...capsule,mods:{instructions:[{mod:'keeper-context',settings:{mode:'on',budget_bytes:16384,workpad_enabled:false}}]}};
+  const current={...capsule};
   const hooks=new Map(),bus=new Map(),events=[];
   api.installContextPolicy({on:(key,fn)=>hooks.set(key,fn),events:{on:(key,fn)=>bus.set(key,fn)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
   const call=async(method,params)=>{

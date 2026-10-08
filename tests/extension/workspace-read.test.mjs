@@ -79,6 +79,31 @@ test('workspace read returns one bound snapshot without changing formal campaign
   assert.equal(changed.binding.source_revision, first.binding.source_revision);
 });
 
+test('an old campaign reopens without the retired package and supplies private host preferences', async t => {
+  const table = await openTable(t);
+  const path = join(table.base, 'world.json'), world = JSON.parse(await readFile(path, 'utf8'));
+  const lock = {version: '1.1.0', digest: 'historical-digest', state_version: 1, enabled: true,
+    settings: {mode: 'on', workspace_bytes: 4096, workpad_enabled: false, rerank_enabled: false}};
+  world.mods.active['keeper-context'] = lock;
+  world.mods.order.push('keeper-context');
+  await writeFile(path, JSON.stringify(world));
+  const before = await tree(table.base);
+  const capsule = await table.call('table.capsule');
+  assert.deepEqual(capsule._context.workspace_settings, lock.settings);
+  assert.ok(!capsule.mods.active.some(mod => mod.id === 'keeper-context'));
+  assert.ok(!capsule.mods.instructions.some(mod => mod.mod === 'keeper-context'));
+  const { _context, ...keeperView } = capsule;
+  assert.equal(api.pythonJsonDumps(keeperView).includes('workspace_settings'), false);
+  assert.deepEqual(await tree(table.base), before, 'compatibility is a read, never a save migration');
+  await table.call('table.open');
+  const input = await table.call('table.player_input', {text: 'I look around the office.'});
+  assert.deepEqual(input._context.workspace_settings, lock.settings);
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')).mods.active['keeper-context'], lock);
+  const panel = await table.call('mods.list');
+  assert.ok(!panel.mods.some(mod => mod.id === 'keeper-context'));
+  assert.ok(!panel.order.includes('keeper-context'));
+});
+
 test('unprepared source references omit bodies and survive the strict RPC JSON encoder', () => {
   const node = {node_id: 'npc-unprepared', node_kind: 'npc', name: 'Unprepared witness',
     properties: {description: 'Source detail that is not prepared for reading.'}};
