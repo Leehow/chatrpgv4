@@ -380,11 +380,21 @@ for (const engine of ["hybrid-v1", "legacy"]) {
 		assert.equal(requests.length, 3);
 		const brief = (context) => context.messages.map(messageText).find((text) => text.includes('"kind":"context_brief"'));
 		assert.ok(brief(requests[1]) && brief(requests[2]));
-		// Legacy is unchanged: its brief carries only the style the request's capsule lacks (here the capsule has it all).
-		if (engine === "legacy") assert.doesNotMatch(brief(requests[2]), /observable-first/, "legacy still sends the residue");
-		else {
+		// The style a request carries, by directive id: in its capsule, and in its brief.
+		const capsule = (context) => context.messages.map(messageText).map((text) => { try { return JSON.parse(text); } catch { return undefined; } })
+			.find((value) => value?.style && value.turn && value.kind !== "context_brief");
+		const ids = (style) => (style?.directives ?? []).map((directive) => directive.id).sort();
+		const whole = ids(capsule(requests[1]).style), later = ids(capsule(requests[2]).style);
+		// The case under test happens: the later turn's capsule holds less style than the rehydrated one. Until the fake
+		// kernel's turn.start carried `_context`, as the kernel's always has, the next turn reused the first turn's capsule
+		// and both branches below passed without it.
+		assert.ok(later.length && later.length < whole.length, `the later capsule holds less style (${later} of ${whole})`);
+		if (engine === "legacy") {
+			// Legacy is unchanged: its brief carries exactly the style the request's capsule lacks.
+			assert.deepEqual(ids(JSON.parse(brief(requests[2])).style), whole.filter((id) => !later.includes(id)), "legacy sends the residue");
+		} else {
 			assert.equal(brief(requests[2]), brief(requests[1]), "the next turn's first request shares the brief");
-			assert.match(brief(requests[2]), /observable-first/, "the brief carries the source's whole style");
+			assert.deepEqual(ids(JSON.parse(brief(requests[2])).style), whole, "the brief carries the source's whole style");
 		}
 	});
 }
