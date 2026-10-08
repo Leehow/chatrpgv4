@@ -157,3 +157,22 @@ test('packing a large frontier keeps an explicit route to omitted tools',async()
     }});
     assert.equal(result.status,'ready');assert(navigations>0);assert.deepEqual(materials,[{label:'Evidence 49',content:'Exact evidence.'}]);
 });
+
+test('a slightly oversized frontier retains late operations that still fit the conservative request gate', async () => {
+    const materials = [], events = [];
+    const operations = Array.from({length: 48}, (_, index) => ({key: `edge-${index}`, tool: 'read',
+        label: `Evidence ${index}`, description: 'An owner-projected bounded source preview. '.repeat(3),
+        execute: async () => {materials.push({label: `Evidence ${index}`, content: 'Exact owner evidence.'});}}));
+    let firstOffered;
+    const result = await runPrescreenLoop({...base(), current: {context: 'x'.repeat(20000)},
+        snapshot: () => ({materials, gaps: [], operations}), record: event => events.push(event), decide: async batch => {
+            firstOffered ??= batch.state.operations.length;
+            if (materials.length) return reply(batch, 'finish', 'sufficient');
+            const selected = batch.state.operations.find(row => row.label === 'Evidence 30');
+            return reply(batch, selected?.alias ?? 'finish');
+        }});
+    assert(events.some(event => event.event === 'loop_packing'), 'the test must cross the actual packing boundary');
+    assert(firstOffered > 25, `a fitting operation was lost at ${firstOffered} offers`);
+    assert.deepEqual(materials, [{label: 'Evidence 30', content: 'Exact owner evidence.'}]);
+    assert.equal(result.status, 'ready');
+});

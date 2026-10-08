@@ -41806,3 +41806,20 @@ there were none. Two gaps, neither of them this book's:
   (spec BP-08).
 
 **207 continuation decisions.** BP-01..BP-04 are connected end to end. The list uses the campaign's private module workspace when one exists, follows the shared publication otherwise, and distinguishes a settled empty answer from a failed read. The same strict statement test applies when saving or reusing review evidence. Printed DB `0` is accepted as the rules table's `none` value and retained as printed. BP-05 live source verification is pending; BP-06..BP-08 stay deferred.
+
+### 124.12.1 Fit the operation frontier without discarding half a fitting page (continuation, 2026-10-08)
+
+The evidence loop keeps the longest ordered prefix of its current 48-operation frontier page that passes the existing
+conservative packing gate. On overflow it removes the last operation and rebuilds the existing next-page navigation until
+it fits; it does not halve the frontier. No provider limit, decision/action allowance, retrieval priority or evidence text
+is increased or rewritten. A single operation that cannot fit still returns `packing_limit`; omitted operations stay
+reachable through the issued navigation alias. A page just over the byte limit therefore retains the useful operations
+that fit instead of losing almost half before the model sees them.
+
+The kernel/owner supplies operation cards; the loop builds and measures the request; Jev chooses from the issued aliases.
+The byte estimator stays conservative because no vendor tokenizer is available. [Elastic's bulk helper](https://elasticsearch-py.readthedocs.io/en/stable/api_helpers.html)
+and [AWS Kinesis request limits](https://docs.aws.amazon.com/boto3/latest/reference/services/kinesis/client/put_records.html)
+confirm separate count and size bounds for a batch. Unlike independent bulk writes, this loop chooses one operation from
+an ordered frontier, so it retains prefix order and its navigation rather than comparing winners of separate Choice calls.
+The prescreen-material-families request-boundary regression is the acceptance gate for the reported edge; a focused loop
+case pins the longest fitting prefix and a mutation restores the previous halving behavior.

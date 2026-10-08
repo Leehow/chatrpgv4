@@ -149,7 +149,7 @@ export async function runEvidenceAgent(input:EvidenceAgentOptions):Promise<Evide
                 input.record?.({event:'loop_packing',step:steps,offered:offered.length,failure:error.failure,...(error.estimate?{estimate:error.estimate}:{})});
                 if(error.failure==='schema_error')return finish('unavailable');
                 if(candidates.length<=1)return finish('packing_limit');
-                candidates=candidates.slice(0,Math.ceil(candidates.length/2));batch=build();}
+                candidates=candidates.slice(0,-1);batch=build();}
         }
         rounds++;const outcome=await input.decide(batch);
         if(input.signal.aborted)return finish('timeout');
