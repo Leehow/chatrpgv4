@@ -39942,7 +39942,7 @@ failure), so it cannot stand for this check.
 
 ### 199.7 The sweep: what the same check finds in Cold Harvest's published graph
 
-`.coc/probe-gg/sweep-person-state.mjs` runs `personStateRows` -- the verify round's own function, with live readers on
+`experiments/graph-grounding/sweep-person-state.mjs` runs `personStateRows` -- the verify round's own function, with live readers on
 openai-codex/gpt-6-luna low -- over every `npc` node of a published generation (`cp -c` clone; nothing published):
 
 | generation | persons | summaries asked | refused | which |
@@ -39956,7 +39956,7 @@ The other death statements were read and held: Galena 「农场居民，已被�
 read 「嘉琳娜已故的丈夫。」 as calling Galena alive (pages: dead), a second mismatch on the same summary. So one ungrounded
 living-state claim in 27 person summaries, the one the table tripped on. Kin and rank were not swept (199.6).
 
-**The epithet lane, live** (`.coc/probe-gg/epithets-live.mjs`: TR-F2's campaign cloned with `cp -c`, its words and labels
+**The epithet lane, live** (`experiments/graph-grounding/epithets-live.mjs`: TR-F2's campaign cloned with `cp -c`, its words and labels
 cleared, generation 74, the fixed lane's requests on the App's lane model opencode-go/deepseek-v4.1-flash, thinking off). 9 of
 27 graph people are offered (each by a role; generation 74 has no `appearance` yet); the 18 with neither -- Maria, Vasili,
 Sofia, the Kravchuks, Genrikh and Grigori, Nikita Molodin, Beniamin among them -- are asked about by no one. No word states a
