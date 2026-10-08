@@ -1,7 +1,8 @@
 # A person the book places here is here
 
 Status: ready-for-human (RP-01..RP-04 implemented on `claude/roster-presence-20261008`; contract `docs/kernel-rpc.md` §198;
-RP-05 and RP-06 are follow-ups that need the lead's word; RP-07 is the lead's acceptance)
+RP-05 and RP-06 are follow-ups that need the lead's word; RP-07 is the lead's acceptance; RP-08 and RP-09 are open
+questions found on resumption)
 
 Lead ruling, 2026-10-08, on real table TR-F2 run 2 (App `4ce2e4cab`, Cold Harvest, campaign
 `game-565055f1-8a99-4e69-9932-ca64c0e27d93`):
@@ -63,7 +64,9 @@ graph standard's placement relation, invariant `actor_in_no_scene`).
 Status: ready-for-human (implemented)
 `kernel-ts/apply/entities.ts` (`personOfEffect`, `stageNpc`), `kernel-ts/apply/index.ts` (result note),
 `extensions/kernel/tools.ts` (the `walk_on` description ships with it, §87.6). Tests: `roster-presence.test.mjs` (§198.1),
-`tests/kernel/test_walk_on_gate.py` (`test_walk_on_for_someone_this_table_has_is_their_arrival`, replacing the refusal test).
+`tests/kernel/test_walk_on_gate.py` (`test_walk_on_for_someone_this_table_has_is_their_arrival`, replacing the refusal test),
+`survivor-map.test.mjs` (§198.1 with §192.3: the arrival is the `to` write, under the node that stands for the person, and
+clears a copy's entry).
 
 ### RP-02 Who the book places in a scene (§198.2)
 Status: ready-for-human (implemented)
@@ -81,7 +84,8 @@ Tests: `roster-presence.test.mjs` (§198.3).
 Status: ready-for-human (implemented; the bar 0.7 is not yet calibrated on live rows)
 `runtime/jev/opening-presence.ts`, `extensions/kernel/opening-presence.ts`, `extensions/kernel/index.ts` (session start,
 the call ordinal on reopen). Tests: `opening-presence.test.mjs` (the lane), `opening-presence-table.test.mjs` (the real
-entry, real kernel, the product's Jev adapter with `fetch` answered).
+entry, real kernel, the product's Jev adapter with `fetch` answered; with the answer held back 600 ms, the opening run's
+capsule and the Keeper's `look` carry the captain and not the visitor).
 
 ### RP-05 The anchor's exits, clues and assets (follow-up)
 Status: needs-triage
@@ -102,3 +106,17 @@ Status: ready-for-human
 A new Cold Harvest campaign on the packaged App: the opening shows Aganin; a walk_on on a person the table has lands as an
 arrival with no refusal; at the farm and the Abramov house the offer lists Gapon and Pyotr. Dust to Dust's opening: the
 judge leaves Eric Helverson unseated (§149.1). The opening-presence rows' `nouls` calibrate the bar.
+
+### RP-08 walk_on on an unread cast person (open question)
+Status: needs-triage
+A person the book's cast has and the graph does not (TR-F2's Vasili Smolsky) is not "someone this table has" in §198.1's
+sense: `walk_on` under their name is still §177.3's `book_name` refusal (its fix says to leave `walk_on` out; without it
+the write lands on the cast's pages, §177.6). Reading `walk_on` there as that write would amend §177.3; needs the lead's word.
+
+### RP-09 The opening when the judge seats nobody (open question)
+Status: needs-triage
+Jev unconfigured, failing (TR-F2 run 2 saw 503s on other families) or later than 4,000 ms seats nobody, and the opening's
+`present` is empty as on TR-F2 run 2. Nothing at the opening tells the Keeper the book places someone there whom nobody
+seated; from turn 1, §198.1 lands the Keeper's own `walk_on`. Whether `look`/the capsule should name the unplaced people at
+the opening (the Keeper then judging the text itself) needs the lead's word: it is §149.1's question again.
+

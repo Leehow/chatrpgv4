@@ -39928,6 +39928,13 @@ who judges the opening's people once.
   relations. RP-06.
 - A campaign past its opening gets 198.1 and 198.2 but no opening seat. The opening bar (0.7) is not yet calibrated on
   live rows.
+- A person the book's cast has and the graph does not yet (an unread person, §177: TR-F2's Vasili) is no person this
+  table has in 198.1's sense: `walk_on` under their name is still §177.3's `book_name` refusal, whose fix says to leave
+  `walk_on` out, and without it the write lands on the cast's pages (§177.6). Reading `walk_on` there as that write would
+  be a further amendment of §177.3; it is not made here.
+- When Jev is unconfigured, fails or answers after `OPENING_PRESENCE_WAIT_MS`, nobody is seated and the opening's
+  `present` is empty, as on TR-F2 run 2; from turn 1 the Keeper's own `apply npc` (with or without `walk_on`) and the offer
+  are the roads. Nothing at the opening tells the Keeper the book places someone there whom nobody seated.
 
 ### 198.6 Implementation decisions and evidence (RP-01..RP-04, 2026-10-08)
 
@@ -39950,6 +39957,17 @@ Cold Harvest's opening (`scene-source-entry-9`) lists 格里戈里·帕维洛维
 Ekaterina, `to: here`) lands both as arrivals. Blood Road's prologue lists Lars Williams, Nate Patterson and Steve Brown;
 Dust to Dust's briefing lists Eric Helverson, whom the judge is there to leave unseated.
 
+Re-run on resumption (the same clones, App generations `book-2` 75, `book-4` 79, `book-5` 5; scratch scripts, the seat sent
+as the judge's would be): Cold Harvest's `table.open` lists one person, handle `captain-at-desk-in-command-room`, placed by
+开场 1 给调查员的信息; after the seat `look` and `table.capsule` at turn 0 both show him, his first-impression roll lands
+with it, and the reopened table is still owed with `opening_call_ordinal` 1 and nobody left to list. Blood Road's prologue
+(`scene-8dd0ae`) lists its three people through its own `present-in` (no `placed_by`); seated, `look` and the capsule show
+all three. On a clone of the TR-F2 campaign itself (`game-565055f1`, turn 19, its generation 74 fork) the Abramov house
+offers Dmitri, Ekaterina and Pyotr placed by 阿布拉莫夫家的初次到访, and turn 18's own batch lands both effects as
+arrivals: the note names Pyotr by his name (told on turn 2) and Ekaterina by her epithet, and `table_people` still holds
+only turn 12's walk-on. Every starter's seat at creation (`the-haunting`, `the-haunting-rulebook`, `mystery-house`,
+`voice-bench`) is identical under `4ce2e4cab` and under this section: the place chain moves nobody a seeded book seats.
+
 *Tests.* `tests/extension/roster-presence.test.mjs` (in-process kernel over `roster-book.mjs`, Cold Harvest's history in
 three pages): the anchor opening lists the people of the two openings it displaced and not the clerk of a non-entrance
 scene on the same page; a seat puts the captain in `look` and the capsule and leaves the opening owed, the reopened table
@@ -39961,8 +39979,12 @@ the note and resolves in `walk_on`, a newcomer is still established. `tests/exte
 lane): one batch, the scene's text, `placed_by` and the stated conditions reach Jev; the bar; no Jev, an unavailable
 answer and a refused seat seat nobody and throw nothing. `tests/extension/opening-presence-table.test.mjs` (the real
 entry: the kernel extension on the real kernel, the product's Jev adapter with `fetch` answered): after the table opens
-the captain is in `npc_presence` and the visitor is not, the opening is still owed and the seat is one of its receipts.
-`tests/kernel/test_walk_on_gate.py::test_walk_on_for_someone_this_table_has_is_their_arrival` replaces the refusal test
+the captain is in `npc_presence` and the visitor is not, the opening is still owed and the seat is one of its receipts;
+and, with Jev's answer held back 600 ms as a round trip would, the opening run's first request carries a capsule whose
+`present` is the captain alone, the Keeper's `look` in that run answers the captain, and turn 0's record holds the seat and
+the narration. `tests/extension/survivor-map.test.mjs` (§198.1 with §192.3): Old Mae seated under her copy's handle in
+the tower's copy, the two joined, then `walk_on` on her with no `to` at the dock: one entry, under the node that stands
+for her, at the dock, the copy's entry gone, nobody minted. `tests/kernel/test_walk_on_gate.py::test_walk_on_for_someone_this_table_has_is_their_arrival` replaces the refusal test
 (§87.7), by the book's name and by the §79 word. `tests/extension/module-cast.test.mjs` §177.2's walk_on on a graph
 person keeps `ok: false`, now asserting the refusal it actually meets (`material_pending`) and that nobody is minted.
 Mutations, each reverted by copying the saved file back, each turned a test red: the arrival branch removed; no `to: here`;
@@ -39970,3 +39992,10 @@ the note by the book's name; standalone variants ignored; the place chain droppe
 entrance mark not required; no `opening_people`; no `opening_call_ordinal`; `keepOpening` ignored; the gate admitting no
 seat; the seat check removed; a seat not required to be unplaced; a seat not required to be in the opening scene; the bar
 exclusive; every answered person seated; the scene's text or the placing scene not sent; a failed verdict still seating.
+Re-checked on resumption (`tests/extension`, same method), each red: the arrival branch removed and no `to: here` (the
+§198.1 test and the §192.3 one); an arrival that skips the copy's entry; the note by the book's name; a newcomer read as
+walked on; a newcomer not established; the displaced openings dropped, a seat moving the opening to `acting` and the
+opening refusing every seat (in process and, on a rebuilt kernel, at the real entry); the unplaced list ignoring who is
+placed; the place's scenes dropped; the host seating nobody; the host seating everyone answered; the opening run sent
+without waiting for the seat (red only once Jev's answer takes a round trip: with an instant answer the seat still landed
+first).
