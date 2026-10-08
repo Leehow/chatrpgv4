@@ -361,8 +361,8 @@ export function castToldTurn(person: CastPerson, records: Iterable<Row>): number
     const words = person.names.map(normalize).filter(Boolean);
     const history = prepareNameHistory(records), own = (owner: string) => owner === person.id || person.castIds.includes(owner);
     for (const record of history.castRecords()) {
-        // §194.3: a document the delivery handed over printed their name.
-        if (history.documentTold(record, own)) return number(record.turn);
+        // §194.3: a document the delivery handed over printed their name; §194.5: a line of it said their name.
+        if (history.toldByIdentity(record, own)) return number(record.turn);
         const text = history.text(record);
         if (words.some(word => history.says(text, word, own, () => history.shields(record)))) return number(record.turn);
     }

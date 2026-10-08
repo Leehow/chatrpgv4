@@ -934,8 +934,9 @@ const SPEECH_RULE =
 	"inside the token, Name exactly as present[].name or called.name gives it (the investigator too, when you render " +
 	"the player's words as theirs). An untold person already has this table's word for them, the name present[] gives (§176): " +
 	"use it, and give them another with apply person only when the fiction does (a nickname the player or the people there use). " +
-	"Their real name reaches the prose only as their say_name; never reveal the book's name " +
-	"through a speaker title. A person not in present[] takes the label the prose uses for them.";
+	"In narration their real name reaches the prose only as their say_name; a line someone other than the investigator speaks " +
+	"may say it as written, which tells it. Never reveal the book's name through a speaker title. A person not in present[] " +
+	"takes the label the prose uses for them.";
 /** The one host steer of §40 (user ruling 2026-09-15): people are on stage and the draft wraps no spoken line. */
 const SPEECH_STEER =
 	`People are present and this draft wraps no spoken line. ${SPEECH_RULE} Rewrite ` +

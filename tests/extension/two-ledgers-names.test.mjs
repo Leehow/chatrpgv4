@@ -27,6 +27,7 @@ await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/c
 export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';
 export {createKernelRuntime} from './kernel-ts/registry.ts';
 export {castEntry} from './kernel-ts/cast/entry.ts';
+export {sayRanges} from './kernel-ts/write/speech-pass.ts';
 export {ModuleStore} from './kernel-ts/modules/store.ts';
 export {ensureCampaignModule, moduleContext} from './kernel-ts/modules/campaign-scope.ts';`, resolveDir: root},
 	outfile: join(temporary, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
@@ -76,10 +77,10 @@ const DRAFT = {people: [
 	{book: ['卡特琳娜·克拉夫楚克', 'Katarina Kravchuk', '克拉夫楚克'], play: ['卡特琳娜·克拉夫楚克'], notes: ['Katarina Kravchuk'], pages: [2]},
 ]};
 
-async function kernel(t, seed) {
+async function kernel(t, seed, env = {}) {
 	const home = await mkdtemp(join(temporary, 'home-'));
 	const context = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed,
-		locks: api.nativeAdvisoryLocks(), env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
+		locks: api.nativeAdvisoryLocks(), env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...env}});
 	const runtime = api.createKernelRuntime(context); t.after(() => runtime.close());
 	const raw = (method, params = {}) => runtime.handlers[method](params);
 	const attempt = async (method, params = {}) => { try { return {ok: true, result: await raw(method, params)}; } catch (error) { return {ok: false, error}; } };
@@ -87,8 +88,8 @@ async function kernel(t, seed) {
 }
 
 /** The bound book read as far as its opening: the graph has the office, Captain Aganin and the clerk; the cast is read. */
-async function farm(t, {transcript = false} = {}) {
-	const k = await kernel(t, 'two-ledgers');
+async function farm(t, {transcript = false, env = {}} = {}) {
+	const k = await kernel(t, 'two-ledgers', env);
 	const pdf = join(k.home, 'farm.pdf');
 	await writeFile(pdf, `%PDF-1.7\n% ${PAGES.join(' | ')}\n%%EOF\n`);
 	const sha = createHash('sha256').update(await readFile(pdf)).digest('hex');
@@ -389,4 +390,117 @@ test('§194.5: a document place the host clears leaves its person untold, so the
 	await h.raw('table.narrate', sent);
 	assert.equal((await records(h)).find(row => row.turn === 1)?.rendered_text, prose, 'delivered the first time');
 	assert.ok((await untoldNames(h)).includes('瓦西里·斯莫斯基'), 'the village told nobody');
+});
+
+/** The investigator's name as the party sheet holds it: what a say token writes for the player's own lines. */
+const investigatorName = async h => {
+	const {readdir} = await import('node:fs/promises');
+	const dir = join(h.home, '.coc', 'campaigns', CAMPAIGN, 'party');
+	const [file] = (await readdir(dir)).filter(name => name.endsWith('.json'));
+	return JSON.parse(await readFile(join(dir, file), 'utf8')).name;
+};
+const worldOf = async h => JSON.parse(await readFile(join(h.home, '.coc', 'campaigns', CAMPAIGN, 'world.json'), 'utf8'));
+
+/** The supervisor as a graph person too: the reader reached him, and his node joins his cast row by his full name. */
+const GAPON = {node_id: 'npc-gapon', node_kind: 'npc', name: '鲍里斯·加庞', summary: 'Keeper: hid the failed harvest.',
+	properties: {relationship_to_investigators: 'the farm\'s production supervisor'}};
+
+test('§194.5: a name spoken in a line of someone other than the investigator is delivered and tells that person, as {{name:}} does', async t => {
+	const h = await farm(t);
+	await addNodes(h, [GAPON]);
+	await h.call('table.player_input', {text: '谁报告的？'});
+	// TR-F2 turn 1: the captain's own line named the supervisor, and the gate refused it. Here he says the short form, which
+	// is not the name a told check looks for in prose (his display name is the full one): the line tells him by identity.
+	const line = '{{say:Captain Aganin}}“监督员加庞报告产量不足。安德烈·尼基京也这么说。”{{/say}}';
+	const text = `阿加宁上尉敲了敲桌面。${line}`;
+	const spans = (await h.call('table.untold_spans', {text})).spans.map(span => span.name);
+	assert.deepEqual(spans, ['加庞', '安德烈·尼基京'], 'the places inside the line are still asked about (§177.15)');
+	await h.call('table.narrate', {call_id: 't1-c1', text});
+	const record = (await records(h)).find(row => row.turn === 1);
+	assert.match(record.rendered_text, /监督员加庞报告产量不足。安德烈·尼基京也这么说/, 'delivered the first time, the names as written');
+	const nikitin = h.stored.people.find(row => row.book.includes('安德烈·尼基京'));
+	assert.equal(record.told_lines.length, 1);
+	assert.deepEqual(record.told_lines[0].names, ['加庞', '安德烈·尼基京']);
+	assert.ok(!record.told_lines[0].people[0].startsWith('cast-'), 'the supervisor by his handle');
+	assert.equal(record.told_lines[0].people[1], nikitin.id, 'the unread resident by his cast row');
+	assert.equal(record.told_lines[0].by, record.speech[0].who.npc, 'the line\'s speaker');
+	const after = await untoldNames(h);
+	assert.ok(!after.includes('鲍里斯·加庞') && !after.includes('安德烈·尼基京'), `both told: ${after}`);
+	// The sync an introduction makes: the supervisor's table word is now his name, and his card is no longer untold.
+	assert.ok(Object.values((await worldOf(h)).person_labels ?? {}).some(label => label.name === '鲍里斯·加庞'));
+	const card = await h.call('table.look', {focus: 'npc', name: '鲍里斯·加庞'});
+	assert.equal(card.untold, undefined);
+	assert.equal(card.called?.name, '鲍里斯·加庞');
+});
+
+test('§194.5: narration outside a line and the investigator\'s own lines stay gated; a family name two people share is delivered in a line and tells neither', async t => {
+	const h = await farm(t);
+	await h.call('table.player_input', {text: '谁跑了？'});
+	const me = await investigatorName(h);
+	// Each refusal below names someone else: the same names twice in a turn would be delivered replaced (§177.11).
+	const outside = await refusalOf(h.call('table.narrate', {call_id: 't1-c1', text: '你想起了鲍里斯·加庞的报告。'}));
+	assert.equal(outside?.details?.reason, 'untold_name', 'narration');
+	assert.match(outside.message, /outside the lines people other than the investigator speak/);
+	assert.match(String(outside.fix), /keep it inside their \{\{say:<who>\}\}/, 'the fix names the line');
+	const mine = await refusalOf(h.call('table.narrate', {call_id: 't1-c2', text: `{{say:${me}}}“安德烈·耶扎罗夫在哪？”{{/say}}`}));
+	assert.equal(mine?.details?.reason, 'untold_name', 'the investigator\'s own line');
+	const label = await refusalOf(h.call('table.narrate', {call_id: 't1-c3', text: '{{say:门外的人}}“瓦西里·斯莫斯基来了。”{{/say}}'}));
+	assert.equal(label?.details?.reason, 'untold_name', 'a line whose speaker resolves to nobody');
+	// Both Kravchuks print the family name alone: in the captain's line it stands as written and tells neither.
+	const text = '{{say:Captain Aganin}}“克拉夫楚克一家六月就跑了。”{{/say}}';
+	await h.call('table.narrate', {call_id: 't1-c4', text});
+	const record = (await records(h)).find(row => row.turn === 1);
+	assert.match(record.rendered_text, /克拉夫楚克一家六月就跑了/);
+	assert.equal(record.told_lines, undefined, 'nobody is told by a shared name');
+	assert.ok(!record.told_text.includes('克拉夫楚克'), 'and the told check never reads it');
+	const after = await untoldNames(h);
+	assert.ok(after.includes('迪米尔·克拉夫楚克') && after.includes('卡特琳娜·克拉夫楚克'), 'both still untold');
+});
+
+test('§194.5: a place in a line the host cleared tells nobody; an ask delivers a spoken name and tells nobody, as {{name:}} on an ask', async t => {
+	const h = await farm(t);
+	await h.call('table.player_input', {text: '信从哪来？'});
+	const text = '{{say:Captain Aganin}}“信是从瓦西里耶夫卡寄来的。”{{/say}}';
+	const [village] = (await h.call('table.untold_spans', {text})).spans;
+	assert.equal(village.name, '瓦西里');
+	await h.call('table.narrate', {call_id: 't1-c1', text, untold_cleared: [{name: village.name, nth: village.nth}]});
+	const record = (await records(h)).find(row => row.turn === 1);
+	assert.equal(record.told_lines, undefined);
+	assert.ok((await untoldNames(h)).includes('瓦西里·斯莫斯基'), 'the village told nobody');
+	await h.call('table.player_input', {text: '我问他名单上还有谁。'});
+	const asked = '{{say:Captain Aganin}}“还有安德烈·耶扎罗夫。”{{/say}}';
+	await h.call('table.ask', {call_id: 't2-c1', kind: 'story', prompt: '你要怎么做？', options: ['去农场', '留下'], text: asked});
+	const two = (await records(h)).find(row => row.turn === 2);
+	assert.match(two.rendered_text, /还有安德烈·耶扎罗夫/, 'not refused');
+	assert.equal(two.told_lines, undefined);
+	assert.ok((await untoldNames(h)).includes('安德烈·耶扎罗夫'), 'an ask tells nobody by its lines');
+});
+
+test('§194.5: a narrate whose commit fails puts back the table word a spoken name changed (§141)', async t => {
+	const {execFileSync} = await import('node:child_process');
+	const {chmod} = await import('node:fs/promises');
+	const dir = await mkdtemp(join(temporary, 'git-')), armed = join(dir, 'armed'), wrapper = join(dir, 'git');
+	const git = execFileSync('/bin/sh', ['-c', 'command -v git'], {encoding: 'utf8'}).trim();
+	await writeFile(wrapper, `#!/bin/sh\nfor a in "$@"; do if [ "$a" = commit ] && [ -f '${armed}' ]; then echo 'fixture: commit refused' >&2; exit 1; fi; done\nexec '${git}' "$@"\n`);
+	await chmod(wrapper, 0o755);
+	const h = await farm(t, {env: {PI_COC_GIT: wrapper}});
+	await addNodes(h, [GAPON]);
+	await h.call('table.player_input', {text: '谁带路？'});
+	const before = (await worldOf(h)).person_labels ?? {};
+	await writeFile(armed, 'arm');
+	const text = '{{say:Captain Aganin}}“加庞会带你去。”{{/say}}';
+	const failed = await refusalOf(h.call('table.narrate', {call_id: 't1-c1', text}));
+	assert.equal(failed?.code, 'commit_failed', String(failed?.message));
+	assert.deepEqual((await worldOf(h)).person_labels ?? {}, before, 'the label the line made is rolled back');
+	await rm(armed);
+	await h.call('table.narrate', {call_id: 't1-c1', text});
+	assert.ok(Object.values((await worldOf(h)).person_labels ?? {}).some(label => label.name === '鲍里斯·加庞'), 'and made again by the delivery that lands');
+});
+
+test('§194.5: a line is where the speech pass says it is: to its close token, the next open token, a paragraph break or the end', () => {
+	const spans = text => api.sayRanges(text, name => ({npc: name, name})).map(span => [text.slice(span.start, span.end), span.who.npc]);
+	assert.deepEqual(spans('甲说{{say:A}}“一”{{/say}}乙说'), [['“一”', 'A']]);
+	assert.deepEqual(spans('{{say:A}}“一”{{say:B}}“二”'), [['“一”', 'A'], ['“二”', 'B']], 'an open token closes the line before it; the last runs to the end');
+	assert.deepEqual(spans('{{say:A}}“一”\n\n旁白说了加庞。'), [['“一”', 'A']], 'a paragraph break ends a line left open');
+	assert.deepEqual(spans('{{/say}}{{say: }}“无名”'), [], 'a stray close and a token naming nobody open no line');
 });

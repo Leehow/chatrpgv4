@@ -912,7 +912,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "Deliver this turn's narration and close the turn",
 		parameters: Type.Object({
 			using_skill: UsingSkill,
-			text: Type.String({ description: withPlainProse("this turn's narration, delivered to the player verbatim, with each mechanic's {{marker}} at the point it happened, every spoken line inside {{say:Name}}…{{/say}}, and {{name:<who>}} where the fiction says the name of someone untold (the delivery puts in the book's name)") }),
+			text: Type.String({ description: withPlainProse("this turn's narration, delivered to the player verbatim, with each mechanic's {{marker}} at the point it happened, every spoken line inside {{say:Name}}…{{/say}}, and {{name:<who>}} where the narration says the name of someone untold (the delivery puts in the book's name; inside a line someone other than the investigator speaks, the name may stand as written)") }),
 			quotes: QuotationDrafts,
 			workpad_patch: WorkpadPatch,
 		}),
