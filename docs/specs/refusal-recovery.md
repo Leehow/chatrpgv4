@@ -196,6 +196,11 @@ Checked against the lead's six points; all six were in the three commits. What w
 
 Existing tests changed: none (the test file gained two tests and a `kernelSteps` helper shared by the two emitted-kernel
 fixtures; `turnOneClosed` is unchanged in what it does).
+The list under the 2026-10-08 implementation above left one out: `b08e7819c` also changed
+`tests/extension/admission-line-batch-context.test.mjs` ("§32.12.3.1.1 cash beside an item: a why-only resend is refused at
+once ..."). The revolver line used to be stopped when the cash line refused first; under §197.1 it finishes, refused on its
+own, so the why-only resend is refused at once on both kept lines (two reused rows, the revolver's first) instead of one.
+Its subject -- a why-only change is outside the key, and the resend beside the lantern is reviewed again -- is unchanged.
 
 Mutations (same method: the file copied aside, one exact replacement, the saved copy copied back and its digest checked;
 single file on the Mac, `node --test tests/extension/refusal-recovery.test.mjs`), each run on the whole file so the run-3
