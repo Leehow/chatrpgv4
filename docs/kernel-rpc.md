@@ -6513,6 +6513,8 @@ The options read also checks all supplied proposed `names` and returns whether e
 
 **2026-10-06 document-binding review:** Literal bindings carry original start/end offsets. Contraction and escaped-quote syntax do not open a new literal. The host binds the complete atomic batch before changing arguments and rejects repeated document/span occurrences in that batch, preserving distinct spans. Across separate successful tool calls, generic call-id replay remains authoritative; no speculative binding ledger is introduced.
 
+**2026-10-08 (§200.5):** family version 4 judges the claims of a named-thing note rather than its wording; gates unchanged. A failed binding no longer costs the turn its delivery (§200.3).
+
 **Family version 3: reference, text role, then final-operation validation.** V11 exposed a clear first-person append declaration falling below the combined target/writing Noul gate. The target question judges only which issued carrier the declaration refers to, allowing a shortened personal name; its unique-target Noul minimum remains `0.9`. Text selection is a binary Choice role per quoted span or proposed suffix, also requiring selected-category probability at least `0.9`. Normalized Choice confidence is a different field and is recorded separately, never substituted for event probability. Once identity and text are bound, a second bounded Jev Choice checks that exact append operation against the current declaration and public conditions. It receives the final carrier, writer, suffix, the issued player-control/ownership/registration relationship and deterministic old-text-preservation guarantee, with no carrier catalog or old document body. Each call must carry its needed bindings because Jev questions do not inherit the previous answer. This is a player-choice check, not a feasibility check: an earlier technical naming failure does not withdraw the choice or establish a fictional prerequisite. The player's own explicit conditions still bind, and the kernel still checks execution. Only `selected_operation` at probability `0.9` permits returning a binding. Read-only, withdrawal, deferral, an unestablished player prerequisite, extra words or an unchosen target are `not_selected_operation`. This gate applies to both literal and proposal paths: a positive literal cannot override a negative execution judgement. A wrong preliminary suffix may be corrected to the exact player span, but only the final operation can be cleared. Unavailable, invalid or low-probability answers leave binding unresolved. At most two dependent calls share the original four-second deadline and parent budget; no retry, generated words or plan is added. Distribution validation reuses the pinned shared wire tolerance without renormalizing. Unresolved telemetry retains closed values, probabilities and confidences. An unresolved binding is internal, never an in-fiction registration discrepancy. This separation follows [TypeSafe's Noul guidance](https://docs.typesafe.ai/primitives/noul), [Choice distributions](https://docs.typesafe.ai/primitives/choice) and [independent-state contract](https://docs.typesafe.ai/concepts/state); the kernel transaction remains the authority for custody and old-text preservation. No global mutation or action-admission gate is lowered.
 At first placement an explicit instance document seed takes precedence over the
 template seed and is captured once. This permits a written letter to use a blank
@@ -33290,6 +33292,8 @@ No automatic continuity reviewer, post-delivery verifier, forced-choice output r
 
 ### 166.2 Prepare the facts, then write once
 
+**2026-10-08 amendment (§200):** this exception no longer stops a turn. The guard refuses a draft only for its one correction (p ≥ .90, correction available); an unclear, unavailable, exhausted or post-correction outcome delivers the draft, and the recording is recorded unconfirmed on the turn record for the next input. The stop outcomes below are retired.
+
 **2026-10-06 owner-authorized exception: a refused document write cannot become a completed write in prose.** After V22's zero-receipt notebook append refusal survived both handovers but was narrated as completed, the owner requested that this third issue also be fixed. This authorizes only the previously proposed narrow outcome guard, not a general narration reviewer. A current-turn model document append refused before its atomic batch reaches the kernel, with a canonical `document_binding_unresolved` error, supplies an immutable refusal basis. An unrelated earlier writing receipt does not establish this refused addition. While no later canonical document append has settled that writing, the final delivery paths may ask one bounded Jev Noul whether the draft asserts that this refused recording was completed. The host owns eligibility, draft/scope/revision binding, probability validation and control flow; Jev neither chooses a document, writes text, invents characters nor changes a receipt. Low false-completion probability passes; a strong false-completion result permits only one targeted correction through the existing turn-close steer. The corrected draft receives one final bounded outcome check. An unclear/unavailable result or a repeated false completion cannot be marked clean or trigger more rewriting; stop with the existing unfinished/unconfirmed notice, retaining all settled effects and evidence. At most two short decision attempts and one correction are allowed per turn, with no provider retry or budget increase. Normal narration, withheld-choice cues, NPC speech, length, style and repetition remain under the original one-pass policy.
 
 This exception applies consistently to explicit narrate/ask text, embedded narration and the implicit prose close, before delivery commit. It never turns the internal binding failure into a missing player choice or requires the player to authorize the same writing again. A successful canonical correction removes its refused-write premise; partial/unknown write outcomes are excluded from a zero-write assertion. No notebook creation/reset, guessed plate value, transaction replay, new planner or source rewrite is a recovery. The existing document target/content/final-operation gates remain unchanged. Telemetry stores refusal/draft binding and Noul result/status, without private document contents or prompt text. Producer: the verified document refusal and canonical settlement status; reader: the shared final-delivery boundary; actor: the existing Keeper correcting only the false completion once, or the existing host unconfirmed notice. Existing tests and the original real driver action must verify the boundary; a packet or finished draft alone is not a writing receipt.
@@ -39784,3 +39788,166 @@ rightmost bracket ignored; a character list for the sentence end; no carried sec
 links across kinds; the catalog ignoring paragraphs; chains never offered whole; chains offered whole past the allowance;
 continuation pages not read; located pages ignored; only the request searched; the worker ignoring `paragraphs`; the host
 not passing `located`; the Keeper's provenance without the section; the worker never linking forward.
+
+## 200. A recording the host could not bind never blocks the turn's delivery (lead decision 2026-10-08 on TR-F2 run 3; `docs/specs/document-recording-delivery.md`; amends §166.2's refused-document exception and its selected-recording extension, §193.1's final boundary, and the "Bound append identity" and "Family version 3" paragraphs under "Writable documents and ordered overrides")
+
+**Evidence.** Real table TR-F2 run 3 (App `4ce2e4cab`, The Haunting, `game-af36b938`, Keeper `openai-codex/gpt-6-luna` low,
+hybrid-v1), turn 8, 15:05Z. The player said 「我把马卡里奥一家和罗克斯伯里记在本子上。然后去市政档案馆，查这栋房子的产权记录，看看沃尔特·科比特后来怎么样了。」
+The interaction scope read a physical recording at .94. The Keeper's `apply` carried
+`object 笔记本 document:{action:"append", text:"马卡里奥一家：1918年初搬入科比特家，几周后离开；亲属称家中有人在罗克斯伯里接受照护。"}`
+(with two clues, a handout and a move in the same batch); it was refused twice before the kernel, `needs` /
+`document_binding_unresolved`, "could not be bound unambiguously". The first narrate after it, 「你把刚才查到的马卡里奥一家与罗克斯伯里的信息记在心里……」,
+was refused by the outcome guard, which also put 「这一回合结束时没有交付结果」 in front of the player at 15:05:34. The run went on:
+eight more narrates (six refused by the same guard, two by the repeated-parameter block), a lookup and an apply, until its
+48-step limit at 15:06:22. 13 Keeper calls, 12 failed, nothing delivered; the turn closed `stranded`. The policy's move, a first
+impression roll and 222 minutes had landed and were never told.
+
+### 200.1 What each piece was protecting
+
+- **§166.2's exception (2026-10-06, after V22).** V22 refused a notebook append before any write and then narrated it
+  as written. The exception asks one bounded Jev Noul whether the final draft asserts that this refused recording
+  completed; a strong yes gets one targeted correction through the turn-close steer. Its extension (after V23/V24) covers
+  a recording the player selected that no write ever attempted. It protects one thing: the player must not be told their
+  document holds words it does not hold.
+- **The append binding (family version 3, 2026-10-06, after V11).** It protects consent: the host binds a plain append to
+  one owned carrier only when the player's own words choose the carrier, the text and the operation, each at `.90`, and
+  the Keeper's proposal is never evidence of that choice.
+- **§193.1's completion.** Only a canonical writing result settles a recording; prose and proposals do not.
+
+None of them was meant to take the turn away. But in the 2026-10-06 design an unclear check, an unavailable check, a spent
+correction or an unreadable premise had no path to delivery: the boundary latched `terminal` for the rest of the turn, every
+later draft was refused without being judged, the refusal-budget fallback (the host's own closing line) went through the
+same latch, and the unfinished notice was all the player got.
+
+### 200.2 The two causes on turn 8
+
+1. **The binding refused a faithful note.** Target 笔记本 .91 against 钢笔 .15: nothing was ambiguous. The `content` Choice
+   answered `outside_selected_addition` .84 and .83 (`addition_not_cleared`), because version 3's criteria count
+   "unselected words or interpretation" as outside. A player who names what to record and leaves the wording to the Keeper
+   (here: the Macario family and Roxbury, both in the turn-7 prose) is outside by definition, however faithful the note.
+   Replayed live on the same inputs (Jev 1.13.0, 2026-10-08, three runs): outside .81/.79/.79. The same family also refused an
+   exact dictated quote whose proposed suffix equals the quote, three of three (literal role .86–.88, content within .82–.85,
+   both under `.90`). The message said "could not be bound unambiguously" for a cause that was not ambiguity.
+2. **The guard took the turn.** The first draft scored .12. `RefusedDocumentOutcome.check` mapped every answer between .10
+   and .90 to `terminal` (`outcome_uncertain`), and `terminal` latched: the next seven drafts returned `outcome_unconfirmed`
+   without a question being asked, and the guard cleared the floor draft and scheduled the unfinished notice in the middle of
+   the run (§200.6).
+
+### 200.3 The guard corrects once and otherwise delivers
+
+The guard's question stays the one §166.2 asks: does this draft assert that the unconfirmed recording completed. It refuses
+a delivery in one case only: Jev answers at `.90` or above, the turn's correction is still available, and the draft is not
+the host's refusal-budget fallback. That refusal is the existing single targeted correction through the turn-close steer.
+Every other outcome delivers the draft as written:
+
+| outcome | when | status in `refused_document_outcome` |
+| --- | --- | --- |
+| no claim | p ≤ .10 | `clean` |
+| not established | .10 < p < .90; no valid answer; Jev unavailable; the two attempts spent; the catalog moved under the check | `unclear` |
+| a claim that cannot be corrected | p ≥ .90 after the correction, or with the correction already spent | `claimed` |
+| correct once | p ≥ .90, first attempt, correction available | `steer` (the only refusal) |
+
+There is no terminal state, no `terminate` and no unfinished notice for this cause, and the only draft dropped is the claiming
+one a correction replaces; the turn-close steer no longer answers `none: refused_document_unconfirmed`. The correction gate stays `.90`: a gray answer used to mean
+"cannot be marked clean"; it now means "no claim to correct", which is §166's one-pass default. The refusal-budget fallback is
+delivered without a check (no correction can follow it). The corrected draft keeps its one check, for evidence. A changed
+input (turn, player text, worldline) still raises `revision_conflict`, as before; that is a stale delivery, not this cause.
+
+The selected-recording path (§166.2's extension) follows the same rule. When the host cannot establish its zero-write premise
+(a partial or unknown receipt, a document change no writing match explains, no writer or catalog, not a world turn, an
+unreadable status), it records the recording `unverified` and delivers without a check, instead of stopping the turn.
+
+What this gives up: a draft Jev scores in the gray band is delivered uncorrected. V25's real false completion scored .74 and
+would now be delivered with the recording recorded unconfirmed (§200.4). Moving the correction gate is the owner's call
+(§166.2 fixed it at `.90`); this section does not move it.
+
+### 200.4 The recording stays unconfirmed, with its reason
+
+**Writer.** Every delivery that closes the turn (explicit `narrate`/`ask`, the embedded narrate, the implicit close, the
+refusal-budget fallback) carries host-only `unconfirmed_recordings` when the turn's boundary still holds a recording no
+writing result settled. One row `{document?, reason, cause?}`:
+
+- `reason: "binding_unresolved"`: an append the host could not bind; `cause` is the binding's own unresolved reason
+  (`addition_not_cleared`, `no_target`, `execution_not_cleared`, `document_binding_unavailable`, ...); `document` is the
+  carrier the binding ranked first above .5, else the proposed name.
+- `reason: "not_written"`: the player selected a recording and no write was attempted.
+- `reason: "unverified"`: the host could not read its premise; `cause` names which.
+
+The host deletes a Keeper-supplied one. `table.narrate` and `table.ask` accept at most 4 rows (`document` a non-empty string
+of at most 200 code points when present, `reason` and `cause` non-empty strings of at most 64), `invalid_params` otherwise,
+outside the call's digest (§135.31's channel), and write `unconfirmed_recordings` on the turn record; a turn with none has no
+key. A `document_recording` telemetry row `{turn, status: "unconfirmed", reason, cause?}` records each; no document text.
+
+**Reader.** The capsule's `unconfirmed_recordings` section, present only when it has a row: one row per recording on the
+turns `recent` shows (the last two told turns), newest turn first, `{turn, document?, reason, line}`, the line
+(`UNCONFIRMED_RECORDING_LINE`) saying the player chose to write this down, the host could not confirm it, it is not in the
+document unless a document view shows it, so not to tell it as written, and to append it if the player asks again. Budget 640
+bytes (two rows with a long carrier name), trimmed from the end; a cut names the section in `truncated`. Nothing retracts a
+row; it leaves with the window. `cause` stays on the record and the telemetry row, not in the capsule.
+
+**Actor.** The Keeper, on a later input: it does not tell the recording as written, and when the player asks for it (again)
+it appends then, and the binding asks again on those words. This is information, not an offer or an obligation (§31's
+boundary): an unconfirmed recording the player never returns to is not a debt.
+
+### 200.5 Binding family version 4
+
+The `content` question judges the claims, not the wording. A player either dictates the words or names what to write down
+(people, places, facts) and leaves the wording to the Keeper; for named things the chosen writing is what `justTold`,
+`unfinishedDeclaration` or `playerWords` say about them, and a shorter or reworded record of exactly that is within.
+Another topic, a conclusion, a guess, a replacement of old text, or no chosen writing is outside. The `execution` question
+reads the text the same way, and "now": deferral stays `not_selected_operation`. The criteria carry one generic example
+(an address the clerk just gave), not the evidence's case. Every gate stays `.90`; no question was added; family revision 4.
+
+The refusal's message becomes "The host could not bind this document addition to the player's choice"; `details.reason`
+(`document_binding_unresolved`) and `cause` are unchanged. Its fix says that nothing of the call landed and nothing was refused
+in the fiction; to resend the call's other effects, if any, without the addition (turn 8's first apply carried two clues, a
+handout, a move and an embedded narrate, all lost with it); not to resend the addition this turn nor tell it as written; to
+deliver the turn; and that the host keeps the recording unconfirmed for the player's next input.
+
+Measured live (Jev 1.13.0, three runs a case, predictions registered before each request; the table is in the spec), on
+turn 8's own inputs and seven controls: version 4 moves turn 8's note from outside .80–.85 (version 3) to within .81–.86 and
+binds the exact dictated quote two of three (version 3: none; content within .97, execution .93/.96, the third run's target
+.89); a note with an added guess or an unselected topic stays outside at .98–.99; read-only words fail the target (.57–.81).
+**Turn 8's note still does not bind:** content within stays below `.90`. On this zh-Hans input Jev's selected-category
+probability for the right answer stays under the `.90` the owner fixed; calibrating that gate for non-English tables is an
+open owner decision. §200.3 and §200.4 make the turn deliver either way.
+
+**A weak spot this exposed.** Deferred writing (「等从档案馆回来，我再把……记到笔记本上」) passes version 4's `content` (.89–.93,
+the words are right) and is held only by `execution`, whose top answer is `selected_operation` at .62/.65 -- below the gate,
+but the wrong answer. With version 3's `execution` wording the same case answers .58–.67, so the weakness is the execution
+question's own, hidden in version 3 because `content` refused first. Deferral is still refused three of three; a dedicated
+"now or later" question is the obvious repair and is left to the owner with the gate.
+
+### 200.6 An input the host has ended runs nothing more (lead addition 2026-10-08, after the owner flagged turn 8's screen)
+
+**Evidence.** Turn 8's session (2026-10-08T14-51-49Z): the guard declared the turn unfinished at 15:05:34, inside the run, and
+the player saw the notice between two step groups ("4 steps, 4 failed", then "9 steps, 8 failed, 1 ok"). The run went on for
+48 seconds and nine calls, each a model step the player waited for, until the driver's step limit.
+
+**Why it went on.** The end was said only as `terminate: true` on the refused tool result. In Pi's legacy loop that ends a
+tool batch whose every result terminates; the single-loop driver reads a refused call as a fallen batch and composes again
+(the forced-choice cut in `extensions/kernel/index.ts` already records this: "the hybrid supervisor may start another model
+step"). The turn close it then forced answered `none` (`refused_document_unconfirmed`), and a `none` finishes a run only when
+the policy has nothing pending, while a fallen batch always leaves a compose pending. The refusal budget could not end it
+either: narrate is the turn's door and is not struck by class while the turn is open (§77), and the turn budget (row
+`refusals ... turn_budget` at 15:06:15) shuts other classes, not the run.
+
+**Rule.** Ending an input is the host's act on the run, not a hint on a result. `endInput(state, cause)` marks the turn
+(`inputEnded: {turn, cause}`, telemetry `{lane: "turn", event: "input_ended", turn, cause}`) and cuts the run the one way
+both engines stop: `runCut` and the session's abort, as the forced-choice and runaway cuts already do. From then on, on that
+turn:
+
+- every call the Keeper or the clerk makes is refused in `tool_call` before admission, a kernel read, a refusal strike or a
+  call count (`code: "blocked"`, `reason: "input_ended"`, `terminate`), and the cut is made again;
+- the turn close answers `none: "input_ended"`, never a steer;
+- nothing is delivered or retracted: what settled stays settled, and `agent_settled` tells it as it does any undelivered
+  turn, with the notice it already chooses.
+
+The next player input opens another turn, so the marker needs no clearing. Two causes call it today: the unfinished notice
+declared while a run is still going (`scheduleTurnUnfinishedNotice`; §200.3 removed the guard's call, so no producer reaches it
+now, and it stays as the rule for the next one), and §38.11's history-store escalation, whose fix already told the Keeper to
+call nothing more while the single-loop run kept asking it. The notice `agent_settled` sends is after the run by construction.
+
+What this does not change: §34.16's closed-turn cut (a delivered turn), §70's refusal-budget cut (it ends the attempts, and
+the fallback narrate still runs), §135.11's steer, and the continuity-review pause (§38.9), which keeps its own handling
+(not measured here on the single-loop engine; a candidate for the same rule).

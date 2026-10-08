@@ -67,6 +67,28 @@ export function refusedMoves(value: unknown): Row[] {
         return { to: move.to, reason: move.reason };
     });
 }
+/** Contract §200.4: at most this many unconfirmed recordings ride on a turn's delivery. */
+export const UNCONFIRMED_RECORDINGS_MAX = 4;
+/**
+ * Contract §200.4: the document recordings the turn closes with and no writing result settled, as the host carries them on
+ * the delivery (`unconfirmed_recordings`, host-only, §135.31's channel), for the turn record's `unconfirmed_recordings`:
+ * `{document?, reason, cause?}` each, `document` the carrier's name, `reason` and `cause` the host's own words. Not part of
+ * the call's digest. Absent: none.
+ */
+export function unconfirmedRecordings(value: unknown): Row[] {
+    if (value == null)
+        return [];
+    if (!Array.isArray(value) || value.length > UNCONFIRMED_RECORDINGS_MAX)
+        throw new RpcError('invalid_params', `unconfirmed_recordings must be a list of at most ${UNCONFIRMED_RECORDINGS_MAX} recordings`);
+    const word = (entry: unknown, max: number) => typeof entry === 'string' && entry.trim().length > 0 && [...entry].length <= max;
+    return value.map((entry, index) => {
+        const row = isJsonObject(entry) ? entry : undefined;
+        if (!row || !word(row.reason, 64) || (row.document !== undefined && !word(row.document, 200)) || (row.cause !== undefined && !word(row.cause, 64))
+            || Object.keys(row).some(key => !['document', 'reason', 'cause'].includes(key)))
+            throw new RpcError('invalid_params', `unconfirmed_recordings[${index}] must be {document?: string, reason: string, cause?: string}`);
+        return { ...(row.document !== undefined ? { document: row.document } : {}), reason: row.reason, ...(row.cause !== undefined ? { cause: row.cause } : {}) };
+    });
+}
 /** Contract §135.31: at most this many of a turn's `look`/`lookup` calls ride on its delivery. */
 export const KEEPER_READS_MAX = 64;
 /**
