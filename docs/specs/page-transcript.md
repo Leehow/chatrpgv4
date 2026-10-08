@@ -163,3 +163,20 @@ Keeper improvised). Bars: no `no_layout` failure (11 pages: 9 stored, 2 repaired
 times); no play turn over 120 s (max 111 s; TR-C 331 s); 11/11 records pass the permutation check. Not observed: no
 landing row fired on this table, so the landing layer was not exercised here. The price is throughput: with one child,
 yielding and cooling down, 11 pages were made in 13 minutes -- the table comes first.
+
+**2026-10-07, TR-C fix (worker, branch `claude/transcript-child-guard-20261007`).** The owner ruled on the made-up paths:
+「那说明工具设计有问题啊，工具层面就不能让agent自己决定写到哪里，应该由系统来决定」. The layout child now has no file
+tool; its one tool is `submit_layout`, the host writes `layout.md`, answers with the lines the layout left out, and the
+child repairs in the same session (contract §191.2, §191.3; the separate repair child and `repair.txt` are gone). Not
+changed and worth a ruling: every other reader or `mod` child started without `source` still runs `read,write,edit,bash`
+with no tool guard (`createReaderToolGuard` binds only `source` readers) -- the cast reader (`ReadingService.readCast`),
+adaptation, the NPC and voice authors, Mod definition and audit agents, and the presenters that take the default tools.
+The handout reader has no tools at all and needs nothing.
+
+**2026-10-07, TR-D (lead's live probe of the branch, 17 TR-B pages) and its fix.** The design held: nothing written
+outside the work directories, no tool but `submit_layout`, every record a permutation, 0 unplaced on 15/15 text pages,
+about 6K input tokens a single-submission page against 14K in TR-B. Five pages came out `repaired` with a whole first
+submission: the provider failed first, Pi ended the run before its auto-retry, and the submission tool's reminder was
+queued then and ran after the retried run. Fixed on the branch: the reminder is judged only on a run whose model answered
+(contract §191.2, TR-C fix decisions). Separate finding, not changed: `extensions/kernel/adaptation-submit.ts` has the same
+once-per-child reminder on `agent_end` and nothing in `extensions/` can see a pending retry.

@@ -139,7 +139,8 @@ test('Jev replaces optional workspace preload while preserving the full-request 
     if(oldKey===undefined)delete process.env.TYPESAFE_API_KEY;else process.env.TYPESAFE_API_KEY=oldKey;globalThis.fetch=oldFetch;});
   globalThis.fetch=async(_url,options)=>{return Response.json(supportWire(JSON.parse(options.body)));};
   const s=snapshot();s.binding.adapter='static-evidence-v2';s.candidates.static=[sourceRef('Archive',2000)];
-  const current={...capsule,mods:{instructions:[{mod:'keeper-context',settings:{mode:'on',workpad_enabled:false}}]}};
+  const current={...capsule};
+  const workspaceBinding={...binding,workspace_settings:{mode:'on',workpad_enabled:false}};
   let overhead=0;
   const ctx={model:{contextWindow:1000000},getSystemPrompt:()=> 'x'.repeat(overhead)};
   const messages=[{role:'user',content:capsule.turn.player_text}];
@@ -147,9 +148,9 @@ test('Jev replaces optional workspace preload while preserving the full-request 
     process.env.PI_COC_JEV_PRESELECT=flag;
     const hooks=new Map(),bus=new Map();
     api.installContextPolicy({on:(k,f)=>hooks.set(k,f),events:{on:(k,f)=>bus.set(k,f)}},()=>{});
-    const call=async(method,params)=>method==='table.capsule'?{...current,_context:binding}:method==='table.workspace.read'?structuredClone(s)
+    const call=async(method,params)=>method==='table.capsule'?{...current,_context:workspaceBinding}:method==='table.workspace.read'?structuredClone(s)
       :method==='table.recall'?params.what==='transcript'?{cards:[],_snapshot:'history'}:{hits:[]}:{detail:'x'.repeat(200)};
-    bus.get('coc:kernel-bridge')({campaign:'c1',call});bus.get('coc:capsule')({capsule:current,context:binding,epoch:'budget-input'});
+    bus.get('coc:kernel-bridge')({campaign:'c1',call});bus.get('coc:capsule')({capsule:current,context:workspaceBinding,epoch:'budget-input'});
     t.after(()=>hooks.get('session_shutdown')());
     return ()=>hooks.get('context')({messages},ctx);
   }

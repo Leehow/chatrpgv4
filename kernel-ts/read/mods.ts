@@ -19,6 +19,7 @@ import {publicOffer} from '../mods/object-offer.js';
 import { checkDeclarationRefusals } from "../modules/obligation-shape.js";
 import { rootObjectOwner } from "./object-owner.js";
 import {documentSurface} from '../mods/document-visibility.js';
+import {RETIRED_WORKSPACE_MOD} from '../mods/retired-workspace.js';
 import {VOICE_CONSOLIDATION_CAPABILITY, EXPRESSION_MOD, LEGACY_VOICE_MOD, newModDefault} from '../mods/voice-consolidation.js';
 import { STYLE_CAPABILITY, validateStyleDeclaration, validateStyleContribution, providesStyle, secondProvider } from "./style.js";
 import { LANGUAGE_ADDENDUM_CAPABILITY, LANGUAGE_BRIEF_BUDGET_CAPABILITY, validateLanguageDeclaration } from "./mod-language.js";
@@ -27,7 +28,7 @@ import {HISTORY_CAPABILITY, validHostSettings} from '../mods/host-settings.js';
 import {MOOD_CAPABILITY} from '../npc/mood.js';
 import {EXPRESSION_REFERENCE_CAPABILITY,expressionCards,expressionCatalogRevision} from './expression-reference.js';
 import { SECTIONS_CAPABILITY, validateSectionsDeclaration, validateSectionsContribution, packageSections, sectioned, sectionKey, instructionBudget, residentText, topicList, annotateGates, sceneFacts, type TurnFacts } from "./sections.js";
-export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "checks.presence.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1", "context.workspace.v1"]);
+export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "checks.presence.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT_V2);
 // Contract §158.2: a continuity reviewer that also names what the ledger owes.
@@ -460,7 +461,8 @@ export async function readModCatalog(context: KernelContext): Promise<ModCatalog
         for (const version of await context.snapshots.sortedChildNames(join(installed, id), p => context.snapshots.pathExists(join(p, "mod.json"))))
             roots.push({ root: join(installed, id, version), id, version });
     const catalog = new ModCatalog();
-    for (const entry of roots.sort((left, right) => compareUnicode(join(left.root, "mod.json"), join(right.root, "mod.json")))) {
+    for (const entry of roots.filter(entry => entry.id !== RETIRED_WORKSPACE_MOD)
+        .sort((left, right) => compareUnicode(join(left.root, "mod.json"), join(right.root, "mod.json")))) {
         let files: Map<string, Buffer>, manifest: Row, digest: string;
         try {
             const source = await packageFiles(entry.root);
@@ -528,7 +530,7 @@ export async function activeMods(context: KernelContext, world: Row, known: ModC
         locks = row(row(world.mods).active),
         active: Row[] = [];
     for (const [id, value] of entries(locks)) {
-        if (!truth(value.enabled))
+        if (id === RETIRED_WORKSPACE_MOD || !truth(value.enabled))
             continue;
         const mod = catalog.get(`${id}\0${value.version}`);
         if (!mod || !mod.compatible || mod.digest !== value.digest) {
@@ -572,7 +574,7 @@ export async function activeMods(context: KernelContext, world: Row, known: ModC
             throw secondProvider(mod, provider);
         active.push(mod);
     }
-    const ids = new Set([...catalog.values()].map(mod => mod.id).concat(Object.keys(locks))),
+    const ids = new Set([...catalog.values()].map(mod => mod.id).concat(Object.keys(locks)).filter(id => id !== RETIRED_WORKSPACE_MOD)),
         path = join(context.stateRoot, "mods", "load-order.json");
     const preference = row(world.mods).order ?? (await context.snapshots.pathExists(path) ? await context.snapshots.readJson(path) : []);
     const preferred = [...array(preference).filter(id => ids.has(id)), ...sorted([...ids].filter(id => !array(preference).includes(id)))],

@@ -69,7 +69,6 @@ test('real resolve options prepare one advisory ordinary check without settling 
   api.installContextPolicy({on:(name,fn)=>hooks.set(name,fn),events:{on:(name,fn)=>bus.set(name,fn)},getActiveTools:()=>[],getAllTools:()=>[]},event=>events.push(event));
   t.after(()=>hooks.get('session_shutdown')());
   const {_context:binding,...capsule}=await call('table.capsule',{rehydrate:true});
-  capsule.mods={instructions:[{mod:'keeper-context',settings:{mode:'on',workpad_enabled:false}}]};
   const start=calls.length;
   bus.get('coc:kernel-bridge')({campaign:'check-preflight',call});bus.get('coc:capsule')({capsule,context:binding,epoch:'support-preload'});
   const projected=await hooks.get('context')({messages:[{role:'user',content:input}],type:'context'},

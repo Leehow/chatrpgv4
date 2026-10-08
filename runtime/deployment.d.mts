@@ -8,6 +8,8 @@ export interface RuntimeEntrypoints {
   readonly readerPdf: string; readonly readerSubmit: string; readonly deepseek: string; readonly imageGen: string; readonly grokBuild: string;
   readonly characterGuidance: string; readonly characterPresentation: string; readonly documentPresentation: string;
   readonly uiPresentation: string;
+  /** Contract §191.2: the page-transcript layout child's `submit_layout`. */
+  readonly layoutSubmit: string;
   readonly jev: string;
   readonly extensions: readonly string[];
   /** The provider-registering extensions, mounted by the session launcher and by every lane child. */

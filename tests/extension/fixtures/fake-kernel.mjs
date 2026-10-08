@@ -91,8 +91,8 @@ let materialPending = process.env.FAKE_KERNEL_MATERIAL_PENDING === "1";
 let unknownEntity = process.env.FAKE_KERNEL_UNKNOWN_ENTITY ? JSON.parse(process.env.FAKE_KERNEL_UNKNOWN_ENTITY) : null;
 
 /**
- * KIC-04 fixture: when set, the capsule carries a real `_context` binding plus an active
- * `keeper-context` package (mode on), and `table.workspace.read` answers with a valid snapshot
+ * KIC-04 fixture: when set, the capsule carries a real `_context` binding plus host workspace
+ * preferences (mode on), and `table.workspace.read` answers with a valid snapshot
  * bound to the current turn. The state stamp is per-turn, so entries published on an earlier
  * turn are stale on the next one — exactly the invalidation the projection has to show.
  */
@@ -108,6 +108,7 @@ const workspaceContext = () => ({
 	loop: 0,
 	turn,
 	source_revision: WORKSPACE_REVISION,
+	workspace_settings: {mode: "on", workspace_bytes: 24576},
 	memory_coverage: { committed: turn, completed: turn, gaps: 0, recent: [], older: { gaps: 0 } },
 });
 const workspaceRef = (locator, kind) => ({
@@ -364,7 +365,6 @@ function capsule(playerText, params = {}) {
 		truncated: [],
 		...(WORKSPACE_ON ? {
 			_context: workspaceContext(),
-			mods: { instructions: [{ mod: "keeper-context", version: "1.0.0", settings: { mode: "on", workspace_bytes: 24576 }, form: "full", instruction: "workspace on" }] },
 		} : {}),
 	};
 }
@@ -937,7 +937,7 @@ function handle(method, params) {
 			turn += 1;
 			state = "open";
 			turnMechanics = [];
-			return { ok: true, result: { turn, state, capsule: capsule(params.text) } };
+			return { ok: true, result: { turn, state, capsule: capsule(params.text), ...(WORKSPACE_ON ? {_context: workspaceContext()} : {}) } };
 		}
 		case "table.capsule":
 			return { ok: true, result: capsule(null, params) };

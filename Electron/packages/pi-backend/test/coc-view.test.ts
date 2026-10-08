@@ -103,7 +103,7 @@ it('cold host sheet reads are tied to the requested session and never start Pi',
     expect(catalog.ok).toBe(true);
     const mods=await backend.handle('invokeExtension',['coc-keeper','mods.list',{campaign:'must-not-be-guessed'}, {sessionId:first.id}]) as any;
     expect(mods.ok).toBe(true);
-    expect(mods.data.mods.map((row:any)=>row.id)).toEqual(expect.arrayContaining(['enhanced-items','guided-creation','historical-reference','keeper-context','keeper-pacing','narration-audit','narration-craft','natural-npc','npc-voice','story-thread']));
+    expect(mods.data.mods.map((row:any)=>row.id)).toEqual(expect.arrayContaining(['enhanced-items','guided-creation','historical-reference','keeper-pacing','narration-audit','narration-craft','natural-npc','npc-voice','story-thread']));
     const reference=mods.data.mods.find((row:any)=>row.id==='historical-reference');
     expect(reference.default_enabled).toBe(true);
     expect(reference.host_settings).toEqual([{slot:'exa_api_key',key:'ext.coc-keeper.exaApiKey',format:'secret',caption:'exaKey'}]);
