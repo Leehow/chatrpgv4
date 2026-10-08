@@ -11,7 +11,7 @@
  *   2. it reaches a changed module through imports (static or dynamic, relative specifiers, transitively through any
  *      helper or source module in the repository);
  *   3. it, or a module it reaches, names an emitted bundle (`build/....mjs`) whose sourcemap lists a changed source;
- *   4. it, or a module it reaches, names a changed data file by its repository path.
+ *   4. it, or a module it reaches, names a changed data file or a changed module by its repository path.
  * The smoke set always runs. A changed file this cannot place (a dependency manifest, a build script, a data file no
  * test names and that the product reads at runtime) selects everything: `full: true`.
  * The routing loop test (experiments/single-loop-routing/loop.test.mjs) is placed by the same rules.
@@ -156,6 +156,9 @@ for (const test of tests) {
   for (const module of reached) {
     const hit = (text.get(module).match(BUNDLE_REF) ?? []).find(ref => changedBundles.has(ref));
     if (hit) { select(test, `names ${hit}`); break; }
+    // A source loaded by its repository path rather than imported (read as text, or handed to a child process).
+    const named = [...affected].find(path => text.get(module).includes(path));
+    if (named) { select(test, `names ${named}`); break; }
   }
 }
 for (const test of SMOKE) if (existsSync(join(root, test))) select(test, 'smoke');

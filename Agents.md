@@ -187,6 +187,14 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 - **契约先行**：先在 `docs/kernel-rpc.md` 写形状，再开工；worker 只按契约写，形状对不上以契约为准，集成时补回归用例。
 - **worker 按任务选模型**：内核实现用 Fable；扩展用 Opus；测试、驾驭器、机械迁移用 Sonnet/Haiku；不全用一个模型。同一 worktree 的 worker 路径互斥、`commit_policy: no_commit`，由 lead 集成与提交。
 - 测试：`uv run --frozen python -m pytest tests/kernel tests/play -q` 与 `npm run test:ext`。**不要并发跑两个 pytest**（临时目录会撞出幻影失败）；提交前看真实退出码，别信 `pytest | tail`。 pytest 默认复用 `--retargetable` 内核进程（`tests/kernel/kernel_pool.py`，契约 §146）；`COC_TEST_KERNEL_POOL=0` 退回每例 spawn，断言进程启动/退出本身的用例用 `RpcClient(..., fresh=True)`。
+- 测试分两档（2026-10-08 用户批准），都在局域网盒子上跑（`leehow-pc-tests` skill 的 `remote-test.sh`）：
+  - 改代码时用 `focused`：由 `scripts/select-tests.mjs` 按本次改动挑测试，只跑它挑中的。
+    - 挑的依据只有三样：import 关系、构建产物 sourcemap 里列出的源文件、测试里写出的数据或源文件路径；不做语义判断。
+    - 冒烟两件（`ts-kernel-foundation`、`control-flow-inventory`）每次都跑。
+    - 遇到它判断不了影响范围的改动（依赖清单、构建脚本等），直接退回全量。
+  - 合主线前用 `all`：ext、pytest、loop 三路同时跑，ext 每个文件一个进程，按上次耗时从慢到快排队。
+  - 本地 `node scripts/select-tests.mjs --explain <测试文件>` 可以查某个测试为什么被挑中。
+  - 测试不走 import、按字符串加载源文件时，文件里要写出完整的仓库路径（如 `extensions/kernel/index.ts`），挑选器才认得出；把路径拆成几段拼起来，它就看不见。
 - 复制进来的 PipiUI 套件用 `npm run test:electron` 跑：它比对 `Electron/scripts/vitest-suite-baseline.json` 里记下的已知失败，只在出现差异时红。基线之外的新失败是回归；基线里不再失败的条目要用 `--record` 重记。**不许手写基线条目**把红的糊绿——那张表只许缩短。
 - 主检出与共享 worktree 上禁用 `git stash`、`reset --hard`、`checkout --`、`clean`；要隔离就开临时 worktree。不推、不删分支、不改共享历史，除非用户当回合明说。
 - 每次真桌验收都会找出几个接缝看不见的系统缺陷：给每个切片预留一次修复提交。
