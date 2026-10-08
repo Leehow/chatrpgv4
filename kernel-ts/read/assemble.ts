@@ -48,7 +48,10 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "and agendas of those present, the way back and the exits, pressures and obligations, the rule-layer " +
     "situations, the Director's suggested beat, related memory and the style contract. " +
     "historical_setting holds the authored era, starting place and background on every turn, including after the opening briefing. Do not look/lookup " +
-    "for what is already here; director is advice, not lines. Truncated place/rule previews are incomplete; " +
+    // Contract §205.4: the rule holds for what is present, never for a need named missing.
+    "for what is already here; that holds only for what is present. A need this turn's keeper_support lists under missing is not here: " +
+    "make its read before you narrate that part, and never answer it from invention or deny it because it is absent. " +
+    "director is advice, not lines. Truncated place/rule previews are incomplete; " +
     "look focus=scene returns their full descriptions. where.material and each exit's material say how " +
     "far the book has been read: ready, reading, or missing. An exit's unlock_when.met is true, false, or null " +
     "when the kernel cannot tell; a gate never blocks a move. known.flags lists the flags set so far; " +

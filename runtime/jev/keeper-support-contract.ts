@@ -25,6 +25,8 @@ const MaterialSchema=Type.Object({alias:word(),kind:word(),label:word(),authorit
     read:Type.Optional(record()),provenance:Type.Optional(record())},{additionalProperties:false});
 const GapSchema=Type.Object({alias:word(),kind:word(),label:word(),reason:word(),read:Type.Optional(record()),
     coverage:Type.Optional(record()),provenance:Type.Optional(record())},{additionalProperties:false});
+/** §205.3: a need of the turn's request the supplied material does not hold, and the lookup to make before narrating. */
+const MissingSchema=Type.Object({alias:word(),need:word(),about:Type.Optional(word()),read:record()},{additionalProperties:false});
 const ActionSchema=Type.Object({actor:word(),intent:choices(['investigate','social','move'] as const),goal:word(),method:word(),skill:word(),
     decision:Type.Literal('core-check:ordinary-check'),modifiers:Type.Object({difficulty:choices(['regular','hard','extreme'] as const),
         bonus_dice:Type.Integer({minimum:0,maximum:2}),penalty_dice:Type.Integer({minimum:0,maximum:2}),reason:word()},{additionalProperties:false})},{additionalProperties:false});
@@ -40,7 +42,7 @@ const RetrievalSchema=Type.Object({version:Type.Literal(1),status:choices(['read
 export const KeeperSupportSchema=Type.Object({schema_version:Type.Literal(1),kind:Type.Literal('keeper_support'),
     turn:Type.Integer({minimum:0}),request:word(),authority:Type.Literal('advisory'),complete:Type.Literal(false),
     parameters:Type.Object(Object.fromEntries(SUPPORT_SECTIONS.map(section=>[section,Type.Array(word())])),{additionalProperties:false}),
-    materials:Type.Array(MaterialSchema),assessment:AssessmentSchema,gaps:Type.Array(GapSchema),
+    materials:Type.Array(MaterialSchema),assessment:AssessmentSchema,gaps:Type.Array(GapSchema),missing:Type.Optional(Type.Array(MissingSchema)),
     retrieval:Type.Union([RetrievalSchema,Type.Null()]),check:CheckAdviceSchema,coverage:record(),note:Type.String()},
     {additionalProperties:false});
 export type KeeperSupport=Static<typeof KeeperSupportSchema>;
@@ -66,16 +68,26 @@ function sectionOf(material:Row):typeof SUPPORT_SECTIONS[number] {
     return'source';
 }
 
+/**
+ * §205.4: said only on a packet that names what is missing. The capsule head's "do not look for what is already here" holds
+ * for what is present; these needs are not.
+ */
+export const MISSING_NOTE=' missing lists parts of this turn\'s request that nothing supplied here or in the capsule holds: each row is the player\'s '
+    +'own words for that part, what it is about, and the read that answers it. Make that read before you narrate the part; do not answer it '
+    +'from invention, and do not deny it exists because it is absent here.';
+
 /** Build before every budget trial so required schema fields are never appended after packing. */
 export function keeperSupportView(value:Row):KeeperSupport {
     const materials=Array.isArray(value.materials)?value.materials:[],parameters=Object.fromEntries(SUPPORT_SECTIONS.map(section=>[section,[] as string[]]));
     for(const material of materials)parameters[sectionOf(material)].push(material.alias);
     const assessment=object(value.assessment),retrieval=object(value.retrieval);
     return {schema_version:1,kind:'keeper_support',turn:value.turn,request:value.request,authority:'advisory',complete:false,parameters,
-        materials,gaps:Array.isArray(value.gaps)?value.gaps:[],assessment:{coverage:assessment.coverage??'uncertain',consistency:assessment.consistency??'uncertain'},
+        materials,gaps:Array.isArray(value.gaps)?value.gaps:[],...(Array.isArray(value.missing)&&value.missing.length?{missing:value.missing}:{}),
+        assessment:{coverage:assessment.coverage??'uncertain',consistency:assessment.consistency??'uncertain'},
         retrieval:value.retrieval?{version:1,status:retrieval.status,stop_reason:retrieval.stop_reason,steps:retrieval.steps,rounds:retrieval.rounds??0}:null,
         check:value.check??unknownCheck('not_prepared'),coverage:value.coverage??{},
-        note:'Keeper support v1. parameters indexes material aliases; empty means not supplied. Read content, authority and gaps together. Check advice is not consent or a roll. Use ordinary lookup/recall for missing evidence and guarded resolve/apply for actions.'} as KeeperSupport;
+        note:'Keeper support v1. parameters indexes material aliases; empty means not supplied. Read content, authority and gaps together. Check advice is not consent or a roll. Use ordinary lookup/recall for missing evidence and guarded resolve/apply for actions.'
+            +(Array.isArray(value.missing)&&value.missing.length?MISSING_NOTE:'')} as KeeperSupport;
 }
 
 export function validateKeeperSupport(value:unknown):KeeperSupport {

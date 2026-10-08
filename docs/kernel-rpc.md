@@ -39936,3 +39936,61 @@ not seeded; the pool not ranked; seeded passages keeping their slots; located pa
 read first; the summary copy kept in the envelope; `offered` not recorded; passages rebuilt every turn; the key ignoring the
 records; the listing ignoring home; unjudged passages sent as located; native slices made passage cards; a moved store
 waiting for its rebuild; a first build not waited for.
+
+## 205. A turn that lacks material says so, and looks
+
+### 205.1. Needs and ownership
+
+For preload, the host cuts the player's request at Unicode sentence boundaries, at most six needs with the remainder
+joined into the sixth. This is paragraph/sentence segmentation, never intent classification. Located book entries are
+host-issued candidates, at most eight. Jev judges each need against the supplied materials and retained context with
+one closed choice: `held`, `missing`, or `none`; a second closed choice names a located entry or `none`.
+
+The evidence loop writes these verdicts. The host reads them to supply useful located passages or publish `missing`.
+The Keeper reads each missing row and makes its named lookup before narrating that part. A missing row is advisory;
+it is not a world fact, a refusal, a roll, or permission to invent a book answer.
+
+### 205.2. Verdict freshness and unavailable decisions
+
+The loop asks the need questions in its existing decisions. Its latest answers carry a digest of the materials they
+saw. They are reusable only when that digest matches the final materials. If a read followed the last judgment, one
+closing decision judges the final materials, within the existing preparation deadline and provider budget.
+
+Missing extra answers never invalidate answered loop control questions. Missing control questions still end the loop
+through its existing unavailable path. An unanswered need is `unknown`, never assumed held or missing.
+
+The loop's whole-request coverage may stand for per-need answers only when it judged the final materials: `sufficient`
+holds every need; `missing` stands for a single need. This fallback does not infer which book entry the need names.
+A locate ranking is relevance ordering, not an entity-link verdict.
+
+### 205.3. Supply first, then name the lookup
+
+For each missing need (chosen with probability at least 0.5 when available), the host independently locates the
+already-offered but unsupplied passages against that need. At most two found passages are supplied through the same
+owner read, provenance, validation and byte-budget path. Unresolved needs are named as:
+
+```json
+{"alias":"missing_1","need":"Where is the ledger?","about":"Silas Crane",
+ "read":{"tool":"lookup","kind":"source","source_mode":"answer","query":"Silas Crane","question":"Where is the ledger?"}}
+```
+
+`about` is present only when a closed entry decision chose it. Without it, a sourced table uses the existing
+`Authored source consultation` focus; without a source, the row names a support lookup. This adds no new setting,
+does not raise the 24-decision allowance, and does not change the source consultation path.
+
+### 205.4. Request projection and reuse
+
+The capsule head limits the instruction against repeated lookup to material already supplied. It expressly permits
+the lookups in `missing`. The support packet repeats that instruction only when it carries missing rows. Reuse that
+requires material reassessment drops `missing` together with the old assessment. Byte trimming records omitted rows.
+
+### 205.5. Implementation and verification
+
+`runtime/jev/material-gap.ts` owns the closed questions and rows; `runtime/jev/evidence-agent.ts` carries extra answers
+and their material digest; `extensions/table/prescreen.ts` performs bounded supply and projection;
+`runtime/jev/keeper-support-contract.ts` validates the packet; `kernel-ts/read/assemble.ts` writes the conditional head.
+
+Tests: `material-gap.test.mjs` checks segmentation, questions, gates and loop freshness;
+`prescreen-material-gap.test.mjs` travels through the real preparation entry, kernel, PDF and transcript store for
+host supply, named lookups, no-gap decisions, freshness, fallback and reuse. These deterministic tests are not a table.
+Live latency and prose acceptance remain pending and must retain the handoff's pre-registered bars.
