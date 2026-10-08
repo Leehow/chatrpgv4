@@ -1,11 +1,13 @@
 /** Contract section 193.3: related offstage undertakings, read without changing presence or execution authority. */
 import type {ModuleGraph} from './module-graph.js';
 import {compareUnicode} from '../json.js';
-import {jsonSize, personLabel, personNode, sceneLabel, untoldBlock} from './capsule.js';
+import {jsonSize, npcNode, npcsPresent, personLabel, personNode, presenceThrough, rosterWord, sceneLabel, untoldBlock} from './capsule.js';
+import {bookCast} from './cast.js';
+import {tableWord} from './person-words.js';
 import {onLine} from './exchange.js';
 import {memoryEvidenceView, memoryOccurrenceKey} from './memory.js';
 import {array, chars, clone, normalize, number, row, string, type Row} from './values.js';
-import {foldIntent, openIntents} from '../npc/intents.js';
+import {foldIntent, intentParts, intentsOf, openIntents} from '../npc/intents.js';
 
 export const DEFERRED_NPCS_BYTES = 1536;
 export const DEFERRED_NPCS_PEOPLE = 3;
@@ -15,7 +17,7 @@ const NOTE = 'Related offstage reports and undertakings, not local presence or a
 function person(graph: ModuleGraph, world: Row, value: unknown): Row | null {
     if (typeof value !== 'string' || !value.trim()) return null;
     try {
-        const found = graph.nodes.get(value) ?? personNode(graph, world, value);
+        const resolved = personNode(graph, world, value), found = resolved ? graph.survivorOf(resolved) : null;
         return found && graph.isPerson(found) ? found : null;
     } catch { return null; }
 }
@@ -41,6 +43,8 @@ export function deferredNpcContext(input: {
     const records = input.records.filter(record => Boolean(record.commit) && number(record.turn) < n
         && onLine(record, scope) && !['reference', 'uncertain'].includes(string(record.interaction_scope)))
         .sort((a, b) => number(b.turn) - number(a.turn));
+    const presence = presenceThrough(graph, world), here = new Set(npcsPresent(graph, world, graph.scene(world.active_scene))
+        .map(node => string(node.node_id)));
     const pool = new Map<string, Row>(), recent = new Set<string>(), issued = new Set<string>(), promises = new Map<string, Row[]>();
     let sourceGaps = 0;
     for (const [index, record] of records.entries()) {
@@ -70,7 +74,7 @@ export function deferredNpcContext(input: {
         const bound = boundPromise(value, records);
         // A source-only future profile is not made a known actor by an unbound memory row.
         if (node && !issued.has(string(node.node_id)) && !graph.isTablePerson(node)) continue;
-        if (node && row(world.npc_presence)[graph.handle(node)] === world.active_scene) continue;
+        if (node && here.has(string(node.node_id))) continue;
         if (!node || !bound || typeof value.statement !== 'string' || !value.statement.trim()) {
             sourceGaps++; continue;
         }
@@ -82,21 +86,36 @@ export function deferredNpcContext(input: {
     }
     const people: Row[] = [], totals = new Map<Row, {undertakings: number; commitments: number}>();
     for (const [id, node] of pool) {
-        const handle = graph.handle(node), at = row(world.npc_presence)[handle];
-        if (at === world.active_scene) continue;
+        const handle = graph.handle(node), at = presence.get(id)?.at;
+        if (here.has(id)) continue;
         const entry = clone(row(ledger[id]));
         for (const receipt of array(turn.receipts)) {
             const stamp = row(row(receipt).intent), owner = person(graph, world, stamp.npc);
             if (owner?.node_id === id) foldIntent(entry, stamp, n, row(receipt).id, false, true);
         }
         const underway = openIntents(entry).filter(item => number(item.last_turn) < n);
+        // d1's named readers and writer still address the survivor's own ledger. Do not advertise a variant-only
+        // undertaking that the named exit cannot retrieve or settle; retain the old rows and report a source gap.
+        const identity = (item: Row): string => intentParts(item.ref)?.digest ?? string(item.ref);
+        const readable = new Set(intentsOf(entry).map(identity)), legacy = new Set<string>();
+        for (const variant of graph.groupOf(node)) {
+            if (variant.node_id === id) continue;
+            for (const item of openIntents(row(ledger[string(variant.node_id)])))
+                if (number(item.last_turn) < n && !readable.has(identity(item))) legacy.add(identity(item));
+        }
+        sourceGaps += legacy.size;
         const owned = promises.get(id) ?? [];
         if (!underway.length && !owned.length || !recent.has(id) && !owned.length) continue;
         const untold = untoldBlock(graph, world, row(input.journal), node, records);
-        const name = untold ? typeof untold.label === 'string' ? untold.label : ''
-            : personLabel(world, handle, graph.displayName(node));
+        const cast = bookCast(graph).find(value => value.node && graph.survivorId(string(value.node.node_id)) === id);
+        const alias = cast && cast.nodes.some(each => tableWord(world, graph.handle(each)).trim()
+            || string(row(row(row(input.journal).entries)[string(each.node_id)]).label || '').trim())
+            ? rosterWord(graph, world, row(input.journal), cast) : '';
+        const name = alias || (untold ? typeof untold.label === 'string' ? untold.label : ''
+            : personLabel(world, handle, graph.displayName(node)));
         if (!name.trim()) {sourceGaps++; continue;}
-        if (person(graph, world, name)?.node_id !== id) {sourceGaps++; continue;}
+        try {if (npcNode(graph, world, name).node_id !== id) {sourceGaps++; continue;}}
+        catch {sourceGaps++; continue;}
         let location: string | null = null;
         if (typeof at === 'string' && at) {
             try {location = sceneLabel(graph, world, graph.scene(at));} catch {sourceGaps++;}
