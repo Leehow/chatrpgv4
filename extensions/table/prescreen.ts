@@ -146,6 +146,18 @@ function locateContext(capsule:Row,messages:readonly Row[],turn:number):Row {
     if(recent.length)out.recent=recent;
     return out;
 }
+/**
+ * §196 (PU-03): the located entities (the locate's priority, most relevant first) as the source provider reads them: each
+ * one's display name and the graph source references its catalog units carry. Read from the catalog page already fetched.
+ */
+export function locatedSources(snapshot:Row,priority:readonly string[]):Array<{label:string;refs:unknown[]}> {
+    const rows:Row[]=(Array.isArray(object(snapshot.materials).candidates)?snapshot.materials.candidates:[]).map(object);
+    return priority.flatMap(handle=>{
+        const own=rows.filter(row=>row.kind==='graph_entity'&&object(row.read).query===handle);if(!own.length)return [];
+        const identity=own.find(row=>object(object(row.coverage).unit).kind==='identity')??own[0];
+        return typeof identity.label==='string'&&identity.label?[{label:identity.label,refs:own.flatMap(row=>Array.isArray(row.refs)?row.refs:[])}]:[];
+    });
+}
 /** A unit preview without the entity stub every graph unit repeats; the label already names the entity. */
 function previewOf(candidate:PrescreenCandidate):string {
     if(typeof candidate.body==='string'&&candidate.kind==='graph_entity'){
@@ -408,7 +420,8 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             sourcePdf=sourceSnapshot.pdf;
             sourceResult=await preparePrescreenSources({call:async(method,params)=>object(await input.call(method,{...params,campaign:input.campaign})),
                 campaign:input.campaign,moduleId:input.source.moduleId,scope,query,capsule:input.capsule,source:input.source.runtime,
-                signal:semanticSignal,budget:{deadlineAt:semanticDeadlineAt,candidateBytes:Math.max(4096,availableBytes*2),materialBytes:availableBytes,maxNativePages:16},snapshot:sourceSnapshot});
+                signal:semanticSignal,budget:{deadlineAt:semanticDeadlineAt,candidateBytes:Math.max(4096,availableBytes*2),materialBytes:availableBytes,maxNativePages:16},snapshot:sourceSnapshot,
+                located:locatedSources(snapshot,catalogPriority)});
         }catch(error){if(signal.aborted)throw error;sourceFailure=error instanceof Error?error.message.slice(0,160):'source_material_unavailable';}
         if(input.source)note({event:'source_catalog',candidates:sourceResult?.candidates.length??0,...(sourceResult?{coverage:sourceResult.coverage}:{}),...(sourceFailure?{failure:sourceFailure}:{})});
         let base=poolOf(snapshot,input.binding,supplied);const sourceCandidates=(sourceResult?.candidates??[]).map(candidateOf)
@@ -613,8 +626,8 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                         execute:async()=>qualifySources(nativeKeys,qualificationKey)});
                     if(sourceResult?.readNativePages&&reads<READ_LIMIT){
                         const unread=sourceResult.coverage.native.unmaterialized_pages,adjacent=new Set<number>();
-                        for(const material of content.materials){const origin=object(material.provenance),pages=Number.isSafeInteger(origin.page)?[origin.page]
-                            :Array.isArray(origin.pages)?origin.pages:[];
+                        for(const material of content.materials){const origin=object(material.provenance),pages=Array.isArray(origin.pages)?origin.pages
+                            :Number.isSafeInteger(origin.page)?[origin.page]:[];
                             for(const page of pages)for(const neighbor of [page-1,page+1])if(unread.includes(neighbor))adjacent.add(neighbor);}
                         for(const page of adjacent)operations.push({key:`native:${page}`,tool:'follow',label:`Original PDF page ${page}`,
                             description:'Read the adjacent original page to recover conditions or context outside a retained excerpt.',

@@ -258,7 +258,10 @@ test("§191.7 consultation units: transcribed pages are units of their exact lay
 	const second = units.filter(row => row.data.page === 2), first = units.filter(row => row.data.page === 1);
 	assert.ok(second.length && second.every(row => resourceOf(row) === `pdf:${p.sha}:page:2:transcript:transcript-v1`), JSON.stringify(second.map(resourceOf)));
 	assert.ok(second.every(row => record.text.includes(row.body)), "the exact layer, never the reading version");
-	assert.ok(second.some(row => row.body.startsWith("Left column begins here")), "in the transcript's order");
+	// §196: a transcribed page's units are its body blocks; its heading is the section above them, read in the transcript's order.
+	assert.deepEqual(second.map(row => [row.body, row.data.section]), [["Right column first line", ["Left column begins here and continues below."]]],
+		"in the transcript's order: the heading is the section, not a unit");
+	assert.match(second[0].label, /Original PDF page 2 \u203a Left column begins here and continues below\.$/u);
 	assert.ok(first.length && first.every(row => resourceOf(row) === `pdf:${p.sha}:page:1:native:${sourceTextVersion}`), "a native page stays native");
 	assert.deepEqual(result.coverage.native.transcript_pages, [2]);
 	assert.deepEqual(result.coverage.native.search_layers, { transcript: 1, native: 0, image_text: 1 });

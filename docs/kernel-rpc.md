@@ -39525,3 +39525,127 @@ completes; a Keeper request reads afresh; refused for a non-deferred need. Mutat
 file back): `needEligible` re-opening it, `readUnitPages` counting unfinished units, the kernel's read-page check and its
 kind check removed, the child deciding it for any kind, without the read-page check, and with `read_pages` unwired.
 Each turned its test red.
+
+## 196. Jev reads the book by paragraph (owner 2026-10-08: 「开这个切片，按段落取」; `docs/specs/paragraph-units.md`; amends §147.3's source units and §191.7)
+
+**Evidence.** The consultation catalog's units are fixed-length page slices (`splitSourceText(text, 800)`): they cut
+paragraphs, mix two, never cross a page and carry no heading. On TR-F every catalog row materialized 16 of 48 pages and its
+search hit nothing in any layer.
+
+### 196.1 A transcript page's units are its paragraphs
+Block boundaries are recovered from the stored record by aligning `markdown` to `text` (§191.3's joins); one unit per
+body block, split inside the block only past the cap; offsets stay in `text`.
+
+### 196.2 A unit carries its section
+The heading path above it (carried across a page top) rides with the unit to Jev and to the Keeper.
+
+### 196.3 A paragraph broken by a page break is delivered whole
+Linked units (`continues`/`continued_from`) when the first page's last body block does not end at a `Sentence_Terminal`;
+selecting one supplies both within budget.
+
+### 196.4 Native pages
+Unchanged slices; blank-line paragraphs may be used.
+
+### 196.5 What TR-F's catalog read, and why (PU-03)
+
+**Evidence** (TR-F session `2026-10-08T02-23-57-442Z_d94ad762…jsonl`, its capsule entries and the home transcript store, read
+only). All 14 `source_catalog` rows are identical: `materialized_pages` = `spreadPages(48, 16)` = [1,4,7,10,14,17,20,23,26,29,
+32,35,39,42,45,48], `candidates` + `candidate_omitted` = 903, `search_layers` all 0, no `search_error`. Of the 71
+`supplied_sources` over all `prepared` rows none is `native_text`. Three causes, each sufficient on its own:
+
+1. **The pages were chosen blind.** The provider's page choice is (a) the pages the capsule cites (`citedPages` walks the
+   capsule for `pdf_index` with `source_id: pdf:<module>`), (b) one reserved search match, (c) one reserved page of the even
+   spread, then the spread. The kernel capsule carries no `pdf_index` at all (TR-F's capsule entries have no `source_refs`
+   anywhere; `kernel-ts/read/capsule.ts` uses node refs only internally), so (a) was empty on every play turn: a reader with
+   no writer (§31). The pages the turn needed were known one step earlier: Jev's semantic locate (§124.10) judged 161-225
+   entity and rule cards per turn and located up to 24 entities (`card-two-denunciation-letter` 0.93,
+   `production-supervisor-…` 0.92, …), and the catalog page the host reads with that priority carries each entity's graph
+   `source_refs` (`refs`, `sourceRefsOf`); none of it reached the provider. 16 pages is the `maxNativePages` budget, not the
+   defect.
+2. **The search could never match.** The literal search's query was the player's whole line (`supportRequest(playerText)`),
+   e.g. 「我立正敬礼，报上姓名：“索科洛夫，奉命调查3号农场。上尉同志，档案里说了什么？”」. A literal substring search finds
+   a string the book prints; a player's sentence it never finds, in any layer. Replayed over the 48 transcripts with the
+   search's own normalization: the sentence, 0 pages; names the locate had in hand: 鲍里斯·亚历山德罗维奇·加庞 [7,10,34],
+   嘉琳娜·彼得罗夫娜·斯莫斯卡娅 [7,9,10,16,21,34], 卡西维依阿克塔伯三号农场 [3,15].
+3. **The units were single lines.** `splitSourceText` ends a unit at the first line break or sentence end
+   (`boundedSourceEnd`), not at 800 code units: on the transcript layer, whose lines are the printed lines, every unit was one
+   printed line (the 16 spread pages give exactly 903 units with it, 144 paragraph units now). The 32 KiB candidate budget
+   offered the first line or two of each page (25 of 903), and in the host loop those candidates come after the graph, rule
+   and memory candidates, past the 16 operations that carry a preview: Jev saw `Original PDF page 4` and nothing else.
+
+**Fixed here:** (1) the host hands the provider the located entities (196.6); (2) their names are searched beside the
+request; (3) is 196.1. **Not changed** (recorded for the owner): the preview limit (`PREVIEW_OPERATIONS` = 16) and the order
+that puts source candidates last in the loop, so past the first previews a source unit is still judged by its label alone,
+which now names the page and the section; the candidate budget (`2 × availableBytes`), which fits about 15 paragraph
+candidates; the round robin over pages, which offers each page's first paragraphs before any page's later ones.
+
+### 196.6 Implementation decisions (PU-01..PU-03, 2026-10-08)
+
+- **Alignment** (`extensions/module/transcript-paragraphs.ts`, pure). `text`'s blank-line stretches are its runs, then the
+  unplaced block, then the dropped block (their sizes are the record's `unplaced` and `dropped`). Each run's joined form is
+  searched in `markdown` after the previous run's place (leftmost) and before the next run's place (rightmost); the run's
+  true place lies between, so when the two disagree every Markdown block between them becomes one unit (merge, never cut).
+  `markdown`'s blocks are closed syntax: the assembly's image-text markers, figure-note lines, and CommonMark's line-start
+  markers (heading, `>`, list item, table row) with lazy continuation, loose lists, and adjacent same-level heading lines as
+  one heading printed on several lines. **Two join forms:** records made before the 2026-10-07 hyphen amendment (the shipped
+  Haunting seeds: `81f47dfaa` precedes `5a9410f7f`) joined a line-end hyphen with a space; records are never rewritten, so
+  the alignment tries both (`joinRun(parts, false)` is the earlier rule) and no `TRANSCRIPT_VERSION` bump or
+  re-transcription is needed. **Checked over every stored page** (one-off script, read only): Cold Harvest 48/48 and the
+  Haunting seeds 17/17 align, every block a run of consecutive `text` lines, 0 merges; 441 and 200 units (3,225 and 1,468
+  with `splitSourceText`); median 76 / p90 195 and 221 / 471 UTF-16; 1 and 4 units over the cap; 11 and 0 page-break links.
+- **Units.** Every block but headings and the dropped block (page numbers and running heads): paragraph, list group, quoted
+  box, table, figure note or image-text stretch that places native lines, and the unplaced lines. A heading is the section of
+  what follows it, not a unit. A block past `PARAGRAPH_UNIT_CAP` (800 UTF-16, the bound today's slices were meant to have)
+  is split into pieces of at most 800 at the last `Sentence_Terminal` in the window (not a full stop between two digits),
+  else the last line break, else the cap. Offsets stay in `text`; refs, digests and the checkpoint are unchanged in kind.
+  Native pages keep `splitSourceText` (blank-line paragraphs are not used).
+- **Section.** The page's own headings over the path carried into its top. The carried path walks back over the pages
+  before it while each has a readable, aligned record (a page without one ends the walk: its headings are unknown), taking
+  a heading when it is shallower than every one taken so far, and stops at a first-level heading or after
+  `SECTION_CARRY_PAGES` (64) pages; this equals folding every heading from the book's start. Levels are the agent's `#`
+  marks as written, so a page that marks a sub-heading `##` closes its parent: the path is the transcript's, not repaired.
+- **Page break (PU-02).** A page's last flow block (figure notes, image text, unplaced and dropped lines skipped) that is
+  body text (paragraph, list, quote, table) and does not end at a `Sentence_Terminal` (after trailing white space, `Pe`,
+  `Pf` and `Quotation_Mark`) continues the next page's first flow block when that is body text **of the same kind**. Over
+  Cold Harvest: 11 links, 7 read as real breaks and 4 as a paragraph printed without a full stop (e.g. 21→22, 23→24); a
+  false link costs one extra paragraph in a candidate, never a cut.
+- **Who computes it.** `sourcePageText {paragraphs: true}` (`readSourcePageText`, the source worker; the option travels
+  through `runtime/tasks.ts` unchanged) adds `paragraphs: [{start, end, kind, section, continues?, continued_from?}]` to each
+  transcript row whose record aligns (absent otherwise: the catalog falls back to slices). The neighbours and earlier pages
+  are read from the same store, never written. Only the prescreen catalog asks; landing text, search and the checkpoint's
+  re-reads do not. `nativeSourceCatalog` validates the stretches (ordered, disjoint, inside `text`, at most one link each
+  way, transcript layer only) and links two units when both pages are in the catalog.
+- **Both halves, within the allowance.** The provider reads, beside the chosen pages, every page a paragraph runs on to or
+  comes from (`continuation_pages`, one more `sourcePageText` call, at most 32 pages); those pages' units are offered too.
+  A linked chain is one candidate (body: the halves joined by a line break; a ref on each page; label
+  `Original PDF pages p-q › section`; `data.pages`) when its JSON fits `materialBytes`, the consumer's allowance for a
+  selected body; otherwise each half is its own candidate with `data.continues` / `data.continued_from`. A re-read of named
+  pages (reselection, `readNativePages`) does not expand but forms chains among the pages it read. The Keeper's provenance
+  gains `pages`, `section`, `continues_on_page` and `continued_from_page`; the follow-up of adjacent pages reads `pages`.
+- **PU-03.** `preparePrescreenSources` takes `located: [{label, refs}]`; the host builds it with `locatedSources` from the
+  catalog page it already read with the locate's priority (each located handle's identity-unit label and the `refs` of its
+  units, in priority order). Pages: the located pages in that order first, then the capsule's citations (sampled as before),
+  the reserved search match and spread page, then the rest as before; the budget stays 16. Search: the request and the
+  first three located names (`LOCATED_SEARCHES`), in parallel; matches pool in that order; the cursor is the request's.
+  Telemetry `coverage.native` gains `paragraph_pages`, `continuation_pages`, `located_pages` and `search_queries`.
+
+*Three ends (§31).* Writer: the source worker (`paragraphs`) and the host (`located`). Reader: the consultation catalog and
+the provider. Actor: Jev, who chooses among paragraph candidates by a label naming page and section; the Keeper, who gets a
+whole paragraph under its section; the operator, who reads `paragraph_pages`, `continuation_pages`, `located_pages` and
+`search_layers` on TR-F2 (PU-04).
+
+*Tests.* `tests/extension/transcript-paragraphs.test.mjs` (pure, over eight real Cold Harvest records copied to
+`fixtures/transcript-paragraphs/` and the seventeen shipped seeds): every page aligns contiguously; units, section carry,
+the quoted box as one unit, no page-number unit; the carried path; page-break links (8→9 paragraph, 41→42 list, none 4→5,
+none across kinds, none on a handout page); `Sentence_Terminal` over Devanagari, Arabic and presentation forms; the seed's
+earlier hyphen join; the bracket merge; the cap split. `tests/extension/prescreen-paragraph-units.test.mjs` (the host's
+context hook, real kernel, a real 40-page PDF, transcripts by the real assembly and store, deterministic Jev wire): the
+Keeper gets the paragraph broken across pages 1-2 whole with its section and both pages, Jev was offered it once under its
+section and no half alone, page 2 is read as a continuation page, the supplied pages check current; the located entity's
+page 13 and its name's match on page 33 are read although the blind spread has neither; a chain past the allowance is
+offered as halves, each saying where it goes on. `page-transcript-readers.test.mjs`: a heading is the section, not a unit.
+Mutations, each reverted by copying the saved file back, each turned a test red: the earlier join form dropped; the
+rightmost bracket ignored; a character list for the sentence end; no carried section; the dropped block kept as a unit;
+links across kinds; the catalog ignoring paragraphs; chains never offered whole; chains offered whole past the allowance;
+continuation pages not read; located pages ignored; only the request searched; the worker ignoring `paragraphs`; the host
+not passing `located`; the Keeper's provenance without the section; the worker never linking forward.

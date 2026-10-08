@@ -79,11 +79,15 @@ function lastCodePoint(value: string): number | undefined {
  */
 /** Hyphen-minus, hyphen and soft hyphen at the end of a line. */
 const LINE_END_HYPHEN = /[\u002D\u2010\u00AD]$/u;
-export function joinRun(parts: readonly string[]): string {
+/**
+ * `lineEndHyphen: false` is the rule before the hyphen amendment (2026-10-07), which records made then still carry (the
+ * shipped seeds of §191.8): a reader aligning a stored record (§196.1) tries both; the assembly writes only the current one.
+ */
+export function joinRun(parts: readonly string[], lineEndHyphen = true): string {
 	let out = "";
 	for (const part of parts) {
 		if (out && part && !eastAsianWide(lastCodePoint(out)) && !eastAsianWide(part.codePointAt(0)) && !/\s$/u.test(out) && !/^\s/u.test(part)
-			&& !LINE_END_HYPHEN.test(out))
+			&& !(lineEndHyphen && LINE_END_HYPHEN.test(out)))
 			out += " ";
 		out += part;
 	}
