@@ -3,8 +3,9 @@
  *
  * The layout is the agent's and the words are the host's: the grammar and normalization table below runs the real
  * assembly; the store refuses a page whose exact layer is not a permutation of its native lines; the service runs one
- * layout child per page through an injected `runTask` (a fake child that writes `layout.md`), one repair child for lines
- * left out, keeps pages by the file's digest across module ids and processes, reads shipped seeds without writing home,
+ * layout child per page through an injected `runTask` (a fake child that leaves what `submit_layout` would: the kept
+ * `layout.md` and one `submissions.jsonl` row per submission; the tool itself and a real child are in
+ * `layout-submit.test.mjs`), keeps pages by the file's digest across module ids and processes, reads shipped seeds without writing home,
  * makes one child for concurrent requests of one page, and does nothing with `mode: "off"`. Fixtures are synthesized.
  */
 import assert from "node:assert/strict";
@@ -157,7 +158,7 @@ test("§191.4 a record of another extraction version is ignored; a claim is excl
 const BUDGET = { ...TRANSCRIPT_FALLBACK };
 const VISION = { id: "fixture/vision", vision: true, thinking: "low", contextWindow: 200_000 };
 
-async function harness(t, { pages = { 1: PAGE }, layouts = () => "{L1-L9}", budget = BUDGET, model = VISION, home, content, gate, yieldTo, events } = {}) {
+async function harness(t, { pages = { 1: PAGE }, layouts = () => "{L1-L9}", submitted = () => 1, timedOut = () => false, budget = BUDGET, model = VISION, home, content, gate, yieldTo, events } = {}) {
 	home ??= await scratch(t, "transcript-home-");
 	content ??= await scratch(t, "transcript-content-");
 	const runs = [], rows = [], calls = [];
@@ -177,15 +178,20 @@ async function harness(t, { pages = { 1: PAGE }, layouts = () => "{L1-L9}", budg
 		},
 		async runTask(task, signal) {
 			const request = task.request, files = await readdir(request.cwd);
-			runs.push({ ...request, files, repair: files.includes("repair.txt") ? await readFile(join(request.cwd, "repair.txt"), "utf8") : undefined,
-				page: Number(/p(\d{4})-\d+$/.exec(request.cwd)[1]) });
+			runs.push({ ...request, files, page: Number(/p(\d{4})-\d+$/.exec(request.cwd)[1]) });
 			if (gate) await gate(request);
 			runs[runs.length - 1].startedAt = Date.now();
 			const layout = layouts(request, runs.length, files);
-			if (layout !== undefined) await writeFile(join(request.cwd, "layout.md"), layout);
+			// What submit_layout leaves behind: the kept layout and one row per submission.
+			if (layout !== undefined) {
+				await writeFile(join(request.cwd, "layout.md"), layout);
+				const count = submitted(request, runs.length);
+				await writeFile(join(request.cwd, "submissions.jsonl"), Array.from({ length: count }, (_, index) => JSON.stringify({ submission: index + 1 }) + "\n").join(""));
+			}
 			if (events) await writeFile(request.eventLog, events(request, runs.length));
 			runs[runs.length - 1].endedAt = Date.now();
-			return { ok: !signal?.aborted, code: 0, timedOut: false, ms: 1, stderr: "", command: [],
+			const late = timedOut(request, runs.length);
+			return { ok: !signal?.aborted && !late, code: late ? null : 0, timedOut: late, ms: 1, stderr: "", command: [],
 				usage: { inputTokens: 5000, outputTokens: 600, costUsd: 0.01, actions: 3, unknownCalls: 0 } };
 		},
 	};
@@ -194,57 +200,68 @@ async function harness(t, { pages = { 1: PAGE }, layouts = () => "{L1-L9}", budg
 	return { home, content, runtime, service, runs, rows, calls, store: new TranscriptStore({ home, contentRoot: content, extractionVersion: EXTRACTION }) };
 }
 
-test("§191.2 one background tools child per page on the page render and the numbered lines; the page is stored once", async t => {
+test("§191.2 one background child per page, shown the page render and the numbered lines, whose one tool is submit_layout; the page is stored once", async t => {
 	const h = await harness(t);
 	const result = await h.service.ensure({ pdf: "modules/a/source.pdf", file_sha256: FILE, pages: [1] });
 	assert.deepEqual([result.state, result.queued], ["queued", [1]]);
 	await h.service.idle();
 	assert.equal(h.runs.length, 1);
 	const [run] = h.runs;
-	assert.deepEqual([run.tools, run.priority, run.model, run.thinking, run.timeoutMs], ["read,write,edit", "background", "fixture/vision", "low", BUDGET.timeoutMs]);
+	assert.deepEqual([run.tools, run.priority, run.model, run.thinking, run.timeoutMs], ["", "background", "fixture/vision", "low", BUDGET.timeoutMs],
+		"no built-in tool: the child cannot choose where anything is written");
+	assert.deepEqual(run.layout, { submissions: 1 + BUDGET.repairAttempts }, "it mounts submit_layout with its submissions");
+	assert.deepEqual(run.attachments, ["page.png", "lines.txt"], "it is shown its inputs instead of reading them");
 	assert.equal(run.systemPrompt, join(h.content, "setup", "page-transcript.md"));
 	assert.equal(run.cwd, join(h.home, ".coc", "source-transcripts", FILE, "work", "p0001-1"));
-	assert.ok(run.files.includes("page.png") && run.files.includes("lines.txt") && !run.files.includes("repair.txt"));
+	assert.deepEqual(run.files.sort(), ["lines.json", "lines.txt", "page.png"]);
 	assert.equal(run.providerBudget.callOutputTokens, BUDGET.outputTokens, "its own lease, sized by the budget");
-	assert.equal(run.source, undefined, "no source tool beyond its own work directory");
+	assert.equal(run.source, undefined, "no PDF source");
 	assert.equal(await readFile(join(run.cwd, "lines.txt"), "utf8"), linesFile(PAGE));
+	assert.deepEqual(JSON.parse(await readFile(join(run.cwd, "lines.json"), "utf8")), PAGE, "the tool's own copy of the native lines");
 	const stored = await h.store.read(FILE, 1);
 	assert.equal(stored.source, "home");
 	assert.deepEqual([stored.record.attempts, stored.record.unplaced, stored.record.native.line_count, stored.record.pdf_label], [1, [], 9, "p1"]);
 	assert.ok(transcriptPermutationHolds(stored.record.text, PAGE));
 	const page = h.rows.find(row => row.event === "page");
-	assert.deepEqual([page.lane, page.outcome, page.lines, page.placed, page.unplaced, page.attempts, page.model, page.usage.inputTokens],
-		["transcript", "stored", 9, 9, 0, 1, "fixture/vision", 5000]);
+	assert.deepEqual([page.lane, page.outcome, page.lines, page.placed, page.unplaced, page.attempts, page.submissions, page.model, page.usage.inputTokens],
+		["transcript", "stored", 9, 9, 0, 1, 1, "fixture/vision", 5000]);
 	assert.equal(await exists(h.store.renderCache(FILE, 1)), false, "the render is not kept once the page is made");
 	assert.equal(await exists(join(run.cwd, "page.png")), false);
 	assert.equal(await exists(join(run.cwd, "layout.md")), true, "the layout stays as evidence");
 });
 
-test("§191.3 a layout that leaves lines out gets exactly one repair child, then the lines are unplaced", async t => {
-	const h = await harness(t, { layouts: () => "{L1-L2}\n\n{L4-L8}\n\n<!-- drop: L9 -->" });
+test("§191.3 lines the kept layout still leaves out are unplaced; no second child is started for them", async t => {
+	const h = await harness(t, { layouts: () => "{L1-L2}\n\n{L4-L8}\n\n<!-- drop: L9 -->", submitted: () => 2 });
 	await h.service.ensure({ pdf: "source.pdf", file_sha256: FILE, pages: [1] });
 	await h.service.idle();
-	assert.equal(h.runs.length, 2, "one layout child and one repair child (repair_attempts: 1)");
-	const repair = h.runs[1];
-	assert.ok(repair.cwd.endsWith("p0001-2"));
-	assert.ok(repair.files.includes("layout.md") && repair.files.includes("repair.txt"), "the repair child edits the earlier layout");
-	assert.match(repair.repair, /^L3: The village sits at$/m);
-	assert.doesNotMatch(repair.repair, /^L(1|2|4|9):/m);
+	assert.equal(h.runs.length, 1, "the repair happens inside the child (submit_layout), not in a second child");
 	const { record: stored } = await h.store.read(FILE, 1);
-	assert.deepEqual([stored.unplaced, stored.dropped, stored.attempts], [[3], [9], 2]);
+	assert.deepEqual([stored.unplaced, stored.dropped, stored.attempts], [[3], [9], 1]);
 	assert.ok(stored.text.endsWith("\n\nThe village sits at\n\n17"), "unplaced lines come after the placed ones, dropped lines last");
 	assert.ok(transcriptPermutationHolds(stored.text, PAGE));
 	const page = h.rows.find(row => row.event === "page");
-	assert.deepEqual([page.outcome, page.attempts, page.unplaced], ["unplaced", 2, 1]);
+	assert.deepEqual([page.outcome, page.attempts, page.submissions, page.unplaced], ["unplaced", 1, 2, 1]);
 });
 
-test("§191.3 a repair that places the lines is stored as repaired", async t => {
-	const h = await harness(t, { layouts: (_request, _count, files) => files.includes("repair.txt") ? "{L1-L8}\n\n<!-- drop: L9 -->" : "{L1-L2}\n\n<!-- drop: L9 -->" });
+test("§191.3 a layout whole after a second submission is stored as repaired", async t => {
+	const h = await harness(t, { layouts: () => "{L1-L8}\n\n<!-- drop: L9 -->", submitted: () => 2 });
 	await h.service.ensure({ pdf: "source.pdf", file_sha256: FILE, pages: [1] });
 	await h.service.idle();
-	assert.equal(h.runs.length, 2);
+	assert.equal(h.runs.length, 1);
 	assert.deepEqual((await h.store.read(FILE, 1)).record.unplaced, []);
-	assert.equal(h.rows.find(row => row.event === "page").outcome, "repaired");
+	const page = h.rows.find(row => row.event === "page");
+	assert.deepEqual([page.outcome, page.submissions], ["repaired", 2]);
+});
+
+test("§191.3 the host assembles the kept layout itself: the stored exact layer holds every native line once", async t => {
+	// A layout.md the tool never vetted (a stale or hand-placed file) is assembled from scratch; the exact layer still
+	// holds every native line once, so the findings never replace the host's own assembly.
+	const h = await harness(t, { layouts: () => "{L1}{L1}\n\nretyped words\n\n<!-- drop: L9 -->" });
+	await h.service.ensure({ pdf: "source.pdf", file_sha256: FILE, pages: [1] });
+	await h.service.idle();
+	const { record: stored } = await h.store.read(FILE, 1);
+	assert.ok(transcriptPermutationHolds(stored.text, PAGE));
+	assert.deepEqual([stored.unplaced, stored.free_removed], [[2, 3, 4, 5, 6, 7, 8], 1]);
 });
 
 test("§191.4 pages are kept by the file's digest: another module id and another process make no child", async t => {
@@ -351,12 +368,13 @@ const until = async (condition, ms = 10_000) => {
 	while (!condition()) { if (Date.now() > end) throw new Error("condition not met in time"); await new Promise(resolve => setTimeout(resolve, 20)); }
 };
 
-test("§191.2 the brief names the work directory's absolute paths", async t => {
+test("§191.2 the brief names no path: the host decides where the layout goes", async t => {
 	const h = await harness(t);
 	await h.service.ensure({ pdf: "source.pdf", file_sha256: FILE, pages: [1] });
 	await h.service.idle();
 	const [run] = h.runs;
-	assert.ok(run.brief.includes(join(run.cwd, "layout.md")) && run.brief.includes(join(run.cwd, "lines.txt")), run.brief);
+	for (const name of [run.cwd, h.home, "layout.md", "lines.txt", "page.png"]) assert.equal(run.brief.includes(name), false, `${name} in: ${run.brief}`);
+	assert.match(run.brief, /submit_layout/);
 });
 
 test("§191.3 a first child that leaves no layout gets one fresh child; with no repair budget the page fails", async t => {
@@ -364,9 +382,10 @@ test("§191.3 a first child that leaves no layout gets one fresh child; with no 
 	await h.service.ensure({ pdf: "source.pdf", file_sha256: FILE, pages: [1] });
 	await h.service.idle();
 	assert.equal(h.runs.length, 2);
-	assert.ok(!h.runs[1].files.includes("repair.txt"), "a fresh layout, not a repair");
+	assert.ok(h.runs[1].cwd.endsWith("p0001-2") && !h.runs[1].files.includes("layout.md"), "a fresh child, not handed the first one's work");
 	const { record: stored } = await h.store.read(FILE, 1);
 	assert.deepEqual([stored.unplaced, stored.attempts], [[], 2]);
+	assert.equal(h.rows.find(row => row.event === "page").outcome, "repaired");
 	const none = await harness(t, { layouts: () => undefined, budget: { ...BUDGET, repairAttempts: 0 } });
 	await none.service.ensure({ pdf: "source.pdf", file_sha256: FILE, pages: [1] });
 	await none.service.idle();
@@ -437,4 +456,18 @@ test("§191.1 sourceLines splits the native text of sourceText into its lines an
 	assert.equal(lines.pages[1].lines.join("\n"), native.snapshots[0].text);
 	await assert.rejects(sourceLines(file, { pages: [3] }), /outside this PDF/);
 	await assert.rejects(sourceLines(file, { pages: [1], expected_file_sha256: "0".repeat(64) }), /expected_file_sha256/);
+});
+
+test("§191.6 a page whose child ran out of time goes to the back of the queue, still in its class; a plain no-layout exit fails at once", async t => {
+	const pages = { 1: PAGE, 2: PAGE, 3: PAGE };
+	// Page 1's first run times out with no layout; page 3's child exits with none and no timeout.
+	const h = await harness(t, { pages, budget: { ...BUDGET, concurrency: 1, repairAttempts: 0 },
+		layouts: request => request.cwd.endsWith("p0001-1") || request.cwd.includes("p0003-") ? undefined : "{L1-L8}\n\n<!-- drop: L9 -->",
+		timedOut: request => request.cwd.endsWith("p0001-1") });
+	await h.service.ensure({ pdf: "source.pdf", file_sha256: FILE, pages: [1, 2, 3] });
+	await h.service.idle();
+	assert.deepEqual(h.runs.map(run => run.cwd.slice(-7)), ["p0001-1", "p0002-1", "p0003-1", "p0001-2"], "back of the queue, numbered on");
+	const rows = h.rows.filter(row => row.event === "page");
+	assert.deepEqual(rows.map(row => [row.page, row.outcome, row.reason]),
+		[[1, "requeued", "timeout"], [2, "stored", undefined], [3, "failed", "no_layout"], [1, "stored", undefined]]);
 });
