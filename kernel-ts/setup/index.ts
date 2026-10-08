@@ -22,7 +22,7 @@ import { investigatorRow, completeness } from './sheet.js';
 import { InvestigatorTemplates, TEMPLATE_SOURCE } from './templates.js';
 
 /** Receipt sources that seat a finished sheet rather than a drafted card (§21, §174): no draft to confirm. */
-const SEATED_SOURCES: readonly string[] = Object.freeze(['library', TEMPLATE_SOURCE]);
+const SEATED_SOURCES: readonly string[] = Object.freeze(['library', 'pregen', TEMPLATE_SOURCE]);
 const seated = (source: unknown): boolean => typeof source === 'string' && SEATED_SOURCES.includes(source);
 
 export class Setup {

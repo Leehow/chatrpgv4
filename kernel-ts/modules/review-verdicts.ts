@@ -61,5 +61,16 @@ export function personStatementPath(draft: unknown, path: unknown): boolean {
 
 /** A pointer the review answers as written and the gate never treats as a contest (§192.1, §199.2). */
 export function statementReviewPath(draft: unknown, path: unknown): boolean {
-    return identityReviewPath(path) || personStatementPath(draft, path);
+    return identityReviewPath(path) || personStatementPath(draft, path) || sheetReviewPath(path);
+}
+
+/**
+ * Contract §207.2: whether a draft pointer is inside a node's `properties.sheet`, a pregenerated investigator's sheet (only an
+ * `investigator-template` may carry one, §207.1). Its numbers become the player's card, so it is reviewed as written under
+ * either review policy, as `distinct_from` is: never folded into its record's root, never advisory, and a verdict other than
+ * `supported` refuses it (`review_unsupported`).
+ */
+export function sheetReviewPath(path: unknown): boolean {
+    const tokens = typeof path === "string" ? path.split("/") : [];
+    return tokens.length >= 5 && tokens[0] === "" && tokens[1] === "nodes" && /^\d+$/.test(tokens[2]) && tokens[3] === "properties" && tokens[4] === "sheet";
 }

@@ -48,6 +48,7 @@ import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,vis
 import {IDENTITY_FAILURES,IDENTITY_HOLDS,IDENTITY_QUESTION,draftIdentityPairs,identitySource,judgeDraftIdentity,publishedIdentityPairs,recordIdentityVerdicts,writeVariants,type IdentityPair} from './visual-identity.js';
 import {identityVerdicts} from './visual-identity-shape.js';
 import {MAP_SCOPE_FAILURES,MAP_SCOPE_QUESTION,mapScopeFocus,mapsLackingScope} from './map-scope.js';
+import {PREGENS_FOCUS,PREGENS_MATERIAL,PREGENS_QUESTION,pregensSettlement} from './pregens.js';
 import {anchorPage,cleanOutline,indexChapters,outlineChapters,pageInside,rangeMeets,readingBudget,readingWindow,transcriptRanges,transcriptWindowPages,wholeTranscript,wholeWindow,type Chapter,type PageRange,type ReadingWindow} from './chapters.js';
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
 /**
@@ -1488,14 +1489,16 @@ export class Reading {
                 await this.store.writeModule(meta);
             }
             let focus = truth(params.focus) ? params.focus : '';
-            const question = truth(params.question) ? params.question : '';
+            let question = truth(params.question) ? params.question : '';
             if (purpose === 'opening' && !truth(focus) && truth(meta.opening_choice))
                 focus = meta.opening_choice.start_scene;
             const material = params.material;
-            if (material !== undefined && material !== 'map')
-                throw new RpcError('invalid_params', 'material must be map when supplied');
+            if (material !== undefined && material !== 'map' && material !== PREGENS_MATERIAL)
+                throw new RpcError('invalid_params', 'material must be map or pregens when supplied');
             if (material !== undefined && purpose !== 'detail')
                 throw new RpcError('invalid_params', 'material is only supported for detail readings');
+            // §207.3: the kernel names the book's pregens reading, so one book has one identity for it.
+            if (material === PREGENS_MATERIAL) { focus = PREGENS_FOCUS; question = PREGENS_QUESTION; }
             if (typeof focus !== 'string' || typeof question !== 'string')
                 throw new RpcError('invalid_params', 'focus and question must be strings');
             if (purpose === 'detail' && !focus.trim())
@@ -1505,6 +1508,9 @@ export class Reading {
             if (params.memo !== undefined && (purpose !== 'answer' || typeof params.memo !== 'boolean'))
                 throw new RpcError('invalid_params', 'memo is a boolean, and only on a source consultation');
             const result = { generation: meta.generation ?? 0, missing: [] }, guidanceKey = params.guidance_key;
+            // §207.3: the book's pregens are read once; a settled row answers whatever wording the question had then.
+            const pregens = material === PREGENS_MATERIAL ? pregensSettlement(meta) : undefined;
+            if (pregens && pregens.status !== 'unusable') return { ...result, state: 'ready' };
             if (purpose === 'guidance') {
                 // Any tag-shaped play_language is accepted (contract section 23); membership is never checked.
                 if (typeof guidanceKey !== 'string' || guidanceKey.length !== 64 || !/^[a-f0-9]{64}$/.test(guidanceKey) || !validSourceLanguage(params.play_language) || !Array.isArray(params.occupations))

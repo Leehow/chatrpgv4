@@ -41664,3 +41664,128 @@ model again; `catalogLacksModel` claims nothing for an empty catalog or the plac
 copying the saved file back, each turned a test red: no `--provider/--model` at spawn (2 red: the flapcode row); `set_model`
 sent regardless of `get_state` (3 red); the onboarding re-apply restored (3 red); `catalogLacksModel` never true (2 red);
 a `setModel` to the first listed model on a miss (1 red).
+## 207. A book's pregenerated investigators are offered (2026-10-08, `docs/specs/book-pregens.md`; amends §21.2, §21.5, §22.2's `material`, §22.3's review, §151.3's claim check and §174.3)
+
+**Evidence.** Cold Harvest (`book-2`, a translated PDF) says on p9 「几个预设调查员卡可以在附录 A 找到」, and Appendix A (pp38–42)
+prints eight investigators, each an English stat block printed as a raster picture beside a Chinese background in text (the
+native text and the §191 transcript carry the backgrounds, none of the numbers). On 2026-10-08 14:49Z (campaign
+`game-fcf25166-…`) a player asked 「用模组里的预设调查员吧」; `browse-library` answered `investigators: []` and the guide said
+there were none. Two gaps, neither of them this book's:
+
+- **No consumer.** `investigator.list` reads only `.coc/investigators/` (§21.1). A starter's
+  `pregens/<id>/character.json` is read only by `campaign.create {pregen}` (the driver's `--pregen`), which refuses every
+  module that is not a starter; setup creates the campaign before it browses, so it offered no pregen of any book.
+- **No producer.** The reading lane does see the appendix: readings `read-43`, `read-44`, `read-47` published Timur Yarov and
+  Leonid Macinko as `npc` nodes with `mechanics.profile` numbers read off the pictures (Yarov's drops the printed Luck 50 and
+  DB 0), four more pregens as `npc` nodes without numbers, and three as `location` nodes (generation 75). The closed kind
+  `investigator-template` exists (graph contract v3; lookups rank it last with `TEMPLATE_NOTE`) but no instruction names it
+  and no shape gives it a sheet.
+
+### 207.1 The record: an `investigator-template` node with a sheet
+
+- A pregenerated investigator the book prints for a player to take is one `investigator-template` node, never an `npc` or a
+  `location`: a stat block is not a person (§17.2) and the Keeper never plays this one. Its `source_refs` are the pages its
+  sheet is printed on.
+- `properties.sheet` is the investigator in the starter pregens' shape (§174.1), holding only what the sheet prints. Keys,
+  each optional: `name`, `occupation`, `sex`, `era`, `residence`, `birthplace`, `own_language`, `cash` (non-empty strings);
+  `age` (an integer); `characteristics` (`STR`, `CON`, `SIZ`, `DEX`, `APP`, `INT`, `POW`, `EDU`, `LUCK`, integers);
+  `derived` (`HP`, `SAN`, `MP`, `MOV`, `BUILD` integers, `DB` as printed and one of the ruleset's damage-bonus values);
+  `skills` (`{<the rules' name>: integer}`, resolved by §136.4's normalised-name match: `Brawl` is `Fighting (Brawl)`, the
+  investigator's own language `Language (Own)` with `own_language` naming it, another `Language (Other: <language>)`);
+  `weapons` (a list of §136 weapon shapes, as in an actor's `profile.weapons`; a range printed in a unit other than yards
+  stays in the weapon's `book`); `equipment` (a list of strings); `backstory` (`{<entry>: string or [strings]}`). No other key.
+- Accounting, not content: no key is required and no value is judged plausible. A number is never computed (no half or
+  fifth values, no HP from CON and SIZ, no DB from STR and SIZ, no Luck from the rules) and never filled; a Luck printed among
+  the derived values is still `characteristics.LUCK`.
+- The checker (`checkSourceDraft`): `properties.sheet` on any other kind is refused (`sheet_kind`); the shape is
+  `pregenSheetRefusals` (`kernel-ts/modules/pregen-sheet.ts`; rules `sheet_shape`, `sheet_unknown_key`,
+  `sheet_unknown_skill`, `shape_*` from the weapon shape); a node with a sheet cites pages this reader viewed
+  (`sheet_unsourced`); a template's numbers outside its sheet (`stats`, `characteristics`, `skills`, `derived` objects beside
+  it) are refused (`sheet_outside_seat`). §136.1's seats are unchanged: `profile` stays on `npc` and `creature`.
+
+### 207.2 Every number is checked against its page
+
+- Every leaf under `sheet.age`, `sheet.characteristics`, `sheet.derived`, `sheet.skills`, `sheet.weapons` and `sheet.cash`
+  is owed to the independent review, by the kernel's check (`sheetReviewPaths`, `kernel-ts/modules/sheet-review.ts`) and by
+  the host's review units (`reviewGroups`), under either review policy.
+- A pointer under `/nodes/<i>/properties/sheet` is a sheet statement (`sheetReviewPath` in `review-verdicts.ts`, read by
+  `checkReview`, `reviewGroups` and `gateRefusal`, as §192.1's `identityReviewPath` is): never folded into its record's root
+  (`moduleReviewRoot`), never advisory, and a verdict other than `supported` refuses the reading (`review_unsupported`)
+  whatever impact the reviewer gave. The numbers become the player's card.
+- The reviewer's instruction (`review.md`, and `SHEET_REVIEW` in the unit brief): open the sheet's page and compare each
+  number with the one printed for that investigator; a different number, or one the sheet does not print, is unsupported; a
+  number printed on the sheet that the draft leaves out is `missing`, impact `logic`; the rules' name for a printed skill is
+  not a difference.
+- §151.3's claim check never clears a record with a sheet (`claimSupportIneligibility` answers `sheet`): the numbers are read
+  off the page image.
+
+### 207.3 Reading them: the `pregens` material
+
+- `module.read.request {purpose: "detail", material: "pregens", ...}`. The kernel names the reading: its focus is
+  `PREGENS_FOCUS` and its question `PREGENS_QUESTION` (`kernel-ts/modules/pregens.ts`), whatever the caller passed.
+- **Ready** when `module.json` `reading.materials` holds a row with `material: "pregens"` that is not `unusable`; its
+  `node_ids` are the templates that reading published (none: the book prints no pregen the reader found).
+- **The draft** of such a reading holds only `investigator-template` nodes, each with a `sheet` and each in `ready_nodes`, and
+  no claims (`pregens_scope`); an empty draft is the answer "none printed" and is exempt from `readiness_undeclared`.
+- **Instructions.** `read.md` carries the record rule, so every reading that meets a pregen writes the template;
+  `pregens.md` (added by `visualReaderFiles` for this material) carries the ask: find where the book says its pregens are,
+  open every page a sheet is printed on and write it while in view, read a stat block printed as a picture from the picture,
+  submit an empty draft when there are none.
+- **Once per book.** The material row settles it; a failed reading is asked again only with `retry: true` (§22.2).
+- **Host.** `ReadingService.pregens(module_id, {campaign}, signal, options)` is the foreground `ensure` of that material.
+
+### 207.4 Offering and loading
+
+- `investigator.list {campaign?}`. Without `campaign`, unchanged. With it, beside `investigators`:
+  - `pregens: [{pregen, name, occupation, age?, era?, source: "starter" | "book", pages?}]` for the campaign's module: a
+    starter's `pregens/<id>/` folders (`pregen` is the folder name); any other module's `investigator-template` nodes with a
+    `sheet` (`pregen` is the node id, `pages` the physical pages it cites), in graph order;
+  - for a module that plays from reading, `pregens_read`: `read` (settled), `reading` (a `pregens` job queued or running),
+    `failed` (the last one failed and none settled) or `unread`.
+- `investigator.load {campaign, library_id | pregen, as?}`: exactly one of `library_id` and `pregen`. With `pregen`:
+  - the sheet is copied into the party as printed: a starter's `character.json` byte for byte; a template's `sheet` with
+    `schema_version: 1`, `name` (the sheet's, else the node's) and its weapons in the engine's spelling (`engineWeapon`,
+    `weapon_id` `pregen-<slug of the name>`), nothing else — no conversion, no re-roll, no derivation, no budget;
+  - `id` minted as for a library card (`defaultInvestigatorId`), `name` replaced by `as` when given (no library row is made);
+    `current_hp`, `current_san`, `current_mp`, `current_luck` from `derived.HP`, `derived.SAN`, `derived.MP` and
+    `characteristics.LUCK` when printed; `origin: {pregen, module_id, source_refs?}` and no `library_id`, so §21.4's
+    write-back skips it until the player saves it (`investigator.save`);
+  - the same turn-state gate and era record as a library load; while setting up, the receipt
+    `{id: "investigator:<id>", kind: "investigator", source: "pregen", pregen, module_id, investigator, name, occupation, at}`;
+  - an unknown `pregen` is `unknown_entity` with `details.candidates` (the ids `investigator.list` would offer).
+- `pregen` is a seated receipt source (§174.3): `setup.complete` skips the completeness check and the draft confirmation;
+  `setup.steps` books the existing-sheet lane (`browse-library`, `load-investigator`).
+- **The budget.** A loaded pregen keeps the book's numbers. Loading never computes, reports or gates on the point-buy budget,
+  and nothing in setup blocks a seated card on it (owner 2026-10-08: 「超预算不用管，不要阻塞」). The budget arithmetic and any
+  display are outside this slice; the owner dropped S10's arithmetic/display item.
+
+### 207.5 Setup
+
+- `content/setup/steps.json`: `browse-library` passes `campaign` (filled from the campaign being set up) and its line names
+  `pregens`; `load-investigator` takes `library_id` or `pregen`.
+- The setup host never caches `investigator.list`. When it answers `pregens_read: "unread"`, the host asks
+  `ReadingService.pregens` (foreground, within the setup wait, `PI_COC_READ_WAIT_MS`) and lists again; a wait that runs out
+  lists what is published, with `pregens_read: "reading"`, and the reading goes on in the background.
+
+### 207.6 Three ends (§31)
+
+- **`investigator-template` with `sheet`.** *Writer:* a `pregens` reading, or any reading that meets a pregen. *Readers:*
+  `investigator.list` (`pregens`), `investigator.load`, the lookups (`TEMPLATE_NOTE`). *Actor:* the setup guide offers them,
+  the player chooses, `investigator.load` lands the receipt.
+- **The `pregens` material row.** *Writer:* `module.read.finish`. *Readers:* `module.read.request` (ready),
+  `investigator.list` (`pregens_read`). *Actor:* the setup host, which reads only when it is `unread`.
+- **`origin.pregen` on the sheet.** *Writer:* `investigator.load`. *Reader:* none in play; provenance, and the reason §21.4
+  skips the card.
+
+### 207.7 Limits
+
+- A graph published before this section keeps its pregens as people (Cold Harvest generation 75: six `npc`, three
+  `location`). A `pregens` reading adds templates beside them; nothing re-kinds or retires the copies (spec BP-06).
+- Under module-logic-v1 a later reading that disagrees with a published sheet number is filed as a source mapping, not
+  applied (§199.6, GG-06).
+- The reviewer that checks the numbers runs on the author's model; a shared misreading of a digit is not caught by a second,
+  independent transcription (spec BP-07).
+- The §151.6 driven setup run does not offer pregens, and `campaign.create {pregen}` still takes only a starter's folder
+  (spec BP-08).
+
+**207 continuation decisions.** BP-01..BP-04 are connected end to end. The list uses the campaign's private module workspace when one exists, follows the shared publication otherwise, and distinguishes a settled empty answer from a failed read. The same strict statement test applies when saving or reusing review evidence. Printed DB `0` is accepted as the rules table's `none` value and retained as printed. BP-05 live source verification is pending; BP-06..BP-08 stay deferred.

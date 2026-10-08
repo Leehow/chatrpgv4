@@ -16,6 +16,7 @@ import { head } from '../write/history.js';
 import type { createWriteRuntime } from '../write/index.js';
 import { defaultInvestigatorId } from '../setup/chargen.js';
 import { investigatorRow } from '../setup/sheet.js';
+import { campaignPregens, chosenPregen } from './pregens.js';
 
 const UNWRITABLE = 'library_unwritable', CONFLICT = 'library_conflict';
 class LibraryError extends Error { constructor(message: string, readonly reason: string) { super(message); this.name = reason === CONFLICT ? 'Conflict' : 'Unwritable'; } }
@@ -125,14 +126,22 @@ export function createLibraryHandlers(context: KernelContext, writer: ReturnType
     return value;
   }
   return Object.freeze({
-    'investigator.list': async () => {
+    'investigator.list': async params => {
       const investigators: Row[] = [], unreadable: string[] = [];
       for (const id of await library.ids()) {
         try { const value = await library.read(id); if (value !== null) investigators.push(summary(value)); }
         catch (error) { if (!(error instanceof LibraryError)) throw error; unreadable.push(id); }
       }
       investigators.sort((a, b) => compareUnicode(string(b.updated_at || ''), string(a.updated_at || '')) || compareUnicode(string(b.library_id), string(a.library_id)));
-      return {investigators, ...(unreadable.length ? {unreadable} : {})};
+      const id = parameter(params, 'campaign', false);
+      const extra: Row = {};
+      if (id !== null) {
+        const campaign = await writer.campaign(params, {requireTurn: false, requireWorld: false}), meta = await campaign.readCampaign();
+        const catalog = await campaignPregens(context, id, string(meta.module_id));
+        extra.pregens = catalog.pregens;
+        if (catalog.pregens_read) extra.pregens_read = catalog.pregens_read;
+      }
+      return {investigators, ...(unreadable.length ? {unreadable} : {}), ...extra};
     },
     'investigator.get': async params => getRow(parameter(params, 'library_id')!),
     'investigator.save': async params => {
@@ -148,40 +157,49 @@ export function createLibraryHandlers(context: KernelContext, writer: ReturnType
     },
     'investigator.load': async params => {
       const campaign = await writer.campaign(params, {requireTurn: false, requireWorld: false}), meta = await campaign.readCampaign();
-      let id = parameter(params, 'library_id')!;
-      const as = parameter(params, 'as', false), value = await getRow(id);
+      let id = parameter(params, 'library_id', false);
+      const pregen = parameter(params, 'pregen', false), as = parameter(params, 'as', false), moduleId = string(meta.module_id);
+      if ((id === null) === (pregen === null)) throw new RpcError('invalid_params', 'choose exactly one of library_id and pregen');
+      const source = pregen !== null ? chosenPregen(await campaignPregens(context, campaign.id, moduleId), pregen) : (await getRow(id!)).sheet;
       let turn = 0;
       if (await context.snapshots.pathExists(campaign.path('turn.json'))) {
         const cursor = await campaign.readTurn();
         if (!['awaiting_player', 'asked'].includes(cursor.state)) throw new RpcError('turn_state', `a card cannot join while the turn is ${repr(cursor.state)}`, {fix: 'finish the turn (narrate or ask) first', details: {turn: cursor.turn ?? null, state: cursor.state ?? null}});
         turn = Math.trunc(number(cursor.turn || 0));
       }
-      const party = await campaign.party(), sheet = clone(value.sheet);
+      const party = await campaign.party(), sheet = clone(source);
       if (as !== null) sheet.name = as;
       const taken = new Set(party.map(item => string(item.id))), base = defaultInvestigatorId(string(sheet.name || ''), party.length + 1);
       let candidate = base, ordinal = 2;
       while (taken.has(candidate)) candidate = `${base}-${ordinal++}`;
       sheet.id = candidate;
       let forked: string | null = null;
-      if (as !== null) { forked = id; id = await library.mintId(as); }
-      sheet.origin = {library_id: id, loaded_at_turn: turn};
+      if (pregen !== null) {
+        sheet.origin = {pregen, module_id: moduleId, ...(row(source.origin).source_refs ? {source_refs: clone(source.origin.source_refs)} : {})};
+        for (const [key, value] of Object.entries({current_hp: row(sheet.derived).HP, current_san: row(sheet.derived).SAN,
+          current_mp: row(sheet.derived).MP, current_luck: row(sheet.characteristics).LUCK}))
+          if (value != null) sheet[key] = value;
+      } else {
+        if (as !== null) { forked = id; id = await library.mintId(as); }
+        sheet.origin = {library_id: id, loaded_at_turn: turn};
+      }
       if (forked !== null) {
-        const fork = newRow(id, sheet, campaign.id, playBlock(null, campaign.id, null, null)); fork.origin.forked_from = forked;
+        const fork = newRow(id!, sheet, campaign.id, playBlock(null, campaign.id, null, null)); fork.origin.forked_from = forked;
         try { await library.write(fork); }
         catch (error) { if (!(error instanceof LibraryError)) throw error; throw new RpcError('internal', error.message, {codeDetail: error.reason, fix: 'make .coc/investigators writable, then load again'}); }
       }
       await campaign.writeSheet(sheet);
       meta.investigators = (await campaign.party()).map(item => string(item.id));
-      const moduleId = string(meta.module_id || '');
       const mismatch = moduleId && await moduleAvailable(context, moduleId, writer, campaign.id) ? eraMismatch((await loadModule(context, moduleId, campaign.id)).graph, sheet) : null;
       if (mismatch) meta.era_mismatch = mismatch;
       if (meta.status === 'setting_up') {
         const block = {...row(meta.setup)}, receipts = [...array(block.receipts)];
         receipts.push({id: `investigator:${sheet.id}`, kind: 'investigator', investigator: sheet.id, name: sheet.name ?? null, occupation: sheet.occupation ?? null,
-          source: 'library', library_id: id, forked_from: forked, at: nowIso()}); block.receipts = receipts; meta.setup = block;
+          ...(pregen !== null ? {source: 'pregen', pregen, module_id: moduleId} : {source: 'library', library_id: id, forked_from: forked}), at: nowIso()}); block.receipts = receipts; meta.setup = block;
       }
       await campaign.writeCampaign(meta);
-      return {receipt: `investigator:${sheet.id}`, investigator: investigatorRow(sheet), sheet, library_id: id, forked_from: forked, loaded_at_turn: turn, era_mismatch: mismatch};
+      return {receipt: `investigator:${sheet.id}`, investigator: investigatorRow(sheet), sheet,
+        ...(pregen !== null ? {pregen, module_id: moduleId} : {library_id: id, forked_from: forked}), loaded_at_turn: turn, era_mismatch: mismatch};
     },
   });
 }

@@ -10,7 +10,8 @@ import {mapReviewPreviews,reviewedMapNodes} from './map-review-preview.ts';
 import { obligationReviewPaths } from "../../kernel-ts/modules/obligation-review.ts";
 import { shapeReviewPaths } from "../../kernel-ts/modules/shape-review.ts";
 import { answerReviewShapeError } from "../../kernel-ts/modules/answer-review-shape.ts";
-import { PERSON_STATEMENTS, REVIEW_VERDICTS, classificationMatcher, personStatementPath, statementReviewPath } from "../../kernel-ts/modules/review-verdicts.ts";
+import { PERSON_STATEMENTS, REVIEW_VERDICTS, classificationMatcher, personStatementPath, sheetReviewPath, statementReviewPath } from "../../kernel-ts/modules/review-verdicts.ts";
+import { sheetReviewPaths } from "../../kernel-ts/modules/sheet-review.ts";
 import {validatePublicGuidance} from '../../kernel-ts/modules/public-guidance.ts';
 import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings,moduleGuidanceApproved} from '../../kernel-ts/modules/module-review-policy.ts';
 import {READING_REVIEW_FALLBACK,readingReviewBudget} from '../../runtime/jev/host-budgets.ts';
@@ -21,6 +22,14 @@ export const MAP_SCOPE_REVIEW = "For properties/map_scope, open the map's origin
 	+ "\"area\" is a town, village, district, city, region or other outdoor map that players are handed or see as a whole; "
 	+ "\"interior\" is a building, floor plan, cellar, cave, ship or other enclosed place the investigators explore and uncover room by room. "
 	+ "A wrong kind decides whether the table masks the map, so it is a LOGIC finding, never an advisory difference.";
+/**
+ * Contract §207.2: what a reviewer checks of a pregenerated investigator's sheet. Its numbers become the player's card, so
+ * every one is compared with the page and none is an advisory parameter difference.
+ */
+export const SHEET_REVIEW = "For properties/sheet pointers (a pregenerated investigator's sheet), open the page the sheet is printed on and compare "
+	+ "each number with the one printed for that investigator, digit by digit, including any stat block printed as a picture: a number that differs, "
+	+ "or a value the sheet does not print, is unsupported with impact logic; a number the sheet prints that the draft leaves out is missing with "
+	+ "impact logic. The rules' name for a printed skill (Fighting (Brawl) for Brawl) is not a difference. Answer every assigned sheet pointer.";
 function numeric(value: any, path: string): string[] {
 	if (typeof value === "number") return [path];
 	if (Array.isArray(value)) return value.flatMap((v, i) => numeric(v, `${path}/${i}`));
@@ -75,6 +84,8 @@ function reviewGroups(draft: Row, requiredPaths: string[], logicReview: boolean)
 		if (collection === "nodes" && !logicReview) for (const pointer of obligationReviewPaths(row, path)) pointers.add(pointer);
 		// Contract §136.26: and every leaf of a stated mechanical shape, dice strings included.
 		if (collection === "nodes" && !logicReview) for (const pointer of shapeReviewPaths(row, path)) pointers.add(pointer);
+		// Contract §207.2: every number of a pregen's sheet, under either review policy.
+		if (collection === "nodes") for (const pointer of sheetReviewPaths(row, path)) pointers.add(pointer);
 		groups.set(path, pointers);
 	}
 	for (const rawPath of [...(draft.critical ?? []),...requiredPaths]) {
@@ -313,7 +324,7 @@ export function coverageCarry(previous: CoverageCarrySource, now: { draft: Row; 
 		return kept.length ? [{ ...row, ...(listed ? { paths: kept } : { path: kept[0] }) }] : [];
 	});
 	if (blockingModuleFindings(coverage.missing, now.task ?? {}).length) return { reason: 'missing' };
-	if (!approved({ checked: own, missing: [] }, false, now.task ?? {})) return { reason: 'verdict' };
+	if (!approved({ checked: own, missing: [] }, false, now.task ?? {}, now.draft)) return { reason: 'verdict' };
 	for (const collection of ['nodes', 'claims']) {
 		const before: Row[] = Array.isArray(previous.draft?.[collection]) ? previous.draft[collection] : [], after: Row[] = Array.isArray(now.draft?.[collection]) ? now.draft[collection] : [];
 		const was = before.map(record => recordIdentity(collection, record)), is = after.map(record => recordIdentity(collection, record));
@@ -418,8 +429,10 @@ function canonical(value: any): string {
 		.map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}';
 	return JSON.stringify(value);
 }
-function approved(review: Row, guidance: boolean, policy:Row={}): boolean {
-	return blockingModuleFindings(review.missing,policy).length === 0 && review.checked.every((item: Row) => item.verdict === 'supported'||moduleLogicReview(policy)&&advisoryModuleFinding(item))
+/** §192.1, §207.2: a row on a pointer reviewed as written is never advisory, whatever impact it carries. */
+const asWritten = (item: Row, draft: Row): boolean => (Array.isArray(item.paths) ? item.paths : [item.path]).some((path: unknown) => statementReviewPath(draft, path));
+function approved(review: Row, guidance: boolean, policy:Row={}, draft: Row={}): boolean {
+	return blockingModuleFindings(review.missing,policy).length === 0 && review.checked.every((item: Row) => item.verdict === 'supported'||moduleLogicReview(policy)&&advisoryModuleFinding(item)&&!asWritten(item,draft))
 		&& (!guidance || moduleGuidanceApproved(review.guidance,policy));
 }
 /**
@@ -447,7 +460,7 @@ async function cachedReview(file: string, key: string, paths: string[], guidance
 			if (!review) return;
 		}
 		checkReviewEvidence(review, paths, new Set(pages), requiredPages, draft);
-		if (approved(review, guidance,policy)) return {review, pages, evidence:entry.review_path};
+		if (approved(review, guidance,policy,draft)) return {review, pages, evidence:entry.review_path};
 	} catch { /* A missing or modified original proof is a cache miss. */ }
 }
 async function retainReview(file: string, key: string, reviewPath: string, imagesPath: string, pages: Set<number>, fact?: {roots: string[]; context: string[]}) {
@@ -743,7 +756,7 @@ export async function reviewCandidate(options: {
 						return own.length ? [{ ...row, ...(listed ? { paths: own } : { path: own[0] }) }] : [];
 					})} : review});
 				for (const [ordinal, share] of shares.entries()) {
-					if (!approved(share.review, share.guidance, options.task)) continue;
+					if (!approved(share.review, share.guidance, options.task, options.draft)) continue;
 					const file = share.review === review ? join(dir, 'review.json') : join(dir, `review-share-${ordinal + 1}.json`);
 					if (share.review !== review) await writeFile(file, JSON.stringify(share.review) + '\n');
 					await retainReview(join(options.cacheRoot!, share.key + '.json'), share.key, file, imagesPath, pages, share.fact);
@@ -790,7 +803,8 @@ export async function reviewCandidate(options: {
 				? " For map_regions, check classification, region-place correspondence, independently revealable units for the requested use, and annotation exclusion against original images. Region boxes select normalized coordinates in the cropped asset, not the full PDF page. Wrong location, crop, coordinate frame or private annotation leakage is a LOGIC finding, never an advisory parameter difference. A whole-map region is missing necessary current material when the source shows separately knowable areas. Uncertain geometry stays unavailable; do not widen a box. "
 					+(mapPreviews.length?` Read these private PNG review aids with the read tool: ${JSON.stringify(mapPreviews)}. Each red rectangle is exactly what its source_box selects in the rendered asset. Verify that each labelled box actually covers the named place. These aids do not replace original-page evidence. `:'')
 				: "";
-			const scopeBrief = ask.some(path => /^\/nodes\/\d+\/properties\/map_scope$/.test(path)) ? ` ${MAP_SCOPE_REVIEW} ` : "";
+			const scopeBrief = (ask.some(path => /^\/nodes\/\d+\/properties\/map_scope$/.test(path)) ? ` ${MAP_SCOPE_REVIEW} ` : "")
+				+ (ask.some(path => sheetReviewPath(path)) ? ` ${SHEET_REVIEW} ` : "");
 			try {
 				const sourceRunStartedAt=Date.now();
 				const run = await options.run({ cwd, model: options.model.id, thinking: options.model.thinking,

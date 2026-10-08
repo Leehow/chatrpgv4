@@ -230,11 +230,16 @@
       "investigator_source": "library",
       "kind": "op",
       "op": "investigator.list",
-      "params": {},
+      "params": {
+        "campaign": {
+          "description": "filled automatically from this campaign",
+          "required": true
+        }
+      },
       "receipt": "library_options",
       "lines": {
-        "do": "investigator.list returns every card in the investigator library (name, occupation, era, HP/SAN, last campaign and turn, newest first); read it out and let the player choose one by its library_id, or say they would rather build a new investigator instead (create-investigator).",
-        "next": "List the library (investigator.list) so the player can choose a card, or use create-investigator for a brand-new one."
+        "do": "investigator.list returns saved library cards and this book's pregenerated investigators. Offer both, including their source pages and any reading status; let the player choose a library_id or pregen, or build a new investigator.",
+        "next": "Browse the saved cards and the book's pregenerated investigators, then choose a library_id or pregen; create-investigator builds a new card."
       }
     },
     {
@@ -252,18 +257,22 @@
           "required": true
         },
         "library_id": {
-          "description": "one of the library_id values investigator.list returned",
-          "required": true
+          "description": "a returned library_id; choose exactly one of library_id and pregen",
+          "required": false
         },
         "as": {
           "description": "optional: play this card under a new name, which mints it a row of its own (a second person, not a rename) instead of sharing the original's",
+          "required": false
+        },
+        "pregen": {
+          "description": "one of this campaign's pregen values from investigator.list; choose exactly one of pregen and library_id",
           "required": false
         }
       },
       "receipt": "investigator_id",
       "lines": {
-        "do": "investigator.load copies the chosen card's sheet into this campaign byte for byte -- no conversion, no re-roll, no era gate (contract §21.3); occupation and point allocation are skipped because the sheet already carries them.",
-        "next": "Load the investigator: give the library_id to use (from browse-library's list)."
+        "do": "investigator.load copies the chosen saved card or book pregen into this campaign. Preserve printed numbers without conversion, reroll, derivation or budget gate. Existing cards skip point allocation and draft confirmation.",
+        "next": "Load the chosen card with exactly one library_id or pregen from browse-library."
       }
     },
     {

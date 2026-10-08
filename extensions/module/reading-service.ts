@@ -31,6 +31,7 @@ import {requireVisualOverview} from '../../kernel-ts/modules/visual-discovery.ts
 import {mapReviewPreviews} from './map-review-preview.ts';
 import {IdentityReviewUnavailable,reviewVisualIdentity} from './visual-identity-review.ts';
 import {reviewNodeIdentity} from './node-identity-review.ts';
+import {PREGENS_FOCUS, PREGENS_QUESTION} from '../../kernel-ts/modules/pregens.ts';
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
@@ -139,6 +140,7 @@ export interface ReadingBridge {
 	reference?(moduleId:string,params:Row,signal?:AbortSignal):Promise<Row|undefined>;
 	prepare(params: Row, signal?: AbortSignal, options?: ReadingOptions): Promise<Row>;
 	ensure(moduleId: string, params: Row, signal?: AbortSignal, options?:ReadingOptions): Promise<Row>;
+	pregens?(moduleId: string, params: Row, signal?: AbortSignal, options?:ReadingOptions): Promise<Row>;
 	/**
 	 * §47. Is the reading the Keeper's foreground wait gave up on *still* running? A
 	 * `reading_timeout` is the host's own patience ending, never the reader's: on campaign
@@ -812,6 +814,11 @@ export class ReadingService implements ReadingBridge {
 		}
 	}
 
+	async pregens(mid: string, params: Row, signal?: AbortSignal, options: ReadingOptions = {}): Promise<Row> {
+		return this.ensure(mid, {...params, purpose: 'detail', material: 'pregens', focus: PREGENS_FOCUS,
+			question: PREGENS_QUESTION, foreground: true}, signal, options);
+	}
+
 	async ensure(mid: string, params: Row, signal?: AbortSignal, options:ReadingOptions={}): Promise<Row> {
 		if (signal?.aborted || this.stopped) throw error("reading_failed", "reading was cancelled", "retry the reading when ready");
 		const campaign = this.campaign(params);
@@ -1373,7 +1380,7 @@ export class ReadingService implements ReadingBridge {
 		try {
 			accounting.instruction_bytes = Buffer.byteLength(await readerInstructionText(this.runtime().contentRoot, { phase: job.purpose === "index" ? "index" : "read",
 				purpose: job.purpose, visual: job.visual_scan ? 'scan' : job.visual_asset ? 'asset' : job.map_scope ? 'scope' : undefined,
-				guidance: job.purpose === "guidance", answer: job.purpose === "answer" }));
+				guidance: job.purpose === "guidance", answer: job.purpose === "answer", ...(typeof job.material === "string" ? { material: job.material } : {}) }));
 		} catch { /* accounting never fails a reading; the child's own launch reports a missing instruction file */ }
 		// §186.1: the image budget of this reading's authors and reviewers is data, chosen by RC-01's replay.
 		const readingImages = ["guidance", "opening", "detail", "answer"].includes(job.purpose)
@@ -1641,7 +1648,7 @@ export class ReadingService implements ReadingBridge {
 							cacheId: readingCacheId(job.module_id, job.job_id, round),
 							submission:["guidance","opening","detail","answer"].includes(job.purpose),
 							priority: () => job.foreground === false ? "background" : "foreground",
-							prompt: { phase: promptPhase, purpose: job.purpose, visual:job.visual_scan?'scan':job.visual_asset?'asset':job.map_scope?'scope':undefined, guidance: job.purpose === "guidance", answer: job.purpose === "answer" }, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 },
+							prompt: { phase: promptPhase, purpose: job.purpose, visual:job.visual_scan?'scan':job.visual_asset?'asset':job.map_scope?'scope':undefined, guidance: job.purpose === "guidance", answer: job.purpose === "answer", ...(typeof job.material === "string" ? { material: job.material } : {}) }, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 },
 							eventLog,
 							brief: phase === "index-audit"
 								? `${readerInput({task})} This is the independent map-page completeness audit of the retained PDF index. Read draft.json${round > 1 || job.resume_from ? " and findings.json" : ""}. View every physical page in task.index_audit_pages with pdf, compare each page to draft.map_candidates, and immediately add every authored map whose depicted place can be identified. Every task.required_map_candidates row must remain. Preserve existing sections and candidates; repair missing section source_refs but do not cite any page unless you viewed that full page in this audit or it is in task.index_audit_pages. If another page is needed as a reference, view it first. Do not rewrite for style. Finish only after every assigned page has been checked, then stop.`

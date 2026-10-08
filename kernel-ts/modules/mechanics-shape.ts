@@ -116,6 +116,11 @@ export function sanityHalfRefusal(value: any, field: string): string | null {
     return canonical === value ? null : `${field} is written ${repr(canonical)}`;
 }
 
+/** §136.12: whether a printed damage bonus is one of the ruleset's values (or an extrapolated `+nD6` past the table). */
+export function damageBonusResolves(rules: MechanicsRules, value: any): boolean {
+    return typeof value === "string" && (rules.damageBonuses.includes(value) || value === '0' && rules.damageBonuses.includes('none') || /^\+([6-9]|[1-9][0-9]+)D6$/.test(value));
+}
+
 /** §136.4 (ruling C): whether a skill or characteristic name resolves in the ruleset's tables. */
 export function nameResolves(rules: MechanicsRules, group: "skills" | "characteristics", name: string): boolean {
     const key = normalize(name);
@@ -140,6 +145,17 @@ export function nameResolves(rules: MechanicsRules, group: "skills" | "character
 }
 
 type Refuse = (rule: string, path: string, message: string) => void;
+
+/**
+ * §207.1: one weapon shape, refused exactly as an actor's `profile.weapons` entry is. A pregenerated investigator's
+ * sheet (`pregen-sheet.ts`) holds its weapons in this shape, so one validator judges both.
+ */
+export function weaponRefusals(value: any, rules: MechanicsRules, at: string): Refusal[] {
+    const refusals: Refusal[] = [];
+    const owner: CheckOwner = { kind: "rule", resolves: (group, name) => nameResolves(rules, group, name) };
+    new ShapeChecker((rule, path, message) => refusals.push({ rule, path, message }), rules, owner, () => false, new Set(), NO_ALLOWANCE).weapon(value, at);
+    return refusals;
+}
 
 /** The nodes a module states a mechanic on, and where: for tests and for the caller's short-circuit. */
 export function carriesMechanics(graph: ModuleGraph): boolean {
@@ -485,8 +501,7 @@ class ShapeChecker {
         if (Object.hasOwn(value, "derived") && this.object(value.derived, `${at}.derived`, [...DERIVED_INTEGERS, "DB"], "derived")) {
             for (const key of Object.keys(value.derived).filter(key => DERIVED_INTEGERS.includes(key)))
                 if (!integer(value.derived[key])) this.refuse("shape_prose", `${at}.derived.${key}`, `${key} is an integer`);
-            if (Object.hasOwn(value.derived, "DB") && !(typeof value.derived.DB === "string"
-                && (this.rules.damageBonuses.includes(value.derived.DB) || /^\+([6-9]|[1-9][0-9]+)D6$/.test(value.derived.DB))))
+            if (Object.hasOwn(value.derived, "DB") && !damageBonusResolves(this.rules, value.derived.DB))
                 this.refuse("shape_unresolved", `${at}.derived.DB`, "DB is one of the ruleset's damage-bonus values");
         }
         if (Object.hasOwn(value, "skills")) {

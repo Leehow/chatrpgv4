@@ -19,6 +19,8 @@ import { CLAIM_SUPPORT_PROTOCOL, JEV_REVIEWER, JEV_REVIEW_RULES, claimRecordPage
 import { preserveTravel } from './route-travel.js';
 import {validVisualScan,visualCandidates} from './visual-discovery.js';
 import { checkMapScope, checkMapScopeDraft, publishedNodes } from './map-scope.js';
+import { checkPregensScope, checkSheets, PREGENS_MATERIAL } from './pregens.js';
+import { sheetReviewPaths } from './sheet-review.js';
 import type { SourceNeed } from './source-needs.js';
 const object = (value: any): boolean => isJsonObject(value);
 /** The refusal `reject` throws, built without throwing so the staged draft check can collect it (§186.3). */
@@ -512,7 +514,8 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         graph.note(refusal("resolve the current scope's source dependencies before publication", '/dependencies'), { rule: 'dependencies', value: draft.dependencies });
     if (skeleton && filled.ready_nodes.length)
         graph.note(refusal('a skeleton cannot grant material readiness; ready_nodes must be empty', '/ready_nodes'), { rule: 'skeleton_readiness', value: filled.ready_nodes });
-    if (!filled.ready_nodes.length && !skeleton && !packet.source_unit && !packet.visual_scan && !packet.visual_asset && !packet.map_scope)
+    // §207.3: a pregens reading that finds no pregenerated investigator answers with an empty draft.
+    if (!filled.ready_nodes.length && !skeleton && !packet.source_unit && !packet.visual_scan && !packet.visual_asset && !packet.map_scope && packet.material !== PREGENS_MATERIAL)
         graph.note(refusal('declare the nodes whose material this task has prepared', '/ready_nodes'), { rule: 'readiness_undeclared' });
     const absent = (filled.ready_nodes as any[]).flatMap((id, k) => defined.has(id) ? [] : [{ path: `/ready_nodes/${k}`, rule: 'readiness_unreviewable', value: id }]);
     if (absent.length)
@@ -613,6 +616,10 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     if (nodes.some(statesObligation))
         graph.run(() => checkObligations(filled, packet, contract), {}, item => `obligation ${item.node}: ${item.path}: ${item.message}`);
     graph.run(() => checkMechanics(filled, packet, contract), {}, item => `mechanics ${item.node}: ${item.path}: ${item.message}`);
+    // §207.1: a pregenerated investigator's sheet; §207.3: what a pregens reading may write.
+    graph.run(() => checkSheets(filled.nodes, contract), {}, item => `sheet ${item.node}: ${item.path}: ${item.message}`);
+    if (packet.material === PREGENS_MATERIAL)
+        graph.run(() => checkPregensScope(filled), {}, item => `pregens reading: ${item.path}: ${item.message}`);
     graph.run(() => checkBeings(filled, packet, contract), {}, item => `${item.claim ? `claim ${item.claim}` : `node ${item.node}`}: ${item.path}: ${item.message}`);
     // §192.1: one thing, one node. A new node named like a published node of its kind, and not answered by its distinct_from or
     // by a verdict already recorded, is refused here before any review is spent; `module.read.finish` asks again, against the
@@ -638,6 +645,9 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         // §39.4: a map's kind is checked against the original page, under either review policy.
         if (Object.hasOwn(row(node.properties), 'map_scope'))
             required.add(`/nodes/${i}/properties/map_scope`);
+        // §207.2: and every number of a pregenerated investigator's sheet.
+        for (const path of sheetReviewPaths(node, `/nodes/${i}`))
+            required.add(path);
     }
     for (const i of (filled.claims as Row[]).keys())
         required.add(`/claims/${i}`);

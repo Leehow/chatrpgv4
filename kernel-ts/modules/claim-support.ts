@@ -107,6 +107,8 @@ export function claimSupportIneligibility(draft: unknown, root: string, hasText:
         if (Array.isArray(properties.map_regions) && properties.map_regions.length) return "map_region";
         // Contract §39.4: a map's kind is read off the printed picture.
         if (Object.hasOwn(properties, "map_scope")) return "map_scope";
+        // Contract §207.2: a pregenerated investigator's numbers are checked against the page image, often a printed picture.
+        if (Object.hasOwn(properties, "sheet")) return "sheet";
     }
     // §186.6: a record carrying any classification field keeps the vision reviewer, which may contest it.
     if (pointersUnder(record, root, []).some(path => classifies(path))) return "classification_field";

@@ -1,4 +1,5 @@
 import {selectSetupSource} from './source-intake.ts';
+import {browseInvestigators} from './pregens.ts';
 import { computeMove, renderBrief, type SetupSlot, type SetupNotes } from './brief.ts';
 import { playerReason } from './reasons.ts';
 /** Setup ordering comes from setup.steps; source preparation uses the shared visual reader. */
@@ -176,7 +177,8 @@ export default function (pi: ExtensionAPI) {
 	if (cocMode() !== "setup") return;
 
 	let ctx: ExtensionContext | undefined;
-	let reading: { prepare(params: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> } | undefined;
+	let reading: { prepare(params: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>>;
+		pregens?(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> } | undefined;
 	pi.events.on("coc:reading-bridge", value => { reading = value && typeof (value as any).prepare === "function" ? value as any : undefined; });
 	let bridge: { call: KernelCall; hello?: Record<string, unknown>; runtime?: HostRuntime } | undefined;
 	let steps: Step[] | undefined;
@@ -726,7 +728,7 @@ export default function (pi: ExtensionAPI) {
 		const results: Record<string, unknown> = {};
 		for (const [index, op] of step.ops.entries()) {
 			const cacheKey = `${step.id}\u0000${op.method}`;
-			if (opCache.has(cacheKey)) {
+			if (op.method !== 'investigator.list' && opCache.has(cacheKey)) {
 				results[op.method] = opCache.get(cacheKey);
 				continue;
 			}
@@ -759,11 +761,13 @@ export default function (pi: ExtensionAPI) {
 							params:filled.params,reading,playLanguage:boundLanguage,
 							occupations:async()=>asRecord(await current.call('setup.occupations',{})).occupations as Record<string,unknown>[],signal})
 							: Promise.reject(new Error("the reading service is unavailable")))
-						: asRecord(await current.call(op.method, filled.params));
+						: op.method === 'investigator.list'
+							? await browseInvestigators(current.call, filled.params, asString(context.module_id), reading, signal)
+							: asRecord(await current.call(op.method, filled.params));
 				if (result.ok === false) return { ...result, step: step.id, results };
 				if(op.method==='setup.draft') await presentDraft(current,result);
         results[op.method] = result;
-        opCache.set(cacheKey, result);
+        if(op.method!=='investigator.list') opCache.set(cacheKey, result);
 				noteResult(result);
 			} catch (error) {
 				// The kernel's `fix` and `details` are the only actionable part of a refusal
