@@ -37,7 +37,12 @@ import {
 	effectActingParty,
 	recoveryMatches,
 	shapeVerdict,
+	admissionSystemPrompt,
+	PLAYER_WORDS,
 } from "../../extensions/kernel/admission.ts";
+import { PLAYER_EXECUTION_CHOICE_NOTE } from "../../runtime/jev/action-field-semantics.ts";
+import { ADMISSION_JEV_RULES, ADMISSION_JEV_VERSION } from "../../runtime/jev/admission-domain.ts";
+import { ADMISSION_ROLES_VERSION } from "../../runtime/jev/admission-roles-domain.ts";
 
 const root = resolve(import.meta.dirname, "../..");
 const TRF2 = JSON.parse(readFileSync(join(root, "tests/extension/fixtures/refusal-recovery-trf2.json"), "utf8"));
@@ -381,4 +386,78 @@ test("§197.1 on the emitted kernel: the library the player named lands with its
 	assert.equal(table.lanes.admission.requests().length, 2, "the resend was not reviewed again");
 	const rows = admissionRows(table);
 	assert.equal(rows.at(-1).recovered_from, rows[0].batch_key);
+});
+
+// ---- §197.4: speech is not execution, and the player's own narration is (ab81805b2 read one direction only) ----------------
+
+/** The live probe's round-3 answer for a line, as the lane would send it (its verdict fields; the grounds say where it came from). */
+const probed = (id) => {
+	const { of: _of, ...answer } = TRF2.probe_round3.answers[id];
+	return { ...answer, grounds: `live probe round 3 (${TRF2.probe_round3.answers[id].of}), ${id}`,
+		...(answer.verdict === "not_authorized" ? { missing: `probe ${id}` } : {}) };
+};
+
+test("§197.4: both reviewers read the two-way boundary, the families are bumped, and player_words is a closed field the host records and never decides on", () => {
+	const prompt = admissionSystemPrompt();
+	assert.ok(prompt.includes(PLAYER_EXECUTION_CHOICE_NOTE), "the lane reads the note");
+	assert.ok(ADMISSION_JEV_RULES.includes(PLAYER_EXECUTION_CHOICE_NOTE), "the v1 typed rules read it");
+	assert.deepEqual([ADMISSION_JEV_VERSION, ADMISSION_ROLES_VERSION], ["3", "2a.6"]);
+	// The answer shape names the field shapeVerdict reads, with each of its values.
+	for (const value of PLAYER_WORDS) assert.ok(prompt.includes(`"${value}"`), value);
+	assert.equal(shapeVerdict({ player_words: "say", verdict: "not_authorized", grounds: "g", missing: "m" }).player_words, "say");
+	assert.equal(shapeVerdict({ player_words: "shout", verdict: "authorized", grounds: "g" }).player_words, undefined, "an unknown value is dropped, not bad_output");
+	assert.ok(shapeVerdict({ player_words: "shout", verdict: "authorized", grounds: "g" }), "the answer still stands");
+	// The host decides nothing from it: a `say` beside an admitting verdict is still an admitting verdict.
+	assert.equal(shapeVerdict({ player_words: "say", verdict: "authorized", grounds: "g" }).verdict, "authorized");
+});
+
+test("§197.4 replays on the live probe's answers: TR-F's speech line is refused; TR-F2 T3, T16 and run 3 T9's own narration and request land", async (t) => {
+	const lines = [
+		["TRF-t3-speech", TRF2.TRF_t3, TRF2.TRF_t3.apply.effects, false],
+		["F2-T3-farm", TRF2.T3, [TRF2.T3.apply.effects[1]], true],
+		["F2-T16-house", TRF2.T16, [TRF2.T16.apply.effects[1]], true],
+		["R3-T9-clerk", TRF2.R3_T9, [TRF2.R3_T9.apply.effects[0]], true],
+	];
+	for (const [id, turn, effects, lands] of lines) {
+		const table = await openTable({ responses: [call("apply", { effects }), ...close()],
+			laneResponses: { admission: [fauxAssistantMessage(JSON.stringify(probed(id)))] } });
+		t.after(() => table.dispose());
+		await table.session.prompt(turn.player);
+		const [result] = toolResults(table.session, "apply");
+		assert.equal(result.isError, !lands, `${id}: ${lands ? "lands" : "is refused"}`);
+		assert.equal(kernelCalls(table, "table.apply").length, lands ? 1 : 0, id);
+		const [row] = admissionRows(table);
+		assert.equal(row.player_words, TRF2.probe_round3.answers[id].player_words, `${id}: the row records how the reviewer read the words`);
+	}
+});
+
+test("run 3 T12 replay: the journal the player searched for finishes beside the refused tome, is named, and its exact resend lands", async (t) => {
+	const { player, apply, lane: [tome] } = TRF2.R3_T12;
+	const [journal] = apply.effects;
+	const table = await openTable({
+		responses: [call("apply", apply), call("apply", { effects: [journal] }), ...close()],
+		laneResponses: { admission: laneByLine([[/liber-ivonis-tome/, recorded(tome)], [/chapel-journal-burial/, probed("R3-T12-journal"), 50]]) } });
+	t.after(() => table.dispose());
+	await table.session.prompt(player);
+	const [first, second] = toolResults(table.session, "apply");
+	assert.equal(refusalOf(first).details.missing, tome.missing, "the table's recorded refusal of the tome");
+	assert.deepEqual(refusalOf(first).details.admitted, [journal], "the journal, which on the table was stopped unanswered");
+	assert.equal(second.isError, false);
+	assert.equal(table.lanes.admission.requests().length, 2);
+	assert.deepEqual(kernelCalls(table, "table.apply").map((entry) => entry.params.effects), [[journal]]);
+});
+
+test("run 3 T16 replay: the move into the cellar the player held back from landed on the recorded verdict; on the probe's answer (hold) it is the Keeper's addition and nothing lands", async (t) => {
+	const { player, apply, lane: [row] } = TRF2.R3_T16;
+	for (const [answer, lands] of [[recorded(row), true], [probed("R3-T16-holdback"), false]]) {
+		const table = await openTable({ responses: [call("apply", apply), ...close()], laneResponses: { admission: [fauxAssistantMessage(JSON.stringify(answer))] } });
+		t.after(() => table.dispose());
+		await table.session.prompt(player);
+		const [result] = toolResults(table.session, "apply");
+		assert.equal(kernelCalls(table, "table.apply").length, lands ? 1 : 0);
+		if (!lands) {
+			assert.equal(refusalOf(result).fix, KEEPER_ADDED_FIX, "carry out what the player chose -- look down from the door -- without asking");
+			assert.equal(admissionRows(table)[0].player_words, "hold");
+		}
+	}
 });

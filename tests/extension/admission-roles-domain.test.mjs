@@ -98,20 +98,21 @@ test("§32.12.3.2: only handover semantics and the execution-choice question dif
 				if (!key.startsWith("choice_")) continue;
 				assert.ok(question.instructions.instruction.endsWith(` ${PLAYER_EXECUTION_CHOICE_NOTE}`));
 				question.instructions.instruction = question.instructions.instruction.slice(0, -(PLAYER_EXECUTION_CHOICE_NOTE.length + 1));
-				assert.match(question.criteria.chosen.what, /choose execution of this action now/);
-				assert.match(question.criteria.chosen.not_for, /utterance itself may be chosen/);
+				// §197.4 (2a.6): both directions -- the player's own narration of steps is execution, speech to someone is not.
+				assert.match(question.criteria.chosen.what, /their own narration of what the investigator does/);
+				assert.match(question.criteria.chosen.not_for, /says to someone in the fiction about a future act/);
 				question.criteria.chosen = expectedQuestions[key].criteria.chosen;
 			}
 			assert.deepEqual(actual.state, expectedRequests[0].state);
 			assert.equal(actual.model, expectedRequests[0].model);
 			Object.assign(actualQuestions, actual.questions);
-			assert.deepEqual([batch.family, batch.familyVersion], [experiment.batches[0].family, "2a.5"]);
+			assert.deepEqual([batch.family, batch.familyVersion], [experiment.batches[0].family, "2a.6"]);
 		}
 		// The added policy can change byte-bounded batch cuts, but never drops or adds a semantic question.
 		assert.deepEqual(actualQuestions, expectedQuestions);
 		assert.deepEqual([...product.passages.keys()], [...experiment.passages.keys()]);
 	}
-	assert.deepEqual([ADMISSION_ROLES_FAMILY, ADMISSION_ROLES_VERSION], ["action-admission-roles", "2a.5"]);
+	assert.deepEqual([ADMISSION_ROLES_FAMILY, ADMISSION_ROLES_VERSION], ["action-admission-roles", "2a.6"]);
 });
 
 test("§32.12.3.2: per line the design asks role, choice, result, span, target, gate, order, missing and basis; each line carries its closed kind", () => {

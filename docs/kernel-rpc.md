@@ -8670,7 +8670,7 @@ keyword, quotation or language classifier. Role-first family revision `2a.5` upd
 question and its chosen/unchosen criteria; the `roles-2a.3` design selector, host arithmetic, thresholds,
 closed verdicts and fallback route remain unchanged. Historical experiment requests stay frozen.
 Verification uses targeted live reviewer probes for the distinction and controlled extension tests
-for refusal before mutation. Neither is a real-table acceptance claim.
+for refusal before mutation. Neither is a real-table acceptance claim. *(Amended by §197.4, 2026-10-08: this read one direction only, and the reviewers then refused the player's own narration of a trip as a plan; the boundary now says both directions -- speech to someone about a future act is not the act, the player's own narration of steps is -- with the reviewer filling `player_words` first; v1 family 3, role-first 2a.6.)*
 
 **Picking one of the options the delivery named is a choice (2026-09-11 ruling).** The same six words,
 「那看看报纸」, were refused on one table and admitted on another, and a five-model probe split three to
@@ -39785,7 +39785,7 @@ links across kinds; the catalog ignoring paragraphs; chains never offered whole;
 continuation pages not read; located pages ignored; only the request searched; the worker ignoring `paragraphs`; the host
 not passing `located`; the Keeper's provenance without the section; the worker never linking forward.
 
-## 197. Refusal recovery carries the turn forward (lead's rulings, 2026-10-08, after TR-F2 run 2; `docs/specs/refusal-recovery.md`; amends §32.2, §32.8, §32.12.3.1 and §32.12.3.1.1)
+## 197. Refusal recovery carries the turn forward (lead's rulings, 2026-10-08, after TR-F2 run 2; `docs/specs/refusal-recovery.md`; amends §32.2 (its 2026-10-08 speech paragraph included), §32.8, §32.12.3.1, §32.12.3.1.1 and §32.12.3.2's role-first revision)
 
 **Why.** TR-F2 run 2 (App `4ce2e4cab`, Cold Harvest, campaign `game-565055f1-8a99-4e69-9932-ca64c0e27d93`, Keeper
 `openai-codex/gpt-6-luna` low, admission lane `opencode-go/deepseek-v4.1-flash`). Six of eighteen turns (T1, T3, T9, T15,
@@ -39930,7 +39930,72 @@ hands over, name them here too (with its `handover`); the kernel already records
 holds, the kernel's to check against state, and the verifier lane's (§12.5) to read against the facts. This section gives
 admission no book access; doing so would amend §32.3.
 
-### 197.4 The Keeper's prompt (§32.8)
+### 197.4 Speech is not execution, and the player's own narration is (coordinator's ruling, 2026-10-08; amends §32.2's 2026-10-08 paragraph)
+
+**What ab81805b2 was for, and what it did.** Commit `ab81805b2` (Codex, 2026-10-08 03:18, "fix: distinguish dialogue plans
+from current actions") was written for TR-F turn 3 (`game-56788eff-…`): turning the denunciation letter over, the
+investigator asked the captain who wrote it and which family it names and said to him 「我今天就动身去农场」, and the table
+moved him to the farm (the lane: `authorized`, "chooses departure"). It added `PLAYER_EXECUTION_CHOICE_NOTE`
+(`runtime/jev/action-field-semantics.ts`) to the lane's system prompt and to both typed designs (v1 rules, family
+version 2; role-first choice question, `not_for` "merely says a plan, promise…", revision 2a.5). It read one direction
+only, and from the first App that carried it the reviewers read the player's own narration of a trip as a "plan":
+admission refusals went from 0 in 16 campaigns (10-02 to TR-F, the same Keeper model) to 4 in TR-F2 run 2 and 4 in run 3
+-- run 2 T3 「我收好材料…搭最早的车赶往…3号农场。到了先找生产监督员鲍里斯」, T16 「那就走。我现在就去最北头的阿布拉莫夫家」,
+run 3 T9 「我请档案职员帮我调出…产权登记」 (refused as "the earlier plan named the municipal archive").
+
+**The rule, both directions.** What the investigator says to someone in the fiction about a future act -- a plan, promise,
+threat, bluff or hypothetical spoken to another person -- or text quoted from a document establishes the speech, not the
+act: "I will leave for the farm today", said to the captain while asking names, is not departure. The player's own
+narration of what the investigator does -- now, next, or as a sequence of steps laid out in order -- is execution, each
+step in its order; asking someone in the scene to do something chooses that request; a conditional is executed when its
+condition is met in the fiction. The note says this with the paired real-table lines as examples (in English: the system
+language), for the model to judge -- never as a matcher. It is rewritten in place, so the lane, the v1 rules
+(`ADMISSION_JEV_VERSION` 3) and the role-first choice question (its `chosen.what` and `not_for` say both directions too,
+`ADMISSION_ROLES_VERSION` 2a.6) all read it; §32.12.3.2's measured state, keys, arithmetic and settle classes are
+unchanged (the choice question was already outside the measured bytes since 2a.5). `prompts/keeper.md`'s "Current actions
+and speech" paragraph says the narration half too.
+
+**`player_words`, the reviewer's first step (schema).** The lane's answer gains `player_words`, filled first: how the
+player's own words bear on this line -- `narrate` (the player narrates the investigator doing it, now, next, as a step of
+a sequence, or on a met condition), `ask` (asks someone in the scene to do it), `say` (only tells someone they will,
+would or might), `quote`, `hold` (the player says the investigator does not do it yet, or stops short of it) or `none`
+(the words do not speak of this line). `narrate` and `ask` choose the line as narrated or asked, by meaning; `say`,
+`quote` and `hold` never choose the act; `none` leaves it to the line's role (a routine step or result of a chosen act,
+not the investigator's act, or unchosen). It is the model's judgement; `shapeVerdict` keeps it only with one of the six
+values (anything else is dropped, never `bad_output`), the row records it, and the host decides nothing from it. Why a
+field and not only prose: on luna (thinking off) the note alone, with the TR-F line as its own example, still authorized
+that line in every answered run of round 1 (§197.9); asking for the reading before the verdict turned it.
+
+### 197.5 Meaning, finds and holding back (real table run 3, The Haunting, lane `openai-codex/gpt-6-luna`)
+
+Run 3 (`game-af36b938-…`, App `4ce2e4cab`) added four cases of the same family -- the reviewer reading words, not
+meaning -- in both directions:
+
+- **T1, cross-language alias.** 「去波士顿环球报的档案室」; the move to `newspaper-morgue` refused, "the archive is not a listed
+  name", while `also_called` held "Globe clipping archive".
+- **T9, over-literal plan wording.** The request to the records clerk refused against an earlier plan's wording (above).
+- **T12, a find of a chosen search, all or nothing.** The player searched the ruins for the priest's papers; the batch
+  held the church journal and a Latin tome; the tome was refused as "a different proposed find", the journal (stopped
+  unanswered) died with it, and the turn closed hollow.
+- **T16, the other direction.** 「找通往地下室的门…先不急着下去」; the move into `basement-rites` was authorized ("searching
+  the hallway for the basement door") and landed while the prose said 「你没有下去」: state and fiction split. §32.8's
+  "a move to a registered scene is arrival at that place's threshold" read finding the door as arriving.
+
+The instruction (`admissionSystemPrompt`) now says, before the verdicts: the threshold grain never overrides the player
+holding back (not yet, only looking in, staying at the door or the top of the stairs: the move into the place is not
+chosen, `keeper_added`; finding, opening or looking through a door is not going through it); judge meaning, never
+wording, across the table's languages (a translation, paraphrase, description, part or room of a registered name names
+it; never refuse for differing from a listed name, a label or an earlier plan's wording); the player's current words are
+their latest choice (a request now need not repeat an earlier plan's person, place or wording); a search, look, question
+or request chooses the act, not what it turns up (a find the player did not name or expect, or a record other than the
+one asked for that answers what they wanted to learn, is the act's result; opening or moving aside what lies in the
+search's way is a routine step of it; taking, using or acting on a find is a choice of its own). The verdict definitions
+carry the same: `authorized` by meaning in any language (walking down the cellar stairs is going to the cellar);
+`entailed` includes what a chosen search turns up; `not_authorized` names speech-only and held-back acts, and never a
+find of a chosen search or the player's own choice in other words, another language or another person's name. With
+§197.1, T12's journal now finishes and is named for the resend.
+
+### 197.6 The Keeper's prompt (§32.8)
 
 `prompts/keeper.md`'s paragraph on whose choice it is now says: the refusal names what the player has not chosen and whose
 choice is open; when the player left it open, put that choice in front of them in the fiction; when they had already chosen
@@ -39938,16 +40003,16 @@ and the proposal added something or went elsewhere, leave out what was added and
 again; either way never send the refused action back in other words; when only part of a batch was refused, the refusal
 lists the effects that were admitted -- resend exactly those once, unchanged, before the delivery.
 
-### 197.5 Three ends (§31)
+### 197.7 Three ends (§31)
 
 *Writer:* the per-line review (every line finishes), `combineLines` (`details.admitted`, `state.admissionRecovery`), the lane
-(`open_choice`), `effectActingParty` (`acting_party`). *Reader:* `admitActionReviewed`'s recovery match and the prefetch's;
+(`open_choice`, `player_words`), `effectActingParty` (`acting_party`), the two-way note in all three reviewers. *Reader:* `admitActionReviewed`'s recovery match and the prefetch's;
 the lane, which reads `acting_party` and is told what it means; the Keeper, through `details.admitted`, `details.open_choice`
 and the branched `fix` (every key the `fix` names reaches the tool result, §8). *Actor:* the Keeper, who resends the admitted
 effects or carries out the player's choice instead of asking; the operator, through `recovered_from` and `open_choice` on the
 rows.
 
-### 197.6 Tests
+### 197.8 Tests
 
 `tests/extension/refusal-recovery.test.mjs`, at the extension seam with a deterministic review lane (the scripted
 `admission/a1`, answering by line), the fake kernel for the replays and the emitted kernel for the landing:
@@ -39961,7 +40026,40 @@ rows.
 - the boundary: an admitted effect resent alone after its batch-mate was refused lands on its own verdict;
 - `keeper_added` against `player_open`: the `fix` differs and names `details.missing`; absent is today's;
 - an NPC hand-over line reads `acting_party`, and the lane's system prompt explains the field it prints;
-- replays of TR-F2's T1, T3 and T16 batches, their arguments copied verbatim from the session into
-  `tests/extension/fixtures/refusal-recovery-trf2.json`, with the lane's recorded verdicts (plus `open_choice`).
+- replays of TR-F2's T1, T3, T9 and T16 batches, run 3's T1, T9, T12 and T16 and TR-F's turn 3, their arguments copied
+  verbatim from the sessions (TR-F's from its admission row) into `tests/extension/fixtures/refusal-recovery-trf2.json`,
+  with the lane's recorded verdicts (plus `open_choice`) and the live probe's round-3 answers (§197.9): TR-F's speech line
+  refused and three execution lines landing on the probe's answers, rows recording `player_words`; run 3 T12's journal
+  named beside the refused tome and landed on resend; run 3 T16's cellar move landing on the recorded verdict and refused
+  as the Keeper's addition on the probe's (`hold`);
+- §197.4's pairing: the note in the lane prompt and the v1 rules, the families at 3 and 2a.6, every `player_words` value
+  named in the answer shape, `shapeVerdict` keeping, dropping and never deciding on it.
 
 Mutations and existing tests changed are in the spec's Comments.
+
+### 197.9 The live reviewer probe (what the instruction changes did to the model's answers)
+
+Deterministic tests show what the host does with a verdict; whether the reviewer reads the boundary right is the
+model's, so it was measured: `experiments/refusal-recovery/probe.mjs` (cases built by `build_cases.py` from the tables'
+own evidence, read only; the case file stays outside the repository), the product's `admissionRequest`, `lineProposal`
+and `buildAdmissionInput`, lane `openai-codex/gpt-6-luna` thinking off (run 3's setting), credentials read the product's
+way and never printed, 3 runs per line, single attempts (the product's one retry on a malformed answer is not applied).
+Pre-registered per round before any call (in the scratchpad `PREREGISTER.md`, summarized in the spec's Comments).
+Fourteen lines: TR-F2 T1 (hand-over), T3 (farm; added stop), T9 (mapped house), T16 (detour; house); run 3 T1 (alias),
+T9 (clerk), T12 (journal; tome), T16 (held back), a T17-words control (walks down the stairs) and an interest-only control
+(「那看看报纸」 in T1's context); TR-F turn 3 (speech).
+
+- **Round 1**, `old` = the whole 4ce2e4cab prompt (its note included) against the first rewrite: old met 7 of 14 lines'
+  expectations counting any refusal as one (4 counting `keeper_added`, a value the old prompt did not have; it authorized
+  run 3 T16's held-back move 3/3 and refused the alias, the clerk, both T12 finds and the hand-over 3/3 each); new met 10. Missed by new: T12 tome 0/3 and journal 1/3, the stairs control 0/3, and TR-F's speech line,
+  which old and new both authorized whenever they answered.
+- **Round 2**, with `player_words` and the verdict definitions: 13 of 14 met; run 3 T9 0/3 ("asks for the deed register,
+  not the executor's record").
+- **Round 3**, the find paragraph naming a record that answers what the player wanted to learn: **14 of 14 met**
+  (at least 2 of 3 runs each; 0 malformed answers): speech line refused 3/3 (`say`; 2 `keeper_added`, 1 `player_open`); the execution lines
+  admitted (TR-F2 T3 farm 3/3, T16 house 3/3, run 3 T9 3/3 `ask`, the stairs control 3/3); run 3 T1 alias 3/3; T12 journal 3/3 and
+  tome 2/3 `entailed`; T16 held back refused 3/3 (`hold`, `keeper_added`); TR-F2 T1 hand-over 3/3 `not_player_action`; the
+  four Keeper additions refused 3/3 with `keeper_added`; the interest control refused 3/3, `player_open`.
+
+Not shown: other lane models, other books, more than three runs, the product's retry, or a table. That is RR-04.
+

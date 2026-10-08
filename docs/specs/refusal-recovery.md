@@ -1,10 +1,12 @@
 # Refusal recovery carries the turn forward
 
-Status: ready-for-human (RR-01..RR-03 implemented on `claude/refusal-recovery-20261008`; contract §197; RR-04 is the lead's
-table acceptance)
+Status: ready-for-human (RR-01..RR-03, RR-05, RR-06 implemented on `claude/refusal-recovery-20261008`; contract §197; RR-04
+is the lead's table acceptance)
 
 Lead's rulings, 2026-10-08, after TR-F2 run 2. Owner: 「KP发了些没有什么有意义的信息的回复…肯定是系统问题」,
-「玩家意图没有正确执行也是系统问题」. Contract `docs/kernel-rpc.md` §197 (amends §32.2, §32.8, §32.12.3.1, §32.12.3.1.1).
+「玩家意图没有正确执行也是系统问题」. Contract `docs/kernel-rpc.md` §197 (amends §32.2 and its 2026-10-08 speech paragraph, §32.8, §32.12.3.1, §32.12.3.1.1 and
+the role-first revision of §32.12.3.2). Two coordinator messages during the slice added real table run 3's cases
+(§197.5) and the root cause of the refusal surge, `ab81805b2` (§197.4).
 
 ## What went wrong (TR-F2 run 2, App `4ce2e4cab`, Cold Harvest, campaign `game-565055f1-…`)
 
@@ -69,6 +71,21 @@ is not admission.
 - **Host verdicts carry no `open_choice`.** §143.18's compile act refusal and the cash authority bound keep §32.2's text.
 - **`open_choice` is advisory.** An unknown value or a misplaced field is dropped, never `bad_output`.
 
+## Added during the slice (coordinator, 2026-10-08)
+
+5. **Speech is not execution, and the player's own narration is** (§197.4). `ab81805b2` (written for TR-F turn 3: 「我今天就动身去农场」
+   said to the captain while asking names moved the table) read one direction only; refusals went from 0 in 16 campaigns to
+   4 per table, the player's own narrated trips read as "plans" (run 2 T3, T16; run 3 T9). The note
+   (`PLAYER_EXECUTION_CHOICE_NOTE`) now says both directions with the paired real-table lines as examples; the role-first
+   `chosen.what`/`not_for` too; v1 family 3, role-first 2a.6; the Keeper prompt's paragraph too. The lane fills a closed
+   `player_words` (`narrate|ask|say|quote|hold|none`) first; the host records it and decides nothing from it.
+6. **Meaning, finds and holding back** (§197.5; run 3, lane luna): T1 alias across languages refused, T9 a request refused
+   against an earlier plan's wording, T12 a find of a chosen search refused (and the journal with it), T16 a held-back move
+   into the cellar authorized and landed. Four instruction paragraphs and the verdict definitions; no lists.
+
+Verification of 5 and 6 is the model's behaviour, so it was measured live (§197.9): three pre-registered rounds on luna,
+fourteen real lines; round 3 met all fourteen expectations.
+
 ## Tickets
 
 ### RR-01 A refused batch names its admitted lines; their exact resend lands without a second review
@@ -80,6 +97,12 @@ Status: ready-for-human (implemented; §197.2)
 ### RR-03 The acting party and the NPC-act instruction
 Status: ready-for-human (implemented; §197.3)
 
+### RR-05 Two-way speech/execution boundary and `player_words`
+Status: ready-for-human (implemented; §197.4; live probe §197.9)
+
+### RR-06 Meaning across languages, finds of a chosen search, holding back
+Status: ready-for-human (implemented; §197.5; live probe §197.9)
+
 ### RR-04 Acceptance (lead)
 Status: ready-for-human (TR-F2 rerun, lead).
 Pre-registered: on a fresh campaign of the same book, per refused multi-line batch, `details.admitted` names every line the
@@ -87,12 +110,14 @@ lane admitted and the next Keeper call resends exactly those (`recovered_from` o
 refusal with `open_choice: keeper_added`, the delivery does not ask the player the choice named in `missing`; an NPC's
 hand-over line carries `acting_party` and is not refused as the player's unchosen act. Count C2 (intent carried out) and C3
 (the reply says something) as in TR-F2's log.
+Also: admission refusals per table back near the pre-`ab81805b2` rate; the player's narrated trips and requests
+admitted; a line said to an NPC about a future act refused (`player_words: say`); a held-back move refused (`hold`).
 
 ## Comments
 
 ### 2026-10-08 implementation (claude/refusal-recovery-20261008)
 
-Tests: `tests/extension/refusal-recovery.test.mjs` (contract §197.6's list), with the TR-F2 replays in
+Tests: `tests/extension/refusal-recovery.test.mjs` (contract §197.8's list), with the TR-F2 replays in
 `tests/extension/fixtures/refusal-recovery-trf2.json` (T1, T3, T9, T16: player words and `apply` arguments copied verbatim
 from the session `2026-10-08T12-52-28-304Z_3fc2f27a…jsonl`, lane verdicts from the turns' `lane: "admission"` rows).
 
@@ -127,3 +152,24 @@ single files with the box's `build/`), every one turned a test red:
 | M13 | `admitted` named on `review_pending` | 1 |
 | M14 | the recovery entry never recorded | 6 |
 | M15 | the paragraph appended twice on a nested refusal | 1 |
+
+### 2026-10-08, §197.4-§197.5 (coordinator's two messages)
+
+Existing tests changed: `tests/extension/admission-roles-domain.test.mjs` (read whole first) pinned 2a.5 and the
+one-direction `chosen.what`/`not_for` phrases; it now pins 2a.6 and the two directions; its subject (only the choice
+question differs from the measured requests) is unchanged.
+
+Live probe (`experiments/refusal-recovery/probe.mjs`, `build_cases.py`; cases and grounds kept outside the repository):
+pre-registration written before the first full round and amended, with the previous round's result, before each later
+round. Round 1 (old 4ce2e4cab prompt against the first rewrite): old met 7 of 14 (4 counting `keeper_added`), new 10;
+round 2 (`player_words`, verdict definitions): 13; round 3 (a request's result may be a record other than the one asked
+for): 14 of 14. One smoke call preceded the pre-registration of the speech case and is not counted. 182 calls in all,
+`openai-codex/gpt-6-luna`, thinking off; the App's `auth.json` was read by the product's runtime and not written (its
+mtime is unchanged).
+
+Mutations for §197.4 (same method): M16 `shapeVerdict` drops `player_words` -> 3 red; M17 the row omits it -> 2 red; M18
+role-first revision not bumped -> red in both files; M19 the role-first criteria restored to the one-direction text -> red in
+`admission-roles-domain`; M20 the lane prompt without the note -> red. **Not covered by a deterministic test:** the
+wording of the note, the four §197.5 paragraphs and the verdict definitions -- what they do is the model's, and §197.9's
+probe is their evidence.
+

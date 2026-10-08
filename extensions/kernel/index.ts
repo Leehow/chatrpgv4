@@ -3505,7 +3505,8 @@ export default function (pi: ExtensionAPI) {
 					...(timedOut ? { timed_out: true, cap_ms: verdict.capMs ?? null } : {}), ...meta, ...partRows, ...origin, ...who,
 					grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), ...(correctable ? {recovery: verdict.recovery, correction_allowed: correctionAvailable} : {}),
 					// §197: whose choice the refusal left open, and the refused call a recovery's reused verdict came from.
-					...(verdict.open_choice ? { open_choice: verdict.open_choice } : {}), ...(verdict.recoveredFrom ? { recovered_from: verdict.recoveredFrom } : {}),
+					...(verdict.open_choice ? { open_choice: verdict.open_choice } : {}), ...(verdict.player_words ? { player_words: verdict.player_words } : {}),
+					...(verdict.recoveredFrom ? { recovered_from: verdict.recoveredFrom } : {}),
 					proposed: proposal.lines });
 
 				if (admitted) return;
