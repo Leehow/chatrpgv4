@@ -11,7 +11,7 @@ import { calledPerson, npcsPresent, personLabel, personRecord } from '../read/ca
 import { array, normalize, normalizeText, row, string, truth, type Row } from '../read/values.js';
 
 import type {Speaker, SpeakerResolver} from './speech-pass.js';
-export {speechPass, NAME_LIMIT, SAY_TOKENS, isSayMarker, type Speaker, type SpeakerResolver} from './speech-pass.js';
+export {speechPass, sayRanges, NAME_LIMIT, SAY_TOKENS, isSayMarker, type Speaker, type SpeakerResolver, type SaySpan} from './speech-pass.js';
 
 /**
  * §40.1 resolution: someone present, by any of their names; an investigator of the party; any NPC of

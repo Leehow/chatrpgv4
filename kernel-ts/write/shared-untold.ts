@@ -76,7 +76,10 @@ export function sharedNotice(shared: readonly (readonly Candidate[])[], joined: 
  * whose fiction had the hardware store's man give his name was refused about thirty times, the refusal budget ran out, and two
  * turns delivered nothing.
  */
-export const SHARED_FIX = 'when the fiction has one of them give this name or be called by it, write that person\'s say_name from that list exactly where the name is said: the delivery puts in the name the book gives that person, and tells them. Otherwise call the one you mean by their own word from that list, or describe them. Never write the name itself, and never those words joined into one. Change only those words and send it again';
+export const SHARED_FIX = 'when the fiction has one of them give this name or be called by it, write that person\'s say_name from that list exactly where the name is said: the delivery puts in the name the book gives that person, and tells them. '
+    // §194.5: inside a line someone other than the investigator speaks, the name is delivered as written and tells none of them.
+    + 'Inside a line someone other than the investigator speaks ({{say:<who>}}...{{/say}}) the name may stand as written, which tells none of them. '
+    + 'Otherwise call the one you mean by their own word from that list, or describe them. Never write the name itself in the narration, and never those words joined into one. Change only those words and send it again';
 
 /**
  * §188.8: a document the investigator holds is text the player reads, so writing a joined word into it is refused like a

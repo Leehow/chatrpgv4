@@ -87,9 +87,14 @@ export async function deliveredDocuments(context: Pick<KernelContext, 'content' 
 export interface DocumentPlaces { handout: string; text: string; places: ProsePlace[] }
 
 /** The untold cast people and the names that stand for them, by normalized name, with what the told checks read for each. */
-interface UntoldNames { owners: Map<string, CastPerson[]>; names: string[] }
+export interface UntoldNames { owners: Map<string, CastPerson[]>; names: string[] }
 
-function untoldNames(graph: ModuleGraph, journal: Row, records: NameHistory): UntoldNames {
+/**
+ * Every untold cast person by each name that stands for them in the book's text (`printedNames`), normalized: who a place of
+ * that name could be. A document's place (§194.3) and a name spoken in a line (§194.5) tell the one owner, and nobody when
+ * several share it (§188.8).
+ */
+export function untoldOwners(graph: ModuleGraph, journal: Row, records: NameHistory): UntoldNames {
     const untold = new Set(untoldBookPeople(graph, journal, records).map(node => string(node.node_id)));
     const unread = new Set(untoldUnread(graph, records).map(person => person.id));
     const cast = bookCast(graph);
@@ -113,7 +118,7 @@ function untoldNames(graph: ModuleGraph, journal: Row, records: NameHistory): Un
 /** §194.3: where each document prints an untold person's name, outside every occurrence of a name the investigator's side owns. */
 export function documentPlaces(graph: ModuleGraph, journal: Row, records: NameHistory, documents: readonly DeliveredDocument[], guarded: readonly string[]): DocumentPlaces[] {
     if (!documents.length) return [];
-    const { names } = untoldNames(graph, journal, records);
+    const { names } = untoldOwners(graph, journal, records);
     if (!names.length) return [];
     return documents.flatMap(document => {
         const places = prosePlaces(document.text, names, guarded);
@@ -133,7 +138,7 @@ export function documentTold(graph: ModuleGraph, journal: Row, records: NameHist
     cleared: ReadonlySet<string>): DocumentTold {
     const result: DocumentTold = { record: [], introduced: [], told: 0, cleared: 0, places: 0 };
     if (!documents.length) return result;
-    const { owners } = untoldNames(graph, journal, records), seen = new Set<CastPerson>();
+    const { owners } = untoldOwners(graph, journal, records), seen = new Set<CastPerson>();
     for (const { handout, places } of documentPlaces(graph, journal, records, documents, guarded)) {
         const people: string[] = [], names: string[] = [];
         for (const place of places) {

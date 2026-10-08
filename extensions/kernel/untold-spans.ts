@@ -8,14 +8,21 @@
  *
  * `untold_cleared` is the host's: whatever the Keeper's arguments carried under that key is dropped first. When Jev is not
  * configured, fails or is late, nothing is cleared and the gate stands exactly as before.
+ *
+ * §194.5: the gate counts the people the delivery's own handouts tell as told, so the prose's places are found with every
+ * document place telling. When a document place is cleared, its person stays untold and their names are places again: the
+ * hook asks `table.untold_spans` once more with the document's clearances and judges the prose's places that answer gives.
  */
 import { TaskLease } from "../../runtime/jev/task-context.ts";
 import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
 import { NAME_SPAN_AT, NAME_SPANS_FAMILY, NAME_SPANS_PER_BATCH, NAME_SPANS_PER_CALL, NAME_SPANS_WAIT_MS, judgeNameSpans, markSpan, nameSpanBatch, nameSpanBindings, type NameSpan } from "../../runtime/jev/untold-name-spans.ts";
 import { packDecisionBatch } from "../../runtime/jev/question-packing.ts";
+import type { PublicFigureJudge } from "./public-figures.ts";
 
 type Row = Record<string, unknown>;
 type Span = { name: string; nth: number; start: number; end: number };
+/** One place as Jev is asked about it: the name, its key, and its words marked; a document's place carries its handout. */
+type Place = { name: string; nth: number; text: string; handout?: string };
 /** The delivering methods whose `text` the gate reads. */
 const DELIVERING = new Set(["table.narrate", "table.ask"]);
 /** The params only this hook may set; the client drops them from a caller's params whenever the hook fails. */
@@ -60,7 +67,9 @@ export async function judgePlaces(spans: readonly NameSpan[], decision: Decision
 	return { names, ...(reasons.length || spans.length > NAME_SPANS_PER_CALL ? { partial: reasons[0] ?? "per_call_limit" } : {}) };
 }
 
-export function createUntoldSpanJudge(deps: { decision: () => DecisionPort | undefined; record: (row: Row) => void; waitMs?: number }) {
+export function createUntoldSpanJudge(deps: { decision: () => DecisionPort | undefined; record: (row: Row) => void; waitMs?: number;
+	/** §194.5: judge the cast rows no public-figure verdict covers yet; true when a verdict was kept, so the places are asked again. */
+	publicFigures?: PublicFigureJudge }) {
 	/** `KernelClientOptions.prepareCall`: the delivering call's params with the host's `untold_cleared`. */
 	return async function prepareCall(method: string, params: Row, direct: (method: string, params: Row) => Promise<unknown>): Promise<Row> {
 		if (!DELIVERING.has(method)) return params;
@@ -71,11 +80,16 @@ export function createUntoldSpanJudge(deps: { decision: () => DecisionPort | und
 		try {
 			// An ask may carry no text and still hand over a document (§194.3), whose places are asked about all the same.
 			const text = typeof own.text === "string" ? own.text : "";
-			let places: Array<{ name: string; nth: number; text: string; handout?: string }> = [];
+			const campaign = typeof own.campaign === "string" ? own.campaign : undefined;
+			const spansOf = (answer: Row): Place[] => (Array.isArray(answer?.spans) ? answer.spans as Span[] : [])
+				.map(span => ({ name: span.name, nth: span.nth, text: markSpan(text, span.start, span.end) }));
+			let places: Place[] = [];
 			try {
-				const answer = (await direct("table.untold_spans", { campaign: own.campaign, text })) as Row;
-				const spans = Array.isArray(answer?.spans) ? answer.spans as Span[] : [];
-				places = spans.map(span => ({ name: span.name, nth: span.nth, text: markSpan(text, span.start, span.end) }));
+				let answer = (await direct("table.untold_spans", { campaign: own.campaign, text })) as Row;
+				// §194.5: the cast has rows nobody has judged yet; a public figure among them is no untold person, so judge them first.
+				if (answer?.public_pending === true && campaign && deps.publicFigures && await deps.publicFigures(campaign, direct, { wait: false }))
+					answer = (await direct("table.untold_spans", { campaign: own.campaign, text })) as Row;
+				places = spansOf(answer);
 				// §194.3: the documents this turn hands over, each place keyed by its handout and shown in the document's own words.
 				for (const document of Array.isArray(answer?.documents) ? answer.documents as Row[] : []) {
 					if (typeof document?.handout !== "string" || typeof document.text !== "string" || !Array.isArray(document.spans)) continue;
@@ -87,18 +101,38 @@ export function createUntoldSpanJudge(deps: { decision: () => DecisionPort | und
 			}
 			if (!places.length) return own;
 			const began = Date.now();
-			const judged = await judgePlaces(places.map(place => ({ name: place.name, text: place.text })), deps.decision(),
-				{ campaign: typeof own.campaign === "string" ? own.campaign : undefined, waitMs: deps.waitMs });
+			const judged = await judgePlaces(places.map(place => ({ name: place.name, text: place.text })), deps.decision(), { campaign, waitMs: deps.waitMs });
 			const ms = Date.now() - began;
 			const documentPlaces = places.filter(place => place.handout !== undefined).length;
 			if ("fallback" in judged) {
 				note({ lane: "untold-spans", event: "fallback", method, places: places.length, ...(documentPlaces ? { document_places: documentPlaces } : {}), reason: judged.fallback, ms });
 				return own;
 			}
-			const cleared = places.filter((_place, i) => judged.names[i]! < NAME_SPAN_AT)
+			let cleared = places.filter((_place, i) => judged.names[i]! < NAME_SPAN_AT)
 				.map(place => ({ name: place.name, nth: place.nth, ...(place.handout !== undefined ? { handout: place.handout } : {}) }));
 			note({ lane: "untold-spans", event: "judged", method, places: places.length, ...(documentPlaces ? { document_places: documentPlaces } : {}), cleared: cleared.length,
 				names: judged.names.map(value => Number.isFinite(value) ? Math.round(value * 100) / 100 : null), ms, ...(judged.partial ? { partial: judged.partial } : {}) });
+			// §194.5: the prose's places were found with every document place telling its person (the gate counts what the delivery's
+			// own handouts tell as told). A document place cleared as another word tells nobody, so that person stays untold and
+			// their names are places again: ask once more with the document's clearances, and judge the prose's places it gives.
+			// Anything failing on the way sends only the document's clearances, so every prose place is held as a name.
+			const documentCleared = cleared.filter(place => place.handout !== undefined);
+			if (documentCleared.length) {
+				let again: Place[];
+				try { again = spansOf((await direct("table.untold_spans", { campaign: own.campaign, text, untold_cleared: documentCleared })) as Row); }
+				catch { return { ...own, untold_cleared: documentCleared }; }
+				cleared = documentCleared;
+				if (again.length) {
+					const second = await judgePlaces(again.map(place => ({ name: place.name, text: place.text })), deps.decision(), { campaign, waitMs: deps.waitMs });
+					if ("fallback" in second) {
+						note({ lane: "untold-spans", event: "fallback", method, round: 2, places: again.length, reason: second.fallback });
+						return { ...own, untold_cleared: documentCleared };
+					}
+					cleared = [...documentCleared, ...again.filter((_place, i) => second.names[i]! < NAME_SPAN_AT).map(place => ({ name: place.name, nth: place.nth }))];
+					note({ lane: "untold-spans", event: "judged", method, round: 2, places: again.length, cleared: cleared.length - documentCleared.length,
+						names: second.names.map(value => Number.isFinite(value) ? Math.round(value * 100) / 100 : null), ...(second.partial ? { partial: second.partial } : {}) });
+				}
+			}
 			return cleared.length ? { ...own, untold_cleared: cleared } : own;
 		} catch (error) {
 			note({ lane: "untold-spans", event: "fallback", method, reason: "error", message: error instanceof Error ? error.message.slice(0, 160) : "unknown" });

@@ -306,6 +306,8 @@ export class ModuleGraph {
     assetOverride?: (name: string) => Promise<Row | null>;
     /** Contract §177.2: the cast reader's `cast.json` for this book, when the module has one (`loadModule`); read by `bookCast`. */
     castStore?: Row | null;
+    /** Contract §194.5: the public-figure verdicts on `castStore`'s rows (`readCastPublic`, installed by `loadModule`); read by `bookCast`. */
+    castPublic?: { readonly public: ReadonlySet<string>; readonly pending: number };
     /**
      * Contract §185.13: every name the investigators at this table are registered under (each sheet's name and id), installed
      * by the campaign loader (`loadCampaignModule`); read by `knownNamePieces`. Empty for a graph no campaign serves.

@@ -39391,6 +39391,141 @@ now reads instead of the summary. Mutations, each turning a case red and reverte
 the entry; no stop at the next person; no stop at the paragraph; the transcript not read; the summary fallback back; the
 "that person alone" instruction removed; shortest name first.
 
+### 194.5 TR-F2 turn 2: the gate, the documents and the spoken name (owner ruling 2026-10-08: 「算，三处一起修完再跑 TR-F2」)
+
+**Evidence.** TR-F2 (App `9d9c191dd`, Cold Harvest, `game-26e7a8f4`), turn 2. The player read the letter and the
+resident list. The Keeper's first draft was the book's truth (Galena Smolskaya signs; Pyotr Abramov's family accused;
+the Kravchuk family of four fled 1937-06-21; the arrest list's names and sexes swapped). The delivery carried both
+handouts, and §194.3 told 16 people at that delivery (`told_documents`). But §177.11's gate checked the prose before those
+tells counted, refused the same names five times, and the Keeper stripped them: the player read 「信署名为一名农场居民」
+「一户人家」「一户四口之家」. 「斯大林」 was refused too: the cast lists him as a person. On turn 1 the captain's line
+「生产监督员鲍里斯·加庞报告」 was refused and the Keeper dropped the name instead of writing `say_name`.
+
+**1. A delivery's documents tell before its gate.** The names a delivery's own handouts tell (§194.3, computed from that
+delivery's effects and receipts) count as told when §177.11 checks that delivery's text.
+
+**2. A public figure is not untold.** A cast person who is a real public figure of the world outside the story, mentioned
+as such, is left out of the untold roster, the gate and the rename. The judgement is Jev's, one question per cast row from
+the row's own entry (§194.4), cached per cast digest; Jev unavailable or below the bar leaves the person untold (a false
+refusal costs a retry; a leaked character name costs the story). No list of names.
+
+**3. A name spoken in an NPC's line tells it** (owner: 「算」). An untold person's printed name inside a `{{say:X}}…{{/say}}`
+span whose speaker X is a person other than the investigator is the fiction saying it: the gate does not refuse it, and
+the delivery tells that person as `{{name:}}` does (rendered name, `person_labels` sync, `toldTurn`). A name several
+untold people share (a family name) is delivered as written in such a line and tells none of them (§188.8). §177.15's
+Jev clearing still applies inside the line. Narration outside a say span, and the investigator's own lines, stay gated.
+
+*Implementation decisions (2026-10-08, branch `claude/two-ledgers-fix-20261008`).*
+
+*Item 1: the documents tell before the gate.*
+- **The order.** `table.narrate` and `table.ask` compute what their handouts tell (`documentsTold`, TL-04, with the host's
+  cleared document places) before `untoldNamesGate`, and the gate reads the history with the delivery itself added as a pending
+  record: `pendingTells(turn, told_documents)` (`kernel-ts/journal/name-history.ts`), never written, read by the told checks
+  as an ask record that told someone is (`documented`). So those people are told when this delivery's text is checked: their
+  printed names are out of `untoldWholeNames`, their whole names are protected (§188.1), and a name a told person also carries
+  is out as well (§177.11's rule, applied as it will apply from the next turn). A reference delivery tells nothing (TL-04), so
+  its gate is unchanged.
+- **The host's places.** `table.untold_spans` finds the prose's places the same way, with every document place telling. When
+  the host clears a document place (another word), that person stays untold and their names become places again, at other
+  `nth` keys: the host (`extensions/kernel/untold-spans.ts`) asks `table.untold_spans` once more with `untold_cleared` set to
+  the document's clearances (the method now reads them), judges the prose places that answer gives, and sends the document's
+  clearances plus those. A failure on the way sends only the document's clearances, so every prose place is held as a name.
+  Telemetry: the second judgement is a `lane: "untold-spans"` row with `round: 2`.
+
+*Item 2: public figures are not untold.*
+- **The question** (`runtime/jev/public-figures.ts`, family `cast-public-figures`, version `1`): one Noul per stored cast row,
+  state `{names, entry}` per row; `names` are the row's book and play forms and its notes renderings, `entry` its own entry
+  (TL-05's `castEntry` from the row's first page: the transcript's text, the cast's own copy, the stored sentence; for a row a
+  graph person absorbed, that person's printed names count as the row's own). The instruction asks whether the person is a
+  real public figure of the world outside the story whom the book only mentions as such, rather than a character who takes
+  part, and answers no for a character the investigators can meet, talk to, fight or follow.
+- **The bar is 0.6** (`PUBLIC_FIGURE_AT`), measured on TR-F2's own cast (book-2, 47 rows, the product's batch, two live runs,
+  2026-10-08): Stalin 0.92, Yezhov 0.91-0.92, the novelist Colin Wilson 0.76-0.80; every character 0.31 or less (Beria
+  0.26-0.31, who arrives during the scenario; the supervisor Gapon 0.23-0.28); the folk hero Dobrynya Nikitich 0.13-0.16
+  stays untold. 47 rows in two parallel requests took 0.6-0.9 s.
+- **The cache** lives beside the table it judges: `cast-public.json` (`CAST_PUBLIC_FILE`) in the directory that serves the
+  cast (`servedCast`: the campaign's fork, else the shared library), `{version: 1, source_sha256, cast_sha256, rows: {<row id>:
+  {row_sha256, public, noul, question, at}}}`. Each verdict is bound to its row's digest (`castRowDigest`); the file names the
+  digest of the table it was last written against. A cast read again keeps every verdict whose row did not change and asks
+  only the changed rows; every campaign and session that reads the book shares the answers.
+- **Two kernel methods.** `cast.public.job {campaign, version}` lists, at most 200 at a time, the rows with no verdict for
+  what they say now or for this question version, each `{id, row_sha256, names, entry?}`; `job_id: null` when none.
+  `cast.public.submit {campaign, version, verdicts: [{id, row_sha256, noul, public}]}` keeps a verdict whose row still has that
+  digest and skips the rest (`{written, public, skipped}`), under a lock on the file; telemetry `lane: "cast-public",
+  event: "submitted"`.
+- **Who reads it.** `loadModule` installs `graph.castPublic` (`readCastPublic`: the judged-public row ids and how many rows
+  have no current verdict). `bookCast` marks a person `public` when they are an unread row judged public, or a graph person
+  every one of whose absorbed rows was. A public person is out of `untoldUnread` and `untoldBookPeople`, `untoldBlock` returns
+  null for them, and `protectedNames` counts their names as the investigator's side's. So they leave the untold roster
+  (`table.untold`, hence the request's rename and §188.3's undo), the gate (`untoldWholeNames`), the document tells
+  (`untoldOwners`), the epithet lane and the speaker's `shown`; an untold name inside their name is no place. `player_knows`
+  lists a public graph person only once met or named by a delivery, never for being public. A row with no verdict, or one
+  below the bar, stays untold.
+- **When the host asks** (`extensions/kernel/public-figures.ts`, `createPublicFigureJudge`): in the background when the table
+  opens (`table.open` in `session_start`), and before a delivery whose `table.untold_spans` answers `public_pending: true`
+  (rows without a current verdict); after kept verdicts the hook asks `table.untold_spans` again. One run per campaign at a
+  time; the delivery's hook never waits for a run in flight (a background run's calls go through the kernel client's queue,
+  which the hook is holding). Requests of at most 40 rows, in parallel under one 2.5 s wait, the adapter the untold places use
+  (`maxRetries: 0` for both families). Jev unconfigured asks nothing; Jev failing or late submits nothing for the rows it did
+  not answer, and the campaign is not asked again for 60 s (`PUBLIC_FIGURES_PAUSE_MS`). Telemetry `lane: "public-figures"`,
+  `event: "judged"` (people, judged, public, written, figures, ms) or `"fallback"` (reason). The SL-00 inventory key is the
+  existing `extensions/kernel/index.ts#decision#jev-adapter#createDecisionAdapter`; its note now names both families.
+
+*Item 3: a name spoken in a line tells it.*
+- **Which places.** `sayRanges` (`kernel-ts/write/speech-pass.ts`) gives each say span's offsets, closed exactly where
+  `speechPass` closes it (its close token, the next open token, a paragraph break, the end), with the token's name resolved by
+  the delivery's own speaker resolver. A gate place inside a span whose speaker resolves to a person (`npc`) is spoken: not
+  refused and never replaced on a second delivery. The investigator's own line and a line whose speaker resolves to nobody (a
+  label) stay gated, as does all narration; a name said in a line does not excuse the same name in the narration of that
+  delivery. A cleared place inside a line (§177.15) is another word and tells nobody.
+- **Who it tells.** A spoken place's owner is looked up among the untold cast by the names that stand for them
+  (`untoldOwners`, exported from `kernel-ts/write/document-names.ts`, TL-04's table); one owner, and a name the roster does not
+  count as shared, tells that person; otherwise nobody. A narrate's record carries `told_lines: [{by: <speaker handle>,
+  people: [handle | cast row id], names: [as written]}]`; `toldTurn` and `castToldTurn` read it by identity through
+  `NameHistory.toldByIdentity` (which also reads `told_documents`), so a short form the line used ("Gapon" for a person whose
+  display name is the full one) tells them too. A spoken name several people share is blanked in `told_text`, so the string
+  told checks never read it. A graph person told by a line is in narrate's `introduced`: their `person_labels` name becomes
+  the book's display name, and the narrate journal keeps the labels before, so a failed or interrupted commit puts them back
+  (§141). An ask delivers a spoken name and tells nobody, as `{{name:}}` on an ask (its say tokens are not read).
+- **The words the Keeper reads.** The refusal now says the names it holds stand "outside the lines people other than the
+  investigator speak", and its fix (`UNTOLD_FIX`) names the line first: keep the name inside the speaker's
+  `{{say:<who>}}...{{/say}}`, else the person's `say_name` where the narration has it said, else the word `present[]` shows.
+  `SHARED_FIX` says a shared name may stand as written inside such a line and tells none of them. The speech steer
+  (`SPEECH_RULE`), `prompts/keeper.md`'s untold paragraph and the narrate `text` field say the same.
+- Telemetry: the gate's `untold_name` rows add `spoken` (places in lines) and, when delivered, `told`; a delivery whose places
+  were all spoken or cleared is `outcome: "spoken"`.
+
+*Three ends (§31).* Writers: the delivery's own handouts and lines (`told_documents`, `told_lines`), the host's public-figure
+verdicts (`cast-public.json`). Readers: the gate, the told checks, `bookCast` and everything that reads the cast. Actor: the
+Keeper, who renders the document it hands over and lets people say names in their lines; the operator, who reads the
+`public-figures`, `cast-public` and `untold_name` rows on TR-F2.
+
+*Tests* (`tests/extension/two-ledgers-names.test.mjs`, the farm on the in-process kernel, `farm-book.mjs`; the host's hooks
+with a fake Jev): a handout's printed names delivered in its narrate's prose the first time and told, a name it does not print
+still refused; the same at an ask; a document place the host clears asked again so the prose's village is cleared and nobody
+told; a line's short form and an unread resident's name delivered and told by identity, the label sync and the card;
+narration, the investigator's own line and a label's line refused, a shared family name in a line delivered and telling
+neither; a cleared place in a line telling nobody, an ask's line telling nobody; a failed commit rolling back the label a line
+made (a git wrapper that refuses `commit`); `sayRanges` string cases; the public figure judged once from his own entry and out
+of the roster, the epithet job and the gate, his prose delivered the first time; below the bar and with Jev unavailable or
+failing he stays untold (and a failed run pauses); a re-read row losing its verdict and asked again alone, a stale verdict
+skipped, a bad Noul refused; a handout printing him telling only the character beside him, a graph person his row joins never
+untold and not in `player_knows`; an untold name inside his name no place; one run per campaign and a delivery's hook not
+waiting for one in flight; a verdict submitted through the transport (`handleLine`), where a Noul is a Python float.
+`tests/extension/public-figures-table.test.mjs` (the harness: the real kernel extension and kernel subprocess, `fetch` answering
+Jev): the table opens and the whole cast is judged in the background, in one request, before the Keeper delivers anything; the
+host's and the kernel's telemetry rows. That test found the transport's Python floats refused by the first `cast.public.submit`,
+which the in-process cases had not sent. Mutations, each turning a case red and reverted by copying the saved file back: the narrate's gate
+without its documents; the ask's; the pending record not read; no second round in the host; `untold_spans` ignoring the
+document clearances; `untold_spans` without the documents' tells; spoken places not excused; the investigator's lines
+excused; any line excused; `told_lines` not written; the told checks not reading it; a shared spoken name not blanked; the
+line's label sync outside the narrate journal; a cleared place in a line still telling; no paragraph close in `sayRanges`;
+`bookCast` ignoring verdicts; unread public figures still untold; the host never judging before the gate; the bar ignored;
+a verdict not bound to its row; the job asking every row every time; submit keeping a verdict for an old row; a public graph
+person still untold; `player_knows` listing an unmet public figure; a public figure's names not protected; a public graph
+person still offered to the epithet lane; a delivery waiting for a run in flight; no dedupe of runs; a Noul over the wire
+refused; no background run at the table's opening (on the box, in the harness test).
+
 ## 195. A prescreen survives a library publish; the read-ahead reads a page again only for a new reason (owner 2026-10-08: 「我发现自从你这边改了方法之后，kp出现找不到模组内容的情况比之前多了，你最好留意一下接线的问题」, 「开这个切片，和两本账一起在 TR-F2 验收」; `docs/specs/prescreen-survives-publish.md`)
 
 **Evidence.** TR-F (App `d944b6b07`): two prescreens were discarded as `source_stale` 1–3 s after a reading job published

@@ -17,7 +17,7 @@ import { standingTables, type StandingTables } from '../combat/standing.js';
 import { array, row, clone, normalize, stripPrefix, number, repr, type Row } from "./values.js";
 import { playsFromReading } from "../modules/bound-source.js";
 import type { ChainReads } from "./weaknesses.js";
-import { moduleSourceSha, readServedCast } from "./cast.js";
+import { moduleSourceSha, readCastPublic, servedCast } from "./cast.js";
 import { installRenameUndo } from "./rename-undo.js";
 import { apartPairs } from "./survivors.js";
 export class CampaignSnapshot {
@@ -270,7 +270,10 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
     // copy has none (§177.2).
     if (registered) {
         // §177.16: the current table from either place first, then an older one of this file while a new one is read.
-        graph.castStore = await readServedCast(context.snapshots, [moduleRoot, ...(inScope ? [join(context.stateRoot, 'modules', id)] : [])], moduleSourceSha(meta));
+        const served = await servedCast(context.snapshots, [moduleRoot, ...(inScope ? [join(context.stateRoot, 'modules', id)] : [])], moduleSourceSha(meta));
+        graph.castStore = served?.table ?? null;
+        // §194.5: the verdicts on its rows, from the directory that serves it, before anything reads the cast.
+        if (served) graph.castPublic = await readCastPublic(context.snapshots, served.dir, served.table);
     }
     const material = (name: string) => {
         if (!registered || !playsFromReading(meta))

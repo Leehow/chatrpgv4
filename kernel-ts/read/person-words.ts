@@ -20,7 +20,7 @@ import { isJsonObject } from '../json.js';
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
 import { namePieces, occurs, toldTurn } from '../journal/naming.js';
 import { prepareNameHistory } from '../journal/name-history.js';
-import { bookCast, castNodes, knownNamePieces, ownedBy, tellGuard, untoldUnread, type CastPerson } from './cast.js';
+import { bookCast, castNodes, isPublicFigure, knownNamePieces, ownedBy, tellGuard, untoldUnread, type CastPerson } from './cast.js';
 import type { CampaignWriter } from '../write/store.js';
 import { nowIso } from '../write/store.js';
 
@@ -52,10 +52,10 @@ export function isTold(graph: ModuleGraph, journal: Row, node: Row, records: Ite
     return castNodes(graph, node).some(each => !!integer(row(row(journal.entries)[string(each.node_id)]).named_at) || toldTurn(graph, each, history, Infinity, own) !== null);
 }
 
-/** The book people a word may be given to: npc nodes the book has (never a table person), untold. */
+/** The book people a word may be given to: npc nodes the book has (never a table person, never a public figure, §194.5), untold. */
 export function untoldBookPeople(graph: ModuleGraph, journal: Row, records: Iterable<Row>): Row[] {
     const history = prepareNameHistory(records);
-    return graph.kind('npc').filter(node => !graph.isTablePerson(node) && !isTold(graph, journal, node, history));
+    return graph.kind('npc').filter(node => !graph.isTablePerson(node) && !isPublicFigure(graph, node) && !isTold(graph, journal, node, history));
 }
 
 /**

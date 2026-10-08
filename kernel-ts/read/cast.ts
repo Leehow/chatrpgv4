@@ -20,7 +20,7 @@ import type { ModuleGraph } from './module-graph.js';
 import { bookNames, namePieces, occurs, ownerOf, toldTurn } from '../journal/naming.js';
 import { prepareNameHistory, type TellGuard } from '../journal/name-history.js';
 import { array, integer, normalize, number, row, string, type Row } from './values.js';
-import { isJsonObject } from '../json.js';
+import { isJsonObject, jsonDigest, type ReadonlyJson } from '../json.js';
 import { join } from 'node:path';
 
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
@@ -39,6 +39,24 @@ export const CAST_VERSION = 5;
 export const CAST_READABLE_FROM = 3;
 /** §177.16: the table a re-read writes range by range; it replaces `cast.json` only when complete. */
 export const CAST_NEXT_FILE = 'cast.next.json';
+/**
+ * §194.5: the host's verdicts on whether each stored row is a real public figure of the world outside the story, mentioned as
+ * such (Jev, one question per row). Beside the table it judges, in the directory that serves it; each verdict is bound to the
+ * row's own digest (`castRowDigest`), so a re-read cast keeps every verdict whose row did not change.
+ */
+export const CAST_PUBLIC_FILE = 'cast-public.json';
+const rowDigests = new WeakMap<object, string>();
+/** §194.5: a stored row's digest, what its verdict is bound to; kept per parsed row, which the snapshot cache serves unchanged. */
+export const castRowDigest = (stored: unknown): string => {
+    const key = isJsonObject(stored) ? stored as object : null;
+    const known = key ? rowDigests.get(key) : undefined;
+    if (known) return known;
+    const digest = jsonDigest(stored as ReadonlyJson);
+    if (key) rowDigests.set(key, digest);
+    return digest;
+};
+/** §194.5: the verdicts that serve the checks for one table: the rows judged public, and how many rows have no verdict for what they say now. */
+export interface CastPublic { readonly public: ReadonlySet<string>; readonly pending: number }
 
 /** One person of the book (§177.1). */
 export interface CastPerson {
@@ -62,6 +80,11 @@ export interface CastPerson {
     printed: string[];
     /** A stored row's first mention, cut from the text layer by machine (§177.2). */
     first?: { page: number; sentence: string };
+    /**
+     * §194.5: a real public figure of the world outside the story, mentioned as such: every stored row this person is was
+     * judged so (`graph.castPublic`). Not untold, so out of the roster, the gate, the rename and the document tells.
+     */
+    public?: true;
 }
 
 /** The digest of the book's bound file: the cast belongs to one file, as a reading does. */
@@ -86,14 +109,38 @@ export function olderCast(value: unknown, sourceSha: string): Row | null {
  * serving while the new one is read into `cast.next.json` (table 27's upgrade left about five minutes with no unread people in
  * the rename); else that partial new table, which is all a first read has.
  */
-export async function readServedCast(snapshots: { pathExists(path: string): Promise<boolean>; readJson(path: string): Promise<unknown> },
-    dirs: readonly string[], sourceSha: string): Promise<Row | null> {
-    const read = async (path: string): Promise<unknown> => { try { return await snapshots.pathExists(path) ? await snapshots.readJson(path) : null; } catch { return null; } };
-    const files = await Promise.all(dirs.map(async dir => ({ current: await read(join(dir, CAST_FILE)), next: await read(join(dir, CAST_NEXT_FILE)) })));
-    for (const file of files) { const served = storedCast(file.current, sourceSha); if (served) return served; }
-    for (const file of files) { const served = olderCast(file.current, sourceSha); if (served) return served; }
-    for (const file of files) { const served = storedCast(file.next, sourceSha); if (served) return served; }
+export async function readServedCast(snapshots: CastSnapshots, dirs: readonly string[], sourceSha: string): Promise<Row | null> {
+    return (await servedCast(snapshots, dirs, sourceSha))?.table ?? null;
+}
+type CastSnapshots = { pathExists(path: string): Promise<boolean>; readJson(path: string): Promise<unknown> };
+const readOptional = async (snapshots: CastSnapshots, path: string): Promise<unknown> => {
+    try { return await snapshots.pathExists(path) ? await snapshots.readJson(path) : null; } catch { return null; }
+};
+/** `readServedCast` with the directory the table is served from, where its public-figure verdicts live (§194.5). */
+export async function servedCast(snapshots: CastSnapshots, dirs: readonly string[], sourceSha: string): Promise<{ table: Row; dir: string } | null> {
+    const files = await Promise.all(dirs.map(async dir => ({ dir, current: await readOptional(snapshots, join(dir, CAST_FILE)), next: await readOptional(snapshots, join(dir, CAST_NEXT_FILE)) })));
+    for (const file of files) { const table = storedCast(file.current, sourceSha); if (table) return { table, dir: file.dir }; }
+    for (const file of files) { const table = olderCast(file.current, sourceSha); if (table) return { table, dir: file.dir }; }
+    for (const file of files) { const table = storedCast(file.next, sourceSha); if (table) return { table, dir: file.dir }; }
     return null;
+}
+/**
+ * §194.5: the public-figure verdicts beside a served table: the ids of its rows a verdict for what the row says now judged
+ * public, and how many of its rows have no such verdict yet (the host asks about them before a delivery's gate).
+ */
+export async function readCastPublic(snapshots: CastSnapshots, dir: string, table: Row): Promise<CastPublic> {
+    const rows = ['complete', 'partial'].includes(string(table.state)) ? array(table.people) : [];
+    const file = row(await readOptional(snapshots, join(dir, CAST_PUBLIC_FILE))), verdicts = row(file.rows);
+    const judged = new Set<string>(), found = new Set<string>();
+    let pending = 0;
+    for (const raw of rows) {
+        const id = text(row(raw).id), verdict = row(verdicts[id]);
+        if (!id) continue;
+        if (verdict.row_sha256 !== castRowDigest(raw) || typeof verdict.public !== 'boolean') { pending += 1; continue; }
+        found.add(id);
+        if (verdict.public) judged.add(id);
+    }
+    return { public: judged, pending };
 }
 
 /**
@@ -169,7 +216,7 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
         return { id: graph.handle(nodes[0]!), names, pages: [...new Set(nodes.flatMap(node => pagesOf(graph, node)))].sort((a, b) => a - b),
             node: nodes[0]!, nodes, castIds: [] as string[], printed: [] as string[] };
     });
-    const rows = storedRows(graph);
+    const rows = storedRows(graph), judgedPublic = graph.castPublic?.public ?? new Set<string>();
     // A row and a graph person share a whole identity, never only a short form: the person's own name is one of the row's forms
     // (`own`), or the row's fullest form is one of the person's names (`fullest`). Table 24: the reader gave the bar owner and
     // the doctor one bare first name, which the bar owner's node also carries as an alias; the doctor's row must not join him
@@ -228,7 +275,7 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
         const target = joins.get(at);
         if (target === undefined) {
             unread.push({ id: stored.id, names: stored.names, pages: stored.pages, node: null, nodes: [], castIds: [stored.id], printed: stored.shown,
-                ...(stored.first ? { first: stored.first } : {}) });
+                ...(stored.first ? { first: stored.first } : {}), ...(judgedPublic.has(stored.id) ? { public: true as const } : {}) });
             return;
         }
         // A row that joins a graph person is that person: no entry of its own, and its words never a second owner of their names.
@@ -239,6 +286,9 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
         person.castIds.push(stored.id);
     });
     const cast = [...people.filter((_, index) => into[index] === index), ...unread];
+    // §194.5: a graph person is a public figure only when every stored row they absorbed was judged one; a person no row
+    // answers (an authored module's) has no verdict and stays as they are.
+    for (const person of cast) if (person.node && person.castIds.length && person.castIds.every(id => judgedPublic.has(id))) person.public = true;
     memo.set(graph, cast);
     return cast;
 }
@@ -256,6 +306,17 @@ export function castNodes(graph: ModuleGraph, node: Row): Row[] {
         groups.set(graph, found);
     }
     return found.get(string(node.node_id)) ?? [node];
+}
+
+const publicNodes = new WeakMap<ModuleGraph, Set<string>>();
+/** §194.5: whether a graph person is a public figure of the world outside the story (`CastPerson.public`), so never untold. */
+export function isPublicFigure(graph: ModuleGraph, node: Row): boolean {
+    let found = publicNodes.get(graph);
+    if (!found) {
+        found = new Set(bookCast(graph).filter(person => person.public).flatMap(person => person.nodes.map(each => string(each.node_id))));
+        publicNodes.set(graph, found);
+    }
+    return found.has(string(node.node_id));
 }
 
 /**
@@ -331,10 +392,11 @@ export function protectedNames(graph: ModuleGraph, world: Row, journal: Row, rec
     const history = prepareNameHistory(records, tellGuard(graph, world, journal));
     // The told test the roster makes (`untoldBlock`, `untoldUnread`): the journal's `named_at` or a delivery that showed the name;
     // §188.2: of any node of an individual the graph holds more than once (`isTold`), every copy's words their own (§188.1).
-    const told = (person: CastPerson): boolean => person.node
+    // §194.5: a public figure's names are everyone's, as a told person's are.
+    const told = (person: CastPerson): boolean => person.public === true || (person.node
         ? person.nodes.some(node => !!integer(row(row(journal.entries)[string(node.node_id)]).named_at)
             || toldTurn(graph, node, history, Infinity, ownerOf(graph, person.nodes, person.castIds)) !== null)
-        : castToldTurn(person, history) !== null;
+        : castToldTurn(person, history) !== null);
     const words = [...tableWords(graph, world, journal).map(entry => entry.word), ...bookCast(graph).filter(told).flatMap(person => person.names)];
     return [...new Set(words.map(text).filter(Boolean))];
 }
@@ -361,18 +423,18 @@ export function castToldTurn(person: CastPerson, records: Iterable<Row>): number
     const words = person.names.map(normalize).filter(Boolean);
     const history = prepareNameHistory(records), own = (owner: string) => owner === person.id || person.castIds.includes(owner);
     for (const record of history.castRecords()) {
-        // §194.3: a document the delivery handed over printed their name.
-        if (history.documentTold(record, own)) return number(record.turn);
+        // §194.3: a document the delivery handed over printed their name; §194.5: a line of it said their name.
+        if (history.toldByIdentity(record, own)) return number(record.turn);
         const text = history.text(record);
         if (words.some(word => history.says(text, word, own, () => history.shields(record)))) return number(record.turn);
     }
     return null;
 }
 
-/** The unread people the investigator has not been told about. */
+/** The unread people the investigator has not been told about. §194.5: a public figure is never among them. */
 export const untoldUnread = (graph: ModuleGraph, records: Iterable<Row>): CastPerson[] => {
     const history = prepareNameHistory(records);
-    return unreadCast(graph).filter(person => castToldTurn(person, history) === null);
+    return unreadCast(graph).filter(person => !person.public && castToldTurn(person, history) === null);
 };
 
 /**

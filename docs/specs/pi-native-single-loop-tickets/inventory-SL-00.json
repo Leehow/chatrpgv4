@@ -854,7 +854,7 @@
       "path": "app-play-gated",
       "role": "leaf",
       "trace": "observed: table 28 (App a0ff7f0f6, game-d78dd9ec), three narrate judgements of 1 place each, 260-472 ms",
-      "note": "Gate: a Jev key, and a table.narrate or table.ask whose text writes an untold person's printed name (table.untold_spans finds the places). One Noul per place in requests of at most 40 (NAME_SPANS_PER_BATCH), in parallel under one 2.5 s wait (NAME_SPANS_WAIT_MS), maxRetries 0, at most 400 places a call (NAME_SPANS_PER_CALL); a place it judges another word goes to the kernel as untold_cleared, and a failure or a late answer clears nothing. The request rename's own judgement reuses extensions/table/context-runtime.ts decision and adds no site.",
+      "note": "Gate: a Jev key, and a table.narrate or table.ask whose text writes an untold person's printed name (table.untold_spans finds the places). One Noul per place in requests of at most 40 (NAME_SPANS_PER_BATCH), in parallel under one 2.5 s wait (NAME_SPANS_WAIT_MS), maxRetries 0, at most 400 places a call (NAME_SPANS_PER_CALL); a place it judges another word goes to the kernel as untold_cleared, and a failure or a late answer clears nothing. The request rename's own judgement reuses extensions/table/context-runtime.ts decision and adds no site. 194.5: the same adapter asks family cast-public-figures (one Noul per cast row with no verdict for what it says now, requests of at most 40 under one 2.5 s wait, maxRetries 0) when the table opens, in the background, and before a delivery whose table.untold_spans reports public_pending; a failure or a late answer submits nothing, and the campaign is not asked again for 60 s.",
       "lines_at_fd073fc4f": [
         1616
       ]

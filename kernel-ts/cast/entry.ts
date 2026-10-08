@@ -60,6 +60,16 @@ export function castEntry(text: string, own: readonly string[], others: Readonly
     return points.length > CAST_SENTENCE_CHARS ? points.slice(0, CAST_SENTENCE_CHARS).join('').trimEnd() : entry;
 }
 
+/** The directories a campaign's cast is served from, in order: the campaign's fork of the book, then the shared library. */
+export async function castDirs(context: KernelContext, campaign: string, moduleId: string): Promise<string[]> {
+    const library = join(context.stateRoot, 'modules', moduleId);
+    try {
+        const scoped = await scopedModuleRoot(context, campaign, moduleId);
+        if (scoped) return [join(scoped, moduleId), library];
+    } catch { /* a damaged scope is the loader's to report; the library's copy still serves */ }
+    return [library];
+}
+
 /**
  * The reading text of the book's pages, as `epithets.job` reads them: the page transcript's `text` where the host stored one
  * (§191.4), else the text the kernel keeps for the cast (`cast-source.json`, §177.2: the host sent the transcript's reading
@@ -67,11 +77,7 @@ export function castEntry(text: string, own: readonly string[], others: Readonly
  * the cast is served from (the campaign's fork, then the shared library).
  */
 export async function castPages(context: KernelContext, campaign: string, moduleId: string, sourceSha: string): Promise<(page: number) => Promise<string[]>> {
-    let dirs: string[] = [join(context.stateRoot, 'modules', moduleId)];
-    try {
-        const scoped = await scopedModuleRoot(context, campaign, moduleId);
-        if (scoped) dirs = [join(scoped, moduleId), ...dirs];
-    } catch { /* a damaged scope is the loader's to report; the library's copy still serves */ }
+    const dirs = await castDirs(context, campaign, moduleId);
     let kept: Map<number, string> | null | undefined;
     const keptCopy = async (): Promise<Map<number, string>> => {
         if (kept === undefined) {

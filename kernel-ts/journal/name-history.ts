@@ -57,12 +57,13 @@ export class NameHistory implements Iterable<Row> {
         return prose.get(record)!;
     }
     /**
-     * §194.3: whether a document this delivery handed over told the person whose owner keys `own` answers (`told_documents`, by
-     * the person's handle or cast row id). By identity, never by the names it printed: written into the told text, "Dimiri
-     * Kravchuk" would tell everyone whose names carry "Kravchuk".
+     * Whether this delivery told the person whose owner keys `own` answers by identity (the person's handle or cast row id): a
+     * document it handed over printed their name (§194.3, `told_documents`), or a person other than the investigator said it in
+     * a line (§194.5, `told_lines`, a narrate's only). Never by the names printed: written into the told text, "Dimiri Kravchuk"
+     * would tell everyone whose names carry "Kravchuk", and a line's short form ("Gapon") is not the name `toldTurn` looks for.
      */
-    documentTold(record: Row, own: (owner: string) => boolean): boolean {
-        return documentPeople(record).some(own);
+    toldByIdentity(record: Row, own: (owner: string) => boolean): boolean {
+        return documentPeople(record).some(own) || (record.closed_by === 'narrate' && linePeople(record).some(own));
     }
     speech(record: Row): readonly { npc: string; shown: string }[] {
         const speakers = this.prepared.speakers;
@@ -96,11 +97,22 @@ export class NameHistory implements Iterable<Row> {
     }
 }
 
+const peopleOf = (rows: unknown): string[] => array(rows).flatMap(entry => array(row(entry).people)).filter((id): id is string => typeof id === 'string' && !!id);
 /** §194.3: the people a delivery's documents told, as the record keeps them (`told_documents: [{handout, people, names}]`). */
-const documentPeople = (record: Row): string[] => array(record.told_documents).flatMap(entry => array(row(entry).people))
-    .filter((id): id is string => typeof id === 'string' && !!id);
-/** An ask record whose documents told someone (§194.3); a narrate record is read by its own commit test. */
-const documented = (record: Row): boolean => record.closed_by === 'ask' && documentPeople(record).length > 0;
+const documentPeople = (record: Row): string[] => peopleOf(record.told_documents);
+/** §194.5: the people a narrate's lines told, as the record keeps them (`told_lines: [{by, people, names}]`). */
+const linePeople = (record: Row): string[] => peopleOf(record.told_lines);
+/**
+ * An ask record whose documents told someone (§194.3); a narrate record is read by its own commit test. §194.5: so is the
+ * delivery being made, as its own gate reads it (`pendingTells`).
+ */
+const documented = (record: Row): boolean => (record.closed_by === 'ask' || record.pending === true) && documentPeople(record).length > 0;
+/**
+ * §194.5 (TR-F2 turn 2): the delivery being made, as the told checks will read it once it is recorded -- the people its own
+ * handouts tell, by identity (`told_documents`). Never written: §177.11's gate adds it to the history it reads, so a name the
+ * same delivery's document prints counts as told when that delivery's text is checked.
+ */
+export const pendingTells = (turn: number, told: readonly Row[]): Row => ({ turn, pending: true, told_documents: [...told] });
 
 /** Explicit ownership: aggregating readers pass one preparation to all their consumers. §188.1: a reader that holds the world
  *  and the journal passes the told guard; a history already prepared keeps its guard when none is passed. */

@@ -71,3 +71,36 @@ export function speechPass(text: string, resolve: SpeakerResolver): { text: stri
     TOKEN.lastIndex = 0;
     return { text: out.join(''), speech };
 }
+
+/** §194.5: one say span of a text by its offsets: from its open token's end to where the span closes, with its speaker. */
+export interface SaySpan { start: number; end: number; who: Speaker }
+/**
+ * §194.5: where each say span of `text` stands, closed where `speechPass` closes it -- at its close token, at the next open
+ * token, at a paragraph break, or at the end of the text -- with the token's name resolved. The offsets are `text`'s own, so a
+ * place found in the same text is inside a span when it lies within one.
+ */
+export function sayRanges(text: string, resolve: SpeakerResolver): SaySpan[] {
+    const spans: SaySpan[] = [], tokens = new RegExp(TOKEN.source, 'g');
+    let open: { start: number; name: string } | null = null;
+    const close = (end: number) => {
+        if (open && end > open.start) spans.push({ start: open.start, end, who: resolve(open.name) });
+        open = null;
+    };
+    // A paragraph break ends the line whatever the Keeper forgot.
+    const content = (from: number, to: number) => {
+        const gap = open ? PARAGRAPH.exec(text.slice(from, to)) : null;
+        if (gap) close(from + gap.index);
+    };
+    let last = 0;
+    for (let match = tokens.exec(text); match; match = tokens.exec(text)) {
+        content(last, match.index);
+        last = match.index + match[0].length;
+        close(match.index);
+        if (match[1] === undefined) continue;
+        const name = match[1].trim();
+        if (name && name.length <= NAME_LIMIT) open = { start: last, name };
+    }
+    content(last, text.length);
+    close(text.length);
+    return spans;
+}
