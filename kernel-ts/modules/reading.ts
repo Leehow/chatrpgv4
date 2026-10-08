@@ -35,7 +35,7 @@ import { ROUTE_TRAVEL_FIELD, applyTravelFill, type TravelRow } from './route-tra
 import { bandRows } from '../rules/bands.js';
 import {validatePublicGuidance} from './public-guidance.js';
 import {sourceNeedKey} from './source-needs.js';
-import {READABLE_NEED_KINDS,carriedNeeds,needDispositionRecord,needDone,needEligible,needMaterial,needPacket,retainedNeed,settledNeed,unitJobs,unreadUnits} from './need-reads.js';
+import {READABLE_NEED_KINDS,carriedNeeds,needDispositionRecord,needDone,needEligible,needMaterial,needPacket,readUnitPages,retainedNeed,settledNeed,unitJobs,unreadUnits} from './need-reads.js';
 import {MODULE_LOGIC_REVIEW,moduleGuidanceApproved} from './module-review-policy.js';
 import {backgroundSourceUnits,referenceSourceUnits,sourceUnitKey,sourceUnitPages,type SourceUnit} from './background-source.js';
 import {publishReferencePlace,publishReferenceContext,referenceReady as sourceReferenceReady} from './reference.js';
@@ -1927,7 +1927,8 @@ export class Reading {
                     const {task_preparation:_privatePreparation,source_need:needMarker,...visibleJob}=job;
                     // §151.4: a background need read carries what its disposition is decided on; a unit carries the needs riding on it.
                     const units = needMarker || job.source_unit ? await this.streamedUnits(mid, meta) : [];
-                    const needTask = needMarker && !truth(job.foreground) ? needPacket(row(needMarker), graph, mid, unreadUnits(units, ownAsks(queue), unitRows(meta, units))) : undefined;
+                    const needTask = needMarker && !truth(job.foreground) ? needPacket(row(needMarker), graph, mid, unreadUnits(units, ownAsks(queue), unitRows(meta, units)),
+                        readUnitPages(units, ownAsks(queue), unitRows(meta, units))) : undefined;
                     const carried = job.source_unit ? carriedNeeds(row(row(meta.reading).source_need_dispositions), graph, job.source_unit as SourceUnit) : [];
                     // §152.4: an identity job is claimed with its page's pairs as they stand now, both crops of each.
                     const identityTask: Row = job.visual_identity ? { visual_identity: { page: job.visual_identity.page,
@@ -2343,7 +2344,8 @@ export class Reading {
             throw new RpcError('invalid_params', 'only a background read of a retained source need settles without a read');
         const raw = await this.store.readGraph(mid) || {};
         let record: Row;
-        try { record = needDispositionRecord(report, marker, raw, mid, await this.streamedUnits(mid, meta), string(job.job_id), number(meta.page_count)); }
+        const units = await this.streamedUnits(mid, meta);
+        try { record = needDispositionRecord(report, marker, raw, mid, units, string(job.job_id), number(meta.page_count), readUnitPages(units, ownAsks(queue), unitRows(meta, units))); }
         catch (error) { throw new RpcError('invalid_params', error instanceof Error ? error.message : String(error)); }
         meta.reading ??= Reading.initialState();
         const retained = retainedNeed(raw, marker.key);

@@ -10,8 +10,11 @@ import { sourceNeedKey } from './source-needs.js';
 
 /** The retained need kinds a background reading can close; `runtime_context` waits for live play instead. */
 export const READABLE_NEED_KINDS = ['deferred', 'source_read', 'uncertain'];
-/** The dispositions that settle a need attempt without an author (§151.4 steps 1-3); `read` is a publication. */
-export const SETTLED_DISPOSITIONS = ['answered', 'unlocated', 'carried'];
+/**
+ * The dispositions that settle a need attempt without an author (§151.4 steps 1-3, and §195.2's `waits_for_play`); `read`
+ * is a publication.
+ */
+export const SETTLED_DISPOSITIONS = ['answered', 'unlocated', 'carried', 'waits_for_play'];
 /** At most this many carried questions ride on one unit task. */
 const CARRIED_PER_UNIT = 4;
 /** Evidence bounds: a settled record keeps what the decision was made on, never an unbounded host payload. */
@@ -57,6 +60,16 @@ export function unitJobs(queue: Row[], rows: Map<string, string>): Map<string, R
     return jobs;
 }
 
+/**
+ * §195.2: the pages the read-ahead has already read -- every page of a streamed unit whose latest reading completed (its job,
+ * or its material row on a fork). A failed or running unit's pages are not among them.
+ */
+export function readUnitPages(units: SourceUnit[], queue: Row[], rows: Map<string, string>): number[] {
+    const jobs = unitJobs(queue, rows), pages = new Set<number>();
+    for (const unit of units) if (jobs.get(sourceUnitKey(unit))?.state === 'completed') for (const page of sourceUnitPages(unit)) pages.add(page);
+    return [...pages].sort((a, b) => a - b);
+}
+
 /** Streamed units not yet read: no job for the unit, or a job that is still waiting in the queue. */
 export function unreadUnits(units: SourceUnit[], queue: Row[], rows: Map<string, string>): SourceUnit[] {
     const jobs = unitJobs(queue, rows);
@@ -74,6 +87,8 @@ export function unreadUnits(units: SourceUnit[], queue: Row[], rows: Map<string,
 export function needEligible(dispositions: Row, raw: Row, need: Row, queue: Row[], moduleId: string, rows: Map<string, string>,
     window?: { first: number; last: number }): boolean {
     const record = row(dispositions[sourceNeedKey(need)]);
+    // §195.2: every page its leads named was already read; what is left is its trigger, which only play can meet.
+    if (record.disposition === 'waits_for_play') return false;
     if (record.disposition === 'unlocated') {
         if (typeof need.node_id !== 'string') return true;
         const material = needMaterial(raw, need.node_id, moduleId);
@@ -115,14 +130,14 @@ export function needDone(dispositions: Row, need: Row, queue: Row[]): boolean {
 }
 
 /** A background marked job's packet field: the need as the reader writes it, with what the disposition is decided on. */
-export function needPacket(marker: Row, raw: Row, moduleId: string, unread: SourceUnit[]): Row | undefined {
+export function needPacket(marker: Row, raw: Row, moduleId: string, unread: SourceUnit[], readPages: number[] = []): Row | undefined {
     const need = retainedNeed(raw, marker.key);
     if (!need || typeof need.node_id !== 'string') return undefined;
     const material = needMaterial(raw, need.node_id, moduleId);
     return {
         key: marker.key, kind: need.kind, node_id: need.node_id, focus: need.focus, question: need.question, reason: need.reason, trigger: need.trigger,
         source_refs: array(need.source_refs).filter(ref => integer(row(ref).pdf_index)).map(ref => ({ page: number(ref.pdf_index) + 1 })),
-        accepted_pages: material.pages, material_digest: material.digest, unread_units: clone(unread),
+        accepted_pages: material.pages, material_digest: material.digest, unread_units: clone(unread), read_pages: [...readPages],
     };
 }
 
@@ -155,7 +170,8 @@ const score = (value: unknown): number | undefined => {
  * The record a settled attempt leaves: the host's disposition checked against what the kernel knows (a carried unit
  * must be one this module streams), with bounded evidence. Throws a plain Error on a malformed report.
  */
-export function needDispositionRecord(value: unknown, marker: Row, raw: Row, moduleId: string, units: SourceUnit[], jobId: string, pageCount: number): Row {
+export function needDispositionRecord(value: unknown, marker: Row, raw: Row, moduleId: string, units: SourceUnit[], jobId: string, pageCount: number,
+    readPages: number[] = []): Row {
     const report = row(value), disposition = report.disposition;
     if (!SETTLED_DISPOSITIONS.includes(disposition)) throw new Error(`need.disposition must be one of ${SETTLED_DISPOSITIONS.join(', ')}`);
     const evidence = row(report.evidence), need = retainedNeed(raw, marker.key);
@@ -188,6 +204,12 @@ export function needDispositionRecord(value: unknown, marker: Row, raw: Row, mod
             const claims = entityClaims(raw, marker.node_id);
             if (claims.length <= DECIDED_CLAIMS) record.claim_digests = claims.map(claim => jsonDigest(claim));
         }
+    }
+    // §195.2: a deferred need located only on pages the read-ahead already read waits for its trigger in play.
+    if (disposition === 'waits_for_play') {
+        const read = new Set(readPages);
+        if (marker.kind !== 'deferred') throw new Error('only a deferred need waits for play');
+        if (!outside.length || outside.some(page => !read.has(page))) throw new Error('a need waits for play only when every page lead outside its accepted pages was already read');
     }
     if (disposition === 'carried') {
         const streamed = new Map(units.map(unit => [sourceUnitKey(unit), unit]));

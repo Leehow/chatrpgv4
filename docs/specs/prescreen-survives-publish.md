@@ -1,6 +1,6 @@
 # Prescreen survives a library publish; the read-ahead stops re-reading the same pages
 
-Status: ready-for-agent
+Status: ready-for-human (PS-01 and PS-02 implemented on `claude/prescreen-publish-20261008`; PS-03 is the lead's TR-F2 acceptance)
 
 Owner (2026-10-08): 「我发现自从你这边改了方法之后，kp出现找不到模组内容的情况比之前多了，你最好留意一下接线的问题」, then
 「开这个切片，和两本账一起在 TR-F2 验收」. Contract `docs/kernel-rpc.md` §195. Accepted together with
@@ -23,6 +23,7 @@ Owner (2026-10-08): 「我发现自从你这边改了方法之后，kp出现找�
 ## Tickets
 
 ### PS-01 A prescreen stays valid when what it used did not change
+Status: ready-for-human (implemented on `claude/prescreen-publish-20261008`; contract §195.1 implementation decision; awaiting integration and PS-03)
 - Replace the whole-revision comparison with a check of the prescreen's own read set: the units/records/pages it
   supplied are re-read (by digest) and compared; the prescreen is current when they are unchanged, whatever else the
   publish added. When one did change, re-select once against the current materials within the remaining allowance
@@ -33,6 +34,9 @@ Owner (2026-10-08): 「我发现自从你这边改了方法之后，kp出现找�
   that changes a supplied unit → re-selected; mutation-check.
 
 ### PS-02 Why the read-ahead re-reads the same pages, and the fix
+Status: ready-for-human (implemented on `claude/prescreen-publish-20261008`; root cause and decision in contract §195.2;
+awaiting integration and PS-03). The producer is §151.4's background need reads of `deferred` needs, asked after the
+window had read every page.
 - Find, from TR-F's artifacts (App home `~/Library/Application Support/Pipi/pipicoc/pi-coc/.coc/reading-telemetry.jsonl`,
   the campaign's and `modules/book-2`'s reading work dirs; read only), which producer queues the repeat jobs (source
   needs §187.7, claim support, repair §187.6, DUP-03 repair §192, window §182/§191.5) and why a page already read and
@@ -42,5 +46,6 @@ Owner (2026-10-08): 「我发现自从你这边改了方法之后，kp出现找�
 - Tests reproduce the repeat shape and show it gone; mutation-check.
 
 ### PS-03 Acceptance
+Status: ready-for-human (TR-F2, lead).
 TR-F2 (lead): on the fresh Cold Harvest table, zero `source_stale`-class fallbacks caused by a publish whose changes the
 prescreen did not use; the read-ahead's jobs and repeated pages counted and compared with TR-F.

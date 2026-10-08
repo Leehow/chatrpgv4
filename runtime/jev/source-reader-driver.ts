@@ -359,7 +359,8 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      // §151.4 steps 2-3: the need facet's leads decide, by page arithmetic, whether this need is read at all.
      const needAfterLocate=async(leads:NeedLead[]|undefined,evidence:{searched_pages?:number;partial:boolean;cached:boolean})=>{
        if(!needTask||requestCount>0)return undefined;
-       const decided=needDisposition({leads:leads??[],acceptedPages:needTask.accepted_pages,unreadUnits:needTask.unread_units,complete:leads!==undefined});
+       const decided=needDisposition({leads:leads??[],acceptedPages:needTask.accepted_pages,unreadUnits:needTask.unread_units,complete:leads!==undefined,
+         kind:needTask.kind,readPages:needTask.read_pages});
        await settleNeed({disposition:decided.disposition,...(decided.units.length?{units:decided.units}:{}),
          evidence:{need_leads:leads??[],accepted_pages:needTask.accepted_pages,candidates,...evidence}});
        return decided.disposition==='read'?undefined:decided.disposition;
@@ -673,7 +674,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        else if((observation.artifact as any)?.kind==='needs_assessed'){
          next.needsAssessment=false;next.located=!(observation.artifact as any).retrieve;next.projected=next.located;next.inferred=false;
        }else{next.located=true;if(observation.status!=='ok'){next.fallback=true;next.needsAssessment=false;}
-         if(['unlocated','carried'].includes((observation.artifact as any)?.need_disposition))next.needSettled=true;}
+         if(['unlocated','carried','waits_for_play'].includes((observation.artifact as any)?.need_disposition))next.needSettled=true;}
      }
      if(observation.kind==='infer')next.inferred=true;
      return next;

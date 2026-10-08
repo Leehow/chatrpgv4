@@ -39264,4 +39264,69 @@ skipping the re-selection (the re-selection and the PDF case red), ignoring a ch
 ignoring a changed page (the extraction case red), naming only the status in the fallback (the PDF case red).
 
 ### 195.2 A page is read again only for a reason the earlier read did not cover
-(Recorded by PS-02 with the producer it found.)
+
+**The producer.** The repeat jobs are §151.4's background need reads, queued by the read-ahead's `queueNeedReads`
+(`kernel-ts/modules/reading.ts`, two per pass) from retained `deferred` source needs. Not claim support, not the §187.6
+append repair, not DUP-03 (§192) and not the window (§182/§191.5). Evidence, from TR-F's campaign fork
+(`module-campaigns/game-56788eff…/modules/book-2/deepen-queue.json`, the jobs' `need-disposition.json` and the reading
+telemetry; read only):
+- The window had read the whole book first. read-1..53 are the 48 pages in two-page `source_unit` jobs plus the visual
+  scans; the last unit, read-53 (pages 7-8), completed at 07:01:33. Every page except 23-24 belongs to a completed unit (read-17
+  failed).
+- The need jobs are read-51 (`uncertain`, a real date conflict) and read-54..70, seventeen `deferred` needs, each with a play
+  trigger ("When play reaches farm navigation or exploration.", "Only if the Keeper chooses the optional combat
+  encounter.", "If Raisa becomes a focus beyond these page-8 facts."). §151.4 queues a deferred need once no unit of the
+  window is left unqueued, so they fired from 06:58, as soon as the last unit was queued.
+- Step 1 (answered) judged only the need entity's own accepted material: read-55's `scene-source-place-15-4` cites page 15
+  alone, so the Noul was 0.24 and the farm description the units had published under `location-krasivyi-oktabur-3` did not
+  count. The locate then put the need's leads on pages the units had already read: read-55 [15,16,17,45,6] (accepted [15]),
+  read-56 [15,46,17,13,6], read-57 [20,21,33,25,6,7,34], read-58 [25,45,16,20,8]. `unread_units` was `[]` for every one, so
+  §151.4 had no case for it but "read as today". That is the overlap of pages 6, 15, 16, 17, 20, 25 and 45.
+- What the re-reads bought: read-55..58 published one node each and 0-2 claims. read-55 deferred its own question again onto
+  `location-krasivyi-oktabur-3` (the checker's `source_need_own_question` refusal compares nodes), which became read-67 and then read-69;
+  read-65 re-deferred onto `creature-roigel` (read-68), and read-66 onto Raisa again (read-70). Replayed by page arithmetic
+  on the recorded leads, 11 of the 17 deferred jobs (55-61, 63-66) had every new lead on a page a completed unit had
+  read before the need was claimed. Of the other six, 54 and 62 already settled `unlocated`, 69's page-lead pass was
+  incomplete (no leads, so it reads as today), and 67, 68 and 70 reach page 24 of the failed unit. 67-70 exist only
+  because of the re-deferrals.
+
+So the repeats were not correct by contract. §151.4 meant a deferred need's background read to reach pages *not yet read*
+(it waits for the frontier so the units read first, and `carried` rides on a unit not yet read). It never said what to do
+when the frontier is behind it and the leads land on pages already read and published. Its reason, "a later optional use"
+with a play trigger, is then one only play can meet.
+
+**Implementation decision (PS-02, 2026-10-08).**
+- **The kernel names the pages already read.** A background need's claim packet gains `read_pages`: every page of a
+  streamed unit whose latest reading completed (its job, or its material row on a fork; `readUnitPages`). A failed, running or
+  queued unit's pages are not among them.
+- **A new settled disposition, `waits_for_play`** (in `SETTLED_DISPOSITIONS`). The source child decides it by page arithmetic in
+  `needDisposition` after the answered check and the locate, as §151.4 step 4 refined: a `deferred` need whose new leads (at
+  or above the lead gate, outside its accepted pages) are all in `read_pages`, and not all inside unread units (that is
+  still `carried`), waits for play. No author runs, nothing is read again, nothing is published. A deferred need with any
+  lead on a page no reading covered still reads, as do `source_read` and `uncertain` needs, which are current gaps the earlier read flagged. A packet without
+  `read_pages` decides as before.
+- **The kernel checks it** in `module.read.finish {outcome: "settled"}`: only a `deferred` marker, and only when at least one
+  lead lies outside the accepted pages and every such lead is a page `readUnitPages` returns at settle time. It records it in
+  `reading.source_need_dispositions` like any settlement. `needEligible` never re-opens it, so the read-ahead does not ask it again
+  and a short book's build can complete. The need stays retained on the node (`source_needs`, visible to the Keeper); a Keeper or a material gate
+  asking the same focus and question gets a fresh read, as with every settled attempt.
+- **Not changed.** The answered check, the locate and its cost (about 2 s of Jev per need), the carried path, the
+  own-question refusal's node comparison (the re-deferral loophole is cut off here because a re-deferred need on read
+  pages now waits for play; the loophole itself is recorded for the owner), and the unit, map, identity and window producers.
+- **Expected on TR-F2 (PS-03).** Need jobs still appear after the window is read, but on TR-F's record 11 of 17 would
+  settle `waits_for_play` with no read, no publication and no `library_sync`. The re-deferral chains do not start. A page is read twice only through a lead on a page no
+  reading covered (TR-F: page 24 of the failed unit) or a foreground request.
+
+*Three ends (§31).* Writer: the kernel claim (`read_pages`) and the source child's receipt (`waits_for_play`). Reader:
+`settleNeed`, `needEligible`, the read-ahead. Actor: the read-ahead, which stops re-reading; the Keeper, who still sees the
+retained need and can ask for it; the operator, who counts `source_need` rows by disposition on TR-F2.
+
+*Tests.* `tests/extension/source-reader-driver.test.mjs` (the real driver policy over a real PDF, fake Jev): a deferred
+need whose leads fall on read pages → `waits_for_play`, settled without reading; a lead on an unread page, a `source_read`
+need and a packet without `read_pages` → `read`. `tests/extension/ts-kernel-modules.test.mjs` (the real kernel, a streamed
+book): the packet's `read_pages` and `unread_units`; `waits_for_play` refused when a lead is on an unread page, accepted
+when the leads are on a completed unit's pages, recorded, retained on the node, never asked again after the last unit
+completes; a Keeper request reads afresh; refused for a non-deferred need. Mutations (each reverted by copying the saved
+file back): `needEligible` re-opening it, `readUnitPages` counting unfinished units, the kernel's read-page check and its
+kind check removed, the child deciding it for any kind, without the read-page check, and with `read_pages` unwired.
+Each turned its test red.
