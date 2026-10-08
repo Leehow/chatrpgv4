@@ -1,5 +1,5 @@
 /** A single host service for PDF preparation and foreground/background reading. */
-import { readFile, writeFile, mkdir, copyFile, appendFile, rm } from "node:fs/promises";
+import { readFile, readdir, writeFile, mkdir, copyFile, appendFile, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { KernelError , isKernelError } from "../kernel/client.ts";
@@ -744,15 +744,18 @@ export class ReadingService implements ReadingBridge {
 			for (const range of ranges.filter(value => value?.done !== true)) {
 				signal.throwIfAborted();
 				const place = await this.call('cast.range', { ...owned, index: range.index }, campaign);
+				// §177.2: the child is shown its task and the page files the kernel wrote (zero-padded, so their names sort in page
+				// order) and names no path; its one tool hands the draft to the host.
+				const pageFiles = (await readdir(join(place.cwd, 'pages')).catch(() => [] as string[]))
+					.filter(name => /^page-\d+\.txt$/.test(name)).sort().map(name => `pages/${name}`);
 				let lastError: unknown, submitted: Row | undefined;
 				for (let attempt = 1; attempt <= CAST_ATTEMPTS && !submitted; attempt++) {
 					if (signal.aborted || this.stopped) return { state: 'stopped' };
 					const run = await this.runtime().runTask({ kind: 'reader', request: { cwd: place.cwd, model: model.id, thinking: model.thinking, priority: 'background',
-						systemPrompt, tools: 'read,write,edit,bash', timeoutMs: CAST_TIMEOUT_MS, eventLog: join(place.cwd, `cast-${attempt}.jsonl`),
-						brief: `${readerInput({ task: { job_id: job.job_id, purpose: 'cast', play_language: job.play_language, range: { first: place.first, last: place.last }, pages_with_text: place.pages_with_text, known_cast: place.known } })} `
-							+ `Read task.json, then every page file under pages/ (pages ${place.first}-${place.last}), and write draft.json as your instructions say. `
+						systemPrompt, tools: '', cast: true, attachments: ['task.json', ...pageFiles], timeoutMs: CAST_TIMEOUT_MS, eventLog: join(place.cwd, `cast-${attempt}.jsonl`),
+						brief: `Your task and the page files of pages ${place.first}-${place.last} are attached above. `
 							+ (attempt > 1 && lastError ? `The previous attempt was refused: ${lastError instanceof Error ? lastError.message : String(lastError)}. ` : '')
-							+ 'Run coc-read-check --kind module-cast --draft draft.json before you stop, and repair what it refuses.' } }, signal);
+							+ 'Submit your whole draft with submit_cast, as your instructions say, and repair what its check refuses.' } }, signal);
 					signal.throwIfAborted();
 					try {
 						submitted = await this.call('cast.submit', { ...owned, index: range.index }, campaign);
