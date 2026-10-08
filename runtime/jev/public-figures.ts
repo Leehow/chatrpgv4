@@ -19,8 +19,12 @@ export const PUBLIC_FIGURE_AT=0.6;
 /** One request asks at most this many people (an item is about 1 KB against Jev's 32k/64k bounds); a request the packer still
  *  refuses is split in halves. */
 export const PUBLIC_FIGURES_PER_BATCH=40;
-/** The wait for one job's answers; a later answer is not waited for, and the people it covered stay untold until asked again. */
+/** How long a delivery waits for the judgement it starts; a later answer is held for the campaign's next run, and the people it
+ *  covers stay untold for this delivery only. */
 export const PUBLIC_FIGURES_WAIT_MS=2500;
+/** The judgement's own bound on Jev, whoever waits for it. TR-F2 run 2: Jev's slow spell at a table's opening ran past 4 s (a
+ *  route decision 9.8 s), and a background judgement cut at a delivery's 2.5 s was cut again on every turn. */
+export const PUBLIC_FIGURES_JUDGE_MS=30_000;
 
 /** One cast row as asked about: the forms the book prints and renders, and the book's own words where it first names them. */
 export interface CastFigure {names:string[];entry?:string}

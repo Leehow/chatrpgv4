@@ -558,6 +558,50 @@ test('§194.5: a public figure\'s name is the investigator\'s side\'s, so an unt
 	assert.deepEqual((await h.call('table.untold_spans', {text: '大林在门口。'})).spans.map(span => span.name), ['大林'], 'her name alone is still hers');
 });
 
+test('§194.5: a judgement that misses a delivery\'s wait keeps running and lands with the next delivery; the rows are asked once', async t => {
+	// TR-F2 run 2: Jev in a slow spell answered past the delivery's 2.5 s; the 7 rows were cut, asked again and cut again each turn.
+	const h = await farm(t, {figures: true});
+	const stalin = h.stored.people.find(row => row.book.includes('斯大林'));
+	await h.call('table.player_input', {text: '信上怎么说？'});
+	const prose = '信里说大家都以斯大林的名义工作。', JEV_MS = 1500;
+	const seen = [], rows = [], quick = jevPort({figure: stalinOnly}, seen);
+	let asked = 0;
+	const slow = {async decide(batch, lease) {
+		if (batch.family === 'cast-public-figures') {
+			asked++;
+			await new Promise((resolve, reject) => {
+				const timer = setTimeout(resolve, JEV_MS);
+				lease.signal.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('cut at the wait')); }, {once: true});
+			});
+		}
+		return quick.decide(batch, lease);
+	}};
+	const figures = createPublicFigureJudge({record: row => rows.push(row), decision: () => slow, waitMs: 100});
+	const judge = createUntoldSpanJudge({record: row => rows.push(row), decision: () => slow, publicFigures: figures});
+	const deliver = async (method, params) => h.raw(method, await judge(method, {campaign: CAMPAIGN, ...params}, (m, p) => h.raw(m, p)));
+	const began = Date.now();
+	const first = await refusalOf(deliver('table.narrate', {call_id: 't1-c1', text: prose}));
+	assert.ok(Date.now() - began < JEV_MS, 'the delivery waited its own share, not the whole judgement');
+	assert.equal(first?.details?.reason, 'untold_name', 'this delivery goes on with him untold');
+	assert.deepEqual(rows.filter(row => row.lane === 'public-figures').map(row => row.event), ['deferred']);
+	// The next delivery's hook while the judgement is still out (the hook only: a turn's second delivery passes the gate anyway).
+	await judge('table.narrate', {campaign: CAMPAIGN, call_id: 't1-c2', text: prose}, (m, p) => h.raw(m, p));
+	assert.ok(Date.now() - began < JEV_MS, 'asked while the judgement is out');
+	assert.ok((await untoldNames(h)).includes('斯大林'));
+	assert.equal(asked, 1, 'a judgement in flight is not asked for again');
+	await new Promise(resolve => setTimeout(resolve, JEV_MS + 200 - (Date.now() - began)));
+	assert.equal(await readFile(join(h.home, '.coc', 'modules', h.mid, 'cast-public.json')).then(() => true, () => false), false,
+		'nothing reaches the kernel after the hook let go');
+	await deliver('table.narrate', {call_id: 't1-c2', text: prose});
+	assert.equal((await records(h)).find(row => row.turn === 1)?.rendered_text, prose, 'the next delivery submits the verdicts first, and is delivered as written');
+	assert.ok(!(await untoldNames(h)).includes('斯大林'));
+	assert.equal((await verdictsOf(h)).rows[stalin.id].public, true);
+	assert.equal(asked, 1, 'asked once: the late answer was kept, not asked for again');
+	const judged = rows.filter(row => row.lane === 'public-figures' && row.event === 'judged');
+	assert.deepEqual(judged.map(row => [row.people, row.judged, row.public, row.late]), [[h.stored.people.length, h.stored.people.length, 1, true]]);
+	assert.ok(judged[0].ms >= JEV_MS, 'the judgement\'s own time');
+});
+
 test('§194.5: one run per campaign at a time; a delivery\'s hook does not wait for a run in flight (the client\'s queue would hold it)', async () => {
 	let release;
 	const gate = new Promise(resolve => { release = resolve; }), calls = [];

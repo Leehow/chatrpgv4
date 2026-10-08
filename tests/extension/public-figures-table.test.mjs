@@ -16,6 +16,7 @@ import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {openTable} from './harness.mjs';
 import {CAMPAIGN, buildFarm} from './farm-book.mjs';
+import {PUBLIC_FIGURES_WAIT_MS} from '../../runtime/jev/public-figures.ts';
 
 const root = resolve(import.meta.dirname, '../..');
 const JEV = 'https://api.typesafe.ai/v1/systemone';
@@ -40,14 +41,19 @@ export {createKernelRuntime} from './kernel-ts/registry.ts';`, resolveDir: root}
 	}
 }
 
-/** Jev's endpoint: the public-figure batch answered (Stalin yes, everyone else no), every other family unavailable. */
-function answerJev(t) {
+/** Jev's endpoint: the public-figure batch answered (Stalin yes, everyone else no) after `delayMs`, every other family unavailable.
+ *  A request whose signal aborts first fails as `fetch` does. */
+function answerJev(t, {delayMs = 0} = {}) {
 	const original = globalThis.fetch, asked = [];
 	globalThis.fetch = async (url, init) => {
 		if (String(url) !== JEV) return original(url, init);
 		const body = JSON.parse(init.body), keys = Object.keys(body.questions ?? {});
 		if (!keys.length || !keys.every(key => /^public_p\d+$/.test(key)))
 			return new Response(JSON.stringify({error: {message: 'this test answers the public-figure family only'}}), {status: 503});
+		if (delayMs) await new Promise((resolve, reject) => {
+			const timer = setTimeout(resolve, delayMs);
+			init.signal?.addEventListener('abort', () => { clearTimeout(timer); reject(init.signal.reason); }, {once: true});
+		});
 		asked.push(body);
 		const answers = Object.fromEntries(keys.map(key => [key, {type: 'noul', noul: body.state.items[key.slice('public_'.length)].names.includes('斯大林') ? 0.97 : 0.05}]));
 		return new Response(JSON.stringify({model: body.model, answers, usage: {input_tokens: 800, output_tokens: keys.length}}), {status: 200});
@@ -81,3 +87,22 @@ test('§194.5: the table opens and its cast is judged in the background, before 
 	assert.deepEqual(table.telemetry().filter(row => row.lane === 'public-figures').map(row => [row.event, row.people, row.public]), [['judged', built.stored.people.length, 1]]);
 	assert.deepEqual(table.telemetry().filter(row => row.lane === 'cast-public').map(row => [row.event, row.written, row.public]), [['submitted', built.stored.people.length, 1]]);
 });
+
+test('§194.5: Jev answering past a delivery\'s 2.5 s wait still judges the cast at the opening, which no delivery waits for', async t => {
+	// TR-F2 run 2 (Jev in a slow spell at the opening): the opening's run was cut at the delivery's 2.5 s and judged 40 of 47 rows.
+	const asked = answerJev(t, {delayMs: PUBLIC_FIGURES_WAIT_MS + 1000});
+	let built;
+	const table = await openTable({realKernel: true, seedCampaign: false, campaign: CAMPAIGN, env: {EXT_JEV_APIKEY: 'test-jev-key'},
+		prepareWorkspace: async workspace => { built = await prepareFarm(workspace); }});
+	t.after(() => table.dispose());
+	const verdicts = join(table.workspace, '.coc', 'modules', built.mid, 'cast-public.json');
+	assert.ok(await until(() => table.telemetry().some(row => row.lane === 'public-figures')));
+	assert.deepEqual(table.telemetry().filter(row => row.lane === 'public-figures').map(row => [row.event, row.people, row.judged, row.reason ?? row.partial ?? null]),
+		[['judged', built.stored.people.length, built.stored.people.length, null]], 'every row judged, none cut');
+	assert.ok(table.telemetry().find(row => row.lane === 'public-figures').ms >= PUBLIC_FIGURES_WAIT_MS, 'past the delivery\'s wait');
+	const kept = JSON.parse(await readFile(verdicts, 'utf8'));
+	assert.equal(Object.keys(kept.rows).length, built.stored.people.length);
+	assert.equal(kept.rows[built.stored.people.find(row => row.book.includes('斯大林')).id].public, true);
+	assert.equal(asked.length, 1);
+});
+
