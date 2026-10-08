@@ -172,3 +172,11 @@ changed and worth a ruling: every other reader or `mod` child started without `s
 with no tool guard (`createReaderToolGuard` binds only `source` readers) -- the cast reader (`ReadingService.readCast`),
 adaptation, the NPC and voice authors, Mod definition and audit agents, and the presenters that take the default tools.
 The handout reader has no tools at all and needs nothing.
+
+**2026-10-07, TR-D (lead's live probe of the branch, 17 TR-B pages) and its fix.** The design held: nothing written
+outside the work directories, no tool but `submit_layout`, every record a permutation, 0 unplaced on 15/15 text pages,
+about 6K input tokens a single-submission page against 14K in TR-B. Five pages came out `repaired` with a whole first
+submission: the provider failed first, Pi ended the run before its auto-retry, and the submission tool's reminder was
+queued then and ran after the retried run. Fixed on the branch: the reminder is judged only on a run whose model answered
+(contract §191.2, TR-C fix decisions). Separate finding, not changed: `extensions/kernel/adaptation-submit.ts` has the same
+once-per-child reminder on `agent_end` and nothing in `extensions/` can see a pending retry.

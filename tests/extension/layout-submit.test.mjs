@@ -108,6 +108,14 @@ test("§191.2 the last submission ends the child even with lines left out; a chi
 	assert.equal(silent.reminders.length, 1);
 	assert.match(silent.reminders[0].value.content, /Call submit_layout now/);
 	assert.throws(() => mounted(dir, 0), /submission count/);
+
+	// Pi ends a run on a provider error before its auto-retry and tells extensions nothing of the retry (TR-D).
+	const retried = mounted(dir, 2);
+	retried.hooks.agent_end({ type: "agent_end", messages: [{ role: "user" }, { role: "assistant", stopReason: "error" }] });
+	retried.hooks.agent_end({ type: "agent_end", messages: [{ role: "assistant", stopReason: "aborted" }] });
+	assert.equal(retried.reminders.length, 0, "a run that ended on a provider error or an abort arms no reminder");
+	retried.hooks.agent_end({ type: "agent_end", messages: [{ role: "assistant", stopReason: "error" }, { role: "assistant", stopReason: "stop" }] });
+	assert.equal(retried.reminders.length, 1, "the run whose model answered is judged");
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -121,12 +129,15 @@ function toolOutputs(body) {
 		.map(item => typeof item.output === "string" ? item.output : (item.output ?? []).map(part => part?.text ?? "").join(""));
 }
 
+const call = (turn, index, name, args) => ({ type: "function_call", id: `fc_${turn}_${index}`, call_id: `call_${turn}_${index}`, name,
+	arguments: JSON.stringify(args), status: "completed" });
+const prose = turn => ({ type: "message", id: `msg_${turn}`, role: "assistant", status: "completed", content: [{ type: "output_text", text: "Done.", annotations: [] }] });
+
 /**
- * A local OpenAI Responses endpoint scripted as a layout model. Call 1 tries to write its layout to a path it made up,
- * as the TR-C children did, and submits a layout that leaves line 4 out. Call 2 resubmits with exactly the lines the
- * host's answer named, so a repair happens only if the finding reached the model. Any later call answers in prose.
+ * A local OpenAI Responses endpoint scripted as a layout model: `script(turn, body)` answers each request with the output
+ * items it returns, or with an HTTP error when it returns `{status}`.
  */
-function layoutModel(t, outside) {
+function layoutModel(t, script) {
 	const seen = [];
 	const server = createServer((request, response) => {
 		let body = "";
@@ -134,38 +145,35 @@ function layoutModel(t, outside) {
 		request.on("end", () => {
 			const parsed = JSON.parse(body || "{}");
 			seen.push(parsed);
-			const call = (index, name, args) => ({ type: "function_call", id: `fc_${seen.length}_${index}`, call_id: `call_${seen.length}_${index}`, name,
-				arguments: JSON.stringify(args), status: "completed" });
-			let items;
-			if (seen.length === 1) items = [call(0, "write", { path: join(outside, " .coc", "layout.md"), content: "{L1-L5}" }),
-				call(1, "submit_layout", { layout: "# {L2}\n\n{L3}\n\n<!-- drop: L1 L5 -->" })];
-			else if (seen.length === 2) {
-				const named = [...toolOutputs(parsed).join("\n").matchAll(/^L(\d+): /gm)].map(match => `{L${match[1]}}`).join("");
-				items = [call(0, "submit_layout", { layout: `# {L2}\n\n{L3}${named}\n\n<!-- drop: L1 L5 -->` })];
-			} else items = [{ type: "message", id: `msg_${seen.length}`, role: "assistant", status: "completed", content: [{ type: "output_text", text: "Done.", annotations: [] }] }];
+			const answer = script(seen.length, parsed);
+			if (answer.status) {
+				response.writeHead(answer.status, { "content-type": "application/json" });
+				response.end(JSON.stringify({ error: { message: "Our servers are currently overloaded. Please try again later.", type: "server_error" } }));
+				return;
+			}
 			response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
 			const send = event => response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
 			send({ type: "response.created", response: { id: `resp_${seen.length}`, status: "in_progress" } });
-			for (const [index, item] of items.entries()) {
+			for (const [index, item] of answer.items.entries()) {
 				send({ type: "response.output_item.added", output_index: index, item: item.type === "function_call" ? { ...item, arguments: "" } : { ...item, content: [] } });
 				if (item.type === "message") send({ type: "response.output_text.delta", output_index: index, content_index: 0, delta: "Done." });
 				send({ type: "response.output_item.done", output_index: index, item });
 			}
-			send({ type: "response.completed", response: { id: `resp_${seen.length}`, status: "completed", output: items,
+			send({ type: "response.completed", response: { id: `resp_${seen.length}`, status: "completed", output: answer.items,
 				usage: { input_tokens: 1000, output_tokens: 40, total_tokens: 1040 } } });
 			response.end();
 		});
 	});
-	t.after(() => new Promise(done => server.close(done)));
+	t.after(() => { server.closeAllConnections?.(); return new Promise(done => server.close(done)); });
 	return new Promise(ready => server.listen(0, "127.0.0.1", () => ready({ port: server.address().port, seen })));
 }
 
-test("§191.2 through the real child: no file tool, the host writes the layout, and a finding is repaired in the same session", async t => {
+/** One page through `TranscriptService` with the host's own `runTask`: a vendored Pi child against `script`. */
+async function transcribe(t, script) {
 	const home = await temporary(t, "layout child home ");
-	const outside = await temporary(t, "layout child outside ");
 	const agent = join(home, "agent");
 	await mkdir(agent, { recursive: true });
-	const { port, seen } = await layoutModel(t, outside);
+	const { port, seen } = await layoutModel(t, script);
 	await writeFile(join(agent, "models.json"), JSON.stringify({ providers: { layoutbox: { baseUrl: `http://127.0.0.1:${port}/v1`, api: "openai-responses",
 		apiKey: "unused", models: [{ id: "layout-1", input: ["text", "image"], contextWindow: 100000, maxTokens: 4096 }] } } }));
 	await writeFile(join(agent, "settings.json"), JSON.stringify({ quietStartup: true }));
@@ -194,9 +202,28 @@ test("§191.2 through the real child: no file tool, the host writes the layout, 
 	const queued = await service.ensure({ pdf: "source.pdf", file_sha256: file, pages: [1] });
 	assert.deepEqual(queued.queued, [1]);
 	await service.idle();
-
 	const page = rows.find(row => row.event === "page");
 	assert.ok(page, JSON.stringify(rows));
+	const store = new TranscriptStore({ home, contentRoot: context.contentRoot, extractionVersion: "pdfjs-fixture:native-text-v1" });
+	return { page, seen, store, file };
+}
+
+const WHOLE = "# {L2}\n\n{L3}{L4}\n\n<!-- drop: L1 L5 -->";
+
+test("§191.2 through the real child: no file tool, the host writes the layout, and a finding is repaired in the same session", async t => {
+	const outside = await temporary(t, "layout child outside ");
+	// Call 1 tries to write its layout to a path it made up, as the TR-C children did, and submits a layout that leaves
+	// line 4 out. Call 2 resubmits with exactly the lines the host's answer named, so a repair happens only if the
+	// finding reached the model. Any later call answers in prose.
+	const { page, seen, store, file } = await transcribe(t, (turn, body) => {
+		if (turn === 1) return { items: [call(turn, 0, "write", { path: join(outside, " .coc", "layout.md"), content: "{L1-L5}" }),
+			call(turn, 1, "submit_layout", { layout: "# {L2}\n\n{L3}\n\n<!-- drop: L1 L5 -->" })] };
+		if (turn === 2) {
+			const named = [...toolOutputs(body).join("\n").matchAll(/^L(\d+): /gm)].map(match => `{L${match[1]}}`).join("");
+			return { items: [call(turn, 0, "submit_layout", { layout: `# {L2}\n\n{L3}${named}\n\n<!-- drop: L1 L5 -->` })] };
+		}
+		return { items: [prose(turn)] };
+	});
 	assert.deepEqual([page.outcome, page.attempts, page.submissions, page.unplaced], ["repaired", 1, 2, 0], JSON.stringify(page));
 	assert.equal(seen.length, 2, "the whole layout ended the child: no call after it");
 	const offered = seen[0].tools.map(tool => tool.name);
@@ -208,13 +235,21 @@ test("§191.2 through the real child: no file tool, the host writes the layout, 
 	assert.match(toolOutputs(seen[1]).join("\n"), /^L4: the end of the road\.$/m, "the host's finding reached the model");
 	assert.equal(await exists(join(outside, " .coc")), false, "nothing was written at the path the model made up");
 
-	const store = new TranscriptStore({ home, contentRoot: context.contentRoot, extractionVersion: "pdfjs-fixture:native-text-v1" });
 	const { record } = await store.read(file, 1);
 	assert.deepEqual([record.unplaced, record.dropped, record.attempts], [[], [1, 5], 1]);
 	assert.ok(transcriptPermutationHolds(record.text, LINES));
 	const work = store.workDir(file, 1, 1);
-	assert.equal(await readFile(join(work, "layout.md"), "utf8"), "# {L2}\n\n{L3}{L4}\n\n<!-- drop: L1 L5 -->", "the host wrote the kept layout");
+	assert.equal(await readFile(join(work, "layout.md"), "utf8"), WHOLE, "the host wrote the kept layout");
 	assert.deepEqual((await readdir(work)).filter(name => !name.startsWith("run.jsonl") && name !== ".pi" && name !== "host-bin").sort(),
 		["layout.md", "lines.json", "lines.txt", "submissions.jsonl"], "page.png is removed with the page; nothing else was written");
 	assert.equal(await exists(store.workDir(file, 1, 2)), false, "no repair child");
+});
+
+test("§191.2 through the real child: a provider error before Pi's retry queues no reminder, so a whole layout is submitted once", async t => {
+	// TR-D: the provider failed first ("overloaded"), Pi ended the run before its auto-retry, the reminder was queued
+	// then, and after the retried run submitted a whole layout the reminder started another turn that submitted it again.
+	const { page, seen } = await transcribe(t, turn => turn === 1 ? { status: 503 } : { items: [call(turn, 0, "submit_layout", { layout: WHOLE })] });
+	assert.deepEqual([page.outcome, page.attempts, page.submissions, page.unplaced], ["stored", 1, 1, 0], JSON.stringify(page));
+	assert.equal(seen.length, 2, "the failed call and its retry; no reminder turn after the whole layout");
+	assert.equal(JSON.stringify(seen[1].input).includes("Call submit_layout now"), false, "the retry carries no reminder");
 });

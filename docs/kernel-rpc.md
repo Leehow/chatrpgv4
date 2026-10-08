@@ -37279,7 +37279,7 @@ split at `"\n"` with whitespace-only entries removed, each kept byte for byte; `
   count). A submission that places or drops every line, or the last of `1 + repair_attempts`, ends the child
   (`terminate`); otherwise the child corrects the layout and submits it whole again in the same session, the page still
   in its context. A child that stops without a submission, or with lines left out and a submission to spare, is reminded
-  once (a `followUp`, SL-00). When the child exits the host reads `layout.md` and assembles it again itself; the findings
+  once (a `followUp`, SL-00) -- judged only on a run whose model answered, never on one that ended on a provider error. When the child exits the host reads `layout.md` and assembles it again itself; the findings
   help the model and decide nothing -- the store's permutation check (191.3) stays the last gate before a record is
   written.
 - **Budget** (data, `content/rulesets/coc7/host-budgets.json` `transcript`, read by `runtime/jev/host-budgets.ts` with
@@ -37557,7 +37557,14 @@ driver). Decisions:
   `terminate`; a call after the last answers that nothing is left and terminates; a call without a non-empty `layout` is
   an error result, logged `{invalid: true}`, and does not count.
 - **The reminder** is the adaptation submission's precedent: one `followUp` per child, only when the child stopped with no
-  layout or with lines left out and a submission to spare.
+  layout or with lines left out and a submission to spare -- and only on a run whose last assistant message did not end in
+  `error` or `aborted`. Pi ends a run on a provider error before its auto-retry and tells extensions nothing of it
+  (`agent_end` reaches an extension as `{messages}`; `willRetry` goes to session listeners only), so a reminder queued then
+  started a turn after the retried run had already submitted a whole layout: on TR-D (17 TR-B pages, the lead's live probe
+  of this branch) five pages whose provider first answered "overloaded" or "Connection error" were submitted twice,
+  labelled `repaired`, at about three times the input tokens. The run after a successful retry ends again and is judged
+  then; a provider that never recovers leaves no layout, the fresh child's case. The adaptation submission's reminder
+  has the same shape and is not changed here.
 - **Counting.** `attempts` (record and telemetry) still counts children; telemetry adds `submissions` (the rows of
   `submissions.jsonl` with a submission number); `repaired` = more than one child or more than one submission.
   `staleClaimMs` is unchanged: a page starts at most two children, within `repair_attempts + 1` timeouts.
@@ -37566,14 +37573,17 @@ driver). Decisions:
 
 Tests: `tests/extension/layout-submit.test.mjs` -- the tool driven directly (the kept layout, the finding with each left-out
 line's text, a worse submission not kept, the reminder once, the last submission terminating, the invalid call not
-counted) and the real entry: `TranscriptService` with the host's own `runTask` (`runtime/tasks.ts`), a vendored Pi child
+counted, no reminder on a run that ended in a provider error or an abort) and the real entry: `TranscriptService` with the
+host's own `runTask` (`runtime/tasks.ts`), a vendored Pi child
 with the emitted extensions, against a local Responses endpoint scripted as a model that first calls `write` on a path it
 made up and submits a layout missing line 4, then resubmits with exactly the lines the host's answer named: the child is
 offered `submit_layout` alone, the `write` is answered `Tool write not found` and nothing appears at that path, the
 repair happens in the same child (two provider calls, `attempts` 1, `submissions` 2, `repaired`), and `layout.md` is the
-host-written layout. `tests/extension/page-transcript.test.mjs` -- the request shape (`tools: ""`, `layout`, the two
+host-written layout; and an endpoint that answers 503 once and then a whole layout: one submission, two provider calls,
+`stored`. `tests/extension/page-transcript.test.mjs` -- the request shape (`tools: ""`, `layout`, the two
 attachments, `lines.json`), a brief naming no path, no second child for unplaced lines, `repaired` after a second
 submission, and the host's own assembly of a layout the tool never vetted. Mutations, each killed: the old
 `read,write,edit` request without the tool; file tools beside the tool; the extension not mounted; a path in the brief;
 findings withheld (in the source and, for the real child, in the emitted bundle); no reminder; a worse layout replacing a
-better one; submissions not counted.
+better one; submissions not counted; the reminder armed on an error-ended run (in the source, and in the emitted bundle,
+where the real child reproduces TR-D: `repaired`, two submissions).

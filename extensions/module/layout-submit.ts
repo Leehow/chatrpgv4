@@ -25,7 +25,13 @@ export default function layoutSubmit(pi: any, options: { env?: NodeJS.ProcessEnv
 		if (event.toolName === "submit_layout" && event.details?.kind === "layout_submission_error") return { isError: true };
 	});
 	// Once per child: a run that ends without a layout, or with lines left out and a submission to spare, is asked again.
-	pi.on("agent_end", () => {
+	// Only a run whose model answered: Pi ends a run on a provider error before its auto-retry, and tells extensions
+	// nothing of the retry (`willRetry` reaches session listeners only), so a reminder queued then would start a turn
+	// after the retried run had already submitted a whole layout (TR-D: five pages submitted twice). The run after a
+	// successful retry ends again and is judged then; a provider that never recovers is the fresh child's case.
+	pi.on("agent_end", (event: any) => {
+		const answer = Array.isArray(event?.messages) ? event.messages.findLast((message: any) => message?.role === "assistant") : undefined;
+		if (["error", "aborted"].includes(answer?.stopReason)) return;
 		if (reminded || submitted >= limit || best === 0) return;
 		reminded = true;
 		pi.sendMessage({ customType: "layout-submit-required", display: false, content: submitted
