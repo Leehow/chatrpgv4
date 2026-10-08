@@ -19,9 +19,9 @@
  * and the line's confidence is the two-option Choice confidence of that admit/refuse split, |2·P(admit_i) − 1|. The
  * lane-shaped verdict of a line comes from its dominant role (telemetry and grounds only; admission reads `admit`).
  *
- * The request bytes are the measured ones: the state, the question keys, instructions and criteria are revision 2a.3's
- * exactly (pinned against the experiment module in `tests/extension/admission-roles-domain.test.mjs`), and the family
- * id and version are the experiment's (`action-admission-roles`, `2a.3`). Jev judges every semantic question; the host
+ * The measured revision 2a.3's state, keys and arithmetic remain pinned against the experiment. Revision 2a.4 adds
+ * explicit handover field semantics; 2a.5 clarifies current execution versus speech in the choice question and criteria.
+ * Those scoped request changes are pinned in `tests/extension/admission-roles-domain.test.mjs`. Jev judges every semantic question; the host
  * only packs, carries the closed effect kind of each line from the proposal, sums probabilities and gates. No list,
  * pattern or table decides anything semantic.
  *
@@ -35,12 +35,12 @@ import {splitSourceText} from './source-ref.ts';
 import type {DecisionBatch, DecisionDescriptor, DecisionQuestion, DecisionResult, Json, ReadSet, ScopeBinding} from './contracts.ts';
 import type {TaskLease} from './task-context.ts';
 import {ADMISSION_MISSING_KINDS, batchVerdict} from './admission-domain.ts';
-import {HANDOVER_GROUND_NOTE} from './action-field-semantics.ts';
+import {HANDOVER_GROUND_NOTE, PLAYER_EXECUTION_CHOICE_NOTE} from './action-field-semantics.ts';
 import type {AdmissionJevInput, AdmissionJevLine, AdmissionJevResult, AdmissionJevVerdict, AdmissionMissingKind} from './admission-domain.ts';
 
-/** The experiment's family id and revision, kept so the product sends the requests that were measured. */
+/** Stable family id and current prompt revision; historical experiment requests remain frozen. */
 export const ADMISSION_ROLES_FAMILY = 'action-admission-roles';
-export const ADMISSION_ROLES_VERSION = '2a.4';
+export const ADMISSION_ROLES_VERSION = '2a.5';
 export const ADMISSION_ROLES_MODEL = JEV_MODEL;
 /** Same bound as §32.10: a larger proposal goes to the lane. */
 export const ADMISSION_ROLES_MAX_LINES = 8;
@@ -93,7 +93,8 @@ interface Family {
 }
 
 const CHOSEN: DecisionDescriptor = {
-  what: 'The player\'s words choose this action: where the investigator goes, what they do, how, to whom or to what, and any price or promise. Words that pick one of the places or options `justTold` named choose it, travel included. For a move, `registered_destination` names the place: naming it by any of its names, in any language, or naming a room, floor or entrance of it, chooses it. A short or plain reply that says what to do still chooses it.',
+  what: 'The player\'s words choose execution of this action now: where the investigator goes, what they do, how, to whom or to what, and any price or promise. A current execution choice that picks one of the places or options `justTold` named chooses it, travel included. For a chosen move, `registered_destination` names the place: any of its names, in any language, or a room, floor or entrance of it names the same destination. A short or plain reply that chooses what to do now still chooses it.',
+  not_for: 'The investigator merely says a plan, promise, threat, bluff or hypothetical about doing the physical act, or quotes someone or a document about it, without choosing execution now. The utterance itself may be chosen; the physical act it describes is separate.',
 };
 const UNCLEAR_CHOICE = 'The player\'s words and what they were told do not settle whether they chose this.';
 const CHOICE_CRITERIA: Record<string, DecisionDescriptor> = {
@@ -108,7 +109,7 @@ const CHOICE_CRITERIA: Record<string, DecisionDescriptor> = {
   unclear: UNCLEAR_CHOICE,
 };
 const CHOICE: Family = {name: 'choice', options: Object.keys(CHOICE_CRITERIA), admitting: ['chosen', 'routine_step'], criteria: CHOICE_CRITERIA,
-  instructions: line => `Read ${line} as something the investigator does by their own will. Judging only from ${EVIDENCE}, ${NOT_KEEPER_TEXT}, did the player choose it?`};
+  instructions: line => `Read ${line} as something the investigator does by their own will. Judging only from ${EVIDENCE}, ${NOT_KEEPER_TEXT}, did the player choose it? ${PLAYER_EXECUTION_CHOICE_NOTE}`};
 
 const RESULT_CRITERIA: Record<string, DecisionDescriptor> = {
   answers_player: {

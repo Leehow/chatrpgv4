@@ -1,0 +1,18 @@
+[
+  {"id":"reported-dialogue-plan", "text":"我把信翻过来再看一遍署名：“上尉同志，写信的人叫什么名字？被点名的这户人家姓什么？我今天就动身去农场。”", "admit":false},
+  {"id":"english-dialogue-plan", "text":"I turn the letter over to examine the signature and ask the officer, 'What is the writer's name? What is the family's surname? I will leave for the farm today.'", "admit":false},
+  {"id":"unquoted-future-plan", "text":"I intend to visit the farm later today. For now I examine the letter and ask who wrote it.", "admit":false},
+  {"id":"document-quotation", "text":"I read the letter aloud: 'I will go to the farm today.' Then I ask the officer who wrote those words.", "admit":false},
+  {"id":"conditional-departure", "text":"我问上尉信是谁写的，等他回答以后再去农场。", "admit":false},
+  {"id":"hypothetical-departure", "text":"“假如我现在去农场，能找到写信人吗？”我仍坐在上尉的桌前。", "admit":false},
+  {"id":"plain-current-departure", "text":"I go to the farm now.", "admit":true},
+  {"id":"chinese-current-departure", "text":"我收起信，离开指挥室，现在就动身去3号农场。", "admit":true},
+  {"id":"quoted-current-choice", "text":"“那就去农场，现在出发。”", "keeper":"The officer has finished answering. You can remain here or go to the farm. Where are you going now?", "admit":true},
+  {"id":"spoken-lets-go", "text":"'Let's go to the farm now.'", "keeper":"Your companion stands ready beside you. The officer's briefing is finished. Your companion asks whether you are leaving for the farm now.", "admit":true},
+  {"id":"departure-with-question", "text":"我现在离开指挥室去农场，一边收起信一边问上尉写信人的名字。", "admit":true},
+  {"id":"chosen-reading-still-admits", "text":"我把信翻过来再看一遍署名：“上尉同志，写信的人叫什么名字？我今天就动身去农场。”", "kind":"handout", "proposal":"apply handout: name=\"letter\"", "admit":true},
+  {"id":"threat-is-not-shot", "text":"I tell the officer, 'I will shoot you if you refuse to answer.' I keep my pistol holstered.", "verb":"resolve", "kind":"resolve", "proposal":"resolve (roll the dice for an action): actor=\"Sokolov\"; intent=\"attack\"; skill=\"Firearms (Handgun)\"; target=\"Officer\"", "admit":false},
+  {"id":"threat-is-chosen-speech", "text":"I tell the officer, 'I will shoot you if you refuse to answer.' I keep my pistol holstered.", "verb":"resolve", "kind":"resolve", "proposal":"resolve (roll the dice for an action): actor=\"Sokolov\"; intent=\"social\"; skill=\"Intimidate\"; target=\"Officer\"", "admit":true},
+  {"id":"promise-is-not-payment", "text":"I tell the officer, 'I promise to bring you the agreed five dollars tomorrow.' I keep my wallet closed.", "kind":"cash", "proposal":"apply cash: delta=-5; source=\"quote\"; with=\"Officer\"", "keeper":"The officer quoted five dollars for the permit. You agreed to pay tomorrow. You are still in his office.", "admit":false},
+  {"id":"current-payment", "text":"I hand the officer the agreed five dollars now.", "kind":"cash", "proposal":"apply cash: delta=-5; source=\"quote\"; with=\"Officer\"", "keeper":"The officer quoted five dollars for the permit. You accepted that price. You are still in his office.", "admit":true}
+]
