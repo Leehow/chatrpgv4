@@ -27,16 +27,21 @@ export interface BandTable {
     readonly primitive: "choice" | "score";
     /** The rows of the block this field may name, when it is not all of them. */
     readonly rows?: readonly string[];
+    /**
+     * Contract §202.1: every row carries `covers`, the act the row is and its extent, in the system language. The band
+     * question's criteria are written from it; a row without it is malformed, like a row without a range.
+     */
+    readonly covers?: true;
 }
 
 /** `<effect kind>.<field>` (or, for a road, `<relation kind>.<property>`) → the band table that field names. */
 export const BAND_FIELDS: Readonly<Record<string, BandTable>> = Object.freeze({
-    "time.band": { table: "time-costs", block: "categories", supplies: "range", primitive: "choice" },
+    "time.band": { table: "time-costs", block: "categories", supplies: "range", primitive: "choice", covers: true },
     "damage.band": { table: "hazards", block: "severity", supplies: "dice", primitive: "score" },
     "npc.archetype": { table: "npc-stat-archetypes", block: "archetypes", supplies: "ranges", primitive: "choice" },
     "item.weapon": { table: "weapons", block: "weapons", supplies: "profile", primitive: "choice" },
     // §138.9 (BR-05): a road's minutes, filled once at build from the host's band; never offered per turn.
-    [ROUTE_TRAVEL_FIELD]: { ...ROUTE_TRAVEL_TABLE, supplies: "default", primitive: "choice", rows: ROUTE_TRAVEL_ROWS },
+    [ROUTE_TRAVEL_FIELD]: { ...ROUTE_TRAVEL_TABLE, supplies: "default", primitive: "choice", rows: ROUTE_TRAVEL_ROWS, covers: true },
 });
 
 /** The effect kinds whose `band` field the kernel resolves (§138.2). */
@@ -51,6 +56,8 @@ export interface BandRow {
     readonly default?: number;
     readonly dice?: string;
     readonly note?: string;
+    /** §202.1: what act a time-cost row is and its extent. */
+    readonly covers?: string;
 }
 
 /** The rows of the band table a `band` field names, in the table's order; a malformed row fails loudly. */
@@ -73,7 +80,11 @@ export async function bandRows(kernel: KernelContext, field: string): Promise<Ba
                 broken(handle, "a min/max range");
             if (spec.supplies === "default" && (!integer(item.default) || number(item.default) < number(item.min) || number(item.default) > number(item.max)))
                 broken(handle, "a range with a default inside it");
-            rows.push({ handle, min: number(item.min), max: number(item.max), ...(integer(item.default) ? { default: number(item.default) } : {}) });
+            // §202.1: a row nobody can tell the act of cannot be chosen by what it covers.
+            if (spec.covers && (typeof item.covers !== "string" || !item.covers.trim()))
+                broken(handle, "a row that says what act it covers (covers)");
+            rows.push({ handle, min: number(item.min), max: number(item.max), ...(integer(item.default) ? { default: number(item.default) } : {}),
+                ...(spec.covers ? { covers: String(item.covers).trim() } : {}) });
         }
         else {
             if (typeof item.damage_expr !== "string" || !item.damage_expr.trim())

@@ -160,10 +160,10 @@ test('catalog kinds retain frozen counts and digests; the current time-rule desc
   }
   await writeFile(join(evidence, 'record-digests-actual.json'), JSON.stringify(actual, null, 2));
   for (const kind of api.SUPPORTED_KINDS) {
-    // §138.10.1 corrects the live time-rule description, not the frozen Python evidence.
-    // Pin all current rule records; every other family's frozen digest remains unchanged.
+    // §138.10.1 corrects the live time-rule description, not the frozen Python evidence; §202.3 then counts 19
+    // categories and names covers. Pin all current rule records; every other family's frozen digest remains unchanged.
     const wanted = kind === 'rule'
-      ? { count: expected.rule.count, digest: '08cf8e32c767103edbcb35bbb226ef38863f28def8043b873d96821c9d07d0fd' }
+      ? { count: expected.rule.count, digest: 'd421b314727ddd1ff94b7e08c6dbb2e96bbb86dc76a336f6a785c77b15f4a3e5' }
       : expected[kind];
     assert.deepEqual(actual[kind], wanted, kind);
   }
@@ -177,8 +177,11 @@ test('§138.10.1: rule catalog lookup describes the same time categories the ban
   assert.equal(rule.params.source_table, 'time-costs.json');
   const bands = await api.bandRows(context, 'time.band');
   assert.equal(rule.params.numeric.category_count, bands.length);
-  assert.equal(rule.params.numeric.category_count, 17);
-  assert.deepEqual(bands.at(-1), { handle: 'momentary', min: 0, max: 1, default: 0 });
+  assert.equal(rule.params.numeric.category_count, 19);
+  // §202.3: the two rungs follow momentary, which keeps its position (the sixteen rows before it are the director graph's ordinals).
+  assert.deepEqual(bands.map(row => row.handle).slice(16), ['momentary', 'brief_activity', 'record_lookup']);
+  assert.deepEqual(bands.map(({ covers, ...row }) => row)[16], { handle: 'momentary', min: 0, max: 1, default: 0 });
+  assert.ok(bands.every(row => typeof row.covers === 'string' && row.covers.length > 0), 'every row says what act it covers');
   assert.match(rule.params.source_note, /apply time \{band\}/);
   assert.match(rule.params.source_note, /basis banded/);
   assert.doesNotMatch(rule.params.source_note, /DirectorPlan|time_advance|LLM time estimates/);

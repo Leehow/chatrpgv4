@@ -175,6 +175,9 @@ test("the gate is read for the record only, and the kernel's rows are read defen
 	assert.equal(bandShadowGate({ PI_COC_BAND_MIN_CONFIDENCE: "1.5" }), 0.5);
 	assert.deepEqual(readBandRows("time", { rows: [{ handle: "a", min: 1, max: 2, default: 1 }, { handle: "b", min: "x", max: 2 }] }),
 		{ kind: "time", rows: [{ handle: "a", min: 1, max: 2, default: 1 }] });
+	// §202.1: what act a row covers rides to the question, trimmed; a blank one is left out, never invented.
+	assert.deepEqual(readBandRows("time", { rows: [{ handle: "a", min: 1, max: 2, covers: " One thing. " }, { handle: "b", min: 3, max: 4, covers: "  " }] }),
+		{ kind: "time", rows: [{ handle: "a", min: 1, max: 2, covers: "One thing." }, { handle: "b", min: 3, max: 4 }] });
 	assert.deepEqual(readBandRows("damage", { rows: [{ handle: "minor", dice: "1D3", note: "n" }, { handle: "bad" }] }),
 		{ kind: "damage", rows: [{ handle: "minor", dice: "1D3", note: "n" }] });
 	assert.equal(readBandRows("time", { rows: [] }), undefined);

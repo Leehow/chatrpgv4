@@ -27134,6 +27134,8 @@ a number the table did not state. Archetype tiers and weapon profiles keep their
 `source_note` says so. No row of any band table changes. The `local_travel` and `long_travel` categories exist for the
 build-time route fill (spec D6, BR-05): a road's time is the route edge's, and the host's per-turn question omits them;
 the kernel does not refuse them on `apply time`, because a refusal there would be the kernel judging the fiction.
+*Amended by §202 (2026-10-08):* every time-costs row also carries `covers`, the act it is and its extent; a row without it is
+malformed, and the time question's criteria are written from it.
 
 ### 138.3 `apply time … {band}` and `apply damage … {band}` (extends §5; amends §136.22)
 
@@ -27389,7 +27391,7 @@ refusals, and its last-resort catch writes the row itself (`reason: "lane_crashe
 
 **The rows: `rules.bands`.** A kernel read method: `rules.bands {field: "time.band" | "damage.band"}` →
 `{field, table, rows}`, the rows of that band table exactly as `bandRows` lists them (§138.2) — `{handle, min, max,
-default?}` for `time-costs.categories`, `{handle, dice, note?}` for `hazards.severity` — in the table's order. It takes
+default?}` for `time-costs.categories` (`covers` added by §202.1), `{handle, dice, note?}` for `hazards.severity` — in the table's order. It takes
 no campaign (the rows are the rules', read from `content/`) and writes nothing. Any other field (the registry's
 `npc.archetype` and `item.weapon`, an unknown one, none) is `invalid_params` with `details: {field: "field", options:
 ["time.band", "damage.band"]}` and a `fix` naming `details.options`; a malformed row is `campaign_not_ready` naming the
@@ -27403,6 +27405,9 @@ its own, capped by `PI_COC_BAND_JEV_TIMEOUT_MS`, default 4000, one request):
 - **time** — one Choice (key `time_cost`) over the time-cost categories **without** `local_travel` and `long_travel`
   (a road's time is the route edge's, spec D2/D6, §138.2), each criterion the row's name and its minute range
   ("single room search: 10 to 45 minutes"), plus an `unknown` exit.
+  *Amended by §202.2 (2026-10-08):* each criterion is the row's name, its range and its `covers` ("single room search,
+  10 to 45 minutes: Searching one room or one small area: …"), the instruction asks the act's extent as well as its
+  kind, and the family's version is 2.
 - **damage** — one Score (key `severity`) over the severity rungs in the table's order, lowest first, each level the
   rung's name, dice and rulebook note ("minor, 1D3: A person could survive numerous occurrences …"). No exit: the harm
   happened (the Keeper wrote it); the question is only how bad. A ladder of more than ten rows cannot be a Score and is
@@ -27717,7 +27722,8 @@ authority; the catalog row is its read-only description. The previous count of 1
   other rows. Naming it charges one time receipt of 0 or 1 minute.
 
 `tests/extension/band-shadow.test.mjs` pins the shipped rows, and now pins `momentary` last. Three mutations of the data row
-(dropped, `max` 5, `default` 1) each turn a case red.
+(dropped, `max` 5, `default` 1) each turn a case red. *Amended by §202.3 (2026-10-08):* `brief_activity` and
+`record_lookup` follow `momentary`, which keeps its position but is no longer last.
 `ts-kernel-rules.test.mjs` checks the catalog description against the live band registry and pins the current TS rule
 records separately from the unchanged frozen Python evidence.
 
@@ -41016,6 +41022,101 @@ the deliveries and player inputs copied from run 3 in `tests/extension/fixtures/
 `tests/extension/clue-ledger-kernel.test.mjs` (the emitted kernel's RPC: `table.owe.options`' clue rows, `table.owe`'s clue
 rows and drops, the told landing at another scene, the check gate and the option rows' `check`). Mutations are listed in the
 spec's tickets.
+
+## 202. A time cost fits the act (2026-10-08, TR-F2 run 3 finding R10; `docs/specs/time-cost-fit.md`; amends §138.2's time rows, §138.8's time question, §138.10's band parameter and §138.10.1's "momentary is the last row")
+
+**Evidence.** Real table run 3 (App `4ce2e4cab`, The Haunting, campaign `game-af36b938-4ca6-421e-bdec-759080123f69`), turn
+16: 「我先不管楼上的动静，顺着走廊找通往地下室的门。找到了就用手电照着往下看，先不急着下去。」 The time receipt `time:t16-c1` is 245
+minutes, `basis: banded`, `band: careful_house_search`, `band_roll {60, 360, 245}`. The band was named by the clerk
+(`clerk: declared_time`, §138.10) from Jev's three pooled views (§163.10): `careful_house_search` 0.44, `single_room_search`
+0.29, `quick_observation` 0.12, `unknown` 0.12 (confidence 0.41, below the former 0.5 gate, bound as §163.10 rules). Not the
+Keeper's band and not the compile's. Every one of the campaign's sixteen time receipts is a clerk band; five are out of
+proportion to the declared act (the spec's table): two looks around a house at 245 and 269 minutes (`careful_house_search`),
+and three requests for one house's property records at the hall of records at 205, 222 and 401 minutes (`library_research`).
+Over the 512 declared-time bands that landed on the retained tables of this machine (38 campaigns of the App and the source
+workspace, 516 declared-time bind rows), three of the four `careful_house_search` binds were looks around a floor, a motel
+room and along a corridor to a door (245-269 minutes), the fourth a careful search of a burned chapel (234); about half of the 31 `library_research` binds were one request
+at a counter or a first look at a reading room (up to 456 minutes); and `short_rest` charged 77-216 minutes for resting
+"a few minutes" or "a while" over a drink (those that named ten, fifteen or thirty minutes predate the literal intervals
+of 2026-10-06).
+The admission review (§32) judged the turn-16 time line `entailed` (typed Jev .76, below its settle gate .87, so the lane
+reviewer decided: "the time is a routine cost of that search"). That is admission's question -- did the player choose the
+act this effect settles -- not whether the row's extent fits; the band is a host-issued fact it reads by name.
+
+**Root cause.** Jev chose among names. `timeQuestion` (§138.8) wrote each row's criterion as its handle and range,
+"careful house search: 60 to 360 minutes", because the time-costs rows carry nothing else (band-then-roll D1 meant "the row's
+own description from the table"; the time rows had none), and the instruction asked "which kind of activity is it". The kind
+of place and the kind of act decided (a house and a search; an archive and a record); the extent of the act did not. Two
+ordinary extents had no row at all: a few minutes of moving and looking inside one place (between `quick_observation` 0-5 and
+`single_room_search` 10-45), and one known record brought to hand (between `speak_briefly` and `library_research`). With no
+row of the right size the views split across rows an order of magnitude apart, and the pooled leader binds at any confidence.
+The ranges are not the cause: `careful_house_search` and `library_research` reach hours because their acts take hours (the
+rulebook's Library Use "marks several hours of continuous search"); they were named for acts that do not.
+
+### 202.1 Every time-cost row says what act it covers (amends §138.2)
+
+Each row of `time-costs.categories` carries `covers`: one sentence in the system language naming the act the row is and its
+extent (how much ground, how many things, how long a stretch of one activity), with a contrast where a neighbouring row is the
+same kind of act at another size. It is data in the rules table, written and reviewed like the ranges; nothing in code
+classifies a declaration. `bandRows` lists it (`{handle, min, max, default?, covers}`) for every field that reads the block
+(`time.band`, `route-to.travel_minutes`), and a row whose `covers` is missing or blank is malformed: `campaign_not_ready`
+naming the table and the row, with the `fix` pointing at the file, exactly like a row without a range. `rules.bands` and
+`band_unknown`'s `details.options` carry it, because they list rows as `bandRows` returns them.
+
+### 202.2 The time question asks the extent (amends §138.8 and §138.10)
+
+`timeQuestion`'s criterion for a row with `covers` is `<name>, <min> to <max> minutes: <covers>`; a row without one (a host
+fixture, never the shipped table) keeps `<name>: <min> to <max> minutes`. The instruction asks which option matches what
+the declaration does now, judged by its extent as well as its kind, and says that an option of the same kind but a larger
+extent does not fit (a whole building for one corridor, hours in the holdings for one record brought to hand), nor one of a
+smaller extent (one room for a search of the whole house). The clerk's
+bind question (§138.10) and the shadow lane (§138.8) read the same question; the shadow family's version is 2. The route
+fact, the literal intervals of the 2026-10-06 amendment, §163.10's pooled binding and its unsettled path are unchanged.
+
+### 202.3 The two missing rungs (amends §138.10.1)
+
+`time-costs.categories` gains two rows, appended after `momentary`; the seventeen rows before them keep their handles, values
+and positions, so `momentary` is no longer the last row but keeps its position:
+
+| row | min | default | max | covers (abridged) |
+| --- | --- | --- | --- | --- |
+| `brief_activity` | 2 | 5 | 10 | a few minutes of one simple activity: a short walk inside a building and a look, a few exchanges, a small task at hand |
+| `record_lookup` | 10 | 20 | 45 | one known record, file, register entry, card or volume brought or opened and read, or one entry looked up in an index |
+
+`rule-index.json`'s `core.time.cost_categories` reports 19. No range of the seventeen rows changes, and the roll stays a
+uniform whole minute inside `[min, max]` (§138.3).
+
+### 202.4 What this does not change
+
+- Who names the band: still the clerk through Jev above the route fact, or the Keeper on its own `apply time {band}`.
+- The gate, the pooled binding below it, `unknown`/tie leaving time unsettled, "time is charged once a turn", the road rows and
+  their fill (§138.9), stated time costs.
+- The admission review (§32) and its question. It is not a second band question: refusing the clerk's time there would
+  leave the turn's time unsettled instead of choosing the row that fits.
+- **Residual, not fixed here:** the clerk charges the declared act's time before the Keeper narrates whether the act happened
+  (run 3 turn 2: 369 minutes of research charged while the fiction stopped at the doorman). Fixing that moves the clerk after
+  the Keeper or ties the charge to an outcome; it is not a choice of row. The owed review (§158.2) offers time bands by handle
+  only (`context.owed_review.time_bands`); giving it the rows' `covers` is a follow-up. An out-of-character request (a
+  history check with "暂不推进剧情") was routed `costs` and charged `library_research` on the retained tables (67-462 minutes):
+  that is the route fact's question, not a row's.
+
+**Three ends (§31).** *Writer:* `content/rulesets/coc7/rules-json/time-costs.json` (`covers`, the two rows). *Reader:*
+`bandRows` -> `rules.bands` -> `readBandRows` -> `timeQuestion` -> the clerk's band question and the shadow question;
+`band_unknown`'s options. *Actor:* Jev names a row by what it covers; the kernel rolls inside it; the receipt carries `band`
+and `band_roll`.
+
+**Tests.** `tests/extension/time-cost-fit.test.mjs`: on the emitted kernel, `rules.bands` lists every row with a nonblank
+`covers`, the two new rows with their ranges after `momentary`, the seventeen before unchanged; a row without `covers` is
+`campaign_not_ready` naming it; across seeds `brief_activity` rolls inside 2-10, `record_lookup` inside 10-45, and
+`careful_house_search` and `library_research` never below an hour. The question over the kernel's own rows writes each
+criterion from `covers` and asks the extent. Through the hybrid engine over the haunting with a deterministic Jev (the
+real kernel, the faux Keeper): run 3's turn-16 line at the Corbitt house, answered `brief_activity`, lands one time
+receipt of at most ten minutes with the band question offering the row and its `covers`; turn 9's request for the property
+register, answered `record_lookup`, lands at most 45; a search of the whole house and an afternoon in the library, answered
+with their rows, still take at least an hour. `jev-band-shadow-domain.test.mjs` pins that the host's read keeps `covers`
+(trimmed) and leaves a blank one out: without it the question stays name-only in production while the kernel lists
+`covers`. Existing tests that pinned the old criterion text over the real kernel, the shipped rows, the rows' shape, the
+category count and the current rule-catalog digest are updated.
 
 ## 205. A turn that lacks material says so, and looks
 
