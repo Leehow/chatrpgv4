@@ -77,7 +77,12 @@ export function publicMaterial(candidate:PrescreenCandidate,alias:string):Row {
         provenance=candidate.locator?{locator:candidate.locator}
         :nativeConsultation?{kind:'native_consultation',question:qualifiedQuestion??null,
             pages:[...new Set((Array.isArray(data.excerpts)?data.excerpts:[]).map(value=>object(value).page).filter(Number.isSafeInteger))]}
-        :Number.isSafeInteger(data.page)?{kind:'native_page',page:data.page,...(typeof data.pdf_label==='string'?{label:data.pdf_label}:{})}
+        :Number.isSafeInteger(data.page)?{kind:'native_page',page:data.page,...(typeof data.pdf_label==='string'?{label:data.pdf_label}:{}),
+            // §196: the page(s) of a paragraph read whole across a page break, its section, and where a cut paragraph goes on.
+            ...(Array.isArray(data.pages)&&data.pages.length>1?{pages:structuredClone(data.pages)}:{}),
+            ...(Array.isArray(data.section)&&data.section.length?{section:data.section.map(String).join(' \u203a ')}:{}),
+            ...(Number.isSafeInteger(data.continues)?{continues_on_page:data.continues}:{}),
+            ...(Number.isSafeInteger(data.continued_from)?{continued_from_page:data.continued_from}:{})}
         :typeof data.question==='string'?{kind:'checked_source_answer',question:data.question,
             ...(typeof data.focus==='string'?{focus:data.focus}:{}),...(typeof data.limitations==='string'&&data.limitations?{limitations:data.limitations}:{})}:undefined;
     const content=candidate.kind==='memory'?presentMemoryEvidence(candidate.body??candidate.data):nativeConsultation?{
