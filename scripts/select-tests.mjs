@@ -1,10 +1,12 @@
 /**
  * Focused test selection: the extension tests and pytest scope a change can affect.
  *
- * Usage: node scripts/select-tests.mjs [--base <rev>] [--json] [--explain <test file>]
+ * Usage: node scripts/select-tests.mjs [--base <rev>] [--changed <file>] [--json] [--explain <test file>]
  *
  * The change is `git diff <base>...HEAD` plus the working tree's modified and untracked files (base defaults to the
- * merge base with 0.9.7a). A test file is selected when:
+ * merge base with 0.9.7a). `--changed <file>` reads that list instead, one path per line: the box gets the list from the
+ * checkout it mirrors, since its own copy holds untracked files the mirror never had (.venv, run logs). A test file is
+ * selected when:
  *   1. it changed;
  *   2. it reaches a changed module through imports (static or dynamic, relative specifiers, transitively through any
  *      helper or source module in the repository);
@@ -27,13 +29,14 @@ const args = process.argv.slice(2);
 const flag = name => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 }).trim();
 
-const base = git('rev-parse', flag('--base') ?? git('merge-base', 'HEAD', '0.9.7a'));
-const changed = new Set([
+const listed = flag('--changed');
+const base = listed ? flag('--base') ?? '' : git('rev-parse', flag('--base') ?? git('merge-base', 'HEAD', '0.9.7a'));
+const changed = new Set((listed ? readFileSync(listed, 'utf8').split('\n') : [
   ...git('diff', '--name-only', `${base}...HEAD`).split('\n'),
   ...git('diff', '--name-only').split('\n'),
   ...git('diff', '--name-only', '--cached').split('\n'),
   ...git('ls-files', '--others', '--exclude-standard').split('\n'),
-].filter(Boolean).filter(path => !path.split('/').includes('node_modules')));
+]).map(path => path.trim()).filter(Boolean).filter(path => !path.split('/').includes('node_modules')));
 
 /** Always run: the kernel boots, the static run-driving inventory, the host composes. */
 const SMOKE = ['tests/extension/ts-kernel-foundation.test.mjs', 'tests/extension/control-flow-inventory.test.mjs'];
@@ -158,7 +161,15 @@ for (const test of tests) {
 for (const test of SMOKE) if (existsSync(join(root, test))) select(test, 'smoke');
 
 /** Python tests build paths from parts (`ROOT / "build" / "kernel" / "rpc.mjs"`), so a file counts as named by its basename. */
-const pyText = git('ls-files', 'tests/*.py').split('\n').filter(Boolean).map(path => readFileSync(join(root, path), 'utf8')).join('\n');
+function pythonUnder(dir, out = []) {
+  for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
+    if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__') continue;
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) pythonUnder(path, out); else if (entry.name.endsWith('.py')) out.push(path);
+  }
+  return out;
+}
+const pyText = pythonUnder('tests').map(path => readFileSync(join(root, path), 'utf8')).join('\n');
 const py = full || changedBundles.size > 0 || [...changed].some(path => path.endsWith('.py') || path.startsWith('tests/kernel/')
   || path.startsWith('tests/play/') || (!INERT.some(rule => rule.test(path)) && pyText.includes(path.split('/').pop())));
 const ext = [...reasons.keys()].filter(test => test !== LOOP).sort();
