@@ -36845,7 +36845,8 @@ anchors the campaign-open read-ahead (`readingFocus`) and the brief window (187.
 one read-only method, `table.apply.placement {campaign, limit?}` (1..64, default `max_candidates`) →
 `{version, scene: {name, display_name, summary}, candidates: [{name, display_name?, aliases?, summary, source: "here" |
 "exit" | "window"}], window}`, the active scene, its exits, then the window's book scenes and locations in book order;
-without a window (a starter, a short book) every book place, up to the limit. Table entities are never candidates. The
+without a window (a starter, a short book) every book place, up to the limit. §204.3 also keeps the active place and its
+containers when table-established, tagged table_place and eligible for inside only; unrelated table entities are never candidates. The
 lane lives in `extensions/kernel/scene-placement.ts` (the apply tool path is in `extensions/kernel/index.ts`, not
 `extensions/table/`) and runs on model-origin `apply` before admission, so admission reviews the effect that lands.
 Jev sees candidates by alias (`c0`...) with names, aliases and summaries, never handles. The active scene is never

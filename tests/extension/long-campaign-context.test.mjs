@@ -69,7 +69,10 @@ test('campaign length never reaches the provider: the branch outgrows the ceilin
     // 2026-10-02 (§168): 200 KiB -> 208 KiB. narration-craft 2.1.10-2.1.11's first-arrival and first-meeting paragraphs
     // put the largest raw request at 204,633 B on the Mac and 204,830 B on the Linux box (its longer workspace path rides
     // in the messages) against 204,800; the stored branch is ~797 KB, so the ceiling is still far below it.
-    const ceiling = 208 * 1024, turns = 6;
+    // 2026-10-08 (§203): full craft 2.5.0 makes the protected source/tool floor exceed 208 KiB.
+    // The current trace explicitly reports request_ceiling_exceeded at 220,073 B after dropping history.
+    // Keep this pressure fixture above that floor; its stored branch still has to outgrow the ceiling.
+    const ceiling = 224 * 1024, turns = 6;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-ceiling', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: turns}, (_, turn) => keeperTurn(long(turn + 1))).flat()]});
@@ -171,7 +174,8 @@ test('a turn with more tool traffic than the ceiling allows keeps the newest evi
     // 2026-10-07 (§179.3a, enhanced-items 1.3.4): 200 KiB -> 212 KiB. The resident "Documents on carriers" section
     // (+2,373 B on every request) and the document tool fields put the squeezed requests at 208,020-208,235 B on the
     // Mac against 204,800: the floor again. The squeeze still has to bind at 212 KiB.
-    const ceiling = 212 * 1024;
+    // 2026-10-08 (§203): the same protected full-guidance floor needs 224 KiB; no production budget changes.
+    const ceiling = 224 * 1024;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-squeeze', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: 3}, (_, turn) => busyTurn(long(turn + 1), 14)).flat()]});

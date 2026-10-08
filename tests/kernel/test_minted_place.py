@@ -16,19 +16,22 @@ LOBBY = "The Globe's back stair"
 MORGUE = "newspaper-morgue"
 
 
-def mint(client, call_id, within=None, to=LOBBY):
+OMITTED = object()
+
+
+def mint(client, call_id, within=OMITTED, to=LOBBY):
     establish = {"summary": "A narrow service stair behind the newspaper offices."}
-    if within is not None:
+    if within is not OMITTED:
         establish["within"] = within
     return client.table("apply", call_id=call_id, effects=[
         {"kind": "move", "to": to, "via": "Round the back of the building", "establish": establish}])
 
 
-def test_a_mint_always_has_its_way_back_and_keeps_it_across_a_new_process(tmp_path):
+def test_an_explicit_outside_mint_keeps_its_way_back_across_a_new_process(tmp_path):
     workspace = tmp_path / "ws"
     with closing(RpcClient(workspace)) as client:
         open_turn(client, "I slip round to the back of the newspaper building.")
-        mint(client, "t1-c1")
+        mint(client, "t1-c1", within=None)
         where = client.table("capsule")["where"]
         assert where["scene"] == LOBBY
         assert [exit["to"] for exit in where["exits"]] == [ORIGIN], "the route-to back edge is the minted room's exit"
@@ -63,7 +66,7 @@ def test_within_writes_located_in_and_the_capsule_shows_the_book_place(tmp_path)
         assert client.table("capsule")["where"]["within"]["name"] == MORGUE
 
 
-def test_within_must_be_a_book_place(tmp_path):
+def test_within_accepts_registered_table_places_but_never_people_or_unknowns(tmp_path):
     with closing(RpcClient(tmp_path / "ws")) as client:
         open_turn(client)
         for within in ["ruth-blake", "nowhere-at-all", ""]:
@@ -72,10 +75,10 @@ def test_within_must_be_a_book_place(tmp_path):
             assert error["code"] == "invalid_params" and error["details"]["reason"] == "within_not_a_place", within
         assert not read_json(campaign_dir(client.workspace) / "world.json").get("table_entities")
         mint(client, "t1-c2")
-        # A table entity is not a book place.
-        error = client.table_err("apply", call_id="t1-c3", effects=[
+        # §204.3: an explicitly registered table place can contain a new room.
+        client.table("apply", call_id="t1-c3", effects=[
             {"kind": "move", "to": "A landing on the stair", "via": "Up", "establish": {"summary": "A landing.", "within": LOBBY}}])
-        assert error["details"]["reason"] == "within_not_a_place"
+        assert client.table("capsule")["where"]["within"]["name"] == LOBBY
 
 
 def presence_offers(options):
@@ -206,7 +209,7 @@ def test_a_book_without_a_window_keeps_graph_order_and_says_nothing_cut(tmp_path
         assert "more" not in capsule["module"] or capsule["module"]["more"]["people"] >= 0
 
 
-def test_placement_candidates_are_book_places_only(tmp_path):
+def test_placement_candidates_include_active_table_context_but_no_unrelated_mints(tmp_path):
     """§187.2.3: the host's placement lane reads the book places through `table.apply.placement`."""
     with closing(RpcClient(tmp_path / "ws")) as client:
         open_turn(client, "I slip round to the back of the newspaper building.")
@@ -216,6 +219,10 @@ def test_placement_candidates_are_book_places_only(tmp_path):
         assert next(row for row in before["candidates"] if row["name"] == MORGUE)["display_name"] == "Boston Globe offices"
         mint(client, "t1-c1")
         after = client.table("apply.placement", limit=4)
-        assert LOBBY not in [row["name"] for row in after["candidates"]], "a minted place is never a candidate"
+        own = next(row for row in after["candidates"] if row["name"] == LOBBY)
+        assert own["table_place"] is True and own["source"] == "here", "table-origin context is eligible for inside only"
         assert after["scene"]["name"] == LOBBY and len(after["candidates"]) == 4
         assert client.table_err("apply.placement", limit=0)["code"] == "invalid_params"
+        mint(client, "t1-c2", within=None, to="A detached outbuilding")
+        detached = client.table("apply.placement", limit=4)
+        assert LOBBY not in [row["name"] for row in detached["candidates"]], "an unrelated table place is excluded"

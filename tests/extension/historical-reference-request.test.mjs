@@ -23,7 +23,7 @@ test('selected Exa excerpts arrive unchanged in the next main Pi provider reques
       return Response.json({model:body.model,answers:Object.fromEntries(Object.keys(body.questions).map(key=>[key,
         key==='query_kind'?{type:'choice',choice:'context',confidence:1,probabilities:{context:1,price_anchor:0,item_price:0,unclear:0}}
           : key==='price_disputed'||key.startsWith('anchor_')?{type:'noul',noul:0.01}
-          : key.startsWith('period_')?{type:'noul',noul:0.99}
+          : key.startsWith('period_')||key.startsWith('texture_')?{type:'noul',noul:0.99}
           : {type:'choice',choice:'direct',confidence:1,probabilities:{direct:1,analogous:0,uncertain:0,reject:0}}])),usage:{input_tokens:100,output_tokens:10}});
     }
     return original(url,init);
