@@ -91,13 +91,8 @@ export function withoutPostFreezeIdentity(view) {
  * the shipped graph less these nodes and the claims and relations that name them (the freeze-time graph); the nodes are
  * asserted where they belong (`obligation-shape.test.mjs`, `tests/kernel/test_scene_obligations.py`).
  */
-export const POST_FREEZE_NODES = Object.freeze(["requirement-knott-accept-commission",
-  // Haunting graph v2 (2026-10-08): the house's floors and rooms.
-  ...["basement-coal-bin", "basement-crawl-space", "basement-hiding-place", "basement-storage", "corbitt-house-basement",
-    "corbitt-house-ground-floor", "corbitt-house-upper-floor", "ground-dining-room", "ground-kitchen", "ground-living-room",
-    "ground-mud-room", "ground-second-storage-room", "ground-storage-room", "upper-bathroom", "upper-childrens-bedroom",
-    "upper-main-bedroom", "upper-spare-bedroom"].map((place) => `location-${place}`)]);
-/** Haunting graph v2: roads between scenes the reference already had, so no removed node names them. */
+export const POST_FREEZE_NODES = Object.freeze(["requirement-knott-accept-commission"]);
+/** Haunting graph v2 (2026-10-08): roads to the Chapel between scenes the reference already had, so no removed node names them. */
 export const POST_FREEZE_LINKS = Object.freeze(["hall-of-records", "higher-courts-central-police", "neighborhood-gossip"]
   .map((scene) => `route-to-${scene}-chapel`));
 export function withoutPostFreezeNodes(graph) {

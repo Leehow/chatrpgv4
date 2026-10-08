@@ -285,35 +285,23 @@ SL52_CHANGES = sorted([
 
 
 #: Haunting graph v2 (2026-10-08, docs/specs/haunting-graph-v2.md): what the book says a newcomer sees of each place and
-#: person, the checks it names for its clues, the house's floors and rooms, and the roads to the Chapel from where the book
+#: person, the house's rooms as its floors' notes, the knife's Spot Hidden, and the roads to the Chapel from where the book
 #: makes it known -- and nothing else.
 HG_SCENES = ("basement-rites", "central-library", "chapel-of-contemplation-ruins", "commission-briefing", "corbitt-confrontation",
              "corbitt-house-ground", "hall-of-records", "higher-courts-central-police", "neighborhood-gossip", "newspaper-morgue",
              "previous-tenants", "upper-floor-bedroom")
 HG_SEEN = ("arty-wilmot", "dooley", "gabriela-macario", "kim-debrun", "records-clerk", "ruth-blake", "steven-knott",
            "vittorio-macario")
-HG_CHECKED = ("basement-burial-lawsuit", "chapel-closed-1912", "chapel-journal-burial", "chapel-ruins-location",
-              "dooley-macario-madness", "house-built-1835", "liber-ivonis-tome", "neighbor-lawsuit-1852", "police-raid-chapel",
-              "rusted-basement-dagger", "second-lawsuit-outcome-unrecorded", "will-executor-chapel")
-HG_PLACES = ("basement-coal-bin", "basement-crawl-space", "basement-hiding-place", "basement-storage", "corbitt-house-basement",
-             "corbitt-house-ground-floor", "corbitt-house-upper-floor", "ground-dining-room", "ground-kitchen", "ground-living-room",
-             "ground-mud-room", "ground-second-storage-room", "ground-storage-room", "upper-bathroom", "upper-childrens-bedroom",
-             "upper-main-bedroom", "upper-spare-bedroom")
-HG_LINKS = ([f"located-in-{place}" for place in HG_PLACES]
-            + [f"occurs-at-{scene}" for scene in ("basement-rites", "corbitt-confrontation", "corbitt-house-ground", "upper-floor-bedroom")]
-            + [f"route-to-{scene}-chapel" for scene in ("hall-of-records", "higher-courts-central-police", "neighborhood-gossip")])
+HG_ROADS = ("hall-of-records", "higher-courts-central-police", "neighborhood-gossip")
 HG_CHANGES = sorted(
     [f"/nodes[scene-{scene}]/{key}" for scene in HG_SCENES for key in ("summary: changed", "properties/description: added")]
-    + ["/nodes[scene-newspaper-morgue]/properties/runtime_projection/record/keeper_notes: added"]
-    + [f"/nodes[scene-{scene}]/properties/runtime_projection/record/scene_edges: changed"
-       for scene in ("hall-of-records", "higher-courts-central-police", "neighborhood-gossip")]
+    + [f"/nodes[scene-{scene}]/properties/runtime_projection/record/keeper_notes: added"
+       for scene in ("basement-rites", "corbitt-house-ground", "newspaper-morgue", "upper-floor-bedroom")]
+    + [f"/nodes[scene-{scene}]/properties/runtime_projection/record/scene_edges: changed" for scene in HG_ROADS]
     + [f"/nodes[npc-{npc}]/properties/biography: added" for npc in HG_SEEN + ("walter-corbitt",)]
     + [f"/nodes[npc-{npc}]/visibility: changed" for npc in HG_SEEN]
-    + [f"/nodes[clue-{clue}]/properties/{key}: added" for clue in HG_CHECKED for key in ("skill", "difficulty")]
-    + [f"/nodes[clue-{clue}]/properties/delivery_kind: changed" for clue in ("chapel-closed-1912", "flesh-ward-active", "rusted-basement-dagger")]
-    + [f"/nodes[location-{place}]: added" for place in HG_PLACES]
-    + [f"/{kind}s[{kind}-{link}]: added" for kind in ("claim", "relation") for link in HG_LINKS])
-
+    + [f"/nodes[clue-rusted-basement-dagger]/properties/{key}" for key in ("delivery_kind: changed", "skill: added", "difficulty: added")]
+    + [f"/{kind}s[{kind}-route-to-{scene}-chapel]: added" for kind in ("claim", "relation") for scene in HG_ROADS])
 
 def test_the_haunting_differs_from_its_pre_rd04_graph_only_by_the_migration():
     before = pre_rd04_graph()

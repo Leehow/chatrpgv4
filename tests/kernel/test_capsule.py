@@ -147,7 +147,8 @@ def test_lookup_module_and_secret(kernel):
     assert "steven-knott" in names
     entity = next(e for e in found["entities"] if e["name"] == "steven-knott")
     assert entity["kind"] == "npc"
-    assert entity["visibility"] == "keeper-only"
+    # Graph v2 (2026-10-08): the people the party meets openly are player-safe, so first sight (§168.5) owes their looks.
+    assert entity["visibility"] == "player-safe"
     assert {"kind": "present-in", "to": OPENING_SCENE} in entity["relations"]
 
     secret = kernel.table("lookup", kind="secret")

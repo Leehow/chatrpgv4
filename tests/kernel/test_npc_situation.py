@@ -168,7 +168,9 @@ def test_the_budget_is_the_named_default_in_host_budgets(tmp_path):
         open_turn(client, "I look Knott over.")
         packet = situation(client)
         assert packet_bytes(packet) <= 1024, packet_bytes(packet)
-        assert packet["truncated"] == ["at_hand", "constraints"], "constraints are cut last, with an explicit unavailable marker for the actor"
+        # Which sections a 1 KiB budget reaches depends on how much the book says about the scene (graph v2 gave Knott's
+        # office a real summary); the order is the law: the surroundings first, the constraints last.
+        assert packet["truncated"][0] == "at_hand" and packet["truncated"][-1] == "constraints", packet["truncated"]
         assert not packet["at_hand"]["exits"] and not packet["at_hand"]["present"]
         assert packet["happened"][-1].endswith('declared: "I look Knott over."'), "the declaration is never cut"
     finally:

@@ -1,100 +1,8 @@
 {
   "why": "Haunting graph v2 (2026-10-08, docs/specs/haunting-graph-v2.md) added and rewrote these fields after the reference was captured: each node's value at the freeze, or $absent where the field did not exist. The live graph is read with them put back, so the captures compare against the graph they answered.",
   "nodes": {
-    "clue-basement-burial-lawsuit": {
-      "properties/difficulty": {
-        "$absent": true
-      },
-      "properties/skill": {
-        "$absent": true
-      }
-    },
-    "clue-chapel-closed-1912": {
-      "properties/delivery_kind": "obvious",
-      "properties/difficulty": {
-        "$absent": true
-      },
-      "properties/skill": {
-        "$absent": true
-      }
-    },
-    "clue-chapel-journal-burial": {
-      "properties/difficulty": {
-        "$absent": true
-      },
-      "properties/skill": {
-        "$absent": true
-      }
-    },
-    "clue-chapel-ruins-location": {
-      "properties/difficulty": {
-        "$absent": true
-      },
-      "properties/skill": {
-        "$absent": true
-      }
-    },
-    "clue-dooley-macario-madness": {
-      "properties/difficulty": {
-        "$absent": true
-      },
-      "properties/skill": {
-        "$absent": true
-      }
-    },
-    "clue-flesh-ward-active": {
-      "properties/delivery_kind": "skill_check"
-    },
-    "clue-house-built-1835": {
-      "properties/difficulty": {
-        "$absent": true
-      },
-      "properties/skill": {
-        "$absent": true
-      }
-    },
-    "clue-liber-ivonis-tome": {
-      "properties/difficulty": {
-        "$absent": true
-      },
-      "properties/skill": {
-        "$absent": true
-      }
-    },
-    "clue-neighbor-lawsuit-1852": {
-      "properties/difficulty": {
-        "$absent": true
-      },
-      "properties/skill": {
-        "$absent": true
-      }
-    },
-    "clue-police-raid-chapel": {
-      "properties/difficulty": {
-        "$absent": true
-      },
-      "properties/skill": {
-        "$absent": true
-      }
-    },
     "clue-rusted-basement-dagger": {
       "properties/delivery_kind": "environmental",
-      "properties/difficulty": {
-        "$absent": true
-      },
-      "properties/skill": {
-        "$absent": true
-      }
-    },
-    "clue-second-lawsuit-outcome-unrecorded": {
-      "properties/difficulty": {
-        "$absent": true
-      },
-      "properties/skill": {
-        "$absent": true
-      }
-    },
-    "clue-will-executor-chapel": {
       "properties/difficulty": {
         "$absent": true
       },
@@ -159,6 +67,9 @@
       "properties/description": {
         "$absent": true
       },
+      "properties/runtime_projection/record/keeper_notes": {
+        "$absent": true
+      },
       "summary": "scene basement rites"
     },
     "scene-central-library": {
@@ -187,6 +98,9 @@
     },
     "scene-corbitt-house-ground": {
       "properties/description": {
+        "$absent": true
+      },
+      "properties/runtime_projection/record/keeper_notes": {
         "$absent": true
       },
       "summary": "scene corbitt house ground"
@@ -352,6 +266,9 @@
     },
     "scene-upper-floor-bedroom": {
       "properties/description": {
+        "$absent": true
+      },
+      "properties/runtime_projection/record/keeper_notes": {
         "$absent": true
       },
       "summary": "scene upper floor bedroom"

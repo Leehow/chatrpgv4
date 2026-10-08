@@ -1,9 +1,9 @@
 // Haunting graph v2 (2026-10-08, docs/specs/haunting-graph-v2.md): what the book says a newcomer sees of each place and
-// person reaches the Keeper by the kernel's own paths -- the capsule's `first_sight` (§168.5), `where.places`, the clue
-// gates and the exits -- on a real campaign of the shipped starter.
+// person reaches the Keeper by the kernel's own paths -- the capsule's `first_sight` (§168.5), the floor scenes' notes, the
+// clue gates and the exits -- on a real campaign of the shipped starter.
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {mkdtemp, readdir, readFile, writeFile} from 'node:fs/promises';
+import {mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
@@ -63,7 +63,7 @@ test("the Globe's first sight carries the book's offices and both of its people"
     assert.ok(!capsule.first_sight.place.described.includes('boiler'));
 });
 
-test("each floor's rooms are the where section's places, and the house keeps every road", async () => {
+test("each floor's rooms ride its notes, and the house keeps every road", async () => {
     const t = await table();
     for (const scene of ['central-library', 'newspaper-morgue', 'neighborhood-gossip', 'corbitt-house-ground'])
         await t.play(scene);
@@ -71,11 +71,18 @@ test("each floor's rooms are the where section's places, and the house keeps eve
     assert.equal(ground.where.scene, 'corbitt-house-ground');
     const roads = graph.relations.filter(relation => relation.relation_kind === 'route-to' && relation.from_node_id === 'scene-corbitt-house-ground');
     assert.equal(ground.where.exits.length, roads.length);
-    assert.deepEqual(ground.where.places.map(place => place.name), ['Storage room', 'Second storage room', 'Mud room', 'Living room', 'Dining room', 'Kitchen']);
+    assert.equal(ground.where.keeper_notes[0], node('scene-corbitt-house-ground').properties.runtime_projection.record.keeper_notes[0]);
+    assert.ok(ground.where.keeper_notes[0].startsWith('Ground-floor rooms (p.442)'));
     await t.play('basement-rites');
     const basement = await t.capsule();
-    assert.deepEqual(basement.where.places.map(place => place.name), ['Basement storage room', 'Coal bin', 'Crawl space behind the boards', "Corbitt's hiding place"]);
-    assert.equal(basement.where.places[0].line, node('location-basement-storage').summary);
+    assert.ok(basement.where.keeper_notes[0].startsWith('Basement rooms (p.444-446)'));
+});
+
+// A source `location` is promoted to a playable scene (ModuleGraph.projectSourcePlaces): rooms written as locations became
+// seventeen scenes with no exits and none of their floor's clues, and the told-position lane read the basement floor as a
+// second "Corbitt House basement". Until places nest, the book's rooms are notes, and the graph keeps its one location.
+test('the house adds no location: a location would be a scene of its own', () => {
+    assert.deepEqual(graph.nodes.filter(entry => entry.node_kind === 'location').map(entry => entry.node_id), ['location-corbitt-house']);
 });
 
 // §13.1.1 (decision G): over budget, the compact where gives up the trail, then the places, before any exit.
@@ -104,12 +111,12 @@ test('the checks the book names reach the clue gates', async () => {
     await t.play('central-library');
     const library = await t.capsule();
     const gates = library.where.affordances.flatMap(entry => (entry.clues ?? []).map(clue => clue.gate));
-    assert.ok(gates.length === 4 && gates.every(gate => gate.startsWith('skill_check: Library Use (one half-day per roll')), JSON.stringify(gates));
+    assert.ok(gates.length === 4 && gates.every(gate => gate.startsWith('skill_check: Library Use (regular)')), JSON.stringify(gates));
     await t.play('corbitt-house-ground');
     await t.play('basement-rites');
     const basement = await t.capsule();
     const knife = basement.where.affordances.flatMap(entry => entry.clues ?? []).find(clue => clue.clue === 'rusted-basement-dagger');
-    assert.ok(knife?.gate.startsWith('skill_check: Spot Hidden (obscure'), JSON.stringify(knife));
+    assert.ok(knife?.gate.startsWith('skill_check: Spot Hidden (regular)'), JSON.stringify(knife));
 });
 
 test('the Chapel is a road from each place the book makes it known', async () => {
@@ -122,18 +129,4 @@ test('the Chapel is a road from each place the book makes it known', async () =>
         await t.play('chapel-of-contemplation-ruins');
         assert.equal((await t.capsule()).where.scene, 'chapel-of-contemplation-ruins');
     }
-});
-
-test("every place v2 added cites a page whose text carries its anchor", async () => {
-    const transcripts = join(root, 'content/source-transcripts/31e36f72d0ac9a3654b61a09b1f071d3d82f25d78641e5069bfe343e44c5c7db');
-    const pages = new Map();
-    for (const name of (await readdir(transcripts)).filter(name => name.startsWith('page-'))) {
-        const page = JSON.parse(await readFile(join(transcripts, name), 'utf8'));
-        pages.set(Number(page.pdf_label) + 11, page.text);
-    }
-    const places = graph.nodes.filter(entry => entry.node_kind === 'location' && entry.node_id !== 'location-corbitt-house');
-    assert.equal(places.length, 17);
-    for (const place of places)
-        for (const ref of place.source_refs)
-            assert.ok(pages.get(ref.pdf_index)?.includes(ref.grep_anchor), `${place.node_id}: ${JSON.stringify(ref)}`);
 });

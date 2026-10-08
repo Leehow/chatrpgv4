@@ -870,9 +870,7 @@
       ],
       "properties": {
         "delivery_kind": "skill_check",
-        "handout_asset_id": null,
-        "skill": "Library Use",
-        "difficulty": "one half-day per roll, Handouts 3-6 in order"
+        "handout_asset_id": null
       },
       "source_refs": [
         {
@@ -1003,10 +1001,8 @@
         "span-page-449-anchor-7"
       ],
       "properties": {
-        "delivery_kind": "skill_check",
-        "handout_asset_id": null,
-        "skill": "Library Use",
-        "difficulty": "Handout 7"
+        "delivery_kind": "obvious",
+        "handout_asset_id": null
       },
       "source_refs": [
         {
@@ -1050,9 +1046,7 @@
       ],
       "properties": {
         "delivery_kind": "skill_check",
-        "handout_asset_id": null,
-        "skill": "Spot Hidden",
-        "difficulty": "no roll if they say they look under the cabinet; may be pushed"
+        "handout_asset_id": null
       },
       "source_refs": [
         {
@@ -1074,9 +1068,7 @@
       ],
       "properties": {
         "delivery_kind": "npc_dialogue",
-        "handout_asset_id": null,
-        "skill": "APP or Credit Rating (his reaction)",
-        "difficulty": "on a failure another investigator may Charm, Fast Talk, Persuade or Intimidate"
+        "handout_asset_id": null
       },
       "source_refs": [
         {
@@ -1164,9 +1156,7 @@
       ],
       "properties": {
         "delivery_kind": "npc_dialogue",
-        "handout_asset_id": null,
-        "skill": "APP or Credit Rating (his reaction)",
-        "difficulty": "on a failure another investigator may Charm, Fast Talk, Persuade or Intimidate"
+        "handout_asset_id": null
       },
       "source_refs": [
         {
@@ -1187,7 +1177,7 @@
         "span-page-459-anchor-1"
       ],
       "properties": {
-        "delivery_kind": "environmental",
+        "delivery_kind": "skill_check",
         "handout_asset_id": null
       },
       "source_refs": [
@@ -1320,9 +1310,7 @@
       ],
       "properties": {
         "delivery_kind": "skill_check",
-        "handout_asset_id": null,
-        "skill": "Library Use",
-        "difficulty": "one half-day per roll, Handouts 3-6 in order"
+        "handout_asset_id": null
       },
       "source_refs": [
         {
@@ -1432,9 +1420,7 @@
       ],
       "properties": {
         "delivery_kind": "skill_check",
-        "handout_asset_id": null,
-        "skill": "Spot Hidden",
-        "difficulty": "no roll if they say they look under the cabinet; may be pushed"
+        "handout_asset_id": null
       },
       "source_refs": [
         {
@@ -1522,9 +1508,7 @@
       ],
       "properties": {
         "delivery_kind": "skill_check",
-        "handout_asset_id": null,
-        "skill": "Library Use",
-        "difficulty": "one half-day per roll, Handouts 3-6 in order"
+        "handout_asset_id": null
       },
       "source_refs": [
         {
@@ -1568,9 +1552,7 @@
       ],
       "properties": {
         "delivery_kind": "skill_check",
-        "handout_asset_id": null,
-        "skill": "Law, Credit Rating (75+), Persuade, Charm or Fast Talk",
-        "difficulty": "one success opens the file"
+        "handout_asset_id": null
       },
       "source_refs": [
         {
@@ -1638,7 +1620,7 @@
         "delivery_kind": "skill_check",
         "handout_asset_id": null,
         "skill": "Spot Hidden",
-        "difficulty": "obscure: nothing on a failure; may be pushed"
+        "difficulty": "regular"
       },
       "source_refs": [
         {
@@ -1660,9 +1642,7 @@
       ],
       "properties": {
         "delivery_kind": "skill_check",
-        "handout_asset_id": null,
-        "skill": "Library Use",
-        "difficulty": "one half-day per roll, Handouts 3-6 in order"
+        "handout_asset_id": null
       },
       "source_refs": [
         {
@@ -1728,9 +1708,7 @@
       ],
       "properties": {
         "delivery_kind": "skill_check",
-        "handout_asset_id": null,
-        "skill": "Library Use",
-        "difficulty": "Handout 7"
+        "handout_asset_id": null
       },
       "source_refs": [
         {
@@ -5599,6 +5577,9 @@
                 "page": 444,
                 "grep_anchor": "The Basement"
               }
+            ],
+            "keeper_notes": [
+              "Basement rooms (p.444-446): the storage room at the foot of the stairs (tools, pipe, a trash-can lid, lumber, nails, screws; board walls, hollow in places); an empty coal bin, its outside chute door nailed shut; behind the boards, a rat-fouled crawl space with 'Chapel of Contemplation' scratched on its inner wall; through that wall, Corbitt's hiding place."
             ]
           }
         },
@@ -6550,6 +6531,9 @@
                 "page": 440,
                 "grep_anchor": "The Old Corbitt Place"
               }
+            ],
+            "keeper_notes": [
+              "Ground-floor rooms (p.442): storage room -- boxes and junk, rusted water tanks, old bicycles, and at the right end a cupboard boarded shut; second storage room -- old furniture, good for firewood; mud room -- coats, galoshes, hats, umbrellas, bags of coal for the stove, the side door with three bolts and two locks; living room -- radio, couch, stuffed chairs, shelves of knick-knacks, a freestanding stove, and crosses and images of the Virgin everywhere; dining room -- long mahogany table, built-in sideboard, seven chairs, three places set and never used, rice soup rotting in a tureen; kitchen -- icebox, wood stove and oven, a thin larder (canned soup and meat, rice, pasta, homemade wine), rat droppings, and the house's fuse box."
             ]
           }
         },
@@ -7510,6 +7494,9 @@
                 "page": 443,
                 "grep_anchor": "Bed Attack"
               }
+            ],
+            "keeper_notes": [
+              "Upper-floor rooms (p.443): the Macarios' bedroom -- double bed, bookshelf, window, more crosses, many candles, a rosary and breviary by the bed; children's bedroom -- two small beds, toys, dressers, pictures of aircraft and cowboys; spare bedroom -- bare bedsprings on a frame, a dresser, unused, once old Corbitt's room; bathroom -- sink, tub, a water closet with an overhead tank, the family's towels, brackish water in the tub under a dripping faucet."
             ]
           }
         },
@@ -7959,311 +7946,6 @@
           "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
           "pdf_index": 451,
           "grep_anchor": "minimum of three hours"
-        }
-      ]
-    },
-    {
-      "node_id": "location-corbitt-house-ground-floor",
-      "node_kind": "location",
-      "name": "Corbitt House ground floor",
-      "visibility": "player-safe",
-      "aliases": [
-        "ground floor"
-      ],
-      "summary": "Two storage rooms, the mud room by the side door, the living room, the dining room and the kitchen.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 453,
-          "grep_anchor": "Ground Floor"
-        }
-      ]
-    },
-    {
-      "node_id": "location-corbitt-house-upper-floor",
-      "node_kind": "location",
-      "name": "Corbitt House upper floor",
-      "visibility": "player-safe",
-      "aliases": [
-        "upper floor",
-        "upstairs"
-      ],
-      "summary": "The Macarios' bedroom, the children's bedroom, the spare bedroom and the bathroom.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 454,
-          "grep_anchor": "Upper Floor"
-        }
-      ]
-    },
-    {
-      "node_id": "location-corbitt-house-basement",
-      "node_kind": "location",
-      "name": "Corbitt House basement",
-      "visibility": "player-safe",
-      "aliases": [
-        "basement",
-        "cellar"
-      ],
-      "summary": "The storage room at the foot of the stairs, an empty coal bin, and behind the board walls a crawl space and a hidden room.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 455,
-          "grep_anchor": "The Basement"
-        }
-      ]
-    },
-    {
-      "node_id": "location-ground-storage-room",
-      "node_kind": "location",
-      "name": "Storage room",
-      "visibility": "player-safe",
-      "aliases": [
-        "first storage room"
-      ],
-      "summary": "Junk, rusted tanks, old bicycles; a cupboard boarded shut.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 453,
-          "grep_anchor": "A Storage Room"
-        }
-      ]
-    },
-    {
-      "node_id": "location-ground-second-storage-room",
-      "node_kind": "location",
-      "name": "Second storage room",
-      "visibility": "player-safe",
-      "aliases": [],
-      "summary": "Old furniture, good for firewood.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 453,
-          "grep_anchor": "A Second Storage Room"
-        }
-      ]
-    },
-    {
-      "node_id": "location-ground-mud-room",
-      "node_kind": "location",
-      "name": "Mud room",
-      "visibility": "player-safe",
-      "aliases": [],
-      "summary": "Coats, galoshes, coal; side door: three bolts, two locks.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 453,
-          "grep_anchor": "The Mud Room"
-        }
-      ]
-    },
-    {
-      "node_id": "location-ground-living-room",
-      "node_kind": "location",
-      "name": "Living room",
-      "visibility": "player-safe",
-      "aliases": [],
-      "summary": "Radio, couch, stuffed chairs; crosses and Virgins everywhere.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 453,
-          "grep_anchor": "The Living Room"
-        }
-      ]
-    },
-    {
-      "node_id": "location-ground-dining-room",
-      "node_kind": "location",
-      "name": "Dining room",
-      "visibility": "player-safe",
-      "aliases": [],
-      "summary": "Mahogany table, seven chairs, three places set; soup rotting.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 453,
-          "grep_anchor": "The Dining Room"
-        }
-      ]
-    },
-    {
-      "node_id": "location-ground-kitchen",
-      "node_kind": "location",
-      "name": "Kitchen",
-      "visibility": "player-safe",
-      "aliases": [],
-      "summary": "Icebox, wood stove, thin larder, rat droppings; the fuse box.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 453,
-          "grep_anchor": "Kitchen"
-        }
-      ]
-    },
-    {
-      "node_id": "location-upper-main-bedroom",
-      "node_kind": "location",
-      "name": "Main bedroom",
-      "visibility": "player-safe",
-      "aliases": [
-        "the Macarios' bedroom"
-      ],
-      "summary": "The couple's room: double bed, bookshelf, window; crosses, candles, rosary and breviary.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 454,
-          "grep_anchor": "Main Bedroom"
-        }
-      ]
-    },
-    {
-      "node_id": "location-upper-childrens-bedroom",
-      "node_kind": "location",
-      "name": "Children's bedroom",
-      "visibility": "player-safe",
-      "aliases": [
-        "the boys' room"
-      ],
-      "summary": "Two small beds, toys, dressers; pictures of aircraft and cowboys.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 454,
-          "grep_anchor": "Children"
-        }
-      ]
-    },
-    {
-      "node_id": "location-upper-spare-bedroom",
-      "node_kind": "location",
-      "name": "Spare bedroom",
-      "visibility": "player-safe",
-      "aliases": [],
-      "summary": "Bare bedsprings on a frame, a dresser; unused. Old Corbitt's room: he wills deeds here.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 454,
-          "grep_anchor": "Spare Bedroom"
-        }
-      ]
-    },
-    {
-      "node_id": "location-upper-bathroom",
-      "node_kind": "location",
-      "name": "Bathroom",
-      "visibility": "player-safe",
-      "aliases": [],
-      "summary": "Sink, tub, water closet with overhead tank, family towels; brackish water, a dripping tap.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 454,
-          "grep_anchor": "Bathroom"
-        }
-      ]
-    },
-    {
-      "node_id": "location-basement-storage",
-      "node_kind": "location",
-      "name": "Basement storage room",
-      "visibility": "player-safe",
-      "aliases": [
-        "foot of the cellar stairs"
-      ],
-      "summary": "Tools, pipe, a trash-can lid, lumber, nails, screws; board walls, hollow in places.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 455,
-          "grep_anchor": "ROOM 1: Storage"
-        }
-      ]
-    },
-    {
-      "node_id": "location-basement-coal-bin",
-      "node_kind": "location",
-      "name": "Coal bin",
-      "visibility": "player-safe",
-      "aliases": [],
-      "summary": "An empty coal bin; the outside coal-chute door is nailed firmly shut.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 456,
-          "grep_anchor": "An Empty Storage Bin"
-        }
-      ]
-    },
-    {
-      "node_id": "location-basement-crawl-space",
-      "node_kind": "location",
-      "name": "Crawl space behind the boards",
-      "visibility": "keeper-only",
-      "aliases": [],
-      "summary": "Rat-fouled gap between two board walls; 'Chapel of Contemplation' scratched inside.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 456,
-          "grep_anchor": "Corbitt’s Hidden Lair"
-        }
-      ]
-    },
-    {
-      "node_id": "location-basement-hiding-place",
-      "node_kind": "location",
-      "name": "Corbitt's hiding place",
-      "visibility": "keeper-only",
-      "aliases": [],
-      "summary": "Earthen floor, Corbitt on a pallet, a table of curled papers that crumble at a touch.",
-      "evidence_span_ids": [],
-      "properties": {},
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 457,
-          "grep_anchor": "Corbitt’s Hiding Place"
         }
       ]
     }
@@ -21542,489 +21224,6 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-located-in-corbitt-house-ground-floor",
-      "subject_id": "location-corbitt-house-ground-floor",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 453,
-          "grep_anchor": "Ground Floor"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-corbitt-house-upper-floor",
-      "subject_id": "location-corbitt-house-upper-floor",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 454,
-          "grep_anchor": "Upper Floor"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-corbitt-house-basement",
-      "subject_id": "location-corbitt-house-basement",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 455,
-          "grep_anchor": "The Basement"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-ground-storage-room",
-      "subject_id": "location-ground-storage-room",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house-ground-floor"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 453,
-          "grep_anchor": "A Storage Room"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-ground-second-storage-room",
-      "subject_id": "location-ground-second-storage-room",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house-ground-floor"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 453,
-          "grep_anchor": "A Second Storage Room"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-ground-mud-room",
-      "subject_id": "location-ground-mud-room",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house-ground-floor"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 453,
-          "grep_anchor": "The Mud Room"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-ground-living-room",
-      "subject_id": "location-ground-living-room",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house-ground-floor"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 453,
-          "grep_anchor": "The Living Room"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-ground-dining-room",
-      "subject_id": "location-ground-dining-room",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house-ground-floor"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 453,
-          "grep_anchor": "The Dining Room"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-ground-kitchen",
-      "subject_id": "location-ground-kitchen",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house-ground-floor"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 453,
-          "grep_anchor": "Kitchen"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-upper-main-bedroom",
-      "subject_id": "location-upper-main-bedroom",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house-upper-floor"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 454,
-          "grep_anchor": "Main Bedroom"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-upper-childrens-bedroom",
-      "subject_id": "location-upper-childrens-bedroom",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house-upper-floor"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 454,
-          "grep_anchor": "Children"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-upper-spare-bedroom",
-      "subject_id": "location-upper-spare-bedroom",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house-upper-floor"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 454,
-          "grep_anchor": "Spare Bedroom"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-upper-bathroom",
-      "subject_id": "location-upper-bathroom",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house-upper-floor"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 454,
-          "grep_anchor": "Bathroom"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-basement-storage",
-      "subject_id": "location-basement-storage",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house-basement"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 455,
-          "grep_anchor": "ROOM 1: Storage"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-basement-coal-bin",
-      "subject_id": "location-basement-coal-bin",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house-basement"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 456,
-          "grep_anchor": "An Empty Storage Bin"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-basement-crawl-space",
-      "subject_id": "location-basement-crawl-space",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house-basement"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 456,
-          "grep_anchor": "Corbitt’s Hidden Lair"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-located-in-basement-hiding-place",
-      "subject_id": "location-basement-hiding-place",
-      "predicate": "located-in",
-      "object": {
-        "node_id": "location-corbitt-house-basement"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 457,
-          "grep_anchor": "Corbitt’s Hiding Place"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-occurs-at-corbitt-house-ground",
-      "subject_id": "scene-corbitt-house-ground",
-      "predicate": "occurs-at",
-      "object": {
-        "node_id": "location-corbitt-house-ground-floor"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 453,
-          "grep_anchor": "Ground Floor"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-occurs-at-upper-floor-bedroom",
-      "subject_id": "scene-upper-floor-bedroom",
-      "predicate": "occurs-at",
-      "object": {
-        "node_id": "location-corbitt-house-upper-floor"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 454,
-          "grep_anchor": "Upper Floor"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-occurs-at-basement-rites",
-      "subject_id": "scene-basement-rites",
-      "predicate": "occurs-at",
-      "object": {
-        "node_id": "location-corbitt-house-basement"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 455,
-          "grep_anchor": "The Basement"
-        }
-      ]
-    },
-    {
-      "claim_id": "claim-occurs-at-corbitt-confrontation",
-      "subject_id": "scene-corbitt-confrontation",
-      "predicate": "occurs-at",
-      "object": {
-        "node_id": "location-corbitt-house-basement"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 455,
-          "grep_anchor": "The Basement"
-        }
-      ]
-    },
-    {
       "claim_id": "claim-route-to-neighborhood-gossip-chapel",
       "subject_id": "scene-neighborhood-gossip",
       "predicate": "route-to",
@@ -22038,7 +21237,7 @@
       "known_by_ids": [],
       "validity": null,
       "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
+      "reason": "Curated starter: Haunting graph v2 (2026-10-08).",
       "source_refs": [
         {
           "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
@@ -22061,7 +21260,7 @@
       "known_by_ids": [],
       "validity": null,
       "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
+      "reason": "Curated starter: Haunting graph v2 (2026-10-08).",
       "source_refs": [
         {
           "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
@@ -22084,7 +21283,7 @@
       "known_by_ids": [],
       "validity": null,
       "confidence": 1.0,
-      "reason": "Curated starter: the house plan, Haunting graph v2 (2026-10-08).",
+      "reason": "Curated starter: Haunting graph v2 (2026-10-08).",
       "source_refs": [
         {
           "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
@@ -25724,174 +24923,6 @@
       "from_node_id": "asset-player-chapel-symbol",
       "to_node_id": "asset-handout-9-symbol-source",
       "claim_id": "claim-variant-of-255",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-corbitt-house-ground-floor",
-      "relation_kind": "located-in",
-      "from_node_id": "location-corbitt-house-ground-floor",
-      "to_node_id": "location-corbitt-house",
-      "claim_id": "claim-located-in-corbitt-house-ground-floor",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-corbitt-house-upper-floor",
-      "relation_kind": "located-in",
-      "from_node_id": "location-corbitt-house-upper-floor",
-      "to_node_id": "location-corbitt-house",
-      "claim_id": "claim-located-in-corbitt-house-upper-floor",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-corbitt-house-basement",
-      "relation_kind": "located-in",
-      "from_node_id": "location-corbitt-house-basement",
-      "to_node_id": "location-corbitt-house",
-      "claim_id": "claim-located-in-corbitt-house-basement",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-ground-storage-room",
-      "relation_kind": "located-in",
-      "from_node_id": "location-ground-storage-room",
-      "to_node_id": "location-corbitt-house-ground-floor",
-      "claim_id": "claim-located-in-ground-storage-room",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-ground-second-storage-room",
-      "relation_kind": "located-in",
-      "from_node_id": "location-ground-second-storage-room",
-      "to_node_id": "location-corbitt-house-ground-floor",
-      "claim_id": "claim-located-in-ground-second-storage-room",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-ground-mud-room",
-      "relation_kind": "located-in",
-      "from_node_id": "location-ground-mud-room",
-      "to_node_id": "location-corbitt-house-ground-floor",
-      "claim_id": "claim-located-in-ground-mud-room",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-ground-living-room",
-      "relation_kind": "located-in",
-      "from_node_id": "location-ground-living-room",
-      "to_node_id": "location-corbitt-house-ground-floor",
-      "claim_id": "claim-located-in-ground-living-room",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-ground-dining-room",
-      "relation_kind": "located-in",
-      "from_node_id": "location-ground-dining-room",
-      "to_node_id": "location-corbitt-house-ground-floor",
-      "claim_id": "claim-located-in-ground-dining-room",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-ground-kitchen",
-      "relation_kind": "located-in",
-      "from_node_id": "location-ground-kitchen",
-      "to_node_id": "location-corbitt-house-ground-floor",
-      "claim_id": "claim-located-in-ground-kitchen",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-upper-main-bedroom",
-      "relation_kind": "located-in",
-      "from_node_id": "location-upper-main-bedroom",
-      "to_node_id": "location-corbitt-house-upper-floor",
-      "claim_id": "claim-located-in-upper-main-bedroom",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-upper-childrens-bedroom",
-      "relation_kind": "located-in",
-      "from_node_id": "location-upper-childrens-bedroom",
-      "to_node_id": "location-corbitt-house-upper-floor",
-      "claim_id": "claim-located-in-upper-childrens-bedroom",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-upper-spare-bedroom",
-      "relation_kind": "located-in",
-      "from_node_id": "location-upper-spare-bedroom",
-      "to_node_id": "location-corbitt-house-upper-floor",
-      "claim_id": "claim-located-in-upper-spare-bedroom",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-upper-bathroom",
-      "relation_kind": "located-in",
-      "from_node_id": "location-upper-bathroom",
-      "to_node_id": "location-corbitt-house-upper-floor",
-      "claim_id": "claim-located-in-upper-bathroom",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-basement-storage",
-      "relation_kind": "located-in",
-      "from_node_id": "location-basement-storage",
-      "to_node_id": "location-corbitt-house-basement",
-      "claim_id": "claim-located-in-basement-storage",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-basement-coal-bin",
-      "relation_kind": "located-in",
-      "from_node_id": "location-basement-coal-bin",
-      "to_node_id": "location-corbitt-house-basement",
-      "claim_id": "claim-located-in-basement-coal-bin",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-basement-crawl-space",
-      "relation_kind": "located-in",
-      "from_node_id": "location-basement-crawl-space",
-      "to_node_id": "location-corbitt-house-basement",
-      "claim_id": "claim-located-in-basement-crawl-space",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-located-in-basement-hiding-place",
-      "relation_kind": "located-in",
-      "from_node_id": "location-basement-hiding-place",
-      "to_node_id": "location-corbitt-house-basement",
-      "claim_id": "claim-located-in-basement-hiding-place",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-occurs-at-corbitt-house-ground",
-      "relation_kind": "occurs-at",
-      "from_node_id": "scene-corbitt-house-ground",
-      "to_node_id": "location-corbitt-house-ground-floor",
-      "claim_id": "claim-occurs-at-corbitt-house-ground",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-occurs-at-upper-floor-bedroom",
-      "relation_kind": "occurs-at",
-      "from_node_id": "scene-upper-floor-bedroom",
-      "to_node_id": "location-corbitt-house-upper-floor",
-      "claim_id": "claim-occurs-at-upper-floor-bedroom",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-occurs-at-basement-rites",
-      "relation_kind": "occurs-at",
-      "from_node_id": "scene-basement-rites",
-      "to_node_id": "location-corbitt-house-basement",
-      "claim_id": "claim-occurs-at-basement-rites",
-      "properties": {}
-    },
-    {
-      "relation_id": "relation-occurs-at-corbitt-confrontation",
-      "relation_kind": "occurs-at",
-      "from_node_id": "scene-corbitt-confrontation",
-      "to_node_id": "location-corbitt-house-basement",
-      "claim_id": "claim-occurs-at-corbitt-confrontation",
       "properties": {}
     },
     {
