@@ -580,7 +580,7 @@ function bandRowsOf(field) {
 		fix: "use one of details.options: time.band, damage.band", details: { field: "field", options: ["time.band", "damage.band"] } } };
 	const block = JSON.parse(readFileSync(join(RULES_JSON, `${spec[0]}.json`), "utf8"))[spec[1]];
 	const rows = Object.entries(block).map(([handle, row]) => field === "time.band"
-		? { handle, min: row.min, max: row.max, ...(Number.isInteger(row.default) ? { default: row.default } : {}) }
+		? { handle, min: row.min, max: row.max, ...(Number.isInteger(row.default) ? { default: row.default } : {}), ...(typeof row.covers === "string" ? { covers: row.covers.trim() } : {}) }
 		: { handle, dice: String(row.damage_expr).trim().toUpperCase(), ...(typeof row.note === "string" ? { note: row.note } : {}) });
 	return { ok: true, result: { field, table: spec[0], rows } };
 }

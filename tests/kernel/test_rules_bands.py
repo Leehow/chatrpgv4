@@ -39,8 +39,11 @@ def test_time_rows_are_the_time_cost_categories_in_the_table_order_with_their_ra
     categories = shipped("time-costs", "categories")
     assert result["field"] == "time.band"
     assert result["table"] == "time-costs"
-    assert result["rows"] == [{"handle": handle, "min": row["min"], "max": row["max"], "default": row["default"]}
+    # Contract §202.1: every row also carries `covers`, what act it is and its extent, as the table states it.
+    assert result["rows"] == [{"handle": handle, "min": row["min"], "max": row["max"], "default": row["default"],
+                               "covers": row["covers"].strip()}
                               for handle, row in categories.items()]
+    assert all(row["covers"] for row in result["rows"])
     # The two road rows are the table's; leaving them out of a per-turn question is the host's decision, not the read's.
     assert {"local_travel", "long_travel"} <= {row["handle"] for row in result["rows"]}
 

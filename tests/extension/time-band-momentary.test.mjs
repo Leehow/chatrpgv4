@@ -48,7 +48,10 @@ test("§138.10.1 on the emitted kernel: rules.bands lists momentary 0-1 (default
 		const [bands, , , applied, status] = kernelRun(workspace, [["rules.bands", { field: "time.band" }], ["table.open"],
 			["table.player_input", { text: INPUT }], ["table.apply", { call_id: "t1-c1", effects: [{ kind: "time", band: "momentary", why: "half a minute of listening" }] }],
 			["table.status"]], { COC_KERNEL_SEED: seed });
-		assert.deepEqual(bands.rows.find((row) => row.handle === "momentary"), { handle: "momentary", min: 0, max: 1, default: 0 });
+		// §202.1: every row also says what act it covers; the range and default are this row's own.
+		const { covers, ...momentary } = bands.rows.find((row) => row.handle === "momentary");
+		assert.deepEqual(momentary, { handle: "momentary", min: 0, max: 1, default: 0 });
+		assert.ok(typeof covers === "string" && covers.length > 0, "momentary says what act it covers");
 		const receipt = status.receipts.find((row) => row.id === applied.receipts[0]);
 		assert.deepEqual([receipt.kind, receipt.basis, receipt.band], ["time", "banded", "momentary"]);
 		assert.deepEqual(receipt.band_roll, { min: 0, max: 1, total: receipt.minutes });

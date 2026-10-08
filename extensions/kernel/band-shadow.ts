@@ -109,7 +109,9 @@ export function readBandRows(kind: ShadowKind, answer: unknown): BandRows | unde
     const parsed = rows.flatMap((value): TimeBandRow[] => {
       const row = value as Record<string, unknown> | null;
       if (!row || typeof row.handle !== 'string' || !Number.isInteger(row.min) || !Number.isInteger(row.max)) return [];
-      return [{handle: row.handle, min: Number(row.min), max: Number(row.max), ...(Number.isInteger(row.default) ? {default: Number(row.default)} : {})}];
+      // §202.1: what act the row covers rides to the question; a blank one is left out, never invented.
+      return [{handle: row.handle, min: Number(row.min), max: Number(row.max), ...(Number.isInteger(row.default) ? {default: Number(row.default)} : {}),
+        ...(typeof row.covers === 'string' && row.covers.trim() ? {covers: row.covers.trim()} : {})}];
     });
     return parsed.length ? {kind, rows: parsed} : undefined;
   }

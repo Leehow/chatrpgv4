@@ -10,8 +10,9 @@
  */
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable, toolResultTexts, waitFor, waitForIdle } from "./harness.mjs";
 
@@ -20,9 +21,12 @@ const PLAYER = "我把书房的每个抽屉都拉开，一格一格地翻。";
 // A sentence and numbers only the Keeper's own call carries: none of them may reach the question.
 const WHY = "SENTINEL-WHY the Keeper's own account of the minutes";
 const ENV = { EXT_JEV_APIKEY: "test-jev-key" };
+// §202.3: brief_activity and record_lookup follow momentary, which keeps its position.
 const TIME_ROWS = ["speak_briefly", "quick_observation", "single_room_search", "careful_house_search", "library_research",
 	"first_aid", "medicine_treatment", "short_rest", "sleep_night", "therapy_week", "therapy_month", "spell_learning",
-	"tome_study", "investigation_recovery", "momentary"];
+	"tome_study", "investigation_recovery", "momentary", "brief_activity", "record_lookup"];
+// §202.2: a shipped row's criterion is its name, its range and what act it covers, read from the table itself.
+const COVERS = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "content", "rulesets", "coc7", "rules-json", "time-costs.json"), "utf8")).categories;
 const RUNGS = ["minor", "moderate", "severe", "deadly", "terminal", "splat"];
 
 const isShadow = (body) => Object.hasOwn(body.questions, "time_cost") || Object.hasOwn(body.questions, "severity");
@@ -99,7 +103,7 @@ test("a model-origin apply time writes one shadow row per effect with every fiel
 	const [question] = Object.values(requests[0].body.questions);
 	assert.equal(question.type, "choice");
 	assert.deepEqual(Object.keys(question.criteria), [...TIME_ROWS, "unknown"]);
-	assert.equal(question.criteria.single_room_search, "single room search: 10 to 45 minutes");
+	assert.equal(question.criteria.single_room_search, `single room search, 10 to 45 minutes: ${COVERS.single_room_search.covers}`);
 	// The state is the player's words and what settled before this call: nothing of the Keeper's own call.
 	assert.deepEqual(requests[0].body.state, { declaration: PLAYER, settled_this_turn: ["apply landed: clue:t1-c1"] });
 	assert.deepEqual(requests[1].body.state, { declaration: PLAYER, settled_this_turn: ["apply landed: clue:t1-c1", "apply landed: time:t1-c2"] });
@@ -238,7 +242,7 @@ test("over the real kernel: the shadow reads the kernel's own rows, and the turn
 	// The real kernel's `rules.bands` answer is what the question was built from: every action row, with its range.
 	assert.equal(requests.length, 1);
 	assert.deepEqual(Object.keys(requests[0].body.questions.time_cost.criteria), [...TIME_ROWS, "unknown"]);
-	assert.equal(requests[0].body.questions.time_cost.criteria.careful_house_search, "careful house search: 60 to 360 minutes");
+	assert.equal(requests[0].body.questions.time_cost.criteria.careful_house_search, `careful house search, 60 to 360 minutes: ${COVERS.careful_house_search.covers}`);
 	assert.deepEqual([asking.row.ok, asking.row.band, asking.row.range, asking.row.inside, asking.row.call_id], [true, "single_room_search", { min: 10, max: 45 }, true, "t1-c1"]);
 	assert.deepEqual([silent.row.ok, silent.row.skipped, silent.row.reason], [true, "unconfigured", undefined]);
 	// The Keeper's time landed as the Keeper's, and nothing in the turn differs because a question was asked beside it.

@@ -798,9 +798,9 @@
       "id": "core.time.cost_categories",
       "category": "time",
       "source_table": "time-costs.json",
-      "source_note": "Time-cost categories: apply time {band} names a row, and the kernel rolls whole minutes inside its min/max range, recording basis banded. rules.bands lists the categories; momentary covers an act of a moment with 0 or 1 minute. Road fill uses the travel rows' defaults.",
+      "source_note": "Time-cost categories: apply time {band} names a row, and the kernel rolls whole minutes inside its min/max range, recording basis banded. rules.bands lists the categories, each with covers, the act it is and its extent; momentary covers an act of a moment with 0 or 1 minute, brief_activity a few minutes, record_lookup one known record. Road fill uses the travel rows' defaults.",
       "numeric": {
-        "category_count": 17
+        "category_count": 19
       }
     },
     {

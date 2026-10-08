@@ -18,7 +18,8 @@ import type {TaskLease} from './task-context.ts';
 import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts';
 
 export const BAND_SHADOW_FAMILY = 'band-shadow';
-export const BAND_SHADOW_VERSION = '1';
+/** 2 (§202.2): the time question's criteria are the rows' `covers` and it asks the act's extent. */
+export const BAND_SHADOW_VERSION = '2';
 export type ShadowKind = 'time' | 'damage';
 /** The band field of the registry (§138.2) each shadow kind is about; `rules.bands` answers these. */
 export const SHADOW_FIELDS: Readonly<Record<ShadowKind, 'time.band' | 'damage.band'>> = Object.freeze({time: 'time.band', damage: 'damage.band'});
@@ -30,7 +31,8 @@ export const ROUTE_TIME_BANDS: readonly string[] = ROUTE_TRAVEL_ROWS;
 /** Placeholder gate recorded on every row for the report (spec D4): the shadow gates nothing. */
 export const BAND_SHADOW_DEFAULT_GATE = 0.5;
 
-export interface TimeBandRow {handle: string; min: number; max: number; default?: number}
+/** A time-cost row as `rules.bands` lists it; `covers` (§202.1) is what act the row is and its extent. */
+export interface TimeBandRow {handle: string; min: number; max: number; default?: number; covers?: string}
 export interface DamageBandRow {handle: string; dice: string; note?: string}
 interface ShadowBase {
   campaign: string;
@@ -76,15 +78,30 @@ export function shadowState(input: ShadowBase): Json {
 }
 
 /**
+ * A time-cost row as a criterion: its name, its minute range and (§202.2) what act it covers, the row's own words. A row
+ * without `covers` (a host fixture; the kernel refuses such a row in the shipped table) keeps its name and range.
+ */
+export function timeCriterion(row: TimeBandRow): string {
+  const covers = typeof row.covers === 'string' ? row.covers.trim() : '';
+  return covers ? `${words(row.handle)}, ${row.min} to ${row.max} minutes: ${covers}` : `${words(row.handle)}: ${row.min} to ${row.max} minutes`;
+}
+
+/**
  * One Choice over the time-cost categories an action can take (the route rows left out), each criterion the row's
- * name and its minute range, with an `unknown` exit.
+ * name, its minute range and what act it covers, with an `unknown` exit. It asks the act's extent as well as its kind
+ * (§202.2): a row of the same kind but a larger or a smaller extent does not fit.
  */
 export function timeQuestion(rows: TimeBandRow[]): DecisionQuestion {
   const criteria: Record<string, string> = Object.fromEntries(rows.filter(row => !ROUTE_TIME_BANDS.includes(row.handle))
-    .map(row => [row.handle, `${words(row.handle)}: ${row.min} to ${row.max} minutes`]));
-  criteria.unknown = 'The declaration does not say what the time was spent on, or none of the activities above fits it.';
-  return {key: TIME_KEY, target: 'the kind of activity the player\'s declared action is, as a cost in time', type: 'choice',
-    instructions: 'The player declared an action this turn. Which kind of activity is it, judged by what they said they do and what has already settled this turn? Each option is an activity with the time it usually takes at the table. Judge the activity itself, not how the story may go on. Choose unknown when the declaration does not say what the time was spent on, or when no option fits it.',
+    .map(row => [row.handle, timeCriterion(row)]));
+  criteria.unknown = 'The declaration does not say what the time was spent on, or none of the acts above fits it.';
+  return {key: TIME_KEY, target: 'the act the player\'s declared action is, by its kind and its extent, as a cost in time', type: 'choice',
+    instructions: 'The player declared an action this turn. Which option is it, judged by what they said they do now and what has already settled this turn? '
+      + 'Each option is an act of a given extent with the time it takes at the table. Judge the extent as well as the kind: how much ground the act covers, '
+      + 'how many things it goes through, how long one activity goes on. An option of the same kind but a larger extent does not fit (a whole building for '
+      + 'one corridor, hours in the holdings for one record brought to hand), nor one of a smaller extent (one room for a search of the whole house). '
+      + 'Judge the act itself, not how the story may go on. Choose unknown when the '
+      + 'declaration does not say what the time was spent on, or when no option fits it.',
     criteria};
 }
 
