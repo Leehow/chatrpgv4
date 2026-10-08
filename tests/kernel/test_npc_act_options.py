@@ -67,6 +67,8 @@ def test_outside_a_fight_there_is_no_attack_and_no_flight_the_first_blow_is_how_
     found = ways(result)
     assert "attack" not in found and "flee" not in found, found.keys()
     assert values(found["first_blow"], "target") == [INVESTIGATOR], "only the investigator can take a first blow (§142.11)"
+    blow = next(row for row in result["ways"] if row["way"] == "first_blow")
+    assert blow["ready"] is True and "preparation" not in blow, "the pinned archetype completes his block (§159.12)"
     assert "unarmed" in values(found["first_blow"], "weapon")
     # His own skills, from the pinned archetype's numbers (a label carries the value), and the rule's four social skills.
     skills = values(found["check"], "skill")
@@ -79,12 +81,22 @@ def test_outside_a_fight_there_is_no_attack_and_no_flight_the_first_blow_is_how_
     assert result["play_language"], "the act is written in the campaign's language"
 
 
-def test_a_person_with_no_numbers_has_no_first_blow_and_no_check(knott):
+def test_a_person_with_no_numbers_is_offered_the_first_blow_only_as_preparation_and_no_check(knott):
+    """§159.12's role-specific preparation (2026-10-05, 17f24438d) amends §143.3's `first_blow` row: a present person
+    with no stat block still has the way, so an act already chosen is held for preparation rather than lost, but it is
+    `ready: false` and names what the fight cannot read and how the Keeper completes it. No value is supplied."""
     open_turn(knott, "I look at Knott.")
-    found = ways(options(knott))
-    assert "first_blow" not in found, "a fight needs a stat block: the rules refuse one without it"
-    assert "check" not in found, "no numbers and no pins: nothing of his own to roll"
-    assert "intention_only" in found
+    result = options(knott)
+    rows = {row["way"]: row for row in result["ways"]}
+    blow = rows["first_blow"]
+    assert values(blow["params"], "target") == [INVESTIGATOR]
+    assert blow["ready"] is False, "a fight needs a stat block: without one the first blow is never executable"
+    assert blow["preparation"] == [{
+        "actor": "Steven Knott", "role": "combat", "completion": "archetype",
+        "missing": ["characteristics.STR", "characteristics.SIZ", "characteristics.DEX", "characteristics.CON"],
+    }], "the fight's own gaps, completed by an archetype because he is a person"
+    assert "check" not in rows, "no numbers and no pins: nothing of his own to roll"
+    assert rows["intention_only"]["ready"] is True and "preparation" not in rows["intention_only"]
 
 
 def test_on_his_turn_of_the_fight_the_attack_targets_only_opponents_and_flight_is_offered(knott):

@@ -56,6 +56,23 @@ function lastNotice(table) {
 	return table.ui.notifications.at(-1);
 }
 
+/**
+ * The kernel-request window of a command opens only once the turn's memory lane is done, as in
+ * `command.test.mjs`. Since contract §12.8's foreground gate (2026-10-05, 17f24438d) a committed
+ * turn's lane jobs wait for `agent_settled`, so that turn's `memory.job`/`memory.fail` can land
+ * after `prompt()` returns, inside a window that belongs to the command. The lane's telemetry row
+ * follows its last awaited RPC, so it bounds the lane without relaxing what the window asserts.
+ */
+async function windowAfterLanesFinish(table, turn = 1) {
+	await waitFor(() => table.telemetry().some((row) => row.lane === "memory" && row.turn === turn), {
+		label: `memory lane finished turn ${turn}`,
+	});
+	return table.kernelRequests().length;
+}
+
+/** Backfill has no turn telemetry to await and is unrelated to the command. */
+const NO_BACKFILL = { PI_COC_MEMORY_BACKFILL: "0" };
+
 test("/coc module: the store, and which of those books can be played right now", async (t) => {
 	const table = await openWithLibrary(t);
 
@@ -179,12 +196,12 @@ test("/coc module outside an interactive terminal: one line, no bus request, no 
 	// The harness binds print mode by default, the side the RPC driver is on.
 	const table = await openTable({
 		responses: keeperTurn("A deep scratch runs down the door frame."),
-		env: { FAKE_KERNEL_MODULE: JSON.stringify({ module_id: "ingested-book", library: LIBRARY }) },
+		env: { FAKE_KERNEL_MODULE: JSON.stringify({ module_id: "ingested-book", library: LIBRARY }), ...NO_BACKFILL },
 	});
 	t.after(() => table.dispose());
 	await table.session.prompt("I look at the door frame");
 	table.ui.notifications.length = 0;
-	const before = table.kernelRequests().length;
+	const before = await windowAfterLanesFinish(table);
 
 	for (const command of ["/coc module", "/coc module use the-haunting", "/coc module parse /tmp/book.pdf --language en"]) {
 		await table.session.prompt(command);

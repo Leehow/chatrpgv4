@@ -9,7 +9,11 @@
  * pushes while a read is in flight folds into one trailing read.
  *
  * The renderers take React by injection; the stand-in below tracks hook deps and effect cleanup
- * the way React does, so a subscription is made once per `api` rather than once per render.
+ * the way React does, so a subscription is made once per `api` rather than once per render. The
+ * host injects the real React (`controlled-component-loader.ts`), so a panel may use any React hook;
+ * the stand-in carries `useLayoutEffect` since the timeline measures its viewport with it (the
+ * 2026-10-06 panel decision in contract §29.3, commit 444da5184). Layout effects run before passive
+ * ones, as in React. There is no DOM here, so a ref the panel measures stays null.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -21,7 +25,18 @@ const same = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.le
 
 function mount(createComponent, api) {
 	const hooks = [];
-	let index = 0, dirty = false, tree = null, effects = [];
+	let index = 0, dirty = false, tree = null, layoutEffects = [], effects = [];
+	const effectHook = (queue) => (fn, deps) => {
+		const k = index++;
+		const prior = hooks[k];
+		if (prior && deps && same(prior.deps, deps)) return;
+		hooks[k] = { deps, cleanup: prior?.cleanup };
+		queue().push(() => {
+			hooks[k].cleanup?.();
+			const cleanup = fn();
+			hooks[k].cleanup = typeof cleanup === "function" ? cleanup : undefined;
+		});
+	};
 	const React = {
 		createElement: (type, props, ...children) => ({ type, props: props || {}, children: children.flat(Infinity) }),
 		useState(initial) {
@@ -46,23 +61,14 @@ function mount(createComponent, api) {
 			hooks[k] = { value: fn(), deps };
 			return hooks[k].value;
 		},
-		useEffect(fn, deps) {
-			const k = index++;
-			const prior = hooks[k];
-			if (prior && deps && same(prior.deps, deps)) return;
-			hooks[k] = { deps, cleanup: prior?.cleanup };
-			effects.push(() => {
-				hooks[k].cleanup?.();
-				const cleanup = fn();
-				hooks[k].cleanup = typeof cleanup === "function" ? cleanup : undefined;
-			});
-		},
+		useLayoutEffect: effectHook(() => layoutEffects),
+		useEffect: effectHook(() => effects),
 	};
 	const Component = createComponent(React);
 	function render() {
-		index = 0; dirty = false; effects = [];
+		index = 0; dirty = false; layoutEffects = []; effects = [];
 		tree = Component({ api });
-		for (const effect of effects) effect();
+		for (const effect of [...layoutEffects, ...effects]) effect();
 	}
 	render();
 	return {
