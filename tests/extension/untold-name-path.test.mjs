@@ -7,6 +7,9 @@
  * still replaced his name with his epithet. Three Keepers made a name up, one deflected. On turn 7 the bartender's row was
  * whole and carried the token, and three of four copied it. Here: a crowded room on the voice bench, a cut person's stub
  * carrying the token into the Keeper's request, and the copied token saying the book's name.
+ *
+ * §194.1 (owner ruling 2026-10-08, two ledgers): the request no longer renames book names. The excerpt reaches the Keeper with
+ * the man's name as the book prints it, no note, and the stub carries `book_name` beside his word.
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
@@ -22,7 +25,7 @@ await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/c
 export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';
 export {createKernelRuntime} from './kernel-ts/registry.ts';
 export {fitPresent} from './kernel-ts/read/assemble.ts';
-export {UNTOLD_VIEW_USE, untoldNote} from './extensions/kernel/untold-view.ts';
+export {UNTOLD_VIEW_USE} from './extensions/kernel/untold-view.ts';
 export * from './extensions/table/context-runtime.ts';
 export * from './extensions/table/workspace/workpad-store.ts';`, resolveDir: root},
   outfile: join(temporary, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
@@ -76,20 +79,19 @@ test('§176.8: a person the budget cuts keeps the name path, through the Keeper\
     () => {}, () => api.workpadStoreRoot(home));
   bus.get('coc:kernel-bridge')({campaign: 'c1', call});
   bus.get('coc:capsule')({capsule: input.capsule, context: input._context});
-  // U3, turn 5: the Keeper looked the name up in the book; the excerpt came back with it renamed and nothing else.
+  // U3, turn 5: the Keeper looked the name up in the book; the excerpt came back with it renamed and nothing else. Now (§194.1)
+  // it comes back as the book wrote it.
   const excerpt = `[Original page 3] ${cut.name}坐在窗边，一言不发。`;
   const {messages: sent} = await hooks.get('context')({messages: [{role: 'user', content: '我找个空位坐下，先看看屋里都有谁。'},
     {role: 'assistant', content: [{type: 'toolCall', id: 'lookup-1', name: 'lookup', arguments: {kind: 'source', query: word}}]},
     {role: 'toolResult', toolCallId: 'lookup-1', toolName: 'lookup', content: [{type: 'text', text: JSON.stringify({answer: excerpt})}]}]},
     {model: {contextWindow: 1000000}});
   const result = sent.find(message => message.role === 'toolResult');
-  assert.ok(result.content[0].text.includes(`${word}坐在窗边`), result.content[0].text);
-  assert.deepEqual(result.content.at(-1), {type: 'text', text: api.untoldNote([word])}, 'the result says a name was there, and the token');
+  assert.deepEqual(result.content, [{type: 'text', text: JSON.stringify({answer: excerpt})}], 'the excerpt as the book wrote it, no note');
   const capsule = JSON.parse(sent.find(message => message.customType === 'coc-capsule').content);
   const shown = capsule.present.find(person => person.name === word);
-  assert.deepEqual(shown, {name: word, truncated: true, untold: {label: word, say_name: `{{name:${word}}}`, use: api.UNTOLD_VIEW_USE}},
+  assert.deepEqual(shown, {name: word, book_name: cut.name, truncated: true, untold: {label: word, say_name: `{{name:${word}}}`, use: api.UNTOLD_VIEW_USE}},
     JSON.stringify(capsule.present));
-  assert.ok(!JSON.stringify(sent).includes(cut.name), `${cut.name} reaches the Keeper`);
 
   // Copied where the fiction has him say it, the token says the book's name, and from then on he is told.
   const said = await call('table.narrate', {call_id: `t${input._context.turn}-c1`,

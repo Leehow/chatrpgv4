@@ -25,7 +25,7 @@ import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { CARD_FIELD_ORDER, CARRIED_VIEW_BYTES, CARRIED_VIEWS_BYTES, CARRIED_VIEWS_HEAD, carriedSection, fitView, namedPeople, PRESENT_FIELDS, readCarriedViews } from "../../runtime/jev/carried-views.ts";
 import { readArguments } from "../../extensions/kernel/index.ts";
 import { isRunEvent } from "./pi-agent-core.mjs";
-import { renameUntold, untoldPeople } from "../../extensions/kernel/untold-view.ts";
+import { renameHandles, untoldPeople } from "../../extensions/kernel/untold-view.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CAMPAIGN = "test-camp";
@@ -100,10 +100,10 @@ function newCarried(requests) {
 	}
 	return out;
 }
-/** §103.5: direct kernel reads as the Keeper's request carries them -- each untold person by this table's word or handle. */
+/** §103.5/§194.1: direct kernel reads as the Keeper's request carries them -- book names as written, a handle as this table's word. */
 function asKeeperSees(workspace, views) {
 	const roster = untoldPeople(kernelSteps(workspace, [["table.untold", {}]])[0]);
-	return views.map((view) => JSON.parse(renameUntold([{ role: "toolResult", content: [{ type: "text", text: JSON.stringify(view) }] }], roster)[0].content[0].text));
+	return views.map((view) => JSON.parse(renameHandles([{ role: "toolResult", content: [{ type: "text", text: JSON.stringify(view) }] }], roster)[0].content[0].text));
 }
 const pick = (row, keys) => Object.fromEntries(keys.filter((key) => Object.hasOwn(row, key)).map((key) => [key, row[key]]));
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
@@ -150,8 +150,9 @@ test("§135.31 after a clerk move: the scene the run moved into and the people t
 	// The people: the gatekeeper the Globe's obligation puts in the way (its carried meeting) and the archivist the Mod's
 	// first-impression check targets; the investigator is never among them.
 	const people = byFocus("npc");
-	assert.deepEqual([lookArty.name, lookRuth.name], ["arty-wilmot", "ruth-blake"], "§103.5: nobody has told the investigator their names");
-	assert.deepEqual(people.map((entry) => entry.name).sort(), ["arty-wilmot", "ruth-blake"]);
+	// §194.1: nobody has told the investigator their names, and the Keeper's request carries them as the book writes them.
+	assert.deepEqual([lookArty.name, lookRuth.name], ["Arty Wilmot", "Ruth Blake"], "§194.1: the look reaches the Keeper with the book's names");
+	assert.deepEqual(people.map((entry) => entry.name).sort(), ["Arty Wilmot", "Ruth Blake"]);
 	for (const [entry, look] of [[people.find((value) => value.name === lookArty.name), lookArty], [people.find((value) => value.name === lookRuth.name), lookRuth]]) {
 		const { kind: _kind, ...card } = look;
 		assert.deepEqual(pick(entry.view, ["name", "id", "role", "wants", "fears", "hides", "voice"]), pick(card, ["name", "id", "role", "wants", "fears", "hides", "voice"]),

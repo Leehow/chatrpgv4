@@ -7,7 +7,7 @@ Spec: `docs/specs/two-ledgers.md`. Contract: `docs/kernel-rpc.md` §194. Integra
 Status: done (lead)
 
 ## TL-02 The truth ledger: the request carries book names
-Status: ready-for-agent
+Status: done (claude/two-ledgers-a-20261008)
 
 - `extensions/table/context-runtime.ts`: the request no longer renames untold people's book names (every
   `renameUntold` call site). Handle rows (§176.8, `handle: true`) are still renamed to the table's word wherever they
@@ -23,7 +23,7 @@ Status: ready-for-agent
   printing that name is still refused by §177.11 the first time. Mutation-check each.
 
 ## TL-03 The player ledger: `player_knows`
-Status: ready-for-agent
+Status: done (claude/two-ledgers-a-20261008)
 
 - Kernel capsule (`kernel-ts/read/capsule.ts`, the section order of §184.2 — a stable section): `player_knows:
   {people: [{word, name? | (untold: true, book_name)}], documents: [{label, turn}]}`. People = book people with a

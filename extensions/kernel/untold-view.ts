@@ -1,6 +1,6 @@
 /**
  * Contract §103.5 (owner ruling 2026-10-03): until a person's name has been said to the investigator, the Keeper's copy
- * of the capsule names them by this table's epithet, or by their handle, and keeps the book's name aside.
+ * of the capsule names them by this table's epithet, or by their handle.
  *
  * §103 put `untold` beside each such person, but left `present[].name` as the book's name, the field the Keeper writes
  * from. On the installed App (2026-10-02) the Keeper named the station owner, the trucker and the veteran in the prose
@@ -13,17 +13,21 @@
  * table's epithet as they resolve the name (`ModuleGraph.nameKeys`, §87.8). The first-sight rows for the same people
  * follow the same names.
  *
- * §103.8 (owner, 2026-10-03): the book's name is not in this view at all. It was kept in `untold.name` "for the moment
- * someone says it"; on table 20 the Keeper wrote it as the epithet and then into the prose. When the fiction has the name
- * said, the Keeper writes `{{name:<who>}}` and the kernel puts the book's name in at delivery (kernel-ts/write/names.ts).
+ * §194.1 (owner ruling 2026-10-08, two ledgers): the Keeper holds the book's truth. §103.8 took the book's name out of this
+ * view and out of the whole request; on real table TR-F the request's words for the untold were wrong (one man's age and
+ * trade on another, the victim called "the creature"), and the Keeper retold the module's key letter from them: who wrote
+ * it, whom it accused and which family fled. Now each untold row also carries `book_name`, and the request is no longer
+ * renamed for names (`renameHandles`): only a handle, machine text, is still shown as the table's word. The guard against
+ * the name reaching the player stays at the exit (§177.11, §177.15).
  */
 type Row = Record<string, unknown>;
 const object = (value: unknown): Row => value && typeof value === "object" && !Array.isArray(value) ? value as Row : {};
 const text = (value: unknown): string => typeof value === "string" ? value.trim() : "";
 
-export const UNTOLD_VIEW_USE = "Nobody has said this person's name to the investigator, and you do not have it: in prose they are who they look like. "
-	+ "`name` is this table's word for them, for tool calls and say tokens; keep it, apply person gives another only when the fiction does. When the fiction has their name said (they give it, "
-	+ "someone calls them by it, a paper shows it), put `say_name` there exactly: the delivery puts in the name the book gives them.";
+export const UNTOLD_VIEW_USE = "The investigator has not heard this person's name. You know it (`book_name`) so the story stays true to the book; "
+	+ "in prose they are who they look like, and prose and say tokens call them `name`, this table's word for them: keep it, apply person gives another only when the fiction does. "
+	+ "Where the fiction has their name said (they give it, someone calls them by it, a paper shows it), put `say_name` there exactly: "
+	+ "the delivery puts in the book's name and tells it.";
 
 /**
  * §176.5 (spec Q4): the token that says an untold person's name, ready to copy. Neither model on table 21 wrote
@@ -50,7 +54,8 @@ export function untoldView<T>(capsule: T): { capsule: T; names: UntoldNames } {
 		const { name: _book, untold: _untold, ...rest } = row;
 		// §176.8: the kernel's block carries the token on every projection, a budget stub included; the view keeps it.
 		const token = text(untold.say_name) || sayName(shown);
-		return { name: shown, ...rest, untold: { ...(text(untold.label) ? { label: text(untold.label) } : {}), say_name: token, use: UNTOLD_VIEW_USE } };
+		// §194.1: the book's name rides beside the table's word, for the Keeper's own reckoning.
+		return { name: shown, book_name: name, ...rest, untold: { ...(text(untold.label) ? { label: text(untold.label) } : {}), say_name: token, use: UNTOLD_VIEW_USE } };
 	});
 	if (!names.byName.size) return { capsule, names };
 	const view: Row = { ...source, present };
@@ -59,11 +64,11 @@ export function untoldView<T>(capsule: T): { capsule: T; names: UntoldNames } {
 	return { capsule: view as T, names };
 }
 
-/** First-sight rows renamed the way the capsule's `present` was: by handle, else by the book's name. */
+/** First-sight rows named the way the capsule's `present` was: by handle, else by the book's name; the book's name beside (§194.1). */
 export function firstSightPeople(people: unknown[], names: UntoldNames): unknown[] {
 	return people.map((entry) => {
 		const row = object(entry), shown = names.byId.get(text(row.id)) ?? names.byName.get(text(row.name));
-		return shown && Object.keys(row).length ? { ...row, name: shown } : entry;
+		return shown && Object.keys(row).length ? { ...row, name: shown, ...(text(row.name) && text(row.name) !== shown ? { book_name: text(row.name) } : {}) } : entry;
 	});
 }
 
@@ -161,10 +166,11 @@ function renameText(source: string, roster: UntoldRoster, shown?: Set<string>, k
  * §176.8: what a renamed tool result says after its own text. Replay of game-24bb66cb (2026-10-04, sequence U3, turn 5):
  * asked the veteran's name with his `say_name` in its capsule, the Keeper looked his name up in the book instead; the
  * excerpt came back with his name renamed to his word, read as a book that never names him, and the Keeper made one up.
+ * §194.1: only a handle is renamed now, and the book's names stand in the result as written.
  */
 export function untoldNote(shown: readonly string[]): string {
-	return "[untold names] People the investigator has not been told the name of are shown in this result by this table's word for them; "
-		+ "the book does name them, and you do not have it. Where the fiction has one of those names said, write that person's say_name there: "
+	return "[untold names] A handle in this result is shown as this table's word for that person, whose name the investigator has not heard; "
+		+ "the book's name for them stands wherever the result has it. Where the fiction has one of those names said, write that person's say_name there: "
 		+ `${shown.map(sayName).join(", ")}.`;
 }
 
@@ -196,6 +202,8 @@ export function renamePlaces(messages: readonly unknown[], untold: UntoldRoster 
  * the table into the gas station before the Keeper's first call; the station's people reached the Keeper in the clerk's
  * note, with the book's names, and on turn 2 the Keeper wrote "Russell" into the prose. A list of message kinds to
  * rename would miss the next kind; the request is where they all meet. Input messages are not changed.
+ *
+ * §194.1: the request now goes through `renameHandles`, this with only the roster's handle rows; book names stay as written.
  */
 export function renameUntold<T>(messages: readonly T[], untold: UntoldRoster | readonly UntoldPerson[], keep?: (place: RenamePlace) => boolean): T[] {
 	const roster = rosterOf(untold);
@@ -228,4 +236,15 @@ export function renameUntold<T>(messages: readonly T[], untold: UntoldRoster | r
 		if (!changed) return message;
 		return { ...row, content: shown?.size ? [...parts, { type: "text", text: untoldNote([...shown]) }] : parts } as T;
 	});
+}
+
+/**
+ * Contract §194.1 (owner ruling 2026-10-08): the rename the Keeper's request goes through. Book names are no longer renamed --
+ * the request carries the book as written, and the exit gate (§177.11, §177.15) keeps a name from reaching the player -- but a
+ * handle, and a node id, are machine text: a `table.untold` row marked `handle: true` is still shown as this table's word
+ * wherever it stands (§176.8), never asked about, and a tool result that had one renamed ends with `untoldNote`.
+ */
+export function renameHandles<T>(messages: readonly T[], untold: UntoldRoster | readonly UntoldPerson[]): T[] {
+	const roster = rosterOf(untold);
+	return renameUntold(messages, { people: roster.people.filter((person) => person.handle === true), protected: roster.protected });
 }

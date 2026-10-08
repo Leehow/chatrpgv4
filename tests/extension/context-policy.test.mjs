@@ -229,6 +229,7 @@ test('§184.2: stableFirst puts the stable sections first, then sections it does
         first_sight: {place: 'x'}, present: [{name: 'Arty'}], voices: [], known: {clues_here: []}, pressures: [{name: 'clock'}],
         obligations: [], director: {beat: 'b'}, situations: [], worldlines: {active: 'main'}, rulings: [], memory: [], style: {floor: ['f']},
         recent: [{turn: 2}], owed: [], warnings: [], unrecorded: [], untold: [], reading: {sections: []}, resume: {kind: 'r'},
+        player_knows: {people: [], documents: []},
         truncated: ['present'],
         // The kernel's own order of these two (read off a capsule), with one key neither list names in each.
         mods: {active: [], authority: 'a', expression_reference: {enabled: false}, pending_contacts: [], relationships: [], objects: [],
@@ -237,7 +238,7 @@ test('§184.2: stableFirst puts the stable sections first, then sections it does
     kernel.style.mods = 'not a section';
     const before = structuredClone(kernel), sent = api.stableFirst(kernel);
     assert.deepEqual(Object.keys(sent), ['head', 'historical_setting', 'worldlines', 'mods', 'reading', 'pressures', 'obligations', 'situations',
-        'rulings', 'owed', 'unrecorded', 'untold', 'warnings', 'known', 'voices', 'style',
+        'rulings', 'owed', 'unrecorded', 'untold', 'warnings', 'player_knows', 'known', 'voices', 'style',
         'first_sight', 'resume', 'truncated',
         'where', 'present', 'director', 'memory', 'recent', 'turn']);
     // Inside mods and known, what play moves goes last; a key neither list names keeps its place between.

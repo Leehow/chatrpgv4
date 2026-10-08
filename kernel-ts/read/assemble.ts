@@ -6,6 +6,7 @@ import { SessionView } from "./session-view.js";
 import { briefWindow } from "./brief-window.js";
 import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, fitBudget, fittedModuleSection, sceneLabel, voicesSection, samePersonReference } from "./capsule.js";
 import { OWN_BUDGET, ownSection } from "./own.js";
+import { playerKnowsSection } from "./player-knows.js";
 import {currentOwnedDocuments} from '../mods/document-visibility.js';
 import {requestedEditContext} from '../mods/document-requests.js';
 import { playedRecords, signals, directorSection } from "./director.js";
@@ -527,7 +528,10 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         unrecorded: [...unrecordedClues(graph, world, scene, campaign.records, number(turn.turn)),
             ...unrecordedPeople(graph, world, scene, campaign.records, number(turn.turn)),
             ...unrecordedTime(campaign.records, number(turn.turn), clockSection(graph, world))],
-        untold: untoldReceipts(campaign.records, number(turn.turn))
+        untold: untoldReceipts(campaign.records, number(turn.turn)),
+        // §194.2: the player's ledger beside the book's truth; it fits its own budget (PLAYER_KNOWS_BUDGET), newest first.
+        player_knows: playerKnowsSection(graph, world, row(campaign.jsonFiles.get("npc-journal.json")), campaign.records, number(turn.turn),
+            campaign.jsonFiles.get("first-sight.json"))
     });
     // Contract §183.3: the gates read the turn as assembled, before any section budget below cuts it.
     const gateTurn: TurnState = { opening: number(turn.turn) === 0, present: clone(array(sections.present)), stalled_turns: number(sig.stalled_turns),
@@ -541,6 +545,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         truncated.push("first_sight");
     if (fitBudget(sections.known.flags, 512, "last"))
         truncated.push("known.flags");
+    if (sections.player_knows.omitted)
+        truncated.push("player_knows");
     for (const [name, budget] of Object.entries(BUDGETS)) {
         // A crowded room never loses a person to present[]'s budget (contract §40.7, the chat bench: nine
         // people in one teahouse and four of them gone): whoever the cut would drop arrives as their name

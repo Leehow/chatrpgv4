@@ -17,6 +17,11 @@
  * Beside the round trips: the rows each scheme installs, a word the junction reads left to the junction (§87.8), and a journal
  * label the request shows before it is folded.
  *
+ * §194.1 (owner ruling 2026-10-08, two ledgers): the request no longer renames book names; the hook hands the book's text to the
+ * Keeper as written, which each test asserts. The undo still serves a Keeper that writes this table's words (the capsule's
+ * `name` for someone untold) and the joined forms, so the strings to copy are the roster's words, made by the roster's own
+ * rename (`renameUntold` over `table.untold`) as the request used to show them, and each goes back through a real tool call.
+ *
  * The investigator shares no name with anyone here: §188.1 keeps an investigator's name out of the rename (NR-01), so these are
  * places the rename really makes.
  */
@@ -35,6 +40,7 @@ await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/c
 export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';
 export {createKernelRuntime} from './kernel-ts/registry.ts';
 export {loadCampaignModule} from './kernel-ts/read/campaign.ts';
+export {renameUntold, untoldRoster} from './extensions/kernel/untold-view.ts';
 export * from './extensions/table/context-runtime.ts';
 export * from './extensions/table/workspace/workpad-store.ts';`, resolveDir: root},
 	outfile: join(temporary, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
@@ -73,6 +79,11 @@ async function keeperSees(game, input, text) {
 		{role: 'toolResult', toolCallId: 'lookup-1', toolName: 'lookup', content: [{type: 'text', text}]}]}, {model: {contextWindow: 1000000}});
 	return {text: messages.find(message => message.role === 'toolResult').content[0].text,
 		capsule: JSON.parse(messages.find(message => message.customType === 'coc-capsule').content)};
+}
+/** `text` with every untold book name shown as the roster's word for that person: the strings a Keeper copying words would write. */
+async function shownAsWords(game, text) {
+	const roster = api.untoldRoster(await game.call('table.untold'));
+	return api.renameUntold([{role: 'toolResult', content: [{type: 'text', text}]}], roster)[0].content[0].text;
 }
 /** Every string in `value` that `pick` keeps. */
 const strings = (value, pick, out = []) => {
@@ -216,10 +227,12 @@ async function refusedAmbiguous(game, effect, words) {
 
 test('§188.3 (name-free): every rename row kind copied from the request resolves to its original, or is refused ambiguous', async t => {
 	const game = await nameFree(t);
-	const {text: sent} = await keeperSees(game, game.input, PAGE);
+	const {text: request} = await keeperSees(game, game.input, PAGE);
+	assert.equal(request, PAGE, '§194.1: the request carries the book\'s text as written');
+	const sent = await shownAsWords(game, PAGE);
 	const whole = copied(sent, 'whole'), piece = copied(sent, 'piece'), single = copied(sent, 'single'), shared = copied(sent, 'shared'), both = copied(sent, 'both');
 	const alike = copied(sent, 'alike');
-	// The request holds the renamed strings, and no book name of these people.
+	// The roster's words for these strings, and no book name of these people.
 	assert.deepEqual([whole, piece, single, shared, both, alike], [WORDS[MATHER], `${WORDS[MATHER]}的账本`, `${WORDS[MATHER]}的钥匙`,
 		`${WORDS[MATHER]} / ${WORDS[ROSS]}`, `${WORDS[CLARK]} / ${WORDS[STONE]}`, Object.values(TOMS).join(' / ')], sent);
 
@@ -252,7 +265,9 @@ test('§188.3 (name-free): every rename row kind copied from the request resolve
 
 test('§188.3 (legacy): the same row kinds, and a handle the rename rewrote, copied from the request', async t => {
 	const game = await legacy(t);
-	const {text: sent, capsule} = await keeperSees(game, game.input, PAGE);
+	const {text: request, capsule} = await keeperSees(game, game.input, PAGE);
+	assert.equal(request, PAGE, '§194.1: the request carries the book\'s text as written');
+	const sent = await shownAsWords(game, PAGE);
 	const whole = copied(sent, 'whole'), piece = copied(sent, 'piece'), single = copied(sent, 'single'), both = copied(sent, 'both');
 	assert.deepEqual([whole, piece, single, both], [WORDS[MATHER], `${WORDS[MATHER]}的账本`, `${WORDS[MATHER]}的钥匙`, `${WORDS[CLARK]} / ${WORDS[STONE]}`], sent);
 	// §176.5: the letter's handle begins with Mather's, and the capsule shows it with his word there.
@@ -315,7 +330,9 @@ test('§188.3: a journal label the request shows before the fold (§176.4) is un
 	// The journal lane labelled Stone after this turn's fold: the roster shows her by the label until the next one.
 	const LABEL = '提着马灯的女人';
 	await writeFile(join(game.home, '.coc', 'campaigns', 'c1', 'npc-journal.json'), JSON.stringify({entries: {'npc-amy-stone': {label: LABEL}}}));
-	const {text: sent} = await keeperSees(game, game.input, `${PAGE}\nstone: ${STONE}.`);
+	const {text: request} = await keeperSees(game, game.input, `${PAGE}\nstone: ${STONE}.`);
+	assert.equal(request, `${PAGE}\nstone: ${STONE}.`, '§194.1: the request carries the book\'s text as written');
+	const sent = await shownAsWords(game, `${PAGE}\nstone: ${STONE}.`);
 	assert.deepEqual([copied(sent, 'stone'), copied(sent, 'both')], [LABEL, `${WORDS[CLARK]} / ${LABEL}`], sent);
 	assert.equal((await apply(game, {kind: 'npc', name: copied(sent, 'stone'), intends: 'Pack up the lamp.', outcome: 'attempted'})).npc, 'npc-amy-stone');
 	await refusedAmbiguous(game, {kind: 'npc', name: copied(sent, 'both'), intends: 'Pack up the lamp.', outcome: 'attempted'}, [WORDS[CLARK], LABEL]);
