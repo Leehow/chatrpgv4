@@ -107,4 +107,23 @@ Existing tests changed, each read whole before the change:
   them too; nothing lands and nothing is left pending. The file's header says the same.
 - `tests/extension/involuntary-admission.test.mjs`: a comment only (it said other lines "may be stopped").
 
-Mutations: see the report below the box results.
+Mutations (each applied to a copy, the file restored by copying the saved original back, `git status` clean after; run on
+single files with the box's `build/`), every one turned a test red:
+
+| | Mutation | Red |
+| --- | --- | --- |
+| M1 | the per-line review returns at the first `not_authorized` again | 6 in `refusal-recovery` (T3, T16, emitted kernel, prefetch, …), 1 in `admission-lines-parallel` |
+| M2 | `batchRefusal` never names admitted lines | 7 |
+| M3 | no recovery seeding (the resend is reviewed) | 6 |
+| M4 | `recoveryMatches` accepts a superset | 2 (pure; the line-added resend) |
+| M5 | the prefetch reviews a recovery | 1 (the §32.12.4 test: 4 lane calls) |
+| M6 | `shapeVerdict` drops `open_choice` | 5 |
+| M7 | `admissionRefusal` ignores `open_choice` | 6 |
+| M8 | `acting_party` not printed | 3 (pure, §197.3 seam, T1) |
+| M9 | an accepted offer read as the giver | 1 (pure) |
+| M10 | the instruction does not name `acting_party` | 1 (the pairing guard) |
+| M11 | admitted lines read only from this call's statuses | 6, and 2 in `admission-lines-parallel` |
+| M12 | host-only `_` fields resent | 1 |
+| M13 | `admitted` named on `review_pending` | 1 |
+| M14 | the recovery entry never recorded | 6 |
+| M15 | the paragraph appended twice on a nested refusal | 1 |
