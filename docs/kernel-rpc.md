@@ -41245,7 +41245,7 @@ After a steered delivery lands, the lane judges it once in the background, never
 - `unavailable` (reason);
 - `after_steer` (verdict, missing).
 
-**Why this exception to §166.** The owner's 2026-10-01 ruling for §166 approved one-pass delivery and accepted narration mistakes. Prose rules alone did not make the Keeper describe a place: 2.2.x's sensory and first-visit lines, §168's capsule section, and 2.1.12's "show everything the book describes" were all in the request while run 3 delivered 140 characters an arrival. §168 checks only after delivery and only against book words, so it could not catch it. This is the lead's decision on the owner's 2026-10-08 complaints, in the shape of §166.2's boundary: one bounded question, one steer, no loop, settled facts kept. **It should be confirmed with the owner.**
+**Why this exception to §166.** The owner's 2026-10-01 ruling for §166 approved one-pass delivery and accepted narration mistakes. Prose rules alone did not make the Keeper describe a place: 2.2.x's sensory and first-visit lines, §168's capsule section, and 2.1.12's "show everything the book describes" were all in the request while run 3 delivered 140 characters an arrival. §168 checks only after delivery and only against book words, so it could not catch it. This is the lead's decision on the owner's 2026-10-08 complaints, in the shape of §166.2's boundary: one bounded question, one steer, no loop, settled facts kept. **The owner explicitly approved this exception in the Codex continuation on 2026-10-08: one fast-model check, at most one rewrite, up to 20 seconds, unavailable review delivers.**
 
 ### 203.7 Historical reference shaped for establishing (amends §124.12; historical-reference 1.2.0)
 

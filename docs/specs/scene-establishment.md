@@ -1,6 +1,6 @@
 # Arriving somewhere puts the investigator in it
 
-Status: integration-proposal (worker WIP copied to `codex/handoff-20261008-integration`; contract §203; owner confirmation of the pre-delivery exception pending)
+Status: integration-in-progress (worker WIP copied to `codex/handoff-20261008-integration`; contract §203; owner approved the pre-delivery exception on 2026-10-08)
 
 ## 1. What the owner asked for
 
@@ -120,7 +120,7 @@ Cut or compressed in "Opening the table":
    - Telemetry records it, and the delivery record keeps the verdict.
    - This is a second carve-out from §166.1's one-pass rule, in the shape of §166.2's refused-document boundary.
 
-   **The owner's 2026-10-01 ruling for §166 approved one-pass delivery; this exception is the lead's decision on the owner's 2026-10-08 complaints and should be confirmed with the owner.**
+   **The owner's 2026-10-01 ruling for §166 approved one-pass delivery. On 2026-10-08 the owner explicitly approved this bounded pre-delivery exception in the Codex continuation: one fast-model check, at most one rewrite, up to 20 seconds, unavailable review delivers.**
 
 ## 4. Tickets
 
@@ -156,5 +156,5 @@ Cut or compressed in "Opening the table":
   Conflicts retain §199's appearance-only epithet source, §200's unconfirmed-recording channel and fallback behavior,
   and §201's combined told reads alongside the establishing data. Existing localized description seeds are preserved;
   changes to product-authored descriptions are English source only.
-- The pre-delivery exception remains proposed until the owner confirms it. No installed App, model setting, campaign,
+- The owner approved the pre-delivery exception on 2026-10-08. No installed App, model setting, campaign,
   or live table has been changed by this continuation. Host-path, focused/all and live prose verification remain pending.
