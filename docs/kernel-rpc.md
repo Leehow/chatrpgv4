@@ -39391,6 +39391,30 @@ now reads instead of the summary. Mutations, each turning a case red and reverte
 the entry; no stop at the next person; no stop at the paragraph; the transcript not read; the summary fallback back; the
 "that person alone" instruction removed; shortest name first.
 
+### 194.5 TR-F2 turn 2: the gate, the documents and the spoken name (owner ruling 2026-10-08: 「算，三处一起修完再跑 TR-F2」)
+
+**Evidence.** TR-F2 (App `9d9c191dd`, Cold Harvest, `game-26e7a8f4`), turn 2. The player read the letter and the
+resident list. The Keeper's first draft was the book's truth (Galena Smolskaya signs; Pyotr Abramov's family accused;
+the Kravchuk family of four fled 1937-06-21; the arrest list's names and sexes swapped). The delivery carried both
+handouts, and §194.3 told 16 people at that delivery (`told_documents`). But §177.11's gate checked the prose before those
+tells counted, refused the same names five times, and the Keeper stripped them: the player read 「信署名为一名农场居民」
+「一户人家」「一户四口之家」. 「斯大林」 was refused too: the cast lists him as a person. On turn 1 the captain's line
+「生产监督员鲍里斯·加庞报告」 was refused and the Keeper dropped the name instead of writing `say_name`.
+
+**1. A delivery's documents tell before its gate.** The names a delivery's own handouts tell (§194.3, computed from that
+delivery's effects and receipts) count as told when §177.11 checks that delivery's text.
+
+**2. A public figure is not untold.** A cast person who is a real public figure of the world outside the story, mentioned
+as such, is left out of the untold roster, the gate and the rename. The judgement is Jev's, one question per cast row from
+the row's own entry (§194.4), cached per cast digest; Jev unavailable or below the bar leaves the person untold (a false
+refusal costs a retry; a leaked character name costs the story). No list of names.
+
+**3. A name spoken in an NPC's line tells it** (owner: 「算」). An untold person's printed name inside a `{{say:X}}…{{/say}}`
+span whose speaker X is a person other than the investigator is the fiction saying it: the gate does not refuse it, and
+the delivery tells that person as `{{name:}}` does (rendered name, `person_labels` sync, `toldTurn`). A name several
+untold people share (a family name) is delivered as written in such a line and tells none of them (§188.8). §177.15's
+Jev clearing still applies inside the line. Narration outside a say span, and the investigator's own lines, stay gated.
+
 ## 195. A prescreen survives a library publish; the read-ahead reads a page again only for a new reason (owner 2026-10-08: 「我发现自从你这边改了方法之后，kp出现找不到模组内容的情况比之前多了，你最好留意一下接线的问题」, 「开这个切片，和两本账一起在 TR-F2 验收」; `docs/specs/prescreen-survives-publish.md`)
 
 **Evidence.** TR-F (App `d944b6b07`): two prescreens were discarded as `source_stale` 1–3 s after a reading job published
