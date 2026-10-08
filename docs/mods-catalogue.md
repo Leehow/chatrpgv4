@@ -62,9 +62,22 @@ The index concerns the first two slots. Everything else already reaches its cons
 
 **Reads.** `present[].speaks`, `.wants/.fears/.hides`, the investigator's Language skills, `mods.pending_contacts`. **Writes.** `resolve` the impression check; `apply dossier` language; ordinary social checks.
 
-## 3. Enhanced Items (`enhanced-items` 1.3.2, default on)
+## 3. Enhanced Items (`enhanced-items` 1.3.4, default on)
 
 **What it is.** Executable item parameters from the story: definitions and instances with ownership, ammunition, condition, usages and readable documents; a creator agent prepares the numbers, an auditor catches undeclared mechanics before delivery.
+
+The host now prepares unmanaged carried rows in the background on session opening
+and reopening (§129.7), using this materializer. Inventory folds remain available
+while preparation runs; completion publishes the real document before refreshing
+its read/write entry. Failed rows expose an explicit retry. This also serves older
+campaigns pinned to this package, without changing their frozen instruction bytes.
+
+Version 1.3.3 keeps carrier instructions resident and adds explicit reading surfaces,
+per-NPC observed writing, and sidebar physical-edit settlement (§179.3a). Existing
+campaigns select this version through the normal Mod update control.
+Version 1.3.4 adds bounded current-writing lookup and paged reading for focused
+questions in long notebooks (§179.3b); literal absence and incomplete semantic
+coverage remain distinct.
 
 **Contributes.** `instructions` 8.0 KB, `brief` 0.9 KB, `materializer` 8.9 KB (the creator: weapon presets copied exactly with listed deviations, spell/item parameter shapes, document text in the play language, `unsupported_capability` refusal), `auditor` 4.7 KB (unpublished narration vs registered objects: missing definitions for things with mechanical consequence, unregistered equipment once used, carriers without a document, described damage vs instance state; never for scenery or a sheet weapon). UI: a paper document editor.
 

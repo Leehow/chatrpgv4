@@ -12,6 +12,8 @@ import {stagedSheet,stagePendingItemIdentity} from '../apply/inventory.js';
 import { required } from '../write/store.js';
 import { validateDefinition } from './definition.js';
 import { appendDocument, initializeDocument, ownershipChanged, writeDocument } from './documents.js';
+import {PHYSICAL_DOCUMENT_ACTIONS,physicalDocumentAction,writingSurface} from './document-actions.js';
+import {pendingDocumentEdit} from './document-requests.js';
 import { defineObject, isPlaceholder, moveObject, objectInstance, objectRegistry } from './objects.js';
 import { objectTransferReceipt, ownerLabel } from './object-transfer.js';
 import { clearOffer, openOffer, recordOffer, receiptsOf, validateDisposition, validateHandover } from './object-offer.js';
@@ -184,6 +186,10 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
             effect = {...effect, quantity: count, condition}; sheet.equipment.splice(index, 1);
         }
         const beforeCondition = prior?.state.condition ?? null;
+        if(prior&&PHYSICAL_DOCUMENT_ACTIONS.includes(row(effect.document).action)){
+            if(!equal(source,owner))throw new RpcError('invalid_params','Physical document operations use the same actual from/to owner');
+            return physicalDocumentAction(context,prior,effect);
+        }
         if (prior && effect.condition != null && effect.condition !== beforeCondition && !string(effect.why || '').trim()) throw new RpcError('invalid_params', 'A physical state change needs its causal reason in why');
         const quantity = field(effect, 'quantity', prior ? prior.quantity : 1);
         let seed: Row | null = null, writing = false;
@@ -198,6 +204,12 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                              return isJsonObject(item.document)&&held.kind===owner.kind&&held.id===owner.id;}).map(value=>row(value).name) : []}});
                 if (Object.keys(value).length !== 2 || typeof value.text !== 'string') throw new RpcError('invalid_params', 'Document writing accepts only action and string text',
                     {fix:'Keep document to {action:"write"|"append",text:"..."}; put the causal why on the object effect.',details:{field:'object.document'}});
+                const request=await pendingDocumentEdit(campaign,world,prior);
+                if(request&&['selected','needs_follow_up'].includes(request.status)
+                    &&request.text===(value.action==='append'?string(prior.document.text)+value.text:value.text))
+                    throw new RpcError('needs','Settle the selected editor target with document.requested_edit; ordinary writing cannot bypass its physical method',
+                        {fix:'Use the already selected body through requested_edit with method, actual implements, marks and legibility after editing time settles. Do not retype it or ask for the same choice again.',
+                         details:{reason:'physical_document_edit_required'}});
                 if (!string(effect.why || '').trim()) throw new RpcError('invalid_params', 'Document writing needs a causal why on the object effect',
                     {fix:'Add the causal reason to object.why, outside document; preserve the chosen writing scope.',details:{field:'object.why'}});
                 // §188.8: the player reads the document; a joined word of several untold people is nobody's name there.
@@ -215,8 +227,10 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         const definition = objectRegistry(world).definitions[item.definition];
         if (!division && prior && Object.hasOwn(effect, 'document')) {
             if (writing) {
+                const before=string(prior.document.text);
                 if (effect.document.action === 'append') appendDocument(item, effect.document.text);
                 else writeDocument(item, effect.document.text);
+                writingSurface(world,item,before,string(effect.why));
             }
             else { initializeDocument(item, seed); ownershipChanged(world); }
         }

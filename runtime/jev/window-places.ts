@@ -228,8 +228,11 @@ export interface WindowPlacesPorts {
   call(method: string, params: Row): Promise<any>;
   /** The bound PDF's bookmarks as the host reads them, with the digest of the bytes read. */
   bookmarks(pdf: string): Promise<{file_sha256: string; bookmarks: unknown}>;
-  /** The native text of pages of the bound PDF, 1-based. */
-  pages(pdf: string, sourceSha: string, pages: number[]): Promise<{page: number; text: string}[]>;
+  /**
+   * The native text of pages of the bound PDF, 1-based; §191.7: with `reading`, the reading version of a page's stored
+   * transcript, which the place question's first lines read (a minted place's excerpt stays the native text).
+   */
+  pages(pdf: string, sourceSha: string, pages: number[]): Promise<{page: number; text: string; reading?: string}[]>;
   decision: DecisionPort;
   record(row: Row): void;
   extractionVersion: string;
@@ -266,7 +269,9 @@ export async function runWindowPlaces(ports: WindowPlacesPorts): Promise<Row[]> 
   const clearedBefore = budget.mode === 'on' ? open.filter(entry => (kept(entry)?.noul ?? -1) >= budget.placeMin) : [];
   if ((!unasked.length && !clearedBefore.length) || aborted()) return rows;
   const wanted = [...new Set([...unasked, ...clearedBefore].map(entry => entry.page))].sort((a, b) => a - b);
-  const texts = new Map((await ports.pages(snapshot.pdf, sourceSha, wanted)).map(page => [page.page, page.text]));
+  const read = await ports.pages(snapshot.pdf, sourceSha, wanted);
+  const texts = new Map(read.map(page => [page.page, page.text]));
+  const readings = new Map(read.filter(page => typeof page.reading === 'string' && page.reading.trim()).map(page => [page.page, page.reading!]));
   const window = {mode: ports.window.mode ?? null, first: ports.window.first, last: ports.window.last};
   const row = (entry: BookEntry, fields: Row): void => {
     const line = {lane: WINDOW_PLACES_FAMILY, module_id: moduleId, campaign, entry: {id: entry.id, name: entry.name, page: entry.page},
@@ -277,7 +282,7 @@ export async function runWindowPlaces(ports: WindowPlacesPorts): Promise<Row[]> 
   const withText = unasked.filter(entry => texts.get(entry.page)?.trim());
   for (const entry of unasked) if (!texts.get(entry.page)?.trim()) row(entry, {outcome: 'no_text'});
   const asked = withText.length ? await askWindowPlaces({campaign, moduleId, sourceSha, timeoutMs: budget.timeoutMs, signal: ports.signal,
-    entries: withText.map(entry => ({...entry, opening: firstLines(texts.get(entry.page)!, entry.name)}))}, ports.decision) : undefined;
+    entries: withText.map(entry => ({...entry, opening: firstLines(readings.get(entry.page) ?? texts.get(entry.page)!, entry.name)}))}, ports.decision) : undefined;
   if (asked?.nouls.size) {
     const at = new Date().toISOString();
     for (const entry of withText) { const noul = asked.nouls.get(entry.id); if (noul !== undefined) memo.entries[entry.id] = {name: entry.name, page: entry.page, noul, at}; }

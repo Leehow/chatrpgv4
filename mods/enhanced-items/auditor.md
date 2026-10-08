@@ -30,6 +30,12 @@ instance and ownership. Blank paper may have empty text; missing source writing
 must not be invented or silently treated as blank. Do not demand reinitialization
 of a document that already exists or undo player edits. Check described writing
 against the current text, which is not the immutable scenario source.
+For a claimed NPC reading, compare the actual person's document observation with
+the exact exposed passage and revision. A mood or prose claim is not a reading
+receipt. Flag a missing observation, exposure of hidden words, reconstructed erased
+writing or loss of a prior observation, using the existing findings shape. Do not
+make an unchosen exposure happen to justify a draft. Sidebar requests alone do
+not establish physical editing; inspect the actual edit receipt and current body.
 
 The active host review protocol owns output and completion. When continuity_review is present, use its unified shape and submit_audit; do not emit bare JSON or stop after writing a file. Otherwise write result.json: {missing:[{name, category:weapon|spell|item, reason}], findings:[]}.
 Also compare existing objects' described ownership, damage, breakage and spent uses

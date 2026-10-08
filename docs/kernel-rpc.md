@@ -3450,7 +3450,7 @@ repeating successful reading after Pi has already recovered a provider failure.
 
 The host-private PDF tool has four mutually exclusive navigation/page operations (native-text search added by the approved `pdf-source-fast-path` plan, 2026-09-18):
 
-- `search {query, first_page?, last_page?, limit?, cursor?}`: a bounded, cancellable literal search of the original PDF's native text through the existing host PDF.js document owner. Return physical pages, available page labels, bounded original snippets, actual searched scope, continuation/truncation and text availability. Unicode/case/whitespace normalization is retrieval, not a language or intent classifier. A zero-match result is not absence of source facts or absence of a text layer. Empty/unusable text leaves the existing visual route available; no OCR fallback or text-bundle ingestion is restored. Search results are explicitly navigation-only, like overview sheets: they never create page observations or satisfy source/review evidence. Reopen original pages before relying on their contents. In-memory page-text reuse follows document identity and lifetime; search adds no persistent full-book prerequisite, new dependency or wider file access.
+- `search {query, first_page?, last_page?, limit?, cursor?}`: a bounded, cancellable literal search of the original PDF's native text through the existing host PDF.js document owner. Return physical pages, available page labels, bounded original snippets, actual searched scope, continuation/truncation and text availability. Unicode/case/whitespace normalization is retrieval, not a language or intent classifier. A zero-match result is not absence of source facts or absence of a text layer. Empty/unusable text leaves the existing visual route available; no OCR fallback or text-bundle ingestion is restored. Search results are explicitly navigation-only, like overview sheets: they never create page observations or satisfy source/review evidence. Reopen original pages before relying on their contents. In-memory page-text reuse follows document identity and lifetime; search adds no persistent full-book prerequisite, new dependency or wider file access. *Amended 2026-10-07 by §191.7: on a page that has a stored page transcript the search reads the transcript's exact layer and its labelled image text; transcripts are persistent per file digest but never a prerequisite -- a page without one is searched in its native text.*
 
 - `info`：返回真实页数、已有书签与页面标签。没有书签返回空数组，不由程序猜章节。
 - `page <page> [--box x0,y0,x1,y1]`：按需渲染并返回图片路径、物理页号、裁剪范围和实际尺寸；读者再用 Pi `read` 看图。`page` 是从 1 起的物理页序，印刷页码只是标签。`box` 是应用 PDF 旋转后的可视整页上、左为原点的归一化矩形；满足 `0 <= x0 < x1 <= 1` 与 `0 <= y0 < y1 <= 1`。内核持久化 `pdf_index = page - 1`，只在边界转换一次。
@@ -7413,6 +7413,18 @@ entrypoints for genuine acceptance. Stage A does not satisfy the final requireme
 for a package without Python, uv, developer files or global runtimes.
 
 ### 27.4 Implementation record
+
+**Offline production dependency cache (owner ruling 2026-10-07).** App runtime
+assembly keeps a fresh dependency tree, private HOME and empty user/global npm
+configuration, but reuses the persistent npm archive cache at `~/.npm` (override:
+`PIPICOC_NPM_CACHE`). Production `npm ci` uses `--offline`; a missing or corrupt
+cache fails instead of fetching Internet payloads. Package-lock integrity and
+assembled resource checks remain authoritative. Staging cleanup never removes
+this external cache. Existing explicit Node/Git archive inputs are unchanged.
+This follows npm's content-addressed, integrity-checked cache and its strict
+offline option (https://docs.npmjs.com/cli/cache/ and
+https://docs.npmjs.com/cli/v10/using-npm/config/#offline); cache availability is not
+assumed to be permanent and no online fallback is enabled silently.
 
 2026-09-09: implementation restarted from the clean 0.9.2a baseline after the user
 requested deletion of two unmerged worker attempts. No code from those attempts
@@ -20894,6 +20906,49 @@ The recovery approach was cross-checked against BullMQ's stalled-worker requeue 
 durable task replay; this project reuses its existing job ledger and writer lease, with no new service.
 Sources: https://docs.bullmq.io/guide/workers/stalled-jobs and https://docs.temporal.io/tasks.
 
+### 129.7 Carried equipment is prepared beside play (owner ruling 2026-10-07)
+
+Opening or reopening a writable play session queues its unmanaged carried equipment
+under the active materializer. The host runs the existing tool-enabled creator in
+the background; neither opening prose nor player input waits for it. The kernel
+issues the exact row, owner and worldline binding. Names are structural handles;
+the creator decides readable/writable capability semantically and may return null
+for a financial placeholder rather than inventing a physical item. Existing known
+writing is preserved, unknown writing is never invented, and only established blank
+stationery may start empty. No keyword classifier or second equipment inventory is added.
+
+Host-only `mods.equipment.prepare`, `mods.equipment.publish` and
+`mods.equipment.fail` retain jobs in `save/equipment-preparation.json`.
+`mods.equipment.retry {actor,name}` resets only the selected failed job.
+Acceptance retains the ordinary definition/document gates. Publication rechecks
+the current row, owner, worldline and materializer, then stages the accepted define
+and exact-row adoption through the existing apply owner. It changes no quantity,
+condition, time, cash, player choice or turn cursor. It registers the document and
+its acquisition original before notifying the sheet, without waiting for another
+player turn. Stale completions cannot resurrect removed or transferred equipment.
+Pending work resumes with its retained job; failures remain explicit until retry.
+
+`table.view` projects `equipment_preparation: [{name,status}]` on each investigator
+for pending or failed rows. Such a row is already expandable: while open it shows
+the existing preparation animation, or an explicit retry control. Successful
+publication replaces that same row in place, preserving its expanded state; a
+document then offers the ordinary view/save/reset editor. No editing is enabled
+before canonical publication. Cold writable session reads may start the existing
+detail-recovery runtime, without a new player prompt or story continuation.
+
+Writers: the host's tool-enabled materializer and the guarded apply staging owner.
+Readers: the existing owned-item/document views and inventory preparation projection.
+Actor: the player opens the row, waits if necessary, then reads or writes through
+the existing editor. Background failures do not block play.
+
+Precedent: Jupyter's Contents API preserves entity metadata while content is loaded
+separately (https://jupyter-server.readthedocs.io/en/latest/developers/contents.html);
+VS Code's file providers separate resource identity from on-demand content access
+(https://code.visualstudio.com/api/extension-guides/virtual-documents). These confirm
+the UI separation, not authority to create missing fictional writing or bypass
+this product's ownership and publication gates.
+
+
 ## 130. The player reads first; the continuity review reads after (2026-09-22, amends §12.8, §36.14 and §91)
 
 The continuity review of §36.14 has been a gate before publication: `narrate` and `ask` waited inside
@@ -34358,6 +34413,148 @@ A capsule section for the card's first investigator (`party[0]`, as `known.inves
 - **The capsule's `memory` ranking (#20) is unchanged.** It still anchors on who is present and puts `player_assertion` last.
 - **The tableau closer is untouched.** "who is here and how they stand" pulls a room recap into quiet turns (`claude/tableau-closer-20261004`).
 
+### 179.3a Physical writing, observation and sidebar edits (owner ruling 2026-10-07)
+
+The current text on a registered carrier is authoritative for reading that carrier.
+History, remembered facts and the card's description do not recreate deleted writing.
+`own.documents` carries bounded current writing and revision evidence for owned
+carriers; `look focus object` reads the complete current document. An explicit
+in-fiction write/append continues through the existing canonical object operation.
+Readable text remains in-fiction data, never instructions or proof that its claims
+are true. A book's physical possession does not grant its spells or secrets.
+
+The object document interface gains physical operations, all using the instance's
+actual same from/to owner and a causal `why`:
+
+- `open` / `close` change the paper's reading surface. Closing revokes directed
+  showing, but never retracts what someone already saw.
+- `show {reader}` opens the carrier to this present person. A request by that
+  person is not a showing; ordinary action admission still governs the owner's act.
+- `observe {reader,access:held|shown|glimpse,quote?}` records a reading after the
+  Keeper established its actual visibility, comprehension and any required check.
+  Held requires that person's custody; shown requires a live directed showing;
+  glimpse requires an open surface and actual proximity. No operation automatically
+  grants reading to everyone present. An optional quote must be one exact unique
+  substring of the current readable surface; omission captures that surface in full.
+  A partial glance never silently captures an entire page. The kernel copies the
+  observed bytes and their revision rather than accepting retyped knowledge.
+- `requested_edit {method,implements,marks,legibility}` settles the exact selected
+  sidebar request. Method is `erase|cross_out|rewrite`; implements names
+  actual available carried things, not a hard-coded tool-name classifier. The Keeper
+  establishes suitability, scene feasibility and any consequential method choice.
+  A positive elapsed-time receipt must precede settlement. Marks describe the actual
+  physical result; legibility is `legible|illegible|unknown`, never inferred from an
+  item-name list. The kernel retains the changed source span as trace evidence and
+  exposes its words to ordinary readers only when they remain legible. Uncertain
+  recovery is not automatic knowledge. Unsupported means, a missing choice or a
+  refused check leave the requested text uncommitted.
+
+`mods.document.request {actor,name,version,action:save|reset,text?}` is the player
+UI entry. It records a bounded, custody/worldline/version-bound target body without
+changing current writing. The owning host submits one closed
+`document_edit_request` player message through its ordinary queue. The Keeper
+receives bounded before/after evidence and the actual actor/carrier, not opaque
+request ids; `requested_edit` copies the exact host-retained body at settlement.
+`mods.document.request_status` reports queued, selected, needs-follow-up, applied,
+refused or stale. The editor retains an interrupted/refused draft and never labels
+an unperformed request saved. Reset is a requested physical rewrite from the
+retained acquisition original, not a world-history rollback. Player UI calls to
+the legacy `mods.document.apply` are routed through this physical request path;
+the direct low-level method remains only for developer/compatibility callers and
+is not exposed as a Keeper or player editing shortcut.
+
+The host serializes submissions for the same session. Its private
+`mods.document.dispatch {actor,name,request,accepted}` acknowledgement binds to
+the issued request token, which never enters player or Keeper messages. A queued
+body remains retryable until the ordinary message queue accepts it; an accepted
+submission is not resent by another click. Delivery or stranding without physical
+settlement leaves `needs_follow_up`, retaining the exact draft. A stale acknowledgement
+cannot change a newer request, and settlement status comes from committed world
+state rather than an optimistic host acknowledgement.
+An ordinary write/append whose resulting body is the exact selected editor target
+is refused while that request is pending: it must use `requested_edit`, preserving
+the physical-method checks and canonical applied marker. Other actual writing may
+change the carrier and make the retained request stale. The editor context offers
+the current directly carried implement names; those names bind custody, while the
+Keeper judges their suitability.
+
+Observation receipts retain observer, carrier, observed revision, exact observed
+writing, turn and worldline. `npc.perspective` and `npc.situation` receive only
+this person's observations. An NPC who saw an earlier version keeps that report
+after erasure, closure or transfer; an NPC reading later receives current writing
+and physically legible marks only. The words are an observed assertion, not newly
+authenticated scenario truth. NPCs may react to observed editing, but unseen sidebar
+requests do not themselves become NPC knowledge.
+
+Three ends: player/keeper writes and physical edit settlement update the carrier;
+owned reads and per-NPC observations project the appropriate version; the Keeper
+uses them for an actual reading, writing or response, with canonical receipts.
+Past writing and observed knowledge are preserved when later writing changes.
+Each offered current document carries `next` with the same-owner show/observe
+operation and its observation receipt requirement. A delivered description of
+reading alone is not observation evidence; live acceptance checks the actual
+per-person ledger as well as the visible reply.
+Enhanced Items 1.3.3 makes its carrier instructions resident: document surfaces
+and observations must remain actionable even when situational topic selection is
+unavailable. The package retains the same state version; an existing campaign
+updates through the normal Mod version control rather than replacing frozen bytes.
+
+External comparison: Inform's actor-relative scope separates an owner's possession
+from another actor's perception (https://ganelson.github.io/inform/CommandParserKit/prsr.html).
+Foundry separates limited/observer/owner document access
+(https://foundryvtt.com/article/users/), but its account permissions do not settle
+this game's physical visibility. Microsoft's immutable-event guidance supports
+retaining prior facts when later changes occur
+(https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing);
+this change uses the existing store and logs, not an event-store migration.
+
+### 179.3b Focused reading of long current documents (owner ruling 2026-10-07)
+
+The owner requested finding a particular entry in a heavily used notebook. The
+200-character `own.documents` preview is navigation, never proof of absence.
+`look {focus:object,name,document_query?,document_page?,document_revision?}` adds
+bounded current-document reads to the existing verb; a bare object look retains
+its compatible full object view.
+
+- With `document_query`, the kernel searches the complete current readable surface
+  for that exact literal, returning up to six original fragments with surrounding
+  context and code-point ranges. Matching is case-sensitive and does not interpret
+  meaning. `no_literal_match` means only that this literal is absent; a semantic
+  question can still require reading the pages. The count covers all literal hits,
+  and additional result pages have an explicit next call.
+- With `document_page` and no query, the kernel returns one bounded, overlapping
+  text window, its page count and next call. The Keeper supplies the semantic
+  judgement from the actual words, without a keyword classifier or a new lane.
+  Page two onward requires the returned integer document revision. Changed writing
+  refuses the old continuation as `revision_conflict`, never as not found.
+- `document_read` exposes only current body and physically legible retained marks.
+  Source ranges distinguish current writing from legible marks; acquisition
+  originals, erased/unknown words, conversation history and NPC memory are not
+  searched. Reading evidence grants no new NPC observation or scenario truth.
+- The host tracks pages actually supplied in this player turn, by document and
+  revision, and reports `all_pages_supplied`. A last page alone is not complete
+  coverage. Literal hit fragments do not count as full semantic reading. No read
+  counter enters future turns as an obligation. A semantic absence may be stated
+  only after sufficient current-page evidence; incomplete coverage remains unknown.
+- A returned `next` or `read_pages` call is a host-issued, one-use continuation.
+  It does not spend the generic repeated-look allowance: later document windows
+  supply new evidence rather than re-read a carried scene. Arbitrary/repeated calls
+  keep the usual allowance. Revision, task/provider, failure and delivery guards
+  remain in force; this adds no permission for world changes.
+
+Three ends: ordinary writing/edit settlement updates the source revision; bounded
+object reads and current-document offers supply actual passages; the Keeper uses
+those passages for the player's focused question. Interface tests cover middle/end
+entries, multiple hit pages, Unicode boundaries, revision changes, readable marks
+and deleted words. Real play checks actual tool use and grounded answers.
+
+Comparison: SQLite FTS5's snippet function returns bounded context around matches
+(https://www.sqlite.org/fts5.html); Elasticsearch distinguishes exact-term from
+analysed text queries (https://www.elastic.co/docs/reference/query-languages/query-dsl/term-query).
+These confirm useful fragments and distinct match semantics. This product keeps
+literal location deterministic and semantic judgement with the Keeper; no search
+database, embedding service or dependency is added.
+
 ### 179.4 Acceptance
 
 A sandbox replay of `game-8e41c325` turns 3–6, from the `turn 2:` commit, with the table's own player lines and the same Keeper (`grok-build/grok-4.5` low). Evidence is in the branch worktree's `.coc/playtests/player-purpose-20261004/` (`preregistration.md` with two addenda, `results.md`, `out/`), with the driver runs beside it (`pp-*-20261004`). Pre-registered:
@@ -37689,6 +37886,283 @@ nothing reads prose with patterns.
 Counted (TP-02): one `told-position` row per delivery (`outcome`: `owed`, `dropped`, `shadow`, `stay`, or `skipped`), the
 owed rows with `source: "told-position"` in `owed.json` and on the record, and the clerk's `apply:owed:*` bind rows and
 receipts that land them. The lane's own read is `table.owe.options`; TP-04 reads the shadow rows before `on`.
+
+## 191. Page transcripts: the book's text in the order a reader reads it (owner 2026-10-07: 「可以，说明这个方案可行啊，这个不需要指定模型，就用玩家用的模型就行，那你写spec来实现吧，记得图谱解析那边的接线，还有我们内置模组的处理」, 「解析后的文本跟着pdf哈希保存，以后玩家再次玩或者上传相同的pdf不用重复解析」; `docs/specs/page-transcript.md`; amends §22.1's `search`, §22.4.7's landing text, §177.2's cast pages, §182.3's window and the prescreen consultation units of §147.3)
+
+**Evidence.** PDF.js native text is exact but in drawing order and empty where the page is pixels; a tools Pi agent given
+the page image and the numbered PDF.js lines, writing only placeholders, ordered 58 sampled pages of 17 books with every
+line placed on 41/42 (luna) and 42/42 (grok-4.5) text pages; MinerU misordered pages the agent got right. The format is
+the agent's; the words are the host's. The 2026-09-08 retirement of the OCR/Markdown bundle path stands: a transcript is
+a navigation and reading layer beside the native text, never the source of truth, never evidence, never a prerequisite.
+
+### 191.1 Lines
+
+Host operation `sourceLines {pdf, pages: [1..32 unique physical pages], expected_file_sha256?}` returns
+`{file_sha256, extraction_version, page_count, pages: [{page, pdf_label: string|null, native_sha256, lines: [string]}],
+errors: [{page, code: "native_extraction_unavailable"}]}`. `lines` is the native text of §22.1 (`sourceText`'s `text`)
+split at `"\n"` with whitespace-only entries removed, each kept byte for byte; `native_sha256` is that text's
+`text_sha256`. Same validation, document owner and worker path as `sourceText`.
+
+### 191.2 The layout child
+
+- **Who.** A reader child (`runTask({kind: "reader"})`, §22, `extensions/module/reader.ts`) with `tools: "read,write,edit"`,
+  no `source` guard beyond its own work directory, system prompt `content/setup/page-transcript.md` (English), the model
+  and thinking of `ReadingService`'s `deps.model()` at the time of the call. A model whose registry entry has no image
+  input transcribes nothing (`outcome: "no_vision"`); the page keeps its native text.
+- **Inputs** in the work directory `<store>/work/p<NNNN>-<attempt>/`: `page.png` from the existing page render
+  (`sourcePage`, full page, the reader's default size) and `lines.txt` (`L<n>: <line>` per line, 1-based; or one line
+  `(this page has no text layer)`). A repair attempt adds `repair.txt` naming the line numbers the previous layout left
+  out.
+- **Output** `layout.md`, the grammar of 191.3. The child is done when it exits; the host reads the file.
+- **Budget** (data, `content/rulesets/coc7/host-budgets.json` `transcript`, read by `runtime/jev/host-budgets.ts` with
+  coded fallbacks): `mode` (`on` | `off`, shipped `on`), `concurrency` (1; *amended 2026-10-07 after TR-C from 3*), `timeout_ms` (240000), `input_tokens`
+  (96000), `output_tokens` (16384), `repair_attempts` (1), `max_window_pages` (120), `cooldown_ms` (60000). The child's provider lease is its own
+  (`independentProviderBudget`-shaped, sized by these numbers); it never draws on a reading job's lease.
+- **Slots.** Transcript children take background reader slots (`acquireReaderSlot`, priority `background`); a foreground
+  request (191.6) is served first among transcript work but never preempts a reading job.
+
+### 191.3 Layout grammar and assembly
+
+- **Placeholders.** `{L<n>}` places line *n*; `{L<a>-L<b>}` places lines *a..b* (`a <= b`). Placeholders written next
+  to each other on one Markdown line form one run. **Drop list** `<!-- drop: L3 L4 L7-L9 -->` anywhere (ranges allowed):
+  page furniture. **Image text** between `<!-- image-text -->` and `<!-- /image-text -->`. **Figure notes**: lines whose
+  content begins `[figure]` after any blockquote markers. Everything else is Markdown structure.
+- **Normalization (deterministic, host).** Free text outside image text and figure notes is compared with each line
+  after NFKC with whitespace removed: equal to an unplaced line → that line is placed there; equal to a placed line →
+  removed; otherwise removed and counted (`free_removed`). A line placed twice keeps its first place. A line both placed
+  and dropped is placed. Numbers outside `1..line_count` are ignored and counted.
+- **Repair.** Lines neither placed nor dropped after normalization start one repair child (`repair_attempts`) with
+  `repair.txt`; after the last attempt they are appended in native order in a final block and listed as `unplaced`.
+- **Products.**
+  - `text` -- the exact layer: every native line exactly once, placed lines in layout order (a run's lines separated by
+    `"\n"`, runs and blocks by `"\n\n"`), then `unplaced`, then dropped lines in native order. **Invariant:** the multiset
+    of `text`'s non-empty lines equals the multiset of the native lines; the host refuses to store a page that fails it.
+  - `markdown` -- the reading version: the layout with runs filled (a run's lines joined with no separator when either
+    side of the join is an East Asian Wide or Fullwidth character, else one space), figure notes kept, image text kept
+    inside its markers, dropped lines left out.
+  - `image_text: [string]`, `figures: [string]` -- what the model read off pixels and its notes; never evidence (§22.3),
+    never a reference span, never a claim's support.
+- A page with no lines stores `text: ""` and a `markdown` of figure notes and image text (possibly empty).
+
+### 191.4 The store: by the file's digest, made once
+
+- **Where.** `<home>/.coc/source-transcripts/<file_sha256>/page-<NNNN>.json` (NNNN = 4-digit physical page), written by
+  temp file and rename, never rewritten. Not under a module or fork directory, so every module id, campaign, fork and
+  re-import of the same bytes (§22.1's dedupe, §14.16's starter replay) reads the same pages.
+- **Record** `{schema: "coc.source-transcript.page.v1", transcript_version: "transcript-v1", file_sha256, page,
+  pdf_label, native: {extraction_version, text_sha256, line_count}, text, text_sha256, markdown, image_text, figures,
+  dropped: [int], unplaced: [int], free_removed: int, attempts: int, model, thinking, at}`. A record whose
+  `native.extraction_version` differs from the current §22.1 version is ignored (re-made when wanted).
+- **One producer.** `page-<NNNN>.claim` created exclusively (`O_EXCL`) holds `{pid, at}`; a claim older than
+  `timeout_ms * (repair_attempts + 1) + 60000` is stale and may be taken. A loser waits for nothing: it reads native text.
+- **Failure.** A failed page (child error, invariant refusal, no vision) writes no record; the same process does not
+  retry it within the session; a later process may.
+- **Seeds.** Before the home store, `<content>/source-transcripts/<file_sha256>/page-<NNNN>.json` is read through
+  (read-only, same record schema). Nothing is copied into home.
+
+### 191.5 The window names the transcript pages (amends §182.3)
+
+`module.read.ahead`'s `window` gains `transcript: [[first, last], ...]` (1-based physical pages, inclusive, disjoint, in
+priority order):
+
+- `mode: "whole"` → `[[1, page_count]]`;
+- `mode: "chapters"` → the chapter that holds the anchor; then, in book order, each chapter holding the anchor page
+  (§182.3's median rule) of a **reachable scene** -- the focus scene's exits (`graph.sceneExits`), the scene it is
+  `located-in`, and the scenes `located-in` it; then the next chapter. Chapters already listed are not repeated;
+- `mode: "pages"` → the page window, then the reachable scenes' anchor pages ± 2 pages;
+- the list stops before it would exceed `transcript.max_window_pages` pages (the anchor chapter is always kept whole).
+
+A starter (`playsFromReading` false) has no read-ahead and no `transcript` field. The kernel reads no PDF (§22.1).
+
+### 191.6 The host queue
+
+`TranscriptService` (`extensions/module/`) owns production. `ensure({pdf, file_sha256, pages, priority})` queues pages
+that have no record and no live claim; `priority: "foreground"` puts them first. The reading service calls it with
+`window.transcript` after every read-ahead (background) and with the pages of any read in 191.7 that found no record
+(foreground). Nothing ever awaits a transcript: every reader in 191.7 uses the native text for a page that has none.
+`mode: "off"` makes `ensure` a no-op and every reader native.
+
+**The table comes first (amended 2026-10-07 after TR-C).** A transcript child shares the table's provider. On the first
+real table three children at a time drew the provider's rate limit (429) onto the Keeper (18 retries in six minutes) and
+onto the reading a turn was waiting for (one turn waited 331 s). So: no new child starts while a turn of this host waits
+on a foreground reading (`ReadingService.foregroundWaiting()`, handed to the service as `yieldTo`); a child whose event
+log shows a provider retry with status 429 stops new children for `cooldown_ms` (telemetry `event: "cooldown"`); one
+child at a time by default. The brief names the work directory's absolute paths (a child once wrote its layout to a
+path it made up), and a first child that leaves no `layout.md` gets one fresh child counted against `repair_attempts`.
+
+### 191.7 Readers
+
+Host operation `sourcePageText {pdf, pages, expected_file_sha256?, layer?: "preferred" | "native"}` returns per page
+`{page, pdf_label, layer: "transcript" | "native", extraction_version, text, markdown?, image_text?}` (`preferred`:
+the transcript when a record exists, else native; the transcript's `extraction_version` is `"transcript-v1"`).
+
+| reader | uses | change |
+| --- | --- | --- |
+| `ReadingService.sourcePages` → Keeper landing text (`landOnIndex`, `landPerson`, §22.4.7) and the cast reader's pages (§177.2) | `markdown` when `layer` is `transcript` | rows gain `layer`; telemetry `scene_text` rows record it |
+| Jev source driver: page-lead decisions, section ranking excerpt, `needPageText`, `source_navigation_only` projection | `markdown` | the navigation cache key adds the set of transcribed pages |
+| §190.1 window places: `firstLines` | `markdown` | `placeExcerpt` (a reference packet) stays native |
+| reader `pdf search` and the prescreen's literal search | transcript `text` + `image_text` for transcribed pages, native otherwise | matches carry `layer` and `image_text: true` when found only in image text |
+| prescreen consultation units (`nativeSourceCatalog`) | transcript `text` (the exact layer) for transcribed pages | one catalog per layer; resource `pdf:<sha>:page:<n>:transcript:transcript-v1`; the checkpoint stores and re-reads the layer |
+
+Unchanged: claim support (§186.6, §151.3) and every evidence check, reference packets and excerpt spans (§148), the
+fresh-skeleton catalog, page images as the only facts the reader may publish, map/handout/illustration discovery.
+
+### 191.8 The built-in book
+
+`scripts/build-source-transcripts.ts --pdf <file> [--pages a-b] --out content/source-transcripts/` runs the same
+producer and assembly offline. The Haunting's shipped window (`content/starters/the-haunting/source.pdf`, 17 pages,
+physical 447-463 of the book, sha `31e36f72…`) has its 17 records committed under
+`content/source-transcripts/31e36f72d0ac9a3654b61a09b1f071d3d82f25d78641e5069bfe343e44c5c7db/`, the same ruling that
+ships the PDF (2026-09-24); no other page of the book is shipped. Packaging copies `content/` as today.
+
+### 191.9 Telemetry
+
+`lane: "transcript"` rows: `event: "page"` with `{file_sha256, page, outcome: "stored" | "repaired" | "unplaced" |
+"failed" | "no_vision" | "refused", attempts, lines, placed, dropped, unplaced, free_removed, image_text_chars, model,
+thinking, ms, usage}`; `event: "reused"` `{file_sha256, pages, source: "home" | "seed"}` once per `ensure` that found
+records; `event: "window"` `{file_sha256, ranges, queued}` when the window's transcript ranges change.
+
+### 191.10 Three ends (§31)
+
+Writer: `TranscriptService` (layout children and assembly) and the offline seed script. Reader: `sourcePageText`,
+the transcript-aware search, the prescreen catalog. Actor: the Keeper, who reads the landing text and consultation units
+in reading order; the reader and Jev, who choose pages from it. Limits: never evidence, never a prerequisite, never
+rewritten; image text is labelled model reading.
+
+**Implementation decisions** (filled in by PT-01..PT-05).
+
+- **PT-02 (2026-10-07), the window's transcript pages.** `kernel-ts/modules/chapters.ts` holds the pure rule
+  `transcriptRanges(window, page_count, chapters, anchor, reachable, max)` and `wholeTranscript`;
+  `Reading.reachableAnchors` (`kernel-ts/modules/reading.ts`) gives the reachable scenes' anchor pages -- the focus scene
+  (`params.focus`, else the start scene): its `sceneExits`, the scenes it is `located-in`, the scenes `located-in` it, the
+  focus itself excluded, each anchored by `Reading.sceneAnchor` (the §182.3 median, now shared with `Reading.anchorPage`);
+  a scene citing no page adds nothing. `queueAheadReading` adds `transcript` to the `window` of every result that carries
+  one (`outcome()` and the built short book's early return); the reading window itself and everything it limits are
+  unchanged. **The cap** is read by the kernel itself, as `readingBudget` reads `reading`: `transcriptWindowPages` reads
+  `transcript.max_window_pages` from `content/rulesets/coc7/host-budgets.json` (`context.snapshots.readJson`), coded
+  fallback `TRANSCRIPT_MAX_WINDOW_PAGES` = 120, a value outside 1..100000 falls back; PT-01's `transcript`
+  block ships the same 120. **Decided here:** the first range (the anchor's chapter,
+  the page window, or the whole book) is always kept whole; the list stops at the first later range that would pass the cap
+  and tries no smaller one after it. An anchor before the first chapter has the front matter (page 1 to the page before
+  the first chapter) as its chapter, and the first chapter is then its next. In `pages` mode each reachable anchor's ±2
+  span is clamped to the book, spans that overlap or touch merge in book order, and the window's own pages are cut out of
+  them, so the ranges stay disjoint: the window first, then the spans in book order. A starter (and an adapted campaign)
+  still answers `{queued: []}` with no `window`. **Host:** `ReadingService.readAhead` takes `transcript` out of the window
+  before its `read_window` change key, row and §190.1 `placeWindow`, so a change of transcript pages alone writes no
+  `read_window` row and starts no window-places pass (§191.9's own `window` row belongs to the transcript queue). Tests:
+  `tests/extension/read-window.test.mjs` (`§191.5` cases and the pinned windows), the two whole-book pins in
+  `tests/kernel/test_fast_guidance.py` and `tests/kernel/test_visual_reading.py`.
+
+*PT-01 (producer, 2026-10-07).* Code: `extensions/module/page-transcript.ts` (grammar, assembly, invariant; pure),
+`extensions/module/transcript-store.ts`, `extensions/module/transcript-service.ts`, `sourceLines` in
+`extensions/module/source.ts` (`runtime/host.ts`, `runtime/tasks.ts`, `runtime/source-worker.ts` op `lines`),
+`transcriptBudget` in `runtime/jev/host-budgets.ts`, `content/setup/page-transcript.md`; one service per session is made
+beside `ReadingService` in `extensions/module/index.ts` and handed to it as the `transcripts` dependency, which no caller
+uses yet (PT-03). Decisions:
+
+- **The lease cannot be the budget's numbers alone.** A call carrying the page image reserves the model's whole declared
+  context window, and a model whose API takes no output limit reserves its whole `maxTokens` (§20 addendum 2), so a lease
+  of 96,000 input tokens would refuse every image call. Each child (layout and repair alike) gets its own `TaskLease`:
+  input `contextWindow + input_tokens` (the window from `model()`, 1,000,000 when unknown), output `131,072 +
+  output_tokens` (the room `independentProviderBudget` keeps for an uncapped model), `output_tokens` also as the per-call
+  output bound, $10, 16 calls, deadline `timeout_ms`. A call is granted while the child's actual spend stays within the
+  budget's numbers.
+- **Publication never overwrites:** the record is written to a temporary file and hard-linked into place (`link` fails on
+  an existing record; a file system without links falls back to `rename` only when no record exists). The loser of a
+  claim race discards its page (`already: true` on its row).
+- **Placeholders place their lines wherever they stand**, inside image text and figure notes too (the reading version
+  shows them there); `image_text` and `figures` keep only what was typed. Other HTML comments are removed with their
+  contents, so a placeholder inside one places nothing. A reversed range is ignored and counted once.
+- **Typed words** are the text between placeholders, split at table pipes and inline HTML tags; a piece is words only
+  when it carries a Unicode letter or number. The CommonMark marker that opens the Markdown line (blockquote, heading,
+  bullet, ordered number) and emphasis markers (`* _ ~` and backtick) around the words are structure and stay; the words
+  between them are what is compared, mapped or removed. A Markdown line left without words by a removal is dropped.
+- **Run join:** no space is added when either side of the join already is whitespace.
+- **Repair:** the repair child's directory holds the previous `layout.md` to edit and `repair.txt` (`L<n>: <line>` per
+  missing line); the attempt with the fewest unplaced lines is kept (a later one on a tie). A first child that leaves no
+  `layout.md` fails the page (`reason: "no_layout"`); a layout left by a child that exited non-zero is still read.
+- **Lines** are extracted with the other queued pages of the same file, at most 32 a `sourceLines` call; a refused batch is
+  retried page by page. `no_vision` is decided from `model()` when the page's job starts.
+- **Disk:** the page render goes to `<store>/cache/page-<NNNN>/` and is removed with the work directories' `page.png`
+  copies when the page finishes; `layout.md`, `lines.txt`, `repair.txt` and `run.jsonl` stay. A work directory of the same
+  attempt number left by an earlier producer is replaced by the claim holder.
+- **Telemetry** rows carry two fields beyond 191.9: `ignored` and `mapped`. The `window` event belongs to the read-ahead
+  that knows the ranges (PT-03). `ensure` answers `{state, queued, reused: {home, seed}, skipped}`; `idle()` and `close()`
+  serve owners and tests. Reader children close stdin (`stdio: ["ignore", ...]` in `runReader`), so `pi -p` never waits
+  for EOF.
+
+*PT-03 (readers, 2026-10-07).* Code: `extensions/module/source-page-text.ts` (`readSourcePageText`, `readingText`,
+`layerRevision`), the source worker's op `pagetext` (`runtime/source-worker.ts`, `runtime/tasks.ts`, `runtime/host.ts`
+`sourcePageText`), `TranscriptStore.readPages`/`recordedPages` and `transcriptStoreFromEnv` in
+`extensions/module/transcript-store.ts`, `sourceSearch`'s optional store (`extensions/module/source.ts`), the reading
+service (`sourcePages`, `wantTranscripts`, `transcribeWindow`, `windowPlacePages`), the module extension's
+`coc:transcript-wanted` listener, the kernel extension's landing rows, `runtime/jev/window-places.ts`,
+`runtime/jev/source-reader-driver.ts`, `runtime/jev/native-source-catalog.ts` (`layer`, `mergeSourceCatalogs`,
+`layeredBundles`, `layeredSourceCatalog`), `runtime/jev/prescreen-source-provider.ts`,
+`runtime/jev/source-owner-operations.ts` and `extensions/table/context-runtime.ts`. Tests:
+`tests/extension/page-transcript-readers.test.mjs`, the `§191.7` case of `tests/extension/person-text-landing.test.mjs`.
+Decisions:
+
+- **`sourcePageText` runs in the source worker**, as `search` does: the worker reads the store of its environment
+  (`PI_COC_HOME`, `PI_COC_CONTENT_ROOT`, which every owner's runtime already gives it) and calls `sourceText` in-process for
+  the pages without a record. The host process never loads PDF.js for it (a host-side composition pulled PDF.js and the
+  native canvas into `build/runtime/host.mjs`, which the App's own process loads). Every row carries `text_sha256` and a
+  `revision` over its own layer's version (§22.1's formula), so a consultation catalog of either layer validates the same
+  way; the answer carries `page_count` and `native_extraction_version` only when native text was read. When every page has
+  a record the PDF is not opened: the records are of the digest the caller named (without one, the worker hashes the file).
+- **Landing.** `ReadingService.sourcePages` answers `text` = the transcript's `markdown` and `layer` per page; the pages it
+  read natively go to `ensure` (foreground) through `wantTranscripts`, never awaited. A runtime without `sourcePageText`
+  is native. The kernel extension carries the Keeper the page and its text without `layer`; the `scene_text` and
+  `person_text` rows gain `layer` (`transcript`, `native`, or `mixed`) and `transcript_pages`.
+- **The cast reader** reads the transcript where one exists (`markdown`, image text inside its markers) and queues nothing
+  (`params.transcribe: false`): it reads the whole book, and queuing it would transcribe the whole book outside the window.
+- **Read-ahead.** Every read-ahead that names `window.transcript` hands its pages, in priority order, to `ensure`
+  (background) after a `module.source.snapshot` for the bound file; neither is awaited by the read-ahead. The `window` row
+  (`lane: "transcript"`) is written once per change of (file digest, ranges) per campaign and module, and carries
+  `module_id`, `campaign` and the `ensure` answer's `state` beside §191.9's `{file_sha256, ranges, queued}` (`queued` is
+  the page list `ensure` queued). Without a transcript service nothing is asked.
+- **Foreground wants from outside the reading service.** The Keeper prescreen (table extension) reaches the queue through
+  the bus event `coc:transcript-wanted` `{pdf, file_sha256, pages}`, which the module extension hands to
+  `wantTranscripts`. A consultation wants the native pages of the parts its qualification selected and the pages of an
+  explicit continuation (`readNativePages`); the broad sample of pages a prescreen materializes every turn is not wanted
+  (that would transcribe pages spread over the whole book each turn). A need read's child has no channel to the host's
+  queue: once it exits, the reading service reads its receipt and wants the receipt's located `candidates` when the
+  disposition is `read`.
+- **Search.** `sourceSearch(pdf, options, signal, store?)`: a page with a readable record is searched in its exact `text`,
+  then its `image_text` joined by newlines; every match carries `layer`, one found only in image text `image_text: true`;
+  a transcribed page counts as with text when either holds text. `text_availability.transcript_pages` is present when a
+  store was given (so the native-only shape is unchanged), and the guidance adds one sentence about `image_text` when a
+  page was searched in a transcript. The source worker (the prescreen's literal search and every host `sourceSearch`), the
+  reader child's `pdf search` and the Jev driver's cursor continuation pass the store of their environment; the cursor
+  binding is unchanged.
+- **Consultation units.** `nativeSourceCatalog(scope, bundle, sha, layer)` validates a transcript bundle exactly like a
+  native one (version `transcript-v1`, no extraction errors) and mints `pdf:<sha>:page:<n>:transcript:transcript-v1`;
+  snapshots keep `sourceType: "native_text"` (the exact layer is the page's own native lines). `mergeSourceCatalogs` joins
+  one catalog per layer in the pages' order (a page in one layer only); the merged `extractionVersion` is the native
+  layer's when present and `layers` names each layer's version. The readSet holds one `extraction` binding per layer read
+  (`pdf:<sha>:native`, `pdf:<sha>:transcript`). The checkpoint's single re-read page prefers a native page (a native-only
+  catalog is checked exactly as before) and stores `layer`; at check time a native page is re-read with `sourceText`, so a
+  page that gained a transcript since keeps its checkpoint `current`, and a transcript page is re-read through
+  `sourcePageText` (no record any more: `stale`, `source_extraction_changed`). `materializeNativeConsultation` re-reads
+  each selected part in its own layer (port `transcriptText`) and checks each layer's version. A continuation compares each
+  layer it read with the version the preparation read in that layer. `coverage.native` gains `transcript_pages` (pages
+  read in the transcript layer, with text or empty) and, when the literal search ran, `search_layers {transcript, native,
+  image_text}` (match counts); the prescreen's telemetry row carries them inside `source`. The task-runtime
+  `source.text` domain operation (`registerSourceOperations`) still reads native text only.
+- **Window places.** The lane's `pages` port answers the native `text` and, for a transcribed page, `reading` (the
+  markdown): the question's first lines read `reading`, the minted excerpt and the `no_text` gate stay on the native text
+  (a page without a text layer is still not asked: its place would carry no native excerpt).
+- **Jev source driver.** The child reads the store of `options.env` and only reads it. The whole-book native cache
+  (`native-navigation-v2.json`) stays native; after it is loaded or made, every page's transcript `markdown` is laid over it
+  as `reading`, and every navigation text reads `reading` when present: the section and child-section excerpts, the
+  anchor-scope state, the page-lead state, the need-kind excerpt, `needPageText` (a candidate's title line is the
+  markdown's first line) and the `source_navigation_only` pages (a transcribed page adds `layer: "transcript"`). The
+  page filter for leads (`relevant`), `partial` and `native_text_gaps` count a page with reading text, so a page with no
+  text layer but image text can be ranked. The reference packet (`selectReferencePacket`) is given native rows only. The
+  located-pages cache identity adds `transcript: {version, pages}` when any page has a transcript (absent otherwise, so
+  existing caches stay valid): a page that gains one is ranked again. Trace rows gain `transcript_pages` and
+  `searched_transcript_pages`.
+- **SL-00.** The layout child's inventory entry moves from `no-caller` to `app-play`.
 
 ## 192. One thing, one node: a reading may not duplicate what the graph has (owner rulings 2026-10-07; `docs/specs/reading-duplicates-survey.md`; amends §22.3, §152.4 and §188.2)
 

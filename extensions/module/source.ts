@@ -5,6 +5,8 @@ import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { getDocument, version } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { createCanvas, loadImage, type Canvas, type SKRSContext2D } from "@napi-rs/canvas";
+import { nativeLines } from "./page-transcript.ts";
+import type { TranscriptReader } from "./transcript-store.ts";
 
 const require = createRequire(import.meta.url);
 const pdfRoot = dirname(require.resolve("pdfjs-dist/package.json"));
@@ -233,6 +235,26 @@ export async function sourceText(pdf: string, options: SourceTextOptions, signal
 	}
 }
 
+/** §191.1: one page's native lines, the unit a page-transcript layout places. */
+export interface SourceLinesPage { page: number; pdf_label: string | null; native_sha256: string; lines: string[] }
+
+/**
+ * Contract §191.1: each page's native text (`sourceText`'s `text`) split at `"\n"`, whitespace-only entries removed, every
+ * other entry byte for byte; `native_sha256` is that text's `text_sha256`. Same validation, document owner and worker path.
+ */
+export async function sourceLines(pdf: string, options: SourceTextOptions, signal?: AbortSignal): Promise<{
+	file_sha256: string;
+	extraction_version: string;
+	page_count: number;
+	pages: SourceLinesPage[];
+	errors: Array<{page: number; code: "native_extraction_unavailable"}>;
+}> {
+	const native = await sourceText(pdf, options, signal);
+	return { file_sha256: native.file_sha256, extraction_version: native.extraction_version, page_count: native.page_count,
+		pages: native.snapshots.map(row => ({ page: row.page, pdf_label: row.pdf_label, native_sha256: row.text_sha256, lines: nativeLines(row.text) })),
+		errors: native.errors };
+}
+
 export async function sourceInfo(pdf: string) {
 	const { document, sha256, close } = await openPdf(pdf);
 	try {
@@ -299,8 +321,13 @@ function searchSnippet(original: string, offset: number): string {
 	return original.slice(start, start + searchSnippetLimit);
 }
 
-/** Native text locates candidate pages only; it never records image observations. */
-export async function sourceSearch(pdf: string, options: SourceSearchOptions, signal?: AbortSignal) {
+/**
+ * Native text locates candidate pages only; it never records image observations. §191.7: given the page-transcript store, a
+ * page that has a record is searched in its exact layer and then its image text instead of its native text; every match
+ * names its `layer`, one found only in image text carries `image_text: true`, and `text_availability.transcript_pages`
+ * lists the pages searched in the transcript layer.
+ */
+export async function sourceSearch(pdf: string, options: SourceSearchOptions, signal?: AbortSignal, transcripts?: TranscriptReader) {
 	if (!options || typeof options !== "object" || Array.isArray(options) ||
 		Object.keys(options).some(key => !["query", "first_page", "last_page", "limit", "cursor"].includes(key)))
 		throw new Error("search needs query and optional first_page, last_page, limit, cursor");
@@ -327,10 +354,22 @@ export async function sourceSearch(pdf: string, options: SourceSearchOptions, si
 			} catch { throw new Error("search cursor does not match this source, query or range; restart the search"); }
 		}
 		const labels = await document.getPageLabels(), searchedFirst = next;
-		const matches: Array<{page: number; pdf_label: string | null; snippet: string}> = [];
-		const withText: number[] = [], empty: number[] = [], errors: Array<{page: number; error: string}> = [];
+		const matches: Array<{page: number; pdf_label: string | null; snippet: string; layer: "transcript" | "native"; image_text?: true}> = [];
+		const withText: number[] = [], empty: number[] = [], errors: Array<{page: number; error: string}> = [], transcribed: number[] = [];
+		const recorded = transcripts ? await transcripts.recordedPages(sha256).catch(() => new Set<number>()) : new Set<number>();
 		for (; next <= last && next - searchedFirst < searchPageLimit && matches.length < limit; next++) {
 			cancelled();
+			const record = recorded.has(next) ? (await transcripts!.read(sha256, next).catch(() => undefined))?.record : undefined;
+			if (record) {
+				transcribed.push(next);
+				const exact = normalizeSearch(record.text), imageOriginal = record.image_text.join("\n"), image = normalizeSearch(imageOriginal);
+				(exact || image ? withText : empty).push(next);
+				const pdf_label = labels?.[next - 1] ?? null, inExact = exact.indexOf(query), inImage = inExact < 0 ? image.indexOf(query) : -1;
+				if (inExact >= 0) matches.push({ page: next, pdf_label, snippet: searchSnippet(record.text, inExact), layer: "transcript" });
+				else if (inImage >= 0) matches.push({ page: next, pdf_label, snippet: searchSnippet(imageOriginal, inImage), layer: "transcript", image_text: true });
+				await new Promise<void>(resolve => setImmediate(resolve));
+				continue;
+			}
 			const pending = nativePageText({document, textPages}, next);
 			try {
 				const original = await pending;
@@ -339,7 +378,7 @@ export async function sourceSearch(pdf: string, options: SourceSearchOptions, si
 				if (text) {
 					withText.push(next);
 					const offset = text.indexOf(query);
-					if (offset >= 0) matches.push({ page: next, pdf_label: labels?.[next - 1] ?? null, snippet: searchSnippet(original, offset) });
+					if (offset >= 0) matches.push({ page: next, pdf_label: labels?.[next - 1] ?? null, snippet: searchSnippet(original, offset), layer: "native" });
 				} else empty.push(next);
 			} catch (error) {
 				cancelled();
@@ -355,8 +394,10 @@ export async function sourceSearch(pdf: string, options: SourceSearchOptions, si
 			scope: { first_page: first, last_page: last, searched_first_page: searchedFirst, searched_last_page: next - 1,
 				complete: searchedFirst === first && !truncated && errors.length === 0 },
 			truncated, next_cursor: truncated ? Buffer.from(JSON.stringify({binding, next})).toString("base64url") : null,
-			text_availability: { scope: "searched_pages", pages_with_text: withText, empty_pages: empty, extraction_errors: errors },
-			guidance: "Navigation only, not source evidence. Open candidate original pages before using facts. No match does not mean no text layer or no fact in the book. For empty, failed or garbled text use info, overview and original pages." };
+			text_availability: { scope: "searched_pages", pages_with_text: withText, empty_pages: empty, extraction_errors: errors,
+				...(transcripts ? { transcript_pages: transcribed } : {}) },
+			guidance: "Navigation only, not source evidence. Open candidate original pages before using facts. No match does not mean no text layer or no fact in the book. For empty, failed or garbled text use info, overview and original pages."
+				+ (transcribed.length ? " A match marked image_text was found only in words a model read off the page image, never source text: check the original page." : "") };
 	} finally { await close(); }
 }
 

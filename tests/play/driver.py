@@ -53,7 +53,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PLAYTESTS_ROOT = REPO_ROOT / ".coc" / "playtests"
 CURRENT_RUN_FILE = PLAYTESTS_ROOT / ".current-run"
 DEFAULT_LAUNCHER = REPO_ROOT / "bin" / "pi-coc"
-DEFAULT_MODEL = "grok-build/grok-4.7-build-fast"
+DEFAULT_MODEL = "grok-build/grok-4.5"
 DEFAULT_THINKING = "low"
 
 ACK_TIMEOUT = 10.0           # seconds to wait for pi's response to get_state/set_model/prompt-accept

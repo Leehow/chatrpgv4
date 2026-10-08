@@ -12,6 +12,7 @@ import { nowIso, type CampaignWriter } from '../write/store.js';
 import type { createWriteRuntime } from '../write/index.js';
 import { validateDocumentSeed } from './definition.js';
 import type { ModRuntime } from './runtime.js';
+import {documentRequests,documentRequestState,requestDocumentEdit,acknowledgeDocumentDispatch} from './document-requests.js';
 
 export function initializeDocument(item: Row, seed: any): void {
     if (item.document != null) throw new RpcError('invalid_params', 'An existing document cannot be reinitialized; its acquisition snapshot is retained');
@@ -32,7 +33,8 @@ export function ownershipChanged(world: Row): void {
     }
 }
 export async function documentVersion(campaign: Pick<CampaignWriter, 'id' | 'readCampaign'>, world: Row, item: Row): Promise<string> {
-    return jsonDigest([campaign.id, (await campaign.readCampaign()).active_worldline ?? null, item.id, rootObjectOwner(world, item), item.document]);
+    const owner=rootObjectOwner(world,item);
+    return jsonDigest([campaign.id, (await campaign.readCampaign()).active_worldline ?? null, item.id, {kind:owner.kind,id:owner.id}, item.document]);
 }
 export function writeDocument(item: Row, text: any): boolean {
     if (typeof text !== 'string' || length(text) > 64000) throw new RpcError('invalid_params', 'Document text must be a string of at most 64000 characters');
@@ -77,9 +79,11 @@ export function createDocumentHandlers(writer: ReturnType<typeof createWriteRunt
     }
     async function response({campaign, world, actor, item}: Awaited<ReturnType<typeof owned>>): Promise<Row> {
         const document = item.document, meta = await campaign.readCampaign();
+        const request=row((await documentRequests(campaign)).entries)[item.id];
         return {name: item.name, actor: actor.name, text: document.text, original: document.original, presentation: document.presentation,
             player_edited: Object.hasOwn(document, 'player_edited') ? document.player_edited : truth(document.edited_at) && document.text !== document.original,
-            version: await documentVersion(campaign, world, item), editor: await runtime.editor(world),
+            version: await documentVersion(campaign, world, item), editor: await runtime.editor(world),editing:'in_fiction',
+            ...(request?{edit_request:{status:await documentRequestState(campaign,world,item,request),text:request.text,action:request.action}}:{}),
             play_language: await playLanguageOf(campaign.context, meta)};
     }
     return {
@@ -109,6 +113,15 @@ export function createDocumentHandlers(writer: ReturnType<typeof createWriteRunt
             return {actor:actor?.name ?? null, documents, known};
         },
         'mods.document.view': async params => response(await owned(params)),
+        'mods.document.request':async params=>{
+            const {campaign,world,actor,item}=await owned(params);
+            return requestDocumentEdit(campaign,world,item,actor,params);
+        },
+        'mods.document.request_status':async params=>response(await owned(params)),
+        'mods.document.dispatch':async params=>{
+            const {campaign,world,item}=await owned(params);
+            await acknowledgeDocumentDispatch(campaign,world,item,params);return {acknowledged:true};
+        },
         'mods.document.apply': async params => {
             if (Object.keys(params).some(key => !['campaign', 'actor', 'name', 'version', 'action', 'text'].includes(key))) throw new RpcError('invalid_params', 'Unknown document edit field');
             const value = await owned(params), {campaign, world, actor, item} = value;

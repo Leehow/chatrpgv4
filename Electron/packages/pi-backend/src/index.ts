@@ -3913,15 +3913,17 @@ export class PiHostBackend implements HostBackend {
   }
 
   private readonly cocDetailsRecoveries = new Map<string, Promise<void>>();
+  private readonly cocDocumentSubmissions = new Map<string, Promise<unknown>>();
   /** A loaded waiting card owns recovery; no player sentence or story turn is manufactured. */
-  private startCocDetailsRecovery(sessionId: string, path: string, history: HistoryEntry[]): void {
+  private startCocDetailsRecovery(sessionId: string, path: string, history: HistoryEntry[], equipment = false): void {
     if (this.closed || this.sidebarArchivedCache.has(sessionId) || this.cocDetailsRecoveries.has(sessionId)
       || this.cocStartupFailures.has(sessionId)) return;
     const cards = history.filter(entry => entry.presentation?.renderer === 'coc-mechanics'
       && isRecord(entry.presentation.details) && Array.isArray(entry.presentation.details.mechanics)
       && entry.presentation.details.mechanics.some((row: any) => row.kind === 'item' && row.definition === 'pending'));
-    if (!cards.length || !this.cocHostPaths()) return;
+    if ((!cards.length && !equipment) || !this.cocHostPaths()) return;
     const existing = this.live.get(sessionId);
+    if (equipment && existing && this.liveProcessUsable(existing)) return;
     if (!this.canRewriteSessionFile(sessionId) && !(existing && this.liveProcessUsable(existing))) return;
     const work = (async () => {
       const binding = await readCocBinding(path);
@@ -9898,7 +9900,36 @@ export class PiHostBackend implements HostBackend {
         return {ok: true, data};
       } catch (error) { return this.cocDenied(this.cocCode(error), error instanceof Error ? error.message : String(error)); }
     }
-    if (id === "coc-keeper" && ["mods.list","mods.install","mods.defaults","mods.configure","mods.order","mods.document.view","mods.document.apply"].includes(method)) {
+    if(id==='coc-keeper'&&['mods.document.request','mods.document.apply'].includes(method)){
+      const sid=isRecord(optsValue)&&typeof optsValue.sessionId==='string'?optsValue.sessionId.trim():'';
+      const previous=this.cocDocumentSubmissions.get(sid)??Promise.resolve();
+      const work=previous.then(async()=>{try{
+        if(!sid||!this.managedNodeModulesRoot)throw this.cocRefusal('campaign_unbound','Select the document game session');
+        const selected=await this.locate(sid),binding=await readCocBinding(selected.path);
+        if(!binding)throw this.cocRefusal('campaign_unbound','Select the document campaign');
+        this.assertNotArchived(sid);
+        if(!(await this.leaseFor(selected).query()).writable)throw this.cocRefusal('capability_denied','This session is read-only');
+        const repo=resolve(this.managedNodeModulesRoot,'..'),request=isRecord(params)?{...params}:{};
+        delete request.campaign;
+        const data:any=await callColdKernel(repo,binding.home,'mods.document.request',{...request,campaign:binding.campaign},this.env,this.cocRuntime);
+        if(data.queued_action&&data.send){
+          const acknowledge=(accepted:boolean)=>callColdKernel(repo,binding.home,'mods.document.dispatch',
+            {campaign:binding.campaign,actor:data.actor,name:data.name,request:data.request,accepted},this.env,this.cocRuntime);
+          try{
+            const words:any=await this.cocAnswerWords(binding.play_language,binding.home);
+            const template=words.ui?.words?.paper?.editRequest;
+            const label=typeof template==='string'?template.replaceAll('{name}',String(data.name)):String(data.name);
+            await this.handle('sendPrompt',[sid,JSON.stringify({kind:'document_edit_request',actor:data.actor,document:data.name,label})]);
+          }catch(error){await acknowledge(false).catch(()=>undefined);throw error;}
+          await acknowledge(true);
+        }
+        const {request:privateRequest,...publicData}=data;
+        return {ok:true,data:publicData};
+      }catch(error){return this.cocDenied(this.cocCode(error),error instanceof Error?error.message:String(error));}});
+      this.cocDocumentSubmissions.set(sid,work);
+      return work.finally(()=>{if(this.cocDocumentSubmissions.get(sid)===work)this.cocDocumentSubmissions.delete(sid);});
+    }
+    if (id === "coc-keeper" && ["mods.list","mods.install","mods.defaults","mods.configure","mods.order","mods.document.view","mods.document.request_status","mods.equipment.retry"].includes(method)) {
       try {
         const sid = isRecord(optsValue) && typeof optsValue.sessionId === "string" ? optsValue.sessionId.trim() : "";
         const active = sid ? this.live.get(sid) : undefined;
@@ -9914,9 +9945,16 @@ export class PiHostBackend implements HostBackend {
         const request:Record<string,unknown> = isRecord(params) ? {...params} : {};
         delete request.campaign;
         if (context) request.campaign = context.campaign;
+        if (method === 'mods.equipment.retry') {
+          if (!context || !sid) throw this.cocRefusal('campaign_unbound','Select the equipment campaign');
+          this.assertNotArchived(sid);
+          if (!(await this.leaseFor(await this.locate(sid)).query()).writable)
+            throw this.cocRefusal('capability_denied','This session is read-only');
+        }
         let data:any = await callColdKernel(repo,context?.home ?? resolve(this.env.PI_COC_HOME || repo),method,request,this.env,this.cocRuntime);
+        if (method === 'mods.equipment.retry' && context) this.startCocDetailsRecovery(sid,(await this.locate(sid)).path,[],true);
         if (method === "mods.document.apply") emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context?.campaign}}});
-        if (method.startsWith("mods.document.") && context) {
+        if (['mods.document.view','mods.document.request_status'].includes(method) && context) {
           const state = await this.getModelState(sid);
           const host = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
           const reading = host.documentPresentationStatus({campaign:context.campaign,actor:data.actor,name:data.name,version:data.version,play_language:data.play_language,
@@ -10305,6 +10343,8 @@ export class PiHostBackend implements HostBackend {
             } catch { /* A card can still be read before its text projection has been prepared. */ }
             // Project only names the kernel has already exposed to this player.
             const liveView=view as any;
+            if (liveView.investigators?.some((sheet:any)=>sheet.equipment_preparation?.some((item:any)=>item.status==='pending')))
+              this.startCocDetailsRecovery(sessionId,(await this.locate(sessionId)).path,[],true);
             liveView.defense_preference = await readDefensePreference(context.home, context.campaign);
             const visibleNames=[liveView.scene?.display_name||liveView.scene?.name,liveView.session?.kind].filter((name):name is string=>typeof name==='string'&&!!name.trim());
             let names:Record<string,string>={};

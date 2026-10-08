@@ -474,6 +474,10 @@ const PAPER_STYLE = `
 .coc-inventory-document:hover .coc-inventory-name{text-decoration:underline;text-underline-offset:4px}
 .coc-inventory-document:focus-visible{outline:2px solid var(--accent);outline-offset:5px;border-radius:2px}
 .coc-inventory-document small{display:block;margin-top:4px;font-size:11px;font-weight:400;color:var(--accent)}
+.coc-inventory-preparation{display:flex;align-items:center;gap:8px;color:var(--muted)}
+.coc-inventory-wait{width:12px;height:12px;flex:none;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:coc-inventory-spin .9s linear infinite}
+@keyframes coc-inventory-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.coc-inventory-wait{animation:none}}
 @media(max-width:520px){.coc-paper-dialog{width:calc(100vw - 20px);height:calc(100dvh - 24px)}.coc-paper-head{padding:22px 20px 14px}.coc-paper-dialog textarea{margin-inline:20px}.coc-paper-foot{padding:14px 18px}.coc-paper-message{padding-inline:20px}}
 @media(max-height:600px){.coc-paper-dialog textarea{min-height:64px}.coc-paper-head{padding-block:14px}.coc-paper-foot{padding-block:10px}}
 `;
@@ -509,8 +513,9 @@ export function createDocumentEditor(React) {
         const response = await ready(await api.invoke("mods.document.view", {name, actor}), current);
         if (current !== generation.current) return;
         if (!response?.ok) { setError(failureOf(response) || {code:"document_unavailable", message:""}); return; }
-        setValue(response.data); if(!keepDraft)setDraft(response.data.text); setClosing(false);
+        setValue(response.data); if(!keepDraft)setDraft(response.data.edit_request&&['queued','selected','needs_follow_up','refused','stale'].includes(response.data.edit_request.status)?response.data.edit_request.text:response.data.text); setClosing(false);
         setNotice(keepDraft ? t("reloaded") : "");
+        if(response.data.edit_request&&['queued','selected','needs_follow_up','refused','stale'].includes(response.data.edit_request.status))setNotice(t('editPending'));
       } catch (reason) { if (current === generation.current) setError({code:"", message:reason instanceof Error ? reason.message : String(reason)}); }
       finally { if (current === generation.current) setLoading(false); }
     }
@@ -519,10 +524,12 @@ export function createDocumentEditor(React) {
       const current = generation.current;
       setBusy(true); setError(null); setNotice("");
       try {
-        const response = await ready(await api.invoke("mods.document.apply", {name, actor, version:value.version, action,
+        const response = await ready(await api.invoke(value.editing==='in_fiction'?"mods.document.request":"mods.document.apply", {name, actor, version:value.version, action,
           ...(action === "save" ? {text:draft} : {})}), current);
         if (current !== generation.current) return;
         if (!response?.ok) { setError(failureOf(response) || {code:"", message:""}); return; }
+        if(response.data?.queued_action){onSaved?.();onClose();return;}
+        if(response.data?.status==='unchanged'){setDraft(value.text);return;}
         setValue(response.data); setDraft(response.data.text); setClosing(false); onSaved?.();
         if (closing && action === "save") onClose();
       } catch (reason) { if (current === generation.current) setError({code:"", message:reason instanceof Error ? reason.message : String(reason)}); }
@@ -555,6 +562,7 @@ export function createDocumentEditor(React) {
             error.message ? h("details", null, h("summary", null, word(ui, "errors", "details")),
               h("p", null, error.message)) : null),
           notice && h("p",{className:"coc-paper-message",role:"status"},notice),
+          value?.editing==='in_fiction'&&h('p',{className:'coc-paper-message'},t('editHint')),
           h("textarea", {ref:input, "aria-label":t("body"), value:draft, placeholder:t("empty"), maxLength:64000,
             readOnly:loading||busy||!value, spellCheck:false, onChange:event=>{setDraft(event.target.value);setClosing(false);}}),
           closing && h("div", {className:"coc-paper-message",role:"status"}, t("unsaved"), " ",
@@ -564,7 +572,7 @@ export function createDocumentEditor(React) {
             h("div", null, h("button", {type:"button",disabled:loading||busy||!value||(draft===value.original&&value.text===value.original),
               onClick:()=>void persist("reset")}, t("reset")), h("span", {className:"coc-paper-status"}, t("original"))),
             h("div", null, h("span", {className:"coc-paper-status",role:"status"}, loading?t("loading"):busy?t("saving"):dirty?t("dirty"):value?.text!==value?.original?t("altered"):t("clean")),
-              h("button", {type:"button",className:"coc-paper-save",disabled:loading||busy||!dirty,onClick:()=>void persist("save")}, closing?t("saveClose"):t("save")))))));
+              h("button", {type:"button",className:"coc-paper-save",disabled:loading||busy||!dirty,onClick:()=>void persist("save")}, value?.editing==='in_fiction'?t('requestSave'):closing?t("saveClose"):t("save")))))));
   };
 }
 
@@ -736,6 +744,7 @@ export function createComponent(React) {
       h("ul",{className:"coc-inventory"},list.map((item,index)=>{
         const name=isRecord(item)?text(item.name):text(item);
         const object=(props.objects || []).find(row=>row.name===name);
+        const preparation=(props.preparation || []).find(row=>row.name===name);
         const writable=(props.documents || props.objects || []).find(row=>row.document&&row.name===name);
         const merged=object&&isRecord(item)?{...item,...object.parameters,...(object.state?.ammo!==null&&object.state?.ammo!==undefined?{ammo:object.state.ammo}:{})}:item;
         const line=itemLine(merged,term);
@@ -757,6 +766,10 @@ export function createComponent(React) {
           : h("span",{className:"coc-inventory-name"},line.title);
         const quantity=line.quantity!==undefined?h("span",{className:"coc-inventory-quantity"},fill(t("quantity"),{n:line.quantity})):null;
         const body=[
+          preparation ? h("div",{className:"coc-inventory-preparation",role:"status",key:"preparation"},
+            preparation.status === 'pending' ? h("span",{className:"coc-inventory-wait","aria-hidden":true}) : null,
+            preparation.status === 'pending' ? props.preparingLabel : t("errorDetail"),
+            preparation.status === 'failed' && props.onRetry ? h("button",{type:"button",onClick:()=>props.onRetry(name)},t("retry")) : null) : null,
           description?h("p",{className:"coc-sheet-note",style:{margin:"6px 0"},key:"description"},description):null,
           writable?.container?h("p",{className:"coc-sheet-note",key:"container"},props.insideLabel," ",term(writable.container)):null,
           line.details.length?h("dl",{className:"coc-inventory-params",key:"params"},line.details.map(({key,label,value,wide})=>
@@ -768,7 +781,7 @@ export function createComponent(React) {
         ].filter(Boolean);
         // Keyed by name so an entry that changes place is drawn afresh (closed) rather than
         // inheriting the open fold of whatever stood at its index before.
-        return h("li",{className:"coc-inventory-entry",key:`${line.title}:${index}`,"data-detailed":line.details.length>0||usages.length>0?"true":"false"},
+        return h("li",{className:"coc-inventory-entry",key:object?.equipment_name || item?.equipment_name || name,"data-detailed":line.details.length>0||usages.length>0||!!preparation?"true":"false"},
           body.length
             ? h("details",{className:"coc-inventory-fold"},
                 h("summary",{className:"coc-inventory-heading"},nameNode,h("span",{className:"coc-inventory-trail"},quantity)),
@@ -1160,6 +1173,8 @@ export function createComponent(React) {
       sheet ? h(ItemSection, { title: t("equipment"), icon: "backpack", anchor: "equipment", list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)
         && !(item && item.object_id && !(sheet.objects || []).some(object=>object.name===item.name&&object.category==="item") && (sheet.weapons || []).some(weapon => weapon && weapon.object_id === item.object_id))), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t("noEquipment"), t, term,
         documents:sheet.objects, insideLabel:word(ui,"paper","inside"), paperLabel:word(ui,"paper","open"),
+        preparation:sheet.equipment_preparation,preparingLabel:word(ui,"mechanics","preparing",t("loading")),
+        onRetry:name=>{void api.invoke("mods.equipment.retry",{name,actor:sheet.id}).then(()=>load()).catch(()=>load());},
         onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign}) }) : null,
       sheet ? h(Finance, { sheet, t, term }) : null,
       sheet ? h(Background, { sheet, term, t }) : null,

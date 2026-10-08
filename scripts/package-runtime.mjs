@@ -6,6 +6,7 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep 
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
 import { agentExtensionManifests } from '../runtime/deployment.mjs';
 import { assemblySignals, assemblyStagingRoots, createAssemblyWorkspace } from './assembly-workspace.mjs';
 
@@ -162,7 +163,7 @@ async function copyResources(repo, resource, manifest) {
 function installEnvironment(nodeRoot, work, python) {
   const nodeBin = join(nodeRoot, 'bin');
   return { PATH: [nodeBin, '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(delimiter), HOME: join(work, 'home'), TMPDIR: join(work, 'tmp'),
-    LC_ALL: 'C', LANG: 'C', CI: '1', PI_OFFLINE: '1', npm_config_cache: join(work, 'npm-cache'), npm_config_userconfig: join(work, 'npmrc'), npm_config_globalconfig: join(work, 'global-npmrc'),
+    LC_ALL: 'C', LANG: 'C', CI: '1', PI_OFFLINE: '1', npm_config_cache: resolve(process.env.PIPICOC_NPM_CACHE || join(homedir(), '.npm')), npm_config_offline: 'true', npm_config_userconfig: join(work, 'npmrc'), npm_config_globalconfig: join(work, 'global-npmrc'),
     npm_config_nodedir: nodeRoot, npm_config_target: '24.19.0', npm_config_runtime: 'node', npm_config_arch: 'arm64', npm_config_platform: 'darwin',
     npm_config_python: python, PYTHON: python, NODE_GYP_FORCE_PYTHON: python, npm_config_audit: 'false', npm_config_fund: 'false',
     npm_config_update_notifier: 'false', npm_config_progress: 'false' };
@@ -177,7 +178,7 @@ async function productionInstall(repo, resource, manifest, nodeRoot, work, packa
   await writeFile(environment.npm_config_userconfig, ''); await writeFile(environment.npm_config_globalconfig, '');
   const node = join(nodeRoot, 'bin/node'), npm = join(nodeRoot, 'lib/node_modules/npm/bin/npm-cli.js');
   await requiredFile(npm, 'managed Node npm CLI'); await requiredFile(join(nodeRoot, 'include/node/node.h'), 'managed Node headers');
-  await run(node, [npm, 'ci', '--omit=dev', '--include=optional', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: install, env: environment, log: join(work, 'npm-ci.log'), workspace });
+  await run(node, [npm, 'ci', '--offline', '--omit=dev', '--include=optional', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: install, env: environment, log: join(work, 'npm-ci.log'), workspace });
   if (await hashFile(join(install, 'package-lock.json')) !== createHash('sha256').update(lockBytes).digest('hex')) throw new Error('Production installation changed the locked dependency graph');
   for (const [name, version] of Object.entries(manifest.production)) {
     const installed = await json(join(install, 'node_modules', name, 'package.json'));

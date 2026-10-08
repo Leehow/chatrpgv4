@@ -34,7 +34,7 @@ await build({stdin: {contents: [
 	`export {createKernelRuntime} from './kernel-ts/registry.ts';`,
 	`export {checkSourceDraft} from './kernel-ts/check.ts';`,
 	`export {pythonJsonDumps} from './kernel-ts/json.ts';`,
-	`export {anchorPage, cleanOutline, outlineChapters, indexChapters, readingWindow} from './kernel-ts/modules/chapters.ts';`,
+	`export {anchorPage, cleanOutline, outlineChapters, indexChapters, readingWindow, transcriptRanges, transcriptWindowPages} from './kernel-ts/modules/chapters.ts';`,
 ].join('\n'), resolveDir: ROOT, sourcefile: 'read-window-api.ts', loader: 'ts'},
 	outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(directory, 'api.mjs')).href);
@@ -166,7 +166,7 @@ test('§182.3: a long book reads the chapter in play and the next; when the scen
 	const b = await book('long-chapters', 120, {bookmarks: BOOKMARKS,
 		entries: [{id: 'scene-source-entry-42', name: 'Harbor', page: 42}, {id: 'scene-source-entry-95', name: 'Mine Shaft', page: 95}]});
 	const first = await b.ahead({focus: 'Harbor'});
-	assert.deepEqual(first.window, {mode: 'chapters', first: 41, last: 48, chapters: ['The town', 'The mine']});
+	assert.deepEqual(first.window, {mode: 'chapters', first: 41, last: 48, chapters: ['The town', 'The mine'], transcript: [[41, 44], [45, 48]]});
 	assert.deepEqual(await b.units(), [41, 43], 'the units of the scene\'s chapter are asked first, two in flight');
 	const read = await b.settle({focus: 'Harbor'});
 	assert.deepEqual(read.window, first.window);
@@ -175,7 +175,7 @@ test('§182.3: a long book reads the chapter in play and the next; when the scen
 	assert.deepEqual([...new Set(scans)], ['41-60'], 'only the contact sheet that meets the window');
 	// The scene moves to a scene in the last chapter: the next pass works on that chapter alone.
 	const moved = await b.ahead({focus: 'Mine Shaft'});
-	assert.deepEqual(moved.window, {mode: 'chapters', first: 91, last: 120, chapters: ['Finale']});
+	assert.deepEqual(moved.window, {mode: 'chapters', first: 91, last: 120, chapters: ['Finale'], transcript: [[91, 120]]});
 	assert.deepEqual(await b.units(), [41, 43, 45, 47, 95, 97], 'the next pass reads the new window, from the scene\'s page on, and nothing of the window it left');
 	await b.settle({focus: 'Mine Shaft'});
 	const units = await b.units();
@@ -187,7 +187,7 @@ test('§182.3: a long book reads the chapter in play and the next; when the scen
 test('§182.3: a long book without bookmarks reads a page window from the scene\'s page', async () => {
 	const b = await book('long-pages', 120);
 	const first = await b.ahead({focus: 'Harbor'});
-	assert.deepEqual(first.window, {mode: 'pages', first: 42, last: 66, chapters: []});
+	assert.deepEqual(first.window, {mode: 'pages', first: 42, last: 66, chapters: [], transcript: [[42, 66]]});
 	await b.settle({focus: 'Harbor'});
 	assert.deepEqual(await b.units(), [41, 43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 63, 65], 'every unit asked meets pages 42-66; none beyond');
 	await noIndex(b);
@@ -197,7 +197,7 @@ test('§182.2 × §184.1: a short book is streamed whole once; when every ask ha
 	const b = await book('short-build', 20, {entries: [{id: 'scene-source-entry-3', name: 'Harbor', page: 3}]});
 	await b.kernel('campaign.create', {id: 'first-table', module: b.mid, play_language: 'en', start_scene: 'Harbor'});
 	const first = await b.ahead({}, 'first-table');
-	assert.deepEqual(first.window, {mode: 'whole', first: 1, last: 20, chapters: [], complete: false});
+	assert.deepEqual(first.window, {mode: 'whole', first: 1, last: 20, chapters: [], complete: false, transcript: [[1, 20]]});
 	const done = await b.settle({}, 'first-table');
 	assert.deepEqual(await b.units('first-table'), [3, 5, 7, 9, 11, 13, 15, 17, 19, 1], 'the whole book is streamed, from the opening\'s page on');
 	await noIndex(b, 'first-table');
@@ -206,7 +206,7 @@ test('§182.2 × §184.1: a short book is streamed whole once; when every ask ha
 	assert.equal((await b.meta('first-table')).reading.build_complete.source_sha256, b.sha);
 	assert.equal((await b.meta()).reading.build_complete?.source_sha256, b.sha, 'the library adopted the build');
 	const jobs = (await b.queue('first-table')).length, again = await b.ahead({}, 'first-table');
-	assert.deepEqual([again.queued, again.window.complete], [[], true]);
+	assert.deepEqual([again.queued, again.window.complete, again.window.transcript], [[], true, [[1, 20]]], 'a built book still names its whole book for transcripts');
 	assert.equal((await b.queue('first-table')).length, jobs, 'a built book queues nothing more for its source');
 	// A second table forks the library after it adopted the build: its fork starts complete and its read-ahead asks nothing.
 	await b.kernel('campaign.create', {id: 'second-table', module: b.mid, play_language: 'en', start_scene: 'Harbor'});
@@ -272,7 +272,105 @@ test('§182.1: module.source.outline writes the library and an existing fork, re
 		{module_id: b.mid, library: 'unchanged', entries: 5, campaign: 'no_fork'});
 	assert.equal(existsSync(b.dir('unforked')), false, 'the outline forks no campaign');
 	// The fork's next pass reads by chapters: the scene's page (42) is in the town, so the town and the mine.
-	assert.deepEqual((await b.ahead({}, 'forked')).window, {mode: 'chapters', first: 41, last: 48, chapters: ['The town', 'The mine']});
+	assert.deepEqual((await b.ahead({}, 'forked')).window, {mode: 'chapters', first: 41, last: 48, chapters: ['The town', 'The mine'], transcript: [[41, 44], [45, 48]]});
+});
+
+/**
+ * One source unit the read-ahead queued publishes `draft` (its required review supported); every other reading claimed on the
+ * way fails, so the graph holds the reference path and this draft and nothing else.
+ */
+async function publish(b, draft, focus = 'Harbor') {
+	await b.ahead({focus});
+	for (let job = await b.call('module.read.claim', {owner: 'test-host'}); job.job_id; job = await b.call('module.read.claim', {owner: 'test-host'})) {
+		if (!job.source_unit) { await b.call('module.read.finish', {job_id: job.job_id, lease: job.lease, outcome: 'failed', detail: 'fixture: not this one'}); continue; }
+		const all = Array.from({length: (await b.meta()).page_count}, (_, index) => index + 1);
+		await save(join(job.work_dir, 'observations.json'), {file_sha256: b.sha, read_pages: all, full_pages: all, review_pages: all});
+		await save(join(job.work_dir, 'draft.json'), {...EMPTY, ...draft});
+		const checked = (await api.checkSourceDraft(CONTENT, join(job.work_dir, 'packet.json'), join(job.work_dir, 'draft.json'))).required_review ?? [];
+		await save(join(job.work_dir, 'review.json'), {checked: checked.length ? [{paths: checked, verdict: 'supported', source_refs: REFS, reason: 'fixture support'}] : [], missing: []});
+		await b.call('module.read.finish', {job_id: job.job_id, lease: job.lease, outcome: 'completed', draft_path: join(job.work_dir, 'draft.json'),
+			review_path: join(job.work_dir, 'review.json')});
+		return;
+	}
+	throw new Error('the read-ahead queued no source unit to publish through');
+}
+const scene = (id, name, pages) => ({node_id: id, node_kind: 'scene', name, summary: `${name}, as the book describes it.`, source_refs: pages.map(page => ({page})), properties: {}});
+const link = (subject, predicate, object, page) => ({subject_id: subject, predicate, object: {node_id: object}, truth_status: 'authored-fact', source_refs: [{page}]});
+/**
+ * The town's places, published by one reading: the dockside (page 42, the town) leads to the lighthouse, which the finale
+ * prints (pages 92 and 93); the cellar (page 43, the town) lies inside the old base, which the base chapter prints (page 60).
+ */
+const PLACES = {nodes: [scene('scene-dockside', 'Dockside', [42]), scene('scene-lighthouse', 'Lighthouse', [92, 93]),
+	scene('scene-cellar', 'Cellar', [43]), scene('scene-old-base', 'Old Base', [60])],
+	claims: [link('scene-dockside', 'route-to', 'scene-lighthouse', 42), link('scene-cellar', 'located-in', 'scene-old-base', 43)]};
+
+test('§191.5: a long book names the transcript pages -- the chapter in play, then the chapters of the scenes reachable from it, then the next chapter', async () => {
+	const b = await book('transcript-chapters', 120, {bookmarks: BOOKMARKS});
+	await publish(b, PLACES);
+	// Chapters: front matter 1-40, the town 41-44, the mine 45-48, the base 49-90, the finale 91-120.
+	const dockside = (await b.ahead({focus: 'Dockside'})).window;
+	assert.deepEqual({...dockside, transcript: undefined}, {mode: 'chapters', first: 41, last: 48, chapters: ['The town', 'The mine'], transcript: undefined},
+		'the reading window itself is unchanged');
+	assert.deepEqual(dockside.transcript, [[41, 44], [91, 120], [45, 48]], 'the lighthouse\'s chapter comes before the next chapter');
+	assert.deepEqual((await b.ahead({focus: 'Cellar'})).window.transcript, [[41, 44], [49, 90], [45, 48]], 'the place the cellar lies in pulls in its chapter');
+	assert.deepEqual((await b.ahead({focus: 'Old Base'})).window.transcript, [[49, 90], [41, 44], [91, 120]],
+		'the places inside the old base pull in theirs, in book order, before the next chapter');
+	assert.deepEqual((await b.ahead({focus: 'Lighthouse'})).window.transcript, [[91, 120]], 'a scene that leads nowhere, in the last chapter: its chapter alone');
+});
+
+test('§191.5: a long book without chapters names the page window, then two pages either side of each reachable scene', async () => {
+	const b = await book('transcript-pages', 120);
+	await publish(b, {nodes: [scene('scene-dockside', 'Dockside', [42]), scene('scene-lighthouse', 'Lighthouse', [80]), scene('scene-cellar', 'Cellar', [65]),
+		scene('scene-old-base', 'Old Base', [30]), scene('scene-boathouse', 'Boathouse', [82]), scene('scene-reef', 'Reef', [120])],
+		claims: [link('scene-dockside', 'route-to', 'scene-lighthouse', 42), link('scene-dockside', 'route-to', 'scene-boathouse', 42),
+			link('scene-dockside', 'route-to', 'scene-reef', 42), link('scene-cellar', 'located-in', 'scene-dockside', 42),
+			link('scene-dockside', 'located-in', 'scene-old-base', 42)]});
+	const window = (await b.ahead({focus: 'Dockside'})).window;
+	assert.deepEqual([window.mode, window.first, window.last], ['pages', 42, 66]);
+	assert.deepEqual(window.transcript, [[42, 66], [28, 32], [67, 67], [78, 84], [118, 120]],
+		'the window first; then the old base (30), the cellar (65, past the window\'s pages), the lighthouse and the boathouse merged (80, 82), the reef within the book (120)');
+});
+
+test('§191.5: the transcript pages stop before the cap; the chapter in play is always kept whole', async () => {
+	// Chapters: front matter 1-10, act one 11-140 (130 pages), act two 141-190 (50), act three 191-250 (60), act four 251-300 (50).
+	const b = await book('transcript-cap', 300, {bookmarks: [{name: 'Front matter', page: 1, children: []}, {name: 'Act one', page: 11, children: []},
+		{name: 'Act two', page: 141, children: []}, {name: 'Act three', page: 191, children: []}, {name: 'Act four', page: 251, children: []}]});
+	await publish(b, {nodes: [scene('scene-quay', 'Quay', [20]), scene('scene-chapel', 'Chapel', [200]), scene('scene-mill', 'Mill', [150]), scene('scene-ruin', 'Ruin', [260])],
+		claims: [link('scene-quay', 'route-to', 'scene-chapel', 20), link('scene-mill', 'route-to', 'scene-ruin', 150)]});
+	assert.deepEqual((await b.ahead({focus: 'Quay'})).window.transcript, [[11, 140]], 'act one is longer than the cap and kept whole; nothing after it fits');
+	assert.deepEqual((await b.ahead({focus: 'Mill'})).window.transcript, [[141, 190], [251, 300]],
+		'act two and the ruin\'s act four fit (100 pages); the next chapter would pass 120 and is left out');
+});
+
+test('§191.5: the pure rule -- whole book, front matter, no chapter twice, and a list that stops rather than skips', () => {
+	const chapters = api.outlineChapters(BOOKMARKS.slice(1), 120);
+	const window = (mode, first, last) => ({mode, first, last, chapters: []});
+	assert.deepEqual(api.transcriptRanges(window('whole', 1, 20), 20, chapters, 3, [15], 5), [[1, 20]], 'a short book is the whole book, whatever the cap');
+	assert.deepEqual(api.transcriptRanges(window('chapters', 7, 44), 120, chapters, 7, [], 120), [[1, 40], [41, 44]],
+		'an anchor in the front matter: the front matter, then the first chapter');
+	assert.deepEqual(api.transcriptRanges(window('chapters', 41, 48), 120, chapters, 42, [46, 47, 95, 43], 120), [[41, 44], [45, 48], [91, 120]],
+		'a reachable chapter that is also the next is listed once; the anchor\'s own chapter is not repeated');
+	assert.deepEqual(api.transcriptRanges(window('chapters', 41, 48), 120, chapters, 42, [95, 50], 40), [[41, 44]],
+		'the base (42 pages) would pass the cap; the list stops there, and the finale after it is not tried');
+	assert.deepEqual(api.transcriptRanges(window('pages', 1, 25), 30, [], 1, [2, 29, 0, 31], 120), [[1, 25], [27, 30]], 'spans stay inside the book');
+});
+
+test('§191.5: the cap is `transcript.max_window_pages` of the host budgets the kernel reads, 120 when the data names none', async () => {
+	const cap = read => api.transcriptWindowPages({content: '/content', snapshots: {readJson: async path => {
+		assert.equal(path, join('/content', 'rulesets', 'coc7', 'host-budgets.json'));
+		return read();
+	}}});
+	assert.equal(await cap(() => ({reading: {}, transcript: {max_window_pages: 40}})), 40);
+	assert.equal(await cap(() => ({reading: {}})), 120, 'no transcript block');
+	assert.equal(await cap(() => ({transcript: {max_window_pages: 0}})), 120, 'a value out of bounds');
+	assert.equal(await cap(() => { throw new Error('ENOENT'); }), 120, 'no file');
+});
+
+test('§191.5: a starter has no read-ahead and no transcript pages', async () => {
+	const b = await book('transcript-starter', 20, {entries: [{id: 'scene-source-entry-3', name: 'Harbor', page: 3}]});
+	await b.kernel('module.register', {module_id: 'the-haunting'});
+	assert.equal(JSON.parse(await readFile(join(b.workspace, '.coc/modules/the-haunting/module.json'), 'utf8')).source, 'starter', 'the starter is registered');
+	assert.deepEqual(await b.kernel('module.read.ahead', {module_id: 'the-haunting'}), {queued: []});
 });
 
 /** A reading service on a recording kernel: `answers` maps a method to its reply (a function of the params, or a value). */
@@ -294,6 +392,15 @@ test('§182.4 host: a read_window row is written when the window changes, never 
 	assert.deepEqual(rows.filter(row => row.event === 'read_window').map(({lane, event, module_id, campaign, first, last, mode, chapters}) => ({lane, event, module_id, campaign, mode, first, last, chapters})), [
 		{lane: 'reading', event: 'read_window', module_id: 'book-1', campaign: 'table', mode: 'chapters', first: 41, last: 48, chapters: ['The town', 'The mine']},
 		{lane: 'reading', event: 'read_window', module_id: 'book-1', campaign: 'table', mode: 'chapters', first: 91, last: 120, chapters: ['Finale']}]);
+});
+
+test('§191.5 host: the transcript pages are not the reading window -- they make no read_window row of their own and are not written into one', async () => {
+	const rows = [], town = {mode: 'chapters', first: 41, last: 48, chapters: ['The town', 'The mine']};
+	const windows = [{...town, transcript: [[41, 44], [45, 48]]}, {...town, transcript: [[41, 44], [91, 120], [45, 48]]}];
+	let pass = 0;
+	const {reading} = service({'module.read.ahead': () => ({queued: [], window: windows[pass++]})}, rows);
+	for (let index = 0; index < windows.length; index++) await reading['readAhead']({module_id: 'book-1'}, 'table');
+	assert.deepEqual(rows.filter(row => row.event === 'read_window'), [{lane: 'reading', event: 'read_window', module_id: 'book-1', campaign: 'table', ...town}]);
 });
 
 test('§184.5 host: a read-ahead that continued a merge backlog writes its library_sync row as the kernel gave it; one without the field writes none', async () => {

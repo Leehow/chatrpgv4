@@ -21,6 +21,7 @@ import { resolveBeforeMain, type ModResolveInput } from './resolve.js';
 import { magicEffects } from './effects.js';
 import {expressionCatalog} from '../read/expression-reference.js';
 import { packageSections, sectioned, sectionKey } from '../read/sections.js';
+import {EquipmentJobs} from './equipment.js';
 export { validateDefinition, validateDocumentSeed, definitionExpression } from './definition.js';
 export { projectInventory, projectSheet, weaponRows } from './projection.js';
 export { magicEffects, effectTarget, applyObjectEffects, saveEffectTarget, useItem, repairItem, castNpc } from './effects.js';
@@ -57,6 +58,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
   }
   function handlers(writer: ReturnType<typeof createWriteRuntime>): HandlerGroup {
     const jobs = new ModJobs(context, runtime, writer, sources);
+    const equipment = new EquipmentJobs(writer,jobs);
     async function listing(params: Row): Promise<Row> {
       if (!truth(params.campaign)) return runtime.view();
       const campaign = await writer.campaign(params, {requireWorld: false}), meta = await campaign.readCampaign();
@@ -65,6 +67,10 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
     }
     return Object.freeze({
       ...createDocumentHandlers(writer, runtime),
+      'mods.equipment.prepare': params => equipment.prepare(params),
+      'mods.equipment.publish': params => equipment.publish(params),
+      'mods.equipment.fail': params => equipment.fail(params),
+      'mods.equipment.retry': params => equipment.retry(params),
       'mods.job': params => jobs.job(params),
       'mods.identity.plan': params => jobs.identityPlan(params),
       'mods.accept': params => jobs.accept(params),

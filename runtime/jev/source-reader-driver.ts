@@ -20,8 +20,14 @@ import {selectReferencePacket,checkReferenceGuide} from './source-reference.ts';
 import {validateReferencePacket,type SourceReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 import {NEED_FACET_KEY,needAnsweredBatch,needAnsweredBudget,needAnsweredState,needDisposition,needFacet,needReadCandidates,needTaskOf,writeNeedReceipt,type NeedLead,type NeedReceipt} from './source-need-reads.ts';
 import {needReadBudget, readingReviewBudget} from './host-budgets.ts';
+import {transcriptStoreFromEnv,type TranscriptReader} from '../../extensions/module/transcript-store.ts';
+import {TRANSCRIPT_VERSION} from '../../extensions/module/page-transcript.ts';
 
-type Page = {page:number;text:string;label?:string|null;text_status?:'available'|'empty'|'error'|'unavailable'};
+/**
+ * `text` is the page's native text (what reference packets copy); §191.7: `reading` is the reading version of the page's
+ * stored transcript, which every navigation text of this driver reads instead (`navigationText`).
+ */
+type Page = {page:number;text:string;label?:string|null;text_status?:'available'|'empty'|'error'|'unavailable';reading?:string};
 type ImagePage = {page:number;path:string;image_sha256:string;box:number[];data:string};
 type SourceBinding = {pdf:string;cache:string;file_sha256?:string};
 type State = {catalog:boolean;located:boolean;projected:boolean;submitted:boolean;fallback:boolean;inferred:boolean;needsAssessment?:boolean;
@@ -55,6 +61,21 @@ type SourceFacet={key:string;need:string;limit:number;expand:number};
 export function sourcePageQuestionState(question:string,need:SourceNeed|undefined,focusContext:Record<string,unknown>|null,pages:Page[]):DecisionBatch['state']{
  return {requested_use:question,requested_need:need??null,focus_context:focusContext,pages:pages.map(row=>({page:row.page,text:row.text.slice(0,2800),truncated:row.text.length>2800})),authority:'Navigation only. The original PDF page and independent review authorize source facts.'};
 }
+
+/** §191.7: what navigation reads of a page -- its transcript's reading version when it has one, else its native text. */
+export function navigationText(row:{text:string;reading?:string}):string{return typeof row.reading==='string'?row.reading:row.text;}
+/**
+ * §191.7: the reading version of every page that has a stored transcript, laid over the native pages (which stay native, as
+ * the native navigation cache keeps them). Returns the transcribed pages, which key the located-pages cache.
+ */
+export async function overlayTranscripts(pages:Page[],store:TranscriptReader|undefined,fileSha256:string):Promise<number[]>{
+ if(!store)return [];
+ const records=await store.readPages(fileSha256,pages.map(row=>row.page)).catch(()=>new Map());
+ for(const row of pages){const record=records.get(row.page);if(record)row.reading=record.markdown;else delete row.reading;}
+ return [...records.keys()].sort((a,b)=>a-b);
+}
+/** The native rows a reference packet copies from: a page's reading version is navigation, never an excerpt. */
+const nativeRows=(rows:Page[]):Page[]=>rows.map(({reading:_reading,...row})=>row);
 
 /** These are requested uses, not classifications of source pages. Every field is judged by Jev. */
 /**
@@ -232,6 +253,10 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
    const reviewing=Array.isArray(task.required_review);
    const fixedReviewPages=reviewing?assignedReviewPages(task,reviewDraft):[];
    const cacheFile=join(dirname(source.cache),'native-navigation-v2.json');
+   // §191.7: the page-transcript store this child's host named (its home and content); read only, never produced here.
+   const transcripts=transcriptStoreFromEnv(options.env,sourceTextVersion);
+   let transcribedPages:number[]=[];
+   const nav=navigationText;
    const state0:State={catalog:false,located:false,projected:false,submitted:false,fallback:false,inferred:false};
    const retainNeeds=async(needs:SourceNeed[])=>{
      const sourceSha=info?.file_sha256??source.file_sha256;
@@ -272,6 +297,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        const assigned=fixedReviewPages.filter(page=>page<=info!.page_count);
        const extracted=assigned.length?await sourceText(source.pdf,{pages:assigned,expected_file_sha256:info.file_sha256},signal):null;
        pages=(extracted?.snapshots??[]).map(row=>({page:row.page,text:row.text??'',label:row.pdf_label??null,text_status:(row.text?.trim()?'available':'empty') as Page['text_status']}));
+       transcribedPages=await overlayTranscripts(pages,transcripts,info.file_sha256);
        candidates=assigned;
        trace({kind:'source_catalog',runId,source_sha256:info.file_sha256,pages:info.page_count,review_assigned_pages:assigned,jev_required:false});
        return {kind:'catalog',source_sha256:info.file_sha256,page_count:info.page_count};
@@ -293,7 +319,9 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        await mkdir(dirname(cacheFile),{recursive:true});const temp=cacheFile+'.'+randomUUID()+'.tmp';
        await writeFile(temp,compact({file_sha256:info.file_sha256,extraction_version:sourceTextVersion,page_count:info.page_count,pages}));await rename(temp,cacheFile);
      }
-     trace({kind:'source_catalog',runId,source_sha256:info.file_sha256,pages:info.page_count,native_pages:pages.filter(row=>row.text.trim()).length,reused});
+     transcribedPages=await overlayTranscripts(pages,transcripts,info.file_sha256);
+     trace({kind:'source_catalog',runId,source_sha256:info.file_sha256,pages:info.page_count,native_pages:pages.filter(row=>row.text.trim()).length,
+       transcript_pages:transcribedPages.length,reused});
      return {kind:'catalog',source_sha256:info.file_sha256,page_count:info.page_count};
    }
    async function locate(signal:AbortSignal){
@@ -316,7 +344,9 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      const needBudget=needTask&&requestCount===0?await needReadBudget():undefined;
      const cacheIdentity={version:'source-navigation-v23',need_read:needBudget??null,source_sha256:info.file_sha256,extraction_version:sourceTextVersion,focus_context:focusContext,requested_need:pendingNeed,
        model:JEV_MODEL,purpose:task.purpose,focus:task.focus??'',guidance_key:task.guidance_key??'',question,
-       anchor_pages:anchorPages,task_pages:task.pages??[],known_entry_refs:knownEntry?.selected??null,entry_probe_pages:knownEntry?.openingProbes??null};
+       anchor_pages:anchorPages,task_pages:task.pages??[],known_entry_refs:knownEntry?.selected??null,entry_probe_pages:knownEntry?.openingProbes??null,
+       // §191.7: the leads were ranked over these pages' transcripts; a page that gains one is ranked again.
+       ...(transcribedPages.length?{transcript:{version:TRANSCRIPT_VERSION,pages:transcribedPages}}:{})};
      const cacheDigest=sha(JSON.stringify(cacheIdentity)),navigationFile=join(dirname(source.cache),'source-navigation-'+cacheDigest+'.json');
      const saveReviewLeads=async()=>{
        if(!['guidance','opening'].includes(task.purpose??'')||reviewing)return;
@@ -355,7 +385,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        const settled=await needAfterLocate(hit.needLeads,{partial,cached:true});
        return {kind:'located',pages:candidates,partial,cached:true,...(settled?{need_disposition:settled}:{})};
      }
-     let relevant=pages.filter(row=>row.text.trim()),scopeChoice='whole';
+     let relevant=pages.filter(row=>nav(row).trim()),scopeChoice='whole';
      if(knownEntry){scopeChoice='known_selected_entry';relevant=relevant.filter(row=>knownEntry.selected.includes(row.page));
        trace({kind:'source_known_entry',runId,focus:task.focus,selected:knownEntry.selected,opening_probe_pages:openingProbePages});}
      let selectedTopSections:Array<{name:string;first:number;last:number}>=[];
@@ -369,7 +399,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
          const outline=Array.isArray(info.bookmarks)?info.bookmarks as any[]:[];
          const sectionState=sections.map(section=>({...section,children:(outline.find(row=>row?.name===section.name&&row?.page===section.first)?.children??[])
            .slice(0,24).map((row:any)=>({name:row.name,page:row.page??null})),
-           first_page_excerpt:(pages.find(row=>row.page===section.first)?.text??'').slice(-850)}));
+           first_page_excerpt:nav(pages.find(row=>row.page===section.first)??{text:''}).slice(-850)}));
          const criteria=Object.fromEntries([...sectionState.map((section,index)=>['s'+index,{what:section.name,physical_pages:[section.first,section.last]}]),
            ['none_of_the_above',{what:'No listed heading is a reliable location for this requested use.'}]]);
          const batch:DecisionBatch={id:randomUUID(),model:JEV_MODEL,family:'source-guidance-sections',familyVersion:'2',scope,readSet:[...readSet],
@@ -445,7 +475,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
          if(ranges.length<2)return [parent];
          const wanted=[...(topFacets.get(topSections.indexOf(parent))??new Set(facets.map(facet=>facet.key)))];
          const criteria=Object.fromEntries([...ranges.map((range,index)=>['c'+index,{what:range.name,physical_pages:[range.first,range.last],
-           first_page_excerpt:pages.find(row=>row.page===range.first)?.text.slice(0,1200)??''}]),
+           first_page_excerpt:nav(pages.find(row=>row.page===range.first)??{text:''}).slice(0,1200)}]),
            ['none_of_the_above',{what:'None of these child ranges is a reliable first location.'}]]);
          const batch:DecisionBatch={id:randomUUID(),model:JEV_MODEL,family:'source-guidance-child-sections',familyVersion:'1',scope,readSet:[...readSet],
            state:{requested_use:question,focus_context:focusContext,parent,child_sections:ranges},questions:wanted.map(key=>({key,target:'child sections of '+parent.name,
@@ -470,17 +500,17 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
            }finally{lease.close();}
          }catch(error){trace({kind:'source_child_sections_unavailable',runId,parent,error:String(error)});return [parent];}
        }))).flat();
-       if(narrowed.length){scopeChoice='child_sections';relevant=pages.filter(row=>row.text.trim()&&narrowed.some(range=>row.page>=range.first&&row.page<=range.last));}
+       if(narrowed.length){scopeChoice='child_sections';relevant=pages.filter(row=>nav(row).trim()&&narrowed.some(range=>row.page>=range.first&&row.page<=range.last));}
      }
      if(task.purpose==='guidance'&&openingProbePages.length){
        const already=new Set(relevant.map(row=>row.page));
-       for(const page of openingProbePages){const row=pages.find(candidate=>candidate.page===page&&candidate.text.trim());
+       for(const page of openingProbePages){const row=pages.find(candidate=>candidate.page===page&&nav(candidate).trim());
          if(row&&!already.has(page)){already.add(page);relevant.push(row);}}
        relevant.sort((a,b)=>a.page-b.page);
      }
      if(anchorPages.length){
        const batch:DecisionBatch={id:randomUUID(),model:JEV_MODEL,family:'source-search-scope',familyVersion:'1',scope,readSet:[...readSet],
-         state:{question,anchors:anchorPages.map(page=>({page,text:pages.find(row=>row.page===page)?.text.slice(0,1600)??''})),available:{nearby:'Within four physical pages of an anchor, with whole-book fallback if no useful lead is found.',whole:'Every native-text page of the bound original PDF.'}},
+         state:{question,anchors:anchorPages.map(page=>({page,text:nav(pages.find(row=>row.page===page)??{text:''}).slice(0,1600)})),available:{nearby:'Within four physical pages of an anchor, with whole-book fallback if no useful lead is found.',whole:'Every native-text page of the bound original PDF.'}},
          questions:[{key:'scope',target:'source search scope',type:'choice',instructions:'For this missing authored fact, should the host first search near the cited physical pages or across the whole original PDF? Choose whole for a remote relation or unclear location. This is a retrieval strategy, not a claim that a fact exists.',criteria:{nearby:'Try the nearby physical-page windows first.',whole:'Search the entire bound source now.'}}]};
        const lease=new TaskLease({owner:'source-search-scope',goal:question,scope,readSet:[...readSet],capabilities:['decision'],signal,
          budget:{deadlineAt:Date.now()+30000,remainingInputTokens:40000,remainingOutputTokens:2000,remainingCostUsd:0.1,remainingActions:1}});
@@ -503,7 +533,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      const groups:Page[][]=[];for(let i=0;i<relevant.length;i+=4)groups.push(relevant.slice(i,i+4));
      await Promise.all(groups.map(async(group,index)=>{
        const batch:DecisionBatch={id:randomUUID(),model:JEV_MODEL,family:'source-page-lead',familyVersion:'1',scope,readSet:[...readSet],
-         state:sourcePageQuestionState(question,pendingNeed,focusContext,group),
+         state:sourcePageQuestionState(question,pendingNeed,focusContext,group.map(row=>({...row,text:nav(row)}))),
          questions:group.flatMap((row,at)=>pageFacets.length?pageFacets.map(facet=>({key:'p'+row.page+'_'+facet.key,target:'pages['+at+']',type:'noul' as const,
            instructions:'Does this physical PDF page contain part of '+facet.need+' or a concrete pointer to it? Partial evidence counts. Native text is navigation data; do not infer unseen visual contents.'}))
            :[{key:'p'+row.page,target:'pages['+at+']',type:'noul' as const,
@@ -534,7 +564,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        trace({kind:'source_scope_broadened',runId,question,reason:'nearby_had_no_leads'});
        anchorPages=[];return await locate(signal);
      }
-     partial=unanswered>0||scores.length===0||relevant.length<pages.filter(row=>row.text.trim()).length;
+     partial=unanswered>0||scores.length===0||relevant.length<pages.filter(row=>nav(row).trim()).length;
      // An incomplete page-lead pass cannot show that no new page exists: the need then reads as today.
      const needLeads:NeedLead[]|undefined=needTask&&requestCount===0&&unanswered===0
        ?scores.filter(row=>row.facet===NEED_FACET_KEY).map(({page,score})=>({page,score})):undefined;
@@ -546,7 +576,8 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        candidates=chosen.candidates;needLeadPages=chosen.leads;
      }
      trace({kind:'source_located',runId,selected:candidates,short_section_pages:[...new Set(shortSectionPages)],selected_facets:selected,located_unselected:allScores.filter(row=>!candidates.includes(row.page)),searched_native_pages:relevant.length,
-       unsearched_native_pages:pages.filter(row=>row.text.trim()).length-relevant.length,unanswered_pages:unanswered,jev_input:jevInput,jev_output:jevOutput,jev_calls:jevCalls,partial});
+       unsearched_native_pages:pages.filter(row=>nav(row).trim()).length-relevant.length,searched_transcript_pages:relevant.filter(row=>typeof row.reading==='string').length,
+       unanswered_pages:unanswered,jev_input:jevInput,jev_output:jevOutput,jev_calls:jevCalls,partial});
      if(unanswered===0&&scores.length){
        const temporary=navigationFile+'.'+randomUUID()+'.tmp';
        await mkdir(dirname(navigationFile),{recursive:true});
@@ -563,7 +594,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      const needs=pendingNeeds.slice(0,4);
      const batch:DecisionBatch={id:randomUUID(),model:JEV_MODEL,family:'source-need-kind',familyVersion:'1',scope,readSet:[...readSet],
        state:{requested_use:pendingQuery,focus_context:focusContext,needs,
-         source_excerpt:pages.filter(page=>candidates.includes(page.page)).slice(0,6).map(page=>({page:page.page,text:page.text.slice(0,2200)})),
+         source_excerpt:pages.filter(page=>candidates.includes(page.page)).slice(0,6).map(page=>({page:page.page,text:nav(page).slice(0,2200)})),
          authority:'These decisions route source work. They do not establish facts or permit publication.'},
        questions:needs.map((_,index)=>({key:'need'+index,target:'needs['+index+']',type:'choice' as const,
          instructions:'What is missing for this exact current use? Choose runtime_context only for a live-state input, player choice or source-permitted Keeper ruling; preserve its printed condition. Choose deferred only when the question affects a later unchosen use. '+(moduleLogicReview(task)?'A necessary identity, causal fact, clue link or applicability condition remains source_read. Ordinary module parameter or wording precision is advisory; retain the established value or a runtime choice instead of requiring another source sweep.':'A necessary authored identity, fact or value remains source_read.')+' Choose uncertain if the source excerpt cannot establish the distinction.',
@@ -664,7 +695,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
            if(search&&typeof search.query==='string'&&(artifact as any).next_cursor){
              try{
                supplementalSearch=await continueSourceSearch(search,artifact as any,
-                 options=>sourceSearch(source.pdf,options,invocation.signal),invocation.signal);
+                 options=>sourceSearch(source.pdf,options,invocation.signal,transcripts),invocation.signal);
                projectedOnce=false;
                trace({kind:'source_search_continued',runId,query_sha256:sha(search.query),coverage:supplementalSearch.coverage,
                  remaining_cursor:!!supplementalSearch.next_cursor,matches:supplementalSearch.matches.length});
@@ -692,7 +723,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
            if(task.visual_scan&&!reviewing)return {status:'ok',artifact:{kind:'projected',pages:[],original_images:0}};
            if(task.source_reference){
              if(!info)throw Error('Original source identity is unavailable');
-             referencePacket??=await selectReferencePacket({pages:pages.filter(page=>candidates.includes(page.page)),allPages:pages,bookmarks:info.bookmarks,
+             referencePacket??=await selectReferencePacket({pages:nativeRows(pages.filter(page=>candidates.includes(page.page))),allPages:nativeRows(pages),bookmarks:info.bookmarks,
                sourceSha:info.file_sha256,pageCount:info.page_count,extractionVersion:sourceTextVersion,purpose:task.purpose??'answer',question:pendingQuery,materializePlace:task.materialize_place===true,openingProbePages,
                decide:(batch,lease)=>adapter.decide(batch,lease),signal:invocation.signal,record:trace});
              projectedOnce=false;
@@ -732,8 +763,9 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        const chosen=candidates.map(page=>pages.find(row=>row.page===page)).filter((row):row is Page=>!!row);
        const content:any[]=[{type:'text',text:JSON.stringify({kind:'source_navigation_only',source_sha256:info.file_sha256,page_count:info.page_count,requested_use:pendingQuery,
          need_assessments:needAssessments,source_retrieval_remaining:Math.max(0,3-requestCount),need_instruction:'Need kinds are provisional routing advice. Preserve the original question and sourced condition. Resolve a current authored gap from originals; retain a supported runtime input or later use in source_needs for independent review. Never remove a need solely to pass submission.',
-         pages:chosen.map(row=>needLeadPages.length?needPageText(row,needLeadPages.includes(row.page)):{page:row.page,text:row.text.slice(0,6000),truncated:row.text.length>6000}),partial,
-         native_text_gaps:pages.filter(row=>!row.text.trim()).map(row=>({page:row.page,status:row.text_status??'unavailable'})),
+         pages:chosen.map(row=>{const text=nav(row),layer=typeof row.reading==='string'?{layer:'transcript'}:{};
+           return needLeadPages.length?{...needPageText({page:row.page,text},needLeadPages.includes(row.page)),...layer}:{page:row.page,text:text.slice(0,6000),truncated:text.length>6000,...layer};}),partial,
+         native_text_gaps:pages.filter(row=>!nav(row).trim()).map(row=>({page:row.page,status:row.text_status??'unavailable'})),
          visual_coverage:{status:'unassessed',physical_ranges:[[1,info.page_count]],original_pages_supplied_in_this_message:projectedImages.map(row=>row.page),
            note:'Text presence does not assess visual content. Supplied originals count as observed only after successful inference, and only for this requested use; no whole-page semantic completeness is claimed.'},
          instruction:projectedImages.length?'The following are actual original PDF page images from this source. Use them directly for the brief; use pdf for additional or closer views. submit_reading checks successful delivery.':'Native excerpts are navigation leads only. Inspect original PDF pages with the pdf tool before writing facts. Use request_source for a concrete missing dependency.'})}];

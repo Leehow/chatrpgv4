@@ -48,7 +48,7 @@ import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,vis
 import {IDENTITY_FAILURES,IDENTITY_HOLDS,IDENTITY_QUESTION,draftIdentityPairs,identitySource,judgeDraftIdentity,publishedIdentityPairs,recordIdentityVerdicts,writeVariants,type IdentityPair} from './visual-identity.js';
 import {identityVerdicts} from './visual-identity-shape.js';
 import {MAP_SCOPE_FAILURES,MAP_SCOPE_QUESTION,mapScopeFocus,mapsLackingScope} from './map-scope.js';
-import {anchorPage,cleanOutline,indexChapters,outlineChapters,pageInside,rangeMeets,readingBudget,readingWindow,wholeWindow,type Chapter,type ReadingWindow} from './chapters.js';
+import {anchorPage,cleanOutline,indexChapters,outlineChapters,pageInside,rangeMeets,readingBudget,readingWindow,transcriptRanges,transcriptWindowPages,wholeTranscript,wholeWindow,type Chapter,type PageRange,type ReadingWindow} from './chapters.js';
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
 /**
  * §22.3.1: what stopped a failed reading, as the host recorded it in findings.json -- the refused field's
@@ -983,13 +983,29 @@ export class Reading {
      * campaign's read-ahead sets to its active scene), else the start scene's, else the book's first page.
      */
     private static anchorPage(graph: ModuleGraph, focus: unknown, pageCount: number): number {
-        // §182.3: the median of the pages the scene cites (`anchorPage`), not the first one.
-        const first = (node: Row | null): number | undefined =>
-            anchorPage(array(node?.source_refs).filter(ref => integer(row(ref).pdf_index)).map(ref => number(ref.pdf_index) + 1).filter(page => page >= 1 && page <= pageCount));
         const scene = truth(focus) ? graph.find(string(focus), ['scene']) : null;
-        let start: Row | null = null;
-        try { start = graph.startScene(); } catch (error) { if (!(error instanceof RpcError)) throw error; }
-        return first(scene) ?? first(start) ?? 1;
+        return Reading.sceneAnchor(scene, pageCount) ?? Reading.sceneAnchor(Reading.startOrNull(graph), pageCount) ?? 1;
+    }
+    /** §182.3: the median of the pages a scene cites (`anchorPage`), not the first one; undefined when it cites none in the book. */
+    private static sceneAnchor(node: Row | null | undefined, pageCount: number): number | undefined {
+        return anchorPage(array(node?.source_refs).filter(ref => integer(row(ref).pdf_index)).map(ref => number(ref.pdf_index) + 1).filter(page => page >= 1 && page <= pageCount));
+    }
+    private static startOrNull(graph: ModuleGraph): Row | null {
+        try { return graph.startScene(); } catch (error) { if (!(error instanceof RpcError)) throw error; return null; }
+    }
+    /**
+     * §191.5: the anchor pages of the scenes the table can reach next from the focus scene (`focus`, else the start scene):
+     * its exits (`sceneExits`), the scene it is `located-in` and the scenes `located-in` it. A scene that cites no page has none.
+     */
+    private static reachableAnchors(graph: ModuleGraph, focus: unknown, pageCount: number): number[] {
+        const scene = (truth(focus) ? graph.find(string(focus), ['scene']) : null) ?? Reading.startOrNull(graph);
+        if (!scene) return [];
+        const located = (rels: Row[] | undefined, end: 'from_node_id' | 'to_node_id'): Row[] => (rels ?? [])
+            .filter(rel => rel.relation_kind === 'located-in').map(rel => graph.nodes.get(rel[end])).filter((node): node is Row => node?.node_kind === 'scene');
+        const reachable = [...graph.sceneExits(scene).map(exit => graph.find(string(exit.to), ['scene'])),
+            ...located(graph.out.get(scene.node_id), 'to_node_id'), ...located(graph.incoming.get(scene.node_id), 'from_node_id')];
+        return reachable.filter((node): node is Row => node != null && node.node_id !== scene.node_id)
+            .map(node => Reading.sceneAnchor(node, pageCount)).filter((page): page is number => page !== undefined);
     }
     /**
      * §182.2: what the whole-book read-ahead still has to ask or to finish on this source, or null when every streamed unit,
@@ -1103,15 +1119,21 @@ export class Reading {
         };
         const pageCount = number(meta.page_count), budget = await readingBudget(this.store.context), short = pageCount <= budget.wholeBookMaxPages;
         // §182.2: a short book built once queues nothing more for its source; only a foreground request reads it after that.
+        // §191.5: its transcript pages are the whole book.
         if (short && Reading.built(meta))
-            return { queued: [...new Set(queued)], window: { ...wholeWindow(pageCount, await this.chaptersOf(mid, meta)), complete: true }, ...recovery };
+            return { queued: [...new Set(queued)], window: { ...wholeWindow(pageCount, await this.chaptersOf(mid, meta)), complete: true,
+                transcript: wholeTranscript(pageCount) }, ...recovery };
         // §182.4: the whole-book index is asked only of a book that needs its sections.
         const indexAsked = !truth(reading.index_complete) && await this.backgroundIndex(meta);
         if (indexAsked) await ask({ purpose: 'index', focus: '' });
         if (!await this.store.readGraph(mid)) return { queued, reason: indexAsked ? 'index' : 'no_graph' };
         const graph = await this.store.graph(mid), chapters = await this.chaptersOf(mid, meta);
-        const window: ReadingWindow = short ? wholeWindow(pageCount, chapters)
-            : readingWindow(pageCount, chapters, Reading.anchorPage(graph, params.focus, pageCount), budget.fallbackWindowPages);
+        const anchor = short ? 1 : Reading.anchorPage(graph, params.focus, pageCount);
+        const window: ReadingWindow = short ? wholeWindow(pageCount, chapters) : readingWindow(pageCount, chapters, anchor, budget.fallbackWindowPages);
+        // §191.5: the pages the host transcribes ahead of the table -- the window's chapter, the chapters (or pages) of the
+        // scenes reachable next, then the next chapter -- reported beside the window, never limiting what it reads.
+        const transcript: PageRange[] = transcriptRanges(window, pageCount, chapters, anchor,
+            short ? [] : Reading.reachableAnchors(graph, params.focus, pageCount), await transcriptWindowPages(this.store.context));
         const inside = (page: number): boolean => pageInside(window, page);
         // §152.4: published pairs that collide and have no verdict are asked, one page at a time, in the background; a
         // page whose job failed `IDENTITY_FAILURES` times is not asked again by the read-ahead. §182.3: pages in the window.
@@ -1161,9 +1183,9 @@ export class Reading {
         // §182.2: the read-ahead's own outcome -- the window, and on a short book whether its build completed (a fork's
         // completion carries the library's answer, §184.1).
         const outcome = async (): Promise<Row> => {
-            if (!short) return { window };
+            if (!short) return { window: { ...window, transcript } };
             const built = await this.completeBuild(mid);
-            return { window: { ...window, complete: built !== null }, ...(built?.library_sync ? { library_sync: built.library_sync } : {}) };
+            return { window: { ...window, complete: built !== null, transcript }, ...(built?.library_sync ? { library_sync: built.library_sync } : {}) };
         };
         if(meta.source_reference){
             const queue=ownAsks(await this.store.queue(mid)),work=queue.filter(job=>job.source_unit),active=work.filter(job=>['queued','running'].includes(job.state)).length;

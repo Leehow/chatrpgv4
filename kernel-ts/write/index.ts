@@ -58,6 +58,7 @@ import type {createWorldlineRuntime} from '../worldline/index.js';
 import { owedIntents } from '../npc/owed.js';
 import { namedRepeats, speakerThreads } from '../npc/threads.js';
 import {quotationDrafts,quotationScope,pendingQuotation,quotationRecords,discloseCashRequests} from '../runtime/quotes.js';
+import {selectDocumentRequest,finishDocumentRequestTurn} from '../mods/document-requests.js';
 import {bindPriceText,priceRows} from '../../shared/cash-prose.js';
 export { createTurnTransaction } from './store.js';
 export { CampaignWriter } from './store.js';
@@ -1023,6 +1024,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             }
         });
         await campaign.telemetry({ lane: 'turn', event: 'stranded', turn: next, receipts: array(turn.receipts).length });
+        await finishDocumentRequestTurn(campaign,next);
         return next + 1;
     }
     /**
@@ -1107,6 +1109,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         }
         const cursor = freshTurn(next, 'open', pending);
         cursor.player_text = text;
+        await selectDocumentRequest(campaign,snapshot.world,text,next);
         // §185.6: the book's handles reach a name-free campaign here too, before anything of this turn reads a handle.
         const refolded = await foldHandles(campaign, snapshot, module, [cursor]);
         if (refolded) module = refolded;
@@ -1592,6 +1595,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if(!moves)await postStep('checkpoint',checkpoint);
         if(contributions.libraryWriteBack)await postStep('library',()=>contributions.libraryWriteBack!(campaign,record));
         await postStep('episode',()=>writeEpisode(campaign,record));
+        await postStep('document-requests',()=>finishDocumentRequestTurn(campaign,number(turn.turn)));
         if(moves){
             const plan=record.worldline;
             try{

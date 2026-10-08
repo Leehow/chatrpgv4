@@ -6,6 +6,8 @@ import {decimalSpelling} from '../../shared/cash-decimal.js';
 import {preparePriceArguments} from './price-arguments.ts';
 import {patchCard} from "../table/card-patch.ts";
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
+import {documentEditInput} from '../../runtime/document-edit-input.ts';
+import {DocumentReadCoverage} from './document-read-coverage.ts';
 import {RefusedDocumentOutcome, REFUSED_DOCUMENT_OUTCOME_FAMILY, REFUSED_DOCUMENT_OUTCOME_REASON, documentOutcomeDigest, type DocumentOutcomeVerdict} from '../../runtime/jev/refused-document-outcome.ts';
 import {DOCUMENT_RECORDING_INTENT_MIN, permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
 /**
@@ -368,6 +370,7 @@ interface TableState {
 	/** The ordinal of state-changing calls minted this turn. */
 	callOrdinal: number;
 	recallPages: RecallPages;
+    documentReadCoverage?:DocumentReadCoverage;
 	/** Turn 0: the table has opened but not yet narrated, so narrate is allowed straight out of awaiting_player. */
 	openingPending: boolean;
 	/** narrate/ask has returned rendered_text and is waiting to replace the assistant message. */
@@ -863,6 +866,15 @@ function providerNoticeAfterMs(): number {
 const ADAPTATION_HELD = ["pending", "reviewing", "ready"];
 /** Terminal adaptation statuses the table is told about once, by name, and never held for (§60). */
 const ADAPTATION_OVER = ["stale", "failed"];
+/**
+ * §191.7: the layer a landing's pages were read in, for its telemetry row -- `transcript` or `native` when every page shares
+ * it, `mixed` otherwise -- with the pages that were read from their page transcript.
+ */
+function landingLayer(pages: Array<{ page: number; layer?: string }>): { layer: string; transcript_pages: number[] } {
+	const layers = new Set(pages.map((page) => page.layer === "transcript" ? "transcript" : "native"));
+	return { layer: layers.size === 1 ? [...layers][0] : "mixed", transcript_pages: pages.filter((page) => page.layer === "transcript").map((page) => page.page) };
+}
+
 /** A proposal name or a move's destination, compared as an id: case, a `scene:` qualifier and separators folded. */
 function destinationId(value: unknown): string {
 	return typeof value === "string" ? value.trim().toLowerCase().replace(/^scene\s*:\s*/, "").replace(/[\s_-]+/g, "-") : "";
@@ -1492,7 +1504,7 @@ export default function (pi: ExtensionAPI) {
 	pi.events.on('coc:interaction-scope', (value: any) => {
 		if (!table || value?.campaign !== table.campaign || value.turn !== table.turn
 			|| value.player_text !== table.playerText || !['world', 'reference'].includes(value.mode)) return;
-		table.interactionScope = value.mode;
+        table.interactionScope = documentEditInput(table.playerText)?'world':value.mode;
     table.documentRecording = typeof value.documentRecording === 'number' && Number.isFinite(value.documentRecording)
       && value.documentRecording >= 0 && value.documentRecording <= 1 ? value.documentRecording : undefined;
 	});
@@ -4602,7 +4614,7 @@ export default function (pi: ExtensionAPI) {
 		const effects = Array.isArray(payload.effects) ? payload.effects as unknown[] : undefined, index = details.effect;
 		const target = effects && typeof index === "number" ? effects[index] as Record<string, unknown> | undefined : undefined;
 		if (!focus || !pages.length || !target || target.kind !== "move" || !reading?.sourcePages || !readingModule) return undefined;
-		let texts: Array<{page: number; pdf_label?: string; text: string}>;
+		let texts: Array<{page: number; pdf_label?: string; text: string; layer?: string}>;
 		try { texts = (await reading.sourcePages(readingModule, pages, {}, signal)).filter((page) => page.text.trim().length > 0); }
 		catch (error) {
 			void record({ lane: "reading", event: "scene_text_unavailable", turn: state.turn, scene: focus, detail: error instanceof Error ? error.message : String(error) });
@@ -4623,15 +4635,17 @@ export default function (pi: ExtensionAPI) {
 			settled = reply?.state === "pending" && reply.settled ? reply.settled : Promise.resolve(reply);
 		} catch (error) { settled = Promise.reject(error); }
 		settled.catch(() => undefined);
-		sceneReadings.register(state.campaign, focus, texts, state.turn, settled);
+		// §191.7: the layer is the host's to record; the Keeper is carried the page and its text.
+		const carriedPages = texts.map(({ layer: _layer, ...page }) => page);
+		sceneReadings.register(state.campaign, focus, carriedPages, state.turn, settled);
 		// §11.5.4: on the legacy engine these pages ride this very result, so they are carried now.
-		if (!drivenEngine) carriedText.note(state.campaign, state.turn, texts.map((page) => ({ scene: focus, page: page.page, label: page.pdf_label ?? null, text: page.text })));
+		if (!drivenEngine) carriedText.note(state.campaign, state.turn, carriedPages.map((page) => ({ scene: focus, page: page.page, label: page.pdf_label ?? null, text: page.text })));
 		void record({ lane: "reading", event: "scene_text", turn: state.turn, scene: focus, pages: texts.map((page) => page.page),
-			bytes: Buffer.byteLength(JSON.stringify(texts), "utf8") });
+			bytes: Buffer.byteLength(JSON.stringify(carriedPages), "utf8"), ...landingLayer(texts) });
 		const landed = Array.isArray(result.scene_text) ? result.scene_text as Array<Record<string, unknown>> : [{ scene: focus, pages }];
 		return { ...result, scene_text: landed.map((entry) => ({ ...entry, note: SCENE_TEXT_NOTE,
 			// On the hybrid engine the pages ride the next note once; the legacy engine has no note, so they ride here.
-			...(!drivenEngine && entry.scene === focus ? { text: texts } : {}) })) };
+			...(!drivenEngine && entry.scene === focus ? { text: carriedPages } : {}) })) };
 	}
 
 	/**
@@ -4648,7 +4662,7 @@ export default function (pi: ExtensionAPI) {
 		if (!focus || !key || !name || !reading || !readingModule) return undefined;
 		const names = (Array.isArray(person.names) ? person.names : [name]).filter((value): value is string => typeof value === "string" && !!value.trim());
 		const lookup = (passages: Array<Record<string, any>>) => { for (const spelled of names) { const found = findPassage(passages as never, spelled); if (found) return found; } return undefined; };
-		let passage = lookup(carriedText.of(state.campaign, state.turn)), texts: Array<{page: number; pdf_label?: string; text: string}> = [];
+		let passage = lookup(carriedText.of(state.campaign, state.turn)), texts: Array<{page: number; pdf_label?: string; text: string; layer?: string}> = [];
 		const pages = Array.isArray((details.index as { pages?: unknown } | undefined)?.pages)
 			? ((details.index as { pages: unknown[] }).pages).filter((page): page is number => Number.isSafeInteger(page) && (page as number) >= 1) : [];
 		if (!passage && pages.length && reading.sourcePages) {
@@ -4674,11 +4688,11 @@ export default function (pi: ExtensionAPI) {
 		} catch (error) { settled = Promise.reject(error); }
 		settled.catch(() => undefined);
 		// The turn's carried text already holds the passage: only index pages the Keeper has not seen are carried.
-		const carried = passage && !texts.length ? [] : texts;
+		const indexed = passage && !texts.length ? [] : texts, carried = indexed.map(({ layer: _layer, ...page }) => page);
 		sceneReadings.register(state.campaign, focus, carried, state.turn, settled, name);
 		if (!drivenEngine && carried.length) carriedText.note(state.campaign, state.turn, carried.map((page) => ({ scene: null, page: page.page, label: page.pdf_label ?? null, text: page.text })));
 		void record({ lane: "reading", event: "person_text", turn: state.turn, person: name, focus, pages: (carried.length ? carried : []).map((page) => page.page),
-			source: carried.length ? "index" : "carried" });
+			source: carried.length ? "index" : "carried", ...(indexed.length ? landingLayer(indexed) : {}) });
 		const landed = Array.isArray(result.person_text) ? result.person_text as Array<Record<string, unknown>> : [{ person: name, focus, pages }];
 		return { ...result, person_text: landed.map((entry) => ({ ...entry, note: PERSON_TEXT_NOTE,
 			// On the hybrid engine the pages ride the next note once; the legacy engine has no note, so they ride here.
@@ -5163,6 +5177,7 @@ export default function (pi: ExtensionAPI) {
 		// update channel; each frame becomes one partial result on the tool status line.
 		const onProgress = onUpdate ? (frame: KernelProgressFrame) => onUpdate(progressPartial(frame)) : undefined;
 		let timeReading: Record<string, unknown> | undefined;
+        let documentContinuation=false;
 		const invokeOperation = async () => {
 			if ((spec.name === 'narrate' || spec.name === 'ask') && typeof payload.text === 'string') {
 				const transported = narrationTransport(payload.text);
@@ -5184,6 +5199,7 @@ export default function (pi: ExtensionAPI) {
 			// §145.2: so does the time reading (host-only, outside the digest).
 			if (spec.name === 'narrate' && timeReading) payload.time_reading = timeReading; else delete payload.time_reading;
 			await dispatcher.beforeKernelInvoke(toolCallId, spec.method, payload);
+      if(spec.name==='look')documentContinuation=state.documentReadCoverage?.consume(payload)??false;
       const result = await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress);
       if (spec.name === 'apply' && documentBindings.length && Array.isArray(result.receipts) && result.receipts.length) {
         try {
@@ -5576,6 +5592,7 @@ export default function (pi: ExtensionAPI) {
 			// §138.8: what the turn had settled before this call, taken before this call's own line joins it.
 			const settledBefore = spec.name === "apply" ? [...state.landed] : [];
 			if (partial) result = partialAdmissionResult(state, result, partial);
+            if(spec.name==='look'&&result.document_read)(state.documentReadCoverage??=new DocumentReadCoverage()).add(result);
 			applyToolSuccess(state, spec.name, toolCallId, result);
 			if (spec.name === 'resolve') {
 				// A replay describes the original declaration, not necessarily a still-live attack.
@@ -5651,7 +5668,7 @@ export default function (pi: ExtensionAPI) {
 			// question: the pending note tells the Keeper not to resend it this turn, but nothing stops a resend,
 			// so a repeat of the exact same still-pending question is not charged a second time. A different
 			// focus, or the same one once it has landed, is an ordinary look.
-			if (LOOK_BUDGET_TOOLS.has(spec.name)) {
+			if (LOOK_BUDGET_TOOLS.has(spec.name)&&!documentContinuation) {
 				const pendingKey = spec.name === "lookup" && (sourceAnswer as { status?: unknown } | undefined)?.status === "pending"
 					? `${asString(params.query) ?? ""}\u0000${asString(params.question) ?? ""}`
 					: undefined;
@@ -6682,6 +6699,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			state.turn = typeof result.turn === "number" ? result.turn : state.turn + 1;
 			state.state = result.state ?? "open";
+            state.documentReadCoverage=undefined;
       refusedDocuments.delete(state);
       state.documentWorldline = asString((result._context as Record<string,unknown> | undefined)?.worldline);
       state.documentRecording = undefined; state.documentRecordingSettlement = undefined;
@@ -7135,7 +7153,8 @@ export default function (pi: ExtensionAPI) {
 		// Contract §34.12's look budget addendum (SL-72): past the per-turn budget, `look`/`lookup`/`recall`
 		// are answered by the host, without a kernel read, naming what the run already carries. `narrate`,
 		// `apply`, `resolve` and `ask` are never counted or blocked here.
-		if (LOOK_BUDGET_TOOLS.has(name) && state.looksThisTurn >= await lookBudget()) {
+		if (LOOK_BUDGET_TOOLS.has(name) && state.looksThisTurn >= await lookBudget()
+            &&!(name==='look'&&state.documentReadCoverage?.permits(input))) {
 			const carried = [...new Set(readsOfTurn(state).filter((read) => read.ok).map((read) => {
 				const args = read.args as Record<string, unknown>;
 				const focus = typeof args.focus === "string" ? args.focus : undefined;

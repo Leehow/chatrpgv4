@@ -13,6 +13,7 @@ import {cp,mkdtemp,mkdir,writeFile,appendFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {mechanicsEntry,objectDetailsOf,pendingObjectNames,readCocBinding} from '../src/coc-view.js';
+import * as cocView from '../src/coc-view.js';
 
 const PENDING={kind:'item',receipt:'definition:queued-adopt-t0-c2',name:'沈默的旧皮腔相机',adopted:'旧皮腔相机',
   definition:'pending',definition_name:'旧皮腔相机',call:'t0-c2'};
@@ -62,6 +63,50 @@ async function backendWithSession(prefix:string, registry?:any) {
   (backend as any).sessionRuntimeTokens.set(session.id,7);
   return {backend,session,path:located.path as string};
 }
+
+/** Host wiring only; physical persistence is tested through the real kernel in physical-documents.test.mjs. */
+const EDIT_PARAMS={actor:'Thomas Hayes',name:'Pocket notebook',version:'issued-version',action:'save',text:'PRIVATE retained target.'};
+const EDIT_REPLY={status:'queued',queued_action:true,send:true,request:'private-request',name:EDIT_PARAMS.name,actor:EDIT_PARAMS.actor};
+
+it('the physical editor dispatches one ordinary player message without invoking direct mutation',async()=>{
+  const {backend,session}=await backendWithSession('coc-physical-editor-'),host=backend as any,params=EDIT_PARAMS;
+  const cold=vi.spyOn(cocView,'callColdKernel').mockResolvedValueOnce(EDIT_REPLY).mockResolvedValueOnce({acknowledged:true})
+    .mockResolvedValueOnce({...EDIT_REPLY,send:false});
+  const actual=host.handle.bind(host),sent:any[]=[];
+  vi.spyOn(host,'cocAnswerWords').mockResolvedValue({ui:{words:{paper:{editRequest:'Edit {name} physically.'}}}});
+  vi.spyOn(host,'handle').mockImplementation(async(method,args)=>{
+    if(method==='sendPrompt'){sent.push(args);return {queued:true};}return actual(method,args);
+  });
+  try{
+    const invoke=(method:string)=>actual('invokeExtension',['coc-keeper',method,params,{sessionId:session.id}]);
+    const answers:any[]=await Promise.all([invoke('mods.document.request'),invoke('mods.document.apply')]);
+    expect(answers.every(answer=>answer.ok&&answer.data.queued_action)).toBe(true);
+    expect(answers.every(answer=>answer.data.request===undefined)).toBe(true);
+    expect(sent).toHaveLength(1);expect(sent[0][0]).toBe(session.id);
+    expect(JSON.parse(sent[0][1])).toEqual({kind:'document_edit_request',actor:params.actor,document:params.name,label:'Edit Pocket notebook physically.'});
+    expect(sent[0][1]).not.toContain(params.text);
+    expect(cold.mock.calls.map(call=>call[2])).toEqual(['mods.document.request','mods.document.dispatch','mods.document.request']);
+    expect(cold.mock.calls[1][3]).toMatchObject({request:EDIT_REPLY.request,accepted:true});
+  }finally{cold.mockRestore();await backend.close();}
+},40000);
+
+it('a queue failure is acknowledged as failed and a second click submits the retained request',async()=>{
+  const {backend,session}=await backendWithSession('coc-physical-editor-retry-'),host=backend as any,params=EDIT_PARAMS;
+  const cold=vi.spyOn(cocView,'callColdKernel').mockResolvedValueOnce(EDIT_REPLY).mockResolvedValueOnce({acknowledged:true})
+    .mockResolvedValueOnce(EDIT_REPLY).mockResolvedValueOnce({acknowledged:true});
+  const actual=host.handle.bind(host);let attempts=0;
+  vi.spyOn(host,'cocAnswerWords').mockResolvedValue({});
+  vi.spyOn(host,'handle').mockImplementation(async(method,args)=>{
+    if(method==='sendPrompt'){if(++attempts===1)throw new Error('Queue temporarily unavailable');return {queued:true};}return actual(method,args);
+  });
+  try{
+    const invoke=()=>actual('invokeExtension',['coc-keeper','mods.document.request',params,{sessionId:session.id}]);
+    expect((await invoke()).ok).toBe(false);
+    expect(cold.mock.calls[1][3]).toMatchObject({request:EDIT_REPLY.request,accepted:false});
+    expect((await invoke()).ok).toBe(true);expect(attempts).toBe(2);
+    expect(cold.mock.calls[3][3]).toMatchObject({request:EDIT_REPLY.request,accepted:true});
+  }finally{cold.mockRestore();await backend.close();}
+},40000);
 
 it('the live card is redrawn in place under its own id when the details land',async()=>{
   const {backend,session}=await backendWithSession('coc-details-live-');
@@ -153,6 +198,21 @@ it('loading an old pending card starts detail-only recovery and redraws that sam
     expect(drawn).toHaveLength(1);
     expect(drawn[0].entry.id).toBe('card-t0');
     expect(drawn[0].entry.presentation.details.mechanics[1]).toMatchObject({definition:'ready',object:OBJECT});
+  } finally {host.live.delete(session.id);await backend.close();}
+},40000);
+
+it('owned equipment starts detail-only recovery without a pending transcript card',async()=>{
+  const {backend,session,path}=await backendWithSession('coc-equipment-recovery-');
+  const host=backend as any,live={session:{id:session.id},runtimeToken:7,path};
+  const ensure=vi.spyOn(host,'ensure').mockImplementation(async()=>{host.live.set(session.id,live);return live;});
+  vi.spyOn(host,'liveProcessUsable').mockReturnValue(true);
+  try {
+    host.startCocDetailsRecovery(session.id,path,[],true);
+    await Promise.all([...host.cocDetailsRecoveries.values()]);
+    expect(ensure).toHaveBeenCalledWith(session.id,undefined,true);
+    host.sidebarArchivedCache.add(session.id);
+    host.startCocDetailsRecovery(session.id,path,[],true);
+    expect(ensure).toHaveBeenCalledTimes(1);
   } finally {host.live.delete(session.id);await backend.close();}
 },40000);
 

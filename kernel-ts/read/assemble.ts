@@ -6,6 +6,8 @@ import { SessionView } from "./session-view.js";
 import { briefWindow } from "./brief-window.js";
 import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, fitBudget, fittedModuleSection, sceneLabel, voicesSection, samePersonReference } from "./capsule.js";
 import { OWN_BUDGET, ownSection } from "./own.js";
+import {currentOwnedDocuments} from '../mods/document-visibility.js';
+import {requestedEditContext} from '../mods/document-requests.js';
 import { playedRecords, signals, directorSection } from "./director.js";
 import { EntityIndex, capsuleMemory, noteObligations, rulingsForCapsule, promiseObligations, withPromiseFulfillment, canonicalMemoryReceipts } from "./memory.js";
 import { clockPressures, threatPressures, unansweredContinuations, continuationRows, questObligations, choiceObligation, sessionObligation } from "./pressures.js";
@@ -509,7 +511,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         // §179.2: the card's own words and the player's, hung on the investigator rather than on who is present.
         // `ownSection` keeps it within OWN_BUDGET itself (earliest and latest words), so no generic fit below touches
         // it; a table without an investigator has no such section.
-        ...(party.length ? { own: ownSection(party[0], told, shown.map(record => number(record.turn)), OWN_BUDGET) } : {}),
+        ...(party.length ? { own: ownSection(party[0], told, shown.map(record => number(record.turn)), OWN_BUDGET,currentOwnedDocuments(world,string(party[0].id))) } : {}),
         // §158.4: what the player was told and the ledger still lacks; the clerk lands it first, the Keeper never re-tells it.
         owed: capsuleOwed(graph, world, campaign.jsonFiles.get("owed.json"), party),
         warnings: capsuleWarnings(campaign.records, warningRecord, number(turn.turn)),
@@ -593,6 +595,9 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     const activeLine = string(meta.active_worldline || 'main');
     capsule.mods = await modContext(context, graph, world, party, campaign.records,
         {memory, story, worldline: activeLine, loop: number(row(row(meta.worldlines)[activeLine]).loop),play_language:language, turn: gateTurn});
+    const edit=await requestedEditContext({id:campaign.id,readCampaign:async()=>meta,
+        readSave:async name=>await campaign.optional(`save/${name}`)},world,party);
+    if(edit)row(capsule.turn).document_edit=edit;
     // The Director's offer (docs/specs/turn-floor.md D2) is drawn after the thread and pacing sections exist,
     // from material the capsule already carries, and the director section is refitted to its budget with it.
     row(capsule.director).offer = directorOffer(string(row(capsule.director).beat), {

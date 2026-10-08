@@ -123,5 +123,15 @@
     "sentence_min": 0.5,
     "max_candidates": 24,
     "timeout_ms": 10000
+  },
+  "transcript": {
+    "mode": "on",
+    "concurrency": 1,
+    "timeout_ms": 240000,
+    "input_tokens": 96000,
+    "output_tokens": 16384,
+    "repair_attempts": 1,
+    "max_window_pages": 120,
+    "cooldown_ms": 60000
   }
 }

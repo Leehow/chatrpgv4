@@ -22,6 +22,7 @@ export function messagePreview(text: string, maxLines = 5, maxChars = 400): stri
 export function displayUserMessageText(text: string, hasImages: boolean): string {
   try {
     const choice=JSON.parse(text)
+    if(choice?.kind==='document_edit_request'&&typeof choice.label==='string')return choice.label
     const labels:Record<string,string>=choice?.play_language==='en'?{push:'Push',spend_luck:'Spend Luck',accept:'Accept',dodge:'Dodge',fight_back:'Fight back',flee:'Flee'}:{push:'孤注一掷',spend_luck:'使用幸运',accept:'接受结果',dodge:'闪避',fight_back:'反击',flee:'逃离'}
     if(choice?.kind==='mechanics_choice'&&labels[choice.action])return labels[choice.action]
   } catch { /* ordinary player prose */ }

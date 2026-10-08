@@ -250,7 +250,7 @@ def test_an_opening_published_ready_stays_ready_under_a_later_rule(kernel, tmp_p
         "queued": [private_queue[0]["job_id"]],
         "scene": dock,
         "way_on": done["reading"]["way_on"],
-        "window": {"mode": "whole", "first": 1, "last": 2, "chapters": [], "complete": False},
+        "window": {"mode": "whole", "first": 1, "last": 2, "chapters": [], "complete": False, "transcript": [[1, 2]]},
     }
     reading = kernel.ok("table.capsule", {"campaign": "installed"})["reading"]
     assert reading["index_complete"] is True

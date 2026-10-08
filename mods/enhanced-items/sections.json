@@ -1,5 +1,5 @@
 {"schema_version": 1, "sections": [
-  {"heading": "Documents on carriers", "kind": "situational", "topics": ["readable"], "triggers": ["before_apply:handout"]},
+  {"heading": "Documents on carriers", "kind": "resident"},
   {"heading": "Registering carried equipment", "kind": "situational", "topics": ["carried_item"], "gates": ["unregistered_equipment"], "topic_threshold": 0.7, "triggers": ["state:opening"]},
   {"heading": "Defining new things", "kind": "situational", "topics": ["new_thing"], "triggers": ["before_apply:define", "before_apply:object", "before_apply:item"]},
   {"heading": "Managing instances", "kind": "situational", "topics": ["new_thing", "spell"], "gates": ["registered_instances"], "triggers": ["before_apply:object", "before_resolve:objects", "before_resolve:magic"]},

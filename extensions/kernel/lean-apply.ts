@@ -49,7 +49,7 @@ export const LEAN_FIELD_DESCRIPTIONS: Readonly<Record<string, Readonly<Record<st
 	},
 	object: {
 		definition: "Accepted definition name when first placing the instance; leave it out when it is the same as name (the kernel reads name)",
-		why: sentence("required for a condition change or a document write; keep it when an NPC gives, takes or is offered the thing (their next act reads it back); otherwise leave it out, and never on adopt, which records none"),
+        why: sentence("required for a condition change or any physical document operation; keep it when an NPC gives, takes or is offered the thing (their next act reads it back); otherwise leave it out, and never on adopt, which records none"),
 	},
 	define: {
 		category: { append: "; leave it out for an ordinary item" },
