@@ -73,7 +73,16 @@ export class SetupDrafts {
     }
     if (!nonempty(story.personal_description)) issues.push('personal_description is required; supply visible appearance in the player language');
     const key = truth(profile.key_connection) ? profile.key_connection : {};
-    if (!isJsonObject(key) || !BACKSTORY.includes(key.backstory_field as string) || !nonempty(key.summary) || !nonempty(story[string(key.backstory_field)])) issues.push('key_connection needs backstory_field and summary referring to a populated category');
+    // TR-F2 retest (2026-10-08): the Keeper pointed key_connection at scenario_bound, which it had just filled, and read "referring to
+    // a populated category" as satisfied; it then moved the pointer and dropped scenario_bound, and gave up on the card after three
+    // drafts. The issue names the value given and the categories it may name instead.
+    const populated = BACKSTORY.filter(field => nonempty(story[field]));
+    const choose = populated.length ? `name one of the categories this backstory fills: ${populated.join(', ')}` : `fill a category first: ${BACKSTORY.join(', ')}`;
+    const field = isJsonObject(key) ? key.backstory_field : undefined;
+    if (!isJsonObject(key) || !nonempty(key.summary)) issues.push(`key_connection is {backstory_field, summary}, the summary a sentence in the play language; ${choose}`);
+    else if (!BACKSTORY.includes(field as string)) issues.push(`key_connection.backstory_field ${JSON.stringify(field ?? null)} is not a category a key connection can name; ${choose}`
+        + (field === 'scenario_bound' ? '. Keep scenario_bound as it is: it is what ties them to this scenario, not their key connection' : ''));
+    else if (!nonempty(story[string(field)])) issues.push(`key_connection.backstory_field "${string(field)}" is empty in the backstory; ${choose}`);
     if (!Array.isArray(profile.equipment) || !profile.equipment.every(nonempty)) issues.push('equipment must list the ordinary items the draft says are carried');
     const stated = Object.hasOwn(profile, 'occupation_stated') ? profile.occupation_stated : null;
     if (stated !== null && (typeof stated !== 'string' || !stated.trim())) issues.push('occupation_stated is the player\'s own words for the trade, a non-empty string, or omitted');

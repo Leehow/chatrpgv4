@@ -170,6 +170,27 @@ def test_scenario_bound_is_a_sentence_and_the_issue_says_so(kernel):
     assert any(issue.startswith("supply scenario_bound: a sentence") for issue in issues), issues
 
 
+def test_a_key_connection_naming_scenario_bound_is_told_which_categories_it_may_name(kernel):
+    """TR-F2 retest (2026-10-08): the Keeper pointed key_connection at scenario_bound, which it had filled, read "referring to a
+    populated category" as met, then moved the pointer and dropped scenario_bound; three drafts later it gave up on the card."""
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
+    filled = "personal_description, ideology_beliefs, significant_people"
+    bound = profile()
+    bound["key_connection"] = {"backstory_field": "scenario_bound", "summary": "Sent to look into the house"}
+    issues = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": bound})["details"]["issues"]
+    issue = next((issue for issue in issues if issue.startswith('key_connection.backstory_field "scenario_bound"')), None)
+    assert issue is not None, issues
+    assert filled in issue and "Keep scenario_bound as it is" in issue, issue
+    assert not any("scenario_bound" in other for other in issues if other != issue), "scenario_bound itself is fine"
+    empty = profile()
+    empty["key_connection"] = {"backstory_field": "traits", "summary": "His caution"}
+    issues = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": empty})["details"]["issues"]
+    assert any(issue.startswith('key_connection.backstory_field "traits" is empty in the backstory') and filled in issue for issue in issues), issues
+    # Doing what the issue says is a complete draft.
+    bound["key_connection"]["backstory_field"] = "significant_people"
+    assert kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": bound})["completeness"]["valid"]
+
+
 def test_new_draft_requires_appearance_and_preserves_it_across_skill_changes(kernel):
     kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
     missing = profile()
