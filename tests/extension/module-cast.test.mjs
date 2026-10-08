@@ -375,7 +375,8 @@ test('§177.1/§177.4/§177.5: stored rows join the graph\'s person or stand unr
 	const ids = job.people.map(person => person.id);
 	assert.ok(ids.includes(mae) && ids.includes(silasId) && ids.includes(jonahId), JSON.stringify(ids));
 	assert.ok(ids.indexOf(mae) < ids.indexOf(jonahId), 'the graph\'s people first');
-	assert.equal(job.people.find(person => person.id === jonahId).looks, "Mae's boy Jonah drowned there last spring.");
+	// §194.4: their own entry, from their printed name on: "Mae's boy" is someone else's name and stays out.
+	assert.equal(job.people.find(person => person.id === jonahId).looks, 'Jonah drowned there last spring.');
 	const refused = await h.call('epithets.submit', {entries: [{id: jonahId, word: "Mae's drowned boy"}]});
 	assert.equal(refused.refused[0]?.reason, 'untold_name', 'a word may not carry the name of anyone untold in the cast');
 	const written = await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}, {id: silasId, word: 'the lamp keeper'}, {id: jonahId, word: 'the drowned boy'}]});

@@ -73,8 +73,8 @@ export async function writeFirstSight(context: KernelContext, campaign: string, 
  * The book's own words for a node: the named property, else the node's summary. A summary that only repeats the
  * node's own name describes nothing (the Haunting's scenes are summarised as "scene basement rites"), so it is none.
  */
-function bookWords(graph: ModuleGraph, node: Row, property: string): string | null {
-    const own = text(row(node.properties)[property]).trim() || text(node.summary).trim();
+function bookWords(graph: ModuleGraph, node: Row, property: string, summary = true): string | null {
+    const own = text(row(node.properties)[property]).trim() || (summary ? text(node.summary).trim() : '');
     if (!own) return null;
     const names = [text(node.name), graph.displayName(node), graph.handle(node), text(node.node_id)].map(name => name.trim());
     return names.includes(own) ? null : own;
@@ -83,6 +83,11 @@ function bookWords(graph: ModuleGraph, node: Row, property: string): string | nu
 export const placeDescribed = (graph: ModuleGraph, scene: Row): string | null => bookWords(graph, scene, 'description');
 /** What the book describes of a person: `properties.biography`, else the summary. */
 export const personDescribed = (graph: ModuleGraph, node: Row): string | null => bookWords(graph, node, 'biography');
+/**
+ * §194.4: the book's description of a person without the summary fallback -- what the epithet lane reads of a graph person.
+ * A node's summary is the Keeper's account of them (TR-F: the victim's summary made the lane call him "the creature that mutated two families").
+ */
+export const personAppearance = (graph: ModuleGraph, node: Row): string | null => bookWords(graph, node, 'biography', false);
 /** A book person the player may see on arrival: an `npc` node the book marks `player-safe` (§180.3: never a creature). */
 export const seenPerson = (node: Row): boolean => node.node_kind === 'npc' && node.visibility === 'player-safe';
 

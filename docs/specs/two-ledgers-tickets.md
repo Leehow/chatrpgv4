@@ -34,7 +34,7 @@ Status: done (claude/two-ledgers-a-20261008)
   pytest pin if the capsule schema has one.
 
 ## TL-04 A document tells its names
-Status: ready-for-agent
+Status: done (claude/two-ledgers-b-20261008; decisions in contract §194, *TL-04 implementation decisions*)
 
 - When a delivery (`table.narrate` / `table.ask` / `apply` with `narrate`) carries a handout effect whose document text
   is known to the kernel, every untold cast person whose printed name occurs in that text becomes told at that delivery,
@@ -46,7 +46,7 @@ Status: ready-for-agent
   name; a place cleared as another word tells nobody; no text → nothing told. Mutation-check.
 
 ## TL-05 The epithet lane sees one person at a time
-Status: ready-for-agent
+Status: done (claude/two-ledgers-b-20261008; decisions in contract §194, *TL-05 implementation decisions*)
 
 - `kernel-ts/cast` (`first.sentence`, §177.2): cut an unread person's entry from their printed name to the start of the
   next printed name of a different cast person on that page, or the end of the paragraph, in the page's reading text

@@ -339,6 +339,16 @@ export function protectedNames(graph: ModuleGraph, world: Row, journal: Row, rec
     return [...new Set(words.map(text).filter(Boolean))];
 }
 
+/**
+ * §194: the names that stand for `person` in the book's text -- the forms the cast reader printed (§177.11's `printed`), and
+ * each of their graph nodes' own name and display name (never aliases, which are as often roles). What an entry is cut by
+ * (§194.4) and what a document tells (§194.3).
+ */
+export function printedNames(graph: ModuleGraph, person: CastPerson): string[] {
+    return [...new Set([...person.printed, ...person.nodes.flatMap(node => [string(node.name), graph.displayName(node)])]
+        .map(name => name.trim()).filter(Boolean))];
+}
+
 /** The people of the cast the graph does not have yet (§177.1): named by the book, not yet reached by the reader. */
 export const unreadCast = (graph: ModuleGraph): CastPerson[] => bookCast(graph).filter(person => !person.node);
 
@@ -351,6 +361,8 @@ export function castToldTurn(person: CastPerson, records: Iterable<Row>): number
     const words = person.names.map(normalize).filter(Boolean);
     const history = prepareNameHistory(records), own = (owner: string) => owner === person.id || person.castIds.includes(owner);
     for (const record of history.castRecords()) {
+        // §194.3: a document the delivery handed over printed their name.
+        if (history.documentTold(record, own)) return number(record.turn);
         const text = history.text(record);
         if (words.some(word => history.says(text, word, own, () => history.shields(record)))) return number(record.turn);
     }

@@ -15,6 +15,7 @@ import { NAME_SPAN_AT, NAME_SPANS_FAMILY, NAME_SPANS_PER_BATCH, NAME_SPANS_PER_C
 import { packDecisionBatch } from "../../runtime/jev/question-packing.ts";
 
 type Row = Record<string, unknown>;
+type Span = { name: string; nth: number; start: number; end: number };
 /** The delivering methods whose `text` the gate reads. */
 const DELIVERING = new Set(["table.narrate", "table.ask"]);
 /** The params only this hook may set; the client drops them from a caller's params whenever the hook fails. */
@@ -68,26 +69,35 @@ export function createUntoldSpanJudge(deps: { decision: () => DecisionPort | und
 		// back the caller's params, which may carry an `untold_cleared` the Keeper wrote itself.
 		const note = (row: Row) => { try { deps.record(row); } catch { /* telemetry never decides the delivery */ } };
 		try {
-			const text = own.text;
-			if (typeof text !== "string" || !text) return own;
-			let spans: Array<{ name: string; nth: number; start: number; end: number }> = [];
+			// An ask may carry no text and still hand over a document (§194.3), whose places are asked about all the same.
+			const text = typeof own.text === "string" ? own.text : "";
+			let places: Array<{ name: string; nth: number; text: string; handout?: string }> = [];
 			try {
 				const answer = (await direct("table.untold_spans", { campaign: own.campaign, text })) as Row;
-				spans = Array.isArray(answer?.spans) ? answer.spans as typeof spans : [];
+				const spans = Array.isArray(answer?.spans) ? answer.spans as Span[] : [];
+				places = spans.map(span => ({ name: span.name, nth: span.nth, text: markSpan(text, span.start, span.end) }));
+				// §194.3: the documents this turn hands over, each place keyed by its handout and shown in the document's own words.
+				for (const document of Array.isArray(answer?.documents) ? answer.documents as Row[] : []) {
+					if (typeof document?.handout !== "string" || typeof document.text !== "string" || !Array.isArray(document.spans)) continue;
+					const source = document.text, handout = document.handout;
+					places.push(...(document.spans as Span[]).map(span => ({ name: span.name, nth: span.nth, handout, text: markSpan(source, span.start, span.end) })));
+				}
 			} catch {
 				return own;
 			}
-			if (!spans.length) return own;
+			if (!places.length) return own;
 			const began = Date.now();
-			const judged = await judgePlaces(spans.map(span => ({ name: span.name, text: markSpan(text, span.start, span.end) })), deps.decision(),
+			const judged = await judgePlaces(places.map(place => ({ name: place.name, text: place.text })), deps.decision(),
 				{ campaign: typeof own.campaign === "string" ? own.campaign : undefined, waitMs: deps.waitMs });
 			const ms = Date.now() - began;
+			const documentPlaces = places.filter(place => place.handout !== undefined).length;
 			if ("fallback" in judged) {
-				note({ lane: "untold-spans", event: "fallback", method, places: spans.length, reason: judged.fallback, ms });
+				note({ lane: "untold-spans", event: "fallback", method, places: places.length, ...(documentPlaces ? { document_places: documentPlaces } : {}), reason: judged.fallback, ms });
 				return own;
 			}
-			const cleared = spans.filter((_span, i) => judged.names[i]! < NAME_SPAN_AT).map(span => ({ name: span.name, nth: span.nth }));
-			note({ lane: "untold-spans", event: "judged", method, places: spans.length, cleared: cleared.length,
+			const cleared = places.filter((_place, i) => judged.names[i]! < NAME_SPAN_AT)
+				.map(place => ({ name: place.name, nth: place.nth, ...(place.handout !== undefined ? { handout: place.handout } : {}) }));
+			note({ lane: "untold-spans", event: "judged", method, places: places.length, ...(documentPlaces ? { document_places: documentPlaces } : {}), cleared: cleared.length,
 				names: judged.names.map(value => Number.isFinite(value) ? Math.round(value * 100) / 100 : null), ms, ...(judged.partial ? { partial: judged.partial } : {}) });
 			return cleared.length ? { ...own, untold_cleared: cleared } : own;
 		} catch (error) {

@@ -39269,6 +39269,107 @@ as another word tells nobody.
   stranded turns counted, oldest first, first sights ignored, labels ignored, the fit loop off, `player_knows` out of the
   stable list.
 
+*TL-04 implementation decisions* (2026-10-08):
+
+- **Where a handout's text lives** (`deliveredDocuments`, `kernel-ts/write/document-names.ts`). The documents are this turn's
+  `handout` receipts (`turn.receipts`), each once, whose attachment was delivered (`available: true`):
+  - *A text handout*: the file `apply handout` wrote, `<campaign>/handouts/<handle>.md` (the graph node's or the registered
+    asset's `authored_text`, heading and body: what the card shows).
+  - *A pictured handout*: the words the §191 page transcript read off the pictures of the page its image is cut from (the
+    node's first `properties.image_sources[].page`; the record's `image_text` blocks), and only when no other graph node is
+    pictured on that page, so the words are this document's. The kernel reads the record from the store under its workspace
+    (`kernel-ts/read/page-transcripts.ts`, see TL-05). Cold Harvest's letter is page 44's only picture, and the record of
+    page 44 reads "Galena Petrovna Smolskaya" and "Pyotr Abramov" off it; the cast prints "Galena Petrovna Smolskaya" and
+    "Abramov" as their book forms.
+  - *Not used*: the §155 reading (the player's model translation, kept by the host, never shown to the Keeper or the graph,
+    and on TR-F it wrote 加琳娜·彼得罗芙娜·斯莫尔斯卡娅 where the cast prints 嘉琳娜…; §155.6–155.7); the graph node's
+    `summary` (the Keeper's account, not the document); a source page's body text (page 10 prints the letter's translation
+    beside the whole resident list and the Keeper's opening, and cannot be cut to the document). A handout with none of the
+    two texts tells nothing.
+- **Whose names.** Every untold cast person (graph people and the unread, as the roster takes them), by the names that stand
+  for them in the book's text (`printedNames`: the cast's printed forms and each graph node's own name and display name, never
+  aliases), minus a name a told person also carries and minus anyone this campaign added (§177.11's rules), at least two
+  characters. Places are `prosePlaces` with the names the investigator's side owns guarded (§188.1). A place whose name two
+  untold people share tells neither (§188.8).
+- **The host's Jev check.** `table.untold_spans` also returns `documents: [{handout, text, spans: [{name, nth, start,
+  end}]}]` for this turn's documents. The host hook (`extensions/kernel/untold-spans.ts`) asks about those places with the
+  prose's, each shown in the document's own words, and sends a cleared one as `untold_cleared: [{name, nth, handout}]`;
+  `clearedPlaces` keys it apart from the prose's places, so the delivery gate (§177.11) never sees it. An ask with no text
+  still has its documents asked about. Jev unconfigured, failed or late clears nothing, so every place tells, as every prose
+  place is then held as a name; telemetry `lane: "untold-spans"` adds `document_places`.
+- **Told by identity, through the told checks.** The delivery's record carries `told_documents: [{handout, people, names}]`:
+  `people` is each person told, by their handle (graph) or cast row id (unread); `names` is what the document printed, as
+  evidence. `toldTurn` and `castToldTurn` read it (`NameHistory.documentTold`, by the same owner keys the told guard uses), so
+  `untoldBlock`, the roster, the epithet job and the journal all see the person told from that turn. Not by writing the
+  names into the told text: "Dimiri Kravchuk" there would tell everyone whose names carry "Kravchuk" (a notes rendering's word,
+  §177.14).
+- **The table's word becomes the name** for a graph person told this way (`person_labels[handle].name` = display name,
+  `callByBookName`), the sync `{{name:}}` makes (§103.8 item 3); on a narrate it is in `introduced`, so the narrate journal
+  restores it if the commit fails (§141).
+- **An ask tells too.** An ask closes its turn (the player's answer opens the next), so the documents an ask hands over tell
+  at the ask: its record carries `told_documents`, the told checks read an ask record that does (its prose still tells nothing,
+  §103.8 item 3, and its say tokens are not read), and the label sync runs after the record. An ask record has no commit of its
+  own; the next narrate's commit carries it.
+- **Telemetry.** `lane: "delivery"`, `reason: "document_names"`, `outcome: "told" | "none"`, with `places`, `cleared`, `told`,
+  on each delivery whose documents print an untold name.
+- **A reference delivery** (`_interaction_scope`) tells nothing, as it introduces nobody.
+
+Tests: `tests/extension/two-ledgers-names.test.mjs`, on the real kernel with the farm book's cast: a text handout printing an
+unread resident's name, a graph person's name, a village whose name opens with another resident's short form and a family
+name two residents share -- `table.untold_spans` returns the document's places, the narrate with the village cleared tells
+the writer and the captain (roster; `look focus=npc` loses `untold` and shows `called.name`; `person_labels`), the village and
+the shared family name tell nobody, the record keeps `told_documents` and the prose is unchanged; a pictured handout whose page
+transcript reads two residents' and the clerk's book forms, delivered by an ask, tells them at the ask (the wife whose
+renderings carry the family name is not told by her husband's name; the clerk is called by his name); no transcript of the
+page, a page another picture shares, and a picture never delivered tell nothing and `untold_spans` lists no document; the
+host hook asks about a document's places in its own words and clears by the handout, an ask without text included.
+Mutations, each turning a case red and reverted by copy: no `told_documents` on the narrate record; cleared places ignored;
+`toldTurn` not reading documents; `castToldTurn` not reading them; ask records left out of the graph told records; left out
+of the cast told records; no label sync on narrate; none on ask; the shared-page rule removed; the image text not read;
+`untold_spans` without documents; the host ignoring documents; a shared name telling its first owner; the ask not
+computing documents; an undelivered picture read.
+
+*TL-05 implementation decisions* (2026-10-08):
+
+- **Computed when the lane asks; `CAST_VERSION` stays 5.** An unread person's entry is cut at `epithets.job` time
+  (`unreadEntry`, `kernel-ts/cast/entry.ts`), not stored: bumping the version would make every book's cast be read again
+  by a paid reader child only to change a derived field, and the text it is cut from is already the kernel's own. Stored
+  rows keep `first` (`{page, sentence}`) as written; `first.page` says which page, and `first.sentence` is only the last
+  fallback.
+- **The reading text of that page**, in order: the page transcript's `text` when the store holds a record for the bound
+  file and page (§191.4, read by the kernel from `<content>/source-transcripts/` then `<stateRoot>/source-transcripts/`,
+  `kernel-ts/read/page-transcripts.ts`; the kernel's workspace is the host's home); else the page in `cast-source.json`, the
+  copy the host sent `cast.source` (the transcript's reading version for a page transcribed by then, native text otherwise),
+  from the campaign's fork, then the library; else the stored sentence. A record is read when it is the v1 schema of this
+  file and page with an intact `text` digest. The kernel does not know the host's native extraction version and does not
+  check it: an older extraction's record still holds the book's own lines (§191.3's invariant).
+- **The cut** (`castEntry`): names are compared as §177.2 compares them (`passageKey`, so a name the text layer spaces out
+  letter by letter stands). The person's names are the forms the cast reader printed plus each of their graph nodes' own
+  name and display name (never aliases, which are as often roles); everyone else's the same. Places are taken longest
+  name first and never overlap, so a short form inside someone else's longer name is no place (Cold Harvest's 安德烈). The
+  entry runs from the person's first place to the start of the next place of someone else, or the first blank line after
+  their name (a transcript separates its blocks by one; native text has none), whitespace collapsed, at most
+  `CAST_SENTENCE_CHARS` (300) characters. A text that does not print them falls through to the next source. The
+  entry starts at the name, so words before it ("Mae's boy") are not in it; they name someone else anyway.
+- **A graph person's `looks`** is `personAppearance` (`kernel-ts/first-sight/index.ts`): `properties.biography` with the
+  §168 name check and without `personDescribed`'s summary fallback; else `relationship_to_investigators`. `personDescribed`
+  itself, which first sight (§168) reads, is unchanged.
+- **The instruction** says the word is what an investigator would see of them or be told about them at first meeting
+  (looks, trade, role), never a secret, motive, cause, what happens to them or anything the book reveals later, and that each
+  person's `looks` is about that person alone.
+
+Tests: `tests/extension/two-ledgers-names.test.mjs`, on the real kernel over a bound three-page book whose second page is
+Cold Harvest's resident list as the text layer has it (wrapped lines, one name spaced out letter by letter, no sentence
+ends): the stored first mention still holds a neighbour (the TR-F window), and `epithets.job` shows each resident only their
+own line, Dimiri his 46 and stonemason and no 49; the two Andreis apart; with a stored transcript the last resident's entry
+ends at its paragraph, without one it runs to the page's end; a graph person with only a role and a Keeper summary gets the
+role, one with a biography gets it, and no summary reaches the job; the instruction's words; `castEntry` string cases.
+`tests/extension/module-cast.test.mjs`: Jonah's `looks` is now "Jonah drowned there last spring." (the entry starts at his
+name). `tests/extension/name-free-egress.test.mjs`: the fixture people carry their looks as `biography`, which the lane
+now reads instead of the summary. Mutations, each turning a case red and reverted by copy: the stored sentence instead of
+the entry; no stop at the next person; no stop at the paragraph; the transcript not read; the summary fallback back; the
+"that person alone" instruction removed; shortest name first.
+
 ## 195. A prescreen survives a library publish; the read-ahead reads a page again only for a new reason (owner 2026-10-08: 「我发现自从你这边改了方法之后，kp出现找不到模组内容的情况比之前多了，你最好留意一下接线的问题」, 「开这个切片，和两本账一起在 TR-F2 验收」; `docs/specs/prescreen-survives-publish.md`)
 
 **Evidence.** TR-F (App `d944b6b07`): two prescreens were discarded as `source_stale` 1–3 s after a reading job published
