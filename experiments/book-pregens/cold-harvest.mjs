@@ -28,7 +28,7 @@ await mkdir(join(home, '.coc/modules'), {recursive: true});
 execFileSync('cp', ['-c', '-R', join(app, '.coc/modules/book-2'), lib]);
 execFileSync('cp', ['-c', '-R', join(app, '.coc/source-transcripts'), join(home, '.coc/source-transcripts')]);
 const agent = await mkdtemp(join(tmpdir(), 'pipicoc-book-pregens-agent-')); await chmod(agent, 0o700);
-let runtime, kernel, reading;
+let runtime, kernel, reading, rowWrites = Promise.resolve();
 try {
   for (const name of ['auth.json','models.json','models-store.json','settings.json']) {
     try {await copyFile(join(app, 'agent', name), join(agent, name)); await chmod(join(agent, name), 0o600);}
@@ -54,7 +54,7 @@ try {
     nodeExecutable: process.execPath, layout: 'source'});
   reading = new ReadingService({home, runtime, call, model: () => ({id: 'openai-codex/gpt-6-luna', vision: true, thinking: 'low'}),
     progress: row => console.log(JSON.stringify({stage: row.stage, purpose: row.purpose})),
-    record: row => {void appendFile(join(out, 'rows.jsonl'), JSON.stringify(row)+'\n');}});
+    record: row => {rowWrites = rowWrites.then(() => appendFile(join(out, 'rows.jsonl'), JSON.stringify(row)+'\n'));}});
   await reading.runJob(job, AbortSignal.timeout(1200000));
   await call('campaign.create', {id: 'pregen-source-probe', module: 'book-2', play_language: 'en'});
   const listing = await call('investigator.list', {campaign: 'pregen-source-probe'});
@@ -66,7 +66,7 @@ try {
   }
   console.log(JSON.stringify({offered: listing.pregens.length, source_pages: listing.pregens.map(row=>row.pages), evidence: out}));
 } finally {
-  await reading?.close(); await runtime?.close(); await kernel?.close(); await closeSourceDocuments();
+  await reading?.close(); await runtime?.close(); await kernel?.close(); await closeSourceDocuments(); await rowWrites;
   await rm(agent, {recursive: true}); // Only disposable credential copies; source and turn evidence are retained.
   if (hash(await readFile(original)) !== hash(originalBytes)) throw Error('the App source metadata changed during the isolated probe');
 }
