@@ -39226,6 +39226,13 @@ as another word tells nobody.
   not have the book's name"). Mutations: the full-roster rename in the hook (3 of 3 red in `untold-request`), no
   `book_name` (red in `untold-request` and `untold-view`), no handle rows renamed (red in both), the old use line and the
   old prompt sentence (red) — each reverted by copying the saved file back.
+- Other request-side tests moved to the new contract after the box run: `single-loop-carried-views` (the Keeper's view of a
+  direct read is `renameHandles`, so Arty Wilmot and Ruth Blake arrive by name), `person-text-landing` (the carried page is
+  the book's text), `prescreen-material-families` (the npc material carries "Steven Knott"), `investigator-name-known` (both
+  names reach the request whole), `untold-name-path` (the excerpt arrives as written, no note; the stub has `book_name`), and
+  `rename-undo-names`: the §188.3 undo stays for a Keeper that copies this table's words and joined forms, so each test now
+  asserts the request carries the page as written and takes the strings to copy from the roster's own rename
+  (`renameUntold` over `table.untold`); the legacy capsule still shows the handle `<word>-letter`.
 
 *TL-03 implementation decisions (2026-10-08).*
 

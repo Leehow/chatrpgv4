@@ -145,8 +145,8 @@ test('real material owners reach the converted Keeper request with semantic prov
     const byKind=kind=>result.content.materials.find(row=>row.kind===kind),investigator=byKind('investigator'),npc=byKind('npc'),object=byKind('object'),session=byKind('session');
     assert(investigator&&npc&&object&&session,JSON.stringify(result.content));
     assert.equal(investigator.content.kind,'investigator');assert.equal(investigator.content.name,'托马斯·海斯');assert.equal(investigator.content.hp,12);
-    // §103.5: nobody has said Knott's full name to the investigator yet, so the Keeper's request carries his handle.
-    assert.equal(npc.content.kind,'npc');assert.equal(npc.content.name,'steven-knott');assert.ok(npc.content.scene);
+    // §194.1: nobody has said Knott's full name to the investigator yet, and the Keeper's request carries it as the book writes it.
+    assert.equal(npc.content.kind,'npc');assert.equal(npc.content.name,'Steven Knott');assert.ok(npc.content.scene);
     assert.equal(object.content.definition.name,'Interview ledger');assert.equal(object.content.instance.name,'Knott interview ledger');assert.ok(object.content.instance.owner);
     assert.deepEqual(Object.keys(session.content).sort(),['pending_choice','session']);assert.equal(session.content.pending_choice,null);
     assert(hash(result.packet.details.prescreen.binding.npc_revision));assert(hash(result.packet.details.prescreen.binding.memory_revision));

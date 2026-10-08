@@ -114,11 +114,9 @@ test('§185.13 (name-free): the investigator\'s own name is no untold name; the 
 	await h.call('table.narrate', {call_id: 't0-c1', text: '港口很安静。'});
 	const input = await h.call('table.player_input', {text: '我走进杂货店。'});
 
-	// The Keeper's request: the investigator's full name intact, the store owner's own full name renamed.
+	// The Keeper's request (§194.1): the investigator's full name intact, and the store owner's as the book writes it.
 	const sent = await keeperSees(h.home, 'c1', h.call, input, '丹尼尔·怀特 在码头遇见了 丹尼尔·马瑟。');
-	assert.ok(sent.includes('丹尼尔·怀特'), sent);
-	assert.ok(!sent.includes('丹尼尔·马瑟'), sent);
-	assert.ok(sent.includes('丹尼尔·怀特 在码头遇见了 '), 'the rename touched nothing of the investigator\'s name');
+	assert.equal(sent, '丹尼尔·怀特 在码头遇见了 丹尼尔·马瑟。', 'the request touches neither name');
 
 	// The gate (§177.11): a delivery naming the investigator goes out; one saying the store owner's printed name is held.
 	const own = await h.call('table.narrate', {call_id: `t${input._context.turn}-c1`, text: '丹尼尔·怀特推开杂货店的门。'});
@@ -144,8 +142,7 @@ test('§185.13 (legacy): a starter\'s investigator sharing a piece with an untol
 	await call('table.narrate', {call_id: 't0-c1', text: '雨夜。'});
 	const input = await call('table.player_input', {text: '我找个位子坐下。'});
 	const sent = await keeperSees(k.home, 'c1', call, input, '玛丽·怀特 在窗边看见了 玛丽·斯通。');
-	assert.ok(sent.includes('玛丽·怀特 在窗边看见了 '), sent);
-	assert.ok(!sent.includes('玛丽·斯通'), sent);
+	assert.equal(sent, '玛丽·怀特 在窗边看见了 玛丽·斯通。', '§194.1: the request touches neither name');
 	const own = await call('table.narrate', {call_id: `t${input._context.turn}-c1`, text: '玛丽·怀特把伞靠在门边。'});
 	assert.match(own.rendered_text, /玛丽·怀特把伞靠在门边/);
 });
