@@ -39147,3 +39147,49 @@ Integration with section192 uses the existing survivor identity, presence and gr
 ### 193.4 Integration and evidence
 
 The three slices share source/selection/operation/result discipline, not a new long-term task ledger. Existing runtime-owned identities, exact literal substitution, canonical transactions, source materializers and named reads are reused. Contract is written before code. Workers own disjoint paths, commit_policy:no_commit; root integrates, reviews and serializes LAN-heavy checks. Previously approved provider ceilings are not reset by this implementation. Controlled/offline existing tests and the original mechanical reproductions verify seams; they are not natural-story, current-model semantic accuracy or packaged App acceptance. The original Jev/play-through objective stays open until its actual acceptance evidence exists.
+
+## 194. Two ledgers: the Keeper holds the book's truth and a record of what the player knows (owner ruling 2026-10-08: 「我觉得台上和台下应该给kp两个账本，一个是全部事实的账本，一个是玩家知道的账本，要不要kp不知道就乱编了」; `docs/specs/two-ledgers.md`; amends §103.5, §103.8 items 1–2, §176.3, §176.5, §176.8 and §177.5)
+
+**Evidence.** Real table TR-F (App `d944b6b07`, Cold Harvest, openai-codex/gpt-6-luna low, `game-56788eff`). The book's
+material reached the table — the opening `look` returned the scene's own text naming the letter's writer, the accused
+family and the supervisor — but §103.5's request rename replaced every untold person's book name with this table's
+epithet, and the epithet lane's words were wrong: Dimiri Kravchuk (46, stonemason, fled) became 「四十九岁的电工斯基」,
+Pyotr Abramov, the victim, 「使两家人突变的生物」. The Keeper read the renamed text and told the player that the
+「电工斯基一家」 fled, that the letter accused the supervisor's own family, and that its writer 「叫薇拉，上个月死的」. The
+player held the letter, which prints both names; the Keeper, holding no name, said it bore none.
+
+### 194.1 The truth ledger: the request carries book names
+
+- The context hook no longer renames untold people's book names in the request (§103.5's rename and §103.8 items 1–2 are
+  superseded). Host messages, tool results and source text reach the Keeper as written.
+- Handles stay machine text: a `table.untold` row with `handle: true` is still shown as the table's word wherever it
+  stands (§176.8), and `untoldNote` is added only when a handle was renamed.
+- `untoldView`: an untold person's capsule row keeps `name` = the table's word (what prose and say tokens use) and
+  carries `book_name`. Its `use` line: the investigator has not heard this name; you know it so the story stays true to
+  the book; prose calls them `name`; where the fiction has the name said, write `{{name:<name>}}`, and the delivery puts
+  the book's name there and tells it (§103.8 item 3, unchanged).
+- The exit stays the guard: §177.11 refuses a delivery that prints an untold name the first time and replaces it the
+  second; §177.15's Jev clearing applies. §103.8 items 3–5 stand.
+
+### 194.2 The player ledger: `player_knows`
+
+A stable capsule section: `player_knows: {people: [{word, name} | {word, untold: true, book_name}], documents: [{label,
+turn}]}` — the book people the investigator has met or been told of, and the documents delivered to the player. Clues and
+remembered facts stay in `known.discovered_clues` and `memory`; the section does not copy them.
+
+### 194.3 A document tells its names
+
+A delivery that hands the player a document with known text makes every untold cast person whose printed name that text
+shows told at that delivery, through the path `{{name:}}` uses. Places are found as §177.15 finds them; a place cleared
+as another word tells nobody.
+
+### 194.4 The epithet lane sees one person at a time
+
+- An unread person's `first` is their own entry: from their printed name to where the next printed name of another cast
+  person starts on that page, or the paragraph's end, in the page's reading text (§191 `text`, else native).
+- A graph person's `looks` is their appearance (`personDescribed`), else `relationship_to_investigators`; never
+  `node.summary`.
+- The instruction: the word is what an investigator sees or is told at first meeting, never a secret or what the book
+  reveals later.
+
+*Implementation decisions and tests are recorded per ticket below as they land (`docs/specs/two-ledgers-tickets.md`).*
