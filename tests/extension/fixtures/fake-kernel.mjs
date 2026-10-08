@@ -40,6 +40,9 @@
  *   FAKE_KERNEL_FIRST_SIGHT JSON object: the capsule's `first_sight` section (contract §168.5), before `present`;
  *                          `table.first_sight` lands on it as the kernel does: an empty `missing` takes the item out,
  *                          any other replaces its `described`. With nothing left the section is gone.
+ *   FAKE_KERNEL_ESTABLISH  JSON object: what `table.establish.view` answers while the place is owed (contract §203.4:
+ *                          `{establish, review, present, era}`); the first world narrate establishes it, after which the view
+ *                          answers `establish: null` unless asked with `look: true`. Not given: nothing is ever owed.
  *   FAKE_KERNEL_ROSTER     JSON array: `table.look {focus:"scene"}`'s `roster` field (contract §11.5.8,
  *                          SL-67) -- the campaign's established table/`from_passage` persons, unconditioned
  *                          by scene or presence; not given is an empty roster, same as a campaign that has
@@ -77,6 +80,9 @@ const FAKE_CLOCK_MINUTES = 555;
 let timeGateTurn = -1;
 const ERRORS = process.env.FAKE_KERNEL_ERRORS ? JSON.parse(process.env.FAKE_KERNEL_ERRORS) : {};
 let firstSight = process.env.FAKE_KERNEL_FIRST_SIGHT ? JSON.parse(process.env.FAKE_KERNEL_FIRST_SIGHT) : null;
+const ESTABLISH = process.env.FAKE_KERNEL_ESTABLISH ? JSON.parse(process.env.FAKE_KERNEL_ESTABLISH) : null;
+/** §203.2: whether a world delivery has established the fixture's one place. */
+let established = false;
 const CAMPAIGNS = process.env.FAKE_KERNEL_CAMPAIGNS
 	? JSON.parse(process.env.FAKE_KERNEL_CAMPAIGNS)
 	: [{ id: "test-camp", title: "闹鬼的房子", module_id: "the-haunting", status: "active", turn: 0 }];
@@ -1188,6 +1194,7 @@ function handle(method, params) {
 			}
 			const closed = turn;
 			state = "awaiting_player";
+			if (ESTABLISH && params._interaction_scope === undefined) established = true;
 			const facts = process.env.FAKE_KERNEL_NO_FACTS === "1"
 				? {}
 				: {
@@ -1222,6 +1229,13 @@ function handle(method, params) {
 		// 两条车道的 RPC（契约 §12.8）：不带 call_id、不看回合状态，晚到也收。
 		case "table.warn":
 			return { ok: true, result: { recorded: (params.findings ?? []).length, dropped: 0 } };
+		case "table.establish.view": {
+			const owed = ESTABLISH && (!established || params.look === true);
+			if (!owed) return { ok: true, result: { establish: null, head: "", review: ESTABLISH?.review ?? null } };
+			const item = structuredClone(ESTABLISH.establish);
+			if (params.look === true) item.why = established ? ["look"] : [...item.why, "look"];
+			return { ok: true, result: { ...structuredClone(ESTABLISH), establish: item, head: "mods.establish means ..." } };
+		}
 		case "table.first_sight": {
 			const land = (entry, item) => {
 				if (!item.missing.length) return null;

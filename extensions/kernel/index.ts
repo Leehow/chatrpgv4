@@ -170,6 +170,8 @@ import { firstSightPeople, untoldView, type UntoldNames } from "./untold-view.ts
 import { restoreTextualToolCalls } from "./textual-tool-calls.ts";
 import { createFirstSightTracker, type FirstSightTracker } from "./first-sight.ts";
 import { createFirstSightLane } from "../../runtime/jev/first-sight.ts";
+import { createEstablishReviewLane } from "../../runtime/jev/establish-review.ts";
+import { checkEstablish, judgeAfterSteer, type EstablishItem, type EstablishPath, type EstablishReviewNote } from "./establish.ts";
 
 /**
  * One review returned pending (§32.12.2): the lane still running, if it is, and the typed reading the Keeper was shown.
@@ -465,6 +467,13 @@ interface TableState {
 	firstSightOmitted: Set<string>;
 	/** The last delivered prose, the first-sight check's `earlier` (§168.5). */
 	lastDeliveredProse?: string;
+	/**
+	 * §203.6: this turn's establishing check, keyed by the open turn's number (a new turn starts empty). `look` is the
+	 * Keeper's own look at the place (§203.4); `checked` spends the turn's one check; `steered` holds what the one steer
+	 * was about, for the background judgement of the delivery that follows it.
+	 */
+	establish?: { turn: number; look?: boolean; checked?: boolean; note?: EstablishReviewNote;
+		steered?: { item: EstablishItem; instruction: string; present: string[]; era: string | null } };
 	/** §103.5: what each untold person is shown as in the Keeper's copy of the last capsule. */
 	untoldNames?: UntoldNames;
 	/** Contract §37.6: the independent source review refused the placement this turn's reentry needs.
@@ -1703,6 +1712,8 @@ export default function (pi: ExtensionAPI) {
 	const leanApply = leanApplyEnabled(process.env);
 	// Contract §168.5: the check of a delivery against the book's descriptions, on the fast model, after the delivery.
 	const firstSightLane = createFirstSightLane(pi, { ctx: () => sessionCtx, campaign: () => table?.campaign });
+	// Contract §203.6: the establishing check of a draft, on the fast model, before the delivery.
+	const establishLane = createEstablishReviewLane(pi, { ctx: () => sessionCtx, campaign: () => table?.campaign });
 
 	// Contract §177.15: the places a delivery writes an untold person's name are asked of Jev before the kernel's gate reads them.
 	// §194.5: the same adapter asks whether each cast row is a public figure of the world outside the story (`cast.public.job`).
@@ -3252,6 +3263,46 @@ export default function (pi: ExtensionAPI) {
     if (carriedUnconfirmed.get(boundary) === state.turn) return;
     carriedUnconfirmed.set(boundary, state.turn);
     await record({lane: 'document_recording', turn: state.turn, status: 'unconfirmed', reason: row.reason, ...(row.cause ? {cause: row.cause} : {})});
+  }
+  /** Contract §203.6: this open turn's establishing bookkeeping; a new turn starts empty. */
+  function establishTurn(state: TableState): NonNullable<TableState["establish"]> {
+    if (state.establish?.turn !== state.turn) state.establish = {turn: state.turn};
+    return state.establish;
+  }
+  /**
+   * Contract §203.6: before a delivery commits, a turn that owes an establishing reply has its draft judged once. A thin
+   * draft is held (`floorDraft`) and refused `needs` (`establish_thin`); the fix is the one steer's text, which the
+   * Keeper reads on the tool path and the turn close carries on the implicit path. Returns the note the delivery record
+   * keeps (host-only `establish_review`). Never refuses for its own failure: no view, no review package, a deadline too
+   * near or a lane that fails all deliver the draft. Not at the opening, not on a reference answer, not once the turn's
+   * steer is spent, and not twice in a turn: the delivery after the steer goes out as it is.
+   */
+  async function guardEstablishDelivery(state: TableState, draft: string, path: EstablishPath, signal?: AbortSignal, parent?: TaskProviderBudget): Promise<EstablishReviewNote | undefined> {
+    const current = establishTurn(state);
+    if (current.checked) return current.note;
+    if (state.openingPending || (state.interactionScope !== undefined && state.interactionScope !== 'world') || state.steeredThisTurn) return undefined;
+    current.checked = true;
+    const kernel = state.kernel, campaign = state.campaign, turn = state.turn;
+    const outcome = await checkEstablish({campaign, turn, draft: deliveryProse(draft), path, look: current.look === true,
+      signal: signal ? AbortSignal.any([signal, state.lanes.signal]) : state.lanes.signal, ...(parent?.deadlineAt !== undefined ? {deadlineAt: parent.deadlineAt} : {})},
+      {view: params => kernel.call<Record<string, unknown>>('table.establish.view', {campaign, ...params}), lane: establishLane, record: row => record(row)});
+    if (table !== state || state.turn !== turn) return undefined;
+    if (outcome.status !== 'thin') { current.note = outcome.note; return outcome.note; }
+    current.steered = {item: outcome.item, instruction: outcome.instruction, present: outcome.present, era: outcome.era};
+    current.note = {status: 'steered', steered: true, missing: outcome.missing, ...(current.look ? {look: true} : {})};
+    state.floorDraft = draft;
+    state.deliveryFix = {kind: 'establish', text: outcome.fix};
+    await record({lane: 'establish', event: 'steered', turn, path, scene: outcome.item.place.id, missing: outcome.missing});
+    throw new KernelError({code: 'needs', message: `This draft does not yet establish ${outcome.item.place.name}, where the investigator has just arrived`,
+      fix: outcome.fix, details: {reason: 'establish_thin', place: outcome.item.place.id, missing: outcome.missing}});
+  }
+  /** Contract §203.6: a delivery that followed the turn's establishing steer is judged once more after it lands, for the record. */
+  function afterDeliveryEstablish(state: TableState, turn: number, prose: string | undefined): void {
+    const current = state.establish, steered = current?.steered;
+    if (!steered || !prose || current.turn !== turn) return;
+    current.steered = undefined;
+    judgeAfterSteer({campaign: state.campaign, turn, prose: deliveryProse(prose), item: steered.item, instruction: steered.instruction,
+      present: steered.present, era: steered.era, signal: state.lanes.signal}, {lane: establishLane, record: row => record(row)});
   }
 	async function bindAppendArguments(state: TableState, payload: Record<string, unknown>, signal?: AbortSignal, parent?: TaskProviderBudget, modelOrigin = false): Promise<BoundAppend[]> {
 		const effects = Array.isArray(payload.effects) ? payload.effects as Array<Record<string, any>> : [];
@@ -5450,6 +5501,13 @@ export default function (pi: ExtensionAPI) {
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery(undefined, 'committing');
       if (spec.name === 'narrate' || spec.name === 'ask') await guardRefusedDocumentDelivery(state,
         [payload.text, payload.prompt].filter(value=>typeof value==='string').join('\n'), signal, providerBudget);
+      // §203.6: an establishing turn's draft is judged once before it commits; the record keeps the verdict (host-only).
+      if (spec.name === 'narrate' || spec.name === 'ask') {
+        delete payload.establish_review;
+        const establishNote = closesOpening ? undefined : await guardEstablishDelivery(state,
+          [payload.text, payload.prompt].filter(value=>typeof value==='string').join('\n'), narratePath, signal, providerBudget);
+        if (establishNote) payload.establish_review = establishNote;
+      }
 			// §135.31: the delivery carries the turn's look/lookup calls to its turn record (host-only; after the Mod hooks).
 			if (spec.name === 'narrate' || spec.name === 'ask') {
 				const reads = readsOfTurn(state);
@@ -5466,6 +5524,8 @@ export default function (pi: ExtensionAPI) {
       if(spec.name==='apply')writingMatches=await prepareWritingMatches(state,payload,documentBindings,evidence.run);
       const result = await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress);
       if(spec.name==='apply')await observeWritingCompletion(state,result,writingMatches);
+      // §203.4: the Keeper looked the place over; the kernel said what establishing it owes, so the delivery is checked.
+      if (spec.name === 'look' && result && typeof result === 'object' && (result as Record<string, unknown>).establish) establishTurn(state).look = true;
       return result;
 		};
 			try {
@@ -5951,6 +6011,7 @@ export default function (pi: ExtensionAPI) {
 				afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
 				afterDeliveryFirstSight(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
 				afterDeliveryTold(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
+				afterDeliveryEstablish(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
 			}
 			// The delivery truly landed: the kernel returned and the bookkeeping above ran. Only now is
 			// the bound patch published; every failure mode — abort, refusal, split delivery, revision
@@ -6848,6 +6909,8 @@ export default function (pi: ExtensionAPI) {
 				if (mods && !SINGLE_PASS_NARRATION) await mods.prepare("narrate", payload, state.lanes.signal);
 				await reviewForcedPlayerChoiceCue(state, String(payload.text ?? ''), state.lanes.signal, 'implicit');
         await guardRefusedDocumentDelivery(state,String(payload.text??''),state.lanes.signal,foregroundProviderBudget?.(),{final:true});
+				// §203.6: the fallback is never judged (no steer is left); it carries a steered turn's note to the record.
+				if (state.establish?.turn === state.turn && state.establish.note) payload.establish_review = state.establish.note;
 				// §190.3: the fallback closes the turn too, so it carries the moves admission refused this turn to the record.
 				if (state.refusedMoves?.length) payload.refused_moves = state.refusedMoves.map((move) => ({ ...move }));
 				await carryUnconfirmedRecordings(state, payload);
@@ -7872,6 +7935,10 @@ export default function (pi: ExtensionAPI) {
 					notePrepared(state, prepared);
 					await reviewForcedPlayerChoiceCue(state, String(params.text ?? ''), state.lanes.signal, 'implicit', ctx);
           await guardRefusedDocumentDelivery(state,String(params.text??''),state.lanes.signal,foregroundProviderBudget?.());
+					// §203.6: the implicit close skips the Mod hooks, not the establishing check.
+					const establishNote = referenceAnswer || state.openingPending ? undefined
+						: await guardEstablishDelivery(state, draft, 'implicit', state.lanes.signal, foregroundProviderBudget?.());
+					if (establishNote) params.establish_review = establishNote;
 					await guardTaskDelivery(event.message, 'committing');
 					// §135.31: the host's own close carries the turn's look/lookup calls to its record too (after the Mod hooks).
 					const reads = readsOfTurn(state);
@@ -7895,6 +7962,7 @@ export default function (pi: ExtensionAPI) {
 					afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
 					afterDeliveryFirstSight(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
 					afterDeliveryTold(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
+					afterDeliveryEstablish(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
 					rendered = asString(result.rendered_text);
 					break;
 				} catch (error) {
@@ -7903,6 +7971,9 @@ export default function (pi: ExtensionAPI) {
             state.floorDraft = undefined;
             return dropText('refused_document_outcome', {code:error.code,reason:error.details?.reason});
           }
+					// §203.6: the guard held this draft and set the one steer's fix; the turn close carries it to the Keeper.
+					if (isKernelError(error) && error.details?.reason === 'establish_thin')
+						return dropText('establish_thin', {missing: error.details?.missing ?? []});
 					// The kernel's own `reason` travels on this row as it does on an explicit verb's (§12.8):
 					// without it a continuity review that timed out and a Mod repair were both a bare `needs`.
 					const reason = asString((error as { details?: { reason?: unknown } })?.details?.reason);

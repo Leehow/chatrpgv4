@@ -27,6 +27,7 @@ import { SPEECH_EDIT_LANE_CAPABILITY, validateSpeechEditLaneDeclaration } from "
 import {HISTORY_CAPABILITY, validHostSettings} from '../mods/host-settings.js';
 import {MOOD_CAPABILITY} from '../npc/mood.js';
 import {EXPRESSION_REFERENCE_CAPABILITY,expressionCards,expressionCatalogRevision} from './expression-reference.js';
+import { ESTABLISH_CAPABILITY, ESTABLISH_REVIEW_CAPABILITY, validateEstablishDeclaration, establishProvider, establishItem } from "./establish.js";
 import { SECTIONS_CAPABILITY, validateSectionsDeclaration, validateSectionsContribution, packageSections, sectioned, sectionKey, instructionBudget, residentText, topicList, annotateGates, sceneFacts, type TurnFacts } from "./sections.js";
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "checks.presence.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
@@ -55,6 +56,10 @@ MOD_CAPABILITIES.add(MOOD_CAPABILITY);
 MOD_CAPABILITIES.add(SECTIONS_CAPABILITY);
 /** Contract §23.5: a player-only game clock following the transcript viewport. */
 MOD_CAPABILITIES.add("ui.clock.v1");
+/** Contract §203.1: a package says what an establishing reply owes (`contributes.establish`); §203.6: a package words the
+ *  review that judges a draft against it (`contributes.establish_review`). */
+MOD_CAPABILITIES.add(ESTABLISH_CAPABILITY);
+MOD_CAPABILITIES.add(ESTABLISH_REVIEW_CAPABILITY);
 /** Contract §180.9: a build where an enabled package requires this binds the actor property `weaknesses` (the reader is
  *  asked for it, the checker holds it, the module's provenance records it), and the table door accepts `weaknesses`. */
 export const WEAKNESSES_CAPABILITY = "actor.weaknesses.v1";
@@ -316,7 +321,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("Game interface v1 settings are scalar values");
     if (!plain(manifest.settings_schema ?? {}))
         invalid("settings_schema must be an object");
-    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference", "style", "voice_lane", "voice_lane_addendum", "speech_edit_lane", "expression_cards", "sections"].includes(k)))
+    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference", "style", "voice_lane", "voice_lane_addendum", "speech_edit_lane", "expression_cards", "sections", "establish", "establish_review"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
     // Contract §28.9. A name this build does not know is recorded on the manifest and makes the
     // package incompatible -- exactly what an unknown capability in `requires` already does five
@@ -362,6 +367,8 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     validateStyleDeclaration(manifest, files);
     // Contract §183.1: the sections of the instruction, against its own headings.
     validateSectionsDeclaration(manifest, files);
+    // Contract §203.1 and §203.6: what establishing owes, and the review that judges it, each with its capability.
+    validateEstablishDeclaration(manifest, files);
     const checks = array(manifest.contributes.checks);
     for (const check of checks) {
         if (!plain(check) || !/^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/.test(string(check.name ?? "")))
@@ -759,7 +766,7 @@ export function objectContext(world: Row): Row {
  *  `turn` is the open turn's state for the §183 gates, which only the capsule has; without it an indexed row's
  *  sections carry no `gates_open`/`due`. */
 export async function modContext(context: KernelContext, graph: ModuleGraph, world: Row, party: Row[], records: Row[] = [],
-    evidence: {memory?: Row[]; story?: Row[]; worldline?: string; loop?: number; play_language?:string; turn?: TurnState} = {}): Promise<Row> {
+    evidence: {memory?: Row[]; story?: Row[]; worldline?: string; loop?: number; play_language?:string; turn?: TurnState; receipts?: Row[]} = {}): Promise<Row> {
     const active = await activeMods(context, world),
         providers = modProviders(active);
     const present = npcsPresent(graph, world, graph.scene(world.active_scene)),
@@ -795,6 +802,11 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
         result.thread = threadSection(graph, world, scene, present, records, evidence.memory ?? [], evidence.story ?? [], evidence.worldline ?? 'main', evidence.loop ?? 0);
     if (required.has("context.pacing.v1"))
         result.pacing = pacingSection(graph, world, scene, present, party, records);
+    // Contract §203.3: the turn item, only on the capsule's own read (`evidence.turn`) and only while the duty is owed.
+    if (evidence.turn) {
+        const item = establishItem(graph, world, scene, establishProvider(effective), records, { opening: evidence.turn.opening, receipts: evidence.receipts ?? [] });
+        if (item) result.establish = item;
+    }
     // Contract §183.3: what an indexed row's topics mean, and which of its sections this turn's state opens.
     const indexed = array(result.instructions).filter(instruction => instruction.form === "indexed");
     if (indexed.length) {

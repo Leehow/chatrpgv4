@@ -23,7 +23,8 @@ import { clockSection, openingPeopleView, sceneLabel, untoldBlock, untoldRosterN
 import { SHARED_FIX, candidatesOf, joinedWritten, sharedNames, sharedNotice } from './shared-untold.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
 import { playLanguages, playLanguageOf, declaredPlayLanguage } from '../read/languages.js';
-import { modContext, kernelGaps, readModCatalog } from '../read/mods.js';
+import { modContext, kernelGaps, readModCatalog, activeMods, effectiveMods } from '../read/mods.js';
+import { establishItem, establishProvider, establishRecord } from '../read/establish.js';
 import { array, entries, values, row, clone, number, string, truth, repr, chars, words, equal, integer, normalize, type Row } from '../read/values.js';
 import { readingFocus } from '../read/table-entities.js';
 import { CampaignWriter, freshTurn, nowIso, required, missingContribution, createTurnTransaction, rememberCall, turnStateError, parseCallId } from './store.js';
@@ -1312,11 +1313,25 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             });
         return value;
     }
+    /**
+     * §203.2: the delivery record's `establish` when the duty was owed on the place this delivery closed in (or the host says
+     * the Keeper looked it over), with the host's verdict. Read before the record is written, from the records before it.
+     */
+    async function establishedBy(snapshot: CampaignSnapshot, module: LoadedModule, turn: Row, review: unknown, reference: boolean): Promise<Row> {
+        if (reference) return {};
+        let scene: Row;
+        try { scene = module.graph.scene(string(snapshot.world.active_scene)); }
+        catch { return {}; }
+        const provider = establishProvider(effectiveMods(await activeMods(context, snapshot.world)));
+        const record = establishRecord(establishItem(module.graph, snapshot.world, scene, provider, await snapshot.turnRecords(),
+            { opening: number(turn.turn) === 0, look: row(review).look === true, receipts: array(turn.receipts) }), review);
+        return record ? { establish: record } : {};
+    }
     async function ask(params: Row): Promise<Row> {
         // §135.31: the turn's Keeper reads ride on the delivery for its record; they are not part of the call's digest.
         // §190.3: nor are the moves admission refused this turn.
         // §200.4: nor are the recordings the turn closes with unconfirmed.
-        const { keeper_reads: readsIn, refused_moves: refusedIn, unconfirmed_recordings: unconfirmedIn, ...delivered } = params, reads = keeperReads(readsIn),
+        const { keeper_reads: readsIn, refused_moves: refusedIn, unconfirmed_recordings: unconfirmedIn, establish_review: establishReview, ...delivered } = params, reads = keeperReads(readsIn),
             admissionRefusedMoves = refusedMoves(refusedIn), unconfirmed = unconfirmedRecordings(unconfirmedIn);
         params = delivered;
         const { campaign, snapshot, module } = await load(params), turn = snapshot.turn;
@@ -1397,7 +1412,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...(reads.length ? { reads } : {}),
             ...(admissionRefusedMoves.length ? { refused_moves: admissionRefusedMoves } : {}),
             ...(unconfirmed.length ? { unconfirmed_recordings: unconfirmed } : {}),
-            ...(askDocuments.record.length ? { told_documents: askDocuments.record } : {})
+            ...(askDocuments.record.length ? { told_documents: askDocuments.record } : {}),
+            // §203.2: the place this delivery established, when the duty was owed on it.
+            ...await establishedBy(snapshot, module, turn, establishReview, false)
         };
         await campaign.writeTurnRecord(record);
         await updateNpcLedger(campaign, module.graph, record);
@@ -1445,7 +1462,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // §135.31: the turn's Keeper reads ride on the delivery for its record; they are not part of the call's digest.
         // §145.2: nor is the host's reading of a time skip. §190.3: nor are the moves admission refused this turn.
         // §200.4: nor are the recordings the turn closes with unconfirmed.
-        const { keeper_reads: readsIn, time_reading: timeIn, refused_moves: refusedIn, unconfirmed_recordings: unconfirmedIn, ...delivered } = params, reads = keeperReads(readsIn),
+        const { keeper_reads: readsIn, time_reading: timeIn, refused_moves: refusedIn, unconfirmed_recordings: unconfirmedIn, establish_review: establishReview, ...delivered } = params, reads = keeperReads(readsIn),
             reading = timeReading(timeIn), admissionRefusedMoves = refusedMoves(refusedIn), unconfirmed = unconfirmedRecordings(unconfirmedIn);
         params = delivered;
         const interactionScope = params._interaction_scope;
@@ -1616,6 +1633,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...(admissionRefusedMoves.length ? { refused_moves: admissionRefusedMoves } : {}),
             // §200.4: the recordings the turn closed with and no writing result settled; the capsule shows them to the next turns.
             ...(unconfirmed.length ? { unconfirmed_recordings: unconfirmed } : {}),
+            // §203.2: the place this delivery established, when the duty was owed on it; a reference answer establishes nothing.
+            ...await establishedBy(snapshot, module, turn, establishReview, reference),
             // §128.3: a repeat inside a line the host wrapped is a finding on the delivery, the same
             // `warnings` rows the verifier's `unmarked_speech` lands in, never a refusal.
             // §145.3: so is a time skip the books do not hold, on a delivery that went out anyway.

@@ -2,8 +2,10 @@
   {"heading": null, "kind": "resident"},
   {"heading": "This turn", "kind": "resident"},
   {"heading": "Sentences and paragraphs", "kind": "resident"},
+  {"heading": "Register and atmosphere", "kind": "resident"},
   {"heading": "The people here", "kind": "resident"},
   {"heading": "Scene and detail", "kind": "resident"},
+  {"heading": "Establishing a place", "kind": "situational", "triggers": ["state:establish", "before_apply:move"]},
   {"heading": "Opening the table", "kind": "situational", "triggers": ["state:opening"]},
   {"heading": "Settings", "kind": "resident"}
 ]}

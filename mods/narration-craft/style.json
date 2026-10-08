@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "axes": [
-    "plain sentences with clear agents and clauses",
-    "rhythm follows action, inspection and waiting; no fixed alternation",
+    "clear agents; atmosphere built from concrete sound, smell and light, never named",
+    "rhythm follows action, inspection and waiting",
     "concrete nouns, exact verbs and material relations carry texture",
     "viewpoint and perception orient the reader; actionable facts stay available",
     "people react to words and deeds in natural speech, length fitting the moment"
@@ -41,7 +41,7 @@
       "brief": "lead with what changed; omit gratuitous repetition"
     },
     "press-and-cost": {
-      "full": "show cost in body or room and the clock in what people do; ordinary texture may simply be texture",
+      "full": "show cost in body or room and the clock in what people do; the uncanny sits beside the ordinary",
       "brief": "show cost and clock through body, room and action"
     }
   },

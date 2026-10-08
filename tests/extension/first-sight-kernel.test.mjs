@@ -76,8 +76,12 @@ test('the opening capsule carries the place and the people the book lets the pla
   const game = await table(t);
   const capsule = await game.call('table.capsule');
   assert.deepEqual(capsule.first_sight.place, {id: 'sanyi-teahouse', name: '三义茶馆', described: ROOM});
-  assert.deepEqual(capsule.first_sight.people.map(person => person.name), ['王铁柱', '周敬之'],
-    'keeper-only people and a person the book describes by name alone are not owed');
+  // §203.5 (amends §168.5): every person present is owed, whatever the node's visibility; a person the book gives no words
+  // (刘桂芝, summarised by her name alone) is carried undescribed, and the keeper-only regulars by their summaries.
+  assert.deepEqual(capsule.first_sight.people.slice(0, 2).map(person => person.name), ['王铁柱', '周敬之']);
+  assert.deepEqual(capsule.first_sight.people.find(person => person.id === 'liu-guizhi'), {id: 'liu-guizhi', name: '刘桂芝', undescribed: true});
+  assert.ok(capsule.first_sight.people.find(person => person.id === 'xiao-douzi').described, 'a keeper-only person with words is described');
+  assert.equal(capsule.first_sight.people.length, 9, 'nobody in the room is left out');
   assert.equal(capsule.first_sight.people[0].described, WANG, 'a person is described by their biography');
   assert.match(capsule.first_sight.people[1].described, /前清秀才/, 'and by the summary when there is none');
   const keys = Object.keys(capsule);
@@ -112,7 +116,7 @@ test('a check lands: shown leaves for good, what the prose left out stays as mis
 
   const next = (await game.call('table.player_input', {text: '我找个空位坐下。'})).capsule;
   assert.equal(next.first_sight.place, undefined, 'the shown place is no longer owed');
-  assert.deepEqual(next.first_sight.people, [
+  assert.deepEqual(next.first_sight.people.slice(0, 2), [
     {id: 'wang-tiezhu', name: '王铁柱', missing: ['赤着膊', '腰里别着扛包的麻绳']},
     {id: 'zhou-jingzhi', name: '周敬之', described: next.first_sight.people[1].described}]);
   assert.match(next.first_sight.people[1].described, /前清秀才/, 'a check that could not quote leaves the item owed in full');
@@ -120,11 +124,13 @@ test('a check lands: shown leaves for good, what the prose left out stays as mis
   // A later check shows the rest; with nothing owed the section and its head sentence are gone.
   // §177.11: neither has been named to the investigator, so the prose calls them by what is seen.
   await game.call('table.narrate', {call_id: game.next(1), text: '扛包的汉子赤着膊，腰里别着麻绳。穿长衫的先生摇着扇子。'});
-  await game.call('table.first_sight', {turn: 1, items: [{id: 'wang-tiezhu', kind: 'person', missing: []}, {id: '周敬之', kind: 'person', missing: []}]});
+  await game.call('table.first_sight', {turn: 1, items: [{id: 'wang-tiezhu', kind: 'person', missing: []}, {id: '周敬之', kind: 'person', missing: []},
+    // §203.5: the rest of the room, shown too, so that nothing is owed.
+    ...next.first_sight.people.slice(2).map(person => ({id: person.id, kind: 'person', missing: []}))]});
   const settled = await game.call('table.capsule');
   assert.equal(settled.first_sight, undefined);
   assert.ok(!settled.head.includes(api.HEAD_FIRST_SIGHT));
-  assert.deepEqual((await game.read('first-sight.json')).shown.people, ['wang-tiezhu', 'zhou-jingzhi'], 'a name resolves to the handle');
+  assert.deepEqual((await game.read('first-sight.json')).shown.people.slice(0, 2), ['wang-tiezhu', 'zhou-jingzhi'], 'a name resolves to the handle');
 });
 
 test('table.first_sight refuses what is not a checked item of this graph, and a turn that delivered nothing', async t => {

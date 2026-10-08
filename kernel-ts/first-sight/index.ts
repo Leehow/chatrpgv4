@@ -93,8 +93,13 @@ export const personDescribed = (graph: ModuleGraph, node: Row): string | null =>
  * never the biography, which carries what the book reveals later (TR-F2: Maria's tentacles and infection became her word).
  */
 export const personAppearance = (graph: ModuleGraph, node: Row): string | null => bookWords(graph, node, 'appearance', false);
-/** A book person the player may see on arrival: an `npc` node the book marks `player-safe` (§180.3: never a creature). */
-export const seenPerson = (node: Row): boolean => node.node_kind === 'npc' && node.visibility === 'player-safe';
+/**
+ * A person the player sees when they are present: an `npc` node (§180.3: never a creature), whatever its `visibility`.
+ * §203.5 (amends §168.5): `visibility` is what the player has been told about a node, not whether someone standing in the
+ * room can be seen. TR-F2 run 3 (The Haunting, 2026-10-08): nine of the book's ten people are keeper-only, so the doorman,
+ * Ruth Blake and the records clerk were never carried and appeared with no look at all.
+ */
+export const seenPerson = (node: Row): boolean => node.node_kind === 'npc';
 
 /**
  * The capsule's `first_sight` section, or null when nothing is owed: the active scene while it is not shown, and each
@@ -110,11 +115,13 @@ export function firstSightSection(graph: ModuleGraph, world: Row, scene: Row, st
     const section: Row = {}, place = placeDescribed(graph, scene);
     if (place && !ledger.shown.places.includes(graph.handle(scene)))
         section.place = item('place', scene, sceneLabel(graph, world, scene), place);
+    // §203.5: a person the book gives no words is still seen; they are carried `undescribed`, and the Keeper gives them a look.
     const people = npcsPresent(graph, world, scene)
         .filter(node => seenPerson(node) && !ledger.shown.people.includes(graph.handle(node)))
-        .flatMap(node => {
+        .map(node => {
             const described = personDescribed(graph, node);
-            return described ? [item('person', node, graph.displayName(node), described)] : [];
+            return described ? item('person', node, graph.displayName(node), described)
+                : { id: graph.handle(node), name: graph.displayName(node), undescribed: true };
         });
     if (people.length) section.people = people;
     return Object.keys(section).length ? section : null;

@@ -25,7 +25,8 @@ import { prepareNameHistory } from '../journal/name-history.js';
 import { incapacitatedBy } from "../healing/conditions.js";
 import { crossLineReader } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
-import { publicSheet, objectLook, activeMods } from "./mods.js";
+import { publicSheet, objectLook, activeMods, effectiveMods } from "./mods.js";
+import { establishItem, establishProvider, HEAD_ESTABLISH } from "./establish.js";
 import {equipmentPreparation, equipmentPreparationRows} from '../mods/equipment.js';
 import {isDocumentRead,readCurrentDocument} from './document-reading.js';
 import { knownMapViews, mapCatalog, mapView, type AssetReader } from './maps.js';
@@ -475,7 +476,14 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 return isDocumentRead(params)?readCurrentDocument(world,params):objectLook(world, params.name, graph);
             if (focus === "scene") {
                 await campaign.preload();
-                return sceneView(campaign, module);
+                const view = await sceneView(campaign, module);
+                // §203.4: the Keeper looking the place over owes an establishing reply; a context read is the host's own.
+                if (!contextRead) {
+                    const item = establishItem(graph, world, scene, establishProvider(effectiveMods(await activeMods(context, world))), campaign.records,
+                        { opening: number(campaign.turn.turn) === 0, look: true, receipts: array(campaign.turn.receipts) });
+                    if (item) view.establish = { head: HEAD_ESTABLISH.trim(), ...item };
+                }
+                return view;
             }
             if (focus === "npc") {
                 if (params.name == null) {

@@ -41118,6 +41118,179 @@ with their rows, still take at least an hour. `jev-band-shadow-domain.test.mjs` 
 `covers`. Existing tests that pinned the old criterion text over the real kernel, the shipped rows, the rows' shape, the
 category count and the current rule-catalog digest are updated.
 
+## 203. Arriving somewhere puts the investigator in it (lead decision 2026-10-08 on the owner's complaints after TR-F2 run 3; `docs/specs/scene-establishment.md`; amends §168.5's people, §183.1's gates, §124.12's host lookup and `HISTORY_SUPPLIED`, and §166.1 by one exception)
+
+**The owner, 2026-10-08:**
+- 「这次测试整个团都很空洞，没有任何环境描写和角色神态描写，也没有参考历史的情景描写」
+- On 「编辑部仍有打字机声，桌上摊着索引卡和剪报」: 「这两句完全没给玩家带入感啊！编辑部什么样？里面有多少人都在做什么，有什么值得关注的装饰物之类的这些完全都没有！」
+- 「文笔要的就是要沉浸感！」
+- 「我们的mod系统后面出现了大改之后每个mod都可以有自己的长描述了，完全不需要压缩」
+
+**Evidence** (the spec's §2). Run 3 (`game-af36b938`, luna, narration-craft 2.4.0) delivered a median of 140 characters a turn, and its arrival turns were no longer. No Haunting scene has words §168.5 counts as a description, and no person of its cast is `player-safe`. So first sight carried nothing for the whole table. The doorman, Ruth Blake and the records clerk appeared with no look. The host's historical lookup reached the prose as one or two dry facts, because `HISTORY_SUPPLIED` asked for exactly that.
+
+2.4.0 cut about 1.3 KB from 2.2.4, including the explicit sensory lines, but neither version has an establishing duty. Both still carry a per-turn close that sets the room out ("who is here and how they stand"). The register `purist` is named in the capsule and expressed nowhere.
+
+### 203.1 What establishing owes, and who says it
+
+`context.establish.v1` (a kernel capability). A package requiring it contributes `contributes.establish`, a package JSON file listed in `package_files`:
+
+```json
+{"schema_version": 1, "owes": [{"key": "space", "line": "the space itself: its size and layout, ..."}]}
+```
+
+- `owes` holds 2 to 8 rows. `key` matches `^[a-z][a-z0-9_]{0,31}$` and is distinct. `line` is non-empty English of at most 240 UTF-8 bytes.
+- Contributing without the capability, or the capability without the contribution, is refused `invalid_params` with `details.field: "contributes.establish"`. So is a file that is missing, not JSON, or of another shape. The contribution is checked where the catalog loads, like `style` (§137).
+- The first package in the effective order that contributes it is the provider; the kernel names nothing else.
+- narration-craft 2.5.0 owes six rows:
+  - `space`;
+  - `people`;
+  - `things`;
+  - `senses`, at least two beyond sight;
+  - `period`;
+  - `hook`.
+
+  Its `agent.md` section "Establishing a place" says how to write them along the eye's path. The kernel never reads the lines' meaning.
+
+### 203.2 When a turn establishes, and the ledger
+
+A place is **established** once a delivered world turn (`table.narrate` or `table.ask`, not a reference-scope answer) closed while the duty was owed there. The delivery record carries `establish: {scene, why, review?}`. The established places are the `establish.scene` values of the campaign's records on the current line, so a fork carries them and nothing else is written.
+
+The duty is **owed** on the open turn when both hold:
+- a provider is active;
+- the active scene is not established.
+
+`why`:
+- `opening` on turn 0;
+- `arrival` otherwise. The party moved there and has had no establishing delivery there, which includes a place passed through in a turn that delivered elsewhere.
+
+The Keeper's `look` (§203.4) adds `look`, and owes it even in an established place.
+
+A campaign that adopts a provider mid-play owes its current place once. That is the same interpretation §168.5 took for a missing ledger.
+
+### 203.3 The turn item `mods.establish`
+
+`modContext` adds `establish` when the duty is owed:
+
+```
+{"place": {"id": <scene handle>, "name": <the table's label>}, "why": ["arrival"|"opening"|"look"],
+ "owes": [{"key", "line"}], "package": {"mod", "version"}}
+```
+
+- `HEAD_ESTABLISH` is appended to the capsule's head only when the item is there. It says:
+  - the investigator has just come into a place new to them, or is looking it over;
+  - this reply establishes it, along the eye's path, before the turn's business, as `owes` and the prose package say;
+  - every other turn keeps its economy.
+- A table with no provider carries no bytes.
+- **Gate (amends §183.1).** `establish` joins `KERNEL_GATES`; it holds when `mods.establish` is present. narration-craft's "Establishing a place" is situational with `triggers: ["state:establish", "before_apply:move"]`. So an indexed narration-craft loads it on the turn it is owed, and on the request after a move. In full mode it rides whole, like every section, and the item alone makes the duty turn-scoped.
+
+### 203.4 Three carriers
+
+- **The capsule:** `mods.establish` above. `context-runtime` drops only `mods.instructions` and `mods.topics`, so the item reaches the Keeper.
+- **The step note** (hybrid engine, `runtime/jev/establish-step.ts`). A run that moves after its capsule was read asks `table.establish.view` once per scene per run. The next model step's note carries `establish: {head, ...item}`. This is §168.5's first-sight step shape. Telemetry: `lane: "run", event: "establish"`.
+- **The look result.** `table.look` with `focus: "scene"` (or no focus) that is not a context read carries `establish` with `why` including `look`, when a provider is active. The host notes the look for the delivery check (`state.establishLook`, the open turn).
+
+`table.establish.view {campaign, look?: boolean}` returns `{establish: item|null, head: string, review: {mod, version, instruction}|null, contributors?: [..]}`. It is read-only and outside the turn state machine.
+- `look: true` returns the item even in an established place, with `look` in `why`.
+- `review` is the narration audit's instruction (§203.6) when exactly one active package contributes it. With two or more, it is null and `contributors` names them.
+
+### 203.5 First appearance (amends §168.5's people)
+
+`first_sight.people` carries every person row `npcsPresent` gives that is an `npc` node, not a creature, and not in `shown.people`, **whatever the node's `visibility`**. Knowledge visibility is about what the player has been told; a person standing in the room is seen.
+
+- A person the book has words for (`biography`, else a summary that is more than the name) carries `described`, as before.
+- Any other person carries `undescribed: true` and no `described`.
+
+`HEAD_FIRST_SIGHT` adds that an undescribed person gets a look in the Keeper's own words when they first come into view: build, apparent age, dress, what their hands are doing, how they carry themselves. A person the book keeps hidden stays hidden until found.
+
+The check lane sends an undescribed item as `{id, kind, undescribed: true}`. The model answers `{id, shown: true|false}`: did the prose or the delivery before it show how this person looks or carries themselves? The host lands `missing: []` when shown, and nothing when not, so the item stays owed. `table.first_sight` already accepts an empty `missing` for any graph person. Telemetry counts `undescribed`.
+
+### 203.6 The establishing check (amends §166.1 by one exception)
+
+narration-audit 1.3.0 requires `audit.establish.v1` and contributes `establish_review` (`establish-review.md`): how a reviewer judges a draft against `owes`. A package Markdown file is checked like the speech edit lane's (§165.2).
+
+The host guard (`extensions/kernel/establish.ts`, called beside §166.2's refused-document guard) runs:
+- **Where:** on every delivery path before the kernel commit. That covers explicit `narrate` and `ask`, `apply`'s embedded narrate (the same function) and the implicit close. The implicit close reaches it although it skips the Mod hooks.
+- **Not:**
+  - at the opening (`openingPending`);
+  - on a reference-scope answer;
+  - in the refusal-budget fallback;
+  - once the turn's steer is spent (`steeredThisTurn`);
+  - once this turn's establishing check has run.
+
+It reads `table.establish.view {look}`. With no item or no `review`, it records `skipped` and delivers.
+
+**The lane** (`runtime/jev/establish-review.ts`, `establish-review`) is one zero-tool `runLane` on the fast model: `PI_COC_ESTABLISH_REVIEW_MODEL`, then the fast-model setting, then the table. Thinking is off and no temperature is sent. It qualifies under Agents.md's single-completion criteria: a short closed verdict, on the turn's critical path.
+- **Input:** `{prose, place, why, present: [names], era, owes}`.
+- **System prompt:** the package's instruction, then the host's fixed output contract.
+- **Output:** `{items: [{key, verdict: "shown"|"missing"|"not_applicable", quote?}]}`, one per `owes` key.
+- **Anchoring:** a `shown` item must quote the prose. The host locates the quote (`locateExcerpt`, §139); an unlocated quote counts as `missing` (`unanchored`).
+- **Thin:** at least one item is `missing`. Deciding applicability is the model's.
+- **Timeout:** `min(20 s, the turn's provider deadline - 4 s)`. With less than 6 s left the check is `skipped` (`budget`).
+- **Failure** (`no_session`, `cancelled`, `timeout`, `model_unavailable`, `model_error`, `bad_output`, `lane_error`): the check records `unavailable` and delivers. It never refuses for its own failure.
+
+**One steer.** A thin draft is not delivered:
+- `state.deliveryFix = {kind: "establish", text}` and `state.floorDraft` holds the draft. The fix text names the place, the missing rows' lines, and "keep the player's act, every settled result and every spoken line".
+- On the tool path the call is refused `needs` (`details.reason: "establish_thin"`, `missing`, `fix` = the same text), so the Keeper rewrites in its next step. If it stops instead, the turn-close steer carries the fix.
+- On the implicit path the draft is dropped (`dropText("establish_thin")`) and the turn-close steer carries the fix.
+
+The next delivery this turn is not judged before it lands. Whatever it is, it goes out. A leg that brings nothing falls back to the held draft, as §135.11's addendum does.
+
+After a steered delivery lands, the lane judges it once in the background, never awaited (`event: "after_steer"`).
+
+**The record and telemetry.** Each delivery passes host-only `establish_review: {status, missing, steered, look}` (outside the digest, like `keeper_reads`), and the record keeps it as `establish.review`. `lane: "establish"` rows:
+- `due` (turn, scene, why, path);
+- `judged` (ms, model, verdict, missing, unanchored);
+- `steered`;
+- `skipped` (reason);
+- `unavailable` (reason);
+- `after_steer` (verdict, missing).
+
+**Why this exception to §166.** The owner's 2026-10-01 ruling for §166 approved one-pass delivery and accepted narration mistakes. Prose rules alone did not make the Keeper describe a place: 2.2.x's sensory and first-visit lines, §168's capsule section, and 2.1.12's "show everything the book describes" were all in the request while run 3 delivered 140 characters an arrival. §168 checks only after delivery and only against book words, so it could not catch it. This is the lead's decision on the owner's 2026-10-08 complaints, in the shape of §166.2's boundary: one bounded question, one steer, no loop, settled facts kept. **It should be confirmed with the owner.**
+
+### 203.7 Historical reference shaped for establishing (amends §124.12; historical-reference 1.2.0)
+
+- **The query lane** (`HISTORY_QUERY_INSTRUCTION`). The objective asks for concrete sensory and social detail of that kind of place in that period:
+  - its size and layout, furnishings and materials, light;
+  - its sounds and smells;
+  - how many people worked or gathered there, what they did, and how they dressed and carried themselves.
+
+  The query asks for first-hand descriptions of the place. Prices are still not asked.
+- **Selection** (`selectionBatch`, family version 5). Beside each candidate's period Noul and applicability choice, a texture Noul `texture_N` asks whether the excerpt describes concrete sensory or social detail of such a place (`TEXTURE_QUESTION`). It orders kept excerpts (direct first, then texture, then period). It filters nothing, so `PERIOD_MIN`'s calibration stands. A price lookup does not ask it.
+- **`HISTORY_SUPPLIED`.** When excerpts came back, use them to furnish the place as the investigator perceives it: what the room is built and fitted with, what it sounds and smells like, what the people of that trade wear and do. Never announce, date or cite them. The "one or two concrete details" wording is gone. The package text says the same.
+- **Finding, not changed here:** the host lookup follows the scene a run starts in. A place reached inside a run gets its own lookup only on a later turn (run 3: the chapel and the basement). The establishing check still judges `period`, and the model decides whether the prose carries it.
+
+### 203.8 Three ends (§31)
+
+- **Writer:**
+  - the package (`establish.json`, the review instruction);
+  - the kernel (owed or not, the ledger on the delivery record, the gate);
+  - the host (the look, the verdict, the steer).
+- **Reader:** `mods.establish` in the capsule; the step note; the look result; `table.establish.view`; the guard.
+- **Actor:** the Keeper, who establishes the place in that reply or in the one steer.
+- **Counted:**
+  - `lane: "establish"` rows;
+  - `lane: "run", event: "establish"`;
+  - records' `establish`;
+  - `lane: "first-sight"`'s `undescribed`.
+
+### 203.9 Packages and the instruction budget
+
+- **narration-craft 2.5.0:**
+  - full guidance;
+  - "Register and atmosphere" (resident);
+  - "Establishing a place" (situational, §203.3);
+  - `establish.json`;
+  - style lines carrying atmosphere and the establishing directive within §137's budgets;
+  - requires `context.establish.v1`.
+- **narration-audit 1.3.0:** `establish-review.md`, requires `audit.establish.v1`.
+- **historical-reference 1.2.0:** text per §203.7.
+
+The default-on instruction total and the package forms are in §203.10.
+
+### 203.10 Tests and measurements
+
+To be filled at implementation.
+
 ## 205. A turn that lacks material says so, and looks
 
 ### 205.1. Needs and ownership

@@ -297,6 +297,10 @@ export async function openTable({
 		// provider of its own whose unscripted answer records nothing, so it never takes the Keeper's scripted replies;
 		// a test about the check scripts it through `table.lanes.firstSight`.
 		PI_COC_FIRST_SIGHT_MODEL: "firstsight/f1",
+		// The establishing review (contract §203.6) runs before a delivery whose turn owes an establishing reply. Its provider's
+		// unscripted answer is no verdict (`bad_output`: the draft is delivered), so it never takes the Keeper's replies;
+		// a test about the review scripts it through `table.lanes.establish`.
+		PI_COC_ESTABLISH_REVIEW_MODEL: "establish/e1",
 		...env,
 	});
 
@@ -325,6 +329,11 @@ export async function openTable({
 		() => fauxAssistantMessage(JSON.stringify({ items: [] })),
 	);
 	if (laneResponses.firstSight) firstSightFaux.setResponses(laneResponses.firstSight);
+	const establishFaux = withDefaultResponse(
+		withProviderCallbacks(fauxProvider({ api: "openai-completions", provider: "establish", models: [{ id: "e1" }] })),
+		() => fauxAssistantMessage("no establishing verdict scripted for this table"),
+	);
+	if (laneResponses.establish) establishFaux.setResponses(laneResponses.establish);
 	const modelRuntime = await ModelRuntime.create({
 		authPath: join(workspace, "auth.json"),
 		modelsPath: null,
@@ -337,6 +346,7 @@ export async function openTable({
 	modelRuntime.registerNativeProvider(admissionFaux.provider);
 	modelRuntime.registerNativeProvider(npcActFaux.provider);
 	modelRuntime.registerNativeProvider(firstSightFaux.provider);
+	modelRuntime.registerNativeProvider(establishFaux.provider);
 	const model = faux.getModel();
 
 	let api;
@@ -443,7 +453,7 @@ export async function openTable({
 		 * 三条车道的假模型：各自 setResponses，跟守秘人的队列互不干扰。准入车道（契约 §32）
 		 * 脚本用完后回落到「authorized」，`lanes.admission.requests()` 是它收到的每一份输入原文。
 		 */
-		lanes: { verifier: verifierFaux, memory: memoryFaux, admission: admissionFaux, npcAct: npcActFaux, firstSight: firstSightFaux },
+		lanes: { verifier: verifierFaux, memory: memoryFaux, admission: admissionFaux, npcAct: npcActFaux, firstSight: firstSightFaux, establish: establishFaux },
 		ui,
 		/** 扩展加载与事件里出的错，测试里当断言用。 */
 		extensionErrors,

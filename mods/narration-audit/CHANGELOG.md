@@ -1,3 +1,8 @@
+# 1.3.0
+
+- Contributes `establish_review` (`establish-review.md`, requires `audit.establish.v1`), contract §203.6: on a turn that owes an establishing reply, the host's review lane judges the draft, before delivery, against the rows the prose package's `establish.json` lists (space, people, things, senses, period, hook). The judgement is row by row, with a quote of the prose for each row shown. A thin draft is steered once, and the next delivery goes out as it is. The owner, 2026-10-08: 「这两句完全没给玩家带入感啊！编辑部什么样？里面有多少人都在做什么，有什么值得关注的装饰物之类的这些完全都没有！」
+- The continuity auditor (`auditor.md`) is unchanged.
+
 # 1.2.32
 
 - Requires `audit.owed.v1` (contract §158.2). The report gains `owed` beside `missing`: what the delivered candidate told the player has happened that no receipt carries and the ledger lacks, as a move (to a scene alias, or a new place with a summary), time beyond any journey, or a person arriving or leaving, each selecting the draft sentence that told it. A `new_locus` with basis `none` needs an owed move. The owner's ruling of 2026-09-29 is that delivered prose is canon and the ledger follows it forward; on installed campaign `game-5d82fd23` turn 26 the reviewer caught an unlanded arrival at the Poe Street cemetery in `locus_review`, and the only thing that reached the Keeper was a finding saying to avoid it next time. The kernel now records owed rows the clerk lands first on the next turn.

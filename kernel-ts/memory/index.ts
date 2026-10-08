@@ -23,6 +23,10 @@ import {applyFirstSight, checkFirstSightItems, FIRST_SIGHT_BUDGET, firstSightSec
 import {HEAD_FIRST_SIGHT} from '../read/assemble.js';
 import {briefWindow} from '../read/brief-window.js';
 import {oweTold, toldOptions} from '../owed/told.js';
+import {activeMods, effectiveMods} from '../read/mods.js';
+import {establishItem, establishProvider, establishReviewOwners, HEAD_ESTABLISH} from '../read/establish.js';
+import {historicalSetting} from '../read/historical-setting.js';
+import {npcsPresent} from '../read/capsule.js';
 /** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
 const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch', 'unmarked_speech', 'investigator_identity_mismatch'];
 /**
@@ -255,6 +259,28 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
             if (!section) return { first_sight: null };
             fitFirstSight(section, FIRST_SIGHT_BUDGET);
             return { first_sight: section, head: HEAD_FIRST_SIGHT.trim() };
+        },
+        // Contract §203.4: the establishing duty where the party stands now (a run that moved after its capsule was read, the
+        // delivery check, the look), with the review's instruction when exactly one active package words it. Read-only.
+        'table.establish.view': async (params): Promise<Row> => {
+            if (params.look !== undefined && typeof params.look !== 'boolean') throw new RpcError('invalid_params', 'params.look must be boolean when supplied');
+            const { campaign, snapshot, module } = await load(params);
+            let scene: Row;
+            try { scene = module.graph.scene(string(snapshot.world.active_scene)); }
+            catch { return { establish: null, head: '', review: null }; }
+            const active = await activeMods(context, snapshot.world), effective = effectiveMods(active);
+            const turn = await campaign.readTurn();
+            const item = establishItem(module.graph, snapshot.world, scene, establishProvider(effective), await snapshot.turnRecords(),
+                { opening: number(turn.turn) === 0, look: params.look === true, receipts: array(turn.receipts) });
+            const owners = establishReviewOwners(effective);
+            // What the review reads beside the draft: who the table seats here, and the setting's period.
+            const present = item ? npcsPresent(module.graph, snapshot.world, scene).filter(node => node.node_kind === 'npc')
+                .map(node => module.graph.displayName(node)) : [];
+            const setting = item ? row(await historicalSetting(snapshot, module).catch(() => ({}))) : {}, era = typeof setting.era === 'string' ? setting.era : '';
+            return { establish: item, head: item ? HEAD_ESTABLISH.trim() : '',
+                ...(item ? { present, era: era || null } : {}),
+                review: owners.length === 1 ? { ...owners[0] } : null,
+                ...(owners.length > 1 ? { contributors: owners.map(owner => ({ mod: owner.mod, version: owner.version })) } : {}) };
         },
         'memory.job': async (params) => {
             const { campaign, snapshot, module } = await load(params);

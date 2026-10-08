@@ -28,8 +28,10 @@ export function firstSightItems(section: unknown): FirstSightItem[] {
 		...(value.place ? [["place", object(value.place)] as [FirstSightItem["kind"], Row]] : []),
 		...(Array.isArray(value.people) ? value.people.map(person => ["person", object(person)] as [FirstSightItem["kind"], Row]) : []),
 	];
-	return entries.flatMap(([kind, entry]) => {
+	return entries.flatMap(([kind, entry]): FirstSightItem[] => {
 		const id = typeof entry.id === "string" ? entry.id : "", text = described(entry);
+		// §203.5: a person the book gives no words is checked on one question -- did the prose give them a look.
+		if (id && kind === "person" && entry.undescribed === true && !text) return [{ id, kind, described: "", undescribed: true }];
 		return id && text ? [{ id, kind, described: text }] : [];
 	});
 }

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "owes": [
+    {"key": "space", "line": "the space itself: its size and layout, where things stand, how the light falls, what it is built and furnished with in this period"},
+    {"key": "people", "line": "the people here: how many, what each is doing, how they look and carry themselves, and how they take the investigator's arrival"},
+    {"key": "things", "line": "one or two specific objects or fittings that draw the eye or invite a closer look"},
+    {"key": "senses", "line": "at least two senses beyond sight: sound, smell, temperature or texture"},
+    {"key": "period", "line": "the period in things seen and heard, furnished by historical_reference_materials when they came back; never stated as a fact about history"},
+    {"key": "hook", "line": "something in the scene that invites the next move; not a question to the player and not a menu"}
+  ]
+}

@@ -33,6 +33,7 @@ import {allReceipts, coercionPressures} from '../resolve/coercion.js';
 import { capsuleOwed } from "../owed/index.js";
 import { FIRST_SIGHT_BUDGET, firstSightSection, fitFirstSight } from "../first-sight/index.js";
 import { historicalSetting } from './historical-setting.js';
+import { HEAD_ESTABLISH } from "./establish.js";
 /**
  * §135.11.1 (SL-50 re-ruling, 2026-09-25): writes are silent. Prose beside a write or read call is dropped before anyone
  * sees it (long gates #3-#5: 46 drops, the Keeper announcing its bookkeeping), and the run then asks for the turn again.
@@ -121,7 +122,10 @@ export const HEAD_FIRST_SIGHT = " first_sight is the player's first sight of the
     "and manner, in this reply, in the play language, along the eye's path, before the turn's business. A person is " +
     "seen before named. Nothing here is a fact to recite: only what can be seen or heard on arrival. An item that " +
     "carries missing instead of described was written before without these details, and they are still owed; an " +
-    "item marked truncated was cut to fit, and look returns the rest.";
+    "item marked truncated was cut to fit, and look returns the rest. A person marked undescribed has no look in the book: " +
+    "when they first come into view, give them one in your own words, in keeping with the place and the period (build, " +
+    "apparent age, dress, what their hands are doing, how they carry themselves); a person the book keeps hidden stays " +
+    "hidden until found.";
 export const BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     where: 4096,
     present: 3072,
@@ -634,7 +638,11 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         capsule.truncated = truncated;
     const activeLine = string(meta.active_worldline || 'main');
     capsule.mods = await modContext(context, graph, world, party, campaign.records,
-        {memory, story, worldline: activeLine, loop: number(row(row(meta.worldlines)[activeLine]).loop),play_language:language, turn: gateTurn});
+        {memory, story, worldline: activeLine, loop: number(row(row(meta.worldlines)[activeLine]).loop),play_language:language, turn: gateTurn,
+            receipts: array(turn.receipts)});
+    // §203.3: said only when the turn owes an establishing reply.
+    if (row(capsule.mods).establish != null)
+        capsule.head = string(capsule.head) + HEAD_ESTABLISH;
     const edit=await requestedEditContext({id:campaign.id,readCampaign:async()=>meta,
         readSave:async name=>await campaign.optional(`save/${name}`)},world,party);
     if(edit)row(capsule.turn).document_edit=edit;

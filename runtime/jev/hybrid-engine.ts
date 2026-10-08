@@ -72,6 +72,7 @@ import { bandMinConfidence } from '../../extensions/kernel/band-recovery.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import { firstSightStep, type FirstSightViewPort } from './first-sight-step.ts';
+import { establishStep } from './establish-step.ts';
 import { IMPROVISATION_GUIDANCE, CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
 import {withSourceQuestion} from './source-answer-pages.ts';
 import {
@@ -587,6 +588,8 @@ interface RunState {
   shown: {scenes: Set<string>; people: Set<string>; session?: string; passages: Set<string>; pending: Set<string>};
   /** §168.5: the scenes the run moved into whose first sight it has asked for (once each). */
   sightScenes?: Set<string>;
+  /** §203.4: the scenes this run already asked `table.establish.view` about (once per scene per run). */
+  establishScenes?: Set<string>;
   /** §135.20.1 (SL-102): whether this run's first model step already asked the port to wait out this scene's consultations. */
   settleAsked?: true;
   /** §135.31.1 (SL-27): every material this run's prescreens prepared or reused, with the scene of the read. */
@@ -2288,6 +2291,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §168.5: a scene the run moved into after its capsule was read owes its first sight to this step (once per scene).
     const sight = await firstSightStep(run, {campaign: bridge?.campaign, port: firstSightPort, call: method => call(method), record, stepId});
     if (sight) content.first_sight = sight;
+    // §203.4: a place the run moved into after its capsule was read owes its establishing reply to this step (once per scene).
+    const establish = await establishStep(run, {campaign: bridge?.campaign, call: method => call(method), record, stepId});
+    if (establish) content.establish = establish;
     const shown = await carriedFor(run, view, request, stepId);
     if (shown) content.carried = shown;
     const messages: Row[] = [];

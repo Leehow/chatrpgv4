@@ -22,7 +22,9 @@ export const INSTRUCTION_BUDGET = 65536;
 export const KERNEL_GATES: readonly string[] = ["opening", "people_present", "present_without_history", "unregistered_equipment",
     "registered_instances", "threat_clock", "stall", "recover", "clue_here", "handed_clue_here", "reentry",
     // §180.10: a creature present, and a present being whose row carries a weakness chain.
-    "creature_present", "weakness_here"];
+    "creature_present", "weakness_here",
+    // §203.3: the turn owes an establishing reply (`mods.establish` is on the capsule).
+    "establish"];
 export const HOST_GATES: readonly string[] = ["no_topic"];
 /** The decision families a `resolve` settles: the ruleset's `decision:coc7:<family>:` prefixes and the kernel's own
  *  `objects:` decisions. A test holds this to the ruleset. */
@@ -281,6 +283,7 @@ export function kernelGates(facts: TurnFacts, mods: Row, settings: Row): Record<
         clue_here: facts.undiscovered > 0,
         handed_clue_here: facts.handed > 0,
         reentry: row(mods.thread).reentry != null,
+        establish: mods.establish != null,
     };
 }
 
