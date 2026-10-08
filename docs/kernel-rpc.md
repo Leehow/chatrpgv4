@@ -41810,6 +41810,15 @@ there were none. Two gaps, neither of them this book's:
 The reading identity constants live in the import-free `kernel-ts/modules/pregens-material.ts`, shared by the kernel and
 host. The host does not import the kernel's validation/transaction module merely to name a reading.
 
+**207 empty-result correction (BP-05).** An empty pregen draft is a claim of source absence, not an automatic successful
+read. Every `pregens` reading owes `/coverage`, even with zero ready nodes. A fresh tool-enabled coverage reviewer compares
+the source inventory with the candidate's templates and rejects any omitted printed investigator. The host supplies its
+observed navigation/source pages as review scope; the reviewer may navigate further within the bound book. The coverage
+verdict is strict under both policies: a presentation/parameter label cannot clear unsupported inventory. `checkDraft`
+carries the material tag to `checkReview` as checker metadata; no new authored field or hand-written book roster is added.
+Only a supported independent inventory check can settle an empty reading as `read`. Probe `book-pregens-01` retained an
+empty published draft after opening Appendix A and ran zero reviewers; it is failed source-verification evidence.
+
 ### 124.12.1 Fit the operation frontier without discarding half a fitting page (continuation, 2026-10-08)
 
 The evidence loop keeps the longest ordered prefix of its current 48-operation frontier page that passes the existing

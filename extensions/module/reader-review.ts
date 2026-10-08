@@ -12,6 +12,7 @@ import { shapeReviewPaths } from "../../kernel-ts/modules/shape-review.ts";
 import { answerReviewShapeError } from "../../kernel-ts/modules/answer-review-shape.ts";
 import { PERSON_STATEMENTS, REVIEW_VERDICTS, classificationMatcher, personStatementPath, sheetReviewPath, statementReviewPath } from "../../kernel-ts/modules/review-verdicts.ts";
 import { sheetReviewPaths } from "../../kernel-ts/modules/sheet-review.ts";
+import { pregenInventoryPath } from '../../kernel-ts/modules/pregens-material.ts';
 import {validatePublicGuidance} from '../../kernel-ts/modules/public-guidance.ts';
 import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings,moduleGuidanceApproved} from '../../kernel-ts/modules/module-review-policy.ts';
 import {READING_REVIEW_FALLBACK,readingReviewBudget} from '../../runtime/jev/host-budgets.ts';
@@ -256,7 +257,7 @@ export function carriedReviewUnits(draft: Row, requiredPaths: string[] = [], bud
 export function gateRefusal(task: Row, draft?: Row): (row: Row, path: string) => boolean {
 	const logic = moduleLogicReview(task ?? {}), classifies = classificationMatcher(task?.vocabulary?.classification_fields?.node);
 	// §199.2: `draft` says which pointers are a person's statements; without it only §192.1's distinct_from is one.
-	return (row, path) => row?.verdict !== 'supported' && !(!statementReviewPath(draft, path) && REVIEW_VERDICTS.includes(row?.verdict) && (logic ? advisoryModuleFinding(row) : classifies(path)));
+	return (row, path) => row?.verdict !== 'supported' && !(!statementReviewPath(draft, path) && !pregenInventoryPath(task ?? {}, path) && REVIEW_VERDICTS.includes(row?.verdict) && (logic ? advisoryModuleFinding(row) : classifies(path)));
 }
 
 /**
@@ -430,9 +431,9 @@ function canonical(value: any): string {
 	return JSON.stringify(value);
 }
 /** §192.1, §207.2: a row on a pointer reviewed as written is never advisory, whatever impact it carries. */
-const asWritten = (item: Row, draft: Row): boolean => (Array.isArray(item.paths) ? item.paths : [item.path]).some((path: unknown) => statementReviewPath(draft, path));
+const asWritten = (item: Row, draft: Row, task: Row): boolean => (Array.isArray(item.paths) ? item.paths : [item.path]).some((path: unknown) => statementReviewPath(draft, path) || pregenInventoryPath(task, path));
 function approved(review: Row, guidance: boolean, policy:Row={}, draft: Row={}): boolean {
-	return blockingModuleFindings(review.missing,policy).length === 0 && review.checked.every((item: Row) => item.verdict === 'supported'||moduleLogicReview(policy)&&advisoryModuleFinding(item)&&!asWritten(item,draft))
+	return blockingModuleFindings(review.missing,policy).length === 0 && review.checked.every((item: Row) => item.verdict === 'supported'||moduleLogicReview(policy)&&advisoryModuleFinding(item)&&!asWritten(item,draft,policy))
 		&& (!guidance || moduleGuidanceApproved(review.guidance,policy));
 }
 /**

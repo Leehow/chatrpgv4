@@ -21,6 +21,7 @@ import {validVisualScan,visualCandidates} from './visual-discovery.js';
 import { checkMapScope, checkMapScopeDraft, publishedNodes } from './map-scope.js';
 import { checkPregensScope, checkSheets, PREGENS_MATERIAL } from './pregens.js';
 import { sheetReviewPaths } from './sheet-review.js';
+import { pregenInventoryPath } from './pregens-material.js';
 import type { SourceNeed } from './source-needs.js';
 const object = (value: any): boolean => isJsonObject(value);
 /** The refusal `reject` throws, built without throwing so the staged draft check can collect it (§186.3). */
@@ -347,6 +348,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     const knownKinds = new Map<any, any>(array(packet.known_nodes).map(n => [n.node_id, n.node_kind]));
     if (packet.visual_scan) filled.visual_candidates = candidates;
     if (moduleLogicReview(packet)) filled.review_policy = packet.review_policy;
+    if (packet.material === PREGENS_MATERIAL) filled.material = PREGENS_MATERIAL;
     const count = packet.source.page_count, records = new Stage();
     for (const [i, node] of nodes.entries()) {
         if (!object(node)) {
@@ -603,7 +605,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     }
     if (Object.hasOwn(draft, 'source_needs')) required.add('/source_needs');
     if (opening) required.add('/interaction_scene');
-    if (!skeleton && (filled.ready_nodes.length || packet.source_unit)) required.add('/coverage');
+    if (!skeleton && (filled.ready_nodes.length || packet.source_unit || packet.material === PREGENS_MATERIAL)) required.add('/coverage');
     for (const path of required)
         graph.run(() => pointer(draft, path), { path: pointed.get(path) ?? path, rule: 'review_pointer', value: path });
     for (const [i, claim] of (filled.claims as Row[]).entries()) {
@@ -984,7 +986,7 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
                 continue;
             }
             // §192.1, §199.2: a distinct_from and a person's statements are never a classification and never advisory.
-            if (!statementReviewPath(draft, path) && REVIEW_VERDICTS.includes(item.verdict) && (moduleLogicReview(filled)?advisoryModuleFinding(item):classifies(path))) {
+            if (!statementReviewPath(draft, path) && !pregenInventoryPath(filled, path) && REVIEW_VERDICTS.includes(item.verdict) && (moduleLogicReview(filled)?advisoryModuleFinding(item):classifies(path))) {
                 contested.push({ path, verdict: item.verdict, reason: string(item.reason ?? ''), source_refs: refs,...(item.impact?{impact:item.impact}:{}) });
                 continue;
             }

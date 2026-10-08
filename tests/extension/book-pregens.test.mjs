@@ -157,6 +157,13 @@ test('the actual draft/publication checker owes every numeric pointer; a record-
     impact: 'presentation', source_refs: [{page: 38}], reason: 'The page prints another number.'}], missing: []};
   assert.throws(() => api.checkReview(draft, checked, wrong, 42, seen), /review/);
   const empty = {...draft, nodes: [], ready_nodes: []};
-  api.checkDraft(empty, packet, contract, seen);
+  const absent = api.checkDraft(empty, packet, contract, seen);
+  assert(absent.required_review.includes('/coverage'), 'empty inventory must be independently checked');
+  assert.deepEqual(reviewUnits(empty, absent.required_review, undefined, true), [['/coverage']]);
+  assert.throws(() => api.checkReview(empty, absent, {checked: [], missing: []}, 42, seen), /review/);
+  const absenceReview = {checked: [{path: '/coverage', verdict: 'unsupported', impact: 'presentation', source_refs: [{page: 38}], reason: 'A printed pregen is omitted.'}], missing: []};
+  assert.throws(() => api.checkReview(empty, absent, absenceReview, 42, seen), /review/);
+  assert.equal(gateRefusal(packet, empty)(absenceReview.checked[0], '/coverage'), true);
+  api.checkReview(empty, absent, {checked: [{...absenceReview.checked[0], verdict: 'supported', reason: 'Controlled no-pregen book fixture.'}], missing: []}, 42, seen);
   assert.throws(() => api.checkDraft(draft, packet, contract, new Set([39])), /viewed/);
 });
