@@ -25,6 +25,7 @@ export const COMPILED_ENTRIES = Object.freeze({
   auditSubmit: 'build/extensions/mods/audit-submit.mjs',
   adaptationSubmit: 'build/extensions/kernel/adaptation-submit.mjs',
   layoutSubmit: 'build/extensions/module/layout-submit.mjs',
+  castSubmit: 'build/extensions/module/cast-submit.mjs',
   uiPresentation: 'build/extensions/module/ui-presentation.mjs',
   mapPresentation: 'build/extensions/module/map-presentation.mjs',
 });

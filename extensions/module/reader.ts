@@ -81,8 +81,9 @@ export interface ReaderRequest {
 	 */
 	cacheId?: string;
 	/**
-	 * Files in `cwd` handed to the model as `@file` arguments before the prompt (images become attachments).
-	 * A zero-tool child cannot `read` a picture, so this is how it is given one (contract §155.3).
+	 * Files under `cwd` handed to the model as `@file` arguments before the prompt (images become attachments, text is
+	 * inlined). A zero-tool child cannot `read` a picture, so this is how it is given one (contract §155.3); a child with no
+	 * file tool is shown its inputs this way (§191.2, §177.2). A relative path of plain names, never `..`.
 	 */
 	attachments?: string[];
 	/** Checked guidance/opening artifact submission ends the tool batch without final prose. */
@@ -96,6 +97,11 @@ export interface ReaderRequest {
 	 * what the child submits; the child names no path) and may submit `submissions` layouts.
 	 */
 	layout?: {submissions: number};
+	/**
+	 * Contract §177.2: a cast reader child. It mounts `submit_cast` (the host writes `draft.json` into `cwd` and runs the
+	 * cast check there; the child names no path).
+	 */
+	cast?: boolean;
 	onEvent?: (event: Record<string, any>) => void;
 }
 
@@ -146,7 +152,7 @@ export function readingCacheId(moduleId: string, jobId: string, round: number): 
 }
 
 /** The reader's command line, without the final `brief` argument. */
-export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext, tools?: string, audit = false, adaptation = false, nativeSource = false, sessionId?: string, layout = false): string[] {
+export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext, tools?: string, audit = false, adaptation = false, nativeSource = false, sessionId?: string, layout = false, cast = false): string[] {
 	const root = context?.resourceRoot ?? resourceRootFrom(import.meta.url);
 	const entries = context?.entrypoints ?? runtimeEntrypoints(root);
 	const override = context?.env.PI_COC_READER_CMD?.trim();
@@ -174,12 +180,13 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 		"--extension", entries.readerContext,
 		"--tools",
 		// An empty `tools` (no built-in tool) leaves only the private tools below.
-		[tools ?? [pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : []), ...(nativeSource ? ["request_source"] : [])].join(","), ...(audit ? ['read_audit_evidence', 'submit_audit'] : []), ...(adaptation ? ['submit_adaptation'] : []), ...(layout ? ['submit_layout'] : [])].filter(Boolean).join(','),
+		[tools ?? [pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : []), ...(nativeSource ? ["request_source"] : [])].join(","), ...(audit ? ['read_audit_evidence', 'submit_audit'] : []), ...(adaptation ? ['submit_adaptation'] : []), ...(layout ? ['submit_layout'] : []), ...(cast ? ['submit_cast'] : [])].filter(Boolean).join(','),
 		...(pdf ? ["--extension", entries.readerPdf] : []),
 		...(submission ? ["--extension", entries.readerSubmit] : []),
 		...(audit ? ['--extension', entries.auditSubmit] : []),
 		...(adaptation ? ['--extension', entries.adaptationSubmit] : []),
 		...(layout ? ['--extension', entries.layoutSubmit] : []),
+		...(cast ? ['--extension', entries.castSubmit] : []),
 		"--system-prompt",
 		systemPrompt ?? join(context?.contentRoot ?? join(root, "content"), "setup", "visual-reader.md"),
 		...(model ? ["--model", model] : []),
@@ -310,14 +317,14 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 			throw new Error("A reading cache id is a UUID");
 		if (request.layout && (!Number.isSafeInteger(request.layout.submissions) || request.layout.submissions < 1))
 			throw new Error("A layout child may submit a positive whole number of layouts");
-		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context, request.tools, !!request.audit, !!request.adaptation, nativeSource, request.cacheId, !!request.layout);
+		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context, request.tools, !!request.audit, !!request.adaptation, nativeSource, request.cacheId, !!request.layout, !!request.cast);
 		if (request.providerBudget && context.env.PI_COC_READER_CMD?.trim()) throw new Error("A budgeted reader requires the host Pi launcher and private provider handshake");
 		if ((request.eventLog || request.providerBudget) && !context.env.PI_COC_READER_CMD?.trim()) command.splice(command.length - 1, 0, "--mode", "json");
 		// Without this the file below is read by nobody: pi loads project settings only for a trusted
 		// project, and a print-mode child with no UI answers the trust question "no".
 		if (ownSettings) command.splice(command.length - 1, 0, "--approve");
 		for (const file of request.attachments ?? []) {
-			if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(file)) throw new Error("An attachment is a plain file name inside the working directory");
+			if (!/^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/.test(file)) throw new Error("An attachment is a relative path of plain names inside the working directory");
 			command.splice(command.length - 1, 0, `@${file}`);
 		}
 		command.push(request.brief);
@@ -345,6 +352,8 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 		delete env.PI_COC_ADAPTATION_SUBMIT_ROLE;
 		delete env.PI_COC_ADAPTATION_SUBMIT_DIR;
 	}
+	if (request.cast) env.PI_COC_CAST_SUBMIT_DIR = resolvePath(request.cwd);
+	else delete env.PI_COC_CAST_SUBMIT_DIR;
 	if (request.layout) {
 		env.PI_COC_LAYOUT_SUBMIT_DIR = resolvePath(request.cwd);
 		env.PI_COC_LAYOUT_SUBMISSIONS = String(request.layout.submissions);

@@ -10,6 +10,8 @@ export interface RuntimeEntrypoints {
   readonly uiPresentation: string;
   /** Contract §191.2: the page-transcript layout child's `submit_layout`. */
   readonly layoutSubmit: string;
+  /** Contract §177.2: the cast reader child's `submit_cast`. */
+  readonly castSubmit: string;
   readonly jev: string;
   readonly extensions: readonly string[];
   /** The provider-registering extensions, mounted by the session launcher and by every lane child. */
