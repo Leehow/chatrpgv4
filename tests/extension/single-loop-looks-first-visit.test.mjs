@@ -26,6 +26,7 @@ import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { BIND_FAMILY, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { CARRIED_ANSWERS_HEAD, CARRIED_DOCUMENT, CARRIED_NO_DOCUMENT, CARRIED_PASSAGES_HEAD, CARRIED_PENDING_HEAD, CARRIED_VIEW_BYTES, CARRIED_VIEWS_BYTES, CARRIED_VIEWS_HEAD, carriedSection, readCarriedViews, scenePassages } from "../../runtime/jev/carried-views.ts";
+import { LOCATE_FAMILY } from '../../runtime/jev/semantic-locate.ts';
 import { SOURCE_ANSWER_ALLOWANCE_MS } from "../../extensions/kernel/source-answers.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -161,12 +162,21 @@ function passagesCarried(requests) {
 // The allowance is generous on purpose: these tests are about what the first model step carries, not about the
 // prescreen's budget (SL-22 has its own tests). Under a loaded 12-way test run the 12 s default expired on the second
 // read of the move test (status "fallback"), which said nothing about the carrying.
-async function hybridTable({ route, compile = answered, responses, allowanceMs = "60000", preselect = "1", env = {} }) {
+async function hybridTable({ route, compile = answered, responses, allowanceMs = "60000", preselect = "1", env = {}, locatedScenes = [] }) {
 	const requests = [];
 	const port = { async decide(batch) {
 		if (batch.family === ROUTE_FAMILY) return route(batch);
 		if (batch.family === COMPILE_FAMILY) return compile(batch);
 		if (batch.family === BIND_FAMILY) return answered(batch);
+    if (batch.family === LOCATE_FAMILY && locatedScenes.length) {
+      // This tests carrying a source already located, not scanning every unrelated unit until its read budget ends.
+      const cards = batch.state.cards ?? [];
+      return {batchId: batch.id, status: 'complete', attempts: 1, usage: {inputTokens: 10, outputTokens: 2},
+        coverage: {required: [], answered: [], unknown: []}, issues: [], answers: Object.fromEntries(batch.questions.map(question => {
+          const card = cards.find(card => card.alias === question.target);
+          return [question.key, {status: 'answered', type: 'noul', noul: card?.kind === 'scene' && locatedScenes.includes(card.name) ? 1 : 0}];
+        }))};
+    }
 		return supported(batch);
 	} };
 	const engine = createHybridEngine({ env: { ...process.env, PI_COC_JEV_PRESELECT: preselect, EXT_JEV_APIKEY: "mechanical-test-key",
@@ -184,6 +194,7 @@ const look = (focus) => fauxAssistantMessage([fauxToolCall("look", { focus })], 
 
 test("§135.31.1 at the extension seam: after the clerk's move the Keeper's first model step carries the destination's passages from the prescreen, once, and never the scene the run left", async (t) => {
 	const table = await hybridTable({
+    locatedScenes: ["newspaper-morgue"],
 		compile: (batch) => answered(batch, (question) => question.key === "destination"
 			? Object.entries(question.criteria).find(([, value]) => value?.handle === "newspaper-morgue")?.[0] : undefined),
 		route: (batch) => answered(batch, (question) => question.key === "exit" ? "ask_llm" : undefined),
