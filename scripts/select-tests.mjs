@@ -12,8 +12,9 @@
  *   4. it, or a module it reaches, names a changed data file by its repository path.
  * The smoke set always runs. A changed file this cannot place (a dependency manifest, a build script, a data file no
  * test names and that the product reads at runtime) selects everything: `full: true`.
- * pytest runs whole (`py: true`) when product code or product data changed; tests/kernel and tests/play exercise the
- * emitted kernel and the host as a whole.
+ * The routing loop test (experiments/single-loop-routing/loop.test.mjs) is placed by the same rules.
+ * pytest runs whole (`py: true`) when the change reaches an emitted bundle (tests/kernel and tests/play drive the emitted
+ * kernel and host as a whole), touches Python or the pytest trees, or changes a file a Python test names.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -26,7 +27,7 @@ const args = process.argv.slice(2);
 const flag = name => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 }).trim();
 
-const base = flag('--base') ?? git('merge-base', 'HEAD', '0.9.7a');
+const base = git('rev-parse', flag('--base') ?? git('merge-base', 'HEAD', '0.9.7a'));
 const changed = new Set([
   ...git('diff', '--name-only', `${base}...HEAD`).split('\n'),
   ...git('diff', '--name-only').split('\n'),
@@ -60,7 +61,8 @@ function walk(dir, out = []) {
 
 const modules = CODE_ROOTS.flatMap(dir => walk(dir));
 const moduleSet = new Set(modules);
-const tests = modules.filter(path => path.startsWith('tests/extension/') && path.endsWith('.test.mjs'));
+const LOOP = 'experiments/single-loop-routing/loop.test.mjs';
+const tests = modules.filter(path => (path.startsWith('tests/extension/') && path.endsWith('.test.mjs')) || path === LOOP);
 
 /** A relative specifier to a repository module, the way Node and the TS-ESM sources write them. */
 function resolveSpecifier(from, specifier) {
@@ -155,18 +157,22 @@ for (const test of tests) {
 }
 for (const test of SMOKE) if (existsSync(join(root, test))) select(test, 'smoke');
 
-const product = [...changed].some(path => !INERT.some(rule => rule.test(path)) && !path.startsWith('tests/extension/'));
+/** Python tests build paths from parts (`ROOT / "build" / "kernel" / "rpc.mjs"`), so a file counts as named by its basename. */
+const pyText = git('ls-files', 'tests/*.py').split('\n').filter(Boolean).map(path => readFileSync(join(root, path), 'utf8')).join('\n');
+const py = full || changedBundles.size > 0 || [...changed].some(path => path.endsWith('.py') || path.startsWith('tests/kernel/')
+  || path.startsWith('tests/play/') || (!INERT.some(rule => rule.test(path)) && pyText.includes(path.split('/').pop())));
+const ext = [...reasons.keys()].filter(test => test !== LOOP).sort();
 const result = {
   base, changed: changed.size, full, unplaced,
-  ext: full ? ['tests/extension/**/*.test.mjs'] : [...reasons.keys()].sort(),
-  py: full || product || [...changed].some(path => path.startsWith('tests/kernel/') || path.startsWith('tests/play/')),
-  loop_routing: full || [...changed].some(path => path.startsWith('experiments/single-loop-routing/')) || [...reasons.keys()].some(t => /single-loop/.test(t)),
+  ext: full ? ['tests/extension/**/*.test.mjs'] : ext,
+  py,
+  loop_routing: full || reasons.has(LOOP),
 };
 const explain = flag('--explain');
 if (explain) { console.log(reasons.get(explain) ?? 'not selected'); process.exit(0); }
 if (args.includes('--json')) console.log(JSON.stringify({ ...result, reasons: Object.fromEntries(reasons) }, null, 1));
 else {
-  console.log(`base ${base.slice(0, 9)}  changed ${changed.size}  full ${full}  ext ${full ? 'all' : result.ext.length + '/' + tests.length}  py ${result.py}`);
+  console.log(`base ${base.slice(0, 9)}  changed ${changed.size}  full ${full}  ext ${full ? 'all' : result.ext.length + '/' + (tests.length - 1)}  py ${result.py}  loop ${result.loop_routing}`);
   if (unplaced.length) console.log('unplaced: ' + unplaced.join(', '));
   if (!full) console.log(result.ext.join('\n'));
 }
