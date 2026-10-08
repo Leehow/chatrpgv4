@@ -1,7 +1,8 @@
 /**
  * Contract §194.5 item 2 at the host's real entry: the kernel extension opens the farm's table (`farm-book.mjs`, with a real public
  * figure in its cast) and judges the cast's rows in the background through the product's own Jev adapter, whose `fetch` is
- * answered here; the Keeper's first delivery then says the figure's name and goes out the first time.
+ * answered here, so the verdicts are on disk before the Keeper's first delivery. (The delivery-time path, the gate and the
+ * roster are `two-ledgers-names.test.mjs`'s, on the in-process kernel with the host's hooks.)
  *
  * Real table TR-F2 (Cold Harvest, turn 2): the cast listed Stalin, whom the book names only as the leader in whose name the farm
  * works, and §177.11's gate refused the Keeper's 「以斯大林的名义」.
@@ -13,7 +14,6 @@ import {mkdir, mkdtemp, readFile, rm} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
-import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable} from './harness.mjs';
 import {CAMPAIGN, buildFarm} from './farm-book.mjs';
 
@@ -61,25 +61,23 @@ const until = async (condition, ms = 15_000) => {
 	return false;
 };
 
-test('§194.5: the table opens and its cast is judged in the background; the Keeper\'s first delivery says the public figure\'s name', async t => {
+test('§194.5: the table opens and its cast is judged in the background, before the Keeper delivers anything', async t => {
 	const asked = answerJev(t);
 	let built;
-	const prose = '信里说大家都以斯大林的名义工作。';
 	const table = await openTable({realKernel: true, seedCampaign: false, campaign: CAMPAIGN, env: {EXT_JEV_APIKEY: 'test-jev-key'},
-		prepareWorkspace: async workspace => { built = await prepareFarm(workspace); },
-		responses: [fauxAssistantMessage([fauxToolCall('narrate', {text: prose})], {stopReason: 'toolUse'})]});
+		prepareWorkspace: async workspace => { built = await prepareFarm(workspace); }});
 	t.after(() => table.dispose());
 	const verdicts = join(table.workspace, '.coc', 'modules', built.mid, 'cast-public.json');
 	assert.ok(await until(() => existsSync(verdicts)), `judged in the background at the table's opening: ${JSON.stringify(table.telemetry().filter(row => row.lane === 'public-figures'))}`);
 	const stalin = built.stored.people.find(row => row.book.includes('斯大林'));
 	const kept = JSON.parse(await readFile(verdicts, 'utf8'));
 	assert.equal(kept.rows[stalin.id].public, true);
-	assert.equal(Object.values(kept.rows).filter(row => row.public).length, 1);
+	assert.equal(Object.values(kept.rows).filter(row => row.public).length, 1, 'nobody else');
+	assert.equal(Object.keys(kept.rows).length, built.stored.people.length, 'every row judged');
 	assert.equal(asked.length, 1, 'one request for the whole cast');
-	assert.deepEqual(table.telemetry().filter(row => row.lane === 'public-figures').map(row => [row.event, row.public]), [['judged', 1]]);
-	await table.session.prompt('我读那封信。');
-	const refused = table.telemetry().filter(row => row.reason === 'untold_name' && row.ok === false);
-	assert.deepEqual(refused, [], 'the gate holds nothing');
-	assert.ok(table.committed().some(turn => JSON.stringify(turn).includes('斯大林')), `delivered: ${JSON.stringify(table.committed())}`);
-	assert.equal(asked.length, 1, 'and the delivery asked nothing again');
+	assert.ok(JSON.stringify(asked[0].questions.public_p1).includes('real public figure'), 'the product\'s own question');
+	// The host's telemetry row is written after the verdicts land; the kernel's row beside it.
+	assert.ok(await until(() => table.telemetry().some(row => row.lane === 'public-figures')));
+	assert.deepEqual(table.telemetry().filter(row => row.lane === 'public-figures').map(row => [row.event, row.people, row.public]), [['judged', built.stored.people.length, 1]]);
+	assert.deepEqual(table.telemetry().filter(row => row.lane === 'cast-public').map(row => [row.event, row.written, row.public]), [['submitted', built.stored.people.length, 1]]);
 });
