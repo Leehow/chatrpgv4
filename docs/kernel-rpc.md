@@ -39784,3 +39784,233 @@ rightmost bracket ignored; a character list for the sentence end; no carried sec
 links across kinds; the catalog ignoring paragraphs; chains never offered whole; chains offered whole past the allowance;
 continuation pages not read; located pages ignored; only the request searched; the worker ignoring `paragraphs`; the host
 not passing `located`; the Keeper's provenance without the section; the worker never linking forward.
+
+## 199. The module graph states only what its source states (owner request 2026-10-08 after real table TR-F2 run 2; `docs/specs/graph-grounding.md`; amends §22.3, §151.3/§186.6, §168.5, §176.3 and §194.4)
+
+The Keeper's invention is play; the pipeline's invention is pollution (owner standard 2026-08-13). The Keeper cannot tell a
+fact the book prints from one a reader made up, and since §194.1 the graph is the truth ledger it plays from. So a fact a
+graph node states about a person -- whether they are alive or dead, whose kin they are, their rank, office or trade, and
+what an investigator sees of them on meeting -- is grounded in the page it cites, or it is not written.
+
+### 199.1 Evidence
+
+TR-F2 run 2 (App `4ce2e4cab`, Cold Harvest = `book-2`, campaign `game-565055f1`, library generation 74).
+
+**A false fact in the truth ledger.** `npc-vasili-viktorovich-smolsky` has `summary: "嘉琳娜已故的丈夫。"` ("Galena's late
+husband"). The book prints (p8 and again p34) 「瓦西里曾是嘉琳娜的丈夫，性格温顺……嘉琳娜死后他变得愈发沮丧。」: he *was* her
+husband because *she* is dead; he is alive and central (p21 §6.2). At the table (T12–T13) the Keeper, asked for Galena's
+family, produced a husband 「彼得」 and then 「她丈夫瓦西里已经死了」.
+
+- *Producer.* Reading `read-30` of fork `game-56788eff` (detail, pages 33–34, 2026-10-08 06:51Z): the reader child
+  (openai-codex/gpt-6-luna) wrote the summary from p34's entry, attaching 已故 to the husband. Its `critical` list named
+  Vasili's `agenda` and `fear` (which are right: 「嘉琳娜死后愈发沮丧」), not the summary. Library generation 36 carried it first.
+- *Checks it passed.* (1) The kernel's check required `/nodes/5` under module-logic-v1 (`moduleReviewRoot` folds every
+  pointer to its record). (2) The vision reviewer (same model) answered `/nodes/5` `supported` with the reason "Vasili is
+  Galina's former husband; ... became more depressed after her death": it restated the page correctly and approved a
+  record whose summary says the opposite -- it judged the record, not the sentence. (3) The Jev claim-support check
+  (`shadow`) asked nothing: the draft's one review unit also carried `/coverage`, and `factRecords` skips such a unit
+  (`status: nothing_eligible, records: 0`).
+- *What the correction became.* A later reading of p8 wrote 「嘉琳娜的前夫……」; under module-logic-v1 the published value
+  is kept for a ready node and the reread's value is filed under `source_mappings` (§22.3, "Established campaign values
+  remain canonical"), so the library kept the false summary.
+- *Downstream.* The handle lane (§185.5) reads `name` and `summary` and minted `deceased-husband-of-farm-resident`; the
+  epithet lane worded it 「死在农场的女居民丈夫」 from that handle (199.5).
+
+**Epithets that state secrets or wrong facts.** Reproduced on a clone (`cp -c`) of the App home with the kernel at
+`4ce2e4cab`: `epithets.job` on generation 74 returns the App's first job byte for byte (`job_id` `…:b43142c950b1`).
+
+| word | the person's packet row | where the secret or error came from |
+| --- | --- | --- |
+| 母亲死后躲在炉子里的幼儿 | `{id: "toddler-hiding-in-stove-after-mother-died"}` | the id: the handle, minted from the summary 「三岁男孩；母亲死后躲在炉子里。」 |
+| 国营农场被腐化的家庭成员 | `{id: "corrupted-family-member-from-state-farm"}` | the id; summary 「……被罗伊格尔追随者绑在树上……如今深度腐化」 |
+| 绑在树上腐烂的家庭成员 | `{id: "rotting-family-member-tied-to-tree"}` | the id; same summary |
+| 变异之家的肿胀女主人 | `{id: "swollen-matriarch-of-mutated-household"}` | the id; summary 「已完全受罗伊格尔控制……畸变」 |
+| 受控之家的畸形家长 | `{id: "grotesque-patriarch-of-controlled-family"}` | the id; same summary |
+| 邪教家庭的畸形儿子 | `{id: "misshapen-son-of-cultist-family"}` | the id; same summary |
+| 吹嘘杀过女人的男仆情人 | `{id: "manservant-lover-boasting-of-killing-woman"}` | the id; summary 「……承认杀害嘉琳娜」 |
+| 后背藏触手的躲闪母亲 | `{id: "evasive-mother-hiding-tentacles", looks: <biography>}` | both: the id, and `looks` = `properties.biography` 「罗伊格尔感染了她……后背靠下长有原生质触手……」 |
+| 指挥室桌后的高大上校 | `{id: "captain-at-desk-in-command-room", role, looks: <biography>}` | 高大 from the biography; the rank from the id's English "captain" (the book: 上尉), which the lane rendered 上校 |
+| 戴眼镜、浓密胡须的NKVD医生 for Sofia | `{id: "wife-holding-bedroom-alongside-husband"}`, no looks, no role, next to Timur's `{role: "此预设角色是一名NKVD特派员/医生。", looks: "戴眼镜、浓密胡须……"}` | a person with nothing to word, beside a neighbour: the word is Timur's looks and role; `epithets.submit` checks shape, handle, untold name and taken, never whose word it is |
+
+So §194.4's rule ("never `node.summary`") was bypassed through the id: the lane is shown each person by their handle, and
+the handle is made from the summary. The lane keeps no request or answer files (telemetry only: job 2's first attempt
+wrote 1 and refused 23, Sofia's being the one), so the first answer itself is not recoverable.
+
+### 199.2 A person's statements are reviewed one by one, and a person's summary is read apart from its pages
+
+**Pointers.** For every drafted `npc` node, the kernel's check (`checkSourceDraft`) adds `/nodes/<i>/summary` when the node
+writes a non-empty summary and `/nodes/<i>/properties/appearance` when it writes one, under either review policy, and the
+host's review units owe them the same way (`reviewGroups`). These are *person statements*: never folded into their
+record's root (`moduleReviewRoot`), never classification fields, never advisory -- a verdict other than `supported` refuses
+the reading (`review_unsupported`) whatever `impact` the reviewer gave, exactly as §192.1's `distinct_from`; a review that
+answers only the record's root has not answered them (`review_incomplete`). One predicate, `personStatementPath(draft,
+path)` in `kernel-ts/modules/review-verdicts.ts`, is read by the kernel's `checkReview` and by the host's units, gate
+(`gateRefusal`) and repair decision. The reviewer's instruction (`content/setup/visual-reader/review.md`): compare the
+summary with the page sentence by sentence; for each thing it says of this person's own state (living or dead, kin, rank,
+office, trade) find the page words that say it of this person, reading each modifier for the noun it attaches to; an
+`appearance` that states anything hidden or revealed later is unsupported; wording, emphasis and omission are not failures.
+
+**The pointer alone does not catch TR-F2's error.** Replaying `read-30` live (GG-05 run 1: a `cp -c` clone of the library
+rolled to generation 35, read-30's own retained draft, the reviewer on openai-codex/gpt-6-luna low as the App runs it) with
+the pointer and the instruction in place: the reviewer answered `/nodes/5/summary` `supported` in both verify rounds ("Page
+34 identifies Smolsky as Galina's husband and explicitly says she died; the summary correctly calls him her late husband"),
+the full-repair reader wrote the same summary again, and generation 36 was published with it. The model that writes the
+error reviews it and shares the misreading.
+
+**Asked narrowly and apart, the same model is right.** gpt-6-luna low, one question each, 3 repeats: the sentence
+「嘉琳娜已故的丈夫。」 alone -> Vasili `dead` 3/3; 「嘉琳娜的丈夫；嘉琳娜死后他愈发沮丧。」 alone -> Vasili `alive`, Galena `dead`
+3/3; page 34 alone -> Vasili `alive`, Galena `dead` 3/3.
+
+**The person-state reading** (`extensions/module/person-state.ts`). In every verify round of an opening or detail reading
+whose candidate has a person summary, after the vision units answered, two tool-carrying Pi children (read and write only,
+the reviewer's model and thinking) that never see each other:
+
+- the *statements* reader (`content/setup/person-state-statements.md`) is shown only the summaries and a roster of people
+  (`p1`, `p2`, ... with name and aliases: the statements' subjects, then every other person of the candidate and of
+  `task.known_nodes`), never a page and never an id, and answers `{<statement key>: {<person key>: "dead" | "alive"}}`;
+- the *pages* reader (`content/setup/person-state-pages.md`) is shown only the roster and the native text of the pages
+  those persons cite, never a summary, and answers `{<person key>: "alive" | "dead" | "not_stated"}`.
+
+The host compares: a summary that calls someone `dead` whom the pages do not call dead, or `alive` whom the pages call dead,
+is refused. Only the living state is compared: a closed answer code can compare; kin, rank and role stay with the vision
+reviewer's instruction. Each refused summary becomes one row of the round's review, `{paths: [summary pointer], verdict:
+"unsupported", impact: "logic", reviewer: "person-state", source_refs: <the node's cited pages>, reason: "Person-state
+reading: the summary calls X dead, but the cited pages (p34) say X is alive. Write the summary as the pages state it ... or
+leave the summary out."}`, appended as one more unit of the round (`reviewCandidate`'s `statementCheck`), so `review.json`
+and `review-plan.json` agree and the gate and the targeted repair (§151.2.2) read it as any reviewer's row. The evidence is
+`person-state.json` in the attempt and in `verify-<round>/`, the children work under `person-state-<round>/`. A statement
+whose node cites a page with no native text is not asked; a reader that fails, is late or answers out of shape leaves the
+round to the vision reviewer; telemetry `lane: "reading", event: "person_state"` with `status` (`answered`,
+`nothing_eligible`, `native_text_unavailable`, `reader_failed`, `out_of_shape`), `statements`, `unjudged`, `refused`.
+
+**What the replay shows** (GG-05 run 2, the same clone and draft, the reading wired in): round 1's person-state reading
+recorded `{path: /nodes/5/summary, said: dead, pages: alive}` and the gate refused the round; the targeted repair changed
+another record too and was refused (§151.2.2), so the round's read ran in full and wrote Vasili without a summary; round 2's
+reading found nothing to refuse and generation 36 was published with Vasili's node `{agenda: 性格温顺，希望取悦每个有权有势的人。,
+fear: 嘉琳娜死后愈发沮丧。}` and no death claim. 99 s for the whole job.
+
+### 199.3 Jev does not clear a person
+
+`claimSupportIneligibility` answers `person` for any `npc` node record, so the §151.3 claim check never clears one in `on`
+mode and its rows never stand for a person's statement. Probe (2026-10-08, `jev-1.13.0`, the shipped family-v2 question
+pair, p34 native text, 3 repeats): 「嘉琳娜已故的丈夫。」 `supported` 0.85–0.88 / `contradicted` 0.08–0.10 (it would clear at
+the shipped gate if it reached 0.93); 「瓦西里已经去世。」 `contradicted` 0.74–0.87; the true 「嘉琳娜的丈夫；嘉琳娜死后他愈发沮丧。」
+`supported` 0.92–0.93. Jev reads an explicit death but not a modifier's attachment (its documented "indirect reasoning"
+failure), so it cannot stand for this check.
+
+### 199.4 The first-meeting appearance
+
+- `properties.appearance` on a person is what the investigators see and hear of them when they first meet: how the book
+  says they look, dress and behave on meeting, in the book's words. Never what they hide, what infects or controls them,
+  their crimes, their past or what the book reveals later. Absent when the book describes none. The reader writes it
+  (`content/setup/visual-reader/read.md`); the reviewer checks it as a person statement (199.2).
+- `personAppearance` (what the epithet lane reads) is `appearance`, never `biography` and never the summary.
+  `personDescribed` (§168.5 first sight) is `appearance`, else `biography`, else the summary, as before.
+
+### 199.5 The epithet lane sees one person and no id
+
+- `epithets.job` offers a graph person only when they have `looks` (199.4) or `role` (`relationship_to_investigators`). A
+  person with neither is not offered: nothing grounded says what an investigator sees of them, and a word for them can
+  only be invented (Sofia). An unread cast person keeps §194.4's own page entry.
+- The lane asks the model about **one person per request** (`{role?, looks?}` only, no id, no handle, no other person),
+  at most three requests at once; the answer is `{"word": "..."}` and the lane submits it under that person's id. A
+  handle cannot reach the model, and a word cannot be written for a person other than the one the request was about.
+  `taken` carries every word in use when the request is made; a word the kernel refuses (`taken` or any other reason) is
+  asked again once, alone, with the kernel's refusal.
+- `epithets.submit` refuses a word for a graph person the job would not offer (`no_material`: "this person has no
+  first-meeting material in the graph; no word is written for them").
+- Not done: a semantic check that a word is about its person (the owner's suggestion, Jev Noul "is this word about this
+  person's looks"). Probe (2026-10-08, 2 repeats): Timur's word against Timur 0.95, against Raisa 0.07, but against
+  Aganing 0.53 and 0.36, and Raisa's own word against Raisa 0.48 and 0.45; a per-sentence "first-meeting" filter of
+  biographies kept 2 of 7 visible-look sentences above 0.5. Neither passes a gate; one person per request removes the
+  failure structurally instead.
+
+### 199.6 Limits
+
+- A graph already published keeps what it states until a reading republishes the node: generations 74 and 75 still say
+  Vasili is dead (199.7 counts what the same check finds there). Nothing re-reviews a published node by itself (GG-06).
+- Under module-logic-v1 a reread that disagrees with a ready node's published value is filed as a source mapping, not
+  applied (199.1). A reviewed correction of a person statement should replace it; not changed here (GG-06).
+- The handle lane (§185.5) still words every node from its summary: a person's handle may state a secret (Keeper-facing,
+  shown at the table only for a person with no word, which 199.5 now leaves more often). Not changed here (GG-07).
+- §151.3's `factRecords` skips every record of a unit that also carries `/coverage`; not changed here (GG-08).
+- The person-state reading compares the living state only. A wrong kinship or rank in a summary is the vision reviewer's,
+  which the replay shows can share the author's misreading; a closed comparison for kin is GG-09 (`former_spouse` against
+  `spouse` is where a naive one would refuse true summaries).
+- The pages reader is shown the union of the pages the round's persons cite, not each person's own pages.
+
+### 199.7 The sweep: what the same check finds in Cold Harvest's published graph
+
+`.coc/probe-gg/sweep-person-state.mjs` runs `personStateRows` -- the verify round's own function, with live readers on
+openai-codex/gpt-6-luna low -- over every `npc` node of a published generation (`cp -c` clone; nothing published):
+
+| generation | persons | summaries asked | refused | which |
+| --- | --- | --- | --- | --- |
+| 74 (TR-F2's) | 27 | 27 | 1 | `npc-vasili-viktorovich-smolsky` 「嘉琳娜已故的丈夫。」 (said dead, pages p8/p34 alive) |
+| 74, again | 27 | 27 | 1 | the same |
+| 75 (latest) | 27 | 27 | 1 | the same |
+
+The other death statements were read and held: Galena 「农场居民，已被杀害。」 (dead / pages dead), Nikita 「……承认杀害嘉琳娜。」
+(Galena dead / dead), Beniamin 「三岁男孩；母亲死后躲在炉子里。」 (he alive / alive). On the first run the statements reader also
+read 「嘉琳娜已故的丈夫。」 as calling Galena alive (pages: dead), a second mismatch on the same summary. So one ungrounded
+living-state claim in 27 person summaries, the one the table tripped on. Kin and rank were not swept (199.6).
+
+*Implementation decisions and tests are recorded below per ticket (`docs/specs/graph-grounding.md`).*
+
+*GG-01..GG-05 implementation decisions (2026-10-08).*
+
+- **One predicate, both ends.** `personStatementPath(draft, path)` (`kernel-ts/modules/review-verdicts.ts`, no imports, so
+  host and kernel load the same file) is true for `/nodes/<i>/summary` and `/nodes/<i>/properties/appearance` of an `npc`
+  node of that draft; `statementReviewPath` is it or §192.1's `identityReviewPath`. `checkSourceDraft` owes a statement only
+  when the field is written; `reviewGroups` owes the same pointers structurally, as it owes `map_scope`, so a host whose check
+  returned no `required_review` still asks them. `gateRefusal(task, draft?)` takes the candidate to know which pointers are a
+  person's; without one only `distinct_from` is a statement, as before.
+- **Jev.** `claimSupportIneligibility` answers `person` for any `npc` record (the shipped mode is `shadow`, so no outcome
+  changes today; in `on` a person is never cleared).
+- **Where the reading runs.** `reviewCandidate` takes `statementCheck`, called after every vision unit answered and before
+  `review.json` is written; its rows are one more unit (paths, rows, the cited pages, added to the pages the round viewed),
+  so `review-plan.json`'s per-unit counts still add up to `review.json` and §186.4's carry and §151.2.2's targeted repair read
+  them unchanged. The reading service passes it for opening and detail readings that are not visual scans, assets or map
+  scopes; guidance and answer reviews have no person records.
+- **The readers.** Each runs through the round's own runner (`reviewers.run`, so the reading's provider budget and priority
+  hold), `tools: "read,write"` and no `source` (so no `pdf` tool: the statements reader cannot open a page), the reviewer's
+  model and thinking, 180 s each, both at once. Input `input.json`, answer `readings.json`, under
+  `person-state-<round>/{statements,pages}/`. Pages are the bound file's native text (`sourceText`), the same layer the §151.3
+  claim check reads; a statement whose node cites a page without text is not asked (`unjudged`).
+- **What refuses.** Statement `dead` and pages not `dead`, or statement `alive` and pages `dead`. Omission refuses nothing.
+  The row's reason names the persons and the cited pages, because the targeted author reads it verbatim (§151.2.2).
+- **Epithets.** `firstMeeting(graph, node)` (`kernel-ts/epithets/index.ts`) is the one place that says what the lane is
+  shown of a graph person: `role` and `looks` (appearance, else role). `epithets.job` filters the wanting people by it before
+  the job's 24 are chosen, so a person with nothing never holds a slot; `epithets.submit` refuses `no_material` with the
+  same predicate (`submitEpithets`'s `offered`). The instruction now speaks of "the person below". The lane
+  (`extensions/npc-epithets/index.ts`) answers `{"word": ...}` per request; a refusal for who the person is (`unknown_entity`,
+  `settled`, `no_material`) is not asked again, any other once. The job's telemetry row keeps `people`, `written`,
+  `refused`, and adds `retried` (a count) and `failed`.
+- **Fixtures.** Every test that publishes an `npc` summary through `module.read.finish` with a hand-written review now
+  answers the statement pointers too (`tests/extension/person-statements.mjs` `withPersonStatements`, or the pointer written
+  out); `claim-support.test.mjs`'s uncertain record is a lamp room instead of a keeper (a person is no longer a Jev
+  candidate) and its eligibility test asserts `person`; `mechanics-reader-parent.json`'s three golden results differ from
+  the parent commit only by `/nodes/3/summary` in `required_review` (checked by a script: everything else byte-equal), and
+  were rewritten; `farm-book.mjs`'s clerk carries `appearance` and a biography with a later reveal, and
+  `name-free-egress.test.mjs`'s people carry their looks as `appearance`.
+
+Tests: `tests/extension/graph-grounding.test.mjs` -- on the real kernel over a bound PDF with Cold Harvest's p34 words: the
+checker owes a person's summary and appearance and not a place's; 「嘉琳娜已故的丈夫。」 refused `review_unsupported` though the
+reviewer called it a presentation difference, and `review_incomplete` when only the root is answered (read-30's own review
+row); the page's own statement published; the host keeps the pointers in their own unit, the gate never treats them as
+advisory, the repair is targeted at the summary, `person` for Jev; through the ReadingService, a reviewer that supports the
+false summary (the live verdict) is overruled by the person-state reading, the two readers never see each other or an id,
+the targeted repair corrects the summary and the living husband is published; the comparison's cases.
+`tests/extension/graph-grounding-epithets.test.mjs` -- the farm with Maria (p34 reveal as biography, p8 "how to play" as
+appearance), Dmitri (p33 biography only), Sofia (summary only) and Timur: Maria offered by her appearance and nothing of
+her tentacles, infection or summary reaches the job; Dmitri and Sofia not offered; Timur's word for Sofia refused
+`no_material`, for Timur written; first sight prefers the appearance. `tests/extension/npc-epithets-lane.test.mjs` -- one
+person per request, no id and no other person in any request, each word submitted under its own id, the retry alone with
+the kernel's reason, no retry for `no_material`.
+
+Mutations, each turning a case red and reverted by copying the saved file back: the checker owing no statement; the gate
+treating a statement as advisory; the host folding statements into the record; the host gate advisory; Jev clearing a
+person; the reading not wired into the service; a summary that calls a man dead whom the pages leave silent let through;
+the statements reader shown the pages; the hook dropping its rows; a summary calling a dead woman alive let through;
+`personAppearance` reading the biography; a person with no material offered; a word for one accepted; first sight ignoring
+the appearance; the person's id in the request; every person in one request; `no_material` retried.
