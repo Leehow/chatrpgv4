@@ -2,12 +2,14 @@
  * Contract §191.2, §191.4, §191.6, §191.9: the page-transcript producer.
  *
  * `ensure` queues the pages of one source file that have no record and no live claim; foreground pages are served first
- * among transcript work. Each page is one tools Pi child (`read,write,edit`) on a background reader slot, run with the
- * reading lane's model and thinking at the time of the call, given `page.png` (the existing page render) and `lines.txt`
- * (§191.1's native lines). It writes `layout.md`; the host assembles it (§191.3), runs one repair child for lines the layout
- * left out, and publishes the page under the file's digest. Nothing ever awaits a transcript: `ensure` returns once the
- * pages are queued, never throws into its caller, and a page without a record keeps its native text. A failed page is not
- * tried again by this service; a later session may.
+ * among transcript work. Each page is one Pi child on a background reader slot, run with the reading lane's model and
+ * thinking at the time of the call and shown `page.png` (the existing page render) and `lines.txt` (§191.1's native lines)
+ * as attachments. Its one tool is `submit_layout` (`layout-submit.ts`): the child never names a path, the host writes
+ * `layout.md` and answers with the lines it left out, so a repair happens in the same session. The host assembles the kept
+ * layout again (§191.3) and publishes the page under the file's digest. Nothing ever awaits a transcript: `ensure` returns
+ * once the pages are queued, never throws into its caller, and a page without a record keeps its native text. A failed
+ * page is not tried again by this service; a later session may. A page whose child ran out of time goes to the back of the
+ * queue once (§191.6): a slept-through deadline looks the same as a hung provider.
  */
 import { copyFile, mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -16,7 +18,7 @@ import type { ReaderOutcome } from "./reader.ts";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
 import { createTaskProviderBudget, type TaskProviderBudget } from "../../runtime/jev/provider-budget.ts";
 import { transcriptBudget, type TranscriptBudget } from "../../runtime/jev/host-budgets.ts";
-import { assembleLayout, linesFile, repairFile, TRANSCRIPT_VERSION, type PageAssembly } from "./page-transcript.ts";
+import { assembleLayout, linesFile, TRANSCRIPT_VERSION } from "./page-transcript.ts";
 import { isFileDigest, sha256, TRANSCRIPT_RECORD_SCHEMA, TranscriptRefused, TranscriptStore, type TranscriptRecord, type TranscriptSource } from "./transcript-store.ts";
 import { sourceTextVersion } from "./source.ts";
 
@@ -52,7 +54,8 @@ export interface TranscriptEnsureResult {
 	skipped: number[];
 }
 
-interface Job { key: string; pdf: string; sha: string; page: number; priority: TranscriptPriority }
+/** `children`: layout children started for the page so far, a requeued run's included (they number its work directories). */
+interface Job { key: string; pdf: string; sha: string; page: number; priority: TranscriptPriority; children: number }
 interface NativePage { page: number; pdf_label: string | null; native_sha256: string; lines: string[]; extraction_version: string }
 interface Usage { inputTokens: number; outputTokens: number; costUsd: number; actions: number; unknownCalls: number }
 
@@ -71,12 +74,12 @@ const CHILD_COST_USD = 10;
 const CHILD_ACTIONS = 16;
 const CLOSE_WAIT_MS = 10_000;
 
-/** The brief names the work directory's absolute paths: a child once wrote its layout to a path it made up (TR-C). */
-const firstBrief = (dir: string) => `Lay out this page: read ${join(dir, "page.png")} and ${join(dir, "lines.txt")}, then write ${join(dir, "layout.md")} `
-	+ "as your instructions say. Write exactly that path.";
-const repairBrief = (dir: string) => `Repair this page's layout: read ${join(dir, "repair.txt")}, ${join(dir, "layout.md")}, ${join(dir, "lines.txt")} and `
-	+ `${join(dir, "page.png")}, then edit ${join(dir, "layout.md")} so that every line repair.txt lists is placed where it belongs or added `
-	+ "to the drop list. Keep the rest of layout.md as it is.";
+/**
+ * §191.2: the brief names no path. A child given paths to write once wrote its layout to paths it retyped wrong (TR-C);
+ * now the host decides where the layout goes and the child only submits it.
+ */
+const BRIEF = "Lay out this page. The rendered page and its numbered text-layer lines are attached above. "
+	+ "Submit the whole layout with submit_layout, as your instructions say.";
 /** While the queue yields to a foreground reading or cools down, it looks again this often. */
 const YIELD_POLL_MS = 2_000;
 /** A Pi auto-retry whose provider error carries HTTP status 429. */
@@ -94,6 +97,8 @@ export class TranscriptService {
 	private readonly known = new Map<string, TranscriptSource>();
 	/** §191.4: a failed page is not tried again by this service. */
 	private readonly failed = new Set<string>();
+	/** §191.6: pages already sent back once because their child ran out of time; a second time fails them. */
+	private readonly timedOut = new Set<string>();
 	private readonly native = new Map<string, Promise<NativePage | undefined>>();
 	private readonly waiters: Array<() => void> = [];
 	private running = 0;
@@ -143,7 +148,7 @@ export class TranscriptService {
 				const queued = this.active.get(key);
 				if (queued && priority === "foreground") queued.priority = "foreground";
 				if (elsewhere || queued || this.closed) { result.skipped.push(page); continue; }
-				const job: Job = {key, pdf: request.pdf, sha, page, priority};
+				const job: Job = {key, pdf: request.pdf, sha, page, priority, children: 0};
 				this.active.set(key, job);
 				this.queue.push(job);
 				result.queued.push(page);
@@ -192,11 +197,15 @@ export class TranscriptService {
 			const foreground = this.queue.findIndex(job => job.priority === "foreground");
 			const [job] = this.queue.splice(foreground >= 0 ? foreground : 0, 1);
 			this.running++;
-			void this.make(runtime, budget, job).catch(error => this.note({event: "page", file_sha256: job.sha, page: job.page, outcome: "failed", message: message(error)}))
+			let again = false;
+			void this.make(runtime, budget, job).then(next => { again = next === "requeue"; })
+				.catch(error => this.note({event: "page", file_sha256: job.sha, page: job.page, outcome: "failed", message: message(error)}))
 				.finally(() => {
 					this.running--;
-					this.active.delete(job.key);
 					this.native.delete(job.key);
+					// §191.6: a page whose child ran out of time goes to the back of the queue once, still in its class.
+					if (again && !this.closed) this.queue.push(job);
+					else this.active.delete(job.key);
 					this.pump(runtime, budget);
 					this.wake();
 				});
@@ -253,22 +262,25 @@ export class TranscriptService {
 		return this.native.get(job.key)!;
 	}
 
-	/** §191.2's child lease: its own, sized by the budget, never a reading job's. */
-	private lease(budget: TranscriptBudget, model: TranscriptModel): {budget: TaskProviderBudget; close(): void} {
+	/** §191.2's child lease: its own, sized by the budget, never a reading job's. `expired`: it ended on its deadline. */
+	private lease(budget: TranscriptBudget, model: TranscriptModel): {budget: TaskProviderBudget; expired(): boolean; close(): void} {
 		const window = Number.isSafeInteger(model.contextWindow) && (model.contextWindow as number) > 0 ? model.contextWindow as number : UNKNOWN_CONTEXT_WINDOW;
 		const lease = new TaskLease({owner: "page-transcript", goal: "Lay out one page of a source PDF", scope: {owner: "page-transcript", audience: "system"},
 			capabilities: [], readSet: [], signal: this.controller.signal,
 			budget: {deadlineAt: Date.now() + budget.timeoutMs, remainingInputTokens: window + budget.inputTokens,
 				remainingOutputTokens: OUTPUT_RESERVATION_ROOM + budget.outputTokens, remainingCostUsd: CHILD_COST_USD, remainingActions: CHILD_ACTIONS}});
-		return {budget: createTaskProviderBudget(lease, {callOutputTokens: budget.outputTokens}), close: () => lease.close()};
+		return {budget: createTaskProviderBudget(lease, {callOutputTokens: budget.outputTokens}), close: () => lease.close(),
+			expired: () => lease.signal.aborted && (lease.signal.reason as {code?: unknown} | undefined)?.code === "task_deadline"};
 	}
 
-	private async make(runtime: TranscriptRuntime, budget: TranscriptBudget, job: Job): Promise<void> {
+	/** One run of a page: `"requeue"` when it should go to the back of the queue (§191.6). */
+	private async make(runtime: TranscriptRuntime, budget: TranscriptBudget, job: Job): Promise<"requeue" | void> {
 		const started = Date.now(), signal = this.controller.signal, store = this.store(runtime);
 		const model = this.deps.model();
 		const usage: Usage = {inputTokens: 0, outputTokens: 0, costUsd: 0, actions: 0, unknownCalls: 0};
-		let attempts = 0, lineCount = 0;
-		const page = (outcome: string, fields: Row = {}) => this.note({event: "page", file_sha256: job.sha, page: job.page, outcome, attempts, lines: lineCount,
+		// `attempts` counts this run's children; rows and records carry the page's, a requeued run's included.
+		let attempts = 0, submissions = 0, lineCount = 0, outOfTime = false;
+		const page = (outcome: string, fields: Row = {}) => this.note({event: "page", file_sha256: job.sha, page: job.page, outcome, attempts: job.children, submissions, lines: lineCount,
 			placed: 0, dropped: 0, unplaced: 0, free_removed: 0, image_text_chars: 0, model: model.id || null, thinking: model.thinking ?? null,
 			ms: Date.now() - started, usage, ...fields});
 		if (!model.vision) { this.failed.add(job.key); page("no_vision"); return; }
@@ -285,52 +297,54 @@ export class TranscriptService {
 			lineCount = native.lines.length;
 			const rendered = await runtime.sourcePage({pdf: job.pdf, cache: store.renderCache(job.sha, job.page), page: job.page}, signal);
 			const image = String((rendered as Row).path ?? "");
-			const child = async (previous?: {layout: string; assembly: PageAssembly}): Promise<string | undefined> => {
+			// One child per page: it submits its layout and repairs it in the same session (§191.2, `1 + repair_attempts`
+			// submissions). The host writes the inputs; the child's only output is what it hands `submit_layout`.
+			const child = async (): Promise<string | undefined> => {
 				attempts++;
-				const dir = store.workDir(job.sha, job.page, attempts);
+				job.children++;
+				// Numbered across runs: a requeued run never replaces the timed-out run's evidence.
+				const dir = store.workDir(job.sha, job.page, job.children);
 				workDirs.push(dir);
 				// We hold the claim: whatever an earlier producer left at this attempt is ours to replace.
 				await rm(dir, {recursive: true, force: true});
 				await mkdir(dir, {recursive: true});
 				await copyFile(image, join(dir, "page.png"));
 				await writeFile(join(dir, "lines.txt"), linesFile(native.lines));
-				if (previous) {
-					await writeFile(join(dir, "layout.md"), previous.layout);
-					await writeFile(join(dir, "repair.txt"), repairFile(previous.assembly.unplaced, native.lines));
-				}
+				await writeFile(join(dir, "lines.json"), JSON.stringify(native.lines));
 				const lease = this.lease(budget, model);
-				let outcome: ReaderOutcome;
+				let outcome: ReaderOutcome, expired = false;
 				try {
-					outcome = await runtime.runTask({kind: "reader", request: {cwd: dir, brief: previous ? repairBrief(dir) : firstBrief(dir),
+					outcome = await runtime.runTask({kind: "reader", request: {cwd: dir, brief: BRIEF,
 						...(model.id ? {model: model.id} : {}), ...(model.thinking ? {thinking: model.thinking} : {}), priority: "background",
-						systemPrompt: join(runtime.contentRoot, "setup", "page-transcript.md"), tools: "read,write,edit",
+						systemPrompt: join(runtime.contentRoot, "setup", "page-transcript.md"), tools: "", attachments: ["page.png", "lines.txt"],
+						layout: {submissions: 1 + budget.repairAttempts},
 						timeoutMs: budget.timeoutMs, eventLog: join(dir, "run.jsonl"), providerBudget: lease.budget}}, signal);
-				} finally { lease.close(); }
+				} finally { expired = lease.expired(); lease.close(); }
+				// The lease opens before the child starts, so its deadline usually fires before the reader's own timer.
+				outOfTime = outcome.timedOut || expired;
 				for (const key of ["inputTokens", "outputTokens", "costUsd", "actions", "unknownCalls"] as const) usage[key] += outcome.usage?.[key] ?? 0;
 				await this.rateLimited(join(dir, "run.jsonl"), budget, job);
-				// The child is done when it exits; what it left in layout.md is read whatever its exit.
+				submissions += await submissionCount(dir);
+				// The child is done when it exits; the layout the host kept for it is read whatever its exit.
 				return readFile(join(dir, "layout.md"), "utf8").catch(() => undefined);
 			};
-			// A first child that leaves no layout gets one fresh child, counted against `repair_attempts` (TR-C: a 429 or a
-			// layout written elsewhere left none).
-			let first = await child();
+			// A child that submits no layout gets one fresh child when `repair_attempts` allows (TR-C: a 429 left none).
+			let layout = await child();
 			if (signal.aborted) return;
-			let fresh = 0;
-			if (first === undefined && budget.repairAttempts > 0) { fresh = 1; first = await child(); if (signal.aborted) return; }
-			if (first === undefined) { this.failed.add(job.key); page("failed", {reason: "no_layout"}); return; }
-			let best = {layout: first, assembly: assembleLayout(first, native.lines)};
-			for (let repair = fresh; repair < budget.repairAttempts && best.assembly.unplaced.length; repair++) {
-				const layout = await child(best);
-				if (signal.aborted) return;
-				if (layout === undefined) continue;
-				const assembly = assembleLayout(layout, native.lines);
-				if (assembly.unplaced.length <= best.assembly.unplaced.length) best = {layout, assembly};
+			if (layout === undefined && budget.repairAttempts > 0) { layout = await child(); if (signal.aborted) return; }
+			if (layout === undefined) {
+				// §191.6: a child that ran out of time sends the page back once; a second time it fails.
+				if (outOfTime && !this.timedOut.has(job.key)) { this.timedOut.add(job.key); page("requeued", {reason: "timeout"}); return "requeue"; }
+				this.failed.add(job.key);
+				page("failed", {reason: outOfTime ? "timeout" : "no_layout"});
+				return;
 			}
-			const {assembly} = best;
+			// The submission tool's findings were help for the model; the host assembles the kept layout itself.
+			const assembly = assembleLayout(layout, native.lines);
 			const record: TranscriptRecord = {schema: TRANSCRIPT_RECORD_SCHEMA, transcript_version: TRANSCRIPT_VERSION, file_sha256: job.sha, page: job.page,
 				pdf_label: native.pdf_label ?? null, native: {extraction_version: native.extraction_version, text_sha256: native.native_sha256, line_count: native.lines.length},
 				text: assembly.text, text_sha256: sha256(assembly.text), markdown: assembly.markdown, image_text: assembly.image_text, figures: assembly.figures,
-				dropped: assembly.dropped, unplaced: assembly.unplaced, free_removed: assembly.free_removed, attempts,
+				dropped: assembly.dropped, unplaced: assembly.unplaced, free_removed: assembly.free_removed, attempts: job.children,
 				model: model.id || null, thinking: model.thinking ?? null, at: new Date().toISOString()};
 			const counts = {placed: assembly.order.length, dropped: assembly.dropped.length, unplaced: assembly.unplaced.length,
 				free_removed: assembly.free_removed, ignored: assembly.ignored, mapped: assembly.mapped,
@@ -338,7 +352,7 @@ export class TranscriptService {
 			try {
 				const stored = await store.put(record, native.lines);
 				this.known.set(job.key, "home");
-				page(assembly.unplaced.length ? "unplaced" : attempts > 1 ? "repaired" : "stored", {...counts, ...(stored === "exists" ? {already: true} : {})});
+				page(assembly.unplaced.length ? "unplaced" : attempts > 1 || submissions > 1 ? "repaired" : "stored", {...counts, ...(stored === "exists" ? {already: true} : {})});
 			} catch (error) {
 				if (!(error instanceof TranscriptRefused)) throw error;
 				this.failed.add(job.key);
@@ -355,6 +369,18 @@ export class TranscriptService {
 			for (const dir of workDirs) await unlink(join(dir, "page.png")).catch(() => undefined);
 		}
 	}
+}
+
+/** §191.2: the layouts a child submitted, from the rows `submit_layout` appends (a call without a layout does not count). */
+async function submissionCount(dir: string): Promise<number> {
+	let text = "";
+	try { text = await readFile(join(dir, "submissions.jsonl"), "utf8"); } catch { return 0; }
+	let count = 0;
+	for (const line of text.split("\n")) {
+		if (!line.trim()) continue;
+		try { if (Number.isSafeInteger(JSON.parse(line).submission)) count++; } catch { /* a torn row is not a submission */ }
+	}
+	return count;
 }
 
 /** §191.4: a claim older than every attempt's wall clock plus a minute belongs to a producer that is gone. */

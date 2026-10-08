@@ -37907,18 +37907,41 @@ split at `"\n"` with whitespace-only entries removed, each kept byte for byte; `
 
 ### 191.2 The layout child
 
-- **Who.** A reader child (`runTask({kind: "reader"})`, §22, `extensions/module/reader.ts`) with `tools: "read,write,edit"`,
-  no `source` guard beyond its own work directory, system prompt `content/setup/page-transcript.md` (English), the model
-  and thinking of `ReadingService`'s `deps.model()` at the time of the call. A model whose registry entry has no image
-  input transcribes nothing (`outcome: "no_vision"`); the page keeps its native text.
-- **Inputs** in the work directory `<store>/work/p<NNNN>-<attempt>/`: `page.png` from the existing page render
-  (`sourcePage`, full page, the reader's default size) and `lines.txt` (`L<n>: <line>` per line, 1-based; or one line
-  `(this page has no text layer)`). A repair attempt adds `repair.txt` naming the line numbers the previous layout left
-  out.
-- **Output** `layout.md`, the grammar of 191.3. The child is done when it exits; the host reads the file.
+- **Who.** A reader child (`runTask({kind: "reader"})`, §22, `extensions/module/reader.ts`) whose one tool is the private
+  `submit_layout` -- no `read`, `write`, `edit` or `bash` -- system prompt `content/setup/page-transcript.md` (English),
+  the model and thinking of `ReadingService`'s `deps.model()` at the time of the call. A model whose registry entry has
+  no image input transcribes nothing (`outcome: "no_vision"`); the page keeps its native text.
+- **The host decides where the layout goes** (*amended 2026-10-07 after TR-C*; owner: 「那说明工具设计有问题啊，工具层面就不能让agent自己决定写到哪里，应该由系统来决定」).
+  The first design gave the child `read,write,edit` and asked it to write `layout.md`; nothing confined the path. On the
+  first real table eleven layouts went to paths the model retyped wrong -- a leading space (`" .coc/"`), `._coc/`, an
+  escaped `.coc`, a bare digest, a truncation to `…/` -- relative to wherever the process stood (the worktree root on
+  the table; the player's home in the App). Most pages recovered by writing again, one failed twice. A guard that refuses
+  a wrong path still costs a turn per garbled path, so the path is taken out of the model's hands instead: the child has
+  no file tool, and it hands its layout to the host, which writes it. It is still a tools Pi agent in the sense of
+  Agents.md (a multi-turn loop whose answer travels as a tool argument and is checked by the host before it ends), not a
+  single completion: a layout is placeholders, a few kilobytes, far below the one-message ceiling that rule exists for.
+- **Inputs** in the work directory `<store>/work/p<NNNN>-<attempt>/`, all written by the host: `page.png` from the existing
+  page render (`sourcePage`, full page, the reader's default size) and `lines.txt` (`L<n>: <line>` per line, 1-based; or
+  one line `(this page has no text layer)`), both handed to the child as `@file` attachments (`ReaderRequest.attachments`:
+  the image as an image, the lines inlined as text), so it needs no tool to see them; and `lines.json` (the native lines
+  as a JSON array), the tool's own copy, never shown to the model. The brief names no path.
+- **Output.** `submit_layout {layout: string}` (`extensions/module/layout-submit.ts`, mounted by
+  `ReaderRequest.layout: {submissions}` and bound to the work directory by `PI_COC_LAYOUT_SUBMIT_DIR`), the grammar of
+  191.3. Each call is assembled at once with 191.3's own `assembleLayout` against `lines.json`, and the same call answers
+  with the findings: the lines neither placed nor dropped (each as `L<n>: <line>`), how many placeholder numbers were out
+  of range, how many typed pieces matched no line and were removed. The host writes `layout.md` -- the submission with
+  the fewest unplaced lines so far, a later one on a tie -- and appends one row per call to `submissions.jsonl`
+  (`{submission, unplaced, ignored, free_removed, kept}`, or `{invalid: true}` for a call without a layout, which does not
+  count). A submission that places or drops every line, or the last of `1 + repair_attempts`, ends the child
+  (`terminate`); otherwise the child corrects the layout and submits it whole again in the same session, the page still
+  in its context. A child that stops without a submission, or with lines left out and a submission to spare, is reminded
+  once (a `followUp`, SL-00) -- judged only on a run whose model answered, never on one that ended on a provider error. When the child exits the host reads `layout.md` and assembles it again itself; the findings
+  help the model and decide nothing -- the store's permutation check (191.3) stays the last gate before a record is
+  written.
 - **Budget** (data, `content/rulesets/coc7/host-budgets.json` `transcript`, read by `runtime/jev/host-budgets.ts` with
   coded fallbacks): `mode` (`on` | `off`, shipped `on`), `concurrency` (1; *amended 2026-10-07 after TR-C from 3*), `timeout_ms` (240000), `input_tokens`
-  (96000), `output_tokens` (16384), `repair_attempts` (1), `max_window_pages` (120), `cooldown_ms` (60000). The child's provider lease is its own
+  (96000), `output_tokens` (16384), `repair_attempts` (1: the resubmissions one child may make after its first, and
+  whether a child that leaves no layout gets one fresh child), `max_window_pages` (120), `cooldown_ms` (60000). The child's provider lease is its own
   (`independentProviderBudget`-shaped, sized by these numbers); it never draws on a reading job's lease.
 - **Slots.** Transcript children take background reader slots (`acquireReaderSlot`, priority `background`); a foreground
   request (191.6) is served first among transcript work but never preempts a reading job.
@@ -37933,8 +37956,10 @@ split at `"\n"` with whitespace-only entries removed, each kept byte for byte; `
   after NFKC with whitespace removed: equal to an unplaced line → that line is placed there; equal to a placed line →
   removed; otherwise removed and counted (`free_removed`). A line placed twice keeps its first place. A line both placed
   and dropped is placed. Numbers outside `1..line_count` are ignored and counted.
-- **Repair.** Lines neither placed nor dropped after normalization start one repair child (`repair_attempts`) with
-  `repair.txt`; after the last attempt they are appended in native order in a final block and listed as `unplaced`.
+- **Repair.** Lines neither placed nor dropped after normalization are named back to the child by `submit_layout`,
+  which may submit again in the same session (191.2; *amended 2026-10-07*: this replaces the separate repair child,
+  which was handed `repair.txt` and the earlier `layout.md` and sent the page image again); after the last submission
+  they are appended in native order in a final block and listed as `unplaced`.
 - **Products.**
   - `text` -- the exact layer: every native line exactly once, placed lines in layout order (a run's lines separated by
     `"\n"`, runs and blocks by `"\n\n"`), then `unplaced`, then dropped lines in native order. **Invariant:** the multiset
@@ -37958,7 +37983,8 @@ split at `"\n"` with whitespace-only entries removed, each kept byte for byte; `
 - **One producer.** `page-<NNNN>.claim` created exclusively (`O_EXCL`) holds `{pid, at}`; a claim older than
   `timeout_ms * (repair_attempts + 1) + 60000` is stale and may be taken. A loser waits for nothing: it reads native text.
 - **Failure.** A failed page (child error, invariant refusal, no vision) writes no record; the same process does not
-  retry it within the session; a later process may.
+  retry it within the session; a later process may. The one exception is a page whose child ran out of time, which goes
+  back to the queue once (191.6).
 - **Seeds.** Before the home store, `<content>/source-transcripts/<file_sha256>/page-<NNNN>.json` is read through
   (read-only, same record schema). Nothing is copied into home.
 
@@ -37989,8 +38015,24 @@ real table three children at a time drew the provider's rate limit (429) onto th
 onto the reading a turn was waiting for (one turn waited 331 s). So: no new child starts while a turn of this host waits
 on a foreground reading (`ReadingService.foregroundWaiting()`, handed to the service as `yieldTo`); a child whose event
 log shows a provider retry with status 429 stops new children for `cooldown_ms` (telemetry `event: "cooldown"`); one
-child at a time by default. The brief names the work directory's absolute paths (a child once wrote its layout to a
-path it made up), and a first child that leaves no `layout.md` gets one fresh child counted against `repair_attempts`.
+child at a time by default. A first child that leaves no `layout.md` (it never submitted) gets one fresh child when
+`repair_attempts` is above 0. (The brief briefly named the work directory's absolute paths after a child wrote its layout
+to a path it made up; since 191.2's submission tool the child names no path at all.)
+
+**A page that ran out of time goes back once (amended 2026-10-07; owner: 「按你建议的改，超时的页回队尾重排一次」).** On
+TR-D one page failed `no_layout` for the rest of the session because the Mac slept with its lid closed for 22 minutes:
+the host's timers count through sleep, so both children's deadlines fired at the first wake, and a slept-through
+deadline cannot be told from a hung provider. Players close their lids mid-session, and a failed page leaves the Keeper
+reading drawing-order native text until the next session. So when a page ends with no layout and the child that left
+none ran out of time -- the reader's own timeout (`ReaderOutcome.timedOut`) or its lease's deadline (`task_deadline`),
+whichever fired first; the lease opens before the child starts, so its deadline usually does -- the page is not failed
+the first time: its claim is released, it is written `event: "page", outcome: "requeued", reason: "timeout"`, and it goes
+to the back of the queue, still in its priority class (foreground before background). When it runs again it claims the
+page again (191.4), and the yield, the cooldown and the immediate fresh child apply to it as to any other run. The second
+time the same page runs out of time in the same `TranscriptService` it fails as before, with `reason: "timeout"` instead
+of `no_layout`; nothing else changes (a child error, a refusal or a layout-less exit that did not run out of time fails
+as before). The work directories of the requeued run continue the page's attempt numbers, so the timed-out run's
+evidence is kept. `staleClaimMs` bounds one run, as before: a requeue releases its claim and the next run takes a new one.
 
 ### 191.7 Readers
 
@@ -38020,8 +38062,11 @@ ships the PDF (2026-09-24); no other page of the book is shipped. Packaging copi
 ### 191.9 Telemetry
 
 `lane: "transcript"` rows: `event: "page"` with `{file_sha256, page, outcome: "stored" | "repaired" | "unplaced" |
-"failed" | "no_vision" | "refused", attempts, lines, placed, dropped, unplaced, free_removed, image_text_chars, model,
-thinking, ms, usage}`; `event: "reused"` `{file_sha256, pages, source: "home" | "seed"}` once per `ensure` that found
+"failed" | "no_vision" | "refused" | "requeued", attempts, submissions, lines, placed, dropped, unplaced, free_removed,
+image_text_chars, model, thinking, ms, usage}` (`attempts`: children started for the page in this service, a requeued
+run's included; `submissions`: layouts this run's children submitted, from `submissions.jsonl`; `repaired` when the kept
+layout needed a second submission or a fresh child in its run; `requeued` and a second running out of time carry
+`reason: "timeout"`, 191.6); `event: "reused"` `{file_sha256, pages, source: "home" | "seed"}` once per `ensure` that found
 records; `event: "window"` `{file_sha256, ranges, queued}` when the window's transcript ranges change.
 
 ### 191.10 Three ends (§31)
@@ -38080,13 +38125,14 @@ uses yet (PT-03). Decisions:
   bullet, ordered number) and emphasis markers (`* _ ~` and backtick) around the words are structure and stay; the words
   between them are what is compared, mapped or removed. A Markdown line left without words by a removal is dropped.
 - **Run join:** no space is added when either side of the join already is whitespace.
-- **Repair:** the repair child's directory holds the previous `layout.md` to edit and `repair.txt` (`L<n>: <line>` per
-  missing line); the attempt with the fewest unplaced lines is kept (a later one on a tie). A first child that leaves no
+- **Repair** (*superseded 2026-10-07 by 191.2's `submit_layout`; see the TR-C fix below*): the repair child's directory
+  held the previous `layout.md` to edit and `repair.txt` (`L<n>: <line>` per missing line); the attempt with the fewest
+  unplaced lines was kept (a later one on a tie). A first child that leaves no
   `layout.md` fails the page (`reason: "no_layout"`); a layout left by a child that exited non-zero is still read.
 - **Lines** are extracted with the other queued pages of the same file, at most 32 a `sourceLines` call; a refused batch is
   retried page by page. `no_vision` is decided from `model()` when the page's job starts.
 - **Disk:** the page render goes to `<store>/cache/page-<NNNN>/` and is removed with the work directories' `page.png`
-  copies when the page finishes; `layout.md`, `lines.txt`, `repair.txt` and `run.jsonl` stay. A work directory of the same
+  copies when the page finishes; `layout.md`, `lines.txt`, `lines.json`, `submissions.jsonl` and `run.jsonl` stay. A work directory of the same
   attempt number left by an earlier producer is replaced by the claim holder.
 - **Telemetry** rows carry two fields beyond 191.9: `ignored` and `mapped`. The `window` event belongs to the read-ahead
   that knows the ranges (PT-03). `ensure` answers `{state, queued, reused: {home, seed}, skipped}`; `idle()` and `close()`
@@ -38165,6 +38211,79 @@ Decisions:
   existing caches stay valid): a page that gains one is ranked again. Trace rows gain `transcript_pages` and
   `searched_transcript_pages`.
 - **SL-00.** The layout child's inventory entry moves from `no-caller` to `app-play`.
+
+*TR-C fix (2026-10-07, the layout child names no path).* Code: `extensions/module/layout-submit.ts` (`submit_layout`,
+new), `layoutFindings` in `extensions/module/page-transcript.ts` (replaces `repairFile`), `ReaderRequest.layout` and
+`readerCommand`'s `layout` in `extensions/module/reader.ts`, the `layoutSubmit` entry in `runtime/deployment.mjs` /
+`.d.mts` and `pipicoc/runtime-dependencies.json`, `TranscriptService.make` in `extensions/module/transcript-service.ts`,
+`content/setup/page-transcript.md`, and the SL-00 inventory (the tool's once-per-child `followUp` is a new child-process
+driver). Decisions:
+
+- **No path guard.** The child runs with `tools: ""` (no built-in tool) plus the private tool, so Pi's own `--tools`
+  allowlist is the confinement: a call to `write` or `read` is answered `Tool <name> not found` and touches nothing. The
+  reader-context tool guard (`createReaderToolGuard`) still binds only `source` readers and is unchanged. The page image
+  and the lines arrive as `@file` attachments, which Pi processes as its `read` tool would (the image resized the same
+  way, the text inlined in a `<file>` block).
+- **`lines.json`** exists because the tool assembles against the native lines byte for byte; `lines.txt` is the model's
+  numbered view and is never parsed back.
+- **The kept layout** is the submission with the fewest unplaced lines, a later one on a tie: the rule the repair child
+  had across children, now across one child's submissions. A whole layout or the last allowed submission returns
+  `terminate`; a call after the last answers that nothing is left and terminates; a call without a non-empty `layout` is
+  an error result, logged `{invalid: true}`, and does not count.
+- **The reminder** is the adaptation submission's precedent: one `followUp` per child, only when the child stopped with no
+  layout or with lines left out and a submission to spare -- and only on a run whose last assistant message did not end in
+  `error` or `aborted`. Pi ends a run on a provider error before its auto-retry and tells extensions nothing of it
+  (`agent_end` reaches an extension as `{messages}`; `willRetry` goes to session listeners only), so a reminder queued then
+  started a turn after the retried run had already submitted a whole layout: on TR-D (17 TR-B pages, the lead's live probe
+  of this branch) five pages whose provider first answered "overloaded" or "Connection error" were submitted twice,
+  labelled `repaired`, at about three times the input tokens. The run after a successful retry ends again and is judged
+  then; a provider that never recovers leaves no layout, the fresh child's case. The adaptation submission's reminder
+  has the same shape and is not changed here.
+- **Counting.** `attempts` (record and telemetry) still counts children; telemetry adds `submissions` (the rows of
+  `submissions.jsonl` with a submission number); `repaired` = more than one child or more than one submission.
+  `staleClaimMs` is unchanged: a page starts at most two children, within `repair_attempts + 1` timeouts.
+- **Unchanged:** one child at a time, `yieldTo`, the 429 cooldown read from the child's `run.jsonl`, the child's lease and
+  slot, the host's own assembly of the kept layout and the store's permutation refusal.
+
+Tests: `tests/extension/layout-submit.test.mjs` -- the tool driven directly (the kept layout, the finding with each left-out
+line's text, a worse submission not kept, the reminder once, the last submission terminating, the invalid call not
+counted, no reminder on a run that ended in a provider error or an abort) and the real entry: `TranscriptService` with the
+host's own `runTask` (`runtime/tasks.ts`), a vendored Pi child
+with the emitted extensions, against a local Responses endpoint scripted as a model that first calls `write` on a path it
+made up and submits a layout missing line 4, then resubmits with exactly the lines the host's answer named: the child is
+offered `submit_layout` alone, the `write` is answered `Tool write not found` and nothing appears at that path, the
+repair happens in the same child (two provider calls, `attempts` 1, `submissions` 2, `repaired`), and `layout.md` is the
+host-written layout; and an endpoint that answers 503 once and then a whole layout: one submission, two provider calls,
+`stored`. `tests/extension/page-transcript.test.mjs` -- the request shape (`tools: ""`, `layout`, the two
+attachments, `lines.json`), a brief naming no path, no second child for unplaced lines, `repaired` after a second
+submission, and the host's own assembly of a layout the tool never vetted. Mutations, each killed: the old
+`read,write,edit` request without the tool; file tools beside the tool; the extension not mounted; a path in the brief;
+findings withheld (in the source and, for the real child, in the emitted bundle); no reminder; a worse layout replacing a
+better one; submissions not counted; the reminder armed on an error-ended run (in the source, and in the emitted bundle,
+where the real child reproduces TR-D: `repaired`, two submissions).
+
+*Timeout requeue (2026-10-07, 191.6).* Code: `TranscriptService` in `extensions/module/transcript-service.ts` (`make`
+answers `"requeue"`, `pump` puts the job back, `timedOut` holds the pages sent back once, `Job.children` numbers work
+directories and `attempts` across runs, the lease's `expired()`). Decisions:
+
+- **Out of time** is the last child's: `ReaderOutcome.timedOut`, or its lease cancelled with `task_deadline` (read before
+  the lease is closed). Both are needed. A child killed at its deadline usually ends with `timedOut` true even when the
+  lease fired first, because the reader's own timer fires while the child is still dying. But a child whose lease ran
+  out while it waited for a background reader slot was never spawned and reports `timedOut: false`.
+- **The requeued job stays in `active`** until its last run ends, so `ensure` skips it (and a foreground `ensure`
+  raises its class) as it does any queued page. Its native lines are extracted again when it runs.
+- **`repaired`** is judged on the run that stored the page: a page stored by its requeued run's one child is `stored`,
+  with `attempts` 2.
+
+Tests: `tests/extension/layout-submit.test.mjs` through the real entry. (1) An endpoint that hangs on the first child and
+answers a whole layout later (`timeout_ms` 3000, `repair_attempts` 0): rows `requeued`/`timeout` then `stored`, two
+provider calls, the first run's `run.jsonl` kept in `p0001-1`, the layout in `p0001-2`, no claim left. (2) An endpoint
+that always hangs: `requeued` then `failed`/`timeout`, two calls, and a later `ensure` skips the page. (3) Every
+background reader slot held past the deadline: the first child never starts, and the page is still requeued, then
+stored. `tests/extension/page-transcript.test.mjs`: the requeued page runs after the pages queued behind it (`p0001-1`,
+`p0002-1`, `p0003-1`, `p0001-2`), and a layout-less exit that did not time out fails `no_layout` at once. Mutations, each
+killed: never requeue; requeue without recording it (the always-hanging page loops until the test's timeout); the
+reader's timer alone (killed by (3)); requeue at the front; work directories renumbered per run.
 
 ## 192. One thing, one node: a reading may not duplicate what the graph has (owner rulings 2026-10-07; `docs/specs/reading-duplicates-survey.md`; amends §22.3, §152.4 and §188.2)
 

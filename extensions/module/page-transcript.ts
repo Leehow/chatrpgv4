@@ -100,10 +100,23 @@ export function linesFile(lines: readonly string[]): string {
 	return lines.length ? lines.map((line, index) => `L${index + 1}: ${line}`).join("\n") + "\n" : "(this page has no text layer)\n";
 }
 
-/** §191.3: the repair child's `repair.txt`, the lines the previous layout neither placed nor dropped. */
-export function repairFile(missing: readonly number[], lines: readonly string[]): string {
-	return "The layout.md in this directory left out these lines of lines.txt. Place each one where it belongs on the page, "
-		+ "or add it to the drop list if it is page furniture:\n" + missing.map(id => `L${id}: ${lines[id - 1] ?? ""}`).join("\n") + "\n";
+/**
+ * §191.2: what `submit_layout` answers about one submission -- the lines it neither placed nor dropped, each with its text,
+ * and what the assembly ignored or removed. `left` is how many more submissions the child may make; `kept` is false when an
+ * earlier submission left fewer lines out and stays the stored layout.
+ */
+export function layoutFindings(assembly: PageAssembly, lines: readonly string[], left: number, kept = true): string {
+	const notes: string[] = [];
+	if (!kept) notes.push("An earlier submission left fewer lines out; the host keeps that one.");
+	if (assembly.ignored) notes.push(`${assembly.ignored} placeholder number(s) matched no line of this page (it has ${lines.length}) and were ignored.`);
+	if (assembly.free_removed) notes.push(`${assembly.free_removed} piece(s) of typed text matched no line and were removed: only placeholders carry the page's text.`);
+	const tail = notes.length ? "\n" + notes.join("\n") : "";
+	if (!assembly.unplaced.length) return `Layout stored: every line is placed or dropped. You are done.${tail}`;
+	const missing = assembly.unplaced.map(id => `L${id}: ${lines[id - 1] ?? ""}`).join("\n");
+	if (left <= 0) return `Layout stored. These lines are still neither placed nor dropped; the host appends them after your layout. You are done.\n${missing}${tail}`;
+	return `Layout stored, but these lines are neither placed nor dropped:\n${missing}\nPlace each one where it belongs in the reading order, `
+		+ "or add it to the drop list if it is page furniture, then call submit_layout again with the whole corrected layout "
+		+ `(${left} more submission${left === 1 ? "" : "s"} allowed).${tail}`;
 }
 
 /** The key free text and a native line are compared under (§191.3): NFKC, whitespace removed. */
