@@ -13,12 +13,14 @@ import {KernelError} from '../../extensions/kernel/client.ts';
 
 const args = process.argv.slice(2), out = resolve(args[0] ?? '');
 if (!args[0] || !args.includes('--live')) throw Error('supply a new output directory and --live for the authorized BP-05 source probe');
+const model = args.includes('--model') ? args[args.indexOf('--model') + 1] : 'openai-codex/gpt-6-luna';
+if (!['openai-codex/gpt-6-luna', 'grok-build/grok-4.7'].includes(model)) throw Error('the probe accepts only the preregistered historical or owner-selected reading model');
 const root = resolve(import.meta.dirname, '../..'), app = join(homedir(), 'Library/Application Support/Pipi/pipicoc/pi-coc');
 const home = join(out, 'home'), lib = join(home, '.coc/modules/book-2'), original = join(app, '.coc/modules/book-2/module.json');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex'), originalBytes = await readFile(original);
 await mkdir(out); // Exclusive by design: never erase or reuse an earlier experiment.
-await writeFile(join(out, 'PREREGISTER.json'), JSON.stringify({version: 1, model: 'openai-codex/gpt-6-luna', thinking: 'low',
-  role: 'historical reading-model probe, not a Keeper table or a change to the main-model choice',
+await writeFile(join(out, 'PREREGISTER.json'), JSON.stringify({version: 1, model, thinking: 'low',
+  role: model.startsWith('grok-build/') ? 'owner-selected reading model, not a Keeper table' : 'historical reading-model probe, not a Keeper table or a change to the main-model choice',
   source_sha256: JSON.parse(originalBytes).source_document.file_sha256, original_meta_sha256: hash(originalBytes),
   bars: ['the material settles through original-page reader and fresh reviewer children', 'eight source-cited investigator-template sheets are offered',
     'all offered cards load with their reviewed printed numbers preserved', 'each numeric leaf has its own supported publication review'],
@@ -52,7 +54,7 @@ try {
   await writeFile(join(out, 'job.json'), JSON.stringify({job_id: job.job_id, material: job.material, work_dir: job.work_dir}, null, 2)+'\n');
   runtime = createRuntime({owner: 'preparation', home}, {resourceRoot: root, contentRoot: join(root, 'content'), agentHome: agent,
     nodeExecutable: process.execPath, layout: 'source'});
-  reading = new ReadingService({home, runtime, call, model: () => ({id: 'openai-codex/gpt-6-luna', vision: true, thinking: 'low'}),
+  reading = new ReadingService({home, runtime, call, model: () => ({id: model, vision: true, thinking: 'low'}),
     progress: row => console.log(JSON.stringify({stage: row.stage, purpose: row.purpose})),
     record: row => {rowWrites = rowWrites.then(() => appendFile(join(out, 'rows.jsonl'), JSON.stringify(row)+'\n'));}});
   await reading.runJob(job, AbortSignal.timeout(1200000));

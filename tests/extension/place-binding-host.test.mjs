@@ -1,7 +1,7 @@
 /** §204.4 on the actual Pi tool path and emitted kernel. Controlled model/reference ports, no live model or gameplay acceptance. */
 import assert from 'node:assert/strict';
 import {after, before, test} from 'node:test';
-import {mkdtemp, rm} from 'node:fs/promises';
+import {mkdtemp, readFile, rm} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
@@ -32,16 +32,17 @@ test('a model-origin committed mint starts the book reference and writes the pri
         await runtime.handlers['table.narrate']({campaign: CAMPAIGN, call_id: 't0-c1', text: 'The captain hands you the orders.'});
       } finally {await runtime.close();}
     },
-    extraExtensions: [pi => pi.events.emit('coc:reading-bridge', {
-      ensure: async () => ({state: 'ready'}), reading: () => false,
-      reference: async (moduleId, params) => {requested.push({moduleId, params});return {source_answer: {status: 'excerpts', authority: 'original-source-excerpts', excerpts: [{page: 2, text: PAGES[1]}]}};},
-    })],
     laneResponses: {establish: [fauxAssistantMessage(JSON.stringify({items: ['space', 'people', 'things', 'senses', 'period', 'hook'].map(key =>
       key === 'people' ? {key, verdict: 'not_applicable'} : {key, verdict: 'shown', quote: text})}))]},
     responses: [modelReply({name: 'apply', params: {effects: [{kind: 'move', to: 'North cottage', via: 'Across the farm lane.', establish: {summary: 'A cottage by the northern pond.', within: null}}]}}),
       modelReply({name: 'narrate', params: {text}})],
   });
   t.after(() => table.dispose());
+  // Startup mounts the product reader. Bind the controlled port after that owner is initialized.
+  table.emit('coc:reading-bridge', {
+    ensure: async () => ({state: 'ready'}), reading: () => false,
+    reference: async (moduleId, params) => {requested.push({moduleId, params});return {source_answer: {status: 'excerpts', authority: 'original-source-excerpts', excerpts: [{page: 2, text: PAGES[1]}]}};},
+  });
   await table.session.prompt('I go to the cottage by the northern pond.');
   await waitForIdle(table.session);
   const row = await waitFor(() => table.telemetry().find(row => row.lane === 'place-binding' && row.outcome === 'bound'), {label: 'committed place receives its book binding'});
@@ -49,5 +50,9 @@ test('a model-origin committed mint starts the book reference and writes the pri
   assert.equal(requested[0].params.focus, 'North cottage');
   assert.match(requested[0].params.question, /cottage by the northern pond/);
   assert.deepEqual(row.pages, [2]);
-  assert(table.kernelRequests().some(call => call.method === 'table.place.bind' && call.params?.place === 'North cottage'));
+  const stored = JSON.parse(await readFile(join(table.workspace, '.coc/campaigns', CAMPAIGN, 'place-bindings.json'), 'utf8'));
+  const bindings = Object.values(stored.places);
+  assert.equal(bindings.length, 1);
+  assert.deepEqual(bindings[0].pages, [2]);
+  assert.equal(bindings[0].excerpt, PAGES[1]);
 });
