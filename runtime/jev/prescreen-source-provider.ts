@@ -19,7 +19,8 @@ export interface PrescreenSourceCandidate {
   key:string;
   kind:string;
   label:string;
-  summary:string;
+  /** Absent on a native-text candidate (§196.7): its body is its content, and nothing reads a clipped copy. */
+  summary?:string;
   authority:'reviewed_source'|'native_text'|'native_consultation';
   coverage:Record<string,Json>;
   body?:string;
@@ -53,6 +54,8 @@ export interface PrescreenSourceSnapshot {
 }
 export interface PrescreenSourceRuntime {
   home:string;
+  /** §196.7: the content root whose seeds the transcript store reads first (the host runtime's `contentRoot`). */
+  contentRoot?:string;
   sourceInfo(source:{pdf:string;cache:string},signal?:AbortSignal):Promise<{file_sha256:string;page_count:number}>;
   sourceSearch?(source:{pdf:string;query:string;first_page?:number;last_page?:number;limit?:number;cursor?:string},signal?:AbortSignal):Promise<Row>;
   sourceText(source:{pdf:string;pages:number[];expected_file_sha256:string},signal?:AbortSignal):Promise<NativeTextBundle>;
@@ -102,6 +105,11 @@ export interface PrescreenSourceResult {
       paragraph_pages:number[];continuation_pages:number[];
       /** §196 (PU-03): the pages chosen from the entities the turn's locate judged relevant, and the literal searches run. */
       located_pages:number[];search_queries?:number;
+      /**
+       * §196.7 (PU-05): the passages the locate judged relevant (given), the pages read for them, and how many were offered:
+       * each a candidate ahead of the page rotation (a broken paragraph whole when it fits).
+       */
+      located_passages?:number;passage_pages?:number[];passages_offered?:number;
       /** §191.7: the literal search's matches by layer, and those found only in a transcript's image text. */
       search_layers?:{transcript:number;native:number;image_text:number}};
   };
@@ -121,6 +129,8 @@ export interface PrescreenSourceResult {
    */
   reselect(keys:readonly string[],signal:AbortSignal,deadlineAt:number):Promise<Array<{key:string;candidates:PrescreenSourceCandidate[]}>>;
   nativeQualificationActions(selectedKeys:readonly string[]):number|undefined;
+  /** §196.7: host-only, the candidate each located passage was offered as, in the order given (a passage not offered is absent). */
+  passages:Array<{handle:string;key:string}>;
   qualifyNative(selectedKeys:readonly string[],decide:(request:{key:string;batch:Omit<DecisionBatch,'id'|'scope'|'readSet'>},signal:AbortSignal)=>Promise<DecisionResult>,
     signal?:AbortSignal):Promise<PrescreenNativeQualification>;
 }
@@ -142,6 +152,12 @@ export interface PrescreenSourceInput {
    * its graph source references. Their pages are read first, and the first names are searched literally beside the query.
    */
   located?:Array<{label:string;refs:unknown[]}>;
+  /**
+   * §196.7 (PU-05): the book passages the turn's locate judged relevant, most relevant first, each a paragraph unit by its
+   * page and UTF-16 range in the transcript's exact layer. Their pages are read first and each becomes a candidate before
+   * the page rotation.
+   */
+  passages?:Array<{handle:string;page:number;start:number;end:number}>;
 }
 /** §196 (PU-03): how many located names are searched literally beside the request itself. */
 const LOCATED_SEARCHES=3;
@@ -209,17 +225,20 @@ const sectionText=(section:readonly string[]|undefined)=>section?.length?` \u203
  * reading order with a reference on each page. Its label names the page(s) and the section (§196.2); a half whose other half
  * is not in it says on which page the paragraph goes on (`continues`) or began (`continued_from`).
  */
-function nativeCandidate(units:readonly NativeSourceUnit[],query:string,snapshot:PrescreenSourceSnapshot):PrescreenSourceCandidate {
+function nativeCandidate(units:readonly NativeSourceUnit[],query:string,_snapshot:PrescreenSourceSnapshot):PrescreenSourceCandidate {
   const [first]=units,last=units.at(-1)!,pages=[...new Set(units.map(unit=>unit.page))],body=units.map(unit=>unit.text).join('\n');
   const label=(pages.length>1?`Original PDF pages ${pages[0]}-${pages.at(-1)}`:first.pdfLabel?`Original PDF page ${first.page} (${first.pdfLabel})`
     :`Original PDF page ${first.page}`)+sectionText(first.section);
+  // §196.7: one reference per page (each unit is one page's), and only what a consumer reads: Jev the label and body, the
+  // Keeper the body, coverage, read and the provenance `publicMaterial` makes from `data`, the host the references. The body
+  // is not repeated as a summary; the coverage's codes say what the dropped limitation sentence said on every candidate.
   const refs=units.map(unit=>unit.ref);
   return {key:digest(units.length===1?['native',first.ref.resource,first.ref.revision,first.ref.selector]:['native',refs.map(ref=>[ref.resource,ref.revision,ref.selector])]),
-    kind:'source',label,summary:clip(body),authority:'native_text',body,refs,coverage:{status:'partial',supported:false,derived:false,
-      omitted:['visual_verification','consultation_coverage'],limitations:['Exact native text only; not visual proof, a supported consultation, or playable readiness.']},
-    data:{page:first.page,...(pages.length>1?{pages}:{}),pdf_label:first.pdfLabel,...(first.section?{section:[...first.section]}:{}),
-      ...(last.continues?{continues:last.continues.page}:{}),...(first.continuedFrom?{continued_from:first.continuedFrom.page}:{}),
-      source_refs:pages.map(page=>({source_id:`pdf:${snapshot.module_id}`,pdf_index:page-1})),prepared:false,supported:false},
+    kind:'source',label,authority:'native_text',body,refs,coverage:{status:'partial',supported:false,derived:false,
+      omitted:['visual_verification','consultation_coverage']},
+    data:{page:first.page,...(pages.length>1?{pages}:{}),...(typeof first.pdfLabel==='string'?{pdf_label:first.pdfLabel}:{}),
+      ...(first.section?{section:[...first.section]}:{}),
+      ...(last.continues?{continues:last.continues.page}:{}),...(first.continuedFrom?{continued_from:first.continuedFrom.page}:{})},
     read:read('Authored source consultation',query)};
 }
 /** §196.3: the linked halves a unit belongs to, in reading order (the unit alone when it has none in the catalog). */
@@ -427,8 +446,12 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
     }
   }
   const maxPages=positive(budget.maxNativePages,16,32),broad=spreadPages(snapshot.page_count,maxPages);
-  // §196 (PU-03): the located entities' own pages, most relevant first, come before the pages the capsule cites.
-  const locatedPages=[...citedPages(located.map(row=>row.refs),input.moduleId,snapshot.page_count,snapshot.window)];
+  // §196.7 (PU-05): the located passages' pages, most relevant first, lead; then (§196 PU-03) the located entities' own pages,
+  // most relevant first, before the pages the capsule cites.
+  const passages=(input.passages??[]).filter(row=>isPlainRecord(row)&&typeof row.handle==='string'&&Number.isSafeInteger(row.page)
+    &&row.page>=1&&row.page<=snapshot.page_count&&Number.isSafeInteger(row.start)&&Number.isSafeInteger(row.end)&&row.end>row.start);
+  const passagePages=[...new Set(passages.map(row=>row.page))],entityPages=[...citedPages(located.map(row=>row.refs),input.moduleId,snapshot.page_count,snapshot.window)];
+  const locatedPages=[...new Set([...passagePages,...entityPages])];
   const authored=[...citedPages(capsule,input.moduleId,snapshot.page_count,snapshot.window)].filter(page=>!locatedPages.includes(page));
   const cited=[...locatedPages,...authored],reserved:number[]=[];
   const reserve=(values:number[],preferLast=false)=>{const ordered=preferLast?[...values].reverse():values;const page=ordered.find(value=>!cited.includes(value)&&!reserved.includes(value));if(page!==undefined)reserved.push(page);};
@@ -440,7 +463,7 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
   let extractionVersion:string|undefined,emptyPages:number[]=[],errorPages:number[]=[],extractionError:string|undefined,
     nativeCatalog:NativeSourceCatalog|undefined,nativeOwnerParts:NativeSourcePart[]=[];
   const materialized=new Set<number>(),candidatePartAliases=new Map<string,string>(),transcribed=new Set<number>(),
-    paragraphed=new Set<number>(),continued=new Set<number>();
+    paragraphed=new Set<number>(),continued=new Set<number>(),passageOffers:Array<{handle:string;key:string}>=[];
   if(pages.length){
     try{
       const paragraphRead=await readParagraphCatalog(input.source,input.scope,snapshot,pages,signal),catalog=paragraphRead.catalog;nativeCatalog=catalog;nativeOwnerParts=nativeSourceParts(catalog);
@@ -455,15 +478,27 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
       for(const page of catalog.coverage.textPages)materialized.add(page);
       const byPage=new Map<number,typeof catalog.units>();
       for(const page of offered)byPage.set(page,catalog.units.filter(unit=>unit.page===page));
+      const place=(unit:NativeSourceUnit):'ok'|'candidate'|undefined=>{
+        const offering=offer(unit);if(!offering)return undefined;
+        const {candidate,members}=offering,outcome=fit(candidates,candidate,budget,usage),head=members[0];
+        if(outcome==='ok'){const range=head.ref.selector,part=nativeOwnerParts.find(value=>value.ref.resource===head.ref.resource&&range.kind==='utf16'
+            &&value.ref.selector.kind==='utf16'&&value.ref.selector.start<=range.start&&value.ref.selector.end>=range.end);
+          if(part)candidatePartAliases.set(candidate.key,part.alias);}
+        if(outcome==='candidate')candidateOmitted++;
+        return outcome;
+      };
+      // §196.7: each located passage is the transcript unit with its page and range; it is offered before any page rotation,
+      // most relevant first, whole across a page break when it fits (§196.3).
+      for(const passage of passages){
+        const unit=byPage.get(passage.page)?.find(value=>value.section!==undefined&&value.ref.selector.kind==='utf16'
+          &&value.ref.selector.start===passage.start&&value.ref.selector.end===passage.end);
+        if(!unit)continue;
+        const before=candidates.length;
+        if(place(unit)==='ok'&&candidates.length>before)passageOffers.push({handle:passage.handle,key:candidates.at(-1)!.key});
+      }
       for(let ordinal=0;;ordinal++){
         let found=false;
-        for(const page of offered){const unit=byPage.get(page)?.[ordinal];if(!unit)continue;found=true;
-          const offering=offer(unit);if(!offering)continue;
-          const {candidate,members}=offering,outcome=fit(candidates,candidate,budget,usage),head=members[0];
-          if(outcome==='ok'){const range=head.ref.selector,part=nativeOwnerParts.find(value=>value.ref.resource===head.ref.resource&&range.kind==='utf16'
-              &&value.ref.selector.kind==='utf16'&&value.ref.selector.start<=range.start&&value.ref.selector.end>=range.end);
-            if(part)candidatePartAliases.set(candidate.key,part.alias);}
-          if(outcome==='candidate')candidateOmitted++;}
+        for(const page of offered){const unit=byPage.get(page)?.[ordinal];if(!unit)continue;found=true;place(unit);}
         if(!found)break;
       }
     }catch(error){if(signal.aborted)throw error;extractionError=error instanceof Error?error.message.slice(0,160):'source_text_unavailable';}
@@ -566,12 +601,13 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
       issue([qualified]);return{status:'qualified',selectedKeys:keys,calls,candidate:qualified};
     }catch(error){return gap('unavailable',caller.aborted?'cancelled':error instanceof Error?error.message:'native_qualification_unavailable');}
   };
-  const result:PrescreenSourceResult={candidates,readSet,checkpoint,checkpointFor,check,reselect,nativeQualificationActions,qualifyNative,coverage:{checked_answers:{inspected:snapshot.checked_answers.length,emitted:candidates.filter(row=>row.authority==='reviewed_source').length,
+  const result:PrescreenSourceResult={candidates,readSet,checkpoint,checkpointFor,check,reselect,nativeQualificationActions,qualifyNative,passages:passageOffers,coverage:{checked_answers:{inspected:snapshot.checked_answers.length,emitted:candidates.filter(row=>row.authority==='reviewed_source').length,
     omitted:checkedOmitted,invalid:snapshot.checked_answers_invalid},native:{searched_ranges:rangeSet(searched,snapshot.page_count),unsearched_ranges:complement(searched,snapshot.page_count),
       materialized_pages:[...materialized].sort((a,b)=>a-b),unmaterialized_pages:Array.from({length:snapshot.page_count},(_,i)=>i+1).filter(page=>!materialized.has(page)),
       empty_pages:emptyPages,error_pages:errorPages,candidate_omitted:candidateOmitted,material_omitted:0,
       transcript_pages:[...transcribed].sort((a,b)=>a-b),paragraph_pages:[...paragraphed].sort((a,b)=>a-b),
-      continuation_pages:[...continued].sort((a,b)=>a-b),located_pages:locatedPages.filter(page=>pages.includes(page)),
+      continuation_pages:[...continued].sort((a,b)=>a-b),located_pages:entityPages.filter(page=>pages.includes(page)),
+      ...(input.passages?{located_passages:passages.length,passage_pages:passagePages.filter(page=>pages.includes(page)),passages_offered:passageOffers.length}:{}),
       ...(searchLayers?{search_layers:searchLayers,search_queries:queries.length}:{}),
       ...(searchError?{search_error:searchError}:{}),...(extractionError?{extraction_error:extractionError}:{}),...(next?{next:{cursor:next}}:{})}}};
   if(extractionVersion)result.readNativePages=async(requested,caller)=>{

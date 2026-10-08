@@ -4,7 +4,8 @@ import {readJevApiKey,readJevPreselectEnabled} from '../jev/agent/config.js';
 import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
 import {TaskLease,type TaskClock} from '../../runtime/jev/task-context.ts';
 import {JEV_MODEL,packDecisionBatch} from '../../runtime/jev/question-packing.ts';
-import {locateCards,locatedSelection,LOCATE_FAMILY,type LocateCard,type LocateResult} from '../../runtime/jev/semantic-locate.ts';
+import {locateCards,locatedSelection,LOCATE_ABSENT,LOCATE_FAMILY,type LocateCard,type LocateJudgment,type LocateResult,type LocatedSelection} from '../../runtime/jev/semantic-locate.ts';
+import {bookPassages,passageSection,type BookPassage,type BookPassagesRead} from '../../runtime/jev/book-passages.ts';
 import {preparationProviderBudget} from '../../runtime/jev/preparation-budget.ts';
 import type {DecisionBatch,DecisionResult,Json,ReadSet} from '../../runtime/jev/contracts.ts';
 import {workspaceCandidates} from './workspace/projection.ts';
@@ -157,6 +158,54 @@ export function locatedSources(snapshot:Row,priority:readonly string[]):Array<{l
         const identity=own.find(row=>object(object(row.coverage).unit).kind==='identity')??own[0];
         return typeof identity.label==='string'&&identity.label?[{label:identity.label,refs:own.flatMap(row=>Array.isArray(row.refs)?row.refs:[])}]:[];
     });
+}
+/**
+ * §196.7 (PU-05): the located passages enter the pool the way the located entities do. `catalogPriority` makes the located
+ * entities lead the owner catalog's graph family, which the owner interleaves with the other families one slot per round
+ * (`interleaveMaterials`); the located passages lead the source family in locate order and take their turns with the graph
+ * family: each graph-entity candidate of the pool is paired with the next located passage, the pair ordered by the locate
+ * (the passage first when it outranks that slot's entity or the slot's entity was not located; a tie keeps the entity
+ * first). Passages left when the graph slots run out follow the last graph candidate; with no graph candidate they lead the
+ * pool. Every other candidate keeps its place; a passage the provider did not offer is not moved.
+ */
+export function rankPool(pool:readonly PrescreenCandidate[],ranked:readonly LocateJudgment[],passageKeys:ReadonlyMap<string,string>):PrescreenCandidate[] {
+    const byKey=new Map(pool.map(candidate=>[candidate.key,candidate]));
+    const passages=ranked.filter(value=>value.family==='passage').flatMap(value=>{const candidate=byKey.get(passageKeys.get(value.handle)??'');
+        return candidate?[{noul:value.noul,candidate}]:[];});
+    if(!passages.length)return [...pool];
+    const moved=new Set(passages.map(value=>value.candidate.key)),rest=pool.filter(candidate=>!moved.has(candidate.key));
+    const entityNoul=new Map(ranked.filter(value=>value.family==='entity').map(value=>[value.handle,value.noul]));
+    const lastGraph=rest.findLastIndex(candidate=>candidate.kind==='graph_entity');
+    if(lastGraph<0)return [...passages.map(value=>value.candidate),...rest];
+    const out:PrescreenCandidate[]=[];let next=0;
+    for(const [index,candidate] of rest.entries()){
+        if(candidate.kind!=='graph_entity'||next>=passages.length)out.push(candidate);
+        else{
+            const passage=passages[next++],own=entityNoul.get(String(object(candidate.read).query??''));
+            if(own===undefined||passage.noul>own)out.push(passage.candidate,candidate);else out.push(candidate,passage.candidate);
+        }
+        if(index===lastGraph)while(next<passages.length)out.push(passages[next++].candidate);
+    }
+    return out;
+}
+/**
+ * §196.7: the book's passages for this preparation, or why there are none; never a failure of the preparation. The store is
+ * the one the source runtime's own reader uses (§191.7): the runtime's home and content root, and for a runtime that names no
+ * content root the environment's `PI_COC_CONTENT_ROOT` (as `transcriptStoreFromEnv` finds it).
+ */
+async function bookPassagesFor(input:KeeperSupportInput,env:NodeJS.ProcessEnv,snapshotWork:Promise<Row>|undefined,
+    signal:AbortSignal):Promise<{read?:BookPassagesRead;summary?:Row}> {
+    if(!input.source||!snapshotWork)return {};
+    snapshotWork.catch(()=>undefined);
+    const runtime=input.source.runtime,contentRoot=runtime.contentRoot??env.PI_COC_CONTENT_ROOT?.trim();
+    if(!runtime.sourcePageText||!runtime.home||!contentRoot)return {summary:{status:'no_store'}};
+    try{
+        const bound=await snapshotWork;
+        if(typeof bound.pdf!=='string'||typeof bound.file_sha256!=='string'||!Number.isSafeInteger(bound.page_count))throw new Error('source_unavailable');
+        const read=await bookPassages({source:runtime,roots:{home:runtime.home,contentRoot},signal,
+            snapshot:{pdf:bound.pdf,file_sha256:bound.file_sha256,page_count:Number(bound.page_count)}});
+        return {read,summary:{status:read.status,cards:read.passages.length,pages:read.pages.length,read_pages:read.read_pages,index_ms:read.ms}};
+    }catch(error){return {summary:{status:'unavailable',reason:error instanceof Error?error.message.slice(0,160):'passages_unavailable'}};}
 }
 /** A unit preview without the entity stub every graph unit repeats; the label already names the entity. */
 function previewOf(candidate:PrescreenCandidate):string {
@@ -359,9 +408,13 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                 if(reason==='timeout')optionalDecisionTimeouts++;else optionalDecisionUnavailable++;return {reason};}
         };
         // Semantic locate (contract §124.10): Jev judges the whole closed entity/rule index before discovery.
-        let selection:ReturnType<typeof locatedSelection>={priority:[],rules:[],seed:[]};
+        let selection:LocatedSelection={priority:[],rules:[],seed:[],passages:[],ranked:[],seeds:[]};
+        const passageByHandle=new Map<string,BookPassage>();let passageSummary:Row|undefined,passageFile:string|undefined;
         if(!input.initialSnapshot){
             const locateBegan=now();
+            // §196.7: the book's passages, from this process's store-revision cache, read while the entity index is read. Only the
+            // bound PDF's identity is read here; the source materials (and their checked answers) are read where they always were.
+            const passageWork=bookPassagesFor(input,env,input.source?discoveryRpc('module.source.snapshot',{module_id:input.source.moduleId}):undefined,semanticSignal);
             try{
                 const indexKey=digest([input.campaign,input.binding.source_revision]);let index=indexCache.get(indexKey),current=Boolean(index);
                 if(!index){
@@ -371,17 +424,23 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                         &&(['campaign','worldline','loop','turn'] as const).every(key=>indexBinding[key]===input.binding[key]);
                     if(current)remember(indexCache,indexKey,index,4);
                 }
-                const cards:LocateCard[]=current&&index?[
+                const book=await passageWork;passageSummary=book.summary;passageFile=book.read?.fileSha256;
+                for(const passage of book.read?.passages??[])passageByHandle.set(passage.handle,passage);
+                const indexCards:LocateCard[]=current&&index?[
                     ...(Array.isArray(index.entities)?index.entities:[]).map(object).filter(card=>typeof card.handle==='string'&&card.handle&&typeof card.label==='string')
                         .map(card=>({family:'entity' as const,handle:card.handle,label:card.label,kind:String(card.kind??''),summary:String(card.summary??'')})),
                     ...(Array.isArray(index.rules)?index.rules:[]).map(object).filter(card=>typeof card.name==='string'&&card.name&&typeof card.label==='string')
                         .map(card=>({family:'rule' as const,handle:card.name,label:card.label,kind:String(card.family??'')})),
                 ]:[];
-                if(!current)locateSummary={status:'index_unavailable'};
+                const passageCards:LocateCard[]=(book.read?.passages??[]).map(passage=>({family:'passage' as const,handle:passage.handle,
+                    label:`Original PDF page ${passage.page}`,section:passageSection(passage.section),text:passage.text}));
+                const cards=[...indexCards,...passageCards];
+                if(!current&&!passageCards.length)locateSummary={status:'index_unavailable'};
                 else if(!cards.length)locateSummary={status:'empty_index'};
                 else{
+                    // The passages enter the key by their identity (file and record digests), not by their text.
                     const context=locateContext(input.capsule,input.suppliedMessages??[],input.binding.turn),
-                        cacheKey=digest([input.campaign,input.binding.source_revision,request,context,cards]);
+                        cacheKey=digest([input.campaign,input.binding.source_revision,request,context,indexCards,book.read?.key??null]);
                     let located=locateCache.get(cacheKey);const reused=Boolean(located);
                     if(!located){
                         const locateReadSet:ReadSet=[{kind:'world',resource:input.campaign,revision:digest([input.binding.worldline,input.binding.loop,input.binding.turn])},
@@ -397,13 +456,21 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                         if(located.judged)remember(locateCache,cacheKey,located,8);
                     }
                     selection=locatedSelection(located);
+                    const family=located.families?.passage;
                     locateSummary={status:located.judged?'judged':'unjudged',reused,cards:cards.length,batches:reused?0:located.batches,
                         failed_batches:reused?0:located.failedBatches,judged:located.judged,unjudged:located.unjudged,
                         located:selection.priority.length,located_rules:selection.rules.length,seed:selection.seed.length,
-                        top:located.judgments.slice(0,6).map(value=>({family:value.family,handle:clip(value.handle,120),noul:value.noul}))};
+                        top:located.judgments.slice(0,6).map(value=>({family:value.family,handle:clip(value.handle,120),noul:value.noul})),
+                        ...(!current?{index:'unavailable'}:{})};
+                    // §196.7 telemetry: the passages judged, located (at least ABSENT) and seeded; `offered` follows the provider.
+                    if(passageCards.length)passageSummary={...passageSummary,judged:located.judgments.filter(value=>value.family==='passage').length,
+                        located:located.judgments.filter(value=>value.family==='passage'&&value.noul>=LOCATE_ABSENT).length,
+                        sent:selection.passages.length,seeded:selection.seeds.filter(value=>value.family==='passage').length,
+                        batches:reused?0:family?.batches??0,failed_batches:reused?0:family?.failedBatches??0,ms:reused?0:family?.ms??0};
                 }
             }catch(error){if(signal.aborted)throw error;locateSummary={status:'failed',reason:error instanceof Error?error.message.slice(0,160):'locate_unavailable'};}
             locateSummary.ms=now()-locateBegan;
+            if(passageSummary)locateSummary.passages=passageSummary;
         }
         const catalogPriority=selection.priority,catalogRules=[...new Set([...selection.rules,...(input.rules??[])])].slice(0,8),
             priorityParam=catalogPriority.length?{priority:catalogPriority}:{};
@@ -421,13 +488,17 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             sourceResult=await preparePrescreenSources({call:async(method,params)=>object(await input.call(method,{...params,campaign:input.campaign})),
                 campaign:input.campaign,moduleId:input.source.moduleId,scope,query,capsule:input.capsule,source:input.source.runtime,
                 signal:semanticSignal,budget:{deadlineAt:semanticDeadlineAt,candidateBytes:Math.max(4096,availableBytes*2),materialBytes:availableBytes,maxNativePages:16},snapshot:sourceSnapshot,
-                located:locatedSources(snapshot,catalogPriority)});
+                located:locatedSources(snapshot,catalogPriority),
+                ...(passageSummary?{passages:(passageFile===sourceSnapshot.file_sha256?selection.passages:[]).flatMap(handle=>{const passage=passageByHandle.get(handle);
+                    return passage?[{handle,page:passage.page,start:passage.start,end:passage.end}]:[];})}:{})});
         }catch(error){if(signal.aborted)throw error;sourceFailure=error instanceof Error?error.message.slice(0,160):'source_material_unavailable';}
+        if(passageSummary&&locateSummary.passages)locateSummary.passages={...object(locateSummary.passages),offered:sourceResult?.passages.length??0};
         if(input.source)note({event:'source_catalog',candidates:sourceResult?.candidates.length??0,...(sourceResult?{coverage:sourceResult.coverage}:{}),...(sourceFailure?{failure:sourceFailure}:{})});
         let base=poolOf(snapshot,input.binding,supplied);const sourceCandidates=(sourceResult?.candidates??[]).map(candidateOf)
             .filter((value):value is PrescreenCandidate=>Boolean(value)).filter(candidate=>!supplied.keys.has(candidate.key));
-        const expandedMemory=await expandMemoryCandidates(base.pool,discoveryRpc),seen=new Set<string>();let pool=[...expandedMemory.pool,...sourceCandidates]
-            .filter(candidate=>{if(seen.has(candidate.key))return false;seen.add(candidate.key);return true;});
+        const expandedMemory=await expandMemoryCandidates(base.pool,discoveryRpc),seen=new Set<string>();
+        const passageKeys=new Map((sourceResult?.passages??[]).map(row=>[row.handle,row.key]));
+        let pool=[...expandedMemory.pool,...sourceCandidates].filter(candidate=>{if(seen.has(candidate.key))return false;seen.add(candidate.key);return true;});
         discoveryMs=now()-discoveryBegan;catalogCandidates=base.pool.length;sourceCandidateCount=sourceCandidates.length;
         let omitted=base.omitted+Number(sourceResult?.coverage.checked_answers.omitted??0)+Number(sourceResult?.coverage.native.candidate_omitted??0);
         const version=base.version;let catalogNext=Number.isSafeInteger(object(snapshot.materials).next)?Number(object(snapshot.materials).next):null,catalogPages=1;
@@ -597,15 +668,21 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
         };
         // Exact reads of what the locate found (noul >= FOUND): the host copies owner units through the same
         // staged publication and byte trial as any loop read, leaving room for what the loop discovers next.
+        // §196.7: a passage the locate found (noul >= FOUND) is read the same way, in one ranking with the found entities.
         let seeded=0;
-        for(const handle of selection.seed){
-            for(const candidate of pool.filter(value=>value.kind==='graph_entity'&&object(value.read).query===handle&&!attempted.has(value.key))){
+        for(const found of selection.seeds){
+            const own=found.family==='passage'?pool.filter(value=>value.key===passageKeys.get(found.handle)&&!attempted.has(value.key))
+                :pool.filter(value=>value.kind==='graph_entity'&&object(value.read).query===found.handle&&!attempted.has(value.key));
+            for(const candidate of own){
                 if(semanticSignal.aborted||requestSize([supportMessage(content)])>availableBytes*SEED_SHARE)break;
                 const publish=await readCandidate(candidate);
                 if(typeof publish==='function'){const before=content.materials.length;publish();if(content.materials.length>before){seeded++;trace(candidate,'locate_seed','located');}}
             }
         }
         if(locateSummary.status!=='not_run')locateSummary.seeded=seeded;
+        // §196.7: the located passages not read as seeds take turns with the graph slots instead of trailing the pool. This runs
+        // after the seeds, so a passage already supplied does not hold a slot the loop would never offer.
+        pool=rankPool(pool,selection.ranked.filter(value=>value.family!=='passage'||!attempted.has(passageKeys.get(value.handle)??'')),passageKeys);
         const traceEvent=(event:Row):void=>{if(loopTrace.length>=LOOP_TRACE_LIMIT)return;
             loopTrace.push(Object.fromEntries(Object.entries(event).map(([key,value])=>[key,typeof value==='string'?clip(value,160):value])));};
         if(assessment?.coverage!=='sufficient'){

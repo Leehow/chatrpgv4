@@ -1,6 +1,6 @@
 # Jev reads the book by paragraph
 
-Status: ready-for-human (PU-01..PU-03 implemented on `claude/paragraph-units-20261008`; decisions and the PU-03 finding in contract §196.5-196.6; PU-04 is the lead's TR-F2 acceptance)
+Status: ready-for-human (PU-01..PU-03 implemented on `claude/paragraph-units-20261008`; decisions and the PU-03 finding in contract §196.5-196.6; PU-04 is the lead's TR-F2 acceptance; PU-05 implemented on `claude/paragraph-locate-20261008`, contract §196.7)
 
 Owner (2026-10-08): 「之前用的jev索引模组的方案现在这个模组解析更新之后是否也更新了？如果文字被规整了是否可以用jev按段落获取而不只是按页来索引？」,
 then 「开这个切片，按段落取」. Contract `docs/kernel-rpc.md` §196.
@@ -51,3 +51,28 @@ Status: ready-for-human (TR-F2, lead).
 Pre-registered with TR-F2: per turn, the prescreen's supplied source units are whole paragraphs with a `section`;
 an offline probe replays TR-F's 12 player lines against Cold Harvest's catalog before/after and lists, per line, the
 located units (count, bytes, and whether each holds the fact the book answers the line with).
+### PU-05 The locate judges the book's paragraphs (lead's decision after PU-04)
+Status: ready-for-human (implemented on `claude/paragraph-locate-20261008`; decisions and the acceptance run in contract §196.7: 10 / 8 of 12 lines, 13 / 13 windows, no prescreen over its deadline, locate median +820 ms)
+
+PU-04's offline probe (TR-F's 13 turns replayed live against Cold Harvest, before and after PU-01..03) found that across
+91 replays no source operation entered Jev's decision window (0 of 2171) and no source material reached the Keeper. Three
+causes: the provider offers units by a round robin over page ordinals (96% of the offered units were a page's first unit,
+and located refs name pages, not places in a page); source candidates sat last in the prescreen pool, behind 47-83 graph,
+rule and memory candidates, past the window (49, halved to 25 or 13); each candidate carried a 1.2-2.7 KB envelope, so
+the 32 KiB budget held about 15. Jev never judged a paragraph.
+
+1. The semantic locate gets a third card family, `passage`: one paragraph unit of the module's transcript pages
+   (§196.1-196.3), shown as `{alias, section, text}`, judged by the same independent Noul, partition, packing and
+   thresholds as the entity cards and in parallel with them. Native pages without a transcript stay on today's path.
+2. The passages are built from the stored transcripts once per store revision, keyed by the file digest and the record
+   digests, and kept in the host process (`runtime/jev/book-passages.ts`).
+3. Located passages become source candidates first, before any page rotation, whole across a page break when they fit;
+   they enter the prescreen pool at their locate rank among the other located cards (`rankPool`).
+4. A native candidate's envelope carries only what its consumers read, one reference per page.
+5. Telemetry per turn: passages judged, located, offered, batches and milliseconds.
+
+Pre-registered acceptance (lead): rerun the PU-04 probe (at least 2 reps, live Jev) and its analysis with the existing
+fact table. A source passage holding the book's fact is in the Keeper's supplied materials on at least 6 of the 12 lines;
+every turn has at least one source operation in Jev's window; no prescreen exceeds its deadline; the locate's median ms
+per turn rises by less than 1.5 s.
+
