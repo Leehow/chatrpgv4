@@ -173,3 +173,45 @@ role-first revision not bumped -> red in both files; M19 the role-first criteria
 wording of the note, the four §197.5 paragraphs and the verdict definitions -- what they do is the model's, and §197.9's
 probe is their evidence.
 
+
+### 2026-10-08, resumed slice (the previous worker's process exited after `28e5290e1`)
+
+Checked against the lead's six points; all six were in the three commits. What was missing or unmeasured:
+
+- **Run 3 T1 had a fixture and no test.** New: `run 3 T1 replay on the emitted kernel` -- the table's move verbatim, the
+  starter's `newspaper-morgue` (the table's place, same `destination_identity`), turn 1 closed at the opening. The line the
+  lane reads carries the same `canonical_name` and `also_called` the table's reviewer was shown ("Globe clipping archive"
+  included), and on the probe's answer (`narrate`, `authorized`) the move lands with its receipt.
+- **Every §197.1 test ran on the legacy loop; the App plays on `hybrid-v1`** (`runtime/loop-engine.ts`: play's default).
+  New: `§197.1 on the App's run engine (hybrid-v1)` -- the refused batch step falls (§135.5), the run returns to the Keeper,
+  its next step holds `details.admitted` in the tool result and in the run's `model_refused` note
+  (`coc_error.details.admitted`, carried whole by `hybrid-engine.ts`), and the resend lands with no lane call. The note's
+  own text ("this note grants no retry or correction allowance") is about the note, and it tells the Keeper to read each
+  `coc_error`'s fix; it was left as it is.
+- **The probe's round 3 predates the commit's last edit of `admission.ts`** (11:36:54 against 11:41:59), so the committed
+  prompt was measured on its own, then amended once (contract §197.5's note, §197.9's last two rounds). Pre-registration,
+  cases and outputs are in the scratchpad (`rr/probe/`), the cases outside the repository as before. 42 + 140 calls,
+  `openai-codex/gpt-6-luna` thinking off; the App's `auth.json` was read by the product's runtime and not written (mtime
+  05:22:13 before and after both rounds).
+
+Existing tests changed: none (the test file gained two tests and a `kernelSteps` helper shared by the two emitted-kernel
+fixtures; `turnOneClosed` is unchanged in what it does).
+
+Mutations (same method: the file copied aside, one exact replacement, the saved copy copied back and its digest checked;
+single file on the Mac, `node --test tests/extension/refusal-recovery.test.mjs`), each run on the whole file so the run-3
+tests added in `28e5290e1` are covered too. MA, MB, M1, M2, M7 and M17 ran before the hybrid-v1 test existed (21 tests);
+M1 and M2 were then rerun on that test alone, M3 ran on all 22, MH on the hybrid-v1 test:
+
+| | Mutation | Red |
+| --- | --- | --- |
+| MA | the move line without `also_called` | 1 (run 3 T1) |
+| MB | `shapeVerdict` drops `player_words` | 4 (run 3 T1, run 3 T16, the §197.4 replays, the §197.4 pairing) |
+| M1 | the per-line review returns at the first `not_authorized` | 7, run 3 T12 among them; and the hybrid-v1 test |
+| M2 | `batchRefusal` never names admitted lines | 8, run 3 T12 among them; and the hybrid-v1 test |
+| M3 | no recovery seeding | 8, the hybrid-v1 test among them |
+| M7 | `admissionRefusal` ignores `open_choice` | 7, run 3 T16 among them |
+| M17 | the row omits `player_words` | 3 (run 3 T1, run 3 T16, the §197.4 replays) |
+| MH | `hybrid-engine.ts`'s model refusal drops `coc_error` | 1 (the hybrid-v1 test) |
+
+The two instruction amendments are model behaviour, not host behaviour; their evidence is §197.9's round 4, and no
+deterministic test pins their wording.

@@ -39988,12 +39988,20 @@ wording, across the table's languages (a translation, paraphrase, description, p
 it; never refuse for differing from a listed name, a label or an earlier plan's wording); the player's current words are
 their latest choice (a request now need not repeat an earlier plan's person, place or wording); a search, look, question
 or request chooses the act, not what it turns up (a find the player did not name or expect, or a record other than the
-one asked for that answers what they wanted to learn, is the act's result; opening or moving aside what lies in the
-search's way is a routine step of it; taking, using or acting on a find is a choice of its own). The verdict definitions
-carry the same: `authorized` by meaning in any language (walking down the cellar stairs is going to the cellar);
-`entailed` includes what a chosen search turns up; `not_authorized` names speech-only and held-back acts, and never a
-find of a chosen search or the player's own choice in other words, another language or another person's name. With
-§197.1, T12's journal now finishes and is named for the resend.
+one asked for, is the act's result whether or not it answers what they wanted to learn; opening or moving aside what lies
+in the search's way is a routine step of it; taking, using or acting on a find is a choice of its own). The verdict
+definitions carry the same: `authorized` by meaning in any language (walking down the cellar stairs is going to the
+cellar); `entailed` includes what a chosen search turns up; `not_player_action` is never an act the investigator would
+perform themselves (going somewhere, searching, opening, paying), chosen or not -- spoken of, held back from or unchosen,
+it is `not_authorized` or `uncertain`; `not_authorized` names speech-only and held-back acts, and never a find of a chosen
+search or the player's own choice in other words, another language or another person's name. With §197.1, T12's journal
+now finishes and is named for the resend.
+
+*Amended after §197.9's confirmation round (2026-10-08, resumed slice).* Round 3's find clause read "a record other than
+the one asked for **that answers what they wanted to learn**"; on the committed prompt the reviewer refused run 3 T9's
+executor record on exactly that condition ("not ... an answer to your question about Walter's later fate"), and once
+answered TR-F's speech line `not_player_action` -- an admitting verdict -- on grounds that it was speech, not travel. The
+condition is dropped and `not_player_action`'s definition gains the sentence above (round 4).
 
 ### 197.6 The Keeper's prompt (§32.8)
 
@@ -40023,6 +40031,10 @@ rows.
 - a two-line batch with one refused line on the emitted kernel: every line finishes, the refusal names the admitted line,
   the Keeper's resend of exactly it lands with no lane call (`recovered_from`), the scene moves; a changed resend (one
   identifying field) is reviewed, and so is a resend that adds a line;
+- the same on the App's run engine (`PI_COC_LOOP_ENGINE=hybrid-v1`, play's default, `runtime/loop-engine.ts`): the refused
+  batch step falls (§135.5), the run returns to the Keeper, whose next step holds the admitted effects both in the tool
+  result and in the run's `model_refused` note (`coc_error.details.admitted`), and the resend lands with its receipt and no
+  lane call;
 - the boundary: an admitted effect resent alone after its batch-mate was refused lands on its own verdict;
 - `keeper_added` against `player_open`: the `fix` differs and names `details.missing`; absent is today's;
 - an NPC hand-over line reads `acting_party`, and the lane's system prompt explains the field it prints;
@@ -40031,7 +40043,9 @@ rows.
   with the lane's recorded verdicts (plus `open_choice`) and the live probe's round-3 answers (§197.9): TR-F's speech line
   refused and three execution lines landing on the probe's answers, rows recording `player_words`; run 3 T12's journal
   named beside the refused tome and landed on resend; run 3 T16's cellar move landing on the recorded verdict and refused
-  as the Keeper's addition on the probe's (`hold`);
+  as the Keeper's addition on the probe's (`hold`); run 3 T1's move on the emitted kernel (the starter's `newspaper-morgue`
+  is the table's place), its line carrying the same `canonical_name` and `also_called` the table's reviewer was shown --
+  "Globe clipping archive" included -- and landing with its receipt on the probe's answer (`narrate`);
 - §197.4's pairing: the note in the lane prompt and the v1 rules, the families at 3 and 2a.6, every `player_words` value
   named in the answer shape, `shapeVerdict` keeping, dropping and never deciding on it.
 
@@ -40061,5 +40075,21 @@ T9 (clerk), T12 (journal; tome), T16 (held back), a T17-words control (walks dow
   tome 2/3 `entailed`; T16 held back refused 3/3 (`hold`, `keeper_added`); TR-F2 T1 hand-over 3/3 `not_player_action`; the
   four Keeper additions refused 3/3 with `keeper_added`; the interest control refused 3/3, `player_open`.
 
-Not shown: other lane models, other books, more than three runs, the product's retry, or a table. That is RR-04.
+- **Confirmation** (resumed slice): round 3 predates the last edit of `admission.ts` in `28e5290e1`, so the committed
+  prompt (sha256 `32a7de21…`) was measured on its own, pre-registered, 3 runs per line: **13 of 14** met. Missed: run 3 T9,
+  1/3 (two refusals, `keeper_added`, `player_words` `ask`: "the proposed clue is an executor record, not the requested
+  record or an answer to your question"). TR-F's speech line met 2/3, but one answer was `not_player_action` (an
+  admitting verdict) with grounds saying it was speech.
+- **Round 4**, the two amendments in §197.5, pre-registered, 5 runs per line, `old` = the committed prompt as `base`:
+  the change met 13 of 14 at the pre-registered bar (4 of 5), base 13 of 14. The change met every run of thirteen lines
+  (5/5), including TR-F's speech line refused 5/5 (`say`, no admitting verdict; base 4/5, one `authorized`) and the
+  hand-over 5/5; run 3 T9 3/5 (base 2/5) -- **missed**: two refusals read the Keeper's `how` ("found in the municipal
+  archives") as a different search from the clerk's register. Summed over the fourteen lines, 68 of 70 runs met against
+  base 63; on no line did the change meet fewer runs than base. 0 failed calls for the change, 1 `bad_output` for base.
+
+Run 3 T9 stays the reviewer's unstable line on luna (the confirmation 1/3, round 4 3/5). It is reported, not tuned further
+inside this slice: a sentence written for one line's wording is the instance patch Agents.md's "System Gap Before
+Instance Patch" warns of.
+
+Not shown: other lane models, other books, the product's retry, or a table. That is RR-04.
 

@@ -23,6 +23,7 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt } from "@earendil-works/pi-ai";
 import { admissionProposes, laneByLine, openTable, waitForIdle } from "./harness.mjs";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { KernelError } from "../../extensions/kernel/client.ts";
 import {
 	ADMITTED_LINES_FIX,
@@ -358,10 +359,18 @@ test("TR-F2 T16 replay: the Abramov house the player named now finishes beside t
 
 /** Turn 1 walked into the newspaper morgue and closed; the player speaks next at turn 2 (the emitted kernel, through its own RPC). */
 function turnOneClosed(workspace) {
-	const input = [["table.open", {}], ["table.player_input", { text: "我去《环球报》报馆" }],
+	kernelSteps(workspace, [["table.open", {}], ["table.player_input", { text: "我去《环球报》报馆" }],
 		["table.apply", { call_id: "t1-c1", effects: [{ kind: "move", to: "newspaper-morgue" }] }],
-		["table.narrate", { call_id: "t1-c2", text: "报馆的剪报室很安静。" }]]
-		.map(([method, params], index) => JSON.stringify({ id: String(index), method, params: { campaign: "test-camp", ...params } })).join("\n");
+		["table.narrate", { call_id: "t1-c2", text: "报馆的剪报室很安静。" }]]);
+}
+/** Turn 1 closed where the table opens, nothing moved; the player speaks next at turn 2. */
+function turnOneAtOpening(workspace) {
+	kernelSteps(workspace, [["table.open", {}], ["table.player_input", { text: "我把委托信再读一遍。" }],
+		["table.narrate", { call_id: "t1-c1", text: "你把委托信又读了一遍。" }]]);
+}
+/** Puts the table in a state through the emitted kernel's own RPC, one request per step, every step required to succeed. */
+function kernelSteps(workspace, steps) {
+	const input = steps.map(([method, params], index) => JSON.stringify({ id: String(index), method, params: { campaign: "test-camp", ...params } })).join("\n");
 	const run = spawnSync(process.execPath, [join(root, "build/kernel/rpc.mjs"), "--workspace", workspace, "--content", join(root, "content")],
 		{ cwd: root, input: `${input}\n`, encoding: "utf8" });
 	for (const frame of run.stdout.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line)).filter((frame) => !frame.progress))
@@ -383,6 +392,43 @@ test("§197.1 on the emitted kernel: the library the player named lands with its
 	assert.equal(second.isError, false, second.text.slice(0, 400));
 	const receipts = second.details.receipts ?? [];
 	assert.ok(receipts.some((id) => String(id).startsWith("move:central-library")), `a move receipt (${JSON.stringify(receipts)})`);
+	assert.equal(table.lanes.admission.requests().length, 2, "the resend was not reviewed again");
+	const rows = admissionRows(table);
+	assert.equal(rows.at(-1).recovered_from, rows[0].batch_key);
+});
+
+test("§197.1 on the App's run engine (hybrid-v1): the refused batch returns the run to the Keeper with the admitted effects in hand, and its exact resend lands with no second review", async (t) => {
+	// The installed App plays on the driven loop (`runtime/loop-engine.ts`: play defaults to hybrid-v1), where a Keeper batch
+	// step that falls returns the run to the Keeper (§135.5) with the run's note on the refused write (`model_refused`).
+	const LIBRARY = { kind: "move", to: "central-library" };
+	const RECORDS = { kind: "move", to: "hall-of-records", via: "顺路先去档案馆" };
+	let resent;
+	const resend = async (context) => { resent = context; return call("apply", { effects: [LIBRARY] }); };
+	const engine = createHybridEngine({ env: process.env, decision: null });
+	const table = await openTable({ realKernel: true, prepareWorkspace: turnOneClosed, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" },
+		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
+		responses: [call("apply", { effects: [LIBRARY, RECORDS] }), resend, ...close("你走进了中央图书馆。")],
+		laneResponses: { admission: laneByLine([[/to="hall-of-records"/, { verdict: "not_authorized", grounds: "the player named the library only",
+			missing: "a stop at the hall of records the player did not name", open_choice: "keeper_added" }], [/to="central-library"/, CHOSEN, 100]]) } });
+	t.after(() => table.dispose());
+	await table.session.prompt("我去中央图书馆查科比特宅的旧档案。");
+	await waitForIdle(table.session);
+	assert.ok(resent, "the run went back to the Keeper after the refusal");
+	// What the Keeper had in hand for its next step: the refusal's admitted effects, in the tool result it got back and in the
+	// run's note on the refused write (§197.7: every key the fix names reaches the Keeper).
+	const texts = (message) => (Array.isArray(message.content) ? message.content : []).map((block) => block?.text ?? "").join("");
+	const returned = (resent.messages ?? []).filter((message) => message.role === "toolResult" && message.toolName === "apply").map(texts);
+	assert.equal(returned.length, 1);
+	assert.match(returned[0], new RegExp(`^admitted: ${JSON.stringify([LIBRARY]).replace(/[[\]{}]/g, "\\$&")}$`, "m"), "the tool result names the admitted effect");
+	const notes = (resent.messages ?? []).filter((message) => message.role === "user").map(texts).flatMap((text) => {
+		try { return [JSON.parse(text)]; } catch { return []; }
+	}).filter((note) => note.kind === "single_loop_step" && note.model_refused);
+	assert.equal(notes.length, 1, "the run's note on the refused write");
+	assert.deepEqual(notes[0].model_refused[0].coc_error?.details?.admitted, [LIBRARY], "it carries the refusal whole, admitted effects included");
+	const [first, second] = toolResults(table.session, "apply");
+	assert.deepEqual(refusalOf(first).details.admitted, [LIBRARY]);
+	assert.equal(second.isError, false, second.text.slice(0, 400));
+	assert.ok((second.details.receipts ?? []).some((id) => String(id).startsWith("move:central-library")), JSON.stringify(second.details.receipts));
 	assert.equal(table.lanes.admission.requests().length, 2, "the resend was not reviewed again");
 	const rows = admissionRows(table);
 	assert.equal(rows.at(-1).recovered_from, rows[0].batch_key);
@@ -429,6 +475,34 @@ test("§197.4 replays on the live probe's answers: TR-F's speech line is refused
 		const [row] = admissionRows(table);
 		assert.equal(row.player_words, TRF2.probe_round3.answers[id].player_words, `${id}: the row records how the reviewer read the words`);
 	}
+});
+
+/** The `registered_destination` a move line carries to the reviewer, parsed from the line as the lane reads it. */
+const registeredOn = (line) => JSON.parse(/; registered_destination=(\{.*\})$/.exec(line)?.[1] ?? "null");
+
+test("run 3 T1 replay on the emitted kernel: the archive room the player named reaches the reviewer with the place's other names, and on the probe's answer it lands", async (t) => {
+	// §197.5: the table's reviewer refused 「波士顿环球报的档案室」 as "not a listed name" while the line it read listed
+	// "Globe clipping archive" among the place's other names. The host's half is that those names travel on the line, the
+	// same ones the table's reviewer was shown; reading them by meaning across languages is the reviewer's (§197.9).
+	const { player, apply, lane: [row] } = TRF2.R3_T1;
+	const shown = registeredOn(row.proposed[0]);
+	const lane = recordingLane([[/to="newspaper-morgue"/, probed("R3-T1-alias")]]);
+	const table = await openTable({ realKernel: true, prepareWorkspace: turnOneAtOpening,
+		responses: [call("apply", apply), ...close("你到了《环球报》的剪报档案室。")], laneResponses: { admission: lane.responses } });
+	t.after(() => table.dispose());
+	await table.session.prompt(player);
+	await waitForIdle(table.session);
+	assert.equal(lane.seen.length, 1);
+	const line = lane.seen[0].proposed.split("\n").find((value) => value.startsWith("- apply move:")) ?? "";
+	const registered = registeredOn(line);
+	assert.ok(registered, `the move line carries the registered destination (${line.slice(0, 200)})`);
+	assert.equal(registered.canonical_name, shown.canonical_name);
+	assert.deepEqual(registered.also_called, shown.also_called, "the names the table's reviewer was shown, alias included");
+	const [result] = toolResults(table.session, "apply");
+	assert.equal(result.isError, false, result.text.slice(0, 400));
+	assert.ok((result.details.receipts ?? []).some((id) => String(id).startsWith("move:newspaper-morgue")), JSON.stringify(result.details.receipts));
+	const [admission] = admissionRows(table);
+	assert.deepEqual([admission.verdict, admission.admitted, admission.player_words], ["authorized", true, "narrate"]);
 });
 
 test("run 3 T12 replay: the journal the player searched for finishes beside the refused tome, is named, and its exact resend lands", async (t) => {
