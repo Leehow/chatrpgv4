@@ -259,8 +259,9 @@ test("§191.2 through the real child: a provider error before Pi's retry queues 
 });
 
 test("§191.6 through the real child: a page whose child ran out of time goes to the back of the queue once, then is stored", async t => {
+	// The requeued child must start and answer inside the same budget: wide enough for a saturated test box.
 	const { rows, seen, store, file } = await transcribe(t, turn => turn === 1 ? { hang: true } : { items: [call(turn, 0, "submit_layout", { layout: WHOLE })] },
-		{ timeoutMs: 3_000, repairAttempts: 0 });
+		{ timeoutMs: 10_000, repairAttempts: 0 });
 	assert.deepEqual(rows.map(row => [row.outcome, row.reason, row.attempts]), [["requeued", "timeout", 1], ["stored", undefined, 2]], JSON.stringify(rows));
 	assert.equal(seen.length, 2, "the timed-out child's one call, then the requeued run's");
 	const { record } = await store.read(file, 1);
@@ -284,9 +285,12 @@ test("§191.6 through the real entry: a child whose lease ran out while it waite
 	// `task_deadline` before any process is spawned, so the reader's own timer never runs and `timedOut` stays false.
 	const held = [];
 	for (let slot = 0; slot < 8; slot++) held.push(await acquireReaderSlot(undefined, "background"));
-	const release = setTimeout(() => { for (const free of held) free?.(); }, 4_000);
+	// The slots free one second after the first lease ends; the requeued child then has the whole budget, which is wide so
+	// a saturated test box (amax running every file side by side) still starts a Pi child inside it.
+	const timeoutMs = 10_000;
+	const release = setTimeout(() => { for (const free of held) free?.(); }, timeoutMs + 1_000);
 	t.after(() => { clearTimeout(release); for (const free of held) free?.(); });
-	const { rows, seen } = await transcribe(t, turn => ({ items: [call(turn, 0, "submit_layout", { layout: WHOLE })] }), { timeoutMs: 3_000, repairAttempts: 0 });
+	const { rows, seen } = await transcribe(t, turn => ({ items: [call(turn, 0, "submit_layout", { layout: WHOLE })] }), { timeoutMs, repairAttempts: 0 });
 	assert.deepEqual(rows.map(row => [row.outcome, row.reason, row.attempts]), [["requeued", "timeout", 1], ["stored", undefined, 2]], JSON.stringify(rows));
 	assert.equal(seen.length, 1, "the first child never started; the requeued run made the one call");
 });
