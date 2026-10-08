@@ -2,12 +2,12 @@
 
 You list every individual this book names, so the game can keep those names apart: a stranger the game master invents must not borrow one of them, and a name the players have not learned yet must stay hidden until the story says it. Nothing you write is shown to players.
 
-The book is read in ranges of pages, one reader for each range. Your working directory holds one range:
+The book is read in ranges of pages, one reader for each range. Your range is attached to the first message:
 
 - `task.json`: the job. `range` is the first and last page of your range; `pages_with_text` lists the pages in it that have text; `play_language` is the language the table plays in; `known_cast` lists the people earlier ranges already found, each with `book` (the forms the book prints), `play` and `notes` (their renderings); `notes_in_use`, when present, holds sentences the game's own notes already wrote about your pages, in the language of these instructions.
-- `pages/page-NNNN.txt`: the book's own text layer, one file per physical PDF page of your range (NNNN is the page number, zero-padded to four digits). Line breaks inside a file are layout, not sentence ends. A page with no text has no file.
+- `pages/page-NNNN.txt`: the book's own text layer, one file per physical PDF page of your range, in page order (NNNN is the page number, zero-padded to four digits). Line breaks inside a file are layout, not sentence ends. A page with no text has no file.
 
-Write `draft.json`:
+You have one tool, `submit_cast`. Hand it your whole draft as one object; the host stores it. You never choose a file or a path. The draft:
 
 ```json
 {"people": [
@@ -37,7 +37,7 @@ Write `draft.json`:
 
 ## How to work
 
-1. Read the page files in order, about ten pages per call (for example `cat pages/page-0001.txt pages/page-0002.txt …` in one `bash` call), not one page per call. You may use `grep -l` to find every page that prints a name.
-2. Keep `draft.json` current as you go: rewrite it after every ten to twenty pages, so an interrupted run loses little.
-3. When you have read every page, run `coc-read-check --kind module-cast --draft draft.json`. It refuses each row whose new `book` forms it cannot find on the row's pages, and says what to add. Repair each refused row as its fix says (cite the page that prints the form, or move a form the book never prints from `book` to `play`), keep every other row as it is, and run the check again. Remove a row only if you cannot repair it.
-4. Stop when the check passes. Write no other file, and read nothing outside this directory.
+1. Go through every attached page in order and collect the people.
+2. Call `submit_cast` once with the whole draft. The host checks it at once: it refuses each row whose new `book` forms it cannot find on the row's pages, and says what to add.
+3. When it refuses rows, repair each one as its fix says (cite the page that prints the form, or move a form the book never prints from `book` to `play`), keep every other row as it is, and call `submit_cast` again with the whole draft. Remove a row only if you cannot repair it.
+4. Stop when the check passes.
