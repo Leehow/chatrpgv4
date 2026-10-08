@@ -6,6 +6,7 @@
  * The tool is tested as the adaptation submission is (its hooks driven directly), and the producer through its real
  * entry: `TranscriptService` with a runtime whose `runTask` is the host's own (`runtime/tasks.ts`), which spawns the
  * vendored Pi with the emitted `reader-context` and `layout-submit` against a local Responses endpoint scripted as a model.
+ * The same entry carries §191.6's once-per-page requeue of a page whose child ran out of time.
  * The child test loads the emitted `build/`: run `npm run build:runtime` first.
  */
 import assert from "node:assert/strict";
@@ -23,6 +24,7 @@ import { TranscriptStore } from "../../extensions/module/transcript-store.ts";
 import { TRANSCRIPT_FALLBACK } from "../../runtime/jev/host-budgets.ts";
 import { composeRuntimeContext } from "../../runtime/host.ts";
 import { runtimeCapabilities } from "../../runtime/tasks.ts";
+import { acquireReaderSlot } from "../../extensions/module/reader.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const LINES = ["Chapter 3", "The Village", "The village sits at", "the end of the road.", "17"];
@@ -146,6 +148,8 @@ function layoutModel(t, script) {
 			const parsed = JSON.parse(body || "{}");
 			seen.push(parsed);
 			const answer = script(seen.length, parsed);
+			// A provider that never answers: the child runs out of time (a slept-through deadline looks the same).
+			if (answer.hang) return;
 			if (answer.status) {
 				response.writeHead(answer.status, { "content-type": "application/json" });
 				response.end(JSON.stringify({ error: { message: "Our servers are currently overloaded. Please try again later.", type: "server_error" } }));
@@ -169,7 +173,7 @@ function layoutModel(t, script) {
 }
 
 /** One page through `TranscriptService` with the host's own `runTask`: a vendored Pi child against `script`. */
-async function transcribe(t, script) {
+async function transcribe(t, script, budget = {}) {
 	const home = await temporary(t, "layout child home ");
 	const agent = join(home, "agent");
 	await mkdir(agent, { recursive: true });
@@ -197,15 +201,15 @@ async function transcribe(t, script) {
 	const rows = [];
 	const service = new TranscriptService({ runtime, record: row => rows.push(row), extractionVersion: "pdfjs-fixture:native-text-v1",
 		model: () => ({ id: "layoutbox/layout-1", vision: true, contextWindow: 100000 }),
-		budget: { ...TRANSCRIPT_FALLBACK, timeoutMs: 90_000, cooldownMs: 0 } });
+		budget: { ...TRANSCRIPT_FALLBACK, timeoutMs: 90_000, cooldownMs: 0, ...budget } });
 	t.after(() => service.close());
 	const queued = await service.ensure({ pdf: "source.pdf", file_sha256: file, pages: [1] });
 	assert.deepEqual(queued.queued, [1]);
 	await service.idle();
-	const page = rows.find(row => row.event === "page");
+	const page = rows.find(row => row.event === "page" && row.outcome !== "requeued");
 	assert.ok(page, JSON.stringify(rows));
 	const store = new TranscriptStore({ home, contentRoot: context.contentRoot, extractionVersion: "pdfjs-fixture:native-text-v1" });
-	return { page, seen, store, file };
+	return { page, rows: rows.filter(row => row.event === "page"), seen, store, file, service };
 }
 
 const WHOLE = "# {L2}\n\n{L3}{L4}\n\n<!-- drop: L1 L5 -->";
@@ -252,4 +256,37 @@ test("§191.2 through the real child: a provider error before Pi's retry queues 
 	assert.deepEqual([page.outcome, page.attempts, page.submissions, page.unplaced], ["stored", 1, 1, 0], JSON.stringify(page));
 	assert.equal(seen.length, 2, "the failed call and its retry; no reminder turn after the whole layout");
 	assert.equal(JSON.stringify(seen[1].input).includes("Call submit_layout now"), false, "the retry carries no reminder");
+});
+
+test("§191.6 through the real child: a page whose child ran out of time goes to the back of the queue once, then is stored", async t => {
+	const { rows, seen, store, file } = await transcribe(t, turn => turn === 1 ? { hang: true } : { items: [call(turn, 0, "submit_layout", { layout: WHOLE })] },
+		{ timeoutMs: 3_000, repairAttempts: 0 });
+	assert.deepEqual(rows.map(row => [row.outcome, row.reason, row.attempts]), [["requeued", "timeout", 1], ["stored", undefined, 2]], JSON.stringify(rows));
+	assert.equal(seen.length, 2, "the timed-out child's one call, then the requeued run's");
+	const { record } = await store.read(file, 1);
+	assert.deepEqual([record.unplaced, record.attempts], [[], 2]);
+	assert.ok(await exists(join(store.workDir(file, 1, 1), "run.jsonl")), "the timed-out run's evidence is kept");
+	assert.equal(await readFile(join(store.workDir(file, 1, 2), "layout.md"), "utf8"), WHOLE, "the requeued run numbers its work directory on");
+	assert.equal(await exists(join(store.dir(file), "page-0001.claim")), false, "the requeued run took and released its own claim");
+});
+
+test("§191.6 through the real child: running out of time a second time fails the page with reason timeout, and no third run", async t => {
+	const { page, rows, seen, service, file } = await transcribe(t, () => ({ hang: true }), { timeoutMs: 3_000, repairAttempts: 0 });
+	assert.deepEqual(rows.map(row => [row.outcome, row.reason]), [["requeued", "timeout"], ["failed", "timeout"]], JSON.stringify(rows));
+	assert.equal(page.attempts, 2);
+	assert.equal(seen.length, 2, "one run, one requeued run, nothing after");
+	const again = await service.ensure({ pdf: "source.pdf", file_sha256: file, pages: [1] });
+	assert.deepEqual(again.skipped, [1], "a failed page is not tried again in this session");
+});
+
+test("§191.6 through the real entry: a child whose lease ran out while it waited for a reader slot is out of time too", async t => {
+	// Every background reader slot is busy past the child's deadline: its lease (opened before the child starts) ends on
+	// `task_deadline` before any process is spawned, so the reader's own timer never runs and `timedOut` stays false.
+	const held = [];
+	for (let slot = 0; slot < 8; slot++) held.push(await acquireReaderSlot(undefined, "background"));
+	const release = setTimeout(() => { for (const free of held) free?.(); }, 4_000);
+	t.after(() => { clearTimeout(release); for (const free of held) free?.(); });
+	const { rows, seen } = await transcribe(t, turn => ({ items: [call(turn, 0, "submit_layout", { layout: WHOLE })] }), { timeoutMs: 3_000, repairAttempts: 0 });
+	assert.deepEqual(rows.map(row => [row.outcome, row.reason, row.attempts]), [["requeued", "timeout", 1], ["stored", undefined, 2]], JSON.stringify(rows));
+	assert.equal(seen.length, 1, "the first child never started; the requeued run made the one call");
 });

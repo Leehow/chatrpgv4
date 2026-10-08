@@ -158,7 +158,7 @@ test("§191.4 a record of another extraction version is ignored; a claim is excl
 const BUDGET = { ...TRANSCRIPT_FALLBACK };
 const VISION = { id: "fixture/vision", vision: true, thinking: "low", contextWindow: 200_000 };
 
-async function harness(t, { pages = { 1: PAGE }, layouts = () => "{L1-L9}", submitted = () => 1, budget = BUDGET, model = VISION, home, content, gate, yieldTo, events } = {}) {
+async function harness(t, { pages = { 1: PAGE }, layouts = () => "{L1-L9}", submitted = () => 1, timedOut = () => false, budget = BUDGET, model = VISION, home, content, gate, yieldTo, events } = {}) {
 	home ??= await scratch(t, "transcript-home-");
 	content ??= await scratch(t, "transcript-content-");
 	const runs = [], rows = [], calls = [];
@@ -190,7 +190,8 @@ async function harness(t, { pages = { 1: PAGE }, layouts = () => "{L1-L9}", subm
 			}
 			if (events) await writeFile(request.eventLog, events(request, runs.length));
 			runs[runs.length - 1].endedAt = Date.now();
-			return { ok: !signal?.aborted, code: 0, timedOut: false, ms: 1, stderr: "", command: [],
+			const late = timedOut(request, runs.length);
+			return { ok: !signal?.aborted && !late, code: late ? null : 0, timedOut: late, ms: 1, stderr: "", command: [],
 				usage: { inputTokens: 5000, outputTokens: 600, costUsd: 0.01, actions: 3, unknownCalls: 0 } };
 		},
 	};
@@ -455,4 +456,18 @@ test("§191.1 sourceLines splits the native text of sourceText into its lines an
 	assert.equal(lines.pages[1].lines.join("\n"), native.snapshots[0].text);
 	await assert.rejects(sourceLines(file, { pages: [3] }), /outside this PDF/);
 	await assert.rejects(sourceLines(file, { pages: [1], expected_file_sha256: "0".repeat(64) }), /expected_file_sha256/);
+});
+
+test("§191.6 a page whose child ran out of time goes to the back of the queue, still in its class; a plain no-layout exit fails at once", async t => {
+	const pages = { 1: PAGE, 2: PAGE, 3: PAGE };
+	// Page 1's first run times out with no layout; page 3's child exits with none and no timeout.
+	const h = await harness(t, { pages, budget: { ...BUDGET, concurrency: 1, repairAttempts: 0 },
+		layouts: request => request.cwd.endsWith("p0001-1") || request.cwd.includes("p0003-") ? undefined : "{L1-L8}\n\n<!-- drop: L9 -->",
+		timedOut: request => request.cwd.endsWith("p0001-1") });
+	await h.service.ensure({ pdf: "source.pdf", file_sha256: FILE, pages: [1, 2, 3] });
+	await h.service.idle();
+	assert.deepEqual(h.runs.map(run => run.cwd.slice(-7)), ["p0001-1", "p0002-1", "p0003-1", "p0001-2"], "back of the queue, numbered on");
+	const rows = h.rows.filter(row => row.event === "page");
+	assert.deepEqual(rows.map(row => [row.page, row.outcome, row.reason]),
+		[[1, "requeued", "timeout"], [2, "stored", undefined], [3, "failed", "no_layout"], [1, "stored", undefined]]);
 });

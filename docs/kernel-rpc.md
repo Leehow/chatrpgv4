@@ -37327,7 +37327,8 @@ split at `"\n"` with whitespace-only entries removed, each kept byte for byte; `
 - **One producer.** `page-<NNNN>.claim` created exclusively (`O_EXCL`) holds `{pid, at}`; a claim older than
   `timeout_ms * (repair_attempts + 1) + 60000` is stale and may be taken. A loser waits for nothing: it reads native text.
 - **Failure.** A failed page (child error, invariant refusal, no vision) writes no record; the same process does not
-  retry it within the session; a later process may.
+  retry it within the session; a later process may. The one exception is a page whose child ran out of time, which goes
+  back to the queue once (191.6).
 - **Seeds.** Before the home store, `<content>/source-transcripts/<file_sha256>/page-<NNNN>.json` is read through
   (read-only, same record schema). Nothing is copied into home.
 
@@ -37362,6 +37363,21 @@ child at a time by default. A first child that leaves no `layout.md` (it never s
 `repair_attempts` is above 0. (The brief briefly named the work directory's absolute paths after a child wrote its layout
 to a path it made up; since 191.2's submission tool the child names no path at all.)
 
+**A page that ran out of time goes back once (amended 2026-10-07; owner: 「按你建议的改，超时的页回队尾重排一次」).** On
+TR-D one page failed `no_layout` for the rest of the session because the Mac slept with its lid closed for 22 minutes:
+the host's timers count through sleep, so both children's deadlines fired at the first wake, and a slept-through
+deadline cannot be told from a hung provider. Players close their lids mid-session, and a failed page leaves the Keeper
+reading drawing-order native text until the next session. So when a page ends with no layout and the child that left
+none ran out of time -- the reader's own timeout (`ReaderOutcome.timedOut`) or its lease's deadline (`task_deadline`),
+whichever fired first; the lease opens before the child starts, so its deadline usually does -- the page is not failed
+the first time: its claim is released, it is written `event: "page", outcome: "requeued", reason: "timeout"`, and it goes
+to the back of the queue, still in its priority class (foreground before background). When it runs again it claims the
+page again (191.4), and the yield, the cooldown and the immediate fresh child apply to it as to any other run. The second
+time the same page runs out of time in the same `TranscriptService` it fails as before, with `reason: "timeout"` instead
+of `no_layout`; nothing else changes (a child error, a refusal or a layout-less exit that did not run out of time fails
+as before). The work directories of the requeued run continue the page's attempt numbers, so the timed-out run's
+evidence is kept. `staleClaimMs` bounds one run, as before: a requeue releases its claim and the next run takes a new one.
+
 ### 191.7 Readers
 
 Host operation `sourcePageText {pdf, pages, expected_file_sha256?, layer?: "preferred" | "native"}` returns per page
@@ -37390,9 +37406,11 @@ ships the PDF (2026-09-24); no other page of the book is shipped. Packaging copi
 ### 191.9 Telemetry
 
 `lane: "transcript"` rows: `event: "page"` with `{file_sha256, page, outcome: "stored" | "repaired" | "unplaced" |
-"failed" | "no_vision" | "refused", attempts, submissions, lines, placed, dropped, unplaced, free_removed,
-image_text_chars, model, thinking, ms, usage}` (`attempts`: children started for the page; `submissions`: layouts they
-submitted, from `submissions.jsonl`; `repaired` when the kept layout needed a second submission or a fresh child); `event: "reused"` `{file_sha256, pages, source: "home" | "seed"}` once per `ensure` that found
+"failed" | "no_vision" | "refused" | "requeued", attempts, submissions, lines, placed, dropped, unplaced, free_removed,
+image_text_chars, model, thinking, ms, usage}` (`attempts`: children started for the page in this service, a requeued
+run's included; `submissions`: layouts this run's children submitted, from `submissions.jsonl`; `repaired` when the kept
+layout needed a second submission or a fresh child in its run; `requeued` and a second running out of time carry
+`reason: "timeout"`, 191.6); `event: "reused"` `{file_sha256, pages, source: "home" | "seed"}` once per `ensure` that found
 records; `event: "window"` `{file_sha256, ranges, queued}` when the window's transcript ranges change.
 
 ### 191.10 Three ends (§31)
@@ -37587,3 +37605,26 @@ submission, and the host's own assembly of a layout the tool never vetted. Mutat
 findings withheld (in the source and, for the real child, in the emitted bundle); no reminder; a worse layout replacing a
 better one; submissions not counted; the reminder armed on an error-ended run (in the source, and in the emitted bundle,
 where the real child reproduces TR-D: `repaired`, two submissions).
+
+*Timeout requeue (2026-10-07, 191.6).* Code: `TranscriptService` in `extensions/module/transcript-service.ts` (`make`
+answers `"requeue"`, `pump` puts the job back, `timedOut` holds the pages sent back once, `Job.children` numbers work
+directories and `attempts` across runs, the lease's `expired()`). Decisions:
+
+- **Out of time** is the last child's: `ReaderOutcome.timedOut`, or its lease cancelled with `task_deadline` (read before
+  the lease is closed). Both are needed. A child killed at its deadline usually ends with `timedOut` true even when the
+  lease fired first, because the reader's own timer fires while the child is still dying. But a child whose lease ran
+  out while it waited for a background reader slot was never spawned and reports `timedOut: false`.
+- **The requeued job stays in `active`** until its last run ends, so `ensure` skips it (and a foreground `ensure`
+  raises its class) as it does any queued page. Its native lines are extracted again when it runs.
+- **`repaired`** is judged on the run that stored the page: a page stored by its requeued run's one child is `stored`,
+  with `attempts` 2.
+
+Tests: `tests/extension/layout-submit.test.mjs` through the real entry. (1) An endpoint that hangs on the first child and
+answers a whole layout later (`timeout_ms` 3000, `repair_attempts` 0): rows `requeued`/`timeout` then `stored`, two
+provider calls, the first run's `run.jsonl` kept in `p0001-1`, the layout in `p0001-2`, no claim left. (2) An endpoint
+that always hangs: `requeued` then `failed`/`timeout`, two calls, and a later `ensure` skips the page. (3) Every
+background reader slot held past the deadline: the first child never starts, and the page is still requeued, then
+stored. `tests/extension/page-transcript.test.mjs`: the requeued page runs after the pages queued behind it (`p0001-1`,
+`p0002-1`, `p0003-1`, `p0001-2`), and a layout-less exit that did not time out fails `no_layout` at once. Mutations, each
+killed: never requeue; requeue without recording it (the always-hanging page loops until the test's timeout); the
+reader's timer alone (killed by (3)); requeue at the front; work directories renumbered per run.
