@@ -39226,3 +39226,38 @@ as another word tells nobody.
   not have the book's name"). Mutations: the full-roster rename in the hook (3 of 3 red in `untold-request`), no
   `book_name` (red in `untold-request` and `untold-view`), no handle rows renamed (red in both), the old use line and the
   old prompt sentence (red) — each reverted by copying the saved file back.
+
+*TL-03 implementation decisions (2026-10-08).*
+
+- **Where it is built.** `playerKnowsSection` (`kernel-ts/read/player-knows.ts`), called by `buildCapsule` with the
+  campaign's `npc-journal.json`, its records, the turn and `first-sight.json`. The section is
+  `{use, people, documents, omitted?}`; `use` is one line saying what the two lists are and that the clues are
+  `known.discovered_clues` and the remembered facts `memory`. It is on every capsule, empty lists included, so its place in
+  the prefix does not come and go.
+- **People.** Over `bookCast` (creatures and table people excluded, a person the graph holds more than once once). A graph
+  person is in when any of their nodes has a journal entry, their handle has a `world.person_labels` name, their handle is
+  shown or owed in `first-sight.json`, or `untoldBlock` says they are told (journal `named_at`, or a delivery that showed
+  the name, the told guard included). Told: `{word: personLabel(...), name: <display name>}` (after `{{name:}}` the word is
+  the book's name). Untold: `{word: rosterWord(...), untold: true, book_name: <display name>}` -- the same word the request
+  and `present[]` show. A person the reader has not reached is in only when `castToldTurn` finds their name delivered
+  (`{word, name: <first printed form>}`) or the fiction gave their cast id a word (`untold: true`). The order is newest
+  first by the latest of the journal's `last_seen_turn`/`named_at` and the told turn; a person known only by a label or a
+  first sight sorts after those, in cast order.
+- **Documents.** Every `handout` receipt on a record before this turn whose `closed_by` is not `stranded` (a stranded
+  turn told the player nothing; `untold` carries its receipts), `{label: receipt.label || name, turn}`, one row per
+  handout at the latest turn it was handed over, newest first. The current turn's receipts are not delivered yet.
+- **Budget.** `PLAYER_KNOWS_BUDGET` = 2048 bytes, fitted inside the builder like `own`: while over, the list whose last
+  (oldest) row is older gives it up (a person on a tie), and `omitted: {people, documents}` counts what went; the capsule's
+  `truncated` then names `player_knows`.
+- **Order.** `player_knows` is in `CAPSULE_STABLE_SECTIONS` after `warnings` and before `known`: it moves when someone is
+  met or told or a document handed over, less often than `known` (57% of live turns).
+- `prompts/keeper.md` names the section beside `book_name` in its untold paragraph.
+- Tests: `tests/extension/player-knows.test.mjs` (the Haunting on the in-process kernel: nothing known before the first
+  meeting; after `apply person` words, a handout and a `{{name:}}` delivery, Knott `{word, name}`, Dooley
+  `{word: 'the newsboy', untold: true, book_name: 'Mr. Dooley'}`, the handout with its turn, and the section ordered between
+  `warnings` and `known` by `stableFirst`; the builder: 40 people and 30 handouts fitted newest first with `omitted`, a
+  first sight shown or owed counted as met, a stranded turn's handout not delivered); `context-policy.test.mjs` (the
+  order); `tests/kernel/test_capsule_budgets.py` pins the 2048-byte budget. Mutations, each red in
+  `player-knows.test.mjs` and reverted by copying back: the section left out of the capsule, a told person shown untold,
+  stranded turns counted, oldest first, first sights ignored, labels ignored, the fit loop off, `player_knows` out of the
+  stable list.

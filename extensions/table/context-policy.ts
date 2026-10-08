@@ -44,7 +44,7 @@ export function capsuleUpdate(first: Row, current: Row): Row | undefined {
  * capsule's stable head with this turn's as a token prefix. A closed enumeration of the capsule's own section names.
  */
 export const CAPSULE_STABLE_SECTIONS: readonly string[] = ['head', 'historical_setting', 'worldlines', 'mods', 'reading', 'pressures',
-    'obligations', 'situations', 'rulings', 'owed', 'unrecorded', 'untold', 'warnings', 'known', 'voices', 'style'];
+    'obligations', 'situations', 'rulings', 'owed', 'unrecorded', 'untold', 'warnings', 'player_knows', 'known', 'voices', 'style'];
 export const CAPSULE_VOLATILE_SECTIONS: readonly string[] = ['where', 'present', 'director', 'memory', 'recent', 'turn'];
 /**
  * Two stable sections carry parts that move with play (a discovered clue changes `mods.thread` and `known.clues_here`), so

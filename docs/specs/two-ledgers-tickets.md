@@ -23,7 +23,7 @@ Status: done (claude/two-ledgers-a-20261008)
   printing that name is still refused by §177.11 the first time. Mutation-check each.
 
 ## TL-03 The player ledger: `player_knows`
-Status: ready-for-agent
+Status: done (claude/two-ledgers-a-20261008)
 
 - Kernel capsule (`kernel-ts/read/capsule.ts`, the section order of §184.2 — a stable section): `player_knows:
   {people: [{word, name? | (untold: true, book_name)}], documents: [{label, turn}]}`. People = book people with a

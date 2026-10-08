@@ -27,6 +27,7 @@ SECTION_BUDGETS = {
     "memory": 1536, "recent": 2048, "warnings": 1024,
     "voices": 3072,  # §40.7: the masks and exchanges of everyone present
     "own": 2048,  # §179.2: the card's backstory and the player's earlier words, fitted by position
+    "player_knows": 2048,  # §194.2: the people met or told and the documents handed over, newest first
 }
 #: §13.6: the process's first capsule gets every craft directive (2KB); every
 #: capsule after that only gets the ones picked for the beat (1KB).
