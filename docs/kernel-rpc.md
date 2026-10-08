@@ -39194,6 +39194,66 @@ as another word tells nobody.
 
 *Implementation decisions and tests are recorded per ticket below as they land (`docs/specs/two-ledgers-tickets.md`).*
 
+*TL-04 implementation decisions* (2026-10-08):
+
+- **Where a handout's text lives** (`deliveredDocuments`, `kernel-ts/write/document-names.ts`). The documents are this turn's
+  `handout` receipts (`turn.receipts`), each once, whose attachment was delivered (`available: true`):
+  - *A text handout*: the file `apply handout` wrote, `<campaign>/handouts/<handle>.md` (the graph node's or the registered
+    asset's `authored_text`, heading and body: what the card shows).
+  - *A pictured handout*: the words the §191 page transcript read off the pictures of the page its image is cut from (the
+    node's first `properties.image_sources[].page`; the record's `image_text` blocks), and only when no other graph node is
+    pictured on that page, so the words are this document's. The kernel reads the record from the store under its workspace
+    (`kernel-ts/read/page-transcripts.ts`, see TL-05). Cold Harvest's letter is page 44's only picture, and the record of
+    page 44 reads "Galena Petrovna Smolskaya" and "Pyotr Abramov" off it; the cast prints "Galena Petrovna Smolskaya" and
+    "Abramov" as their book forms.
+  - *Not used*: the §155 reading (the player's model translation, kept by the host, never shown to the Keeper or the graph,
+    and on TR-F it wrote 加琳娜·彼得罗芙娜·斯莫尔斯卡娅 where the cast prints 嘉琳娜…; §155.6–155.7); the graph node's
+    `summary` (the Keeper's account, not the document); a source page's body text (page 10 prints the letter's translation
+    beside the whole resident list and the Keeper's opening, and cannot be cut to the document). A handout with none of the
+    two texts tells nothing.
+- **Whose names.** Every untold cast person (graph people and the unread, as the roster takes them), by the names that stand
+  for them in the book's text (`printedNames`: the cast's printed forms and each graph node's own name and display name, never
+  aliases), minus a name a told person also carries and minus anyone this campaign added (§177.11's rules), at least two
+  characters. Places are `prosePlaces` with the names the investigator's side owns guarded (§188.1). A place whose name two
+  untold people share tells neither (§188.8).
+- **The host's Jev check.** `table.untold_spans` also returns `documents: [{handout, text, spans: [{name, nth, start,
+  end}]}]` for this turn's documents. The host hook (`extensions/kernel/untold-spans.ts`) asks about those places with the
+  prose's, each shown in the document's own words, and sends a cleared one as `untold_cleared: [{name, nth, handout}]`;
+  `clearedPlaces` keys it apart from the prose's places, so the delivery gate (§177.11) never sees it. An ask with no text
+  still has its documents asked about. Jev unconfigured, failed or late clears nothing, so every place tells, as every prose
+  place is then held as a name; telemetry `lane: "untold-spans"` adds `document_places`.
+- **Told by identity, through the told checks.** The delivery's record carries `told_documents: [{handout, people, names}]`:
+  `people` is each person told, by their handle (graph) or cast row id (unread); `names` is what the document printed, as
+  evidence. `toldTurn` and `castToldTurn` read it (`NameHistory.documentTold`, by the same owner keys the told guard uses), so
+  `untoldBlock`, the roster, the epithet job and the journal all see the person told from that turn. Not by writing the
+  names into the told text: "Dimiri Kravchuk" there would tell everyone whose names carry "Kravchuk" (a notes rendering's word,
+  §177.14).
+- **The table's word becomes the name** for a graph person told this way (`person_labels[handle].name` = display name,
+  `callByBookName`), the sync `{{name:}}` makes (§103.8 item 3); on a narrate it is in `introduced`, so the narrate journal
+  restores it if the commit fails (§141).
+- **An ask tells too.** An ask closes its turn (the player's answer opens the next), so the documents an ask hands over tell
+  at the ask: its record carries `told_documents`, the told checks read an ask record that does (its prose still tells nothing,
+  §103.8 item 3, and its say tokens are not read), and the label sync runs after the record. An ask record has no commit of its
+  own; the next narrate's commit carries it.
+- **Telemetry.** `lane: "delivery"`, `reason: "document_names"`, `outcome: "told" | "none"`, with `places`, `cleared`, `told`,
+  on each delivery whose documents print an untold name.
+- **A reference delivery** (`_interaction_scope`) tells nothing, as it introduces nobody.
+
+Tests: `tests/extension/two-ledgers-names.test.mjs`, on the real kernel with the farm book's cast: a text handout printing an
+unread resident's name, a graph person's name, a village whose name opens with another resident's short form and a family
+name two residents share -- `table.untold_spans` returns the document's places, the narrate with the village cleared tells
+the writer and the captain (roster; `look focus=npc` loses `untold` and shows `called.name`; `person_labels`), the village and
+the shared family name tell nobody, the record keeps `told_documents` and the prose is unchanged; a pictured handout whose page
+transcript reads two residents' and the clerk's book forms, delivered by an ask, tells them at the ask (the wife whose
+renderings carry the family name is not told by her husband's name; the clerk is called by his name); no transcript of the
+page, a page another picture shares, and a picture never delivered tell nothing and `untold_spans` lists no document; the
+host hook asks about a document's places in its own words and clears by the handout, an ask without text included.
+Mutations, each turning a case red and reverted by copy: no `told_documents` on the narrate record; cleared places ignored;
+`toldTurn` not reading documents; `castToldTurn` not reading them; ask records left out of the graph told records; left out
+of the cast told records; no label sync on narrate; none on ask; the shared-page rule removed; the image text not read;
+`untold_spans` without documents; the host ignoring documents; a shared name telling its first owner; the ask not
+computing documents; an undelivered picture read.
+
 *TL-05 implementation decisions* (2026-10-08):
 
 - **Computed when the lane asks; `CAST_VERSION` stays 5.** An unread person's entry is cut at `epithets.job` time

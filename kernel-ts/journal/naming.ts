@@ -67,6 +67,8 @@ export function toldTurn(graph: ModuleGraph, node: Row, records: Iterable<Row>, 
     const history = prepareNameHistory(records);
     for (const record of history.graphRecords()) {
         if (!(number(record.turn) <= upTo)) continue;
+        // §194.3: a document the delivery handed over printed their name.
+        if (history.documentTold(record, own)) return number(record.turn);
         // §185.6.1: a record keeps the handle the person had then (an interim one, before a fold): compared by identity.
         if (history.speech(record).some(who => sameNode(graph, who.npc, node) && words.some(word => history.says(who.shown, word, own))))
             return number(record.turn);

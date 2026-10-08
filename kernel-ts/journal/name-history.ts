@@ -39,23 +39,34 @@ export class NameHistory implements Iterable<Row> {
         if (!next) this.guarded.set(guard.key, next = new NameHistory([], guard, this.prepared));
         return next;
     }
-    /** Graph names use Python truth and numeric turns; NaN never passes the original upper-bound test. */
+    /** Graph names use Python truth and numeric turns; NaN never passes the original upper-bound test. §194.3: an ask that handed
+     *  the player a document tells its names too (an ask is never committed on its own; the next narrate's commit carries it). */
     graphRecords(): readonly Row[] {
-        return this.prepared.graphRows ??= this.prepared.records.filter(record => record.closed_by === 'narrate' && truth(record.commit) && number(record.turn) <= Infinity)
-            .sort((a, b) => number(a.turn) - number(b.turn));
+        return this.prepared.graphRows ??= this.prepared.records.filter(record => (record.closed_by === 'narrate' && truth(record.commit) || documented(record))
+            && number(record.turn) <= Infinity).sort((a, b) => number(a.turn) - number(b.turn));
     }
     /** Unread cast uses its existing JavaScript commit test and integer-only turns, with no speech test. */
     castRecords(): readonly Row[] {
-        return this.prepared.castRows ??= this.prepared.records.filter(record => record.closed_by === 'narrate' && record.commit && integer(record.turn))
+        return this.prepared.castRows ??= this.prepared.records.filter(record => (record.closed_by === 'narrate' && record.commit || documented(record)) && integer(record.turn))
             .sort((a, b) => number(a.turn) - number(b.turn));
     }
+    /** What a narrate showed the investigator (`told_text` where the host cleared places in it). An ask's prose tells nothing (§103.8 item 3). */
     text(record: Row): string {
         const prose = this.prepared.prose;
-        if (!prose.has(record)) prose.set(record, normalize(record.told_text ?? record.rendered_text ?? ''));
+        if (!prose.has(record)) prose.set(record, record.closed_by === 'narrate' ? normalize(record.told_text ?? record.rendered_text ?? '') : '');
         return prose.get(record)!;
+    }
+    /**
+     * §194.3: whether a document this delivery handed over told the person whose owner keys `own` answers (`told_documents`, by
+     * the person's handle or cast row id). By identity, never by the names it printed: written into the told text, "Dimiri
+     * Kravchuk" would tell everyone whose names carry "Kravchuk".
+     */
+    documentTold(record: Row, own: (owner: string) => boolean): boolean {
+        return documentPeople(record).some(own);
     }
     speech(record: Row): readonly { npc: string; shown: string }[] {
         const speakers = this.prepared.speakers;
+        if (record.closed_by !== 'narrate') return [];
         if (!speakers.has(record)) speakers.set(record, array(record.speech).map(line => {
             const who = row(row(line).who);
             return { npc: string(who.npc), shown: normalize('shown' in who ? string(who.shown) : string(who.name ?? '')) };
@@ -84,6 +95,12 @@ export class NameHistory implements Iterable<Row> {
         return places.some(place => clearOf(place, foreign));
     }
 }
+
+/** §194.3: the people a delivery's documents told, as the record keeps them (`told_documents: [{handout, people, names}]`). */
+const documentPeople = (record: Row): string[] => array(record.told_documents).flatMap(entry => array(row(entry).people))
+    .filter((id): id is string => typeof id === 'string' && !!id);
+/** An ask record whose documents told someone (§194.3); a narrate record is read by its own commit test. */
+const documented = (record: Row): boolean => record.closed_by === 'ask' && documentPeople(record).length > 0;
 
 /** Explicit ownership: aggregating readers pass one preparation to all their consumers. §188.1: a reader that holds the world
  *  and the journal passes the told guard; a history already prepared keeps its guard when none is passed. */

@@ -16,11 +16,11 @@
 import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
 import type { CastPerson } from '../read/cast.js';
-import { CAST_SOURCE_FILE } from '../read/cast.js';
+import { CAST_SOURCE_FILE, printedNames } from '../read/cast.js';
 import type { ModuleGraph } from '../read/module-graph.js';
 import { pageTranscript } from '../read/page-transcripts.js';
 import { passageKey } from '../read/table-people.js';
-import { row, string, type Row } from '../read/values.js';
+import { row, type Row } from '../read/values.js';
 import { scopedModuleRoot } from '../modules/campaign-scope.js';
 import { CAST_SENTENCE_CHARS, compacted, pageTexts } from './draft.js';
 
@@ -58,12 +58,6 @@ export function castEntry(text: string, own: readonly string[], others: Readonly
     const entry = text.slice(start, end).replace(/\s+/gu, ' ').trim();
     const points = [...entry];
     return points.length > CAST_SENTENCE_CHARS ? points.slice(0, CAST_SENTENCE_CHARS).join('').trimEnd() : entry;
-}
-
-/** The names that stand for `person` on a page: the forms the cast reader printed, and each graph node's own whole names. */
-export function printedNames(graph: ModuleGraph, person: CastPerson): string[] {
-    return [...new Set([...person.printed, ...person.nodes.flatMap(node => [string(node.name), graph.displayName(node)])]
-        .map(name => name.trim()).filter(Boolean))];
 }
 
 /**

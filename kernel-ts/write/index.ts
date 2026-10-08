@@ -45,6 +45,7 @@ import { foldPersonWords, untoldWholeNames } from '../read/person-words.js';
 import { protectedNames, tellGuard } from '../read/cast.js';
 import { foldNodeHandles, handleScheme, handlesDirectory, nodeHandleMap, readHandles, rewriteCampaignFiles, rewriteHandles, type HandleMove } from '../read/node-handles.js';
 import { prepareNameHistory, type NameHistory } from '../journal/name-history.js';
+import { deliveredDocuments, documentPlaceKey, documentPlaces, documentTold, type DocumentTold } from './document-names.js';
 import { presenceRolls, type PresenceRolled } from '../mods/presence.js';
 import { CheckArithmetic } from '../resolve/arithmetic.js';
 import { RuleTables } from '../rules/tables.js';
@@ -220,12 +221,48 @@ function blankedPlace(text: string, place: ProsePlace, refused: readonly ProsePl
     }
     return (out + text.slice(at, to)).replace(/\s+/gu, ' ').trim();
 }
-/** §177.15: `untold_cleared` as the host sends it, the keys of the places it judged to be part of another word. */
+/**
+ * §177.15: `untold_cleared` as the host sends it, the keys of the places it judged to be part of another word. §194.3: a place
+ * in a document the delivery hands over carries that handout's handle, and is keyed apart from the prose's places.
+ */
 function clearedPlaces(value: unknown): Set<string> {
     if (value === undefined) return new Set();
-    if (!Array.isArray(value) || value.some(entry => typeof row(entry).name !== 'string' || !Number.isSafeInteger(row(entry).nth)))
-        throw new RpcError('invalid_params', 'untold_cleared is a list of {name, nth}', { details: { field: 'untold_cleared' } });
-    return new Set(value.map(entry => placeKey({ name: string(row(entry).name), nth: number(row(entry).nth) })));
+    if (!Array.isArray(value) || value.some(entry => typeof row(entry).name !== 'string' || !Number.isSafeInteger(row(entry).nth)
+        || (row(entry).handout !== undefined && (typeof row(entry).handout !== 'string' || !row(entry).handout))))
+        throw new RpcError('invalid_params', 'untold_cleared is a list of {name, nth, handout?}', { details: { field: 'untold_cleared' } });
+    return new Set(value.map(entry => {
+        const place = { name: string(row(entry).name), nth: number(row(entry).nth) };
+        return typeof row(entry).handout === 'string' ? documentPlaceKey(string(row(entry).handout), place) : placeKey(place);
+    }));
+}
+/** The told test's inputs a delivery reads: the journal, the history with the told guard, and the names the investigator's side owns. */
+async function nameInputs(snapshot: CampaignSnapshot, graph: ModuleGraph): Promise<{ journal: Row; records: NameHistory; guarded: string[] }> {
+    const journal = row(await snapshot.optional('npc-journal.json'));
+    const records = prepareNameHistory(await snapshot.turnRecords(), tellGuard(graph, snapshot.world, journal));
+    return { journal, records, guarded: protectedNames(graph, snapshot.world, journal, records) };
+}
+const NOTHING_TOLD: DocumentTold = { record: [], introduced: [], told: 0, cleared: 0, places: 0 };
+/** §103.8: the table's word for each of `nodes` becomes the book's name (`person_labels`), the sync an introduction makes. */
+async function callByBookName(campaign: CampaignWriter, graph: ModuleGraph, nodes: readonly Row[]): Promise<void> {
+    const current = await campaign.readWorld(), labels: Row = { ...row(current.person_labels) };
+    for (const node of nodes) {
+        const handle = graph.handle(node);
+        labels[handle] = { ...row(labels[handle]), name: graph.displayName(node) };
+    }
+    await campaign.writeWorld({ ...current, person_labels: labels });
+}
+/** §194.3: one row per delivery whose documents printed an untold name: how many places, how many the host cleared, who was told. */
+async function documentTelemetry(campaign: CampaignWriter, turn: number, callId: string, told: DocumentTold): Promise<void> {
+    await campaign.telemetry({ lane: 'delivery', turn, ok: true, reason: 'document_names', outcome: told.told ? 'told' : 'none', call_id: callId,
+        places: told.places, cleared: told.cleared, told: told.told }).catch(() => undefined);
+}
+/** §194.3: who the documents this turn's receipts hand the player tell, with the host's cleared places. */
+async function documentsTold(context: KernelContext, snapshot: CampaignSnapshot, module: { graph: ModuleGraph; meta: Row }, receipts: Row[],
+    cleared: ReadonlySet<string>): Promise<DocumentTold> {
+    const documents = await deliveredDocuments(context, module.graph, module.meta, receipts);
+    if (!documents.length) return NOTHING_TOLD;
+    const { journal, records, guarded } = await nameInputs(snapshot, module.graph);
+    return documentTold(module.graph, journal, records, documents, guarded, cleared);
 }
 async function untoldNamesGate(snapshot: CampaignSnapshot, campaign: CampaignWriter, turn: Row, graph: ModuleGraph, text: string,
     speakers: SpeakerResolver, callId: string, implicit: boolean, cleared: ReadonlySet<string> = new Set()): Promise<{ text: string; replaced: string[]; told?: string }> {
@@ -1254,7 +1291,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const askSpeakers = speakerResolver(module.graph, snapshot.world, snapshot.party, await untoldAt(snapshot, module.graph));
         const askPrices=bindPriceText(text??'',priceRows(receipts,params.quotes));
         // §103.8: a name the fiction says is the book's, put in here; the Keeper never held it.
-        const gated = text ? await untoldNamesGate(snapshot, campaign, turn, module.graph, askPrices.text, askSpeakers, started.callId, false, clearedPlaces(params.untold_cleared)) : null;
+        const askCleared = clearedPlaces(params.untold_cleared);
+        const gated = text ? await untoldNamesGate(snapshot, campaign, turn, module.graph, askPrices.text, askSpeakers, started.callId, false, askCleared) : null;
+        // §194.3: an ask closes the turn too, so the documents it hands over tell their names at it.
+        const askDocuments = await documentsTold(context, snapshot, module, receipts, askCleared);
         const asked = gated ? withNames(gated.text, askSpeakers, module.graph) : null;
         const { placed, ...delivery } = deliveryText(asked ? asked.text : text, receipts, askSpeakers);
         await refuseRepeatedLine(snapshot, campaign, delivery.speech);
@@ -1298,11 +1338,15 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             closed_how: 'explicit',
             director_adoption: await adoption(campaign, module, turn, world, 'ask', snapshot.world),
             ...(reads.length ? { reads } : {}),
-            ...(admissionRefusedMoves.length ? { refused_moves: admissionRefusedMoves } : {})
+            ...(admissionRefusedMoves.length ? { refused_moves: admissionRefusedMoves } : {}),
+            ...(askDocuments.record.length ? { told_documents: askDocuments.record } : {})
         };
         await campaign.writeTurnRecord(record);
         await updateNpcLedger(campaign, module.graph, record);
         await campaign.writeTurn(turn);
+        // §194.3 with §103.8: a graph person a document told is called by the book's name from now on, as at an introduction.
+        if (askDocuments.introduced.length) await callByBookName(campaign, module.graph, askDocuments.introduced);
+        if (askDocuments.places) await documentTelemetry(campaign, n, started.callId, askDocuments);
         await campaign.appendTranscript(n, 'keeper', rendered);
         await campaign.appendEvent(n, {
             type: 'choice-asked',
@@ -1324,8 +1368,12 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if (typeof text !== 'string') throw new RpcError('invalid_params', 'params.text must be a string', { details: { field: 'text' } });
         const { snapshot, module } = await load(params, { allowReady: true, preload: 'names' });
         const speakers = speakerResolver(module.graph, snapshot.world, snapshot.party, await untoldAt(snapshot, module.graph));
-        const { places } = await untoldPlaces(snapshot, module.graph, text, speakers);
-        return { spans: places.map(place => ({ name: place.name, nth: place.nth, start: place.start, end: place.end })) };
+        const { places, journal, records, guarded } = await untoldPlaces(snapshot, module.graph, text, speakers);
+        // §194.3: the places of untold names in the documents this turn hands over, for the host to ask about as it asks about the prose's.
+        const documents = documentPlaces(module.graph, journal, records, await deliveredDocuments(context, module.graph, module.meta, array(snapshot.turn.receipts)), guarded);
+        return { spans: places.map(place => ({ name: place.name, nth: place.nth, start: place.start, end: place.end })),
+            ...(documents.length ? { documents: documents.map(document => ({ handout: document.handout, text: document.text,
+                spans: document.places.map(place => ({ name: place.name, nth: place.nth, start: place.start, end: place.end })) })) } : {}) };
     }
     async function narrate(params: Row, report?: ProgressReporter): Promise<Row> {
         // §135.31: the turn's Keeper reads ride on the delivery for its record; they are not part of the call's digest.
@@ -1353,13 +1401,16 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const priceBinding=bindPriceText(priceTemplate,priceRows(receipts,params.quotes));
         // `let`: §143.17 may take a bare wrapper off the text on the turn's second delivery and render it again.
         // §103.8: a name the fiction says is the book's, put in here; the Keeper never held it.
-        const gated = await untoldNamesGate(snapshot, campaign, turn, module.graph, priceBinding.text, speakers, started.callId, truth(params.implicit),
-            clearedPlaces(params.untold_cleared));
+        const cleared = clearedPlaces(params.untold_cleared);
+        const gated = await untoldNamesGate(snapshot, campaign, turn, module.graph, priceBinding.text, speakers, started.callId, truth(params.implicit), cleared);
         const naming = withNames(gated.text, speakers, module.graph);
         let text = naming.text;
+        // §194.3: a document this turn hands the player tells the names it prints, at this delivery.
+        const documents = reference ? NOTHING_TOLD : await documentsTold(context, snapshot, module, receipts, cleared);
         // §103.8: someone untold is named in this delivery, so from now on the table calls them by the book's name -- the sync
         // the Keeper's own `apply person` used to make at an introduction, which it can no longer make without the name.
-        const introduced = reference ? [] : naming.named.map(handle => module.graph.find(handle, ['npc'])).filter((node): node is Row => !!node && untold(node));
+        const introduced = reference ? [] : [...new Map([...naming.named.map(handle => module.graph.find(handle, ['npc'])).filter((node): node is Row => !!node && untold(node)),
+            ...documents.introduced].map(node => [string(node.node_id), node] as [string, Row])).values()];
         let { placed, ...delivery } = deliveryText(text, receipts, speakers), rendered = delivery.rendered_text;
         // §177.15: the delivery as the told check reads it, the cleared places blanked (`told_text` on the record).
         const toldText = gated.told === undefined ? undefined : string(deliveryText(withNames(gated.told, speakers, module.graph).text, receipts, speakers).rendered_text);
@@ -1482,6 +1533,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...(priceBinding.bound.length||priceBinding.unresolved.length?{price_template:priceTemplate,price_bindings:priceBinding.bound,unresolved_prices:priceBinding.unresolved}:{}),
             ...(delivery.marked_text ? { marked_text: delivery.marked_text } : {}),
             ...(toldText !== undefined ? { told_text: toldText } : {}),
+            // §194.3: the names the documents handed over told, which the told checks read beside the prose.
+            ...(documents.record.length ? { told_documents: documents.record } : {}),
             closed_by: 'narrate',
             closed_how: truth(params.implicit) ? 'implicit' : 'explicit',
             ...(reference ? {interaction_scope: interactionScope} : {facts: factLists}),
@@ -1523,14 +1576,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         };
         await campaign.writeTurnRecord(record);
         if (!reference) await updateNpcLedger(campaign, module.graph, record);
-        if (introduced.length) {
-            const current = await campaign.readWorld(), labels: Row = { ...row(current.person_labels) };
-            for (const node of introduced) {
-                const handle = module.graph.handle(node);
-                labels[handle] = { ...row(labels[handle]), name: module.graph.displayName(node) };
-            }
-            await campaign.writeWorld({ ...current, person_labels: labels });
-        }
+        if (introduced.length) await callByBookName(campaign, module.graph, introduced);
         await campaign.appendTranscript(n, 'keeper', rendered);
         await campaign.appendEvent(n, {
             type: 'turn-finalized',
@@ -1588,6 +1634,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...(stripped ? { stripped: true } : {}) }).catch(() => undefined);
         if (gap)
             await campaign.telemetry({ ...timeRow(gap, turn, started.callId, params), ok: true, outcome: 'delivered' }).catch(() => undefined);
+        if (documents.places) await documentTelemetry(campaign, n, started.callId, documents);
         const postStep=async(step:string,action:()=>Promise<unknown>)=>{try{await action();}catch(error){await campaign.telemetry({lane:'kernel',step,turn:n,ok:false,error:internalError(error).message});}};
         const moves=isJsonObject(record.worldline)&&truth(record.worldline.operation);
         let checkpointRecord=record,checkpointWorld=world,moved:Row|null=null;

@@ -34,7 +34,7 @@ Status: ready-for-agent
   pytest pin if the capsule schema has one.
 
 ## TL-04 A document tells its names
-Status: ready-for-agent
+Status: done (claude/two-ledgers-b-20261008; decisions in contract §194, *TL-04 implementation decisions*)
 
 - When a delivery (`table.narrate` / `table.ask` / `apply` with `narrate`) carries a handout effect whose document text
   is known to the kernel, every untold cast person whose printed name occurs in that text becomes told at that delivery,
