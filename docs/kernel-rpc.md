@@ -39880,6 +39880,32 @@ batch settled; `located` counts noul at least 0.35; `sent` the passages handed t
 candidates). The `source_catalog` row's `coverage.native` gains `located_passages`, `passage_pages` and
 `passages_offered`; `located_pages` keeps meaning the located entities' pages. The §196 fields are unchanged.
 
+**Acceptance (the PU-04 probe rerun, 2026-10-08, live Jev, code at `9098a3a7b`).** TR-F's 13 turns (12 lines) replayed
+through `prepareKeeperSupport` against Cold Harvest (443 passages on 41 of 48 pages), two reps, each rep in its own process
+and side by side with the base (`4ce2e4cab`) so both met the same Jev; the scripts and outputs are the lead's PU-04
+scratchpad plus `analyze-pu05.py`. The PU-04 fact table judged only units PU-04 offered, none of which reached the Keeper,
+so it scores every run 0; the units PU-05 supplied were judged by reading against each line (listed in that script).
+
+| | base r1 / r2 | PU-05 r1 / r2 | target |
+| --- | --- | --- | --- |
+| lines whose Keeper materials hold a passage with the book's fact (answers it or part of it) | 0 / 0 of 12 | 10 / 8 of 12 | ≥ 6 |
+| the same, answering it | 0 / 0 | 9 / 7 | |
+| turns with a source operation in Jev's window (in the first window) | 0 / 0 of 13 | 13 (13) / 13 (13) | every turn |
+| prescreens over the 12 s allowance; fallbacks; least allowance left | 0; 0; 4.5 s / 5.3 s | 0; 0; 4.7 s / 6.9 s | none over |
+| locate median (26 turns) | 919 ms | 1,738 ms (+820; paired per turn +850) | rise < 1.5 s |
+
+Per line (r1/r2, *y* answers, *part* answers part, *rel* related only): the file y/y; who is denounced and who signed
+part/part; who wrote and which family y/y; to the farm, find Boris y/rel; where is Boris, the broken machine rel/rel; where
+is Boris, your name rel/rel; the best-kept house y/y; why the harvest failed, which family fled y/none; the letter's family
+and writer y/y; when and how she died, where the body is y/y; how Vera died, who is sick y/y (twice). The two misses: the
+"where is Boris" lines got Gapon's description and the instruction to contact him, never the arrival paragraph; and on line 9
+r2 the found entities' units filled the 60% seed share before the found passages, so the Keeper got the graph's version of
+the fled family and no passage. Cost: decision batches per turn median 15 (base 6), one turn per run reached the 24-action
+budget; Jev input tokens median 159k (base 49k), about $0.0067 a turn; prescreen median 3.6 s (base 2.7 s). An earlier run
+at `31d7a1278` under a slower Jev gave 9 / 9 lines, the same 13 / 13 windows and a locate median of 2,341 ms against 1,015 ms
+(+1,326), and one turn whose seven passage batches outlived the locate's lease (60 of 443 judged). Open for the owner: the
+24-action per-input budget now spends about eight on passages; found entities and found passages share one seed share.
+
 *Three ends (§31).* Writer: the transcript store's records (§191.4), cut by `book-passages`; the locate (the passages'
 nouls); the provider (`passages`). Reader: Jev (the passage cards and, in the loop, the passage operations), the
 provider, the pool. Actor: Jev, who judges every paragraph and then chooses among located passages in its window; the

@@ -52,7 +52,7 @@ Pre-registered with TR-F2: per turn, the prescreen's supplied source units are w
 an offline probe replays TR-F's 12 player lines against Cold Harvest's catalog before/after and lists, per line, the
 located units (count, bytes, and whether each holds the fact the book answers the line with).
 ### PU-05 The locate judges the book's paragraphs (lead's decision after PU-04)
-Status: ready-for-human (implemented on `claude/paragraph-locate-20261008`; decisions in contract §196.7; acceptance below)
+Status: ready-for-human (implemented on `claude/paragraph-locate-20261008`; decisions and the acceptance run in contract §196.7: 10 / 8 of 12 lines, 13 / 13 windows, no prescreen over its deadline, locate median +820 ms)
 
 PU-04's offline probe (TR-F's 13 turns replayed live against Cold Harvest, before and after PU-01..03) found that across
 91 replays no source operation entered Jev's decision window (0 of 2171) and no source material reached the Keeper. Three
