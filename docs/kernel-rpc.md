@@ -39997,7 +39997,8 @@ Raisa 「胆怯答话的受询者」. What remains: a person offered by a bare r
 - **Fixtures.** Every test that publishes an `npc` summary through `module.read.finish` with a hand-written review now
   answers the statement pointers too (`tests/extension/person-statements.mjs` `withPersonStatements`, or the pointer written
   out); `claim-support.test.mjs`'s uncertain record is a lamp room instead of a keeper (a person is no longer a Jev
-  candidate) and its eligibility test asserts `person`; `mechanics-reader-parent.json`'s three golden results differ from
+  candidate) and its eligibility test asserts `person`; `claim-support-gate.test.mjs`'s Jev-cleared record is the bar's
+  coffee urn instead of its owner, and a new case refuses a Jev row on the owner (`review_jev_ineligible`, `person`); `mechanics-reader-parent.json`'s three golden results differ from
   the parent commit only by `/nodes/3/summary` in `required_review` (checked by a script: everything else byte-equal), and
   were rewritten; `farm-book.mjs`'s clerk carries `appearance` and a biography with a later reveal, and
   `name-free-egress.test.mjs`'s people carry their looks as `appearance`; the graph people `module-cast.test.mjs` and

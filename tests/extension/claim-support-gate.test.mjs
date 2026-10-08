@@ -88,18 +88,29 @@ function detail(workspace, mid, question) {
 	writeFileSync(packetPath, JSON.stringify(packet));
 	return job;
 }
-/** The Bar's detail: its owner and a road (text on page 2), a chalk menu drawn as an image, and a clue with a classification. */
+/**
+ * The Bar's detail: its coffee urn and where it stands (text on page 2), a chalk menu drawn as an image, and a clue with a
+ * classification. No person: §199.3 keeps every `npc` record with the vision reviewer (`personDraft` below).
+ */
 function barDraft() {
 	return {
 		nodes: [
 			{ node_id: "scene-bar", node_kind: "scene", name: "Bar", summary: "The Last Stop bar.", visibility: "player-safe", source_refs: refs(2), properties: {} },
-			{ node_id: "npc-mae", node_kind: "npc", name: "Mae", summary: "The owner; pours coffee.", visibility: "keeper-only", source_refs: refs(2), properties: {} },
+			{ node_id: "object-urn", node_kind: "object", name: "Coffee urn", summary: "The owner's urn; she pours coffee from it.", visibility: "keeper-only", source_refs: refs(2), properties: {} },
 			{ node_id: "handout-menu", node_kind: "handout", name: "Chalk menu", visibility: "player-safe", source_refs: refs(3), properties: { image_sources: [{ page: 3, box: [0, 0, 1, 1] }] } },
 			{ node_id: "clue-coffee", node_kind: "clue", name: "Coffee", summary: "Mae pours coffee.", visibility: "player-safe", source_refs: refs(2), properties: { delivery_kind: "npc_dialogue" } },
 		],
-		claims: [{ subject_id: "npc-mae", predicate: "present-in", object: { node_id: "scene-bar" }, truth_status: "authored-fact", visibility: "keeper-only", source_refs: refs(2) }],
-		node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ["scene-bar", "npc-mae", "clue-coffee"],
+		claims: [{ subject_id: "object-urn", predicate: "located-in", object: { node_id: "scene-bar" }, truth_status: "authored-fact", visibility: "keeper-only", source_refs: refs(2) }],
+		node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ["scene-bar", "object-urn", "clue-coffee"],
 	};
+}
+/** The same detail with the Bar's owner in the urn's place: a person, whose statements no Jev row may stand for (§199.3). */
+function personDraft() {
+	const draft = barDraft();
+	draft.nodes[1] = { node_id: "npc-mae", node_kind: "npc", name: "Mae", summary: "The owner; pours coffee.", visibility: "keeper-only", source_refs: refs(2), properties: {} };
+	draft.claims[0] = { ...draft.claims[0], subject_id: "npc-mae", predicate: "present-in" };
+	draft.ready_nodes = ["scene-bar", "npc-mae", "clue-coffee"];
+	return draft;
 }
 function evidenceOf(file_sha256, pages = { 2: PAGES[1] }) {
 	return { protocol: "source-claim-support-v1", source_sha256: file_sha256, extraction_version: EXTRACTION, mode: "on",
@@ -148,13 +159,17 @@ test("§151.3 the gate accepts Jev rows for eligible records whose digests match
 	assert.deepEqual(refusal(version), [false, "review_jev_evidence", "/nodes/1"]);
 	// A vision reviewer that did not support a path overrules Jev on it.
 	const overruled = finish(workspace, detail(workspace, mid, "overruled"), draft, review([jevRow(["/nodes/1"]), jevRow(["/claims/0"])], undefined,
-		[{ paths: ["/nodes/1/summary"], verdict: "unsupported", source_refs: refs(2), reason: "The page does not call her the owner." }]), evidence);
+		[{ paths: ["/nodes/1/summary"], verdict: "unsupported", source_refs: refs(2), reason: "The page does not say whose urn it is." }]), evidence);
+	// §199.3: a person's record keeps the vision reviewer, whatever its evidence.
+	const person = finish(workspace, detail(workspace, mid, "person"), personDraft(), review([jevRow(["/nodes/1"]), jevRow(["/claims/0"])], [...["/nodes/0", "/nodes/2", "/nodes/3", "/coverage"], "/nodes/1/summary"]), evidence);
+	assert.deepEqual(refusal(person), [false, "review_jev_ineligible", "/nodes/1"]);
+	assert.match(person.error.message, /person/);
 	assert.deepEqual(refusal(overruled), [false, "review_jev_overruled", "/nodes/1"]);
 
-	// The accepted shape: the owner and her claim are reviewed by Jev alone, against page 2's native text.
+	// The accepted shape: the urn and its claim are reviewed by Jev alone, against page 2's native text.
 	const accepted = finish(workspace, detail(workspace, mid, "accepted"), draft, review([jevRow(["/nodes/1"]), jevRow(["/claims/0"])]), evidence);
 	assert.ok(accepted.ok, JSON.stringify(accepted.error));
-	assert.ok(graphOf(workspace, mid).nodes.some((node) => node.node_id === "npc-mae"), "the Jev-cleared record is published");
+	assert.ok(graphOf(workspace, mid).nodes.some((node) => node.node_id === "object-urn"), "the Jev-cleared record is published");
 });
 
 test("§186.6 a Jev row never reviews a record carrying a classification field, so it never settles the contest mark a vision reviewer left there", async (t) => {
