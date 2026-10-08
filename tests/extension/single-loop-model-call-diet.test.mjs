@@ -380,9 +380,21 @@ for (const engine of ["hybrid-v1", "legacy"]) {
 		assert.equal(requests.length, 3);
 		const brief = (context) => context.messages.map(messageText).find((text) => text.includes('"kind":"context_brief"'));
 		assert.ok(brief(requests[1]) && brief(requests[2]));
-		// Legacy is unchanged: its brief carries only the style the request's capsule lacks (here the capsule has it all).
-		if (engine === "legacy") assert.doesNotMatch(brief(requests[2]), /observable-first/, "legacy still sends the residue");
-		else {
+		// Legacy is unchanged: its brief carries only the style the request's capsule lacks (§13.6). Since 813b20006 the
+		// fixture answers player_input with its `_context`, as the real kernel does, so the capsule sent is the turn's own
+		// budget-trimmed one and the residue is not empty. (Before, the missing binding forced a rehydrated capsule that held
+		// every style entry, and this assertion read the empty residue that left.)
+		if (engine === "legacy") {
+			const capsuleText = requests[2].messages.map(messageText).find((text) => text.includes('"turn":{"number":2'));
+			const briefStyle = JSON.parse(brief(requests[2])).style ?? {}, capsuleStyle = JSON.parse(capsuleText).style ?? {};
+			for (const [key, entries] of Object.entries(briefStyle)) {
+				if (!Array.isArray(entries) || !Array.isArray(capsuleStyle[key])) continue;
+				const sent = new Set(capsuleStyle[key].map((entry) => JSON.stringify(entry)));
+				assert.ok(entries.every((entry) => !sent.has(JSON.stringify(entry))), `no ${key} entry rides both the brief and the capsule`);
+			}
+			assert.doesNotMatch(capsuleText, /observable-first/, "the trimmed capsule lacks it");
+			assert.match(brief(requests[2]), /observable-first/, "so the residue carries it");
+		} else {
 			assert.equal(brief(requests[2]), brief(requests[1]), "the next turn's first request shares the brief");
 			assert.match(brief(requests[2]), /observable-first/, "the brief carries the source's whole style");
 		}
