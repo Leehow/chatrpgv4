@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 
-from conftest import narrate, CAMPAIGN, PREGEN, RpcClient, campaign_dir, open_turn, read_json
+from conftest import narrate, CAMPAIGN, PREGEN, RpcClient, campaign_dir, create_campaign, narrate_opening, read_json
 
 INVESTIGATOR = "托马斯·海斯"
 
@@ -77,7 +77,15 @@ def build_rich_state(client: RpcClient) -> None:
     `situations`/the third-layer override), nine long memory candidates
     (`memory`), and ten long verifier findings (`warnings`) -- one rich
     turn, closed once."""
-    open_turn(client, "我们把整栋房子翻了个底朝天，最后冲向地下室对峙科比特。")
+    create_campaign(client)
+    narrate_opening(client)
+    # This is a projection/budget fixture, not clue-acquisition evidence. These checked clues were already known before
+    # this turn; finding one without its roll is covered by the real clue-gate tests, not this all-scenes stress setup.
+    world_path = campaign_dir(client.workspace) / "world.json"
+    world = read_json(world_path)
+    world["discovered_clues"] = ["flesh-ward-active", "rusted-basement-dagger"]
+    world_path.write_text(json.dumps(world, ensure_ascii=False), encoding="utf-8")
+    client.table("player_input", text="We visit the house's rooms and finally confront Corbitt in the cellar.")
     client.table("apply", call_id="t1-c1", effects=discover_everything_effects())
     client.table("resolve", call_id="t1-c2", action={
         "intent": "combat", "goal": "冲上去和科比特对决", "method": "举枪射击",

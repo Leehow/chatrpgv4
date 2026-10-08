@@ -9,15 +9,22 @@ import {pathToFileURL} from 'node:url';
 import {ReadingService} from '../../extensions/module/reading-service.ts';
 import {createRuntime} from '../../runtime/host.ts';
 import {closeSourceDocuments} from '../../extensions/module/source.ts';
+import {READING_STAGE_BUDGET} from '../../runtime/jev/reading-stage-budget.ts';
 import {KernelError} from '../../extensions/kernel/client.ts';
 
-const args = process.argv.slice(2), out = resolve(args[0] ?? '');
+const args = process.argv.slice(2), out = resolve(args[0] ?? ''), resume = args.includes('--resume');
+const suffix = resume ? '-resume' : '', maxWallMs = resume ? READING_STAGE_BUDGET.deadlineMs : 1200000;
 if (!args[0] || !args.includes('--live')) throw Error('supply a new output directory and --live for the authorized BP-05 source probe');
 const model = args.includes('--model') ? args[args.indexOf('--model') + 1] : 'openai-codex/gpt-6-luna';
 if (!['openai-codex/gpt-6-luna', 'grok-build/grok-4.7'].includes(model)) throw Error('the probe accepts only the preregistered historical or owner-selected reading model');
 const root = resolve(import.meta.dirname, '../..'), app = join(homedir(), 'Library/Application Support/Pipi/pipicoc/pi-coc');
 const home = join(out, 'home'), lib = join(home, '.coc/modules/book-2'), original = join(app, '.coc/modules/book-2/module.json');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex'), originalBytes = await readFile(original);
+if (resume) {
+  const prior = JSON.parse(await readFile(join(out, 'PREREGISTER.json'), 'utf8'));
+  if (prior.model !== model || prior.source_sha256 !== JSON.parse(originalBytes).source_document.file_sha256) throw Error('the retained probe model/source changed');
+  await writeFile(join(out, 'CONTINUATION.json'), JSON.stringify({model, maxWallMs, reason: 'Resume the interrupted source job through retry:true; retain its draft, observations and original results. Use the existing product stage ceiling.', source_meta_sha256: hash(originalBytes)}, null, 2)+'\n', {flag: 'wx'});
+} else {
 await mkdir(out); // Exclusive by design: never erase or reuse an earlier experiment.
 await writeFile(join(out, 'PREREGISTER.json'), JSON.stringify({version: 1, model, thinking: 'low',
   role: model.startsWith('grok-build/') ? 'owner-selected reading model, not a Keeper table' : 'historical reading-model probe, not a Keeper table or a change to the main-model choice',
@@ -29,6 +36,7 @@ await writeFile(join(out, 'PREREGISTER.json'), JSON.stringify({version: 1, model
 await mkdir(join(home, '.coc/modules'), {recursive: true});
 execFileSync('cp', ['-c', '-R', join(app, '.coc/modules/book-2'), lib]);
 execFileSync('cp', ['-c', '-R', join(app, '.coc/source-transcripts'), join(home, '.coc/source-transcripts')]);
+}
 const agent = await mkdtemp(join(tmpdir(), 'pipicoc-book-pregens-agent-')); await chmod(agent, 0o700);
 let runtime, kernel, reading, rowWrites = Promise.resolve();
 try {
@@ -47,24 +55,25 @@ try {
     try {return JSON.parse(api.pythonJsonDumps(await kernel.handlers[method](params)));}
     catch (error) {if (error.toJson) throw new KernelError(JSON.parse(api.pythonJsonDumps(error.toJson()))); throw error;}
   };
-  const requested = await call('module.read.request', {module_id: 'book-2', purpose: 'detail', material: 'pregens', foreground: true});
+  const requested = await call('module.read.request', {module_id: 'book-2', purpose: 'detail', material: 'pregens', foreground: true, ...(resume ? {retry: true} : {})});
   if (!requested.job_id) throw Error('a new pregens reading was expected on this frozen library');
   const job = await call('module.read.claim', {module_id: 'book-2', owner: 'book-pregens-probe'});
   if (job.job_id !== requested.job_id || job.material !== 'pregens') throw Error('another job owns the claim; no model request started');
-  await writeFile(join(out, 'job.json'), JSON.stringify({job_id: job.job_id, material: job.material, work_dir: job.work_dir}, null, 2)+'\n');
+  await writeFile(join(out, `job${suffix}.json`), JSON.stringify({job_id: job.job_id, material: job.material, work_dir: job.work_dir}, null, 2)+'\n');
   runtime = createRuntime({owner: 'preparation', home}, {resourceRoot: root, contentRoot: join(root, 'content'), agentHome: agent,
     nodeExecutable: process.execPath, layout: 'source'});
   reading = new ReadingService({home, runtime, call, model: () => ({id: model, vision: true, thinking: 'low'}),
     progress: row => console.log(JSON.stringify({stage: row.stage, purpose: row.purpose})),
-    record: row => {rowWrites = rowWrites.then(() => appendFile(join(out, 'rows.jsonl'), JSON.stringify(row)+'\n'));}});
-  await reading.runJob(job, AbortSignal.timeout(1200000));
-  await call('campaign.create', {id: 'pregen-source-probe', module: 'book-2', play_language: 'en'});
-  const listing = await call('investigator.list', {campaign: 'pregen-source-probe'});
-  await writeFile(join(out, 'listing.json'), JSON.stringify(listing, null, 2)+'\n');
+    record: row => {rowWrites = rowWrites.then(() => appendFile(join(out, `rows${suffix}.jsonl`), JSON.stringify(row)+'\n'));}});
+  await reading.runJob(job, AbortSignal.timeout(maxWallMs));
+  const campaignId = `pregen-source-probe${suffix}`;
+  await call('campaign.create', {id: campaignId, module: 'book-2', play_language: 'en'});
+  const listing = await call('investigator.list', {campaign: campaignId});
+  await writeFile(join(out, `listing${suffix}.json`), JSON.stringify(listing, null, 2)+'\n');
   if (listing.pregens_read !== 'read' || listing.pregens?.length !== 8) throw Error('the eight printed source sheets were not offered after a settled read');
   for (const pregen of listing.pregens) {
-    const loaded = await call('investigator.load', {campaign: 'pregen-source-probe', pregen: pregen.pregen});
-    await appendFile(join(out, 'loaded.jsonl'), JSON.stringify(loaded)+'\n');
+    const loaded = await call('investigator.load', {campaign: campaignId, pregen: pregen.pregen});
+    await appendFile(join(out, `loaded${suffix}.jsonl`), JSON.stringify(loaded)+'\n');
   }
   console.log(JSON.stringify({offered: listing.pregens.length, source_pages: listing.pregens.map(row=>row.pages), evidence: out}));
 } finally {
