@@ -45,8 +45,16 @@ export const CAST_NEXT_FILE = 'cast.next.json';
  * row's own digest (`castRowDigest`), so a re-read cast keeps every verdict whose row did not change.
  */
 export const CAST_PUBLIC_FILE = 'cast-public.json';
-/** §194.5: a stored row's digest, what its verdict is bound to. */
-export const castRowDigest = (stored: unknown): string => jsonDigest(stored as ReadonlyJson);
+const rowDigests = new WeakMap<object, string>();
+/** §194.5: a stored row's digest, what its verdict is bound to; kept per parsed row, which the snapshot cache serves unchanged. */
+export const castRowDigest = (stored: unknown): string => {
+    const key = isJsonObject(stored) ? stored as object : null;
+    const known = key ? rowDigests.get(key) : undefined;
+    if (known) return known;
+    const digest = jsonDigest(stored as ReadonlyJson);
+    if (key) rowDigests.set(key, digest);
+    return digest;
+};
 /** §194.5: the verdicts that serve the checks for one table: the rows judged public, and how many rows have no verdict for what they say now. */
 export interface CastPublic { readonly public: ReadonlySet<string>; readonly pending: number }
 
