@@ -1,6 +1,6 @@
 # Jev reads the book by paragraph
 
-Status: ready-for-agent
+Status: ready-for-human (PU-01..PU-03 implemented on `claude/paragraph-units-20261008`; decisions and the PU-03 finding in contract §196.5-196.6; PU-04 is the lead's TR-F2 acceptance)
 
 Owner (2026-10-08): 「之前用的jev索引模组的方案现在这个模组解析更新之后是否也更新了？如果文字被规整了是否可以用jev按段落获取而不只是按页来索引？」,
 then 「开这个切片，按段落取」. Contract `docs/kernel-rpc.md` §196.
@@ -41,9 +41,13 @@ then 「开这个切片，按段落取」. Contract `docs/kernel-rpc.md` §196.
 ## Tickets
 
 ### PU-01 Paragraph units with sections (items 1, 2, 4)
+Status: ready-for-human (implemented; §196.6; all 48 Cold Harvest pages and 17 seeds align)
 ### PU-02 Page-break continuation (item 3)
+Status: ready-for-human (implemented; §196.6)
 ### PU-03 Materialization and search on TR-F (item 5)
+Status: ready-for-human (a defect with three causes, fixed: §196.5-196.6)
 ### PU-04 Acceptance (lead)
+Status: ready-for-human (TR-F2, lead).
 Pre-registered with TR-F2: per turn, the prescreen's supplied source units are whole paragraphs with a `section`;
 an offline probe replays TR-F's 12 player lines against Cold Harvest's catalog before/after and lists, per line, the
 located units (count, bytes, and whether each holds the fact the book answers the line with).
