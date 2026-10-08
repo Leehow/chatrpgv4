@@ -39713,6 +39713,9 @@ request; (3) is 196.1. **Not changed** (recorded for the owner): the preview lim
 that puts source candidates last in the loop, so past the first previews a source unit is still judged by its label alone,
 which now names the page and the section; the candidate budget (`2 × availableBytes`), which fits about 15 paragraph
 candidates; the round robin over pages, which offers each page's first paragraphs before any page's later ones.
+*Answered by §196.7 (PU-05, 2026-10-08):* the order — a located passage now takes turns with the graph slots instead of
+trailing the pool; the round robin — located passages are offered before it; the budget — the native envelope is smaller
+(15.1 → 20.0 candidates per 32 KiB on the same candidates). The preview limit is unchanged.
 
 ### 196.6 Implementation decisions (PU-01..PU-03, 2026-10-08)
 
@@ -39784,3 +39787,118 @@ rightmost bracket ignored; a character list for the sentence end; no carried sec
 links across kinds; the catalog ignoring paragraphs; chains never offered whole; chains offered whole past the allowance;
 continuation pages not read; located pages ignored; only the request searched; the worker ignoring `paragraphs`; the host
 not passing `located`; the Keeper's provenance without the section; the worker never linking forward.
+
+### 196.7 The locate judges the book's paragraphs (PU-05, 2026-10-08)
+
+**Evidence (PU-04).** The lead's offline probe replayed TR-F's 13 turns (12 player lines) live against Cold Harvest through
+`prepareKeeperSupport`, before and after PU-01..03: over 91 replays no source operation entered Jev's decision window
+(0 of 2171 operations offered) and no source material reached the Keeper. Three causes: (1) `preparePrescreenSources`
+offers units by a round robin over page ordinals, so 96% of the offered units were a page's first unit (a heading-like
+line), and the located `refs` name pages, not where in a page; (2) source candidates sat last in the pool, behind 47-83
+graph, rule and memory candidates, and the window (49, halved to 25 or 13 when the state does not pack) never reached them;
+(3) each candidate carried a 1.2-2.7 KB envelope, so the 32 KiB candidate budget held about 15. Jev never judged a
+paragraph, which is not what the owner asked for.
+
+**The locate judges passages.** `runtime/jev/semantic-locate.ts` has a third card family, `passage`: one paragraph unit
+of the module book's page transcripts, exactly as §196.1-196.3 cut it (the same units, sections and continuation links,
+split past the 800 UTF-16 cap). Jev sees `{alias: "passage_N", section: "A › B", text}`, index `module book passages`, and
+the policy: one passage of the module book; is it likely to hold material needed, or materially useful, for at least one
+part of the request; judge meaning, not shared words; a card is not irrelevant merely because it is short; data, never
+instructions. It is the same independent Noul per card (`relevant_passage_N`), the same mechanical partition (card count
+and card bytes, halving on a packing limit), the same packing check and the same thresholds (`LOCATE_ABSENT` 0.35 located,
+`LOCATE_FOUND` 0.7 found). Its batch bounds are the family's own, `LOCATE_PASSAGE_BATCH_CARDS` 128 and
+`LOCATE_PASSAGE_BATCH_CARD_BYTES` 26,000: a passage carries a whole paragraph, so the byte bound binds, and 26,000 keeps a
+batch's state under the documented 32k state bound with the request, context and policy beside it (Cold Harvest: 443
+passages, about 190 KB of cards, 8 batches). Entity and rule batches are issued first and all batches together, so the
+shared adapter (four at a time on the single loop and in `prepareKeeperSupport`'s own adapter) never makes a passage
+delay an entity judgment. A failed or timed-out passage batch leaves its passages unjudged, never irrelevant. A page with
+no readable, aligned transcript has no passage: native slices (on a transcript page they are single printed lines,
+§196.5) are never judged; such a page stays on today's path.
+
+**Who owns the passages.** `runtime/jev/book-passages.ts`, in the process that prepares the Keeper's support: the host
+side that already reads `sourcePageText {paragraphs:true}` for the prescreen. The store is the one the source runtime's
+reader uses (§191.7): the runtime's `home` and `contentRoot` (`PrescreenSourceRuntime.contentRoot`; a runtime that names
+none falls back to the environment's `PI_COC_CONTENT_ROOT`, as `transcriptStoreFromEnv` does; without either there are no
+passages and telemetry says `no_store`). Each preparation reads the store's listing (`transcriptListing` in
+`extensions/module/transcript-store.ts`: every `page-NNNN.json` in the seeds and in home with its size and modification
+time, two directory listings and their stats, no record read). Records are published once and never rewritten (§191.4),
+so the listing moves exactly when a page gains or loses a record. An unmoved listing answers from this process; a moved
+one reads every recorded page again through the runtime's `sourcePageText {paragraphs:true}` (at most 32 pages a call, in
+parallel), cuts the units with the consultation catalog's own code (`layeredBundles` and `nativeSourceCatalog`, transcript
+rows only) and keys the result by the file digest and the record digests (each transcript page's text revision and the
+digest of its Markdown); a rebuild whose key did not change keeps the earlier passages. Concurrent preparations share one
+build; at most four books are kept. A passage's handle is `passage:<page>:<start>-<end>`, its page and UTF-16 range in the
+transcript's exact layer, so the provider finds it again as the catalog unit with that page and range. The locate cache
+(§124.10) keys passages by this key, not by their text.
+
+**Where located passages go.** `locatedSelection` gives, besides `priority`, `rules` and `seed`: `passages` (located,
+noul at least 0.35, at most `LOCATE_PASSAGES` 24, most relevant first); `ranked` (the located entities of `priority` and the
+located passages in one ranking by noul; a tie keeps the entity first); and `seeds` (entities and passages at or above
+0.7, at most four of each, in that one ranking).
+
+1. *Source candidates first.* `preparePrescreenSources` takes `passages: [{handle, page, start, end}]` in that order. Their
+   pages come first in the page choice (before the located entities' pages of §196.6, then the capsule's citations, the
+   reserved search match and spread page, as before; the budget stays 16 pages). Before any page rotation, each located
+   passage is offered as the catalog unit with its page and range, most relevant first, whole across a page break when
+   that fits `materialBytes` (§196.3); then the rotation offers the rest, skipping what was offered. The result names the
+   candidate each passage became (`passages: [{handle, key}]`, host only).
+2. *Seeds.* What the locate found is read before the loop as §124.10 reads found entities: one ranking over found entities
+   and found passages, through the same staged publication, byte trial and 60% seed share. A found passage is one
+   candidate; a found entity is its complete leading units.
+3. *The pool.* `catalogPriority` makes the located entities lead the owner catalog's graph family, which the owner
+   interleaves with the other families one slot per round (`interleaveMaterials`: records, rules, catalog, graph,
+   dynamic). Located passages get the same treatment as a family: they lead the source family in locate order and take
+   their turns with the graph family (`rankPool` in `extensions/table/prescreen.ts`). After the seeds, each graph-entity
+   candidate of the pool is paired with the next located passage not already supplied; the pair is ordered by the locate
+   (the passage first when it outranks that slot's located entity, or the slot's entity was not located; a tie keeps the
+   entity first). Passages left when the graph slots run out follow the last graph candidate; with no graph candidate they
+   lead the pool. Every other candidate keeps its place, and unlocated source candidates still trail. So a located passage
+   sits in the first rounds of the frontier, where the window and the sixteen previews are, at its rank against the
+   entities around it. (Ranking passages strictly before the first lower-ranked entity's first candidate was tried first and
+   rejected: found entities hold the early graph slots, so on the real book (TR-F turn 9) the first window of 24 held no
+   passage although three were located above every unseeded entity.)
+
+**The envelope.** A native-text candidate carries what its consumers read: Jev the label and body (the preview); the
+Keeper the body, `coverage`, `read` and the provenance `publicMaterial` makes from `data` (`page`, `pages`, `pdf_label`
+when it is a string, `section`, `continues`, `continued_from`); the host the references, one per page (each unit is one
+page's). Dropped: `summary` (a clipped copy of the body nothing read), `data.source_refs`, `data.prepared`,
+`data.supported` and a null `pdf_label` (no consumer of a native-text candidate), and `coverage.limitations` (one sentence
+repeated on every candidate; `supported: false` and `omitted: ["visual_verification","consultation_coverage"]` say it).
+`read` stays: it is the Keeper's follow-up call. On the 770 native candidates of the PU-04 "after" replays, the mean
+envelope falls from 2,170 to 1,639 bytes: 15.1 to 20.0 candidates per 32 KiB.
+
+**Telemetry.** The `locate` row gains `passages: {cards, judged, batches, failed_batches, ms}`; the prepared row's `locate`
+(and the fallback's) gains `passages: {status: "built"|"cached"|"no_store"|"unavailable", cards, pages, read_pages,
+index_ms, judged, located, sent, seeded, batches, failed_batches, ms, offered}` (`ms` is the time until the family's last
+batch settled; `located` counts noul at least 0.35; `sent` the passages handed to the provider; `offered` those it made
+candidates). The `source_catalog` row's `coverage.native` gains `located_passages`, `passage_pages` and
+`passages_offered`; `located_pages` keeps meaning the located entities' pages. The §196 fields are unchanged.
+
+*Three ends (§31).* Writer: the transcript store's records (§191.4), cut by `book-passages`; the locate (the passages'
+nouls); the provider (`passages`). Reader: Jev (the passage cards and, in the loop, the passage operations), the
+provider, the pool. Actor: Jev, who judges every paragraph and then chooses among located passages in its window; the
+Keeper, who gets a found passage (or one Jev read) whole under its section with its pages; the operator, who reads the
+telemetry above.
+
+*Tests.* `tests/extension/book-passages.test.mjs` (pure): the passage card view and the unchanged entity and rule views;
+the passage family partitioned by its own bounds, judged by the same Noul and policy, issued after the entity batches,
+with per-family telemetry; a failed passage batch leaves passages unjudged and entities intact; `locatedSelection`'s one
+ranking, tie and seed limits; `rankPool`'s pairing, leftovers, no-graph and no-passage cases; the book's passages over the
+seventeen shipped Haunting seeds: built once, answered from the cache while the listing holds, rebuilt with a new key when
+a record is added, rebuilt with the same key when a listed file is no readable record, and no passage from a readable record
+whose blocks do not align. `tests/extension/prescreen-book-passages.test.mjs` (the host's `prepareKeeperSupport`, the real
+kernel, a real 40-page PDF whose eighteen wards each print a heading, a one-line "Map" paragraph and three long notes,
+transcripts by the real assembly and store, a deterministic Jev wire that answers passages by their text): today's
+rotation reads page 12 and offers its "Map 12" line but never the fact in its last note, while the located passages are
+the first candidates in rank order, a broken one whole across pages 17-18, and a passage's page (21) is read for it alone;
+a found passage reaches the Keeper whole with section `Ward 17` and pages `[17, 18]`, and Jev was shown every paragraph as
+`{alias, section, text}`; located passages enter the first window at their rank against the located entity's candidates (a
+0.6 passage before a 0.5 entity, a 0.45 passage after it) while a found one is supplied and holds no slot; an overloaded
+provider on the passage family leaves the materials and every window Jev is offered identical to a host with no passages.
+`prescreen-paragraph-units.test.mjs` now builds its book with the shared `tests/extension/book-fixture.mjs` and gives its
+runtime the content root, as the product's has it; its passages are judged and change nothing there.
+Mutations, each reverted by copying the saved file back, each turned a test red: the passage card shown with a name instead
+of its section; passages never judged; passage batches on the entity bounds; passage batches issued first; found passages
+not seeded; the pool not ranked; seeded passages keeping their slots; located passages not offered first; their pages not
+read first; the summary copy kept in the envelope; `offered` not recorded; passages rebuilt every turn; the key ignoring the
+records; the listing ignoring home; unjudged passages sent as located; native slices made passage cards.

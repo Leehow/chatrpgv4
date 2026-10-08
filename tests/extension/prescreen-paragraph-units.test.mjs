@@ -5,16 +5,15 @@
  * the candidates a test names; no model is called and nothing here plays a table.
  */
 import {supportWire} from './support-agent-helpers.mjs';
+import {bookFixture} from './book-fixture.mjs';
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
-import {mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {mkdir,mkdtemp,rm} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {after,before,test} from 'node:test';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 
-const ROOT=resolve(import.meta.dirname,'../..'),CONTENT=join(ROOT,'content'),PRESCREEN_TYPE='coc-prescreen',sha=value=>createHash('sha256').update(value).digest('hex');
+const ROOT=resolve(import.meta.dirname,'../..'),CONTENT=join(ROOT,'content'),PRESCREEN_TYPE='coc-prescreen';
 let api,bundle;
 before(async()=>{
   await mkdir(join(ROOT,'.tmp'),{recursive:true});bundle=await mkdtemp(join(ROOT,'.tmp/prescreen-paragraph-units-'));
@@ -51,72 +50,17 @@ const LAYOUTS={
   13:'## {L1}\n\n{L2}\n\n<!-- drop: L3 -->',
   33:'{L1}\n\n<!-- drop: L2 -->',
 };
-function linesPdf(pages){
-  const objects=['<< /Type /Catalog /Pages 2 0 R >>',`<< /Type /Pages /Kids [${pages.map((_,i)=>`${4+i*2} 0 R`).join(' ')}] /Count ${pages.length} >>`,
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
-  for(const [i,lines] of pages.entries()){
-    const stream=`BT /F1 8 Tf 10 TL 10 780 Td ${lines.map(line=>`(${line}) Tj T*`).join(' ')} ET`;
-    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5+i*2} 0 R >>`,
-      `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`);
-  }
-  let text='%PDF-1.7\n';const offsets=[];
-  for(const [i,object] of objects.entries()){offsets.push(Buffer.byteLength(text));text+=`${i+1} 0 obj\n${object}\nendobj\n`;}
-  const xref=Buffer.byteLength(text),size=objects.length+1;
-  return text+`xref\n0 ${size}\n0000000000 65535 f \n${offsets.map(value=>String(value).padStart(10,'0')+' 00000 n ').join('\n')}\ntrailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
-}
-const save=(path,value)=>writeFile(path,JSON.stringify(value));
-
 async function fixture(t){
-  const home=await mkdtemp(join(tmpdir(),'prescreen-paragraph-units-')),pdf=join(home,'source.pdf'),bytes=Buffer.from(linesPdf(PAGES));await writeFile(pdf,bytes);
-  const context=await api.createKernelContext({workspace:home,content:CONTENT,seed:'prescreen-paragraph-units',
-    locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(context);
-  t.after(async()=>{await runtime.close();await context.git.close();await api.closeSourceDocuments();
-    await rm(home,{recursive:true,force:true,maxRetries:5,retryDelay:50});});
-  const call=(method,params={})=>runtime.handlers[method](params),contract={
-    graph:JSON.parse(await readFile(join(CONTENT,'modules/module-graph-contract-v3.json'),'utf8')),
-    template:JSON.parse(await readFile(join(CONTENT,'modules/module-graph-template-v1.json'),'utf8'))};
-  // The page transcripts: the real assembly over each page's own native lines, published through the real store.
-  const store=new api.TranscriptStore({home,contentRoot:CONTENT,extractionVersion:api.sourceTextVersion});
-  for(const [page,layout] of Object.entries(LAYOUTS)){
-    const lines=await api.sourceLines(pdf,{pages:[Number(page)]}),row=lines.pages[0],assembly=api.assembleLayout(layout,row.lines);
-    assert.deepEqual(assembly.unplaced,[],`page ${page} places every line`);
-    assert.equal(await store.put({schema:api.TRANSCRIPT_RECORD_SCHEMA,transcript_version:'transcript-v1',file_sha256:lines.file_sha256,page:Number(page),
-      pdf_label:row.pdf_label,native:{extraction_version:lines.extraction_version,text_sha256:row.native_sha256,line_count:row.lines.length},
-      text:assembly.text,text_sha256:sha(assembly.text),markdown:assembly.markdown,image_text:assembly.image_text,figures:assembly.figures,
-      dropped:assembly.dropped,unplaced:assembly.unplaced,free_removed:assembly.free_removed,attempts:1,model:'fixture/vision',thinking:'low',
-      at:new Date().toISOString()},row.lines),'stored');
-  }
-  const {module_id:mid}=await call('module.source.bind',{module_id:'harbor-book',title:'Harbor Book',source:{path:pdf,file_sha256:sha(bytes),page_count:PAGES.length}});
-  const finish=async(job,draft,pages)=>{
-    const refs=pages.map(page=>({page})),checked=job.purpose==='index'?[]:api.checkDraft(draft,job,contract,new Set(pages)).required_review;
-    await Promise.all([save(join(job.work_dir,'draft.json'),draft),save(join(job.work_dir,'review.json'),{
-      checked:checked.length?[{paths:checked,verdict:'supported',source_refs:refs,reason:'The supplied original pages support these fields.'}]:[],missing:[]}),
-      save(join(job.work_dir,'observations.json'),{file_sha256:job.source.file_sha256,read_pages:pages,full_pages:pages,review_pages:pages})]);
-    return call('module.read.finish',{module_id:mid,job_id:job.job_id,lease:job.lease,outcome:'completed',
-      draft_path:join(job.work_dir,'draft.json'),review_path:join(job.work_dir,'review.json')});
-  };
-  const claim=async params=>{const queued=await call('module.read.request',{module_id:mid,...params});assert.equal(queued.state,'queued');
-    const job=await call('module.read.claim',{module_id:mid,owner:'paragraph-units-fixture'});assert.equal(job.job_id,queued.job_id);return job;};
-  await finish(await claim({purpose:'index'}),{title:'Harbor Book',language:'en',sections:[{name:'Harbor District',pages:[[1,40]],topics:['opening'],
-    entities:['Pier','Lighthouse'],references:[],source_refs:[{page:1}]}]},[1]);
-  await finish(await claim({purpose:'opening'}),{nodes:[
-    {node_id:'scene-pier',node_kind:'scene',name:'Pier',source_refs:[{page:1}],properties:{is_entrance:true}},
-    {node_id:'scene-lighthouse',node_kind:'scene',name:'Lighthouse',source_refs:[{page:13}],properties:{is_final:true}},
-    {node_id:'npc-marta',node_kind:'npc',name:'Marta Vane',summary:'The lighthouse keeper.',properties:{},source_refs:[{page:13}]}],
-    claims:[{subject_id:'scene-pier',predicate:'route-to',object:{node_id:'scene-lighthouse'},truth_status:'authored-fact',source_refs:[{page:1}]},
-      {subject_id:'npc-marta',predicate:'present-in',object:{node_id:'scene-lighthouse'},truth_status:'authored-fact',source_refs:[{page:13}]}],
-    node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['scene-pier','scene-lighthouse','npc-marta']},[1,13]);
-  await call('campaign.create',{id:'card-source',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});
-  const saved=await call('investigator.save',{campaign:'card-source'});await call('campaign.create',{id:'c1',module:mid,play_language:'en'});
-  await call('investigator.load',{campaign:'c1',library_id:saved.library_id});await call('setup.complete',{campaign:'c1'});
-  const opened=await call('table.open',{campaign:'c1'}),input=await call('table.player_input',{campaign:'c1',text:'Who rings the harbor bell at night, and where can I find the lighthouse keeper?'});
-  const view=await call('table.capsule',{campaign:'c1',rehydrate:true}),{_context,...capsule}=view;
-  const source={home,sourceInfo:({pdf:path})=>api.sourceInfo(path),
-    sourceSearch:({pdf:path,...options},signal)=>api.sourceSearch(path,options,signal,store),
-    sourceText:({pdf:path,...options},signal)=>api.sourceText(path,options,signal),
-    sourcePageText:({pdf:path,...options},signal)=>api.readSourcePageText({pdf:path,options,store,
-      nativeText:({pdf:file,...native},cancel)=>api.sourceText(file,native,cancel),digest:async()=>sha(bytes)},signal)};
-  return{home,mid,call,opened,input,capsule,binding:_context,source};
+  return bookFixture(t,api,CONTENT,{seed:'prescreen-paragraph-units',pages:PAGES,layouts:LAYOUTS,
+    index:{sections:[{name:'Harbor District',pages:[[1,40]],topics:['opening'],entities:['Pier','Lighthouse'],references:[],source_refs:[{page:1}]}]},
+    opening:{nodes:[
+      {node_id:'scene-pier',node_kind:'scene',name:'Pier',source_refs:[{page:1}],properties:{is_entrance:true}},
+      {node_id:'scene-lighthouse',node_kind:'scene',name:'Lighthouse',source_refs:[{page:13}],properties:{is_final:true}},
+      {node_id:'npc-marta',node_kind:'npc',name:'Marta Vane',summary:'The lighthouse keeper.',properties:{},source_refs:[{page:13}]}],
+      claims:[{subject_id:'scene-pier',predicate:'route-to',object:{node_id:'scene-lighthouse'},truth_status:'authored-fact',source_refs:[{page:1}]},
+        {subject_id:'npc-marta',predicate:'present-in',object:{node_id:'scene-lighthouse'},truth_status:'authored-fact',source_refs:[{page:13}]}],
+      ready_nodes:['scene-pier','scene-lighthouse','npc-marta']},openingPages:[1,13],
+    text:'Who rings the harbor bell at night, and where can I find the lighthouse keeper?'});
 }
 
 /**
