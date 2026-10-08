@@ -518,7 +518,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 result.obligation_open = crossed;
             // §198.1: a walk_on on someone this table already has was read as their arrival; the Keeper is told so, by the word
             // this table calls them, once per batch.
-            const walkedOn = [...effectReceipts].flatMap(([index, staged]) => staged.filter(receipt => isJsonObject(receipt.walk_on_read)).map(receipt =>
+            const walkedOn = [...effectReceipts].flatMap(([index, landed]) => landed.filter(receipt => isJsonObject(receipt.walk_on_read)).map(receipt =>
                 ({ index, name: string(row(effects[index]).name), person: string(row(receipt.walk_on_read).person), read_as: string(row(receipt.walk_on_read).read_as) })));
             if (walkedOn.length) {
                 result.walk_on_read = walkedOn;
