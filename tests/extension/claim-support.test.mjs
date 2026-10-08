@@ -36,21 +36,22 @@ const TEXT = {
 const GATE = { mode: "shadow", supported_min: 0.9, contradicted_max: 0.1, timeout_ms: 20000, page_text_max_bytes: 12000, record_max_bytes: 6000, max_pages_per_request: 4 };
 
 /**
- * One fragment: a scene and a road the page states (Jev clears both), a keeper Jev is not sure of, a tower whose page
- * contradicts the draft, a lamp on a page with no native text, and a claim citing a region of a page.
+ * One fragment: a scene and a road the page states (Jev clears both), a lamp room Jev is not sure of, a tower whose page
+ * contradicts the draft, a lamp on a page with no native text, and a claim citing a region of a page. (No person: §199.3 keeps
+ * every `npc` record with the vision reviewer, `person` below.)
  */
 function fragment() {
 	return {
 		nodes: [
 			{ node_id: "scene-harbor", node_kind: "scene", name: "Harbor dock", summary: "The dock smells of tar.", visibility: "player-safe", source_refs: [{ page: 1 }], properties: {} },
-			{ node_id: "npc-keeper", node_kind: "npc", name: "Tower keeper", summary: "Lives in the lamp room.", visibility: "keeper-only", source_refs: [{ page: 2 }], properties: { age: 60 } },
+			{ node_id: "location-lamp-room", node_kind: "location", name: "Lamp room", summary: "The keeper lives here.", visibility: "keeper-only", source_refs: [{ page: 2 }], properties: { age: 60 } },
 			{ node_id: "location-tower", node_kind: "location", name: "Old tower", aliases: ["Lighthouse"], summary: "Built of timber.", visibility: "player-safe", source_refs: [{ page: 2 }], properties: {} },
 			{ node_id: "object-lamp", node_kind: "object", name: "Lamp", visibility: "keeper-only", source_refs: [{ page: 3 }], properties: {} },
 		],
 		claims: [
 			{ subject_id: "scene-harbor", predicate: "route-to", object: { node_id: "location-tower" }, truth_status: "authored-fact", visibility: "player-safe", source_refs: [{ page: 1 }],
 				reason: "The page says the road runs to the tower." },
-			{ subject_id: "npc-keeper", predicate: "present-in", object: { node_id: "location-tower" }, truth_status: "authored-fact", visibility: "keeper-only", source_refs: [{ page: 2, box: [0, 0, 0.5, 0.5] }] },
+			{ subject_id: "location-lamp-room", predicate: "part-of", object: { node_id: "location-tower" }, truth_status: "authored-fact", visibility: "keeper-only", source_refs: [{ page: 2, box: [0, 0, 0.5, 0.5] }] },
 		],
 		node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ["scene-harbor"],
 	};
@@ -62,7 +63,7 @@ function fragment() {
 function verdictOf(statement) {
 	const name = statement.name ?? statement.about?.name ?? statement.subject?.name;
 	if (name === "Harbor dock") return { supported: 0.97, contradicted: 0.01 };
-	if (name === "Tower keeper") return { supported: 0.4, contradicted: 0.05 };
+	if (name === "Lamp room") return { supported: 0.4, contradicted: 0.05 };
 	if (name === "Old tower") return { supported: 0.95, contradicted: 0.8 };
 	return { supported: 0.2, contradicted: 0.1 };
 }
@@ -170,6 +171,9 @@ test("§151.3 eligibility is structural: coverage, image sources, map regions, a
 	const { candidates, ineligible } = claimCandidates(draft, units, { known_nodes: [] }, hasText, 6000, none);
 	assert.deepEqual(candidates.map((candidate) => candidate.root).sort(), ["/claims/0", "/nodes/0", "/nodes/1", "/nodes/2"]);
 	assert.deepEqual(ineligible, { image_source: 1, map_region: 1, map_scope: 1, no_native_text: 1, region_ref: 1 });
+	// §199.3: a person keeps the vision reviewer, which answers their summary and appearance one by one.
+	const person = { ...draft, nodes: [{ node_id: "npc-keeper", node_kind: "npc", name: "Tower keeper", summary: "Lives in the lamp room.", source_refs: [{ page: 2 }] }] };
+	assert.deepEqual(claimCandidates(person, [["/nodes/0"]], { known_nodes: [] }, hasText, 6000, none).ineligible, { person: 1 });
 	assert.ok(!candidates.some((candidate) => candidate.paths.includes("/coverage")), "omission review is never asked of Jev");
 	assert.deepEqual(claimCandidates(draft, [["/coverage", "/nodes/0"]], { known_nodes: [] }, hasText, 6000, none).candidates, [],
 		"a record reviewed inside the coverage unit stays with the vision reviewer");

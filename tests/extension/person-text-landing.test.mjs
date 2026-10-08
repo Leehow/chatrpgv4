@@ -26,6 +26,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
 import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { CARRIED_PENDING_PERSON_HEAD, CARRIED_PERSON_RECORD_HEAD, CARRIED_PERSON_TEXT_HEAD } from "../../runtime/jev/carried-views.ts";
+import { withPersonStatements } from "./person-statements.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CAMPAIGN = "test-camp";
@@ -64,7 +65,7 @@ const save = (path, value) => writeFileSync(path, JSON.stringify(value));
 function read(workspace, job, draft, paths) {
 	save(join(job.work_dir, "observations.json"), { file_sha256: job.source.file_sha256, read_pages: [1, 2, 3], full_pages: [1, 2, 3], review_pages: [1, 2, 3] });
 	save(join(job.work_dir, "draft.json"), draft);
-	save(join(job.work_dir, "review.json"), { checked: [{ paths, verdict: "supported", source_refs: REFS, reason: "fixture support" }], missing: [] });
+	save(join(job.work_dir, "review.json"), { checked: [{ paths: withPersonStatements(draft, paths), verdict: "supported", source_refs: REFS, reason: "fixture support" }], missing: [] });
 	return ok(workspace, [["module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease, outcome: "completed",
 		draft_path: join(job.work_dir, "draft.json"), review_path: join(job.work_dir, "review.json") }]])[0];
 }

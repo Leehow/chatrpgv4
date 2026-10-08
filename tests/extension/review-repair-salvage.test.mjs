@@ -310,8 +310,8 @@ test("§186.4 a records-only targeted repair carries the coverage verdict, and t
 	});
 	assert.equal(result.reads[1].task.repair.kind, "targeted");
 	assert.equal(coverageRuns(result), 1, "the coverage reviewer ran in round 1 only");
-	assert.deepEqual(result.units.slice(2), [["/nodes/0", "/nodes/1", "/claims/0"]],
-		"round 2 runs only the corrected record and the records whose context holds it (§187.8.1: one page-set unit in round 1)");
+	assert.deepEqual(result.units.slice(2), [["/nodes/0", "/nodes/1", "/nodes/1/summary", "/claims/0"]],
+		"round 2 runs only the corrected record (§199.2: with its summary) and the records whose context holds it (§187.8.1: one page-set unit in round 1)");
 	const carried = result.rows.find(row => row.phase === "verify" && row.round === 2 && row.carried_from);
 	assert.ok(carried, "the carried unit has its verify row");
 	assert.equal(carried.reused, true);
@@ -409,7 +409,7 @@ test("§187.6 an in-page missing appends: the author adds records, and only the 
 	assert.deepEqual(result.reads[1].onDisk, candidate(), "the append starts from the reviewed candidate");
 	assert.match(result.reads[1].eventLog, /read-2-append\.jsonl$/);
 	const second = result.units.slice(-2).map(paths => paths.join(",")).sort();
-	assert.deepEqual(second, ["/coverage", "/nodes/4,/claims/2"], "the new records' unit and coverage; the reviewed records are not asked again");
+	assert.deepEqual(second, ["/coverage", "/nodes/4,/nodes/4/summary,/claims/2"], "the new records' unit (§199.2: the new person's summary its own pointer) and coverage; the reviewed records are not asked again");
 	const carried = result.rows.filter(row => row.phase === "verify" && row.round === 2 && row.reused === true);
 	const reviewedUnits = result.rows.filter(row => row.phase === "verify" && row.round === 1).length;
 	assert.equal(carried.length, reviewedUnits, "every unit the first round reviewed carries (one under the 12-page budget, §187.8.1)");

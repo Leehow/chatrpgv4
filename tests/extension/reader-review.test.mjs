@@ -694,7 +694,7 @@ async function carryFixture(t,reviewer={}){
 test('§186.4 a records-only repair carries the coverage verdict with its origin; only the corrected record is reviewed',async t=>{
  const {corrected,source,again}=await carryFixture(t);
  const round=await again(corrected);
- assert.deepEqual(round.ran,['/nodes/1']);
+ assert.deepEqual(round.ran,['/nodes/1,/nodes/1/summary']); // §199.2: the corrected person's summary is its own pointer
  assert.deepEqual(round.refused,[]);
  assert.deepEqual(round.carried.carried_from,{round:1,plan_digest:source.plan_sha256});
  assert.deepEqual(round.carried.pages,[1,2,3,4]);
@@ -805,10 +805,10 @@ test('§187.8.2 a merged unit is one reviewer whose brief names the delivered pa
  ran.length=0;rows.length=0;
  const changed={...draft,nodes:draft.nodes.map((node,i)=>i===5?{...node,summary:'As page 41 prints him.'}:node)};
  await reviewCandidate({...options,round:2,draft:changed});
- assert.deepEqual(ran,[['/nodes/5','/coverage']]);
+ assert.deepEqual(ran,[['/nodes/5','/nodes/5/summary','/coverage']]);
  assert.equal(rows.find(row=>row.phase==='verify'&&row.ok)?.reused_records,11);
  const review=JSON.parse(await readFile(join(cwd,'review.json'),'utf8'));
- assert.deepEqual(review.checked.flatMap(row=>row.paths).sort(),[...Array.from({length:12},(_,i)=>`/nodes/${i}`),'/coverage'].sort(),'every record answered once');
+ assert.deepEqual(review.checked.flatMap(row=>row.paths).sort(),[...Array.from({length:12},(_,i)=>`/nodes/${i}`),'/nodes/5/summary','/coverage'].sort(),'every record answered once, and (§199.2) the person\'s summary');
 });
 test('§187.8.1 a coverage verdict that rode in a fact unit is carried by a records-only repair',async t=>{
  const cwd=await mkdtemp(join(tmpdir(),'coc-merged-carry-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
@@ -825,7 +825,7 @@ test('§187.8.1 a coverage verdict that rode in a fact unit is carried by a reco
  const corrected={...draft,nodes:[draft.nodes[0],{...draft.nodes[1],summary:'As page 2 prints him.'},draft.nodes[2]]};
  ran.length=0;rows.length=0;
  await reviewCandidate({...options,round:2,draft:corrected,previousPlan:source.plan,coverageCarry:{...source,draft},run:carryReviewer(ran)});
- assert.deepEqual(ran,[['/nodes/1']],'only the corrected record is reviewed; coverage is carried and the others reuse their verdicts');
+ assert.deepEqual(ran,[['/nodes/1','/nodes/1/summary']],'only the corrected record (and, §199.2, its summary) is reviewed; coverage is carried and the others reuse their verdicts');
  assert.deepEqual(rows.filter(row=>row.event==='coverage_carry_refused'),[]);
  const review=JSON.parse(await readFile(join(cwd,'review.json'),'utf8'));
  assert.deepEqual(review.checked.filter(row=>row.paths.includes('/coverage')).map(row=>row.carried_from?.round),[1]);

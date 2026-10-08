@@ -6,6 +6,7 @@ import { KernelError , isKernelError } from "../kernel/client.ts";
 import { readerInput, readerInputInlines, readingCacheId, wakeReaderSlots, type ReaderOutcome, type ReaderRequest } from "./reader.ts";
 import { providerRefusalText } from "../../runtime/jev/provider-budget.ts";
 import { reviewCandidate, type CoverageCarrySource, type ReviewPlan } from "./reader-review.ts";
+import { personStateRows } from "./person-state.ts";
 import { APPEND_REPAIR_ASK, appendUnitCarry, checkAppendRepair, checkTargetedRepair, repairDecision, reviewOfCandidate, TARGETED_REPAIR_ASK, type RepairDecision } from "./targeted-repair.ts";
 import { salvageInterruptedRead } from "./read-salvage.ts";
 import { accountingFields, readingAccounting, tallyChildJev, tallyFirstCall, tallyReadingRow } from "./reading-accounting.ts";
@@ -1600,6 +1601,12 @@ export class ReadingService implements ReadingBridge {
 									...(appendSource ? { appendCarry: (paths: string[]) => appendUnitCarry(appendSource!, { draft: candidate, task, paths }) } : {}),
 									cacheId: readingCacheId(job.module_id, job.job_id, round), ...(readingImages ? { imageHistory: readingImages } : {}),
 									reviewBudget: await readingReviewBudget(this.runtime().contentRoot),
+									// §199.2: two readings that never see each other -- the persons' summaries alone, their pages alone -- compared here.
+									...(["opening", "detail"].includes(job.purpose) && !job.visual_scan && !job.visual_asset && !job.map_scope ? { statementCheck: () => personStateRows({
+										cwd, round, draft: candidate, task, contentRoot: this.runtime().contentRoot, model, signal,
+										sourceText: pages => this.runtime().sourceText({ pdf: job.source.path, pages, expected_file_sha256: job.source.file_sha256 }, signal),
+										run: request => reviewers.run(request),
+										record: row => { tallyReadingRow(accounting, row); this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", ...row, campaign }); } }) } : {}),
 									model, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 }, signal,
 									cacheRoot:join(cache,'..','reviews'),
 									reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion+(draftHasMapRegions(candidate)?':map-region-review-v2':'')),Buffer.from(await readerInstructionText(this.runtime().contentRoot, { phase: "verify", guidance: job.purpose === "guidance", answer: job.purpose === "answer" }))])),

@@ -16,6 +16,7 @@ import {mkdtemp, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {withPersonStatements} from './person-statements.mjs';
 const root = resolve(import.meta.dirname, '../..');
 await mkdir(join(root, '.coc'), {recursive: true});
 const temporary = await mkdtemp(join(root, '.coc', 'survivor-map-'));
@@ -75,7 +76,7 @@ async function tower(t) {
 		const job = await k.raw('module.read.claim', {module_id: mid, owner: 'test-host'});
 		await writeFile(join(job.work_dir, 'observations.json'), JSON.stringify({file_sha256: sha, read_pages: [1, 2, 3], full_pages: [1, 2, 3], review_pages: [1, 2, 3]}));
 		await writeFile(join(job.work_dir, 'draft.json'), JSON.stringify(draft));
-		await writeFile(join(job.work_dir, 'review.json'), JSON.stringify({checked: [{paths, verdict: 'supported', source_refs: [{page: 1}], reason: 'fixture support'}], missing: []}));
+		await writeFile(join(job.work_dir, 'review.json'), JSON.stringify({checked: [{paths: withPersonStatements(draft, paths), verdict: 'supported', source_refs: [{page: 1}], reason: 'fixture support'}], missing: []}));
 		return k.raw('module.read.finish', {module_id: mid, job_id: job.job_id, lease: job.lease, outcome: 'completed',
 			draft_path: join(job.work_dir, 'draft.json'), review_path: join(job.work_dir, 'review.json')});
 	};
@@ -85,7 +86,7 @@ async function tower(t) {
 		{node_id: 'scene-dock', node_kind: 'scene', name: 'Dock', source_refs: [{page: 1}], properties: {is_entrance: true}},
 		{node_id: 'scene-tower', node_kind: 'scene', name: 'Old Tower', source_refs: [{page: 2}], summary: 'An old tower beyond the harbor.'},
 		{node_id: 'npc-mae', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 1}], summary: 'A net mender on the dock.',
-			properties: {biography: 'She has mended nets on this dock for forty years.'}},
+			properties: {biography: 'She has mended nets on this dock for forty years.', appearance: 'A net mender on the dock.'}},
 		{node_id: 'clue-lamp-oil', node_kind: 'clue', name: 'Fresh lamp oil', source_refs: [{page: 2}], summary: 'Someone still fills the lamp.'}],
 		claims: [{subject_id: 'scene-dock', predicate: 'route-to', object: {node_id: 'scene-tower'}, truth_status: 'authored-fact', source_refs: [{page: 1}]},
 			{subject_id: 'clue-lamp-oil', predicate: 'discoverable-at', object: {node_id: 'scene-tower'}, truth_status: 'authored-fact', source_refs: [{page: 2}]}],
@@ -112,7 +113,7 @@ async function tower(t) {
 		{node_id: 'clue-lamp-oil-copy', node_kind: 'clue', name: 'Fresh lamp oil', source_refs: refs(2), summary: 'The oil again.'},
 		{node_id: 'clue-cellar-key', node_kind: 'clue', name: 'Cellar key on a nail', source_refs: refs(3), summary: 'The key to the cellar.'},
 		{node_id: 'npc-mae-copy', node_kind: 'npc', name: 'Old Mae', aliases: ['Granny Mae'], source_refs: refs(3), visibility: 'keeper-only', summary: 'Old Mae again.',
-			properties: {knowledge: 'Her boy Jonah drowned in the cellar.', biography: 'A widow who lost her son.'}},
+			properties: {knowledge: 'Her boy Jonah drowned in the cellar.', biography: 'A widow who lost her son.', appearance: 'A net mender on the dock.'}},
 		{node_id: 'npc-mae-grieving', node_kind: 'npc', name: 'Old Mae, grieving', source_refs: refs(3), summary: 'Old Mae after the drowning.'},
 		{node_id: 'rule-lamp-check', node_kind: 'rule', name: 'Lamp room check', source_refs: refs(2), summary: 'Spot Hidden in the lamp room.'},
 		{node_id: 'tome-keeper-log', node_kind: 'tome', name: 'Keeper\'s log', source_refs: refs(2), summary: 'The lamp keeper\'s log.'},

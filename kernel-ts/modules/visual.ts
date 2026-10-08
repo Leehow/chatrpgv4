@@ -13,7 +13,7 @@ import { shapeReviewPaths, statesMechanics } from './shape-review.js';
 import {validateSourceNeeds,sourceNeedKey} from './source-needs.js';
 import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings} from './module-review-policy.js';
 import { anchors, pages, recordSpans, sameSpan, spanOf, type Anchor } from './transcription.js';
-import { REVIEW_VERDICTS, classificationMatcher, identityReviewPath } from './review-verdicts.js';
+import { REVIEW_VERDICTS, classificationMatcher, PERSON_STATEMENTS, personStatementPath, statementReviewPath } from './review-verdicts.js';
 import { DISTINCT_FROM, DUPLICATE_RULE, duplicateMessage, duplicateRefusal, publishedDuplicates } from './published-duplicates.js';
 import { CLAIM_SUPPORT_PROTOCOL, JEV_REVIEWER, JEV_REVIEW_RULES, claimRecordPages, claimRecordRoot, claimSupportIneligibility, pathsOverlap, claimRecord } from './claim-support.js';
 import { preserveTravel } from './route-travel.js';
@@ -634,6 +634,14 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     for (const [i, node] of nodes.entries())
         if (Object.hasOwn(node, DISTINCT_FROM))
             required.add(`/nodes/${i}/${DISTINCT_FROM}`);
+    // §199.2: a person's summary and first-meeting appearance are their own pointers under either policy (TR-F2: the record
+    // `/nodes/5` was supported while its summary made the living husband of a dead woman dead).
+    for (const [i, node] of nodes.entries())
+        for (const tail of PERSON_STATEMENTS) {
+            const path = `/nodes/${i}${tail}`, value = tail === '/summary' ? node.summary : row(node.properties).appearance;
+            if (personStatementPath(filled, path) && value !== undefined && value !== null && value !== '')
+                required.add(path);
+        }
     // The field a later reading re-transcribed is named in the review, so the replacement is a reviewed one.
     for (const path of retranscribed)
         required.add(moduleLogicReview(packet)?moduleReviewRoot(path):path);
@@ -954,8 +962,8 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
                 supported.add(path);
                 continue;
             }
-            // §192.1: a distinct_from is an identity statement, never a classification and never advisory.
-            if (!identityReviewPath(path) && REVIEW_VERDICTS.includes(item.verdict) && (moduleLogicReview(filled)?advisoryModuleFinding(item):classifies(path))) {
+            // §192.1, §199.2: a distinct_from and a person's statements are never a classification and never advisory.
+            if (!statementReviewPath(draft, path) && REVIEW_VERDICTS.includes(item.verdict) && (moduleLogicReview(filled)?advisoryModuleFinding(item):classifies(path))) {
                 contested.push({ path, verdict: item.verdict, reason: string(item.reason ?? ''), source_refs: refs,...(item.impact?{impact:item.impact}:{}) });
                 continue;
             }

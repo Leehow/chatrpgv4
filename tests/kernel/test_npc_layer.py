@@ -530,7 +530,10 @@ def test_a_reader_s_dossier_claims_reach_the_graph_and_the_table(kernel, tmp_pat
     ]]
     draft = {"nodes": nodes, "claims": claims, "node_refs": [], "coverage": {}, "dependencies": [], "critical": [], "ready_nodes": [n["node_id"] for n in nodes]}
     # Keep the frozen shape checks and include the current source-scope review contract.
-    required = [*check_draft(draft, job)["required_review"], "/coverage"]
+    # §199.2: the TS gate also owes each person's summary and first-meeting appearance as their own pointers.
+    persons = [f"/nodes/{i}/{field}" for i, n in enumerate(nodes) if n.get("node_kind") == "npc"
+               for field, value in (("summary", n.get("summary")), ("properties/appearance", (n.get("properties") or {}).get("appearance"))) if value]
+    required = [*check_draft(draft, job)["required_review"], *persons, "/coverage"]
     write(Path(job["work_dir"])/"draft.json", draft)
     write(Path(job["work_dir"])/"review.json", {"checked": [{"paths": required, "verdict": "supported", "source_refs": [{"page": 1}]}], "missing": []})
     finish(kernel, job)

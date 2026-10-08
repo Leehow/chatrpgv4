@@ -27,7 +27,7 @@ async function dockDraft(job) {
     {node_id: 'scene-dock', node_kind: 'scene', name: 'Dock', source_refs: [{page: 1}], properties: {keeper_notes: 'The dock at dusk.'}},
     {node_id: 'npc-lena', node_kind: 'npc', name: 'Lena', source_refs: [{page: 1}], summary: 'Lena mends nets on the dock.'}],
   claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['scene-dock', 'npc-lena']});
-  await write(join(job.work_dir, 'review.json'), {checked: [{paths: ['/nodes/0', '/nodes/1', '/coverage'], verdict: 'supported', source_refs: [{page: 1}],
+  await write(join(job.work_dir, 'review.json'), {checked: [{paths: ['/nodes/0', '/nodes/1', '/nodes/1/summary', '/coverage'], verdict: 'supported', source_refs: [{page: 1}],
     reason: 'Source support.'}], missing: []});
 }
 async function publishDock(f, question) {

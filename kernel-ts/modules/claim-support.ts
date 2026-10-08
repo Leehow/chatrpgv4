@@ -98,6 +98,10 @@ export function claimSupportIneligibility(draft: unknown, root: string, hasText:
     if (root.startsWith("/nodes/")) {
         // §192.1: a node that declares itself distinct from a published one keeps the vision reviewer, which judges that answer.
         if (Object.hasOwn(record, "distinct_from")) return "identity";
+        // §199.3: a person's statements of who they are (alive or dead, kin, rank) keep the vision reviewer, which answers them
+        // one by one; Jev reads a modifier's attachment literally ("X's late husband" cleared as "X's husband", 2026-10-08).
+        // The kind is `review-verdicts.ts` PERSON_KIND; this file has no imports, so the word is repeated here.
+        if (record.node_kind === "npc") return "person";
         const properties = plain(record.properties) ? record.properties : {};
         if (Array.isArray(properties.image_sources) && properties.image_sources.length) return "image_source";
         if (Array.isArray(properties.map_regions) && properties.map_regions.length) return "map_region";

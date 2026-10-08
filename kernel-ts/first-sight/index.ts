@@ -81,13 +81,18 @@ function bookWords(graph: ModuleGraph, node: Row, property: string, summary = tr
 }
 /** What the book describes of a place (§168.5): `properties.description`, else the scene's summary. */
 export const placeDescribed = (graph: ModuleGraph, scene: Row): string | null => bookWords(graph, scene, 'description');
-/** What the book describes of a person: `properties.biography`, else the summary. */
-export const personDescribed = (graph: ModuleGraph, node: Row): string | null => bookWords(graph, node, 'biography');
 /**
- * §194.4: the book's description of a person without the summary fallback -- what the epithet lane reads of a graph person.
- * A node's summary is the Keeper's account of them (TR-F: the victim's summary made the lane call him "the creature that mutated two families").
+ * What the book describes of a person: §199.4's first-meeting `properties.appearance` when the reader wrote one, else
+ * `properties.biography`, else the summary (§168.5, unchanged for a book read before §199).
  */
-export const personAppearance = (graph: ModuleGraph, node: Row): string | null => bookWords(graph, node, 'biography', false);
+export const personDescribed = (graph: ModuleGraph, node: Row): string | null =>
+    bookWords(graph, node, 'appearance', false) ?? bookWords(graph, node, 'biography');
+/**
+ * §199.4 (amends §194.4): what the epithet lane reads of a graph person -- their first-meeting `properties.appearance` only.
+ * Never the summary, the Keeper's account of them (TR-F: the victim became "the creature that mutated two families"), and
+ * never the biography, which carries what the book reveals later (TR-F2: Maria's tentacles and infection became her word).
+ */
+export const personAppearance = (graph: ModuleGraph, node: Row): string | null => bookWords(graph, node, 'appearance', false);
 /** A book person the player may see on arrival: an `npc` node the book marks `player-safe` (§180.3: never a creature). */
 export const seenPerson = (node: Row): boolean => node.node_kind === 'npc' && node.visibility === 'player-safe';
 
