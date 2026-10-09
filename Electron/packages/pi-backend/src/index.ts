@@ -158,7 +158,6 @@ import { FileQueueStore, type QueueStore } from "./queue-store.js";
 import {
   StopEscalationScheduler,
   defaultStopEscalationHooks,
-  readProcessIdentity,
   type StopEscalationDelays,
   type StopEscalationHooks,
 } from "./stop-escalation.js";
@@ -853,13 +852,19 @@ type Live = {
   stderrTail: string;
   pending: Map<
     string,
-    { resolve: (data: any) => void; reject: (e: Error) => void }
+    { resolve: (data: any) => void; reject: (e: Error) => void; onResponseRejected?: () => void }
   >;
   followUps: string[];
   /** One-shot text for the next `agent_start` after a PipiUI queue drain.
    *  Pi's own `followUp` list is empty for a regular prompt, and the UI
    *  otherwise treats that started as a ghost. */
   pendingDrainPrompt?: string;
+  /** Actual prompt RPC owner awaiting its first start; never matched by prose. */
+  pendingPromptOwner?: string;
+  /** A regular prompt is independent; streaming follow-ups remain waiting input. */
+  pendingPromptIndependent?: boolean;
+  /** Prompt owner of the current observed epoch, or an unsolicited start. */
+  activePromptOwner?: string | symbol;
   /** contentIndex → streamed tool-args JSON, assembled from toolcall_delta until toolcall_end. */
   toolArgs: Map<number, string>;
   /** Pi restarts contentIndex at every assistant message; this epoch lets the UI
@@ -911,6 +916,8 @@ type Live = {
   hostAbortedTurn?: boolean;
   /** When the host last abandoned a call on this turn (contract §94). */
   hostAbortedTurnAt?: number;
+  /** Host-only ownership of the pending escalation identity capture. */
+  stopEscalationAttempt?: { owner?: string | symbol; epoch?: number; pending: boolean; drain: false | "cutIn" | "watchdog" };
   /** When the current turn's most recent assistant message began (contract §94). */
   assistantMessageStartedAt?: number;
   /** A PipiCOC watchdog abort has a durable cold-process recovery handoff. */
@@ -2534,6 +2541,7 @@ export class PiHostBackend implements HostBackend {
   private externalAuthRuntime?: ExternalAuthRuntime;
   private queue: SessionMessageQueue;
   private stopEscalation: StopEscalationScheduler;
+  private readonly stopIdentityReader: StopEscalationHooks["identify"];
   /** Immediate-send escalation kills only the unresponsive Boss RPC process.
    * Worker descendants are independent runs and must survive the cut-in. */
   private cutInStopEscalation: StopEscalationScheduler;
@@ -2685,6 +2693,7 @@ export class PiHostBackend implements HostBackend {
       isDrainSuppressed: (id) => this.autoRevivalSuppressed(id),
     });
     const stopHooks = options.stopEscalationHooks ?? defaultStopEscalationHooks();
+    this.stopIdentityReader = pid => stopHooks.identify(pid);
     const guardedStopHooks: StopEscalationHooks = {
       ...stopHooks,
       kill: (pid, signal) => {
@@ -3593,7 +3602,7 @@ export class PiHostBackend implements HostBackend {
   }
   /**
    * Host abort: emit stopped immediately, write abort without waiting for ack,
-   * escalate hung descendants in the background. User stop never FIFO-drains.
+   * escalate the captured Pi process in the background. User stop never FIFO-drains.
    * Background subagents keep running; only close() sweeps them.
    */
   private async abortSessionTurn(
@@ -3648,23 +3657,42 @@ export class PiHostBackend implements HostBackend {
       turnEpoch: after?.turnEpoch ?? live?.turnEpoch,
     });
     after?.compaction.settleTurn();
-    const abortPid = after?.process?.pid ?? live?.process?.pid;
-    if (abortPid !== undefined && this.childStillRunning(after?.process ?? live?.process)) {
-      queueMicrotask(() => {
-        const current = this.live.get(sessionId);
-        if (!current || current.runtimeToken !== runtimeToken
-          || !this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)
-          || !this.childStillRunning(current.process)) return;
+    const abortLive = after ?? live;
+    const abortChild = abortLive?.process;
+    const abortPid = abortChild?.pid;
+    if (abortLive && abortChild && abortPid !== undefined && this.liveProcessUsable(abortLive)) {
+      const active = abortLive.turnEpoch !== undefined && abortLive.terminalEpoch !== abortLive.turnEpoch;
+      const attempt = { owner: active ? abortLive.activePromptOwner : abortLive.pendingPromptOwner,
+        epoch: abortLive.turnEpoch, pending: !active && abortLive.pendingPromptOwner !== undefined, drain: options.drain };
+      abortLive.stopEscalationAttempt = attempt;
+      const ownsCapture = () => this.live.get(sessionId) === abortLive
+        && abortLive.process === abortChild && abortChild.pid === abortPid
+        && abortLive.runtimeToken === runtimeToken && this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)
+        && (attempt.pending ? abortLive.pendingPromptOwner === attempt.owner
+          : abortLive.activePromptOwner === attempt.owner && abortLive.turnEpoch === attempt.epoch
+            && (attempt.epoch === undefined || abortLive.terminalEpoch !== attempt.epoch))
+        && abortLive.stopEscalationAttempt === attempt
+        && !(abortLive.pendingPromptIndependent && abortLive.pendingPromptOwner !== undefined
+          && abortLive.pendingPromptOwner !== attempt.owner);
+      const canArm = () => ownsCapture() && this.liveProcessUsable(abortLive);
+      void (async () => {
+        if (!canArm()) return;
+        const identity = await Promise.resolve().then(() => this.stopIdentityReader(abortPid)).catch(() => undefined);
+        if (!canArm()) return;
         const escalation = options.drain === "cutIn" ? this.cutInStopEscalation : this.stopEscalation;
         escalation.start(
           sessionId,
-          {
-            piPid: abortPid,
-            piIdentity: readProcessIdentity(abortPid),
-          },
-          () => {
+          { piPid: abortPid, piIdentity: identity?.pid === abortPid ? identity : undefined, isCurrent: ownsCapture },
+          signaled => {
             const liveNow = this.live.get(sessionId);
+            if (!this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)
+              || abortLive.stopEscalationAttempt !== attempt
+              || (attempt.pending ? abortLive.pendingPromptOwner !== attempt.owner
+                : abortLive.activePromptOwner !== attempt.owner || abortLive.turnEpoch !== attempt.epoch
+                  || (attempt.epoch !== undefined && abortLive.terminalEpoch === attempt.epoch))
+              || (liveNow && (liveNow !== abortLive || liveNow.process !== abortChild || liveNow.process?.pid !== abortPid))) return;
             if (!liveNow) {
+              if (!signaled) return;
               this.stream({ type: "status", sessionId, status: "stopped", pendingFollowUps: [] });
               if (options.drain === "watchdog" && live?.path) {
                 this.scheduleCocWatchdogRecovery(sessionId, live.path, runtimeToken);
@@ -3690,6 +3718,7 @@ export class PiHostBackend implements HostBackend {
               }
               return;
             }
+            if (!signaled) return;
             if (liveNow.terminalEpoch !== liveNow.turnEpoch) {
               this.projectTurnTerminal(liveNow, "stopped", false, true);
             }
@@ -3702,7 +3731,7 @@ export class PiHostBackend implements HostBackend {
             }
           },
         );
-      });
+      })().catch(() => undefined);
     }
     void this.command(sessionId, { type: "abort" }, false, runtimeToken).catch(() => undefined);
   }
@@ -6627,6 +6656,7 @@ export class PiHostBackend implements HostBackend {
     if (e.type === "response") {
       const pending = live.pending.get(e.id);
       if (pending) {
+        if (e.success === false) pending.onResponseRejected?.();
         live.pending.delete(e.id);
         e.success
           ? pending.resolve(e.data)
@@ -6649,16 +6679,32 @@ export class PiHostBackend implements HostBackend {
     if (e.type === "message_start" && e.message?.role === "assistant") live.assistantMessageStartedAt = Date.now();
     if (e.type === "agent_start") {
       live.cocSetupHandoffPending=false;
-      live.hostAbortedTurn = false;
-      live.hostAbortedTurnAt = undefined;
+      const owner = live.pendingPromptOwner ?? Symbol("unsolicited-turn");
+      const capture = live.stopEscalationAttempt;
+      const stoppedPendingStart = Boolean(capture?.pending && capture.owner === owner);
+      live.activePromptOwner = owner;
+      live.pendingPromptOwner = undefined;
+      live.pendingPromptIndependent = undefined;
+      if (!stoppedPendingStart) {
+        live.hostAbortedTurn = false;
+        live.stopEscalationAttempt = undefined;
+        this.stopEscalation.cancel(id);
+        this.cutInStopEscalation.cancel(id);
+        live.hostAbortedTurnAt = undefined;
+        live.watchdogRecoveryArmed = false;
+        live.watchdogEscalationRetries = 0;
+      }
       live.assistantMessageStartedAt = undefined;
-      live.watchdogRecoveryArmed = false;
-      live.watchdogEscalationRetries = 0;
       live.compaction.cancel();
       // Must be synchronous: fake-pi/real Pi emit agent_start and agent_settled
       // in the same stdout chunk. An async markBusy lets the settle run with a
       // stale epoch and drop the drain that should release the next queued item.
       live.turnEpoch = this.queue.markBusy(id, live.runtimeToken);
+      if (stoppedPendingStart && capture) {
+        capture.epoch = live.turnEpoch;
+        capture.pending = false;
+        if (capture.drain === false) this.queue.noteAbort(id, live.runtimeToken);
+      }
       live.turnStartedAt = Date.now();
       live.lastTurnActivityAt = live.turnStartedAt;
       live.pendingFinalReconciliation = undefined;
@@ -6681,11 +6727,18 @@ export class PiHostBackend implements HostBackend {
       this.stream({
         type: "status",
         sessionId: id,
-        status: "started",
+        status: stoppedPendingStart ? "stopped" : "started",
         pendingFollowUps,
         turnEpoch: live.turnEpoch,
       });
     } else if (e.type === "agent_settled") {
+      if (live.turnEpoch === undefined) {
+        live.pendingPromptOwner = undefined;
+        live.pendingPromptIndependent = undefined;
+        live.stopEscalationAttempt = undefined;
+        this.stopEscalation.cancel(id);
+        this.cutInStopEscalation.cancel(id);
+      }
       this.requestSessionRedact(id, live.runtimeToken);
       // The extension has made the stranded decision in memory, but the
       // durable marker and host recovery flag remain until the next
@@ -7200,6 +7253,7 @@ export class PiHostBackend implements HostBackend {
     if (live.watchdogRecoveryArmed && !allowWatchdogRecovery) return false;
     if (epoch === undefined || live.terminalEpoch === epoch) return false;
     live.terminalEpoch = epoch;
+    live.stopEscalationAttempt = undefined;
     live.pendingFinalReconciliation = undefined;
     this.turnTelemetry.terminal(live.session.id, status);
     this.stopEscalation.cancel(live.session.id);
@@ -7640,10 +7694,34 @@ export class PiHostBackend implements HostBackend {
     }
     return new Promise<any>((resolve, reject) => {
       const req = crypto.randomUUID();
-      live.pending.set(req, { resolve, reject });
-      live.process!.stdin.write(
-        JSON.stringify({ id: req, ...body }) + "\n",
-      );
+      const promptOwner = body.type === "prompt" && body.streamingBehavior !== "steer"
+        && (body.streamingBehavior !== "followUp" || live.pendingPromptOwner === undefined) ? req : undefined;
+      const previousOwner = live.pendingPromptOwner;
+      const previousIndependent = live.pendingPromptIndependent;
+      const restoreOwner = () => {
+        if (promptOwner && live.pendingPromptOwner === promptOwner) {
+          live.pendingPromptOwner = previousOwner;
+          live.pendingPromptIndependent = previousIndependent;
+        }
+      };
+      if (promptOwner) {
+        live.pendingPromptOwner = promptOwner;
+        live.pendingPromptIndependent = body.streamingBehavior === undefined;
+      }
+      live.pending.set(req, {
+        resolve: data => {
+          if (data?.disposition === "handled") restoreOwner();
+          resolve(data);
+        },
+        reject,
+        onResponseRejected: restoreOwner,
+      });
+      try {
+        live.process!.stdin.write(JSON.stringify({ id: req, ...body }) + "\n");
+      } catch (error) {
+        restoreOwner();
+        throw error;
+      }
     });
   }
   private async extensionUiResponse(

@@ -4,6 +4,8 @@ import {
   DEFAULT_STOP_ESCALATION_DELAYS,
   StopEscalationScheduler,
   identitiesMatch,
+  readProcessIdentity,
+  readProcessIdentityAsync,
 } from "../src/stop-escalation.js";
 
 const flush = async (times = 8) => {
@@ -191,6 +193,7 @@ describe("StopEscalationScheduler", () => {
 
   it("does not signal anything when abort-time pi identity is missing", async () => {
     const signals: { pid: number; signal: NodeJS.Signals }[] = [];
+    const finished = vi.fn();
     const timeouts: { fn: () => void }[] = [];
     const scheduler = new StopEscalationScheduler(
       {
@@ -207,11 +210,61 @@ describe("StopEscalationScheduler", () => {
       },
       { termDescendantsMs: 3, killDescendantsMs: 2, killPiMs: 2 },
     );
-    scheduler.start("s1", { piPid: 10 });
+    scheduler.start("s1", { piPid: 10 }, finished);
     await flush();
     for (const item of timeouts) item.fn();
     await flush();
     expect(signals).toEqual([]);
+    expect(finished).toHaveBeenCalledWith(false);
+  });
+
+  it("collects complete process identity asynchronously and preserves the existing tuple", async () => {
+    let collected = false;
+    const pending = readProcessIdentityAsync(process.pid).then(value => { collected = true; return value; });
+    await Promise.resolve();
+    expect(collected).toBe(false);
+    const captured = await pending;
+    expect(identitiesMatch(captured, readProcessIdentity(process.pid))).toBe(true);
+    expect(await readProcessIdentityAsync(0)).toBeUndefined();
+    expect(await readProcessIdentityAsync(2_147_483_647)).toBeUndefined();
+  });
+
+  it("does not signal or finish if cancellation wins during asynchronous final identity verification", async () => {
+    let release!: (value: ReturnType<typeof identity>) => void;
+    const signals: number[] = [];
+    const timers: Array<() => void> = [];
+    const finished = vi.fn();
+    const scheduler = new StopEscalationScheduler({
+      setTimeout: fn => { timers.push(fn); return timers.length; },
+      clearTimeout: () => undefined,
+      listDescendants: () => [],
+      identify: () => new Promise(resolve => { release = resolve; }),
+      kill: pid => { signals.push(pid); },
+    });
+    scheduler.start("s1", { piPid: 10, piIdentity: identity(10) }, finished);
+    timers[0]();
+    scheduler.cancel("s1");
+    release(identity(10));
+    await flush();
+    expect(signals).toEqual([]);
+    expect(finished).not.toHaveBeenCalled();
+  });
+
+  it.each(["before-identify", "during-identify"] as const)("never signals or finishes if owner changes %s", async phase => {
+    let current = phase !== "before-identify";
+    let release!: (value: ReturnType<typeof identity>) => void;
+    const identify = vi.fn(() => new Promise<ReturnType<typeof identity>>(resolve => { release = resolve; }));
+    const kill = vi.fn();
+    const finished = vi.fn();
+    const timers: Array<() => void> = [];
+    const scheduler = new StopEscalationScheduler({ setTimeout: fn => { timers.push(fn); return timers.length; }, clearTimeout: () => undefined, listDescendants: () => [], identify, kill });
+    scheduler.start("s1", { piPid: 10, piIdentity: identity(10), isCurrent: () => current }, finished);
+    timers[0]();
+    if (phase === "during-identify") { current = false; release(identity(10)); }
+    await flush();
+    expect(kill).not.toHaveBeenCalled();
+    expect(finished).not.toHaveBeenCalled();
+    if (phase === "before-identify") expect(identify).not.toHaveBeenCalled();
   });
 
   afterEach(() => {
