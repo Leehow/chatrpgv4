@@ -3545,6 +3545,10 @@ Evidence (SL-29A, 血色公路, `book-1`): the index publication's read-ahead (�
 
 ### 22.3 读者输出与图谱发布
 
+**Source proposition decision (2026-10-08).** The tool-enabled author separates independently judged propositions, knowledge owners, discovery conditions and source qualifiers using the existing graph vocabulary. Discovering a carrier, hearing testimony and establishing the truth of what was said are different sourced relationships. A compound passage does not assign one truth status or discovery check to all its assertions and relations. Each emitted relation keeps its own source-supported meaning; the author does not inherit its truth status merely from an adjacent clue or speaker. Optional authored examples remain optional material, not an invented mandatory clock or branch.
+
+The independent reviewer anchors a negative about an existing candidate to the original page condition and the deepest affected candidate pointer. A missing item identifies the requested current use or immediate dependency it prevents; it does not invent a pointer for absent material. Review reasons remain judgments to verify against the page, never new authored facts. Repair context must make adjacent assertion, knowledge and discovery relationships visible so the author can notice their disagreement, while the existing repair permissions and fresh review still govern changes. This decision adds no graph schema, kinship/rank comparer, canonical-value migration, budget, automatic retry or advisory publication bypass.
+
 读者仍为带 `read/write/edit/bash` 的子 Pi：`--no-extensions --no-context-files --no-session`；沿用 repo-local Pi home，删除游玩模式与 campaign 环境。模型须声明图片输入，并由步骤 1 的真实图片读取验证通道；不支持时返回 `vision_required`，不回落到 OCR。读者不能派生另一层读者或内核。
 
 任务简报只提供原 PDF 的翻页方法、可用导航、相关已有节点、当前需求与输出位置；不再塞全文 span。读者可以沿索引与原书引用查看任意必要页。宿主采集子 Pi 的结构化事件作为证据，不继续丢弃 stdout。进程成功退出不等于抽取成功。
@@ -39265,6 +39269,8 @@ To clear an earlier refused-append basis, a later authorized correction must cor
 
 ### 193.2 Exact cached source answers, bounded carriage and real continuation
 
+**Memo storage decision (2026-10-08).** A memo's independently answered questions keep their original identities in the held presentation shelf. The lookup envelope collecting those answers is not another answered question for later presentation: retaining it for exact local continuation must not consume a second held-presentation slot or evict its independently held answers. Its complete original may remain in the existing continuation-only raw cache, subject to the same 64 KiB / 16-entry limits and campaign, scene and scope invalidation. The existing lookup `answer_part` reader must still read every retained memo page without a new source job or provider call. No new source authority, cache allowance or automatic paid retry is introduced.
+
 The writer is the existing source-answer/materialization owner. The original host request question is authoritative for its entry; an answer's differing question is kept as source_question rather than overwriting that request. Original excerpts retain alias/page/text and source layer/revision/proof/limitations. This changes no PDF extraction, claim qualification, discovery, disclosure or source-reference authority, and never supplies a missing literal or makes private reference into investigator knowledge.
 
 The reader is source-answer carriage and its existing held shelf. Fresh and held answers use one pure bounded projection. Source answer text/excerpt data is carried in exact retained units or clearly ranged fragments, never rewritten with an ellipsis as if it were original text. Question, authority/limitations and source binding remain with the value. Incomplete delivery is explicit partial with source_status, delivered/omitted fields or units, and genuine next where the original remains readable. Existing per-view4KiB body, total12KiB complete carried-presentation and held8KiB presentation ceilings remain; focus/name/cut metadata wrappers count in the total carriage, as they do for ordinary views. Metadata that cannot fit is an explicit budget omission; no partial view claims a complete answer. Originals retained across shelves are bounded to64KiB and16 entries, in addition to the scene's existing held-presentation limit, so this does not silently turn the held shelf into an unlimited raw cache.
@@ -41420,7 +41426,7 @@ The default-on instruction total and the package forms are in §203.10.
 
 ### 203.10 Tests and measurements
 
-To be filled at implementation.
+The `1237450eb` LAN run verifies the kernel/host/lane files at 6/6, 5/5 and 8/8. Its kernel trace measures the default-on instructions at 65,374 of 65,536 bytes, all projected as `full`; narration-craft 2.5.0 contributes 19,886 bytes and historical-reference 1.2.0 contributes 5,337 bytes. No Mod instructions were compressed. The complete run remains failed on the separately recorded held-answer tests, and these deterministic checks do not establish prose quality, actual Keeper adoption, current package or real-table acceptance. Raw evidence is retained in `continuation-validation/all-1237450eb/ext-logs/tests_extension_scene-establish-kernel.test.mjs.log` in the approved handoff evidence root.
 
 ## 204. A place is inside places (lead request 2026-10-08 after TR-F2 runs 2 and 3; `docs/specs/locus-containment.md`; amends `apply move`'s reachability and `establish` (§5, §49, §187.2.1), the placement lane (§187.2.3), `where.within` (§187.2.2), the book's people for a place (§187.3.1), the told-position candidates (§190.2), the move rows of `table.apply.options` (§135.30.4), `registered_destination` (§32) and the visual-asset draft check)
 
