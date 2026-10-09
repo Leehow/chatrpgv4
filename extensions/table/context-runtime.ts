@@ -18,6 +18,7 @@ import {preparePrescreen,prescreenEnabled,reusePrescreen} from './prescreen.ts';
 import type {PrescreenSourceRuntime} from '../../runtime/jev/prescreen-source-provider.ts';
 import {createExpressionPreparation,EXPRESSION_MESSAGE,removeExpressionPayload} from './expression-reference.ts';
 import {createModSections,emptyCalls,noteCall,MOD_SECTIONS_MESSAGE} from './mod-sections.ts';
+import {createTemporalAdvice,TEMPORAL_ADVICE_MESSAGE} from './temporal-advice.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
     boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
     capsuleUpdate, stableFirst, CAPSULE_UPDATE_TYPE, NPC_ADVICE_TYPE,
@@ -95,6 +96,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let pendingExpression:Row|undefined;
     // Contract §183.5: the indexed packages' sections this turn needs; the calls so far this turn are what triggers read.
     const modSections=createModSections({read:async(method,params)=>call?call(method,params):undefined,decision,record});
+    const temporalAdvice=createTemporalAdvice({read:async(method,params)=>call?call(method,params):undefined,decision,record});
+    let pendingTemporal:Row|undefined;
     let turnCalls=emptyCalls(),pendingSections:Row|undefined;
     const resetPreparation=()=>{inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;};
     pi.events.on('coc:task-provider-budget',value=>{foregroundBudget=typeof value==='function'?value as typeof foregroundBudget:undefined;});
@@ -212,10 +215,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (!sourceChanged && !captured && !(stateChanged && (observedWorkspaceMode !== 'off' || prescreenEnabled() || expressionRefresh))) return;
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; invalidate();
     });
-    pi.on('session_start', async () => {expression.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
+    pi.on('session_start', async () => {temporalAdvice.clear();pendingTemporal=undefined;expression.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
         lastAttempt = undefined; sourceCalls.clear(); stateCalls.clear();prescreenDeadlineAt=0;prescreenMemo=undefined;reusablePrescreen=undefined;
         prescreenProviderBudget=preparationProviderBudget();});
-    pi.on('session_shutdown', async () => {expression.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
+    pi.on('session_shutdown', async () => {temporalAdvice.clear();pendingTemporal=undefined;expression.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
         prescreenMemo=undefined;reusablePrescreen=undefined;pendingProvider=undefined;prescreenDeadlineAt=0;
         prescreenProviderBudget={actions:0,inputTokens:0,outputTokens:0,costUsd:0};invalidate();});
 
@@ -590,9 +593,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // displaced by a hypothetical notice on an otherwise healthy, within-budget request.
         if (reason) result = project(Math.max(0,messageBudget-requestSize([diagnostic(reason)])),{workspace,prescreen});
         const outgoing = rename([...(reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages), ...turnTail]
-            .filter(message=>!(message.role==='custom'&&[EXPRESSION_MESSAGE,MOD_SECTIONS_MESSAGE].includes(message.customType))));
+            .filter(message=>!(message.role==='custom'&&[EXPRESSION_MESSAGE,MOD_SECTIONS_MESSAGE,TEMPORAL_ADVICE_MESSAGE].includes(message.customType))));
         // Contract §183.5: package sections this turn needs, at the end; nothing on a table whose instructions all go whole.
         pendingSections=undefined;
+        pendingTemporal=undefined;
+        const temporalWork=temporalAdvice.message(snapshot.capsule,snapshot.binding,preparationSignal,requestMessages as unknown as Row[]);
         modSections.observe(snapshot.capsule,snapshot.binding,inputLifetime.signal);
         await modSections.waitForFirst(preparationSignal);
         if(ticket!==generation||preparationSignal.aborted)return{messages:rename(baseline.messages) as typeof requestMessages};
@@ -602,6 +607,12 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             &&Math.ceil((requestSize([...outgoing,sectionsMessage])+systemBytes)/BYTES_PER_TOKEN)<=available){
             outgoing.push(sectionsMessage);pendingSections=sectionsMessage;
         }else if(sectionsMessage)record({lane:'mod-sections',event:'omitted',turn:snapshot.binding.turn,reason:'request_ceiling',bytes:requestSize([sectionsMessage])});
+        const temporalMessage=await temporalWork;
+        if(ticket!==generation||preparationSignal.aborted)return{messages:rename(baseline.messages) as typeof requestMessages};
+        if(temporalMessage&&requestSize([...outgoing,temporalMessage])+systemBytes<=ceiling
+            &&Math.ceil((requestSize([...outgoing,temporalMessage])+systemBytes)/BYTES_PER_TOKEN)<=available){
+            outgoing.push(temporalMessage);pendingTemporal=temporalMessage;
+        }else if(temporalMessage)record({lane:'temporal-context',event:'omitted',turn:snapshot.binding.turn,reason:'request_ceiling',bytes:requestSize([temporalMessage])});
         pendingExpression=undefined;
         const expressionView={...snapshot.capsule,expression_exchange:snapshot.history};
         expression.observe(expressionView,snapshot.binding,inputLifetime.signal);
@@ -639,6 +650,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // Public Pi seam after provider conversion. Observe only whether the exact prepared packet
     // survived serialization; never record headers, secrets or the private payload.
     pi.on('before_provider_request', event => {
+        const temporalSent=pendingTemporal;pendingTemporal=undefined;
+        if(temporalSent)temporalAdvice.delivered(temporalSent,(event as unknown as Row).payload,payloadContains);
         const sectionsSent=pendingSections;pendingSections=undefined;
         if(sectionsSent)modSections.delivered(sectionsSent,(event as unknown as Row).payload,payloadContains);
         const advice=pendingExpression;pendingExpression=undefined;

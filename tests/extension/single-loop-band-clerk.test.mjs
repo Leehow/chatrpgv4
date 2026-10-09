@@ -75,14 +75,14 @@ test("§138.10 builder: the declared action's time is one candidate over the tim
 	assert.equal(time.routeFact.selects, "costs");
 	assert.deepEqual(Object.keys(time.routeFact.criteria), ["costs", "none", "unknown"]);
 	assert.deepEqual(time.composed, ["why"]);
-	assert.equal(time.bound.why, `The time the player's declared action takes, read as a row of the time-costs table and rolled by the kernel; player: "${INPUT}"`);
+	assert.equal(time.bound.why, `The time actually consumed by a supported completed/attempted portion, from a fitting kernel time-cost row; player: "${INPUT}"`);
 	assert.deepEqual(keeperCall(time, { band: "single_room_search" }), { tool: "apply", args: { effects: [{ kind: "time", why: time.bound.why, band: "single_room_search" }] } });
 	assert.ok(!("minutes" in keeperCall(time, { band: "x" }).args.effects[0]));
 	// What Jev reads of it: no host key, basis, clerk or gate.
 	const { batch } = routeBatch(initialView({ runId: "r", rawInput: INPUT, context, candidates, readFirst: false }), scope, []);
 	const shown = JSON.stringify(batch.state) + JSON.stringify(batch.questions);
 	for (const hidden of ['"basis"', '"clerk"', "declared_time", TIME_CANDIDATE_KEY, '"gate"']) assert.ok(!shown.includes(hidden), `Jev never sees ${hidden}`);
-	assert.ok(batch.questions.some((question) => question.criteria.costs && question.target.includes("costs table time")), "the route asks the fact, not now/later");
+	assert.ok(batch.questions.some((question) => question.criteria.costs && question.target.includes("actual completed or attempted portion")), "the route asks consumed time rather than precharging the declared goal");
 });
 
 test("§138.10 builder: no time band inside a session, without a declaration, without rows, or once the turn holds a time receipt", () => {

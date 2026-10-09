@@ -1,0 +1,32 @@
+{
+  "id": "daily-life",
+  "version": "1.0.0",
+  "game_api": "pipicoc.game.v1",
+  "state_version": 1,
+  "author": "PipiCOC",
+  "name": "Daily Life",
+  "description": "Optional Mod-owned routine guidance for residential rest, daytime services, night entertainment and work, emergencies and already-changed people. Selects contextual advice rows through Jev from the canonical clock and scene; it never commits world state, and the canonical clock, temporal records and receipts remain in the kernel.",
+  "default_enabled": true,
+  "requires": [
+    "context.temporal.v1",
+    "mods.package-files.v1"
+  ],
+  "package_files": [
+    "agent.md",
+    "contexts.json"
+  ],
+  "dependencies": {},
+  "conflicts": [],
+  "settings": {
+    "threshold": 0.5
+  },
+  "settings_schema": {
+    "threshold": {
+      "minimum": 0.1,
+      "maximum": 0.9
+    }
+  },
+  "contributes": {
+    "temporal_context": "contexts.json"
+  }
+}

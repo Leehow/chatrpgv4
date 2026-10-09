@@ -23,6 +23,7 @@ import type {ApplyContext} from './index.js';
 import {CampaignSnapshot} from '../read/campaign.js';
 import {acceptReunion} from '../npc/reunion.js';
 import {INTENT_OUTCOMES} from '../npc/intents.js';
+import {openingActivityShape,stageNpcActivity} from './activity.js';
 import {MOOD_CONFLICTS,moodLine,moodText} from '../npc/mood.js';
 import {generatedOf,intentStamp,refuseRepeat,refuseSaidDone,refuseSettled,resolveIntent} from './intent.js';
 import {stageDraw, stageProduce} from './draw.js';
@@ -273,7 +274,7 @@ function refuseNotAPerson(graph:ApplyContext['graph'],node:Row,effect:Row):void{
  * and its result, §11.5.2-§11.5.3's defense, action and disposition, conditions, a reunion, the host's draws). A `walk_on` on
  * someone this table already has gains `to: here` only on an effect that opens none of them. Closed effect keys, read as keys.
  */
-const STANDALONE_VARIANTS:readonly string[]=Object.freeze(['mood','intends','outcome','intent_outcome','defense','action','disposition','conditions','reunion','_draws','_produces']);
+const STANDALONE_VARIANTS:readonly string[]=Object.freeze(['activity','mood','intends','outcome','intent_outcome','defense','action','disposition','conditions','reunion','_draws','_produces']);
 /** §198.3: the keys a seat at the opening carries -- who, where, why, and the walk_on §198.1 reads as an arrival. */
 const OPENING_SEAT_KEYS:readonly string[]=Object.freeze(['kind','name','to','why','walk_on']);
 /** §198.3: an npc effect shaped as an opening seat; whether it is one is `refuseUnlessOpeningSeat`'s to say. */
@@ -292,6 +293,7 @@ function refuseUnlessOpeningSeat(context:ApplyContext,node:Row,established:false
     const self=graph.survivorId(string(node.node_id));
     const placed=graph.sceneNpcIds(active).includes(self);
     const unplaced=unplacedPeople(graph,world,active).some(person=>graph.survivorId(string(person.node.node_id))===self);
+    if(established===false&&openingActivityShape(effect)&&row(world.npc_presence)[graph.handle(node)]===graph.handle(active)&&!row(world.npc_activity)[graph.handle(node)])return;
     if(established===false&&openingSeatShape(effect)&&there&&placed&&unplaced)return;
     const word=tableWord(world,graph.handle(node))||graph.displayName(node);
     throw new RpcError('invalid_params',`at the opening an npc effect only seats someone the book places in the opening scene whom nobody has placed yet; ${word} is not that`,{
@@ -325,6 +327,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     const handle=graph.handle(node),{to,stance,dead}=effect;
     // §180.5: a creature takes the body's variants; a person's tier is refused before any of them stages.
     if(!graph.isPerson(node))refuseNotAPerson(graph,node,effect);
+    if(effect.activity!=null)return walked(stageNpcActivity(context,effect,node));
     // Contract §161.1: what this person feels right now. Its own variant, like the intention: one line in the play
     // language, an ordinary keeper-only receipt, no world value. `previous` is the line the committed ledger holds --
     // the one this replaces when the turn closes (§161.2: within a turn the newest wins) -- or null.

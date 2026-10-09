@@ -554,7 +554,9 @@ test('NPC dossiers and public object views preserve their different secrecy boun
     // none) the card states no inference input, and without an override or an authored word it names no action.
     if (Object.hasOwn(value, 'combat_disposition')) assert.deepEqual(value.combat_disposition, {disposition: null, basis: null});
     if (Object.hasOwn(value, 'combat_standing')) assert.deepEqual(value.combat_standing, {action: null, basis: 'rule-default'});
-    const {untold, combat_tactic, combat_disposition, combat_standing, ...legacy} = value;
+    // The frozen oracle predates temporal state. Verify its missing-state marker directly, then compare the old fields.
+    assert.deepEqual(value.activity, {current: false, review_required: true, review_reasons: ['unassessed']});
+    const {untold, combat_tactic, combat_disposition, combat_standing, activity, ...legacy} = value;
     if (legacy.history?.promises) legacy.history = {...legacy.history, promises: legacy.history.promises.map(promise => {
       assert.equal(promise.authority, 'conversation_report', 'Current promise projections preserve their conversational authority');
       const {authority, ...historical} = promise;

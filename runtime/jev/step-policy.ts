@@ -18,6 +18,7 @@ import {semanticQuestions, semanticChoice} from './semantic-votes.ts';
  *   and folds each observation back with the same transitions `runTurn` uses.
  */
 import {createHash} from 'node:crypto';
+import {turnNow,type TurnContext} from './turn-context.ts';
 import {preparedAttackReady} from './attack-preparation.ts';
 import type {DeclaredDuration} from './declared-duration.ts';
 import {rosterReady, type ProfileRequirement} from './profile-readiness.ts';
@@ -242,7 +243,7 @@ export interface Observation {
  * The table as the latest read saw it. `lastExchange` (§143.23): `table.status.last_exchange` -- the newest committed
  * turn's words and attributed lines while the investigators still stand where it closed; absent otherwise.
  */
-export interface TurnContext {scene: string; clock: Json; present: string[]; receipts: string[]; lastExchange?: Json}
+export {turnNow,type TurnContext} from './turn-context.ts';
 /**
  * The Keeper's batch as an artifact of the run (spec Rulings, "Batches"; contract §135.5): the calls of one model
  * response in their order, each with one success branch (the next step) and one failure branch (back to the
@@ -708,7 +709,7 @@ export function routeBatch(view: RunView, scope: ScopeBinding, readSet: ReadSet)
     const state = {purpose: 'route the next steps of this turn', player_input: view.rawInput,
       ...(view.interactionScope ? {interaction_scope: view.interactionScope.mode} : {}),
       ...(Object.keys(presenceContexts).length ? {source_presence_contexts: presenceContexts} : {}),
-      now: {scene: view.context.scene, clock: view.context.clock, present: view.context.present},
+      now: turnNow(view.context),
       done_this_turn: doneThisTurn(view), materials, candidates, policy: ROUTE_POLICY} as Json;
     const needQuestion = (candidate: Candidate, index: number) => candidate.routeFact
       // A fact about the input, not an order of steps (§135.26): the candidate's own question.
@@ -745,7 +746,7 @@ export function routeBatch(view: RunView, scope: ScopeBinding, readSet: ReadSet)
 export function bindBatch(view: RunView, candidate: Candidate, scope: ScopeBinding, readSet: ReadSet): DecisionBatch {
   const closed = candidate.unbound.filter(value => value.required && value.vocabulary === 'closed' && value.options?.length);
   const state = {purpose: 'bind the closed parameters of the chosen operation', player_input: view.rawInput,
-    now: {scene: view.context.scene, present: view.context.present}, done_this_turn: doneThisTurn(view),
+    now: turnNow(view.context), done_this_turn: doneThisTurn(view),
     chosen: candidateView(candidate), policy: ROUTE_POLICY} as Json;
   return {id: digest([BIND_FAMILY, view.runId, view.observations.length, state]), model: JEV_MODEL, family: BIND_FAMILY, familyVersion: '2',
     scope, readSet, state, questions: closed.map(value => value.band?.primitive === 'score'

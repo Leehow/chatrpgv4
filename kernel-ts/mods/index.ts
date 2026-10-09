@@ -2,6 +2,7 @@
 import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
 import { isJsonObject } from '../json.js';
+import {temporalTables} from '../read/temporal-mod.js';
 import { RpcError } from '../errors.js';
 import { readCampaign } from '../read/handlers.js';
 import { declaredPlayLanguage, playLanguageOf } from '../read/languages.js';
@@ -143,6 +144,10 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
           worldline: string(campaign.meta.active_worldline || 'main'),
           loop: number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline || 'main')]).loop)
         });
+      },
+      'mods.temporal_context':async params=>{
+        const campaign=await writer.campaign(params),world=await campaign.readWorld();
+        return {tables:temporalTables(await runtime.active(world),world),authority:'Read-only tables of active Mods; matching never commits a fact or an action'};
       },
     });
   }

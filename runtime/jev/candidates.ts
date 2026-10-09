@@ -73,22 +73,21 @@ function timeCandidate(rows: TimeBandRow[], rawInput: string, gate: number | und
     options = Object.keys(descriptions).filter(key => key !== 'unknown');
   if (!options.length) return undefined;
   return {key: TIME_CANDIDATE_KEY, verb: 'apply', family: 'time', source: 'rules.bands',
-    label: 'Charge the clock for the declared action, using its chosen exact interval or an estimated activity band',
+    label: 'Charge actual completed or attempted time, using a chosen interval or a fitting activity band',
     bound: {kind: 'time', why: composeSentence(Object.keys(durations).length
-      ? 'The time the player\'s declared action takes, selected from an exact input interval or a kernel time-cost row'
-      : 'The time the player\'s declared action takes, read as a row of the time-costs table and rolled by the kernel', rawInput)},
+      ? 'The time actually consumed by the selected wait or supported completed/attempted portion, from an exact interval or kernel row'
+      : 'The time actually consumed by a supported completed/attempted portion, from a fitting kernel time-cost row', rawInput)},
     composed: ['why'],
     ...(Object.keys(durations).length ? {timeDurations: durations} : {}),
     unbound: [{name: 'band', required: true, vocabulary: 'closed', options, descriptions, instruction: String(question.instructions)
-      + ' Select the activity or exact interval the declaration currently chooses to occur now. A future plan, inquiry about another activity, quotation, estimate, deadline, negation of this activity or conditional step not yet reached belongs to unknown. Current conversation is itself an activity; negating another activity does not negate a current choice. Do not require narrated completion or invent NPC agreement, permission or a venue.'
+      + ' Select only the actual completed or attempted portion supported by the current state and known result. A chosen wait counts its actual interval; an inquiry, OOC clarification, future plan, quotation, estimate, deadline, negation or conditional step not reached belongs to unknown. An unavailable service or blocked access does not mean the full planned search, research, conversation or entry happened. Use a short fitting band for a genuinely established brief attempt, never charge the entire unreached goal. Do not invent NPC agreement, permission, completion or a venue.'
       + ' An explicit interval that is not offered must remain unknown; never choose an estimated activity band to replace it.'
       + (Object.keys(durations).length ? ' If the declaration chooses a fixed interval to elapse now, choose its exact literal duration instead of an estimated activity band. A historical interval, quoted promise, estimate, deadline, negated action or conditional future interval is not chosen time. A bounded wait that ended earlier uses only its actually settled interval. Compound or otherwise unsupported exact intervals need unknown; never substitute an estimate for them. The lexer only enumerates syntax; it grants no action or story outcome.' : ''),
       band: {table: 'time-costs', field: 'time.band', primitive: 'choice', ...(gate !== undefined ? {gate} : {})}}],
-    routeFact: {target: 'whether the player\'s declared action is an activity that costs table time',
-      instructions: 'The player declared an action this turn. Is it an activity that takes time at the table -- a search, a conversation, research, treatment, '
-        + 'rest, study -- whose minutes the clock should count? Judge the declaration itself, not how the story may go on.',
-      criteria: {costs: 'The declared action is an activity that takes time at the table; the clock should count it.',
-        none: 'The declaration is only movement between places (a road\'s time is the route\'s own), a glance or a word that takes no time worth the clock, or an action inside a fight.',
+    routeFact: {target: 'whether an actual completed or attempted portion consumes uncounted game time',
+      instructions: 'Did an actual completed or attempted in-world portion take time that this clock must count, or did the player actually choose a wait? Use the current local context, availability and known outcome; intention alone does not establish a completed activity. OOC questions are not fictional conversation. Unavailable service and blocked access cannot justify the full proposed duration. If the consumed portion is not established yet, leave it to the Keeper after the outcome; do not pre-charge a speculative result.',
+      criteria: {costs: 'An actual completed/attempted portion or chosen wait consumes time independently of any unreached goal.',
+        none: 'No countable in-world activity happened, or this is only travel already counted by move, an OOC clarification, or an action inside a fight.',
         unknown: 'Cannot be told from the supplied state.'}, selects: 'costs'},
     clerk: 'declared_time', basis: {read: 'rules.bands', path: 'time.band', row: {table: 'time-costs', rows: options},
       ...(Object.keys(durations).length ? {duration_source: {read: 'current-player-input', occurrences: durations}} : {})} as Json};

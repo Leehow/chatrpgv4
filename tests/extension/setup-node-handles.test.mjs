@@ -16,6 +16,7 @@ export {createKernelRuntime} from './kernel-ts/registry.ts';
 export {createWriteRuntime} from './kernel-ts/write/index.ts';
 export {createModuleRuntime} from './kernel-ts/modules/index.ts';
 export {createSetupHandlers} from './kernel-ts/setup/index.ts';
+export {pythonJsonDumps} from './kernel-ts/json.ts';
 export {loadModule} from './kernel-ts/read/campaign.ts';`, resolveDir: root},
 	outfile: join(temporary, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(temporary, 'api.mjs')).href);
@@ -32,8 +33,8 @@ async function pending(t, id) {
 	const writer = api.createWriteRuntime(book.context, {openingReady: async () => ready, sourceGraphPath: modules.source.graphPath});
 	const setup = api.createSetupHandlers(book.context, writer);
 	const created = await writer.handlers['campaign.create']({id, module: book.mid, start_scene: 'scene-dock', play_language: 'en'});
-	assert.ok(!JSON.stringify(created).includes('"scene-dock"'), 'the public creation result never exposes the private node map');
-	assert.ok(!JSON.stringify(created).includes('"npc-old-mae"'), 'the guide identity stays in the private binding');
+	assert.ok(!api.pythonJsonDumps(created).includes('"scene-dock"'), 'the public creation result never exposes the private node map');
+	assert.ok(!api.pythonJsonDumps(created).includes('"npc-old-mae"'), 'the guide identity stays in the private binding');
 	const directory = join(book.home, '.coc/campaigns', id);
 	const file = async name => JSON.parse(await readFile(join(directory, name), 'utf8'));
 	const call = (method, params = {}) => setup[method]({campaign: id, ...params});

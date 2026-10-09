@@ -7,6 +7,6 @@
  * do not resolve.
  */
 export const MOOD_CONFLICTS: readonly string[] = Object.freeze([
-    'to', 'stance', 'dead', 'skill', 'archetype', 'conditions', 'defense', 'action', 'disposition',
+    'to', 'stance', 'dead', 'skill', 'archetype', 'conditions', 'defense', 'action', 'disposition','activity',
     'intends', 'intent_ref', 'intent_outcome', 'outcome', 'spend_turn', 'reunion', '_draws', '_produces',
 ]);

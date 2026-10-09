@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "items": [
+    {
+      "id": "residential-rest",
+      "label": "Residential rest",
+      "applies_when": "The scene is a home, dormitory, lodging or other private residence that is occupied by a household, and the local clock and time of day make rest a plausible expectation for that household. A residential name alone is not enough: the place must have residents in the fiction.",
+      "not_for": "Vacant, unoccupied or abandoned buildings, public places, businesses open to visitors, and any household where an actual disturbance is already affecting the residents or the fiction shows them awake and active.",
+      "advice": "Treat household members as likely resting, not as proven asleep. Do not assume any specific person is asleep, and do not make entry or taking items succeed merely because people are resting. Keep sound, light and disturbance plausible. Portray the residence as quiet unless the scene record or the fiction says otherwise, and let the player's actions decide the outcome. Do not impose silence on a household that is known to be active or disturbed."
+    },
+    {
+      "id": "daytime-service",
+      "label": "Daytime service availability",
+      "applies_when": "The scene is a shop, office, clinic, public counter or similar service place, and service availability is relevant to the current action or needs review, at any local time including night, a closing boundary or a day-part change.",
+      "not_for": "Residences, emergency services that operate at all hours, and places whose current supported service state is already recorded and needs no routine reassessment.",
+      "advice": "Reassess whether the service is open, limited or closed from the clock, the place's purpose and the recorded scene context before portraying it. A closed service does not lock the building or prohibit every entry. Describe closure as the state of the service and leave other physical routes open where the fiction supports them. Do not claim a fixed opening time for all places of this kind. A supported current state that needs no review may be kept as it is; a stale or past-boundary record needs reassessment."
+    },
+    {
+      "id": "night-entertainment",
+      "label": "Night entertainment",
+      "applies_when": "The scene is a venue whose purpose is evening or night activity, such as a bar, late venue, gathering or entertainment district, and the local clock is at night.",
+      "not_for": "Venues whose authored purpose is daytime only, and quiet residential streets.",
+      "advice": "Keep night entertainment plausibly active when the place's purpose supports it, and vary crowd density by era, place and recent events rather than by a fixed schedule. Record a materially changed crowd or service state through the scene apply path, with its basis. Do not make entertainment venues empty merely because it is night."
+    },
+    {
+      "id": "night-or-early-work",
+      "label": "Night or early shift work",
+      "applies_when": "The scene is a workplace whose authored role, recorded activity or compatible historical background involves night or early-morning shifts, such as transport, bakeries, watch posts, harbours or hospitals, and the local clock is in that shift's period. Compatible historical background may support a plausible shift pattern.",
+      "not_for": "Ordinary daytime workplaces with no shift pattern in the fiction, and a workplace whose current supported activity is already recorded and needs no review. A stale previous record of activity needs reassessment rather than exclusion.",
+      "advice": "Portray work continuing when the place's purpose and era make it plausible, including unexpected night work when the fiction supports it. Do not assume that a workplace is closed simply because it is night, and do not assume that an ordinary daytime workplace is busy at night. Keep staff activity consistent with any current recorded activity, reassess a stale record before portraying it, and record a supported change with its reason."
+    },
+    {
+      "id": "emergency-or-celebration",
+      "label": "Emergency or celebration",
+      "applies_when": "A real event, emergency, alarm, celebration or public gathering is underway in or near the scene, whatever the clock says.",
+      "not_for": "Routine background activity with no event in the fiction, and events that have already concluded.",
+      "advice": "Let people and services respond to the actual event even at night or during a normally quiet period. Night does not suppress consequences. Show the response in proportion to the event, and avoid inventing a larger emergency than the fiction supports. Record a materially changed service or crowd state through the scene apply path."
+    },
+    {
+      "id": "already-awakened-person",
+      "label": "Already changed or woken person",
+      "applies_when": "A person has been awakened, alerted, moved or otherwise changed by a real event or by an earlier recorded transition in this scene.",
+      "not_for": "People with no recorded change, and people whose wakefulness is only an unverified routine guess.",
+      "advice": "Keep the person in the state that was actually established, including awake or alert, in later turns. Do not return them to sleep or routine because the clock has advanced or a routine refresh occurs. Protect the observed or established record from routine inference. Change it only through an explicit, supported transition recorded with its reason."
+    },
+    {
+      "id": "closed-service-alternative",
+      "label": "Physical alternatives to closed service",
+      "applies_when": "The player seeks entry, access or an object through a place whose public service is closed or limited, and the fiction offers a physical route such as a window, back door, delivery entrance or an open neighbouring space.",
+      "not_for": "Open services where the normal route is available, and actions the fiction already rules out.",
+      "advice": "Keep physical alternatives available where the fiction supports them, without granting success. Detection, the outcome of entry and any object acquisition remain separate results that follow the normal resolve, move and object authority. Do not transfer an item, complete a theft or reveal a discovery because the service is closed. Offer the route as a possibility, not as a required goal."
+    },
+    {
+      "id": "partial-or-blocked-attempt",
+      "label": "Actual time of a blocked or partial attempt",
+      "applies_when": "A player's action is blocked, interrupted, only partly carried out, met by an unavailable service, or is an out-of-character clarification with no in-world time, so that its outcome is partial, none or not in the world at all.",
+      "not_for": "Normal actions that have been fully carried out and whose cost is already correctly settled. A real in-world conversation about plans, intentions or descriptions is not a blocked attempt by itself and may consume its actual brief in-world time; only meta-clarification that is plainly out of character, with no in-world speaker or situation, has no fictional time.",
+      "advice": "Count only the time actually completed or attempted and its known result toward the clock, not the full intended duration. Judge by meaning and the actual speaker and situation, not by topic words: a real in-world conversation about plans or descriptions may consume its actual brief time, while plainly out-of-character meta-clarification with no in-world speaker or situation costs no activity time. A service that is unavailable does not by itself justify a full activity cost. An unreached plan is not charged its full cost. Record the elapsed portion and the result plainly, and do not turn the blocked attempt into a new lookup, wait or investigation."
+    },
+    {
+      "id": "residential-night-street",
+      "label": "Night on residential streets",
+      "applies_when": "The scene is an ordinary residential street or lane, not a residence's interior, and the local clock is at late-night or pre-dawn, while current evidence does not show exceptional activity.",
+      "not_for": "Entertainment districts, shift-work or transport centres, and any street where actual local disruption, celebration or observed crowds are already shown in the fiction or the scene record.",
+      "advice": "Portray ordinary foot traffic as plausibly reduced at this hour, and daytime businesses as closed or limited where the local context supports it. Keep watchmen, night workers and late arrivals, and vary the picture by era and place rather than by a fixed hour. Never guarantee an empty street, closed locks, a particular sleeper or a successful intrusion. Describe the street's activity separately from any individual's sleep: a quiet street does not mean a given household is asleep, and residential-rest governs people inside homes."
+    }
+  ],
+  "guidance": "agent.md"
+}

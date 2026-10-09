@@ -22,6 +22,7 @@ import { FIRST_IMPRESSIONS_NOTE, presenceRolls } from '../mods/presence.js';
 import { createWriteRuntime, turnSeed } from '../write/index.js';
 import { nowIso } from '../write/store.js';
 import { advanceClock, stageClock } from './clock.js';
+import {openingActivityShape,stageSceneActivity} from './activity.js';
 import { stageMove } from './move.js';
 import {appendJsonl} from '../fileio.js';
 import {join} from 'node:path';
@@ -110,7 +111,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             // §198.3: beside the preparations the opening already admits, an npc effect shaped as a seat (stageNpc decides whether
             // it is one: a person the book places in the opening scene whom nobody has placed yet).
             const opening = Array.isArray(effects) && effects.length > 0 && effects.every(effect => isJsonObject(effect)
-                && (['define', 'object', 'ability', 'usage', 'clock'].includes(string(effect.kind)) || openingSeatShape(effect)));
+                && (['define', 'object', 'ability', 'usage', 'clock','scene'].includes(string(effect.kind)) || openingSeatShape(effect) || openingActivityShape(effect)));
             const started = await transaction.beginWrite('table.apply', callParams, { allowOpening: opening });
             if (started.kind === 'replay')
                 return started.result;
@@ -128,7 +129,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 throw new RpcError('invalid_params','A usage preparation batch contains only define, object and usage; apply other actions separately');
             if (effects.some(effect => isJsonObject(effect) && effect.kind === 'adaptation') && effects.length !== 1)
                 throw new RpcError('invalid_params', 'Accept an adaptation alone; ordinary effects belong to later calls');
-            const available = (kind: string) => kind === 'adaptation' ? !!contributions.adaptation : ['clock','clue','npc','item','cash','flag','note','person','ruling','threat'].includes(kind) || (['define','object','ability','dossier','usage'].includes(kind)?!!contributions.mods:['fork','switch','merge'].includes(kind)?!!contributions.worldlines:['handout','map'].includes(kind)?!!contributions.asset:['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false);
+            const available = (kind: string) => kind === 'adaptation' ? !!contributions.adaptation : ['clock','clue','npc','item','cash','flag','note','person','ruling','threat','scene'].includes(kind) || (['define','object','ability','dossier','usage'].includes(kind)?!!contributions.mods:['fork','switch','merge'].includes(kind)?!!contributions.worldlines:['handout','map'].includes(kind)?!!contributions.asset:['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false);
             // A partial backend refuses unimplemented batches before any domain draws or writes.
             for (const [index, effect] of effects.entries())
                 if (isJsonObject(effect) && typeof effect.kind === 'string' && KINDS.includes(effect.kind) && !available(effect.kind))
@@ -288,6 +289,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         if(!clue.event){already.push(receipt.clue);ids.push(receipt.id);continue;}event=clue.event;
                     }
                     else if(kind==='npc')({receipt,event}=await stageNpc(context,effect) as {receipt:Row;event:DomainEvent});
+                    else if(kind==='scene')({receipt,event}=stageSceneActivity(context,effect) as {receipt:Row;event:DomainEvent});
                     else if(kind==='handout'){
                         ({receipt,event}=await stageHandout(context,effect,module.asset ? (_id, name) => module.asset!(name) : contributions.asset!) as {receipt:Row;event:DomainEvent});attachments.push(receipt.attachment);
                     }

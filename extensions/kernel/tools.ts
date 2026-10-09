@@ -236,6 +236,21 @@ const ClockEffect = Type.Object({
 	why: Type.Optional(Sentence("why this opening date was chosen")),
 });
 
+const ActivityFields = {
+    summary:Sentence('English account of current local activity, not a historical census'),
+    basis:StringEnum(['observed','established','inferred'] as const,{description:'Observed or established local facts outrank an inferred routine; describe a supported actual transition with why'}),
+    review_after_minutes:Type.Optional(Type.Integer({minimum:1,description:'Game minutes until this context should be reassessed, such as a known closing boundary; not a universal schedule'})),
+};
+const SceneEffect = Type.Object({
+    kind:Type.Literal('scene'),
+    name:Type.String({description:'Existing scene name or here; this changes context only, never movement, access, discovery or ownership'}),
+    activity:Type.Object({...ActivityFields,
+        service:Type.Optional(StringEnum(['open','closed','limited','unknown'] as const,{description:'Public service availability, separate from physical entry'})),
+        crowd:Type.Optional(StringEnum(['quiet','active','crowded','unknown'] as const,{description:'Plausible street/place activity at this local time; preserve era, land use and exceptions'})),
+    }),
+    why:Sentence('The local basis or cause of this contextual change'),
+});
+
 const TimeEffect = Type.Object({
 	...IntentResult,
 	kind: StringEnum(["time"] as const, { description: "the world clock moves forward. A move already advances the clock by its journey: never send time for the same journey; send time only for time that passes beyond it" }),
@@ -466,6 +481,9 @@ export const MOOD_MAX = 120;
 
 /** A person moved on or off the stage, or where you read them as standing (contract §17.3). */
 const NpcEffect = Type.Object({
+    activity:Type.Optional(Type.Object({...ActivityFields,
+        wakefulness:StringEnum(['awake','asleep','resting','unknown'] as const,{description:'Current ordinary activity, not a combat condition. A routine inference cannot erase an observed awakening. Standalone variant; other changes go in separate effects.'}),
+    },{description:'Standalone temporal state. Record material waking or sleeping transitions, with this effect\'s why. Seat or move the person first, then record activity in a separate effect so it is stamped at their resulting place.'})),
 	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, record that they died, change how they defend, or what they do in a fight; report what they set out to do and how it went; or write what they feel right now (mood)" }),
 	name: Type.String({ description: "what you are calling this person: a name from the book, the word apply person gave them at this table, or -- for someone the book never had -- whatever you are already calling them, a description like \"the clerk at the archive window\" included, with walk_on. A person this table mints is named in play_language; apply person is what decides the word the player sees. Reuse the exact word you used before: two spellings make two people, and a refusal lists who is here and the ones this table already has" }),
 	walk_on: Type.Optional(Type.Boolean({ description: "true only on the effect that brings in someone the book never had -- a porter called up the stairs, a passer-by, a constable arriving -- establishing them at this table under name. Anyone this table already has -- the book's people included, introduced or not -- needs none: write to them by name, with to: here to bring them in (walk_on on them is read as exactly that, their arrival). A word nobody here carries is refused without it, and the refusal hands back both calls ready to send" })),
@@ -933,7 +951,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		parameters: Type.Object({
 			using_skill: UsingSkill,
 			effects: Type.Array(
-				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, ClockEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, DossierEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
+				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, ClockEffect,SceneEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, DossierEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 			narrate: Type.Optional(Type.String({ description: withPlainProse("this turn's complete closing prose, delivered only once every effect above lands (same rules as the narrate tool's text: play_language, {{marker}}/{{kind:handle}} placement, {{say:Name}}…{{/say}} spans); omit it when you will narrate separately instead — a short stand-in here is refused as under the floor; if any effect is refused, or this text is refused on delivery, nothing here is shown to the player and the effects above still stand — call narrate on your next step instead") })),

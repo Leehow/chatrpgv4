@@ -19,7 +19,7 @@ import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts'
 
 export const BAND_SHADOW_FAMILY = 'band-shadow';
 /** 2 (§202.2): the time question's criteria are the rows' `covers` and it asks the act's extent. */
-export const BAND_SHADOW_VERSION = '2';
+export const BAND_SHADOW_VERSION = '3';
 export type ShadowKind = 'time' | 'damage';
 /** The band field of the registry (§138.2) each shadow kind is about; `rules.bands` answers these. */
 export const SHADOW_FIELDS: Readonly<Record<ShadowKind, 'time.band' | 'damage.band'>> = Object.freeze({time: 'time.band', damage: 'damage.band'});
@@ -100,7 +100,7 @@ export function timeQuestion(rows: TimeBandRow[]): DecisionQuestion {
       + 'Each option is an act of a given extent with the time it takes at the table. Judge the extent as well as the kind: how much ground the act covers, '
       + 'how many things it goes through, how long one activity goes on. An option of the same kind but a larger extent does not fit (a whole building for '
       + 'one corridor, hours in the holdings for one record brought to hand), nor one of a smaller extent (one room for a search of the whole house). '
-      + 'Judge the act itself, not how the story may go on. Choose unknown when the '
+      + 'Charge only the actual completed or attempted portion supported by the state and known outcome, not the full unreached goal. OOC inquiries are not fictional conversation; unavailable service or blocked access does not complete the proposed activity. A chosen wait counts the interval actually elapsed. Choose unknown when the '
       + 'declaration does not say what the time was spent on, or when no option fits it.',
     criteria};
 }

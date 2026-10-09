@@ -11650,7 +11650,17 @@ The live `handoff-cold-harvest-20261009-02` evidence distinguishes two defects. 
 
 **Transport observation.** Observe each physical provider attempt below SSE normalization and correlate it with the provider request/response metadata using host-owned identifiers and existing response request IDs where available. Retain timestamped response-byte chunk counts/lengths, first/last byte times and maximum byte gap; SSE comment/heartbeat, blank/dispatch boundaries and every parsed raw event's type, byte length and first/last times; normalized event times; response headers received, EOF, transport error and local cancellation/timeout times. Distinguish encoded transport bytes from decoded response bytes explicitly. Unknown compression/framing or bounded-observer overflow is recorded as incomplete observation, never as zero network activity. Capture hook entry/exit durations so observer or normalization delay cannot masquerade as upstream silence.
 
-Detailed diagnostic tracing is enabled for the controlled acceptance run and inherited by its source children. It must not alter model/provider selection, payload, tools, stream ordering, backpressure, retry policy or timeout budgets. Apart from bounded protocol type/state, opaque request identity and numeric timing/size metadata, no prompts, generated text/thinking, raw JSON field values, headers, cookies, credentials, query strings or authorization material are persisted by this observer. Raw events means complete event *metadata*, not private event contents. Store trace files only in the run's writable diagnostic home, never in the signed bundle; preserve failed attempts and mark incomplete traces. Logging failure cannot fail or delay a model call. A timestamp-only observer is not evidence of server behavior before bytes reached the client.
+Detailed diagnostic tracing is enabled for the controlled acceptance run and inherited by its source children. It must not alter model/provider selection, payload, tools, stream ordering, backpressure, retry policy or timeout budgets. Default tracing stores only protocol, identity and timing/size metadata. Store trace files only in the run's writable diagnostic home, never in the signed bundle; preserve failed attempts and mark incomplete traces. Logging failure cannot fail or delay a model call. A timestamp-only observer is not evidence of server behavior before bytes reached the client.
+
+**Response payload capture amendment (owner 2026-10-09: retain all original events).** The metadata-only interpretation
+did not satisfy the requested original-event evidence. With tracing enabled, `PI_COC_GROK_TRANSPORT_TRACE_RAW=1`
+additionally retains every parsed SSE data payload, heartbeat/comment text, SDK raw event and local abort/error cause.
+Snapshots are immutable at receipt; the observer never retains request bodies or actual HTTP headers. Credential-bearing
+fields and known request credentials are redacted even in response payloads. This mode may contain private generated
+text/thinking; files remain local, directory mode 0700 and file mode 0600, and never enter Git or a bundle. The attempt
+records its capture mode. Default raw-mode detail limits are 100000 records and 32 MiB per attempt; explicit limits
+still win. Any parser, serialization, queue, sink or detail-limit loss marks coverage incomplete. `complete` describes
+observation coverage, not provider success. Ordinary provider behavior and timeout/retry budgets are unchanged.
 
 **Failure reporting.** Keep whole-attempt elapsed time, observed idle gap and failure origin as distinct facts. A locally synthesized idle-timeout error must not be described as a server-declared outage or as an entire attempt with no output. Existing retry, terminal/recovered disclosure and state-authority behavior remain unchanged; previously retained notices and evidence are not rewritten.
 
@@ -41982,3 +41992,116 @@ confirm separate count and size bounds for a batch. Unlike independent bulk writ
 an ordered frontier, so it retains prefix order and its navigation rather than comparing winners of separate Choice calls.
 The prescreen-material-families request-boundary regression is the acceptance gate for the reported edge; a focused loop
 case pins the longest fitting prefix and a mutation restores the previous halving behavior.
+
+## 208. Local time changes what the scene and its people are doing (owner 2026-10-09: convert the prototype to a spec, implement, then test in the real system; `docs/specs/temporal-world-context.md`)
+
+The clock already has one canonical local-time projection. This slice connects that projection to durable contextual
+state and reassessment. It does not infer a universal bedtime, closing time, lock, population census or successful action.
+The Keeper authors plausible fiction using local time, place purpose, established events and compatible historical
+background. Ordinary residents may rest; entertainment, night work, preparations and emergencies may remain active.
+
+### 208.1 Context changes through apply
+
+- `apply {effects: [{kind: "scene", name: <existing scene name | "here">, activity: {...}, why}]}` records only a
+  scene's contextual activity. `activity` requires `summary` (one English sentence, at most 200 code points) and `basis`
+  (`observed | established | inferred`). Optional `service` is `open | closed | limited | unknown`; optional `crowd` is
+  `quiet | active | crowded | unknown`. Optional `review_after_minutes` is a positive integer game-time interval.
+- `apply npc` has a standalone `activity` variant: the same `summary`, `basis`, and optional `review_after_minutes`,
+  with required `wakefulness: awake | asleep | resting | unknown`. It changes no seat, location, stance, rules condition,
+  inventory or skill. Combine other changes as separate effects of the same atomic batch, as with `mood`.
+- Every context write requires a nonempty `why`. An inferred write cannot replace an observed or established record.
+  A supported actual transition, such as an awakening or ordinary reopening, uses `established` or `observed` and its cause.
+  Inferred means a defeasible fictional expectation, not an eyewitness fact or exact external historical authority.
+- `world.scene_activity` and `world.npc_activity` hold the records under canonical scene/person handles. The kernel
+  stamps each with `recorded_clock`, `anchor`, `scene`, `turn`, and optional `review_at_minutes`; the model supplies no
+  receipt, timestamp or opaque binding. Stamping uses the staged world at that effect's position. Advance time/travel
+  before recording the resulting context. Receipts retain previous/new records, clock and why; replay and rollback use
+  the ordinary transaction owner.
+- At the opening, a scene record names only the active scene. An NPC record can initialize only someone already seated
+  here, without a second activity record. Other opening actions retain their existing guards.
+
+### 208.2 Reading and using the current situation
+
+- `where.temporal` in the capsule and scene look carries the scene record and `review_required`, with its reasons.
+  The current local clock remains `where.clock`; a missing record asks for reassessment, without inventing one.
+- `present[].activity`, named NPC views and the NPC actor's availability carry the individual record and its review
+  status. A current, observed/established `asleep` state makes an ordinary actor unavailable until it changes; it is
+  never a combat `unconscious` condition, and an inferred rest expectation alone never grants that authority.
+  An absent NPC record explicitly projects `current: false`, `review_required: true`, and `unassessed`, just as an
+  absent scene record does; omitting the field hid that reassessment seam in the first live residential test.
+  Temporal state is retained even on a name-only person stub and is accounted separately from the existing dossier
+  quota. It still counts against the outbound request ceiling; adding the state must not evict an existing dossier.
+- A record needs review when its day/day-part or anchor changes, game time is before its recording, its stated review
+  boundary is reached, or its person is in a different scene. These are arithmetic applicability checks, not semantic
+  schedules. An old record stays visible with `current: false` and its recording time, never as a fresh observation.
+- Before portraying streets, public service or an ordinary response after a relevant change, the Keeper reassesses the
+  temporal view. Establish material changes through `apply scene` / `npc activity`; preserve people already awakened,
+  source exceptions and local facts. A qualified plausible expectation is useful even without a historical census.
+  Do not answer every ordinary contextual question with unknown merely because it lacks an eyewitness.
+- Service being closed does not deny every way to enter. Physical access, entry, detection, taking an object and their
+  consequences remain the Keeper's decisions and the existing resolve/move/object/item effects. A context record never
+  grants movement, acquisition, discovery, consent or an automatically successful action.
+- Review creates no player action, choice, extra goal, compulsory lookup, waiting obligation or numeric feedback debt.
+  The capsule conveys the live state; canonical receipts and existing telemetry show whether the Keeper adopted it.
+
+### 208.3 Historical background and actual elapsed time
+
+- The existing scene-reference facts include the current day part for query authoring. Queries/objectives explicitly
+  ask for compatible operating practices, household routines, night work and street activity at that time of day.
+  Full local time remains in applicability context. Foreground/search budgets, source scope and advisory authority stay.
+- The host's retained scene prefetch key includes setting and day part. A same-scene night transition cannot reuse its
+  daytime prefetch, including within a run. Minute changes within a day part do not churn the historical query/cache.
+  Optional background jobs remain coalesced and an unavailable search does not force a retry or stop ordinary portrayal.
+- Time-fit questions use the actual completed or attempted portion and known outcome. Merely planning a visit, asking
+  an OOC question, or discovering unavailable service/access does not authorize the full proposed activity cost. A
+  genuinely chosen wait still counts its actual interval. Existing travel accounting, rule arithmetic and admission stay.
+- The clerk's turn context carries bounded `temporal` scene/person views and up to twelve `outcomes` with the canonical
+  receipt kind, result, consumed minutes and route/clock facts, without opaque receipt/call identifiers in these new rows.
+  A rationale alone is not completion evidence; unavailable or uncounted outcome evidence stays with the Keeper.
+
+### 208.4 Three ends and acceptance
+
+Keeper apply writes; capsule, named views and actor availability read; the real Keeper uses the current state to choose
+and settle its portrayal and next action. Missing records in old saves ask for reassessment and have no fabricated values.
+Clock/state transactions and observed-fact protection remain foundation behavior. Social-routine strategy is optional
+Mod advice under §208.5 (owner approval 2026-10-09), with no new Keeper verb, text-generation lane, dependency, provider
+default or deterministic routine scheduler.
+
+Regression uses the existing kernel RPC/capsule boundary and host Historical Reference request/cache boundary. It covers
+day parts and exact review boundaries, protected awakenings, ordering/rollback/replay, old saves, actual time fit and
+independence of context from physical entry and acquisition. Semantic success is measured by real driver play on current
+source/runtime, one natural public-only player input per delivered turn. Mocked sources and controlled dice prove the
+seam, not live retrieval or real narration. Native source retrieval, source play and installed App acceptance remain
+separate evidence. Preserve all original evidence and the prototype branch; its HTML shell stays out of production.
+
+### The kernel's decision
+
+Implementation and real-system acceptance are in progress; the specification records their evidence separately.
+
+### 208.5 Daily Life: Mod-owned advice selected from a table (owner 2026-10-09)
+
+- `context.temporal.v1` lets a package declare `contributes.temporal_context: <declared JSON file>`. The file is
+  `{schema_version: 1, guidance?: <declared Markdown file>, items: [{id, label, applies_when, not_for, advice}]}`, one to 32 distinct semantic ids, English
+  criteria and advice. The table belongs to the package; there is no product-wide society, era or bedtime registry.
+  The built-in `daily-life` starts enabled for fresh campaigns; existing locked campaign sets are unchanged.
+- `mods.temporal_context {campaign}` is a host-only read of active packages' tables and settings. The capsule's
+  `mods.temporal_context.providers` lists the supplying id/version/threshold, not all rows. No provider means no read,
+  decision or advice. Turning the Mod off removes the strategy; existing clock, records and protection remain.
+- The host asks one Jev Noul per issued row, with current canonical local time (hour/minute and day part computed by
+  code), authored setting, scene purpose, recorded scene/person activity, actual situation and compatible historical
+  excerpts when available. Multiple rows may apply together. Jev selects advice; it computes no date and writes no fact.
+- The read-only family is `temporal-context` version 1. A score above the package's threshold selects a row. Missing,
+  invalid, cancelled, stale or late decisions create a labelled Keeper fallback, not a default sleep/awake state,
+  mandatory historical lookup or player wait. The first request waits at most 2.5 seconds; the optional decision has
+  a six-second allowance, independent of the Keeper's turn. Tables are cached by active package version/settings;
+  decisions are fenced and reconsidered for changed time, situation or returned reference material.
+- A bounded transport-only `coc-temporal-advice` message carries selected original table instructions, labelled Mod
+  advice rather than player input or established world truth. The Keeper evaluates them against current local facts,
+  authors the portrayal and commits supported changes through ordinary apply/resolve. Service closure, physical entry,
+  detection, acquisition and elapsed time stay separate. A selected item creates no goal or adoption debt.
+- A table's optional resident `guidance` travels through this same bounded channel, including the labelled unavailable
+  fallback. It does not occupy `contributes.instructions` or change existing packages' whole/indexed budget. Public
+  provider descriptors contain only plain numeric threshold values, never internal numeric wrappers or raw settings.
+- Existing telemetry records table, matching, scores, fallback, selected rows and actual request delivery. Actual
+  scene/NPC receipts and natural narration prove adoption. Tests distinguish disabled/unavailable matching, multiple
+  simultaneous items, stale answers, precise current-time context, fact protection and genuine product play.

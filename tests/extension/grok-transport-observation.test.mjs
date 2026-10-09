@@ -26,7 +26,7 @@ function frames(){const message={id:'m1',type:'message',role:'assistant',status:
  {type:'response.completed',response:{id:'r1',model:'grok-4.7',status:'completed',output:[message],usage:{input_tokens:10,output_tokens:4,input_tokens_details:{cached_tokens:0},output_tokens_details:{reasoning_tokens:0}}}},
 ];}
 function body(){return Buffer.from(':'+SECRET+'heartbeat\r\n\r\n'+frames().map(f=>'event: '+f.type+'\r\ndata: '+JSON.stringify(f)+'\r\n\r\n').join(''));}
-async function fixture(t,encoding='identity',action){const requests=[];const server=createServer(async(req,res)=>{let raw='';for await(const part of req)raw+=part;requests.push({body:JSON.parse(raw),headers:req.headers});res.writeHead(200,{'Content-Type':'text/event-stream','X-Request-ID':SECRET+'request','Content-Encoding':encoding});
+async function fixture(t,encoding='identity',action,extraHeaders={}){const requests=[];const server=createServer(async(req,res)=>{let raw='';for await(const part of req)raw+=part;requests.push({body:JSON.parse(raw),headers:req.headers});res.writeHead(200,{'Content-Type':'text/event-stream','X-Request-ID':SECRET+'request','Content-Encoding':encoding,...extraHeaders});
  if(action)return action(req,res);
  const rawBody=body(),encoded=encoding==='gzip'?gzipSync(rawBody):encoding==='br'?brotliCompressSync(rawBody):encoding==='deflate'?deflateSync(rawBody):rawBody;
  for(let i=0;i<encoded.length;i+=7)res.write(encoded.subarray(i,i+7));res.end();});
@@ -35,6 +35,41 @@ async function consume(stream){const types=[];for await(const event of stream)ty
 function capture(extra={}){const rows=[],traces=[];return{rows,traces,options:{enabled:true,sink:row=>{rows.push(row);},onTrace:trace=>traces.push(trace),...extra}};}
 function privacy(rows){assert.ok(!JSON.stringify(rows).includes(SECRET),'trace must contain no privacy sentinel');}
 function restore(t){const before=getGlobalDispatcher();t.after(()=>setGlobalDispatcher(before));return before;}
+
+test('opt-in raw mode retains complete SSE and SDK payloads, immutable before hooks and without credentials',async t=>{
+ restore(t);
+ const originals=frames();originals[0].response.metadata={note:'echo '+opts.apiKey,authorization:opts.apiKey};
+ const f=await fixture(t,'gzip',(_req,res)=>{
+  const extra=' { "type": "response.future", "counter": 9007199254740993, "path": "/keep/this" } ';
+  const encoded=gzipSync(Buffer.from(':'+SECRET+'heartbeat\r\n\r\n'+'data: '+extra+'\r\n\r\n'+originals.map(event=>'data: '+JSON.stringify(event)+'\r\n\r\n').join('')));
+  for(let i=0;i<encoded.length;i+=7)res.write(encoded.subarray(i,i+7));res.end();
+ },{'Set-Cookie':'session='+SECRET+'cookie; Path=/; SameSite=Lax'});
+ const cap=capture({rawResponse:true}),config=createGrokBuildProvider({transportObservation:cap.options});
+ const observed=await consume(config.streamSimple(model(f.url),context,{...opts,onProviderStreamEvent:event=>{event.after_hook=true;}}));
+ await cap.traces[0].close();
+ assert.equal(observed.result.stopReason,'stop');
+ assert.equal(cap.rows[0].captureMode,'raw_response');
+ const sse=cap.rows.filter(row=>row.event==='sse_event').map(row=>JSON.parse(row.payload_utf8));
+ const sdk=cap.rows.filter(row=>row.event==='sdk_raw_event').map(row=>JSON.parse(row.payload_utf8));
+ assert.equal(sse.length,originals.length+1);assert.deepEqual(sdk,sse);
+ assert(sdk.every(event=>!event.after_hook),'receipt snapshots precede a mutating existing hook');
+ assert.equal(sse[4].delta,originals[3].delta,'private response text is captured only in explicitly requested raw mode');
+ assert.equal(sse[1].response.metadata.authorization,'[REDACTED_CREDENTIAL]');
+ assert.equal(sse[1].response.metadata.note,'echo [REDACTED_CREDENTIAL]');
+ assert.equal(cap.rows.find(row=>row.event==='sse_event'&&row.type==='response.future').payload_utf8,' { "type": "response.future", "counter": 9007199254740993, "path": "/keep/this" } ');
+ assert.equal(cap.rows.find(row=>row.event==='sse_comment').payload_utf8,':'+SECRET+'heartbeat');
+ const persisted=JSON.stringify(cap.rows);
+ assert(!persisted.includes(opts.apiKey));assert(!persisted.includes(context.systemPrompt));assert(!persisted.includes(SECRET+'prompt'));
+ assert.equal(cap.rows.at(-1).complete,true);
+});
+
+test('raw payload detail limits preserve the actual SDK result and explicitly mark lost evidence',async t=>{
+ restore(t);const f=await fixture(t),cap=capture({rawResponse:true,limits:{records:8,logBytes:1024}});
+ const config=createGrokBuildProvider({transportObservation:cap.options});
+ const observed=await consume(config.streamSimple(model(f.url),context,opts));await cap.traces[0].close();
+ assert.equal(observed.result.stopReason,'stop');
+ assert.equal(cap.rows.at(-1).complete,false);assert(cap.rows.at(-1).incomplete.includes('metadata_limit'));
+});
 
 for(const encoding of ['identity','gzip','deflate','br'])test(`actual SDK preserves payload/output while observing ${encoding} entity and SSE`,async t=>{
  restore(t);const f=await fixture(t,encoding),cap=capture(),api=getApiProvider('openai-responses');

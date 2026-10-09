@@ -29,6 +29,7 @@ import {MOOD_CAPABILITY} from '../npc/mood.js';
 import {EXPRESSION_REFERENCE_CAPABILITY,expressionCards,expressionCatalogRevision} from './expression-reference.js';
 import { ESTABLISH_CAPABILITY, ESTABLISH_REVIEW_CAPABILITY, validateEstablishDeclaration, establishProvider, establishItem } from "./establish.js";
 import { SECTIONS_CAPABILITY, validateSectionsDeclaration, validateSectionsContribution, packageSections, sectioned, sectionKey, instructionBudget, residentText, topicList, annotateGates, sceneFacts, type TurnFacts } from "./sections.js";
+import {TEMPORAL_CAPABILITY,temporalItems,temporalProviders} from './temporal-mod.js';
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "checks.presence.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT_V2);
@@ -64,6 +65,7 @@ MOD_CAPABILITIES.add(ESTABLISH_REVIEW_CAPABILITY);
  *  asked for it, the checker holds it, the module's provenance records it), and the table door accepts `weaknesses`. */
 export const WEAKNESSES_CAPABILITY = "actor.weaknesses.v1";
 MOD_CAPABILITIES.add(WEAKNESSES_CAPABILITY);
+MOD_CAPABILITIES.add(TEMPORAL_CAPABILITY);
 /** Contract 28.3 and §180.8: the two dossier spines a package may add words to, a person's and a creature's. */
 export const VOCABULARY_SPINES = ["actor_profile_keys", "creature_profile_keys"] as const;
 const invalid = (message: string): never => {
@@ -321,7 +323,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("Game interface v1 settings are scalar values");
     if (!plain(manifest.settings_schema ?? {}))
         invalid("settings_schema must be an object");
-    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference", "style", "voice_lane", "voice_lane_addendum", "speech_edit_lane", "expression_cards", "sections", "establish", "establish_review"].includes(k)))
+    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference", "style", "voice_lane", "voice_lane_addendum", "speech_edit_lane", "expression_cards", "sections", "establish", "establish_review","temporal_context"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
     // Contract §28.9. A name this build does not know is recorded on the manifest and makes the
     // package incompatible -- exactly what an unknown capability in `requires` already does five
@@ -367,6 +369,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     validateStyleDeclaration(manifest, files);
     // Contract §183.1: the sections of the instruction, against its own headings.
     validateSectionsDeclaration(manifest, files);
+    temporalItems(manifest,files);
     // Contract §203.1 and §203.6: what establishing owes, and the review that judges it, each with its capability.
     validateEstablishDeclaration(manifest, files);
     const checks = array(manifest.contributes.checks);
@@ -789,6 +792,7 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
         relationships: relationships.slice(0, 12),
         objects: objectContext(world),
         providers,
+        ...(temporalProviders(active,world)?{temporal_context:temporalProviders(active,world)}:{}),
         ...(words.length ? {
             vocabulary: {
                 words,

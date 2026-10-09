@@ -21,6 +21,7 @@ import {mechRow} from './mech-line.js';
 import { MASK_KEY } from '../voice/fields.js';
 import { weaknessChain, type ChainReads } from "./weaknesses.js";
 import { containers, placesWithin, personNamedLocations } from "./places.js";
+import {npcActivityView,sceneTemporalView} from './temporal.js';
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
 /**
  * The one name this table uses for a place, by its handle: the campaign label the Keeper gave it,
@@ -510,6 +511,7 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         notes.push("exit condition: " + describeCondition(condition));
     const where: Row = {
         scene: graph.handle(scene),
+        temporal:sceneTemporalView(graph,world,scene),
         ...(graph.sourceNeeds(scene,true).length?{runtime_inputs:graph.sourceNeeds(scene,true)}:{}),
         ...(graph.adaptationOrigin(scene.campaign_origin) ? {origin: graph.adaptationOrigin(scene.campaign_origin)} : {}),
         display_name: sceneLabel(graph, world, scene),
@@ -829,6 +831,7 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
         // Before the dossier, not after it: what his body is doing decides whether any of the rest
         // of it can happen this turn, and present[] is budgeted from the top.
         ...(state ? {state} : {}),
+        ...(npcActivityView(graph,world,graph.handle(node))?{activity:npcActivityView(graph,world,graph.handle(node))}:{}),
         // After `state`, before the dossier (§161.3): present[] is cut from the bottom, and this is what decides how
         // the next line sounds.
         ...(now ? {now} : {}),
@@ -958,6 +961,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
         // §185.7: where the book's node id stood, a name-free campaign shows the handle.
         node_id: graph.shownIds(node.node_id),
         scene: row(world.npc_presence)[handle] ?? null,
+        ...(npcActivityView(graph,world,handle)?{activity:npcActivityView(graph,world,handle)}:{}),
         summary: node.summary ?? null,
         visibility: node.visibility ?? null,
         ...(npcState(graph, world, node) ? {state: npcState(graph, world, node)} : {}),

@@ -187,7 +187,7 @@ test("an enabled unified upgrade copies whole v2 cards, keeps the old namespace,
 	assert.equal(handover.copied_count, 0);
 	assert.equal(handover.conflict_count, 1);
 	assert.equal("from_digest" in handover, false);
-	assert.equal(JSON.stringify(listed).includes(NPC), false);
+	assert.equal(kernelApi.pythonJsonDumps(listed).includes(NPC), false);
 	assert.equal(saved.mods.active["narration-craft"].settings.coarse_language, false);
 });
 
