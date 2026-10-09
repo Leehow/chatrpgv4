@@ -108,7 +108,7 @@ All judgments are open semantic judgments from the canonical clock, place purpos
   Canonical receipts and retained telemetry record adoption, actual effects and elapsed time. Offer counts are never an obligation fed back to the Keeper.
 - **Prior art.** Evennia separates game-time scheduling from game-related callbacks (https://www.evennia.com/docs/latest/Howtos/Howto-Game-Time.html). Inform's daemons and timers attach world changes to active objects and distinguish time-of-day from those changes (https://www.inform-fiction.org/manual/html/s20.html). These confirm separate ownership of time and state transitions. Neither justifies a universal schedule or a deterministic NPC scheduler in this model-authored TRPG.
 - **Prototype reference.** Prototype primary source is commit `5f5851c3e` on `codex/temporal-world-prototype-20261009`. Its HTML shell must not enter production. Prototype counter hours and controlled dice were fictional assumptions and are not carried forward.
-- **Baseline.** The original baseline was clean 0.9.7a at `8b33f8b4e`. Concurrent, already-committed PDF repairs advanced the current mainline to `5b35b00de`. Implementation is reviewed and ready for the scoped mainline commit. Completion is not claimed on any baseline; clean-current validation remains pending.
+- **Baseline.** The original baseline was clean 0.9.7a at `8b33f8b4e`. Current mainline is latest 0.9.7a. Commit `efcb6f181` implements the temporal/Daily Life Mod system; `028ad047b` adds complete opt-in raw response observation; `a1eae4c6b` fixes literal pre-unit halves/quarters, including nine-and-a-half hours in Han syntax, using safe exact fraction arithmetic with full source-span binding. Completion is not claimed on any baseline; clean-current validation for the latest addition remains pending.
 
 ## Testing Decisions
 
@@ -142,7 +142,7 @@ All judgments are open semantic judgments from the canonical clock, place purpos
 
 ### Status
 
-Owner approved specification, implementation and real-system testing on 2026-10-09. The root reviewed this specification. The approved Mod architecture (kernel temporal records plus the optional `daily-life` strategy Mod) is recorded here. Core implementation is complete. A real investigation segment has closed with delivery of the diaries and a suspended rental listing. The full scenario remains unresolved. Source full-suite validation is complete. Installed App acceptance was not performed. This is not a claim of full success.
+Owner approved specification, implementation and real-system testing on 2026-10-09. The root reviewed this specification. The approved Mod architecture (kernel temporal records plus the optional `daily-life` strategy Mod) is recorded here. Core implementation is complete and committed on mainline (`efcb6f181`, `028ad047b`, `a1eae4c6b`). A real investigation segment has closed with delivery of the diaries and a suspended rental listing. The full scenario remains unresolved. Full LAN `all` passed for the first two commits (ext 5408 passed, 0 failed; Python 2127 passed, 2 skipped; loop 12 passed; exit 0; 928 s). The final fractions code (`a1eae4c6b`) has 7 local regression passes, including actual kernel clock/apply/replay, and kernel typecheck passed; its LAN focused run was interrupted with exit 255 when another owner started heavy testing on the shared box. Only our verified process group was stopped and all logs were preserved; this is not a validation pass. Final clean-current `all`/build-fetch for this latest addition is pending shared resource availability. Installed App acceptance was not performed, and successful physical window entry/theft remains unverified. This is not a claim of full success.
 
 ### Projection correction (kernel)
 
@@ -152,7 +152,7 @@ Owner approved specification, implementation and real-system testing on 2026-10-
 
 ### Verification evidence (as observed, not as success)
 
-- **Baseline:** original clean 0.9.7a at `8b33f8b4e`. Concurrent, already-committed PDF repairs advanced the current mainline to `5b35b00de`. No implementation commit exists yet.
+- **Baseline:** original clean 0.9.7a at `8b33f8b4e`. Concurrent, already-committed PDF repairs advanced the current mainline to `5b35b00de`. Implementation is committed as `efcb6f181` and `028ad047b`, followed by the literal-fractions repair `a1eae4c6b`.
 - **Focused kernel check** (temporal, voice-bench, capsule): 23 passed. Type check passed.
 - **NPC mood and read/privacy checks:** 123 passed.
 - **Raw Grok diagnostics tests:** 18 passed.
@@ -174,7 +174,7 @@ Live source RPC play used explicit Grok 4.7 low, with this root as the sole publ
 - Real table-matching records and confirmed provider-message delivery are saved.
 - These are actual observations. They do not show a controlled causal proof that one field alone changed model behaviour.
 - The investigation segment closed at 09:02 when Knott accepted the diaries and paused the rental listing; the player withdrew for the day. No whole-scenario ending or victory is claimed.
-- The existing literal-duration lexer did not recognise "nine and a half hours" in Chinese; "9.5 hours" worked.
+- Earlier source play did not recognise "nine and a half hours" in Chinese; "9.5 hours" worked. The overnight continuation with the LAN-built fractional lexer subsequently selected exactly 570 minutes and reached 18:46, followed by a separate 180-minute wait to 21:46. That build preceded the final large-number precision guard, which passed the local regression; exact final-build validation remains pending.
 - Source play is separate from installed App packaging/GUI acceptance, which was not performed.
 
 ### Transport trace (diagnostic, separate from world state)
@@ -182,13 +182,13 @@ Live source RPC play used explicit Grok 4.7 low, with this root as the sole publ
 - Earlier observer retained only metadata although described as raw. This is corrected. Earlier incomplete evidence is not retroactively restored.
 - A new, separately opt-in `PI_COC_GROK_TRANSPORT_TRACE_RAW=1` retains SSE data and comment contents, SDK event snapshots and abort/error causes. Credentials are redacted. Request bodies and actual HTTP headers are never recorded. Files are 0600 in 0700 directories. Request, backpressure, retry and timeout behaviour are unchanged. Coverage limits are recorded explicitly.
 - Local tests: 18 passed (gzip 7-byte splits, immutable hooks, credential redaction, verbatim unknown-event large integers and spacing, default metadata privacy, oversize handling).
-- Native source-driver trace: 3 attempts; all 141 SSE events and all 141 SDK events had payloads; no dropped observations; 0600 files.
-- Measured Grok 4.7 failure: after `response.output_text.delta` at 20:05:38.551 UTC there was a 60003 ms gap with 3 incoming HTTP-body chunks (39 bytes), 3 SSE comments (33 bytes), 0 SDK raw data events and 0 SSE data events. Observer delay max 1 ms. `caller_signal` cancellation, then retry. The connection stayed live while model data stopped. Client evidence does not distinguish the model service from the forwarding service; server logs are needed.
+- Native source-driver trace at exact `028ad047b`: 3 real requests; all 486 SSE events and all 486 SDK raw events retained with complete observation coverage; 0600 files.
+- Measured Grok 4.7 failure: after `response.output_text.delta` at 20:05:38.551 UTC there was a 60003 ms gap with 3 incoming HTTP-body chunks (39 bytes), 3 SSE comments (33 bytes), 0 SDK raw data events and 0 SSE data events. Observer delay max 1 ms. `caller_signal` cancellation, then retry. The connection stayed live while model data stopped. Client evidence does not distinguish the model service from the forwarding service; server logs are needed. A later raw failure recorded the abort cause `Provider stream timed out: no response event for 60000 ms`, with four heartbeat comments and no SDK data. This identifies the local semantic progress watchdog cancellation; the upstream silence cause still requires origin/forwarder logs. A new real driver continuation is ongoing with no outcome yet.
 - Cross-validated principles: separate opt-in message-content capture (https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-spans.md) and exclusion of credentials/tokens from logs (https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html). OpenTelemetry integration is not added.
 
 ### Pending validation
 
-- Final full `all` passed on the current source baseline; archived logs retain actual exit codes.
+- Full LAN `all` passed for `efcb6f181` and `028ad047b`; archived logs retain actual exit codes. Clean-current `all`/build-fetch for `a1eae4c6b` is pending.
 - The source-driver investigation segment is complete. Native historical originals and selected Mod rows were delivered in the live provider requests; observed closed-scene and awake-NPC records demonstrate actual use.
 - The production package and advice channel passed kernel/host regressions and actual provider delivery; installed App behaviour remains untested.
 - Threshold and disable/enable behaviour passed kernel RPC and host tests; these checks do not claim an installed App toggle walkthrough.
@@ -200,7 +200,7 @@ Live source RPC play used explicit Grok 4.7 low, with this root as the sole publ
 
 `[x]` = implemented, per previous specification and approved evidence. `[ ]` = evidence pending.
 
-- [x] Confirm baseline: original clean 0.9.7a at `8b33f8b4e`; concurrent PDF repairs now at `5b35b00de` (clean-current validation pending).
+- [x] Confirm baseline: original clean 0.9.7a at `8b33f8b4e`; current mainline is latest 0.9.7a (clean-current validation pending).
 - [x] Review prototype primary source at `5f5851c3e` on `codex/temporal-world-prototype-20261009`; exclude its HTML shell.
 - [x] Author `daily-life` Mod package: `mod.json`, `contexts.json`, `agent.md` (text and data only).
 - [x] Validate Mod package JSON and manifest/table agreement with a parser (Stories 19, 20). The actual production manifest contributes only `temporal_context`; `contexts.json` references its declared `agent.md` guidance file.
@@ -214,18 +214,18 @@ Live source RPC play used explicit Grok 4.7 low, with this root as the sole publ
 - [x] Implement Keeper reassessment instruction after relevant transitions (Story 14).
 - [x] Implement opening constraints for scene and NPC activity (Stories 9, 10).
 - [x] Implement effect-order binding and atomic batch with idempotent replay (Story 9).
-- [x] Implement time-fit counting of actual completed/attempted portions (Stories 7, 8). The 9.5-hour duration lexer case is observed working; the existing lexer limitation for the Chinese "nine and a half hours" form remains unresolved.
+- [x] Implement time-fit counting of actual completed/attempted portions (Stories 7, 8). Literal pre-unit halves/quarters, including Han "nine and a half hours", are fixed in `a1eae4c6b` with exact fraction arithmetic and full source-span binding; its clean-current validation is pending.
 - [x] Implement Mod delivery on the `coc-temporal-advice` channel: nine independent per-row Jev judgments, rows selected only on complete valid answers, resident fallback when judge unavailable, disable removes both channels (Stories 19, 20). Actual provider delivery and scene/NPC state writes are retained in source-driver evidence.
 - [x] Implement Historical Reference time-of-day objective and day-part cache with invalidation (Stories 16, 17).
 - [x] Implement old-save reassessment without invented records (Story 18).
-- [x] Implement opt-in raw transport trace (`PI_COC_GROK_TRANSPORT_TRACE_RAW=1`), 18 local tests passed, native source trace of 3 attempts (Story 1 diagnostics).
+- [x] Implement opt-in raw transport trace (`PI_COC_GROK_TRANSPORT_TRACE_RAW=1`) in `028ad047b`; 18 local tests passed; native trace of 3 real requests with all 486 SSE and 486 SDK raw events retained (Story 1 diagnostics).
 - [x] Add kernel RPC/capsule seam tests for the targeted cases listed in Testing Decisions (targeted run: 23 passed; earlier 34 passed).
 - [x] Add Historical Reference host cache/request seam tests (25 passed on selector/history regressions).
-- [x] Run final full `all`: ext 5408 passes and 0 failures; Python 2127 passes and 2 skips; loop 12 passes; overall exit 0.
+- [x] Run full LAN `all` for the first two commits: ext 5408 passes and 0 failures; Python 2127 passes and 2 skips; loop 12 passes; overall exit 0. Final fractions-code LAN run was interrupted (exit 255) and is not a validation pass; clean-current `all` is pending.
 - [x] Run the temporal-context investigation segment through the real source RPC driver; preserve all evidence. Whole-scenario victory and successful window entry/theft are not claimed.
 - [x] Record native historical originals, actual provider delivery and real scene/NPC state adoption.
 - [x] Distinguish source play from installed App acceptance; packaging and GUI acceptance were not performed.
-- [x] Root review and publication under the invoked to-spec skill; issue #111 records the approved architecture and source evidence.
+- [x] Root review under the invoked to-spec skill; issue #111 records the approved architecture and source evidence. Mainline commits are `efcb6f181`, `028ad047b`, `a1eae4c6b`.
 
 ### Prior art
 

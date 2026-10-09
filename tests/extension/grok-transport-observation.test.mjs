@@ -26,7 +26,7 @@ function frames(){const message={id:'m1',type:'message',role:'assistant',status:
  {type:'response.completed',response:{id:'r1',model:'grok-4.7',status:'completed',output:[message],usage:{input_tokens:10,output_tokens:4,input_tokens_details:{cached_tokens:0},output_tokens_details:{reasoning_tokens:0}}}},
 ];}
 function body(){return Buffer.from(':'+SECRET+'heartbeat\r\n\r\n'+frames().map(f=>'event: '+f.type+'\r\ndata: '+JSON.stringify(f)+'\r\n\r\n').join(''));}
-async function fixture(t,encoding='identity',action,extraHeaders={}){const requests=[];const server=createServer(async(req,res)=>{let raw='';for await(const part of req)raw+=part;requests.push({body:JSON.parse(raw),headers:req.headers});res.writeHead(200,{'Content-Type':'text/event-stream','X-Request-ID':SECRET+'request','Content-Encoding':encoding,...extraHeaders});
+async function fixture(t,encoding='identity',action,extraHeaders={},status=200){const requests=[];const server=createServer(async(req,res)=>{let raw='';for await(const part of req)raw+=part;requests.push({body:JSON.parse(raw),headers:req.headers});res.writeHead(status,{'Content-Type':'text/event-stream','X-Request-ID':SECRET+'request','Content-Encoding':encoding,...extraHeaders});
  if(action)return action(req,res);
  const rawBody=body(),encoded=encoding==='gzip'?gzipSync(rawBody):encoding==='br'?brotliCompressSync(rawBody):encoding==='deflate'?deflateSync(rawBody):rawBody;
  for(let i=0;i<encoded.length;i+=7)res.write(encoded.subarray(i,i+7));res.end();});
@@ -151,6 +151,34 @@ test('actual SDK cancellation and transport error preserve terminal outcome and 
  const result=await consume(stream);await cap.traces[0].close();assert.equal(result.result.stopReason,fail?'error':'aborted');
  assert.ok(cap.rows.at(-1).incomplete.includes('transport_error'));assert.equal(cap.rows.find(r=>r.event==='transport_summary').eofObserved,false);privacy(cap.rows);
  }});
+
+test('opt-in raw capture retains SDK terminal errors even when HTTP failure has no SSE events',async t=>{
+ restore(t);const f=await fixture(t,'identity',(_req,res)=>{
+  res.end(JSON.stringify({error:{message:'UPSTREAM_FAILURE '+opts.apiKey,code:'overloaded'}}));
+ },{'Content-Type':'application/json'},503);
+ const cap=capture({rawResponse:true}),stream=createGrokBuildProvider({transportObservation:cap.options}).streamSimple(model(f.url),context,opts);
+ const observed=await consume(stream);await cap.traces[0].close();
+ assert.equal(observed.result.stopReason,'error');assert.equal(cap.rows.filter(row=>row.event==='sdk_raw_event').length,0);
+ const row=cap.rows.find(row=>row.event==='normalized_consumed'&&row.type==='error');
+ assert.equal(row.payloadFormat,'sdk_json');
+ const terminal=JSON.parse(row.payload_utf8);assert.equal(terminal.type,'error');assert.equal(terminal.reason,'error');
+ assert.match(terminal.error.errorMessage,/UPSTREAM_FAILURE/);assert(!row.payload_utf8.includes(opts.apiKey));
+ assert.match(terminal.error.errorMessage,/REDACTED_CREDENTIAL/);
+ assert.equal(f.requests.length,1,'observation must not retry the failed request');
+});
+
+test('result-only raw error retains its cause while keeping normalized coverage incomplete',async t=>{
+ restore(t);const f=await fixture(t,'identity',(_req,res)=>{
+  res.end(JSON.stringify({error:{message:'RESULT_FAILURE '+opts.apiKey,code:'overloaded'}}));
+ },{'Content-Type':'application/json'},503);
+ const cap=capture({rawResponse:true}),stream=createGrokBuildProvider({transportObservation:cap.options}).streamSimple(model(f.url),context,opts);
+ const result=await stream.result();await cap.traces[0].close();assert.equal(result.stopReason,'error');
+ const row=cap.rows.find(row=>row.event==='sdk_terminal_result');assert.equal(row.payloadFormat,'sdk_json');
+ assert.match(JSON.parse(row.payload_utf8).errorMessage,/RESULT_FAILURE.*REDACTED_CREDENTIAL/);
+ assert(!row.payload_utf8.includes(opts.apiKey));
+ assert(cap.rows.at(-1).incomplete.includes('normalized_not_fully_consumed'));
+ assert.equal(f.requests.length,1);
+});
 
 test('slow sink and delayed existing hooks do not prefetch or change request completion',async t=>{
  restore(t);const f=await fixture(t),rows=[],traces=[];let releaseSink,releaseHook,hookEntered;

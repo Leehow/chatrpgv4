@@ -11,16 +11,14 @@ const units=new RegExp(unit,'giu');
 // Scan the complete amount syntax, including unsupported forms, before considering any value.
 // Those forms must still occupy a span so a neighbouring compound cannot expose a valid tail.
 const amountWords=new Set([...SMALL,...TENS,'hundred','thousand','million','billion','half','quarter','a','an','and','plus']);
-const hanAmount=new RegExp(`[${DIGITS}\\u5341\\u767e\\u5343\\u534a]`,'u');
+const hanAmount=new RegExp(`[${DIGITS}\\u5341\\u767e\\u5343\\u534a\\u4e2a\\u500b]`,'u');
 const singleQuantity=new RegExp(`^${quantity}$`,'iu');
+const mixedFraction=new RegExp(`^(${quantity})\\s+and\\s+(?:a\\s+)?(half|quarter)$`,'iu');
+const hanHalf=new RegExp(`^([0-9]+|[${DIGITS}\\u5341\\u767e\\u5343]+)(?:\\u4e2a|\\u500b)?\\u534a$`,'u');
 function amountTokenStart(input:string,end:number):number|undefined {
     let start=end;
-    if(/[0-9.,/:]/.test(input[end-1]??'')){
-        while(start>0&&/[0-9.,/:]/.test(input[start-1]))start--;
-        return /[0-9]/.test(input.slice(start,end))?start:undefined;
-    }
-    if(hanAmount.test(input[end-1]??'')){
-        while(start>0&&hanAmount.test(input[start-1]))start--;
+    if(/[0-9.,/:]/.test(input[end-1]??'')||hanAmount.test(input[end-1]??'')){
+        while(start>0&&(/[0-9.,/:]/.test(input[start-1])||hanAmount.test(input[start-1])))start--;
         return start;
     }
     if(/[A-Za-z]/.test(input[end-1]??'')){
@@ -68,6 +66,18 @@ function multiplier(unit:string):number {
     if(/^(?:seconds?|secs?)$/.test(word)||word==='\u79d2')return 1/60;
     return 1;
 }
+function amountValue(text:string):number|undefined {
+    if(singleQuantity.test(text))return numeral(text);
+    if(text==='\u534a')return 0.5;
+    const fraction=/^(?:(?:a|an)\s+)?(half|quarter)(?:\s+(?:a|an))?$/iu.exec(text);
+    if(fraction)return fraction[1].toLowerCase()==='half'?0.5:0.25;
+    const mixed=mixedFraction.exec(text),han=hanHalf.exec(text);
+    const base=mixed?numeral(mixed[1]):han?numeral(han[1]):undefined;
+    const part=mixed?.[2].toLowerCase()==='quarter'?0.25:0.5;
+    if(base===undefined||!Number.isSafeInteger(base))return undefined;
+    const value=base+part;
+    return value-base===part?value:undefined;
+}
 export function declaredDurations(input:string):Record<string,DeclaredDuration> {
     const found:DeclaredDuration[]=[];
     // Bound the complete lexer input; never turn a partial source window into a different interval.
@@ -77,10 +87,10 @@ export function declaredDurations(input:string):Record<string,DeclaredDuration> 
         const end=match.index+match[0].length,after=input[end]??'';
         if(/[A-Za-z0-9_]/.test(after))continue;
         const amount=amountBefore(input,match.index),start=amount?.start??match.index,before=input[start-1]??'';
-        const complete=amount!==undefined&&singleQuantity.test(amount.text)
-            &&!/[A-Za-z0-9_.,:+\-/\u2212\u2013\u2014\u96f6\u3007\u4e00\u4e8c\u4e24\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341\u767e\u5343]/u.test(before)
+        const complete=amount!==undefined
+            &&!/[A-Za-z0-9_.,:+\-/\u2212\u2013\u2014\u96f6\u3007\u4e00\u4e8c\u4e24\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341\u767e\u5343\u534a\u4e2a\u500b]/u.test(before)
             &&!/^\s*(?:(?:and|plus|[,+&/:;\-])\s*)?(?:(?:a|an)\s+)?(?:half|quarter)\b/iu.test(input.slice(end))&&after!=='\u534a';
-        const value=complete?numeral(amount!.text):undefined,minutes=value===undefined?NaN:value*multiplier(match[0]);
+        const value=complete?amountValue(amount!.text):undefined,minutes=value===undefined?NaN:value*multiplier(match[0]);
         found.push({text:input.slice(start,end),start,end,minutes});
         if(found.length>16)return {};
     }

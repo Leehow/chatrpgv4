@@ -355,7 +355,8 @@ export function createObservedGrokStream(delegate, options = {}) {
           const result = iterator.next(...args);
           void Promise.resolve(result).then(value => {
             if (value.done) {trace.iterationEnded = true; finish();}
-            else {const at = now(); trace.observe('normalized', at); trace.normalizedCount++; trace.record('normalized_consumed', {ordinal: trace.normalizedCount, ...typeMeta(value.value?.type), ...(trace.sdkWire ? {wire: trace.sdkWire.id} : {})}, at);}
+            else {const at = now(); trace.observe('normalized', at); trace.normalizedCount++; trace.record('normalized_consumed', {ordinal: trace.normalizedCount, ...typeMeta(value.value?.type), ...(trace.sdkWire ? {wire: trace.sdkWire.id} : {}),
+              ...(trace.options.rawResponse && value.value?.type === 'error' ? {_responsePayload: value.value} : {})}, at);}
           }, error => {trace.record('normalized_error', errorMeta(error, trace.options.rawResponse)); finish();});
           return result;
         }, return(...args) {trace.incomplete('consumer_return'); finish(); return iterator.return?.(...args) ?? Promise.resolve({done: true});},
@@ -363,7 +364,11 @@ export function createObservedGrokStream(delegate, options = {}) {
       };
       const value = Reflect.get(target, key, target);
       if (key === 'result' && typeof value === 'function') return (...args) => {
-        const result = Reflect.apply(value, target, args); void Promise.resolve(result).then(finish, finish); return result;
+        const result = Reflect.apply(value, target, args); void Promise.resolve(result).then(message => {
+          if (trace.options.rawResponse && !trace.iterated && ['error', 'aborted'].includes(message?.stopReason))
+            trace.record('sdk_terminal_result', {type: message.stopReason, _responsePayload: message});
+          finish();
+        }, error => {trace.record('result_error', errorMeta(error, trace.options.rawResponse)); finish();}); return result;
       };
       return typeof value === 'function' ? value.bind(target) : value;
     }});
