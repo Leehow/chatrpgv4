@@ -5,12 +5,29 @@ const capsule=()=>({mods:{active:[{id:'x',version:'1.0.0'}],expression_reference
 const binding=t=>({campaign:'c',worldline:'main',loop:0,turn:t,source_revision:'s1'});
 const answer=batch=>({batchId:batch.id,status:'complete',coverage:{required:[],answered:[],unknown:[]},issues:[],answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key.startsWith('conflict_')?.02:.95}]))});
 const tick=()=>new Promise(r=>setImmediate(r));
-test('the first request waits for its existing selection and a changed snapshot cannot renew the wait',async()=>{
+test('the first request waits for its existing selection and a changed snapshot cannot renew the wait',async t=>{
+ // The actual wait window remains 30 ms; scheduler time between ticks is not the test clock.
+ t.mock.timers.enable({apis:['Date','setTimeout'],now:Date.now()});
  let finish,calls=0;const refs=createExpressionPreparation({firstWaitMs:30,read:async()=>({enabled:true,revision:'r1',play_language:'zh-Hans',packages:[{id:'x',version:'1.0.0',digest:'d',cards:[card]}]}),decision:()=>({decide:async batch=>{calls++;return await new Promise(r=>{finish=()=>r(answer(batch))})}}),record:()=>{}});
  const c=capsule(),b=binding(1),signal=new AbortController().signal;refs.observe(c,b,signal);await tick();
  let released=false;const pending=refs.waitForFirst(c,b,signal).then(()=>{released=true});await tick();assert.equal(released,false,'the first writer has not outrun an applicable reference');finish();await pending;assert.ok(refs.project(c,b));assert.equal(calls,1);
  const changed={...b,source_revision:'s2'};refs.observe(c,changed,signal);await tick();
  const race=await Promise.race([refs.waitForFirst(c,changed,signal).then(()=>true),tick().then(()=>false)]);assert.equal(race,true,'a second snapshot must not add another wait');finish();await tick();refs.clear();
+});
+test('time spent before the first exact request consumes its existing window without renewing it',async t=>{
+ t.mock.timers.enable({apis:['Date','setTimeout'],now:Date.now()});
+ let finish,calls=0;const records=[];
+ const refs=createExpressionPreparation({firstWaitMs:30,read:async()=>({enabled:true,revision:'r1',play_language:'zh-Hans',packages:[{id:'x',version:'1.0.0',digest:'d',cards:[card]}]}),decision:()=>({decide:async batch=>{calls++;return await new Promise(resolve=>{finish=()=>resolve(answer(batch));});}}),record:row=>records.push(row)});
+ t.after(()=>refs.clear());
+ const c=capsule(),b=binding(1),signal=new AbortController().signal;
+ refs.observe(c,b,signal);await tick();
+ t.mock.timers.tick(31);
+ let released=false;const waiting=refs.waitForFirst(c,b,signal).then(()=>{released=true;});
+ await tick();assert.equal(released,true,'the original 30-ms window has already expired before the request');
+ await waiting;assert.equal(refs.project(c,b),undefined);assert.equal(calls,1);
+ const wait=records.find(row=>row.event==='first_request_wait');
+ assert.equal(wait.limit_ms,30);assert.equal(wait.window_ms,31);assert.equal(wait.waited_ms,0);assert.equal(wait.ready,false);
+ finish();await tick();assert.ok(refs.project(c,b),'a late completed reference remains advisory without another wait');
 });
 test('first-request expiry and cancellation release a non-cooperative selector without publishing it',async()=>{
  const make=()=>createExpressionPreparation({firstWaitMs:20,read:async()=>({enabled:true,revision:'r1',play_language:'zh-Hans',packages:[{id:'x',version:'1.0.0',digest:'d',cards:[card]}]}),decision:()=>({decide:async()=>await new Promise(()=>{})}),record:()=>{}});
