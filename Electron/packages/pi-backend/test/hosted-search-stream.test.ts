@@ -283,9 +283,9 @@ describe.each([false, true])("hosted search backend stream (COC: %s)", (coc) => 
       sessionsRoot: join(root, "sessions"),
       runtimeRoot: join(root, "runtime"),
       piPath: "node",
-      spawn: (_bin, _args, options) => spawn("/usr/local/bin/node", [new URL("./fake-pi.mjs", import.meta.url).pathname], {
+      spawn: (_bin, _args, options) => spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], {
         ...options,
-        env: { ...options.env, PATH: "/usr/local/bin:/usr/bin:/bin" },
+        env: { ...options.env, PATH: process.env.PATH ?? "" },
       }) as never,
     });
     await backend.handle("addProject", [cwd]);
@@ -321,9 +321,9 @@ describe.each([false, true])("hosted search backend stream (COC: %s)", (coc) => 
       sessionsRoot: join(root, "sessions"),
       runtimeRoot: join(root, "runtime"),
       piPath: "node",
-      spawn: (_bin, _args, options) => spawn("/usr/local/bin/node", [new URL("./fake-pi.mjs", import.meta.url).pathname], {
+      spawn: (_bin, _args, options) => spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], {
         ...options,
-        env: { ...options.env, PATH: "/usr/local/bin:/usr/bin:/bin" },
+        env: { ...options.env, PATH: process.env.PATH ?? "" },
       }) as never,
     });
     await backend.handle("addProject", [cwd]);

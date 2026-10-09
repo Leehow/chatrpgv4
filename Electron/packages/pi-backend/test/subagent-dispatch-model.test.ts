@@ -310,6 +310,7 @@ describe("subagent dispatch model catalog snapshot", () => {
       validateSubagentModelPins(input: { refs: string[] }): { decision: string; code?: string; retryable?: boolean; authorityRevision: number };
     };
 
+    await backend.handle("listModels", []);
     await self.materializeSubagentModelCatalog();
     const allowBefore = self.validateSubagentModelPins({ refs: ["pinprov/model-alpha"] });
     expect(allowBefore).toMatchObject({ decision: "allow" });

@@ -160,7 +160,7 @@ describe("per-session last-known context persistence", () => {
       env: { PATH: process.env.PATH ?? "" },
       piPath: "node",
       spawn: (_bin: any, _args: any, options: any) =>
-        spawn("/usr/local/bin/node", [new URL("./fake-pi.mjs", import.meta.url).pathname], { ...options, env: { ...options.env, PATH: "/usr/local/bin:/usr/bin:/bin" } }) as any,
+        spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], { ...options, env: { ...options.env, PATH: process.env.PATH ?? "" } }) as any,
       authRuntime: { getProviders: async () => [], getAvailable: async () => [], login: async () => undefined, logout: async () => undefined },
     });
   }
@@ -297,7 +297,7 @@ describe("per-session last-known context persistence", () => {
       env: { PATH: process.env.PATH ?? "" },
       piPath: "node",
       spawn: (_bin: any, _args: any, options: any) =>
-        spawn("/usr/local/bin/node", ["-e", "process.stdin.resume();process.stdin.on('end',()=>process.exit(0));setInterval(()=>{},1000)"], { ...options, env: { ...options.env, PATH: "/usr/local/bin:/usr/bin:/bin" } }) as any,
+        spawn(process.execPath, ["-e", "process.stdin.resume();process.stdin.on('end',()=>process.exit(0));setInterval(()=>{},1000)"], { ...options, env: { ...options.env, PATH: process.env.PATH ?? "" } }) as any,
       authRuntime: { getProviders: async () => [], getAvailable: async () => [], login: async () => undefined, logout: async () => undefined },
     });
 

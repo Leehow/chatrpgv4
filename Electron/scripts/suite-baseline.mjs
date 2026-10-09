@@ -104,19 +104,37 @@ export function compare(baseline, current, flaky = []) {
  */
 const RETRIES = 2;
 
-function runSuite(files = [], serial = false) {
+/** Assertion failures may match a baseline; interrupted workers never establish one. */
+export function assertCompleteRun(audit) {
+	if (!audit || !Array.isArray(audit.errors) || !["passed", "failed"].includes(audit.reason))
+		throw new Error("Vitest did not complete its run; baseline comparison and recording are unavailable.");
+	if (audit.errors.length)
+		throw new Error(`Vitest reported unhandled runtime errors; baseline comparison and recording are unavailable: ${audit.errors.map((error) => error.message).join("; ")}`);
+}
+
+export function runSuite(files = [], serial = false) {
 	const testScript = JSON.parse(readFileSync(join(electronRoot, "package.json"), "utf8")).scripts.test;
 	const directory = mkdtempSync(join(tmpdir(), "pipicoc-suite-"));
 	const outputFile = join(directory, "report.json");
+	const auditFile = join(directory, "run-end.json");
+	const auditReporter = join(directory, "run-end-reporter.mjs");
 	try {
+		writeFileSync(auditReporter, `import { writeFileSync } from "node:fs";
+export default class RunEndReporter {
+  onTestRunEnd(_modules, errors, reason) {
+    writeFileSync(${JSON.stringify(auditFile)}, JSON.stringify({ reason, errors: errors.map(error => ({ message: error.message })) }));
+  }
+}
+`);
 		try {
 			const launch = vitestLaunch([...vitestArguments(testScript), ...files, ...(serial ? ["--no-file-parallelism"] : []),
-				`--retry=${RETRIES}`, "--reporter=json", `--outputFile=${outputFile}`]);
+				`--retry=${RETRIES}`, "--reporter=json", `--reporter=${auditReporter}`, `--outputFile=${outputFile}`]);
 			execFileSync(launch.command, launch.args,
 				{ cwd: electronRoot, stdio: ["ignore", "inherit", "inherit"] });
 		} catch {
 			// A red suite is the normal case here: the report on disk is the answer, not the exit code.
 		}
+		assertCompleteRun(existsSync(auditFile) ? JSON.parse(readFileSync(auditFile, "utf8")) : undefined);
 		return failuresOf(JSON.parse(readFileSync(outputFile, "utf8")));
 	} finally {
 		rmSync(directory, { recursive: true, force: true });

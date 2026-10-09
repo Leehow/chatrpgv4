@@ -178,9 +178,9 @@ describe("model thinking capability contract", () => {
       piPath: "node",
       env: { XAI_TEST_KEY: "present" },
       spawn: (_bin, _args, options) => spawn(
-        "/usr/local/bin/node",
+        process.execPath,
         [new URL("./fake-pi-grok46.mjs", import.meta.url).pathname],
-        { ...options, env: { ...options.env, PATH: "/usr/local/bin:/usr/bin:/bin" } },
+        { ...options, env: { ...options.env, PATH: process.env.PATH ?? "" } },
       ) as any,
       authRuntime: {
         getProviders: async () => [],
@@ -274,9 +274,9 @@ describe("model thinking capability contract", () => {
       runtimeRoot: join(root, "runtime"),
       piPath: "node",
       spawn: (_bin, _args, options) => spawn(
-        "/usr/local/bin/node",
+        process.execPath,
         [new URL("./fake-pi-provider-drift.mjs", import.meta.url).pathname],
-        { ...options, env: { ...options.env, PATH: "/usr/local/bin:/usr/bin:/bin" } },
+        { ...options, env: { ...options.env, PATH: process.env.PATH ?? "" } },
       ) as any,
       authRuntime: {
         getProviders: async () => [],
@@ -362,9 +362,9 @@ describe("model thinking capability contract", () => {
       piPath: "node",
       env: { CODEX_TEST_KEY: "present" },
       spawn: (_bin, _args, options) => spawn(
-        "/usr/local/bin/node",
+        process.execPath,
         [new URL("./fake-pi-codex.mjs", import.meta.url).pathname],
-        { ...options, env: { ...options.env, PATH: "/usr/local/bin:/usr/bin:/bin" } },
+        { ...options, env: { ...options.env, PATH: process.env.PATH ?? "" } },
       ) as any,
       authRuntime: {
         getProviders: async () => [],
@@ -377,8 +377,9 @@ describe("model thinking capability contract", () => {
       },
     });
 
-    await (backend as any).ensure("codex-session");
     releaseCatalog();
+    await backend.handle("listModels", []);
+    await (backend as any).ensure("codex-session");
     const state = await backend.handle("getModelState", ["codex-session"]) as any;
     expect(state.availableThinkingLevels).toEqual(["off", "minimal", "xhigh", "max"]);
     expect(state.availableThinkingLevels).not.toContain("high");
@@ -451,9 +452,9 @@ describe("model thinking capability contract", () => {
       piPath: "node",
       env: { XAI_TEST_KEY: "present" },
       spawn: (_bin, _args, options) => spawn(
-        "/usr/local/bin/node",
+        process.execPath,
         [new URL("./fake-pi-grok46.mjs", import.meta.url).pathname],
-        { ...options, env: { ...options.env, PATH: "/usr/local/bin:/usr/bin:/bin" } },
+        { ...options, env: { ...options.env, PATH: process.env.PATH ?? "" } },
       ) as any,
       authRuntime: {
         getProviders: async () => [],
@@ -576,9 +577,9 @@ describe("model thinking capability contract", () => {
       env: { XAI_TEST_KEY: "present" },
       spawn: (_bin, _args, options) => {
         const child = spawn(
-          "/usr/local/bin/node",
+          process.execPath,
           [new URL("./fake-pi-grok46.mjs", import.meta.url).pathname],
-          { ...options, env: { ...options.env, PATH: "/usr/local/bin:/usr/bin:/bin" } },
+          { ...options, env: { ...options.env, PATH: process.env.PATH ?? "" } },
         );
         const stdin = child.stdin;
         const original = stdin.write.bind(stdin);
