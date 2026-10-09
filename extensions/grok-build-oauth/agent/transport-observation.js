@@ -1,4 +1,4 @@
-/** Opt-in Grok HTTP/SSE evidence. No request data or response content is persisted. */
+/** Opt-in Grok HTTP/SSE evidence. Response payloads require a second explicit flag; credentials never persist. */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, open } from 'node:fs/promises';
@@ -23,18 +23,48 @@ function header(headers, name) {
   } else for (const key of Object.keys(headers ?? {})) if (key.toLowerCase() === name) return String(headers[key]);
   return undefined;
 }
-function errorMeta(error) {
+function errorMeta(error, rawResponse = false) {
   const names = new Set(['Error', 'AbortError', 'TimeoutError', 'TypeError']);
   const code = typeof error?.code === 'string' && /^UND_ERR_[A-Z_]+$/.test(error.code) ? error.code : undefined;
-  return {errorName: names.has(error?.name) ? error.name : 'other', ...(code ? {code} : {})};
+  return {errorName: names.has(error?.name) ? error.name : 'other', ...(code ? {code} : {}),
+    ...(rawResponse ? {_responsePayload: {name: error?.name, message: error?.message, code: error?.code,
+      cause: error?.cause ? {name: error.cause.name, message: error.cause.message, code: error.cause.code} : undefined}} : {})};
 }
 
 class Trace {
   constructor(options) {
     this.id = randomUUID(); this.options = options; this.pending = []; this.bytes = 0; this.count = 0;
     this.reasons = new Set(); this.wires = []; this.normalizedCount = 0; this.rawCount = 0; this.hookOrdinal = 0; this.iterated = false; this.iterationEnded = false;
-    this.progress = {};
-    this.record('attempt_start', {version: 1, pid: process.pid, ...options.requested});
+    this.progress = {}; this.credentials = new Set();
+    if (typeof options.apiKey === 'string' && options.apiKey) this.credentials.add(options.apiKey);
+    this.record('attempt_start', {version: 2, captureMode: options.rawResponse ? 'raw_response' : 'metadata_only', pid: process.pid, ...options.requested});
+  }
+  credentialsFrom(headers) {
+    if (!this.options.rawResponse) return;
+    try {
+    for (const name of ['authorization', 'cookie', 'set-cookie', 'x-api-key']) {
+      const value = header(headers, name); if (typeof value !== 'string' || !value) continue;
+      this.credentials.add(value);
+      if (name === 'authorization') this.credentials.add(value.replace(/^(?:Bearer|Basic)\s+/i, ''));
+      if (name.includes('cookie')) for (const part of name === 'set-cookie' ? value.split(';').slice(0, 1) : value.split(';')) {
+        const at = part.indexOf('='); if (at >= 0 && part.slice(at + 1).trim()) this.credentials.add(part.slice(at + 1).trim());
+      }
+    }
+    if (this.credentials.size > 32) {this.rawBlocked = true; this.incomplete('credential_limit');}
+    } catch {this.rawBlocked = true; this.incomplete('credential_observation_error');}
+  }
+  payload(value) {
+    if (!this.options.rawResponse) return {};
+    if (this.rawBlocked) return {payload_unavailable: true};
+    try {
+      let text = typeof value === 'string' ? value : JSON.stringify(value);
+      // Mask closed credential fields without round-tripping original SSE numbers, spacing or malformed JSON.
+      text = text.replace(/("(?:authorization|cookie|set-cookie|apikey|api_key|access_token|refresh_token|id_token)"\s*:\s*)"(?:\\[\s\S]|[^"\\])*"/gi,
+        '$1"[REDACTED_CREDENTIAL]"');
+      for (const secret of [...this.credentials].sort((a, b) => b.length - a.length))
+        for (const literal of new Set([secret, JSON.stringify(secret).slice(1, -1)])) text = text.replaceAll(literal, '[REDACTED_CREDENTIAL]');
+      return {payload_utf8: text, payloadFormat: typeof value === 'string' ? 'sse_utf8' : 'sdk_json'};
+    } catch { this.incomplete('raw_payload_serialization'); return {payload_unavailable: true}; }
   }
   observe(kind, receipt) {
     const item = this.progress[kind] ??= {count: 0, firstAt: receipt.receiptTime, lastAt: receipt.receiptTime, maxGapMs: 0};
@@ -42,9 +72,11 @@ class Trace {
     item.count++; item.lastAt = receipt.receiptTime; item.lastMonoMs = receipt.receiptMonoMs;
   }
   record(event, fields = {}, receipt = now(), final = false) {
-    const row = {attempt: this.id, event, ...receipt, observerProcessingTime: new Date().toISOString(), ...fields};
+    const {_responsePayload, ...metadata} = fields;
+    const row = {attempt: this.id, event, ...receipt, observerProcessingTime: new Date().toISOString(), ...metadata,
+      ...(_responsePayload === undefined ? {} : this.payload(_responsePayload))};
     const encoded = JSON.stringify(row) + '\n';
-    if (!final && (this.count >= (this.options.limits?.records ?? limits.records) || this.bytes + Buffer.byteLength(encoded) > (this.options.limits?.logBytes ?? limits.logBytes))) {
+    if (!final && (this.count >= (this.options.limits?.records ?? (this.options.rawResponse ? 100000 : limits.records)) || this.bytes + Buffer.byteLength(encoded) > (this.options.limits?.logBytes ?? (this.options.rawResponse ? 32 * 1024 * 1024 : limits.logBytes)))) {
       this.reasons.add('metadata_limit'); return;
     }
     if (this.failed) return;
@@ -88,10 +120,11 @@ class Trace {
   async flush() { while (this.flushing || this.pending.length) { if (!this.flushing) this.schedule(); await this.flushPromise; } }
 }
 
-/** Independent SSE parser; only protocol type, sizes and boundaries leave its transient buffer. */
+/** Independent SSE parser. Payloads leave its transient buffer only in explicitly requested raw mode. */
 export class SseMetadataParser {
-  constructor(record, markIncomplete, maxFrameBytes = limits.frameBytes) {
+  constructor(record, markIncomplete, maxFrameBytes = limits.frameBytes, rawResponse = false) {
     this.record = record; this.markIncomplete = markIncomplete; this.max = maxFrameBytes;
+    this.rawResponse = rawResponse;
     this.decoder = new TextDecoder('utf-8', {fatal: true}); this.buffer = ''; this.data = []; this.frameBytes = 0; this.ordinal = 0;
   }
   feed(chunk, receipt) {
@@ -112,10 +145,11 @@ export class SseMetadataParser {
           const text = this.data.join('\n'); let meta;
           if (text === '[DONE]') meta = {type: 'done'};
           else try { meta = typeMeta(JSON.parse(text)?.type); } catch { meta = {type: 'invalid_json'}; this.markIncomplete('invalid_sse_json'); }
-          this.record('sse_event', {ordinal: ++this.ordinal, ...meta, dataBytes: Buffer.byteLength(text), frameBytes: this.frameBytes}, receipt);
+          this.record('sse_event', {ordinal: ++this.ordinal, ...meta, dataBytes: Buffer.byteLength(text), frameBytes: this.frameBytes,
+            ...(this.rawResponse ? {_responsePayload: text} : {})}, receipt);
         }
         this.data = []; this.frameBytes = 0;
-      } else if (line.startsWith(':')) this.record('sse_comment', {bytes: Buffer.byteLength(line)}, receipt);
+      } else if (line.startsWith(':')) this.record('sse_comment', {bytes: Buffer.byteLength(line), ...(this.rawResponse ? {_responsePayload: line} : {})}, receipt);
       else if (line === 'data' || line.startsWith('data:')) this.data.push(line.slice(5).replace(/^ /, ''));
       else if (line === 'event' || line.startsWith('event:')) this.record('sse_event_field', typeMeta(line.slice(6).replace(/^ /, '')), receipt);
     }
@@ -133,7 +167,7 @@ export class SseMetadataParser {
 class Wire {
   constructor(trace) {
     this.trace = trace; this.id = randomUUID(); this.queue = []; this.queued = 0; this.decoded = 0; this.encoded = 0;
-    this.first = undefined; this.last = undefined; this.maxGap = 0; this.parser = new SseMetadataParser((e, f, at) => this.record(e, f, at), r => trace.incomplete(r), trace.options.limits?.frameBytes);
+    this.first = undefined; this.last = undefined; this.maxGap = 0; this.parser = new SseMetadataParser((e, f, at) => this.record(e, f, at), r => trace.incomplete(r), trace.options.limits?.frameBytes, trace.options.rawResponse);
     this.finished = new Promise(resolve => { this.resolve = resolve; });
     this.record('transport_start', {byteDomain: 'http_entity_encoded_not_tcp_tls'});
     // Observation only: never delays or cancels the request if a transport omits its terminal callback.
@@ -145,6 +179,7 @@ class Wire {
   }
   headers(status, headers, receipt) {
     this.headersReceipt = receipt;
+    this.trace.credentialsFrom(headers);
     const encoding = (header(headers, 'content-encoding') ?? 'identity').trim().toLowerCase();
     const requestId = header(headers, 'x-request-id') ?? header(headers, 'request-id');
     this.requestIdHash = requestId ? hash(requestId) : undefined;
@@ -200,7 +235,7 @@ class Wire {
   end(event, error) {
     if (this.terminalReceipt || this.done) return;
     this.terminalReceipt = now(); this.terminalEvent = event;
-    this.record(event, error ? errorMeta(error) : {}, this.terminalReceipt);
+    this.record(event, error ? errorMeta(error, this.trace.options.rawResponse) : {}, this.terminalReceipt);
     if (error) this.trace.incomplete('transport_error');
     this.schedule();
   }
@@ -225,6 +260,7 @@ export function transportInterceptor(scope) {
     let matches = false;
     try { matches = call && new URL(String(options.origin)).origin === call.origin && String(options.path).split('?')[0] === call.path && options.method === 'POST'; } catch { /* an unrecognized transport remains unobserved */ }
     if (!matches) return dispatch(options, handler);
+    call.trace.credentialsFrom?.(options.headers);
     let wire = call.trace.wire(), starts = 0;
     const modern = typeof handler.onRequestStart === 'function' || typeof handler.onResponseStart === 'function';
     const names = modern ? {start: 'onRequestStart', headers: 'onResponseStart', data: 'onResponseData', end: 'onResponseEnd', error: 'onResponseError'}
@@ -272,7 +308,7 @@ export function createObservedGrokStream(delegate, options = {}) {
   const state = shared(), undici = options.undici ?? {getGlobalDispatcher, setGlobalDispatcher};
   return function (model, context, originalOptions) {
     if (model.provider !== 'grok-build' || model.api !== 'openai-responses') return delegate(model, context, originalOptions);
-    const trace = new Trace({...options, directory, requested: {provider: 'grok-build', api: 'openai-responses',
+    const trace = new Trace({...options, rawResponse: options.rawResponse ?? env.PI_COC_GROK_TRANSPORT_TRACE_RAW === '1', apiKey: originalOptions?.apiKey, directory, requested: {provider: 'grok-build', api: 'openai-responses',
       model: typeof model.id === 'string' && /^[a-zA-Z0-9._:/-]{1,128}$/.test(model.id) ? model.id : 'redacted'}});
     try { options.onTrace?.(trace); } catch { trace.incomplete('observer_callback_error'); }
     let url;
@@ -290,7 +326,8 @@ export function createObservedGrokStream(delegate, options = {}) {
         trace.record('sdk_hook_entry', {hook: name, span, ...(trace.sdkWire ? {wire: trace.sdkWire.id} : {})}, at);
         if (name === 'onProviderStreamEvent') {
           trace.observe('sdkRaw', at);
-          trace.record('sdk_raw_event', {ordinal: ++trace.rawCount, ...typeMeta(args[0]?.type), ...(trace.sdkWire ? {wire: trace.sdkWire.id} : {})}, at);
+          trace.record('sdk_raw_event', {ordinal: ++trace.rawCount, ...typeMeta(args[0]?.type), ...(trace.sdkWire ? {wire: trace.sdkWire.id} : {}),
+            ...(trace.options.rawResponse ? {_responsePayload: args[0]} : {})}, at);
         }
         if (name === 'onResponse') {
           trace.sdkWire = undefined;
@@ -303,13 +340,13 @@ export function createObservedGrokStream(delegate, options = {}) {
         finally { trace.record('sdk_hook_exit', {hook: name, span, durationMs: performance.now() - began, ...(trace.sdkWire ? {wire: trace.sdkWire.id} : {})}, at); }
       };
     }
-    const abort = () => trace.record('local_abort', {origin: 'caller_signal', ...errorMeta(originalOptions?.signal?.reason)});
+    const abort = () => trace.record('local_abort', {origin: 'caller_signal', ...errorMeta(originalOptions?.signal?.reason, trace.options.rawResponse)});
     if (originalOptions?.signal?.aborted) abort();
     originalOptions?.signal?.addEventListener('abort', abort, {once: true});
     const finish = () => { originalOptions?.signal?.removeEventListener('abort', abort); void trace.close().finally(() => state.active.delete(trace)); };
     let stream;
     try { stream = state.scope.run(call, () => delegate(model, context, wrapped)); }
-    catch (error) { trace.record('delegate_error', errorMeta(error)); finish(); throw error; }
+    catch (error) { trace.record('delegate_error', errorMeta(error, trace.options.rawResponse)); finish(); throw error; }
     return new Proxy(stream, {get(target, key) {
       if (key === Symbol.asyncIterator) return () => {
         trace.iterated = true;
@@ -319,7 +356,7 @@ export function createObservedGrokStream(delegate, options = {}) {
           void Promise.resolve(result).then(value => {
             if (value.done) {trace.iterationEnded = true; finish();}
             else {const at = now(); trace.observe('normalized', at); trace.normalizedCount++; trace.record('normalized_consumed', {ordinal: trace.normalizedCount, ...typeMeta(value.value?.type), ...(trace.sdkWire ? {wire: trace.sdkWire.id} : {})}, at);}
-          }, error => {trace.record('normalized_error', errorMeta(error)); finish();});
+          }, error => {trace.record('normalized_error', errorMeta(error, trace.options.rawResponse)); finish();});
           return result;
         }, return(...args) {trace.incomplete('consumer_return'); finish(); return iterator.return?.(...args) ?? Promise.resolve({done: true});},
         throw(...args) {trace.incomplete('consumer_throw'); finish(); return iterator.throw?.(...args) ?? Promise.reject(args[0]);}};
