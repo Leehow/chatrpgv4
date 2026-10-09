@@ -205,9 +205,13 @@ test('§205.4 a reused packet keeps what is missing only while its materials nee
   // to reuse, not what this test is about. A refusal is retried; whatever is reused is checked.
   const reuse=async suppliedMessages=>{
     for(let attempt=0;attempt<5;attempt++){
-      const reused=await api.reusePrescreen({call:(method,params)=>f.call(method,params),campaign:'c1',binding:f.binding,query:LINE,
-        message:named.message,suppliedMessages,byteBudget:16*1024,signal:new AbortController().signal,source:{moduleId:f.mid,runtime:f.source}});
-      if(reused)return reused;
+      try{
+        const reused=await api.reusePrescreen({call:(method,params)=>f.call(method,params),campaign:'c1',binding:f.binding,query:LINE,
+          message:named.message,suppliedMessages,byteBudget:16*1024,signal:new AbortController().signal,source:{moduleId:f.mid,runtime:f.source}});
+        if(reused)return reused;
+      }catch(error){
+        if(!(error instanceof DOMException&&error.name==='TimeoutError'))throw error;
+      }
     }
   };
   const same=await reuse([]);
