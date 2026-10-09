@@ -13,6 +13,8 @@
  * its own `credentials.modify()` (which already holds the store lock).
  */
 import { loadGrokBuildCatalog } from "./catalog.js";
+import { getApiProvider } from "@earendil-works/pi-ai/compat";
+import { createObservedGrokStream } from "./transport-observation.js";
 import { resolveOAuthConfig } from "./oauth/config.js";
 import { requestDeviceCode, pollDeviceToken, OAuthError } from "./oauth/device.js";
 import { toOAuthCredentials } from "./oauth/credentials.js";
@@ -56,7 +58,13 @@ export function createGrokBuildProvider(options = {}) {
         }
     };
     const transport = conversationProviderTransport();
+    const observed = createObservedGrokStream((model, context, streamOptions) => {
+        const api = getApiProvider(transport.api);
+        if (!api) throw new Error("The conversation API is unavailable");
+        return api.streamSimple(model, context, streamOptions);
+    }, options.transportObservation);
     return {
+        ...(observed ? { streamSimple: observed } : {}),
         // Conversation models are contributed only while the host reports this
         // provider authenticated + the extension enabled. Image generation stays
         // on image_gen / image_edit tools, not in this catalog.
