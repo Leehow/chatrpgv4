@@ -173,3 +173,19 @@ audit proves its exact identity/branch and retained dirty evidence, with pending
 `retained:pending_final_validation_and_protected_playtest_evidence`. There is no completion claim, deletion
 or unclassified cleanup item. The ACTIVE thread heartbeat `pdf` reactivates this same tuple before work.
 All owned real driver daemons were stopped normally; the canonical App and the other task are preserved.
+
+## Resumed at 2026-10-09 22:04 UTC
+
+The LAN box was idle and mainline was clean at 028ad047b, with the temporal and raw-response
+observation work committed. The same lifecycle tuple was reactivated. Checkpoint record 76d79dce1
+was committed, then latest mainline was merged into the owned branch as 23df4efc5. One fitWhere
+conflict was resolved by preserving the accepted mainline back/place/rule trimming and retained rules,
+with the source preparation projection and callback intact. No other owner's unfinished work was staged.
+Local mechanics/readiness tests passed 12 / 12 on the merged tree. Canonical LAN all is running against
+23df4efc5; final runtime is being fetched from that exact snapshot for real validation. No final pass claim.
+
+Final live run: `.coc/playtests/pdf-clue-readiness-final-20261009-play`, daemon 28387 / Pi 28388,
+same campaign and source home, exact merged build 23df4efc5. First new turn sampled river water in
+54.7 seconds. Two actual capsules carry missing material and same-handle prepare next actions on
+their source clues; this is live projection evidence, not a blanket speed claim. Next turn records the
+publicly learned symptoms in the physical notebook. Final LAN all remains in flight.
