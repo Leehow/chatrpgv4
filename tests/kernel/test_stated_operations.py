@@ -352,6 +352,9 @@ def test_the_offer_ledger_counts_stated_rows_and_kpi_counts_the_kind(table):
     client = table(LUCK_FAILS_JUMP_FAILS)
     ok(resolve(client, "t1-c1", rule="chapel-floor"))
     ok(apply(client, "t1-c2", {"kind": "time", "stated": "long-search"}))
+    settled = {row.get("stated") for row in receipts(client)}
+    settled |= {row["basis"].get("rule") for row in receipts(client) if isinstance(row.get("basis"), dict)}
+    assert {"chapel-floor", "long-search"} <= settled, "both operations really landed"
     client.table("narrate", call_id="t1-c3", text="The boards creak.")
     rows = [json.loads(line) for line in (campaign_dir(client.workspace) / "telemetry.jsonl").read_text().splitlines() if line.strip()]
     ledger = next(row for row in rows if row.get("lane") == "offers" and row["turn"] == 1)
@@ -360,9 +363,6 @@ def test_the_offer_ledger_counts_stated_rows_and_kpi_counts_the_kind(table):
     assert rows_with_mech and set(rows_with_mech) <= set(RULES)
     offered = [offer for offer in ledger["offered"] if offer.startswith("stated:")]
     assert offered == [f"stated:{name}" for name in rows_with_mech]
-    settled = {row.get("stated") for row in receipts(client)}
-    settled |= {row["basis"].get("rule") for row in receipts(client) if isinstance(row.get("basis"), dict)}
-    assert {"chapel-floor", "long-search"} <= settled, "both operations really landed"
     expected_taken = {"chapel-floor", "long-search"} & set(rows_with_mech)
     assert {offer for offer in ledger["taken"] if offer.startswith("stated:")} == {f"stated:{name}" for name in expected_taken}
     counted = kpi.offers(rows)["by_kind"]["stated"]
