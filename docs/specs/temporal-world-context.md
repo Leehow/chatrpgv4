@@ -108,7 +108,7 @@ All judgments are open semantic judgments from the canonical clock, place purpos
   Canonical receipts and retained telemetry record adoption, actual effects and elapsed time. Offer counts are never an obligation fed back to the Keeper.
 - **Prior art.** Evennia separates game-time scheduling from game-related callbacks (https://www.evennia.com/docs/latest/Howtos/Howto-Game-Time.html). Inform's daemons and timers attach world changes to active objects and distinguish time-of-day from those changes (https://www.inform-fiction.org/manual/html/s20.html). These confirm separate ownership of time and state transitions. Neither justifies a universal schedule or a deterministic NPC scheduler in this model-authored TRPG.
 - **Prototype reference.** Prototype primary source is commit `5f5851c3e` on `codex/temporal-world-prototype-20261009`. Its HTML shell must not enter production. Prototype counter hours and controlled dice were fictional assumptions and are not carried forward.
-- **Baseline.** The original baseline was clean 0.9.7a at `8b33f8b4e`. Current mainline is latest 0.9.7a. Commit `efcb6f181` implements the temporal/Daily Life Mod system; `028ad047b` adds complete opt-in raw response observation; `a1eae4c6b` fixes literal pre-unit halves/quarters, including nine-and-a-half hours in Han syntax, using safe exact fraction arithmetic with full source-span binding. Completion is not claimed on any baseline; clean-current validation for the latest addition remains pending.
+- **Baseline.** The original baseline was clean 0.9.7a at `8b33f8b4e`. Current mainline is latest 0.9.7a. Commit `efcb6f181` implements the temporal/Daily Life Mod system; `028ad047b` adds complete opt-in raw response observation; `a1eae4c6b` fixes literal pre-unit halves/quarters, including nine-and-a-half hours in Han syntax, using safe exact fraction arithmetic with full source-span binding. The final complete source gate and package at `a48836075` passed; bounded installed verification and remaining limitations are recorded below.
 
 ## Testing Decisions
 
@@ -142,7 +142,21 @@ All judgments are open semantic judgments from the canonical clock, place purpos
 
 ### Status
 
-Owner approved specification, implementation and real-system testing on 2026-10-09. The root reviewed this specification. The approved Mod architecture (kernel temporal records plus the optional `daily-life` strategy Mod) is recorded here. Core implementation is complete and committed on mainline (`efcb6f181`, `028ad047b`, `a1eae4c6b`). A real investigation segment has closed with delivery of the diaries and a suspended rental listing. The full scenario remains unresolved. Full LAN `all` passed for the first two commits (ext 5408 passed, 0 failed; Python 2127 passed, 2 skipped; loop 12 passed; exit 0; 928 s). The final fractions code (`a1eae4c6b`) has 7 local regression passes, including actual kernel clock/apply/replay, and kernel typecheck passed; its LAN focused run was interrupted with exit 255 when another owner started heavy testing on the shared box. Only our verified process group was stopped and all logs were preserved; this is not a validation pass. Final clean-current `all`/build-fetch for this latest addition is pending shared resource availability. Installed App acceptance was not performed, and successful physical window entry/theft remains unverified. This is not a claim of full success.
+Owner approved specification, implementation and real-system testing on 2026-10-09. The root reviewed this specification. The approved Mod architecture (kernel temporal records plus the optional `daily-life` strategy Mod) is recorded here and is unchanged.
+
+Current exact tested and packaged implementation source is `a488360756c139ebcf17ad5f7f5f4dbc3f75e040`. The latest clean 0.9.7a includes the accepted PDF changes. Implementation commits: `efcb6f181` (temporal records and Daily Life Mod), `028ad047b` (opt-in raw transport observation), `a1eae4c6b` (literal pre-unit fractions), `8032361f1` (terminal-error log repair), `781f96c28` (repaired local-exit replay).
+
+Final overnight source gates all exited 0 on `a488360756c139ebcf17ad5f7f5f4dbc3f75e040`: extension 5413 passed, 0 failed; Python 2127 passed, 2 skipped; loop 12 passed; 896 seconds. Local checks: duration tests 7 passed; raw observer tests 20 passed; compile routing 17 passed; typecheck passed; native Jev destination cases 6 with expected matches.
+
+The source real-Keeper play is bounded and is not a whole-scenario completion. The night closure of the library was observed, and in the real prior run the player physically entered at night and committed possession of one ordinary library book (`一本普通馆藏书`). Final canonical inventory verifies that the book's owner is the investigator. A persistent awake-NPC record was also observed. The whole scenario is not completed and no victory or ending is claimed.
+
+The installed canonical App was rebuilt offline from the pre-existing testbox npm cache and pinned, verified archives, after one retained `ENOTCACHED` failure. The build used PipiUI Dev stable signing, an exact package receipt, Node 24.19 (ABI 137) and Git 2.53. The staging directory was empty and the LaunchServices/Spotlight path was unique. The native GUI old session was preserved; the independent Daily Life 1.0.0 is visible; the old campaign remains disabled; the default for new campaigns is enabled; and the actual fast model is `opencode-go/claude-haiku-5-5` with thinking off.
+
+Installed package play delivered one real driver turn through the actual installed compiled runtime. A half-hour wait (30 minutes) crossed to 00:13 and observed a closed, dark library and a sparse street. The whole installed scenario is not completed.
+
+No GUI gameplay input and no GUI toggle walkthrough occurred. These are not labelled as passed.
+
+Not claimed: zero time cost for a short activity (the repaired live replay charged 9 minutes), universal semantic accuracy of the routine judgments, and any whole-scenario victory. The old reduced fixture also passed, but it is not used as proof of semantic quality.
 
 ### Projection correction (kernel)
 
@@ -152,21 +166,22 @@ Owner approved specification, implementation and real-system testing on 2026-10-
 
 ### Verification evidence (as observed, not as success)
 
-- **Baseline:** original clean 0.9.7a at `8b33f8b4e`. Concurrent, already-committed PDF repairs advanced the current mainline to `5b35b00de`. Implementation is committed as `efcb6f181` and `028ad047b`, followed by the literal-fractions repair `a1eae4c6b`.
-- **Focused kernel check** (temporal, voice-bench, capsule): 23 passed. Type check passed.
-- **NPC mood and read/privacy checks:** 123 passed.
-- **Raw Grok diagnostics tests:** 18 passed.
-- **Final full `all` run on mainline `5b35b00de` plus this implementation:** ext 5408 passed, 0 failed; Python 2127 passed, 2 skipped; loop 12 passed. All three exit codes and overall exit code were 0. Wall time 928 seconds; original logs retained.
-- **Earlier failed/interrupted attempts** (including a shared-box overlap) remain as evidence and are not erased. The earlier full run (2126 Python passed, 1 failed, 2 skipped; 5342 extension passed, 42 failed; 12 loop passed) is preserved as failed evidence.
+- **Baseline:** original clean 0.9.7a at `8b33f8b4e`. The current latest clean 0.9.7a includes the accepted PDF changes. Implementation is committed as `efcb6f181`, `028ad047b` and `a1eae4c6b`, with later `8032361f1` and `781f96c28`.
+- **Final overnight source gate** on `a488360756c139ebcf17ad5f7f5f4dbc3f75e040`: extension 5413 passed, 0 failed; Python 2127 passed, 2 skipped; loop 12 passed; all exit codes 0; 896 seconds. Log retained as `overnight-final-all.log`.
+- **Local checks:** durations 7; transport observation 20; compile routing 17; typecheck passed; native Jev destination cases 6, expected matches.
+- **Repaired live local-exit replay** (`daily-life-haunting-exact-replay-r2-20261009`): campaign turn 41 with the exact original player declaration (climbing back out through the side-alley window gap and checking the coat for the book). No move receipts were produced. The active scene remained `central-library`. Destination resolution was `none` with confidence 0.85. The actual short-activity cost was 9 minutes (band `brief_activity`, permitted range 2–10, actual cost 9), not zero. The book remained in the investigator's inventory.
+- **Installed package play** (`daily-life-haunting-package-20261009`): one natural turn, Keeper wall time 46.3 s, half-hour wait (30 minutes) crossing 00:13 on 1920-10-14. Library recorded as `closed` and `quiet`, with a `review_after_minutes` of 180. Previous record (night, closed, dark, side-alley window ajar) retained as a prior.
+- **Installed App packaging** on `a488360756c139ebcf17ad5f7f5f4dbc3f75e040`: runtime hashes recorded for `build/runtime/pi-hybrid.mjs`, `build/kernel/rpc.mjs` and `build/extensions/grok-build-oauth/agent/index.mjs`.
+- **Earlier failed or interrupted attempts** are preserved as evidence and not erased, including the earlier full run with failures and a shared-box interruption.
 - **Real Jev fixture component probe:** three contexts completed in 350–772 ms. Component probe only.
-- **Native Exa+Jev historical component probe:** returned original materials in 2215 ms, status ready. Not a claim of historical verification or Keeper adoption.
+- **Native Exa and Jev historical component probe:** returned original materials in 2215 ms, status ready. Not a claim of historical verification or Keeper adoption.
 
 ### Source real-Keeper play (actual observations, bounded)
 
-Live source RPC play used explicit Grok 4.7 low, with this root as the sole public-action player. Fast generative lanes ran on `opencode-go/claude-haiku-5-5`, thinking off.
+Live source RPC play used explicit Grok 4.7 low, with this root as the sole public-action player. Fast generative lanes ran on `opencode-go/claude-haiku-5-5`, thinking off. Original runs total 30; overnight runs total 8; exact repaired replays total 3.
 
 - Library open in the morning. A selected 9.5-hour wait advanced 570 minutes to 21:00. The closing, dark windows, locked front door and clerk departure were observed and recorded as a closed/quiet scene.
-- An attempted side-window entry was blocked by a physical latch. No theft and no entry occurred. No successful window entry or theft has been tested.
+- A side-window entry was blocked by a physical latch in one attempt. In the real prior run, night physical entry occurred and the player committed possession of one ordinary library book, `一本普通馆藏书` (object-item-7). Final canonical inventory verifies its owner (investigator). This is recorded as observed possession of an ordinary library book, not as any other kind of completed action.
 - A 5.5-hour wait plus a separately counted 30-minute travel reached 03:26. The news vendor had closed and left; the street was almost empty except a milk delivery. Households slept; late knocks woke irritated occupants who kept door chains engaged.
 - The first awakening was narrated but not recorded. After the explicit missing-NPC projection, a subsequent real awakening wrote `observed`/`awake` at 03:27 into canonical `world.json`, and later conversation retained it.
 - A capped wait of at most 3 hours at the office ended at 09:00 with 149 minutes actual wait plus 30 minutes travel, not the full 180-minute cap.
@@ -174,33 +189,44 @@ Live source RPC play used explicit Grok 4.7 low, with this root as the sole publ
 - Real table-matching records and confirmed provider-message delivery are saved.
 - These are actual observations. They do not show a controlled causal proof that one field alone changed model behaviour.
 - The investigation segment closed at 09:02 when Knott accepted the diaries and paused the rental listing; the player withdrew for the day. No whole-scenario ending or victory is claimed.
-- Earlier source play did not recognise "nine and a half hours" in Chinese; "9.5 hours" worked. The overnight continuation with the LAN-built fractional lexer subsequently selected exactly 570 minutes and reached 18:46, followed by a separate 180-minute wait to 21:46. That build preceded the final large-number precision guard, which passed the local regression; exact final-build validation remains pending.
-- Source play is separate from installed App packaging/GUI acceptance, which was not performed.
+- Earlier source play did not recognise "nine and a half hours" in Chinese; "9.5 hours" worked. The overnight continuation with the fractional lexer subsequently selected exactly 570 minutes.
+- The repaired local-exit replay (see Verification evidence) is one live replay, not a universal semantic-accuracy guarantee. The old reduced fixture also passed.
+
+### Installed App and GUI (actual observations, bounded)
+
+- Canonical App bundle `/Applications/PipiCOC.app`, stable identity PipiUI Dev, signing certificate `108232c5a713c15a869fc4c267e18d2e35cd276c`. The launcher `pi-coc` started in compiled `play` mode, loop engine `hybrid-v1`, pi 1.0.0 (base commit `a13d35a742c6`, vendored).
+- Native GUI: old session preserved; independent Daily Life 1.0.0 visible; old campaign still disabled; default for new campaigns enabled; actual fast model `opencode-go/claude-haiku-5-5`, thinking off, verified.
+- No GUI gameplay input occurred. No GUI toggle walkthrough occurred. These are not labelled as passed.
+- Installed package play was RPC-only, as recorded in the installed evidence.
 
 ### Transport trace (diagnostic, separate from world state)
 
 - Earlier observer retained only metadata although described as raw. This is corrected. Earlier incomplete evidence is not retroactively restored.
-- A new, separately opt-in `PI_COC_GROK_TRANSPORT_TRACE_RAW=1` retains SSE data and comment contents, SDK event snapshots and abort/error causes. Credentials are redacted. Request bodies and actual HTTP headers are never recorded. Files are 0600 in 0700 directories. Request, backpressure, retry and timeout behaviour are unchanged. Coverage limits are recorded explicitly.
-- Local tests: 18 passed (gzip 7-byte splits, immutable hooks, credential redaction, verbatim unknown-event large integers and spacing, default metadata privacy, oversize handling).
-- Native source-driver trace at exact `028ad047b`: 3 real requests; all 486 SSE events and all 486 SDK raw events retained with complete observation coverage; 0600 files.
-- Measured Grok 4.7 failure: after `response.output_text.delta` at 20:05:38.551 UTC there was a 60003 ms gap with 3 incoming HTTP-body chunks (39 bytes), 3 SSE comments (33 bytes), 0 SDK raw data events and 0 SSE data events. Observer delay max 1 ms. `caller_signal` cancellation, then retry. The connection stayed live while model data stopped. Client evidence does not distinguish the model service from the forwarding service; server logs are needed. A later raw failure recorded the abort cause `Provider stream timed out: no response event for 60000 ms`, with four heartbeat comments and no SDK data. This identifies the local semantic progress watchdog cancellation; the upstream silence cause still requires origin/forwarder logs. A new real driver continuation is ongoing with no outcome yet.
+- A separately opt-in `PI_COC_GROK_TRANSPORT_TRACE_RAW=1` retains SSE data and comment contents, SDK event snapshots, and normalized and result-only SDK terminal error causes, including when no SSE is present. Credentials are redacted. Request bodies and actual HTTP headers are never recorded. Files are 0600 in 0700 directories. Request, backpressure, retry and timeout behaviour are unchanged. Coverage limits are recorded explicitly. Local tests: 20 passed.
+- Measured Grok 4.7 failure: after `response.output_text.delta` at 20:05:38.551 UTC there was a 60003 ms gap with 3 incoming HTTP-body chunks (39 bytes), 3 SSE comments (33 bytes), 0 SDK raw data events and 0 SSE data events. Observer delay max 1 ms. `caller_signal` cancellation, then retry. The connection stayed live while model data stopped. Client evidence does not distinguish the model service from the forwarding service.
+- The exact heartbeat/no-model 60-second client watchdog cause is captured: the local semantic progress watchdog cancelled with `Provider stream timed out: no response event for 60000 ms`, after four heartbeat comments and no SDK data. The upstream silence cause is still unknown without origin or forwarder logs.
+- HTTP entity byte counts and timing are retained; TCP/TLS packet capture is not added. Earlier metadata-only evidence cannot be reconstructed.
 - Cross-validated principles: separate opt-in message-content capture (https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-spans.md) and exclusion of credentials/tokens from logs (https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html). OpenTelemetry integration is not added.
+
+### Prototype source and lifecycle (validation limitation)
+
+- Prototype primary source and evidence are retained at `/Users/haoli/.codex/worktrees/temporal-world-prototype-20261009` on branch `codex/temporal-world-prototype-20261009`. Classification: retained primary prototype source and evidence.
+- Final audit identity is clean and valid, but the audit is still pending. Closeout is blocked because the `lsof` probe cannot stat an unrelated `/Volumes/10.3.2.75` WebDAV mount. Nothing was force-closed, unmounted or deleted.
+- This is a validation limitation separate from the functional source and package gates. Full lifecycle closeout is not claimed. Retry only when the probe is authoritative.
 
 ### Pending validation
 
-- Full LAN `all` passed for `efcb6f181` and `028ad047b`; archived logs retain actual exit codes. Clean-current `all`/build-fetch for `a1eae4c6b` is pending.
-- The source-driver investigation segment is complete. Native historical originals and selected Mod rows were delivered in the live provider requests; observed closed-scene and awake-NPC records demonstrate actual use.
-- The production package and advice channel passed kernel/host regressions and actual provider delivery; installed App behaviour remains untested.
-- Threshold and disable/enable behaviour passed kernel RPC and host tests; these checks do not claim an installed App toggle walkthrough.
-- Source validation is complete on `5b35b00de` plus this scoped patch; implementation commits are recorded in the handoff.
-- Installed App packaging and GUI acceptance: not performed.
-- The investigation segment closed at 09:02: Knott received the diaries and stopped listing the house. No whole-scenario victory or final ending is claimed.
+- GUI gameplay input and the GUI toggle walkthrough for Daily Life are not performed.
+- The whole installed scenario is not completed. Only one real installed driver turn was delivered.
+- Upstream cause of the 60-second heartbeat/no-model silence requires origin or forwarder logs.
+- Prototype audit and closeout are blocked by the validation limitation above.
+- No universal semantic accuracy, no all-era/all-place behaviour guarantee and no zero-cost short-activity claim are made.
 
 ### Implementation and validation checklist
 
-`[x]` = implemented, per previous specification and approved evidence. `[ ]` = evidence pending.
+`[x]` = implemented, per previous specification and approved evidence. `[ ]` = evidence pending or explicitly not performed.
 
-- [x] Confirm baseline: original clean 0.9.7a at `8b33f8b4e`; current mainline is latest 0.9.7a (clean-current validation pending).
+- [x] Confirm baseline: original clean 0.9.7a at `8b33f8b4e`; current latest clean 0.9.7a includes the accepted PDF changes.
 - [x] Review prototype primary source at `5f5851c3e` on `codex/temporal-world-prototype-20261009`; exclude its HTML shell.
 - [x] Author `daily-life` Mod package: `mod.json`, `contexts.json`, `agent.md` (text and data only).
 - [x] Validate Mod package JSON and manifest/table agreement with a parser (Stories 19, 20). The actual production manifest contributes only `temporal_context`; `contexts.json` references its declared `agent.md` guidance file.
@@ -214,18 +240,25 @@ Live source RPC play used explicit Grok 4.7 low, with this root as the sole publ
 - [x] Implement Keeper reassessment instruction after relevant transitions (Story 14).
 - [x] Implement opening constraints for scene and NPC activity (Stories 9, 10).
 - [x] Implement effect-order binding and atomic batch with idempotent replay (Story 9).
-- [x] Implement time-fit counting of actual completed/attempted portions (Stories 7, 8). Literal pre-unit halves/quarters, including Han "nine and a half hours", are fixed in `a1eae4c6b` with exact fraction arithmetic and full source-span binding; its clean-current validation is pending.
+- [x] Implement time-fit counting of actual completed/attempted portions (Stories 7, 8). Literal pre-unit halves/quarters are fixed in `a1eae4c6b`; the final source gate on `a488360` passed.
 - [x] Implement Mod delivery on the `coc-temporal-advice` channel: nine independent per-row Jev judgments, rows selected only on complete valid answers, resident fallback when judge unavailable, disable removes both channels (Stories 19, 20). Actual provider delivery and scene/NPC state writes are retained in source-driver evidence.
 - [x] Implement Historical Reference time-of-day objective and day-part cache with invalidation (Stories 16, 17).
 - [x] Implement old-save reassessment without invented records (Story 18).
-- [x] Implement opt-in raw transport trace (`PI_COC_GROK_TRANSPORT_TRACE_RAW=1`) in `028ad047b`; 18 local tests passed; native trace of 3 real requests with all 486 SSE and 486 SDK raw events retained (Story 1 diagnostics).
-- [x] Add kernel RPC/capsule seam tests for the targeted cases listed in Testing Decisions (targeted run: 23 passed; earlier 34 passed).
-- [x] Add Historical Reference host cache/request seam tests (25 passed on selector/history regressions).
-- [x] Run full LAN `all` for the first two commits: ext 5408 passes and 0 failures; Python 2127 passes and 2 skips; loop 12 passes; overall exit 0. Final fractions-code LAN run was interrupted (exit 255) and is not a validation pass; clean-current `all` is pending.
-- [x] Run the temporal-context investigation segment through the real source RPC driver; preserve all evidence. Whole-scenario victory and successful window entry/theft are not claimed.
+- [x] Implement opt-in raw transport trace (`PI_COC_GROK_TRANSPORT_TRACE_RAW=1`); 20 local tests passed, including terminal-error capture without SSE (`8032361f1`).
+- [x] Add kernel RPC/capsule seam tests for the targeted cases listed in Testing Decisions.
+- [x] Add Historical Reference host cache/request seam tests.
+- [x] Run final full `all` on `a488360756c139ebcf17ad5f7f5f4dbc3f75e040`: extension 5413 passed, 0 failed; Python 2127 passed, 2 skipped; loop 12 passed; all exit codes 0; 896 seconds.
+- [x] Repair and replay local exit (`781f96c28`): campaign turn 41, exact original declaration, no move receipts, active scene `central-library`, destination `none` (confidence 0.85), actual short-activity cost 9 minutes. Not a zero-cost or universal-accuracy claim.
+- [x] Run the temporal-context investigation segment through the real source RPC driver; preserve all evidence. Night physical entry and committed possession of one ordinary library book were observed in the real prior run; final canonical inventory verifies the owner. Whole-scenario victory is not claimed.
 - [x] Record native historical originals, actual provider delivery and real scene/NPC state adoption.
-- [x] Distinguish source play from installed App acceptance; packaging and GUI acceptance were not performed.
-- [x] Root review under the invoked to-spec skill; issue #111 records the approved architecture and source evidence. Mainline commits are `efcb6f181`, `028ad047b`, `a1eae4c6b`.
+- [x] Build the canonical installed App offline from the pre-existing testbox npm cache and pinned verified archives after one retained `ENOTCACHED` failure; PipiUI Dev stable signing, exact package receipt, Node 24.19 ABI 137, Git 2.53, empty staging and unique LaunchServices/Spotlight path verified.
+- [x] Verify native GUI: old session preserved; independent Daily Life 1.0.0 visible; old campaign disabled; fresh default enabled; actual fast model Haiku 5.5 with thinking off.
+- [x] Deliver one real installed driver turn: half hour (30 minutes) crossing 00:13, closed and dark library and sparse street.
+- [ ] GUI gameplay input (not performed).
+- [ ] GUI Daily Life toggle walkthrough (not performed).
+- [ ] Determine the upstream cause of the heartbeat/no-model 60-second silence (requires origin or forwarder logs).
+- [ ] Prototype audit and closeout: audit pending, closeout blocked by the `lsof` probe on an unrelated `/Volumes/10.3.2.75` WebDAV mount. This is a validation limitation separate from the functional gates; nothing was deleted or unmounted.
+- [x] Root review under the invoked to-spec skill; issue #111 records the approved architecture and source evidence. Mainline commits are `efcb6f181`, `028ad047b`, `a1eae4c6b`, `8032361f1`, `781f96c28`.
 
 ### Prior art
 
