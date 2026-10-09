@@ -4773,6 +4773,12 @@ per-unit evidence isolation stay intact.
 
 ## 23. PipiCOC local frontend (2026-09-07)
 
+### Host decision: cold timeline reads carry the bound conversation phase (2026-10-09)
+
+A successful cold `timeline.graph` response for a COC-bound conversation includes its validated `setup` or `play` binding mode as `phase`, beside the existing graph, anchors, sessions and projected UI words. The UI selects the matching model-projected composer caption from this phase. Graph absence, an unbound conversation or a failed read must retain its existing explicit outcome; the host does not infer a phase from text or invent a binding.
+
+Producer: the existing `coc-session` binding records the conversation mode. Reader: the cold timeline decoration reads it. Actor: the composer chooses the corresponding UI word key. This read does not start Pi, resume or mutate a campaign, change a model/provider, rewrite a stored profile, or alter `table.graph`'s kernel shape. Cold setup and play tests must retain the no-spawn and graph/anchor protections.
+
 ### Host decision: stop returns before process identity collection (2026-10-09)
 
 The host emits `stopped`, releases the manually stopped queue and writes the existing abort command without waiting for its acknowledgement or OS process queries. Process identity collection for escalation runs asynchronously; moving synchronous queries to a later event-loop callback is insufficient because it still stalls the host. Its result may arm escalation only for the captured runtime generation, child object/PID and turn epoch while that exact turn remains unsettled. Before a first epoch exists, the capture belongs to the already dispatched pending prompt; receiving that prompt's initial start is not permission to abandon its stop. The host must preserve this ownership without adopting a subsequently dispatched prompt. A completed turn, replaced child, newer turn, disposed session or obsolete stop attempt cannot be armed by a late result.
