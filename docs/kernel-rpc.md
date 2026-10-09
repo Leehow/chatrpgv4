@@ -42042,6 +42042,19 @@ background. Ordinary residents may rest; entertainment, night work, preparations
 
 ### 208.3 Historical background and actual elapsed time
 
+**Local physical transitions (overnight live finding, 2026-10-09).** The existing destination compile selects a listed
+scene only when the player actually chooses to reach that scene. Entering or leaving a fixture, approaching an exit,
+or stepping into the current place's immediate surroundings does not select a different listed neighbourhood merely
+because its description mentions streets. A source-established separate scene still remains a valid destination.
+The destination question makes this scope explicit, with `none` for local actions and `unclear` for an unresolved
+destination; its compile family version is 2. This is a semantic question amendment, not a keyword classifier, a new
+spatial hierarchy, a stronger gate or a change to travel arithmetic. Jev writes the destination feature, the existing
+predicate reads it, and the existing dispatcher acts only on that cleared destination. Evennia's named exit traversal
+and Inform's distinction between local containment and room travel support this separation; their deterministic world
+models are not imported. The real failure remains retained: source turn 38 selected a distant neighbourhood with
+probability 0.64 for a window-to-street exit and spent 30 minutes. Verify both local exits and explicit travel, including
+a declaration that combines a local exit with a genuinely chosen destination, through the same question and move path.
+
 - The existing scene-reference facts include the current day part for query authoring. Queries/objectives explicitly
   ask for compatible operating practices, household routines, night work and street activity at that time of day.
   Full local time remains in applicability context. Foreground/search budgets, source scope and advisory authority stay.
