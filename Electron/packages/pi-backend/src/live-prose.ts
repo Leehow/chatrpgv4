@@ -151,7 +151,7 @@ function completeField(json:string,field:string): unknown {
 }
 
 /** What the screen should now hold: the draft card's id and text. `first` is the first time it holds prose. */
-export type LiveProseDraw = { id: string; text: string; first: boolean };
+export type LiveProseDraw = { id: string; text: string; first: boolean; replace?: true };
 
 /**
  * One table's live delivery prose (§171.2). A turn holds at most one draft. The first delivering
@@ -215,7 +215,7 @@ export class LiveDeliveryProse {
     let parsed=args;
     if(typeof args==='string'){try{parsed=JSON.parse(args);}catch{}}
     const row=isRecord(parsed)?parsed:{};
-    return this.show(displayedProse(prose,priceRows(row.effects,row.quotes)).trim());
+    return this.show(displayedProse(prose,priceRows(row.effects,row.quotes)).trim(), !call.live);
   }
 
   /** The turn's prose was delivered: the id of the draft it replaces, if one is on screen. */
@@ -226,11 +226,11 @@ export class LiveDeliveryProse {
     return id;
   }
 
-  private show(text: string): LiveProseDraw | undefined {
+  private show(text: string, replace = false): LiveProseDraw | undefined {
     const draft = this.draft;
     if (!draft || !text.trim() || text === draft.shown) return undefined;
     const first = !draft.shown;
     draft.shown = text;
-    return { id: draft.id, text, first };
+    return { id: draft.id, text, first, ...(replace ? { replace: true as const } : {}) };
   }
 }

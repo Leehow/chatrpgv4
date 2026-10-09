@@ -32,7 +32,7 @@ async function eventually(check: () => boolean | Promise<boolean>, timeoutMs = 3
   throw new Error("condition was not met before timeout");
 }
 
-type Drawn = { id: string; replacesDraft?: string; draft: boolean; marked?: string; at: number };
+type Drawn = { id: string; replacesDraft?: string; draft: boolean; draftReplaced?: true; marked?: string; at: number };
 
 async function fixture(mode = "play") {
   root = await mkdtemp(join(tmpdir(), "pipi-live-prose-"));
@@ -59,6 +59,7 @@ async function fixture(mode = "play") {
     if (event.type !== "presentation") return;
     const details = event.entry.presentation?.details ?? {};
     drawn.push({ id: event.entry.id, ...(event.replacesDraft ? { replacesDraft: event.replacesDraft } : {}), draft: details.draft === true,
+      ...(details.draft_replaced === true ? { draftReplaced: true } : {}),
       ...(typeof details.marked_text === "string" ? { marked: details.marked_text } : {}), at: Date.now() });
   });
   const rpc = (event: unknown) => (backend as any).rpcEvent((backend as any).live.get("s1"), event);
@@ -167,7 +168,7 @@ describe("PiHostBackend live delivery prose (§171)", () => {
       await sleep(80);
       expect(drawn.length).toBe(before);
       rpc({ type: "message_update", assistantMessageEvent: { type: "toolcall_end", contentIndex: 0, toolCall: { type: "toolCall", id: "c3", name: "narrate", arguments: { text: changed } } } });
-      expect(drawn.at(-1)).toMatchObject({ id, draft: true, marked: changed });
+      expect(drawn.at(-1)).toMatchObject({ id, draft: true, draftReplaced: true, marked: changed });
       card("card-2", changed);
       expect(drawn.at(-1)).toMatchObject({ id: "card-2", replacesDraft: id });
       await close("resend-turn");

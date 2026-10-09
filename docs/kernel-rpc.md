@@ -33320,17 +33320,19 @@ For a relevant effective input change, the host must emit a new FULL instruction
 
 This is presentation pacing. A completed delivery is still committed immediately under section 166. New live Keeper prose is revealed at approximately 50 graphemes per second; this does not delay a kernel transaction or start a review/rewrite lane.
 
-The UI's live presentation/replacement path creates a transient playback identity. History has none. A redraw keeps that identity and its displayed character budget, so a replacement of the unrevealed tail does not flash the whole delivery or restart from zero. Once displayed, a delivery stays complete across patches and virtualized row remounts. Reduced-motion preference shows the complete delivery immediately. Timers are cancelled on unmount and never catch up in a burst after a hidden window.
+The UI's live presentation/replacement path creates a transient playback identity. History has none. Initial generation and append-only growth of its draft keep that identity and its displayed character budget. **Owner amendment, 2026-10-08:** a revision of existing prose replaces the original row immediately, including an unrevealed tail or an edit arriving during playback. It discards playback for that row, clears its timer and cursor, and stays immediate across later redraws, history refreshes and virtualized remounts. An identical-prose or metadata-only redraw retains playback. A delivered card taking a draft's place retains playback only when its prose equals or extends the draft; rewritten prose is immediate. Reduced-motion preference shows the complete delivery immediately. Timers are cancelled on unmount and never catch up in a burst after a hidden window.
 
 The host passes optional UI-only `typewriter: {visible: number, active: boolean}` to the controlled mechanics renderer. It counts graphemes of player prose, never speaker or receipt tokens. The renderer parses a complete marked delivery once per content update, then reveals prepared text runs and the receipts at their prose positions. Closed markers remain atomic; no brace or partial Unicode grapheme is displayed. Trailing folds/help appear when prose completes. Copy, illustrations, persisted text and elapsed-time evidence still use the complete delivery.
 
-Writer: `applyStreamEvent` creates and preserves live playback identity. Reader: the transcript reveal hook and the controlled renderer receive its cursor budget. Actor: the player reads progressively; an in-place card update uses the same playback. Verification covers live and history paths, tail replacement, completion/remount, reduced motion, Unicode, inline receipts, marker hiding and timer disposal.
+Writer: `applyStreamEvent` creates live playback identity and removes it for prose revisions; `reconcileHistorySnapshot` applies the same rule. Reader: the transcript reveal hook and the controlled renderer receive its cursor budget. Actor: the player reads initial prose progressively and sees a revision immediately in its original row. Verification covers live and history paths, immediate tail replacement, completion/remount, reduced motion, Unicode, inline receipts, marker hiding and timer disposal.
 
 Implementation precedent: React's [state identity guidance](https://react.dev/learn/preserving-and-resetting-state) confirms that an in-place update should retain its component identity. MDN's [animation scheduling guidance](https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame) explains background suspension; playback advances by a bounded amount per tick instead of recovering elapsed wall time in a burst. Neither source requires changing the delivery transaction.
 
 Implementation decision: the shared UI hook stores per-message playback in a weak map; same-id history refreshes retain the live identity, while cold history receives none. The controlled loader forwards only the cursor budget. The mechanics component memoizes its parsed tree and reveals text runs at Unicode grapheme boundaries, keeping speaker spans and receipt positions. Plain Keeper prose uses Streamdown's existing streaming view until playback completes. A renderer that is still loading spends no reveal budget.
 
 Verification: 173 focused UI tests and 9 pack/language checks passed; the Vite UI bundle built successfully. The UI TypeScript check has 56 distinct pre-existing errors on both base and modified source, with no new errors. The older full controlled-loader test file also cannot import the base tree's missing `git-capability` fixture; the new test instead covers the actual controlled-loader-to-mechanics path. Playwright captured progressive Chinese prose, an unseen tail replacement after 600 ms, speaker colour, and the completed delivery with no remaining cursor. Evidence is retained under `.coc/playtests/coc-typewriter-ui-20261002`. This is frontend verification; no packaged App or live Keeper acceptance was performed.
+
+**2026-10-08 implementation decision and verification.** The transcript compares the marker-free prose on live redraws and same-id history refreshes. An existing row loses its playback identity on a text revision, while equal prose and initial draft growth retain it. A changed resend is explicitly marked by `LiveDeliveryProse.end` and projected as `draft_replaced`, so an appended correction cannot be mistaken for more of the first generation. Removing the identity makes the existing renderer draw full prose and disposes the reveal interval. React's state-identity guidance above confirms preserving the original row; MDN's [clearInterval documentation](https://developer.mozilla.org/en-US/docs/Web/API/Window/clearInterval) confirms timer cancellation. Neither source distinguishes a draft's generation from revision; that distinction comes from the host's call lifecycle. Verification: 148 focused UI checks, 20 host checks, Electron source build and preload verification passed. Checks cover immediate edits during playback, the same DOM row, refresh/remount, changed resends including suffix-only edits, and unchanged first-generation cadence. The installed App was running and was not replaced; packaged or live Keeper acceptance is not claimed.
 
 ## 168. First sight: the book's descriptions reach a new player (2026-10-02, docs/specs/first-sight.md)
 
@@ -33592,7 +33594,7 @@ A delivering call's prose is one string argument: `narrate.text`, `ask.text` and
 **A later delivering call in the same stretch.** This is a delivery the kernel refused and the Keeper resent. It changes nothing while it streams. Once its arguments are complete, the owner's ruling for that case (2026-10-03) applies:
 
 - if its prose is identical, the draft stays as it is;
-- if it differs, it replaces the draft's text in place;
+- if it differs, it replaces the draft's text in place immediately, without playback (owner amendment, 2026-10-08), even when the revision only appends to the earlier text;
 - nothing already shown is withdrawn by the host.
 
 A draft that showed nothing yet is filled by whichever call reaches it first.
@@ -33601,7 +33603,7 @@ A draft that showed nothing yet is filled by whichever call reaches it first.
 
 **The call's own card.** A call's card is opened under the provisional id `content-<index>`, and its end event names the real id. Once a draft row follows that card, the last row is the draft. So `applyStreamEvent` finds the card by its place in its message (content index within the segment) and closes it where it is. Without this, the installed App's first table (2026-10-03) showed a second card for the call below the draft and left the first one running until the history read.
 
-**Playback.** §167's playback follows it: `useNarrationTypewriter(…, growing)`. With `growing` set from `details.draft`, playback that caught up resumes when more prose arrives, instead of showing the new part at once. A delivery that is not a draft keeps §167's "complete stays complete".
+**Playback.** §167's playback follows it: `useNarrationTypewriter(…, growing)`. With `growing` set from `details.draft`, playback that caught up resumes when more of the first generation arrives. A changed resend carries the host-only `details.draft_replaced: true`; the UI removes playback for that row even when the resend only appends prose. Metadata-only redraws retain playback, and later patches never create another identity for an existing row.
 
 ### 171.3 The delivery takes the draft's place
 
@@ -33610,7 +33612,7 @@ The first presentation the host streams whose prose counts under §135.11.5 carr
 `applyStreamEvent` handles a delivery that carries `replacesDraft`:
 
 - It puts the delivery at the draft's index in the same update, even when rows of later Keeper work follow the draft.
-- It gives the delivery the draft's playback identity, so what was read is neither moved nor typed again.
+- It gives the delivery the draft's playback identity when its prose equals or extends the draft, so what was read is neither moved nor typed again. Rewritten prose replaces it immediately without playback (§167).
 - If the delivery is already on screen, it stays where it is and the draft row is dropped.
 - A `replacesDraft` naming no row on screen is ignored, and the delivery is appended as before.
 
