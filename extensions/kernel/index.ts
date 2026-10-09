@@ -5651,6 +5651,7 @@ export default function (pi: ExtensionAPI) {
 						fix: "reopen the table with its module reading extension available", details: { reason: "reading_failed" } });
 					const askedAt = state.scene?.handle, askedTurn = state.turn, askedScope = state.sourceAnswerScope ? {...state.sourceAnswerScope} : undefined;
 					const sourceRead = { purpose: answerOnly ? "answer" : "detail", focus: params.query, question: params.question ?? "" };
+					let memoEnvelope = false;
 					try {
 						// §22.4.3 (SL-36) / §22.4.3.1 (SL-58): a consultation, checked or preparing, waits at most its allowance. Past
 						// it neither is the turn's provider work: an answer goes on in the background like a read-ahead, and a
@@ -5674,6 +5675,7 @@ export default function (pi: ExtensionAPI) {
 							sourceAnswer = pendingAnswer(response, read);
 						} else if (consult && Array.isArray(response.memo) && response.memo.length) {
 							sourceAnswer = memoAnswer(response.memo);
+							memoEnvelope = true;
 							void record({ lane: 'reading', event: 'answer_memo', turn: state.turn, focus: String(params.query), answers: response.memo.length });
 							// The kernel lists the memo newest first; the shelf keeps the newest last, so it is held oldest first.
 							pendingAnswers.hold(state.campaign, askedAt, [...(response.memo as Array<Record<string, any>>)].reverse().map(entry => ({
@@ -5696,9 +5698,13 @@ export default function (pi: ExtensionAPI) {
 					if (sourceAnswer) {
 						const raw = sourceAnswer as Record<string, unknown>, focus = String(params.query), question = String(params.question ?? '');
 						if (raw.status !== 'pending') {
-							pendingAnswers.hold(state.campaign, askedAt, [{focus, question, answer: raw}], askedTurn, fromStep?.run, askedScope);
-							const page = sourceAnswerPage(raw, {focus, question, canContinue: pendingAnswers.retains(state.campaign,
-								{scene: askedAt, focus, question, scope: askedScope})});
+							let cached: boolean;
+							if (memoEnvelope) cached = pendingAnswers.cacheContinuation(state.campaign, askedAt, {focus, question, answer: raw}, askedTurn, askedScope);
+							else {
+								pendingAnswers.hold(state.campaign, askedAt, [{focus, question, answer: raw}], askedTurn, fromStep?.run, askedScope);
+								cached = pendingAnswers.retains(state.campaign, {scene: askedAt, focus, question, scope: askedScope});
+							}
+							const page = sourceAnswerPage(raw, {focus, question, canContinue: cached});
 							sourceAnswer = 'unavailable' in page ? {status: 'unavailable', question, reason: 'source_answer_unavailable', cause: page.unavailable,
 								prepared: false, authority: 'cached-source-reference'} : page.view;
 						}

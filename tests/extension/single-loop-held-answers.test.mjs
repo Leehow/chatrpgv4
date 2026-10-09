@@ -29,7 +29,8 @@ import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { BIND_FAMILY, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { CARRIED_ANSWERS_HEAD, CARRIED_HELD_HEAD, CARRIED_VIEW_BYTES, CARRIED_VIEWS_BYTES, HELD_ANSWERS_BYTES, carriedSection, readCarriedViews } from "../../runtime/jev/carried-views.ts";
-import { PendingAnswers } from "../../extensions/kernel/source-answers.ts";
+import { PendingAnswers, memoAnswer } from "../../extensions/kernel/source-answers.ts";
+import { sourceAnswerPage, withSourceQuestion } from "../../runtime/jev/source-answer-pages.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CAMPAIGN = "test-camp";
@@ -146,9 +147,23 @@ test("§135.20.1 a held answer rides last as a source_answer marked held, cut to
 	const alone = await readCarriedViews({ call: async () => ({}), people: [], held });
 	assert.deepEqual(alone.views.map((entry) => [entry.focus, entry.name, entry.held]), [["source_answer", "office", true]]);
 	assert.ok(size(alone.views[0].view) <= CARRIED_VIEW_BYTES && alone.views[0].truncated === true, "cut to one carried view, and marked");
-	assert.deepEqual(Object.keys(alone.views[0].view).slice(0, 3), ["question", "status", "answer"], "the question it answered leads, then the answer");
-	assert.equal(alone.views[0].view.question, "Who lived here?", "kept when the answer is clipped");
-	assert.ok(alone.views[0].view.answer.length < 6000, "the long answer is what was clipped");
+	const partial = alone.views[0].view;
+	assert.equal(partial.question, "Who lived here?", "the question stays with exact partial delivery");
+	assert.equal(partial.status, "partial");
+	assert.equal(partial.source_status, "answered");
+	assert.equal(partial.delivery.complete, false);
+	assert.equal(partial.authority, "source-consultation");
+	assert.equal(partial.limitations, "");
+	assert.deepEqual(partial.source_refs, checked("").source_refs);
+	assert.ok(partial.retained_parts.length > 0);
+	for (const unit of partial.retained_parts) {
+		assert.equal(unit.path, "/answer");
+		assert.equal(unit.range.total, 6000);
+		assert.equal(unit.value, held[0].view.answer.slice(unit.range.start, unit.range.end), "retained text is an exact original range");
+	}
+	assert.ok(partial.delivery.omitted_units > 0, "the full answer is not claimed by this page");
+	assert.equal(partial.read_next, undefined, "this uncached fixture must not invent a continuation");
+	assert.equal(partial.delivery.cache_unavailable, true);
 	const section = carriedSection(alone);
 	assert.equal(section.views[0].held, true, "the Keeper reads the mark");
 	assert.ok(section.head.includes(CARRIED_HELD_HEAD));
@@ -316,15 +331,50 @@ test("§135.20.1 at the extension seam: the memo's answers are held within the b
 	await table.table.session.prompt("I fold the lease.");
 	const carried = answerViews(table.requests);
 	assert.ok(carried.every((entry) => entry.request === 2 && entry.held), `turn 3's first step: ${JSON.stringify(carried.map((entry) => entry.request))}`);
-	assert.deepEqual(carried.map((entry) => entry.view.question), ["lease question 5", "lease question 4", "lease question 3"],
-		"newest first; the shelf's 8 KiB held the newest (one cut to a view's 4 KiB) and dropped the older two");
+	assert.deepEqual(carried.map((entry) => entry.view.question), ["lease question 5", "lease question 4", "lease question 3", "lease question 2"],
+		"newest first; exact pages fit the 8 KiB shelf without another held copy of the memo envelope");
 	for (const entry of carried) assert.ok(size(entry.view) <= CARRIED_VIEW_BYTES, `${entry.view.question} within one view`);
 	const note = clerkNotes(table.requests[2]).at(-1);
 	assert.ok(size(note.carried.views) <= CARRIED_VIEWS_BYTES, "the message's ceiling");
 	assert.equal(note.carried.views.find((view) => view.view.question === "lease question 5").truncated, true, "the long one is cut and marked");
-	for (const n of [1, 2]) assert.equal(occurrences(table.requests[2], `memo-answer-${n} `), 0, `the dropped answer ${n} never rides`);
+	assert.equal(occurrences(table.requests[2], "memo-answer-1 "), 0, "the dropped oldest answer never rides");
+	assert.ok(!carried.some(entry => entry.view.question === "What does the lease cover?"), "the lookup envelope is not another held answer");
 	const dropped = table.table.telemetry(CAMPAIGN).filter((row) => row.lane === "reading" && row.event === "held_dropped");
-	assert.deepEqual(dropped.map((row) => [row.reason, row.foci.length]), [["budget", 2]]);
+	assert.deepEqual(dropped.map((row) => [row.reason, row.foci.length]), [["budget", 1]]);
+});
+
+test("a long memo is read through local answer_part pages without another source consultation or held envelope", async (t) => {
+	const originals = [1, 2].map(n => ({ focus: "commission-briefing", question: `original-${n}`, source_answer: checked(`answer-${n}:${"m".repeat(2300)}`) }));
+	const raw = memoAnswer(originals), question = "Read the retained memo.";
+	const total = sourceAnswerPage(raw, {focus: "commission-briefing", question, canContinue: true}).view.delivery.total_parts;
+	const pages = [];
+	const next = (context) => {
+		const result = context.messages.filter(message => message.role === "toolResult" && message.toolName === "lookup").at(-1);
+		assert.ok(result && !result.isError);
+		const page = JSON.parse(textOf(result)).source_answer;
+		pages.push(page);
+		assert.equal(page.question, question);
+		assert.equal(page.delivery.part, pages.length - 1);
+		assert.equal(page.delivery.total_parts, total);
+		assert.ok(size(page) <= CARRIED_VIEW_BYTES);
+		return page.read_next ? consult(page.read_next.query, page.read_next.question, {answer_part: page.read_next.answer_part}) : narrate("Knott puts the memo down.");
+	};
+	const table = await hybridTable({route: stay, responses: [consult("commission-briefing", question), ...Array.from({length: total}, () => next),
+		look("time"), narrate("You fold the memo.")]});
+	t.after(() => table.dispose());
+	let reads = 0;
+	table.table.emit("coc:reading-bridge", {async ensure() {reads++; return {state: "ready", memo: originals};}, reading() {return false;}});
+	await table.table.session.prompt("I ask Knott to show me the memo.");
+	assert.equal(reads, 1, "every continuation is local, not another source job");
+	assert.equal(pages.length, total);
+	for (const [index, original] of originals.entries()) {
+		const units = pages.flatMap(page => page.retained_parts).filter(unit => unit.path === `/answers/${index}/answer`).sort((a, b) => a.range.start - b.range.start);
+		assert.equal(units.map(unit => unit.value).join(""), original.source_answer.answer);
+		assert.ok(units.every(unit => unit.context.question === original.question));
+	}
+	await table.table.session.prompt("I fold the memo.");
+	assert.deepEqual(answerViews(table.requests).map(entry => entry.view.question), ["original-1", "original-2"], "the original identities alone ride held; memo arrives newest first");
+	assert.equal(reads, 1);
 });
 
 test("§135.20.1 at the extension seam: a landed answer the Keeper's own lookup returned in this run is not carried again; the next turn carries it held, once", async (t) => {
@@ -370,19 +420,37 @@ test("§135.20.1 at the extension seam: the next turn's first step waits for thi
 	const ANSWER_B = "The lease names a Mr. Macario (wait-sentinel-b).";
 	const answers = {};
 	const way = router();
-	let armed = "", infers = 0;
+	let armed = false, waitedBeforeLanding = false, infers = 0;
 	const table = await hybridTable({ route: (batch) => way.route(batch), compile: (batch) => way.compile(batch),
 		env: { PI_COC_SOURCE_ANSWER_ALLOWANCE_MS: "20000" },
-		// The probe lands a consultation 60 ms after the first model step of the armed turn began building its note.
-		probe: (pi) => pi.events.on("coc:model-infer", () => {
-			infers++;
-			const focus = armed;
-			armed = "";
-			if (focus) setTimeout(() => answers[focus]?.land(), 60);
-		}),
+		// Release the same-scene read only after the actual settle port is waiting. RPC latency is not the landmark.
+		probe: (pi) => {
+			pi.events.on("coc:model-infer", () => { infers++; });
+			pi.events.on("coc:source-answers", (port) => {
+				const settle = port.settle;
+				port.settle = async (input) => {
+					const waiting = settle(input);
+					if (armed) {
+						armed = false;
+						let finished = false;
+						void waiting.then(() => { finished = true; });
+						await Promise.resolve();
+						assert.equal(finished, false, "the same-scene consultation is still waiting before its explicit landing");
+						waitedBeforeLanding = true;
+						answers["Whose house is it?"].land();
+					}
+					return await waiting;
+				};
+			});
+		},
 		responses: [consult("commission-briefing", "Whose house is it?"), narrate("Knott looks away."),
 			consult("commission-briefing", "Who signed the lease?"), narrate("You study the signature."),
-			look("time"), narrate("You reach the Globe's morgue.")] });
+			(context) => {
+				const snapshot = clerkNotes(context).at(-1).carried;
+				assert.ok(snapshot.pending.some(row => row.question === "Who signed the lease?"), "the other-scene read remains deferred through the first request");
+				answers["Who signed the lease?"].land();
+				return look("time");
+			}, narrate("You reach the Globe's morgue.")] });
 	t.after(() => table.dispose());
 	table.table.emit("coc:reading-bridge", {
 		async ensure(_mid, params) {
@@ -395,7 +463,7 @@ test("§135.20.1 at the extension seam: the next turn's first step waits for thi
 		reading() { return false; },
 	});
 	await table.table.session.prompt("I ask Knott whose house it is.");
-	armed = "Whose house is it?";
+	armed = true;
 	await table.table.session.prompt("I look at the lease's signature.");
 	const first = clerkNotes(table.requests[2]).at(-1).carried;
 	assert.deepEqual(first.views.filter((view) => view.focus === "source_answer").map((view) => [view.view.answer, view.held === true]), [[ANSWER_A, false]],
@@ -404,10 +472,10 @@ test("§135.20.1 at the extension seam: the next turn's first step waits for thi
 	const waits = telemetryOf(table, "run", "held_wait");
 	assert.equal(waits.length, 1);
 	assert.deepEqual([waits[0].scene, waits[0].foci, waits[0].landed, waits[0].pending], ["commission-briefing", ["commission-briefing"], 1, 0]);
-	assert.ok(waits[0].waited_ms >= 40 && waits[0].waited_ms < waits[0].bound_ms, `waited for the landing, not the bound: ${JSON.stringify(waits[0])}`);
+	assert.equal(waitedBeforeLanding, true, "the actual wait preceded landing");
+	assert.ok(waits[0].waited_ms < waits[0].bound_ms, `waited for the explicit landing, not the bound: ${JSON.stringify(waits[0])}`);
 
-	// Turn 3 asked another question here, still reading. The party leaves; it lands 60 ms into turn 4's first step.
-	armed = "Who signed the lease?";
+	// Turn 3 asked another question here. Keep it deferred until the moved scene's first request exists.
 	way.move();
 	await table.table.session.prompt("I go to the Boston Globe offices.");
 	const moved = clerkNotes(table.requests[4]).at(-1).carried;
@@ -428,7 +496,8 @@ test('source audit sees pending, landed and held evidence without consuming deli
  const before=list.audit('c', {scene:'station', turn:2});
  assert.equal(before.pending.length,0); assert.equal(before.answers[0].answer.answer,'The town is not printed.');
  assert.equal(list.take('c', {scene:'station',run:'r1'}).landed.length,1,'audit never consumes the one-time delivery');
- assert.deepEqual(list.audit('c', {scene:'station',turn:3}).answers,before.answers,'held answer remains review evidence');
+ assert.deepEqual(list.audit('c', {scene:'station',turn:3}).answers,before.answers.map(entry=>({...entry,answer:withSourceQuestion(entry.question,entry.answer)})),
+  'held answer remains the same review evidence with its canonical question');
  assert.equal(list.take('c',{scene:'station',run:'r2'}).held.length,1,'audit does not mark a run as handed');
  assert.equal(list.audit('c',{scene:'house',turn:3}).answers.length,0);
  list.register('c',{focus:'rule',question:'Which modifier?'},3,'r3',Promise.reject(new Error('fixture unavailable')),'answer','station');

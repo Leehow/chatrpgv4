@@ -102,6 +102,8 @@ export interface HeldAnswer {
 	run?: string;
 	rawBytes: number;
 	scope?: SourceAnswerScope;
+	/** §193.2: a memo envelope is retained for local continuation, never another held presentation. */
+	continuationOnly?: true;
 }
 /** What the engine takes before a model step: the consultations still reading, and those that settled and were not yet carried. */
 export interface SourceAnswersTake {
@@ -181,7 +183,7 @@ export class PendingAnswers {
 		const entries=(this.lists.get(campaign)??[]).filter(entry=>(!entry.scene||!at.scene||entry.scene===at.scene)&&sameScope(entry.scope,at.scope));
 		const project=(entry:PendingAnswer)=>({focus:entry.focus,question:entry.question,purpose:entry.kind});
 		const checked=new Map<string,Row>();
-		for(const entry of (this.shelves.get(campaign)??[]).filter(entry=>(!at.scene||entry.scene===at.scene)&&sameScope(entry.scope,at.scope)))
+		for(const entry of (this.shelves.get(campaign)??[]).filter(entry=>!entry.continuationOnly&&(!at.scene||entry.scene===at.scene)&&sameScope(entry.scope,at.scope)))
 			checked.set(entry.key,{focus:entry.focus,question:entry.question,answer:entry.answer});
 		for(const entry of entries.filter(entry=>entry.state==='landed'&&readable(entry.answer)))
 			checked.set(heldKey(entry.focus,entry.question),{focus:entry.focus,question:entry.question,answer:entry.answer});
@@ -228,12 +230,24 @@ export class PendingAnswers {
 	 * an older one that no longer fits is dropped with a `held_dropped` row (reason `budget`), never silently.
 	 */
 	hold(campaign: string, scene: string | undefined, answers: ReadonlyArray<{focus: string; question: string; answer: Row | undefined}>, turn: number, run?: string, scope?: SourceAnswerScope): void {
+		this.retain(campaign, scene, answers, turn, run, scope);
+	}
+
+	/** §193.2: retain the lookup envelope for answer_part without another held view or audit answer. */
+	cacheContinuation(campaign: string, scene: string | undefined, answer: {focus: string; question: string; answer: Row}, turn: number, scope?: SourceAnswerScope): boolean {
+		this.retain(campaign, scene, [answer], turn, undefined, scope, true);
+		return this.shelf(campaign).some(entry => entry.continuationOnly && entry.key === heldKey(answer.focus, answer.question)
+			&& entry.scene === scene && sameScope(entry.scope, scope));
+	}
+
+	private retain(campaign: string, scene: string | undefined, answers: ReadonlyArray<{focus: string; question: string; answer: Row | undefined}>,
+		turn: number, run?: string, scope?: SourceAnswerScope, continuationOnly = false): void {
 		if (!scene) return;
 		const shelf = this.shelves.get(campaign) ?? [];
 		this.shelves.set(campaign, shelf);
 		for (const {focus, question, answer} of answers) {
 			if (!readable(answer)) continue;
-			const key = heldKey(focus, question), at = shelf.findIndex(entry => entry.key === key && entry.scene === scene);
+			const key = heldKey(focus, question), at = shelf.findIndex(entry => entry.key === key && entry.scene === scene && Boolean(entry.continuationOnly) === continuationOnly);
 			const previous = at >= 0 ? shelf.splice(at, 1)[0] : undefined;
 			const raw = withSourceQuestion(question, answer), rawBytes = bytes(raw);
 			if (rawBytes > HELD_SOURCE_RAW_BYTES) {
@@ -245,7 +259,8 @@ export class PendingAnswers {
 				this.record({lane: 'reading', event: 'held_dropped', campaign, turn, reason: page.unavailable, scene, foci: [focus]});
 				continue;
 			}
-			shelf.push({key, focus, question, scene, turn, answer: raw, rawBytes, bytes: bytes(page.view),
+			shelf.push({key, focus, question, scene, turn, answer: raw, rawBytes, bytes: continuationOnly ? 0 : bytes(page.view),
+				...(continuationOnly ? {continuationOnly: true as const} : {}),
 				...(scope ? {scope: {...scope}} : {}), ...(run ?? previous?.run ? {run: run ?? previous!.run} : {})});
 		}
 		let total = 0;
@@ -279,7 +294,9 @@ export class PendingAnswers {
 	private boundShelves(): void {
 		let total = 0, count = 0;
 		const keep = new Set<HeldAnswer>();
-		const ordered = [...this.shelves.values()].flat().reverse();
+		// A continuation envelope cannot evict independently held answers to make room for a duplicate original.
+		const newest = [...this.shelves.values()].flat().reverse();
+		const ordered = [...newest.filter(entry => !entry.continuationOnly), ...newest.filter(entry => entry.continuationOnly)];
 		for (const entry of ordered) {
 			if (count >= HELD_SOURCE_ENTRIES || total + entry.rawBytes > HELD_SOURCE_RAW_BYTES) continue;
 			keep.add(entry); total += entry.rawBytes; count++;
@@ -314,7 +331,7 @@ export class PendingAnswers {
 			}
 			const answer = entry.state === 'landed' && entry.kind === 'answer' ? entry.answer : undefined;
 			const already = at.run !== undefined && readable(answer) && entry.scene !== undefined
-				&& this.shelf(campaign).some(held => held.key === heldKey(entry.focus, entry.question) && held.scene === entry.scene && held.run === at.run && sameScope(held.scope, at.scope));
+				&& this.shelf(campaign).some(held => !held.continuationOnly && held.key === heldKey(entry.focus, entry.question) && held.scene === entry.scene && held.run === at.run && sameScope(held.scope, at.scope));
 			if (readable(answer) && (!at.scene || entry.scene === at.scene)) this.hold(campaign, entry.scene, [{focus: entry.focus, question: entry.question, answer}], entry.turn, at.run, at.scope);
 			if (already) { handed.push({focus: entry.focus, since_turn: entry.turn}); continue; }
 			landed.push({focus: entry.focus, question: entry.question, since_turn: entry.turn,
@@ -331,7 +348,7 @@ export class PendingAnswers {
 		if (here.length) this.shelves.set(campaign, here); else this.shelves.delete(campaign);
 		// Without a run the landed ones of this take are the only thing known to be in hand: they are not repeated as held.
 		const now = new Set(landed.map(entry => heldKey(entry.focus, entry.question)));
-		const due = here.filter(entry => at.run === undefined ? !now.has(entry.key) : entry.run !== at.run).reverse();
+		const due = here.filter(entry => !entry.continuationOnly && (at.run === undefined ? !now.has(entry.key) : entry.run !== at.run)).reverse();
 		for (const entry of due) if (at.run !== undefined) entry.run = at.run;
 		return {pending, landed, ...(handed.length ? {handed} : {}),
 			held: due.map(entry => ({focus: entry.focus, question: entry.question, since_turn: entry.turn,
