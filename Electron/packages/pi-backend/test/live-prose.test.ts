@@ -122,8 +122,19 @@ describe("what the screen holds through a turn (§171.2)", () => {
     // And then different prose: nothing changes while it streams, and it takes the same place when it is complete.
     prose.start(0, "narrate");
     expect(prose.update(0, json("He shrugs"))).toBeUndefined();
-    expect(prose.end(0, { text: "He shrugs." })).toEqual({ id: "draft:1", text: "He shrugs.", first: false });
+    expect(prose.end(0, { text: "He shrugs." })).toEqual({ id: "draft:1", text: "He shrugs.", first: false, replace: true });
     expect(prose.delivered()).toBe("draft:1");
+  });
+
+  it('marks a changed resend as a replacement even when it only adds a suffix', () => {
+    const prose = new LiveDeliveryProse('draft');
+    prose.start(0, 'narrate');
+    prose.end(0, { text: 'He nods.' });
+    prose.messageEnded();
+    prose.start(0, 'narrate');
+    expect(prose.update(0, json('He nods. Then'))).toBeUndefined();
+    expect(prose.end(0, { text: 'He nods. Then he shuts the door.' }))
+      .toEqual({ id: 'draft:1', text: 'He nods. Then he shuts the door.', first: false, replace: true });
   });
 
   it("lets a later delivery fill a draft that never showed anything", () => {

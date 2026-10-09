@@ -28,22 +28,58 @@ beforeEach(async () => {
 })
 afterEach(() => { cleanup(); disposeUiContributions(EXT); vi.useRealTimers(); vi.unstubAllGlobals() })
 
-it('the live controlled-renderer path reveals the first draft and replaces an unseen tail without restarting', () => {
+it('a prose revision replaces the original card immediately, even while its unseen tail is playing', () => {
   const original = live()
   const mounted = render(view(original))
+  const originalRow = mounted.container.querySelector('article.message')
   expect(prose(mounted.container)).toBe('')
   act(() => vi.advanceTimersByTime(400))
   const reached = prose(mounted.container)
   expect(reached).toBe(HEAD.slice(0, 20))
   const updated = applyStreamEvent([original], { type: 'presentation', entry: delivery(REPLACED) } as never)[0]
-  expect(updated.typewriter).toBe(original.typewriter)
+  expect(updated.typewriter).toBeUndefined()
   mounted.rerender(view(updated))
-  expect(prose(mounted.container)).toBe(reached)
-  act(() => vi.advanceTimersByTime(4000))
   expect(prose(mounted.container)).toBe(`${HEAD}"The brass key is yours. Keep it safe."`)
+  expect(mounted.container.querySelectorAll('article.message')).toHaveLength(1)
+  expect(mounted.container.querySelector('article.message')).toBe(originalRow)
   expect(mounted.container.textContent).not.toContain('Take the brass key')
   expect(mounted.container.textContent).not.toContain('{{')
   expect(mounted.container.querySelector('.coc-typewriter-cursor')).toBeNull()
+  expect(vi.getTimerCount()).toBe(0)
+  mounted.unmount()
+  const remounted = render(view(updated))
+  expect(prose(remounted.container)).toBe(`${HEAD}"The brass key is yours. Keep it safe."`)
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it('identical prose and metadata-only patches preserve first-generation playback', () => {
+  const original = live()
+  const mounted = render(view(original))
+  act(() => vi.advanceTimersByTime(400))
+  const reached = prose(mounted.container)
+  const entry = delivery(ORIGINAL)
+  entry.presentation.details.mechanics = [{ kind: 'notice', text: 'A card detail.' }] as never
+  const updated = applyStreamEvent([original], { type: 'presentation', entry } as never)[0]
+  expect(updated.typewriter).toBe(original.typewriter)
+  mounted.rerender(view(updated))
+  expect(prose(mounted.container)).toBe(reached)
+  expect(mounted.container.querySelector('.coc-typewriter-cursor')).not.toBeNull()
+  act(() => vi.advanceTimersByTime(40))
+  expect(prose(mounted.container).length).toBe(reached.length + 2)
+})
+
+it('a revised history snapshot is immediate and later redraws never restart its playback', () => {
+  const original = live()
+  const mounted = render(view(original))
+  act(() => vi.advanceTimersByTime(80))
+  const refreshed = reconcileHistorySnapshot([delivery(REPLACED)] as never, 0, 0, undefined, [original]).messages[0]
+  expect(refreshed.typewriter).toBeUndefined()
+  mounted.rerender(view(refreshed))
+  expect(prose(mounted.container)).toBe(`${HEAD}"The brass key is yours. Keep it safe."`)
+  expect(vi.getTimerCount()).toBe(0)
+  const redraw = applyStreamEvent([refreshed], { type: 'presentation', entry: delivery(`${REPLACED} The clerk nods.`) } as never)[0]
+  mounted.rerender(view(redraw))
+  expect(prose(mounted.container)).toContain('The clerk nods.')
   expect(vi.getTimerCount()).toBe(0)
 })
 

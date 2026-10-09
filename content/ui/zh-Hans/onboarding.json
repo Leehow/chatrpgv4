@@ -13,6 +13,8 @@
   "choosePdfAgain": "重新选择 PDF",
   "drop": "将 PDF 拖到这里，或点击选择文件",
   "dropHint": "最大 128 MB · 原文件会保留 · 长篇模组分阶段准备",
+  "draft.preparing": "正在准备你的调查员卡…",
+  "draft.preparingDetail": "正在整理属性、技能和背景，供你查看。",
   "emptyLibrary": "还没有已解析的剧本",
   "entering": "正在进入建卡对话，开场资料将在后台继续准备。",
   "errorTitle": "这一步没有完成",

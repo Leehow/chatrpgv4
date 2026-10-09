@@ -3424,6 +3424,7 @@ export class PiHostBackend implements HostBackend {
       // will have; `draft` marks it as the turn's prose still arriving.
       const entry = { id: next.id, role: "assistant" as const, content: "", timestamp: Date.now(),
         presentation: { renderer: "coc-mechanics", details: { draft: true, mechanics: [], marked_text: next.text,
+          ...(next.replace ? { draft_replaced: true } : {}),
           ...(binding?.play_language ? { play_language: binding.play_language } : {}) } } };
       // The first draw with prose is new on screen (§135.11.5); later draws redraw it in place.
       this.stream({ type: "presentation", sessionId: live.session.id, entry }, next.first ? { customType: "coc-live-prose" } : undefined);

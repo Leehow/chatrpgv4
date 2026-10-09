@@ -84,6 +84,45 @@ it('a delivery naming a draft that is not on screen arrives as it always did', (
   expect(next.map(row => row.id)).toEqual(['u1', 'card-1'])
 })
 
+it('a changed resend is immediate even when it only appends to the draft', () => {
+  const first = draft('The clerk nods.')
+  const rows = applyStreamEvent([user], { type: 'presentation', entry: first } as never)
+  const mounted = render(view(rows[1]))
+  act(() => vi.advanceTimersByTime(40))
+  expect(prose(mounted.container)).toBe('Th')
+  const replacement = draft('The clerk nods. The door stays locked.')
+  replacement.presentation.details = { ...replacement.presentation.details, draft_replaced: true } as never
+  const replaced = applyStreamEvent(rows, { type: 'presentation', entry: replacement } as never)
+  expect(replaced.map(row => row.id)).toEqual(rows.map(row => row.id))
+  expect(replaced[1].typewriter).toBeUndefined()
+  mounted.rerender(view(replaced[1]))
+  expect(prose(mounted.container)).toBe(replacement.presentation.details.marked_text)
+  expect(mounted.container.querySelector('.coc-typewriter-cursor')).toBeNull()
+  expect(vi.getTimerCount()).toBe(0)
+  const card = { ...delivered, presentation: { renderer: 'coc-mechanics',
+    details: { marked_text: replacement.presentation.details.marked_text, mechanics: [] } } }
+  const finalized = applyStreamEvent(replaced, { type: 'presentation', entry: card, replacesDraft: replacement.id } as never)
+  expect(finalized[1].typewriter).toBeUndefined()
+  mounted.rerender(view(finalized[1]))
+  expect(prose(mounted.container)).toBe(replacement.presentation.details.marked_text)
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it('rewritten prose in the delivered card replaces a playing draft immediately', () => {
+  const rows = applyStreamEvent([user], { type: 'presentation', entry: draft('The clerk nods.') } as never)
+  const mounted = render(view(rows[1]))
+  act(() => vi.advanceTimersByTime(40))
+  const revised = { ...delivered, presentation: { renderer: 'coc-mechanics', details: { marked_text: 'The clerk refuses.', mechanics: [] } } }
+  const next = applyStreamEvent(rows, { type: 'presentation', entry: revised, replacesDraft: rows[1].id } as never)
+  expect(next.map(row => row.id)).toEqual(['u1', revised.id])
+  expect(next[1].typewriter).toBeUndefined()
+  mounted.unmount()
+  const card = render(view(next[1]))
+  expect(prose(card.container)).toBe('The clerk refuses.')
+  expect(card.container.querySelector('.coc-typewriter-cursor')).toBeNull()
+  expect(vi.getTimerCount()).toBe(0)
+})
+
 it('closes the call\'s own card where it was opened when the draft row already follows it', () => {
   let rows = applyStreamEvent([user], { type: 'tool_call', sessionId: 's1', contentIndex: 0, segment: 3, toolCallId: 'content-0', name: 'tool', delta: '' } as never)
   rows = applyStreamEvent(rows, { type: 'tool_call', sessionId: 's1', contentIndex: 0, segment: 3, toolCallId: 'content-0', name: 'tool', delta: '{"text":"土路' } as never)

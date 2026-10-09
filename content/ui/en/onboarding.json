@@ -24,6 +24,8 @@
   "choosePdfAgain": "Choose another PDF",
   "drop": "Drop a PDF here, or click to choose a file",
   "dropHint": "Up to 128 MB · the original is kept · long modules are prepared in stages",
+  "draft.preparing": "Preparing your character card…",
+  "draft.preparingDetail": "Formatting attributes, skills and background for your review.",
   "emptyLibrary": "No prepared scenarios yet",
   "entering": "Entering the character conversation; the opening keeps preparing in the background.",
   "errorTitle": "This step did not finish",

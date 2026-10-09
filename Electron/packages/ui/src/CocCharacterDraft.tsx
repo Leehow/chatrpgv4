@@ -67,6 +67,7 @@ function pool(budget:Row|undefined,key:string):{total?:number;spent?:number;unsp
 }
 export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onConfirm,onSpread,onReroll,onCatalog}:Props) {
   const [presentation,setPresentation]=useState<Row|null>(data.presentation||null)
+  const [revealing,setRevealing]=useState(false)
   const [showDetails,setShowDetails]=useState(false)
   const [editing,setEditing]=useState(false)
   const [busy,setBusy]=useState<string|null>(null)
@@ -80,10 +81,11 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onC
     let active=true
     let timer:ReturnType<typeof setTimeout>|undefined
     setError(null)
+    setRevealing(false)
     if(data.presentation){setPresentation(data.presentation);return()=>{active=false}}
     setPresentation(null)
     const load=async()=>{
-      try {const value=await onPresentation!();if(!active)return;if(value.pending){timer=setTimeout(load,1500);return;}setPresentation(value)}
+      try {const value=await onPresentation!();if(!active)return;if(value.pending){timer=setTimeout(load,1500);return;}setPresentation(value);setRevealing(true)}
       catch(e){if(active)setError(failureText(e))}
     }
     if(onPresentation)void load()
@@ -91,7 +93,19 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onC
   },[data.revision,data.play_language,retry])
   useEffect(()=>{if(presentation&&onRendered)void onRendered().catch(e=>setError(failureText(e)))},[presentation,data.revision])
   const sheet=data.sheet
-  if(!sheet||!presentation)return <section className="coc-draft-pending" aria-busy={!error} role="status">{error?<><span className="coc-draft-error">{error}</span><button type="button" onClick={()=>setRetry(x=>x+1)}>↻</button></>:<span className="coc-draft-spinner" aria-hidden="true"/>}</section>
+  const pendingWord=(key:string,fallback:string)=>data.ui?.words?.onboarding?.[key]||fallback
+  if(!sheet||!presentation)return <section className={`coc-draft-pending${error?' coc-draft-pending-error':''}`} aria-busy={!error}>
+    {error?<div className="coc-draft-failure" role="status"><span className="coc-draft-error">{error}</span><button type="button" onClick={()=>setRetry(x=>x+1)}>↻</button></div>:<>
+      <div className="coc-draft-pending-heading">
+        <span className="coc-draft-spinner" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span>
+        <div className="coc-draft-pending-copy" role="status" aria-live="polite" aria-atomic="true">
+          <p className="coc-draft-pending-title">{pendingWord('draft.preparing','Preparing your character card…')}</p>
+          <p className="coc-draft-pending-detail">{pendingWord('draft.preparingDetail','Formatting attributes, skills and background for your review.')}</p>
+        </div>
+      </div>
+      <div className="coc-draft-skeleton" aria-hidden="true"><div className="coc-draft-skeleton-line"/><div className="coc-draft-skeleton-stats">{Array.from({length:6},(_,i)=><span key={i}/>)}</div></div>
+    </>}
+  </section>
   // A word the projection does not carry comes back as itself. Returning '' instead blanked the
   // cell, which reads as "this card has nothing here" rather than "this word is not translated
   // yet" -- and a blank is the one thing a player cannot report.
@@ -253,7 +267,7 @@ export function CocCharacterDraft({data,onRendered,onPresentation,onOverride,onC
   // `{amount: null, formula: 'None'}` -- put the literal word `null` in front of a currency on two
   // live tables. The value the kernel records is right; printing it was not.
   const money=(entry:Row)=>entry&&entry.amount!==null&&entry.amount!==undefined?`${entry.amount} ${t(entry.currency)}`:cell(null)
-  return <section aria-label={t('Character draft')} data-draft-revision={data.revision} className="coc-draft" data-view={showDetails?'details':'compact'}>
+  return <section aria-label={t('Character draft')} data-draft-revision={data.revision} className={`coc-draft${revealing?' coc-draft-reveal':''}`} data-view={showDetails?'details':'compact'}>
     <header className="coc-draft-header"><div className="coc-draft-identity"><h2>{sheet.name}</h2><p>{sheet.occupation_stated?<>{sheet.occupation_stated} ({t(sheet.occupation)})</>:t(sheet.occupation)} · {sheet.age}{sheet.sex?<> · {t(sheet.sex)}</>:null} · {t(sheet.era)}</p>
       {budget?.legal===false&&<p className="coc-draft-nonstandard">{t('Non-standard card')}</p>}</div>
       <div className="coc-draft-toolbar"><p className="coc-draft-guidance">{t('Click "Confirm and open the table", or say below what to change.')}</p>

@@ -59,7 +59,7 @@ export type ChatMessage = {
   serverSideToolUsage?: Record<string, number>
   /** assistant only: the session's opening narration, delivered whole — the renderer reveals it progressively. */
   opening?: boolean
-  /** UI-only live playback identity, retained by redraws; history never supplies one. */
+  /** UI-only first-generation playback identity; prose revisions remove it. Cold history has none. */
   typewriter?: object
   /** assistant only: a host-delivered opening's help fold, drawn behind a "?" after the text. */
   help?: OpeningHelp
@@ -269,6 +269,22 @@ export function withoutMechanicsMarkers(text: string): string {
     .replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim()
 }
 
+/** Keep initial generation paced; a revision is an immediate update of the same row (§167). */
+function playbackForRedraw(previous: ChatMessage, incoming: ChatMessage): object | undefined {
+  if (!previous.typewriter) return undefined
+  const details = incoming.presentation?.details as { draft_replaced?: boolean } | undefined
+  if (details?.draft_replaced === true) return undefined
+  const prose = (message: ChatMessage) => {
+    const data = message.presentation?.details as { marked_text?: string; rendered_text?: string } | undefined
+    return withoutMechanicsMarkers(message.presentation?.renderer === 'coc-mechanics'
+      ? data?.marked_text || data?.rendered_text || '' : message.content)
+  }
+  const before = prose(previous)
+  const after = prose(incoming)
+  const draft = (previous.presentation?.details as { draft?: boolean } | undefined)?.draft === true
+  return after === before || (draft && after.startsWith(before)) ? previous.typewriter : undefined
+}
+
 /**
  * Drop the plain copy of a delivery the mechanics card is already drawing (contract §16.6).
  *
@@ -447,9 +463,12 @@ export function reconcileHistorySnapshot(
   previousFingerprint?: string,
   liveMessages?: readonly ChatMessage[],
 ): { status: 'accepted' | 'unchanged' | 'stale-request' | 'retained-longer-live'; messages: ChatMessage[]; fingerprint: string } {
-  const livePlayback = new Map(liveMessages?.filter(message => message.typewriter).map(message => [message.id, message.typewriter]))
-  const messages = historyMessages(entries).map(message => livePlayback.has(message.id)
-    ? { ...message, typewriter: livePlayback.get(message.id) } : message)
+  const liveRows = new Map(liveMessages?.map(message => [message.id, message]))
+  const messages = historyMessages(entries).map(message => {
+    const previous = liveRows.get(message.id)
+    const typewriter = previous && playbackForRedraw(previous, message)
+    return typewriter ? { ...message, typewriter } : message
+  })
   const fingerprint = transcriptFingerprint(messages)
   if (requestLiveRevision !== currentLiveRevision) return { status: 'stale-request', messages, fingerprint }
   if (fingerprint === previousFingerprint) return { status: 'unchanged', messages, fingerprint }
@@ -685,12 +704,14 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     const liveProse = (event.entry.role ?? 'assistant') === 'assistant' && (event.entry.presentation
       ? event.entry.presentation.renderer === 'coc-mechanics' && Boolean(details?.marked_text || details?.rendered_text)
       : Boolean(event.entry.content))
-    // §171.3: a delivery that replaces the draft drawn while it streamed goes where the draft was, in this same update,
-    // and keeps the draft's playback (§167), so what was already read is neither moved nor typed again.
+    // §171.3: a delivery takes the draft's place in the same update. Initial growth retains playback;
+    // revised prose drops it, so the update appears immediately and never starts another animation (§167).
     const replaces = event.replacesDraft
     const draftAt = replaces ? previous.findIndex(item => item.id === replaces) : -1
-    const typewriter = at >= 0 ? previous[at].typewriter : draftAt >= 0 ? previous[draftAt].typewriter ?? (liveProse ? {} : undefined) : liveProse ? {} : undefined
-    const message:ChatMessage={id:event.entry.id,role:event.entry.role??'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(event.entry.providerNotice?{providerNotice:event.entry.providerNotice}:{}),...(opening?{opening:true}:{}),...(event.entry.help?{help:event.entry.help}:{}),...(typewriter?{typewriter}:{})};
+    const message:ChatMessage={id:event.entry.id,role:event.entry.role??'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(event.entry.providerNotice?{providerNotice:event.entry.providerNotice}:{}),...(opening?{opening:true}:{}),...(event.entry.help?{help:event.entry.help}:{})};
+    const prior = at >= 0 ? previous[at] : draftAt >= 0 ? previous[draftAt] : undefined
+    const typewriter = prior ? playbackForRedraw(prior, message) : liveProse ? {} : undefined
+    if (typewriter) message.typewriter = typewriter
     if (draftAt >= 0) return at >= 0
       ? previous.filter((_, i) => i !== draftAt).map(item => item.id === entryId ? message : item)
       : previous.map((item, i) => i === draftAt ? message : item)
