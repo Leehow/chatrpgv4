@@ -45,14 +45,18 @@ excerpt probe do not establish a completed campaign, installed-App acceptance or
   reproduces the stale flag; awaiting the release at `agent_settled` fixes it. Three recovery regressions pass,
   including the failed-release fallback. No post-repair campaign completion is claimed.
 - Recovery change LAN focused check passed: ext 2360, pytest 2114 / 2 skipped, loop 12; exit 0, 592 seconds wall.
-  Final combined `all` check is running; no production edits remain planned.
+  Final combined `all` check: pytest 2114 passed / 2 skipped and loop 12 passed. Ext first run under concurrent
+  test-box load had 5391 passed / 2 failed / one remaining non-pass; failures were historical budget handoff and
+  second transcript-child timeout. Both files passed unchanged on the same idle Linux box, serially: 14 / 14,
+  exit 0 (61.18 seconds), `serial-failure-rerun.log`. Do not rewrite this as a clean all-suite first run.
+- Recovery commit: `80fd14c69`. Both repair commits were fast-forwarded into `0.9.7a`; only owned patch hunks
+  were staged, the temporal task's §208 addition was compared before/after and preserved, and the index is empty.
+- Source repair is complete. Additional live play was blocked by the Keeper provider and cannot be called passed.
+  No API credential was persisted by this task; no installed App package was produced.
 
 ## Remaining
 
-- Finish final LAN `all` validation of all three fixes.
-- Review and commit recovery patch; integrate only owned changes into the latest mainline without absorbing the
-  temporal task. Recheck Git operation/ownership state first.
-- Preserve original playtest directories. Record a terminal retained lifecycle classification if protected evidence
-  prevents worktree removal; do not delete it merely to close the task.
-- Update this record and final audit with actual validation/integration outcomes. Installed App was not packaged
-  or restarted; further live play needs a working Keeper provider.
+- Commit this outcome record and fast-forward that documentation update into the mainline.
+- Preserve original playtest directories. The worktree's untracked `PLAYTEST_EVIDENCE.json` records protected
+  transport evidence and intentionally prevents automatic removal. Final lifecycle classification is retained
+  for that evidence; no deletion is authorized. Run the terminal closeout/audit before final reporting.
