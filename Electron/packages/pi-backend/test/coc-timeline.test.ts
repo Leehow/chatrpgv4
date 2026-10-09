@@ -1,5 +1,5 @@
 import {describe,it,expect,vi} from 'vitest';
-import {mkdtemp,mkdir,cp,readFile,appendFile} from 'node:fs/promises';
+import {mkdtemp,mkdir,cp,readFile,appendFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import * as cocView from '../src/coc-view.js';
@@ -84,3 +84,53 @@ it('branches the selected delivery into a persisted child, selects it and switch
     expect(calls.mock.calls.filter(call=>call[2]==='table.branch')).toHaveLength(1);
   } finally {await backend.close();vi.restoreAllMocks();}
 });
+
+for (const mode of ['setup', 'play'] as const) {
+  it(`cold ${mode} timeline projects the bound phase and words without spawning or changing the session`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'coc-cold-phase-'));
+    const repo = resolve(import.meta.dirname, '../../../..');
+    const pack = join(root, 'profile', 'extensions', 'coc-keeper');
+    await mkdir(pack, {recursive: true});
+    await cp(join(repo, 'pipiui-extension.json'), join(pack, 'pipiui-extension.json'));
+    await cp(join(repo, 'pipicoc'), join(pack, 'pipicoc'), {recursive: true});
+    const directory = join(root, 'sessions', 'project');
+    await mkdir(directory, {recursive: true});
+    const file = join(directory, 'cold.jsonl');
+    const rows = [
+      {type: 'session', version: 3, id: 'cold-session', timestamp: '2026-10-09T00:00:00.000Z', cwd: root},
+      {type: 'custom', customType: 'coc-session', data: {campaign: 'c1', home: root, mode, play_language: 'en'}},
+      {id: 'anchor', type: 'custom', customType: 'coc-turn-anchor', data: {commit: 'abc1234', turn: 1}},
+      {id: 'reply', type: 'message', message: {role: 'assistant', content: [{type: 'text', text: 'Fixture delivery.'}]}},
+    ];
+    await writeFile(file, rows.map(row => JSON.stringify(row)).join('\n') + '\n');
+    const original = await readFile(file, 'utf8');
+    const graph = {active: 'main', lines: [{name: 'main'}], nodes: []};
+    const call = vi.spyOn(cocView, 'callColdKernel').mockImplementation(async (_repo, _home, method) => {
+      if (method !== 'table.graph') throw new Error('A cold read must only request the graph');
+      return graph;
+    });
+    const spawn = vi.fn(() => {throw new Error('A cold timeline must not start Pi');});
+    const backend = createPiHostBackend({agentDir: join(root, 'profile'), sessionsRoot: join(root, 'sessions'),
+      runtimeRoot: join(root, 'runtime'), defaultPack: 'coc-keeper', managedNodeModulesRoot: join(resolve(import.meta.dirname, '../../../..'), 'node_modules'), spawn});
+    const ui = {words: {composer: {placeholder_setup: 'Setup fixture caption', placeholder_play: 'Play fixture caption'}}};
+    vi.spyOn(backend as any, 'cocAnswerWords').mockResolvedValue({ui});
+    try {
+      await backend.handle('addProject', [root]);
+      const answer = await backend.handle('invokeExtension', ['coc-keeper', 'timeline.graph', {}, {sessionId: 'cold-session'}]) as any;
+      expect(answer.ok).toBe(true);
+      expect(answer.data.phase).toBe(mode);
+      expect(answer.data.active).toBe('main');
+      expect(answer.data.nodes).toEqual([]);
+      expect(answer.data.anchors).toEqual([{commit: 'abc1234', turn: 1, messageId: 'reply', endId: 'reply', sessionId: 'cold-session'}]);
+      expect(answer.data.ui).toEqual(ui);
+      expect(answer.data.sessions.map((session: any) => session.id)).toEqual(['cold-session']);
+      expect(call.mock.calls.map(args => args[2])).toEqual(['table.graph']);
+      expect(spawn).not.toHaveBeenCalled();
+      expect(await readFile(file, 'utf8')).toBe(original);
+    } finally {
+      await backend.close();
+      vi.restoreAllMocks();
+      await rm(root, {recursive: true, force: true});
+    }
+  });
+}
