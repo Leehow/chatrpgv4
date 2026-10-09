@@ -18,6 +18,38 @@ it('does not acknowledge an untranslated card while its projection is pending',(
  const ack=vi.fn(async()=>{});const {container}=render(<CocCharacterDraft data={{revision:1,play_language:'zh-Hans',sheet}} onPresentation={()=>new Promise(()=>{})} onRendered={ack}/>);
  expect(container.querySelector('.coc-draft-spinner')).toBeTruthy();expect(ack).not.toHaveBeenCalled();
 })
+it('explains the pending card in the host words before its card glossary exists',()=>{
+ const ack=vi.fn(async()=>{}),load=vi.fn(()=>new Promise<Record<string,any>>(()=>{}));
+ const data={revision:1,sheet,ui:{words:{onboarding:{'draft.preparing':'Projected card preparation','draft.preparingDetail':'Projected attributes, skills and background'}}}};
+ const before=JSON.stringify(data);
+ const {container,rerender}=render(<CocCharacterDraft data={data} onPresentation={load} onRendered={ack}/>);
+ expect(screen.getByRole('status').textContent).toContain('Projected card preparation');
+ expect(screen.getByRole('status').textContent).toContain('Projected attributes, skills and background');
+ expect(container.querySelector('.coc-draft-pending')?.getAttribute('aria-busy')).toBe('true');
+ expect(container.querySelector('.coc-draft-skeleton')?.getAttribute('aria-hidden')).toBe('true');
+ expect(screen.queryByRole('region')).toBeNull();expect(ack).not.toHaveBeenCalled();
+ rerender(<CocCharacterDraft data={{...data,ui:undefined}} onPresentation={load} onRendered={ack}/>);
+ expect(screen.getByRole('status').textContent).toContain('Preparing your character card…');
+ expect(load).toHaveBeenCalledOnce();expect(JSON.stringify(data)).toBe(before);
+})
+it('reveals a card that finished preparing once without waiting to acknowledge it',async()=>{
+ const ack=vi.fn(async()=>{});
+ let finish!:(value:Record<string,any>)=>void;
+ const {container,rerender}=render(<CocCharacterDraft data={{revision:1,sheet}} onPresentation={()=>new Promise(resolve=>{finish=resolve})} onRendered={ack}/>);
+ finish({texts:zh});
+ const card=await screen.findByRole('region',{name:'角色草稿'});
+ expect(card.classList.contains('coc-draft-reveal')).toBe(true);
+ await waitFor(()=>expect(ack).toHaveBeenCalledOnce());
+ expect(container.querySelector('.coc-draft-pending')).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'查看计算详情'}));
+ expect(screen.getByRole('region',{name:'角色草稿'})).toBe(card);
+ expect(card.classList.contains('coc-draft-reveal')).toBe(true);
+ rerender(<CocCharacterDraft data={{revision:1,sheet,presentation:{texts:zh}}}/>);
+ expect(screen.getByRole('region',{name:'角色草稿'})).toBe(card);
+ cleanup();
+ render(<CocCharacterDraft data={{revision:1,sheet,presentation:{texts:zh}}}/>);
+ expect(screen.getByRole('region',{name:'角色草稿'}).classList.contains('coc-draft-reveal')).toBe(false);
+})
 it('polls the same pending projection and acknowledges only the displayed result',async()=>{
  const ack=vi.fn(async()=>{}),load=vi.fn().mockResolvedValueOnce({pending:true}).mockResolvedValue({play_language:'zh-Hans',texts:zh});
  render(<CocCharacterDraft data={{revision:2,play_language:'zh-Hans',sheet}} onPresentation={load} onRendered={ack}/>);
@@ -175,6 +207,8 @@ it('shows why a projection failed next to its retry, and recovers on retry',asyn
  const load=vi.fn().mockRejectedValueOnce(new Error('Model "grok-build/grok-4.6" not found. Use --list-models to see available models.')).mockResolvedValue({play_language:'zh-Hans',texts:zh});
  render(<CocCharacterDraft data={{revision:2,play_language:'zh-Hans',sheet}} onPresentation={load}/>);
  expect(await screen.findByText(/grok-build\/grok-4\.6" not found/)).toBeTruthy();
+ expect(document.querySelector('.coc-draft-skeleton')).toBeNull();
+ expect(document.querySelector('.coc-draft-pending')?.getAttribute('aria-busy')).toBe('false');
  fireEvent.click(screen.getByRole('button',{name:'↻'}));
  expect(await screen.findByRole('region',{name:'角色草稿'})).toBeTruthy();
  expect(load).toHaveBeenCalledTimes(2);

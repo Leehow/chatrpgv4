@@ -5892,6 +5892,45 @@ receipts and development capsules remain responsible for game-state persistence.
 
 ### 23.4 Immersive setup: one calculated draft, one confirmation
 
+**Character-card waiting and reveal (2026-10-08).** While the draft's existing
+presentation request is pending, its transcript row shows a card-shaped placeholder
+with a stable title and description from `ui.words.onboarding` (`draft.preparing`
+and `draft.preparingDetail`), plus a decorative shimmer. The host writes those
+words through the existing UI presenter; the card reads them before its own glossary
+is ready, and the player understands which card is being prepared. Missing captions
+use the single English source, without language-specific branches. No timed phase,
+percentage or completion estimate is invented. A failed request retains the existing
+reason and retry control and stops the loading decoration. When a pending card becomes
+displayable, it fades in and rises by 8 px over 420 ms; already-projected history and
+ordinary card interactions do not replay the reveal. Reduced motion disables the
+shimmer and reveal. Neither decoration delays the existing rendered acknowledgement,
+confirmation or a kernel transaction.
+
+Precedent: [Carbon's loading pattern](https://www.carbondesignsystem.com/building-blocks/core/patterns/loading)
+supports local card placeholders and meaningful busy states;
+[MDN's reduced-motion guidance](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/At-rules/@media/prefers-reduced-motion)
+supports suppressing decorative motion. Carbon's short-loading examples do not
+establish a duration for this model-backed request; this row keeps an honest,
+indeterminate description throughout the wait.
+
+UI verification: 105 focused character-card, edit, transcript and onboarding checks
+passed, and the UI Vite bundle built. A browser rendering of the real component
+verified the projected captions, 360 px layout without overflow, the 420 ms reveal,
+no replay when opening details, and disabled shimmer/reveal with reduced motion.
+The generated caption seed came from a tool-enabled Pi presenter using
+`openai-codex/gpt-6-luna`; all shipped seed key sets match the English source.
+LAN follow-up: the source snapshot at `0289ec6152f2a6c3b7c853afd478573a187c7120`
+built successfully on leehow-pc. The 21 selected extension files ran 169 checks:
+165 passed and four failed, with monitor exit 1. All four failures are the timeline
+cases in `tests/extension/panel-background-refresh.test.mjs` (lines 142, 161, 174
+and 189): its injected React stand-in has no `useLayoutEffect`, which the current
+`pipicoc/timeline.js` calls at line 413. Neither file was modified by this UI change.
+This is not an all-green regression result; the fixture failure was recorded without
+expanding the repair scope. The full result is retained in `lan-tests.log`.
+Evidence is `.coc/playtests/character-card-ui-20261008/`. These are frontend checks;
+the running installed App and its setup session were preserved, with no package
+replacement or live Keeper acceptance in this change.
+
 This section replaces the earlier prose-only confirmation implementation. Acceptance
 is docs/specs/immersive-character-creation.md. The existing setup tool and campaign
 store own the lifecycle; no second creation agent or rules engine is introduced.
