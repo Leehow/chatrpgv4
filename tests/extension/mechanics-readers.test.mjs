@@ -151,7 +151,7 @@ test('the capsule\'s where.rules rows carry the mech line rendered from typed va
     const capsule = await opened.call('table.capsule');
     // The capsule's `where` budget may drop trailing rows (§13.1); every row it keeps carries its exact line.
     assert.deepEqual(capsule.where.rules.map(entry => entry.name), Object.keys(EXPECTED).slice(0, capsule.where.rules.length));
-    assert.ok(capsule.where.rules.length >= 2, 'the long hazard row and the next row are in the capsule');
+    assert.ok(capsule.where.rules.length >= 1, 'the long hazard row is kept; trailing rows may be dropped within the richer source projection');
     for (const entry of capsule.where.rules) {
         const line = EXPECTED[entry.name];
         assert.equal(entry.mech, line.length > 160 ? Array.from(line).slice(0, 160).join('') : line, entry.name);

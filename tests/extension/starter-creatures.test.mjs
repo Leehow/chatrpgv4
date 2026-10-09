@@ -66,9 +66,9 @@ async function contentWith(id, mutate) {
   await writeFile(join(starter, 'module-graph.json'), JSON.stringify(graph, null, 2));
   return dir;
 }
-async function kernel(t, contentRoot = content, workspace = null) {
+async function kernel(t, contentRoot = content, workspace = null, seed = 'starter-creatures') {
   workspace ??= await mkdtemp(join(scratch, 'home-'));
-  const context = await api.createKernelContext({workspace, content: contentRoot, seed: 'starter-creatures', locks: api.nativeAdvisoryLocks(),
+  const context = await api.createKernelContext({workspace, content: contentRoot, seed, locks: api.nativeAdvisoryLocks(),
     env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
   const runtime = api.createKernelRuntime(context); t.after(() => runtime.close());
   const wire = value => value === undefined ? value : JSON.parse(api.pythonJsonDumps(value));
@@ -373,7 +373,8 @@ test('§180.12: mystery-house -- the prefix follows the kind, the handles stay, 
 // ---------------------------------------------------------------------------------------------------
 
 test('§180.12: a new haunting campaign shows the rats as a creature at the basement, and Corbitt\'s weakness chain', async t => {
-  const game = await kernel(t), graph = await shippedGraph('the-haunting');
+  // This sequence's first real percentile roll is 50 against Thomas's printed Spot Hidden 55.
+  const game = await kernel(t, content, null, 'dagger-discovery'), graph = await shippedGraph('the-haunting');
   const call = (method, params = {}) => game.call(method, {campaign: 'haunt', ...params});
   await game.call('campaign.create', {id: 'haunt', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
   await call('table.open');
@@ -396,6 +397,8 @@ test('§180.12: a new haunting campaign shows the rats as a creature at the base
   assert.deepEqual(card.weaknesses, chain, 'the means names itself (no one holds the dagger yet) and the route counts its clues');
   assert.equal(card.properties?.weaknesses, undefined, 'the chain names the means; the raw ids stay off the card');
   // The route moves as its clues are found: the dagger among the basement's tools is one of them.
+  const discovery = await call('table.resolve', {call_id: `t1-c${++n}`, action: {intent: 'investigate', skill: 'Spot Hidden', goal: 'Search the basement tool pile for the old knife.'}});
+  assert.equal(discovery.outcome.passed, true, 'the source-required discovery check really passes before the clue lands');
   await call('table.apply', {call_id: `t1-c${++n}`, effects: [{kind: 'clue', clue: 'rusted-basement-dagger', how: 'A search of the tool pile turns up an old knife.'}]});
   chain[0].learned_by.found = 1;
   assert.deepEqual((await call('table.look', {focus: 'npc', name: 'Walter Corbitt'})).weaknesses, chain);
