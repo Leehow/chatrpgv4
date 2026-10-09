@@ -9923,7 +9923,7 @@ export class PiHostBackend implements HostBackend {
     if(id==='coc-keeper'&&['mods.document.request','mods.document.apply'].includes(method)){
       const sid=isRecord(optsValue)&&typeof optsValue.sessionId==='string'?optsValue.sessionId.trim():'';
       const previous=this.cocDocumentSubmissions.get(sid)??Promise.resolve();
-      const work=previous.then(async()=>{try{
+      const work=previous.then(async():Promise<ExtInvokeResult>=>{try{
         if(!sid||!this.managedNodeModulesRoot)throw this.cocRefusal('campaign_unbound','Select the document game session');
         const selected=await this.locate(sid),binding=await readCocBinding(selected.path);
         if(!binding)throw this.cocRefusal('campaign_unbound','Select the document campaign');
