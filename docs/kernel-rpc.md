@@ -4773,6 +4773,14 @@ per-unit evidence isolation stay intact.
 
 ## 23. PipiCOC local frontend (2026-09-07)
 
+### Host decision: stop returns before process identity collection (2026-10-09)
+
+The host emits `stopped`, releases the manually stopped queue and writes the existing abort command without waiting for its acknowledgement or OS process queries. Process identity collection for escalation runs asynchronously; moving synchronous queries to a later event-loop callback is insufficient because it still stalls the host. Its result may arm escalation only for the captured runtime generation, child object/PID and turn epoch while that exact turn remains unsettled. A completed turn, replaced child, newer turn, disposed session or obsolete stop attempt cannot be armed by a late result.
+
+The complete PID/start-time/command identity and the later fail-closed identity comparison remain required before signaling. Missing, failed or mismatched identity does not authorize a kill. Existing escalation windows, watchdog recovery ownership and the ban on signaling background subagent descendants remain unchanged. Manual stop never drains FIFO. The original 50-ms stop-return regression assertion is retained; controlled delayed identity and stale-attempt cases verify the asynchronous boundary rather than enlarging that threshold.
+
+Producer: the explicit stop/cut-in/watchdog captures the exact host attempt. Reader: the asynchronous identity result and escalation scheduler validate that capture. Actor: only the existing identity-checked escalation may signal the same Pi child. Node's [asynchronous child-process API](https://nodejs.org/download/release/v24.19.0/docs/api/child_process.html) supports nonblocking collection; [microtask ordering](https://nodejs.org/download/release/v24.19.0/docs/api/globals.html#queuemicrotaskcallback) explains why the former synchronous microtask still delayed the awaiting caller. These precedents confirm scheduling behavior, not this application's process authority, which is verified locally.
+
 ### Host decision: COC startup failures do not become read-driven restart loops (2026-10-05)
 
 A COC initialization error is retained for that session's current host lifecycle
