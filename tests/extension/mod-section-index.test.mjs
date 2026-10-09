@@ -314,7 +314,10 @@ test("over the budget the Keeper's actual requests carry resident text in the br
 
 	const first=sectionsOf(requests[0]);
 	assert.ok(first,"the first request carries the section message");
-	assert.equal(first.last,true,"at the end of the request");
+	for(const message of requests[0].messages.slice(first.index+1)){
+		const advice=JSON.parse(messageText(message));
+		assert.ok(Array.isArray(advice.items)&&Array.isArray(advice.guidance),"only the independent temporal advice channel follows turn sections");
+	}
 	const named=first.sections.map(row=>`${row.package}: ${row.section}`);
 	assert.ok(named.includes("natural-npc: What the asker is after"),named.join(" | "));
 	assert.ok(!named.includes("historical-reference: Prices"),"money scored low and no cash call yet");

@@ -268,7 +268,7 @@ test("§135.23: on the single-loop engine a run's second call reads the first ca
 		`the second call reads the first call's whole prompt from cache (${second.cacheRead} of ${promptTokens(requests[0])})`);
 	assert.equal(first.cacheRead, 0);
 	// The write changed the table: the capsule stayed as the turn began and the change rode at the end of the request.
-	const tail = messageText(requests[1].messages.at(-1));
+	const tail = requests[1].messages.map(messageText).find(text => text.includes('"kind":"capsule_update"'));
 	assert.match(tail, /"kind":"capsule_update"/);
 	const capsuleOf = (context) => context.messages.map(messageText).find((text) => text.includes('"head":"Everything at the start of this turn'));
 	assert.equal(capsuleOf(requests[1]), capsuleOf(requests[0]), "the turn's capsule is not rewritten in place");

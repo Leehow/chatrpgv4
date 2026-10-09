@@ -47,6 +47,27 @@ test('an unavailable result is not kept, so the next turn at the scene searches 
   assert.equal(f.searches.length,2);
   assert.equal(again.historical_reference_materials.origin,'host_scene_lookup');
 });
+test('same-scene background is reused within a day part but refreshed for night',async()=>{
+  const f=await table({setting:SETTING,clock:{minutes:0,day:1,hh:'16',mm:'55',day_part:'afternoon'},port:()=>READY});
+  assert.equal(f.searches.length,1);
+  const later=await f.turn('same-phase',undefined,{minutes:3,day:1,hh:'16',mm:'58',day_part:'afternoon'});
+  assert.equal(f.searches.length,1,'a changed minute does not create another historical search');
+  assert.equal(later.historical_reference_materials.origin,'host_scene_reused');
+  const night=await f.turn('night-phase',undefined,{minutes:605,day:2,hh:'03',mm:'00',day_part:'small_hours'});
+  assert.equal(f.searches.length,2,'the same scene at night cannot reuse its afternoon background');
+  assert.match(f.searches[1].query,/small hours/);
+  assert.equal(f.batches.at(-1).state.historical_reference_setting.where.clock.hh,'03','full canonical local time reaches the native need decision');
+  assert.equal(night.historical_reference_materials.origin,'host_scene_lookup');
+});
+test('the historical query writer receives day part without a changing minute',async()=>{
+  const lane=writer([{ok:true,query:'Period archive night practice',objective:'Original opening and night work practices.',ms:1}]);
+  const f=await table({setting:SETTING,clock:{minutes:0,day:1,hh:'23',mm:'30',day_part:'night'},historyQuery:lane,port:()=>READY});
+  assert.equal(lane.calls[0].day_part,'night');
+  assert.equal(lane.calls[0].hh,undefined);
+  await f.turn('night-later',undefined,{minutes:5,day:1,hh:'23',mm:'35',day_part:'night'});
+  assert.equal(lane.calls.length,1);
+  assert.equal(f.searches.length,1);
+});
 test('nothing is searched when the need is declined, the action is urgent, the Mod is off or the scenario has no era',async()=>{
   for(const options of [{needed:false},{urgent:true},{enabled:false},{setting:{background:'No era authored'}}]){
     const f=await table({setting:SETTING,port:()=>READY,...options});
@@ -124,7 +145,7 @@ test('need decision and model lookup grant share the current authored setting af
   assert.equal(grant.historical_reference.context.period,'October 1937');
 });
 
-async function table({enabled=true,needed=true,narrator=true,now,setting,urgent=false,port,historyQuery=null}={}) {
+async function table({enabled=true,needed=true,narrator=true,now,setting,urgent=false,port,historyQuery=null,clock}={}) {
   const bus=new Map(),handlers=new Map(),announced=[],batches=[],rows=[],searches=[];
   const places={archive:{display_name:'Archive Hall',summary:'Reading room with card catalogues'},street:{display_name:'Main Street'}};
   let scene='archive';
@@ -135,7 +156,7 @@ async function table({enabled=true,needed=true,narrator=true,now,setting,urgent=
     npcAct:null,decision:{decide:async batch=>{batches.push(batch);return {batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key==='historical_reference_interrupts_action'?urgent?0.95:0.01:q.key===HISTORY_NEED&&needed?0.95:0.01}])),issues:[],coverage:{required:[],answered:[],unknown:[]}};}}});
   engine.extension(pi);
   pi.events.emit('coc:kernel-bridge',{campaign:'c',call:async method=>method==='table.capsule'
-    ?{where:{scene,...places[scene]},historical_setting:setting,mods:{active:enabled?[{id:'historical-reference',version:'1.0.0'}]:[]},present:[],known:{},
+    ?{where:{scene,...places[scene],...(clock?{clock}:{})},historical_setting:setting,mods:{active:enabled?[{id:'historical-reference',version:'1.0.0'}]:[]},present:[],known:{},
       _context:{version:1,campaign:'c',worldline:'main',loop:0,turn:1,source_revision:'a'.repeat(64)}}
     :method==='table.status'?{turn:1,state:'open',receipts:[]}:method==='table.apply.options'?{candidates:[]}:{}});
   if(port)pi.events.emit('coc:historical-reference',{campaign:'c',search:async request=>{searches.push(request);return port(request,searches.length);}});
@@ -163,7 +184,7 @@ async function table({enabled=true,needed=true,narrator=true,now,setting,urgent=
     stepId:'after-read',step:{kind:'infer',purpose:'compose',reason:'reference_request'}})).map(m=>m.content).join('');
   const refresh=async()=>{scene='street';await plan.ports.read.read({origin:'policy',operation:'read',readOnly:true},
     {runId:'r',stepId:'scene-refresh',operationId:'refresh-op',origin:'policy',inputRevision:'input',scopeId:'root',signal});};
-  const turn=async(runId,at=scene)=>{scene=at;return (await begin(runId)).clerk;};
+  const turn=async(runId,at=scene,nextClock=clock)=>{scene=at;clock=nextClock;return (await begin(runId)).clerk;};
   return {batches,note:messages.map(m=>m.content).join(''),clerk:first.clerk,call,project,refresh,turn,handlers,engine,rows,searches};
 }
 for(const narrator of [false,true])test(`one existing decision offers history and permits only its lookup subtype (narrator=${narrator})`,async()=>{

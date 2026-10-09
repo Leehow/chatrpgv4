@@ -69,16 +69,22 @@ export function sceneQuery(context: any): {query: string; objective: string} | u
   const facts = sceneFacts(context);
   if (!facts) return undefined;
   const {era, place, summary, background} = facts;
-  return {query: clip(`${era} ${place}`, 300), objective: clip('Period appearance, materials, everyday practice and speech at a place like this, '
+  const phase=facts.day_part;
+  return {query: clip(`${era} ${place}${phase?' '+phase.replaceAll('_',' '):''}`, 300), objective: clip((phase?`Local time of day: ${phase}. Typical service hours, household routines, night work and street activity; no universal closing or sleep rule. `:'')+'Period appearance, materials, everyday practice and speech at a place like this, '
     + `for a scene of a fictional story. Scene: ${place}${summary ? ` (${summary})` : ''}. Setting: ${era}${background ? `; ${background}` : ''}. `
     + 'Borrow compatible period detail; the story\'s own names and facts stay authoritative.', 512)};
 }
 /** The authored fields a scene's query is written from (the fast model's input, 2026-10-02), or none without an era and a scene name. */
-export function sceneFacts(context: any): {era: string; place: string; summary?: string; background?: string} | undefined {
+export function sceneFacts(context: any): {era: string; place: string; summary?: string; background?: string;day_part?:string} | undefined {
   const era = clip(context?.period ?? context?.scenario?.era, 120), place = clip(context?.where?.display_name, 120);
   if (!era || !place) return undefined;
   const summary = clip(context?.where?.summary, 160), background = clip(context?.scenario?.background, 200);
-  return {era, place, ...(summary ? {summary} : {}), ...(background ? {background} : {})};
+  const phase=clip(context?.where?.clock?.day_part,40);
+  return {era, place, ...(summary ? {summary} : {}), ...(background ? {background} : {}),...(phase?{day_part:phase}:{})};
+}
+/** Scene background can be reused within a day part, never across a changed setting or night (§208). */
+export function historySceneKey(context:any):string {
+  return JSON.stringify([context?.period??null,context?.scenario??null,context?.where?.scene??null,context?.where?.clock?.day_part??null]);
 }
 /** Trimmed, and cut at a code point so the result's length stays within `limit` UTF-16 units. */
 function clip(value: unknown, limit: number): string {

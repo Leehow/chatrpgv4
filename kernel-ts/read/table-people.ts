@@ -96,7 +96,7 @@ export function passageOf(effect: Row, name: string): Row | null {
 
 /** The per-person world maps, keyed by a person's handle or node id; re-keyed when a book person replaces a provisional one. */
 export const PERSON_WORLD_MAPS: readonly string[] = Object.freeze(['npc_presence', 'npc_resources', 'npc_character', 'npc_profiles',
-    'npc_disposition', 'npc_defense', 'npc_action', 'person_labels']);
+    'npc_disposition', 'npc_defense', 'npc_action','npc_activity', 'person_labels']);
 
 /**
  * §11.5.4: a person established from a carried passage is replaced by the book's person of that name once the graph has

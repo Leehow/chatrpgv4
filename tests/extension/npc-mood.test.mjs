@@ -103,7 +103,7 @@ test('the next turn\'s present card carries now after the identity, before the d
 	const keys = Object.keys(card), at = keys.indexOf('now');
 	// Everything before `now` is who they are and what their body is doing; everything after is the dossier and the
 	// account, which `fitPresent` cuts from the bottom.
-	const identity = ['name', 'runtime_inputs', 'called', 'untold', 'origin', 'state'];
+	const identity = ['name', 'runtime_inputs', 'called', 'untold', 'origin', 'state', 'activity'];
 	assert.ok(keys.slice(0, at).every(key => identity.includes(key)), `only identity and state come before now: ${keys}`);
 	assert.ok(keys.slice(at + 1).every(key => !identity.includes(key)), `nothing of the identity comes after it: ${keys}`);
 	for (const dossier of ['role', 'wants', 'voice', 'knows', 'history'])

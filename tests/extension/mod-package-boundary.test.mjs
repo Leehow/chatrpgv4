@@ -8,7 +8,16 @@ import {build} from 'esbuild';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const MODS = join(ROOT, 'mods');
-const FILE_CONTRIBUTIONS = ['instructions', 'brief', 'sections', 'setup_instructions', 'setup_slots', 'materializer', 'auditor', 'style', 'voice_lane', 'voice_lane_addendum', 'speech_edit_lane', 'expression_cards', 'establish', 'establish_review'];
+const FILE_CONTRIBUTIONS = ['instructions', 'brief', 'sections', 'setup_instructions', 'setup_slots', 'materializer', 'auditor', 'style', 'voice_lane', 'voice_lane_addendum', 'speech_edit_lane', 'expression_cards', 'establish', 'establish_review', 'temporal_context'];
+
+async function referencedFiles(root, manifest) {
+  const referenced = FILE_CONTRIBUTIONS.map(field => manifest.contributes?.[field]).filter(value => typeof value === 'string');
+  if (manifest.contributes?.temporal_context) {
+    const table = JSON.parse(await readFile(join(root, manifest.contributes.temporal_context), 'utf8'));
+    if (typeof table.guidance === 'string') referenced.push(table.guidance);
+  }
+  return [...new Set(referenced)].sort();
+}
 
 test('every shipped Mod declares the exact runtime package boundary', async () => {
   for (const id of await readdir(MODS)) {
@@ -17,7 +26,7 @@ test('every shipped Mod declares the exact runtime package boundary', async () =
     try { manifest = JSON.parse(await readFile(join(root, 'mod.json'), 'utf8')); }
     catch { continue; }
     assert.ok(manifest.requires.includes('mods.package-files.v1'), `${id} must require the scoped-package capability`);
-    const referenced = FILE_CONTRIBUTIONS.map(field => manifest.contributes?.[field]).filter(value => typeof value === 'string').sort();
+    const referenced = await referencedFiles(root, manifest);
     assert.deepEqual([...manifest.package_files].sort(), referenced, `${id} packages exactly its referenced runtime files`);
     assert.ok(!manifest.package_files.includes('CHANGELOG.md'), `${id} must not ship its engineering changelog`);
   }
@@ -68,7 +77,7 @@ test('shipped runtime prompts contain no retained-table identifiers or acceptanc
     let manifest;
     try { manifest = JSON.parse(await readFile(join(root, 'mod.json'), 'utf8')); }
     catch { continue; }
-    const referenced = FILE_CONTRIBUTIONS.map(field => manifest.contributes?.[field]).filter(value => typeof value === 'string');
+    const referenced = await referencedFiles(root, manifest);
     for (const name of manifest.package_files ?? referenced) {
       if (!name.endsWith('.md')) continue;
       assert.doesNotMatch(await readFile(join(root, name), 'utf8'), forbidden, `${id}/${name} contains retained-table evidence`);

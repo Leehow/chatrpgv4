@@ -48,6 +48,9 @@ export const SILENT_WRITES = "Writes are silent: write no prose beside apply, re
 export const HEAD = "Everything at the start of this turn: the clock, the undiscovered clues here and their gates, the secrets " +
     "and agendas of those present, the way back and the exits, pressures and obligations, the rule-layer " +
     "situations, the Director's suggested beat, related memory and the style contract. " +
+    "where.temporal is the current place's recorded activity and review status; present[].activity is each person's recorded wakefulness. " +
+    "The clock and records are authoritative; a stale record is a prior. Active Mod advice may guide social routines but never " +
+    "overwrites an observed event or grants a player action, physical entry or acquisition. " +
     "historical_setting holds the authored era, starting place and background on every turn, including after the opening briefing. Do not look/lookup " +
     // Contract §205.4: the rule holds for what is present, never for a need named missing.
     "for what is already here; that holds only for what is present. A need this turn's keeper_support lists under missing is not here: " +
@@ -362,6 +365,18 @@ export function unconfirmedRecordings(shown: Row[]): Row[] {
  *  them, and each person cut comes back as a stub; if the stubs themselves do not fit, more full rows give
  *  way to stubs until they do. Returns whether anything was cut. */
 export function fitPresent(rows: Row[], budget: number): boolean {
+    if (rows.some(entry => entry.activity)) {
+        // Temporal authority must survive a dossier cut without displacing the existing dossier allowance.
+        const activities = rows.map(entry => entry.activity);
+        const dossiers = rows.map(({activity: _activity, ...entry}) => entry);
+        const cut = fitPresent(dossiers, budget);
+        rows.splice(0, rows.length, ...dossiers.map((entry, index) => {
+            const {name, kind, ...rest} = entry;
+            return {name, ...(Object.hasOwn(entry, 'kind') ? {kind} : {}),
+                ...(activities[index] ? {activity: activities[index]} : {}), ...rest};
+        }));
+        return cut;
+    }
     // `fitBudget` takes whole rows only from the end, so the people cut are the ones past what is left. By position:
     // two people the book gives one name (book-4's two Robert Taylor nodes) made a cut one look kept by name, and it vanished.
     const all = [...rows];
@@ -400,14 +415,15 @@ export function fitPresent(rows: Row[], budget: number): boolean {
  */
 function fitWhere(where: Row, budget: number): boolean {
     let cut = false;
-    for (const [key, keep] of [["back", 1], ["places", 0]] as const)
+    for (const [key, keep] of [["back", 1], ["places", 0], ["rules", 1]] as const)
         while (jsonSize(where) > budget && Array.isArray(where[key]) && where[key].length > keep) {
             where[key].pop();
             cut = true;
         }
     // §13.1.1 with §204: secondary ancestor previews give way before this place's ways out and room notes.
     if (jsonSize(where) > budget) {
-        const retained = new Set(['exits', 'back', 'keeper_notes']);
+        // A temporal record must not erase the last available typed rule preview.
+        const retained = new Set(['exits', 'back', 'keeper_notes', 'rules']);
         const rest = Object.fromEntries(Object.entries(where).filter(([key]) => !retained.has(key)));
         const reserved = jsonSize(where) - jsonSize(rest);
         cut = fitBudget(rest, Math.max(0, budget - reserved)) || cut;

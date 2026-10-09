@@ -12,6 +12,7 @@ import type {DecisionBatch, DecisionQuestion, DecisionResult, ReadSet, ScopeBind
 import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts';
 import {answerOf, clears} from './decision-gate.ts';
 import type {Candidate, Json, Material, TurnContext} from './step-policy.ts';
+import {turnNow} from './turn-context.ts';
 
 type Row = Record<string, any>;
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
@@ -404,7 +405,7 @@ export function compileBatch(view: CompileView, scope: ScopeBinding, readSet: Re
     // §143.23: the last exchange (the newest committed turn's words and attributed lines, while the party is still where it
     // closed), as the kernel gave it; absent when the read had none.
     const state = {purpose: 'read the player\'s declared action into typed features', player_input: view.rawInput,
-      now: {scene: view.context.scene, clock: view.context.clock, present: view.context.present},
+      now: turnNow(view.context),
       ...(view.context.lastExchange ? {last_exchange: view.context.lastExchange} : {}), done_this_turn: done, materials, policy: COMPILE_POLICY} as Json;
     const batch: DecisionBatch = {id: digest([COMPILE_FAMILY, view.runId, view.observations.length, state, questions]), model: JEV_MODEL,
       family: COMPILE_FAMILY, familyVersion: '1', scope, readSet, state, questions};
@@ -705,7 +706,7 @@ export function reaskBatch(view: CompileView, input: ReaskInput, scope: ScopeBin
     target: `${reaskAlias(index)}: ${JSON.stringify({clue: words(candidate), cues: clueCues(candidate)})}`,
     type: 'choice' as const, instructions: REASK_ROW.instructions, criteria: {...REASK_ROW.criteria}}));
   const state = {purpose: 'judge which listed clues the declaration finds now that the settled step is done', player_input: view.rawInput,
-    now: {scene: view.context.scene, clock: view.context.clock, present: view.context.present}, settled: input.settled.map(entry => entry.words),
+    now: turnNow(view.context), settled: input.settled.map(entry => entry.words),
     done_this_turn: done, policy: REASK_POLICY} as Json;
   return {id: digest([REASK_FAMILY, view.runId, view.observations.length, state, questions]), model: JEV_MODEL, family: REASK_FAMILY, familyVersion: '1',
     scope, readSet, state, questions};

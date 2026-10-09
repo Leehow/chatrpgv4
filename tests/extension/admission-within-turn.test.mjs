@@ -342,7 +342,11 @@ function countTyped(t) {
 async function hybrid(t, { prepare, compile, responses, env = {}, engine: engineOptions = {}, tamper, laneResponses }) {
 	const engine = createHybridEngine({ env: process.env, decision: stubJev(compile), ...engineOptions });
 	const table = await openTable({
-		realKernel: true, prepareWorkspace: prepare, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: PASS, ...env },
+		realKernel: true, prepareWorkspace: async workspace => {
+			await prepare?.(workspace);
+			// This fixture counts admission calls, without optional Mod advice decisions.
+			kernelSteps(workspace, [["mods.configure", {id: "daily-life", enabled: false}]]);
+		}, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: PASS, ...env },
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: tamper ? withOriginTamper(engine, tamper) : engine.extension }], responses,
 		...(laneResponses ? { laneResponses } : {}),
 	});

@@ -1,7 +1,7 @@
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
 import {attackPreparationNeeds} from './attack-preparation.ts';
-import {historyConfigured, historyEnabled, historyContext, historyNeedQuestion, historyInterruptionQuestion, historyNeed, isSavedHistoryRead, historyFinalAnswerPayload, sceneQuery, sceneFacts, HISTORY_SUPPLIED, HISTORY_READ, HISTORY_OFFER, HISTORY_LOCAL_OFFER, HISTORY_CLOSED} from '../historical-reference.ts';
+import {historyConfigured, historyEnabled, historyContext, historySceneKey,historyNeedQuestion, historyInterruptionQuestion, historyNeed, isSavedHistoryRead, historyFinalAnswerPayload, sceneQuery, sceneFacts, HISTORY_SUPPLIED, HISTORY_READ, HISTORY_OFFER, HISTORY_LOCAL_OFFER, HISTORY_CLOSED} from '../historical-reference.ts';
 /**
  * The product side of `PI_COC_LOOP_ENGINE=hybrid-v1`: the policy and the ports Pi's RunDriver (vendored
  * agent-core, ADR-0006) drives each player input with. Pi knows nothing of what is here. Contract §135.
@@ -377,9 +377,13 @@ export function emptyTurnContext(): TurnContext {
  */
 export function readTable(capsule: Row, status: Row): {context: TurnContext; scope?: ScopeBinding; readSet?: ReadSet; turn?: number; binding?: ContextBinding} {
   const where = object(capsule.where), exchange = status.last_exchange;
+  const outcomes=array(status.receipts).slice(-12).map(receipt=>Object.fromEntries(
+    ['kind','name','minutes','clock_before','clock_after','outcome','passed','success','from','to','why'].filter(key=>object(receipt)[key]!==undefined).map(key=>[key,object(receipt)[key]]))).filter(value=>Object.keys(value).length);
   const context: TurnContext = {scene: text(where.scene), clock: (where.clock ?? null) as TurnContext['clock'],
     present: array(capsule.present).map(person => text(object(object(person).called).name) || text(object(person).name)).filter(Boolean),
     receipts: array(status.receipts).map(receipt => text(object(receipt).id) || JSON.stringify(receipt)),
+    ...(where.temporal?{temporal:{scene:where.temporal,people:array(capsule.present).filter(person=>object(person).activity).map(person=>({name:object(person).name,activity:object(person).activity}))} as Json}:{}),
+    ...(outcomes.length?{outcomes:outcomes as Json[]}:{}),
     ...(exchange && typeof exchange === 'object' && !Array.isArray(exchange) ? {lastExchange: exchange as Json} : {})};
   const binding = bindingOf(capsule._context);
   if (!binding) return {context};
@@ -803,7 +807,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const [capsule, status, applyOptions, resolveOptions, bands] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options'), bandReads()]);
     const table = readTable(capsule, status);
     const historyScene = text(object(capsule.where).scene);
-    if (!run.history || run.history.scene !== historyScene) run.history = {enabled: false, allowed: false, asked: false,
+    if (!run.history || run.history.scene !== historyScene || historySceneKey(run.history.context)!==historySceneKey(historyContext(capsule))) run.history = {enabled: false, allowed: false, asked: false,
       ...(run.history?.closed ? {closed: true, closedReason: run.history.closedReason} : {}),
       scene: historyScene, context: historyContext(capsule)};
     run.history.context = historyContext(capsule);
@@ -1869,7 +1873,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (!history || history.prefetch || history.closed || run.turn === undefined || !run.scope) return;
     const row = {lane: 'historical-reference', event: 'prefetch', run: run.runId, turn: run.turn, scene: history.scene};
     if (run.interactionScope?.mode !== undefined && run.interactionScope.mode !== 'world') { record({...row, phase: 'skipped', reason: 'reference_scope'}); return; }
-    const key = JSON.stringify([run.scope.campaign ?? null, run.scope.worldline ?? null, run.scope.loop ?? null, history.scene]);
+    const key = JSON.stringify([run.scope.campaign ?? null, run.scope.worldline ?? null, run.scope.loop ?? null, history.scene,historySceneKey(history.context)]);
     const saved = preparedScenes.get(key);
     if (saved && object(saved.result.background).state !== 'pending') {
       history.prefetch = {key, query: saved.query, objective: saved.objective, reused: true, result: saved.result, done: Promise.resolve(saved.result)};
@@ -1925,6 +1929,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     history.supplied = true;
     const began = now();
     const result = prefetch.result ?? (!history.closed ? await prefetch.done : undefined);
+    if(run.history!==history)return undefined;
     const materials = array(result?.materials).map(object);
     record({lane: 'historical-reference', event: 'prefetch', phase: 'delivered', run: run.runId, step: stepId, turn: run.turn ?? null,
       scene: history.scene, reused: prefetch.reused, waited_ms: now() - began, status: result ? text(result.status) || null : prefetch.unwritten ? 'no_query' : 'not_back',
