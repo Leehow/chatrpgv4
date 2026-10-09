@@ -222,3 +222,13 @@ repair/start, return to the original briefing scene and a failed aid petition wi
 (fumble). Field/clock continuity is retained; no completed full adventure claim. An independent read-only
 worker is verifying explicit notebook-writing omission versus actual document receipts before deciding
 whether it is a model omission or runtime failure.
+
+## Final retention audit
+
+Mainline outcome record is integrated. Both owned drivers stopped normally; heartbeat pdf is PAUSED.
+The exact lifecycle tuple is terminal and intentionally retained for real evidence. Closeout with
+verification=passed failed closed (exit 2, blocked_probe) because lsof could not stat the unrelated
+WebDAV mount /Volumes/10.3.2.75. Final audit returned exit 1, pending_count 1: exact identity/branch
+match, registered, terminal, dirty only for the protected evidence marker. Classification is
+retained:protected_real_playtest_evidence_and_incomplete_process_probe. No removal, mount repair,
+branch deletion or clean lifecycle completion is claimed. Detailed receipt: final run lifecycle-final.json.

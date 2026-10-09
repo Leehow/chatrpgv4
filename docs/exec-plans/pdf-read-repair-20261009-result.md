@@ -74,3 +74,13 @@ Final logs and machine-readable metrics are in `.coc/playtests/pdf-clue-readines
 Exact final runtime follow-up is in `.coc/playtests/pdf-exact-final-20261009-play/`.
 All original campaign, module, event and transcript evidence is retained. Lifecycle closeout must retain
 this worktree for its protected evidence marker; removal is not authorized.
+
+## Final retention audit
+
+Mainline outcome record is integrated. Both owned drivers stopped normally; heartbeat pdf is PAUSED.
+The exact lifecycle tuple is terminal and intentionally retained for real evidence. Closeout with
+verification=passed failed closed (exit 2, blocked_probe) because lsof could not stat the unrelated
+WebDAV mount /Volumes/10.3.2.75. Final audit returned exit 1, pending_count 1: exact identity/branch
+match, registered, terminal, dirty only for the protected evidence marker. Classification is
+retained:protected_real_playtest_evidence_and_incomplete_process_probe. No removal, mount repair,
+branch deletion or clean lifecycle completion is claimed. Detailed receipt: final run lifecycle-final.json.
