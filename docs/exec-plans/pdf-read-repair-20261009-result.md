@@ -80,7 +80,7 @@ this worktree for its protected evidence marker; removal is not authorized.
 Mainline outcome record is integrated. Both owned drivers stopped normally; heartbeat pdf is PAUSED.
 The exact lifecycle tuple is terminal and intentionally retained for real evidence. Closeout with
 verification=passed failed closed (exit 2, blocked_probe) because lsof could not stat the unrelated
-WebDAV mount /Volumes/10.3.2.75. Final audit returned exit 1, pending_count 1: exact identity/branch
+WebDAV mount /Volumes/10.3.2.75. Final audit returned exit 0 with audit_pending, pending_count 1: exact identity/branch
 match, registered, terminal, dirty only for the protected evidence marker. Classification is
 retained:protected_real_playtest_evidence_and_incomplete_process_probe. No removal, mount repair,
 branch deletion or clean lifecycle completion is claimed. Detailed receipt: final run lifecycle-final.json.
