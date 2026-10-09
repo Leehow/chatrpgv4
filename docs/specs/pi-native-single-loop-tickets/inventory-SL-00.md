@@ -1,5 +1,14 @@
 # SL-00 control-flow inventory
 
+### Grok transport observation (2026-10-09)
+
+`extensions/grok-build-oauth/agent/provider.js#createGrokBuildProvider#provider-direct#api.streamSimple`
+is one additional `app-play-gated` leaf owned by the Grok diagnostic transport observer. The gate is
+`PI_COC_GROK_TRANSPORT_TRACE=1` plus an explicit diagnostic directory. It delegates the existing
+Pi API stream with unchanged model, payload and retry ownership; it is not a new model loop or
+a replacement of the global API registry. Local SDK/HTTP fixtures cover this seam; genuine
+instrumented acceptance is recorded separately under kernel contract section 38.7.2.
+
 Ticket: `00-inventory.md`. Spec: `docs/specs/pi-native-single-loop.md`. Design: `docs/PiPiCoC_Pi原生单循环重构设计_v1.0.md`
 (§2, §8.3, §9.1, §12, §13). Product commit `0b729e8fb` (0.9.5a). Machine-readable companion: `inventory-SL-00.json`,
 guarded by `tests/extension/control-flow-inventory.test.mjs` through the scanner `tests/extension/control-flow-scan.mjs`.

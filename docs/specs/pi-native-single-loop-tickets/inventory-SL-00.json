@@ -536,6 +536,18 @@
       ]
     },
     {
+      "file": "extensions/grok-build-oauth/agent/provider.js",
+      "symbol": "createGrokBuildProvider",
+      "kind": "provider-direct",
+      "callee": "api.streamSimple",
+      "count": 1,
+      "owner": "grok-build-oauth diagnostic transport observer",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "local SDK/HTTP fixtures; genuine instrumented request pending",
+      "note": "Enabled only by PI_COC_GROK_TRANSPORT_TRACE=1 and an explicit diagnostic directory. Delegates one existing Pi API stream unchanged; no new model loop, global API replacement, retry policy or model selection."
+    },
+    {
       "file": "extensions/grok-build-oauth/agent/structured-output-hooks.js",
       "symbol": "takeStructuredOutputViaBridge",
       "kind": "network",

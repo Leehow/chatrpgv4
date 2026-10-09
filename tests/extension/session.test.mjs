@@ -247,18 +247,16 @@ test("内核意外退出后重新拉起并重开桌", async (t) => {
 
 	await table.session.prompt("我推门进去");
 	await waitForIdle(table.session);
-	// 重新拉起是内核客户端在子进程退出时自己发起的，落到请求日志上比这一轮结束晚一点。
-	const deadline = Date.now() + 5_000;
-	while (Date.now() < deadline && table.kernelRequests().length < 5) {
-		await new Promise((resolve) => setTimeout(resolve, 20));
-	}
-
-	// 按需深读的认领（契约 §14.6）也搭在这条内核连接上，开桌之后会来一次；
-	// 这个用例看的是开桌与重开桌那条线，所以把车道的调用滤掉。
-	const methods = table
-		.kernelRequests()
-		.map((entry) => entry.method)
-		.filter((method) => !method.startsWith("module."));
+	// Wait for the asserted handshake, not an unrelated total request count.
+	// A concurrent restart may have logged hello while its table.open is still in flight.
+	const methods = await waitFor(() => {
+		const snapshot = table.kernelRequests().map((entry) => entry.method)
+			.filter((method) => !method.startsWith("module."));
+		if (snapshot.length < 5) return undefined;
+		if (snapshot.some((method, index) => method === "kernel.hello" && snapshot[index + 1] !== "table.open"))
+			return undefined;
+		return snapshot;
+	}, { timeoutMs: 5_000, label: "complete kernel restart handshakes" });
 	assert.deepEqual(
 		methods.slice(0, 5),
 		["kernel.hello", "table.open", "table.player_input", "kernel.hello", "table.open"],
