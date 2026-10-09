@@ -11645,6 +11645,10 @@ Detailed diagnostic tracing is enabled for the controlled acceptance run and inh
 **Response payload capture amendment (owner 2026-10-09: retain all original events).** The metadata-only interpretation
 did not satisfy the requested original-event evidence. With tracing enabled, `PI_COC_GROK_TRANSPORT_TRACE_RAW=1`
 additionally retains every parsed SSE data payload, heartbeat/comment text, SDK raw event and local abort/error cause.
+It also retains the normalized SDK terminal error event and a result-only caller's failed or aborted terminal message:
+an HTTP rejection can become an ordinary error event without any SSE or rejected iterator promise, so observing promise
+failures alone loses the provider's reason. Result-only capture does not invent normalized-event coverage. Terminal error
+snapshots use the same opt-in response capture, credential redaction and coverage limits; default metadata stays unchanged.
 Snapshots are immutable at receipt; the observer never retains request bodies or actual HTTP headers. Credential-bearing
 fields and known request credentials are redacted even in response payloads. This mode may contain private generated
 text/thinking; files remain local, directory mode 0700 and file mode 0600, and never enter Git or a bundle. The attempt
