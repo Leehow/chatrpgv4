@@ -9823,7 +9823,10 @@ export class PiHostBackend implements HostBackend {
         const answer=await this.enqueueExtInvoke(sid,'coc-keeper','timeline.graph',{});
         if(!answer.ok)return answer;
         data=answer.data;
-      } else data=await call('table.graph',{});
+      } else {
+        data=await call('table.graph',{});
+        if(data && data.status!=='unbound')data={...data,phase:context.mode};
+      }
       return {ok:true,data:{...data,anchors,sessions:candidates.map(s=>this.toSession(s)),...await this.cocAnswerWords(context.play_language,context.home)}};
     }
     const anchor=anchors.find(a=>typeof params.messageId==='string'?a.sessionId===sid&&a.messageId===params.messageId:a.commit===params.commit);
