@@ -33,7 +33,13 @@ class Trace {
   constructor(options) {
     this.id = randomUUID(); this.options = options; this.pending = []; this.bytes = 0; this.count = 0;
     this.reasons = new Set(); this.wires = []; this.normalizedCount = 0; this.rawCount = 0; this.hookOrdinal = 0; this.iterated = false; this.iterationEnded = false;
-    this.record('attempt_start', {version: 1, pid: process.pid});
+    this.progress = {};
+    this.record('attempt_start', {version: 1, pid: process.pid, ...options.requested});
+  }
+  observe(kind, receipt) {
+    const item = this.progress[kind] ??= {count: 0, firstAt: receipt.receiptTime, lastAt: receipt.receiptTime, maxGapMs: 0};
+    if (item.lastMonoMs !== undefined) item.maxGapMs = Math.max(item.maxGapMs, receipt.receiptMonoMs - item.lastMonoMs);
+    item.count++; item.lastAt = receipt.receiptTime; item.lastMonoMs = receipt.receiptMonoMs;
   }
   record(event, fields = {}, receipt = now(), final = false) {
     const row = {attempt: this.id, event, ...receipt, observerProcessingTime: new Date().toISOString(), ...fields};
@@ -59,7 +65,7 @@ class Trace {
               await mkdir(dir, {recursive: true, mode: 0o700});
               this.file = await open(join(dir, `${this.id}.jsonl`), 'wx', 0o600);
             }
-            await this.file.write(rows.map(row => JSON.stringify(row) + '\n').join(''));
+            await this.file.writeFile(rows.map(row => JSON.stringify(row) + '\n').join(''));
           }
         }
       } catch { this.failed = true; this.reasons.add('sink_error'); this.pending.length = 0; }
@@ -72,9 +78,10 @@ class Trace {
     this.closing = (async () => {
       if (!this.wires.length) this.incomplete('transport_not_observed');
       if (!this.iterationEnded) this.incomplete('normalized_not_fully_consumed');
+      for (const wire of this.wires) if (!wire.terminalReceipt && !wire.done) wire.finishUnobserved();
       await Promise.all(this.wires.map(wire => wire.finished));
       this.record('attempt_summary', {complete: this.reasons.size === 0, incomplete: [...this.reasons], normalizedCount: this.normalizedCount,
-        transportAttempts: this.wires.length}, now(), true);
+        transportAttempts: this.wires.length, progress: Object.fromEntries(Object.entries(this.progress).map(([kind, {lastMonoMs, ...item}]) => [kind, item]))}, now(), true);
       await this.flush(); await this.file?.close().catch(() => {});
     })(); return this.closing;
   }
@@ -132,8 +139,12 @@ class Wire {
     // Observation only: never delays or cancels the request if a transport omits its terminal callback.
     this.expiry = setTimeout(() => this.finishUnobserved(), trace.options.observerLifetimeMs ?? 30 * 60 * 1000); this.expiry.unref?.();
   }
-  record(event, fields = {}, receipt = now()) { this.trace.record(event, {wire: this.id, ...fields}, receipt); }
+  record(event, fields = {}, receipt = now(), final = false) {
+    if (event === 'sse_event') this.trace.observe('sse', receipt);
+    this.trace.record(event, {wire: this.id, ...fields}, receipt, final);
+  }
   headers(status, headers, receipt) {
+    this.headersReceipt = receipt;
     const encoding = (header(headers, 'content-encoding') ?? 'identity').trim().toLowerCase();
     const requestId = header(headers, 'x-request-id') ?? header(headers, 'request-id');
     this.requestIdHash = requestId ? hash(requestId) : undefined;
@@ -152,6 +163,7 @@ class Wire {
     const length = chunk.byteLength;
     if (this.last) this.maxGap = Math.max(this.maxGap, receipt.receiptMonoMs - this.last.receiptMonoMs);
     this.first ??= receipt; this.last = receipt; this.encoded += length;
+    this.trace.observe('encoded', receipt);
     this.record('response_chunk', {bytes: length, byteDomain: 'http_entity_encoded_not_tcp_tls'}, receipt);
     if (this.parseStopped || this.done) return;
     if (this.queued + length > (this.trace.options.limits?.queuedBytes ?? limits.queuedBytes)) {
@@ -197,7 +209,8 @@ class Wire {
     if (this.done) return; this.done = true; clearTimeout(this.expiry); this.decoder?.destroy(); this.queue.length = 0;
     this.record('transport_summary', {encodedBytes: this.encoded, decodedBytes: this.decoded, maxEncodedGapMs: this.maxGap,
       firstEncodedAt: this.first?.receiptTime ?? null, lastEncodedAt: this.last?.receiptTime ?? null,
-      terminalGapMs: this.last && this.terminalReceipt ? this.terminalReceipt.receiptMonoMs - this.last.receiptMonoMs : null, eofObserved: this.terminalEvent === 'transport_eof'});
+      firstByteAfterHeadersMs: this.first && this.headersReceipt ? this.first.receiptMonoMs - this.headersReceipt.receiptMonoMs : null,
+      terminalGapMs: this.last && this.terminalReceipt ? this.terminalReceipt.receiptMonoMs - this.last.receiptMonoMs : null, eofObserved: this.terminalEvent === 'transport_eof'}, now(), true);
     this.resolve();
   }
 }
@@ -217,7 +230,7 @@ export function transportInterceptor(scope) {
     const names = modern ? {start: 'onRequestStart', headers: 'onResponseStart', data: 'onResponseData', end: 'onResponseEnd', error: 'onResponseError'}
       : {start: 'onConnect', headers: 'onHeaders', data: 'onData', end: 'onComplete', error: 'onError'};
     const methods = new Set(Object.values(names));
-    return dispatch(options, new Proxy(handler, {get(target, key) {
+    const observed = new Proxy(handler, {get(target, key) {
       const original = Reflect.get(target, key, target);
       if (typeof original !== 'function') return original;
       if (!methods.has(key)) return original.bind(target);
@@ -237,7 +250,9 @@ export function transportInterceptor(scope) {
           } catch { call.trace.incomplete('observer_callback_error'); }
         }
       };
-    }}));
+    }});
+    try { return dispatch(options, observed); }
+    catch (error) { wire.end('transport_error', error); throw error; }
   };
 }
 function install(state, undici) {
@@ -257,7 +272,8 @@ export function createObservedGrokStream(delegate, options = {}) {
   const state = shared(), undici = options.undici ?? {getGlobalDispatcher, setGlobalDispatcher};
   return function (model, context, originalOptions) {
     if (model.provider !== 'grok-build' || model.api !== 'openai-responses') return delegate(model, context, originalOptions);
-    const trace = new Trace({...options, directory});
+    const trace = new Trace({...options, directory, requested: {provider: 'grok-build', api: 'openai-responses',
+      model: typeof model.id === 'string' && /^[a-zA-Z0-9._:/-]{1,128}$/.test(model.id) ? model.id : 'redacted'}});
     try { options.onTrace?.(trace); } catch { trace.incomplete('observer_callback_error'); }
     let url;
     try { url = new URL(model.baseUrl); install(state, undici); }
@@ -272,8 +288,12 @@ export function createObservedGrokStream(delegate, options = {}) {
         const at = now(), began = performance.now();
         const span = ++trace.hookOrdinal;
         trace.record('sdk_hook_entry', {hook: name, span, ...(trace.sdkWire ? {wire: trace.sdkWire.id} : {})}, at);
-        if (name === 'onProviderStreamEvent') trace.record('sdk_raw_event', {ordinal: ++trace.rawCount, ...typeMeta(args[0]?.type), ...(trace.sdkWire ? {wire: trace.sdkWire.id} : {})}, at);
+        if (name === 'onProviderStreamEvent') {
+          trace.observe('sdkRaw', at);
+          trace.record('sdk_raw_event', {ordinal: ++trace.rawCount, ...typeMeta(args[0]?.type), ...(trace.sdkWire ? {wire: trace.sdkWire.id} : {})}, at);
+        }
         if (name === 'onResponse') {
+          trace.sdkWire = undefined;
           const id = header(args[0]?.headers, 'x-request-id') ?? header(args[0]?.headers, 'request-id'), requestIdHash = id ? hash(id) : undefined;
           const candidates = trace.wires.filter(wire => !wire.sdkBound && (!requestIdHash || wire.requestIdHash === requestIdHash));
           if (candidates.length === 1) {trace.sdkWire = candidates[0]; trace.sdkWire.sdkBound = true;} else trace.incomplete('response_correlation_unavailable');
@@ -294,11 +314,11 @@ export function createObservedGrokStream(delegate, options = {}) {
       if (key === Symbol.asyncIterator) return () => {
         trace.iterated = true;
         const iterator = target[Symbol.asyncIterator]();
-        return {next(...args) {
+        return {[Symbol.asyncIterator]() { return this; }, next(...args) {
           const result = iterator.next(...args);
           void Promise.resolve(result).then(value => {
             if (value.done) {trace.iterationEnded = true; finish();}
-            else {trace.normalizedCount++; trace.record('normalized_consumed', {ordinal: trace.normalizedCount, ...typeMeta(value.value?.type), ...(trace.sdkWire ? {wire: trace.sdkWire.id} : {})});}
+            else {const at = now(); trace.observe('normalized', at); trace.normalizedCount++; trace.record('normalized_consumed', {ordinal: trace.normalizedCount, ...typeMeta(value.value?.type), ...(trace.sdkWire ? {wire: trace.sdkWire.id} : {})}, at);}
           }, error => {trace.record('normalized_error', errorMeta(error)); finish();});
           return result;
         }, return(...args) {trace.incomplete('consumer_return'); finish(); return iterator.return?.(...args) ?? Promise.resolve({done: true});},

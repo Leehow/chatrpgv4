@@ -10,6 +10,7 @@ import {getGlobalDispatcher,setGlobalDispatcher,Agent} from 'undici';
 import {getApiProvider} from '@earendil-works/pi-ai/compat';
 import {createGrokBuildProvider} from '../../extensions/grok-build-oauth/agent/provider.js';
 import {createObservedGrokStream,SseMetadataParser,transportInterceptor} from '../../extensions/grok-build-oauth/agent/transport-observation.js';
+import {watchStreamProgress} from '../../vendor/pi/packages/coding-agent/src/core/stream-progress.ts';
 
 const SECRET='PRIVATE_SENTINEL_47a9', encoder=new TextEncoder();
 const context={systemPrompt:SECRET+'system',messages:[{role:'user',content:[{type:'text',text:SECRET+'prompt'}],timestamp:1}]};
@@ -136,6 +137,39 @@ test('observer failure and closed output budget leave result intact; summaries e
  await trace.close();
  const summary=cap.rows.find(row=>row.event==='attempt_summary');assert.ok(summary);assert.equal(summary.complete,false);
  assert.ok(summary.incomplete.includes('metadata_limit'));assert.ok(summary.incomplete.includes('observer_callback_error'));privacy(cap.rows);
+ assert.equal(summary.progress.sdkRaw.count,frames().length,'summary survives detailed-record limits');
+ assert.ok(summary.progress.normalized.count>0);
+ assert.ok(summary.progress.encoded.firstAt&&summary.progress.encoded.lastAt);
+ assert.ok(cap.rows.some(row=>row.event==='transport_summary'&&row.encodedBytes>0));
+});
+
+test('SSE heartbeats remain visible when the real idle watchdog sees no model progress',async t=>{
+ restore(t);
+ const f=await fixture(t,'identity',(req,res)=>{
+  res.write('data: '+JSON.stringify(frames()[0])+'\n\n:'+SECRET+'heartbeat\n\n');
+  const pulse=setInterval(()=>res.write(':'+SECRET+'heartbeat\n\n'),10);
+  res.on('close',()=>clearInterval(pulse));
+ });
+ const cap=capture(),observer=createObservedGrokStream(getApiProvider('openai-responses').streamSimple,cap.options);
+ const stream=watchStreamProgress(signal=>observer(model(f.url),context,{...opts,signal}),undefined,120);
+ const result=await consume(stream);await cap.traces[0].close();
+ assert.equal(result.result.stopReason,'error');
+ assert.match(result.result.errorMessage,/no response event for 120 ms/);
+ assert.ok(cap.rows.some(row=>row.event==='sse_comment'),'bytes and heartbeat framing were observed');
+ assert.ok(cap.rows.some(row=>row.event==='local_abort'),'local cancellation is distinct from EOF');
+ assert.equal(cap.rows.filter(row=>row.event==='sdk_raw_event').length,1,'heartbeats are not normalized model events');
+ assert.ok(cap.rows.some(row=>row.event==='transport_summary'&&row.encodedBytes>0&&!row.eofObserved));
+ const summary=cap.rows.find(row=>row.event==='attempt_summary');
+ assert.equal(summary.complete,false);assert.ok(summary.incomplete.includes('transport_error'));
+ assert.equal(cap.rows[0].model,'grok-4.7');privacy(cap.rows);
+});
+
+test('synchronous dispatch failures close their wire and preserve the original error',()=>{
+ const failure=Error('dispatch failed'),ends=[];
+ const store={getStore:()=>({origin:'http://fixture',path:'/v1/responses',trace:{wire:()=>({end:(event,error)=>ends.push([event,error])})}})};
+ const dispatch=transportInterceptor(store)(()=>{throw failure;});
+ assert.throws(()=>dispatch({origin:'http://fixture',path:'/v1/responses',method:'POST'},{}),error=>error===failure);
+ assert.deepEqual(ends,[['transport_error',failure]]);
 });
 
  test('file sink writes only bounded metadata to the explicit diagnostic home',async t=>{
