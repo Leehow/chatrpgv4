@@ -59,7 +59,7 @@ DEFAULT_THINKING = "low"
 ACK_TIMEOUT = 10.0           # seconds to wait for pi's response to get_state/set_model/prompt-accept
 STOP_SETTLE_GRACE = 1.5      # seconds to wait for agent_settled after a terminal agent_end
 STALE_SETTLE_GRACE = 20.0    # seconds to keep waiting after a settle that arrived before any work
-OPENING_QUIET = 3.0          # seconds of silence at startup that mean no opening run is in flight
+OPENING_QUIET = 3.0          # initial opening window and maximum interval between state polls
 HEARTBEAT_INTERVAL = 2.0
 ACCEPT_POLL_SECONDS = 0.5  # the control socket's accept() wakes this often to notice a stop (Linux never wakes it on close)
 TOOL_RESULT_TRUNCATE_BYTES = 4096
@@ -587,23 +587,33 @@ class Daemon:
         `events.jsonl` and nowhere else. A turn now begins from a quiet agent, so the settle it waits
         for can only be its own.
         """
+        next_poll = time.monotonic() + OPENING_QUIET
         while True:
             now = time.monotonic()
-            wait_for = min(OPENING_QUIET, deadline - now)
-            if wait_for <= 0:
+            if now >= deadline or not self.pi.alive():
                 return False
-            try:
-                event = tq.get(timeout=wait_for)
-            except queue.Empty:
-                event = None
-            if not self.pi.alive():
+            event = None
+            if now < next_poll:
+                try:
+                    event = tq.get(timeout=min(next_poll, deadline) - now)
+                except queue.Empty:
+                    pass
+            now = time.monotonic()
+            if now >= deadline or not self.pi.alive():
                 return False
-            if event is None or event.get("type") == "agent_settled":
-                # A slow model can be silent; only the transport state establishes an idle owner.
-                state = self.pi.call({"type": "get_state"}, timeout=min(ACK_TIMEOUT, max(0.001, deadline-time.monotonic())))
-                data = (state or {}).get("data", {})
-                if state and state.get("success") and data.get("isStreaming") is False and not any(data.get(key) for key in ("isCompacting", "pendingMessageCount")):
-                    return True
+            if now < next_poll and (event is None or event.get("type") != "agent_settled"):
+                continue
+            # Event traffic cannot reset this schedule. A settle only asks for an
+            # earlier state check; it never proves that this agent is idle.
+            state = self.pi.call({"type": "get_state"}, timeout=min(ACK_TIMEOUT, deadline - now))
+            next_poll = time.monotonic() + OPENING_QUIET
+            if time.monotonic() >= deadline or not self.pi.alive():
+                return False
+            data = state.get("data") if isinstance(state, dict) else None
+            if (isinstance(data, dict) and state.get("success") is True
+                    and data.get("isStreaming") is False
+                    and not any(data.get(key) for key in ("isCompacting", "pendingMessageCount"))):
+                return True
 
     def _set_model(self, model: str) -> dict | None:
         if "/" not in model:
@@ -642,20 +652,26 @@ class Daemon:
         started_mono = time.monotonic()
         started_at = now_iso()
         tq = self.pi.begin_turn()
+        timings = {"readiness_wait_seconds": None, "prompt_ack_seconds": None, "keeper_wait_seconds": None}
         try:
-            if not self._await_quiet(tq, started_mono + timeout):
+            ready = self._await_quiet(tq, started_mono + timeout)
+            timings["readiness_wait_seconds"] = round(time.monotonic() - started_mono, 3)
+            if not ready:
                 return self._finalize_turn(n, text, started_at, started_mono, [], "",
-                                            "timeout", "previous Keeper run did not become idle")
+                                            "timeout", "previous Keeper run did not become idle", timings=timings)
             # Pi acknowledges only after prompt preflight; cold source guidance is part of this turn.
             remaining = max(0.001, started_mono + timeout - time.monotonic())
+            ack_started = time.monotonic()
             ack = self.pi.call({"type": "prompt", "message": text}, timeout=remaining)
+            ack_finished = time.monotonic()
+            timings["prompt_ack_seconds"] = round(ack_finished - ack_started, 3)
             if ack is None:
                 self.pi.call({"type": "abort"}, timeout=ACK_TIMEOUT)
                 return self._finalize_turn(n, text, started_at, started_mono, [], "",
-                                            "timeout", "prompt preflight exceeded turn timeout")
+                                            "timeout", "prompt preflight exceeded turn timeout", timings=timings)
             if not ack.get("success", False):
                 return self._finalize_turn(n, text, started_at, started_mono, [], "",
-                                            "empty", f"prompt rejected: {ack.get('error')}")
+                                            "empty", f"prompt rejected: {ack.get('error')}", timings=timings)
 
             tools: dict[str, dict] = {}
             tool_order: list[str] = []
@@ -725,6 +741,10 @@ class Daemon:
                 except queue.Empty:
                     continue
 
+                received = event.get("_recv_mono")
+                if isinstance(received, (int, float)) and received < ack_started:
+                    # Already persisted by the raw reader; it belongs to pre-prompt work.
+                    continue
                 etype = event.get("type")
                 if etype in ("agent_start", "turn_start", "tool_execution_start", "tool_execution_update",
                               "tool_execution_end", "message_start", "message_update", "message_end"):
@@ -871,9 +891,10 @@ class Daemon:
             else:
                 settle_class = "empty"
 
+            timings["keeper_wait_seconds"] = round(time.monotonic() - ack_finished, 3)
             return self._finalize_turn(n, text, started_at, started_mono, tool_records,
                                         final_text, settle_class, stop_reason,
-                                        stale_settles=stale_settles, delivery=delivery,
+                                        stale_settles=stale_settles, delivery=delivery, timings=timings,
                                         **({"public_clock": public_clock} if public_clock is not None else {}),
                                         **({"notices": notices} if notices else {}),
                                         **({"setup_opening": "\n\n".join(setup_openings)} if setup_openings else {}))
@@ -884,7 +905,8 @@ class Daemon:
                         tool_records: list[dict], final_text: str,
                         settle_class: str, stop_reason: str | None, stale_settles: int = 0,
                         delivery: dict | None = None, notices: list[dict] | None = None,
-                        setup_opening: str | None = None, public_clock: dict | None = None) -> dict:
+                        setup_opening: str | None = None, public_clock: dict | None = None,
+                        timings: dict | None = None) -> dict:
         player_view = None
         if settle_class == "settled" and public_clock is not None:
             player_view = {"status": "ready", "surface": "clock", "partial": True,
@@ -902,6 +924,7 @@ class Daemon:
             "run_id": self.run_id, "turn": n, "player_text": player_text,
             "final_text": final_text, "tools": clean_tools,
             "wall_seconds": wall_seconds, "settle_class": settle_class,
+            **({"timings": dict(timings)} if timings is not None else {}),
             "stop_reason": stop_reason, "started_at": started_at, "ended_at": now_iso(),
             # How many settles arrived before this turn had begun; each one would have ended the
             # turn early and left the keeper playing it unwatched.

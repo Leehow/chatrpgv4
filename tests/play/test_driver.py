@@ -439,10 +439,12 @@ def test_start_writes_pid_and_heartbeat(started_run):
     assert heartbeat["turn_count"] == 0
 
 
-def test_silence_and_a_stale_settle_do_not_end_a_busy_opening():
+def test_silence_and_a_stale_settle_do_not_end_a_busy_opening(monkeypatch):
     spec = importlib.util.spec_from_file_location("driver_idle_probe", DRIVER)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    clock = SimpleNamespace(value=0.0)
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: clock.value))
     states = iter([{"isStreaming": True}, {"pendingMessageCount": 1}, {"isStreaming": False}])
     calls = []
     class Transport:
@@ -456,10 +458,11 @@ def test_silence_and_a_stale_settle_do_not_end_a_busy_opening():
             if self.first:
                 self.first = False
                 return {"type": "agent_settled"}
+            clock.value += timeout
             raise queue.Empty
     daemon = module.Daemon.__new__(module.Daemon)
     daemon.pi = Transport()
-    assert daemon._await_quiet(Events(), time.monotonic()+2)
+    assert daemon._await_quiet(Events(), 10)
     assert calls == [{"type": "get_state"}] * 3
 
 
@@ -890,3 +893,139 @@ def test_engine_acceptance_requires_actual_current_process_handshake(tmp_path):
     module.validate_engine('legacy', actual)
     events.write_text(json.dumps({'type': 'entry_appended', 'entry': {'customType': 'coc-runtime', 'data': {'loop_engine': 'hybrid-v1'}}}) + '\n{"partial":', encoding='utf-8')
     module.validate_engine('hybrid-v1', module.runtime_engine(events))
+
+
+def continuous_readiness_probe(monkeypatch, states, deadline=10, opening_backlog=False):
+    """Real driver control flow with a clocked endless telemetry source; no model."""
+    spec = importlib.util.spec_from_file_location("driver_continuous_readiness", DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    clock = SimpleNamespace(value=0.0)
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: clock.value))
+    calls = []
+    supplied = iter(states)
+    last = states[-1]
+    state_queries = []
+    accepted = SimpleNamespace(value=False)
+    prior = [
+        {"type": "agent_start", "_recv_mono": 2.0},
+        {"type": "message_update", "_recv_mono": 2.1, "assistantMessageEvent": {"type": "text_delta", "delta": "Old opening"}},
+        {"type": "agent_settled", "_recv_mono": 2.2},
+    ] if opening_backlog else []
+    work = iter(prior + [
+        {"type": "agent_start"},
+        {"type": "message_update", "assistantMessageEvent": {"type": "text_delta", "delta": "Fixture delivery"}},
+        {"type": "agent_settled"},
+    ])
+
+    class Events:
+        def get(self, timeout):
+            if accepted.value:
+                clock.value += min(0.1, timeout)
+                try:
+                    return next(work)
+                except StopIteration:
+                    clock.value += max(0, timeout - 0.1)
+                    raise queue.Empty
+            clock.value += min(0.333, timeout)
+            return {"type": "entry_appended", "entry": {"customType": "coc-telemetry", "data": {"kind": "background-poll"}}}
+
+    class Transport:
+        def begin_turn(self): return Events()
+        def end_turn(self): calls.append(("end_turn", clock.value))
+        def alive(self): return True
+        def call(self, request, timeout):
+            calls.append((request["type"], clock.value))
+            if request["type"] == "get_state":
+                state_queries.append(clock.value)
+                return next(supplied, last)
+            if request["type"] == "prompt":
+                accepted.value = True
+                clock.value += 0.2
+                return {"success": True}
+            return {"success": True}
+
+    daemon = module.Daemon.__new__(module.Daemon)
+    daemon.pi = Transport()
+    daemon.turn_count = 0
+    daemon._finalize_turn = lambda n, text, start, mono, tools, final, settled, reason, **kw: {
+        "settle_class": settled, "stop_reason": reason, "wall_seconds": clock.value, "final_text": final, **kw}
+    result = daemon._run_turn("Fixture input", deadline)
+    return module, clock, calls, state_queries, result
+
+
+def test_continuous_background_events_do_not_starve_idle_prompt(monkeypatch):
+    _, _, calls, polls, result = continuous_readiness_probe(monkeypatch, [{"success": True, "data": {"isStreaming": False}}])
+    prompts = [at for kind, at in calls if kind == "prompt"]
+    assert len(prompts) == 1
+    assert prompts[0] <= 3.01
+    assert len(polls) == 1
+    assert result["settle_class"] == "settled"
+    assert result["timings"]["readiness_wait_seconds"] == pytest.approx(3.0)
+    assert result["timings"]["prompt_ack_seconds"] == pytest.approx(0.2)
+    assert result["timings"]["keeper_wait_seconds"] == pytest.approx(0.3)
+
+
+@pytest.mark.parametrize("data", [
+    {"isStreaming": True},
+    {"isStreaming": False, "isCompacting": True},
+    {"isStreaming": False, "pendingMessageCount": 1},
+])
+def test_continuous_background_events_never_release_busy_prompt(monkeypatch, data):
+    _, clock, calls, polls, result = continuous_readiness_probe(monkeypatch, [{"success": True, "data": data}])
+    assert not any(kind == "prompt" for kind, _ in calls)
+    assert len(polls) >= 2
+    assert clock.value == pytest.approx(10)
+    assert result["settle_class"] == "timeout"
+
+
+@pytest.mark.parametrize("state", [None, {}, {"success": False}, {"success": True, "data": {}},
+    {"success": True, "data": None}, {"success": True, "data": []}])
+def test_unanswered_or_malformed_state_is_not_idle(monkeypatch, state):
+    _, _, calls, polls, result = continuous_readiness_probe(monkeypatch, [state])
+    assert not any(kind == "prompt" for kind, _ in calls)
+    assert len(polls) >= 2
+    assert result["settle_class"] == "timeout"
+
+
+def test_state_polling_keeps_absolute_deadline_when_events_never_stop(monkeypatch):
+    _, clock, calls, polls, result = continuous_readiness_probe(monkeypatch, [{"success": True, "data": {"isStreaming": True}}], deadline=4)
+    assert polls == [pytest.approx(3.0)]
+    assert clock.value == pytest.approx(4.0)
+    assert not any(kind == "prompt" for kind, _ in calls)
+    assert result["timings"]["prompt_ack_seconds"] is None
+
+
+def test_failed_state_may_recover_only_after_a_later_explicit_idle_state(monkeypatch):
+    _, _, calls, polls, result = continuous_readiness_probe(monkeypatch, [
+        {"success": False, "data": {"isStreaming": False}},
+        {"success": True, "data": {"isStreaming": False}},
+    ])
+    assert polls == [pytest.approx(3.0), pytest.approx(6.0)]
+    assert [at for kind, at in calls if kind == "prompt"] == [pytest.approx(6.0)]
+    assert result["settle_class"] == "settled"
+
+
+def test_idle_state_does_not_attribute_buffered_opening_events_to_the_new_prompt(monkeypatch):
+    _, _, calls, _, result = continuous_readiness_probe(monkeypatch, [{"success": True, "data": {"isStreaming": False}}], opening_backlog=True)
+    assert any(kind == "prompt" for kind, _ in calls)
+    assert result["final_text"] == "Fixture delivery"
+    assert result["stop_reason"] == "agent_settled"
+
+
+def test_phase_timings_are_additive_and_persisted_without_replacing_wall_time(tmp_path):
+    spec = importlib.util.spec_from_file_location("driver_phase_timing", DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    daemon = module.Daemon.__new__(module.Daemon)
+    daemon.run_id = "timing-fixture"
+    daemon.dir = tmp_path
+    daemon._write_heartbeat = lambda *args: None
+    daemon.log = SimpleNamespace(write=lambda *args: None)
+    timings = {"readiness_wait_seconds": 3.0, "prompt_ack_seconds": .2, "keeper_wait_seconds": .3}
+    result = daemon._finalize_turn(1, "Fixture input", module.now_iso(), module.time.monotonic(), [], "Fixture delivery", "settled", "agent_settled", timings=timings)
+    saved = json.loads((tmp_path / "turn-1.json").read_text())
+    assert saved["timings"] == timings
+    assert result["summary"]["timings"] == timings
+    assert isinstance(saved["wall_seconds"], (int, float))
+    assert saved["settle_class"] == "settled"
