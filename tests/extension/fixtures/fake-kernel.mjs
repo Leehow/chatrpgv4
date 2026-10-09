@@ -1318,7 +1318,11 @@ process.stdin.on("data", (chunk) => {
 				`${JSON.stringify({ method: request.method, params, ...(capsuleJson ? { capsule_json: capsuleJson } : {}) })}\n`,
 			);
 		}
-		process.stdout.write(`${JSON.stringify({ id: request.id, ...outcome })}\n`);
+		const reply = `${JSON.stringify({ id: request.id, ...outcome })}\n`;
+		const releaseDelay = Number(process.env.FAKE_KERNEL_RELEASE_REPLY_DELAY_MS);
+		if (request.method === "table.release" && outcome.ok && Number.isFinite(releaseDelay) && releaseDelay > 0)
+			setTimeout(() => process.stdout.write(reply), releaseDelay);
+		else process.stdout.write(reply);
 	}
 });
 process.stdin.on("end", () => process.exit(0));

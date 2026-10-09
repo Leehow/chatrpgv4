@@ -15537,6 +15537,13 @@ n+1 — where a delivered turn also leaves it. It narrates nothing, commits noth
 The host calls it at `agent_settled`, after §50's card has been issued and only when no player input is
 waiting to be sent; an input that is already queued closes the turn on its own way through, as before.
 
+**2026-10-09 completion decision.** Await that release before the settled handler returns. The repaired Cold Harvest
+table exhausted provider retries during its automatic opening; its next input captured the old stranded flag while
+the fire-and-forget release was still finishing. The kernel had advanced to `awaiting_player` before that input reached
+it, so the stale `release: "stranded"` was correctly refused. The outward settled boundary must include the release's
+acknowledgement and host-state update. Failed releases still leave the input-carried fallback armed; kernel guards,
+receipts and stranded evidence are unchanged.
+
 **§38.2's input-carried release stays, and is not a leftover.** The condition that strands most turns is a
 kernel that will not answer, which is precisely when `table.release` cannot land either — on turn 86 the
 same kernel was refusing `mods.job`, `table.capsule` and `table.player_input` within the same window. So

@@ -6896,7 +6896,7 @@ export default function (pi: ExtensionAPI) {
 		// the player's next utterance redeemed it. Complete it here instead. The mark stays set until the
 		// kernel confirms, so a kernel that cannot answer right now -- the exact condition that strands
 		// most turns -- still gets the §38 release on the next input.
-		else if (undelivered) void releaseStrandedTurn(table);
+		else if (undelivered) await releaseStrandedTurn(table);
 	});
 
 	/**
