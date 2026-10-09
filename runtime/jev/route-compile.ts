@@ -39,8 +39,11 @@ export const NONE = 'none', UNCLEAR = 'unclear';
 const QUESTIONS: Readonly<Record<FeatureFamily, {target: string; instructions: string; none: string; unclear: string}>> = Object.freeze({
   destination: {target: 'where the declared action takes the investigator now',
     instructions: 'Select the listed place the player\'s declared action takes the investigator to now: going there is part of what the player declares. '
+      + 'The options are scene destinations. Entering or leaving a fixture, approaching an exit, or stepping into the current place\'s immediate surroundings is a local action unless the established source identifies a separate listed scene. '
+      + 'Do not map a generic street, outside area or doorway to a different listed neighbourhood merely because that option has similar scenery. '
+      + 'Select another scene only when the declaration actually chooses to reach that scene, including a destination established by the recent public exchange. A local exit followed by an explicit trip still selects that trip\'s destination. '
       + 'Choose none when the declared action goes to no listed place. Choose unclear when the input does not tell.',
-    none: 'The declared action goes to none of the listed places.', unclear: 'The input does not tell whether, or where, the investigator goes.'},
+    none: 'The action stays at or immediately around the current place, or goes to none of the listed scenes.', unclear: 'The input does not tell which scene destination is actually chosen.'},
   addressee: {target: 'who among the people present the declared action is directed at',
     instructions: 'Select the listed person present that the player\'s declared action is directed at: spoken to, asked, shown something or acted on. '
       // §143.23 (ticket 24): a word that points at a person is read by who was just talking with the investigator.
@@ -408,7 +411,7 @@ export function compileBatch(view: CompileView, scope: ScopeBinding, readSet: Re
       now: turnNow(view.context),
       ...(view.context.lastExchange ? {last_exchange: view.context.lastExchange} : {}), done_this_turn: done, materials, policy: COMPILE_POLICY} as Json;
     const batch: DecisionBatch = {id: digest([COMPILE_FAMILY, view.runId, view.observations.length, state, questions]), model: JEV_MODEL,
-      family: COMPILE_FAMILY, familyVersion: '1', scope, readSet, state, questions};
+      family: COMPILE_FAMILY, familyVersion: '2', scope, readSet, state, questions};
     try { packDecisionBatch(batch); return batch; }
     catch (error) {
       if (!(error instanceof PackingError) || error.failure !== 'packing_limit' || (previews === 0 && previewChars <= 0)) throw error;
