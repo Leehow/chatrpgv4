@@ -1,5 +1,27 @@
 # PDF reading repair, 2026-10-09
 
+## Final status, 2026-10-09
+
+Five repairs are integrated into latest 0.9.7a at e0a30b08b. LAN all at 9cb131584 passed
+ext 5413 / zero failed, pytest 2127 / two skipped, loop 12 / zero failed; all exit zero.
+The later independent mainline destination prompt amendment was merged, checked with 18 local
+component tests, and the exact e0a30b08b runtime built/fetched over LAN. A fresh driver delivered
+one natural player turn on that exact build in 78.299 seconds. Both final drivers stopped normally.
+Real ordinary play totals 68 turns across Blood Road and Cold Harvest, plus one supplemental
+Haunting turn; setup, pause, provider failure and component fixtures are excluded. This is source
+acceptance and investigative progression, not a completed adventure or installed-App acceptance.
+
+The confirmed notebook false negative remains an experience limitation: matching explicit text
+scored .84 below the unchanged .9 addition gate. A later exact 12-character append succeeded once.
+No source repair or relaxed threshold is justified by that separate failure. T28 arrival prose
+preceded the corrected T29 move receipt. Preserve both facts and all raw evidence.
+
+Outcome record: docs/exec-plans/pdf-read-repair-20261009-result.md. Final logs, metrics and
+build hashes are protected under .coc/playtests/pdf-clue-readiness-final-20261009-play/.
+Worktree terminal classification is retained:protected_real_playtest_evidence; run closeout
+and final audit before yielding. Pause heartbeat pdf after integration and audit.
+All following checkpoints are historical evidence, not pending commands to repeat.
+
 ## Objective and acceptance
 
 Repair the failures exposed by the real PDF table and explain the 156-second turn and ten-minute source consultation.
@@ -59,7 +81,7 @@ excerpt probe do not establish a completed campaign, installed-App acceptance or
 - Source repair is complete. Additional live play was blocked by the Keeper provider and cannot be called passed.
   No API credential was persisted by this task; no installed App package was produced.
 
-## Remaining
+## Chronological follow-up record (superseded by final status)
 
 - Outcome record was committed as `aeddba31f` and integrated. The prior terminal worktree was retained for
   protected evidence; closeout's process probe failed on an unrelated WebDAV mount. Reactivated the same tuple
@@ -189,3 +211,14 @@ same campaign and source home, exact merged build 23df4efc5. First new turn samp
 54.7 seconds. Two actual capsules carry missing material and same-handle prepare next actions on
 their source clues; this is live projection evidence, not a blanket speed claim. Next turn records the
 publicly learned symptoms in the physical notebook. Final LAN all remains in flight.
+
+At 22:25 UTC exact 23df4efc5 all completed: ext 5410 passed / 0 failed (5411 total), pytest
+2127 passed / 2 skipped, loop 12; exit 0, 1047 seconds, retained local final-regression.log.
+Mainline meanwhile advanced cleanly to 8032361f1 (half-hour parsing and raw-error observation fixes,
+plus the other task's outcome record). Those committed deltas were merged without conflicts into the
+owned branch as 9cb131584; final combination all is now running. This is not another source-code
+refactor. Final live run reached 7 real turns: river sampling, item packing, waiting to midday, tractor
+repair/start, return to the original briefing scene and a failed aid petition with Persuade 100/10 hard
+(fumble). Field/clock continuity is retained; no completed full adventure claim. An independent read-only
+worker is verifying explicit notebook-writing omission versus actual document receipts before deciding
+whether it is a model omission or runtime failure.
