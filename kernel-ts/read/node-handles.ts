@@ -52,16 +52,25 @@ export function nodeHandleMap(world: Row): Map<string, string> {
 
 /**
  * §185.4: the map a campaign's graph is built with -- its `world.node_handles` when the campaign is name-free, null when it is
- * legacy or has no `campaign.json` yet. `world` is the caller's (a transaction may hold one newer than the disk's); without it
- * the saved world is read.
+ * legacy or has no `campaign.json` yet. A setup without a world uses its retained creation fold (§185.14).
+ * `world` is the caller's (a transaction may hold one newer than the disk's); without it the saved world is read.
  */
 export async function campaignNodeHandles(context: KernelContext, campaign: string, world?: Row): Promise<NodeHandles | null> {
     const directory = join(context.campaignsRoot, campaign), meta = join(directory, 'campaign.json');
-    if (!await context.snapshots.isFile(meta) || handleScheme(row(await context.snapshots.readJson(meta))) !== 'name-free')
+    if (!await context.snapshots.isFile(meta))
         return null;
-    if (world === undefined)
-        world = await context.snapshots.isFile(join(directory, 'world.json')) ? row(await context.snapshots.readJson(join(directory, 'world.json'))) : {};
-    return nodeHandleMap(world);
+    const saved = row(await context.snapshots.readJson(meta));
+    if (handleScheme(saved) !== 'name-free') return null;
+    if (world !== undefined) return nodeHandleMap(world);
+    if (await context.snapshots.isFile(join(directory, 'world.json')))
+        return nodeHandleMap(row(await context.snapshots.readJson(join(directory, 'world.json'))));
+    const setup = row(saved.setup);
+    if (Object.hasOwn(setup, 'node_handles')) return nodeHandleMap(setup);
+    // Old creation saved final references but lost their map. Only immutable accepted bindings can recover them.
+    const stored = await readHandles(context, await handlesDirectory(context, campaign, text(saved.module_id)));
+    const accepted = entries(row(stored.nodes)).flatMap(([id, entry]) => storedHandle(entry) ? [[id, storedHandle(entry)] as [string, string]] : []);
+    if (accepted.filter(([, handle]) => handle === text(saved.opening_scene)).length !== 1) return new Map();
+    return new Map(accepted);
 }
 
 /**

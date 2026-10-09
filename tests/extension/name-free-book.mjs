@@ -74,5 +74,5 @@ export async function readerBook(api, {root, temporary, t, seed = 'name-free-boo
 		const file = async name => JSON.parse(await readFile(join(home, '.coc', 'campaigns', id, name), 'utf8'));
 		return {id, call, file};
 	};
-	return {home, mid, raw, campaign};
+	return {home, mid, raw, campaign, context};
 }

@@ -3538,10 +3538,23 @@ The host-private PDF tool has four mutually exclusive navigation/page operations
 Evidence (SL-29A, 血色公路, `book-1`): the index publication's read-ahead (§90.5) queued a way-on repair `read-4` on focus `xu-mu` while the opening reading `read-3` of the same scene, requested as `序幕`, was still running. The keys differed -- a repair is its own identity and the focus was spelled once by name and once by handle -- so both read pages 6-17: 18 calls and 286K tokens, cancelled when the worker exited. The worker's re-entry after its 120 s foreground wait was not the duplicate: it rejoins its own in-process request and the same kernel key (22.4).
 
 - `module.read.request` for a purpose that reads graph material of a named focus -- `opening` (a repair included) and `detail` -- does not queue a job while another job of those purposes is `running` on the same focus. It attaches: the reply is that job's `{state: "reading", job_id}` with `attached: true`; a foreground request promotes it as it would promote its own. A request while the other job is only `queued` queues as its own identity, as 22.2 has it (only identical requests merge).
-- `module.read.claim` never starts a job while a running job reads the same focus. That rule existed and compared the spelled, normalized focus, so `序幕` and `xu-mu` passed it; it now uses the focus identity below, for every purpose (an empty focus is its own identity, as before).
+- `module.read.claim` never starts a material job while another material job reads the same focus, using the focus identity below (an empty focus is its own identity, as before). Answer consultations have a separate focus domain: one live answer per focus, but an answer does not wait for a graph/map publication of that focus, and that publication does not wait for an answer. This matches the domains already used by `module.read.request`; source generation, question, review and publication binding checks still apply.
 - Focus identity is structural: the graph nodes a focus names by id, handle, name or alias (the normalized-name match `materialReady` already uses), else the normalized focus itself; two foci are one focus when those sets meet. No semantic similarity.
 - The attached request is judged afresh once that reading settles: ready material answers it, and an identity the settled reading did not answer (a question, a repair still owed) queues then. The read-ahead after an opening publication re-judges the way on, so a repair the opening itself delivered is never queued.
 - A host wait attached to another identity's job only releases its wait when cancelled; it never cancels that job (22.4: a shared task is not killed for one caller). An owned source preparation (22.4.1 ownership, `_task_prepare`) keeps the job identity it binds and does not attach. Index, skeleton, guidance and answer jobs are outside the rule: no focus, or no graph material.
+
+**2026-10-09 decision.** In the fresh Blood Road table, the station consultation `read-5` waited 548 seconds for a slot
+while the station's map/material job `read-2` was repairing; it was claimed immediately after that job finished. Its
+author then took 52.5 seconds and its review 36.5 seconds. Request-time domains were separate, but claim-time locking
+joined them. Separate those claim domains rather than increasing the three-reader cap, removing the reserved foreground
+slot, skipping review or treating `pending` as an answer. Regression checks run both claim orders, preserve attachment
+within each domain and preserve the capacity bound. This concerns the full-reader fallback; an enabled original-excerpt
+route has its own measurements, and must not inherit this fallback's latency claim.
+
+Queue waiting and execution are measured separately, as in
+[Temporal's activity lifecycle](https://docs.temporal.io/encyclopedia/detecting-activity-failures) and
+[BullMQ's job lifecycle](https://docs.bullmq.io/guide/architecture). Their priority mechanisms do not justify removing
+this product's publication and provenance checks.
 
 ### 22.3 读者输出与图谱发布
 
@@ -36566,6 +36579,34 @@ refusals, and the journal's label check. No untold row, gate place or refusal is
 **The trade.** An untold person's name piece equal to an investigator's piece is no longer hidden: 「丹尼尔」 alone reaches the
 Keeper as written, and a delivery may say it. It is the trade §177.4 already makes for a piece a told person carries. The
 untold person's own full name and their other pieces are still renamed and gated.
+
+### 185.14 A selected opening resolves before its world exists (2026-10-09 repair)
+
+**Evidence.** The fresh Cold Harvest PDF table `pdf-text-20261009` accepted its second opening and created a
+name-free campaign while the opening's material was still preparing. Creation folded the library handles and saved
+the final opening handle, but saved no world or handle map. The next guidance/prologue lookup loaded an empty map and
+refused that existing opening as `unknown_entity`.
+
+- A name-free campaign created without a world keeps the creation fold in `campaign.json.setup.node_handles`.
+  Campaign graph readers use that map only while `world.json` is absent. A supplied transaction world, or a saved
+  world (including an empty map), remains authoritative once it exists. The private map is omitted from the creation
+  result: book node identifiers never become model-facing setup fields.
+- The first setup world write starts with that retained map, folds newly available handles without changing retained
+  entries, writes the world, then removes the setup map. No alias is added to a book and no library handle is read live
+  instead of an existing campaign binding.
+- For a campaign already stranded by the old writer, and only when no world or setup map exists, an exact unique
+  match of its saved opening handle in the library's immutable accepted handle entries restores those accepted
+  bindings. Unmatched handles and ordinal fallbacks are not guessed. Setup persists the recovered map under its
+  existing setup lock before proceeding; read-only graph loading can resolve it without mutating saves.
+- Writer: campaign creation and setup's first world writer. Reader: the shared `campaignNodeHandles` junction.
+  Actor: guidance, prologue and setup calls using the selected opening, then the table using the promoted world map.
+  Regression checks exercise an unread selected opening, restart loading and the first world write.
+
+The persistence order follows the same reference-integrity constraint documented by
+[SQLite foreign keys](https://www.sqlite.org/foreignkeys.html) and
+[Django natural-key deserialization](https://docs.djangoproject.com/en/6.0/topics/serialization/#natural-keys-and-forward-references):
+an emitted reference needs a durable resolver at the lifecycle stage in which it is used. This product keeps JSON
+campaign files and its existing lock; it adds neither a database nor deferred gameplay authority.
 
 ## 186. Reading cost: the request prefix survives, the draft check says everything at once, coverage is reused, the claim check is redesigned (owner ruling 2026-10-06, 「按你的建议做」 on the measured plan; `docs/specs/reading-cost.md`; amends §147.3's image window, §151.2's review reuse, §151.3's claim check and the draft check of §22)
 

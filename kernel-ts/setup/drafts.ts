@@ -543,6 +543,7 @@ export class SetupDrafts {
       const meta = await campaign.readCampaign(), state = meta.setup ??= {};
       if (truth(state.prologue)) return {recorded: true};
       if (meta.status !== 'setting_up') throw new RpcError('invalid_params', 'prologue recording belongs to setup');
+      await this.setup.writer.startSetupWorld(campaign, meta);
       const graph = (await loadModule(this.setup.context, meta.module_id, campaign.id)).graph, scene = graph.scene(params.scene);
       const selected = truth(meta.opening_scene) ? graph.scene(meta.opening_scene) : graph.startScene();
       if (graph.handle(scene) !== graph.handle(selected)) throw new RpcError('invalid_params', 'the prologue must use the authored opening scene');

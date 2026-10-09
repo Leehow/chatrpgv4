@@ -44,7 +44,7 @@ import { timeGap, timeReading, timeRefusal, timeWarning } from '../read/time-rea
 import { speakerResolver, repeatedLine, repeatedLines, sayRanges } from './speech.js';
 import { foldPersonWords, untoldWholeNames } from '../read/person-words.js';
 import { protectedNames, tellGuard, type CastPerson } from '../read/cast.js';
-import { foldNodeHandles, handleScheme, handlesDirectory, nodeHandleMap, readHandles, rewriteCampaignFiles, rewriteHandles, type HandleMove } from '../read/node-handles.js';
+import { campaignNodeHandles, foldNodeHandles, handleScheme, handlesDirectory, nodeHandleMap, readHandles, rewriteCampaignFiles, rewriteHandles, type HandleMove } from '../read/node-handles.js';
 import { pendingTells, prepareNameHistory, type NameHistory } from '../journal/name-history.js';
 import { deliveredDocuments, documentPlaceKey, documentPlaces, documentTold, untoldOwners, type DocumentTold } from './document-names.js';
 import { presenceRolls, type PresenceRolled } from '../mods/presence.js';
@@ -493,8 +493,15 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             active_turn: turn.turn, scope: { worldline, loop }, ...(result ? { result } : {}) };
     }
     async function startSetupWorld(value: CampaignWriter, meta: Row): Promise<boolean> {
-        if (await context.snapshots.pathExists(value.path('world.json')) && truth(meta.opening_scene))
+        const hasWorld = await context.snapshots.pathExists(value.path('world.json'));
+        if (hasWorld && truth(meta.opening_scene))
             return false;
+        const nameFree = handleScheme(meta) === 'name-free';
+        if (!hasWorld && nameFree && !Object.hasOwn(row(meta.setup), 'node_handles')) {
+            meta.setup = row(meta.setup);
+            meta.setup.node_handles = Object.fromEntries(await campaignNodeHandles(context, value.id) ?? []);
+            await value.writeCampaign(meta);
+        }
         const id = string(meta.module_id);
         const root = await scopedModuleRoot(context, value.id, id) ?? join(context.stateRoot, 'modules'), directory = join(root, id);
         const moduleMeta = await context.snapshots.pathExists(join(directory, 'module.json'))
@@ -507,8 +514,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 return false;
         }
         // §185.6: a name-free campaign's world is first written here when the opening was not ready at creation.
-        const nameFree = handleScheme(meta) === 'name-free';
-        const handles: Row = { node_handles: nameFree && await context.snapshots.pathExists(value.path('world.json')) ? row((await value.readWorld()).node_handles) : {} };
+        const handles: Row = { node_handles: nameFree ? hasWorld ? row((await value.readWorld()).node_handles) : row(row(meta.setup).node_handles) : {} };
         const folded = nameFree ? await firstFold(id, value.id, handles) : { module: await loadModule(context, id, value.id, null), moves: [] };
         const module = folded.module;
         // §185.6.1: what setup stored under an interim handle (the epithet lane's words) takes the final one; meta is written below.
@@ -516,6 +522,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const [world, opening] = initialWorld(module.graph, meta.opening_scene || null,!!moduleMeta.source_reference);
         if (nameFree) world.node_handles = handles.node_handles;
         await value.writeWorld(world);
+        if (nameFree) delete row(meta.setup).node_handles;
         meta.opening_scene = opening;
         meta.module_digest = module.graph.digest;
         meta.module_generation = module.generation;
@@ -895,6 +902,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             status: sheet ? 'active' : 'setting_up',
             created_at: nowIso(),
             opening_scene: start,
+            ...(world == null && nameFree ? {setup: {node_handles: clone(row(handles.node_handles))}} : {}),
             ...(guidance ? {
                 guidance_key: guidance
             } : {}),
@@ -939,8 +947,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             });
             throw new RpcError('commit_failed', `could not initialize the campaign repository: ${error.message}`);
         }
+        const visible = clone(meta);
+        delete row(visible.setup).node_handles;
         return {
-            campaign: meta
+            campaign: visible
         };
     }
     async function open(params: Row): Promise<Row> {

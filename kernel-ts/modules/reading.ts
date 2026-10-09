@@ -1852,8 +1852,9 @@ export class Reading {
                 // §22.4.6.1 (SL-54): a parked consultation is not failed for having waited; it is claimed under the current
                 // generation (`resumeUnder`, below).
                 const blocking = truth(job.foreground);
-                // §22.2.1: never two readings of one focus at once, by the focus's identity rather than its spelling.
-                if (active.some(other => Reading.meet(identity(other.focus), identity(job.focus))))
+                // §22.2.1: the request's consultation and publication domains also govern claims.
+                if (active.some(other => (job.purpose === 'answer') === (other.purpose === 'answer')
+                    && Reading.meet(identity(other.focus), identity(job.focus))))
                     continue;
                 // §22.4.6: a blocking read takes any free slot; a background read never takes the last one.
                 if (active.length >= (blocking ? READING_SLOTS : READING_SLOTS - 1)) {
