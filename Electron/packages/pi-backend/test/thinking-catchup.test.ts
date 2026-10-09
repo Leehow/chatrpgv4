@@ -31,7 +31,7 @@ describe.each([false, true])("PiHostBackend thinking catch-up on message_end (CO
       runtimeRoot: join(root, "runtime"),
       piPath: "node",
       spawn: (_bin, _args, options) =>
-        spawn("/usr/local/bin/node", [new URL("./fake-pi.mjs", import.meta.url).pathname], { ...options, env: { ...options.env, PATH: "/usr/local/bin:/usr/bin:/bin" } }) as any,
+        spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], { ...options, env: { ...options.env, PATH: process.env.PATH ?? "" } }) as any,
     });
     await backend.handle("addProject", [cwd]);
     return backend;

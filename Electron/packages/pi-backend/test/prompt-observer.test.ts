@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -110,8 +110,15 @@ describe("worker prompt observer", () => {
   });
 
   it("survives an unwritable destination rather than taking the dispatch down", async () => {
-    const { handlers } = await loadObserver({ PIPIUI_PROMPT_DEBUG_FILE: "/proc/nope/report.json" });
-    expect(() => handlers.get("before_agent_start")![0]({ systemPrompt: BASE }, ctx)).not.toThrow();
+    const root = mkdtempSync(join(tmpdir(), "pipiui-prompt-obs-refused-"));
+    const parent = join(root, "parent-file");
+    writeFileSync(parent, "owned regular file", "utf8");
+    try {
+      const { handlers } = await loadObserver({ PIPIUI_PROMPT_DEBUG_FILE: join(parent, "report.json") });
+      expect(() => handlers.get("before_agent_start")![0]({ systemPrompt: BASE }, ctx)).not.toThrow();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("keeps the report directory bounded and never sweeps the run it just wrote", async () => {

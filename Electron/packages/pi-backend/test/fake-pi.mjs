@@ -47,7 +47,9 @@ function response(command, id, success, data, error) {
 
 function emitTurn(message, images) {
   if (images) {
-    send({ type: "agent_event", event: { kind: "log", agentId: "agent-images", name: "capture", items: [{ itemType: "text", text: "IMAGES=" + JSON.stringify(images) }] } });
+    send({ type: "agent_event", event: { kind: "start", agentId: "agent-images", runId: "image-capture", parentId: null, name: "capture", task: "capture image payload", depth: 1 } });
+    send({ type: "agent_event", event: { kind: "log", agentId: "agent-images", runId: "image-capture", name: "capture", items: [{ itemType: "text", text: "IMAGES=" + JSON.stringify(images) }] } });
+    send({ type: "agent_event", event: { kind: "end", agentId: "agent-images", runId: "image-capture", ok: true } });
   }
   if (!durableAgent) {
     send({ type: "agent_event", event: { kind: "start", agentId: "agent-1", runId: "run-1", parentId: null, name: "builder", role: "general-purpose", title: "Build fixture", task: "implement fixture", depth: 1, at: "2026-08-10T00:00:02.000Z", worktreePath: "/tmp/fake-worktree", worktreeBranch: "pipiui/fake", worktreeLifecycle: "active" } });

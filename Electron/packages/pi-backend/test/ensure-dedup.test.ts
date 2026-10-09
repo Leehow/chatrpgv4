@@ -53,9 +53,9 @@ describe("PiHostBackend ensure() concurrency dedup", () => {
 
   it("does not spawn Pi for concurrent chrome reads of a cold session", async () => {
     const spawnSpy = vi.fn((_bin: string, _args: string[], options: any) =>
-      spawn("/usr/local/bin/node", [new URL("./fake-pi.mjs", import.meta.url).pathname], {
+      spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], {
         ...options,
-        env: { ...options.env, PATH: "/usr/local/bin:/usr/bin:/bin" },
+        env: { ...options.env, PATH: process.env.PATH ?? "" },
       }) as any,
     );
     const { backend } = await fixture(spawnSpy);
@@ -79,9 +79,9 @@ describe("PiHostBackend ensure() concurrency dedup", () => {
 
   it("shares one in-flight spawn across concurrent ensure() calls for the same session", async () => {
     const spawnSpy = vi.fn((_bin: string, _args: string[], options: any) =>
-      spawn("/usr/local/bin/node", [new URL("./fake-pi.mjs", import.meta.url).pathname], {
+      spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], {
         ...options,
-        env: { ...options.env, PATH: "/usr/local/bin:/usr/bin:/bin" },
+        env: { ...options.env, PATH: process.env.PATH ?? "" },
       }) as any,
     );
     const { backend } = await fixture(spawnSpy);
@@ -100,9 +100,9 @@ describe("PiHostBackend ensure() concurrency dedup", () => {
 
   it("does not serialize different sessions: each cold session spawns once, in parallel", async () => {
     const spawnSpy = vi.fn((_bin: string, _args: string[], options: any) =>
-      spawn("/usr/local/bin/node", [new URL("./fake-pi.mjs", import.meta.url).pathname], {
+      spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], {
         ...options,
-        env: { ...options.env, PATH: "/usr/local/bin:/usr/bin:/bin" },
+        env: { ...options.env, PATH: process.env.PATH ?? "" },
       }) as any,
     );
     const { backend } = await fixture(spawnSpy, "session-1");
@@ -137,9 +137,9 @@ describe("PiHostBackend ensure() concurrency dedup", () => {
         throw new Error("spawn failed");
       })
       .mockImplementation((_bin: string, _args: string[], options: any) =>
-        spawn("/usr/local/bin/node", [new URL("./fake-pi.mjs", import.meta.url).pathname], {
+        spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], {
           ...options,
-          env: { ...options.env, PATH: "/usr/local/bin:/usr/bin:/bin" },
+          env: { ...options.env, PATH: process.env.PATH ?? "" },
         }) as any,
       );
     const { backend } = await fixture(spawnSpy);

@@ -62,9 +62,9 @@ async function fixture(compaction?: {
     proactiveSummaryCompaction,
     spawn: (_bin, args, spawnOptions) => {
       options.spawnArgs?.push([...args]);
-      return spawn("/usr/local/bin/node", [new URL("./fake-pi.mjs", import.meta.url).pathname], {
+      return spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], {
         ...spawnOptions,
-        env: { ...spawnOptions.env, PATH: "/usr/local/bin:/usr/bin:/bin" },
+        env: { ...spawnOptions.env, PATH: process.env.PATH ?? "" },
       }) as any;
     },
   });
