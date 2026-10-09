@@ -91,6 +91,26 @@ test('unsupported complete numerals and compound intervals never expose an execu
         assert.equal(api.kernelCall(value,bound.extra).params.effects[0].minutes,minutes,interval);
     }
 });
+test('literal halves and quarters occupy a complete source span and bind only exact whole minutes',()=>{
+    const accepted=[['half an hour',30],['a half hour',30],['quarter hour',15],['a quarter hour',15],
+        ['one and a half hours',90],['9 and a half hours',570],['two and a quarter hours',135],
+        ['\u534a\u5c0f\u65f6',30],['\u534a\u4e2a\u5c0f\u65f6',30],['\u4e5d\u4e2a\u534a\u5c0f\u65f6',570],
+        ['\u4e5d\u500b\u534a\u5c0f\u6642',570],['9\u4e2a\u534a\u5c0f\u65f6',570],['\u4e00\u5929',1440]];
+    for(const [interval,minutes] of accepted){
+        const text=`I wait ${interval}.`,value=candidate(text),entries=Object.entries(value.timeDurations??{});
+        assert.equal(entries.length,1,interval);
+        const [alias,duration]=entries[0];assert.equal(duration.minutes,minutes,interval);
+        assert.equal(duration.text,interval);assert.equal(text.slice(duration.start,duration.end),interval);
+        assert.equal(api.kernelCall(value,bind(value,alias).extra).params.effects[0].minutes,minutes);
+    }
+    for(const interval of ['half a minute','quarter minute','1.5 and a half hours','one hundred and a half hours',
+        '1,000\u4e2a\u534a\u5c0f\u65f6','\u4e00\u767e\u4e94\u4e2a\u534a\u5c0f\u65f6','9007199254740990 and a half minutes',
+        '\u4e5d\u4e2a\u534a\u5c0f\u65f6\u534a','\u4e5d\u5c0f\u65f6\u534a',
+        '\u4e5d\u4e2a\u534a\u5c0f\u65f6\u548c\u4e94\u5206\u949f','half an hour and 5 minutes']){
+        const value=candidate(`I wait ${interval}.`);assert.deepEqual(value.timeDurations??{},{},interval);
+        assert.equal(bind(value,'duration:0').pending.some(item=>item.purpose==='execute'),false,interval);
+    }
+});
 test('unsupported amount lists stay bounded, including a failing suffix and near-limit input in a private process',async()=>{
     const probe=spawnSync(process.execPath,['--input-type=module','-e',`
         import {declaredDurations} from ${JSON.stringify(pathToFileURL(join(bundle,'api.mjs')).href)};
@@ -110,7 +130,7 @@ test('unsupported amount lists stay bounded, including a failing suffix and near
     if(process.env.JEV04_LEXER_REPORT)await writeFile(process.env.JEV04_LEXER_REPORT,JSON.stringify({kind:'bounded-duration-source-probe',live_play:false,model_calls:0,
         deadline_ms:3000,elapsed_ms:proof.elapsed_ms,results:proof.results},null,2)+'\n');
 });
-test('exact closed interval reaches real apply, clock projection and replay receipts twice without moving anyone',async()=>{
+test('exact five-minute and nine-and-a-half-hour intervals reach apply, clock projection and replay without moving anyone',async()=>{
     const home=playtestScratch('declared-time-interval-contracts'),kernel=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'fixed-wait',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(kernel);
     try{
         const call=(method,params={})=>runtime.handlers[method]({campaign:'c1',...params});
@@ -118,21 +138,22 @@ test('exact closed interval reaches real apply, clock projection and replay rece
         const campaign=new api.CampaignWriter(kernel,'c1'),evidence=[];
         let initial,afterFirst;
         for(let turn=1;turn<=2;turn++){
-            await call('table.player_input',{text:input});
+            const declaration=turn===1?input:'\u6211\u539f\u5730\u7b49\u4e5d\u4e2a\u534a\u5c0f\u65f6\u3002',minutes=turn===1?5:570;
+            await call('table.player_input',{text:declaration});
             const source={capsule:await call('table.capsule'),applyOptions:await call('table.apply.options'),resolveOptions:await call('table.resolve.options'),bands:{time:(await call('rules.bands',{field:'time.band'})).rows}};
             const before=await campaign.readWorld();if(turn===1)initial=before;
-            const value=candidate(input,source),alias=Object.keys(value.timeDurations)[0],bound=bind(value,alias),operation=api.kernelCall(value,bound.extra);
+            const value=candidate(declaration,source),alias=Object.keys(value.timeDurations)[0],bound=bind(value,alias),operation=api.kernelCall(value,bound.extra);
             const args={call_id:`t${turn}-c1`,...operation.params};
             await call(operation.method,args);const replay=await call(operation.method,args);assert.equal(replay.replayed,true);
             const status=await call('table.status'),after=await campaign.readWorld(),receipt=status.receipts.find(r=>r.kind==='time');
-            assert.equal(receipt.minutes,5);assert.equal(receipt.clock_after-receipt.clock_before,5);assert.equal(receipt.band,undefined);
+            assert.equal(receipt.minutes,minutes);assert.equal(receipt.clock_after-receipt.clock_before,minutes);assert.equal(receipt.band,undefined);
             assert.equal(after.active_scene,before.active_scene);assert.deepEqual(after.npc_locations,before.npc_locations);
             const capsule=await call('table.capsule');assert.equal(capsule.where.clock.minutes,after.clock.minutes);
-            if(turn===1)afterFirst=after;else assert.equal(after.clock.minutes-afterFirst.clock.minutes,5);
+            if(turn===1)afterFirst=after;else assert.equal(after.clock.minutes-afterFirst.clock.minutes,570);
             evidence.push({turn,selected:alias,operation:operation.params,receipt,projected_minutes:capsule.where.clock.minutes,replayed:replay.replayed,scene_before:before.active_scene,scene_after:after.active_scene});
-            await call('table.narrate',{call_id:`t${turn}-c2`,text:'The chosen five-minute interval passes. There is no callback; the investigator remains in the room.'});
+            await call('table.narrate',{call_id:`t${turn}-c2`,text:'The chosen interval passes. There is no callback; the investigator remains in the room.'});
         }
-        const final=await campaign.readWorld();assert.equal(final.clock.minutes-initial.clock.minutes,10);
+        const final=await campaign.readWorld();assert.equal(final.clock.minutes-initial.clock.minutes,575);
         if(process.env.JEV04_REPORT)await writeFile(process.env.JEV04_REPORT,JSON.stringify({kind:'closed-decision-kernel-contract',live_play:false,model_calls:0,initial_minutes:initial.clock.minutes,final_minutes:final.clock.minutes,evidence},null,2)+'\n');
     }finally{await runtime.close();}
 });
