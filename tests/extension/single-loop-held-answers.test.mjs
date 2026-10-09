@@ -269,6 +269,17 @@ function router() {
 	}, route: stay };
 }
 const telemetryOf = (table, lane, event) => table.table.telemetry(CAMPAIGN).filter((row) => row.lane === lane && row.event === event);
+/** Forward an observing wrapper without mutating the producer's frozen port; shutdown publishes no port. */
+function sourceAnswersProbe(pi, wrap) {
+	const forwarded = new WeakSet();
+	pi.events.on("coc:source-answers", port => {
+		if (!port || forwarded.has(port)) return;
+		const proxy = Object.freeze({...port, ...wrap(port)});
+		forwarded.add(proxy);
+		pi.events.emit("coc:source-answers", proxy);
+	});
+}
+
 
 test("§135.20.1 at the extension seam: an answer from turn N rides turn N+1's first model step at the same scene, once, and is gone after the party moves", async (t) => {
 	const SENTINEL = "Corbitt died in 1918 and the Macarios let the house since (held-sentinel).";
@@ -317,7 +328,13 @@ test("§135.20.1 at the extension seam: an answer from turn N rides turn N+1's f
 });
 
 test("§135.20.1 at the extension seam: the memo's answers are held within the budget, the newest kept, each view cut to 4 KiB, and the note stays inside 12 KiB", async (t) => {
+	const offeredHeld = [];
 	const table = await hybridTable({ route: stay,
+		probe: pi => sourceAnswersProbe(pi, port => ({take: at => {
+			const taken = port.take(at);
+			if (taken.held?.length) offeredHeld.push(taken.held.map(entry => entry.question));
+			return taken;
+		}})),
 		responses: [consult("commission-briefing", "What does the lease cover?"), narrate("Knott waits."),
 			look("time"), narrate("You fold the lease.")] });
 	t.after(() => table.dispose());
@@ -331,10 +348,15 @@ test("§135.20.1 at the extension seam: the memo's answers are held within the b
 	await table.table.session.prompt("I fold the lease.");
 	const carried = answerViews(table.requests);
 	assert.ok(carried.every((entry) => entry.request === 2 && entry.held), `turn 3's first step: ${JSON.stringify(carried.map((entry) => entry.request))}`);
-	assert.deepEqual(carried.map((entry) => entry.view.question), ["lease question 5", "lease question 4", "lease question 3", "lease question 2"],
-		"newest first; exact pages fit the 8 KiB shelf without another held copy of the memo envelope");
+	assert.deepEqual(offeredHeld, [["lease question 5", "lease question 4", "lease question 3", "lease question 2"]],
+		"the 8 KiB shelf keeps four independent exact pages; no memo envelope takes another slot");
+	assert.deepEqual(carried.map((entry) => entry.view.question), ["lease question 5", "lease question 4", "lease question 3"],
+		"newest first; the complete 12 KiB presentation also includes the run's other carried views");
 	for (const entry of carried) assert.ok(size(entry.view) <= CARRIED_VIEW_BYTES, `${entry.view.question} within one view`);
 	const note = clerkNotes(table.requests[2]).at(-1);
+	assert.deepEqual(note.carried.omitted.filter(entry => entry.focus === "source_answer" && entry.held),
+		[{focus: "source_answer", name: "commission-briefing", reason: "budget", held: true}],
+		"the fourth held answer is explicitly omitted by the complete presentation budget, never silently lost");
 	assert.ok(size(note.carried.views) <= CARRIED_VIEWS_BYTES, "the message's ceiling");
 	assert.equal(note.carried.views.find((view) => view.view.question === "lease question 5").truncated, true, "the long one is cut and marked");
 	assert.equal(occurrences(table.requests[2], "memo-answer-1 "), 0, "the dropped oldest answer never rides");
@@ -426,10 +448,9 @@ test("§135.20.1 at the extension seam: the next turn's first step waits for thi
 		// Release the same-scene read only after the actual settle port is waiting. RPC latency is not the landmark.
 		probe: (pi) => {
 			pi.events.on("coc:model-infer", () => { infers++; });
-			pi.events.on("coc:source-answers", (port) => {
-				const settle = port.settle;
-				port.settle = async (input) => {
-					const waiting = settle(input);
+			sourceAnswersProbe(pi, port => ({
+				settle: async (input) => {
+					const waiting = port.settle(input);
 					if (armed) {
 						armed = false;
 						let finished = false;
@@ -440,8 +461,8 @@ test("§135.20.1 at the extension seam: the next turn's first step waits for thi
 						answers["Whose house is it?"].land();
 					}
 					return await waiting;
-				};
-			});
+				},
+			}));
 		},
 		responses: [consult("commission-briefing", "Whose house is it?"), narrate("Knott looks away."),
 			consult("commission-briefing", "Who signed the lease?"), narrate("You study the signature."),
