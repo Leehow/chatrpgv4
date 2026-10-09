@@ -400,6 +400,11 @@ export function fitPresent(rows: Row[], budget: number): boolean {
  */
 function fitWhere(where: Row, budget: number): boolean {
     let cut = false;
+    // Source preparation hints must not erase the first typed rule preview.
+    while (jsonSize(where) > budget && Array.isArray(where.rules) && where.rules.length > 1) {
+        where.rules.pop();
+        cut = true;
+    }
     for (const [key, keep] of [["back", 1], ["places", 0]] as const)
         while (jsonSize(where) > budget && Array.isArray(where[key]) && where[key].length > keep) {
             where[key].pop();
@@ -408,6 +413,7 @@ function fitWhere(where: Row, budget: number): boolean {
     // §13.1.1 with §204: secondary ancestor previews give way before this place's ways out and room notes.
     if (jsonSize(where) > budget) {
         const retained = new Set(['exits', 'back', 'keeper_notes']);
+        retained.add('rules');
         const rest = Object.fromEntries(Object.entries(where).filter(([key]) => !retained.has(key)));
         const reserved = jsonSize(where) - jsonSize(rest);
         cut = fitBudget(rest, Math.max(0, budget - reserved)) || cut;
@@ -540,7 +546,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true, campaign:campaign.id, currentReceipts:array(turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: campaign.records, scope:npcScope, chain: campaign.chainReads() }),
         ...(deferred ? {deferred_npcs: deferred} : {}),
         voices: voicesSection(graph, world, scene),
-        known: knownSection(graph, world, scene, party, campaign.records),
+        known: knownSection(graph, world, scene, party, campaign.records, module.material),
         // The body that cannot act goes first: `fitBudget(..., "last")` trims this section from the
         // end, and a Keeper who loses the threat clock still has a table, while a Keeper who loses
         // this one has the thirty hours of §89 back.

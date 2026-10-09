@@ -517,7 +517,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
             if (focus === "clues")
                 return {
                     discovered_clues: [...array(world.discovered_clues)],
-                    clues_here: cluesHere(graph, world, scene)
+                    clues_here: cluesHere(graph, world, scene, module.material)
                 };
             if (focus === "map") {
                 if (!contributions.asset)
@@ -692,7 +692,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                     pressure_moves: where.pressure_moves,
                     keeper_notes: where.keeper_notes
                 },
-                undiscovered_clues: cluesHere(graph, world, scene).filter(c => !c.discovered),
+                undiscovered_clues: cluesHere(graph, world, scene, module.material).filter(c => !c.discovered),
                 npc_secrets: nodes.map(node => {
                     const elsewhere = across(node);
                     return {

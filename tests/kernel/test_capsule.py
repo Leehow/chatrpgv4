@@ -241,13 +241,15 @@ def test_an_affordance_row_carries_what_it_yields_and_its_gate(kernel):
     affordances = {a["id"]: a for a in where["affordances"]}
     row = affordances["confirm-commission-terms"]
     assert row["clue"] == "knott-commission"
-    assert row["clues"] == [{"clue": "knott-commission", "gate": "npc_dialogue: check unspecified", "discovered": False}]
+    assert row["clues"] == [{"clue": "knott-commission", "gate": "npc_dialogue: check unspecified", "discovered": False, "material": "ready"}]
     assert all("clues" in a and a["clues"][0]["clue"] == a["clue"] for a in where["affordances"]), where["affordances"]
     # `status` and `route_type` are author fields with no writer and stay off the row: nothing at the table moves them.
     assert "status" not in row and "route_type" not in row
     known = kernel.table("capsule")["known"]
     clues = {c["name"]: c for c in known["clues_here"]}
     assert clues["knott-commission"]["gate"] == "npc_dialogue: check unspecified"
+    assert clues["knott-commission"]["material"] == "ready"
+    assert "next" not in clues["knott-commission"]
     # A landed clue reads as discovered on the affordance that grants it.
     kernel.table("apply", call_id="t1-c1", effects=[{"kind": "clue", "clue": "knott-commission"}])
     after = {a["id"]: a for a in kernel.table("capsule")["where"]["affordances"]}

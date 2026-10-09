@@ -10,6 +10,7 @@ const OPERATION_CONTRACT={phase:'before_delivery',
   clue:'apply clue records acquisition of the named knowledge; it does not transfer cash, keys or other physical items. Its supported briefing is narrated after this atomic effect batch settles.',
   move:'apply move changes the persistent location.',
   source_gate:'Gate text is advisory metadata. A missing check entry neither demands nor waives a check; the supplied delivery kind and authored content remain the evidence.',
+  source_material:'A clue with material missing is not prepared for discovery. Its next action locates source preparation; resolve that prerequisite before selecting its discovery. Ready material does not grant player authorization or waive checks.',
   batch:'All selected effects pass the existing independent action-admission owner and kernel validation before commit.'};
 const finish=(status:'complete'|'partial'|'needs_player'|'unresolved',remainingNeeds:string[]=[]):TaskStep=>({kind:'finish',status,remainingNeeds});
 const answer=(view:TaskView,key:string,question:string)=>{

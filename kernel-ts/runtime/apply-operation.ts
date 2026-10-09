@@ -130,7 +130,7 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
         // §135.30.9.2 (SL-52 stage 2): a clue row carries the book's cues for it here -- the affordances of this scene that grant it.
         // §201.2: a clue the book finds by a check of a named skill says so, and whether this turn passed it: `kernel/apply`
         // refuses it until then (`check_first`), so no reader offers it to the clerk before the roll.
-        for (const clue of cluesHere(graph,campaign.world,scene)) if (clue.discovered!==true) {
+        for (const clue of cluesHere(graph,campaign.world,scene,module.material)) if (clue.discovered!==true) {
             const node=graph.find(clue.name,['clue']), cues=node&&scene?grantingCues(scene,string(node.node_id)):[];
             const check=node?clueCheck(graph,node):null;
             add({kind:'clue',clue:clue.name},{kind:'clue',...clue,...(cues.length?{cues}:{}),

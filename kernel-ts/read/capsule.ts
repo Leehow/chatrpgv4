@@ -490,7 +490,8 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
             entry.clues = granted.map(node => ({
                 clue: graph.handle(node),
                 gate: clueGate(graph, node, world),
-                discovered: clueDiscovered(graph, world, node)
+                discovered: clueDiscovered(graph, world, node),
+                ...cluePreparation(graph, world, node, material)
             }));
         }
         const npc = row(aff.npc_interaction).npc_id;
@@ -624,7 +625,16 @@ export function openingPeopleView(graph: ModuleGraph, world: Row, scene: Row): R
 export function clueDiscovered(graph: ModuleGraph, world: Row, clue: Row): boolean {
     return graph.discovered(world, clue);
 }
-export function cluesHere(graph: ModuleGraph, world: Row, scene: Row): Row[] {
+/** §22.4.9: navigation is not prepared source material; the existing transaction gate still decides discovery. */
+function cluePreparation(graph: ModuleGraph, world: Row, node: Row, material: (name: string) => string): Row {
+    const ready = graph.isTableEntity(node) || material(node.node_id) === "ready";
+    return {material: ready ? "ready" : "missing", ...(!ready && !clueDiscovered(graph, world, node) ? {
+        next: {tool: "lookup", kind: "source", source_mode: "prepare", query: graph.handle(node),
+            question: "Prepare this clue."},
+        note: "Prepare source before discovery."
+    } : {})};
+}
+export function cluesHere(graph: ModuleGraph, world: Row, scene: Row, material: (name: string) => string = () => "ready"): Row[] {
     return graph.sceneClueIds(scene).map(id => {
         const node = graph.nodes.get(id)!, view = graph.clueView(node);
         // "What can still be dug up here and how": the gate is the how (contract §32.5), the same
@@ -632,7 +642,8 @@ export function cluesHere(graph: ModuleGraph, world: Row, scene: Row): Row[] {
         return {
             ...view,
             gate: clueGate(graph, node, world),
-            discovered: clueDiscovered(graph, world, node)
+            discovered: clueDiscovered(graph, world, node),
+            ...cluePreparation(graph, world, node, material)
         };
     });
 }
@@ -1156,10 +1167,10 @@ export function pricesPaid(records: Row[], limit = 8): Row[] {
         }
     return paid;
 }
-export function knownSection(graph: ModuleGraph, world: Row, scene: Row, party: Row[], records: Row[] = []): Row {
+export function knownSection(graph: ModuleGraph, world: Row, scene: Row, party: Row[], records: Row[] = [], material: (name: string) => string = () => "ready"): Row {
     const section: Row = {
         discovered_clues: [...array(world.discovered_clues)],
-        clues_here: cluesHere(graph, world, scene),
+        clues_here: cluesHere(graph, world, scene, material),
         flags: entries(row(world.flags)).reverse().map(([name, value]) => ({
             name,
             value

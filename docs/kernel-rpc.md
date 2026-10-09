@@ -4390,6 +4390,16 @@ later move into the scene refuses naming [5, 6] and lands on them; a completed r
 draft; a draft without the scene's node falls back to the viewed pages; a reading that failed before its read phase
 writes nothing; the next reader's packet `index` carries the rows. Mutations in the SL-48 ticket's Comments.
 
+### 22.4.9 Source-clue invitations expose preparation before discovery (2026-10-09)
+
+`known.clues_here`, `where.affordances[].clues`, clue looks, scene-secret projections and ordinary-apply clue candidates carry `material: "ready" | "missing"`, from the same loaded module material callback the scene projection uses. When an undiscovered clue is missing, that same row carries `next: {tool: "lookup", kind: "source", source_mode: "prepare", query: <the row's clue handle>, question: "Prepare this clue."}` and the English note `Prepare source before discovery.` These compact hints keep existing rule previews inside the unchanged section budget. A discovered clue has no preparation invitation. A table-created clue is ready, matching the existing material gate exemption; survivor/copy readiness and fixed-source behavior remain the loaded material callback's responsibility.
+
+**Three ends.** The writer is checked publication's `reading.materials[].node_ids`; `loadCampaignModule.material` reads those rows and survivor identity. `cluesHere` and affordance projection consume that callback instead of treating a navigation node as prepared. The Keeper and ordinary-apply planner see the prerequisite beside the invitation and can prepare that exact clue before requesting its discovery. The host candidate projection retains `material`, `next` and `note` in the clue's detail; the ordinary-apply decision contract distinguishes missing material from advisory gate text and from player authorization. The existing transaction gate remains authoritative when the instruction is ignored; no field approves a clue, no observation is fabricated, and no reading budget or wait allowance changes. Offer accounting counts and never pressures adoption.
+
+**Evidence and scope.** A real turn offered five source clues without readiness, then one `apply` spent 8.079 seconds on admission and the existing 120-second foreground read before failing `reading_timeout`. The source clue existed but had never been marked ready. Consultation speed is not material preparation speed. This is a projection repair over an existing status producer, not a new readiness algorithm; additional external design research is unnecessary for this direct wiring. Successful source preparation can still take time or be refused by independent review.
+
+The preparation hints remain compact under the existing budgets. `fitWhere` trims trailing rule previews when necessary but reserves the first typed rule preview before lower-priority field trimming, so the added clue metadata cannot erase all rules. No section budget is raised and no mechanical assertion is weakened.
+
 ### 22.5 开场、失败与旧数据
 
 setup 用 `prepare-module` 替换 `build-bundle/bind-source/build-opening` 的外部编排。输入真实 `pdf` 或既有 `module`，执行来源登记、定位、开场准备；调查员流程保持原职责。多开场选择沿用 `module.opening.choose`；候选来自已读原书，等待不能解决选择。源语言由读者判断，玩家语言继续使用 `play_language`。

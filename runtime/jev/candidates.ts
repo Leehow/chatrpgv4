@@ -438,7 +438,9 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     else if (kind === 'clue') push({key: `apply:clue:${text(effect.clue)}`, verb: 'apply', family: 'clue', source: 'table.apply.options',
       label: `Reveal clue ${text(effect.clue)}: ${text(description.summary)}`, bound: {kind: 'clue', clue: text(effect.clue)},
       unbound: [{name: 'how', required: false, vocabulary: 'open'}, {name: 'label', required: false, vocabulary: 'open'}],
-      detail: {...(description.gate !== undefined && description.gate !== null ? {gate: description.gate} : {}), ...(text(description.delivery_kind) ? {delivery_kind: text(description.delivery_kind)} : {})} as Json,
+      detail: {...(text(description.material) ? {material: description.material} : {}),
+        ...(description.next !== undefined ? {next: description.next} : {}), ...(text(description.note) ? {note: description.note} : {}),
+        ...(description.gate !== undefined && description.gate !== null ? {gate: description.gate} : {}), ...(text(description.delivery_kind) ? {delivery_kind: text(description.delivery_kind)} : {})} as Json,
       clerk: 'declared_bookkeeping', basis});
   }
   // Handout assets the current scene carries, less the ones already handed over: consumed by world state (the
