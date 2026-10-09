@@ -132,6 +132,39 @@ def test_notice_cannot_shadow_confirmed_implicit_narration():
         assert result["notices"] == [{"content": notice["content"], "details": notice["details"]}]
 
 
+@pytest.mark.parametrize("accepted", [True, False])
+@pytest.mark.parametrize("event_type,field", [("message_end", "message"), ("entry_appended", "entry")])
+def test_late_provider_notice_preserves_confirmed_implicit_narration(accepted, event_type, field):
+    notice = review_notice(content="The request failed after 72 seconds and was retried.",
+                           details={"coc_delivery": True, "turn": 1, "provider_outage": True, "terminal": False})
+    result = replay_turn([
+        (0, {"type": "agent_start"}),
+        (.1, {"type": "entry_appended", "entry": {"customType": "coc-telemetry",
+              "data": {"tool": "narrate", "implicit": True, "ok": accepted}}}),
+        (.2, {"type": "message_end", "message": {"role": "assistant",
+              "content": [{"type": "text", "text": "The librarian takes the request to the closed stacks."}]}}),
+        (.3, {"type": event_type, field: notice}),
+        (.4, {"type": "agent_settled"}),
+    ])
+    assert result["final_text"] == ("The librarian takes the request to the closed stacks." if accepted else notice["content"])
+    assert result["notices"] == [{"content": notice["content"], "details": notice["details"]}]
+
+
+def test_implicit_confirmation_does_not_survive_a_repair_run():
+    notice = review_notice(details={"coc_delivery": True, "turn": 1, "provider_outage": True, "terminal": False})
+    result = replay_turn([
+        (0, {"type": "agent_start"}),
+        (.1, {"type": "entry_appended", "entry": {"customType": "coc-telemetry",
+              "data": {"tool": "narrate", "implicit": True, "ok": True}}}),
+        (.2, {"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "Prior leg."}]}}),
+        (.3, {"type": "agent_start"}),
+        (.4, {"type": "message_end", "message": notice}),
+        (.5, {"type": "agent_settled"}),
+    ])
+    assert result["final_text"] == notice["content"]
+    assert result["notices"] == [{"content": notice["content"], "details": notice["details"]}]
+
+
 def failed_narrate_events():
     return [
         (0, {"type": "agent_start"}),

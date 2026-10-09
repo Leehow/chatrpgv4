@@ -692,13 +692,14 @@ class Daemon:
             # its message_end and its entry_appended.
             setup_openings: list[str] = []
             rejected_delivery = False
+            implicit_narration_confirmed = False
 
             def capture_host_delivery(host: dict) -> None:
                 nonlocal delivered, delivery, rejected_delivery
                 rejected_delivery = False
                 if host["kind"] == "notice":
                     notices.append({"content": host["rendered_text"], "details": deepcopy(host["details"])})
-                    if delivery is None:
+                    if delivery is None and not implicit_narration_confirmed:
                         delivery = host
                         delivered = host["rendered_text"]
                 elif delivery is None or delivery["kind"] == "notice":
@@ -756,6 +757,7 @@ class Daemon:
                     # A repair run replaces the previous unpublished draft, not a delivered result.
                     text_parts.clear()
                     final_text_parts.clear()
+                    implicit_narration_confirmed = False
                 if etype == "message_update":
                     ev = event.get("assistantMessageEvent") or {}
                     if ev.get("type") == "text_delta" and (event.get("message") or {}).get("display") is not False:
@@ -840,6 +842,8 @@ class Daemon:
                             setup_openings.append(opening)
                     elif entry.get("customType") == "coc-telemetry" and data.get("tool") == "narrate" and data.get("implicit"):
                         rejected_delivery = data.get("ok") is False
+                        # A later retry notice must not take accepted prose's place; a refusal is not confirmation.
+                        implicit_narration_confirmed = data.get("ok") is True
                         if data.get("ok") is True and delivery and delivery["kind"] == "notice":
                             # An informational check notice cannot replace a later committed implicit
                             # narration. Keep the notice separately and use the ordinary prose fallback.
