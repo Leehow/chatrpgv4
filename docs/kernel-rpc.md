@@ -34332,7 +34332,13 @@ The material gate (§22.4.7.1) treats a word in a person's seat that names an un
 
 ### 177.8 The reader keeps one identity
 
-Every reader packet except the index and identity jobs carries `cast_names: [{book, play}]` (`Reading.castNames`). `content/setup/visual-reader.md` asks a person listed there to take a printed form as `name` and the others as `aliases`, so the same individual keeps one identity across readings and joins their cast row.
+Every reader packet except the index and identity jobs carries `cast_names: [{book, play, pages}]` (`Reading.castNames`). `pages` retains the cast reader's physical, one-based source pages for this exact file. The cast writer validates printed forms against its original native pages and merges those page anchors; the packet reader retains them; the graph author opens the relevant original pages and cites the pages supporting the printed `name` and each alias. The cast rows are navigation, not substitute source evidence or authority for a new relationship or condition.
+
+`content/setup/visual-reader/read.md` asks a person listed there to take a printed form as `name` and the others as `aliases`, so the same individual keeps one identity across readings and joins their cast row. When those forms are printed outside the current fragment, the author reads their indicated pages and includes the actual supporting pages in the node's `source_refs`. A form not supported by the original remains unsupported.
+
+Focused independent review (`detailReviewInput`) carries only cast rows whose printed forms match a reviewed or structurally connected node's name/aliases. The existing fact-unit page delivery follows the author's actual citations; the reviewer independently checks those original pages. Cast navigation does not automatically expand `review_scope_pages`, satisfy page observations, approve any name, or weaken coverage/logic gates. Unrelated cast rows are omitted. Older rows with no page anchors remain navigational names with an empty `pages` list, never invented page provenance.
+
+**2026-10-09 decision.** A real detail author was required to use whole-book printed forms while its packet discarded their page anchors. Three identity fields were then refused because its local fragment did not print those forms. Preserve entity-to-page navigation through both author and focused review instead of treating a dictionary as proof. [Document AI entity page anchors](https://docs.cloud.google.com/document-ai/docs/reference/rest/v1/Document#PageAnchor) and [W3C PROV source derivation](https://www.w3.org/TR/prov-o/#wasDerivedFrom) independently support retaining source links with derived entities; neither establishes a new semantic fact or replaces this product's independent original-page review.
 
 ### 177.11 A delivery may not say an untold person's name in its own words (owner ruling 2026-10-04, after table 25; amends §103.8 item 3 and the spec's Q5)
 

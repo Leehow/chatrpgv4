@@ -530,6 +530,12 @@ export function detailReviewInput(task: Row, draft: Row, paths: string[]): Row {
 	const candidateNodes = (draft.nodes ?? []).filter((node: Row, index: number) => connectedIds.has(node.node_id) && !Object.hasOwn(records, `/nodes/${index}`));
 	const hotTask = Object.fromEntries(['purpose', 'review_policy', 'opening_scope', 'source_unit', 'module_id', 'material', 'focus', 'question', 'source']
 		.filter(key => task[key] !== undefined).map(key => [key, task[key]]));
+	// §177.8: carry the original-page navigation for these exact names, not the whole book's cast.
+	const names = new Set([...Object.values(records), ...knownNodes, ...candidateNodes].flatMap((node: any) =>
+		[node?.name, ...(Array.isArray(node?.aliases) ? node.aliases : [])].filter((name): name is string => typeof name === 'string')));
+	const castNames = (Array.isArray(task.cast_names) ? task.cast_names : []).filter((person: Row) =>
+		Array.isArray(person.book) && person.book.some((name: unknown) => typeof name === 'string' && names.has(name)));
+	if (castNames.length) hotTask.cast_names = castNames.map((person: Row) => ({book: person.book, play: person.play, pages: person.pages ?? []}));
 	// §22.3.2: the fields a reviewer may only contest, as the graph contract declares them.
 	if (task.vocabulary?.classification_fields) hotTask.classification_fields = task.vocabulary.classification_fields;
 	// §186.2: the unit's own assignment after every field the round's units share, so the shared part is one prefix.

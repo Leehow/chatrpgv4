@@ -787,7 +787,7 @@ export class Reading {
         // A campaign's fork reads the library's cast when its own copy has none (§177.2).
         const stored = await readServedCast(this.store.context.snapshots, [this.store.moduleDir(mid), join(this.store.context.stateRoot, 'modules', mid)], moduleSourceSha(meta));
         if (!stored || !['complete', 'partial'].includes(string(stored.state))) return [];
-        return array(stored.people).map(person => ({ book: array(row(person).book), play: array(row(person).play) }));
+        return array(stored.people).map(person => ({ book: array(row(person).book), play: array(row(person).play), pages: array(row(person).pages) }));
     }
     /** §22.3.3 (SL-57): the unusable settlement of a text focus (not a map), if any. */
     static textSettlement(meta: Row, focus: string): Row | undefined {
