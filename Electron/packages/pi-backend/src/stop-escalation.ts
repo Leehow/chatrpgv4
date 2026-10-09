@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 
 export type StopEscalationDelays = {
   /**
@@ -30,6 +30,8 @@ export type ProcessIdentity = {
 export type StopEscalationSnapshot = {
   piPid: number;
   piIdentity?: ProcessIdentity;
+  /** Host ownership fence, rechecked around final asynchronous verification. */
+  isCurrent?: () => boolean;
 };
 
 export type StopEscalationHooks = {
@@ -90,6 +92,24 @@ export function readProcessIdentity(pid: number): ProcessIdentity | undefined {
   }
 }
 
+/** Collect the existing ps identity fields without blocking the host event loop. */
+export async function readProcessIdentityAsync(pid: number): Promise<ProcessIdentity | undefined> {
+  if (!Number.isInteger(pid) || pid <= 0) return undefined;
+  const query = (field: string) => new Promise<string>((resolve, reject) => {
+    execFile("ps", ["-p", String(pid), "-o", field], { encoding: "utf8", timeout: 1_000 }, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(stdout.trim());
+    });
+  });
+  try {
+    const [startTime, command] = await Promise.all([query("lstart="), query("args=")]);
+    const identity = { pid, startTime, command };
+    return isCompleteIdentity(identity) ? identity : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function identityFieldPresent(value: string | undefined): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -121,7 +141,7 @@ export function defaultStopEscalationHooks(): StopEscalationHooks {
     setTimeout: (fn, ms) => setTimeout(fn, ms),
     clearTimeout: (id) => clearTimeout(id as NodeJS.Timeout),
     listDescendants: listDescendantPids,
-    identify: readProcessIdentity,
+    identify: readProcessIdentityAsync,
     kill: (pid, signal) => {
       try {
         process.kill(pid, signal);
@@ -152,13 +172,13 @@ export class StopEscalationScheduler {
   start(
     sessionId: string,
     snapshot: StopEscalationSnapshot,
-    onForceStopped?: () => void,
+    onForceStopped?: (signaled: boolean) => void,
   ): void {
     this.cancel(sessionId);
     const run: EscalationRun = {
       cancelled: false,
       timers: [],
-      snapshot: { piPid: snapshot.piPid, piIdentity: snapshot.piIdentity },
+      snapshot: { piPid: snapshot.piPid, piIdentity: snapshot.piIdentity, isCurrent: snapshot.isCurrent },
     };
     this.runs.set(sessionId, run);
 
@@ -170,32 +190,33 @@ export class StopEscalationScheduler {
       run.timers.push(id);
     };
 
-    const signalPi = async () => {
-      if (run.cancelled) return;
+    const signalPi = async (): Promise<boolean> => {
+      if (run.cancelled || run.snapshot.isCurrent?.() === false) return false;
       const expected = run.snapshot.piIdentity;
       if (!isCompleteIdentity(expected)) {
         console.warn(
           `[stop-escalation] skip SIGKILL pi pid=${run.snapshot.piPid}: incomplete abort snapshot`,
         );
-        return;
+        return false;
       }
       const actual = await this.hooks.identify(run.snapshot.piPid);
-      if (run.cancelled) return;
+      if (run.cancelled || run.snapshot.isCurrent?.() === false) return false;
       if (!identitiesMatch(expected, actual)) {
         console.warn(
           `[stop-escalation] skip SIGKILL pi pid=${run.snapshot.piPid}: identity mismatch or incomplete`,
         );
-        return;
+        return false;
       }
       this.hooks.kill(run.snapshot.piPid, "SIGKILL");
+      return true;
     };
 
     arm(
       this.delays.termDescendantsMs + this.delays.killDescendantsMs + this.delays.killPiMs,
       () => {
         void (async () => {
-          await signalPi();
-          if (!run.cancelled) onForceStopped?.();
+          const signaled = await signalPi();
+          if (!run.cancelled && run.snapshot.isCurrent?.() !== false) onForceStopped?.(signaled);
         })();
       },
     );

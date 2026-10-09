@@ -3,10 +3,10 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createPiHostBackend, FileQueueStore } from "../src/index.js";
-import { defaultStopEscalationHooks } from "../src/stop-escalation.js";
+import { createPiHostBackend, FileQueueStore, type PiBackendOptions } from "../src/index.js";
+import { defaultStopEscalationHooks, type ProcessIdentity, type StopEscalationScheduler } from "../src/stop-escalation.js";
 
 let root = "";
 afterEach(async () => { if (root) await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 }); root = ""; });
@@ -52,12 +52,13 @@ async function fixture() {
   for (const id of ["s1", "s2"]) {
     await writeFile(join(directory, `${id}.jsonl`), JSON.stringify({ type: "session", version: 3, id, timestamp: "2026-08-10T00:00:00.000Z", cwd }) + "\n");
   }
-  const create = () => createPiHostBackend({
+  const create = (options: Partial<PiBackendOptions> = {}) => createPiHostBackend({
     agentDir,
     sessionsRoot,
     runtimeRoot: root,
     piPath: process.execPath,
     spawn: (_bin, _args, options) => spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], options) as any,
+    ...options,
   });
   return { agentDir, sessionsRoot, cwd, create };
 }
@@ -441,6 +442,249 @@ describe("PiHostBackend message queue integration", () => {
     expect(events.some(event => event.status === "stopped")).toBe(true);
     off();
     await backend.close();
+  });
+
+  async function controlledStopCapture(pendingStart = false) {
+    const setup = await fixture();
+    const pending: Array<(identity: ProcessIdentity | undefined) => void> = [];
+    const escalation = { start: vi.fn(), cancel: vi.fn(), cancelAll: vi.fn() };
+    let restoreAbortWrites = () => undefined;
+    const backend = setup.create({
+      spawn: (_bin, _args, options) => {
+        const child = spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], options);
+        const stdin = child.stdin as any;
+        const write = stdin.write.bind(stdin);
+        stdin.write = (chunk: any, encoding?: any, callback?: any) => {
+          const text = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+          if (text.includes('"type":"abort"')) {
+            if (typeof encoding === "function") encoding();
+            else callback?.();
+            return true;
+          }
+          return write(chunk, encoding, callback);
+        };
+        restoreAbortWrites = () => { stdin.write = write; };
+        return child as any;
+      },
+      stopEscalation: escalation as unknown as StopEscalationScheduler,
+      stopEscalationHooks: {
+        ...defaultStopEscalationHooks(),
+        identify: () => new Promise(resolve => { pending.push(resolve); }),
+      },
+    });
+    await backend.handle("sendPrompt", ["s1", pendingStart ? "__pending_start__" : "__hold_stuck__"]);
+    if (!pendingStart) await eventually(() => (backend as any).live.get("s1")?.turnStartedAt !== undefined);
+    const live = (backend as any).live.get("s1");
+    const child = live.process;
+    const snapshot = { pid: child.pid, startTime: "capture-start", command: "fixture pi" };
+    const cleanup = async () => {
+      (backend as any).live.set("s1", live);
+      live.process = child;
+      restoreAbortWrites();
+      await backend.close();
+      for (const release of pending) release(undefined);
+      await new Promise(resolve => setImmediate(resolve));
+    };
+    return { backend, escalation, pending, live, child, snapshot, cleanup };
+  }
+
+  it("returns stopped while process identity is pending and arms only after that capture resolves", async () => {
+    const test = await controlledStopCapture();
+    const statuses: string[] = [];
+    const off = test.backend.subscribe(event => {
+      if (event.channel === "stream" && event.event.type === "status") statuses.push(event.event.status);
+    });
+    try {
+      const started = Date.now();
+      await test.backend.handle("stop", ["s1"]);
+      expect(Date.now() - started).toBeLessThan(50);
+      expect(statuses).toContain("stopped");
+      expect(test.escalation.start).not.toHaveBeenCalled();
+      expect(test.pending).toHaveLength(1);
+      await new Promise(resolve => setImmediate(resolve));
+      expect(test.escalation.start).not.toHaveBeenCalled();
+      test.pending[0](test.snapshot);
+      await eventually(() => test.escalation.start.mock.calls.length === 1);
+      expect(test.escalation.start).toHaveBeenCalledWith("s1", expect.objectContaining({ piPid: test.child.pid, piIdentity: test.snapshot }), expect.any(Function));
+    } finally { off(); await test.cleanup(); }
+  });
+
+  it.each(["settled", "new-turn", "child-object", "live-object", "new-generation"] as const)(
+    "does not arm a late stop identity after %s invalidates its capture",
+    async change => {
+      const test = await controlledStopCapture();
+      try {
+        await test.backend.handle("stop", ["s1"]);
+        expect(test.pending).toHaveLength(1);
+        if (change === "settled") (test.backend as any).rpcEvent(test.live, { type: "agent_settled" });
+        if (change === "new-turn") (test.backend as any).rpcEvent(test.live, { type: "agent_start" });
+        if (change === "child-object") test.live.process = { ...test.child, pid: test.child.pid, exitCode: null, signalCode: null };
+        if (change === "live-object") (test.backend as any).live.set("s1", { ...test.live });
+        if (change === "new-generation") {
+          const previous = test.live.runtimeToken;
+          (test.backend as any).live.delete("s1");
+          (test.backend as any).invalidateSessionRuntime("s1");
+          (test.backend as any).reclaimSessionRuntime("s1");
+          test.live.runtimeToken = (test.backend as any).beginSessionRuntime("s1");
+          expect(test.live.runtimeToken).not.toBe(previous);
+          (test.backend as any).live.set("s1", test.live);
+        }
+        test.pending[0](test.snapshot);
+        await new Promise(resolve => setImmediate(resolve));
+        expect(test.escalation.start).not.toHaveBeenCalled();
+      } finally { await test.cleanup(); }
+    },
+  );
+
+  it("keeps a stopped pending prompt when its own first agent_start arrives before identity", async () => {
+    const test = await controlledStopCapture(true);
+    const statuses: string[] = [];
+    const off = test.backend.subscribe(event => { if (event.channel === "stream" && event.event.type === "status") statuses.push(event.event.status); });
+    try {
+      expect(test.live.turnEpoch).toBeUndefined();
+      const owner = test.live.pendingPromptOwner;
+      await test.backend.handle("stop", ["s1"]);
+      await (test.backend as any).command("s1", { type: "steer", message: "__release_pending_start__" }, false, test.live.runtimeToken);
+      await eventually(() => test.live.turnEpoch !== undefined);
+      expect(test.live.activePromptOwner).toBe(owner);
+      expect(test.live.hostAbortedTurn).toBe(true);
+      expect(statuses.at(-1)).toBe("stopped");
+      const waiting = await test.backend.handle("enqueueMessage", ["s1", "waiting input"]) as any;
+      expect(waiting.outcome).toBe("queued");
+      expect(await test.backend.handle("listQueue", ["s1"])).toMatchObject([expect.objectContaining({ text: "waiting input", state: "queued" })]);
+      test.pending[0](test.snapshot);
+      await eventually(() => test.escalation.start.mock.calls.length === 1);
+    } finally { off(); await test.cleanup(); }
+  });
+
+  it("never adopts a later actual prompt dispatch as an older pending stop target", async () => {
+    const test = await controlledStopCapture(true);
+    try {
+      const owner = test.live.pendingPromptOwner;
+      await test.backend.handle("stop", ["s1"]);
+      await (test.backend as any).command("s1", { type: "prompt", message: "__pending_start__" }, false, test.live.runtimeToken);
+      expect(test.live.pendingPromptOwner).not.toBe(owner);
+      await (test.backend as any).command("s1", { type: "steer", message: "__release_pending_start__" }, false, test.live.runtimeToken);
+      await eventually(() => test.live.turnEpoch !== undefined);
+      test.pending[0](test.snapshot);
+      await new Promise(resolve => setImmediate(resolve));
+      expect(test.escalation.start).not.toHaveBeenCalled();
+    } finally { await test.cleanup(); }
+  });
+
+  it("the armed owner predicate refuses a second independent prompt with identical text before its start", async () => {
+    const test = await controlledStopCapture();
+    try {
+      await test.backend.handle("stop", ["s1"]);
+      test.pending[0](test.snapshot);
+      await eventually(() => test.escalation.start.mock.calls.length === 1);
+      const current = test.escalation.start.mock.calls[0][1].isCurrent as () => boolean;
+      expect(current()).toBe(true);
+      await (test.backend as any).command("s1", { type: "prompt", message: "__pending_start__" }, false, test.live.runtimeToken);
+      const first = test.live.pendingPromptOwner;
+      expect(current()).toBe(false);
+      await (test.backend as any).command("s1", { type: "prompt", message: "__pending_start__" }, false, test.live.runtimeToken);
+      expect(test.live.pendingPromptOwner).not.toBe(first);
+      expect(current()).toBe(false);
+    } finally { await test.cleanup(); }
+  });
+
+  it("a written waiting followUp does not cancel escalation of the still-hung active turn", async () => {
+    const test = await controlledStopCapture();
+    try {
+      await test.backend.handle("stop", ["s1"]);
+      test.pending[0](test.snapshot);
+      await eventually(() => test.escalation.start.mock.calls.length === 1);
+      const current = test.escalation.start.mock.calls[0][1].isCurrent as () => boolean;
+      await (test.backend as any).command("s1", { type: "prompt", message: "__pending_start__", streamingBehavior: "followUp" }, false, test.live.runtimeToken);
+      expect(current()).toBe(true);
+    } finally { await test.cleanup(); }
+  });
+
+  it("handled and failed writes restore the prior actual pending owner rather than leaving an unsent one", async () => {
+    const test = await controlledStopCapture(true);
+    const write = test.child.stdin.write;
+    try {
+      const owner = test.live.pendingPromptOwner;
+      await (test.backend as any).command("s1", { type: "prompt", message: "__handled__" }, false, test.live.runtimeToken);
+      expect(test.live.pendingPromptOwner).toBe(owner);
+      await expect((test.backend as any).command("s1", { type: "prompt", message: "__queue_fail__" }, false, test.live.runtimeToken)).rejects.toThrow("queue dispatch failed");
+      expect(test.live.pendingPromptOwner).toBe(owner);
+      test.child.stdin.write = () => { throw new Error("fixture write failure"); };
+      await expect((test.backend as any).command("s1", { type: "prompt", message: "not written" }, false, test.live.runtimeToken)).rejects.toThrow("fixture write failure");
+      expect(test.live.pendingPromptOwner).toBe(owner);
+    } finally { test.child.stdin.write = write; await test.cleanup(); }
+  });
+
+  it("missing identity retains the watchdog's safe retry without marking the turn complete", async () => {
+    const test = await controlledStopCapture();
+    try {
+      await (test.backend as any).abortSessionTurn("s1", { drain: "watchdog", expectedEpoch: test.live.turnEpoch }, test.live.runtimeToken);
+      test.pending[0](undefined);
+      await eventually(() => test.escalation.start.mock.calls.length === 1);
+      expect(test.escalation.start.mock.calls[0][1].piIdentity).toBeUndefined();
+      (test.escalation.start.mock.calls[0][2] as (signaled: boolean) => void)(false);
+      expect(test.live.watchdogRecoveryArmed).toBe(true);
+      expect(test.live.watchdogEscalationRetries).toBe(1);
+      expect(test.live.terminalEpoch).not.toBe(test.live.turnEpoch);
+      expect((test.backend as any).queue.isBusy("s1")).toBe(true);
+    } finally { await test.cleanup(); }
+  });
+
+  it("a force-killed captured watchdog turn still schedules its existing recovery after terminalization", async () => {
+    const test = await controlledStopCapture();
+    const recovery = vi.fn();
+    (test.backend as any).scheduleCocWatchdogRecovery = recovery;
+    try {
+      await (test.backend as any).abortSessionTurn("s1", { drain: "watchdog", expectedEpoch: test.live.turnEpoch }, test.live.runtimeToken);
+      test.pending[0](test.snapshot);
+      await eventually(() => test.escalation.start.mock.calls.length === 1);
+      test.live.exiting = true;
+      (test.escalation.start.mock.calls[0][2] as (signaled: boolean) => void)(true);
+      expect(test.live.terminalEpoch).toBe(test.live.turnEpoch);
+      expect(recovery).toHaveBeenCalledWith("s1", test.live.path, test.live.runtimeToken);
+    } finally { await test.cleanup(); }
+  });
+
+  it("keeps a pending stop capture when input is queued before a newer turn starts", async () => {
+    const test = await controlledStopCapture();
+    try {
+      await test.backend.handle("stop", ["s1"]);
+      (test.backend as any).noteExplicitUserSend("s1");
+      test.pending[0](test.snapshot);
+      await eventually(() => test.escalation.start.mock.calls.length === 1);
+    } finally { await test.cleanup(); }
+  });
+
+  it("an old force-stop callback cannot stop a newer turn after a valid capture armed", async () => {
+    const test = await controlledStopCapture();
+    const statuses: string[] = [];
+    const off = test.backend.subscribe(event => { if (event.channel === "stream" && event.event.type === "status") statuses.push(event.event.status); });
+    try {
+      await test.backend.handle("stop", ["s1"]);
+      test.pending[0](test.snapshot);
+      await eventually(() => test.escalation.start.mock.calls.length === 1);
+      const finish = test.escalation.start.mock.calls[0][2] as (signaled: boolean) => void;
+      (test.backend as any).rpcEvent(test.live, { type: "agent_start" });
+      const count = statuses.filter(status => status === "stopped").length;
+      finish(true);
+      expect(statuses.filter(status => status === "stopped")).toHaveLength(count);
+      expect(test.live.terminalEpoch).not.toBe(test.live.turnEpoch);
+    } finally { off(); await test.cleanup(); }
+  });
+
+  it("only the latest stop attempt in one turn can arm after out-of-order identity completion", async () => {
+    const test = await controlledStopCapture();
+    try {
+      await test.backend.handle("stop", ["s1"]);
+      await test.backend.handle("stop", ["s1"]);
+      expect(test.pending).toHaveLength(2);
+      test.pending[0](test.snapshot);
+      await new Promise(resolve => setImmediate(resolve));
+      expect(test.escalation.start).not.toHaveBeenCalled();
+      test.pending[1](test.snapshot);
+      await eventually(() => test.escalation.start.mock.calls.length === 1);
+    } finally { await test.cleanup(); }
   });
 
   it("user stop emits stopped promptly and does not drain the queue", async () => {

@@ -135,7 +135,13 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     else finish();
     return;
   }
+  if (command.type === "steer" && command.message === "__release_pending_start__") {
+    ok();
+    send({ type: "agent_start" });
+    return;
+  }
   if (command.type === "prompt") {
+    if (command.message === "__pending_start__") { prompted = true; heldTurn = true; silentAbort = true; ok(); return; }
     if (command.message === "__handled__") return ok({ disposition: "handled" });
     if (compacting) {
       return response(command.type, command.id, false, undefined, "Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.");
