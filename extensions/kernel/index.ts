@@ -521,13 +521,12 @@ interface TableState {
 	 * like the review's own. A completed assistant message resets it; a turn boundary does not. */
 	providerOutage: number;
 	providerOutageNotified?: boolean;
-	/** The failed provider call of this run the player is still owed a word about, when it hung long
-	 * enough that the wait was visibly an outage rather than the Keeper thinking. */
+	/** The failed attempt's whole elapsed time when it meets the notice threshold; never its idle duration. */
 	providerFailure?: { ms: number; streak: number };
 	/** The last provider call in this run ended in error. Any later completed assistant message clears
 	 * this: only a terminal, unrecovered infrastructure failure may strand the turn (contract §38.3). */
 	terminalProviderFailure?: { ms: number | null; streak: number };
-	/** This run already told the player the model connection dropped: one service notice per run. */
+	/** This run already told the player a model request failed: one service notice per run. */
 	providerNoticeSent?: boolean;
 	/** Contract §94: the last assistant message of this run was cut off by the host rather than
 	 * answered by the provider (`stopReason: "aborted"`). Cleared by the next completed message and
@@ -4397,8 +4396,8 @@ export default function (pi: ExtensionAPI) {
 		let line = terminal
 			? `This turn could not finish because the connection to the model returned no result. Nothing you did was lost — send anything to continue.`
 			: failure.streak >= 2
-				? `The connection to the model has now dropped ${failure.streak} times in a row, the last after about ${seconds}s with nothing returned. That wait was an outage, not the Keeper thinking, and the person running this table has been told.`
-				: `The connection to the model dropped during this turn: about ${seconds}s of the wait returned nothing at all, and the request had to be made again. That was an outage, not the Keeper thinking, and nothing you did was lost.`;
+				? `Requests to the model have failed ${failure.streak} times in a row. The last attempt failed after about ${seconds}s and was retried. The person running this table has been told.`
+				: `A request to the model failed after about ${seconds}s and was retried during this turn. Your input was kept.`;
 		try {
 			// All keys are written out here: the caption inventory is found by scanning these call
 			// sites, and a key held in a variable is a shipped word nothing asks for.

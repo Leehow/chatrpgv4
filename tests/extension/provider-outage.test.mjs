@@ -28,6 +28,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { assistantTexts, customMessages, openTable, waitFor, waitForIdle } from "./harness.mjs";
+import { extensionWords } from "../../extensions/ui/words.ts";
 
 const directory = mkdtempSync(join(tmpdir(), "coc-provider-outage-"));
 
@@ -60,7 +61,7 @@ test("a provider call that dies is recorded and told, even when the retry saves 
 	assert.equal(operator[0].status, "unavailable", "one dead call is not yet an outage to escalate");
 	assert.equal(operator[0].streak, 1);
 	assert.equal(operator[0].turn, 1);
-	assert.equal(typeof operator[0].ms, "number", "how long the table waited for nothing is the whole point");
+	assert.equal(typeof operator[0].ms, "number", "the failed attempt's whole elapsed time remains available");
 	assert.match(operator[0].detail, /connection reset/, "what the provider said is kept");
 	assert.equal(operator[0].fix, undefined, "a single failure carries no fix: the retry may well have been the cure");
 
@@ -78,6 +79,38 @@ test("a provider call that dies is recorded and told, even when the retry saves 
 	assert.ok(rows.some((row) => row.lane === "provider-call" && row.stop_reason === "error"), JSON.stringify(rows));
 	assert.ok(rows.some((row) => row.lane === "delivery" && row.reason === "provider_outage_notice" && row.streak === 1),
 		JSON.stringify(rows.filter((row) => row.lane === "delivery")));
+});
+
+test("an attempt with partial output reports elapsed failure time without claiming complete silence", async (t) => {
+	const partial = fauxAssistantMessage([
+		{ type: "thinking", thinking: "A partial reasoning fragment." },
+		{ type: "text", text: "A partial response fragment." },
+	], { stopReason: "error", errorMessage: "No events received for 60000ms" });
+	const session = await openTable({ retainAt: directory, keeperProviderCallbacks: true,
+		env: { PI_COC_PROVIDER_NOTICE_MS: "1" }, responses: [partial, ...delivered("The response completes.")] });
+	t.after(() => session.dispose());
+	await session.session.prompt("Continue the request.");
+	await waitForIdle(session.session);
+
+	const failed = session.telemetry().find(row => row.lane === "provider-call" && row.stop_reason === "error");
+	assert.deepEqual(failed?.blocks, ["thinking", "text"], "the failed attempt actually carried partial output");
+	const [notice] = notices(session);
+	assert.ok(notice && !notice.details.terminal);
+	assert.equal(notice.details.ms, failed.ms, "the existing whole-attempt duration is preserved");
+	// The harness's table uses a shipped non-English seed. Check the authored English formatter
+	// with the actual notice's unchanged elapsed metric; seed reprojection has its own acceptance.
+	const english = await extensionWords("en");
+	const values = { seconds: Math.round(notice.details.ms / 1000), streak: notice.details.streak };
+	const line = english.line("provider_outage_notice", values);
+	assert.match(line, new RegExp(`failed after about ${values.seconds}s and was retried`));
+	assert.doesNotMatch(line, /nothing returned|returned nothing|outage|Keeper thinking|connection.*dropped/i);
+	const repeated = english.line("provider_down_notice", { ...values, streak: 2 });
+	assert.match(repeated, /failed 2 times in a row/);
+	assert.match(repeated, new RegExp(`failed after about ${values.seconds}s and was retried`));
+	assert.doesNotMatch(repeated, /nothing returned|returned nothing|outage|Keeper thinking|connection.*dropped/i);
+	assert.ok(assistantTexts(session.session).includes("The response completes."), "the retry still delivers");
+	assert.match(session.entries("coc-provider-status")[0].detail, /No events received for 60000ms/,
+		"the original diagnostic is retained without turning its idle interval into the attempt's elapsed time");
 });
 
 test("a call that dies quickly is still recorded, but does not interrupt the table", async (t) => {
