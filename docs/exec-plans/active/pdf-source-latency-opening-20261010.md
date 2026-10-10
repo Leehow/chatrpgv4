@@ -146,3 +146,32 @@ decoration after the original layout; guidance consumes only already-free bytes,
 changes ordinals, and is omitted on full pages. New cross-carriage continuation regression
 compares every explicit source unit/ordinal to the held view, with8cache cases passing.
 Source changes committedf030b1a2a; full/genuine validation still pending on the shared box.
+
+## Durable wait handoff
+
+Imported committed latestmain caf1f5537 into303a8f061. The sole contract-tail conflict was
+resolved by retaining main209.13/211 and allocating own source/setup/diagnostic contract212.
+All other-owner changes remain. Context-capacity/declared-clock targeted tests14/14passed.
+No acceptance run used this combined production source yet;7ae runtime remains stale.
+
+The sharedleehow-pc stayed occupied through two bounded quiet monitor windows. Actual
+other-owner processes continue under the primary remote checkout andwt-clue-narration-
+mismatch; one primary name-phrase test has already failed and its processes remain, while
+the other suite still dispatches files. No foreign process or checkout was changed.
+This is an external verification-resource wait, not completion or a green regression.
+
+Existing user-authorized thread heartbeatpdf was updated in the app and isACTIVE, with
+its existing30-minute/16-run schedule retained. Its prompt names this exact plan/owned
+tuple, leehow-pc-only routing, current unverified fixes, actual failed setup and all safety/
+evidence boundaries. It stays quiet while unchanged and resumes only when the resource
+allows useful work. Pause it only after actual final verification/integration/outcome.
+
+Before this partial handoff lifecycle set-state terminal succeeded. Audit proved the exact
+task/path/branch identity, registered/unlocked/nonprunable/nondetached; closeout with
+verificationfailed returnedretained_verification_failed(exit3). Classification:
+retained:verification_pending_shared_test_box. It includes protected real evidence and
+unintegrated scoped commits; cleanup is not authorized while verification is incomplete.
+The next authorized continuation must set this exact owned entryactive before useful work,
+recheck main/process ownership and then run current canonicalall/exact rebuild/genuine
+approval+opening+document reading. Never count earlier prose as confirmation or the old
+runtime as new validation. The previous task's retained checkouts remain outside ownership.
