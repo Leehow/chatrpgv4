@@ -218,11 +218,25 @@ test('§205.4 a reused packet keeps what is missing only while its materials nee
     const read=await f.source[method](args,new AbortController().signal);
     snapshotSource[method]=async actual=>{assert.deepEqual(actual,args);return structuredClone(read);};
   }
+  // Capture real kernel responses outside the allowance as well: only supplied history changes in this immutable case.
+  // Reuse still validates the exact binding/source/check snapshots; other cases exercise fresh I/O and stale state.
+  const meta=named.message.details.prescreen,keys=meta.material_keys.filter(key=>!meta.source_keys.includes(key)&&!meta.volatile_keys.includes(key));
+  assert(checkpoint.used.every(use=>!use.answer),'this fixture uses original pages, not checked answer pagination');
+  const captured=new Map();
+  for(const [method,args] of [
+    ['table.workspace.read',{campaign:'c1',binding:meta.binding,query:LINE,preselect:{version:2,mode:'check',keys}}],
+    ['module.source.snapshot',{campaign:'c1',module_id:f.mid}],
+    ['table.resolve.options',{campaign:'c1'}],
+  ])captured.set(method,{args,result:await f.call(method,args)});
+  const frozenCall=async(method,args)=>{
+    const saved=captured.get(method);assert(saved,'unexpected kernel read in the immutable reuse case: '+method);
+    assert.deepEqual(args,saved.args);return structuredClone(saved.result);
+  };
   // The reuse checks run on the product's own 500 ms allowance; on a saturated test box one can run out, which is a refusal
   // to reuse, not what this test is about. A refusal is retried; whatever is reused is checked.
   const reuse=suppliedMessages=>waitForValue(async()=>{
       try{
-        const reused=await api.reusePrescreen({call:(method,params)=>f.call(method,params),campaign:'c1',binding:f.binding,query:LINE,
+        const reused=await api.reusePrescreen({call:frozenCall,campaign:'c1',binding:f.binding,query:LINE,
           message:named.message,suppliedMessages,byteBudget:16*1024,signal:new AbortController().signal,source:{moduleId:f.mid,runtime:snapshotSource}});
         return reused;
       }catch(error){

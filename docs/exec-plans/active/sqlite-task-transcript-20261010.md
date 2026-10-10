@@ -97,3 +97,20 @@ isolated, old auth is existing Pi credential authority, no plaintext secret copi
 written. No App/global model/threshold changes. Next exact new runtime, new run suffix,
 real natural setup/play with isolated source home (48 copied legacy pages, PDF SHA verified),
 then evidence/PID/SQL audit. Do not claim current source is validated by the old runtime.
+
+Allfcaf completed RED611s:5441extpass/1fail/1skip,2128py/2skip,loop12pass; raw/per-file logs
+retained all-fcaf662aa. Only immutable material-gap reuse expired its10s retry window under
+full load; all new migration/claims/reader cases and kernel checks passed. The case now
+prereads actual kernel workspace/source/check snapshots as well as actual PDF pages outside
+its500ms allowance, asserts exact request args and clones those immutable responses inside.
+No production limit/assertion/gate changed. Local8/8pass; final all after this TEST-ONLY fix
+is next. Production source remainsfcaf and genuine runtime690/690 matches it.
+
+Verified genuine setup40920/40921 completed5natural inputs/10tools/180.2s, self-created
+professor44, originalPDF/Chinese, confirmed via normal setup. Copied48legacypagebytes remain
+identical; live DB has48records/48imports/0claims/integrityok, no duplicate layout generation.
+Current genuineplay44072/44073 has first root natural input pending (driver95069). Keep
+waiting on actual state, no timeout/resource changes or fake reply. Root has only public
+setup prose; no private source or thinking. Default hybrid mode does not activate optional
+TaskRuntime flags, so do not claim TaskStore has live mode coverage without actual SQL rows;
+its authentic TaskRuntime/controlled-source/multiprocess/crash regressions are separate proof.
