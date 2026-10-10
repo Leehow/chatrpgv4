@@ -175,3 +175,47 @@ test('authored threat clock rows keep their canonical identity and progress in d
     assert.ok(runtime.project(tools),'the actual pacing row must reach Jev, rather than full fallback');
     assert.equal(events.some(e=>e.reason==='schema_error'),false);runtime.clear();
 });
+
+// Contract §217.1 (issue #112 live d6c t54): an invalidation inside one input -- a source publication, a failed snapshot
+// check -- drops the selected view, but not the input the Keeper's lookups answer for, nor what the last request showed.
+test('a lookup after an in-input invalidation answers for the still-current input and carries its names forward',async()=>{
+    const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>port,mode:()=> 'selective',record:()=>{}});
+    const signal=new AbortController().signal;
+    runtime.observe(capsule,binding,signal);await runtime.wait();assert.ok(runtime.project(tools));
+    runtime.invalidate();
+    const named=await runtime.lookup({name:'npc-activity'});
+    assert.equal(named.read_only,true);assert.ok(named.capabilities[0].detail);
+    const purpose=await runtime.lookup({query:'Record the time the wait takes.'});
+    assert.ok(purpose.capabilities.some(c=>c.name==='time'&&c.detail),JSON.stringify(purpose));
+    // The successor epoch of the same input (a new source revision) shows what the Keeper looked up.
+    runtime.observe(capsule,{...binding,source_revision:'source-2'},signal);await runtime.wait();
+    const names=runtime.project(tools).find(t=>t.name==='apply').parameters.properties.effects.items.anyOf.map(s=>s.properties.kind.enum?.[0]);
+    assert.ok(names.includes('npc'),JSON.stringify(names));
+    runtime.clear();
+    await assert.rejects(runtime.lookup({name:'time'}),/no current input/,'a new input or session still ends the basis');
+});
+test('a purpose lookup in flight across an epoch change of the same input answers instead of being called replaced',async()=>{
+    let release;const gate=new Promise(resolve=>{release=resolve;});
+    const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>({decide:async(batch,lease)=>{
+        if(batch.state.request==='Find the time detail.')await gate;
+        return port.decide(batch,lease);
+    }}),mode:()=> 'selective',record:()=>{}});
+    const signal=new AbortController().signal;
+    runtime.observe(capsule,binding,signal);await runtime.wait();runtime.project(tools);
+    const pending=runtime.lookup({query:'Find the time detail.'});
+    runtime.invalidate();
+    runtime.observe({...capsule,where:{...capsule.where,clock:{at:'1920-10-13T04:00'}}},{...binding,source_revision:'source-2'},signal);
+    release();
+    const result=await pending;
+    assert.equal(result.read_only,true);assert.ok(result.capabilities.some(c=>c.name==='time'&&c.detail),JSON.stringify(result));
+    runtime.clear();
+});
+test('the write gate reads what the last request showed even after the selection was invalidated mid-batch',async()=>{
+    const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>port,mode:()=> 'selective',record:()=>{}});
+    runtime.observe(capsule,binding,new AbortController().signal);await runtime.wait();runtime.project(tools);
+    runtime.invalidate();
+    const hold=runtime.readiness('apply',{effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]});
+    assert.equal(hold?.block,true,'the cash fragment was never shown to the Keeper');
+    assert.match(hold.reason,/no world change was committed/i);
+    runtime.clear();
+});

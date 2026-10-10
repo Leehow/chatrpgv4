@@ -150,6 +150,17 @@ export function settledAnswer(response: Row): Row | undefined {
 export function memoAnswer(memo: Row[]): Row {
 	return {status: 'memo', answers: memo.map(entry => withSourceQuestion(entry.question, entry.source_answer ?? {})), note: MEMO_ANSWER_NOTE};
 }
+/**
+ * §217.2: what the Keeper is told when consultations of this scene landed while it was deciding and are handed to it in
+ * place of a new reading (Keeper-only, system language).
+ */
+export const LANDED_FIRST_NOTE = 'Consultations asked at this scene landed while you were deciding this lookup, and you had not been handed them '
+	+ 'yet: these are those answers, each with the question it answered, and no new reading was made. Read them before asking the '
+	+ 'book again. If none of them answers your question, send this lookup again unchanged and the book is read for it.';
+/** §217.2: the lookup's result when landed answers are handed first: every such answer, each with its question. */
+export function landedFirstAnswer(landed: ReadonlyArray<{focus: string; question: string; answer: Row}>): Row {
+	return {status: 'landed', answers: landed.map(entry => withSourceQuestion(entry.question, {focus: entry.focus, ...entry.answer})), note: LANDED_FIRST_NOTE};
+}
 /** The lookup's result past the allowance: `pending`, with the index rows the kernel returned for the focus. */
 export function pendingAnswer(response: Row, read: {focus: string; question: string}): Row {
 	return {status: 'pending', focus: read.focus,question:read.question, index: Array.isArray(response.index) ? response.index : [], note: PENDING_ANSWER_NOTE};
@@ -275,6 +286,22 @@ export class PendingAnswers {
 		if (dropped.length) this.record({lane: 'reading', event: 'held_dropped', campaign, turn, reason: 'budget', scene, foci: dropped.map(entry => entry.focus)});
 		this.shelves.set(campaign, shelf.filter(entry => kept.has(entry)));
 		this.boundShelves();
+	}
+
+	/**
+	 * §217.2: the consultations asked at `scene` that landed with a readable answer while the asking run had not yet been
+	 * handed them (not taken by a note, not on the shelf for this run), oldest first. A source lookup the Keeper decided
+	 * before such a landing is answered with these first; holding them for `run` makes the next take name them `handed`.
+	 * No question is compared with another: which answer serves the Keeper's question stays the Keeper's judgement.
+	 */
+	landedFor(campaign: string, at: {scene?: string; run?: string; scope?: SourceAnswerScope}): Array<{focus: string; question: string; answer: Row; turn: number}> {
+		if (!at.scene || at.run === undefined) return [];
+		const shelf = this.shelf(campaign);
+		return (this.lists.get(campaign) ?? []).filter(entry => entry.state === 'landed' && entry.kind === 'answer' && !entry.carried
+			&& entry.scene === at.scene && sameScope(entry.scope, at.scope) && readable(entry.answer)
+			&& !shelf.some(held => !held.continuationOnly && held.key === heldKey(entry.focus, entry.question) && held.scene === at.scene
+				&& held.run === at.run && sameScope(held.scope, at.scope)))
+			.map(entry => ({focus: entry.focus, question: entry.question, answer: entry.answer!, turn: entry.turn}));
 	}
 
 	/** Exact local snapshot only; a cache miss never becomes a new source consultation. */
