@@ -32,6 +32,16 @@ Those original failing assertions passed unchanged in the serial idle-LAN check.
 Primary owner remains active with capability-catalogue and test-selection work; scoped
 integration must preserve it and wait if the shared contract paths cannot be separated safely.
 
+Continuation checkpoint: e67831b72 records the complete four-turn reopening and refusal
+audit. The whole unchanged admission file also passed41/41 on idle amax (258.185s), not
+only its isolated failed case; all987 red remains preserved. Primary then committed
+f6da29d60 (capability catalogue) and d5d41ab68 (test selection/Unicode comparison), with
+the shared paths clean. Merge71e8f37ca brings only those committed updates into this
+owned branch, cleanly preserving both contract changes. The owner's uncommitted capability
+discovery remains on primary and is not imported/staged. Next: exact combined build,
+all-suite validation on idle LAN, genuine continuation for the combined runtime and
+safe scoped mainline integration; preserve the existing App and all prior evidence.
+
 ## Current approved SQLite migration
 
 User approved moving source-reading queue and related metadata to SQLite, preserving all
