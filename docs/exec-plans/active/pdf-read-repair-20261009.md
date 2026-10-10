@@ -54,6 +54,15 @@ Primary owner is again actively editing kernel-rpc/capabilitycatalogue/apply/rea
 preserve all their changes. Both real opening/combined drivers are stopped; no new live
 model test is needed after these test-only repairs unless production changes or new failures.
 
+Finalall eb6b03904 completed green,613s: ext5453/0fail/1skip,pytest2128/2skip,loop12.
+All609/raw logs retained in final-all-readiness-eb6b03904. Original all red records remain.
+Only safe mainline integration/outcome/audit remain: other owner's shared kernel-rpc change
+is an append-only§209 block, separate from the owned mid-file trace amendment/SQLite
+appendix. Plain patch check rejects the two independent appends. Preserve that full owner
+block in the working file; stage only the owned target blob and verify exact incoming tree
+before Git's normal fast-forward carry-forward. If ownership/base/append-only checks drift,
+stop mutations and resume against authoritative state. No force/stash/reset/restore.
+
 ## Current approved SQLite migration
 
 User approved moving source-reading queue and related metadata to SQLite, preserving all

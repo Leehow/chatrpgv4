@@ -171,3 +171,15 @@ still has500ms, and no production runtime/model/review/resource limit changed. E
 research was omitted for this trivial reuse of the repository's established test helper.
 Both complete repaired test files passed17/17 on idle amax in64.610s. The final all
 after these test-only repairs remains pending; original all red records stay retained.
+
+Final all at eb6b03904 is green: exit0,613s, ext5453passed/zero failed/one skipped,
+pytest2128passed/two skipped, routing12passed. All609 per-file logs plus py/routing/raw
+outputs were fetched before any remote refresh and retained under final-all-readiness-
+eb6b03904. The production code remains the exact combined runtime already tested live;
+only fixture synchronization and outcome documentation changed afterward. Mainline
+integration must carry the other owner's working changes intact and stage only these
+owned hunks. Git's documented two-tree carry-forward cases18/19 preserve a working-tree
+delta when the index already matches the incoming tree; verify exact index tree identity
+before a normal fast-forward, with no stash/reset/restore/forced cleanup. References:
+[two-tree carry forward](https://git-scm.com/docs/git-read-tree#_two_tree_merge),
+[merge preservation](https://git-scm.com/docs/git-merge).
