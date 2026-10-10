@@ -1,6 +1,6 @@
 # Turn Capability and Mod Discovery — Execution Plan (20261010)
 
-Status: approved implementation of #112, solo. Experimental wiring is committed; e091 combined full LAN source gate passed; subsequent real-GUI DTO repair needs its own LAN gate. Semantic and live release gates remain open.
+Status: approved implementation of #112, solo. Experimental wiring is committed; combined production gate at68572d2a1 passed and is code-equivalent to current HEAD; semantic and live release gates remain open. Semantic and live release gates remain open.
 
 ## Approval
 
@@ -34,7 +34,7 @@ These belonged to the pytest optimization thread and were committed by its owner
 - [ ] Pure schema and capability view parity verified at the public `context_with_system` seam.
 - [ ] Versioned Mod index and detail selection implemented.
 - [ ] Expansion, readiness and telemetry implemented.
-- [ ] Final current-source LAN gate: e0913acb8 passed exit0,wall613s after native integration; the subsequent GUI-exposed DTO repair still needs focused/full. Semantic and live gates remain open.
+- [x] Combined current production source LAN gate: owner68572d2a1 passed exit0,wall615s including105 and its source repairs. Current HEAD differs only in three documentation files. Semantic/live gates remain open.
 - [ ] Held-out semantic matching meets pre-registered gates.
 - [ ] True GUI or canonical driver acceptance passes.
 - [ ] SQLite compatibility regression requirements (spec section) pass.
@@ -239,3 +239,9 @@ These belonged to the pytest optimization thread and were committed by its owner
 - Next natural interview input received a38s one-sentence reply (UIturn5) saying the woman described something at night, but did not give her actual account. Continued normally per improvisation acceptance rule, without content/source edits or spoilers. Root's latest single input asks gently what she actually saw/heard so the report can be accurate; it is currently in flight. Do not queue another, resend, or conclude from a fixed turn count. Sole root player remains public-only.
 - Remaining release work: current all gate, actual later-request full fallback/lookup recovery, final Mod retention, cold/warm/end-to-end latency and meaningful play coverage (day/night/morning, NPC/mixed state); reliable independent labels/calibration on faithful frames followed by untouched61. Default stays full; no package, publication, push, delete, extra chat/subagent or user App restart.
 - The in-flight gentle follow-up completed34s, normal apply+narrate, UIturn6/time10:30. Gabriella gives concrete observations of a presence leaning over her at night and flying dishes when angry, plus a clue receipt; she asks not to retell the bedroom incident. Root respected the scene, no debug-guided choices or queued input. Three current-runtime natural replies now show movement and NPC progress, but each has one main provider request: no actual foreground_fallback read-owner event yet, so the optional-expiry later-request live gate stays open. No claim that day/night/morning or a full chapter is complete. Current web host85191/PID59441 remains; exec69801 and old4116/PID6187 are closed.
+
+## Serial source integration consumed (11:12 UTC)
+
+- Found a foreign committed stack was fast-forwarded into main during this task. Read-only audit identifies the PDF source owner; it merged official105 into f6a5cf4d0 and then validated combined68572d2a1. No foreign dirty work was staged, overwritten or adopted. Main now includes source host repairs and test475181642. That test captures immutable PDF/page values outside reuse while still using the real kernel binding/hash/version checks and unchanged500ms. Root did not make a duplicate fix.
+- Verified actual owner controller log: all68572d2a1 exit0,wall615s,ext5432 pass/0 fail/1 skip,py2128 pass/2 skip,loop12 pass. Copied raw/per-file logs read-only to own lan-combined-68572d2a1-owner; owner evidence remains untouched. git diff68572d2a1..HEAD lists only the two execution plans and pdf-refusals-live documentation, so this closes the combined production source gate without a redundant all. Root105 red logs remain red and retained.
+- Existing GUI runtime105 is deliberately older than the combined source owner stack, although its budget repair is present. It must not be called the final combined artifact or a proof of the new Grok option/source repairs. Next current-source GUI phase must use a NEW exact combined runtime and its own correct source profile, consuming already-built/retained artifacts after provenance checks; do not refresh or modify the owner worktree. No threshold/model/default changes or source package publication. Semantic61/calibration, final Mod retention, actual later-request fallback/lookup and measured comparisons remain pending.
