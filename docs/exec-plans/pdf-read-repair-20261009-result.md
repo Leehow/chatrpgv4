@@ -118,3 +118,11 @@ query telemetry, runtime hashes, original failed logs and final green regression
 pdf-query-driver-closeout-20261010-play (one input and normal stop), and the excluded
 zero-turn startup pdf-query-optimization-20261010-play. All retained. The App was not
 repackaged or restarted by this task; the earlier pdf heartbeat remains PAUSED.
+
+Follow-up integration and retention: source/driver changes and the record are on latest
+0.9.7a; the other owner's untracked turn-capability-and-mod-discovery.md remained unstaged.
+Owned tuple is terminal and classified retained:protected_real_playtest_evidence_and_incomplete_process_probe.
+Closeout returned blocked_probe / exit 2 for the unrelated WebDAV lsof warning. Audit
+returned exit 0 / audit_pending / pending_count 1, proving exact identity and branch matches
+with the protected marker retained. This is not a clean deletion audit. No evidence or
+branch was removed and no unrelated mount was modified.

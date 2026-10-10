@@ -1,21 +1,24 @@
 # PDF reading repair, 2026-10-09
 
-## Current approved optimization status
+## Current approved optimization status: integrated and verified
 
-Candidate is 3f5859fab (query code remains 3508c826d; driver atomic evidence fix added).
-Final canonical LAN all at 3f5859fab passed: ext 5428 / zero failed, pytest 2128 / two skipped, loop 12 / zero failed; exit zero, wall 851 s. Prior all at 3508 passed all 5428 ext
-and 12 loop checks but had one Python transport failure; do not erase it. The concurrent writer
-race was reproduced deterministically and fixed with unique per-write JSON staging.
-Both genuine drivers stopped normally: pdf-query-optimization-final-20261010-play (five inputs,
-one refused absolute-time declaration) and pdf-query-driver-closeout-20261010-play (one input).
-The latter uses repaired Python transport with unchanged exact 3508 product bundles.
-Real source lookup returned pending in 8008.4 ms: 3384 ms before fallback, 4616 ms remaining;
-retained checked outcome was unresolved after 137605 ms. No fast successful-answer claim.
-Raw final logs and build hashes stay in the final optimization run; zero-turn overlapping startup
-is excluded. Mainline is ca51d7dfc, a documentation-only advance, to preserve at integration.
-Next: inspect final all exit/result, fetch logs locally before remote scratch refresh, integrate
-only owned source/records with mainline docs retained, then terminal lifecycle audit retaining
-all real evidence. Existing heartbeat pdf stays PAUSED; App session stays untouched.
+Optimization commits 95909a4dd / 3508c826d and evidence writer fix 3f5859fab are
+integrated into latest 0.9.7a. Final canonical LAN all at 3f5859fab passed ext 5428 /
+zero failed, pytest 2128 / two skipped, loop 12 / zero failed; exit zero, wall 851 s.
+All earlier red runs remain in the protected evidence. A real source query used one 8000 ms
+allowance (3384 ms before fallback, 4616 remaining) and returned pending in 8008.4 ms; its
+checked background result was unresolved. Six real inputs and both normal stop records remain.
+No complete-adventure, successful source answer, whole-turn latency bound or App acceptance claim.
+
+Source work is complete. The owned tuple is terminal, intentionally retained for real evidence.
+Closeout failed closed with blocked_probe / exit 2 because lsof could not stat the unrelated
+WebDAV mount. Audit returned exit 0 / audit_pending / pending_count 1, with exact identity
+and branch matches and protected marker dirtiness. Classification:
+retained:protected_real_playtest_evidence_and_incomplete_process_probe. Do not remove evidence
+or fix the unrelated mount to obtain a clean audit. Receipt is in the final optimization run.
+The other task's untracked turn-capability-and-mod-discovery.md stayed outside the index.
+Heartbeat pdf remains PAUSED; no App restart, package, push or deletion.
+Following records are historical checkpoints, not pending work to repeat.
 
 ## Earlier repair status, 2026-10-09
 
