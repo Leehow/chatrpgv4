@@ -226,3 +226,21 @@ correction did not weaken source/kernel checks or the500ms limit. Source uncerta
 is unchanged. Mainline is stilld01381199 but has another owner's uncommitted discovery
 fallback edits, including shared docs/kernel-rpc.md; preserve them and wait before serial
 integration. The acceptance result does not claim those uncommitted changes were tested.
+
+That owner committed105af8446 and the clean baseline was merged asf6a5cf4d0. Exact687
+embedded sources match the combined runtime. Genuine combined continuation stopped normally:
+42.325/69.773/32.837s,144.935total,4tools/0refused. Independent audit verifies notebook
+append revision5, old95characters preserved, new39-character suffix (one separator), exact
+player literal and matching after/suffix hashes; target/content/execution.96/.94/.97 exceed
+the original.9. Six Keeper wire requests completed/EOF with Grok4.7Fast/low; no20/26s timeout
+or server error. A313ms backup cancellation follows typed verdict completion. All17observed
+PIDs exited. SQLintegrityok/duplicate0,18completed5failed2running2queued; one child trace
+without terminal stays incomplete. The old condition/map acceptance limits remain unchanged.
+
+The combinedf6 all was interrupted deliberately when a build-start race led the two owners
+to run heavy tests concurrently. Canonical probe had reportedidle, but does not count the
+build phase. Only owned remote bash49018 with verifiedcwd/selfPGID was terminated; no other
+owner was stopped. Controllerexit255 and partial raw/per-file logs remain in all-f6a5-collision.
+This attempt is not accepted as a final all result. Wait for the other owner's run to finish
+and rerun on an idle box. No concurrency/resource/test changes hide the collision. Main
+integration and terminal retention audit remain pending that final accepted combined gate.
