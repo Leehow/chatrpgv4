@@ -43026,6 +43026,13 @@ player's unmade choice (§163.8). The clue is the Keeper's to give (p.200), so t
 (best-scored clue bound); after that the two requests bound `knott-commission` (once `knott-macario-summary`), difficulty
 regular. Not gameplay acceptance.
 
+The clue-route lane, same day, three declarations at the Hall of Records over a core clue the book finds by Library Use
+(two calls each). As first written the `obvious` question judged the clue alone, so listening to the archivist chat made it
+obvious (0.74–0.75) as readily as asking for the register (0.77). The rulebook gives an obvious clue to investigators who look
+in the right place, so the question now also asks whether the declared act looks where the book puts it
+(`runtime/jev/clue-route.ts`). Then: asking the clerk for the deed register → obvious 0.71–0.72 (lands); listening → 0.16–0.17;
+a passed Spot Hidden through the deed boxes → fit 0.35, obvious 0.56–0.59 (nothing clears: the Keeper keeps it).
+
 ## 224. A declared attack is always settled, and first impressions are rolled only when they matter (user ruling 2026-10-10, re-rules §163.2 and §178 per the Keeper Rulebook)
 
 ### 224.1 The ruling and the evidence

@@ -102,12 +102,15 @@ function obviousQuestion(): DecisionQuestion {
     instructions: `${READS} The Keeper Rulebook divides clues into obvious ones -- information the Keeper wants the players to have, because `
       + 'missing it would leave them at a loss for how to proceed; the players need no dice for these -- and obscured ones, an advantage the '
       + 'game goes on without. Reading `clue.states`, `clue.supports` (the conclusions it supports, with the book\'s importance when it says one) '
-      + 'and `scene_other_clues`, is this clue obvious in that sense?',
+      + 'and `scene_other_clues`, is this clue obvious in that sense -- and does the player\'s `declaration` look where it is? An obvious clue '
+      + 'is given without dice to investigators who look in the right place: the declared act reaches the object, place, person or record '
+      + 'the book\'s cues describe (asking the right person, opening the right register, searching the right room).',
     criteria: {
-      true: { what: 'Without this fact the investigation stalls or loses its direction: it is a lead, an address, a name or a connection the '
-        + 'scenario turns on, or it supports a core or critical conclusion no other clue here supplies.' },
+      true: { what: 'Without this fact the investigation stalls or loses its direction (a lead, an address, a name or a connection the scenario '
+        + 'turns on, or support for a core or critical conclusion no other clue here supplies), and the declared act looks where the book puts it.' },
       false: { not_for: 'A detail, colour, a corroboration of what the investigators already know, an advantage or a shortcut, or a fact the '
-        + 'scene\'s other clues also carry; the game proceeds in an interesting direction with or without it.' },
+        + 'scene\'s other clues also carry; or a declared act that does not look where the book puts it (another thing, another person, '
+        + 'merely being nearby).' },
     } };
 }
 
