@@ -15,6 +15,7 @@ import {mkdir, mkdtemp, readFile, rm} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {validateCheckOptions} from '../../runtime/jev/resolve-selection.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 await mkdir(join(ROOT, '.tmp'), {recursive: true});
@@ -275,6 +276,10 @@ test('§223.1 end to end: the host offers the push with no foreshadowed conseque
     assert.match(push.label, /justified further attempt/);
     const stakes = push.parameters.find(parameter => parameter.name === 'stakes');
     assert.deepEqual(stakes.default.value, '', 'the rules default is no foreshadowed consequence');
+    assert.ok(stakes.options.some(option => option.value === ''), 'the default is one of the options');
+    // The host's validator reads the whole catalog; a default that is not an option made every later selection of the run
+    // `check_catalog_binding_changed` (forced-resolution, check-catalog and admission-within-turn, 2026-10-10).
+    assert.ok(validateCheckOptions(options.selection.options), 'the host accepts the catalog that offers the push');
     assert.match(push.definition, /extra effort, time or risk/);
     const pushed = await call('table.resolve', {call_id: id(), action: {intent: 'investigate', goal: 'cross the river', method: 'I lash the tiller and throw my whole weight against the current', skill: 'Pilot (Boat)', push: true}});
     assert.equal(pushed.outcome.kind, 'push');

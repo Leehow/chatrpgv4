@@ -25,6 +25,8 @@ import {evaluateCondition, factsFromState, RuleObservations} from '../read/rule-
 interface Parameter {selection?: 'compatible'; name: string; question: string; options: Array<{label: string; value: any}>; multiple?: {minimum: number}; default?: {value: any; question: string}}
 interface Option {key: string; family: string; label: string; definition?: string; facts?: Row; action: Row; parameters: Parameter[]; needs: string[]; authorization: 'declaration' | 'consequence'}
 const parameter = (name: string, question: string, values: string[]): Parameter => ({name, question, options: values.map(value => ({label: value, value}))});
+/** §223.1: the push's `stakes` option for no foreshadowed consequence (value `''`; the kernel then records the Keeper's free rein, p.86). */
+export const NO_FORESHADOWED_CONSEQUENCE = 'No delivered sentence foreshadowed a consequence of failing: the Keeper has free rein over a failed push (p.86)';
 const modifiers = (): Parameter[] => [
     {...parameter('difficulty', 'What success level does the established difficulty require? Use regular when no harder difficulty is established.', ['regular', 'hard', 'extreme']),
         default: {value: 'regular', question: 'Does an established rule or circumstance require this particular action to achieve a hard or extreme success, instead of the regular default?'}},
@@ -326,9 +328,13 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
                     // announce one are offered, and the rules default is none (`''`): the kernel then records
                     // the Keeper's free rein over a failed push (p.86) instead of a consequence nobody said.
                     const sentences = [...new Intl.Segmenter(undefined, {granularity: 'sentence'}).segment(owners.publicText)]
-                        .filter(part => part.index >= Math.max(0, owners.publicText.length - 4000)).map(part => part.segment.trim()).filter(Boolean).slice(-254);
+                        .filter(part => part.index >= Math.max(0, owners.publicText.length - 4000)).map(part => part.segment.trim()).filter(Boolean).slice(-253);
+                    // The rules default is itself an option (`validateCheckOptions` requires it; cf. the modifiers' `none`), else the
+                    // host reads the whole catalog as incoherent and every later selection of the run is `check_catalog_binding_changed`.
+                    const stakes = parameter('stakes', 'Which delivered sentence foreshadowed the consequence of failing this pushed attempt? Select only a sentence that announces one; do not invent a risk.', sentences);
+                    stakes.options.push({label: NO_FORESHADOWED_CONSEQUENCE, value: ''});
                     add('push-luck:pushed-roll', `${actor}: explicitly push the failed ${previous.skill} check with a justified further attempt`,
-                        {actor, push: true}, [{...parameter('stakes', 'Which delivered sentence foreshadowed the consequence of failing this pushed attempt? Select only a sentence that announces one; do not invent a risk.', sentences),
+                        {actor, push: true}, [{...stakes,
                             default: {value: '', question: 'Did the delivered text foreshadow a consequence of failing this pushed attempt (an "if you fail..." line the player can weigh)? The rule default is that none was foreshadowed and the Keeper has free rein over a failed push.'}}]);
                     const added = options.at(-1);
                     if (added?.action.decision === 'push-luck:pushed-roll') added.definition = 'The player declares a further attempt at the same goal after the failed check and describes the extra effort, time or risk that justifies it (p.84). '
