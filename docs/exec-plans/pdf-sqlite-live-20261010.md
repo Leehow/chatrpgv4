@@ -183,3 +183,16 @@ delta when the index already matches the incoming tree; verify exact index tree 
 before a normal fast-forward, with no stash/reset/restore/forced cleanup. References:
 [two-tree carry forward](https://git-scm.com/docs/git-read-tree#_two_tree_merge),
 [merge preservation](https://git-scm.com/docs/git-merge).
+
+Scoped integration completed: latest0.9.7a fast-forwarded d5d41ab68→a87168d0b. The index
+was verified byte-for-byte as the incoming tree e10678ab3d23b2aa1124a228abe0ed55cf472c03;
+only owned patches were staged. The other owner's9,466-byte§209 contract append stayed
+byte-identical in the working file and unstaged; their other dirty/untracked files remain.
+No stash/reset/restore/force was used. integration-result.json retains the proof. The
+accepted final all-build was fetched read-only from the task's LAN scratch;485 embedded
+sources match and all five checked executable bundles are byte-identical to the combined
+runtime actually played. No new live test is needed for documentation/test-only changes.
+The active App was untouched; these are committed source/runtime results, not a newly
+packaged App or full-book/full-adventure acceptance. Upstream backend trigger and four
+independent source-quality refusals remain explicitly unresolved within their evidence
+bounds. Final worktree classification retains all protected evidence rather than cleanup.

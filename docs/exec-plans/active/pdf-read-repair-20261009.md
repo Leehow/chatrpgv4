@@ -63,6 +63,14 @@ block in the working file; stage only the owned target blob and verify exact inc
 before Git's normal fast-forward carry-forward. If ownership/base/append-only checks drift,
 stop mutations and resume against authoritative state. No force/stash/reset/restore.
 
+Integration completed safely: main0.9.7a d5d41ab68→a87168d0b, exact incoming committed
+tree, owner§209 appendix9,466bytes unchanged/unstaged, all other owner changes intact.
+Final accepted runtime has485matching embedded sources and five executable bundle hashes
+identical to the genuine combined runtime. Allcode/realvalidation/logretention/integration
+are complete; perform terminal lifecycle classification and pause this heartbeat. Do not
+retest unchanged production or erase evidence. Preserve provider-trigger/source-quality
+limitations and the untouched running App in the concise final Chinese report.
+
 ## Current approved SQLite migration
 
 User approved moving source-reading queue and related metadata to SQLite, preserving all
