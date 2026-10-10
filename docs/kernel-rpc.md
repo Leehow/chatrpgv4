@@ -3599,6 +3599,30 @@ Producer: the reviewed publication writes `field_spans` and `reading.retranscrip
 
 ### 22.3.2 A reviewer's disagreement on a classification is a recorded conflict, not a refusal (2026-09-24, SL-49; amends 22.3)
 
+**Policy-aware reader projection and repair feedback (2026-10-10).** Under
+module-logic-v1 the actual gate remains strict: contradictory or missing logic refuses,
+including a classification with logic impact; presentation/valid parameter differences
+remain advisory. The reader and focused reviewer must receive that policy, not the legacy
+unconditional classification-never-refuses law. Publication, host refusal/repair decisions
+and accepted-cache checks share the same negative-outcome predicate, with identity,
+person/sheet statements and pregenerated inventory still reviewed as written. No verdict
+or threshold is relaxed. Legacy classification treatment remains its existing policy.
+
+Map repair previews are private feedback on the current retained candidate, not original
+evidence. Refresh them at each author run, bind their manifest to that candidate and hand
+their exact relative image files through existing ReaderRequest.attachments. Immutable
+candidate-specific preview directories retain earlier overlays; attributes such as
+task.visual_previews are never advertised as filesystem directories. Independent review
+still opens original source pages and rejects incorrect region geometry.
+
+An authored applicability condition must not become an unconditional executable trigger
+merely because its wording remains in summary/book prose. Use only conditions the existing
+schema can faithfully express. Otherwise retain the sourced rule and explicit runtime_context
+need, leaving dependent material unready when necessary. A repair requiring coverage,
+source-needs or related-record changes uses the existing full-repair fallback, not a
+targeted edit that silently invents an unconditional mechanism. Existing schema, readiness
+checks, independent review and resource ceilings remain unchanged.
+
 The owner's ruling (2026-09-24): the review gate refuses a record for what is not in the book (a fabricated node, a span
 that does not say it), never for a disagreement about how a supported fact is classified. A field the reviewer disputes
 is published with the reader's value and a `contested` mark carrying the reviewer's reason; the Keeper sees the mark; a
@@ -24798,6 +24822,19 @@ before. `tests/kernel/test_jev_resolve.py`: `held` on the emitted kernel's profi
 mutations are in the SL-40 ticket's Comments.
 
 ### 135.29 A provider attempt ends when its stream stops producing events (2026-09-24, SL-02 live-gate finding; amends the SL-01 attempts of `docs/specs/pi-native-single-loop-tickets/01-run-driver.md` and the premise of `runtime/launch.ts`'s idle timeout)
+
+**Full-provider options under transport observation (2026-10-10).** Pi's public extension
+stream callback also receives ModelRuntime.complete's full API options. Grok's optional
+observer must delegate explicit OpenAI Responses options (reasoningEffort, reasoningSummary,
+serviceTier) to the full API stream unchanged; treating them as simple options silently
+drops the caller's selected effort/summary/tier. Simple calls retain the simple API path.
+The registered-runtime regression compares complete requests with observation off/on,
+beside the existing simple-call equivalence checks. Requested low remains low; no model,
+admission confidence, verdict rule, timeout, retry or resource ceiling changes. This fixes
+option propagation, not a guarantee that every upstream generation will finish by the cap.
+The local vendored provider composer and installed Responses adapter establish the seam;
+[xAI reasoning](https://docs.x.ai/developers/model-capabilities/text/reasoning) confirms that
+omitting effort selects a provider default, not the caller's chosen low.
 
 **The finding.** `gate2-haunting-2153` (hybrid-v1, `grok-build/grok-4.7-build-fast` low, through the local proxy),
 turn 2, twice (01:57Z and, after a restart, 02:04Z): read, route (`ask_llm`), `step_start infer`, `step_attempt` 1,

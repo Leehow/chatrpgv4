@@ -1,5 +1,30 @@
 # PDF reading repair, 2026-10-09
 
+## Authorized refusal root-cause repair, 2026-10-10
+
+The user now explicitly requests diagnosis, controllable repairs and real revalidation
+of source-review failures read-9/read-13/read-18/read-19 and the two refused tool calls
+(document binding no_target, admission review_timeout). Independent original-page versus
+author/reviewer/repair evidence inspection is authorized, not only structural classification.
+Root remains the sole natural-language player; the existing read-only diagnosis worker
+inspects private source pages and returns plot-free technical findings. Preserve all old
+artifacts, verdicts, claims, models, resource ceilings and review/admission thresholds.
+Repair systemic author/reviewer evidence/repair addressing and binding/admission execution
+defects only when supported; do not hand-author scenario patches or relabel refusals green.
+Use actual pages and current TypeScript paths, not retired Python. Contract and targeted
+primary-source precedent precede nontrivial changes. Validate locally at a useful seam,
+then focused/all on canonical idle LAN, exact runtime and genuine driver play with
+Grok4.7BuildFast/low. Reuse the same owned tuple, reactivated from retained terminal state.
+
+Baseline latest0.9.7a da53fd555 is cleanly fast-forwarded into owned branch; main's dirty
+extensions/table/context-runtime.ts and turn-discovery-context test belong to another
+owner. No source phase is running; both prior driver trees are stopped. All original
+SQLite/code evidence remains. session.resume was called first; the retired installed
+plugin still rejects unsupported_save_schema, so no save/kernel changes were made.
+Ready steps: original-page and final-repair coverage audit (worker); extract the two tool
+decision/request timing paths without exposing source/plot; form bounded root causes,
+repair confirmed gaps with unchanged gates; genuine revalidation and scoped integration.
+
 ## Current authorized opening-failure repair, 2026-10-10
 
 The user explicitly requested root causes and controllable repairs for the four real
@@ -486,3 +511,44 @@ pdf-query-optimization-final-20261010-play/final-regression-after-atomic-fix.log
 Six fresh real inputs and both normal stop records remain protected. Final lifecycle
 classification is retained for protected evidence, with incomplete lsof probe if the unrelated
 WebDAV mount still prevents occupancy verification. No App packaging or full-adventure claim.
+
+### Refusal repair implementation checkpoint
+
+Independent original-page audit confirmed real bad map boxes (read13/read19) and dropped
+applicability prerequisites (read18). read9 is a strict causal/claim refusal, not a kernel/
+host policy mismatch; the worker explicitly retracted that preliminary hypothesis. The
+classification law shown to authors/reviewers contradicted the actual module-logic policy.
+The host now projects a truthful law and shares the unchanged publication predicate with
+repair/cache decisions. Identity, statements and pregenerated-sheet values remain strict.
+Map repairs now receive actual current-candidate overlay attachments in immutable digest
+subdirectories; independent reviewers still check original pages. Author/reviewer briefs
+preserve all source applicability, use existing rule/runtime_context representation when
+needed and retain the full-repair fallback, rather than inventing a trigger DSL.
+
+The document refusal had no selected writing carrier in the actual player declaration;
+no target auto-selection or .9 probability relaxation is justified. The admission timeout
+had three continuous reasoning streams, not idle transport: no verdict within its unchanged
+26s limit. A real SDK regression proved diagnostic provider wrapping lost full Responses
+reasoningEffort=low (and summary/service tier). The wrapper now dispatches full options to
+stream and simple options to streamSimple; 22 provider tests pass. This corrects the earlier
+incomplete observation-neutral conclusion. It does not prove the provider backend cause of
+all previous failures or guarantee every future review completes within 26s.
+
+Source seam regressions63/63 pass, including unchanged strict classifications and actual
+repair attachment files/hash/original-page separation. The first local run exposed a .js
+import incompatible with direct TS tests; fixed to the existing shared .ts convention;
+that red log is retained. Canonical probe picked idle amax; focused dispatch escalates to
+all because the protective untracked evidence marker is unplaced. This is a real full
+regression, not an extra synthetic acceptance run. Preserve raw/per-file output before
+any subsequent refresh/build.
+
+Primary precedent comparison: xAI reasoning documentation confirms effort must be carried
+in reasoning.effort; exact Fast backend default remains unproven. Anthropic vision docs
+confirm pixels must be image content, not filesystem names in prose; Pi's current Reader
+attachment implementation supplies those images before its brief. OpenAI structured-output
+docs explicitly distinguish schema validity from content correctness and recommend handling
+unrepresentable input. These confirm explicit image delivery plus strict semantic review,
+not weaker gates. Provider APIs differ; no provider/model/SDK/dependency is replaced.
+Sources: https://docs.x.ai/developers/model-capabilities/text/reasoning ;
+https://platform.claude.com/docs/en/build-with-claude/vision ;
+https://developers.openai.com/api/docs/guides/structured-outputs .

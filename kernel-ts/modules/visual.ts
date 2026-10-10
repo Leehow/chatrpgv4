@@ -11,7 +11,7 @@ import { carriesMechanics, mechanicsRefusals } from './mechanics-shape.js';
 import { beingPairs, endpointRefusals, weaknessRefusals, weaknessesBound, type BeingRefusal } from './being-shape.js';
 import { shapeReviewPaths, statesMechanics } from './shape-review.js';
 import {validateSourceNeeds,sourceNeedKey} from './source-needs.js';
-import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings} from './module-review-policy.js';
+import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings,moduleReviewOutcome} from './module-review-policy.js';
 import { anchors, pages, recordSpans, sameSpan, spanOf, type Anchor } from './transcription.js';
 import { REVIEW_VERDICTS, classificationMatcher, PERSON_STATEMENTS, personStatementPath, statementReviewPath } from './review-verdicts.js';
 import { DISTINCT_FROM, DUPLICATE_RULE, duplicateMessage, duplicateRefusal, publishedDuplicates } from './published-duplicates.js';
@@ -986,7 +986,7 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
                 continue;
             }
             // §192.1, §199.2: a distinct_from and a person's statements are never a classification and never advisory.
-            if (!statementReviewPath(draft, path) && !pregenInventoryPath(filled, path) && REVIEW_VERDICTS.includes(item.verdict) && (moduleLogicReview(filled)?advisoryModuleFinding(item):classifies(path))) {
+            if (moduleReviewOutcome(item,filled,{asWritten:statementReviewPath(draft,path)||pregenInventoryPath(filled,path),classification:classifies(path)})==='contested') {
                 contested.push({ path, verdict: item.verdict, reason: string(item.reason ?? ''), source_refs: refs,...(item.impact?{impact:item.impact}:{}) });
                 continue;
             }

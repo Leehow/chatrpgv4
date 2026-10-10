@@ -53,7 +53,7 @@ async function deliver(request, cache, pages, call) {
  * reads have run (1 during the first round's review). `views(pass)` are pages the author views beyond its records'.
  * `plans` holds the review plan on disk as each read starts (the plan of the review that read repairs).
  */
-async function runFixture(t, { author, verdict = () => "supported", missing = () => [], views = () => [], job: extra = {}, before, onFinish } = {}) {
+async function runFixture(t, { author, verdict = () => "supported", missing = () => [], views = () => [], job: extra = {}, before, onFinish, onRequest } = {}) {
 	const home = await mkdtemp(join(tmpdir(), "coc-review-repair-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
 	const cwd = join(home, "work", "read-1", extra.attempt ?? "attempt-1"), cache = join(home, ".coc", "modules", "book", "cache", "pages");
@@ -67,6 +67,7 @@ async function runFixture(t, { author, verdict = () => "supported", missing = ()
 		async runTask({ request }) {
 			calls++;
 			const task = JSON.parse(await readFile(join(request.cwd, "task.json"), "utf8"));
+			await onRequest?.(request,task);
 			if (request.prompt.phase === "read") {
 				const onDisk = JSON.parse(await readFile(join(request.cwd, "draft.json"), "utf8").catch(() => "null"));
 				reads.push({ task, brief: request.brief, onDisk, eventLog: request.eventLog });
@@ -479,4 +480,36 @@ test("§187.6 the decision and the host check, unit by unit", () => {
 	assert.equal(checkAppendRepair(candidate(), dropped).ok, false, "an existing ready node removed");
 	const moved = withHarborMaster(); moved.nodes = [moved.nodes[4], ...moved.nodes.slice(0, 4)];
 	assert.deepEqual(checkAppendRepair(candidate(), moved), { ok: true }, "a record may sit at another position");
+});
+
+test('map repair attaches candidate-bound overlays as real files while independent review retains original pages',async t=>{
+ const stream='0 0 1 rg 0 0 200 100 re f';
+ const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+  '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> /Contents 4 0 R >>',
+  `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`];
+ let pdf='%PDF-1.7\n';const offsets=[];
+ objects.forEach((object,i)=>{offsets.push(Buffer.byteLength(pdf));pdf+=`${i+1} 0 obj\n${object}\nendobj\n`;});
+ const xref=Buffer.byteLength(pdf);pdf+=`xref\n0 5\n0000000000 65535 f \n${offsets.map(n=>String(n).padStart(10,'0')+' 00000 n ').join('\n')}\ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+ const map=box=>({nodes:[node('asset-map','asset',1,{properties:{image_sources:[{page:1}],map_regions:[{region_id:'place',name:'Place',source_asset:'asset-map',source_box:box,placement:[0,0,1,1]}]}})],claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['asset-map']});
+ const delivered=[];
+ const result=await runFixture(t,{
+
+  async before({home}){const file=join(home,'.coc','modules','book','source.pdf');await writeFile(file,pdf);},
+  author:(_task,_disk,pass)=>map(pass===1?[.1,.1,.9,.9]:[.2,.2,.4,.4]),
+  verdict:(path,_unit,reads)=>reads===1&&path==='/nodes/0'?'unsupported':'supported',
+  async onRequest(request,task){
+   if(request.prompt.phase==='read'){
+    if(!task.visual_previews){assert.equal(request.attachments,undefined);return;}
+    assert.deepEqual(request.attachments,task.visual_previews.map(p=>p.file));
+    for(const preview of task.visual_previews){
+     assert.match(preview.file,/^author-previews\/[a-f0-9]{64}\/map-regions-1\.png$/);
+     assert.equal(createHash('sha256').update(await readFile(join(request.cwd,preview.file))).digest('hex'),preview.image_sha256);
+     delivered.push(preview);
+    }
+   }else assert.equal(task.visual_previews,undefined,'author overlays are not independent review evidence');
+  }
+ });
+ assert.equal(result.reads.length,2);assert.equal(delivered.length,1);
+ assert.deepEqual(delivered[0].regions[0].source_box,[.1,.1,.9,.9],'overlay belongs to the refused candidate being repaired');
+ assert.ok(result.units.length>0,'original-page independent review still runs');
 });

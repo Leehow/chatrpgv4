@@ -3,7 +3,8 @@ import {test} from 'node:test';
 import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
-import {reviewCandidate,reviewUnits,checkReviewEvidence,detailReviewInput,readReviewPlan,REVIEW_PLAN_FILE} from '../../extensions/module/reader-review.ts';
+import {reviewCandidate,reviewUnits,checkReviewEvidence,detailReviewInput,readReviewPlan,REVIEW_PLAN_FILE,gateRefusal} from '../../extensions/module/reader-review.ts';
+import {moduleReviewOutcome} from '../../kernel-ts/modules/module-review-policy.ts';
 import {createRuntime} from '../../runtime/host.ts';
 import {reviewOfCandidate} from '../../extensions/module/targeted-repair.ts';
 import {assignedReviewPages} from '../../runtime/jev/source-reader-driver.ts';
@@ -829,4 +830,25 @@ test('§187.8.1 a coverage verdict that rode in a fact unit is carried by a reco
  assert.deepEqual(rows.filter(row=>row.event==='coverage_carry_refused'),[]);
  const review=JSON.parse(await readFile(join(cwd,'review.json'),'utf8'));
  assert.deepEqual(review.checked.filter(row=>row.paths.includes('/coverage')).map(row=>row.carried_from?.round),[1]);
+});
+
+// The publication policy does not grant semantic permission merely because a pointer is a classification.
+test('module logic classifications retain strict causal findings and project the actual publication law',()=>{
+ const fields={node:['properties/delivery_kind'],law:'Classification differences never refuse.'};
+ const task={purpose:'detail',review_policy:'module-logic-v1',vocabulary:{classification_fields:fields}};
+ const draft={nodes:[{node_id:'clue',properties:{delivery_kind:'physical'},source_refs:[{page:1}]}],claims:[]};
+ const path='/nodes/0/properties/delivery_kind',refuses=gateRefusal(task,draft);
+ for(const verdict of ['supported','contested','unsupported','malformed'])for(const impact of ['logic','presentation','parameter',undefined]){
+  const row={verdict,impact},expected=verdict!=='supported'&&(verdict==='malformed'||!['presentation','parameter'].includes(impact));
+  assert.equal(refuses(row,path),expected,JSON.stringify(row));
+  assert.equal(moduleReviewOutcome(row,task,{asWritten:false,classification:true})==='refused',expected);
+  assert.equal(moduleReviewOutcome(row,task,{asWritten:true,classification:true})==='refused',verdict!=='supported','as-written facts never become advisory');
+ }
+ const input=detailReviewInput(task,draft,[path]);
+ assert.deepEqual(input.task.classification_fields.node,fields.node);
+ assert.match(input.task.classification_fields.law,/logic refuses, even at a classification pointer/);
+ assert.equal(task.vocabulary.classification_fields.law,fields.law,'projection does not mutate authored vocabulary');
+ const legacy={...task,review_policy:undefined};
+ assert.equal(gateRefusal(legacy,draft)({verdict:'contested'},path),false,'existing legacy classification policy is preserved');
+ assert.equal(detailReviewInput(legacy,draft,[path]).task.classification_fields.law,fields.law);
 });

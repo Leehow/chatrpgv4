@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createServer} from 'node:http';
 import {once} from 'node:events';
-import {mkdtemp,readFile,readdir,stat} from 'node:fs/promises';
+import {mkdtemp,readFile,readdir,stat,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import {resolve,join} from 'node:path';
 import {gzipSync,deflateSync,brotliCompressSync} from 'node:zlib';
 import {createHash} from 'node:crypto';
@@ -12,6 +13,7 @@ import {getApiProvider} from '@earendil-works/pi-ai/compat';
 import {createGrokBuildProvider} from '../../extensions/grok-build-oauth/agent/provider.js';
 import {createObservedGrokStream,SseMetadataParser,transportInterceptor} from '../../extensions/grok-build-oauth/agent/transport-observation.js';
 import {watchStreamProgress} from '../../vendor/pi/packages/coding-agent/src/core/stream-progress.ts';
+import {ModelRuntime} from './pi.mjs';
 
 const SECRET='PRIVATE_SENTINEL_47a9', encoder=new TextEncoder();
 const context={systemPrompt:SECRET+'system',messages:[{role:'user',content:[{type:'text',text:SECRET+'prompt'}],timestamp:1}]};
@@ -36,6 +38,27 @@ async function consume(stream){const types=[];for await(const event of stream)ty
 function capture(extra={}){const rows=[],traces=[];return{rows,traces,options:{enabled:true,sink:row=>{rows.push(row);},onTrace:trace=>traces.push(trace),...extra}};}
 function privacy(rows){assert.ok(!JSON.stringify(rows).includes(SECRET),'trace must contain no privacy sentinel');}
 function restore(t){const before=getGlobalDispatcher();t.after(()=>setGlobalDispatcher(before));return before;}
+
+test('registered observation preserves full ModelRuntime.complete reasoning and provider options',async t=>{
+ restore(t);const endpoint=await fixture(t),home=await mkdtemp(join(tmpdir(),'grok-full-observation-'));
+ t.after(()=>rm(home,{recursive:true,force:true}));
+ const runtime=await ModelRuntime.create({authPath:join(home,'auth.json'),modelsPath:null,modelsStorePath:join(home,'models.json'),refreshOnCreate:false});
+ const selected=model(endpoint.url),full={apiKey:opts.apiKey,maxTokens:256,maxRetries:0,transport:'sse',reasoningEffort:'low',reasoningSummary:'concise',serviceTier:'default'};
+ const variants=[full,{apiKey:opts.apiKey,maxRetries:0,toolChoice:'none'}];
+ for(const [i,variant] of variants.entries()){
+  const plain=createGrokBuildProvider({transportObservation:{env:{}}});
+  runtime.registerProvider('grok-build',{...plain,baseUrl:selected.baseUrl,models:[selected],apiKey:opts.apiKey});
+  assert.equal((await runtime.complete(runtime.getModel('grok-build',selected.id),context,variant)).stopReason,'stop');
+  const cap=capture(),observed=createGrokBuildProvider({transportObservation:cap.options});
+  runtime.registerProvider('grok-build',{...observed,baseUrl:selected.baseUrl,models:[selected],apiKey:opts.apiKey});
+  assert.equal((await runtime.complete(runtime.getModel('grok-build',selected.id),context,variant)).stopReason,'stop');
+  await cap.traces[0].close();
+  assert.deepEqual(endpoint.requests[i*2+1].body,endpoint.requests[i*2].body,'the full request must not become a simple request');
+  privacy(cap.rows);
+ }
+ assert.equal(endpoint.requests[0].body.reasoning.effort,'low');
+ assert.equal(endpoint.requests[2].body.tool_choice,'none');
+});
 
 test('opt-in raw mode retains complete SSE and SDK payloads, immutable before hooks and without credentials',async t=>{
  restore(t);

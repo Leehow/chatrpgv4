@@ -61,7 +61,11 @@ export function createGrokBuildProvider(options = {}) {
     const observed = createObservedGrokStream((model, context, streamOptions) => {
         const api = getApiProvider(transport.api);
         if (!api) throw new Error("The conversation API is unavailable");
-        return api.streamSimple(model, context, streamOptions);
+        // Pi's compatibility callback serves complete/stream as well as streamSimple.
+        // Full Responses options must not pass through the simple option mapper.
+        const full = ["reasoningEffort", "reasoningSummary", "serviceTier", "toolChoice"].some(key =>
+            streamOptions?.[key] !== undefined);
+        return full ? api.stream(model, context, streamOptions) : api.streamSimple(model, context, streamOptions);
     }, options.transportObservation);
     return {
         ...(observed ? { streamSimple: observed } : {}),

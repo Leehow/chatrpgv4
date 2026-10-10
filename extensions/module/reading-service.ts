@@ -6,7 +6,8 @@ import { basename, dirname, join, resolve } from "node:path";
 import { KernelError , isKernelError } from "../kernel/client.ts";
 import { readerInput, readerInputInlines, readingCacheId, wakeReaderSlots, type ReaderOutcome, type ReaderRequest } from "./reader.ts";
 import { providerRefusalText } from "../../runtime/jev/provider-budget.ts";
-import { reviewCandidate, type CoverageCarrySource, type ReviewPlan } from "./reader-review.ts";
+import { reviewCandidate, candidateDigest, type CoverageCarrySource, type ReviewPlan } from "./reader-review.ts";
+import {reviewClassificationFields} from '../../kernel-ts/modules/module-review-policy.ts';
 import { personStateRows } from "./person-state.ts";
 import { APPEND_REPAIR_ASK, appendUnitCarry, checkAppendRepair, checkTargetedRepair, repairDecision, reviewOfCandidate, TARGETED_REPAIR_ASK, type RepairDecision } from "./targeted-repair.ts";
 import { salvageInterruptedRead } from "./read-salvage.ts";
@@ -1357,6 +1358,8 @@ export class ReadingService implements ReadingBridge {
 			vocabulary: job.vocabulary, coverage_domains: job.coverage_domains, commands,
 			// §22.3.3 (SL-57): an earlier reading of this focus was refused at review; these are the refused fields and the reasons.
 			...(job.review_retry ? { review_retry: { refused: job.review_retry.refused ?? [], message: job.review_retry.message ?? "" } } : {}) };
+		if(task.vocabulary?.classification_fields)task.vocabulary={...task.vocabulary,
+			classification_fields:reviewClassificationFields(task.vocabulary.classification_fields,task)};
 		if (job.purpose === "index") { delete task.index; delete task.known_nodes; delete task.known_claims; delete task.vocabulary; delete task.coverage_domains; delete task.commands.check; }
 		const freshSkeleton = !campaign && job.purpose === 'skeleton' && Array.isArray(job.known_nodes)
 			&& job.known_nodes.length === 1 && job.known_nodes[0].node_kind === 'module' && job.known_nodes[0].ready === false;
@@ -1523,8 +1526,12 @@ export class ReadingService implements ReadingBridge {
 								if (validCheckpoint(checkpoint, bytes, job)) { previousDraft = JSON.parse(bytes.toString()); previousPages = checkpoint.observations.read_pages; candidateBytes = bytes; }
 							} catch { /* no completed source reading to carry */ }
 							await writeFile(join(cwd, "baseline.json"), JSON.stringify(previousDraft ?? {}) + "\n");
-							if(job.visual_asset&&previousDraft){
-								task.visual_previews=await mapReviewPreviews({draft:previousDraft,paths:['/coverage'],cwd,source:{pdf:job.source.path,cache}});
+							delete task.visual_previews;
+							if(previousDraft&&draftHasMapRegions(previousDraft)){
+								const binding=candidateDigest(previousDraft),relative=join('author-previews',binding),previewDir=join(cwd,relative);
+								await mkdir(previewDir,{recursive:true});
+								task.visual_previews=(await mapReviewPreviews({draft:previousDraft,paths:['/coverage'],cwd:previewDir,source:{pdf:job.source.path,cache}}))
+									.map(preview=>({...preview,file:join(relative,preview.file),candidate_digest:binding}));
 								await writeFile(join(cwd,'task.json'),JSON.stringify(task)+'\n');
 							}
 							try {
@@ -1654,6 +1661,7 @@ export class ReadingService implements ReadingBridge {
 							...(job.visual_scan?{maxRequests:3}:{}),
 							beforeProviderRequest:signal=>this.waitForPriority(job,key,signal,campaign),
 							...(readingImages ? {imageHistory:readingImages} : {}),
+							...(phase==='read'&&task.visual_previews?.length?{attachments:task.visual_previews.map((preview:Row)=>preview.file)}:{}),
 							// §186.2: every child of this round, author and review units alike, shares one cache identity.
 							cacheId: readingCacheId(job.module_id, job.job_id, round),
 							submission:["guidance","opening","detail","answer"].includes(job.purpose),

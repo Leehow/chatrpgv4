@@ -14,7 +14,7 @@ import { PERSON_STATEMENTS, REVIEW_VERDICTS, classificationMatcher, personStatem
 import { sheetReviewPaths } from "../../kernel-ts/modules/sheet-review.ts";
 import { pregenInventoryPath } from '../../kernel-ts/modules/pregens-material.ts';
 import {validatePublicGuidance} from '../../kernel-ts/modules/public-guidance.ts';
-import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings,moduleGuidanceApproved} from '../../kernel-ts/modules/module-review-policy.ts';
+import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings,moduleGuidanceApproved,moduleReviewOutcome,reviewClassificationFields} from '../../kernel-ts/modules/module-review-policy.ts';
 import {READING_REVIEW_FALLBACK,readingReviewBudget} from '../../runtime/jev/host-budgets.ts';
 
 type Row = Record<string, any>;
@@ -255,9 +255,9 @@ export function carriedReviewUnits(draft: Row, requiredPaths: string[] = [], bud
  * that is not a contest -- an advisory finding under module-logic-v1, a classification field otherwise.
  */
 export function gateRefusal(task: Row, draft?: Row): (row: Row, path: string) => boolean {
-	const logic = moduleLogicReview(task ?? {}), classifies = classificationMatcher(task?.vocabulary?.classification_fields?.node);
+	const classifies = classificationMatcher(task?.vocabulary?.classification_fields?.node);
 	// §199.2: `draft` says which pointers are a person's statements; without it only §192.1's distinct_from is one.
-	return (row, path) => row?.verdict !== 'supported' && !(!statementReviewPath(draft, path) && !pregenInventoryPath(task ?? {}, path) && REVIEW_VERDICTS.includes(row?.verdict) && (logic ? advisoryModuleFinding(row) : classifies(path)));
+	return (row, path) => moduleReviewOutcome(row,task??{},{asWritten:statementReviewPath(draft,path)||pregenInventoryPath(task??{},path),classification:classifies(path)})==='refused';
 }
 
 /**
@@ -430,10 +430,12 @@ function canonical(value: any): string {
 		.map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}';
 	return JSON.stringify(value);
 }
-/** §192.1, §207.2: a row on a pointer reviewed as written is never advisory, whatever impact it carries. */
-const asWritten = (item: Row, draft: Row, task: Row): boolean => (Array.isArray(item.paths) ? item.paths : [item.path]).some((path: unknown) => statementReviewPath(draft, path) || pregenInventoryPath(task, path));
 function approved(review: Row, guidance: boolean, policy:Row={}, draft: Row={}): boolean {
-	return blockingModuleFindings(review.missing,policy).length === 0 && review.checked.every((item: Row) => item.verdict === 'supported'||moduleLogicReview(policy)&&advisoryModuleFinding(item)&&!asWritten(item,draft,policy))
+	const refuses=gateRefusal(policy,draft);
+	return blockingModuleFindings(review.missing,policy).length === 0 && review.checked.every((item: Row) => {
+		const paths=Array.isArray(item.paths)?item.paths:[item.path];
+		return paths.length>0&&paths.every((path:unknown)=>typeof path==='string'&&!refuses(item,path));
+	})
 		&& (!guidance || moduleGuidanceApproved(review.guidance,policy));
 }
 /**
@@ -537,7 +539,7 @@ export function detailReviewInput(task: Row, draft: Row, paths: string[]): Row {
 		Array.isArray(person.book) && person.book.some((name: unknown) => typeof name === 'string' && names.has(name)));
 	if (castNames.length) hotTask.cast_names = castNames.map((person: Row) => ({book: person.book, play: person.play, pages: person.pages ?? []}));
 	// §22.3.2: the fields a reviewer may only contest, as the graph contract declares them.
-	if (task.vocabulary?.classification_fields) hotTask.classification_fields = task.vocabulary.classification_fields;
+	if (task.vocabulary?.classification_fields) hotTask.classification_fields = reviewClassificationFields(task.vocabulary.classification_fields,task);
 	// §186.2: the unit's own assignment after every field the round's units share, so the shared part is one prefix.
 	for (const key of ['required_review', 'review_scope_pages']) if (task[key] !== undefined) hotTask[key] = task[key];
 	return { task: hotTask, review_records: records,
@@ -596,7 +598,7 @@ export function reviewUnitIdentity(base: { version?: string; source: string; ext
  * the unit's own notes after its input.
  */
 const REVIEW_ANSWER = " Independently review the complete source answer, status and limitations for task.question against original page images and accepted context. For module-logic-v1, review identity, causal conditions, clue targets, knowledge boundaries and the current use. Do not retranscribe numerical leaves or polish wording. Label every negative finding with impact logic, presentation or parameter. Presentation and valid parameter differences are advisory; keep them in the review without requesting another generation. Only missing or contradictory logic blocks. Established campaign values take priority; source differences are mappings, never silent retcons.  View every cited source page. Do not modify draft.json. Use submit_reading with review as your sole final tool call. ";
-const REVIEW_UNIT = " Independently review only task.required_review against original images. The host delivered the cited original pages into this context; they are the evidence. Call pdf only for a page that was not delivered or for a closer view of a region. For module-logic-v1, review identity, causal conditions, clue targets, knowledge boundaries and the current use. Do not retranscribe numerical leaves or polish wording. Label every negative finding with impact logic, presentation or parameter. Presentation and valid parameter differences are advisory; keep them in the review without requesting another generation. Only missing or contradictory logic blocks. Established campaign values take priority; source differences are mappings, never silent retcons.  The complete graph context is retained in the candidate file. Produce checked paths, verdict (supported, contested or unsupported), source_refs and reason, plus missing (only necessary current material). Name the deepest pointer you dispute, not the record's root, unless the record itself is not in the book; a field matching task.classification_fields that you would classify differently is contested, not unsupported. Never edit the draft. ";
+const REVIEW_UNIT = " Independently review only task.required_review against original images. The host delivered the cited original pages into this context; they are the evidence. Call pdf only for a page that was not delivered or for a closer view of a region. For module-logic-v1, review identity, causal conditions, clue targets, knowledge boundaries and the current use. Do not retranscribe numerical leaves or polish wording. Label every negative finding with impact logic, presentation or parameter. Presentation and valid parameter differences are advisory; keep them in the review without requesting another generation. Only missing or contradictory logic blocks. Established campaign values take priority; source differences are mappings, never silent retcons.  The complete graph context is retained in the candidate file. Produce checked paths, verdict (supported, contested or unsupported), source_refs and reason, plus missing (only necessary current material). Name the deepest pointer you dispute, not the record's root, unless the record itself is not in the book; a field matching task.classification_fields that you would classify differently is contested, not unsupported. Under module-logic-v1, contested still refuses when its impact is logic. Compare every authored applicability condition, including conditions stated beside a rule; a summary does not constrain an unconditional executable trigger. Never edit the draft. ";
 const REVIEW_COVERAGE = "For /coverage, view every review_scope_pages page as evidence, not as a whole-range extraction assignment. State the requested use from task.purpose/focus/question in your reason. An empty detail question requests the focused entity's current use and necessary dependencies, not its whole chapter. Compare that use to the candidate for omitted discoverable facts and investigation connections, including when no clue or conclusion was proposed. Every missing item must identify its source and explain which requested use or immediate dependency would fail without it; appearing on a viewed page or map is insufficient. ";
 const REVIEW_SUBMIT_GUIDANCE = "Also review guidance.json and any public_fields under the Independent review instructions and include guidance:{approved,issues} in the same review. Approval covers source support, spoiler safety and play_language of every public value too. Never modify either artifact. Pass this small review object directly to submit_reading as your sole final tool call; a separate write followed by submit would waste another model request. ";
 const REVIEW_SUBMIT_DIRECT = "Pass the review directly to submit_reading as your sole final tool call; no separate write or final prose is needed. ";
