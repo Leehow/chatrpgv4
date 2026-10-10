@@ -125,6 +125,7 @@ import {
 	admissionRefusal,
 	admissionRequest,
 	registeredContactProposal,
+	ideaRollProposal,
 	admissionTimedOut,
 	admissionTimeoutMs,
 	admissionUnavailable,
@@ -3476,6 +3477,7 @@ export default function (pi: ExtensionAPI) {
 		let proposal = admissionRequest(tool, payload, scopeFor(effectsOf()));
 		if (!proposal) return;
 		proposal = registeredContactProposal(proposal, payload, evidence);
+		proposal = ideaRollProposal(proposal, payload, evidence);
 		if (state.admissionCorrectionBlocked.has(proposal.key)) throw new KernelError({code: "needs", message: "The correction allowance for this turn is exhausted",
 			fix: "Do not retry this voluntary state-changing proposal or turn its failure into a new player choice.", details: {reason: "action_correction_exhausted", correction_allowed: false}});
 		// §32.12.3: the whole batch again, after its typed-admitted lines landed and its remainder did not. Those lines are not
@@ -7439,7 +7441,11 @@ export default function (pi: ExtensionAPI) {
 		// step's structure, never the Keeper's misuse of parameters, so it strikes no refusal class: the same verb is the
 		// Keeper's own again on an adjudicate step of the same turn.
 		const announced = modelSteps.get(event.toolCallId);
-		if (state.interactionScope !== undefined && state.interactionScope !== 'world' && !permitsReferenceOperation(name, event.input)) {
+		// §222.7: the one world step an out-of-fiction request may carry is the host's own Idea roll (Keeper Rulebook pp. 199-200,
+		// asked "in or out of character"); the policy selected it, and it lands its clue inside the resolve.
+		const hostIdeaRoll = name === "resolve" && dispatcher.hostOrigin(event.toolCallId)?.origin === "policy"
+			&& (event.input as {action?: {decision?: unknown}} | undefined)?.action?.decision === "core-check:idea-roll";
+		if (state.interactionScope !== undefined && state.interactionScope !== 'world' && !hostIdeaRoll && !permitsReferenceOperation(name, event.input)) {
 			await record({tool: name, ok: false, code: 'blocked', reason: 'interaction_scope'});
 			return {block: true, reason: 'This message does not authorize fictional progression. Answer the reference question or clarify it; do not alter the world.'};
 		}

@@ -85,3 +85,21 @@ test('§163: the policy folds a missing scope answer into a forced world scope a
   assert.equal(folded.view.interactionScope.mode, 'world');
   assert.deepEqual(folded.view.forced.map(({family, chosen, why}) => ({family, chosen, why})), [{family: 'interaction-scope', chosen: {outcome: 'world'}, why: 'jev_unanswered'}]);
 });
+
+test('§222.7: an out-of-fiction request keeps the Idea roll: its check family is read and routed, its steps run, then the reference compose', () => {
+  const view = initialView({runId: 'stuck', rawInput: '（场外）我有点卡住了，能给点思路吗？', context, candidates: []});
+  view.interactionScope = {mode: 'reference', calls: 1, reason: 'out_of_fiction_request'};
+  const idea = {key: 'resolve:check:core-check:idea-roll:abc', verb: 'resolve', family: 'check', label: 'Idea roll', bound: {decision: 'core-check:idea-roll'},
+    unbound: [{name: 'action', binder: 'resolve-selection', required: true}], clerk: 'declared_check', source: 'fixture', checkOwner: 'jev'};
+  const forced = {key: 'defend', verb: 'resolve', family: 'combat', label: 'Defend', bound: {decision: 'combat:defend'},
+    unbound: [], clerk: 'session_step', source: 'fixture', forced: true};
+  view.pending = [];
+  settleRead(view, 2, {materials: [], summary: {}}, {context, candidates: [forced, idea]}, 1);
+  assert.deepEqual(view.candidates.map(candidate => candidate.key), [idea.key], 'only the Idea roll survives the reference read');
+  assert.equal(next(view).purpose, 'route');
+  view.referenceRouted = true;
+  view.pending = [{kind: 'decide', purpose: 'check-selection', candidate: idea}];
+  assert.equal(next(view).kind, 'decide', 'the Idea roll\'s selection runs as in a world turn');
+  view.pending = [];
+  assert.deepEqual(next(view), {kind: 'infer', purpose: 'compose', reason: 'reference_request'});
+});

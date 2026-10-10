@@ -1537,6 +1537,21 @@ export function registeredContactProposal(proposal: AdmissionProposal, payload: 
 }
 
 /**
+ * §222.7: the host's Idea roll (Keeper Rulebook pp. 199-200) is chosen by the players' request for a way forward, in or out
+ * of character; the clue it names is the Keeper's to give, not a choice the player made. Read from the dispatcher-owned
+ * origin, clerk and the action's closed decision, never from words.
+ */
+export function ideaRollProposal(proposal: AdmissionProposal, payload: Record<string, unknown>, evidence: ClerkEvidence): AdmissionProposal {
+	const action = record(payload.action);
+	if (proposal.tool !== "resolve" || evidence.origin !== "policy" || evidence.clerk !== "declared_check" || action?.decision !== "core-check:idea-roll") return proposal;
+	const rule = { decision: "core-check:idea-roll", settles: "The Idea roll: the players asked for a way forward because the investigation stalled -- a hint, a nudge, help, "
+		+ "or the roll by name, in or out of character. That request chooses this roll. The investigator rolls INT; the clue it names arrives whichever way the die falls "
+		+ "(easily on a pass, in the thick of it on a failure), and which clue is the Keeper's to give, not the player's choice." };
+	return { ...proposal, key: canonical({ proposal: proposal.key, idea_roll: rule }),
+		lines: proposal.lines.map(line => `${line}; idea_roll_rule=${JSON.stringify(rule)}`) };
+}
+
+/**
  * §143.15 (ticket 16): the clerk authorities (§135.3) whose writes carry out the investigator's own declaration -- the step
  * the compile or the route selected from the player's words: a declared move, clue or handout, the ordinary check, a stated
  * obligation's check, the first blow, a fight's or chase's step, a Mod's contact check. Not a consequence the host routed

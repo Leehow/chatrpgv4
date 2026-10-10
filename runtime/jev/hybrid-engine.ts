@@ -1407,7 +1407,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   async function clerkStep(run: RunState, params: Row, invocation: {runId: string; stepId: string; operationId: string; signal: AbortSignal}) {
     const candidate = params.candidate as Candidate | undefined, extra = object(params.extra) as Record<string, Json>;
     const refuse = (reason: string) => ({status: 'refused' as const, reason, artifact: {kind: 'execute', executed: {ok: false, summary: {origin: 'policy', refused: reason}}}});
-    if (run.interactionScope && run.interactionScope.mode !== 'world') return refuse('interaction_scope');
+    // §222.7: the host's own Idea roll is the one clerk step an out-of-fiction request carries (asked "in or out of character").
+    const ideaRoll = candidate?.verb === 'resolve' && object(candidate.bound).decision === 'core-check:idea-roll';
+    if (run.interactionScope && run.interactionScope.mode !== 'world' && !ideaRoll) return refuse('interaction_scope');
     if (!candidate) return refuse('no_candidate');
     // The IntentBinding is required: no policy-origin write before a read has bound the run to this player input.
     if (!run.intent || !run.scope || run.turn === undefined) return refuse('intent_unbound');

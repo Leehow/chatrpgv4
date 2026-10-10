@@ -42936,6 +42936,27 @@ in the right place, so the question now also asks whether the declared act looks
 (`runtime/jev/clue-route.ts`). Then: asking the clerk for the deed register → obvious 0.71–0.72 (lands); listening → 0.16–0.17;
 a passed Spot Hidden through the deed boxes → fit 0.35, obvious 0.56–0.59 (nothing clears: the Keeper keeps it).
 
+### 222.7 The Idea roll asked out of character (2026-10-10, found on a real table)
+
+The rulebook lets the players propose the Idea roll "in or out of character" (pp. 199-200). On a copy of TR-F2 run 3's
+campaign in the basement (Grok 4.7 Build fast, live Jev), "（场外）我有点卡住了，不知道接下来该怎么办，能给点思路吗？" was read
+`reference` (out-of-fiction 0.92), and three gates in turn kept the roll from running: the reference read dropped every
+candidate, the reference route cleared the pending steps, and the clerk refused every policy write (`interaction_scope`);
+past those, admission refused it as an action the player had not chosen.
+
+**The rule.** In a reference turn the Idea roll's check family (candidate key `…:core-check:idea-roll…`, the catalog's closed
+decision) is kept by the read, routed, selected and executed exactly as in a world turn; every other candidate and step is
+dropped as before, and the turn ends with the reference compose (`runtime/jev/step-policy.ts` `ideaRollStep`). The clerk lets
+that one resolve through in a reference scope (`clerkStep`), and so does the extension's scope gate for a policy-origin
+resolve of that decision (`extensions/kernel/index.ts`). Admission reads it with an `idea_roll_rule` line
+(`ideaRollProposal`, `extensions/kernel/admission.ts`): the players' request chooses the roll; the clue is the Keeper's.
+
+**Live.** After the fix the same message rolled INT 20 against 60 (hard success) and landed `rusted-basement-dagger` by the
+Idea roll; the reference answer named the dagger in the tool pile and left the next step to the player.
+
+*Tests.* `tests/extension/interaction-scope.test.mjs` (the reference read and route keep only the Idea roll's steps),
+`tests/extension/idea-roll-reference.test.mjs` (admission's reading).
+
 ## 223. Pushing, Luck and improvement ticks follow the Keeper Rulebook (user ruling 2026-10-10)
 
 The user's ruling of 2026-10-10: rules adjudicate what actually happened at the table, per the
