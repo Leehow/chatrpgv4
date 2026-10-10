@@ -209,6 +209,17 @@ export default function (pi: ExtensionAPI) {
   let setupBlock: SetupBlock | undefined;
   /** §14.19: the openings the host last answered `needs_choice` with; the preparation step stays open until one is recorded. */
   let openingQuestion: unknown[] | undefined;
+  /**
+   * §225.3: the openings the player has been shown (candidate node ids), across every question this setup asked.
+   * A candidate the book's reading brought in after the player chose -- or one the guide chose for them without a
+   * question -- is not in it, and create-campaign asks again instead of carrying the old choice.
+   */
+  const openingsOffered = new Set<string>();
+  /** The candidates of one opening question become the ones the player was shown. */
+  function poseOpening(rows: unknown[]): void {
+    openingQuestion = rows;
+    for (const row of rows) { const id = asString(asRecord(row).node_id) ?? asString(asRecord(row).scene); if (id) openingsOffered.add(id); }
+  }
   /** §14.19: the opening the campaign itself pins -- campaign.create's, the resumed record's, or the one the remedy pinned. */
   let campaignOpening: string | undefined;
   /** §14.19.4: when this setup first waited on each reading, so the player hears roughly how long it has been. */
@@ -844,7 +855,7 @@ export default function (pi: ExtensionAPI) {
 		const code = errorCode(error), detail = errorText(error), {fix, details} = actionable(error);
 		setupBlock = {kind, ...(code ? {code} : {}), detail, ...(fix ? {fix} : {}), ...(details ? {details} : {}), noticed};
 		const question = code === 'needs_choice' ? openingCandidates(details) : undefined;
-		if (question) openingQuestion = question;
+		if (question) poseOpening(question);
 		return withReason({ok: false, code: question ? 'needs_choice' : 'guidance_failed', ...(code ? {cause: code} : {}), message: detail,
 			...(fix ? {fix} : {}), ...(details ? {details} : {})}, startedAt);
 	}
@@ -855,11 +866,20 @@ export default function (pi: ExtensionAPI) {
 	 * kernel's `module.status` `opening_candidates`. A status that cannot be read leaves the step to
 	 * the kernel and the guidance preparer, which answer the same question themselves.
 	 */
-	async function unchosenOpenings(): Promise<unknown[] | undefined> {
+	async function unchosenOpenings(): Promise<{candidates: unknown[]; unseen: string[]; previous?: string} | undefined> {
 		const preparation = stepWithOp('module.prepare'), moduleId = asString(context.module_id);
-		if (!bridge || !preparation || !completed.has(preparation.id) || !moduleId || asString(context.start_scene)) return undefined;
-		try { return openingCandidates({candidates: asRecord(await bridge.call('module.status', {module_id: moduleId})).opening_candidates}); }
+		if (!bridge || !preparation || !completed.has(preparation.id) || !moduleId) return undefined;
+		let candidates: unknown[] | undefined;
+		try { candidates = openingCandidates({candidates: asRecord(await bridge.call('module.status', {module_id: moduleId})).opening_candidates}); }
 		catch { return undefined; }
+		if (!candidates) return undefined;
+		// §225.3: a recorded choice stands only over openings the player was shown. A candidate a later reading
+		// brought in (the NKVD book's second briefing arrived five generations after its sole entrance was taken as
+		// chosen), or a choice the guide made with no question asked, is put to the player before the campaign binds it.
+		const previous = asString(context.start_scene);
+		const unseen = candidates.map((row) => asString(asRecord(row).node_id) ?? asString(asRecord(row).scene) ?? '').filter((id) => id && !openingsOffered.has(id));
+		if (previous && !unseen.length) return undefined;
+		return {candidates, unseen, ...(previous ? {previous} : {})};
 	}
 
 	/** Begin the already chosen scene while the player is still building a card. */
@@ -896,7 +916,7 @@ export default function (pi: ExtensionAPI) {
 			} catch (error) {
 				const code = errorCode(error) ?? 'internal', {fix, details} = actionable(error);
 				const question = code === 'needs_choice' ? openingCandidates(details) : undefined;
-				if (question) { openingQuestion = question; delete context.start_scene; }
+				if (question) { poseOpening(question); delete context.start_scene; }
 				return withReason({ok: false, step: id, failed_on: 'module.opening.choose', code, message: errorText(error),
 					...(fix ? {fix} : {}), ...(details ? {details} : {}), progress: progressLine(steps ?? [], state())}, startedAt);
 			}
@@ -1025,12 +1045,20 @@ export default function (pi: ExtensionAPI) {
 			if (move.move === 'ask') return { ok: false, step: id, code: 'brief_incomplete', missing: move.missing, brief: renderBrief(setupSlots, setupNotes, guidedCap) };
 		}
 		if (step.ops.some((op) => op.method === 'campaign.create')) {
-			const candidates = await unchosenOpenings();
-			if (candidates) {
-				openingQuestion = candidates;
-				return withReason({ok: false, step: id, code: 'needs_choice', message: 'this book has more than one opening and none is recorded for this campaign yet',
-					fix: `ask the player which opening to start from (details.candidates: name and summary), then call ${stepWithOp('module.prepare')?.id ?? 'the preparation step'} with that candidate's scene as start_scene; ${id} comes after it`,
-					details: {field: 'start_scene', candidates}, progress: progressLine(steps, state())}, startedAt);
+			const unchosen = await unchosenOpenings();
+			if (unchosen) {
+				const {candidates, unseen, previous} = unchosen;
+				poseOpening(candidates);
+				// §225.3: the old choice is not carried into the campaign; the player's answer is recorded again by the preparation step.
+				if (previous) delete context.start_scene;
+				const remedy = stepWithOp('module.prepare')?.id ?? 'the preparation step';
+				return withReason({ok: false, step: id, code: 'needs_choice',
+					message: previous
+						? `this book offers an opening the player has not been asked about (${unseen.join(', ')}); the earlier choice ${previous} is set aside until they choose`
+						: 'this book has more than one opening and none is recorded for this campaign yet',
+					fix: `ask the player which opening to start from (details.candidates: name and summary), then call ${remedy} with that candidate's scene as start_scene; ${id} comes after it`,
+					details: {field: 'start_scene', candidates, ...(previous ? {reason: 'opening_candidates_changed', unseen, previous_choice: previous} : {})},
+					progress: progressLine(steps, state())}, startedAt);
 			}
 		}
 		// §14.19: the player's choice is recorded the moment the preparation step receives it, before any
@@ -1054,7 +1082,7 @@ export default function (pi: ExtensionAPI) {
 					pi.sendMessage({customType:'coc-setup-opening',content:introduction,display:true,details:{kind:'setup-opening'}},{triggerTurn:false});
 					outcome.opening_shown='The host has shown details.introduction verbatim. Do not repeat or translate it; wait for the player to choose an opening.';
 				}
-				openingQuestion = question;
+				poseOpening(question);
 				// A scene the book does not offer is no choice: the one this call brought is not kept.
 				if (chosen && context.start_scene === chosen) context.start_scene = previousChoice;
 			}
@@ -1364,7 +1392,7 @@ export default function (pi: ExtensionAPI) {
       if(question) {
         // §14.19: a missing opening is the guide's question, not a failure: no error notice, the guide's
         // text stays on screen, and the step that records the answer stays open (§98 addendum 9).
-        openingQuestion=question;
+        poseOpening(question);
 		return {systemPrompt:base+'\nThis book has more than one opening and this campaign has none recorded yet. Ask the player which one to start from, naming each by its name and what it is about (the list below). When they answer, call setup '+(remedyStep()??'prepare-module')+' with the exact chosen candidate.scene handle as start_scene: it records the choice and prepares the module guidance. Do not translate that handle. Until then do not invent a prologue or create an investigator.\nOpenings: '+JSON.stringify(question)};
       }
       try {ctx?.ui.notify((await speaking()).line('setup_guidance_failed',{detail}),'error');}
