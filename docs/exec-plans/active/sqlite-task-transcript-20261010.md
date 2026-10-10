@@ -114,3 +114,25 @@ waiting on actual state, no timeout/resource changes or fake reply. Root has onl
 setup prose; no private source or thinking. Default hybrid mode does not activate optional
 TaskRuntime flags, so do not claim TaskStore has live mode coverage without actual SQL rows;
 its authentic TaskRuntime/controlled-source/multiprocess/crash regressions are separate proof.
+
+All2c19 RED844s:5440?seeactualsummary/2extfail,2128py/2skip,loop12pass; all raw/per-file
+logs retained all-2c19b77cf. Previous reuse test passed. Two timing-sensitive cases: layout
+second timeout observed oneHTTPrequest although page.attempts/real outcomes were2, and held
+answer was not carried under full load. Layout test now counts actual runtime.runTask calls,
+not HTTP requests that may never start before the unchanged3000ms lease; exact2attempts,
+no-third/timeout/requeue assertions stay. Next isolated unchanged held-answer check then
+combined all. No model/resource/production timeout changes.
+
+Independent realplay audit:3lookups success2347.7/12.9/4.5ms, then9provider transport failures
+(Connectionerror7,Requesttimeout1,terminated1).8noHTTPheaders,1HTTP200truncatedSSE, no server
+errorframe/no sustainedreasoning/output-limit evidence. Driver300s ended,agentsettled77.711s
+later with no delivered text. SQLite data intact/integrityok/48legacy bytes+payload+imports
+unchanged. Source modulepreparing with reader_transport and correctindependentreview failures.
+All62observedPIDs exitedafter normalstop. Not successfulplay; no liveTaskStore coverage.
+Safeaudit play-verified-provider-sql-audit.json. Underlying networkcause not retained in trace.
+
+Latestmain advanced to1d1adba8b with otherownertransport/context/hybrid read-owner repairs.
+Merged only committed changes into c28df9a33. Sharedcontracttail conflict resolved by keeping
+main209metric note before own210; no content discarded. Their3targetedfiles50/50localpass.
+This production drift needs newcombinedruntime/genuine continuation. Keep all previous reds
+and failed/0turnauth startups; defaultTaskRuntimeflags off, don't flip them for fakecoverage.

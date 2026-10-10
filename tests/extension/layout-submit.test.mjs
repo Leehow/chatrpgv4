@@ -184,9 +184,10 @@ async function transcribe(t, script, budget = {}) {
 	const context = composeRuntimeContext({ owner: "preparation", home }, { resourceRoot: ROOT, agentHome: agent,
 		env: { ...process.env, PI_OFFLINE: "1", UV_OFFLINE: "1", UV_NO_SYNC: "1", PI_COC_READER_CMD: undefined, PI_COC_CONTENT_ROOT: undefined } });
 	const file = sha("layout child fixture");
+	const runs = [];
 	const runtime = {
 		home, contentRoot: context.contentRoot,
-		runTask: (task, signal) => runtimeCapabilities.runTask(context, task, signal),
+		runTask: (task, signal) => {runs.push(task);return runtimeCapabilities.runTask(context, task, signal);},
 		async sourceLines({ pages }) {
 			return { file_sha256: file, extraction_version: "pdfjs-fixture:native-text-v1", page_count: 1,
 				pages: pages.map(page => ({ page, pdf_label: String(page), native_sha256: sha(LINES.join("\n")), lines: LINES })), errors: [] };
@@ -209,7 +210,7 @@ async function transcribe(t, script, budget = {}) {
 	const page = rows.find(row => row.event === "page" && row.outcome !== "requeued");
 	assert.ok(page, JSON.stringify(rows));
 	const store = new TranscriptStore({ home, contentRoot: context.contentRoot, extractionVersion: "pdfjs-fixture:native-text-v1" });
-	return { page, rows: rows.filter(row => row.event === "page"), seen, store, file, service };
+	return { page, rows: rows.filter(row => row.event === "page"), seen, runs, store, file, service };
 }
 
 const WHOLE = "# {L2}\n\n{L3}{L4}\n\n<!-- drop: L1 L5 -->";
@@ -272,10 +273,10 @@ test("§191.6 through the real child: a page whose child ran out of time goes to
 });
 
 test("§191.6 through the real child: running out of time a second time fails the page with reason timeout, and no third run", async t => {
-	const { page, rows, seen, service, file } = await transcribe(t, () => ({ hang: true }), { timeoutMs: 3_000, repairAttempts: 0 });
+	const { page, rows, runs, service, file } = await transcribe(t, () => ({ hang: true }), { timeoutMs: 3_000, repairAttempts: 0 });
 	assert.deepEqual(rows.map(row => [row.outcome, row.reason]), [["requeued", "timeout"], ["failed", "timeout"]], JSON.stringify(rows));
 	assert.equal(page.attempts, 2);
-	assert.equal(seen.length, 2, "one run, one requeued run, nothing after");
+	assert.equal(runs.length, 2, "one actual task run, one requeued run, nothing after; startup may consume the lease before HTTP");
 	const again = await service.ensure({ pdf: "source.pdf", file_sha256: file, pages: [1] });
 	assert.deepEqual(again.skipped, [1], "a failed page is not tried again in this session");
 });
