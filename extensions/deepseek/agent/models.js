@@ -58,7 +58,7 @@ const V4_COMPAT = {
     requiresReasoningContentOnAssistantMessages: true,
     thinkingFormat: "deepseek",
 };
-/** Hosted Responses `web_search`. Files API / code_interpreter are phase 2. */
+/** Native search is supplied by the generic Pi Messages route; Responses ignores web_search. */
 export const DEEPSEEK_HOSTED_TOOLS = {
     tools: ["web_search"],
 };
@@ -70,8 +70,8 @@ export const DEEPSEEK_CAPABILITIES = {
 /**
  * Shape every discovered model inherits before metadata is applied: 1M context,
  * 384K output and the V4 thinking map are family-wide on this endpoint, and
- * hosted `web_search` is on because every DeepSeek Responses model today serves
- * it — defaulting it off would re-create the hand-edit this catalog removes.
+ * native search is available through the verified Anthropic-compatible route.
+ * Ordinary Responses requests never receive a hosted-search declaration.
  */
 export const DEEPSEEK_FAMILY_DEFAULTS = {
     api: DEEPSEEK_CHAT_API,

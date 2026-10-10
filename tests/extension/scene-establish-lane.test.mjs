@@ -125,28 +125,3 @@ test('first sight: an undescribed person takes one verdict; shown lands as shown
   // A described item answered with the single verdict was never checked detail by detail: nothing is recorded for it.
   assert.deepEqual(anchorFirstSight(items, [{id: 'knott', missing: [], shown: true}]).items, []);
 });
-
-test('history selection (§203.7): a scene lookup asks a texture question per candidate that orders what is kept and drops nothing', async () => {
-  const {selectionBatch, selectHistoryMaterials, TEXTURE_QUESTION} = await import('../../runtime/historical-reference.ts');
-  const material = (title, url) => ({title, url, excerpts: [`${title} excerpt`], published_at: null, retrieved_at: '2026-10-08T00:00:00Z'});
-  const rows = [material('A conference report', 'https://example.org/report'), material('A reporter remembers the 1920s city room', 'https://example.org/memoir'),
-    material('A catalogue page', 'https://example.org/catalogue')];
-  const input = {query: 'What was it like inside a Boston newspaper office in the 1920s?', binding: 'b', scope: {owner: 't', audience: 'keeper'}, context: {}};
-  const batch = selectionBatch(input, rows);
-  assert.deepEqual(batch.questions.filter(q => q.key.startsWith('texture_')).map(q => [q.key, q.instructions]),
-    [['texture_1', TEXTURE_QUESTION], ['texture_2', TEXTURE_QUESTION], ['texture_3', TEXTURE_QUESTION]]);
-  assert.equal(batch.familyVersion, '5');
-  assert.ok(!selectionBatch(input, rows, {strategy: 'estimate_from_anchors'}).questions.some(q => q.key.startsWith('texture_')), 'a price lookup does not ask it');
-  const answer = (texture) => ({status: 'complete', answers: Object.fromEntries(batch.questions.map(q => {
-    const index = Number(q.key.split('_').at(-1)) - 1;
-    if (q.key.startsWith('texture_')) return [q.key, texture[index] === null ? {status: 'unanswered'} : {status: 'answered', type: 'noul', noul: texture[index]}];
-    if (q.key.startsWith('period_')) return [q.key, {status: 'answered', type: 'noul', noul: index === 2 ? 0.1 : 0.6}];
-    return [q.key, {status: 'answered', type: 'choice', choice: 'analogous'}];
-  }))});
-  const kept = selectHistoryMaterials(rows, answer([0.2, 0.9, 0.95]));
-  assert.deepEqual(kept.materials.map(row => row.title), ['A reporter remembers the 1920s city room', 'A conference report'],
-    'the one with the room in it first; the catalogue page fails the period question whatever its texture');
-  assert.deepEqual(kept.textures, {'https://example.org/report': 0.2, 'https://example.org/memoir': 0.9, 'https://example.org/catalogue': 0.95});
-  const unanswered = selectHistoryMaterials(rows, answer([null, null, null]));
-  assert.equal(unanswered.materials.length, 2, 'an unanswered texture question drops nothing');
-});

@@ -476,3 +476,7 @@ One app-play-gated leaf, `runtime/jev/first-sight.ts` `createFirstSightLane.chec
 `extensions/kernel/told-clue.ts#ask` constructs one DecisionAdapter for the delivered-clue read (§201): a bounded leaf after delivery, sharing the owner's deadline, transport policy and provider allowance. It returns readings for the existing owed-state writer and cannot drive a Keeper run. Controlled evidence: `tests/extension/clue-ledger.test.mjs`.
 
 `runtime/jev/establish-review.ts#createEstablishReviewLane.review` calls `runLane` for one short establishing verdict (§203). The owner approved the pre-delivery exception: at most 20 seconds, one possible rewrite, then delivery; unavailable review delivers the original. The existing caller owns that continuation. Controlled evidence: `tests/extension/scene-establish-host.test.mjs`; live App acceptance remains pending.
+
+### Native historical search (2026-10-09)
+
+The Exa network/selection calls and history-query lane are retired. `runtime/native-search.js` delegates the same foreground Pi inference through the verified provider transport and handles bounded native pause continuation. The DeepSeek provider factory composes that shared wrapper without changing its other request handlers. These calls are app-play-gated leaves under the existing Keeper request owner; the host note binds the campaign/run/step so child lanes cannot inherit the grant. Original server blocks are retained as session entries, not a separate reference store. Protocol fixtures and genuine driver acceptance are distinct evidence.

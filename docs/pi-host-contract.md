@@ -496,3 +496,7 @@ The `openai-fast` extension requests priority for Codex and explicit Flapcode Op
 ### PipiCOC installed Fast profile boundary
 
 The canonical profile installer must materialize the declared compiled OpenAI Fast agent and its unchanged App manifest/control assets into the writable profile before host discovery. Resource inventory and SDK checks alone do not establish desktop mounting. Installation preserves account settings and existing capability grants; it does not grant or revoke permissions. Verify the installed host extension list and actual composer separately.
+
+## 2026-10-09: provider-hosted search in the foreground Keeper
+
+Historical Reference uses the shared native-search request/stream adapter (kernel contract §124.12). It declares hosted tools on verified provider protocols and records original server blocks as private session entries before Pi normalization. Request replay restores those blocks only beside their matching assistant message, campaign/worldline and model. Google generateContent uses SDK config.tools. DeepSeek keeps its ordinary Responses provider and all other handlers; granted foreground search and its same-run continuation use the verified Anthropic Messages transport. Child lanes do not inherit the host-issued run/step note. Exa, its query lane, independent reference library and secret control are retired; existing evidence is preserved. No Pi source patch or new standalone research model is introduced.

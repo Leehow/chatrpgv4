@@ -6,7 +6,6 @@ import { documentPresentationStatus } from "../extensions/mods/document-presenta
 import { uiWordsSurface } from "./ui-words.ts";
 import type { UiWords } from "../runtime/ui-words.ts";
 import type { HostRuntime } from "../runtime/host.ts";
-import {readJevApiKey} from '../extensions/jev/agent/config.js';
 
 /**
  * A refusal the Mods panel can show (contract §23): the code it looks a word up by, and English
@@ -83,7 +82,6 @@ export function registerModsPanel(pi: ExtensionAPI): void {
       result = {...result as any, texture:await paperTexture()};
     }
     // Every Mods answer the panel draws from carries the words it draws them with (contract §23).
-    if (method === 'mods.list') result = {...result, historical_reference_status: {jev_configured: Boolean(readJevApiKey())}};
     const ui = await chrome();
     return ui && result && typeof result === "object" && !Array.isArray(result) ? {...result as any, ui} : result;
   }

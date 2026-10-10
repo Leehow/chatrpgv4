@@ -1,7 +1,8 @@
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
 import {attackPreparationNeeds} from './attack-preparation.ts';
-import {historyConfigured, historyEnabled, historyContext, historySceneKey,historyNeedQuestion, historyInterruptionQuestion, historyNeed, isSavedHistoryRead, historyFinalAnswerPayload, sceneQuery, sceneFacts, HISTORY_SUPPLIED, HISTORY_READ, HISTORY_OFFER, HISTORY_LOCAL_OFFER, HISTORY_CLOSED} from '../historical-reference.ts';
+import {historyEnabled, historyContext, historyNeedQuestion, historyInterruptionQuestion, historyNeed, HISTORY_OFFER, HISTORY_UNAVAILABLE, HISTORY_NOT_SELECTED} from '../historical-reference.ts';
+import {nativeSearchCapability} from '../native-search.js';
 /**
  * The product side of `PI_COC_LOOP_ENGINE=hybrid-v1`: the policy and the ports Pi's RunDriver (vendored
  * agent-core, ADR-0006) drives each player input with. Pi knows nothing of what is here. Contract §135.
@@ -62,8 +63,6 @@ import { catalogRefusal, NARRATOR_NOTE, narratorOnlySetting, offeredForPropose, 
   proposedCandidate, proposeQueuedText, proposeRefusal, stepCatalog, type NarratorOnlySetting, type StepCatalog } from './narrator-catalog.ts';
 import { firstStepCallCapMs, firstStepThinkingEnabled } from '../../extensions/kernel/first-step-thinking.ts';
 import { createNpcActLane, type NpcActPort } from './npc-act.ts';
-import { createHistoryQueryLane, type HistoryQueryPort } from './history-query.ts';
-import type {ReferenceQuery} from '../historical-reference-plan.ts';
 import { isNpcAct, runNpcAct, runNpcScan, struckReceipts, type NpcActDeps, type NpcActOutcome } from './npc-act-step.ts';
 import {profilePreparationNeeds} from './profile-readiness.ts';
 import { SHADOW_FIELDS, type DamageBandRow, type TimeBandRow } from './band-shadow-domain.ts';
@@ -217,11 +216,6 @@ export interface HybridEngineOptions {
    * model registry); tests pass `createFixtureNpcActPort`; `null` generates nothing (every act is `model_unavailable`).
    */
   npcAct?: NpcActPort | null;
-  /**
-   * §124.12 (2026-10-02): the English query for a scene's historical lookup. Defaults to the product lane
-   * (`createHistoryQueryLane`, the fast model); tests pass a fixture; `null` writes none and the fixed-shape query is searched.
-   */
-  historyQuery?: HistoryQueryPort | null;
 }
 
 /** `PI_COC_TURN_BUDGET_MS` (contract §135.25), read per run: a positive number of milliseconds, else the default. */
@@ -495,14 +489,6 @@ function defaultLine(candidate: Candidate): string | undefined {
 }
 
 /** Per-run state the ports share; the policy's own state stays in the driver. */
-/** §124.12 (2026-10-02): the kernel extension's port that runs the lookup's own historical search for the host (`coc:historical-reference`). */
-interface HistoryPort {campaign: string; search(request: {run: string; scene?: string; turn: number; scope: unknown; query: string; objective?: string;
-  reference_queries?: ReferenceQuery[]; reference_mode?: 'saved'; signal?: AbortSignal; deadlineAt?: number}): Promise<Row | undefined>}
-/** A scene's prefetch: the search in flight (`done`), what it returned once it did (`result`), or a scene's earlier result reused. */
-interface HistoryPrefetch {key: string; query: string; objective: string; reused: boolean; result?: Row; done: Promise<Row | undefined>;
-  reference_queries?: ReferenceQuery[];
-  /** The lane wrote no query, so nothing was searched (2026-10-02: an English query or none). */
-  unwritten?: boolean}
 /** §158.4: the kernel extension's port for the previous delivery's post review still running (`coc:owed-review`). */
 interface OwedReviewPort {campaign: string; watch(): {in_flight: boolean; turn?: number; landed(): boolean}}
 interface RunState {
@@ -519,7 +505,7 @@ interface RunState {
   /** Per scene: a scene change starts a fresh one (the closure carries over). §124.12 (2026-10-02): `prefetch` is the host's
    * scene lookup Jev's need started, `supplied` that its result went to the Keeper in this run's note. */
   history?: {enabled: boolean; allowed: boolean; asked: boolean; scene: string; context: Json; closed?: boolean;
-    closedReason?: 'budget_exhausted' | 'turn_budget_exhausted'; prefetch?: HistoryPrefetch; supplied?: boolean};
+    closedReason?: 'budget_exhausted' | 'turn_budget_exhausted'; supplied?: boolean};
   unresolvedAttack?: boolean;
   /** A failed host time bind is not a license for a model-origin replacement interval. */
   unresolvedTime?: boolean;
@@ -692,15 +678,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   keeperCallCapMs: number | (() => Promise<number>); onKeeperCallCap: (phase: 'first_byte' | 'streaming', capMs: number) => void} {
   let bridge: KernelBridge | undefined, gateway: OperationGateway | undefined, closer: TurnClosePort | undefined, api: any;
   /** §143.3: the product's npc-act lane, made when the extension loads, on the session context the latest event gave. */
-  let npcActLane: NpcActPort | undefined, historyQueryLane: HistoryQueryPort | undefined, sessionCtx: any;
+  let npcActLane: NpcActPort | undefined, sessionCtx: any;
   const NO_ACT: NpcActPort = {generate: async () => ({unavailable: 'model_unavailable', detail: 'no npc-act generation on this engine'})};
   const npcActPort = (): NpcActPort => options.npcAct === null ? NO_ACT : options.npcAct ?? npcActLane ?? NO_ACT;
   let consultations: SourceAnswersPort | undefined;
   let owedReview: OwedReviewPort | undefined;
   /** §168.5: the kernel extension's first-sight view: what of a section the Keeper is handed, noted for the delivery's check. */
   let firstSightPort: FirstSightViewPort | undefined;
-  let historyFinalAnswer: {run: string; step: string; reason?: string} | undefined;
-  let historyPort: HistoryPort | undefined;
   /**
    * §124.12 (2026-10-02, owner: reuse a scene already looked up): the result of each scene's host lookup, by campaign
    * line and scene. A later granted need at the same scene hands the Keeper this result again -- earlier turns' notes
@@ -708,8 +692,6 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    * is kept; an unavailable one is tried again on a later turn. The App's restart empties it; the scene's query is then
    * the same string, so the reference library answers it without a web search.
    */
-  const preparedScenes = new Map<string, {query: string; objective: string; reference_queries?: ReferenceQuery[]; result: Row}>();
-  let prefetchAbort: AbortController | undefined;
   // §151.1: the consequence-step mode's data default, read once (cached) and awaited by every run's first read.
   let stepsDataDefault: 'on' | 'shadow' = 'shadow';
   const stepsReady = jevStepsBudget().then(budget => { stepsDataDefault = budget.shadow ? 'shadow' : 'on'; });
@@ -807,7 +789,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const [capsule, status, applyOptions, resolveOptions, bands] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options'), bandReads()]);
     const table = readTable(capsule, status);
     const historyScene = text(object(capsule.where).scene);
-    if (!run.history || run.history.scene !== historyScene || historySceneKey(run.history.context)!==historySceneKey(historyContext(capsule))) run.history = {enabled: false, allowed: false, asked: false,
+    if (!run.history || run.history.scene !== historyScene || JSON.stringify(run.history.context)!==JSON.stringify(historyContext(capsule))) run.history = {enabled: false, allowed: false, asked: false,
       ...(run.history?.closed ? {closed: true, closedReason: run.history.closedReason} : {}),
       scene: historyScene, context: historyContext(capsule)};
     run.history.context = historyContext(capsule);
@@ -1208,8 +1190,6 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       : proposal.operation === PROPOSE_VERB ? undefined
       : batch.proposed ? {code: 'propose_pending', text: PROPOSE_PENDING_REFUSAL}
         : narrowed && !narrowed.includes(proposal.operation)
-          && !(proposal.operation === 'lookup' && run.history?.enabled && (isSavedHistoryRead(proposal.params)
-            || object(proposal.params).kind === 'historical_reference' && (run.history.allowed || run.history.closed)))
           ? {code: 'narrator_catalog', text: catalogRefusal(proposal.operation, run.offered)} : undefined;
     // §135.31: the kernel extension's tool row names the step a model call came from (announced before it runs).
     if (proposal.toolCall?.id) api?.events?.emit?.('coc:model-step', {toolCallId: proposal.toolCall.id, run: run.runId, step: stepId, operation: proposal.operation,
@@ -1782,7 +1762,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     let batch = question.batch as DecisionBatch | undefined;
     if (!batch || (request.purpose !== 'route' && request.purpose !== 'bind' && request.purpose !== 'compile' && request.purpose !== 'reask'))
       return {status: 'unavailable' as const, artifact: {reason: batch ? `no_${request.purpose}_decider` : 'no_scope_binding'}};
-    const askHistory = run.history?.enabled && historyConfigured(options.env as NodeJS.ProcessEnv)
+    const askHistory = run.history?.enabled && !!nativeSearchCapability(sessionCtx?.model)
       && !run.historyAttempted && !run.history.closed && !run.history.asked && ['compile', 'route'].includes(request.purpose);
     if (askHistory) batch = {...batch, id: digest([batch.id, 'historical-reference', run.history?.context]),
       state: {...object(batch.state), historical_reference_setting: run.history?.context ?? null} as Json,
@@ -1799,7 +1779,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         record({lane: 'historical-reference', event: 'need', run: run.runId, turn: run.turn, allowed: run.history.allowed,
           answer: result.answers.historical_reference_needed ?? null,
           interruption: result.answers.historical_reference_interrupts_action ?? null, status: result.status});
-        if (run.history.allowed) startHistoryPrefetch(run);
+
       }
       const answers = result.status === 'complete' ? Object.fromEntries(Object.entries(result.answers ?? {}).map(([key, value]) => [key,
         value.status === 'answered' && value.type === 'choice' ? {choice: value.choice, confidence: value.confidence ?? null, probabilities: value.probabilities ?? null} : {status: value.status}])) : null;
@@ -1860,92 +1840,6 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       }
       throw error;
     } finally { lease.close(); }
-  }
-
-  /**
-   * §124.12 (2026-10-02): Jev granted the need, so the host looks the scene up now, beside the run's later steps -- or
-   * takes the result this scene already had. The query is the fast model's English one (`history-query` lane), else
-   * the fixed shape `sceneQuery` builds from authored fields. `prefetch` rows: `started` (with `query_source`) and
-   * `returned`, or `reused`, or `skipped` (no era or scene name, no port, a reference-scope run).
-   */
-  function startHistoryPrefetch(run: RunState): void {
-    const history = run.history;
-    if (!history || history.prefetch || history.closed || run.turn === undefined || !run.scope) return;
-    const row = {lane: 'historical-reference', event: 'prefetch', run: run.runId, turn: run.turn, scene: history.scene};
-    if (run.interactionScope?.mode !== undefined && run.interactionScope.mode !== 'world') { record({...row, phase: 'skipped', reason: 'reference_scope'}); return; }
-    const key = JSON.stringify([run.scope.campaign ?? null, run.scope.worldline ?? null, run.scope.loop ?? null, history.scene,historySceneKey(history.context)]);
-    const saved = preparedScenes.get(key);
-    if (saved && object(saved.result.background).state !== 'pending') {
-      history.prefetch = {key, query: saved.query, objective: saved.objective, reused: true, result: saved.result, done: Promise.resolve(saved.result)};
-      record({...row, phase: 'reused', query: saved.query, status: saved.result.status ?? null, materials: array(saved.result.materials).length});
-      return;
-    }
-    const fixed = saved ? {query: saved.query, objective: saved.objective} : sceneQuery(history.context), facts = sceneFacts(history.context);
-    const port = historyPort && (!historyPort.campaign || historyPort.campaign === bridge?.campaign) ? historyPort : undefined;
-    if (!fixed || !facts || !port) { record({...row, phase: 'skipped', reason: !fixed ? 'no_setting' : 'no_port'}); return; }
-    prefetchAbort ??= new AbortController();
-    const signal = prefetchAbort.signal, began = now(), turn = run.turn, scope = run.scope;
-    const writer = saved || options.historyQuery === null ? undefined : options.historyQuery ?? historyQueryLane;
-    const prefetch: HistoryPrefetch = {key, ...fixed, reference_queries: saved?.reference_queries, reused: Boolean(saved), done: Promise.resolve(undefined)};
-    prefetch.done = (async () => {
-      // Owner, 2026-10-02: the fast model writes the scene's query in English. When it writes none, nothing is searched this
-      // turn and nothing is kept, so the scene is tried again on its next turn: the authored-wording fallback searched
-      // Chinese on the App's third table and matched a Chinese query saved on its first, bringing back the same
-      // present-day travel pages. The fixed shape is searched only where no lane is configured (`historyQuery: null`).
-      const written = writer ? await writer.write(facts, signal).catch(error => ({ok: false as const, reason: 'lane_error' as const,
-        detail: error instanceof Error ? error.message : String(error), ms: 0})) : undefined;
-      if (written && !written.ok) {
-        prefetch.unwritten = true;
-        record({...row, phase: 'skipped', reason: 'no_query', query_failure: written.reason, writer_ms: written.ms});
-        return undefined;
-      }
-      if (written?.ok) { prefetch.query = written.query; prefetch.objective = written.objective; prefetch.reference_queries = written.reference_queries; }
-      record({...row, phase: 'started', query: prefetch.query, objective: prefetch.objective, query_source: written?.ok ? 'fast_model' : 'fixed_shape',
-        writer_ms: written?.ms ?? null, reference_queries: prefetch.reference_queries ?? null, ...(saved ? {local_refresh: true} : {})});
-      if (signal.aborted) return undefined;
-      // Bounded by the lookup's own four-second allowance, never by the turn's time (owner, 2026-10-02).
-      // Each scene's lookup has its own retrieval allowance (`scene`), so a move inside the turn cannot starve the destination's.
-      const result = await port.search({run: run.runId, scene: history.scene, turn, scope, query: prefetch.query, objective: prefetch.objective, signal,
-        ...(prefetch.reference_queries ? {reference_queries: prefetch.reference_queries} : {}), ...(saved ? {reference_mode: 'saved' as const} : {})});
-      prefetch.result = result;
-      if (result && ['ready', 'empty'].includes(text(result.status))) {
-        preparedScenes.delete(key);
-        preparedScenes.set(key, {query: prefetch.query, objective: prefetch.objective, reference_queries: prefetch.reference_queries, result});
-        if (preparedScenes.size > 64) preparedScenes.delete(preparedScenes.keys().next().value!);
-      }
-      record({...row, phase: 'returned', status: result ? text(result.status) || null : null, ms: now() - began});
-      return result;
-    })().catch(() => undefined);
-    history.prefetch = prefetch;
-  }
-
-  /**
-   * §124.12 (2026-10-02): the scene's host lookup for the Keeper's note. A search still running is waited for -- the lane's
-   * 6 s and the search's own four-second allowance bound it -- unless the run's history is closed; a result already back
-   * goes either way. One `prefetch` row with `phase: "delivered"`; a retrieval the search closed
-   * closes the run's history, as the Keeper's own lookup does.
-   */
-  async function suppliedHistory(run: RunState, history: NonNullable<RunState['history']>, prefetch: HistoryPrefetch, stepId: string): Promise<Json | undefined> {
-    history.supplied = true;
-    const began = now();
-    const result = prefetch.result ?? (!history.closed ? await prefetch.done : undefined);
-    if(run.history!==history)return undefined;
-    const materials = array(result?.materials).map(object);
-    record({lane: 'historical-reference', event: 'prefetch', phase: 'delivered', run: run.runId, step: stepId, turn: run.turn ?? null,
-      scene: history.scene, reused: prefetch.reused, waited_ms: now() - began, status: result ? text(result.status) || null : prefetch.unwritten ? 'no_query' : 'not_back',
-      reason: result ? text(result.reason) || null : null, materials: materials.length});
-    const retrieval = object(result?.retrieval);
-    if (retrieval.state === 'closed' && !history.closed) {
-      history.closed = true;
-      history.closedReason = retrieval.reason === 'turn_budget_exhausted' ? 'turn_budget_exhausted' : 'budget_exhausted';
-      record({lane: 'historical-reference', event: 'closed_received', run: run.runId, step: stepId, turn: run.turn, reason: retrieval.reason});
-    }
-    if (!result) return undefined;
-    return {origin: prefetch.reused ? 'host_scene_reused' : 'host_scene_lookup', query: prefetch.query, status: result.status ?? null,
-      reason: result.reason ?? null, authority: result.authority ?? null, usage: result.usage ?? null,
-      ...(result.background ? {background: result.background} : {}),
-      materials: materials.map(({alias, title, url, excerpts, applicability, published_at, price_anchor, search}) => ({alias, title, url, excerpts, applicability,
-        published_at: published_at ?? null, ...(price_anchor !== undefined ? {price_anchor} : {}), ...(search ? {search} : {})}))} as unknown as Json;
   }
 
   /** §135.25: one `budget` summary row per run, and the deferred clerk steps carried to the next run's note. */
@@ -2165,14 +2059,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         + (run.pendingAttackPreparation ? ' This is the already chosen first attack. Prepare only its named target and physical method. Pin a missing NPC combat archetype through apply npc. For the chosen ordinary item, use apply usage with a natural use name and the actual declaration; the host joins a pending base definition in this turn. Do not copy it into a weapon or defer it because look says parameters are pending. Return the preparation results without closing the attack in suspense or asking the player to repeat it: the host resumes the retained attack when ready.' : '')};
     const base = Object.keys(content).length;
     run.lastInferAt = now() - run.startedAt;
-    historyFinalAnswer = run.history?.closed && run.interactionScope?.mode === 'reference' && step.purpose === 'compose'
-      ? {run: run.runId, step: stepId, reason: run.history.closedReason} : undefined;
-    // §124.12 (2026-10-02): the scene's host lookup goes to the Keeper with the first step that writes, once per scene.
-    const history = run.history;
-    if (history?.enabled && history.allowed && history.prefetch && !history.supplied && ['compose','adjudicate'].includes(step.purpose)) {
-      const materials = await suppliedHistory(run, history, history.prefetch, stepId);
-      if (materials) content.historical_reference_materials = materials;
-    }
+    if (run.history?.enabled && nativeSearchCapability(sessionCtx?.model)) content.native_search_scope = {run: run.runId, step: stepId};
+    api?.events?.emit?.('coc:native-search-policy', {campaign: run.scope?.campaign, worldline: run.scope?.worldline, loop: run.scope?.loop,
+      run: run.runId, step: stepId, enabled: run.history?.enabled === true, allowed: run.history?.allowed === true,
+      model: sessionCtx?.model ? `${sessionCtx.model.provider}/${sessionCtx.model.id}` : undefined});
     // §135.11.1 (SL-50): the model step the Keeper's next message answers, for the kernel extension's drop row.
     api?.events?.emit?.('coc:model-infer', {run: run.runId, step: stepId});
     // §135.25: the compose the budget chose lists the clerk steps it left undone; the next run's first note says so once.
@@ -2221,8 +2111,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         catalog: run.stepCatalog.narrowed ? [...run.stepCatalog.narrowed] : null, propose: run.stepCatalog.propose, offered: run.offered.map(value => value.key),
         source: setting.source});
     }
-    if (run.history?.enabled) content.historical_reference = run.history.closed ? HISTORY_CLOSED : run.history.supplied ? HISTORY_SUPPLIED
-      : run.historyAttempted ? HISTORY_READ : run.history.allowed ? HISTORY_OFFER : HISTORY_LOCAL_OFFER;
+    if (run.history?.enabled) content.historical_reference = nativeSearchCapability(sessionCtx?.model) ? run.history.allowed ? HISTORY_OFFER : HISTORY_NOT_SELECTED : HISTORY_UNAVAILABLE;
     if (run.history?.closed) content.historical_reference_status = {state: 'closed', reason: run.history.closedReason ?? 'budget_exhausted'};
     const fresh = run.clerkDid.slice(run.projected);
     run.projected = run.clerkDid.length;
@@ -2398,9 +2287,6 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       if (currentNpcRun) { currentNpcRun.checkInputsClosed = true; currentNpcRun.checkInputs?.clear(); }
       if (currentNpcRun?.pendingNpcActs?.size) recordUnpreparedChecks(currentNpcRun);
       currentRunId = context.runId;
-      historyFinalAnswer = undefined;
-      prefetchAbort?.abort();
-      prefetchAbort = undefined;
       const allowance = readJevPreselectAllowanceMs(options.env as NodeJS.ProcessEnv), startedAt = now(), budgetMs = turnBudgetMs(options.env);
       const run: RunState = {runId: context.runId, rawInput: context.rawInput, inputRevision: context.inputRevision, session: context.session as unknown as Row,
         startedAt, prescreenAllowanceMs: allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,
@@ -2433,15 +2319,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     pi.events.on('coc:first-sight', (data: unknown) => { const port = object(data);
       firstSightPort = typeof port.campaign === 'string' && typeof port.view === 'function' ? port as unknown as typeof firstSightPort : undefined; });
     pi.events.on('coc:owed-review', (data: OwedReviewPort) => { owedReview = data && typeof data.watch === 'function' ? data : undefined; });
-    pi.events.on('coc:historical-reference', (data: HistoryPort) => { historyPort = data && typeof data.search === 'function' ? data : undefined; });
-    pi.on('before_provider_request', (event: {payload: unknown}, ctx: any) => {
-      if (!historyFinalAnswer || historyFinalAnswer.run !== currentRunId) return;
-      const payload = historyFinalAnswerPayload(ctx?.model?.api, event.payload);
-      record({lane: 'historical-reference', event: 'final_answer_request', ...historyFinalAnswer,
-        api: ctx?.model?.api ?? null, tools_disabled: !!payload});
-      return payload;
-    });
-    pi.on('agent_end', () => {historyFinalAnswer = undefined;
+    pi.on('agent_end', () => {api?.events?.emit?.('coc:native-search-policy', undefined);
       if (currentNpcRun) { currentNpcRun.checkInputsClosed = true; currentNpcRun.checkInputs?.clear(); }
       if (currentNpcRun?.pendingNpcActs?.size) recordUnpreparedChecks(currentNpcRun);
       currentNpcRun = undefined;
@@ -2484,8 +2362,6 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §143.3: the npc-act lane runs on the session's own model registry; the context is the latest one an event gave.
     if (options.npcAct === undefined && typeof pi.on === 'function')
       npcActLane = createNpcActLane(pi, {ctx: () => sessionCtx, campaign: () => bridge?.campaign});
-    if (options.historyQuery === undefined && typeof pi.on === 'function')
-      historyQueryLane = createHistoryQueryLane(pi, {ctx: () => sessionCtx, campaign: () => bridge?.campaign});
     pi.on('session_start', async (_event: unknown, ctx: unknown) => { sessionCtx = ctx ?? sessionCtx; announce(); withoutPlanTool(); await withPropose(); });
     // §135.29 addendum 2 (SL-82): `step`'s own reset/increment, exactly matching the kernel extension's
     // `table.roundTrips` contract (extensions/kernel/first-step-thinking.ts's isFirstStepOfTurn) so the two

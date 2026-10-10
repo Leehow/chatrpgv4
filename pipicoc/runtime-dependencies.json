@@ -103,6 +103,7 @@
     "build/pipicoc/agent.mjs",
     "build/pipicoc/rpc.mjs",
     "build/extensions/kernel/index.mjs",
+    "build/extensions/native-search/index.mjs",
     "build/extensions/mods/index.mjs",
     "build/extensions/onboarding/index.mjs",
     "build/extensions/module/index.mjs",
