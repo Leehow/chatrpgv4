@@ -286,6 +286,36 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
             }
         }
     }
+    // ---- §222.3: the Idea roll (begin) -------------------------------------------------------------------------------
+    // Keeper Rulebook pp. 199-200: when the investigation has stalled the players may ask for an Idea roll; the player whose
+    // investigator has the highest INT rolls; the roll decides how the missed clue comes, never whether. Offered outside a
+    // session, for that investigator, when the scene still holds an undiscovered clue. Jev selects it only on the player's
+    // request for a way forward (`specializedTriggerQuestion`); the clue and the difficulty are its closed parameters.
+    if (!session && scene && campaign.party.length) {
+        const intOf = (sheet: Row): number => Number(row(sheet.characteristics).INT ?? row(sheet.characteristics).int ?? -1);
+        const roller = [...campaign.party].sort((a, b) => intOf(b) - intOf(a))[0];
+        const found = new Set(array(campaign.world.discovered_clues).map(String));
+        const clues = graph.sceneClueIds(scene).map(id => graph.nodes.get(id)!).filter(node => !found.has(graph.handle(node)));
+        if (roller && Number.isFinite(intOf(roller)) && intOf(roller) >= 0 && clues.length) {
+            add('core-check:idea-roll', `${string(roller.name)}: the Idea roll -- the players are stuck and ask for a way forward`, {actor: string(roller.name), intent: 'investigate'}, [
+                {name: 'clue', question: 'Which still-undiscovered clue of this scene is the one the investigation needs to get moving again -- the most important clue the players have missed?',
+                    options: clues.map(node => ({label: `${graph.handle(node)}: ${string(node.summary || node.name || '').slice(0, 240)}`, value: graph.handle(node)}))},
+                {...parameter('difficulty', 'How plainly had this clue been offered to the players? Never mentioned by the Keeper: regular. Mentioned but not emphasized: hard. Made clear, mentioned several times, or discussed by the players themselves: extreme.', ['regular', 'hard', 'extreme']),
+                    default: {value: 'regular', question: 'Had the Keeper already mentioned this clue to the players (hard), or made it clear or heard the players discuss it (extreme)? If it was never mentioned, the default regular applies.'}},
+            ]);
+            const added = options.at(-1);
+            if (added?.action.decision === 'core-check:idea-roll') {
+                added.definition = 'The Idea roll (Keeper Rulebook pp. 199-200) is proposed by the players, not the Keeper, when their investigators are stuck: '
+                    + 'they have missed a vital clue or do not know what to do next and the game has stalled, and they ask for a way forward, a hint, or the Idea roll itself, '
+                    + 'in or out of character. It is an INT roll by the investigator with the highest INT. The players get the clue whether the roll passes or fails: '
+                    + 'the roll decides only how -- easily on a pass, "in the thick of it" on a failure, where the Keeper opens with trouble. '
+                    + 'It is a highly significant and unusual event. A declared search, question, or any other act is its own ordinary check, never this; '
+                    + 'merely pausing, chatting, or asking about the scene is not a request for it.';
+                added.facts = {roller_int: intOf(roller), undiscovered_clues: clues.length};
+            }
+        }
+    }
+    // ---- §222.3: the Idea roll (end) ---------------------------------------------------------------------------------
     // Inventory every decision, including ones without a closed action adapter. An unsupported selected
     // family is a named need, never silently dropped or replaced by an ordinary roll.
     for (const decision of decisions) {
