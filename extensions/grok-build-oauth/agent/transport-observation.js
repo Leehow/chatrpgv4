@@ -5,6 +5,7 @@ import { mkdir, open } from 'node:fs/promises';
 import { join, isAbsolute } from 'node:path';
 import { createGunzip, createInflate, createBrotliDecompress } from 'node:zlib';
 import { performance } from 'node:perf_hooks';
+import { subscribe } from 'node:diagnostics_channel';
 import { getGlobalDispatcher, setGlobalDispatcher } from 'undici';
 
 const SHARED = Symbol.for('pipicoc.grok.transport-observation.v1');
@@ -264,6 +265,46 @@ class Wire {
 function shared() {
   return globalThis[SHARED] ??= {scope: new AsyncLocalStorage(), installed: new WeakSet(), active: new Set()};
 }
+function installRequestObservation(state) {
+  if (state.requestObservationInstalled) return;
+  state.requestObservationInstalled = true;
+  const requests = new WeakMap();
+  subscribe('undici:request:create', ({request}) => {
+    const call = state.scope.getStore();
+    try {
+      if (!call?.dispatchWire || new URL(String(request.origin)).origin !== call.origin
+          || String(request.path).split('?')[0] !== call.path || request.method !== 'POST') return;
+      requests.set(request, {call, digest: createHash('sha256'), bytes: 0, chunks: [], overflow: false});
+    } catch { call?.trace.incomplete('request_observation_error'); }
+  });
+  subscribe('undici:request:bodyChunkSent', ({request, chunk}) => {
+    const item = requests.get(request); if (!item) return;
+    try {
+      const data = Buffer.from(chunk);
+      item.wire ??= item.call.dispatchWire;
+      item.bytes += data.length; item.digest.update(data);
+      if (item.call.trace.options.rawRequest && item.call.trace.options.rawResponse && !item.overflow) {
+        if (item.bytes > (item.call.trace.options.limits?.requestBytes ?? 1024 * 1024)) {
+          item.overflow = true; item.chunks.length = 0; item.call.trace.incomplete('request_body_limit');
+        } else item.chunks.push(data);
+      }
+    } catch { item.overflow = true; item.chunks.length = 0; item.call.trace.incomplete('request_observation_error'); }
+  });
+  subscribe('undici:request:bodySent', ({request}) => {
+    const item = requests.get(request); if (!item) return; requests.delete(request);
+    try {
+      const wire = item.wire ?? item.call.dispatchWire;
+      wire.record('request_body_sent', {bytes: item.bytes, sha256: item.digest.digest('hex'),
+        byteDomain: 'http_entity_not_tcp_tls', complete: !item.overflow,
+        ...(item.call.trace.options.rawRequest && item.call.trace.options.rawResponse && !item.overflow
+          ? {_responsePayload: Buffer.concat(item.chunks).toString('utf8')} : {})});
+    } catch { item.call.trace.incomplete('request_observation_error'); }
+  });
+  subscribe('undici:request:error', ({request}) => {
+    const item = requests.get(request); if (!item) return; requests.delete(request);
+    item.call.trace.incomplete('request_body_not_completed');
+  });
+}
 /** Preserve the original handler interface, context, return value and exceptions. */
 export function transportInterceptor(scope) {
   return dispatch => function (options, handler) {
@@ -272,7 +313,7 @@ export function transportInterceptor(scope) {
     try { matches = call && new URL(String(options.origin)).origin === call.origin && String(options.path).split('?')[0] === call.path && options.method === 'POST'; } catch { /* an unrecognized transport remains unobserved */ }
     if (!matches) return dispatch(options, handler);
     call.trace.credentialsFrom?.(options.headers);
-    let wire = call.trace.wire(), starts = 0;
+    let wire = call.trace.wire(), starts = 0; call.dispatchWire = wire;
     const modern = typeof handler.onRequestStart === 'function' || typeof handler.onResponseStart === 'function';
     const names = modern ? {start: 'onRequestStart', headers: 'onResponseStart', data: 'onResponseData', end: 'onResponseEnd', error: 'onResponseError'}
       : {start: 'onConnect', headers: 'onHeaders', data: 'onData', end: 'onComplete', error: 'onError'};
@@ -288,7 +329,7 @@ export function transportInterceptor(scope) {
         finally {
           const delegateEnded = performance.now();
           try {
-            if (key === names.start) { if (starts++) { wire.end('transport_restarted'); wire = call.trace.wire(); } wire.record('request_started', {}, receipt); }
+            if (key === names.start) { if (starts++) { wire.end('transport_restarted'); wire = call.trace.wire(); } call.dispatchWire = wire; wire.record('request_started', {}, receipt); }
             else if (key === names.headers) wire.headers(args[modern ? 1 : 0], args[modern ? 2 : 1], receipt);
             else if (key === names.data) wire.data(args[modern ? 1 : 0], receipt);
             else if (key === names.end) wire.end('transport_eof');
@@ -303,6 +344,7 @@ export function transportInterceptor(scope) {
   };
 }
 function install(state, undici) {
+  installRequestObservation(state);
   const current = undici.getGlobalDispatcher();
   if (state.installed.has(current)) return;
   if (typeof current.compose !== 'function') throw new Error('unsupported dispatcher');
@@ -319,7 +361,8 @@ export function createObservedGrokStream(delegate, options = {}) {
   const state = shared(), undici = options.undici ?? {getGlobalDispatcher, setGlobalDispatcher};
   return function (model, context, originalOptions) {
     if (model.provider !== 'grok-build' || model.api !== 'openai-responses') return delegate(model, context, originalOptions);
-    const trace = new Trace({...options, rawResponse: options.rawResponse ?? env.PI_COC_GROK_TRANSPORT_TRACE_RAW === '1', apiKey: originalOptions?.apiKey, directory, requested: {provider: 'grok-build', api: 'openai-responses',
+    const trace = new Trace({...options, rawResponse: options.rawResponse ?? env.PI_COC_GROK_TRANSPORT_TRACE_RAW === '1',
+      rawRequest: options.rawRequest ?? env.PI_COC_GROK_TRANSPORT_TRACE_RAW_REQUEST === '1', apiKey: originalOptions?.apiKey, directory, requested: {provider: 'grok-build', api: 'openai-responses',
       model: typeof model.id === 'string' && /^[a-zA-Z0-9._:/-]{1,128}$/.test(model.id) ? model.id : 'redacted'}});
     try { options.onTrace?.(trace); } catch { trace.incomplete('observer_callback_error'); }
     let url;

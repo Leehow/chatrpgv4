@@ -471,6 +471,8 @@ test("§135.30 at the engine: the compile row carries each feature's distributio
 	const discovery = [];
 	const bus = { on: (name, handler) => handlers.set(name, handler), emit: (name, value) => handlers.get(name)?.(value) };
 	bus.on("coc:discovery-task", packet => discovery.push(packet));
+	const readOwners=[];
+	bus.on("coc:discovery-read-owner", owner => readOwners.push(owner));
 	const families = [];
 	const decision = { decide: async (batch) => { families.push(batch.family);
 		return batch.family === COMPILE_FAMILY
@@ -490,6 +492,10 @@ test("§135.30 at the engine: the compile row carries each feature's distributio
 		async infer() {
 			const packet = discovery.at(-1);
 			assert.ok(packet, "host discovery facts precede Keeper inference");
+			const owner=readOwners.at(-1)?.();
+			assert.ok(owner&&Number.isFinite(owner.deadlineAt)&&owner.deadlineAt>Date.now(),"hybrid supplies its live inference read bound");
+			assert.equal(owner.signal.aborted,false);
+			assert.equal(owner.reserve,undefined,"a read owner cannot authorize provider spending");
 			assert.deepEqual([packet.campaign, packet.worldline, packet.loop, packet.turn, packet.source_revision], ["c", "main", 0, 3, source]);
 			assert.equal(packet.task.features.destination.row, "morgue");
 			assert.equal(packet.task.features.destination.cleared, true);
@@ -500,6 +506,12 @@ test("§135.30 at the engine: the compile row carries each feature's distributio
 	};
 	await runDriver({ input: { runId: "run-1", inputRevision: "rev", rawInput: INPUT, scopeId: "root" }, policy: plan.policy, ports: plan.ports, engine: modelEngine,
 		emit: () => {}, signal: new AbortController().signal, maxSteps: 30 });
+	assert.equal(readOwners.at(-1),undefined,"run end clears the hybrid read owner");
+	assert.ok(readOwners.filter(owner=>typeof owner==='function').every(owner=>owner()===undefined),"retained getters never revive an ended run");
+	engine.runDriver.prepare({runId:"replacement-run",inputRevision:"replacement-input",rawInput:INPUT,session:{}});
+	const published=readOwners.length;
+	await plan.ports.projection.project({view:{policyState:{view:{}}},stepId:"late-old-step",step:{kind:"infer",purpose:"compose",reason:"finish"},signal:new AbortController().signal});
+	assert.equal(readOwners.length,published,"a late old projection cannot overwrite the replacement read owner");
 	assert.equal(families[0], COMPILE_FAMILY, "the compile is the run's first Jev question");
 	// §135.6 (2026-09-24): a read without the prescreen says why -- here the preselect setting is off, as at live gate #4.
 	assert.deepEqual(rows.find((entry) => entry.lane === "run" && entry.event === "read")?.prescreen, { status: "not_run", reason: "preselect_off" });
