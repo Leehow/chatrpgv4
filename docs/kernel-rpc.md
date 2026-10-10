@@ -42567,6 +42567,49 @@ resolved `days`, the Keeper's `until` with `days` is unchanged); `tests/kernel/t
 without `days` -- later today, next day when past, equal is 0, the batch's earlier time moves the base, the receipt's resolved
 `days`; `until_invalid` still refuses a bad `time`).
 
+### 211.3 A stated end is asked on its own and takes precedence over the activity band (2026-10-10, issue #112 live defect; amends 211.2 and §163.10's declared-time choice)
+
+**Evidence.** Table `gui-world-e091`, runtime 9e7a59be0 on grok-build lanes (`9e7g-live-sleep-morning.md`), turn 28 at 00:23: the
+player washed, went to bed and said to get up at 07:00. §211.2 offered `clock:0` (07:00) inside the declared-time closed choice,
+beside the time-cost rows. The three pooled views (telemetry row `route/bind`, step s5) read sleep_night .323, brief_activity .28,
+clock:0 .217, unknown .16, so the band bound and the kernel rolled 595 of 360-600 minutes: 10:18, not 07:00.
+
+**The gap.** The closed choice asked one question -- "what activity or interval is chosen to elapse now" -- over alternatives
+that are not alternatives. Sleeping is *what fills* the time; "get up at 07:00" is *how long* it lasts. A model reading the
+sentence correctly splits its mass between the activity and the end it bounds, and the end, being the more specific, loses a
+plurality vote to the activity. This is not lane-specific: any model faces the same false choice, and the instruction "choose the
+literal instead of an estimated band" cannot repair a question that offers both as one answer.
+
+**Decision: the stated measure is its own proposition, and when Jev reads it as chosen it decides.** Beside the band question
+(unchanged, still listing the literals), the bind asks, for each literal the host lexed (each `duration:<n>` interval and each
+`clock:<n>` time, §138.10, §211.2), one closed question `stated_measure:<alias>` -- "is this literal the measure of the time the
+player chose to let pass now (for a clock time, when the declared wait, rest or sleep ends), whatever activity fills it?" -- with
+`chosen | not_chosen | unknown`, in §163.10's three pooled views. The instruction names what is not chosen (a schedule, an opening
+or closing hour, an appointment, a quotation, a deadline, a past moment, an estimate, a negated or conditional time not reached,
+one part of a longer stated span, a 12-hour reading the words contradict) and says that a named activity does not compete with a
+stated end.
+
+- **Exactly one** literal whose pooled answer leads with `chosen` binds: an endpoint as `until: {time}` (§211.1: the kernel counts
+  the minutes to its next occurrence from the staged clock), an interval as its `minutes`. No band is bound or rolled. Its bind
+  record is `{name: "until" | "minutes", path: "jev", value, confidence, distribution, semantic, literal: <alias>, superseded:
+  {name: "band", choice, distribution}}`, with `cleared: false` below the time table's gate, which sends the write through full
+  admission exactly like a pooled band (§163.10).
+- **None, or more than one,** leaves today's closed choice to decide, unchanged (band, literal, `unknown`/unsettled).
+- Authority does not move: the lexer reads only numeral syntax and grants nothing; Jev decides whether the literal is the
+  player's chosen measure; the kernel alone computes minutes and moves the clock; admission still reviews the write; the
+  `time-reading` reconciliation (§145.3) still reads the prose. No word, language or keyword is read by the host.
+
+**Three ends.** *Writer:* the host's question per issued literal, Jev's pooled answer, the clerk's `apply time {until | minutes}`.
+*Reader:* the `bind` row's `literal` and `superseded`; the time receipt's `until`/`minutes`. *Actor:* the kernel's clock, rest and
+recovery; the Keeper narrates the time that actually passed.
+
+**Tests.** `tests/extension/declared-time-interval.test.mjs`: the captured turn-28 declaration issues `stated_measure:clock:0` in
+three views beside the unchanged band question; the captured band distributions alone still bind sleep_night (the live
+behaviour), with the end read as chosen they bind `until 07:00` and record the superseded band, read as not chosen or unclear
+the band decides; a stated interval takes the same precedence; two chosen literals fall back; over the TS kernel at 00:23 the
+captured declaration lands 397 minutes at 1920-10-13T07:00 with no band roll. Not measured: how often live Jev reads such ends as
+chosen; that needs a live window.
+
 ## 212. A road out of the place the party stands inside is a road from here (2026-10-10, issue #112 follow-up on the 9e7 live night; amends §204.2's reachability, §204.7's move rows and §135.30.4)
 
 **Evidence.** Table `gui-world-e091`, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, runtime 9e7a59be0, turns 22-24
@@ -42709,3 +42752,52 @@ move superseding it, and `move_landed`). Each fails on the base.
 4. **Unchanged.** §143.15's one retry and its added line, §32.2's `admission_unavailable` after two bad answers, §190.3's transient retry, the verdict enum and every gate: an unavailable review is still not authorization. The lane's thinking control on the wire (§12.8.1) is not changed here; whether `anthropic-messages` at `off` should carry an explicit disabled-thinking control is left open until a kept reply shows the reasoning-only shape.
 
 Tests: `tests/extension/lane-reply-json.test.mjs` (the `anthropic-messages` content shape: a thinking block beside the text block, `stopReason: "stop"`; the move line's own format): a verdict after an echoed, unclosed `registered_destination` object is read (before: "the reply held no JSON object"); a verdict after a complete echoed object of another shape is read (before: "not the shape"); two different verdicts are `conflicting`; a reasoning-only reply holding a verdict is `no answer text` with its block kinds; a prose reply keeps bounded `head`/`tail` evidence; `reviewAdmission` with two malformed attempts carries both attempts' evidence in `malformed_replies`.
+
+## 215. The readiness hold is the Keeper's; a refused host write says why (2026-10-10, issue #112 live 9e7g defect; amends §209.6, §209.5's write hold and §135.4's clerk record)
+
+**Evidence.** Table `gui-world-e091` / campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, runtime 9e7a59be0 on grok-build lanes
+(`9e7g-live-sleep-morning.md`), turns 30 and 31. The player, twice, took the streetcar back to last night's street. The compile
+cleared the destination (`neighborhood-gossip`, .87) and the policy clerk (`declared_bookkeeping`) proposed `apply move` to that
+visited exit. Both times the step settled `refused` in ~200 ms with `call_id: null`, no kernel `table.apply`, no admission row; the
+Keeper's note said only `coc_error: {code: "refused"}`. Turn 30 ended with zero receipts (the Keeper: "the refusal is still
+puzzling"); in turn 31 only the Keeper's own move landed, and a clerk `apply time` was refused the same way.
+
+**Root cause.** Telemetry orders it: `mod-discovery {event: "readiness_expansion", keys: ["narration-craft@2.6.0#6"]}`, then the
+gateway's `operation_stage: prepare`, then the refused bind. The table context hook's `tool_call` handler
+(`extensions/table/context-runtime.ts`) applies §209.6's hold to every `apply`: narration-craft's "Establishing a place" is
+situational with `before_apply:move` (§203), and the clerk runs before the turn's first Keeper request, so no section of this input
+has been delivered yet -- every declared clerk move under selective discovery with an indexed narration-craft is held, whatever
+the lane model. Turn 31's clerk time fell to the sibling hold in `capability-runtime.ts` (`widenPending`, set by the turn's
+`lookup_fallback`), which recorded nothing. The hold returns `{block, reason}`; the canonical gateway turned it into a packet
+`{reason, terminate}`, and `clerkStep` (`runtime/jev/hybrid-engine.ts`) copied only `code`/`message`/`fix`/`details`, so the reason
+was dropped and `{code: "refused"}` (the packet status) went to the Keeper and to the bind row. Systemic, not lane-specific: the
+grok lanes changed timing, not this path.
+
+**Decisions.**
+
+1. **Readiness is the Keeper's.** §209.6's hold exists so the Keeper re-decides with the missing detail in view; the clerk reads
+   nothing the request projection supplied and cannot re-decide. A call whose canonical-gateway host origin is `policy` (§135.4) is
+   therefore not held by the Mod-section readiness hold or by the capability-schema holds (expansion, `widenPending`). Everything
+   else runs for it unchanged: admission, Mod `tool_call` hooks, the kernel, `validateCurrent`. The sections its call made due stay
+   due: the call is noted before the gate, so the Keeper's next request loads them, and the `mod-discovery` lane records
+   `{event: "readiness_deferred", origin: "policy", tool, keys}`. The §209.11 identity hold (`discoveryUnavailable`) is an
+   integrity hold over stale source/world identity, not a visibility hold, and still applies to host writes.
+2. **Who dispatched is read from the gateway, never from the call.** The kernel extension's `coc:operation-dispatcher` port gains
+   read-only `hostOrigin(toolCallId)` (the dispatcher's own frame for a call it is running; `undefined` for the model's calls or when
+   the table is closed). Without the port every call is held as before.
+3. **A refusal carries its reason.** The canonical gateway answers a `tool_call` block with
+   `{code: "blocked", message: <the gate's words>, reason, terminate}` and traces `stage: "blocked"` with the reason. `clerkStep`
+   reads a bare `{reason}` the same way, so the Keeper's `clerk_did[].coc_error` is `{code, message}` (or the kernel's own
+   `coc_error`), and the `lane: "run", event: "bind"` row gains `refusal` (the code) and `refusal_reason` (≤ 300 characters). Holds
+   that recorded nothing now do: `capability-discovery {event: "held", reason: "widen_pending"}` and
+   `context {event: "write_held", reason: "discovery_unavailable", tool, origin}`.
+
+**Three ends.** *Writer:* the gate's words, the gateway's coded packet. *Reader:* the Keeper's `clerk_did` note, the bind row, the
+hold rows. *Actor:* the Keeper (retry, correct, or narrate the hold); the clerk's declared move lands through admission and the
+kernel.
+
+**Tests.** `tests/extension/clerk-write-readiness.test.mjs` (the captured section and move: a policy-origin call is not held and
+records `readiness_deferred`; the Keeper's identical call is held; no gateway port, held). `tests/extension/clerk-refusal-reason.test.mjs`
+(the captured `{reason}` packet and the coded packet reach `clerk_did` and the bind row with code and words; a kernel `coc_error`
+unchanged). `tests/extension/canonical-operation-dispatcher.test.mjs` (a gate's block of a host write: `code: "blocked"`, the
+gate's message, trace `prepare`/`blocked`, nothing ran, and the gate reads the host origin through the port).
