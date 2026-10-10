@@ -100,3 +100,30 @@ claim. Isolated fresh module/campaign input prepared from the original hashedPDF
 retained legacy transcripts only, no world/character clone. Native credential file symlink,
 Grok4.7Fast/low, encrypted Jev vault decoded only by launch/child memory. Startup script
 refuses existing run paths; protective real-evidence marker remains untracked.
+
+Combined7ae all onleehow-pc completed RED891s: ext5448pass/2fail/1skip, py2128pass/2skip,
+loop12pass. Both ext failures were held-answer retention assertions: optional routing
+guidance changed aggregate shelf accounting. All612per-file results/raw lane logs archived
+all-7ae3c440e before refresh. Production fix limits navigation to explicit source lookup/
+continuation; held/carried layout and accounting stay original, without changing caps or
+assertions. Original held/cache regression18/18passed locally.
+
+Exact7ae runtime690sources/0mismatch used for genuine setup: four natural player turns
+39.758/47.085/9.015/9.072s, only2toolcalls, normal stop. The last two replies claimed handoff
+but kernel remainedsetting_up, no investigator and onlydraft. Preserve this real failure.
+Independent audit confirmed turn3 several_moves(card_fields.91/approval.82), turn4 approval.97;
+setup tool present in native checkpoint, no actual confirmation/completion calls. The setup
+projection incorrectly said confirmation creates the world and left approval optional;
+ambiguous drawn-card fallbacks projected no new step over an earlier no-tool compose note.
+Corrected only that projection: existingdraft state snapshot, loaded/confirmed/complete,
+current full tool, genuine approval verification and explicit confirmation then completion.
+Tool results supersede the initial snapshot; policy never auto-confirms and existing
+bootstrap/JeV-outage fallback remains unchanged. Existing kernel consent/revision checks
+and all model/tool/probability/resource caps remain. Setup regression34/34passed. Initial
+new fixture errors were missing arguments; no old assertion was relaxed.
+
+Next: committed source-budget/setup projection fixes, fresh canonicalLAN runtime/all gate,
+reopen the retained draft through driver to validate real confirmation and opening, then
+natural document reading. No manual RPC/state editing or fake UI click. All old evidence,
+native credential file symlink and separate App preserved. Do not claim7ae validates the
+new fixes or that the failed setup already opened a table.

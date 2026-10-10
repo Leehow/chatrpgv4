@@ -288,7 +288,7 @@ export class PendingAnswers {
 			reason: 'source_answer_unavailable', cause, prepared: false, authority: 'cached-source-reference'}});
 		if (!entry) return unavailable(!matches.length ? 'cache_unavailable'
 			: matches.some(value => value.scene === input.scene) ? 'scope_changed' : 'scene_changed');
-		const page = sourceAnswerPage(entry.answer, {focus: entry.focus, question: entry.question, part: input.part, canContinue: true});
+    const page = sourceAnswerPage(entry.answer, {focus: entry.focus, question: entry.question, part: input.part, canContinue: true, playMaterial: true});
 		return 'unavailable' in page ? unavailable(page.unavailable) : {source_answer: page.view};
 	}
 	private boundShelves(): void {

@@ -56,6 +56,8 @@ test('unprepared cached source pages retain same-request preparation without gra
     authority:'original-source-excerpts',excerpts:[{page:3,text:'Exact original passage. '.repeat(500)}],source_refs:[{page:3}],
     play_material:{prepare:{kind:'source',source_mode:'prepare',query:'different',question:'source-authored request'}}};
   const original = structuredClone(answer);
+  assert.equal(sourceAnswerPage(answer,{focus:'book',question,canContinue:true}).view.play_material,undefined,
+    'held/carried presentation does not spend aggregate evidence space on optional navigation');
   assert.equal(cache(list, question, answer), true);
   let part = 0;
   for (;;) {

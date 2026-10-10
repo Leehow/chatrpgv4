@@ -42476,6 +42476,9 @@ source-backed document uses the established prepare and handout receipt paths. T
 matches identities semantically and preserves the player's selected act. The optional
 guidance must fit the existing answer-page budget without removing source units or identity
 metadata; otherwise it is omitted and the tool/system instructions remain the fallback.
+Guidance is offered only by explicit source lookup/continuation presentation. It is absent
+from held-answer accounting and carried capsule views, so it cannot evict existing evidence
+from those aggregate budgets. Their original page layout and retention behavior remain.
 `play_material` is host-owned: source-authored or cached routing under this key is never
 trusted and is replaced for the current request or omitted. Paging and cached replies
 retain the same evidence and continuation rules. No new RPC.
@@ -42489,6 +42492,18 @@ Raw-response capture keeps its existing explicit opt-in and credential-redaction
 Diagnostics neither retry nor alter a request, consume an extra stream, change model or
 timeouts, or wait for disk on the request path. A code reports the observed failure stage,
 not proof of a particular proxy/upstream defect. Missing codes remain explicit uncertainty.
+
+The setup engine's adjudicate projection with an existing draft names its initial run
+snapshot's draft/confirmation/load/completion state and full setup tool, including ambiguous
+route fallbacks. Successful later tool results supersede that snapshot. A prior compose
+step's no-tool instruction does not govern this step. An `approve_card` projection tells
+the Keeper to verify the player's actual approval, call the issued confirmation step with
+approved consent and then complete after success. It is not itself a receipt or approval
+grant. An already loaded or successfully confirmed investigator is not confirmed again;
+the Keeper completes from the actual successful step. The existing kernel input/revision/
+consent checks remain authoritative. The model-led bootstrap fallback is unchanged. Confirmation
+commits the investigator; it does not create a playable world, which remains table.open's
+responsibility. No model/probability threshold, tool cap or automatic policy write changes.
 
 ### Kernel decisions
 

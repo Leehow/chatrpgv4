@@ -5692,7 +5692,7 @@ export default function (pi: ExtensionAPI) {
 								pendingAnswers.hold(state.campaign, askedAt, [{focus, question, answer: raw}], askedTurn, fromStep?.run, askedScope);
 								cached = pendingAnswers.retains(state.campaign, {scene: askedAt, focus, question, scope: askedScope});
 							}
-							const page = sourceAnswerPage(raw, {focus, question, canContinue: cached});
+							const page = sourceAnswerPage(raw, {focus, question, canContinue: cached, playMaterial: true});
 							sourceAnswer = 'unavailable' in page ? {status: 'unavailable', question, reason: 'source_answer_unavailable', cause: page.unavailable,
 								prepared: false, authority: 'cached-source-reference'} : page.view;
 						}
