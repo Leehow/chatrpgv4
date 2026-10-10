@@ -728,7 +728,7 @@ test('§163.10: a current player approach below the old gate binds; NPC, modifie
   assert.deepEqual([established.status, established.action.rest], ['selected', 'incomplete'], 'a consequence\'s established facts are not the player\'s choice');
 });
 
-test('§163.10: a clerk reads a declared player target below the old confidence gate; unknown still withholds', () => {
+test('§163.10: a clerk reads a declared player target below the old confidence gate; §224.2: unknown takes the attack fallback', () => {
   const answer = (choice, confidence, probabilities = {Ghoul: .6, Rat: .3, unknown: .1}) => ({status: 'complete', answers: {target: {status: 'answered', type: 'choice', choice, confidence, probabilities}}});
   const blow = {...candidate, key: 'blow', clerk: 'first_blow', family: 'combat', label: 'Strike', bound: {decision: 'combat:attack'},
     unbound: [{name: 'target', required: true, vocabulary: 'closed', options: ['Ghoul', 'Rat'], owner: 'player'}]};
@@ -738,10 +738,14 @@ test('§163.10: a clerk reads a declared player target below the old confidence 
   const binding = mine.bindings.find(entry => entry.name === 'target');
   assert.equal(binding.cleared, false, 'the old confidence gate is not semantic permission');
   assert.deepEqual(binding.semantic, {answered: 1, total: 3, spread: 0});
+  // §224.2 (user ruling 2026-10-10): a declared attack is settled; the best-scored issued target is bound, recorded as forced.
   const unknown = interpretBind(blow, {questions: []}, answer('Ghoul', 1, {Ghoul: .3, Rat: .1, unknown: .6}), 0.85);
-  assert.deepEqual(unknown.pending.map(item => [item.kind, item.purpose, item.reason, item.extra.cause, item.extra.unresolved]),
-    [['infer', 'compose', 'check_unresolved', 'player_choice', ['target']]]);
-  assert.equal(unknown.forced, undefined);
+  assert.deepEqual(unknown.pending.map(item => [item.kind, item.purpose, item.extra.target]), [['direct', 'execute', 'Ghoul']]);
+  assert.equal(unknown.forced.why, 'attack_fallback');
+  assert.equal(unknown.bindings.find(entry => entry.name === 'target').cleared, false);
+  const unanswered = interpretBind(blow, {questions: []}, {status: 'complete', answers: {}}, 0.85);
+  assert.deepEqual(unanswered.pending.map(item => [item.kind, item.purpose, item.reason, item.extra.cause, item.extra.unresolved]),
+    [['infer', 'compose', 'check_unresolved', 'player_choice', ['target']]], 'a target nobody scored stays unbound');
   const theirs = interpretBind({...blow, unbound: [{...blow.unbound[0], owner: undefined}]}, {questions: []}, answer('Ghoul', 0.4), 0.85);
   assert.equal(theirs.pending[0].extra.target, 'Ghoul', 'an NPC\'s own choice retains its existing best guess');
 });

@@ -10,6 +10,7 @@ import {JEV_MODEL, PackingError, packDecisionBatch} from './question-packing.ts'
 import type {DecisionPort} from './decision-port.ts';
 import type {TaskLease} from './task-context.ts';
 import {selectChaseRoster} from './chase-roster-selection.ts';
+import {UNARMED_WEAPON} from './attack-fallback.ts';
 
 export interface CheckParameter {
   name: string;
@@ -189,7 +190,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
   const gates = {...CHECK_SELECTION_GATES, ...input.gates}, gate = gates.need;
   // §163: every gate decided by Jev's best score (or with no score) is named here; a result that used one is forced.
   const forced: string[] = [], whys = new Set<string>();
-  const note = (what: string, why: 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable' | 'player_choice') => { forced.push(what); whys.add(why); };
+  const note = (what: string, why: 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable' | 'player_choice' | 'attack_fallback') => { forced.push(what); whys.add(why); };
   const conditions: unknown[] = isPlainRecord(input.context) && Array.isArray(input.context.conditions) ? input.context.conditions : [];
   const investigators = new Set((input.investigators ?? conditions.flatMap(row => isPlainRecord(row) ? [String(row.actor ?? '')] : [])).filter(Boolean));
   const done = (result: CheckSelection): CheckSelection => {
@@ -398,16 +399,34 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       }
     };
     await Promise.all(pages.map(judgePage));
+    const unsettledAttacks: Array<{option: CheckOption; rivals: number}> = [];
     for (const option of eligible) {
       const status = statusOf.get(option.key);
       const rivals = playerAct(option, investigators) ? eligible.filter(other => other.key !== option.key
         && other.action.decision === option.action.decision && other.action.actor === option.action.actor) : [];
       if (status === 'selected' && rivals.length && !leansYes(actualOf.get(option.key) ?? 0)) {
+        // §224.2: a declared attack is settled; its unsettled alternatives take the host's fallback below.
+        if (option.action.decision === 'combat:attack') { unsettledAttacks.push({option, rivals: rivals.length + 1}); continue; }
         note(`${option.label}: one of ${rivals.length + 1} alternatives the player has not settled`, 'player_choice');
         continue;
       }
       if (status === 'selected') needed.push(option);
       else if (status === 'deferred') deferred++;
+    }
+    // §224.2 rule 3: the alternative Jev scored highest (ties to catalog order); none scored and one target, its unarmed
+    // option (Fighting (Brawl), Improvised Weapons p.104). An actor with an attack already selected takes no fallback.
+    for (const actor of new Set(unsettledAttacks.map(entry => String(entry.option.action.actor)))) {
+      if (needed.some(option => option.action.decision === 'combat:attack' && String(option.action.actor) === actor)) continue;
+      const mine = unsettledAttacks.filter(entry => String(entry.option.action.actor) === actor);
+      const scored = mine.map(entry => ({entry, p: actualOf.get(entry.option.key)}))
+        .filter((value): value is {entry: typeof mine[number]; p: number} => typeof value.p === 'number' && Number.isFinite(value.p) && value.p > 0)
+        .sort((left, right) => right.p - left.p);
+      const single = new Set(mine.map(entry => JSON.stringify(entry.option.action.target ?? null))).size === 1;
+      const chosen = scored[0]?.entry.option ?? (single ? mine.find(entry => entry.option.action.weapon === UNARMED_WEAPON)?.option : undefined);
+      if (chosen) {
+        needed.push(chosen);
+        note(`${chosen.label}: attack fallback over ${mine[0].rivals} unsettled alternatives (${scored[0] ? scoreText(scored[0].p) : 'unarmed, Fighting (Brawl)'})`, 'attack_fallback');
+      } else for (const entry of mine) note(`${entry.option.label}: one of ${entry.rivals} alternatives the player has not settled`, 'player_choice');
     }
     // Independent ready profiles do not compete for a probability mass of one. The agent receives
     // one bound operation, observes its actual result, and may request the remaining work afresh.

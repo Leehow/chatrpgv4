@@ -1204,9 +1204,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       && array(object(proposal.params).effects).some(value => object(value).kind === 'time' && !object(value).owed);
     const refuse = outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
       : replacementTime ? {code:'declared_time_unresolved',text:'The host could not bind the declared interval. This model-origin replacement time effect was not executed. Do not choose minutes or a band or claim that the wait completed. Narrate settled facts or return the genuinely missing interval to the player in character.'}
-      : presumedHit ? {code: 'check_outcome_unresolved', text: 'The declared attack has not been settled by the host. Damage cannot stand in for its missing check. '
-      + 'Nothing in this apply was executed. Do not describe the attack as hitting or missing, or claim injury, damage, a changed condition, incapacitation, forced movement or another consequence of that attack. '
-      + 'Narrate only settled events before the unresolved consequence. If a player-owned choice remains open, end with a present person or immediate situation returning that choice in character; do not leave the declared action hanging.'}
+      // §224.2 rule 4: the host binds a fallback for every declared attack it can; one still unsettled had no attacker or target to bind.
+      : presumedHit ? {code: 'check_outcome_unresolved', text: 'The host could not bind the declared attack to a check (no attacker sheet or target it can settle), so no roll was made. Damage cannot stand in for that missing check. '
+      + 'Nothing in this apply was executed. Narrate the attempt and its outcome by your own judgement without numbers: write no damage, HP or condition effect for that attack. '
+      + 'Do not leave the declared action hanging, and do not ask the player to repeat it.'}
       : proposal.operation === 'resolve' ? {code: 'check_selection_owned', text: 'Jev and the host own check selection. This model-origin resolve was not executed. '
       + 'Narrate committed receipts, and use judgement for a no-roll attempt only when no player-owned value remains open and the host has not refused its consequence. '
       + 'A no-roll with why player_choice does not settle success or failure: do not imply a hit, miss, harm, condition change, incapacitation or other consequence of that check. Narrate settled events only, then return the withheld choice through a present person or immediate situation in character; do not leave the action hanging or choose a replacement check.'}

@@ -12,7 +12,8 @@ import {JEV_MODEL} from './question-packing.ts';
 export type ForcedFamily = 'interaction-scope' | 'check-selection' | 'check-binding' | 'check-execution' | 'check-preparation';
 export type ForcedOutcome = 'inspect_check' | 'roll' | 'no_roll' | 'deferred' | 'world';
 /** Why the decision was forced: a gate Jev answered below, no answer at all, or no executable option. */
-export type ForcedWhy = 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable' | 'check_refused' | 'preparation_incomplete' | 'player_choice';
+/** `attack_fallback` (§224.2): a declared attack's unsettled weapon or target took the host's rulebook fallback and was rolled. */
+export type ForcedWhy = 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable' | 'check_refused' | 'preparation_incomplete' | 'player_choice' | 'attack_fallback';
 export interface ForcedResolution {
   /** Stable identity inside one run: the row is recorded once and the Keeper is told once. */
   key: string;
@@ -98,6 +99,7 @@ export const DECIDED_UNDER_UNCERTAINTY_NOTE = 'The host decided these points und
   + 'Treat each chosen result as settled for this turn. An inspect_check result routes that rule family through Jev\'s bounded check selector; it is not itself a roll. '
   + 'A chosen roll was executed by the host and its receipt is committed. '
   + 'For no_roll, narrate the attempt and its outcome by your own judgement only where the host has not refused that consequence and no player-owned value remains open. '
+  + 'An attack_fallback result is the declared attack, settled with the weapon or target the host bound by the rules when the declaration did not say; narrate its receipt as the attack the investigator made. '
   + 'A no_roll with why including player_choice settles only that no check is made; it does not settle success or failure. Do not choose the withheld value, imply a hit or miss, or narrate harm, injury, a condition change, incapacitation, forced movement, or another consequence that depends on that check. '
   + 'When why includes player_choice, narrate only settled events before the consequence, then end with a present NPC or immediate situation returning that choice to the player in character. Do not leave the declared action hanging mid-motion or ask out of fiction. A host refusal that says an outcome cannot land constrains narration too. '
   + 'For a world scope, play the message as in-fiction action; if it also plainly asks something out of fiction, answer that part briefly in fiction-neutral words and keep playing. '
