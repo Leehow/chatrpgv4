@@ -452,8 +452,11 @@ export function presentOpponents(context: SettleContext): Array<[string, Row, Ro
     });
 }
 export function continuableCheck(receipt: Row, actor: any): boolean {
+    // §223.3: the investigator's side of a non-combat opposed check is continuable too -- Luck may
+    // alter it (p.99's own example) -- and a combined check is one die against skills (§223.4). The
+    // opponent's receipt has the opponent as actor and never matches.
     return receipt.kind === 'roll' && receipt.form !== 'dice' && receipt.actor === actor && !dieHidden(receipt.visibility)
-        && ['skill_check', 'characteristic_check'].includes(receipt.roll_kind) && isJsonObject(receipt.check);
+        && ['skill_check', 'characteristic_check', 'combined_skill_check', 'opposed_check'].includes(receipt.roll_kind) && isJsonObject(receipt.check);
 }
 export function latestCheckReceipt(context: SettleContext): [
     string,
@@ -480,14 +483,10 @@ export function skillTickEligible(arithmetic: CheckArithmetic, skill: string, ch
         return false;
     if (check.improvement_tick_eligible === false || truth(check.luck_spent) || check.excluded_outcome === 'bonus_die_only_success' || check.bonus_die_only_success === true)
         return false;
-    if (number(check.bonus) > 0 && number(check.penalty) <= 0 && array(check.tens_values).length >= 2 && check.units != null) {
-        const threshold = number(check.effective_target ?? check.target);
-        const units = number(check.units);
-        const without = number(check.unmodified_roll ?? (number(check.tens_values[0]) * 10 + units)) || 100;
-        const withBonus = Math.min(...check.tens_values.map((value: any) => number(value) * 10 + units || 100));
-        if (withBonus <= threshold && threshold < without)
-            return false;
-    }
+    // p.94 (§223.2): "no tick is earned if the roll used a bonus die" -- any net bonus die, not only
+    // one the success depended on. `bonus` is the net count after one-for-one cancellation (§95).
+    if (number(check.bonus) > 0)
+        return false;
     if (check.excluded_outcome === 'opposed_roll_loser' || check.opposed_won === false || ['defender_higher', 'tie_defender_wins'].includes(check.opposed_outcome))
         return false;
     if (['sanity_check', 'sanity', 'luck', 'damage', 'characteristic_check', 'characteristic', 'idea_roll', 'idea', 'combined_skill_check'].includes(string(check.kind || check.roll_kind || '')))
@@ -502,47 +501,62 @@ export async function recordSkillTicks(context: SettleContext): Promise<void> {
             continue;
         const actor = string(receipt.actor || '');
         const skill = string(receipt.skill).trim();
-        if (!context.sheetById(actor) || !['skill_check', 'healing_check', 'opposed_check'].includes(receipt.roll_kind))
+        if (!context.sheetById(actor) || !['skill_check', 'healing_check', 'opposed_check', 'combined_skill_check'].includes(receipt.roll_kind))
             continue;
         const check: Row = {
             ...receipt.check,
             kind: receipt.roll_kind
         };
-        if (!skillTickEligible(context.arithmetic, skill, check))
-            continue;
-        if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(actor))
-            valueError('investigator_id must be a stable safe id');
-        const token = `development-check-${jsonDigest({
-            campaign_id: context.campaignId,
-            investigator_id: actor,
-            source_kind: receipt.roll_kind,
-            source_event_id: receipt.id
-        })}`;
-        const path = `development-state/${actor}.json`;
-        const state = row(await context.readSave(path));
-        state.investigator_id ??= actor;
-        if (!isJsonObject(state.ticks))
-            state.ticks = {};
-        if (!isJsonObject(state.claimed))
-            state.claimed = {};
-        if (state.ticks[token] != null) {
-            if (state.ticks[token].skill !== skill)
-                valueError('development event token has conflicting skill');
+        if (receipt.roll_kind === 'combined_skill_check') {
+            // §223.4: the one die is compared with each named skill; each skill it succeeded against
+            // ticks under the ordinary rules (bonus die, Luck, never-tick skills), one tick per skill.
+            for (const target of array(row(check.combined_roll).targets).filter(isJsonObject)) {
+                const member: Row = {...check, kind: 'skill_check', skill: string(target.label), success: target.success === true,
+                    outcome: string(target.outcome || ''), achieved_level: target.achieved_level ?? null, improvement_tick_eligible: undefined};
+                delete member.combined_roll;
+                if (skillTickEligible(context.arithmetic, string(target.label), member))
+                    await recordTick(context, receipt, actor, string(target.label), `${receipt.id}#${string(target.label)}`);
+            }
             continue;
         }
-        state.ticks[token] = {
-            schema_version: 2,
-            event_type: 'development_check_earned',
-            event_token: token,
-            investigator_id: actor,
-            campaign_id: context.campaignId,
-            session_id: `${context.campaignId}:session:1`,
-            source_kind: receipt.roll_kind,
-            source_event_id: receipt.id,
-            skill,
-            ts: nowIso(),
-            roll: check.roll ?? null
-        };
-        await context.writeSave(path, state);
+        if (!skillTickEligible(context.arithmetic, skill, check))
+            continue;
+        await recordTick(context, receipt, actor, skill, string(receipt.id));
     }
+}
+async function recordTick(context: SettleContext, receipt: Row, actor: string, skill: string, sourceEventId: string): Promise<void> {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(actor))
+        valueError('investigator_id must be a stable safe id');
+    const token = `development-check-${jsonDigest({
+        campaign_id: context.campaignId,
+        investigator_id: actor,
+        source_kind: receipt.roll_kind,
+        source_event_id: sourceEventId
+    })}`;
+    const path = `development-state/${actor}.json`;
+    const state = row(await context.readSave(path));
+    state.investigator_id ??= actor;
+    if (!isJsonObject(state.ticks))
+        state.ticks = {};
+    if (!isJsonObject(state.claimed))
+        state.claimed = {};
+    if (state.ticks[token] != null) {
+        if (state.ticks[token].skill !== skill)
+            valueError('development event token has conflicting skill');
+        return;
+    }
+    state.ticks[token] = {
+        schema_version: 2,
+        event_type: 'development_check_earned',
+        event_token: token,
+        investigator_id: actor,
+        campaign_id: context.campaignId,
+        session_id: `${context.campaignId}:session:1`,
+        source_kind: receipt.roll_kind,
+        source_event_id: sourceEventId,
+        skill,
+        ts: nowIso(),
+        roll: row(receipt.check).roll ?? null
+    };
+    await context.writeSave(path, state);
 }

@@ -3,14 +3,17 @@
   "tick": {
     "awarded_when": "regular_or_hard_or_extreme_success",
     "excluded_outcomes": [
+      "bonus_die_used",
       "bonus_die_only_success",
       "opposed_roll_loser",
-      "combined_roll_participant",
       "success_obtained_by_spending_luck"
     ],
-    "never_tick_skills": ["Cthulhu Mythos", "Credit Rating"],
+    "never_tick_skills": [
+      "Cthulhu Mythos",
+      "Credit Rating"
+    ],
     "ticks_per_qualifying_success": 1,
-    "source_note": "Keeper Rulebook p.94: a skill earns one tick for a successful use during play; no matter how many successes, only one check per skill. Cthulhu Mythos and Credit Rating never receive a skill check. A success bought by spending Luck points earns no improvement check (p.99).",
+    "source_note": "Keeper Rulebook p.94: a skill earns one tick for a successful use during play; no matter how many successes, only one check per skill. No tick is earned if the roll used a bonus die (any bonus die, not only one the success depended on). In an opposed roll only the winner ticks. A combined roll is one die compared with several skills; each skill it succeeded against may tick under the same rules. Cthulhu Mythos and Credit Rating never receive a skill check. A success bought by spending Luck points earns no improvement check (p.99).",
     "constraints": [
       "one_tick_per_single_die_outcome",
       "recorded_against_skill_not_characteristic"

@@ -700,9 +700,9 @@
       "id": "core.luck.roll",
       "category": "luck",
       "source_table": "luck.json",
-      "source_note": "Keeper Rulebook p.93: a group Luck roll uses the lowest individual Luck roll among participating investigators.",
+      "source_note": "Keeper Rulebook p.93: for a group Luck roll the investigator with the lowest Luck score present makes the roll.",
       "numeric": {
-        "group_roll_policy": "take_lowest"
+        "group_roll_policy": "lowest_luck_rolls"
       }
     },
     {

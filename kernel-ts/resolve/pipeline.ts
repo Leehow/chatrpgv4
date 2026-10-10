@@ -640,16 +640,8 @@ export class ResolvePipeline {
                 }, extras];
         }
         if (ref === PUSH) {
-            if (!this.stakesText)
-                throw new RpcError('needs', 'a pushed roll needs the announced consequence of failing it', {
-                    fix: 'put the consequence in action.stakes',
-                    details: {
-                        needs: {
-                            field: 'stakes',
-                            options: []
-                        }
-                    }
-                });
+            // §223.1: the consequence may be foreshadowed (action.stakes) but need not be; the player's
+            // justification of the further attempt (action.method) is what the book requires (p.84).
             if (!this.method)
                 throw new RpcError('needs', 'a pushed roll needs the changed method', {
                     fix: 'describe the new approach in action.method',
