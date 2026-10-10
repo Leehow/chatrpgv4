@@ -8,5 +8,28 @@
   "requires_roll_total": true,
   "requires_resource_before_delta_after": true,
   "delta_sign": "positive",
-  "non_percentile": true
+  "non_percentile": true,
+  "keeper_award": {
+    "source_note": "Keeper Rulebook p.168, 'Increasing Current Sanity Points' item 1 (Keeper award): at the end of a successful scenario or campaign chapter the Keeper may specify a Sanity reward roll, the same for all participants, proportional to the danger faced; cowardly, brutal or murderous investigators may have it reduced or removed. The book prints 1D6 as its example; the other rungs are this repository's scale around that example and are labelled so (contract §221.9).",
+    "printed_example": "1D6",
+    "scale": [
+      {
+        "expression": null,
+        "label": "No award: the investigators were cowardly, brutal or murderous, or faced no real danger (p.168)"
+      },
+      {
+        "expression": "1D3",
+        "label": "A lesser award than the book's example: modest danger faced (this scale, not printed)"
+      },
+      {
+        "expression": "1D6",
+        "label": "The book's example award for a scenario's danger met (p.168)",
+        "printed": true
+      },
+      {
+        "expression": "2D6",
+        "label": "A greater award than the book's example: grave danger faced and overcome (this scale, not printed)"
+      }
+    ]
+  }
 }
