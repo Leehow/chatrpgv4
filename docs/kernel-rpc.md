@@ -42768,6 +42768,14 @@ Then: the corpse behind the boards → `0/1D3` (p.155, a corpse or body part), a
 `1/1D4+1` (a horrifically mangled corpse), both with `cry_out`; reading old newspapers with a 1918 clipping filed, and
 walking to a café, → no roll (the trigger answered no). Not gameplay acceptance.
 
+The first real table (2026-10-10, a copy of TR-F2 run 3's campaign rewound to T17, Grok 4.7 Build fast as Keeper, live
+Jev): the search filed the hollow boards only and the prose agreed; prying the boards off filed `corbitt-body-found`, and
+check selection then chose this roll (needed now 0.77, `1/1D4+1` at 0.52, `freeze`, a bout) -- and the host's own
+`resolve` was refused by the tool schema: `action.bout: schema is false`. The host's resolve goes through the same Pi tool
+schema as the Keeper's (`extensions/kernel/tools.ts`), which had no `bout` (§221.8) or `clue` (§221.4, §222.3). Both are
+properties now, and `tests/extension/sanity-ladder.test.mjs` asserts every key a catalog option binds is one (the host folds
+`difficulty`, `bonus` and `penalty` into `modifiers` first).
+
 ## 222. A clue the book finds by a check has the rulebook's ways in: obvious clues, other fitting checks, the Idea roll (user ruling 2026-10-10; amends §201.2, §135.30.9, §159; `kernel-ts/read/clue-check.ts`, `kernel-ts/apply/entities.ts`, `kernel-ts/runtime/check-catalog.ts`, `runtime/jev/clue-route.ts`, `extensions/kernel/clue-route.ts`)
 
 **Ruling.** The module supplies content the Keeper performs; the rules adjudicate what happened at the table, and they do not

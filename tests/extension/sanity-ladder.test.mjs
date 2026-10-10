@@ -11,6 +11,8 @@ import {build} from 'esbuild';
 import {selectCheck, validateCheckOptions, specializedTriggerQuestion} from '../../runtime/jev/resolve-selection.ts';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
 import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
+import {validateToolArguments} from '@earendil-works/pi-ai';
+import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
 
 const root = resolve(import.meta.dirname, '../..');
 await mkdir(join(root, '.tmp'), {recursive: true});
@@ -125,6 +127,16 @@ test('§221.3(4) T18: a corpse filed as a clue with no stated loss is offered as
   // Live Jev 2026-10-10: without the facts the ladder question answered unknown at 1.0 ("not determined by supplied state").
   assert.ok(seen.some(batch => batch.family === 'check-selection-bind' && JSON.stringify(batch.state).includes('The body behind the boards')), 'the loss is bound reading the same facts');
 
+  // Live table 2026-10-10: the host's resolve goes through the tool schema, which refused `bout` ("schema is false") and the
+  // SAN roll never ran. Every key a catalog option binds -- action or parameter -- is a property of the resolve action.
+  const resolveTool = COC_TOOLS.find(spec => spec.name === 'resolve');
+  const actionProps = Object.keys(resolveTool.parameters.properties.action.properties);
+  // `difficulty`, `bonus` and `penalty` are folded into `modifiers` by the host (`settleCheckSelection`) before the call.
+  const unknown = [...new Set(checks.flatMap(option => [...Object.keys(option.action), ...option.parameters.map(parameter => parameter.name)]
+    .filter(key => !actionProps.includes(key) && !['difficulty', 'bonus', 'penalty'].includes(key)).map(key => `${option.action.decision}:${key}`)))];
+  assert.deepEqual(unknown, [], 'every key a catalog option binds reaches the kernel through the resolve tool schema');
+  assert.doesNotThrow(() => validateToolArguments({name: 'resolve', description: '', parameters: resolveTool.parameters},
+    {type: 'toolCall', id: 't1', name: 'resolve', arguments: {action: selected.action}}));
   const result = await call('table.resolve', {call_id: 't1-c2', action: selected.action});
   assert.equal(result.decision, 'sanity:check');
   assert.equal(result.outcome.kind, 'sanity');
