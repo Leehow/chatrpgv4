@@ -59,7 +59,7 @@ transport error remains. Source queue is10completed/8failed/2running/2queued aft
 not full-source success. All35observedPIDs exited; old15evidence pointers retained; native
 auth file symlink intact. DefaultoptionalTaskRuntime inactive: no live TaskStore claim.
 Safeaudit play-combined-final-audit.json and final-metrics.json retain actual limits.
-Scoped integration and terminal lifecycle classification are next. The following
+Scoped integration and terminal lifecycle classification are complete below. The following
 chronological records include retained earlier failures.
 
 Initial inspection: two existing file-backed stores confirmed; source metadata/jobs already
@@ -153,3 +153,23 @@ Merged only committed changes into c28df9a33. Sharedcontracttail conflict resolv
 main209metric note before own210; no content discarded. Their3targetedfiles50/50localpass.
 This production drift needs newcombinedruntime/genuine continuation. Keep all previous reds
 and failed/0turnauth startups; defaultTaskRuntimeflags off, don't flip them for fakecoverage.
+
+## Integrated outcome and terminal lifecycle
+
+Latest0.9.7a was clean at e88cb5ef5 and fast-forwarded to7547e93b2. Only this task's19files
+changed relative to that accepted main tip; otherownercommitted changes were retained.
+No push, App restart/package, primarybuild replacement or dependency change occurred.
+The validated production source is unchanged from934bc3383; later commits are docs only.
+
+Exact owned tuple: /Users/haoli/.codex/worktrees/sqlite-task-transcript-20261010,
+codex/sqlite-task-transcript-20261010, lifecycle task sqlite-task-transcript-20261010.
+set-state terminal succeeded; audit proves identity/branch/path match, registered, unlocked,
+nonprunable, nondetached. closeout verificationpassed returnedretained_dirty(exit3) solely
+because the intentional untrackedPLAYTEST_EVIDENCE.json protects real campaigns, transcripts,
+isolated home/input, all raw/per-file results and the exact rebuilt runtime. Ancestry to
+accepted0.9.7a was independently proved. Classification:
+retained:protected_real_playtest_evidence. Nextaction: preserve this tuple; removal requires
+explicit user authorization over the real evidence. There is no automatic cleanup retry.
+Generic auditpending_count1 is this classified terminal retained entry, not unintegrated code.
+Final audit and structured retained classification are saved under the ignored evidence
+directory. The previous PDF task's retained checkout remains outside this task's ownership.
