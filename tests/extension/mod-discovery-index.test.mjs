@@ -56,7 +56,8 @@ test('the kernel projects a new locked index even under a budget that keeps lega
     const home=await mkdtemp(join(temp,'home-')),path=join(temp,'package');
     await cp(join(root,'mods/keeper-pacing'),path,{recursive:true});
     const m=JSON.parse(await readFile(join(path,'mod.json'),'utf8'));
-    m.version='1.3.2';m.requires.push('instructions.discovery.v1');
+    // A version above the shipped one: the installed bytes of the shipped version cannot be replaced.
+    m.version=m.version.replace(/(\d+)$/,n=>String(Number(n)+1));m.requires.push('instructions.discovery.v1');
     const declaration=JSON.parse(await readFile(join(path,'sections.json'),'utf8'));
     declaration.schema_version=2;
     declaration.sections=declaration.sections.map(s=>s.kind==='resident'?s:{...s,category:'Test pacing',
@@ -71,7 +72,7 @@ test('the kernel projects a new locked index even under a budget that keeps lega
     await call('campaign.create',{id:'discovery',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});
     const capsule=await call('table.capsule',{campaign:'discovery',rehydrate:true});
     const pacing=capsule.mods.instructions.find(r=>r.mod==='keeper-pacing');
-    assert.equal(pacing.version,'1.3.2');assert.equal(pacing.form,'indexed');assert.equal(pacing.index_contract_version,2);
+    assert.equal(pacing.version,m.version);assert.equal(pacing.form,'indexed');assert.equal(pacing.index_contract_version,2);
     assert.ok(pacing.sections.every(s=>s.applicability&&s.category));
     assert.ok(capsule.mods.instructions.filter(r=>r.mod!=='keeper-pacing').every(r=>r.form==='full'));
 });
