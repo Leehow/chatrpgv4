@@ -600,3 +600,45 @@ Final all ca60 remains running. Preserve its complete output before refreshing; 
 validate the later memo fix. Next idle LAN focused/all and exact rebuilt memo-fixed runtime
 must be followed by a fresh genuine driver run with source retry and natural continuation.
 No erased/edited history, fake Keeper, changed limits or relaxed review rules.
+
+ca60 final all completed green600s: ext5479pass/0fail/1skip,pytest2128pass/2skip,
+routing12pass. Complete per-file/raw logs saved in all-ca60bb771 before refresh. f05912561
+commits the memo wiring fix and its actual host regression; idle amax final all is now
+running on this later exact snapshot. No resources/thresholds changed.
+
+Independent genuine turn2/3 audit confirms actual document open and append receipts;
+append changed=true/revision3/current text hash equals receipt after_digest, suffix binds
+exact player_span. Target/content/execution probabilities .97/.92/.97 meet unchanged .9;
+admission authorized confidence.94 in4.760s. Eleven matched main transport calls complete,
+33 lifecycle effort fields all low, no abort/transport error. Canonical scene did not change:
+do not claim cross-scene move solely from narration. Queue17complete/4failed/2running/2queued
+still partial. read21 attempt3 has current-candidate overlay hash+actual author image block,
+not yet independent review/publication proof. First driver is stopped and owned runtime
+process audit is empty. Next: fetch the already-built f059 artifacts read-only, verify
+embedded sources, start fresh protected run pdf-refusals-retry-fixed-20261010-play from
+start-retry-fixed.mjs, request genuine OOC retry, continue natural pond investigation and
+audit actual tool/read/review outcomes. Preserve separate App and every failed attempt.
+
+f059 final all green659s: ext5480pass/0fail/1skip,pytest2128pass/2skip,routing12pass.
+Complete raw/per-file logs retained in all-f05912561. Exact f059 source check689/689;
+eight relevant executable hashes retained (kernel extension changes independently from
+five core bundles). Genuine retry-fixed run completed six natural inputs
+22.990/23.6/53.188/71.6/41.3/30.1s,17tools,242.8s, normal stop. Root inspected requested
+map, kept action constraints, then explicitly chose to stop waiting and continue interviewing.
+Do not claim a new scene or full map handout from these prose replies.
+
+Worker audit: the first OOC prepare was blocked at interaction_scope before source execution
+and omitted retry, so it does not prove the memo-fixed branch. Preserve the reference/player
+choice guard. Later source requests used answer; no success is inferred from Keeper saying
+there are no failed preparations. Background source publication does independently complete
+read21: candidate/plan/review hashes bind, pages23–25 observed,74supported/missing0, generation20.
+Actual current-candidate preview images reached authors. This new4-region map differs in
+identity from the old21-region candidate; not proof all old regions are repaired. read18 has
+no same-key successor, so its applicability revalidation remains a stated limitation.
+
+Primary owner committed988ea7f64 and released its checkout clean. It owns bounded discovery
+snapshots/lookup failure recovery and SQLite source binding. Import only that committed
+work into owned branch, preserve attribution and verify the combined runtime. New combined
+all/build/genuine continuation is justified by that production change, not a repeat of an
+unchanged build. Worker is investigating whether it explains empty Keeper source status;
+no causal claim until actual evidence. All old runs/errors/partial source state stay retained.

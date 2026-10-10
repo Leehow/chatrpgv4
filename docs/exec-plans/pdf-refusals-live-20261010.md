@@ -93,3 +93,22 @@ wiring fix limits memo to answerOnly; unchanged kernel validator and source gate
 The actual host lookup regression failed before the fix and passes after, six cases total.
 The running ca60 all suite and first genuine run do not validate this later production
 change; another exact runtime and genuine request are required before completion.
+
+f059 final all passed659s: ext5480pass/0fail/1skip,pytest2128pass/2skip,routing12pass.
+All per-file/raw output is retained in all-f05912561. Six genuine natural inputs in the
+memo-fixed runtime completed22.990/23.6/53.188/71.6/41.3/30.1s,17tools,242.8s, normal stop.
+The pure OOC prepare request was blocked before execution by the existing reference scope
+rule, and later requests were answer mode. Thus the actual memo-fixed preparation branch
+is still not independently demonstrated live; the six host regressions are its exact proof.
+No intent/admission/review guard is relaxed to manufacture this coverage.
+
+Independent source publication read21 completed with74supported/missing0 and original pages
+23–25, candidate/plan/review hashes bound. Its new4-region asset is not identical to the old
+21-region refused candidate. It demonstrates successful new map publication and actual
+repair image delivery, not that all historical map regions were repaired. read18 has no
+same-key successor and its applicability repair is not yet real-validated. These limits
+remain explicit even with green regression and new source completions.
+
+Other owner released988ea7f64 cleanly on mainline, containing bounded discovery snapshots,
+lookup recovery and SQLite source-binding changes. Combine only its committed work and
+perform an exact-runtime continuation, without attributing that owner's fixes to this task.
