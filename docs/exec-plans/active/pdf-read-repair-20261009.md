@@ -69,6 +69,20 @@ CPU but live for >11min). Do not signal that owner. Existing pdf heartbeat was u
 the app tool, preserving cadence/name/target and resumed ACTIVE for this durable wait.
 It stays quiet on unchanged state and pauses after actual completion. No new automation.
 
+User's explicit live-validation follow-up completed as documented in
+docs/exec-plans/pdf-sqlite-live-20261010.md. Exact canonical ddff2f931 runtime fetched
+read-only (485 sourcemap sources match). Legacy campaign4 real settled inputs; fresh
+original-PDF setup3 real inputs and independently reviewed SQL read-2 publication,
+navigation read-3 kept separate. Cold setup→play resumed unfinished jobs under a new
+host and preserved completed jobs, then reached8 completed. Integrity and hashes pass.
+Fresh automatic opening failed on four Keeper provider errors (322.920s), first input
+never entered T0, driver timed out after300.005s; normal stop/evidence retained. No
+SQLite/IPC stall (maxRPC841ms). No successful fresh-opening or whole-book claim.
+Final all at owned91458ffd4 is now running on amax after idle probe; session45993,
+local log pdf-sqlite-20261010-final-all.log. Preserve this run before any refresh.
+Primary now has another owner's dirty README/kernel-rpc/json/select-tests/foundation
+and untracked test-selection file; do not absorb, stage or overwrite those changes.
+
 ## Previous query optimization status: integrated and verified
 
 Optimization commits 95909a4dd / 3508c826d and evidence writer fix 3f5859fab are
