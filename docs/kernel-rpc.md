@@ -42246,3 +42246,119 @@ existing claim/pump/publication/capsule paths act on them. Migration changes per
 not Keeper authority, model selection, capacity, review thresholds or original source truth.
 References: https://www.sqlite.org/lang_transaction.html ; https://www.sqlite.org/wal.html ;
 https://www.sqlite.org/pragma.html ; https://nodejs.org/docs/latest-v24.x/api/sqlite.html
+
+
+## 209. Turn-scoped capability and Mod discovery (approved 2026-10-10; issue #112)
+
+Implementation is in progress under `docs/specs/turn-capability-and-mod-discovery.md`. The selective policy remains gated until request, coverage and live acceptance pass. Production world-state and rules authority do not move.
+
+### 209.1 Principles
+
+- The canonical seven-verb surface, canonical apply atomicity and validation are unchanged.
+- Field shape and constraints are not relaxed by any projection.
+- The selector never authorizes actions. Selection controls visibility only.
+- Legacy locks and form-full remain. New discovery behaviour applies only to new Mod versions declaring the index contract.
+
+### 209.2 Host-owned capability names and detail cards
+
+Host-owned capability names are derived from canonical definitions. Each entry is an index card:
+
+| Field | Meaning |
+|---|---|
+| name | semantic capability or section name |
+| owner | owning module |
+| version | immutable version |
+| category | authored and validated category |
+| applicability | short summary |
+| exclusions | cases where it must not apply |
+| state_requirements | required host state |
+| dependencies | deterministic prerequisite names |
+| detail_ref | immutable reference to detail or schema |
+
+A detail result carries: name, version, applicability scope, frozen text, required flag, deterministic reason.
+
+Mods cannot override validators or grant core write authority. Dangling references, dependency cycles and changed bytes under the same version are rejected at authoring and install.
+
+### 209.3 Canonical apply schema subset
+
+- The apply definition is split into semantic fragments by effect family, with separate fragments for the npc and object subvariants.
+- Each fragment keeps exact types, required fields and constraints of its canonical validator.
+- A request's projected apply schema is the union of its selected fragments under the canonical name `apply`. No model-visible aliases that commit independently.
+- Mixed batches remain one canonical transaction: any invalid effect refuses the whole batch and writes nothing.
+
+### 209.4 Two-stage selection
+
+Stage A: one batched Jev relevance decision over index cards and a slim context (player input, current scene and people, canonical time and state, available compile features). Per candidate, independent relevance and fit probabilities. Host derives outcomes `selected | none | uncertain | unavailable | read-more` from versioned policy. No hard top-k cut. Large catalogues are split into stable category partitions and bounded batches; the whole capsule is never sent to Jev.
+
+Stage B: conditional on semantic ambiguity. Fetches candidate detail through host interfaces and asks independent per-candidate questions only where applicability is still semantic.
+
+Deterministic prerequisites (dependencies, mandatory sections, rule/receipt/consequence prerequisites) are enumerated by the host and never re-asked of Jev. Mandatory state is included without selection.
+
+Jev never writes text, executes calls, invents identifiers or authorizes actions. Results bind to campaign, worldline, loop, turn, input and source versions; stale or cross-campaign answers are rejected.
+
+### 209.5 Lookup kind for read-only expansion
+
+The existing lookup surface gains a `capability` (instruction discovery) kind accepting a semantic name or purpose query.
+
+- Input: semantic name or purpose query. The host supplies the bound epoch; the model does not.
+- Output: matched index cards and detail results. Read-only; authorizes no write.
+- Relevance exclusion is never permanent inaccessibility.
+
+### 209.6 Readiness and expansion
+
+- Intended operations from the existing compile and host plan seed their fragments and sections before the first relevant Keeper inference.
+- If a required capability or detail is absent when a mutating call arrives, the dispatcher holds all effects of that call before any mutation (no partial execution), and returns a structured expansion status:
+  - `requested`, `loaded`, `missing_capability` (name), `no_commit: true`.
+- The Keeper re-decides through the ordinary loop. Mutating calls are never replayed automatically. Inferred never silently becomes observed.
+- Only missing REQUIRED capability or detail triggers the gate; optional stylistic prose does not block a valid action.
+- Expansion for the same bound request is deduplicated. After one failed expansion, the documented wider safe view or existing explicit failure path is used; no unbounded retry.
+- Negative or error outcomes are never counted as successful actions.
+
+### 209.7 Mod section applicability and index-first loading
+
+- A Mod declares section `schema_version: 2` in its existing `contributes.sections` file and requires `instructions.discovery.v1` beside `instructions.sections.v1`. The kernel projects `index_contract_version: 2`; this is not a separate author-controlled manifest field. Resident entries keep their original shape. A situational entry adds `applicability: {what, not_for, examples}`, an open authored `category`, and optional `dependencies` naming existing core capabilities. Existing topics are optional hints; gates and triggers retain their canonical semantics. Applicability must be nonempty, examples have at most three entries, dependency names are checked, and every original heading/preamble remains covered once. Under that contract it supplies index cards for sections and a resident set limited to unconditional brief text, with shared invariants owned once.
+- Bulky situational prose becomes authored sections read whole through the existing immutable section-read path.
+- Index-first loading applies only to packages declaring the compatible contract. Budget overflow is no longer the activation condition.
+- Coverage failure widens only the affected family, or falls back explicitly to the current whole view for the bound request. Fallbacks are counted with their bytes and excluded from claimed selective success.
+- Unknown or new categories remain in the broad or uncertain discovery path.
+- Changing section metadata or resident membership requires a new package version. Locks are never silently upgraded. Legacy or incompatible packages stay full and are labelled `legacy-full`.
+
+### 209.8 Ephemeral request-system projection and active tool declarations
+
+- Projection is ephemeral and recorded by manifest and digest; raw transcript evidence stays append-only.
+- The public `context_with_system` seam, request-projection and active-tool interfaces are reused. No vendor or Pi patch, no dependency change, no direct agent-state mutation.
+- Schema registration, dispatch capability inventory and historical transcript records remain canonical. Each operation keeps exactly one execution adapter.
+- First host-triggered request, later requests, restore, error paths and fallback must each match their selected or explicit fallback manifest in captured provider requests.
+- Restore, fork and refresh recompute bound visibility; obsolete instructions are never restored from transcript checkpoints.
+
+### 209.9 No-selection, outage and fallback
+
+- No-match inputs, no Jev, slow Jev and invalid answers each end in bounded, explicit outcomes.
+- Selector waits reserve from the existing run allowance and first-wait lifecycle; no fixed per-call wait is added.
+- Results, including in-flight ones, are cached by epoch. Material state change invalidates only affected decisions.
+- On coverage that cannot be established, the bound request falls back explicitly to the full view and records it.
+
+### 209.10 Scope- and version-bound caches
+
+- Cache keys: campaign, worldline, loop, turn, bound epoch, catalogue and package versions, relevant state.
+- Cross-turn reuse keyed by relevant state and package and schema versions. Turn-local expansion does not accumulate across closed turns.
+- Catalogue versions and order are stable.
+
+### 209.11 SQLite distinctions
+
+- Source queue and module metadata are owned by the source-reading SQLite owner through ModuleStore/sourceMetadata. Static Mod packages, tool definitions and campaign transactions remain with their existing owners.
+- SQL exports are not authority. Imported scopes never fall back to stale JSON after a DB error.
+- Four versions are kept distinct: storage revision, published generation/digest, catalogue/package versions, input epoch.
+- Unrelated background queue writes do not invalidate unrelated selections.
+- A DB transaction is not held across Jev or model work: snapshot, release, then validate relevant versions after async completion.
+- Storage and lock waiting count toward the shared preparation deadline.
+- The SQLite migration (codex/pdf-read-repair-20261009 at ddff2f931) is consumed through its published interface when integrated; not copied or adopted.
+
+### 209.12 Metrics
+
+Request bytes and provider tokens are reported separately:
+
+- Request bytes: system prose, tool schema, Mod resident text, selected sections, current state, history.
+- Provider tokens: total, cache-read and uncached, reported distinctly. Provider counts include cache hits and are not a per-component breakdown.
+- Also: selected catalogue and package versions, mandatory/relevance/dependency/fallback reasons, selector and awaited durations, schema and section misses, expansion round trips, canonical refusals, player-visible first and final delivery timing.
+- Credentials are never logged. Selection counters are never fed to the Keeper as obligations.

@@ -28,7 +28,7 @@ import {HISTORY_CAPABILITY, validHostSettings} from '../mods/host-settings.js';
 import {MOOD_CAPABILITY} from '../npc/mood.js';
 import {EXPRESSION_REFERENCE_CAPABILITY,expressionCards,expressionCatalogRevision} from './expression-reference.js';
 import { ESTABLISH_CAPABILITY, ESTABLISH_REVIEW_CAPABILITY, validateEstablishDeclaration, establishProvider, establishItem } from "./establish.js";
-import { SECTIONS_CAPABILITY, validateSectionsDeclaration, validateSectionsContribution, packageSections, sectioned, sectionKey, instructionBudget, residentText, topicList, annotateGates, sceneFacts, type TurnFacts } from "./sections.js";
+import { SECTIONS_CAPABILITY, DISCOVERY_CAPABILITY, validateSectionsDeclaration, validateSectionsContribution, packageSections, sectioned, sectionKey, instructionBudget, residentText, topicList, annotateGates, sceneFacts, type TurnFacts } from "./sections.js";
 import {TEMPORAL_CAPABILITY,temporalItems,temporalProviders} from './temporal-mod.js';
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "checks.presence.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
@@ -55,6 +55,7 @@ MOD_CAPABILITIES.add(HISTORY_CAPABILITY);
 MOD_CAPABILITIES.add(MOOD_CAPABILITY);
 /** Contract §183.1: a package declares the sections of its instruction, so a table over the instruction budget can index it. */
 MOD_CAPABILITIES.add(SECTIONS_CAPABILITY);
+MOD_CAPABILITIES.add(DISCOVERY_CAPABILITY);
 /** Contract §23.5: a player-only game clock following the transcript viewport. */
 MOD_CAPABILITIES.add("ui.clock.v1");
 /** Contract §203.1: a package says what an establishing reply owes (`contributes.establish`); §203.6: a package words the
@@ -834,15 +835,18 @@ function instructionRows(effective: Row[], world: Row): Row[] {
         const text = new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(mod.contributes.instructions)),
             bytes = Buffer.byteLength(text, "utf8"),
             base = { mod: mod.id, version: mod.version, settings: world.mods.active[mod.id].settings };
-        if (!sectioned(mod) || total + bytes <= budget) {
+        const sections=sectioned(mod)?packageSections(mod):[];
+        const discovery=sections.some(section=>section.index_contract_version===2);
+        if (!discovery && (!sectioned(mod) || total + bytes <= budget)) {
             total += bytes;
             return { ...base, form: "full", instruction: text };
         }
-        const sections = packageSections(mod), resident = residentText(sections);
+        const resident = residentText(sections);
         total += Buffer.byteLength(resident, "utf8");
-        return { ...base, form: "indexed", instruction: resident,
+        return { ...base, form: "indexed", instruction: resident,...(discovery?{index_contract_version:2}:{}),
             sections: sections.flatMap((section, ordinal) => section.kind === "resident" ? [] : [{ key: sectionKey(mod, ordinal), heading: section.heading,
                 topics: [...section.topics], gates: [...section.gates], triggers: [...section.triggers], topic_threshold: section.topic_threshold,
+                ...(section.index_contract_version===2?{applicability:section.applicability,category:section.category,dependencies:section.dependencies}:{}),
                 bytes: Buffer.byteLength(section.text, "utf8") }]) };
     });
 }

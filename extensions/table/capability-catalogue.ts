@@ -1,5 +1,6 @@
 /** Request-local schema views derived from the canonical registry; never an execution registry. */
 import {createHash} from 'node:crypto';
+import {CORE_CAPABILITY_NAMES} from '../../kernel-ts/apply/kinds.ts';
 type Row = Record<string, any>;
 export interface CapabilityTool {name: string; description: string; parameters: Row}
 export interface CapabilityCard {
@@ -120,6 +121,8 @@ export function capabilityCatalogue(tools: readonly CapabilityTool[]): Capabilit
             }
         }
     }
+    if(cards.some(card=>!CORE_CAPABILITY_NAMES.includes(card.name)))
+        throw Error('Capability catalogue has an unregistered core name');
     return cards;
 }
 
