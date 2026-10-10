@@ -3,12 +3,14 @@ import {readFileSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync,
 import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {test} from 'node:test';
 import {readJevApiKey, describeJevConfig, API_KEY_KEY, API_KEY_ENV, SETTINGS_ENV} from '../../extensions/jev/agent/config.js';
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
 import {JEV_MODEL} from '../../runtime/jev/question-packing.ts';
 import {agentExtensionManifests, runtimeEntrypoints, sessionExtensionPaths, desktopSessionExtensionPaths} from '../../runtime/deployment.mjs';
+import {loadContributedAuthProvider} from '../../Electron/packages/pi-backend/src/extension-auth-providers.ts';
 
 const key = 'jev-test-secret';
 const managed = (extra = {}) => ({PIPIUI_SPAWN_CONTRACT: '{}', PIPIUI_MOUNTED_EXTENSIONS: 'kernel,jev',
@@ -46,7 +48,7 @@ test('the manifest owns a secret setting and is included in both emitted session
   assert(desktopSessionExtensionPaths(entries).includes(entries.jev));
 });
 
-test('the actual profile installer installs the emitted Jev entry and settings UI in an isolated profile', t => {
+test('the actual profile installer installs Jev and a relocatable DeepSeek auth provider in an isolated profile', async t => {
   const root = new URL('../../', import.meta.url).pathname;
   const temporary = mkdtempSync(join(tmpdir(), 'jev-profile-install-'));
   t.after(() => rmSync(temporary, {recursive: true, force: true}));
@@ -64,6 +66,15 @@ test('the actual profile installer installs the emitted Jev entry and settings U
   assert.equal(manifest.agent.extension, 'agent/index.mjs');
   assert.equal(readFileSync(join(installed, manifest.agent.extension), 'utf8'), readFileSync(join(root, 'build/extensions/jev/agent/index.mjs'), 'utf8'));
   assert.equal(readFileSync(join(installed, manifest.app.ui.settingsSections[0].entry), 'utf8'), readFileSync(join(root, 'extensions/jev/app/settings-jev.js'), 'utf8'));
+  const providerDirectory = join(temporary, '.pi/coc-agent/extensions/deepseek');
+  const provider = await loadContributedAuthProvider(providerDirectory, {cacheDir: null});
+  assert.equal(provider.id, 'deepseek-extended');
+  assert.equal(provider.config.api, 'openai-responses');
+  assert.equal(typeof provider.config.streamSimple, 'function');
+  assert.ok(provider.config.models.some(model => model.id === 'deepseek-flash'));
+  const host = await import(pathToFileURL(join(providerDirectory, 'agent/host.js')).href);
+  assert.equal(typeof host.createAuthProvider, 'function');
+  assert.equal(typeof host.effectiveCatalog, 'function');
 });
 
 function fixture() {

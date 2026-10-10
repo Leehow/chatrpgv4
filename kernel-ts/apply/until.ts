@@ -3,6 +3,9 @@
  * counted from the day this turn began: 0 = that day, 1 = the day after); the kernel turns it into the minutes from
  * the staged clock. A skip's length is the time it reaches, not an activity's cost, and counting minutes across
  * midnight is arithmetic the model gets wrong (npc-acts-b2 turn 8 wrote fifteen minutes for a night).
+ * §211.1: `days` is optional. Absent, the time names its next occurrence at or after the staged clock (that day when
+ * not yet past, else the day after): the host's declared clock endpoint ("until 23:30") sends only the time, and the
+ * kernel, the clock's one authority, resolves the day and the minutes.
  */
 import { RpcError } from '../errors.js';
 import { clockSection, clockStart } from '../read/capsule.js';
@@ -33,20 +36,25 @@ export function bindUntil(context: ApplyContext, effect: Row): Row {
             fix: `leave ${fields.join(', ')} out to use until, or until out`, details: { fields } });
     const until = row(effect.until), days = until.days, time = typeof until.time === 'string' ? /^(\d{2}):(\d{2})$/.exec(until.time) : null;
     const hour = time ? Number(time[1]) : NaN, minute = time ? Number(time[2]) : NaN;
-    if (!integer(days) || number(days) < 0 || !time || hour > 23 || minute > 59)
-        refuse('until_invalid', `until must be {days: a whole number from 0, time: "HH:MM"}, not ${repr(effect.until)}`, {
-            fix: 'days counts from today (0 today, 1 tomorrow); time is the local 24-hour time the fiction reaches, such as "08:00"' });
+    if (days != null && (!integer(days) || number(days) < 0) || !time || hour > 23 || minute > 59)
+        refuse('until_invalid', `until must be {days?: a whole number from 0, time: "HH:MM"}, not ${repr(effect.until)}`, {
+            fix: 'days counts from today (0 today, 1 tomorrow) and may be left out for the next occurrence of the time; time is the local 24-hour time the fiction reaches, such as "08:00"' });
     // Days count from the day this turn began, not from the staged clock: "tomorrow" is the day after the scene the
     // prose left, however much of the night this turn already landed (live table time-skip-a, turn 5, where 1050
     // minutes and then until {days: 1} put the clock a day past the prose). The same until twice is one time.
     const start = clockStart(context.graph, row(context.world.clock)).minutes;
     const now = start + Math.trunc(number(row(context.world.clock).minutes));
     const began = now - landedMinutes([...array(context.turn.receipts).map(row), ...(context.staged?.() ?? [])]);
-    const target = Math.floor(began / 1440) * 1440 + number(days) * 1440 + hour * 60 + minute;
+    // §211.1: no days names the next occurrence of the time at or after the staged clock -- never a refusal, since the
+    // clock only moves forward and the player (or the Keeper) named a moment, not a day.
+    const minuteOfDay = hour * 60 + minute, nextOccurrence = Math.floor(now / 1440) * 1440 + minuteOfDay + (minuteOfDay < ((now % 1440) + 1440) % 1440 ? 1440 : 0);
+    const target = days == null ? nextOccurrence : Math.floor(began / 1440) * 1440 + number(days) * 1440 + minuteOfDay;
     if (target < now)
         refuse('until_not_forward', `until ${number(days)} day(s), ${until.time} is before the clock`, {
-            fix: 'the clock only moves forward, and days count from the day this turn began: a time of day already past is days 1 or more',
+            fix: 'the clock only moves forward, and days count from the day this turn began: a time of day already past is days 1 or more, or leave days out for the next occurrence of the time',
             details: { clock: reading(context) } });
     const { until: _given, ...rest } = effect;
-    return { ...rest, minutes: target - now, until: { days: number(days), time: until.time } };
+    // The receipt's until is absolute either way: the days the kernel resolved, counted as §145.1 counts them.
+    const resolvedDays = days == null ? Math.floor(target / 1440) - Math.floor(began / 1440) : number(days);
+    return { ...rest, minutes: target - now, until: { days: resolvedDays, time: until.time } };
 }

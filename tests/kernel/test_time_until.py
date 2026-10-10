@@ -155,3 +155,51 @@ def test_an_undated_clock_binds_the_same_way(tmp_path):
         assert (clock(client)["day"], clock(client)["hh"], clock(client)["mm"]) == (2, "06", "15")
     finally:
         client.close()
+
+
+# §211.1: `until` without `days` is the next occurrence of the time at or after the staged clock. The host's declared
+# clock endpoint ("wait until 23:30", issue #112 blocker 2) sends only the time; the kernel resolves the day.
+
+
+def time_at(client, call_id, time, **extra):
+    return client.table("apply", call_id=call_id, effects=[{"kind": "time", "until": {"time": time}, **extra}])
+
+
+def test_until_without_days_is_later_today_when_not_yet_past(kernel):
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 8 * 60 + 1}])
+    assert clock(kernel)["at"] == "1920-10-12T18:01"
+    time_at(kernel, "t1-c2", "23:30", why="waiting on the granite outside the closed library")
+    assert clock(kernel)["at"] == "1920-10-12T23:30"
+    receipt = turn_receipts(kernel)[-1]
+    assert receipt["minutes"] == 329 and receipt["until"] == {"days": 0, "time": "23:30"}
+
+
+def test_until_without_days_is_the_next_day_when_already_past(kernel):
+    open_turn(kernel)
+    time_at(kernel, "t1-c1", "06:00")
+    assert clock(kernel)["at"] == "1920-10-13T06:00"
+    receipt = turn_receipts(kernel)[-1]
+    assert receipt["minutes"] == 20 * 60 and receipt["until"] == {"days": 1, "time": "06:00"}
+
+
+def test_until_without_days_equal_to_the_clock_lands_nothing(kernel):
+    open_turn(kernel)
+    time_at(kernel, "t1-c1", "10:00")
+    assert clock(kernel)["at"] == "1920-10-12T10:00" and turn_receipts(kernel)[-1]["minutes"] == 0
+
+
+def test_until_without_days_counts_from_the_staged_clock_across_midnight(kernel):
+    """At 03:30 the next day after a night, 10:30 without days is that same morning, never a day beyond it."""
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 1050}])
+    assert clock(kernel)["at"] == "1920-10-13T03:30"
+    time_at(kernel, "t1-c2", "10:30")
+    assert clock(kernel)["at"] == "1920-10-13T10:30"
+    assert turn_receipts(kernel)[-1]["minutes"] == 7 * 60 and turn_receipts(kernel)[-1]["until"] == {"days": 1, "time": "10:30"}
+
+
+def test_until_without_days_still_refuses_a_bad_time(kernel):
+    open_turn(kernel)
+    for bad in ({"time": "8:00"}, {"time": "24:00"}, {"days": "1", "time": "08:00"}, {}):
+        refused(kernel, [{"kind": "time", "until": bad}], "until_invalid")

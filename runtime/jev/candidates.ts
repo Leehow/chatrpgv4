@@ -18,7 +18,7 @@ import {DICE, guardsOf, obligationCandidates, preordainedContacts} from './oblig
 import {composeSentence} from './composed-arguments.ts';
 import {npcTurnCandidate} from './npc-act-step.ts';
 import {damageQuestion, timeQuestion, type DamageBandRow, type TimeBandRow} from './band-shadow-domain.ts';
-import {declaredDurations} from './declared-duration.ts';
+import {declaredClockTimes, declaredDurations} from './declared-duration.ts';
 
 type Row = Record<string, any>;
 export {bindingOf, type Binding, type Candidate, type Json, type Unbound} from './step-policy.ts';
@@ -67,22 +67,28 @@ export interface BandReads {time?: TimeBandRow[]; damage?: DamageBandRow[]; gate
  * The `why` is composed; Jev selects an issued interval or row; the host converts or the kernel rolls minutes.
  */
 function timeCandidate(rows: TimeBandRow[], rawInput: string, gate: number | undefined): Candidate | undefined {
-  const question = timeQuestion(rows), durations = declaredDurations(rawInput),
+  // §211.2: literal clock endpoints beside the literal intervals; the kernel counts the minutes to a chosen endpoint.
+  const question = timeQuestion(rows), durations = declaredDurations(rawInput), clocks = declaredClockTimes(rawInput),
+    literal = Object.keys(durations).length > 0 || Object.keys(clocks).length > 0,
     descriptions = {...question.criteria as Record<string,string>, ...Object.fromEntries(Object.entries(durations).map(([alias,value])=>[alias,
-      `Exact literal interval ${JSON.stringify(value.text)} at input UTF-16 [${value.start}, ${value.end}): ${value.minutes} whole minutes. Select only if the player chose this interval to elapse now.`]))},
+      `Exact literal interval ${JSON.stringify(value.text)} at input UTF-16 [${value.start}, ${value.end}): ${value.minutes} whole minutes. Select only if the player chose this interval to elapse now.`])),
+      ...Object.fromEntries(Object.entries(clocks).map(([alias,value])=>[alias,
+      `Exact literal clock time ${JSON.stringify(value.text)} at input UTF-16 [${value.start}, ${value.end}): the 24-hour reading ${value.time}. Select only if the player chose to wait or let time pass until this clock time now; the kernel counts the minutes from the current game clock to its next occurrence.`]))},
     options = Object.keys(descriptions).filter(key => key !== 'unknown');
   if (!options.length) return undefined;
   return {key: TIME_CANDIDATE_KEY, verb: 'apply', family: 'time', source: 'rules.bands',
-    label: 'Charge actual completed or attempted time, using a chosen interval or a fitting activity band',
-    bound: {kind: 'time', why: composeSentence(Object.keys(durations).length
-      ? 'The time actually consumed by the selected wait or supported completed/attempted portion, from an exact interval or kernel row'
+    label: 'Charge actual completed or attempted time, using a chosen interval, a chosen clock endpoint or a fitting activity band',
+    bound: {kind: 'time', why: composeSentence(literal
+      ? 'The time actually consumed by the selected wait or supported completed/attempted portion, from an exact interval, a chosen clock endpoint or kernel row'
       : 'The time actually consumed by a supported completed/attempted portion, from a fitting kernel time-cost row', rawInput)},
     composed: ['why'],
     ...(Object.keys(durations).length ? {timeDurations: durations} : {}),
+    ...(Object.keys(clocks).length ? {timeClocks: clocks} : {}),
     unbound: [{name: 'band', required: true, vocabulary: 'closed', options, descriptions, instruction: String(question.instructions)
       + ' Select only the actual completed or attempted portion supported by the current state and known result. A chosen wait counts its actual interval; an inquiry, OOC clarification, future plan, quotation, estimate, deadline, negation or conditional step not reached belongs to unknown. An unavailable service or blocked access does not mean the full planned search, research, conversation or entry happened. Use a short fitting band for a genuinely established brief attempt, never charge the entire unreached goal. Do not invent NPC agreement, permission, completion or a venue.'
       + ' An explicit interval that is not offered must remain unknown; never choose an estimated activity band to replace it.'
-      + (Object.keys(durations).length ? ' If the declaration chooses a fixed interval to elapse now, choose its exact literal duration instead of an estimated activity band. A historical interval, quoted promise, estimate, deadline, negated action or conditional future interval is not chosen time. A bounded wait that ended earlier uses only its actually settled interval. Compound or otherwise unsupported exact intervals need unknown; never substitute an estimate for them. The lexer only enumerates syntax; it grants no action or story outcome.' : ''),
+      + (Object.keys(durations).length ? ' If the declaration chooses a fixed interval to elapse now, choose its exact literal duration instead of an estimated activity band. A historical interval, quoted promise, estimate, deadline, negated action or conditional future interval is not chosen time. A bounded wait that ended earlier uses only its actually settled interval. Compound or otherwise unsupported exact intervals need unknown; never substitute an estimate for them. The lexer only enumerates syntax; it grants no action or story outcome.' : '')
+      + (Object.keys(clocks).length ? ' If the declaration chooses to wait or let time pass until a literal clock time now, choose that exact clock time instead of an estimated activity band; the kernel counts the minutes to its next occurrence from the current game clock. A clock time that is a schedule, an opening or closing hour, an appointment, a quotation, a deadline, a past moment, a 12-hour reading the words contradict, or a condition not reached is not a chosen endpoint and needs unknown. The lexer only enumerates syntax; it grants no action or story outcome.' : ''),
       band: {table: 'time-costs', field: 'time.band', primitive: 'choice', ...(gate !== undefined ? {gate} : {})}}],
     routeFact: {target: 'whether an actual completed or attempted portion consumes uncounted game time',
       instructions: 'Did an actual completed or attempted in-world portion take time that this clock must count, or did the player actually choose a wait? Use the current local context, availability and known outcome; intention alone does not establish a completed activity. OOC questions are not fictional conversation. Unavailable service and blocked access cannot justify the full proposed duration. If the consumed portion is not established yet, leave it to the Keeper after the outcome; do not pre-charge a speculative result.',
@@ -90,7 +96,8 @@ function timeCandidate(rows: TimeBandRow[], rawInput: string, gate: number | und
         none: 'No countable in-world activity happened, or this is only travel already counted by move, an OOC clarification, or an action inside a fight.',
         unknown: 'Cannot be told from the supplied state.'}, selects: 'costs'},
     clerk: 'declared_time', basis: {read: 'rules.bands', path: 'time.band', row: {table: 'time-costs', rows: options},
-      ...(Object.keys(durations).length ? {duration_source: {read: 'current-player-input', occurrences: durations}} : {})} as Json};
+      ...(Object.keys(durations).length ? {duration_source: {read: 'current-player-input', occurrences: durations}} : {}),
+      ...(Object.keys(clocks).length ? {clock_source: {read: 'current-player-input', occurrences: clocks}} : {})} as Json};
 }
 
 /**

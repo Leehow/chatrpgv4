@@ -76,6 +76,12 @@ import { SETUP_STEPS, SETUP_TABLE } from "./setup-steps.mjs";
 const LOG = process.env.FAKE_KERNEL_LOG;
 /** The fixture's clock reading (09:15 on day 1) as minutes of the day, for `until` (contract §145.1). */
 const FAKE_CLOCK_MINUTES = 555;
+/** §145.1 / §211.1: `until` into minutes from the fixture's clock; without `days`, the time's next occurrence. */
+function untilMinutes(until, match) {
+	const minuteOfDay = Number(match[1]) * 60 + Number(match[2]);
+	if (until.days == null) return minuteOfDay >= FAKE_CLOCK_MINUTES ? minuteOfDay - FAKE_CLOCK_MINUTES : minuteOfDay + 1440 - FAKE_CLOCK_MINUTES;
+	return until.days * 1440 + minuteOfDay - FAKE_CLOCK_MINUTES;
+}
 /** The turn whose one §145.3 refusal was spent. */
 let timeGateTurn = -1;
 const ERRORS = process.env.FAKE_KERNEL_ERRORS ? JSON.parse(process.env.FAKE_KERNEL_ERRORS) : {};
@@ -1069,9 +1075,10 @@ function handle(method, params) {
 					const fields = ["minutes", "stated"].filter((field) => effect[field] != null);
 					if (fields.length) return refuse("until_conflict", "until names the time the clock reaches; give one amount", { fields });
 					const match = /^(\d{2}):(\d{2})$/.exec(effect.until.time ?? "");
-					if (!Number.isInteger(effect.until.days) || effect.until.days < 0 || !match || Number(match[1]) > 23 || Number(match[2]) > 59)
-						return refuse("until_invalid", "until must be {days, time: HH:MM}");
-					const minutes = effect.until.days * 1440 + Number(match[1]) * 60 + Number(match[2]) - FAKE_CLOCK_MINUTES;
+					if (effect.until.days != null && (!Number.isInteger(effect.until.days) || effect.until.days < 0) || !match || Number(match[1]) > 23 || Number(match[2]) > 59)
+						return refuse("until_invalid", "until must be {days?, time: HH:MM}");
+					// §211.1: no days is the next occurrence of the time at or after the fixture's clock.
+					const minutes = untilMinutes(effect.until, match);
 					if (minutes < 0) return refuse("until_not_forward", "until is before the clock", { clock: { at: "1925-06-01T09:15", day_part: "morning" } });
 				}
 				if (effect.kind === "cash" && effect.stated == null && typeof effect.delta !== "number") {
@@ -1117,7 +1124,7 @@ function handle(method, params) {
 				if (effect.kind === "time") {
 					// A band's minutes are the kernel's roll (§138); the fixture rolls a fixed twenty. §145.1: until counts from the fixture's clock.
 					const until = /^(\d{2}):(\d{2})$/.exec(effect.until?.time ?? "");
-					mechanic({ kind: "time", minutes: effect.band != null ? 20 : until ? effect.until.days * 1440 + Number(until[1]) * 60 + Number(until[2]) - FAKE_CLOCK_MINUTES : effect.minutes });
+					mechanic({ kind: "time", minutes: effect.band != null ? 20 : until ? untilMinutes(effect.until, until) : effect.minutes });
 				}
 				if (effect.kind === "map") {
 					mechanic({kind:'map',receipt:`map:${params.call_id}`,map:effect.name,name:effect.label??effect.name,

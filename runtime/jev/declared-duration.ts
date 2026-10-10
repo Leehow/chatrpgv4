@@ -99,3 +99,24 @@ export function declaredDurations(input:string):Record<string,DeclaredDuration> 
     for(let i=1;i<found.length;i++)if(/^(?:\s|[,+&/:;\-\u2212\u2013\u2014\uFF0C\u3001]|\band\b|\bplus\b|\u53c8|\u96f6|\u548c|\u52a0)*$/iu.test(input.slice(found[i-1].end,found[i].start))){compound.add(i-1);compound.add(i);}
     return Object.fromEntries(found.filter((value,i)=>!compound.has(i)&&Number.isSafeInteger(value.minutes)&&value.minutes>=0).map((value,i)=>[`duration:${i}`,value]));
 }
+
+/** §211.2: a literal 24-hour clock time in the input, a clock endpoint Jev may choose; the kernel counts the minutes to it. */
+export interface DeclaredClock {text:string;start:number;end:number;time:string}
+const clocks=/(?<![0-9A-Za-z_:\uFF1A]|[0-9]\.)([0-9]{1,2})[:\uFF1A]([0-9]{2})(?![0-9A-Za-z_:\uFF1A]|\.[0-9])/gu;
+/**
+ * Literal clock-time occurrences only, as `clock:<n>`: one or two digits, a colon, two digits, hour 00-23 and minute 00-59,
+ * bounded so a longer numeric or alphanumeric token ("12:05:30", "1920-10-12T18:01") exposes nothing. No word is read: whether
+ * the time is the endpoint the player chose to wait until, a schedule, a quotation or a deadline is Jev's decision.
+ */
+export function declaredClockTimes(input:string):Record<string,DeclaredClock> {
+    if(input.length>16000)return {};
+    const found:DeclaredClock[]=[];
+    clocks.lastIndex=0;
+    for(let match=clocks.exec(input);match;match=clocks.exec(input)){
+        const hour=Number(match[1]),minute=Number(match[2]);
+        if(hour>23||minute>59)continue;
+        found.push({text:match[0],start:match.index,end:match.index+match[0].length,time:`${String(hour).padStart(2,'0')}:${match[2]}`});
+        if(found.length>16)return {};
+    }
+    return Object.fromEntries(found.map((value,i)=>[`clock:${i}`,value]));
+}

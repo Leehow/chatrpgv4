@@ -20681,6 +20681,7 @@ SL-44 ticket's Comments.
 - Provider-native search results remain untrusted external reference. Authored fiction, previously delivered details, quotations and kernel receipts remain primary. References may inform compatible appearance, practices and NPC dialogue, with actual source period/place/units preserved. Ordinary new-item quotations use established scales; only a concrete player challenge calls for a targeted price check. References never supply hidden module truth, consent or settled effects.
 - Original server tool/result blocks and source metadata are captured before Pi normalization and retained only as session entries and telemetry. The outgoing request restores original protocol blocks when their corresponding assistant message is still present. Content identity and native call ids bind restoration; compaction never invents missing evidence, and another campaign/model cannot receive it. No model copies encrypted source bodies, provider ids or call ids. Search records are distinct from kernel tool execution and must not be executed locally.
 - Search declarations coexist with game functions. The host does not force tool_choice=none after searching. A native search followed by an ordinary game tool call must retain the server tool/result pair and the local call/result pair in the next provider request. Anthropic pause_turn is continued with the original blocks, not counted as a delivered Keeper answer. Cancellation and provider errors keep their ordinary semantics.
+- The profile-installed DeepSeek auth-provider module uses the same compiled extension bundle as its agent entry, including the shared native-search adapter. Its exported provider and host factories keep their existing contract. Raw cross-package source imports must not survive profile installation; loading the installed provider must work without a repository runtime directory beside the writable profile.
 - Three ends: the provider writes native search blocks; the Pi request/stream adapter captures and restores them; the same Keeper uses them and invokes the existing game gateway. Validation checks actual outbound requests and native events, followed by real driver play for search -> game tools -> narration. Direct API probes and offline protocol fixtures are separate evidence.
 
 
@@ -42429,6 +42430,19 @@ Request bytes and provider tokens are reported separately:
 - Credentials are never logged. Selection counters are never fed to the Keeper as obligations.
 - Provider-adapter projection is not final delivery proof. The existing opt-in Grok transport observer records the completed outgoing HTTP entity's byte count and digest from Undici's public request diagnostics, bound to its attempt and wire. The additional explicit `PI_COC_GROK_TRANSPORT_TRACE_RAW_REQUEST=1` flag, together with the existing raw-response flag, permits a bounded, credential-redacted request body, so final schemas and original Mod packets can be compared after all payload hooks. The response flag alone never records prompt text. It never reads headers into evidence, consumes a request stream, changes a callback or waits for disk on the request path. Oversized, aborted or unavailable observations are explicitly incomplete and cannot prove retention. Entity bytes do not include TCP/TLS framing and do not prove that the provider used the instructions.
 
+### 209.13 Request capacity: the context owner never fails open (2026-10-10, #112 handoff blocker 1)
+
+**Observed.** On the 934 GUI table, kernel turn 18 (the library-closing input), the turn's last inference sent a 1,731,240 B HTTP entity (380,388 input tokens) while the same turn's earlier requests were 269–337 KB. The telemetry of that request has `mod-discovery {event: prepared, reason: forced_full, bytes: 57386}`, then `request_projection` with 1,910,857 B and `mod_discovery_bytes: 2`, and no `context/request` row, no `mod-discovery delivered` row, and the turn's temporal advice settling only after the provider call. The session branch since the last fold, rebuilt from the session file, measures 1,779,836 B, which with the 131,622 B system head is the projected request: the whole stored branch went out.
+
+**Cause (three ends).** *Writer:* the table context hook (`extensions/table/context-runtime.ts`) fitted the bounded projection to its budget first; on this busy turn the turn's own tool traffic filled it, so the full-view discovery packet no longer fit and the hook threw `mod_discovery_request_capacity`. *Reader:* Pi's `ExtensionRunner.emitContext` (vendored `vendor/pi/packages/coding-agent/src/core/extensions/runner.ts`) catches a `context` handler's error, reports it as an extension error and keeps the messages that handler was given, which for this hook are the unreduced branch. *Actor:* the provider adapter serialized what the runner returned. A throw meant to keep a capacity failure explicit was, at this seam, the one unbounded request. Observer bounds (`request_body_limit`) only showed it; they are not the fix and stay unchanged.
+
+**Decisions.**
+
+1. **No throw leaves the `context` hook.** Pi treats a thrown `context` handler as "no change", so every failure the hook does not handle itself is answered with the existing degraded shape: a context diagnostic with `reason: "context_projection_failed"` and a bounded tail of original conversation evidence under the ceiling (the same filter as an unavailable snapshot: the full-view mode keeps the whole evidence set, selective/shadow drops the host's ephemeral material). Ephemeral selected instructions, schemas and delivered keys are discarded; selective/shadow marks discovery unavailable, so `apply`/`resolve` stay held (§209.11). The `context/request` row records `reason`, a truncated `error`, sizes, `dropped_tail` and `capacity: "request_ceiling_exceeded"` when even that tail cannot fit.
+2. **Required package detail outranks compressible traffic.** When the discovery packet does not fit beside the bounded projection, the projection is recomputed with the packet's bytes reserved. Closed history and this turn's older tool traffic yield first, through the ordinary cut and its `request_ceiling_reached` diagnostic; the current input, capsule, brief, tool pairing and the turn tail stay protected as before. The §183.5 section packet is optional beside it and joins only when it still fits with the discovery packet; temporal and expression advice keep their existing fit checks after it. The row records `mod_discovery_reserved: true` and `mod_discovery_bytes`.
+3. **What cannot fit is omitted explicitly, never cut or thrown.** If the protected floor plus the packet still exceeds the ceiling, or the packet exceeds its own bound (`mod_discovery_capacity`, mod-discovery.ts), or its immutable detail cannot be read (`mod_discovery_detail_unavailable`), the packet is not sent and is not truncated. The request carries a context diagnostic with that reason, the `context/request` row carries `capacity` with the same reason and `mod_discovery_omitted_bytes` when known, and the `mod-discovery` lane records `{event: "omitted", reason, bytes}`. Nothing was delivered, so a mutating call whose triggered sections are required meets the §209.6 readiness hold (`no_commit: true`). Other read failures (a transport error, say) take decision 1.
+4. The ceiling is not raised, the packet is not split, and no Pi patch is added (§209.8). `tests/extension/context-request-capacity.test.mjs` runs the installed hooks through the vendored runner's `emitContext` and measures what Pi hands the provider: a reserved packet under the ceiling, an explicit omission with its write hold, and a projection failure that stays bounded. Before this decision all three cases reached the runner as context-handler errors and the stored branch was returned.
+
 ## 210. SQLite owns task records and home page-transcript management (approved2026-10-10)
 
 Specification: `docs/specs/sqlite-task-transcript-storage.md`. This first batch migrates
@@ -42458,6 +42472,80 @@ This is host storage only; no new kernel RPC, Keeper verb, world state, semantic
 resource setting or rules gate. Existing TaskStore and TranscriptStore callers are the
 consumers. Regression checks compare logical SQL state while original artifacts retain
 byte hashes. Spec, focused/full checks, exact runtime and genuine driver evidence are required.
+
+## 211. A declared clock endpoint binds as `apply time {until}`; the kernel counts to its next occurrence (2026-10-10, issue #112 blocker 2; amends §138.10's literal intervals and §145.1's `until`)
+
+**Evidence.** Table `gui-world-e091` / campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0` (runtime 934bc3383), turns 19-21,
+clock 1920-10-12 18:01 after the library closed. The player said, in two genuine inputs, first an evening meal and rest until
+23:30 and then, isolated, a wait until 23:30. Both runs bound `apply:time:declared` with `unknown_binding`, `unresolved: ["band"]`,
+and the run ended `declared_time_unresolved`; the clock stayed at 18:01 and the Keeper, correctly, invented nothing
+(`934-declared-clock-wait-blocker.json`). The guard did its job: the defect is upstream of it.
+
+**The gap, by the three ends (§31).** *Writer:* §138.10's declared-time candidate (`timeCandidate`, `runtime/jev/candidates.ts`)
+offers the time-cost rows and the literal **elapsed intervals** the lexer enumerates (`declaredDurations`,
+`runtime/jev/declared-duration.ts`: a numeral and a unit, "five minutes", "9 and a half hours"). A clock **endpoint** -- "until
+23:30" -- is neither a row nor an interval: the 2026-10-09 amendment to §138.10 said so explicitly ("absolute clock endpoints
+remain unsettled"), so Jev had no option that was true and answered `unknown`, as it must. The kernel already holds the right
+representation of an endpoint, §145.1's `apply time {until: {days, time}}`, and is the one place the elapsed delta is computed from
+the authoritative staged clock -- but nothing on the host could reach it: `clerkBind` (`runtime/jev/step-policy.ts`) maps a chosen
+alias only to `minutes`, and §145.1 demanded `days` counted from the day the turn began, which the host does not know (its capsule
+clock is the committed clock, not the staged one) and Jev must not compute (§145.2: Jev does not compare times). *Reader/actor:*
+the kernel's `bindUntil` and the clock, both idle for this case.
+
+**The decision.** The endpoint is represented where it already is -- `until` on the `time` effect -- and the delta is the kernel's
+to count, never the host's or Jev's or the Keeper's. Two amendments make the path whole:
+
+### 211.1 `until.days` is optional: absent, the next occurrence (amends §145.1)
+
+`until: {time}` without `days` names **the next occurrence** of that local time at or after the **staged** clock: that day when the
+time of day is not yet past, otherwise the day after; a time equal to the staged clock lands 0 minutes. `days`, when given, keeps
+§145.1's meaning (counted from the day this turn began) and its `until_not_forward` refusal. The receipt's `until` carries the
+`days` the kernel resolved beside the given `time`, so the receipt is an absolute statement either way, and the bound `minutes`
+drive the clock, rest and recovery exactly as before. `until_invalid` now reads "not `{days?: integer ≥ 0, time: "HH:MM"}`".
+The tool schema (`extensions/kernel/tools.ts`) makes `days` optional and says what its absence means; the fake kernel
+(`tests/extension/fixtures/fake-kernel.mjs`) binds the same way against its fixed clock. A Keeper that names a time without a day
+("until 08:00") gets the morning the prose reached, which is what §145.1's live case (`time-skip-a`, turn 5) wanted; §156's guard
+reads the bound minutes and is unchanged.
+
+### 211.2 The declared-time choice offers literal clock endpoints (amends §138.10)
+
+Beside the rows and the literal intervals, the host enumerates **literal 24-hour clock times** in the current player input
+(`declaredClockTimes`, `runtime/jev/declared-duration.ts`): one or two digits, a colon (ASCII `:` or fullwidth `：`), two digits,
+hour 00-23 and minute 00-59, bounded so that a longer numeric or alphanumeric token ("12:05:30", "1920-10-12T18:01", "x23:30")
+exposes nothing. Each occurrence is `{text, start, end, time: "HH:MM"}` under the alias `clock:<n>`, carried on the candidate as
+`timeClocks`, and described to Jev as "exact literal clock time ... the 24-hour reading HH:MM. Select only if the player chose to
+wait or let time pass until this clock time now; the kernel counts the minutes from the current game clock to its next
+occurrence." The instruction tells Jev that a clock time that is a schedule, an appointment, a quotation, a deadline, a past
+moment, a 12-hour reading the words contradict or a condition not reached is not a chosen endpoint. This is closed numeral syntax,
+like the interval lexer: no word is read, no language detected, no intent classified; **Jev**, from the model-produced structure,
+decides whether the literal is the endpoint the player chose, exactly as it decides for an interval. Han-numeral clock forms and
+12-hour forms are not enumerated: a player who writes them keeps today's path (unsettled; the Keeper asks in character), and the
+limit is recorded here rather than guessed at.
+
+**The binding** (`clerkBind`, `runtime/jev/step-policy.ts`). A chosen `clock:<n>` binds `extra.until = {time}` -- no `days`: the
+kernel resolves the occurrence -- and records `{name: "until", path: "jev", value: "HH:MM", confidence, distribution, semantic}`,
+as a chosen interval records `minutes`. `keeperCall` sends `apply time {why, until: {time}}` through the canonical gateway;
+admission already lists `until` among the time effect's fields (§32.12). The candidate's basis gains
+`clock_source: {read: "current-player-input", occurrences}` beside `duration_source`. The gate, the pooled three views (§163.10),
+the `declared_time_unresolved` path, the Keeper's replacement-time refusal and "time is charged once" are all unchanged: a
+clock literal below the gate, unoffered, forged or answered `unknown` still ends in the compose with the unsettled note.
+
+**Edge cases decided.** A target earlier than the staged clock's time of day (at 18:01, "until 06:00") is the next day's 06:00:
+the clock only moves forward and the player named a moment, not a day; a target equal to the clock lands 0 minutes; "until
+23:30" at 18:01 lands 329 minutes and the clock reads 23:30 the same day. The elapsed minutes come from the kernel's receipt,
+never from the host, and the `time-reading` reconciliation (§145.3) still reads the delivered prose against the books.
+
+**Three ends.** *Writer:* the host's lexer (occurrences) and Jev's choice (the endpoint), the clerk's `apply time {until}`, the
+kernel's `bindUntil` (the minutes). *Reader:* the `lane: "run"`, `event: "bind"` row with `name: "until"`; the time receipt's
+`until` and `minutes`; the capsule's clock; `kpi.py`'s `basis` counts the receipt as a clerk write like a literal interval.
+*Actor:* the kernel advances the clock, the rest entry and recovery; the Keeper narrates the time that actually passed.
+
+**Tests.** `tests/extension/declared-time-interval.test.mjs` (the lexer's accepted and refused clock forms and their spans; a
+chosen clock alias binds `until` without `days` and no `minutes`/`band`; an unoffered or `unknown` clock is the compose; over the
+TS kernel at 18:01: "until 23:30" lands 329 minutes and 23:30, an earlier time of day lands the next day, the receipt carries the
+resolved `days`, the Keeper's `until` with `days` is unchanged); `tests/kernel/test_time_until.py` (emitted kernel: `until`
+without `days` -- later today, next day when past, equal is 0, the batch's earlier time moves the base, the receipt's resolved
+`days`; `until_invalid` still refuses a bad `time`).
 
 ## 212. Source failure recovery and bounded transport diagnostics (approved2026-10-10)
 

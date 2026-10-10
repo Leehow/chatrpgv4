@@ -19,7 +19,7 @@ before(async()=>{
         "export {createKernelRuntime} from './kernel-ts/registry.ts';",
         "export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';"
         ,"export {CampaignWriter} from './kernel-ts/write/store.ts';"
-        ,"export {declaredDurations} from './runtime/jev/declared-duration.ts';"
+        ,"export {declaredClockTimes,declaredDurations} from './runtime/jev/declared-duration.ts';"
     ].join('\n'),resolveDir:root,sourcefile:'declared-time-entry.ts'},outfile:join(bundle,'api.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',logLevel:'silent'});
     api=await import(pathToFileURL(join(bundle,'api.mjs')).href);
 });
@@ -155,5 +155,85 @@ test('exact five-minute and nine-and-a-half-hour intervals reach apply, clock pr
         }
         const final=await campaign.readWorld();assert.equal(final.clock.minutes-initial.clock.minutes,575);
         if(process.env.JEV04_REPORT)await writeFile(process.env.JEV04_REPORT,JSON.stringify({kind:'closed-decision-kernel-contract',live_play:false,model_calls:0,initial_minutes:initial.clock.minutes,final_minutes:final.clock.minutes,evidence},null,2)+'\n');
+    }finally{await runtime.close();}
+});
+// §211 (issue #112 blocker 2): a declared clock endpoint -- "wait until 23:30" -- binds as `apply time {until: {time}}`;
+// the kernel counts the minutes to its next occurrence from the staged clock. Closed decision replay; no model, no play.
+const waitInput='I sit on the granite outside the closed library and wait until 23:30 before going back in. I do not leave.';
+test('§211.2 a literal clock time in the declaration is an issued endpoint beside the activity bands and intervals',()=>{
+    const value=candidate(waitInput),clocks=Object.entries(value.timeClocks??{});
+    assert.equal(clocks.length,1,'the chosen clock endpoint must be representable, instead of only estimated activity bands');
+    const [alias,clock]=clocks[0];assert.equal(alias,'clock:0');assert.equal(clock.time,'23:30');assert.equal(waitInput.slice(clock.start,clock.end),clock.text);
+    assert.deepEqual(value.timeDurations??{},{},'a clock endpoint is not an elapsed interval');
+    const batch=api.bindBatch(api.initialView({runId:'clock-replay',rawInput:waitInput,context,candidates:[value],compile:false,readFirst:false}),value,scope,[]);
+    assert.match(batch.questions[0].criteria[alias],/24-hour reading 23:30/);assert.match(batch.questions[0].instructions,/next occurrence/);
+    assert.ok(Object.hasOwn(batch.questions[0].criteria,'short_rest'),'ordinary activities retain the actual kernel band');
+    assert.equal(value.basis.clock_source.read,'current-player-input');
+});
+test('§211.2 a chosen clock endpoint binds until {time} with no days, minutes or band; unoffered, unknown or low stays unsettled',()=>{
+    const value=candidate(waitInput),alias=Object.keys(value.timeClocks)[0];
+    const bound=bind(value,alias);assert.deepEqual(bound.pending.map(p=>[p.kind,p.purpose]),[['direct','execute']]);
+    const effect=api.kernelCall(value,bound.extra).params.effects[0];
+    assert.deepEqual(effect.until,{time:'23:30'},'the host sends only the time; the kernel resolves the day and the minutes');
+    assert.equal(effect.minutes,undefined);assert.equal(effect.band,undefined);assert.equal(effect.kind,'time');
+    assert.equal(bound.bindings[0].name,'until');assert.equal(bound.bindings[0].path,'jev');assert.equal(bound.bindings[0].value,'23:30');
+    for(const held of [bind(value,'unknown'),bind(value,'clock:7'),bind(value,alias,0.2),api.interpretBind(value,bound.batch,undefined,0.6)]){
+        assert.equal(held.pending.some(p=>p.purpose==='execute'||p.purpose==='bind'||p.purpose==='adjudicate'),false);
+        assert.equal(held.pending[0].purpose,'compose');assert.equal(held.pending[0].extra.time_unsettled,true);
+    }
+    const ordinary=bind(value,'quick_observation');assert.equal(api.kernelCall(value,ordinary.extra).params.effects[0].band,'quick_observation');
+});
+test('§211.2 the clock lexer issues only bounded 24-hour literals; longer tokens, stamps and bad values expose nothing',()=>{
+    const accepted=[['23:30','23:30'],['9:05','09:05'],['00:00','00:00'],['23：30','23:30'],['18:01','18:01']];
+    for(const [literal,time] of accepted){
+        const text=`I wait until ${literal}.`,entries=Object.values(api.declaredClockTimes(text));
+        assert.equal(entries.length,1,literal);assert.equal(entries[0].time,time,literal);assert.equal(text.slice(entries[0].start,entries[0].end),literal);
+    }
+    assert.deepEqual(Object.values(api.declaredClockTimes('The call at 18:01 ended; I wait until 23:30.')).map(v=>v.time),['18:01','23:30'],'every occurrence is a closed choice; syntax chooses none');
+    for(const text of ['It is 1920-10-12T18:01 now.','I wait 12:05:30.','I wait until 24:00.','I wait until 23:60.','I wait until x23:30.','I wait until 23:30x.',
+        'I wait until 123:30.','I wait until 23:3.','I wait 1:30.5.','I wait until 23.30.','x'.repeat(16001)+' 23:30.',Array(17).fill('23:30.').join(' ')])
+        assert.deepEqual(api.declaredClockTimes(text),{},text.slice(0,40));
+    assert.equal(candidate('I wait until 23:30.',{...reads,applyOptions:{context:{current_receipts:[{kind:'time',minutes:5}]}}}),undefined,'time is charged once');
+});
+test('§211 over the TS kernel at 18:01: until 23:30 lands 329 minutes the same day, an earlier time of day lands the next day, equal lands 0',async()=>{
+    const home=playtestScratch('declared-clock-endpoint-contracts'),kernel=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'clock-wait',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(kernel);
+    try{
+        const call=(method,params={})=>runtime.handlers[method]({campaign:'c1',...params});
+        await call('campaign.create',{id:'c1',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});await call('table.open');
+        const campaign=new api.CampaignWriter(kernel,'c1');
+        // The evidence table's clock: The Haunting opens 10:00; the library closed at 18:01.
+        await call('table.player_input',{text:'I spend the day in the library until it closes.'});
+        await call('table.apply',{call_id:'t1-c1',effects:[{kind:'time',minutes:481,why:'the day in the library'}]});
+        await call('table.narrate',{call_id:'t1-c2',text:'The lamps go out at one minute past six; you are shown out.'});
+        assert.equal((await call('table.capsule')).where.clock.at,'1920-10-12T18:01');
+        const turns=[
+            {text:waitInput,time:'23:30',minutes:329,at:'1920-10-12T23:30',days:0,narrate:'The hours pass on the granite; at half past eleven you stand.'},
+            {text:'I wait until 06:00, when the first tram runs.',time:'06:00',minutes:390,at:'1920-10-13T06:00',days:1,narrate:'Dawn; the first tram.'},
+            {text:'I wait until 06:00 exactly, not a minute more.',time:'06:00',minutes:0,at:'1920-10-13T06:00',days:0,narrate:'It is six already.'}];
+        for(const [index,step] of turns.entries()){
+            const turn=index+2;
+            await call('table.player_input',{text:step.text});
+            const source={capsule:await call('table.capsule'),applyOptions:await call('table.apply.options'),resolveOptions:await call('table.resolve.options'),bands:{time:(await call('rules.bands',{field:'time.band'})).rows}};
+            const before=await campaign.readWorld();
+            const value=candidate(step.text,source),entries=Object.entries(value.timeClocks??{});
+            assert.equal(entries.length,1,step.text);assert.equal(entries[0][1].time,step.time);
+            const bound=bind(value,entries[0][0]),operation=api.kernelCall(value,bound.extra);
+            assert.deepEqual(operation.params.effects[0].until,{time:step.time});
+            const args={call_id:`t${turn}-c1`,...operation.params};
+            await call(operation.method,args);const replay=await call(operation.method,args);assert.equal(replay.replayed,true,'the same call lands once');
+            const status=await call('table.status'),after=await campaign.readWorld(),receipt=status.receipts.filter(r=>r.kind==='time').at(-1);
+            assert.equal(receipt.minutes,step.minutes,step.text);assert.equal(receipt.clock_after-receipt.clock_before,step.minutes);
+            assert.deepEqual(receipt.until,{days:step.days,time:step.time},'the receipt is absolute: the kernel resolved the day');
+            assert.equal(receipt.band,undefined);assert.equal(after.clock.minutes-before.clock.minutes,step.minutes);
+            assert.equal((await call('table.capsule')).where.clock.at,step.at);
+            assert.equal(after.active_scene,before.active_scene);assert.deepEqual(after.npc_locations,before.npc_locations);
+            await call('table.narrate',{call_id:`t${turn}-c2`,text:step.narrate});
+        }
+        // §145.1 unchanged: the Keeper's own until with days still counts from the day the turn began, and a bad time is refused.
+        await call('table.player_input',{text:'I come back the next morning.'});
+        await call('table.apply',{call_id:'t5-c1',effects:[{kind:'time',until:{days:1,time:'08:00'}}]});
+        const next=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
+        assert.equal(next.minutes,26*60);assert.deepEqual(next.until,{days:1,time:'08:00'});
+        await assert.rejects(call('table.apply',{call_id:'t5-c2',effects:[{kind:'time',until:{time:'8:00'}}]}),error=>error.details?.reason==='until_invalid');
     }finally{await runtime.close();}
 });
