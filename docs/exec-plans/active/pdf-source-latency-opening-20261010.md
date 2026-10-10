@@ -54,3 +54,20 @@ Do not change those historical records or claim an underlying network cause not 
 Owned checkout created. Source already carries findings and targeted/append repair modes;
 investigate before adding redundant machinery. Separate audit ofread18/map/delivery is
 bounded to existing evidence, with no model calls or state mutations. No implementation yet.
+
+Transport milestone: the prior observer discarded wrapped system causes. Added recognized
+Node/Undici/TLS code metadata through bounded cause/aggregate chains; no messages/addresses
+or unknown codes. Cycles/throwing accessors preserve the original callback outcome. Actual
+SDK connector failures, privacy and unchanged successful/cancelled stream tests26/26pass.
+Initial local test lacked the isolated build SDK cache; then a fixture used a Fetch-blocked
+port. Both were environment/fixture errors. A meaningful DNS case exposedENOTFOUND absent
+from libuv's system-error map; included that Node DNS code. All recorded test outputs remain.
+Only cached prior SDK dependencies were linked for local fixture checks, never as live
+runtime proof. Canonical LAN build/testing and an exact new runtime are still required.
+
+Bounded private audit shows map repair feedback and images reached the author; no PDF-page
+access restriction. read18's first structural warning reached the author, but a later
+semantic continuation finding was new. No proven lost-source-input host fault; do not
+force broad full rereads or patch source content merely to make these refusals disappear.
+The110s case submitted reading as ownership transfer, then a name with no successful public
+document evidence path. Inspect the existing physical-document/handout seam before repair.
