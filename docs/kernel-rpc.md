@@ -42458,3 +42458,29 @@ This is host storage only; no new kernel RPC, Keeper verb, world state, semantic
 resource setting or rules gate. Existing TaskStore and TranscriptStore callers are the
 consumers. Regression checks compare logical SQL state while original artifacts retain
 byte hashes. Spec, focused/full checks, exact runtime and genuine driver evidence are required.
+
+## 211. Source failure recovery and bounded transport diagnostics (approved2026-10-10)
+
+Execution record: `docs/exec-plans/active/pdf-source-latency-opening-20261010.md`.
+Correct source and disclosure refusals remain refusals. Repairs consume the existing
+author/reviewer/delivery paths and their existing rounds, identity/evidence checks and
+resource limits. Historical failures and original artifacts remain immutable evidence.
+Any changed source-repair input must be bound to the refused candidate and use the same
+deterministic publication and independent-review gates; no source-specific content patch.
+
+The existing opt-in Grok transport observer records bounded error code/cause metadata in
+metadata-only mode. It retains recognized Node system, TLS and Undici error codes from
+wrapping causes and AggregateError children, with at most eight entries and depth four.
+Unknown names/codes, messages, stack traces, addresses, paths, URLs, headers and arbitrary
+properties are excluded. Cycles and throwing accessors cannot fail the provider callback.
+Raw-response capture keeps its existing explicit opt-in and credential-redaction boundary.
+Diagnostics neither retry nor alter a request, consume an extra stream, change model or
+timeouts, or wait for disk on the request path. A code reports the observed failure stage,
+not proof of a particular proxy/upstream defect. Missing codes remain explicit uncertainty.
+
+### Kernel decisions
+
+No new kernel RPC or Keeper verb. The transport callback writes these metadata rows and
+the independent technical audit reads them for failure attribution; no decision/obligation
+is fed to the Keeper. Regression checks use actual public SDK/Undici boundaries with local
+fixtures and verify the original rejection identity and credential exclusion.
