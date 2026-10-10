@@ -12,6 +12,8 @@ const MANDATORY=['look','ask','narrate'];
 export function createCapabilityRuntime(deps:{
     tools:()=>readonly CapabilityTool[];
     decision:()=>DecisionPort|undefined;
+    /** Contract §209.14: the Keeper's purpose lookup is asked through its foreground owner; a string names why none is live. */
+    lookupDecision?:()=>DecisionPort|string;
     mode:()=>string;
     record:(row:Row)=>void;
 }){
@@ -36,14 +38,14 @@ export function createCapabilityRuntime(deps:{
             .map((op:Row)=>({kind:op.family,...op.bound,...Object.fromEntries((op.needs??[]).map((need:Row)=>[need.name,null]))}));
         return missingEffectCapabilities(effects,deps.tools(),new Set());
     }
-    function cachedDecision(request:string){
+    function cachedDecision(request:string,source:()=>DecisionPort|string|undefined=deps.decision){
         const queryKey=hash([key,request]);
         let pending=queries.get(queryKey);
-        if(!pending){pending=decide(request);queries.set(queryKey,pending);}
+        if(!pending){pending=decide(request,source);queries.set(queryKey,pending);}
         return pending;
     }
-    async function decide(request:string){
-        const port=deps.decision();if(!port)throw Error('unconfigured');
+    async function decide(request:string,source:()=>DecisionPort|string|undefined){
+        const port=source();if(typeof port==='string')throw Error(port);if(!port)throw Error('unconfigured');
         if(budget.ms<=0||budget.actions<=0)throw Error('selection_budget_exhausted');
         const currentKey=key,ownedBudget=budget,began=Date.now();let done=false;
         const settle=()=>{if(!done){ownedBudget.ms=Math.max(0,ownedBudget.ms-(Date.now()-began));done=true;}};
@@ -135,7 +137,7 @@ export function createCapabilityRuntime(deps:{
             if(!found)throw Error('Unknown capability name');
             names=[found.name];
         }else if(typeof args.query==='string'&&args.query.trim()){
-            try{names=(await cachedDecision(args.query)).names;}
+            try{names=(await cachedDecision(args.query,deps.lookupDecision??deps.decision)).names;}
             catch(error){
                 if(key!==current||signal.aborted)throw Error('Capability lookup input was replaced or cancelled');
                 selected=undefined;visible=undefined;widenPending=true;fallbackPinned=true;
