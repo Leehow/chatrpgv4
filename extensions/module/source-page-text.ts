@@ -159,7 +159,8 @@ export async function readSourcePageText(input: { pdf: string; options: SourcePa
 	const { pages, expected, layer, paragraphs } = validated(input.options);
 	signal?.throwIfAborted();
 	const fileSha256 = layer === "preferred" && input.store ? expected ?? await input.digest(input.pdf, signal) : expected;
-	const records = layer === "preferred" && input.store && fileSha256 ? await input.store.readPages(fileSha256, pages) : new Map<number, TranscriptRecord>();
+	const records = layer === "preferred" && input.store && fileSha256
+		? await input.store.readPages(fileSha256, pages).catch(() => new Map<number, TranscriptRecord>()) : new Map<number, TranscriptRecord>();
 	signal?.throwIfAborted();
 	const rest = pages.filter(page => !records.has(page));
 	const native = rest.length ? await input.nativeText({ pdf: input.pdf, pages: rest, ...(fileSha256 ? { expected_file_sha256: fileSha256 } : {}) }, signal) : undefined;

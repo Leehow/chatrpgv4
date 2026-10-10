@@ -147,9 +147,9 @@ test("§191.4 a record of another extraction version is ignored; a claim is excl
 	const taken = await store.claim(FILE, 2, 1000, 12_000);
 	assert.ok(taken, "a stale claim may be taken");
 	await first.release();
-	assert.equal(await exists(join(store.dir(FILE), "page-0002.claim")), true, "an old producer never removes the taker's claim");
+	assert.equal(await store.claimedElsewhere(FILE, 2, 1000, 12_000), true, "an old producer never removes the taker's claim");
 	await taken.release();
-	assert.equal(await exists(join(store.dir(FILE), "page-0002.claim")), false);
+	assert.equal(await store.claimedElsewhere(FILE, 2, 1000, 12_000), false);
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -200,6 +200,15 @@ async function harness(t, { pages = { 1: PAGE }, layouts = () => "{L1-L9}", subm
 	return { home, content, runtime, service, runs, rows, calls, store: new TranscriptStore({ home, contentRoot: content, extractionVersion: EXTRACTION }) };
 }
 
+test('a migrated producer retains earlier work and its own original page input',async t=>{
+  const h=await harness(t),old=h.store.workDir(FILE,1,1);
+  await mkdir(old,{recursive:true});await writeFile(join(old,'events.jsonl'),'original retained trace\n');
+  await h.service.ensure({pdf:'source.pdf',file_sha256:FILE,pages:[1]});await h.service.idle();
+  assert.equal(await readFile(join(old,'events.jsonl'),'utf8'),'original retained trace\n');
+  assert.equal(h.runs.length,1);assert.notEqual(h.runs[0].cwd,old);
+  assert.equal(await readFile(join(h.runs[0].cwd,'page.png'),'utf8'),'png of page 1');
+});
+
 test("§191.2 one background child per page, shown the page render and the numbered lines, whose one tool is submit_layout; the page is stored once", async t => {
 	const h = await harness(t);
 	const result = await h.service.ensure({ pdf: "modules/a/source.pdf", file_sha256: FILE, pages: [1] });
@@ -226,7 +235,7 @@ test("§191.2 one background child per page, shown the page render and the numbe
 	assert.deepEqual([page.lane, page.outcome, page.lines, page.placed, page.unplaced, page.attempts, page.submissions, page.model, page.usage.inputTokens],
 		["transcript", "stored", 9, 9, 0, 1, 1, "fixture/vision", 5000]);
 	assert.equal(await exists(h.store.renderCache(FILE, 1)), false, "the render is not kept once the page is made");
-	assert.equal(await exists(join(run.cwd, "page.png")), false);
+	assert.equal(await exists(join(run.cwd, "page.png")), true, "the original input image stays as evidence");
 	assert.equal(await exists(join(run.cwd, "layout.md")), true, "the layout stays as evidence");
 });
 
@@ -381,7 +390,8 @@ test("§191.4 a page another producer holds is left to it; a stale claim is take
 	await h.service.idle();
 	assert.deepEqual([result.skipped, result.queued, h.runs.map(run => run.page)], [[1], [2], [2]]);
 	assert.ok(await h.store.read(FILE, 2));
-	assert.equal(await exists(join(h.store.dir(FILE), "page-0002.claim")), false, "the producer releases the claim it took");
+	assert.equal(await h.store.claimedElsewhere(FILE, 2, staleClaimMs(BUDGET)), false, "the producer releases the SQL claim it took");
+	assert.equal(await exists(join(h.store.dir(FILE), "page-0002.claim")), true, "original legacy evidence is retained");
 });
 
 const until = async (condition, ms = 10_000) => {

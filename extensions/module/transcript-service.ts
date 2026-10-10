@@ -11,7 +11,7 @@
  * page is not tried again by this service; a later session may. A page whose child ran out of time goes to the back of the
  * queue once (§191.6): a slept-through deadline looks the same as a hung provider.
  */
-import { copyFile, mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { HostRuntime } from "../../runtime/host.ts";
 import type { ReaderOutcome } from "./reader.ts";
@@ -269,13 +269,14 @@ export class TranscriptService {
 	}
 
 	/** §191.2's child lease: its own, sized by the budget, never a reading job's. `expired`: it ended on its deadline. */
-	private lease(budget: TranscriptBudget, model: TranscriptModel): {budget: TaskProviderBudget; expired(): boolean; close(): void} {
+	private lease(budget: TranscriptBudget, model: TranscriptModel): {budget: TaskProviderBudget; deadlineAt: number; expired(): boolean; close(): void} {
 		const window = Number.isSafeInteger(model.contextWindow) && (model.contextWindow as number) > 0 ? model.contextWindow as number : UNKNOWN_CONTEXT_WINDOW;
+		const deadlineAt = Date.now() + budget.timeoutMs;
 		const lease = new TaskLease({owner: "page-transcript", goal: "Lay out one page of a source PDF", scope: {owner: "page-transcript", audience: "system"},
 			capabilities: [], readSet: [], signal: this.controller.signal,
-			budget: {deadlineAt: Date.now() + budget.timeoutMs, remainingInputTokens: window + budget.inputTokens,
+			budget: {deadlineAt, remainingInputTokens: window + budget.inputTokens,
 				remainingOutputTokens: OUTPUT_RESERVATION_ROOM + budget.outputTokens, remainingCostUsd: CHILD_COST_USD, remainingActions: CHILD_ACTIONS}});
-		return {budget: createTaskProviderBudget(lease, {callOutputTokens: budget.outputTokens}), close: () => lease.close(),
+		return {budget: createTaskProviderBudget(lease, {callOutputTokens: budget.outputTokens}), deadlineAt, close: () => lease.close(),
 			expired: () => lease.signal.aborted && (lease.signal.reason as {code?: unknown} | undefined)?.code === "task_deadline"};
 	}
 
@@ -286,6 +287,7 @@ export class TranscriptService {
 		const usage: Usage = {inputTokens: 0, outputTokens: 0, costUsd: 0, actions: 0, unknownCalls: 0};
 		// `attempts` counts this run's children; rows and records carry the page's, a requeued run's included.
 		let attempts = 0, submissions = 0, lineCount = 0, outOfTime = false;
+		let publicationDeadline: number | undefined;
 		const page = (outcome: string, fields: Row = {}) => this.note({event: "page", file_sha256: job.sha, page: job.page, outcome, attempts: job.children, submissions, lines: lineCount,
 			placed: 0, dropped: 0, unplaced: 0, free_removed: 0, image_text_chars: 0, model: model.id || null, thinking: model.thinking ?? null,
 			ms: Date.now() - started, usage, ...fields});
@@ -293,7 +295,6 @@ export class TranscriptService {
 		const claim = await store.claim(job.sha, job.page, staleClaimMs(budget));
 		// Another producer holds the page: this one waits for nothing, and readers keep the native text.
 		if (!claim) return;
-		const workDirs: string[] = [];
 		try {
 			const existing = await store.read(job.sha, job.page);
 			if (existing) { this.known.set(job.key, existing.source); return; }
@@ -309,15 +310,18 @@ export class TranscriptService {
 				attempts++;
 				job.children++;
 				// Numbered across runs: a requeued run never replaces the timed-out run's evidence.
-				const dir = store.workDir(job.sha, job.page, job.children);
-				workDirs.push(dir);
-				// We hold the claim: whatever an earlier producer left at this attempt is ours to replace.
-				await rm(dir, {recursive: true, force: true});
-				await mkdir(dir, {recursive: true});
+				await mkdir(join(store.dir(job.sha), "work"), {recursive: true});
+				let workAttempt = job.children, dir = store.workDir(job.sha, job.page, workAttempt);
+				for (;;) {
+					try {await mkdir(dir); break;}
+					catch (error) {if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;}
+					dir = store.workDir(job.sha, job.page, ++workAttempt);
+				}
 				await copyFile(image, join(dir, "page.png"));
 				await writeFile(join(dir, "lines.txt"), linesFile(native.lines));
 				await writeFile(join(dir, "lines.json"), JSON.stringify(native.lines));
 				const lease = this.lease(budget, model);
+				publicationDeadline = lease.deadlineAt;
 				let outcome: ReaderOutcome, expired = false;
 				try {
 					outcome = await runtime.runTask({kind: "reader", request: {cwd: dir, brief: BRIEF,
@@ -356,7 +360,7 @@ export class TranscriptService {
 				free_removed: assembly.free_removed, ignored: assembly.ignored, mapped: assembly.mapped,
 				image_text_chars: assembly.image_text.reduce((total, text) => total + Array.from(text).length, 0)};
 			try {
-				const stored = await store.put(record, native.lines);
+				const stored = await store.put(record, native.lines, publicationDeadline);
 				this.known.set(job.key, "home");
 				page(assembly.unplaced.length ? "unplaced" : attempts > 1 || submissions > 1 ? "repaired" : "stored", {...counts, ...(stored === "exists" ? {already: true} : {})});
 			} catch (error) {
@@ -372,7 +376,6 @@ export class TranscriptService {
 			await claim.release().catch(() => undefined);
 			// The render is reproducible from the PDF; the page's work keeps its layouts, lines and event logs.
 			await rm(store.renderCache(job.sha, job.page), {recursive: true, force: true}).catch(() => undefined);
-			for (const dir of workDirs) await unlink(join(dir, "page.png")).catch(() => undefined);
 		}
 	}
 }

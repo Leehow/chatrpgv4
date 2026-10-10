@@ -1,15 +1,14 @@
 /**
  * Contract §191.4: page transcripts kept by the source file's digest, made once.
  *
- * `<home>/.coc/source-transcripts/<file_sha256>/page-<NNNN>.json`, never under a module or fork directory, so every module
- * id, campaign, fork and re-import of the same bytes reads the same pages. A record is published without overwriting
- * (written to a temporary file, then hard-linked into place) and never rewritten. Shipped seeds under
- * `<content>/source-transcripts/<file_sha256>/` are read first and never copied into home. One producer per page across
- * processes holds `page-<NNNN>.claim`, created exclusively; a claim older than its staleness may be taken.
+ * Home records/claims live in SQLite, keyed by file/page/extraction/transcript version. Legacy JSON and all source/work
+ * evidence remain files, never a second writable authority. Shipped seeds are read first and never copied into home.
+ * Publish-once records and token-owned claims keep their existing validation and stale-takeover rules.
  */
-import { createHash, randomUUID } from "node:crypto";
-import { link, mkdir, open, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import {transcriptSqlite} from "./transcript-sqlite.ts";
 import { TRANSCRIPT_VERSION, transcriptPermutationHolds } from "./page-transcript.ts";
 
 export const TRANSCRIPT_RECORD_SCHEMA = "coc.source-transcript.page.v1";
@@ -105,130 +104,72 @@ export async function transcriptListing(roots: {home: string; contentRoot: strin
 }
 
 export class TranscriptStore {
-	readonly root: string;
-	readonly seedRoot: string;
-	readonly options: {home: string; contentRoot: string; extractionVersion: string};
-	constructor(options: {home: string; contentRoot: string; extractionVersion: string}) {
-		this.options = options;
-		this.root = join(options.home, ".coc", "source-transcripts");
-		this.seedRoot = join(options.contentRoot, "source-transcripts");
-	}
-
-	dir(fileSha256: string): string { return join(this.root, fileSha256); }
-	recordPath(fileSha256: string, page: number): string { return join(this.dir(fileSha256), `${pageName(page)}.json`); }
-	/** §191.2: one child's work directory, `<store>/work/p<NNNN>-<attempt>/`. */
-	workDir(fileSha256: string, page: number, attempt: number): string {
-		return join(this.dir(fileSha256), "work", `p${String(page).padStart(4, "0")}-${attempt}`);
-	}
-	/** The page render's cache, kept beside the store only while its page is being made. */
-	renderCache(fileSha256: string, page: number): string { return join(this.dir(fileSha256), "cache", pageName(page)); }
-
-	/** The seed first, then home; a record of another extraction version, schema or file is not there. */
-	async read(fileSha256: string, page: number): Promise<{record: TranscriptRecord; source: TranscriptSource} | undefined> {
-		if (!isFileDigest(fileSha256) || !Number.isSafeInteger(page) || page < 1) return undefined;
-		for (const [source, path] of [["seed", join(this.seedRoot, fileSha256, `${pageName(page)}.json`)], ["home", this.recordPath(fileSha256, page)]] as const) {
-			let value: unknown;
-			try { value = JSON.parse(await readFile(path, "utf8")); } catch { continue; }
-			if (readableRecord(value, fileSha256, page, this.options.extractionVersion)) return {record: value, source};
-		}
-		return undefined;
-	}
-
-	/** The readable records of `pages` (seed first, then home), by page; a page without one is absent. */
-	async readPages(fileSha256: string, pages: readonly number[]): Promise<Map<number, TranscriptRecord>> {
-		const out = new Map<number, TranscriptRecord>();
-		if (!isFileDigest(fileSha256)) return out;
-		const recorded = await this.recordedPages(fileSha256);
-		for (const page of new Set(pages)) {
-			if (!recorded.has(page)) continue;
-			const found = await this.read(fileSha256, page);
-			if (found) out.set(page, found.record);
-		}
-		return out;
-	}
-
-	/**
-	 * The pages of a file that have a record file in the seed or the home store, from the two directory listings; whether
-	 * each is readable (schema, extraction version, digest) is `read`'s to say.
-	 */
-	async recordedPages(fileSha256: string): Promise<Set<number>> {
-		const out = new Set<number>();
-		if (!isFileDigest(fileSha256)) return out;
-		for (const dir of [join(this.seedRoot, fileSha256), this.dir(fileSha256)]) {
-			let names: string[];
-			try { names = await readdir(dir); } catch { continue; }
-			for (const name of names) {
-				const match = RECORD_FILE.exec(name), page = match ? Number(match[1]) : 0;
-				if (Number.isSafeInteger(page) && page >= 1) out.add(page);
-			}
-		}
-		return out;
-	}
-
-	/**
-	 * Publish a page once. Refused (nothing written) when `text` is not a permutation of `lines`, the native lines it was
-	 * made from (§191.3's invariant), or when the record does not describe them. `exists`: another producer published first.
-	 */
-	async put(record: TranscriptRecord, lines: readonly string[]): Promise<"stored" | "exists"> {
-		if (!transcriptPermutationHolds(record.text, lines)) throw new TranscriptRefused("text_is_not_a_permutation_of_the_native_lines");
-		if (record.native.line_count !== lines.length) throw new TranscriptRefused("line_count_mismatch");
-		if (!readableRecord(record, record.file_sha256, record.page, record.native.extraction_version)) throw new TranscriptRefused("record_shape");
-		const target = this.recordPath(record.file_sha256, record.page);
-		await mkdir(this.dir(record.file_sha256), {recursive: true});
-		const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
-		await writeFile(temporary, JSON.stringify(record) + "\n", {flag: "wx"});
-		try {
-			try { await link(temporary, target); return "stored"; }
-			catch (error) {
-				const code = (error as NodeJS.ErrnoException).code;
-				if (code === "EEXIST") return "exists";
-				// A file system without hard links: rename, still never over an existing record.
-				if (await stat(target).then(() => true, () => false)) return "exists";
-				await rename(temporary, target);
-				return "stored";
-			}
-		} finally { await unlink(temporary).catch(() => undefined); }
-	}
-
-	/** Another producer's live claim on the page (§191.4): the page is being made elsewhere. */
-	async claimedElsewhere(fileSha256: string, page: number, staleMs: number, now = Date.now()): Promise<boolean> {
-		const age = await this.claimAge(fileSha256, page, now);
-		return age !== undefined && age <= staleMs;
-	}
-
-	/** The exclusive claim on one page, or null while another producer's claim is live. */
-	async claim(fileSha256: string, page: number, staleMs: number, now = Date.now()): Promise<TranscriptClaim | null> {
-		await mkdir(this.dir(fileSha256), {recursive: true});
-		const path = join(this.dir(fileSha256), `${pageName(page)}.claim`);
-		const body = JSON.stringify({pid: process.pid, at: new Date(now).toISOString()});
-		for (let attempt = 0; attempt < 2; attempt++) {
-			try {
-				const handle = await open(path, "wx");
-				try { await handle.writeFile(body); } finally { await handle.close(); }
-				return {release: async () => {
-					// Only this producer's own claim is removed; a taker's newer claim stays.
-					if (await readFile(path, "utf8").catch(() => undefined) === body) await unlink(path).catch(() => undefined);
-				}};
-			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-			}
-			const age = await this.claimAge(fileSha256, page, now);
-			if (age !== undefined && age <= staleMs) return null;
-			await unlink(path).catch(() => undefined);
-		}
-		return null;
-	}
-
-	/** How old the page's claim is: its `at`, or the file's modification time while a claim is still being written. */
-	private async claimAge(fileSha256: string, page: number, now: number): Promise<number | undefined> {
-		const path = join(this.dir(fileSha256), `${pageName(page)}.claim`);
-		let text: string;
-		try { text = await readFile(path, "utf8"); } catch { return undefined; }
-		let at = Number.NaN;
-		try { at = Date.parse(JSON.parse(text).at); } catch { /* a claim still being written */ }
-		if (!Number.isFinite(at)) {
-			try { at = (await stat(path)).mtimeMs; } catch { return undefined; }
-		}
-		return now - at;
-	}
+  readonly root: string;
+  readonly seedRoot: string;
+  readonly options: {home: string; contentRoot: string; extractionVersion: string};
+  private readonly storage: ReturnType<typeof transcriptSqlite>;
+  constructor(options: {home: string; contentRoot: string; extractionVersion: string}) {
+    this.options = options;
+    this.root = join(options.home, '.coc', 'source-transcripts');
+    this.seedRoot = join(options.contentRoot, 'source-transcripts');
+    this.storage = transcriptSqlite(this.root, options.extractionVersion, readableRecord);
+  }
+  dir(fileSha256: string): string {return join(this.root, fileSha256);}
+  /** Compatibility path for retained legacy evidence, never the home record authority. */
+  recordPath(fileSha256: string, page: number): string {return join(this.dir(fileSha256), pageName(page) + '.json');}
+  workDir(fileSha256: string, page: number, attempt: number): string {
+    return join(this.dir(fileSha256), 'work', 'p' + String(page).padStart(4, '0') + '-' + attempt);
+  }
+  renderCache(fileSha256: string, page: number): string {return join(this.dir(fileSha256), 'cache', pageName(page));}
+  private async seed(sha: string, page: number): Promise<TranscriptRecord | undefined> {
+    let value: unknown;
+    try {value = JSON.parse(await readFile(join(this.seedRoot, sha, pageName(page) + '.json'), 'utf8'));} catch {return undefined;}
+    return readableRecord(value, sha, page, this.options.extractionVersion) ? value : undefined;
+  }
+  async read(fileSha256: string, page: number): Promise<{record: TranscriptRecord; source: TranscriptSource} | undefined> {
+    if (!isFileDigest(fileSha256) || !Number.isSafeInteger(page) || page < 1) return undefined;
+    const seed = await this.seed(fileSha256, page);
+    if (seed) return {record: seed, source: 'seed'};
+    const record = (await this.storage.read(fileSha256, [page])).get(page);
+    return record ? {record, source: 'home'} : undefined;
+  }
+  async readPages(fileSha256: string, pages: readonly number[]): Promise<Map<number, TranscriptRecord>> {
+    const out = new Map<number, TranscriptRecord>();
+    if (!isFileDigest(fileSha256)) return out;
+    const missing: number[] = [];
+    for (const page of new Set(pages)) {
+      if (!Number.isSafeInteger(page) || page < 1) continue;
+      const record = await this.seed(fileSha256, page);
+      if (record) out.set(page, record); else missing.push(page);
+    }
+    if (missing.length) {
+      try {for (const [page, record] of await this.storage.read(fileSha256, missing)) out.set(page, record);}
+      catch (error) {if (!out.size) throw error;}
+    }
+    return out;
+  }
+  async recordedPages(fileSha256: string): Promise<Set<number>> {
+    const out = new Set<number>();
+    if (!isFileDigest(fileSha256)) return out;
+    for (const name of await readdir(join(this.seedRoot, fileSha256)).catch(() => [])) {
+      const match = RECORD_FILE.exec(name), page = match ? Number(match[1]) : 0;
+      if (Number.isSafeInteger(page) && page >= 1) out.add(page);
+    }
+    try {for (const page of await this.storage.pages(fileSha256)) out.add(page);}
+    catch (error) {if (!out.size) throw error;}
+    return out;
+  }
+  async put(record: TranscriptRecord, lines: readonly string[], retryUntil?: number): Promise<'stored' | 'exists'> {
+    if (!transcriptPermutationHolds(record.text, lines)) throw new TranscriptRefused('text_is_not_a_permutation_of_the_native_lines');
+    if (record.native.line_count !== lines.length) throw new TranscriptRefused('line_count_mismatch');
+    if (!readableRecord(record, record.file_sha256, record.page, record.native.extraction_version)) throw new TranscriptRefused('record_shape');
+    await mkdir(this.dir(record.file_sha256), {recursive: true});
+    return this.storage.put(record, retryUntil);
+  }
+  async claimedElsewhere(fileSha256: string, page: number, staleMs: number, now = Date.now()): Promise<boolean> {
+    return this.storage.claimed(fileSha256, page, staleMs, now);
+  }
+  async claim(fileSha256: string, page: number, staleMs: number, now = Date.now()): Promise<TranscriptClaim | null> {
+    return this.storage.claim(fileSha256, page, staleMs, now);
+  }
 }

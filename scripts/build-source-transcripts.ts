@@ -8,10 +8,12 @@
  * copied records under --out (default `content/source-transcripts`).
  */
 import {createHash} from 'node:crypto';
-import {copyFile, mkdir, readdir, readFile} from 'node:fs/promises';
+import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {TranscriptService} from '../extensions/module/transcript-service.ts';
+import {TranscriptStore} from '../extensions/module/transcript-store.ts';
+import {sourceTextVersion} from '../extensions/module/source.ts';
 import {composeRuntimeContext, createRuntime} from '../runtime/host.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -55,13 +57,13 @@ try {
 	const result = await service.ensure({pdf, file_sha256: sha, pages, priority: 'foreground'});
 	process.stdout.write(JSON.stringify({ensure: result}) + '\n');
 	await service.idle();
-	const stored = join(home, '.coc', 'source-transcripts', sha);
+	const store = new TranscriptStore({home,contentRoot:join(root,'content'),extractionVersion:sourceTextVersion});
 	const target = join(out, sha);
 	await mkdir(target, {recursive: true});
-	const names = (await readdir(stored).catch(() => [] as string[])).filter(name => /^page-\d{4}\.json$/.test(name)).sort();
-	const wanted = new Set(pages.map(page => `page-${String(page).padStart(4, '0')}.json`));
 	let copied = 0;
-	for (const name of names) if (wanted.has(name)) { await copyFile(join(stored, name), join(target, name)); copied++; }
+	for (const [page,record] of await store.readPages(sha,pages)) {
+		await writeFile(join(target,`page-${String(page).padStart(4,'0')}.json`),JSON.stringify(record)+'\n');copied++;
+	}
 	process.stdout.write(JSON.stringify({file_sha256: sha, pages: pages.length, copied, outcomes, target}) + '\n');
 	if (copied !== pages.length) process.exitCode = 1;
 } finally {

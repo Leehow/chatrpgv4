@@ -57,12 +57,21 @@ of the same version. Different extraction versions coexist. The original permuta
 shape, file/page identity and text hash checks still run before publication and reading.
 Shipped seeds remain read-only files and retain first precedence; they are not imported
 or copied to home. Batch readers fetch matching SQL pages in one query.
+The kernel's existing text-only projection reads imported SQL through a read-only data
+adapter without PDF/layout code. It chooses the latest intact published version, consistent
+with its existing extraction-version-independent check. Only a never-imported home can use
+legacy JSON. Seed export reads through TranscriptStore rather than enumerating old files.
+The producer allocates a fresh work directory instead of replacing an earlier attempt;
+its trace and input page image are retained. Only the temporary render cache is cleaned.
 
 Claims are keyed by the same file/page/version and hold a random owner token, pid and
 claimed_at. An atomic conditional insert/takeover succeeds only when no live owner exists;
 age<=staleMs is live as before. Release deletes only its exact token. A crashed process
 leaves a claim that the existing stale allowance can recover. A competing writer returns
 no claim immediately; no new wait/deadline/producer slot is added.
+
+Page publication may asynchronously retry a busy writer only until its existing child
+deadline, carried from the same TaskLease; it receives no fresh storage/provider allowance.
 
 An unavailable home transcript database cannot read stale legacy JSON. It is unavailable
 navigation material: source readers keep original native text, source search keeps its

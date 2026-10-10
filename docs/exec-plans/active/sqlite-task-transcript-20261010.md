@@ -8,7 +8,7 @@ callers actually read/write SQLite with unchanged authorization, revision, permu
 model and resource gates. A database file with callers still using JSON is hollow delivery.
 
 Editable: runtime SQLite mechanics, runtime/jev/task-store.ts, transcript-store.ts and
-necessary native-fallback wiring, their tests, this plan/spec and kernel-rpc contract.
+necessary native-fallback/kernel-text-reader/seed-export wiring, their tests, this plan/spec and kernel-rpc contract.
 Non-goals: campaign/Git/worldline state, memory/NPC journals, workspace caches, investigator
 libraries, source-reading database optimization, persistent transcript scheduling, App
 packaging/restart, dependencies, models, thresholds or resource-limit changes.
@@ -52,3 +52,25 @@ Spec: docs/specs/sqlite-task-transcript-storage.md; contract210.
 SQLite transaction/WAL and Node sqlite official documentation validate short exclusive
 write transactions and zero native busy wait; Zotero's database plus attachment storage
 validates retaining original files. This differs from migrating campaign/worldline authority.
+
+## Implementation milestone
+
+Spec/contract committed5d3f8dea7 before code. Both stores now use SQLite with operation-owned
+connections, short transactions, exact-byte legacy imports and ownership markers. Task
+CAS/immutable/closed gates and transcript permutation/version/hash gates are unchanged.
+Token claims replace claim files; seed-first reads and native fallback survive unavailable
+home SQL. put retries only under the original layout child's deadline; no new resource grant.
+Task500ms contention yields the event loop, native busy_timeout0. New SQL files are mode600.
+Consumer inspection found two direct legacy readers: kernel page text and seed export.
+Both now consume SQL/TranscriptStore; kernel adapter reads data only, never PDF/layout code.
+Necessary evidence preservation: allocate a fresh work attempt instead of deleting an older
+directory, and retain the input page image with its trace. Legacy evidence is never deleted.
+
+Initial4reds were file-publication assertions; migrated logical-state assertions preserve
+the old semantics. Related37 then41local cases passed and kernel types passed. Two later
+test failures: direct native-TS kernel import required the usual esbuild bundle, and old
+input-image deletion assertion now asserts retention. All reds retained under
+.coc/playtests/sqlite-task-transcript-20261010-evidence; final local run in progress.
+amax wasbusy earlier, latestprobeidle5.17; recheck ownership before heavy dispatch. Next
+focused/full LAN + exact runtime + genuine driver with isolated home, then scoped integration
+and lifecycle evidence retention. Existing App, other task PDF evidence and primary stay untouched.
