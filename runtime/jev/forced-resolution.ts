@@ -13,7 +13,7 @@ export type ForcedFamily = 'interaction-scope' | 'check-selection' | 'check-bind
 export type ForcedOutcome = 'inspect_check' | 'roll' | 'no_roll' | 'deferred' | 'world';
 /** Why the decision was forced: a gate Jev answered below, no answer at all, or no executable option. */
 /** `attack_fallback` (§224.2): a declared attack's unsettled weapon or target took the host's rulebook fallback and was rolled.
- * `skill_fallback` (§224.4): a declared ordinary act's skill was the Keeper's pick from Jev's method-fit scores and was rolled. */
+ * `skill_fallback` (§224.8): a declared ordinary act's skill was the Keeper's pick from Jev's method-fit scores and was rolled. */
 export type ForcedWhy = 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable' | 'check_refused' | 'preparation_incomplete' | 'player_choice' | 'attack_fallback' | 'skill_fallback';
 export interface ForcedResolution {
   /** Stable identity inside one run: the row is recorded once and the Keeper is told once. */

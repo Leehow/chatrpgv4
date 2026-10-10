@@ -83,7 +83,7 @@ export function playerOwned(option: CheckOption, parameter: CheckParameter, inve
   return playerAct(option, investigators) && parameter.default === undefined && parameter.selection !== 'compatible';
 }
 
-/** §224.4: how far one skill's method fit must lead the next for the Keeper to pick it (else the player's open choice, §163.8). */
+/** §224.8: how far one skill's method fit must lead the next for the Keeper to pick it (else the player's open choice, §163.8). */
 export const SKILL_LEAD = 0.2;
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /** Rule eligibility is already host-owned; these questions ask only the remaining semantic trigger. */
@@ -346,7 +346,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     const pages = Array.from({length: Math.ceil(eligible.length / 24)}, (_, index) => eligible.slice(index * 24, index * 24 + 24));
     const statusOf = new Map<string, CheckSelection['status']>();
     const actualOf = new Map<string, number | undefined>();
-    // §224.4: the method-fit score of an ordinary check (its main question), read when the Keeper picks the skill.
+    // §224.8: the method-fit score of an ordinary check (its main question), read when the Keeper picks the skill.
     const fitOf = new Map<string, number | undefined>();
     const judgePage = async (page: CheckOption[]): Promise<void> => {
       const state = {declaration: input.declaration, context: input.context, policy: POLICY,
@@ -427,7 +427,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       if (status === 'selected' && rivals.length && !leansYes(actualOf.get(option.key) ?? 0)) {
         // §224.2: a declared attack is settled; its unsettled alternatives take the host's fallback below.
         if (option.action.decision === 'combat:attack') { unsettledAttacks.push({option, rivals: rivals.length + 1}); continue; }
-        // §224.4: an ordinary check whose act the player chose: which skill the method uses is the Keeper's pick (Keeper
+        // §224.8: an ordinary check whose act the player chose: which skill the method uses is the Keeper's pick (Keeper
         // Rulebook pp. 82-83), taken below from Jev's method-fit scores; it is not an unmade player choice.
         if (option.action.decision === 'core-check:ordinary-check' && option.action.rule === undefined) { unsettledSkills.push({option, rivals: rivals.length + 1}); continue; }
         note(`${option.label}: one of ${rivals.length + 1} alternatives the player has not settled`, 'player_choice');
@@ -451,7 +451,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
         note(`${chosen.label}: attack fallback over ${mine[0].rivals} unsettled alternatives (${scored[0] ? scoreText(scored[0].p) : 'unarmed, Fighting (Brawl)'})`, 'attack_fallback');
       } else for (const entry of mine) note(`${entry.option.label}: one of ${entry.rivals} alternatives the player has not settled`, 'player_choice');
     }
-    // §224.4: per actor, the skill whose method fit Jev scored highest, when it is at least not ruled out (above noNeed).
+    // §224.8: per actor, the skill whose method fit Jev scored highest, when it is at least not ruled out (above noNeed).
     for (const actor of new Set(unsettledSkills.map(entry => String(entry.option.action.actor)))) {
       if (needed.some(option => option.action.decision === 'core-check:ordinary-check' && String(option.action.actor) === actor)) continue;
       const mine = unsettledSkills.filter(entry => String(entry.option.action.actor) === actor);
