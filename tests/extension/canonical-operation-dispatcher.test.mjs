@@ -199,7 +199,7 @@ test("conformance: host and ordinary look share the public hook/executor/result 
 		"host operations do not forge Pi child messages");
 });
 
-// §209.14 (issue #112, live 9e7g turns 30-31): a pre-tool gate that blocks a host-dispatched write keeps its reason. The
+// §215 (issue #112, live 9e7g turns 30-31): a pre-tool gate that blocks a host-dispatched write keeps its reason. The
 // packet carries `code: "blocked"` and the gate's own words, the trace names the stage, and the gate can read who dispatched.
 test("conformance: a gate's block of a host write returns a coded refusal with its reason, and the gate sees the host origin", async (t) => {
 	const { table, control } = await openDispatchTable(t, { responses: [dispatchCall(), ...closeTurn()] });

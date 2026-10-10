@@ -1,5 +1,5 @@
 /**
- * §209.14 (issue #112, live table 9e7g turns 30-31): the policy clerk's declared move was refused by a pre-tool gate, and the
+ * §215 (issue #112, live table 9e7g turns 30-31): the policy clerk's declared move was refused by a pre-tool gate, and the
  * Keeper saw only `coc_error: {code: "refused"}` -- the gate's words were dropped between the canonical gateway's packet
  * (`{reason, terminate}`) and the clerk's record -- while the bind row said only `status: "refused"`. A refused clerk write
  * now carries a code and the gate's own words to the Keeper's next step and to its telemetry row.
@@ -36,7 +36,7 @@ async function refusedClerk(packetResult) {
 	return { done, did: JSON.parse(message.content).clerk_did[0], bind: rows.find((row) => row.lane === "run" && row.event === "bind") };
 }
 
-test("§209.14 the captured gate packet {reason, terminate}: the Keeper's clerk_did and the bind row carry a code and the gate's words", async () => {
+test("§215 the captured gate packet {reason, terminate}: the Keeper's clerk_did and the bind row carry a code and the gate's words", async () => {
 	const { done, did, bind } = await refusedClerk({ reason: GATE_TEXT });
 	assert.equal(done.status, "refused");
 	assert.equal(done.reason, "blocked", "the operation's settled reason names the refusal, not the bare status");
@@ -48,7 +48,7 @@ test("§209.14 the captured gate packet {reason, terminate}: the Keeper's clerk_
 	assert.equal(bind.refusal_reason, GATE_TEXT.slice(0, 300), "telemetry records the reason beside the status");
 });
 
-test("§209.14 the gateway's coded block and a kernel coc_error both reach the Keeper unchanged", async () => {
+test("§215 the gateway's coded block and a kernel coc_error both reach the Keeper unchanged", async () => {
 	const coded = await refusedClerk({ code: "blocked", message: "A fixture gate held this write.", reason: "A fixture gate held this write." });
 	assert.deepEqual(coded.did.coc_error, { code: "blocked", message: "A fixture gate held this write." });
 	assert.equal(coded.bind.refusal_reason, "A fixture gate held this write.");

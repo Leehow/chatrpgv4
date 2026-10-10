@@ -6552,7 +6552,7 @@ export default function (pi: ExtensionAPI) {
 					if (!operationGate.open) throw new KernelError({ code: 'internal', message: 'The operation dispatcher is closed' });
 					return dispatcher.dispatch(...args);
 				},
-				// §209.14: who dispatched a call now running its `tool_call` gates (a policy clerk's host origin, or
+				// §215: who dispatched a call now running its `tool_call` gates (a policy clerk's host origin, or
 				// undefined for the model's own call). Read-only; it grants nothing.
 				hostOrigin: (toolCallId: string) => operationGate.open ? dispatcher.hostOrigin(toolCallId) : undefined,
 			}));

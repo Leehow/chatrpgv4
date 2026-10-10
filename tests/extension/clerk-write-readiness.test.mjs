@@ -1,5 +1,5 @@
 /**
- * §209.14 (issue #112, live table 9e7g turns 30-31): the §209.6 readiness hold is for the Keeper's own decisions. A policy
+ * §215 (issue #112, live table 9e7g turns 30-31): the §209.6 readiness hold is for the Keeper's own decisions. A policy
  * clerk's declared move to a chosen, visited exit was blocked by the Mod-section readiness hold ("narration-craft:
  * Establishing a place", `before_apply:move`) before the Keeper's first request of the turn had been sent, every turn, and
  * the clerk can never "re-decide with the expanded request". Here the context hook is driven exactly as the kernel
@@ -37,7 +37,7 @@ function install(){
 }
 const move={effects:[{kind:'move',to:'neighborhood-gossip'}]};
 
-test('§209.14 a policy clerk write is not held for package detail the Keeper has not been sent yet; the Keeper\'s own call still is',async()=>{
+test('§215 a policy clerk write is not held for package detail the Keeper has not been sent yet; the Keeper\'s own call still is',async()=>{
     const {hooks,rows,emit}=install();
     const origins=new Map([['clerk:run-30:s4/op1',{origin:'policy',run:'run-30',step:'run-30:s4',clerk:'declared_bookkeeping'}]]);
     emit('coc:operation-dispatcher',Object.freeze({dispatch:async()=>{throw Error('unused');},hostOrigin:id=>origins.get(id)}));
@@ -54,7 +54,7 @@ test('§209.14 a policy clerk write is not held for package detail the Keeper ha
     assert.ok(rows.some(row=>row.lane==='mod-discovery'&&row.event==='readiness_expansion'));
 });
 
-test('§209.14 without a gateway port every call keeps the hold (fails closed)',async()=>{
+test('§215 without a gateway port every call keeps the hold (fails closed)',async()=>{
     const {hooks}=install();
     const held=await hooks.get('tool_call')({toolName:'apply',toolCallId:'clerk:run-30:s4/op1',input:move});
     assert.equal(held?.block,true);

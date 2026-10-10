@@ -1424,7 +1424,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       ?? (typeof result.reason === 'string' && result.reason.trim() ? 'blocked' : packet.status);
     const canonicalError = object(result.coc_error);
     const errorFields = Object.fromEntries(['code', 'message', 'fix', 'details'].filter(key => result[key] !== undefined).map(key => [key, result[key]]));
-    // §209.14: a pre-tool gate answers `{reason}`; its words are the refusal's message, never dropped for a bare status.
+    // §215: a pre-tool gate answers `{reason}`; its words are the refusal's message, never dropped for a bare status.
     if (!ok && errorFields.message === undefined && typeof result.reason === 'string' && result.reason.trim()) {
       errorFields.message = result.reason;
       errorFields.code ??= 'blocked';
@@ -1443,7 +1443,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // A refused write landed no band: its line would tell the Keeper to rule otherwise on nothing.
     const binding = [defaultLine(candidate), bandLine, ok ? bandedLine(candidate, rolled) : undefined].filter((line): line is string => !!line).join(' ') || undefined;
     // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed, banded); none was a model call.
-    // §209.14: a refused clerk write records why -- the refusal code and the gate's or kernel's own words -- on its bind row.
+    // §215: a refused clerk write records why -- the refusal code and the gate's or kernel's own words -- on its bind row.
     const refusedText = ok ? undefined : [object(refusedError).message, object(refusedError).fix].find(value => typeof value === 'string' && value.trim());
     record({lane: 'run', event: 'bind', run: run.runId, step: invocation.stepId, candidate: candidate.key, clerk: candidate.clerk, call_id: callId, status: packet.status, bindings: rolled,
       ...(ok ? {} : {refusal: String(refusal), ...(typeof refusedText === 'string' ? {refusal_reason: refusedText.slice(0, 300)} : {})})});

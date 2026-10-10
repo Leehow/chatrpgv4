@@ -337,7 +337,7 @@ export function createCanonicalOperationDispatcher(stages?: Stages) {
         context.trace({ operationId: operation.id, stage: 'prepare' });
         const blocked = await runner.emitToolCall({ type: 'tool_call', toolCallId: operation.id, toolName: spec.name, input: args });
         live();
-        // §209.14: a pre-tool gate's refusal keeps its reason. `code: "blocked"` and the gate's own text travel on the packet,
+        // §215: a pre-tool gate's refusal keeps its reason. `code: "blocked"` and the gate's own text travel on the packet,
         // so a host caller (the policy clerk) can tell the Keeper and its telemetry why nothing ran -- never a bare status.
         if (blocked?.block) {
           const reason = typeof blocked.reason === 'string' && blocked.reason.trim() ? blocked.reason : 'A tool_call gate blocked this operation before it ran.';

@@ -148,7 +148,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let discoveryHandoff:Row|undefined;
     let discoveryUnavailable=false;
     pi.events.on('coc:discovery-task',value=>{discoveryHandoff=object(value);});
-    // §209.14: the canonical gateway names who dispatched a call; a policy clerk's write is not the Keeper's decision.
+    // §215: the canonical gateway names who dispatched a call; a policy clerk's write is not the Keeper's decision.
     let hostOrigin:((toolCallId:string)=>unknown)|undefined;
     pi.events.on('coc:operation-dispatcher',value=>{const port=object(value);hostOrigin=typeof port.hostOrigin==='function'?port.hostOrigin as (id:string)=>unknown:undefined;});
     const temporalAdvice=createTemporalAdvice({read:async(method,params)=>call?call(method,params):undefined,decision,record});
@@ -253,7 +253,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     ||kind==='before_resolve'&&event.toolName==='resolve'&&turnCalls.resolve.has(name);
             })).map((section:Row)=>section.key));
         const missing=needed.filter((key:string)=>!deliveredDiscoveryKeys.has(key));
-        // §209.14: the readiness hold exists so the Keeper re-decides with the detail in view. A host-origin (policy clerk)
+        // §215: the readiness hold exists so the Keeper re-decides with the detail in view. A host-origin (policy clerk)
         // write decides nothing from the Keeper's request: it is not held here, and the triggered sections stay due for the
         // Keeper's next request through the call noted above. Admission, Mod hooks and the kernel still run for it.
         const hostWrite=object(hostOrigin?.(event.toolCallId)).origin==='policy';
