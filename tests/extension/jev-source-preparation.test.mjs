@@ -225,9 +225,9 @@ test('actual source owner emits no advance for answer-only, cancelled, or foreig
   assert.equal(task.context.readSet[0].revision,binding.revision);
  }finally{task?.close();await f.runtime.close();}
 });
-for(const fault of ['after-graph','before-completion','after-completion','before-queue'])test(`owned publication survives ${fault} interruption without durable completion missing its proof`,async()=>{
+for(const fault of ['after-graph','before-completion','after-completion','before-queue','after-commit'])test(`owned publication survives ${fault} interruption without durable completion missing its proof`,async()=>{
  const f=await visualFixture();let task,restarted;
- const prototype=api.ModuleStore.prototype,original={writeGraph:prototype.writeGraph,writeModule:prototype.writeModule,writeQueue:prototype.writeQueue};
+ const prototype=api.ModuleStore.prototype,original={writeGraph:prototype.writeGraph,writeModule:prototype.writeModule,writeQueue:prototype.writeQueue,flush:prototype.flush};
  const restore=()=>{for(const [name,method] of Object.entries(original))prototype[name]=method;};
  try {
   const mutation={campaign:'c1',call_id:'t1-c1',effects:[{kind:'clue',clue:'Tower inscription'}]};
@@ -248,7 +248,7 @@ for(const fault of ['after-graph','before-completion','after-completion','before
   };
   prototype.writeModule=async function(meta){
    const completed=meta.id===f.mid&&meta.campaign_scope==='c1'&&meta.reading?.completed?.[job.job_id];
-   if(completed){completionWrites++;assert.ok(completed._task_source_advance,'Completion must include its proof before the first durable metadata write');proofAtBoundary=structuredClone(completed._task_source_advance);}
+   if(completed){completionWrites++;assert.ok(completed._task_source_advance,'Staged completion must include its proof before SQL commit');proofAtBoundary=structuredClone(completed._task_source_advance);}
    if(completed&&!faulted&&fault==='before-completion')interrupt();
    await original.writeModule.call(this,meta);
    if(completed&&!faulted&&fault==='after-completion')interrupt();
@@ -257,8 +257,12 @@ for(const fault of ['after-graph','before-completion','after-completion','before
    if(!faulted&&fault==='before-queue'&&mid===f.mid&&queue.some(value=>value.job_id===job.job_id&&value.lease===job.lease&&value.state==='completed'))interrupt();
    return original.writeQueue.call(this,mid,queue);
   };
+  prototype.flush=async function(mid){
+   await original.flush.call(this,mid);
+   if(!faulted&&fault==='after-commit'&&mid===f.mid&&(await this.module(mid)).reading?.completed?.[job.job_id])interrupt();
+  };
   await assert.rejects(f.call('module.read.finish',finishParams),new RegExp(`source-publication-fault:${fault}`));assert.equal(faulted,true);restore();
-  const published=['after-completion','before-queue'].includes(fault),interrupted=JSON.parse(await readFile(metaPath,'utf8'));
+  const published=fault==='after-commit',interrupted=JSON.parse(await readFile(metaPath,'utf8'));
   assert.equal(completionWrites,fault==='after-graph'?0:1);
   assert.ok((await readdir(join(directory,'generations'))).length>beforeDirectories.length,'Unpublished generation files are retained as evidence');
   if(published){
@@ -268,7 +272,7 @@ for(const fault of ['after-graph','before-completion','after-completion','before
    assert.equal(await readFile(metaPath,'utf8'),beforeBytes);assert.equal(interrupted.reading.completed[job.job_id],undefined);
    assert.equal((await api.sourcePreparationSnapshot(f.kernel,'c1',f.mid)).revision,beforeSource.revision);
   }
-  assert.equal(JSON.parse(await readFile(queuePath,'utf8')).find(value=>value.job_id===job.job_id).state,'running');
+  assert.equal(JSON.parse(await readFile(queuePath,'utf8')).find(value=>value.job_id===job.job_id).state,published?'completed':'running');
   await f.runtime.close();restarted=api.createKernelRuntime(f.kernel);const call=(method,args)=>restarted.handlers[method](args);
   const coldRequest=await call('module.read.request',params);
   if(published)assert.deepEqual(coldRequest._task_source_advance,proofAtBoundary);
