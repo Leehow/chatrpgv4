@@ -42704,5 +42704,5 @@ skill, `obvious`, `no_roll` (`check_skipped`), an unknown route and a failed rol
 `table.resolve.options` (offered for the highest-INT investigator with the scene's undiscovered clues) and `table.resolve`
 (the roll, the clue landed either way, the note); the option row's `check.found_by` / `other_rolls`.
 `tests/extension/clue-route.test.mjs`: the lane's questions and reading over a typed Jev double (fit, obvious, no_roll first,
-shadow, below bars). `tests/extension/single-loop-one-check.test.mjs`: the Idea roll's trigger question.
+shadow, below bars). `tests/extension/check-selection.test.mjs`: the Idea roll's trigger question.
 `tests/kernel/test_rule_graph_data.py`: the decision is in `DECISIONS_WITHOUT_INTENT` and the manifest digest holds.

@@ -779,6 +779,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       run.forced.push(entry);
       record({lane: 'forced-resolution', run: run.runId, ...(step ? {step} : {}), ...(run.turn !== undefined ? {turn: run.turn} : {}),
         family: entry.family, subject: entry.subject, uncertain: entry.uncertain, chosen: entry.chosen, why: entry.why});
+      // §222.2: a forced no-roll of a check decision is the host's decision too (§163); the clue-route lane reads it.
+      if (entry.chosen.outcome === 'no_roll' && ['check-selection', 'check-binding'].includes(entry.family) && bridge?.campaign && run.turn !== undefined)
+        api?.events?.emit?.('coc:check-decided', {campaign: bridge.campaign, turn: run.turn, run: run.runId, status: 'no_roll', why: entry.why, option: entry.subject});
     }
   };
   /** §163 (amends §159.10): a preparation still pending when the turn is delivered was narrated by judgement: a forced no-roll. */
@@ -1746,6 +1749,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       }
       record({lane: 'check-selection', run: run.runId, step: request.stepId, status: selection.status,
         option: selection.option?.label ?? null, needs: selection.needs, calls: selection.calls});
+      // §222.2: a no-roll decision reaches the extension, whose clue-route lane lets the Keeper give a checked clue by judgement.
+      if (selection.status === 'no_roll' && bridge?.campaign && run.turn !== undefined)
+        api?.events?.emit?.('coc:check-decided', {campaign: bridge.campaign, turn: run.turn, run: run.runId, status: 'no_roll',
+          why: selection.needs.length ? selection.needs.join(', ') : 'no_check_needed', option: selection.option?.label ?? null});
       return {status: 'ok' as const, artifact: {kind: 'check-selection', selection} as StepArtifact};
     }
     if (request.purpose === 'bind-ordinary') {

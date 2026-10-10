@@ -108,6 +108,13 @@ export function specializedTriggerQuestion(option: CheckOption): string | undefi
       + 'The host has already verified the patient is eligible for this rule-required treatment roll. Do not reassess injury, timing or arithmetic. '
       + 'Cleaning and bandaging a wound are part of First Aid, not earlier separate checks. A calm setting does not replace the treatment roll. '
       + 'Exclude a hypothetical discussion, merely asking another person for help, or a different rescuer/patient/method. The actor is the rescuer and the target is the patient.';
+  // §222.3: the Idea roll is the players' request, never an inference from a declared act (Keeper Rulebook pp. 199-200).
+  if (option.action.decision === 'core-check:idea-roll')
+    return 'Does the player ask for a way forward -- say they are stuck or out of leads, do not know what to do next, ask for a hint, '
+      + 'a nudge, or for an Idea roll by name, in or out of character? Judge the request itself: the Idea roll is proposed by the players '
+      + 'when the investigation has stalled, and the host lands the missed clue whichever way the die falls. A declared search, question, '
+      + 'journey, conversation or any other act is its own check and never this one; pausing, reflecting, chatting, or asking what the scene '
+      + 'looks like is not a request for it; nor is a player who still has a lead and is pursuing it.';
   if (option.action.decision === 'sanity:check' && option.action.san_loss)
     return 'Does this investigator perceive the listed source of horror now, including directly uncovering or looking at it in the declared action, '
       + 'or has that exposure already been narrated without its SAN check? The source requires the listed SAN check once exposed. '
