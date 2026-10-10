@@ -43143,3 +43143,91 @@ treats a person is the player's.
 *Tests.* `tests/extension/check-selection.test.mjs`: a clear leader is rolled with `skill_fallback`; the §163.8 tie case still
 withholds.
 
+
+## 225. A module's second authored opening is a start candidate, and the chosen opening is the table's scene (2026-10-10; amends §14.14, §14.19, §22.9; relies on §168.3)
+
+**Evidence.** Playtest `pdf-source-latency-opening-20261010` (book-1, a 1937 NKVD scenario PDF). The book authors two
+openings: p.9 §2.1, a command-room briefing that hands cards #1 (the arrest warrant) and #2, and p.10 §2.2, a briefing with
+no warrant that hands cards #2 and #3 (`keeper_notes`: "a second authored opening"). The reader brought the second into the
+graph at generation 6 as `scene-investigator-introduction-2`, related to the first by `alternative-to` and by nothing else:
+no `is_entrance`, not in the module node's `entry_scene_ids` (which the source-reference packet had declared as the one
+entry it bound, `scene-source-entry-9`). `startSceneCandidates` (`kernel-ts/write/source.ts`) admitted only `is_entrance`,
+`is_start` and `entry_scene_ids`, so the book kept one candidate through generation 15; the campaign was created at
+generation 12 with no question asked, `opening_scene` landed as the first briefing's handle, every capsule offered cards #1
+and #2 as the scene's assets, and the Keeper handed the warrant in the opening that has none. The player's choice of the
+second opening survives only as free text in `campaign.json` `setup.prologue.pending_action`. Only at generation 16 did a
+later reading mark both briefings `is_entrance` -- after the table was active.
+
+**Ruling applied.** The module is reference, not bible; but which of the book's openings the table starts on is the
+player's closed choice (§14.19), and the kernel must offer every opening the book authors before that choice binds.
+
+### 225.1 The start candidates include the alternatives of an entrance (`kernel-ts/write/source.ts` `startSceneCandidates`)
+
+A scene the graph relates to a candidate by `alternative-to` -- the entrance relation of §168.3 and the template's
+`entrance_relation_kinds` -- is itself a candidate. The relation is read in both directions and to its closure (the
+alternative of an alternative is one too); only scene nodes are admitted; `alternative-to` between scenes that are not
+openings (two variants of a later place) adds nothing because neither end is a candidate. The rule lives inside the same
+guard as the other admissions (a book that declares `entry_scene_ids: []` still offers nothing). It is a closed relation
+kind, not words: a scene named "second opening" with no relation is not admitted.
+
+Consumers that change with it, all through `ModuleStore.candidates`: `module.status` `opening_candidates`;
+`module.opening.choose` and `resolveStartScene` (the second opening can now be chosen by handle or name);
+`applyOpeningChoice` (marks every candidate `is_entrance` and pins the chosen one as `is_start`); the reading service's
+`prepare-module` question (`extensions/module/reading-service.ts`, `opening_candidates.length > 1` → `needs_choice`);
+`openingReport.choice` when the book declares no single entrance. `openingReport`'s readiness is unchanged: it still reads
+`entrances()` (declared `entry_scene_ids` or the `is_entrance` marks), so a book with one declared entrance and an
+alternative stays `opening_ready` on that entrance until the table chooses -- readiness is not revoked by a later reading
+(§46), the choice is asked in setup (§225.3).
+
+### 225.2 The player's choice binds `start_scene`, and `campaign.create` lands it as `opening_scene`
+
+Unchanged path, now reachable for the second opening: the setup host carries the chosen candidate's `scene` handle as
+`context.start_scene` (§14.19), `campaign.create {start_scene}` checks it with `resolveStartScene` and `initialWorld` opens
+the world on it, so `campaign.json` `opening_scene` and `world.json` `active_scene` are the chosen opening's handle and the
+capsule's scene assets (`discoverable-at` that scene: cards #2 and #3, not #1) are that opening's. The choice is closed: the
+guide calls the preparation step with the exact `candidate.scene`; the kernel refuses anything else with `needs_choice` and
+the candidates. A player's free-text answer ("按第二条开场开始") is resolved by the guide model that is asked to match it to
+the candidates' names and summaries (`reading-service.ts` `fix: match the player's intent to the candidate summaries`), never
+by keyword matching in the host.
+
+### 225.3 Candidates that arrive after a choice are asked again (`extensions/onboarding/index.ts`)
+
+The host keeps `openingsOffered`: the candidate node ids of every opening question it has posed this setup (`poseOpening`).
+Before `create-campaign`, `unchosenOpenings` reads `module.status` `opening_candidates` and refuses with `needs_choice` when
+there are two or more and either no choice is recorded, or some candidate was never shown to the player (`details.unseen`).
+In the second case the refusal carries `details.reason: "opening_candidates_changed"` and `details.previous_choice`, and the
+recorded `context.start_scene` is set aside so `campaign.create` cannot carry it; the preparation step is open again
+(`remedyOpen`) and records the new answer. The NKVD sequence -- sole candidate when the module was prepared, two at
+creation -- is therefore a question at creation, not a silent carry. A choice the guide made with no question asked is also
+put to the player once.
+
+*Not done, and why.* (a) The library's `module.opening_choice` (written by `module.reference.publish` for a sole packet
+entry and by `module.opening.choose`) is not rewritten before the campaign exists: the host's context is the pre-creation
+authority (§14.19) and `module.opening.choose` without a campaign writes the shared library, which other tables read
+(§98 addendum 9). It is the campaign's own fork that `campaign.create` pins. (b) After `create-campaign` the opening is
+landed; a candidate arriving later is the book being read further, and §46 says a landed opening is not revoked. (c) The
+source-reference packet (`module.reference.publish`) binds only the entries the reference agent found; a chosen opening that
+is a candidate but not a packet entry fails `publishReferenceContext` ("Selected opening has no bound original reference")
+and the reading service falls back to visual guidance for it (`guidance_fallback`). Making the reference agent bind both
+openings is the reference lane's work, not this section's. (d) Duplicate scenes for one printed opening (the NKVD graph's
+`scene-opening-1` beside `scene-source-entry-9`, both p.9 §2.1) appear as two candidates once the reader marks both; the
+survivor map (§192.3) does not yet fold candidates.
+
+### 225.4 The three ends (§31)
+
+- *Writer*: the reader's `alternative-to` claim between scenes (visual.ts claim → relation); the host's `poseOpening`
+  on every opening question.
+- *Reader*: `startSceneCandidates` → `module.status.opening_candidates` → the host's `unchosenOpenings` and the reading
+  service's `prepare-module` question; `campaign.create` → `opening_scene`/`active_scene` → the capsule's scene assets.
+- *Actor*: the guide asks the player and calls the preparation step with the chosen `candidate.scene`; the kernel opens
+  the world on it.
+
+*Tests.* `tests/extension/second-opening-candidates.test.mjs`: `startSceneCandidates` admits the alternatives of an
+entrance in either direction and to closure, not a later scene's variant nor a person; on the emitted kernel a book whose
+second briefing is only `alternative-to` the first reports both candidates, `module.opening.choose` takes the second, and
+`campaign.create {start_scene}` lands its handle as `opening_scene` and `active_scene`. `tests/extension/setup-opening-choice.test.mjs`:
+a sole candidate that grows to two before `create-campaign` is asked, the chosen one is created and `opening_scene`; a choice
+among two is re-asked when a third arrives, naming the one set aside, and only the re-made choice reaches the kernel.
+`tests/extension/fixtures/fake-kernel.mjs` gains `FAKE_KERNEL_OPENINGS_FILE` (candidates re-read from a file the test rewrites).
+Needs a live check: the Keeper guide, told the two NKVD briefings by name and summary, answers "按第二条开场开始" with the
+second candidate's handle.

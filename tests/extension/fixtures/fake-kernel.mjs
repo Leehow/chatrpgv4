@@ -201,11 +201,21 @@ let investigatorSeq = 0;
  * `FAKE_KERNEL_MODULE.opening_candidates: [{node_id, scene, name}]`。
  */
 const OPENING_CANDIDATES = MODULE.opening_candidates ?? [];
+/**
+ * §225.3: a book's openings can grow while setup runs (a later reading brings a second authored opening in).
+ * `FAKE_KERNEL_OPENINGS_FILE` names a JSON file the test rewrites; when set, the candidates are read from it
+ * on every use, so the same fake kernel can answer one candidate first and two later.
+ */
+function openingRows() {
+	const file = process.env.FAKE_KERNEL_OPENINGS_FILE;
+	if (!file) return OPENING_CANDIDATES;
+	try { return JSON.parse(readFileSync(file, "utf8")); } catch { return OPENING_CANDIDATES; }
+}
 let chosenStartScene = null;
 
 function openingReady() {
 	if (MODULE.opening_ready === false) return false;
-	return OPENING_CANDIDATES.length === 0 || chosenStartScene !== null;
+	return openingRows().length === 0 || chosenStartScene !== null;
 }
 
 /** 与内核 `opening_check` 同形的那一份（契约 §14.14）。 */
@@ -214,12 +224,12 @@ function openingReport() {
 		return { opening_ready: true, start_scene: chosenStartScene, missing: [], findings: [], finding_counts: {} };
 	}
 	const report = { opening_ready: false, start_scene: null, missing: [], findings: [], finding_counts: {} };
-	if (OPENING_CANDIDATES.length > 1 && chosenStartScene === null) {
-		report.missing = [`start_scene_ambiguous:${OPENING_CANDIDATES.map((row) => row.node_id).join(",")}`];
+	if (openingRows().length > 1 && chosenStartScene === null) {
+		report.missing = [`start_scene_ambiguous:${openingRows().map((row) => row.node_id).join(",")}`];
 		report.choice = {
 			field: "start_scene",
 			reason: "start_scene_ambiguous",
-			candidates: OPENING_CANDIDATES,
+			candidates: openingRows(),
 			method: "module.opening.choose",
 			ask: "The book declares more than one opening scene.",
 		};
@@ -785,7 +795,7 @@ function handle(method, params) {
 					opening: openingReport(),
 					playability: { status: "playable", finding_counts: {} },
 					sections: [],
-                    opening_candidates: OPENING_CANDIDATES,
+                    opening_candidates: openingRows(),
 				},
 			};
 		}
@@ -813,7 +823,7 @@ function handle(method, params) {
 		}
 		case "module.opening.choose": {
 			const wanted = String(params.scene ?? "").trim().toLowerCase();
-			const picked = OPENING_CANDIDATES.find((row) =>
+			const picked = openingRows().find((row) =>
 				[row.node_id, row.scene, row.name].some((value) => String(value ?? "").toLowerCase() === wanted),
 			);
 			if (!picked) {
@@ -823,7 +833,7 @@ function handle(method, params) {
 						code: "needs_choice",
 						message: `${params.scene} 不是这本书的开场之一`,
 						fix: "name one of details.candidates",
-						details: { field: "start_scene", candidates: OPENING_CANDIDATES },
+						details: { field: "start_scene", candidates: openingRows() },
 					},
 				};
 			}
@@ -837,7 +847,7 @@ function handle(method, params) {
 					opening_ready: openingReady(),
 					opening: openingReport(),
 					generation,
-					candidates: OPENING_CANDIDATES,
+					candidates: openingRows(),
 				},
 			};
 		}
