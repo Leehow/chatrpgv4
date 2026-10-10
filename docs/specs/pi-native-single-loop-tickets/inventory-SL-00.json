@@ -1777,18 +1777,6 @@
       ]
     },
     {
-      "file": "runtime/jev/history-query.ts",
-      "symbol": "createHistoryQueryLane.write",
-      "kind": "lane",
-      "callee": "runLane",
-      "count": 1,
-      "owner": "Historical Reference: the scene's English query (contract 124.12, owner 2026-10-02)",
-      "path": "app-play-gated",
-      "role": "leaf",
-      "trace": "n/a (added 2026-10-02)",
-      "note": "Gate: the historical-reference Mod on, Exa and Jev keys, Jev granted the need, and the scene has no kept result. One zero-tool completion on the fast model (PI_COC_HISTORY_QUERY_MODEL, then the fast-model setting, then the table), 6 s, beside the run's other steps; any failure searches the fixed-shape query."
-    },
-    {
       "file": "runtime/jev/first-sight.ts",
       "symbol": "createFirstSightLane.check",
       "kind": "lane",
@@ -2138,30 +2126,6 @@
       "note": "One bounded typed choice/intent/language batch over existing local PDF path candidates. Host advances existing deterministic setup steps; no extra narrative model."
     },
     {
-      "file": "runtime/historical-reference.ts",
-      "symbol": "HistoricalReference.constructor",
-      "kind": "network",
-      "callee": "fetch",
-      "count": 1,
-      "owner": "Historical Reference (contract 124.12)",
-      "path": "app-play-gated",
-      "role": "leaf",
-      "trace": "historical-reference telemetry and request-supply tests",
-      "note": "Enabled Mod, configured credentials and a Jev-issued need; bounded retrieval and selection return to the same main Keeper tool, or, for the host scene lookup (2026-10-02), to the engine through the kernel port coc:historical-reference. No second agent."
-    },
-    {
-      "file": "runtime/historical-reference.ts",
-      "symbol": "HistoricalReference.constructor",
-      "kind": "jev-adapter",
-      "callee": "createDecisionAdapter",
-      "count": 1,
-      "owner": "Historical Reference (contract 124.12)",
-      "path": "app-play-gated",
-      "role": "leaf",
-      "trace": "historical-reference telemetry and request-supply tests",
-      "note": "Enabled Mod, configured credentials and a Jev-issued need; bounded retrieval and selection return to the same main Keeper tool, or, for the host scene lookup (2026-10-02), to the engine through the kernel port coc:historical-reference. No second agent."
-    },
-    {
       "file": "extensions/speech-edit/index.ts",
       "symbol": "runJob",
       "kind": "lane",
@@ -2284,6 +2248,30 @@
       "trace": "controlled host-path evidence: tests/extension/scene-establish-host.test.mjs; owner approved the bounded pre-delivery exception",
       "note": "One short verdict on an establishing delivery, at most 20 seconds. The caller may steer one rewrite and then delivers; no second verdict. An unavailable check delivers the original. This leaf owns no Keeper loop or operation authority.",
       "lines_at_0b729e8fb": []
+    },
+    {
+      "file": "extensions/deepseek/agent/provider.js",
+      "symbol": "createDeepSeekProvider",
+      "kind": "provider-direct",
+      "callee": "getApiProvider.streamSimple",
+      "count": 1,
+      "owner": "generic Pi native-search transport",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "native-search session entries and telemetry; protocol continuation tests",
+      "note": "Foreground Historical Reference grant only. Delegates the existing Pi inference to its verified provider protocol; at most three pause continuations retain original server blocks. Child lanes keep their existing transport."
+    },
+    {
+      "file": "runtime/native-search.js",
+      "symbol": "nativeSearchStream",
+      "kind": "provider-direct",
+      "callee": "provider.streamSimple",
+      "count": 1,
+      "owner": "generic Pi native-search transport",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "native-search session entries and telemetry; protocol continuation tests",
+      "note": "Foreground Historical Reference grant only. Delegates the existing Pi inference to its verified provider protocol; at most three pause continuations retain original server blocks. Child lanes keep their existing transport."
     }
   ]
 }

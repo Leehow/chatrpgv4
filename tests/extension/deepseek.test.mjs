@@ -15,8 +15,6 @@ import { fileURLToPath } from "node:url";
 import {
 	applyThinkingCap,
 	buildResponsesBody,
-	DEEPSEEK_WEB_SEARCH_BUILTIN,
-	mergeHostedWebSearchTool,
 	responsesUrl,
 	THINKING_CAP_DIRECTIVE,
 } from "../../extensions/deepseek/agent/client.js";
@@ -160,53 +158,6 @@ test("hosted web_search 支持只按声明的模型能力判定", () => {
 	}
 });
 
-test("注入恰好一个内建 web_search，本地搜索函数工具全部去掉", () => {
-	const body = responsesBodyWithTools();
-	const next = mergeHostedWebSearchTool(body, true);
-	assert.deepEqual(toolSummaries(next.tools), ["function:bash", "function:read", "web_search"]);
-	assert.equal(next.tools.filter((tool) => tool.type === "web_search").length, 1);
-	assert.deepEqual(next.tools.at(-1), { type: "web_search" });
-	assert.deepEqual(DEEPSEEK_WEB_SEARCH_BUILTIN, { type: "web_search" });
-
-	body.tools = [
-		clientWebSearchTool(),
-		nestedFunctionTool("web_search"),
-		browserSearchTool("browser_search"),
-		nestedFunctionTool("browser_fetch"),
-		nestedFunctionTool("bash"),
-		{ type: "function", name: "web_search_preview", parameters: { type: "object" } },
-		// 同名但不是函数工具：必须活下来。
-		{ type: "custom", name: "web_search" },
-		{ type: "custom", name: "browser_search" },
-	];
-	const shaped = mergeHostedWebSearchTool(body, true);
-	const names = shaped.tools.map(functionNameOf).filter((name) => name !== null);
-	for (const local of ["web_search", "browser_search", "browser_fetch"]) {
-		assert.equal(names.filter((name) => name === local).length, 0, local);
-	}
-	assert.ok(names.includes("bash"));
-	assert.ok(names.includes("web_search_preview"));
-	assert.ok(shaped.tools.some((tool) => tool.type === "custom" && tool.name === "web_search"));
-	assert.equal(shaped.tools.filter((tool) => tool.type === "web_search").length, 1);
-});
-
-test("重复注入是幂等的，没有 tools 数组也能建出内建工具", () => {
-	const once = mergeHostedWebSearchTool(responsesBodyWithTools(), true);
-	const twice = mergeHostedWebSearchTool(once, true);
-	assert.deepEqual(twice.tools, once.tools);
-	assert.equal(twice.tools.filter((tool) => tool.type === "web_search").length, 1);
-
-	const bare = mergeHostedWebSearchTool(buildResponsesBody({ model: "deepseek-v4-flash", input: [] }), true);
-	assert.deepEqual(bare.tools, [{ type: "web_search" }]);
-});
-
-test("不支持的模型原样放行，不假装支持", () => {
-	const body = responsesBodyWithTools();
-	const untouched = mergeHostedWebSearchTool(body, false);
-	assert.equal(untouched, body);
-	assert.ok(toolSummaries(untouched.tools).includes("function:web_search"));
-});
-
 test("before_provider_request 只改写 deepseek-extended 的请求", async () => {
 	const { hook } = mount();
 	assert.ok(hook);
@@ -234,9 +185,8 @@ test("before_provider_request 只改写 deepseek-extended 的请求", async () =
 		{ model: { provider: "deepseek-extended", id: "deepseek-v4-flash" } },
 	);
 	const names = rewritten.tools.map(functionNameOf).filter((name) => name !== null);
-	assert.ok(!names.includes("web_search"));
-	assert.deepEqual(names, ["bash", "read"]);
-	assert.equal(rewritten.tools.filter((tool) => tool.type === "web_search").length, 1);
+	assert.deepEqual(names, ["bash", "web_search", "read"]);
+	assert.equal(rewritten.tools.filter((tool) => tool.type === "web_search").length, 0);
 	assert.ok(rewritten.tools.some((tool) => tool.type === "custom" && tool.name === "web_search"));
 
 	// 目录外的模型：web_search 不注入、也不删；思考帽是 provider 级策略，照样戴上。
@@ -326,4 +276,12 @@ test("移植过来的源码保持全英文", () => {
 		}
 	}
 	assert.deepEqual(offenders, [], `移植的源码里出现中文（多半是从上游整体覆盖导致的）：\n${offenders.join("\n")}`);
+});
+
+test('native Messages search preserves the DeepSeek thinking governor and explicit high/off choices',()=>{
+ const low={messages:[{role:'user',content:'Read the room'}],system:'Original Keeper prompt',output_config:{effort:'low'},thinking:{type:'enabled'}};
+ const capped=applyThinkingCap(low);assert(capped.system.startsWith(THINKING_CAP_DIRECTIVE));assert(capped.system.endsWith('Original Keeper prompt'));
+ assert.deepEqual(applyThinkingCap({...low,output_config:{effort:'high'}}),{...low,output_config:{effort:'high'}});
+ assert.deepEqual(applyThinkingCap({...low,thinking:{type:'disabled'}}),{...low,thinking:{type:'disabled'}});
+ assert.deepEqual(applyThinkingCap(capped),capped);
 });

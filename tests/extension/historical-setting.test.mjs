@@ -5,7 +5,7 @@ import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
-import {historyContext, savedBatch, selectionBatch} from '../../runtime/historical-reference.ts';
+import {historyContext} from '../../runtime/historical-reference.ts';
 let api, folder;
 const root=resolve(import.meta.dirname,'../..');
 before(async()=>{
@@ -34,9 +34,6 @@ test('approved public source context takes precedence and retains Soviet institu
   assert.match(setting.background,/sovkhoz/);assert.equal(setting.source,'public_guidance');
   const context=historyContext({historical_setting:setting,where:{scene:'farm'}});
   const input={binding:'b',scope:{owner:'test',audience:'keeper'},query:'farm administration',context,player_input:'What are these records?'};
-  assert.deepEqual(savedBatch(input,[],true).state.setting,context);
-  assert.deepEqual(selectionBatch(input,[]).state.setting,context);
-  assert.equal(selectionBatch({...input,query:'A saved reference title'},[]).state.player_input,'What are these records?','named reads retain the actual requested detail rather than only the reference address');
 });
 test('unknown setting remains unknown and copied source text stays within its byte ceiling',()=>{
   assert.equal(api.projectHistoricalSetting(graph(null,''),{},null).era,null);

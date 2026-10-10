@@ -12,6 +12,7 @@
   "pi": {
     "extensions": [
       "./extensions/kernel",
+      "./extensions/native-search",
       "./extensions/mods",
       "./extensions/onboarding",
       "./extensions/module",

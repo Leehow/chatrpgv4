@@ -10067,10 +10067,6 @@ export class PiHostBackend implements HostBackend {
           catch { /* Text remains editable if the optional texture asset is unavailable. */ }
         }
         // A Mods answer the panel draws from carries the words it draws them with.
-        if (method === 'mods.list' && isRecord(data)) {
-          const jev: Record<string, unknown> = await this.getExtensionSettings('jev').catch(() => ({}));
-          data = {...data, historical_reference_status: {jev_configured: jev['ext.jev.apiKey'] === true}};
-        }
         const ui = (await this.cocAnswerWords(context?.play_language, context?.home)).ui;
         return {ok:true,data:isRecord(data)&&ui?{...data,ui}:data};
       } catch(error) {return this.cocDenied(this.cocCode(error),error instanceof Error ? error.message : String(error));}

@@ -20,7 +20,6 @@ import {DOCUMENT_RECORDING_INTENT_MIN, permitsReferenceOperation} from '../../ru
 
 import { readTextToolCalls, restoreTextCallList, textToolCallFix } from "./text-tool-call.ts";
 import {narrationTransport} from './narration-transport.ts';
-import {HistoricalReference, historyEnabled, historyContext, historyBindingMatches, type HistoryInput, type HistoryResult} from '../../runtime/historical-reference.ts';
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
@@ -1607,51 +1606,13 @@ export default function (pi: ExtensionAPI) {
 	 * §151.5: with the narrator-only setting on, the engine also announces a call its step's catalog does not admit
 	 * (`refuse`, the sentence the Keeper reads, and `refuse_code`); the tool gate refuses it before anything runs.
 	 */
-	let historicalReference: HistoricalReference | undefined;
-	/**
-	 * §124.12: one historical search under the lookup's gates -- active Mod, the grant's run/turn/binding, credentials and
-	 * the per-input allowance. The Keeper's own lookup carries the grant its model step announced; the host's scene
-	 * prefetch (2026-10-02) carries the grant the engine's need decision gave. The Keeper's lookups share the input's
-	 * allowance through the binding `<run>:<turn>`; each scene's host lookup has its own, `<run>:<turn>:<scene>` -- on the
-	 * App's third table the lookup at the scene a move left spent the input's four seconds and the destination's lookup
-	 * came back `budget_exhausted`, closing history for the turn.
-	 */
-	async function historicalSearch(state: TableState, request: {run?: string; scene?: string; grant?: Partial<HistoryInput> & {scope?: any; turn?: number};
-		requested_by: 'keeper' | 'host'; query: string; objective?: string; reference_mode?: HistoryInput['reference_mode']; name?: string;
-		reference_cursor?: number; signal?: AbortSignal; deadlineAt?: number; libraryMatch?: HistoryInput['libraryMatch']; reference_queries?: HistoryInput['reference_queries']}): Promise<HistoryResult> {
-		const grant = request.grant;
-		const campaign = state.campaign, turn = state.turn;
-		const capsule = await state.kernel.call('table.capsule', {campaign});
-		const referenceScope = {owner:'historical-reference', campaign, audience:'keeper' as const,
-			worldline: (capsule as any)._context?.worldline, loop: (capsule as any)._context?.loop};
-		historicalReference ??= new HistoricalReference({home: cocHome(sessionCtx!.cwd), record:event=>{void record(event);}});
-		return historicalReference.search({binding: `${request.run ?? campaign}:${turn}${request.scene ? `:${request.scene}` : ''}`, turn,
-			scope: referenceScope, enabled: historyEnabled(capsule),
-			allowed: grant?.allowed === true && grant.turn === turn && historyBindingMatches(capsule, grant.scope, turn),
-			retrieval: grant?.turn === turn && historyBindingMatches(capsule, grant.scope, turn) ? grant.retrieval : undefined,
-			query: request.query, objective: request.objective, player_input: state.playerText ?? '',
-			reference_queries: request.reference_queries,
-			reference_mode: request.reference_mode, name: request.name, reference_cursor: request.reference_cursor,
-			context: historyContext(capsule), requested_by: request.requested_by, ...(request.libraryMatch ? { libraryMatch: request.libraryMatch } : {}),
-			signal: request.signal ?? new AbortController().signal, deadlineAt: request.deadlineAt,
-			current: async()=>table === state && state.campaign === campaign && state.turn === turn
-				&& historyBindingMatches(await state.kernel.call('table.capsule', {campaign}), referenceScope, turn),
-			backgroundCurrent: async()=> {
-				if (table !== state || state.campaign !== campaign || state.lanes.signal.aborted) return false;
-				const latest = await state.kernel.call('table.capsule', {campaign}) as any;
-				return historyEnabled(latest) && latest?._context?.campaign === campaign
-					&& latest?._context?.worldline === referenceScope.worldline && latest?._context?.loop === referenceScope.loop;
-			},
-		});
-	}
-	const modelSteps = new Map<string, { run: string; step: string; refuse?: string; refuseCode?: string; holdEmbeddedNarration?: boolean; history?: Partial<HistoryInput> }>();
+	const modelSteps = new Map<string, { run: string; step: string; refuse?: string; refuseCode?: string; holdEmbeddedNarration?: boolean }>();
 	pi.events.on("coc:model-step", (value) => {
 		const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
 		if (typeof data.toolCallId !== "string" || typeof data.run !== "string" || typeof data.step !== "string") return;
 		if (modelSteps.size >= 256) modelSteps.clear();
 		modelSteps.set(data.toolCallId, { run: data.run, step: data.step,
 			...(data.hold_embedded_narration === true ? {holdEmbeddedNarration:true} : {}),
-			...(data.historical_reference && typeof data.historical_reference === 'object' ? {history: data.historical_reference as Partial<HistoryInput>} : {}),
 			...(typeof data.refuse === "string" && data.refuse ? { refuse: data.refuse, refuseCode: typeof data.refuse_code === "string" ? data.refuse_code : "narrator_catalog" } : {}) });
 	});
 	/**
@@ -1795,6 +1756,8 @@ export default function (pi: ExtensionAPI) {
 			observation.usage = {input: count(usage.input_tokens), output: count(usage.output_tokens), reasoning: count(details.reasoning_tokens)};
 		}
 	});
+
+	pi.events.on('coc:native-search-event', (entry: Record<string, unknown>) => {void record(entry);});
 
 	async function record(entry: Record<string, unknown>): Promise<void> {
 		const run = table?.skillRun;
@@ -5619,15 +5582,6 @@ export default function (pi: ExtensionAPI) {
 			let sourceMaterial: Record<string, any> | undefined;
 			let memoryAnswer: Record<string, unknown> | undefined;
 			let supportAnswer: Record<string, unknown> | undefined;
-			let historicalAnswer: Record<string, unknown> | undefined;
-			if (spec.name === 'lookup' && params.kind === 'historical_reference') {
-				historicalAnswer = {...await historicalSearch(state, {run: fromStep?.run, grant: fromStep?.history, requested_by: 'keeper',
-					query: String(params.query ?? ''), objective: typeof params.objective === 'string' ? params.objective : undefined,
-					reference_mode: params.reference_mode as HistoryInput['reference_mode'], name: typeof params.name === 'string' ? params.name : undefined,
-					reference_cursor: typeof params.reference_cursor === 'number' ? params.reference_cursor : undefined,
-					reference_queries: params.reference_queries as HistoryInput['reference_queries'],
-					signal, deadlineAt: providerBudget?.deadlineAt})};
-			}
 			if(spec.name==='lookup'&&params.kind==='support'){
 				if(Object.keys(params).some(key=>!['kind','query'].includes(key)))throw new KernelError({code:'invalid_params',message:'Support lookup accepts only kind and query'});
 				dispatcher.requireCapability(toolCallId,'lookup.support');
@@ -5813,8 +5767,7 @@ export default function (pi: ExtensionAPI) {
         if (spec.name === 'narrate' || spec.name === 'ask') notePrepared(state, prepared);
       }
 			try {
-                if (historicalAnswer) result = historicalAnswer;
-                else if (supportAnswer) result = supportAnswer;
+                if (supportAnswer) result = supportAnswer;
                 else if (memoryAnswer) result = memoryAnswer;
                 else if (sourceAnswer) result = { source_answer: sourceAnswer,...(sourceMaterial?{material_ready:true,entities:[{name:sourceMaterial.name??sourceMaterial.scene,kind:'scene',material:'ready',scope:'original-place-identity'}],instruction:'This original place is already registered and ready for an ordinary player-authorized move. Use its supplied name with apply move and describe the route in via when needed. Do not prepare a duplicate destination or adaptation just because background enrichment is unfinished. People, rules and assets keep their own use-specific requirements.'}:{}) };
                 else if (spec.name === 'lookup' && params.kind === 'adaptation') {
@@ -6391,17 +6344,14 @@ export default function (pi: ExtensionAPI) {
 		pi.events.emit('coc:source-answers', undefined);
 		pi.events.emit('coc:owed-review', undefined);
 		pi.events.emit('coc:first-sight', undefined);
-		pi.events.emit('coc:historical-reference', undefined);
+		pi.events.emit('coc:native-search-policy', undefined);
 		const current = table;
 		table = undefined;
-		const history = historicalReference;
-		historicalReference = undefined;
 		if (current) {
 			// Cut off lane completions still in flight first: an exiting process should not wait on a model round trip.
 			current.lanes.abort();
 			pi.events.emit("coc:kernel-bridge", { campaign: current.campaign, call: undefined, runtime: undefined });
 		}
-		await history?.dispose();
 		// The setup process has no table, so its kernel hangs here on its own (contract §14.4).
 		const solo = soloKernel;
 		soloKernel = undefined;
@@ -6623,17 +6573,6 @@ export default function (pi: ExtensionAPI) {
 				const sight = view.first_sight as { people?: unknown[] } | undefined;
 				return (state.untoldNames && Array.isArray(sight?.people)
 					? { ...view, first_sight: { ...sight, people: firstSightPeople(sight!.people as unknown[], state.untoldNames) } } : view) as T;
-			} }));
-			// §124.12 (2026-10-02): the engine's scene prefetch runs the lookup's own search, after Jev granted the need. A new
-			// scene searches the web: only a reference saved for this very query is reused, never a loosely relevant one.
-			pi.events.emit('coc:historical-reference', Object.freeze({ campaign, search: (request: { run: string; scene?: string; turn: number; scope: unknown;
-				query: string; objective?: string; reference_queries?: HistoryInput['reference_queries']; reference_mode?: HistoryInput['reference_mode']; signal?: AbortSignal; deadlineAt?: number }) => {
-				const state = table;
-				if (!state || state.campaign !== campaign) return Promise.resolve(undefined);
-				return historicalSearch(state, { run: request.run, scene: request.scene || undefined, grant: { allowed: true, turn: request.turn, scope: request.scope as any },
-					requested_by: 'host', query: request.query, objective: request.objective, reference_queries: request.reference_queries,
-					reference_mode: request.reference_mode, signal: request.signal, deadlineAt: request.deadlineAt,
-					libraryMatch: 'exact' });
 			} }));
 			// §135.31.2 (SL-36): a consultation that went pending is carried to the Keeper once, when it lands, through this port.
 			// §22.4.4 (SL-37): a text read this turn is still waiting on rides as pending too, while the reading service says it is in flight.
