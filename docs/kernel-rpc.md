@@ -43073,3 +43073,11 @@ Every fallback is recorded once as a forced resolution (§163.3): `family: "chec
 - `tests/extension/presence-impression-clerk.test.mjs` (rewritten): a presence row's `mod_contact` candidate carries the impression-matters route question and a contact row does not; only a confident `now` selects it, `later` and a gray `now` select nothing and force nothing. `contact-admission-rule.test.mjs`: a presence row is registered rule evidence for admission.
 - The tests that counted kernel-rolled first impressions follow the new rule: `single-loop-candidates`, `a-person-this-table-has`, `person-text-landing`, `scene-obligations` (a served obligation step now rolls the impression itself, with `trigger: "presence"`), and in pytest `test_capsule`, `test_facts_warn`, `test_apply`, `test_system_language`, `test_transactions`, `test_recall`, `test_narrate`, `test_npc_stakes` (an offered impression prepares no reaction; the stakes die still rolls); `conftest.met` is removed.
 - Needs a live check: a real Jev on a social turn (asking a clerk for a record) answers the presence question `now`, and on a walk-past turn `later`.
+
+### 224.6 Live check of the presence question (2026-10-10, real Jev, two calls each)
+
+`impressionMatters`'s question asked as the route asks a candidate's need (a probe batch carrying the player input, the person
+present and the scene; the full route state carries more), for Arty Wilmot at the Globe: asking him to pull the Corbitt
+clippings → `now` 0.83–0.85; walking through the lobby upstairs → `later` 0.97; nodding to him and sitting down with one's own
+notes → `later` 0.89–0.92. The attack fallback reads Jev's existing weapon and target scores and was not probed separately.
+Not gameplay acceptance.
