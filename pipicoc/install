@@ -65,6 +65,7 @@ writeGeneratedManifest(join(destination,'pipiui-extension.json'),manifest);
 const provider=join(context.agentHome,'extensions/deepseek');
 copyGeneratedTree(join(root,'extensions/deepseek'),provider);
 copyGeneratedFile(context.entrypoints.deepseek,join(provider,'agent/index.mjs'));
+copyGeneratedFile(context.entrypoints.deepseek,join(provider,'agent/provider.js'));
 const providerManifest=JSON.parse(readFileSync(join(provider,'pipiui-extension.json'),'utf8'));
 providerManifest.agent.extension='agent/index.mjs';
 writeGeneratedManifest(join(provider,'pipiui-extension.json'),providerManifest);

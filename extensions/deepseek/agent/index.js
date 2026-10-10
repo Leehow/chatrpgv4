@@ -1,6 +1,8 @@
 import { applyThinkingCap, rewriteDeepSeekPayloadAsync } from "./client.js";
 import { refreshDeepSeekCatalog } from "./catalog-runtime.js";
 import { createDeepSeekProvider, DEEPSEEK_PROVIDER_ID } from "./provider.js";
+// The profile auth loader and host library consume this same compiled bundle.
+export * from "./provider.js";
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
