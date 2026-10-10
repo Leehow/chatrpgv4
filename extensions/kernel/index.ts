@@ -163,6 +163,7 @@ import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-d
 import { watchOwedReview } from "./owed-review.ts";
 import { startToldPosition } from "./told-position.ts";
 import { startToldClue } from "./told-clue.ts";
+import { startToldTime } from "./told-time.ts";
 import { openingInstruction } from "./opening-instruction.ts";
 import { leaveOutRefused, leaveOutUnknownOwed, owedLeftOutNote, type OwedLeftOut } from "./owed-left-out.ts";
 import { splitNpcMood } from "./npc-mood-split.ts";
@@ -4249,19 +4250,22 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * Contract §190.2 and §201.1: after every delivery, read where the delivered text leaves the investigators and which of
-	 * the book's clues it gave them, in the background. Nothing here is awaited by the delivery and the prose is never
-	 * reviewed or edited (§190.2's one exception to §166, extended to clues by §201.1). When either read may owe, the reads
-	 * are the turn's one flight for §158.4's watch: it settles when either wrote an owed row, so the next run's first read
-	 * reads the table again for what either named; it is cleared once both reads ended.
+	 * Contract §190.2, §201.1 and §216.1: after every delivery, read where the delivered text leaves the investigators, which
+	 * of the book's clues it gave them and how much in-world time it told them spending, in the background. Nothing here is
+	 * awaited by the delivery and the prose is never reviewed or edited (§190.2's one exception to §166, used for clues by
+	 * §201.1 and for time by §216). When any read may owe, the reads are the turn's one flight for §158.4's watch: it settles
+	 * when any wrote an owed row, so the next run's first read reads the table again for what it named; it is cleared once
+	 * all three reads ended.
 	 */
 	function afterDeliveryTold(state: TableState, turn: number, prose: string | undefined): void {
 		const kernel = state.kernel, campaign = state.campaign;
 		const deps = { env: process.env, campaign, turn, text: prose, signal: state.lanes.signal,
 			call: (method: string, params: Record<string, unknown>) => kernel.call(method, params), record: (row: Record<string, unknown>) => record(row) };
-		let open = 2, flight: { turn: number; done: Promise<void> } | undefined;
+		let open = 3, flight: { turn: number; done: Promise<void> } | undefined;
 		const ended = () => { open -= 1; if (open === 0 && flight && state.reviewInFlight === flight) state.reviewInFlight = undefined; };
-		const flights = [startToldPosition(deps, ended), startToldClue(deps, ended)].filter((value): value is { turn: number; done: Promise<void> } => !!value);
+		// §216.1: the told time is the third read of the same delivery, in the same flight.
+		const flights = [startToldPosition(deps, ended), startToldClue(deps, ended), startToldTime(deps, ended)]
+			.filter((value): value is { turn: number; done: Promise<void> } => !!value);
 		flight = flights.length <= 1 ? flights[0]
 			: { turn, done: new Promise<void>(resolve => { for (const each of flights) void each.done.then(resolve, resolve); }) };
 		if (flight && open > 0) state.reviewInFlight = flight;

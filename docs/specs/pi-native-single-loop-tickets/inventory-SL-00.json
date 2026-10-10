@@ -2237,6 +2237,19 @@
       "lines_at_0b729e8fb": []
     },
     {
+      "file": "extensions/kernel/told-time.ts",
+      "symbol": "ask",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "kernel ext: delivered time reconciliation (contract 216)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "controlled host-path evidence: tests/extension/told-time.test.mjs; no live table acceptance yet",
+      "note": "One bounded typed decision batch per delivered text whose turn charged no time, after delivery. Uses its own deadline, fixed transport retries and provider allowance. Returns a time-cost reading; the host writes the owed time row and the current Keeper loop owns continuation.",
+      "lines_at_0b729e8fb": []
+    },
+    {
       "file": "runtime/jev/establish-review.ts",
       "symbol": "createEstablishReviewLane.review",
       "kind": "lane",

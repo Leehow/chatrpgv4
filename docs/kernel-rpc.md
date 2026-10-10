@@ -38133,6 +38133,8 @@ the questions' distributions, the decision and the owed name.
 
 *Amended 2026-10-10 (§213.2):* `moved` cleared with `none` first at or above `place_min` owes the departure itself (`effect: {kind: "move", unlisted: true}`): a row with no effect that the Keeper lands with an ordinary move.
 
+*Amended 2026-10-10 (§216):* `table.owe` also takes `source: "told-time"` with `effect: {kind: "time", band}`, written by the told-time read that runs beside this one after every delivery; `table.owe.options` answers the told turn's `time` receipts and the `time_bands` rows.
+
 **Implementation decisions (TP-02, 2026-10-07).**
 
 - *Where the candidates come from.* `table.apply.options` answers only while a turn is open, and the read runs after the
@@ -42801,3 +42803,162 @@ records `readiness_deferred`; the Keeper's identical call is held; no gateway po
 (the captured `{reason}` packet and the coded packet reach `clerk_did` and the bind row with code and words; a kernel `coc_error`
 unchanged). `tests/extension/canonical-operation-dispatcher.test.mjs` (a gate's block of a host write: `code: "blocked"`, the
 gate's message, trace `prepare`/`blocked`, nothing ran, and the gate reads the host origin through the port).
+
+## 216. Time the prose told and no receipt carries is owed (2026-10-10, issue #112 follow-up on the 9e7g live table; uses §190.2's exception to §166 for told time, as §201.1 and §213.2 use it for told clues and told departures; amends §158.2's producer of owed time, §158.3 and §190.2's `table.owe`)
+
+**Evidence.** Table `gui-world-e091`, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, runtime 9e7a59be0 with grok lanes,
+turn 32 (`9e7g-live-sleep-morning.md`, `turns/0032.json`, `gui-evidence-e091/9e7g-turn32-delivered.txt`). The player walked
+down the narrow passage beside the Corbitt house. They examined the ground-floor windows, the side door and its lock, and
+crouched to look for cellar windows. The run's read offered `apply:time:declared`. The clerk's first step, a
+`declared_bookkeeping` move to `corbitt-house-ground`, was refused with a bare `refused` (§215's defect), so the declared-time
+step never ran. The Keeper's 75 s adjudication made no call (`keeper_calls` all 0). The implicit close delivered the whole
+circuit with zero receipts: the passage, each window frame, the side door, the overgrown back garden and the brick footing. The
+clock stayed at 11:57 into turn 33. The told-clue read ran (`stay`) and the told-position read ran (`low_place` 0.69).
+**Nothing read the told time.**
+
+**The gap, by the three ends (§31).**
+
+- *Writer: none.* §158.2's owed time had one producer, the post-delivery continuity review (`audit.owed.v1`'s `owed` field,
+  `kind: "time"`), and §166 retired that review. §145.2's pre-delivery time reading is off under single-pass narration
+  (`readTimeSkip` returns at `SINGLE_PASS_NARRATION`, `extensions/kernel/index.ts`), and §166.1 forbids a prose-implied time
+  gap from refusing a draft anyway. §190.2 and §201.1 restored post-delivery producers for the position and the clues, but
+  not for time.
+- *Readers: already in place.* The owed ledger takes time rows (`OWED_KINDS`, `describe`, and `capsuleOwed`'s order move,
+  npc, time in `kernel-ts/owed/index.ts`). The capsule shows them with `clerk: true`. §158.4's `owedCandidates`
+  (`runtime/jev/candidates.ts`) makes each one an `apply:owed:<name>` step and does not count it as this turn's declared time.
+- *Actors: already in place.* The clerk lands `apply time {band, owed}` under told admission (`toldAdmission`). The kernel
+  checks the row (`owedRowFor`'s `lands`: same band) and rolls the band (§138).
+
+Only the writer was missing.
+
+**Why this needs no new owner exception.** §166 retired reviewing and rewriting prose. §190.2 (owner-authorized, 2026-10-07)
+records one exception: a delivered text may be read after delivery *only to bring the ledger forward* (§158's owner ruling).
+That read never reviews, edits, retracts or annotates the text, and its result reaches the Keeper only as §158's owed row.
+§201.1 (told clues) and §213.2 (told departures) used the same exception for other kinds of told state, and §158.2 named owed
+time from the start. The read below does the same for time: it runs after delivery, in the background, is never awaited, and
+never touches the prose. It adds no pre-delivery gate and no rewrite. A gate that refused a draft for unrecorded time would be
+a new exception, which §166 reserves to the owner, so none is added here.
+
+### 216.1 The ledger follows the told time (uses §190.2's exception)
+
+Family `told-time` (Jev). The read runs after every delivery (explicit `narrate`/`ask`, an embedded narrate, the implicit
+close), in the background. The host first reads `table.owe.options`. The read is then skipped (one row with `skipped`, nothing
+asked) in these cases:
+
+- `time_landed`: the told turn holds a `time` receipt that is not an owed landing. The Keeper or the clerk already charged
+  this turn's time, and a second charge would double it; the read does not compare amounts.
+- `session`: a session (combat, chase) was running at delivery. Its time is rounds.
+- `no_text`, `unconfigured` (no Jev key) or `no_bands`.
+
+Otherwise the host sends Jev one request with two questions:
+
+- **`told_cost`** (a key apart from §138.8's `time_cost`: a different question over the same rows): a Choice over the time-cost rows an act can take (`time.band` without the road rows, §138.9), plus `none`,
+  listed first. These are the same rows as §138.8's question, each criterion built by `timeCriterion` (the row's name, range
+  and `covers`). The question asks which row is the in-world activity the investigators carry out in the told events, judged
+  by kind and extent. Only what the text tells happening now counts. Not counted:
+  - a journey between places (the move carries it);
+  - memories and plans;
+  - what someone *says* about another time;
+  - description of a place.
+
+  `none` is for a text that tells no activity beyond a moment, or none that fits.
+- **`sentence`**: a Choice over the delivered sentences (§190.2's splitter, at most `TOLD_TIME_SENTENCES_MAX` 48, keeping the
+  last ones of a longer text). The answer is the sentence that tells the longest part of that activity.
+
+The state is `told` (`s1..sN`) and nothing else: no clock, no receipts, no player words (Jev does not compare times, §145.2).
+
+The host decides `owe` when all four bars hold:
+
+1. the leading row is not `none`;
+2. the Choice's confidence is at least `told_time.cost_min`;
+3. the row's `default` minutes are at least `told_time.min_default_minutes` (a moment's word or glance is not worth a debt);
+4. the sentence's confidence is at least `told_time.sentence_min`.
+
+Otherwise it decides `stay`, with the first bar missed as the reason: `cost_unanswered`, `none`, `low_cost`, `under_floor`,
+`sentence_unanswered`, `low_sentence`, or the failed request's reason. On `owe` in `on` mode the host calls `table.owe
+{campaign, turn, effect: {kind: "time", band}, quote: <the sentence>, source: "told-time"}`.
+
+**`table.owe.options`** answers two more fields:
+
+- `time: {receipts: [{minutes, band?, owed?}], session: boolean}`: the told turn's `time` receipts, and whether its record
+  holds a session;
+- `time_bands: [{handle, min, max, default?, covers?}]`: the `time.band` rows without the road rows.
+
+**`table.owe` with `source: "told-time"`** takes `effect: {kind: "time", band}` and answers `{turn, owed: <name> | null,
+dropped?}`.
+
+- `dropped` is an answer, never an error. Its values are `unknown_band` (no such non-road row), `time_landed`, `session` and
+  `quote_not_delivered`.
+- The row is §158.3's: `{name, turn, kind: "time", effect: {kind: "time", band}, quote, what, source: "told-time"}`. `what` is
+  "time that passed beyond any journey: <band>". The row goes on the record and into `owed.json`, with an `owed_state` warning
+  row (`lane: "told-time"`).
+- A turn owes told time once. A second call for a turn that already holds a told-time row answers that row.
+- Time never supersedes time (`mergeOwed`), and the ledger never marks a time row `satisfied`. It closes only when a receipt
+  lands it.
+
+**Landing (unchanged).** The capsule's `owed` lists the row after move and npc rows (`clerk: true`). §158.4's clerk lands
+`apply time {band, owed}` first on the next run (`told_bookkeeping`, admitted `told`), and the kernel rolls the band. The owed
+landing is not counted as the next turn's declared time (`candidates.ts`), so the next declaration is charged as usual.
+
+**The flight.** The told-position, told-clue and told-time reads of one delivery are the turn's one §158.4 flight
+(`afterDeliveryTold`). It settles when any of them wrote an owed row and is cleared once all three ended. A read that cannot
+owe (mode not `on`, or no Jev key) registers none.
+
+**Bars and mode.** These live in `host-budgets.json` `told_time` (read by `toldTimeBudget`); `PI_COC_TOLD_TIME=off|shadow|on`
+overrides the mode alone.
+
+| key | shipped value |
+| --- | --- |
+| `mode` | `on` |
+| `cost_min` | 0.7 |
+| `sentence_min` | 0.5 |
+| `min_default_minutes` | 5 |
+| `timeout_ms` | 10,000 |
+
+An unreadable file reads as `shadow`. **These bars are not calibrated on live rows**, because this slice made no live model
+calls. The sentence bar is the told-clue read's, and the cost bar sits above the told-clue given bar. With
+`min_default_minutes` 5, `momentary`, `speak_briefly` and `quick_observation` (defaults 0–1) are never owed, while
+`brief_activity` (5) and longer rows are. The rows carry the whole distribution, so the next live table calibrates them.
+`PI_COC_TOLD_TIME=shadow` turns the writes off without a build.
+
+**The row.** One per delivery:
+
+```
+{lane: "told-time", event: "read", turn, mode, ok, bands, sentences: {total, offered}, chosen, confidence, distribution,
+ sentence: {key, confidence, distribution}, usage, decision: "owe" | "stay", band?, why?,
+ outcome: "owed" | "dropped" | "shadow" | "stay", owed, dropped?, ms}
+```
+
+When nothing was asked, the row carries `skipped` as above (`time_landed` adds `landed: [minutes]`). A failure is `ok: false`
+with `reason: "options_failed" | "lane_crashed"`.
+
+### 216.2 Three ends (§31)
+
+- *Writer:* the told-time read (Jev and the bars), through `table.owe` (owed time rows).
+- *Reader:* the capsule's `owed`, §158.4's `owedCandidates`, `toldAdmission` and the kernel's `owedRowFor`.
+- *Actor:* the clerk, who lands the told time first on the next run as a kernel-rolled band; then the Keeper, who finds the
+  clock where the story put it.
+
+The Keeper never invents minutes: the kernel rolls the band. Jev chooses a closed row of the rules from the delivered text,
+and no code reads the prose for meaning.
+
+Counted: one `told-time` row per delivery by `outcome` or `skipped`, `owed.json`'s time rows with `source: "told-time"`, and
+the clerk's `apply:owed:*` bind rows with the receipts that land them.
+
+### 216.3 Tests
+
+`tests/extension/told-time.test.mjs` covers three layers.
+
+- **Pure.** The questions: `none` first, no road rows, the rows' `covers` in the criteria, and no clock and no player words in
+  the state. The bars decide in order, and the first one missed is the reason.
+- **Over the emitted kernel's RPC.**
+  - `table.owe.options`' `time` and `time_bands`.
+  - The told-time row on the record and in `owed.json`, with its warning, and one row per turn.
+  - The drops: `unknown_band`, a road row, `time_landed` and `quote_not_delivered`.
+  - The capsule's `clerk: true` row, and its landing by `apply time {band, owed}`.
+- **Through the real tool path.**
+  - Turn 32's shape (an implicit close that tells a walk round a house, with no receipt) owes the time, and the next run's
+    clerk lands it first, moving the clock.
+  - A delivery whose turn landed a `time` receipt is not read.
+
+Each case fails on the base, which has no `told-time` source and no read.
