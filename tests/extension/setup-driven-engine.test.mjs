@@ -379,7 +379,23 @@ test("§151.6: approving the card is never the policy's: the route hands it to t
 	assert.equal(kernel(run.table, "setup.confirm").length, 0, "the policy never issues setup.confirm");
 	const note = run.table.session.messages.filter((message) => message.role === "custom" && message.customType === "coc-setup-step").at(-1);
 	assert.equal(JSON.parse(note.content).reason, "approve_card");
+	assert.deepEqual(JSON.parse(note.content).state,{available:true,draft_present:true,confirmed:false,loaded:false,complete:false},
+		'the previous compose reply is not a confirmation or completion receipt');
 	assert.equal(setupRuns(run.table).at(-1).fallback, "approve_card");
+});
+
+test('an ambiguous drawn-card input receives current adjudication state after a no-tool compose step', async t => {
+	const run=await drivenSetup({decide:cardFieldsJev(FIRST_FIELDS),responses:[bindCall,fauxAssistantMessage('Draft created; waiting for approval.')]});t.after(()=>run.table.dispose());
+	await run.table.session.prompt(FIRST_INPUT);await waitForIdle(run.table.session);
+	run.requests.length=0;
+	run.decide(batch=>answer(batch,{exit:'continue',move_card_fields:0.96,move_approve_card:0.96}));
+	run.respond([fauxAssistantMessage('Please clarify the selected change or approval.')]);
+	await run.table.session.prompt('Use this card, with the change we discussed.');await waitForIdle(run.table.session);
+	assert.deepEqual(run.requests,[['setup']]);
+	const note=JSON.parse(run.table.session.messages.filter(message=>message.role==='custom'&&message.customType==='coc-setup-step').at(-1).content);
+	assert.equal(note.purpose,'adjudicate');assert.equal(note.reason,'several_moves');
+	assert.deepEqual(note.state,{available:true,draft_present:true,confirmed:false,loaded:false,complete:false});
+	assert.equal(kernel(run.table,'setup.confirm').length,0,'an ambiguous projection never auto-confirms the card');
 });
 
 test("§151.6: setup is driven only with a Jev key and no explicit legacy switch, and the hybrid entry gives it the setup policy, never the play one", async () => {

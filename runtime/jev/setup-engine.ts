@@ -372,10 +372,19 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
           + (missing.length ? 'nothing was written to the card yet; ask for what missing lists, and nothing else. '
             : 'the host has already done what did or the last tool result shows; describe what the card or the table now holds and invite the next change or confirmation. ')
           + 'Never claim a change the host did not make.'};
-    } else if (purpose === 'adjudicate' && (request.refusal || step.reason === 'approve_card' || step.reason === 'stated_numbers' || step.reason === 'removal')) {
+    } else if (purpose === 'adjudicate' && (run.read?.card || request.refusal || step.reason === 'approve_card' || step.reason === 'stated_numbers' || step.reason === 'removal')) {
       content = {kind: 'setup_step', purpose, reason: step.reason, ...(request.refusal ? {refusal: request.refusal} : {}),
+        state: run.read ? {available: true, draft_present: !!run.read.card, confirmed: run.read.confirmed, loaded: run.read.loaded, complete: run.read.complete} : {available: false},
+        instruction: `The full ${fullTool()} tool is available in this step. Earlier compose instructions that disabled tools belonged only to that earlier step. `
+          + 'State is the snapshot at the start of this run; successful later tool results supersede it. Use the actual current player input and those results. '
+          + 'A draft is not a confirmed investigator, and a projected decision is not a completed tool call. '
+          + 'Do not claim confirmation or handoff before their successful tool results. If state is unavailable, inspect setup status before making changes.',
         note: step.reason === 'approve_card'
-          ? 'The clerk read the player\'s input as approving the card on the table. Confirming creates the world and is yours to do with the setup tool, or not.'
+          ? 'The clerk classified the current input as approval of the card on the table. Verify that this matches the player\'s actual explicit approval. '
+            + `For an unconfirmed draft, use ${fullTool()} step ${run.read?.steps.confirm ?? 'confirm-investigator'} with consent approved; the kernel checks the current draft and approval. `
+            + 'If the investigator is already loaded or a tool already confirmed it, do not confirm again. '
+            + `After successful confirmation, use ${fullTool()} step complete. Confirmation commits the investigator; the play host opens the world later. `
+            + 'If the input did not approve this card, preserve the draft and address what the player actually requested. If a tool refuses, preserve prior successful steps and handle its actual reason.'
           : request.refusal ? 'The host\'s last setup call was refused (refusal); nothing after it was executed. The full setup tool is yours for the rest of this turn.'
             : 'This change is yours to make with the full setup tool; the kernel checks every number.'};
     }
