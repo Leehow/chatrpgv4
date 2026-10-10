@@ -42753,6 +42753,12 @@ development easing and a chosen bout on `SanitySession`; the award offer's scale
 leaving nothing to lose on the second sight, the Keeper's bout pick, the `needs` ladder). The development offer's live
 behaviour (a real Jev judging danger and conduct) and the judged option's route through a real Jev need a real table.
 
+Frozen oracle (integration, 2026-10-10): the Python oracle predates this section, so its comparisons project the
+additions out of the live side only, by name, in `tests/extension/oracle-fixture.mjs`: `POST_FREEZE_SANITY_FIELDS`
+(`mythos_hardened` on the Sanity state; `ts-kernel-healing`) and `POST_FREEZE_CARD_SLOTS` (the Sanity check card's
+`clue_ref`, `creature_type` and `bout_choice`; `ts-kernel-rules`). The rule-record digest of `ts-kernel-rules` is
+re-pinned over the rules data of §221.2. The frozen captures are untouched.
+
 ### 221.11 Live check (2026-10-10, real Jev, the emitted kernel over the haunting, Chinese declarations, two calls each)
 
 The first live run answered the ladder `unknown` at 1.0 ("not determined by supplied state"): the parameter batch
@@ -43032,6 +43038,14 @@ Tests: `tests/extension/rulebook-rolls.test.mjs` (arithmetic: Luck raises a leve
 exclusions; opposed Luck recomputes the winner; push protocol records
 the consequence source honestly and accepts free rein; combined push and ticks; bonus-die tick
 withheld; combat opposedLuck on a passed-but-losing roll; catalog push default; rules data).
+
+Integration (2026-10-10): the push candidate's `stakes` parameter lists its rules default `''` as an option (label
+"No delivered sentence foreshadowed a consequence…"), because the host's `validateCheckOptions` requires every default
+to be one of its parameter's options; without it the whole catalog read as incoherent and every later check selection
+of the run was `check_catalog_binding_changed` (`forced-resolution`, `check-catalog`, `admission-within-turn`).
+`rulebook-rolls` now runs the validator over the live catalog. The Python replays and family tests follow §223.1,
+§223.3 and §223.4: a push without `stakes` is legal (`test_push_without_a_foreshadowed_consequence_is_legal`), a
+regular, hard or extreme success continues into `push-luck:luck-spend`, a combined check continues like any skill roll.
 
 ## 224. A declared attack is always settled, and first impressions are rolled only when they matter (user ruling 2026-10-10, re-rules §163.2 and §178 per the Keeper Rulebook)
 

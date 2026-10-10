@@ -101,9 +101,11 @@ def test_roll_modifiers_rule_uses_structured_table(tables):
 def test_pushed_roll_rule_uses_structured_table(tables):
     table = tables.load("pushed-roll")
     assert table["maximum_attempts_after_initial_failure"] == 1
+    # §223.1: `foreshadowing` is a key of the data the frozen accessor never projected; read it from the table.
+    assert table["foreshadowing"] == "optional"
     _assert_subset(tables.pushed_roll_rule(), {
         "maximum_attempts_after_initial_failure": 1, "requires_changed_approach": True,
-        "requires_keeper_foreshadowed_failure": False, "foreshadowing": "optional",
+        "requires_keeper_foreshadowed_failure": False,
         "requires_keeper_owned_failure_consequence": True, "requires_player_confirmation": True,
         "required_stages": ["player_justifies_push", "keeper_approves", "roll_resolved"],
     })

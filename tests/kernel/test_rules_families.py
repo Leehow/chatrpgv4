@@ -128,12 +128,17 @@ def test_combined_check_one_roll_many_targets(seeded_kernel):
     assert [t["value"] for t in outcome["targets"]] == [55, 45]
     assert outcome["passed"] == any(t["success"] for t in outcome["targets"])
     assert result["receipts"] == ["roll:spot-hidden-listen-t1-c1"]
-    # A combined check is not continuable (`runtime.continuable_check`), so the result must
-    # not offer a Luck spend against it. This assertion used to require the opposite, which
-    # pinned a defect: at a live table the keeper read the offer, put it to the player, and
-    # the settlement refused — binding to an unrelated fumble two turns back and reporting
-    # that outcome. An offer the settlement will refuse is worse than no offer.
-    assert [c["decision"] for c in result["continuations"] if c["decision"].startswith("push-luck:")] == []
+    # §223.4 (p.55, p.85): a combined roll is one die against several skills, pushable and open to Luck like any
+    # skill roll, so the kernel offers its continuations (a push after an ordinary failure, Luck after either; a
+    # critical or fumble continues into nothing). Before §223 the combined check was not continuable and the
+    # offer was refused by the settlement; both halves are now aligned, so the offer is kept.
+    offered = [c["decision"] for c in result["continuations"] if c["decision"].startswith("push-luck:")]
+    if outcome["level"] in ("critical", "fumble"):
+        assert offered == []
+    elif outcome["passed"]:
+        assert offered == ["push-luck:luck-spend"]
+    else:
+        assert offered == ["push-luck:pushed-roll", "push-luck:luck-spend"]
     error = resolve_err(seeded_kernel, "t1-c2", intent="investigate", goal="x", method="y",
                         decision="core-check:combined-check", skills=["Spot Hidden"])
     assert error["code"] == "needs" and error["details"]["needs"]["field"] == "skills"
@@ -240,10 +245,6 @@ def test_push_executes_against_last_failure_and_refuses_a_second(seeded_kernel):
     assert [c["decision"] for c in failed["continuations"]] == ["push-luck:pushed-roll", "push-luck:luck-spend"]
     n = int(failed_id.split("-c")[1])
 
-    missing = resolve_err(seeded_kernel, f"t1-c{n + 1}", intent="investigate", goal="爬上二楼的窗", method="换条排水管",
-                          push=True)
-    assert missing["code"] == "needs" and missing["details"]["needs"]["field"] == "stakes"
-
     pushed = resolve(seeded_kernel, f"t1-c{n + 1}", intent="investigate", goal="爬上二楼的窗", method="换条排水管",
                      stakes="排水管断裂，摔下去受伤", push=True)
     assert pushed["decision"] == "push-luck:pushed-roll"
@@ -265,6 +266,23 @@ def test_push_executes_against_last_failure_and_refuses_a_second(seeded_kernel):
 
     rolls = [m for m in narrate(seeded_kernel, f"t1-c{n + 3}", "窗框吱呀作响。")["mechanics"] if m["kind"] == "roll"]
     assert rolls[-1]["skill"] == "Climb" and rolls[-1]["pushed"] is True
+
+
+def test_push_without_a_foreshadowed_consequence_is_legal(seeded_kernel):
+    """§223.1 (pp.84-86): foreshadowing the consequence of a failed push is the Keeper's option, not a
+    precondition; a push with no `stakes` is legal and the receipt records the Keeper's free rein."""
+    open_turn(seeded_kernel, "我爬。")
+    failed_id, failed = first_failure(seeded_kernel, "t1-c", intent="investigate", goal="爬上二楼的窗", method="用攀爬")
+    n = int(failed_id.split("-c")[1])
+    pushed = resolve(seeded_kernel, f"t1-c{n + 1}", intent="investigate", goal="爬上二楼的窗", method="换条排水管", push=True)
+    assert pushed["decision"] == "push-luck:pushed-roll"
+    assert pushed["outcome"]["pushed"] is True and pushed["outcome"]["source_receipt"] == failed["receipt"]
+    assert pushed["outcome"]["failure_consequence"] == ""
+    receipt = next(r for r in seeded_kernel.table("status")["receipts"] if r["id"] == pushed["receipt"])
+    assert receipt["pushed"] is True
+    protocol = (receipt.get("check") or {}).get("pushed_roll_protocol") or {}
+    assert protocol.get("failure_consequence_source") == "keeper_free_rein"
+    assert protocol.get("keeper_foreshadowed_failure") is False
 
 
 def test_luck_spend_and_insufficient_luck(seeded_kernel):

@@ -116,8 +116,11 @@ def _check(client: RpcClient, workspace: Path, call_id: str, action: dict, expec
         assert [c["decision"] for c in result["continuations"]] == expect["continuations"]
     if "continuations_on_failure" in expect:
         names = [c["decision"] for c in result["continuations"]]
-        if outcome.get("passed") or outcome.get("level") == "fumble":
+        if outcome.get("level") in ("fumble", "critical"):
             assert names == []
+        elif outcome.get("passed"):
+            # §223.3 (p.99): Luck may raise a success level, so a regular, hard or extreme success continues into Luck.
+            assert names == ["push-luck:luck-spend"]
         else:
             assert names == expect["continuations_on_failure"]
     if "session" in expect:
