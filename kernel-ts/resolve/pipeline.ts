@@ -74,7 +74,7 @@ export function validateExtras(action: Row): void {
         throw new RpcError('invalid_params', 'push or spend Luck, but not both', {
             fix: 'send either push: true or luck: <points>'
         });
-    for (const key of ['spell', 'weapon', 'target', 'decision', 'actor', 'ending', 'outcome', 'san_loss', 'scenario_san_reward_expr', 'trigger'])
+    for (const key of ['spell', 'weapon', 'improvised', 'target', 'decision', 'actor', 'ending', 'outcome', 'san_loss', 'scenario_san_reward_expr', 'trigger'])
         if (action[key] != null && (typeof action[key] !== 'string' || !action[key].trim()))
             throw new RpcError('invalid_params', `action.${key} must be a non-empty string`);
     if (action.interrupted != null && typeof action.interrupted !== 'boolean')
