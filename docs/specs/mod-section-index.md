@@ -1,6 +1,7 @@
 # Mod instructions as an index: resident lines, retrieved sections
 
 Status: implemented as contract §183 (2026-10-04, owner's option "c"; see §10). Design and offline measurement: three rounds, §7.4–§8.
+Successor proposal: [Turn Capability and Mod Discovery](turn-capability-and-mod-discovery.md) (2026-10-09) designs default index-first delivery and capability-scoped schemas. It is not implemented; the §183 behaviour and measurements below remain the current baseline.
 Owner ruling, 2026-10-04: "我希望是类似 skill 一样索引，然后找到哪些需要的 mod，把上下文加进来 … 用 jev 来检索决定 … 未来可能会有成百上千个 mod … 限制那么小的话可能会描述不全。" Then: "你先设计怎么做，然后做一些测试看看效果，然后调试好最佳方案".
 
 ## 1. The problem
