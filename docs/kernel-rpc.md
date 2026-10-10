@@ -43017,6 +43017,15 @@ skill, `obvious`, `no_roll` (`check_skipped`), an unknown route and a failed rol
 shadow, below bars). `tests/extension/check-selection.test.mjs`: the Idea roll's trigger question.
 `tests/kernel/test_rule_graph_data.py`: the decision is in `DECISIONS_WITHOUT_INTENT` and the manifest digest holds.
 
+### 222.6 Live check (2026-10-10, real Jev, the emitted kernel over the haunting at Knott's office, two calls each)
+
+The Idea roll's trigger answered as the rulebook reads it: "我卡住了，不知道下一步该做什么。KP，有什么提示吗？" and
+"我们好像漏掉了什么关键线索，能过个灵感检定吗？" called it; "我去《环球报》查科比特宅的旧报道。" and a question to Knott did not.
+The first run then withheld it: its `clue` parameter, on a `declaration` option an investigator acts in, read as the
+player's unmade choice (§163.8). The clue is the Keeper's to give (p.200), so the parameter is `selection: compatible`
+(best-scored clue bound); after that the two requests bound `knott-commission` (once `knott-macario-summary`), difficulty
+regular. Not gameplay acceptance.
+
 ## 224. A declared attack is always settled, and first impressions are rolled only when they matter (user ruling 2026-10-10, re-rules §163.2 and §178 per the Keeper Rulebook)
 
 ### 224.1 The ruling and the evidence

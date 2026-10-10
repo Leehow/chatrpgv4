@@ -384,8 +384,10 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
         const clues = graph.sceneClueIds(scene).map(id => graph.nodes.get(id)!).filter(node => !found.has(graph.handle(node)));
         if (roller && Number.isFinite(intOf(roller)) && intOf(roller) >= 0 && clues.length) {
             add('core-check:idea-roll', `${string(roller.name)}: the Idea roll -- the players are stuck and ask for a way forward`, {actor: string(roller.name), intent: 'investigate'}, [
-                {name: 'clue', question: 'Which still-undiscovered clue of this scene is the one the investigation needs to get moving again -- the most important clue the players have missed?',
-                    options: clues.map(node => ({label: `${graph.handle(node)}: ${string(node.summary || node.name || '').slice(0, 240)}`, value: graph.handle(node)}))},
+                // The clue is the Keeper's to give (p.200), not the player's choice: `compatible`, so §163.8 never withholds it;
+                // the best-scored clue is bound (live Jev 2026-10-10 withheld it as an unmade player choice).
+                {name: 'clue', question: 'Is this still-undiscovered clue of this scene one the investigation needs to get moving again -- a clue the players have missed that would point them onward? The most important such clue should score highest.',
+                    options: clues.map(node => ({label: `${graph.handle(node)}: ${string(node.summary || node.name || '').slice(0, 240)}`, value: graph.handle(node)})), selection: 'compatible'},
                 {...parameter('difficulty', 'How plainly had this clue been offered to the players? Never mentioned by the Keeper: regular. Mentioned but not emphasized: hard. Made clear, mentioned several times, or discussed by the players themselves: extreme.', ['regular', 'hard', 'extreme']),
                     default: {value: 'regular', question: 'Had the Keeper already mentioned this clue to the players (hard), or made it clear or heard the players discuss it (extreme)? If it was never mentioned, the default regular applies.'}},
             ]);
