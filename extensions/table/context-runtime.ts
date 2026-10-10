@@ -117,7 +117,29 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // A missing owner is a full-view fallback, never an independent provider allowance.
     const visibilityMode=()=>fallbackForInput?'full':discoveryMode();
     const discoveryDecision=()=>fallbackForInput?undefined:sharedBudget?.decision;
-    const capabilityRuntime=createCapabilityRuntime({tools:()=>offeredTools(COC_TOOLS,sessionEnv),decision:discoveryDecision,mode:visibilityMode,record});
+    // Contract §209.14: a purpose lookup comes after a Keeper inference, so its decision is owned by the current foreground
+    // owner (TaskRuntime's provider owner, else the hybrid step's read owner), never by the optional allowance that inference
+    // has usually outlived. One lease per owner; the capability runtime's per-input selector budget still bounds the work.
+    let lookupBudget:{signal:AbortSignal;deadlineAt:number;budget:ReturnType<typeof preparationBudget>}|undefined;
+    const closeLookupBudget=()=>{lookupBudget?.budget.close();lookupBudget=undefined;};
+    const lookupDecision=():DecisionPort|string=>{
+        const port=decision();
+        if(!port||!campaign)return 'unconfigured';
+        const owner=foregroundReadOwner();
+        if(!owner||owner.signal.aborted||Date.now()>=owner.deadlineAt){
+            closeLookupBudget();
+            return !fallbackForInput&&sharedBudget&&Date.now()<prescreenDeadlineAt?sharedBudget.decision:'lookup_owner_unavailable';
+        }
+        if(lookupBudget?.signal!==owner.signal||lookupBudget.deadlineAt!==owner.deadlineAt){
+            closeLookupBudget();
+            const parent=foregroundBudget?.();
+            lookupBudget={signal:owner.signal,deadlineAt:owner.deadlineAt,budget:preparationBudget({decision:port,campaign,deadlineAt:owner.deadlineAt,
+                signal:parent?inputLifetime.signal:AbortSignal.any([inputLifetime.signal,owner.signal]),parent,
+                owner:'capability-lookup',goal:'Answer the Keeper read-only capability purpose lookup'})};
+        }
+        return lookupBudget.budget.decision;
+    };
+    const capabilityRuntime=createCapabilityRuntime({tools:()=>offeredTools(COC_TOOLS,sessionEnv),decision:discoveryDecision,lookupDecision,mode:visibilityMode,record});
     const modDiscovery=createModDiscovery({read:async(method,params)=>boundedDiscoveryRead(async()=>call?call(method,{campaign,...params}):undefined),
         decision:discoveryDecision,mode:visibilityMode,record});
     let pendingDiscovery:Row|undefined,requiredCapabilities:string[]=[];
@@ -129,7 +151,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     const temporalAdvice=createTemporalAdvice({read:async(method,params)=>call?call(method,params):undefined,decision,record});
     let pendingTemporal:Row|undefined;
     let turnCalls=emptyCalls(),pendingSections:Row|undefined;
-    const resetPreparation=()=>{fallbackForInput=false;verifiedInputEpoch=undefined;inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;heldDiscoveryRequests.clear();discoveryHandoff=undefined;discoveryUnavailable=false;};
+    const resetPreparation=()=>{closeLookupBudget();fallbackForInput=false;verifiedInputEpoch=undefined;inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;heldDiscoveryRequests.clear();discoveryHandoff=undefined;discoveryUnavailable=false;};
     pi.events.on('coc:task-provider-budget',value=>{foregroundBudget=typeof value==='function'?value as typeof foregroundBudget:undefined;});
     pi.events.on('coc:discovery-read-owner',value=>{hybridReadOwner=typeof value==='function'?value as typeof hybridReadOwner:undefined;});
     // Contract §168.5: a capsule this hook reads itself is handed over through the kernel extension's first-sight view, as
