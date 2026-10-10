@@ -458,7 +458,8 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     const defaults = parameters.filter(parameter => parameter.default);
     if (defaults.length) {
       const state = {declaration: input.declaration, context: input.context,
-        selected: {label: selected.label, action: selected.action}, policy: POLICY};
+        // §221: the bound parameters read the option's host facts too (a judged Sanity roll's done_this_turn), as its trigger did.
+        selected: {label: selected.label, action: selected.action, ...(selected.facts ? {facts: selected.facts} : {})}, policy: POLICY};
       const questions: DecisionBatch['questions'] = defaults.map((parameter, index) => ({key: parameterAlias(index), target: parameter.name, type: 'noul' as const,
         instructions: parameter.default!.question,
         criteria: {true: 'An established condition requires a non-default modifier.',
@@ -484,7 +485,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     }
     if (parameters.length) {
       const state = {declaration: input.declaration, context: input.context,
-        selected: {label: selected.label, action}, policy: POLICY};
+        selected: {label: selected.label, action, ...(selected.facts ? {facts: selected.facts} : {})}, policy: POLICY};
       const questions = parameters.flatMap((parameter, index): DecisionBatch['questions'] => parameter.selection === 'compatible'
           ? parameter.options.map((option, optionIndex) => ({key: `${parameterAlias(index)}_${optionIndex}`, target: `${parameter.name}: ${option.label}`,
             type: 'noul', instructions: `${parameter.question} Judge only this option: is it a permissible choice consistent with the supplied situation? It need not already have happened. Other options may also be permissible.`,

@@ -122,6 +122,8 @@ test('§221.3(4) T18: a corpse filed as a clue with no stated loss is offered as
   assert.equal(selected.action.involuntary, 'freeze');
   assert.equal(selected.action.bout, 'roll');
   assert.ok(seen.some(batch => batch.family === 'check-selection-need' && JSON.stringify(batch.state).includes('The body behind the boards')), 'Jev reads what happened this turn');
+  // Live Jev 2026-10-10: without the facts the ladder question answered unknown at 1.0 ("not determined by supplied state").
+  assert.ok(seen.some(batch => batch.family === 'check-selection-bind' && JSON.stringify(batch.state).includes('The body behind the boards')), 'the loss is bound reading the same facts');
 
   const result = await call('table.resolve', {call_id: 't1-c2', action: selected.action});
   assert.equal(result.decision, 'sanity:check');

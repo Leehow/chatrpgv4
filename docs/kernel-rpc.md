@@ -42753,6 +42753,15 @@ development easing and a chosen bout on `SanitySession`; the award offer's scale
 leaving nothing to lose on the second sight, the Keeper's bout pick, the `needs` ladder). The development offer's live
 behaviour (a real Jev judging danger and conduct) and the judged option's route through a real Jev need a real table.
 
+### 221.11 Live check (2026-10-10, real Jev, the emitted kernel over the haunting, Chinese declarations, two calls each)
+
+The first live run answered the ladder `unknown` at 1.0 ("not determined by supplied state"): the parameter batch
+(`check-selection-bind`) carried the option's label and action but not its `facts`, so `done_this_turn` never reached the
+question that names it. The bind and defaults batches now carry `selected.facts` (`runtime/jev/resolve-selection.ts`).
+Then: the corpse behind the boards → `0/1D3` (p.155, a corpse or body part), a body torn open in a blood-slick cellar →
+`1/1D4+1` (a horrifically mangled corpse), both with `cry_out`; reading old newspapers with a 1918 clipping filed, and
+walking to a café, → no roll (the trigger answered no). Not gameplay acceptance.
+
 ## 223. Pushing, Luck and improvement ticks follow the Keeper Rulebook (user ruling 2026-10-10)
 
 The user's ruling of 2026-10-10: rules adjudicate what actually happened at the table, per the
