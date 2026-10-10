@@ -107,7 +107,7 @@ import { OPENING_PRESENCE_FAMILY } from "../../runtime/jev/opening-presence.ts";
 import { createPublicFigureJudge } from "./public-figures.ts";
 import { seatOpeningPeople } from "./opening-presence.ts";
 import { PlaceBindings } from "./place-binding.ts";
-import { PendingAnswers, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs, type SourceAnswerScope } from "./source-answers.ts";
+import { PendingAnswers, landedFirstAnswer, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs, type SourceAnswerScope } from "./source-answers.ts";
 import {sourceAnswerPage} from '../../runtime/jev/source-answer-pages.ts';
 import { PERSON_TEXT_NOTE, SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
 import { bookText, CarriedText, findPassage } from "./carried-text.ts";
@@ -5621,7 +5621,18 @@ export default function (pi: ExtensionAPI) {
 					const askedAt = state.scene?.handle, askedTurn = state.turn, askedScope = state.sourceAnswerScope ? {...state.sourceAnswerScope} : undefined;
 					const sourceRead = { purpose: answerOnly ? "answer" : "detail", focus: params.query, question: params.question ?? "" };
 					let memoEnvelope = false;
-					try {
+					// §217.2: an answer that landed at this scene while this run was deciding, and was not handed to it yet, answers
+					// the lookup first (as the memo does), so a lookup that raced the landing never starts a second reading. The
+					// resend, or `retry: true`, reads the book. No question is matched against another.
+					const landedFirst = answerOnly && params.retry !== true && fromStep?.run
+						? pendingAnswers.landedFor(state.campaign, {scene: askedAt, run: fromStep.run, scope: askedScope}) : [];
+					if (landedFirst.length) {
+						for (const entry of landedFirst)
+							pendingAnswers.hold(state.campaign, askedAt, [{focus: entry.focus, question: entry.question, answer: entry.answer}], entry.turn, fromStep!.run, askedScope);
+						sourceAnswer = landedFirstAnswer(landedFirst);
+						memoEnvelope = true;
+						void record({ lane: 'reading', event: 'answer_landed_first', turn: state.turn, focus: String(params.query), foci: landedFirst.map(entry => entry.focus) });
+					} else try {
 						// §22.4.3 (SL-36) / §22.4.3.1 (SL-58): a consultation, checked or preparing, waits at most its allowance. Past
 						// it neither is the turn's provider work: an answer goes on in the background like a read-ahead, and a
 						// `prepare` keeps its blocking slot instead (§22.4.6) -- the Keeper asked for this material now, so it is not

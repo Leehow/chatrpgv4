@@ -24,7 +24,7 @@ test.after(()=>rm(temp,{recursive:true,force:true}));
 const QUERY='Record the fare the investigator pays the cab driver.';
 
 /** One input on the installed context hooks: a selected first request, then the Keeper's model time past the allowance. */
-async function table(t,{owner}){
+async function table(t,{owner,waitMs=2100}){
     const envNames=['COC_TURN_DISCOVERY','EXT_JEV_APIKEY','PI_COC_JEV_PRESELECT','PI_COC_JEV_PRESELECT_ALLOWANCE_MS'],old=Object.fromEntries(envNames.map(n=>[n,process.env[n]]));
     process.env.COC_TURN_DISCOVERY='selective';process.env.EXT_JEV_APIKEY='test-only';
     process.env.PI_COC_JEV_PRESELECT='0';process.env.PI_COC_JEV_PRESELECT_ALLOWANCE_MS='2000';
@@ -74,8 +74,8 @@ async function table(t,{owner}){
     hooks.get('before_provider_request')({payload:{input:outgoing.messages,tools:declared}});
     assert.ok(rows.some(r=>r.lane==='capability-discovery'&&r.event==='selected'),'the first request is selective');
     // The Keeper's first inference: live turn 22 took 12.3 s against a 12 s allowance; here 2.1 s against 2 s.
-    await new Promise(resolve=>setTimeout(resolve,2100));
-    return {hooks,rows,seen,lookup,foreground,shutdown:()=>hooks.get('session_shutdown')()};
+    await new Promise(resolve=>setTimeout(resolve,waitMs));
+    return {hooks,bus,rows,seen,lookup,foreground,shutdown:()=>hooks.get('session_shutdown')()};
 }
 
 for(const owner of ['hybrid','task'])test(`a purpose lookup after the optional allowance expired is answered under the ${owner} foreground owner`,async t=>{
@@ -105,5 +105,25 @@ test('a purpose lookup without a live foreground owner is an explicit no-commit 
     assert.ok(rows.some(r=>r.event==='lookup_fallback'&&r.reason==='lookup_owner_unavailable'&&r.no_commit));
     const hold=await hooks.get('tool_call')({toolName:'apply',toolCallId:'held',input:{effects:[{kind:'cash',amount:'0.75',currency:'USD',to:'driver'}]}});
     assert.equal(hold?.block,true);
+    await shutdown();
+});
+
+// Contract §217.1 (issue #112 live d6c, turn 54, session line 27231): a background reading published its source while the
+// Keeper's inference was out. The publication cleared the capability epoch, so the first of the Keeper's two capability
+// lookups answered `Capability discovery has no current input` and the batch rule sent the second back unrun. The player's
+// input was still current: both lookups are read-only detail and must answer, and the write gate must stay where it was.
+test('a source publication during the Keeper inference leaves both of its capability lookups answerable',async t=>{
+    const {hooks,bus,rows,lookup,shutdown}=await table(t,{owner:'hybrid',waitMs:0});
+    bus.get('coc:source-published')({campaign:'table',module_id:'fixture'});
+    const purpose=await lookup({kind:'capability',query:QUERY});
+    const named=await lookup({kind:'capability',name:'npc-activity'});
+    assert.equal(purpose.read_only,true);assert.equal(purpose.no_commit,true);
+    assert.notEqual(purpose.status,'full_fallback',JSON.stringify(purpose));
+    assert.ok(purpose.capabilities.find(c=>c.name==='cash')?.detail,'the purpose lookup returns the cash detail card');
+    assert.ok(named.capabilities.find(c=>c.name==='npc-activity')?.detail,'the named lookup returns its detail card');
+    assert.equal(rows.some(r=>r.event==='lookup_fallback'),false);
+    // The request the Keeper decided from was narrow: its write is still held before mutation.
+    const hold=await hooks.get('tool_call')({toolName:'apply',toolCallId:'after-publication',input:{effects:[{kind:'cash',amount:'0.75',currency:'USD',to:'driver'}]}});
+    assert.equal(hold?.block,true);assert.match(hold.reason,/no world change was committed/i);
     await shutdown();
 });

@@ -234,7 +234,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if ((observedWorkspaceMode === 'off' && !prescreenEnabled() && !object(object(capsule?.mods).expression_reference).enabled
             &&discoveryMode()==='full') || object(data).campaign && object(data).campaign !== campaign) return;
         discoveryHandoff=undefined;
-        capabilityRuntime.clear();modDiscovery.reset();
+        // §217.1: a background publication lands inside the input, often while the Keeper's inference is out. It drops the
+        // selected view (the next request reselects against the new source); the Keeper's lookups still answer for the input.
+        capabilityRuntime.invalidate();modDiscovery.reset();
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; prescreenMemo=undefined;reusablePrescreen=undefined; invalidate();
     });
     pi.on('tool_call', async event => {
@@ -599,7 +601,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         try {return await projectRequest(event, ctx);}
         catch (error) {
             const failure = (error instanceof Error ? error.message : String(error)).slice(0, 160);
-            discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
+            discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
             pendingSections=undefined;pendingExpression=undefined;pendingTemporal=undefined;pendingProvider=undefined;
             invalidate();degraded('context_projection_failed');
             const requestMessages=event.messages.filter(message=>message.role!=='custom'||message.customType!==NPC_ADVICE_TYPE);
@@ -613,7 +615,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if(!fallbackForInput&&inputEpoch&&verifiedInputEpoch===inputEpoch&&prescreenDeadlineAt
             &&Date.now()>=prescreenDeadlineAt&&foregroundReadOwner()){
             fallbackForInput=true;discoveryUnavailable=true;sharedBudget?.close();sharedBudget=undefined;
-            capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
+            capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
             record({lane:'context',event:'discovery_fallback',turn:observedTurn,reason:'preparation_expired',
                 optional_deadline:prescreenDeadlineAt,foreground_deadline:foregroundReadOwner()?.deadlineAt});
         }
@@ -628,10 +630,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             snapshot=await boundedDiscoveryRead(prepare);
             if(!snapshot&&ticket!==generation&&!inputPending)snapshot=await boundedDiscoveryRead(prepare);
         }catch(error){
-            if(ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
+            if(ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
                 invalidate();degraded(String(error?.message??'discovery_snapshot_unavailable'));}
         }
-        if(!snapshot&&ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();}
+        if(!snapshot&&ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();}
         // Pi 0.87 restores the canonical system/tool checkpoint after this hook. Reserve its
         // serialized size on every exit, including degraded turns, without treating it as history.
         const {systemBytes, systemDigest} = systemMeasure(ctx);
@@ -852,7 +854,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 record({lane:'context',event:'discovery_snapshot',turn:snapshot.binding.turn,status:'unavailable',reason,ms:Date.now()-began});
                 if(ticket===generation){
                     discoveryUnavailable=true;
-                    capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
+                    capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
                     pendingSections=undefined;pendingExpression=undefined;pendingTemporal=undefined;pendingProvider=undefined;
                     capsule=undefined;rawBinding=undefined;brief=undefined;briefKey=undefined;invalidate();degraded(reason);
                 }

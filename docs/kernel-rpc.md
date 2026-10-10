@@ -42964,3 +42964,116 @@ the clerk's `apply:owed:*` bind rows with the receipts that land them.
   - A delivery whose turn landed a `time` receipt is not read.
 
 Each case fails on the base, which has no `told-time` source and no read.
+
+## 217. A lookup answers for its input; a landing the run has not been handed answers first (2026-10-10, issue #112 follow-up on the d6c live night; amends §209.5, §209.6, §209.11, §209.14 and §135.20.1)
+
+Evidence: `capability-discovery-implementation-20261010/` (`d6c-live-revalidation.md` defects 7 and 8, its non-Keeper
+request note), session `gui-host-e091/…/2636689b….jsonl`, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`
+telemetry, transport trace `gui-transport-d6c/`.
+
+### 217.1 An in-input invalidation keeps the input's lookups and the request's write gate (defect 7, turn 54)
+
+**Observed.** Turn 54, session lines 27225–27239. The Keeper's inference ran 22:18:40.458–22:18:51.389. Inside it, at
+22:18:42.662, the background reading `read-8` (focus "Handout 7 Hall of Records", asked on turn 52) called
+`module.read.finish {outcome: completed}`. The inference returned two `lookup {kind: "capability"}` calls in one
+response. The first answered `Capability discovery has no current input` (error); the hybrid engine's batch rule
+(`batch_step_fell: lookup_refused`) sent the second back with `The host did not execute this call.` The player's input
+was the same throughout.
+
+**Cause (three ends).** *Writer:* the module extension emits `coc:source-published` on every completed reading
+(`extensions/module/index.ts`), whenever it lands. *Reader:* the context owner's handler
+(`extensions/table/context-runtime.ts`) answered it with `capabilityRuntime.clear()`, the same reset a new input gets,
+which set the capability runtime's epoch key to empty (`extensions/table/capability-runtime.ts`). Nothing observes a new
+epoch until the next request's `context` hook, so a lookup arriving in between met `!key` and threw. *Actor:* the hybrid
+batch rule treats any erroring call as the batch falling (`runtime/jev/hybrid-engine.ts` `modelStep`), so one lookup's
+false error cost its read-only sibling. The same reset had two more consequences the trace did not exercise but the code
+shows: a purpose lookup in flight across any epoch change of the same input (a source publication, a write that changed
+the situation) was rejected as `Capability lookup input was replaced or cancelled`; and the §209.6 readiness gate
+checked the *selection*, which the reset dropped, so an `apply` the Keeper decided from a narrow request would pass the
+gate if a publication landed between that request and the call. The other in-input resets (§209.9's
+`preparation_expired`, §209.11's unavailable or changed snapshot, §209.13's projection failure) had the same shape.
+
+**Decisions.**
+
+1. **Two resets, not one.** The capability runtime gains `invalidate()`: it drops the selected view, its in-flight view
+   selection and the epoch key, as `clear()` did. `clear()` (a new input, session start or shutdown) additionally ends
+   the input. Every in-input site of the context owner calls `invalidate()`: the source publication, the projection
+   failure, `preparation_expired`, and the unavailable and changed-snapshot paths. The input, session start and
+   shutdown keep `clear()`. Mod discovery's existing `reset()`/`clear()` split is unchanged.
+2. **A lookup answers for its input.** The runtime keeps the last epoch observed for the current input (its binding,
+   capsule and task) as the input's lookup basis; `invalidate()` keeps it, `clear()` ends it, and an aborted input
+   lifetime (a delivered turn) ends it. A named lookup answers from the catalogue; a purpose lookup is asked against the
+   basis through the §209.14 owner, under the same per-input selector budget, cached by (basis epoch, query). A lookup
+   is current while its input is current: a later epoch of the same input no longer rejects it; a new input does, as
+   §209.5 has it, without widening or adding detail to the successor. A lookup's decision is cancelled with its input,
+   not with the view selection's epoch.
+3. **What a lookup or an expansion loaded stays shown for the input.** The names a lookup returned or a §209.6 expansion
+   loaded are carried into every later selected view of the same input, so the request after a publication shows the
+   fragments the Keeper read. A widening (a failed purpose lookup, `repeated_expansion`) pins the full view for the rest
+   of the input, not only for the epoch it happened in.
+4. **The write gate reads what the request showed.** §209.6's readiness compares a mutating call with the capability
+   names the projected request actually carried (`visible`), which only the next projection or the end of the input
+   replaces. An invalidation between that request and the call therefore keeps the hold; a request projected full lifts
+   it and the widen hold together. Authority is unchanged: a lookup is read-only detail, never admits or commits, and
+   the kernel still validates every effect.
+5. The batch rule is unchanged: an erroring call still falls its batch. The false error is what is removed.
+
+*Tests.* `tests/extension/capability-lookup-owner.test.mjs` "a source publication during the Keeper inference leaves both
+of its capability lookups answerable" (installed context hooks; the publication between the request and two lookups:
+before this section the first threw `Capability discovery has no current input`; now the purpose lookup returns the
+`cash` card, the named one `npc-activity`, and an `apply cash` is still held before mutation).
+`tests/extension/capability-runtime.test.mjs`: a lookup after `invalidate()` answers and its names reach the successor
+view, while `clear()` still ends it (before: `no current input`); a purpose lookup in flight across an epoch change of
+the same input answers (before: `Capability lookup input was replaced or cancelled`); the gate after a mid-batch
+invalidation still holds an `apply cash` the request never showed (before: `undefined`, the call passed).
+
+### 217.2 A source lookup that races a landing is handed the landing first (defect 8, turns 51–54)
+
+**Observed.** The report's reading ("research found nothing while `held_wait` showed handout 7 pending; never landed")
+does not hold on the trace. Turn 51: the Keeper asked `lookup source answer` "Hall of Records Handout 7 will executor"
+(`read-7`, pending past its 8 s allowance) and a module lookup that returned both Hall of Records clues with
+`delivery_kind: skill_check`; the route offered `apply:handout:Handout 7` and left it (`selected: []`, the player asked
+for deed books and death certificates). Turn 52: the run's first model step began 22:15:43.705 with no wait left
+(`held_wait` `bound_ms: 0`, run elapsed 24 s); `read-7` landed at 22:16:05.809 inside that inference
+(`answer_landed`, status `unresolved` because the deed book, death certificates and cause of death are not in the book;
+its answer quotes Handout 7 and says it is passed on a successful Library Use roll). At 22:16:07.376 the inference
+returned a second source lookup, "Handout 7 Hall of Records", with a reworded question; the memo matches by focus, so it
+started `read-8` (147 s, two author and two verify children of 4–5 MB requests). The next step carried `read-7`. Turn
+53: the host's own clerk bound Library Use for the civil files, rolled 51 against 50, failure; the route left the
+handout (`need: later`), and the push was not selected. Handout 7 was withheld by that roll, as the book says. Turn 54:
+`read-8` landed at the Globe and was dropped with `scene_change`; its landing is also what cleared 217.1's epoch. So the
+`pending` focus in turn 53's `held_wait` was the redundant second reading, not an undelivered handout.
+
+**Cause (three ends).** *Writer:* the consultation's landing, which §135.20.1 hands to the run on its next model step.
+*Reader:* the source lookup path (`extensions/kernel/index.ts`), which consulted the book for a lookup decided before
+that landing could be seen. *Actor:* the Keeper re-asked in good faith; the memo (§22.4.3) catches a re-ask only under
+the same focus, and §22.2 forbids matching two questions by similarity.
+
+**Decision.** Before a source `answer` lookup consults the book, the host takes the answers that landed at the asking
+scene, in the asking run's scope, with readable answers, that this run has not been handed (`PendingAnswers.landedFor`,
+`extensions/kernel/source-answers.ts`). When there are any, the lookup returns them in the memo's shape, `{status:
+"landed", answers: [{question, focus, …answer}], note: LANDED_FIRST_NOTE}`, starts no reading, holds them for the run
+(so the next take names them `handed` and does not carry them again), and writes `lane: "reading", event:
+"answer_landed_first", {turn, focus, foci}` (never a question, §22 #65). The note tells the Keeper to read them first and,
+if none answers its question, to send the same lookup again; that resend (the landings are now handed) and any
+`retry: true` consult as before. Only lookups made in a run step are affected; `prepare` lookups are not. Nothing
+compares questions, and nothing about the roll, the route or the handout gate changes: what was found or withheld at the
+Hall of Records stays the rules' outcome.
+
+*Tests.* `tests/extension/single-loop-held-answers.test.mjs` "§217.2 … a lookup that races a landing is handed the landed
+answer first; its resend reads the book" (the d6c t52 shape through the emitted kernel and the vendored driver: before,
+the re-spelled lookup started a second reading and answered `pending`; now it returns the landing with no reading, the
+next note names it `handed`, and the resend consults). The §135.20.1 test of a re-ask under the same focus now meets
+the landing before the memo (`answer_landed_first`, no second reading call).
+
+### 217.3 Source-reader requests over 1 MB are inside §186.1's bound (finding; no change)
+
+The 30 non-Keeper requests over 1 MB (max 6,387,185 B) are tool-enabled reader children of source consultations. In
+each, one `pdf pages` result raises the next request from about 100 KB to 3–6 MB (`gui-transport-d6c`, e.g.
+process-86626 96,903 → 4,119,313 B after `read-7`'s verify read pages 2, 3, 4 and 16), so a page image costs about 1 MB
+on the wire (JPEG quality 92, 2,000 px long side, base64). §186.1 keeps a delivered image in every later request of its
+child until the hard pair overflows: 12 images (`host-budgets.json` `reading_images.count`) or 32 MB. Turn 34 on the 9e7g
+table held one page (1.18 MB); these consultations held four to six, which is the "5×". Within the bound, deliberate
+(the owner's 2026-10-06 ruling for cache reuse), billed by the provider per image rather than per byte, and nothing on the
+Keeper's context path; it is not a defect and nothing changes here. §217.2 removes the share that came from the
+redundant `read-8`. The raw-capture `request_body_limit` remains an observer bound only (§209.12).
