@@ -42424,3 +42424,33 @@ Request bytes and provider tokens are reported separately:
 - Provider tokens: total, cache-read and uncached, reported distinctly. Provider counts include cache hits and are not a per-component breakdown.
 - Also: selected catalogue and package versions, mandatory/relevance/dependency/fallback reasons, selector and awaited durations, schema and section misses, expansion round trips, canonical refusals, player-visible first and final delivery timing.
 - Credentials are never logged. Selection counters are never fed to the Keeper as obligations.
+
+## 210. SQLite owns task records and home page-transcript management (approved2026-10-10)
+
+Specification: `docs/specs/sqlite-task-transcript-storage.md`. This first batch migrates
+`runtime/jev/task-store.ts` and home `TranscriptStore` records/claims through their existing
+interfaces. Source-reading.sqlite, campaign/Git/worldline authority, raw PDF/images, shipped
+seeds and all author/reviewer/real-play evidence keep their owners.
+
+Task namespaces use tasks.sqlite with atomic revision-compared writes and unchanged
+immutable context, intent, domain and closed-state rules. TaskRuntime still validates
+current scope/intent before dispatch; SQL persistence grants no action authority.
+Transcript home uses transcripts.sqlite keyed by file/page/extraction/transcript version.
+Publish-once pages retain permutation/identity/hash validation and seed precedence.
+Claims use atomic stale takeover and exact owner-token release; they never wait for a
+producer and do not change layout priority, concurrency, model or budgets.
+
+Legacy import is once, transactional and retains original names/bytes/digests and files.
+Imported SQL state cannot fall back to legacy JSON after corruption/deletion/schema failure.
+Unavailable optional home transcripts keep native reading, never stale JSON or fake evidence.
+Writes are short WAL/FULL transactions; no model or filesystem awaits under the transaction.
+Task contention reuses its500ms allowance via async retry with native busy_timeout0;
+transcript claims are nonblocking. Connections close after each operation. Existing App
+sessions are not migrated concurrently with an old producer.
+
+### Kernel decisions
+
+This is host storage only; no new kernel RPC, Keeper verb, world state, semantic classifier,
+resource setting or rules gate. Existing TaskStore and TranscriptStore callers are the
+consumers. Regression checks compare logical SQL state while original artifacts retain
+byte hashes. Spec, focused/full checks, exact runtime and genuine driver evidence are required.
