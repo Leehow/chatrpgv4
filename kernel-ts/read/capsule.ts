@@ -407,8 +407,8 @@ function contestedRows(graph: ModuleGraph, scene: Row): Row[] {
     }
     return rows.slice(0, CONTESTED_ROWS);
 }
-/** The scene's exits as `where.exits` renders them (also `where.within.exits`, §187.2.2). */
-function exitRows(graph: ModuleGraph, world: Row, scene: Row, material: (name: string) => string): Row[] {
+/** The scene's exits as `where.exits` renders them (also `where.within.exits`, §187.2.2, and §212.1's move rows). */
+export function exitRows(graph: ModuleGraph, world: Row, scene: Row, material: (name: string) => string): Row[] {
     return graph.sceneExits(scene).map(exit => ({
         to: exit.to,
         // The way out was named by its handle alone, so a Keeper reading the capsule saw a slug and

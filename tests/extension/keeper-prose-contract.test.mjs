@@ -154,6 +154,10 @@ test('§158.6: the Keeper is told the delivered turn is canon, the ledger follow
   assert.doesNotMatch(prompt, /say so plainly to the player as a service notice/);
   assert.doesNotMatch(prompt, /say that the table cannot settle actions/);
   assert.match(prompt, /keep the review, the service and its failure out of the fiction and the prose/);
+  // §213.1 (live 9e7 turn 26): an outage held one batch; the Keeper then told the cab ride home it never proposed, as owed state.
+  assert.match(prompt, /It holds the refused lines, not the rest of the turn/);
+  assert.match(prompt, /narrate the investigator beginning it, never its result/);
+  assert.match(prompt, /owed state is what an earlier delivery already told, not a way to deliver what a refusal held/);
 });
 
 test('§179.1: consulting what the investigator carries is the base\'s; the answer an asker wants is Natural NPC\'s', async () => {

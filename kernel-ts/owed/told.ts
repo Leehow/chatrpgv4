@@ -167,8 +167,10 @@ export async function oweTold(context: KernelContext, loaded: { campaign: Campai
     if (params.source !== TOLD_SOURCE)
         throw new RpcError('invalid_params', `source must be ${TOLD_SOURCE} or ${TOLD_CLUE_SOURCE}`, { details: { field: 'source' } });
     const effect = row(params.effect);
-    if (effect.kind !== 'move' || typeof effect.to !== 'string' || !effect.to.trim() || Object.keys(effect).some(key => key !== 'kind' && key !== 'to'))
-        throw new RpcError('invalid_params', 'effect must be {kind: "move", to: <place>}', { details: { field: 'effect' } });
+    // §213.2: `{kind: "move", unlisted: true}` -- the text has the party leave for a place none of the candidates is.
+    const unlisted = effect.kind === 'move' && effect.unlisted === true && Object.keys(effect).every(key => key === 'kind' || key === 'unlisted');
+    if (!unlisted && (effect.kind !== 'move' || typeof effect.to !== 'string' || !effect.to.trim() || Object.keys(effect).some(key => key !== 'kind' && key !== 'to')))
+        throw new RpcError('invalid_params', 'effect must be {kind: "move", to: <place>} or {kind: "move", unlisted: true}', { details: { field: 'effect' } });
     if (typeof params.quote !== 'string' || !params.quote.trim())
         throw new RpcError('invalid_params', 'quote must be the delivered sentence that tells where the party ends up', { details: { field: 'quote' } });
     const { campaign, module } = loaded, graph = module.graph, turn = number(params.turn);
@@ -176,7 +178,8 @@ export async function oweTold(context: KernelContext, loaded: { campaign: Campai
     const world = await campaign.readWorld(), party = await campaign.party();
     const dropped = (reason: string): Row => ({ turn, owed: null, dropped: reason });
     const quote = locateExcerpt(rendered, params.quote) ?? locateExcerpt(rendered, stripMarkers(params.quote));
-    const scene = sceneOf(graph, effect.to.trim()), target = scene ? graph.handle(scene) : '';
+    if (unlisted) return oweDeparture(context, loaded, record, turn, quote, fix);
+    const scene = sceneOf(graph, string(effect.to).trim()), target = scene ? graph.handle(scene) : '';
     // The same read sent again answers the row it wrote.
     const again = array(record.owed).map(row).find(entry => entry.source === TOLD_SOURCE && entry.kind === 'move' && quote !== null
         && entry.quote === quote && row(entry.effect).to === target);
@@ -204,6 +207,45 @@ export async function oweTold(context: KernelContext, loaded: { campaign: Campai
         owed: entry.name, fix, at }];
     await campaign.writeTurnRecord(record);
     return { turn, owed: string(entry.name) };
+}
+
+/**
+ * §213.2: the delivered text has the party leave the scene the ledger holds for a place the table does not have (the read's
+ * `moved` cleared its bar and its `place` was `none`, confidently). The departure is owed like any told position, but no
+ * effect can be issued for it -- the place has no name the kernel could write -- so the row carries no `effect`: it is the
+ * Keeper's (`clerk: false` in the capsule), landed by an ordinary `apply move` (with `establish` and `via` for a new place),
+ * which supersedes it (§158.4); a ledger that no longer stands where the party left from satisfies it. While it is open no
+ * clerk move is built from the position the party left (§158.4's `owedMoveOpen`).
+ */
+async function oweDeparture(context: KernelContext, loaded: { campaign: CampaignWriter; module: { graph: ModuleGraph } }, record: Row, turn: number,
+    quote: string | null, fix: string): Promise<Row> {
+    const { campaign, module } = loaded, graph = module.graph;
+    const world = await campaign.readWorld(), party = await campaign.party();
+    const dropped = (reason: string): Row => ({ turn, owed: null, dropped: reason });
+    const from = graph.handle(deliveredScene(graph, world, record));
+    const again = array(record.owed).map(row).find(entry => entry.source === TOLD_SOURCE && entry.kind === 'move' && quote !== null
+        && entry.quote === quote && row(entry.departure).from === from);
+    if (again) return { turn, owed: string(again.name) };
+    if (partyMoves(record.receipts).length) return dropped('move_landed');
+    if (await movedSince(campaign, turn)) return dropped('superseded');
+    if (!quote) return dropped('quote_not_delivered');
+    let ledger = resolveOwedEquipment(await readOwed(context, campaign.id), party);
+    const taken = new Set([...owedNames(ledger), ...array(record.owed).map(entry => string(row(entry).name))]);
+    let index = 1;
+    while (taken.has(`t${turn}-owed-${index}`)) index++;
+    const at = nowIso(), label = sceneLabel(graph, world, deliveredScene(graph, world, record));
+    const entry: Row = { name: `t${turn}-owed-${index}`, turn, kind: 'move', effect: null, departure: { from }, quote,
+        what: chars(`departure from ${label} (${from}) to a place the table does not have yet: land it with an ordinary apply move to that place `
+            + '(establish {summary} and via when the table has no such place), without owed; that move closes this row', 300),
+        source: TOLD_SOURCE, at };
+    if (owedSatisfied(graph, world, entry, party)) return dropped('satisfied');
+    ledger = closeSatisfied(graph, world, mergeOwed(ledger, [entry], at), at, party).ledger;
+    await writeOwed(context, campaign.id, ledger);
+    record.owed = [...array(record.owed), entry];
+    record.warnings = [...array(record.warnings), { lane: TOLD_SOURCE, kind: 'owed_state', quote: chars(quote, 120), why: chars(string(entry.what), 200),
+        owed: entry.name, fix, at }];
+    await campaign.writeTurnRecord(record);
+    return { turn, owed: string(entry.name), departure: true };
 }
 
 /**

@@ -794,12 +794,19 @@ export const KEEPER_ADDED_FIX = "The player already made their choice; this prop
  */
 export function admissionUnavailable(proposal: AdmissionProposal, reason: string, detail: string, streak = 1): KernelError {
 	const landed = "Only this batch is unsettled: whatever this turn already settled with a receipt (a roll made, an effect that landed) did happen and is narrated as usual. For this batch, do not roll or land anything, do not narrate its effects as having happened, and do not retry it";
+	// §213.1 (live 9e7 turn 26): the Keeper read "close the turn with narrate" as "no further apply this turn", then narrated the
+	// player's cab ride home and the tip it never proposed, "leaving the cash and move as owed for next turn". The refusal now
+	// says what it holds -- the refused lines, and the result of any declared act no receipt carries at the close -- and that
+	// owed state is not a way to deliver what a refusal held.
+	const held = " This refusal does not forbid proposing another part of what the player declared: each call is reviewed on its own, and what lands is narrated."
+		+ " What the player declared and no receipt carries when the turn closes did not happen this turn: narrate the investigator beginning it (turning to it, setting out, reaching for it), never its result (an arrival, a departure, a payment, a thing changing hands)."
+		+ " Never tell a result and leave it for the ledger to catch up: owed state is what an earlier delivery already told, not a way to tell what a refusal held.";
 	// §47 as amended by §22.4.4 (SL-37): a lane that did not answer is the clerk's business, never the prose. The Keeper is told what
 	// is unsettled and what to do, never a sentence for the player; on SL-29A book A t7 "the service did not connect, go on next time" reached
 	// the fiction from the line this used to hand over. The operator is told out of the game (`coc-admission-status`, streak 2).
-	const fix = `${landed} this turn. Previously delivered fiction still stands; never retract it. The action review did not answer, and that is the clerk's business, not the player's:`
+	const fix = `${landed} this turn.${held} Previously delivered fiction still stands; never retract it. The action review did not answer, and that is the clerk's business, not the player's:`
 		+ " do not put the review, the service or its failure into the fiction or the prose, and do not ask the player to say their action again."
-		+ " Close the turn with narrate: take up what the player actually said, without that batch's effects."
+		+ " Close the turn with narrate: take up what the player actually said, with what landed and without the result of what did not."
 		+ (streak >= 2 ? ` The action review has failed ${streak} times in a row, so a resend will not fix it; the operator has been notified outside the game. Do not promise that the next input will work.`
 			: " The player's next input can try again.");
 	return new KernelError({

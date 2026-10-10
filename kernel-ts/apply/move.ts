@@ -8,7 +8,7 @@ import type { ApplyContext } from './index.js';
 import { advanceClock } from './clock.js';
 import { establishTableEntity, establishedWithin, validateEstablishment } from '../read/table-entities.js';
 import { isAmbiguity, recordOf, type ModuleGraph } from '../read/module-graph.js';
-import { personPlaces, placeRelation, returnRoute } from '../read/places.js';
+import { aroundExit, personPlaces, placeRelation, returnRoute } from '../read/places.js';
 export function stageMove(context: ApplyContext, effect: Row): {
     receipt: Row;
     event: DomainEvent | null;
@@ -72,14 +72,16 @@ export function stageMove(context: ApplyContext, effect: Row): {
     const listed = exits.has(target) || trail.includes(target) || established;
     const road = listed ? null : returnRoute(graph, current, destination);
     const related = listed || road ? null : placeRelation(graph, current, destination);
-    if (!listed && !road && !related && !via)
+    // §212.1: a road out of a place the party stands inside is a road from here.
+    const around = listed || road || related ? null : aroundExit(graph, current, destination);
+    if (!listed && !road && !related && !around && !via)
         throw new RpcError('not_reachable', `${repr(target)} is not reachable from ${repr(from)}`, {
             fix: `move to one of ${repr(sorted(exits.keys()))}, retrace to one of ${repr(back)}, or say how they got there in via`,
             details: { from, to: target, exits: sorted(exits.keys()), back }
         });
     let minutes = effect.travel_minutes;
     if (minutes == null) {
-        const edge = exits.get(target) || graph.sceneExits(destination).find(exit => exit.to === from) || {};
+        const edge = exits.get(target) || around?.exit || graph.sceneExits(destination).find(exit => exit.to === from) || {};
         minutes = Object.hasOwn(edge, 'travel_minutes') ? edge.travel_minutes : 0;
     }
     if (!integer(minutes) || number(minutes) < 0)
@@ -89,7 +91,8 @@ export function stageMove(context: ApplyContext, effect: Row): {
     if (person) receipt.person = graph.handle(person);
     if (road) receipt.return_route = true;
     if (related) receipt.within = graph.handle(related.place);
-    if (via && !exits.has(target) && !trail.includes(target) && !road && !related) {
+    if (around) receipt.exit_of = graph.handle(around.place);
+    if (via && !exits.has(target) && !trail.includes(target) && !road && !related && !around) {
         receipt.via = via;
         receipt.improvised = true;
     }

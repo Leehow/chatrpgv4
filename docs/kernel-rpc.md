@@ -8785,7 +8785,7 @@ A refusal reaches the Keeper as an ordinary tool refusal (§8's `code: message` 
   `model_unavailable`, `model_error`, `bad_output`, `timeout`, `session_gone`; `details.streak` is how
   many reviews in a row have failed) — no review, no authority.
   The `fix` tells the Keeper to say so to the player as a service notice, not as fiction, and to
-  narrate nothing as having happened. **Unavailability refuses; it never admits.** The alternative to an
+  narrate nothing as having happened. **Unavailability refuses; it never admits.** *(Amended 2026-10-10, §213.1: the fix also says the refusal holds the refused lines, not the rest of the turn; that a declared act no receipt carries at the close is narrated only as begun, never its result; and that owed state is not a route for delivering what a refusal held.)* The alternative to an
   unreviewed action is not a reviewed one, it is a Keeper choosing for the player.
 
 One failure reads as transient, a streak as an outage (2026-09-14, live table `game-3782bd90`: a lane
@@ -38131,6 +38131,8 @@ then told is owed. `told_position.mode` (data, `off | shadow | on`, shipped `sha
 by the next run's first read (§158.4's `coc:owed-review` port). Telemetry one `lane: "told-position"` row per delivery with
 the questions' distributions, the decision and the owed name.
 
+*Amended 2026-10-10 (§213.2):* `moved` cleared with `none` first at or above `place_min` owes the departure itself (`effect: {kind: "move", unlisted: true}`): a row with no effect that the Keeper lands with an ordinary move.
+
 **Implementation decisions (TP-02, 2026-10-07).**
 
 - *Where the candidates come from.* `table.apply.options` answers only while a turn is open, and the read runs after the
@@ -41676,6 +41678,8 @@ the two new grounds: `within: <the shared place's handle>` (`shared`), `within: 
 destination>` (`around`), or `return_route: true`. `travel_minutes` is the exit's, else the reverse route's, else 0,
 as before. `via` still reaches anywhere; `not_reachable` is unchanged for a place with no ground at all.
 
+*Amended 2026-10-10 (§212.1):* an exit of one of the active scene's containers is a further ground (receipt `exit_of`); `table.apply.options` offers those roads as move rows after §204.7's.
+
 ### 204.3 A minted place lies in the place the party stood in
 
 The placement catalog marks an improvised candidate with `table_place: true`; the host uses that structural origin to
@@ -41764,6 +41768,7 @@ roster, not a placement or told candidate, not a container. Equality only (§2),
   reached through a person. The reviewer is told: a move between two places inside one place is a move within it; a
   move out to a place the party already stands inside goes nowhere new; neither is a separate destination the player
   must name. A place inside another is still its own place: standing at its door, or looking into it, is not entering it.
+- *Amended 2026-10-10 (§212.1):* after those rows, the containers' own exits, each with `exit_of`.
 
 ### 204.8 Three ends (§31)
 
@@ -42546,3 +42551,131 @@ TS kernel at 18:01: "until 23:30" lands 329 minutes and 23:30, an earlier time o
 resolved `days`, the Keeper's `until` with `days` is unchanged); `tests/kernel/test_time_until.py` (emitted kernel: `until`
 without `days` -- later today, next day when past, equal is 0, the batch's earlier time moves the base, the receipt's resolved
 `days`; `until_invalid` still refuses a bad `time`).
+
+## 212. A road out of the place the party stands inside is a road from here (2026-10-10, issue #112 follow-up on the 9e7 live night; amends §204.2's reachability, §204.7's move rows and §135.30.4)
+
+**Evidence.** Table `gui-world-e091`, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, runtime 9e7a59be0, turns 22-24
+(`9e7-live-night-morning.md`). At 23:30 the party stood on 图书馆台阶 (`中央图书馆门外`), a place this table minted inside
+`central-library` (`where.within`). The player twice walked "to the address Knott gave", the Corbitt house the module knows
+and the investigator had not visited. The capsule showed the library's book roads under `where.within.exits`
+(`neighborhood-gossip`, `corbitt-house-ground`, `hall-of-records` ..., 30 minutes each), but the compile's `destination` rows
+were the four trail scenes only (`central-library`, `newspaper-morgue`, `previous-tenants`, `commission-briefing`), so Jev
+answered `none` (0.92, 0.79) and no clerk move was built. The Keeper's own `apply move neighborhood-gossip` then went to the
+lane review (typed confidence 0.5), which failed (`bad_output`), and the walk never landed; only the taxi at turn 24 did,
+with `via`. Had the review answered, `apply move` would still have refused it `not_reachable`: the library's roads were not
+the steps' roads.
+
+**The gap, by the three ends (§31).** *Writer:* the book's `route-to` edges of the container, which the capsule's
+`withinSection` already renders. *Readers:* `table.apply.options` (`kernel-ts/runtime/apply-operation.ts`) built move rows
+from the active scene's own exits, the trail, referenced window places and §204.7's places inside the containers -- never a
+container's exits; the candidate builder (`runtime/jev/candidates.ts`) and the compile's `destination` feature read only those
+rows. *Actor:* `apply move` (`kernel-ts/apply/move.ts`) reached an exit, the trail, a reverse road (§204.2) or a related place,
+never a container's road. Two ends saw the place, one end showed it, and the clerk and the kernel could not take it.
+
+### 212.1 The decision
+
+A place inside another shares its roads out: standing on the library's steps, in its reading room or at its counter, the
+library's roads are the party's. This is the book's own topology, read structurally (§204.1's containers); no place, name or
+route is invented, and "known to the investigator" is not inferred from prose.
+
+- **Reachability** (`apply move`, amends §204.2): after an exit, the trail, a reverse road and a related place, a destination
+  is reachable without `via` when it is an exit of one of the active scene's containers (nearest container first, each walked
+  to by its scene, `sceneOfPlace`). The receipt carries `exit_of: <the container's handle>`; `travel_minutes`, when not given,
+  is that exit's. `via` beside such a move does not make it `improvised`. A place in the active scene's own area, or its own
+  exit, is not counted here (those grounds come first).
+- **Move rows** (`table.apply.options`, amends §204.7 and §135.30.4): after every row above, the containers' exits not
+  already offered, nearest container first, at most `WITHIN_MOVES` (12), each as the capsule renders the container's exit
+  (`exitRows`: display name, travel minutes, `unlock_when` with `met`, material) plus `exit_of`, the §135.30.4 `destination`
+  view, and the §135.30.6 guard (`unlockGuard`, `guardedWay` from the container) for an unmet unlock. A row the kernel marks
+  `unlock_when.met: false` is withheld from the clerk as before.
+- **Unchanged:** admission (§32: a row is availability, `authority: available_route_not_player_choice`, never the player's
+  choice), the told-position candidates (§190.2, which already list the window's scenes), the placement lane, and a move to a
+  place with no ground at all (`not_reachable` without `via`).
+
+Helpers: `aroundExits` / `aroundExit` (`kernel-ts/read/places.ts`); `exitRows` is exported from `kernel-ts/read/capsule.ts`
+so the move row and the capsule's `where.within.exits` render one exit the same way.
+
+**Three ends.** *Writer:* the book's routes and §204.1's containment. *Reader:* `table.apply.options`' move rows, the clerk's
+move candidates and the compile's `destination` rows, the capsule's `where.within.exits` (unchanged). *Actor:* the clerk
+(a confident `destination` lands the walk on the compile's evidence, §32.12) and the Keeper (`apply move` without `via`); the
+receipt's `exit_of` counts them.
+
+**Tests.** `tests/extension/place-containment.test.mjs` "a road out of the place the party stands inside is a road from
+here": over the TS kernel, a corridor minted inside a briefing room offers the room's road to the house as a move row with
+`exit_of`, and `apply move` lands it without `via` (receipt `exit_of`, not `improvised`). On the base it fails: no move row.
+
+## 213. An unavailable review holds the declared act; a told departure the table has no place for is owed (2026-10-10, issue #112 follow-up on the 9e7 live night; amends §32.2's `admission_unavailable` fix, `prompts/keeper.md`'s admission paragraph and §190.2's decision)
+
+**Evidence.** Same table, turn 26 (`9e7-turn26-delivered.txt`, `turns/0026.json`, telemetry after line 9168). The player tipped
+the newsvendor a dime and took a cab home. The clerk's declared `apply time` (band `speak_briefly`) went to the lane review,
+which answered HTTP 429 (`GoUsageLimitError`): `admission_unavailable`, streak 1. The Keeper's adjudication step (57 s) then
+made **no** call: its reasoning read the refusal's "do not retry it this turn ... Close the turn with narrate" as "the host
+explicitly wants no further applies this turn", weighed "freezing the player in a non-event" against "an unlanded receipt",
+and chose to narrate the cab leaving with the investigator aboard, "leaving the cash and move as owed for next turn". The
+turn closed with zero receipts. The post-delivery told-position read (§190.2) answered `moved` 0.92 and `place` `none` 1.0
+(the investigator's lodging is no place the table has) and so owed nothing: the ledger kept the party at
+`neighborhood-gossip` while the player had been told they left.
+
+**What the contract already says, and where it gave out.** §32.2: an unavailable review is no authorization, so nothing of
+the refused batch lands and none of it is narrated as done. §17 / Agents.md: narration without a receipt did not happen --
+true of the Keeper's writing, which lands first and narrates second. §158 (owner ruling 2026-09-29): what was delivered is
+canon; the ledger follows forward, never retracts. §166 (owner ruling 2026-10-01): one-pass delivery, no general prose
+reviewer before delivery; the only pre-delivery outcome guard is §166.2's owner-authorized refused-document exception.
+
+### 213.1 Before delivery: the refusal holds the declared act, and says so (amends §32.2 and the Keeper prompt)
+
+The defect was in what the Keeper was told, so the fix is there. `admissionUnavailable`'s `fix`
+(`extensions/kernel/admission.ts`) keeps every sentence it had (the settled receipts stand, no rolls or landings for the
+refused batch, no retry of it, no service in the fiction, no request to repeat, the streak wording) and adds:
+
+- the refusal holds the refused lines, not the rest of the turn: proposing another part of what the player declared is
+  allowed, and each call is reviewed on its own (an outage still refuses each; a typed admission may admit one);
+- what the player declared and no receipt carries when the turn closes did not happen this turn: the delivery narrates the
+  investigator **beginning** it, never its **result** (an arrival, a departure, a payment, a thing changing hands);
+- a result is never told for the ledger to catch up later: owed state (§158) is what an earlier delivery already told, not a
+  route for delivering what a refusal held.
+
+The closing sentence becomes "take up what the player actually said, with what landed and without the result of what did
+not". `prompts/keeper.md`'s `admission_unavailable` sentence says the same in the Keeper's laws.
+
+**Not done, with reasons.** (1) A host gate that reads the draft before delivery and refuses one asserting an unsettled
+outcome would be a second §166.2-style exception; §166 reserves that to the owner, so it is recorded here as an open owner
+decision rather than built. (2) A player-facing "held" notice: the `coc-admission-status` family has no renderer (§38's
+"record, not a screen"), so a new entry would be a seam with no reader; the operator notice stays at streak 2.
+
+### 213.2 After delivery: a told departure for a place the table does not have is owed, and the Keeper lands it (amends §190.2 and §158.3)
+
+When the told-position read clears `moved_min`, its `place` Choice puts `none` first with a confidence at or above
+`place_min`, and the sentence clears `sentence_min`, the text has the party leave for a place none of the candidates is. Under
+§158 that departure happened; before this section the read stayed (`why: "none"`) and the ledger kept the party where the
+story had left. Now the host decides `{decision: "owe", departure: true, quote}` (`toldDecision`,
+`runtime/jev/told-position.ts`; a `none` below `place_min` still stays `none`) and calls `table.owe` with
+`effect: {kind: "move", unlisted: true}`.
+
+The kernel (`oweDeparture`, `kernel-ts/owed/told.ts`) applies the §190.2 drops (`move_landed`, `superseded`,
+`quote_not_delivered`) and writes a §158.3 row with **no effect** -- the place has no name the kernel could write --
+`{name, turn, kind: "move", effect: null, departure: {from: <the delivered scene's handle>}, quote, what, source:
+"told-position"}`, with the record's `owed` and `owed_state` warning as for any told position; the answer adds
+`departure: true`, and the same read sent again answers the row it wrote. `what` tells the Keeper to land it with an ordinary
+`apply move` to that place (`establish {summary}` and `via` when the table has none), without `owed`.
+
+- The capsule shows it with `clerk: false` (no effect), so the clerk never lands it, and §158.4's "while an owed move is open,
+  no other move is a candidate" keeps the clerk from building moves out of the place the party left.
+- The Keeper's ordinary move closes it `superseded` (§158.4's `settleOwed`); a ledger no longer standing at `departure.from`
+  closes it `satisfied` (`owedSatisfied`); a newer told move supersedes it (`mergeOwed`).
+- `apply move ... owed: <its name>` is refused `owed_unresolved` with a fix saying to leave `owed` out and land the departure
+  with an ordinary move.
+
+This reads delivered text only to bring the ledger forward, as §190.2's recorded exception to §166 already allows; it neither
+reviews nor edits prose. Telemetry: the `told-position` row carries `decision: "owe", departure: true` in place of `handle`.
+
+**Three ends.** *Writer:* the told-position read (Jev) and `table.owe`. *Reader:* the capsule's `owed` section, the clerk's
+candidate builder (withheld moves), `owedSatisfied`. *Actor:* the Keeper, whose ordinary move lands the departure; counted in
+`owed.json`'s `closed` (`superseded` / `satisfied`).
+
+**Tests.** `tests/extension/admission.test.mjs` (the unavailable refusal's `fix` carries 213.1's three sentences);
+`tests/extension/keeper-prose-contract.test.mjs` (the Keeper prompt carries them); `tests/extension/told-position.test.mjs`
+(the bars: turn 26's `moved` .92 / `none` 1.0 owes a departure, a low sentence or a low `none` stays; the RD-08 table's
+non-moving turn-3 delivery now answers `not_moved` from its typed endpoint); `tests/extension/told-position-owe.test.mjs`
+(over the emitted kernel: the departure row, its capsule `clerk: false`, `owed_unresolved` by name, the Keeper's establishing
+move superseding it, and `move_landed`). Each fails on the base.

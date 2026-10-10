@@ -6,8 +6,8 @@ import {jsonDigest,isJsonObject} from '../json.js';
 import {stageCash,type CashContext} from '../apply/inventory.js';
 import {clone,number} from '../read/values.js';
 import {CampaignSnapshot, loadCampaignModule} from '../read/campaign.js';
-import {whereSection, cluesHere, npcsPresent, sceneLabel} from '../read/capsule.js';
-import {containers, isPlace, placesWithin, samePlace, sceneOfPlace} from '../read/places.js';
+import {whereSection, cluesHere, exitRows, npcsPresent, sceneLabel} from '../read/capsule.js';
+import {aroundExits, containers, isPlace, placesWithin, samePlace, sceneOfPlace} from '../read/places.js';
 import {SessionView} from '../read/session-view.js';
 import {taskWorldRevision} from '../read/context.js';
 import {fulfillmentHandlers, fulfillmentPromiseNavigation} from './fulfillment-options.js';
@@ -195,6 +195,22 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
             destinations.add(to);
             const shown=sceneLabel(graph,campaign.world,node),destination=destinationView(graph,campaign.world,node,shown);
             add({kind:'move',to},{kind:'move',to,...(shown!==to?{display_name:shown}:{}),within:graph.handle(container),material:module.material?.(node.node_id),
+                ...(Object.keys(destination).length?{destination}:{}),authority:'available_route_not_player_choice'},guards.exits.get(string(node.node_id)));
+        }
+        // §212.1: the book's roads out of the places the active scene lies in, nearest container first, after everything above;
+        // standing on the library's steps, the library's roads are the party's. `exit_of` names the place the road leaves from.
+        let roads=0;
+        for (const {exit,place} of aroundExits(graph,scene)) {
+            if (roads>=WITHIN_MOVES) break;
+            const node=graph.find(string(exit.to),['scene']);
+            if (!node || destinations.has(graph.handle(node))) continue;
+            const shown=exitRows(graph,campaign.world,place,module.material).find(entry=>entry.to===exit.to);
+            if (!shown) continue;
+            destinations.add(graph.handle(node));
+            roads++;
+            const unlock=row(shown.unlock_when),destination=destinationView(graph,campaign.world,node,string(shown.display_name||shown.to));
+            const guarded=shown.unlock_when&&unlock.met===false?{unlock_when:{...unlock,...unlockGuard(graph,campaign.world,exit.when),...guardedWay(graph,campaign.world,place)}}:{};
+            add({kind:'move',to:graph.handle(node)},{kind:'move',...shown,to:graph.handle(node),...guarded,exit_of:graph.handle(place),
                 ...(Object.keys(destination).length?{destination}:{}),authority:'available_route_not_player_choice'},guards.exits.get(string(node.node_id)));
         }
         // Complete and untruncated, bound to the same revision; absent when the scene states none (§134.10).
