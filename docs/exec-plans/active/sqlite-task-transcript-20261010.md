@@ -45,6 +45,23 @@ Do not use Astra, fake/scripted play, production plaintext credential files or r
 
 ## Current state
 
+Final all934bc3383 GREEN: ext5446pass/0fail/1skip, py2128pass/2skip, loop12pass;
+actual exit0/wall611s. All612per-file results and raw lane logs archived all-934bc3383.
+Main's later e88cb5ef5 was documentation-only; merged without changing validated production
+sources. Final runtime proof matches690sources/0mismatches and unchanged five core hashes.
+Genuine combined play stopped normally after2natural inputs/7tools/193.7s, delivered replies
+110.6s and83.2s. No fake play, additional models, relaxed gates or resource grants.
+Independent final audit: bothSQLintegrityok;48original/cache/payload/import bytes unchanged;
+notebook append receipt and persisted suffix hashes match the exact player literal, with
+binding0.97/0.98/0.97 against unchanged0.9. One action_proposal_mismatch refusal was preserved.
+Nine Keeper requests completed4.7Fast/low with0Keeper transport errors; one background
+transport error remains. Source queue is10completed/8failed/2running/2queued after stop,
+not full-source success. All35observedPIDs exited; old15evidence pointers retained; native
+auth file symlink intact. DefaultoptionalTaskRuntime inactive: no live TaskStore claim.
+Safeaudit play-combined-final-audit.json and final-metrics.json retain actual limits.
+Scoped integration and terminal lifecycle classification are next. The following
+chronological records include retained earlier failures.
+
 Initial inspection: two existing file-backed stores confirmed; source metadata/jobs already
 have a separate SQLite owner. amax initially busy with another task. No code changed yet.
 Spec: docs/specs/sqlite-task-transcript-storage.md; contract210.
@@ -115,7 +132,7 @@ setup prose; no private source or thinking. Default hybrid mode does not activat
 TaskRuntime flags, so do not claim TaskStore has live mode coverage without actual SQL rows;
 its authentic TaskRuntime/controlled-source/multiprocess/crash regressions are separate proof.
 
-All2c19 RED844s:5440?seeactualsummary/2extfail,2128py/2skip,loop12pass; all raw/per-file
+All2c19 RED844s:5440extpass/2extfail/1skip,2128py/2skip,loop12pass; all raw/per-file
 logs retained all-2c19b77cf. Previous reuse test passed. Two timing-sensitive cases: layout
 second timeout observed oneHTTPrequest although page.attempts/real outcomes were2, and held
 answer was not carried under full load. Layout test now counts actual runtime.runTask calls,

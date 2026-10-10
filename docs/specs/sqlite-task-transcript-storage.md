@@ -1,6 +1,6 @@
 # SQLite task and page-transcript storage
 
-Status: approved first batch, implementation in progress (2026-10-10).
+Status: implemented; full regression and bounded genuine reading validated (2026-10-10).
 Baseline: latest0.9.7a at4bbcbc2ac. Contract: kernel-rpc210; amends191.4 storage only.
 
 ## Intent and scope
@@ -109,8 +109,11 @@ running App and prior real evidence are not modified by this implementation task
   version coexistence and unavailable-cache native fallback. No scripted play is acceptance.
 - Canonical idle-LAN focused/all checks and exact-runtime verification precede scoped
   integration. Real acceptance uses tests/play/driver.py, Grok4.7Fast/low and root's single
-  natural utterances; validate actual task/transcript SQL use and repeat reads without
-  duplicate layout generation. Preserve raw logs, campaigns and original evidence.
+  natural utterances; validate actual transcript SQL use and repeat reads without
+  duplicate layout generation. TaskStore uses authentic TaskRuntime and controlled-source
+  regressions when the default live mode does not activate that optional store; do not
+  enable experimental flags just to manufacture live coverage. Preserve raw logs,
+  campaigns and original evidence.
 - No App packaging/restart, dependency downloads or authority/gate/resource changes.
 
 ## Existing practice
@@ -123,3 +126,30 @@ synchronous database calls and lock timeout: native waits must not monopolize th
 [Zotero storage](https://www.zotero.org/support/zotero_data) separates SQLite metadata from
 original attachments, supporting retained files here. Unlike Zotero library state, this
 batch does not replace the campaign's Git/worldline authority or move PDF work into the kernel.
+
+## Validation outcome and limits
+
+The exact combined runtime at934bc3383 passed the canonical idle-amax all gate: extension
+5446passed/0failed/1existing skip; kernel controller2128passed/2existing skips; loop12passed.
+Elapsed611s. Earlier failed runs and their per-file outputs are retained, including the
+listing consumer defect, listing-first legacy claim migration, and timing-sensitive tests.
+Test corrections count actual child attempts and reuse actual immutable kernel snapshots;
+production timeouts, budgets, assertions and review gates were not relaxed.
+
+Rebuilt runtime source maps match690owned sources, with zero mismatches. Genuine setup
+used five natural player inputs. The final Grok4.7BuildFast/low play used two natural
+inputs, seven tools and193.7s, with delivered replies110.6s/83.2s. It exercises imported
+home transcript reads, repeated reading and a named notebook append. No claim of a full
+scenario playthrough, live optional TaskRuntime mode, or installed-App acceptance follows.
+Final audit found both SQL integrity checksok,48original/imported page bytes unchanged,
+and the append receipt matching persisted text and the player literal. One action proposal
+was correctly refused by the unchanged binding gate. All35observed run processes exited.
+The source queue still contains failures and pending work; one background transport error
+was retained, while all nine final Keeper requests completed without transport errors.
+
+An earlier genuine attempt had successful source lookups followed by provider connection
+errors/timeouts and one incomplete SSE response; it delivered no second-turn text. SQL
+integrity and original bytes were unchanged. Underlying network cause was not captured,
+and a later successful two-turn run does not prove that transport fault is eliminated.
+The running App and primary build artifacts remain untouched. Evidence and the exact
+runtime remain in the task-owned checkout.
