@@ -14194,6 +14194,8 @@ adds prices or infers coverage. Existing arithmetic and debit ceilings remain un
 Writer: the Keeper proposes the complete chosen expense and the kernel previews its debit.
 Reader: Keeper guidance, the native carried-source/clerk note, and both reviewers read
 coverage policy; reviewers also receive the computed preview.
+(Amended by §135.11.2.1, 2026-10-10: the clerk note carries it only while commerce is open; the
+system prompt always.)
 Actor: the Keeper settles and narrates completion; the player answers only an unmade choice.
 
 The Keeper decides the open semantic question, using `category: living|purchase|transfer` on a
@@ -23179,6 +23181,45 @@ writes go without prose.
 model steps: the first note carries `head` equal to `CLERK_NOTE_HEAD` right after `kind`, no later note of the run carries a
 `head`, and the next turn's first note carries it again; a first model step with nothing else to say still has a note, with
 the head. Structure only, never wording. Mutations in the SL-50 ticket's Comments.
+
+##### 135.11.2.1 Addendum (2026-10-10, player report on TR-F2 run 3; amends §135.11.2's head, §150's carried guidance and §58.9's reader line): the head is turn-flow guidance; the commerce policy rides only while commerce is open
+
+**Evidence.** TR-F2 run 3, T18 (basement, no one selling anything): the run's first `coc-clerk` note was 26,844 characters. Its
+`head` was 4,960 of them, opening with "A refused purchase retains its original merchandise prices…"; `clerk_did`, which said the
+two clues were committed, began at character 18,006, after 8.5 KB of historical reference. The Keeper narrated against it.
+`CLERK_NOTE_HEAD` opened with `IMPROVISATION_GUIDANCE` (`runtime/jev/carried-views.ts`), which grew from 427 characters
+(§150, 2026-09-28, `ed1aa30ff`) to 3,835 in eight repairs between 2026-09-29 and 2026-10-06, six of them commerce (§58.9);
+24 of its 40 sentences were also `prompts/keeper.md`'s line 19, so the system prompt and every run's first note each carried
+the purchase policy. The session file of run 3 holds its first sentence 20 times. Each repair's test asserted the sentence
+was there; none asserted where it must not be.
+
+**The split.** `IMPROVISATION_GUIDANCE` keeps §150's improvisation sentences and the memory and custody ones (≈1 KB):
+improvise where the book is silent, register what lasts, memory records are history, the party leaving moves no NPC,
+showing a possession gives nothing away, a technical wait is no fictional obstacle. The commerce sentences (§58.9's purchase
+recovery, bargaining, bound price speech, covered services) become **`COMMERCE_GUIDANCE`**, unchanged in wording.
+`CLERK_NOTE_HEAD`, `CARRIED_SCENE_TEXT_HEAD`, `CARRIED_PERSON_TEXT_HEAD` and the legacy scene and person notes carry
+`IMPROVISATION_GUIDANCE` only.
+
+**When commerce rides.** The run's first `coc-clerk` note that goes out while the latest read finds **commerce open**
+carries **`commerce`**: `COMMERCE_GUIDANCE`, once per run (after `head` when both ride). Commerce is open
+(`commerceOpen`, `runtime/jev/hybrid-engine.ts`) when the capsule's `known.cash_quotes` is not empty (a quote neither
+settled nor cancelled) or `known.prices_paid` has a row of this turn or the one before. Kernel state only; nothing reads the
+player's words. A turn that opens commerce from nothing (the player first asks a price) has no quote yet: the Keeper reads
+the policy in its system prompt, the price fields' own descriptions (`extensions/kernel/tools.ts`) and the kernel's refusal
+fixes, as §58.9 already places them. `commerce` does not by itself make a note go out.
+
+**The system prompt.** `prompts/keeper.md` keeps the commerce paragraph and gains the four commerce sentences only the
+constant had (a chosen covered service completes now, its full billed quantity, asking a price chooses nothing, debits and
+new commitments need accepted terms), so no sentence is lost. §58.9's reader line ("Keeper guidance, the native
+carried-source/clerk note, and both reviewers read coverage policy") now reads: the system prompt always, the clerk note
+while commerce is open.
+
+**Three ends (§31).** *Writer:* the kernel (`known.cash_quotes`, `known.prices_paid`), `commerceOpen`. *Reader:* the engine's
+`projection`. *Actor:* the Keeper, who reads the policy beside the open bill.
+
+*Tests.* `tests/extension/single-loop-note-head.test.mjs`: with nothing open no note carries `commerce`; with a quote open the
+run's first note carries it once, beside the head; no commerce sentence is in the head, every one is in `prompts/keeper.md`,
+and the head stays under 2,600 bytes (2,204 now, against 4,960).
 
 #### 135.11.3 A run the refusal budget's runaway abort ends is a delivery drop like any other: the fallback narrates once, and the stranded record is never written for it (2026-09-25, SL-63)
 

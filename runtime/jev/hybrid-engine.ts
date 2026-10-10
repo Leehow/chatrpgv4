@@ -72,7 +72,7 @@ import { obligationClerkLine, obligationCrossing } from './obligation-candidates
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import { firstSightStep, type FirstSightViewPort } from './first-sight-step.ts';
 import { establishStep } from './establish-step.ts';
-import { IMPROVISATION_GUIDANCE, CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
+import { COMMERCE_GUIDANCE, IMPROVISATION_GUIDANCE, CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
 import {withSourceQuestion} from './source-answer-pages.ts';
 import {
   CLERK_AUTHORITY, createStepPolicy, consumedByEffects, consumedByClaim, consumedByResolve, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, exhaustedBy, interpretRoute, missedUnlocks, npcScanDue, overRun, PROPOSED_REASON, ROUTE_FAMILY,
@@ -387,6 +387,17 @@ export function readTable(capsule: Row, status: Row): {context: TurnContext; sco
       {kind: 'model', resource: 'decision', revision: JEV_MODEL}, {kind: 'family', resource: ROUTE_FAMILY, revision: '1'}]};
 }
 
+/**
+ * §135.11.2.1: commerce is open when the capsule shows a quote not yet settled or cancelled (`known.cash_quotes`) or a price
+ * paid on this turn or the one before (`known.prices_paid`, a covered service's completion or a bargain over it). Kernel
+ * state only; nothing reads the player's words.
+ */
+export function commerceOpen(capsule: Row, turn: number | undefined): boolean {
+  const known = object(capsule.known);
+  if (array(known.cash_quotes).length > 0) return true;
+  return typeof turn === 'number' && array(known.prices_paid).some(row => typeof object(row).turn === 'number' && object(row).turn >= turn - 1);
+}
+
 /** A resolve whose check the kernel reports failed: the failure branch of a Keeper batch step (closed field `outcome.success`). */
 function failedCheck(details: unknown): boolean {
   return object(object(details).outcome).success === false;
@@ -518,6 +529,9 @@ interface RunState {
   owedWatched?: boolean;
   /** §135.11.2: the note's head (`CLERK_NOTE_HEAD`) was sent in this run's first note. */
   headShown?: boolean;
+  /** §135.11.2.1: the latest read found commerce open (`commerceOpen`), and whether this run's notes carried `commerce` yet. */
+  commerce?: boolean;
+  commerceShown?: boolean;
   rawInput: string;
   inputRevision: string;
   session?: Row;
@@ -792,6 +806,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     await stepsReady;
     const [capsule, status, applyOptions, resolveOptions, bands] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options'), bandReads()]);
     const table = readTable(capsule, status);
+    run.commerce = commerceOpen(capsule, table.turn);
     run.discoverySourceRevision = text(object(capsule._context).task_source_revision) || table.binding?.source_revision;
     const historyScene = text(object(capsule.where).scene);
     if (!run.history || run.history.scene !== historyScene || JSON.stringify(run.history.context)!==JSON.stringify(historyContext(capsule))) run.history = {enabled: false, allowed: false, asked: false,
@@ -1962,6 +1977,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §135.11.2 (SL-50 stage 2): the run's first note opens with the head line (right after `kind`), once per run.
     const head = !run.headShown;
     const content: Row = {kind: 'single_loop_step', ...(head ? {head: CLERK_NOTE_HEAD} : {}), purpose: step.purpose, reason: step.reason};
+    // §135.11.2.1: the commerce policy rides once per run, and only while the read finds commerce open.
+    if (run.commerce && !run.commerceShown) content.commerce = COMMERCE_GUIDANCE;
     const observations = array(view.policyState.view.observations);
     const modelRefused = observations.filter(value => (step.purpose === 'adjudicate' || step.purpose === 'compose')
       && value.kind === 'direct' && value.purpose === 'execute' && value.status === 'refused')
@@ -2210,6 +2227,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       messages.push({role: 'custom', customType: CLERK_TYPE, content: JSON.stringify(content), display: false,
         details: {coc_host: true, run: run.runId, step: stepId, ...(run.turn !== undefined ? {turn: run.turn} : {})}, timestamp: Date.now()});
       run.headShown = true;
+      if (content.commerce) run.commerceShown = true;
     }
     // §135.11: the turn-close steer, last, as the same `coc-host` message legacy's `agent_end` sends.
     if (run.steer && step.reason.startsWith('turn_close:')) { messages.push({role: 'custom', ...run.steer, timestamp: Date.now()}); run.steer = undefined; }
