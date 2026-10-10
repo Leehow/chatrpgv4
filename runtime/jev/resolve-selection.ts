@@ -114,6 +114,13 @@ export function specializedTriggerQuestion(option: CheckOption): string | undefi
       + 'blood where it should not be, someone known to be dead, a ghoul or worse)? Read facts.done_this_turn: the clues filed this turn and their content, the people who arrived, '
       + 'the last committed narration and the declaration. A sight already settled by a sanity_check receipt, a merely tense or unpleasant moment, a horror listed under done_this_turn.stated '
       + '(it has its own stated check), and a secret of the module the investigator has not met do not call for this roll. The player need not ask for dice.';
+  // §222.3: the Idea roll is the players' request, never an inference from a declared act (Keeper Rulebook pp. 199-200).
+  if (option.action.decision === 'core-check:idea-roll')
+    return 'Does the player ask for a way forward -- say they are stuck or out of leads, do not know what to do next, ask for a hint, '
+      + 'a nudge, or for an Idea roll by name, in or out of character? Judge the request itself: the Idea roll is proposed by the players '
+      + 'when the investigation has stalled, and the host lands the missed clue whichever way the die falls. A declared search, question, '
+      + 'journey, conversation or any other act is its own check and never this one; pausing, reflecting, chatting, or asking what the scene '
+      + 'looks like is not a request for it; nor is a player who still has a lead and is pursuing it.';
   if (option.action.decision === 'sanity:check' && option.action.san_loss)
     return 'Does this investigator perceive the listed source of horror now, including directly uncovering or looking at it in the declared action, '
       + 'or has that exposure already been narrated without its SAN check? The source requires the listed SAN check once exposed. '

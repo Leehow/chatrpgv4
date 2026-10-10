@@ -129,6 +129,8 @@ DECISIONS_WITHOUT_INTENT = frozenset({
     "decision:coc7:push-luck:pushed-roll",
     "decision:coc7:push-luck:luck-spend",
     "decision:coc7:push-luck:luck-roll",
+    # §222.3: the Idea roll is reached by its decision when Jev selects it on the players' request, never by a declared intent.
+    "decision:coc7:core-check:idea-roll",
     "decision:coc7:development:end-session",
     "decision:coc7:development:settle-ending",
 })

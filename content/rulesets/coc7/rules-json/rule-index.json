@@ -11,7 +11,7 @@
       "id": "core.resolution.idea_roll",
       "category": "core_resolution",
       "source_table": "percentile-check.json",
-      "source_note": "Keeper Rulebook Idea roll: a percentile check against the investigator's INT characteristic, used to recall a crucial connection or insight."
+      "source_note": "Keeper Rulebook Idea roll (pp. 89, 199-200): an INT percentile check the players may ask for when the investigation has stalled, rolled by the investigator with the highest INT. The players get the missed clue whether it passes or fails; the roll decides only how: easily on a pass, in the thick of it (trouble) on a failure. Difficulty by how plainly the clue was offered: never mentioned regular, mentioned hard, made clear or discussed by the players extreme. Not a recall roll; see decision:coc7:core-check:idea-roll."
     },
     {
       "id": "core.resolution.know_roll",

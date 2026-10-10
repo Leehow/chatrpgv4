@@ -132,6 +132,12 @@
     "max_candidates": 24,
     "timeout_ms": 10000
   },
+  "clue_route": {
+    "mode": "on",
+    "fit_min": 0.6,
+    "obvious_min": 0.65,
+    "timeout_ms": 8000
+  },
   "transcript": {
     "mode": "on",
     "concurrency": 1,

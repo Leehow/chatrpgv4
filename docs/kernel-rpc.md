@@ -42861,3 +42861,147 @@ Tests: `tests/extension/rulebook-rolls.test.mjs` (arithmetic: Luck raises a leve
 exclusions; opposed Luck recomputes the winner; push protocol records
 the consequence source honestly and accepts free rein; combined push and ticks; bonus-die tick
 withheld; combat opposedLuck on a passed-but-losing roll; catalog push default; rules data).
+
+## 222. A clue the book finds by a check has the rulebook's ways in: obvious clues, other fitting checks, the Idea roll (user ruling 2026-10-10; amends §201.2, §135.30.9, §159; `kernel-ts/read/clue-check.ts`, `kernel-ts/apply/entities.ts`, `kernel-ts/runtime/check-catalog.ts`, `runtime/jev/clue-route.ts`, `extensions/kernel/clue-route.ts`)
+
+**Ruling.** The module supplies content the Keeper performs; the rules adjudicate what happened at the table, and they do not
+refuse an event because it does not match the script. §201.2 made the kernel do exactly that for one case: a clue whose
+profile says `delivery_kind: "skill_check"` with a named skill was refused (`check_first`) unless an investigator's roll of
+*that* skill passed *this turn*. The Keeper Rulebook has more ways to the same information, and this section lets each of
+them land the clue, with the receipt saying which one did.
+
+**Evidence.** Rulebook ch. 10, *Disseminating Information* (pp. 201-202): information the Keeper wants the players to have
+is an *obvious clue*, found without dice; never let one concealed clue be the key to the whole adventure; give important
+information several routes; when a clue is missed there is always the Idea roll. *The Idea Roll* (pp. 199-200): proposed by
+the players when the investigation has stalled; the roll decides *how* the clue comes, never *whether*; a win delivers it
+woven into the story, a loss delivers it with the investigators "in the thick of it"; the Keeper sets the difficulty by how
+plainly the clue had been offered (never mentioned: Regular; mentioned: Hard; made clear or discussed by the players:
+Extreme); the player whose investigator has the highest INT rolls. Ch. 5 (pp. 82-83, 89): the Keeper chooses which skill a
+method uses; an Idea roll is an INT roll made in the same manner as any other. Product: `kernel-ts/apply/entities.ts`
+`stageClue` (the gate), `kernel-ts/read/clue-check.ts` `checkPassed` (this turn, exact skill, investigator only),
+`runtime/jev/candidates.ts` and `consequence-candidates.ts` (`check.passed === false` rows withheld),
+`mods/keeper-pacing/agent.md` ("use the Idea roll as the rulebook has it") against `kernel-ts/resolve/bindings.ts`
+`BASIC_DECISIONS` (no such decision), `kernel-ts/capabilities.ts` (`idea_roll` only as a resolver name) and
+`content/rulesets/coc7/rules-json/rule-index.json` (`core.resolution.idea_roll` described as a recall roll). TR-F2 run 3:
+T10 the host decided `no_roll` and the Keeper gave the executor by judgement (§201.2 admits it; the ledger could not take
+it); T6/T13 landed Library Use and Spot Hidden clues with no roll.
+
+### 222.1 The routes the kernel lands a checked clue by (amends §201.2)
+
+`clueRoute(check, {clue, receipts, foundBy})` (`kernel-ts/read/clue-check.ts`) answers the route that finds the clue, or
+null. `receipts` are **this visit's**: the turn's committed receipts, the batch's staged ones, and the receipts of the earlier
+turns since the party last moved into the active scene (`visitReceipts`, read from the turn records; a move whose `from`
+differs from its `to` starts a visit). The receipts are read by their own fields; nothing reads prose.
+
+1. **`check`** -- a `kind: "roll"` receipt with `passed: true` whose `skill` (or `check.skill`) is the book's skill after NFKC,
+   case and spacing folding. Any actor: an investigator's, or an NPC helper's (`actor_is_investigator: false`, recorded
+   `helper: true` -- ch. 5: whoever the Keeper lets make the roll made it). This turn or an earlier turn of the visit (`turn`
+   recorded when earlier). `§201.2`'s "this turn" is withdrawn: one attempt at one place is one attempt.
+2. **`idea_roll`** -- a roll receipt with `roll_kind: "idea_roll"` whose `clue` names this clue, passed or failed (`passed`
+   recorded): the rulebook's roll decides how, not whether.
+3. **`fitting_check`** -- the effect carries `found_by: {route: "fitting_check", roll: <id>}` and that receipt is a passed roll of
+   the visit of another skill: Jev judged the investigator's method fits the clue (§222.2). The kernel verifies the receipt
+   and records `judged: "jev"`.
+4. **`obvious`** -- `found_by: {route: "obvious"}`: Jev judged the clue obvious for progress (§222.2). Recorded `judged: "jev"`.
+5. **`no_roll`** -- `found_by: {route: "no_roll"}`: the host's check selection decided no roll this turn (§163; a cleared
+   `no_roll` or a forced one) and the Keeper gives it by judgement. Recorded `check_skipped: true`, `judged: "host"`; §201.1's
+   `check_skipped` count keeps its meaning.
+
+**The receipt** of a checked clue carries `check: {skill, difficulty?}` and `found_by: {route, roll?, passed?, turn?, helper?,
+judged?}`; `check_skipped: true` on route 5. An unchecked clue, a found clue (no-op), a table-established clue and an owed
+told row (§201.1) carry none and are gated by none, as before.
+
+**The refusal** when no route stands is §201.2's `needs` / `check_first`, with `details.routes: {other_rolls: [{id, skill,
+actor, turn}], idea_roll: true}` -- the visit's other passed rolls, for the host's fit judgement -- and a fix that names the
+ways in: the book's skill, another skill the host judges to fit, the Idea roll when the player asks for a way forward, the
+clue being obvious, the host's no roll; "until then narrate the attempt without what the clue states".
+
+**Only the host sends `found_by`.** The Keeper's `apply` schema (`extensions/kernel/tools.ts`) does not carry it, so Pi's
+schema check refuses it from the model; the host's own `table.apply` calls (the clue-route lane, §222.2) do. A `found_by` with
+an unknown route, or a `fitting_check` whose roll is not a passed roll of the visit, is `invalid_params`
+(`code_detail: "found_by_invalid"`).
+
+**`table.apply.options`** (`kernel-ts/runtime/apply-operation.ts`): a checked clue row's `description.check` is `{skill,
+difficulty?, passed, found_by?, other_rolls?}`: `passed: true` with `found_by` when route 1 or 2 stands on the visit, else
+`passed: false` with the visit's `other_rolls`. The clerk's readers (`buildCandidates`, `clueFollowUpCandidates`) keep
+skipping `passed: false` rows: an earlier turn's roll and an Idea roll now open them; a Jev route is the Keeper's apply's.
+
+### 222.2 The host opens the routes the kernel cannot verify: the `clue-route` lane
+
+`runtime/jev/clue-route.ts` (pure) and `extensions/kernel/clue-route.ts`. When the Keeper's `apply` is refused `check_first`
+with `details.routes`, the dispatcher (the model's call, never the clerk's) asks, before handing the refusal back:
+
+- **`no_roll`** -- no Jev: if the engine's check selection for this turn decided no roll (`coc:check-decided` on the Pi event
+  bus, emitted by `runtime/jev/hybrid-engine.ts` on a `check-selection` row whose `status` is `no_roll` and on a forced
+  `no_roll` of the `check-selection` / `check-binding` families; the extension keeps `{turn, why}` per table), the effect is
+  re-sent with `found_by: {route: "no_roll"}`.
+- **`fitting_check`** -- one Noul per `other_rolls` entry, `fit_r<n>`: does the method this passed roll settled -- its skill, its
+  goal -- find this clue, as the book describes it (the clue's summary and cues)? Not whether any skill is relevant; whether
+  *this* roll's method reaches it. Yes at or above `clue_route.fit_min` re-sends with `found_by: {route: "fitting_check",
+  roll}` (the highest-scored roll).
+- **`obvious`** -- one Noul, `obvious`: is this clue information the scenario needs the investigators to have to go on --
+  the kind the rulebook calls obvious, which the players get without dice -- rather than an advantage they may miss? State: the
+  clue's summary, the conclusions it supports and their `importance` when the graph carries one (`conclusion.importance`,
+  `core` / `critical`), the scene's other undiscovered clues. Yes at or above `clue_route.obvious_min` re-sends with
+  `found_by: {route: "obvious"}`.
+
+The order is as listed: the first route that opens lands it; nothing else of the batch changes. Bars and mode:
+`host-budgets.json` `clue_route: {mode: "on", fit_min: 0.6, obvious_min: 0.65, timeout_ms: 8000}` (`clueRouteBudget`;
+`PI_COC_CLUE_ROUTE=off|shadow|on` overrides the mode alone; `shadow` asks and records but re-sends nothing). Without a Jev
+key only the `no_roll` route is tried. Telemetry `{lane: "clue-route", event: "judged", turn, clue, check, no_roll, fit:
+{<roll>: p}, obvious: p, chosen: <route> | null, resent, ms}`; a lane failure is `{ok: false, reason}` and the original
+refusal stands. The re-sent call is the same `apply` with one effect's `found_by` added; its result is the Keeper's.
+
+### 222.3 The Idea roll exists (amends §159's catalog, §135.30.9's clue rows)
+
+- **Rules data.** `content/rulesets/coc7/rule-graph.json` gains `decision:coc7:core-check:idea-roll` (family `core-check`,
+  adapter `resolver`, kind `check`, `payload_constants: {characteristic: "INT"}`, slots `difficulty`, `goal`, `stakes`,
+  `difficulty_basis`, `clue` (keeper-semantic), `target` and `investigator_id` (host-locked)); the manifest's
+  `graph_content_digest` follows. Like `push-luck:luck-roll` it declares no intent trigger: it is reached by its decision.
+  `rule-index.json`'s `core.resolution.idea_roll` now says what the rulebook says: the players' request when the
+  investigation stalls; the roll decides how the missed clue comes, not whether; failure lands them in the thick of it.
+- **Kernel.** `IDEA` joins `BASIC_DECISIONS` and `MODIFIER_CARRIERS`. `action.clue` is required and must be an undiscovered
+  clue of the active scene or of the trail (`needs`, `details.needs.options` the handles); `action.difficulty`
+  (`regular | hard | extreme`, the rulebook's three) binds the difficulty beside `action.modifiers.difficulty`. The target is
+  the sheet's INT (`hostLocked`). The settlement lands the clue in the same call, whichever way the die fell: `world.discovered_clues`,
+  a clue receipt `{kind: "clue", clue, found_by: {route: "idea_roll", roll, passed}, check?}` and a `clue-discovered` event
+  beside the roll's; the roll receipt is `roll_kind: "idea_roll"` with `clue`. The result is `{bound_check, outcome, idea_roll:
+  true, clue, clue_receipt, next_continuations: []}`; `outcomeOf` adds `idea_roll: true`, `clue`, `clue_receipt` and **`note`**:
+  on a pass, deliver the clue woven into the story with a strong direction; on a failure, the clue still arrives and the
+  investigators are in the thick of it -- open in medias res with trouble of the kind the book already has on the table.
+  The note travels on `clerk_did[].result.outcome` (§135.11) and in the result's `hints`. Luck may not be spent on it and
+  it is not pushed (`next_continuations: []`), as the Luck roll.
+- **Catalog** (`kernel-ts/runtime/check-catalog.ts`, its own delimited block): outside a session, one option
+  `core-check:idea-roll` for the investigator with the highest INT (the rulebook's roller), when the scene holds an
+  undiscovered clue: label "<actor>: the Idea roll -- the players are stuck and ask for a way forward", a `definition`
+  paraphrasing pp. 199-200, parameters `clue` (Choice over the scene's undiscovered clue handles, labelled by summary --
+  which missed clue gets the investigation moving) and `difficulty` (how plainly the clue had been offered: never mentioned
+  Regular, mentioned Hard, made clear Extreme; default Regular). Jev selects it under `specializedTriggerQuestion`
+  (`runtime/jev/resolve-selection.ts`): does the player ask for a way forward -- say they are stuck, out of leads, ask for a
+  hint or for an Idea roll, in or out of character -- rather than declare a search, a question or any other act? A declared
+  act is its own check, never this.
+- **Mod.** `mods/keeper-pacing/agent.md`'s stuck-player paragraph now says who owns it: the host offers the Idea roll when
+  the player asks for a way forward and Jev selects it; the clerk's receipt names the clue and the note says how it arrives;
+  the Keeper weaves it in and, on a failure, opens with the trouble. `prompts/keeper.md` law 1 is unchanged: the Keeper
+  never chooses the check.
+
+### 222.4 Three ends (§31)
+
+*Writer:* the kernel's `clueRoute` (the receipt's `found_by`, `check_skipped`, the option row's `check`, the `check_first`
+refusal's `routes`); the Idea roll settlement (the roll and clue receipts, the outcome's `note`); the engine's
+`coc:check-decided`; the clue-route lane (the `found_by` on the re-sent effect, the `clue-route` row). *Reader:* `apply
+clue`, `table.apply.options`' readers, the clerk's `clerk_did`, the catalog's Jev selection, the Keeper's capsule receipts.
+*Actor:* the Keeper, whose apply lands through the route that stands and who weaves an Idea roll's clue in as the note
+says; the clerk, which files a clue an earlier turn's roll or an Idea roll opened; the operator, who reads `found_by`,
+`check_skipped` and the `clue-route` rows.
+
+### 222.5 Tests
+
+`tests/extension/clue-ledger-kernel.test.mjs`: the book's roll of an earlier turn of the same visit lands the clue
+(§201.2's test amended); an NPC helper's passed roll lands it; `found_by` `fitting_check` with a passed roll of another
+skill, `obvious`, `no_roll` (`check_skipped`), an unknown route and a failed roll (`found_by_invalid`); the Idea roll through
+`table.resolve.options` (offered for the highest-INT investigator with the scene's undiscovered clues) and `table.resolve`
+(the roll, the clue landed either way, the note); the option row's `check.found_by` / `other_rolls`.
+`tests/extension/clue-route.test.mjs`: the lane's questions and reading over a typed Jev double (fit, obvious, no_roll first,
+shadow, below bars). `tests/extension/check-selection.test.mjs`: the Idea roll's trigger question.
+`tests/kernel/test_rule_graph_data.py`: the decision is in `DECISIONS_WITHOUT_INTENT` and the manifest digest holds.

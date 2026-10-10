@@ -163,6 +163,7 @@ import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-d
 import { watchOwedReview } from "./owed-review.ts";
 import { startToldPosition } from "./told-position.ts";
 import { startToldClue } from "./told-clue.ts";
+import { checkFirstRefusal, openClueRoute, withFoundBy, type CheckDecided } from "./clue-route.ts";
 import { openingInstruction } from "./opening-instruction.ts";
 import { leaveOutRefused, leaveOutUnknownOwed, owedLeftOutNote, type OwedLeftOut } from "./owed-left-out.ts";
 import { splitNpcMood } from "./npc-mood-split.ts";
@@ -379,6 +380,8 @@ interface TableState {
 	forcedPlayerChoiceCueRejected?: { turn: number; draftHash: string; cueScores: number[]; outcomeScores: number[] };
 	forcedPlayerChoiceCueRepairSteered?: number;
 	forcedPlayerChoiceCueRepairAttempted?: number;
+	/** §222.2: the engine's check decision for the current turn when it decided no roll (`coc:check-decided`). */
+	checkDecided?: CheckDecided;
 	kernel: KernelClient;
 	campaign: string;
 	telemetryPath: string;
@@ -1570,6 +1573,13 @@ export default function (pi: ExtensionAPI) {
 			state.forcedPlayerChoiceCueChecked = undefined;
 			state.forcedPlayerChoiceCueRejected = undefined;
 		}
+	});
+	// §222.2: the engine's check selection decided no roll this turn -- Jev judged no check needed, or a forced no-roll (§163).
+	// The clue-route lane reads it to let the Keeper give a checked clue by judgement (`found_by: {route: "no_roll"}`).
+	pi.events.on('coc:check-decided', (value: unknown) => {
+		const state = table, data = value && typeof value === 'object' ? value as Record<string, unknown> : undefined;
+		if (!state || !data || data.campaign !== state.campaign || typeof data.turn !== 'number' || data.turn !== state.turn || data.status !== 'no_roll') return;
+		state.checkDecided = {turn: data.turn, status: 'no_roll', why: typeof data.why === 'string' ? data.why : null};
 	});
 	// §163 (owner ruling 2026-10-01): no host notice stands in for a check Jev could not settle. The engine resolves it (a
 	// best-scored roll or a no-roll the Keeper narrates) and records it as `lane: "forced-resolution"`; the old
@@ -5505,7 +5515,19 @@ export default function (pi: ExtensionAPI) {
 			await dispatcher.beforeKernelInvoke(toolCallId, spec.method, payload);
       if(spec.name==='look')documentContinuation=state.documentReadCoverage?.consume(payload)??false;
       if(spec.name==='apply')writingMatches=await prepareWritingMatches(state,payload,documentBindings,evidence.run);
-      const result = await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress);
+      let result: Record<string, unknown>;
+      try { result = await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress); }
+      catch (error) {
+        // §222.2: the Keeper's own `apply clue` refused `check_first` -- the host opens the rulebook's ways the kernel cannot
+        // read (its no roll this turn; a fitting other roll or an obvious clue, Jev judged) and re-sends with the route attested.
+        const refusal = spec.name === 'apply' && !host ? checkFirstRefusal(error) : undefined;
+        const foundBy = refusal ? await openClueRoute({env: process.env, campaign: state.campaign, turn: state.turn, declaration: state.playerText,
+          noRoll: state.checkDecided?.turn === state.turn ? state.checkDecided : undefined, signal,
+          call: (method, params) => state.kernel.call(method, params), record: row => record(row)}, refusal) : undefined;
+        const resent = refusal && foundBy ? withFoundBy(payload, refusal.index, foundBy) : undefined;
+        if (!resent) throw error;
+        result = await state.kernel.call<Record<string, unknown>>(spec.method, resent, onProgress);
+      }
       if(spec.name==='apply')await observeWritingCompletion(state,result,writingMatches);
       // §204.4: a model's committed mint is bound to the book in the background, independently of the next player turn.
       if (spec.name === 'apply' && !host && evidence.label === 'model' && Array.isArray(payload.effects)
