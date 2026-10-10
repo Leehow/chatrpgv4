@@ -11,6 +11,7 @@ await build({stdin:{contents:[
     "export * from './extensions/table/capability-runtime.ts';",
     "export {COC_TOOLS} from './extensions/kernel/tools.ts';",
     "export {offeredTools} from './extensions/kernel/lean-apply.ts';",
+    "export {discoverySituation} from './extensions/table/discovery-situation.ts';",
 ].join('\n'),resolveDir:root},outfile:join(temp,'api.mjs'),bundle:true,packages:'external',
     format:'esm',platform:'node',target:'node24',logLevel:'silent'});
 const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
@@ -144,4 +145,11 @@ test('a late initial selection cannot narrow an epoch already widened after look
     release();await runtime.wait();
     assert.equal(runtime.project(tools),undefined);
     runtime.clear();
+});
+test('encounter evidence is not inferred from whether a person has spoken',()=>{
+    const view=api.discoverySituation({present:[{name:'Watchman',history:{met_turns:4,last_turn:12}},
+        {name:'Stranger'}]});
+    assert.deepEqual(view.people[0],{name:'Watchman',kind:'person',activity:null,encounters:4,last_seen_turn:12,last_spoke_turn:null});
+    assert.equal(view.people[1].encounters,null);
+    assert.equal(Object.hasOwn(view.people[0],'met_before'),false);
 });

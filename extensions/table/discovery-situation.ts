@@ -15,7 +15,9 @@ export function discoverySituation(capsule:Row,task:Row={}):Row {
         clock:where.clock??null,temporal:where.temporal??null,
         people:present.slice(0,16).map(person=>typeof person==='string'?{name:person}:{
             name:person.name,kind:person.kind??'person',activity:person.activity??null,
-            met_before:object(person.history).last_spoke_turn!=null,
+            encounters:object(person.history).met_turns??null,
+            last_seen_turn:object(person.history).last_turn??null,
+            last_spoke_turn:object(person.history).last_spoke_turn??null,
         }),
         known_clues_here:clues.slice(0,8).map(clue=>({name:clue.name,delivery:clue.delivery??null})),
         threat_clocks:clocks.slice(0,8).map(clock=>({name:clock.name,current_segments:clock.current_segments??null})),

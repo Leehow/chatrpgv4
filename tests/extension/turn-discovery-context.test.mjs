@@ -79,7 +79,8 @@ for(const [denied,seeded,stale] of [[false,false,false],[true,false,false],[fals
         {role:'user',content:[{type:'text',text:'Wait until nine.'}],timestamp:1},
         {role:'custom',customType:'coc-capsule',content:JSON.stringify(cap),
             details:{context:binding,epoch:'input-1'},timestamp:2},
-        {role:'custom',customType:api.CLERK_TYPE,content:JSON.stringify({kind:'single_loop_step',purpose:'adjudicate',reason:'check_unresolved'}),
+        {role:'custom',customType:api.CLERK_TYPE,content:JSON.stringify({kind:'single_loop_step',purpose:'adjudicate',reason:'check_unresolved',
+            native_search_scope:{run:'fixture-native-run',step:'fixture-native-step'}}),
             details:{coc_host:true,turn:0},timestamp:3}];
     const original=JSON.stringify(messages);
     const ctx={model:{contextWindow:500000},getContextUsage:()=>({percent:1}),
@@ -88,6 +89,8 @@ for(const [denied,seeded,stale] of [[false,false,false],[true,false,false],[fals
     const withSystem=hooks.get('context_with_system')({messages:[messages[0],...outgoing.messages]},ctx);
     const projected=withSystem?.messages??[messages[0],...outgoing.messages];
     const tools=getCurrentTools(projected);
+    const nativeNote=projected.find(message=>message.customType===api.CLERK_TYPE);
+    assert.deepEqual(JSON.parse(nativeNote.content).native_search_scope,{run:'fixture-native-run',step:'fixture-native-step'});
     const apply=tools.find(t=>t.name==='apply');
     if(denied){
         assert.equal(fetched,0);assert.ok(reserved>=2);
