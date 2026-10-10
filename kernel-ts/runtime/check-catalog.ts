@@ -56,7 +56,8 @@ const ladderParameter = (ladder: Array<{san_loss: string; situation: string}>): 
     options: ladder.map(entry => ({label: `${entry.situation} (${entry.san_loss})`, value: entry.san_loss}))});
 const JUDGED_DEFINITION = 'The Keeper Rulebook (p.154) has the Keeper call a Sanity roll for each investigator entangled in a sanity-threatening situation, with the loss depending on the situation; the module gave this one no number, so the loss is chosen from the book\'s example ladder (p.155). '
     + 'Judge from what actually happened this turn (facts.done_this_turn): a clue filed whose content is a horror, a person or creature who arrived, what the last committed narration showed. '
-    + 'A sight already settled by a sanity_check receipt, a merely tense or unpleasant moment, a secret of the module this investigator has not met, and a horror listed under done_this_turn.stated (it has its own stated check) do not call for this roll.';
+    + 'A sight already settled by a sanity_check receipt, a merely tense or unpleasant moment, a secret of the module this investigator has not met, and a horror listed under done_this_turn.stated (it has its own stated check) do not call for this roll. '
+    + 'facts.settled_this_visit lists the Sanity rolls this investigator already made here and what they were for: the loss is for the encounter, so a horror that merely continues from one of them (still lying there, seen again, its smell, the narration describing it again) is settled; only something new or markedly worse calls for a roll.';
 
 export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGraph, sessions: SessionView, profiles: Row[], decisions: Row[],
     owners: {phases: Record<string, string>; openingAttack: Row | null; history: Row[]; publicText: string}): Promise<Row> {
@@ -306,11 +307,18 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
         {
             const investigator = campaign.party.find(sheet => sheet.name === actor);
             const rolled = investigator && array(campaign.turn.receipts).some(receipt => receipt.kind === 'roll' && receipt.roll_kind === 'sanity_check' && receipt.actor === investigator.id);
+            // §221.11: the Sanity rolls this investigator already made on this visit, with what they were for. The rulebook's
+            // loss is for the encounter (p.154): a sight that continues on later turns is not met again. Live table: the
+            // body behind the boards was rolled for on three turns running while the narration kept showing it.
+            const settled = investigator ? owners.history.concat([{turn: campaign.turn.turn, receipts: array(campaign.turn.receipts)}]).flatMap(record =>
+                array(record.receipts).filter(receipt => visitReceipts.includes(receipt) && receipt.kind === 'roll' && receipt.roll_kind === 'sanity_check' && receipt.actor === investigator.id)
+                    .map(receipt => ({turn: record.turn ?? null, source: receipt.goal ?? receipt.source ?? null, san_loss: receipt.san_loss ?? null,
+                        ...(receipt.clue_exposure ? {clue: receipt.clue_exposure} : {}), ...(receipt.npc_exposure ? {person: receipt.npc_exposure} : {})}))) : [];
             if (investigator && !rolled && ladder.length) add('sanity:check', `${actor}: a Sanity roll for what happened this turn, its loss judged from the rulebook's examples`, {actor},
                 [ladderParameter(ladder), involuntary(), bout], [], 'consequence', {loss_source: 'rulebook_examples', done_this_turn: {
                     clues: cluesThisTurn.map(filed => ({label: filed.label, summary: filed.summary, how: filed.how})),
                     people_met: arrivedThisTurn, last_narration: owners.publicText.slice(-1500), declaration,
-                    stated: [...new Set(statedSights)]}});
+                    stated: [...new Set(statedSights)]}, settled_this_visit: settled});
             const added = options.at(-1);
             if (added?.action.decision === 'sanity:check' && added.facts?.loss_source === 'rulebook_examples') added.definition = JUDGED_DEFINITION;
         }

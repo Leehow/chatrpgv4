@@ -147,6 +147,15 @@ test('§221.3(4) T18: a corpse filed as a clue with no stated loss is offered as
   assert.equal(roll.npc_exposure, undefined, 'a situation is not a creature');
   const again = validateCheckOptions((await call('table.resolve.options')).selection.options);
   assert.ok(!again.some(option => option.action.decision === 'sanity:check' && option.facts?.loss_source === 'rulebook_examples'), 'one Sanity roll per investigator per turn');
+  // §221.11: on the next turn the judged option shows the roll already made on this visit, so a sight that merely continues is settled.
+  await call('table.narrate', {call_id: 't1-c3', text: 'You stare at the figure behind the boards.'});
+  await call('table.player_input', {text: 'I keep looking at it.'});
+  const later = validateCheckOptions((await call('table.resolve.options')).selection.options)
+    .find(option => option.action.decision === 'sanity:check' && option.facts?.loss_source === 'rulebook_examples');
+  assert.ok(later, 'a new turn offers the judged roll again');
+  assert.equal(later.facts.settled_this_visit.length, 1);
+  assert.equal(later.facts.settled_this_visit[0].san_loss ?? '0/1D3', '0/1D3');
+  assert.match(specializedTriggerQuestion(later), /settled_this_visit/);
 });
 
 test('§221.6/§221.7: the awfulness cap is the failure half\'s maximum, hardening is permanent, development eases the totals', async t => {

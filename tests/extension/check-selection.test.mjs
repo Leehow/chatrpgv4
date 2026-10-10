@@ -691,6 +691,17 @@ test('§163.8: two gray methods of the player\'s own investigator are the player
   }
 });
 
+test('§224.4: the player chose the act and one skill clearly fits its method -- the Keeper\'s pick (pp. 82-83), rolled and recorded', async t => {
+  const {input} = setup(t, (batch, question) => noul(baseKey(question.key).endsWith('_selected') ? .2
+    : batch.family.startsWith('check-selection-need') && baseKey(question.key).endsWith('_uncertain') ? 0.99
+    : batch.family.startsWith('check-selection-need') && !baseKey(question.key).endsWith('_blocked') ? (question.target === 'Spot Hidden' ? 0.5 : 0.9) : 0.99));
+  input.investigators = ['Ada'];
+  const result = await selectCheck(input);
+  assert.equal(result.status, 'selected');
+  assert.equal(result.action.skill, 'Listen');
+  assert.ok(result.forced.why.includes('skill_fallback'));
+});
+
 test('§163.8: one gray method with its alternative ruled out is a best guess even for the player\'s investigator', async t => {
   const {input} = setup(t, (batch, question) => noul(!batch.family.startsWith('check-selection-need') || baseKey(question.key).endsWith('_blocked') ? 0.99
     : question.target === 'Spot Hidden' ? 0.01 : 0.6));

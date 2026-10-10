@@ -43124,3 +43124,22 @@ present and the scene; the full route state carries more), for Arty Wilmot at th
 clippings → `now` 0.83–0.85; walking through the lobby upstairs → `later` 0.97; nodding to him and sitting down with one's own
 notes → `later` 0.89–0.92. The attack fallback reads Jev's existing weapon and target scores and was not probed separately.
 Not gameplay acceptance.
+
+### 224.4 The skill a declared act uses is the Keeper's pick when one clearly fits (2026-10-10, found on a real table; narrows §163.8)
+
+**Evidence.** On the rewound TR-F2 run 3 basement (Grok 4.7 Build fast, live Jev), "我继续使劲撬那块最宽的木板，非把口子撬到能钻
+进去不可。" needed a roll (roll needed 0.62–0.81 across the skills), but the six skill alternatives of the ordinary check were
+read as the player's unmade choice (§163.8) and nothing was rolled; the Keeper narrated the board holding. The Keeper Rulebook
+has the Keeper choose the skill from the method the player describes (When to Roll Dice / Skill Rolls, pp. 82-83); the player
+chose the act.
+
+**The rule.** For an ordinary check without a stated rule (`core-check:ordinary-check`) whose act the player chose, when its
+skill alternatives are unsettled, the host takes the skill whose method fit (the option's main need question) Jev scored
+highest -- above `noNeed` and leading the next by at least `SKILL_LEAD` (0.2, `runtime/jev/resolve-selection.ts`) -- recorded
+as forced with `why: skill_fallback`. Two methods that fit about equally are still the player's open choice (§163.8 stands for
+a genuine tie). Approach choices of social influence (`social:adjudicate-difficulty`) are unchanged: how the investigator
+treats a person is the player's.
+
+*Tests.* `tests/extension/check-selection.test.mjs`: a clear leader is rolled with `skill_fallback`; the §163.8 tie case still
+withholds.
+

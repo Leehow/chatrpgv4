@@ -83,6 +83,8 @@ export function playerOwned(option: CheckOption, parameter: CheckParameter, inve
   return playerAct(option, investigators) && parameter.default === undefined && parameter.selection !== 'compatible';
 }
 
+/** §224.4: how far one skill's method fit must lead the next for the Keeper to pick it (else the player's open choice, §163.8). */
+export const SKILL_LEAD = 0.2;
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /** Rule eligibility is already host-owned; these questions ask only the remaining semantic trigger. */
 export function specializedTriggerQuestion(option: CheckOption): string | undefined {
@@ -114,7 +116,8 @@ export function specializedTriggerQuestion(option: CheckOption): string | undefi
     return 'Did something this investigator actually met this turn threaten their sanity in a way the Keeper Rulebook\'s example costs cover (a corpse or body part, a mangled body, '
       + 'blood where it should not be, someone known to be dead, a ghoul or worse)? Read facts.done_this_turn: the clues filed this turn and their content, the people who arrived, '
       + 'the last committed narration and the declaration. A sight already settled by a sanity_check receipt, a merely tense or unpleasant moment, a horror listed under done_this_turn.stated '
-      + '(it has its own stated check), and a secret of the module the investigator has not met do not call for this roll. The player need not ask for dice.';
+      + '(it has its own stated check), and a secret of the module the investigator has not met do not call for this roll. Read facts.settled_this_visit too: the loss is for the encounter, '
+      + 'so a horror that merely continues from a Sanity roll already made on this visit (still there, seen again, described again) is settled; only something new or markedly worse calls for it. The player need not ask for dice.';
   // §222.3: the Idea roll is the players' request, never an inference from a declared act (Keeper Rulebook pp. 199-200).
   if (option.action.decision === 'core-check:idea-roll')
     return 'Does the player ask for a way forward -- say they are stuck or out of leads, do not know what to do next, ask for a hint, '
@@ -203,7 +206,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
   const gates = {...CHECK_SELECTION_GATES, ...input.gates}, gate = gates.need;
   // §163: every gate decided by Jev's best score (or with no score) is named here; a result that used one is forced.
   const forced: string[] = [], whys = new Set<string>();
-  const note = (what: string, why: 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable' | 'player_choice' | 'attack_fallback') => { forced.push(what); whys.add(why); };
+  const note = (what: string, why: 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable' | 'player_choice' | 'attack_fallback' | 'skill_fallback') => { forced.push(what); whys.add(why); };
   const conditions: unknown[] = isPlainRecord(input.context) && Array.isArray(input.context.conditions) ? input.context.conditions : [];
   const investigators = new Set((input.investigators ?? conditions.flatMap(row => isPlainRecord(row) ? [String(row.actor ?? '')] : [])).filter(Boolean));
   const done = (result: CheckSelection): CheckSelection => {
@@ -343,6 +346,8 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     const pages = Array.from({length: Math.ceil(eligible.length / 24)}, (_, index) => eligible.slice(index * 24, index * 24 + 24));
     const statusOf = new Map<string, CheckSelection['status']>();
     const actualOf = new Map<string, number | undefined>();
+    // §224.4: the method-fit score of an ordinary check (its main question), read when the Keeper picks the skill.
+    const fitOf = new Map<string, number | undefined>();
     const judgePage = async (page: CheckOption[]): Promise<void> => {
       const state = {declaration: input.declaration, context: input.context, policy: POLICY,
         alternatives: eligible.filter(option => playerAct(option, investigators) && page.some(entry => entry.action.actor === option.action.actor && entry.action.decision === option.action.decision)).map(option => ({label: option.label, action: actionView(option.action)})),
@@ -402,6 +407,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
         const status = classify(option, index, result);
         statusOf.set(option.key, status);
         actualOf.set(option.key, yes(result, optionAlias(index) + '_selected'));
+        fitOf.set(option.key, yes(result, optionAlias(index)));
         const ordinary = option.action.decision === 'core-check:ordinary-check' && option.action.rule === undefined;
         const scores = [yes(result, optionAlias(index)), ...(ordinary ? [yes(result, optionAlias(index) + '_uncertain')] : []), yes(result, optionAlias(index) + '_blocked')];
         if (scores.some(score => score === undefined)) note(`necessity of ${option.label}: unanswered`, 'jev_unanswered');
@@ -413,6 +419,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     };
     await Promise.all(pages.map(judgePage));
     const unsettledAttacks: Array<{option: CheckOption; rivals: number}> = [];
+    const unsettledSkills: Array<{option: CheckOption; rivals: number}> = [];
     for (const option of eligible) {
       const status = statusOf.get(option.key);
       const rivals = playerAct(option, investigators) ? eligible.filter(other => other.key !== option.key
@@ -420,6 +427,9 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       if (status === 'selected' && rivals.length && !leansYes(actualOf.get(option.key) ?? 0)) {
         // §224.2: a declared attack is settled; its unsettled alternatives take the host's fallback below.
         if (option.action.decision === 'combat:attack') { unsettledAttacks.push({option, rivals: rivals.length + 1}); continue; }
+        // §224.4: an ordinary check whose act the player chose: which skill the method uses is the Keeper's pick (Keeper
+        // Rulebook pp. 82-83), taken below from Jev's method-fit scores; it is not an unmade player choice.
+        if (option.action.decision === 'core-check:ordinary-check' && option.action.rule === undefined) { unsettledSkills.push({option, rivals: rivals.length + 1}); continue; }
         note(`${option.label}: one of ${rivals.length + 1} alternatives the player has not settled`, 'player_choice');
         continue;
       }
@@ -439,6 +449,21 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       if (chosen) {
         needed.push(chosen);
         note(`${chosen.label}: attack fallback over ${mine[0].rivals} unsettled alternatives (${scored[0] ? scoreText(scored[0].p) : 'unarmed, Fighting (Brawl)'})`, 'attack_fallback');
+      } else for (const entry of mine) note(`${entry.option.label}: one of ${entry.rivals} alternatives the player has not settled`, 'player_choice');
+    }
+    // §224.4: per actor, the skill whose method fit Jev scored highest, when it is at least not ruled out (above noNeed).
+    for (const actor of new Set(unsettledSkills.map(entry => String(entry.option.action.actor)))) {
+      if (needed.some(option => option.action.decision === 'core-check:ordinary-check' && String(option.action.actor) === actor)) continue;
+      const mine = unsettledSkills.filter(entry => String(entry.option.action.actor) === actor);
+      const scored = mine.map(entry => ({entry, p: fitOf.get(entry.option.key)}))
+        .filter((value): value is {entry: typeof mine[number]; p: number} => typeof value.p === 'number' && Number.isFinite(value.p) && value.p > gates.noNeed)
+        .sort((left, right) => right.p - left.p);
+      // §163.8 stands for a genuine tie: only a skill whose fit clearly leads (by SKILL_LEAD over the next) is the Keeper's.
+      const runnerUp = mine.map(entry => fitOf.get(entry.option.key)).filter((p): p is number => typeof p === 'number' && Number.isFinite(p))
+        .sort((left, right) => right - left)[1] ?? 0;
+      if (scored[0] && scored[0].p - runnerUp >= SKILL_LEAD) {
+        needed.push(scored[0].entry.option);
+        note(`${scored[0].entry.option.label}: the Keeper's skill for the declared method over ${mine[0].rivals} alternatives (${scoreText(scored[0].p)})`, 'skill_fallback');
       } else for (const entry of mine) note(`${entry.option.label}: one of ${entry.rivals} alternatives the player has not settled`, 'player_choice');
     }
     // Independent ready profiles do not compete for a probability mass of one. The agent receives
