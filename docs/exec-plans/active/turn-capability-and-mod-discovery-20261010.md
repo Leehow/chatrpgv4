@@ -1,6 +1,6 @@
 # Turn Capability and Mod Discovery — Execution Plan (20261010)
 
-Status: approved implementation of #112, solo. Experimental wiring is committed; semantic, full-suite and live release gates remain open.
+Status: approved implementation of #112, solo. Experimental wiring is committed; combined full LAN source gate passed. Semantic and live release gates remain open.
 
 ## Approval
 
@@ -34,7 +34,7 @@ These belonged to the pytest optimization thread and were committed by its owner
 - [ ] Pure schema and capability view parity verified at the public `context_with_system` seam.
 - [ ] Versioned Mod index and detail selection implemented.
 - [ ] Expansion, readiness and telemetry implemented.
-- [ ] Final combined full LAN gate passes. Baseline e63bccb98 passed exit0; subsequent recovery/snapshot changes need their own gate and native-search integration.
+- [x] Final combined full LAN source gate passes at e0913acb8, exit0,wall613s after recovery/snapshot changes and native-search integration. This does not close semantic or live gates.
 - [ ] Held-out semantic matching meets pre-registered gates.
 - [ ] True GUI or canonical driver acceptance passes.
 - [ ] SQLite compatibility regression requirements (spec section) pass.
@@ -192,3 +192,15 @@ These belonged to the pytest optimization thread and were committed by its owner
 - The narrowed independent conditional audit (Haiku5.5/off, two original rules and four actual inputs) completed14.4s. It finds both carried-equipment registration and stalled-turn rules not_required in these particular cases, with explicit source conditions/current evidence. There are2 disagreements with prior needed labels; this is diagnostic only. Two quoted spans collapsed original newlines; separate result-aligned.json and citation-alignment.json restore only unique literal source whitespace and prove all statuses/conditions/input evidence unchanged. Original outputs and receipt remain. No old labels or predictions were supplied, no recall was recomputed and no validation input was opened.
 - Do not keep repeating a full27-section labeling task after its inadequacy. Next annotation work should narrowly review actual source-condition support, separate annotation defects from omitted current facts and true selector misses, and preserve an audit trail. Exact textual citations alone are insufficient. Avoid threshold tuning on unreliable labels or any peeking at the61 held cases. The first85-case tuning selection run remains failed at0.444 and default remains full.
 - The prior ordinaryGrok audit is definitively closed withcode143/timedOut300s,3 actions/1 unknown call,no result.json; no need to poll it. The conditional audit and native author are also closed. Full LAN exec41300 is the only pending operation from this checkpoint.
+
+## 2026-10-10 integrated all gate and isolated web checkpoint (09:12 UTC)
+
+- Exact combined e0913acb81ff2d9e1ea19aacd9b9ac0200a13003 completed amax all with exit0,wall613s:ext5422 pass/5423 tests (no failures),py2128 pass/2 skip,loop12 pass. Raw remote-all.log and pf logs are retained in report lan-all-e0913acb8. This closes the combined source gate only; semantic and live acceptance remain open.
+- Direct LAN artifacts copied into NEW owned runtime-e0913acb8, with content/mods/prompts/provider manifests and hash receipt. Main build, old snapshots and PIDs12398/12439 were untouched. The source-mode artifact links the main Mac native dependencies read only; it is not a standalone package.
+- Isolated production web host runs on localhost5173 with owned gui-world-e091/gui-host-e091 and runtime profile; source/App settings were not changed. Controlled COC_TURN_DISCOVERY=selective, main ordinaryGrok4.7 low, fastHaiku5.5/off; production default remains full. Ego TaskSpace5 is the sole browser owner; resume it, do not create another space. Host exec39747 (PID51606). Browser session2636689b-506d-489c-83a6-8f08ae63d48a, new campaign game-dcad7727-c25b-4034-af3b-94dc6bebddd0. Genuine GUI setup is in progress; no live acceptance claim.
+- Model_change and thinking_level_change prove grok-build/grok-4.7 low. First natural input requests a journalist named Allen Ward and normal character creation. Raw transport observations record network chunks/SSE events, not an absence of flow. Preserve them in gui-transport-e091. Do not treat streamed preparation as a delivered play turn.
+- Native Historical candidate1.4.0 installed via normal GUI mods.install, catalogue offers1.4.0 but campaign lock remains1.3.0 until explicit controlled version selection. Other candidate installs are underway through the same normal UI; old Historical1.3.0 discovery candidate remains obsolete and unused.
+- Initial auth catalogue exposed an integration defect: copied installed DeepSeek raw agent/provider.js imports ../../../runtime/native-search.js relative to the profile tree, where it is missing. Main Grok provider remains available; preserve the failure and do not expand this task into an unrelated provider repair or claim multi-provider acceptance. No source fix or special test-only provider was substituted.
+- Untouched validation61 remains unopened; tuning semantic recall0.444 is still failed. No label replacement, threshold tuning or selective default release.
+- All8 candidates are now installed and explicitly switched by normal GUI "Use this version" buttons in this owned test campaign; public catalogue confirms locks enhanced1.4.0,historical1.4.0,hostile1.1.0,pacing1.4.0,craft2.6.0,natural1.6.0,thread1.3.0,zh1.4.0. Selector UI choice alone only previews; actual buttons and lock confirmation were used. Snapshot candidate-locks-and-character.txt retained. This is a controlled test install, not release/publication or user campaign upgrade.
+- Real setup reply delivered in3m33s, character draft rendered; root confirmed it through the normal UI. Opening is in progress, no new player input queued. Resume TaskSpace5 and inspect delivered public narration before choosing the next natural action. Do not resend character input or replay confirmation. Gui transport trace contains attempt start, headers, encoded/decoded chunks, SSE boundaries/events/comments and summaries.
