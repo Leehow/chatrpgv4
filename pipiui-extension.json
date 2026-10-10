@@ -30,12 +30,6 @@
       "schema": {
         "type": "object",
         "properties": {
-          "ext.coc-keeper.exaApiKey": {
-            "type": "string",
-            "format": "secret",
-            "title": "Exa API key",
-            "description": "Historical Reference credential. Saved in the app vault; existing sessions refresh at their next idle boundary."
-          },
           "ext.coc-keeper.difficulty": {
             "type": "object",
             "title": "Creation difficulty",

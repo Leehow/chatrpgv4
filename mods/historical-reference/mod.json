@@ -1,17 +1,26 @@
 {
   "id": "historical-reference",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "game_api": "pipicoc.game.v1",
   "state_version": 1,
   "author": "PipiCOC",
   "name": "Historical Reference",
-  "description": "Optional historical setting and price references, retrieved directly for the Keeper and selected by Jev.",
+  "description": "Optional historical setting and price references through the Keeper provider's native search.",
   "default_enabled": true,
-  "requires": ["context.historical-reference.v1", "mods.package-files.v1", "instructions.sections.v1"],
-  "package_files": ["agent.md", "sections.json"],
-  "host_settings": ["exa_api_key"],
+  "requires": [
+    "context.historical-reference.v1",
+    "mods.package-files.v1",
+    "instructions.sections.v1"
+  ],
+  "package_files": [
+    "agent.md",
+    "sections.json"
+  ],
   "dependencies": {},
   "conflicts": [],
   "settings": {},
-  "contributes": {"instructions": "agent.md", "sections": "sections.json"}
+  "contributes": {
+    "instructions": "agent.md",
+    "sections": "sections.json"
+  }
 }

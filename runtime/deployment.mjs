@@ -42,7 +42,7 @@ export const PI_ENTRIES = Object.freeze({ pi: `${PI_PACKAGE_ROOT}/dist/cli.js`, 
 // tool and installs nothing in setup mode, but it must be here or it never runs at a table.
 // `npc-epithets` (§176.3) runs in both modes: it words the cast during character creation, before the opening.
 // `node-handles` (§185.5) runs in both modes too: it names a reader-built book's nodes before the Keeper is shown them.
-export const COC_EXTENSIONS = Object.freeze(['kernel', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice', 'npc-epithets', 'node-handles', 'speech-edit', 'thinking-schedule']);
+export const COC_EXTENSIONS = Object.freeze(['kernel', 'native-search', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice', 'npc-epithets', 'node-handles', 'speech-edit', 'thinking-schedule']);
 /**
  * The extensions that register a model provider, read from the manifests that already declare it.
  *

@@ -68,7 +68,6 @@ export function createComponent(React) {
       h('label', null, t(field.caption), ' ', h('input', {type:'password', autoComplete:'off', spellCheck:false,
         'aria-label':t(field.caption), value:draft, disabled:saving || present === null, onChange:event=>setDraft(event.target.value)})),
       h('p', {role:'status'}, status ? t(status) : present === null ? '…' : t(present ? 'secretConfigured' : 'secretMissing')),
-      dependency?.jev_configured === false && h('p', {role:'status'}, t('secretJevMissing')),
       h('button', {type:'submit', disabled:saving || present === null || !draft.trim()}, t('secretSave')), ' ',
       h('button', {type:'button', disabled:saving || !present, onClick:()=>void save(null)}, t('secretClear')));
   }

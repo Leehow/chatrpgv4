@@ -120,11 +120,12 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let deliveredDiscoveryKeys=new Set<string>();
     const heldDiscoveryRequests=new Set<string>();
     let discoveryHandoff:Row|undefined;
+    let discoveryUnavailable=false;
     pi.events.on('coc:discovery-task',value=>{discoveryHandoff=object(value);});
     const temporalAdvice=createTemporalAdvice({read:async(method,params)=>call?call(method,params):undefined,decision,record});
     let pendingTemporal:Row|undefined;
     let turnCalls=emptyCalls(),pendingSections:Row|undefined;
-    const resetPreparation=()=>{inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;heldDiscoveryRequests.clear();discoveryHandoff=undefined;};
+    const resetPreparation=()=>{inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;heldDiscoveryRequests.clear();discoveryHandoff=undefined;discoveryUnavailable=false;};
     pi.events.on('coc:task-provider-budget',value=>{foregroundBudget=typeof value==='function'?value as typeof foregroundBudget:undefined;});
     // Contract §168.5: a capsule this hook reads itself is handed over through the kernel extension's first-sight view, as
     // the player-input capsule already was: an item whose check is still running is left out, and what is carried is noted.
@@ -209,6 +210,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     pi.on('tool_call', async event => {
         const input=object(event.input);
         noteCall(turnCalls,event.toolName,input);
+        if(discoveryMode()!=='full'&&discoveryUnavailable&&['apply','resolve'].includes(event.toolName))
+            return{block:true,reason:'The current discovery snapshot could not be verified. Refresh the canonical context before re-deciding this operation. No world change was committed. '+JSON.stringify({status:'unavailable',no_commit:true})};
         const needed=(Array.isArray(object(capsule?.mods).instructions)?object(capsule?.mods).instructions:[])
             .filter((mod:Row)=>mod.index_contract_version===2)
             .flatMap((mod:Row)=>(mod.sections??[]).filter((section:Row)=>(section.triggers??[]).some((trigger:string)=>{
@@ -528,10 +531,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             snapshot=await boundedDiscoveryRead(prepare);
             if(!snapshot&&ticket!==generation&&!inputPending)snapshot=await boundedDiscoveryRead(prepare);
         }catch(error){
-            if(ticket===generation){capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
+            if(ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
                 invalidate();degraded(String(error?.message??'discovery_snapshot_unavailable'));}
         }
-        if(!snapshot&&ticket===generation){capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();}
+        if(!snapshot&&ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();}
         // Pi 0.87 restores the canonical system/tool checkpoint after this hook. Reserve its
         // serialized size on every exit, including degraded turns, without treating it as history.
         let systemBytes = 0, systemDigest: string | null = null;
@@ -738,15 +741,18 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 if(!preparationCall)throw Error('discovery_snapshot_unavailable');
                 const fresh=object(await boundedDiscoveryRead(()=>preparationCall('table.capsule',{campaign:preparationCampaign}))),
                     current=bindingOf(fresh._context),expected=snapshot.binding;
+                if(ticket!==generation||preparationSignal.aborted)throw Error('discovery_snapshot_cancelled');
                 if(!current||current.unavailable||current.campaign!==expected.campaign||current.worldline!==expected.worldline
                     ||current.loop!==expected.loop||current.turn!==expected.turn
                     ||(current.task_source_revision??current.source_revision)!==(expected.task_source_revision??expected.source_revision)
                     ||current.task_world_revision!==expected.task_world_revision)throw Error('discovery_snapshot_changed');
                 record({lane:'context',event:'discovery_snapshot',status:'current',ms:Date.now()-began,read_bytes:sizeOf(fresh)});
+                discoveryUnavailable=false;
             }catch(error){
                 const reason=String(error?.message??'discovery_snapshot_unavailable').slice(0,160);
                 record({lane:'context',event:'discovery_snapshot',turn:snapshot.binding.turn,status:'unavailable',reason,ms:Date.now()-began});
                 if(ticket===generation){
+                    discoveryUnavailable=true;
                     capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
                     pendingSections=undefined;pendingExpression=undefined;pendingTemporal=undefined;pendingProvider=undefined;
                     capsule=undefined;rawBinding=undefined;brief=undefined;briefKey=undefined;invalidate();degraded(reason);
