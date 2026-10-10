@@ -499,6 +499,10 @@ export default function (pi: ExtensionAPI) {
 		if (op.method === 'campaign.create') {
 			const chosen = asString(context.start_scene);
 			if (chosen) params.start_scene = chosen;
+			// §22.9, §212: the accepted guidance prepare-module returned is pinned with the campaign, so a resumed setup
+			// loads the guide the player saw instead of preparing it again from the campaign's opening handle.
+			const guidanceKey = asString(context.guidance_key);
+			if (guidanceKey) params.guidance_key = guidanceKey;
 		}
     const campaign = asString(context.campaign);
 		if (campaign && wantsCampaign(op.method) && params.campaign === undefined) params.campaign = campaign;

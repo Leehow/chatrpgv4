@@ -22,6 +22,19 @@ import { SetupCatalog } from './catalog.js';
 import { investigatorRow, completeness } from './sheet.js';
 import { InvestigatorTemplates, TEMPLATE_SOURCE } from './templates.js';
 
+/**
+ * Contract §212: the accepted guidance a campaign's setup already showed, for a campaign created before the host pinned
+ * `guidance_key` (§22.9). Its recorded prologue names the scene; the one accepted guidance of the campaign's play language
+ * for that scene is the guide the player saw. None, or more than one, is no answer: setup then prepares guidance as before.
+ */
+function shownGuidanceKey(module: Row | null, meta: Row, language: unknown): string | undefined {
+  const scene = row(row(meta.setup).prologue).scene;
+  if (!module || typeof scene !== 'string' || !scene) return undefined;
+  const keys = Object.entries(row(module.character_guidance)).filter(([key, value]) => /^[a-f0-9]{64}$/.test(key)
+    && isJsonObject(value) && value.scene === scene && value.play_language === language).map(([key]) => key);
+  return keys.length === 1 ? keys[0] : undefined;
+}
+
 /** Receipt sources that seat a finished sheet rather than a drafted card (§21, §174): no draft to confirm. */
 const SEATED_SOURCES: readonly string[] = Object.freeze(['library', 'pregen', TEMPLATE_SOURCE]);
 const seated = (source: unknown): boolean => typeof source === 'string' && SEATED_SOURCES.includes(source);
@@ -57,7 +70,8 @@ export class Setup {
     const meta = await campaign.readCampaign(), moduleId = string(meta.module_id || ''), module = moduleId ? await this.moduleMeta(moduleId, campaign.id) : null;
     const starter = await this.context.snapshots.pathExists(join(this.context.content, 'starters', moduleId, 'module-graph.json'));
     const kind = starter ? 'starter' : meta.opening_scene != null ? 'module' : 'pdf', completed = new Set(['choose-source', 'create-campaign']);
-    if (this.steps.applies('prepare-module', kind) && module && (module.status === 'installed' || module.opening_ready === true || Object.hasOwn(row(module.character_guidance), meta.guidance_key))) completed.add('prepare-module');
+    const language = await playLanguageOf(this.context, meta), guidanceKey = meta.guidance_key ?? shownGuidanceKey(module, meta, language);
+    if (this.steps.applies('prepare-module', kind) && module && (module.status === 'installed' || module.opening_ready === true || (typeof guidanceKey === 'string' && Object.hasOwn(row(module.character_guidance), guidanceKey)))) completed.add('prepare-module');
     const investigatorKinds = new Set<string>();
     for (const receipt of array(row(meta.setup).receipts)) if (isJsonObject(receipt) && receipt.kind === 'investigator') investigatorKinds.add(seated(receipt.source) ? 'library' : 'new');
     if (investigatorKinds.has('new')) { completed.add('create-investigator'); completed.add('confirm-investigator'); }
@@ -66,10 +80,10 @@ export class Setup {
     if (investigatorKinds.has('library')) { completed.add('browse-library'); completed.add('load-investigator'); }
     if (['ready_for_table', 'active'].includes(meta.status)) completed.add('complete');
     const ordered = this.steps.order(new Set([kind, ...investigatorKinds])).filter(step => completed.has(step));
-    const state: Row = {campaign: campaign.id, module_id: moduleId, module: moduleId, source: {kind, module_id: moduleId}, source_kind: kind, play_language: await playLanguageOf(this.context, meta)};
+    const state: Row = {campaign: campaign.id, module_id: moduleId, module: moduleId, source: {kind, module_id: moduleId}, source_kind: kind, play_language: language};
     const draft = await this.drafts.load(campaign, meta);
     if (draft) state.draft = await this.drafts.result(draft);
-    state.prologue = row(meta.setup).prologue ?? null; state.guidance_key = meta.guidance_key ?? null; state.notes = row(meta.setup).notes ?? null;
+    state.prologue = row(meta.setup).prologue ?? null; state.guidance_key = guidanceKey ?? null; state.notes = row(meta.setup).notes ?? null;
     state.rulebook_eras = await this.tables.financePeriods();
     state.default_rulebook_era = await this.tables.defaultFinancePeriod();
     state.start_scene = meta.opening_scene ?? null; state.waiting_for_opening = truth(row(meta.setup).waiting_for_opening);

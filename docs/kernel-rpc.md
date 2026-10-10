@@ -42596,6 +42596,16 @@ consent checks remain authoritative. The model-led bootstrap fallback is unchang
 commits the investigator; it does not create a playable world, which remains table.open's
 responsibility. No model/probability threshold, tool cap or automatic policy write changes.
 
+A PDF setup keeps the guidance its player was shown. The host passes the `guidance_key`
+that prepare-module accepted to `campaign.create`, which already pins it (§22.9). For a
+campaign created before the host did so, `setup.steps` reports as `state.guidance_key` the
+one accepted guidance of the module scope whose scene is the recorded prologue's scene and
+whose play language is the campaign's; prepare-module then counts as done. None or more
+than one is no answer and setup prepares guidance as before. The report writes nothing.
+Reason: a resumed setup without the key prepared guidance again from the campaign's
+name-free opening handle, which the library-scoped reader cannot resolve, and fell back to
+a whole-book reading before the player could confirm a finished card.
+
 ### Kernel decisions
 
 No new kernel RPC or Keeper verb. The transport callback writes these metadata rows and

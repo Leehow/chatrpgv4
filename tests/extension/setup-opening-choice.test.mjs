@@ -303,3 +303,32 @@ test("the Haunting starter is unchanged on the real kernel: no opening question,
 	assert.equal(typeof state.start_scene, "string", "the kernel pinned the starter's own opening");
 	assert.equal(state.prologue.opening, results[1].character_guidance.opening, "the shown prologue is recorded against it");
 });
+
+test("create-campaign pins the guidance key prepare-module accepted, so a resumed setup can load the guide the player saw (§22.9, §212)", async (t) => {
+	const only = [OPENINGS[0]], key = "c".repeat(64);
+	const table = await openTable({
+		mode: "setup", campaign: null, env: moduleEnv("one-door", only),
+		responses: [
+			setupCall({ step: "choose-source", kind: "module", module: "one-door" }),
+			setupCall({ step: "prepare-module" }),
+			setupCall({ step: "create-campaign", id: "one-door-table", title: "One door", play_language: "en" }),
+			fauxAssistantMessage("Who are you?"),
+		],
+	});
+	t.after(() => table.dispose());
+	installBook(table, "one-door", only);
+	const folder = join(table.workspace, ".coc/modules/one-door/character-guidance", key);
+	mkdirSync(folder, { recursive: true });
+	writeFileSync(join(folder, "accepted.json"), JSON.stringify({ fingerprint: key, approved: true,
+		guidance: { opening: "A letter arrives.", advice: "Choose a fitting investigator.", scene: "The Dock", guide: "", handoff: "Continue." } }));
+	// The reviewed source guidance a PDF's prepare-module answers with: accepted under its host-owned key.
+	table.emit("coc:reading-bridge", { async prepare() { return { ok: true, module_id: "one-door", setup_ready: true, guidance_key: key }; } });
+
+	await table.session.prompt("Let's play.");
+	await waitForIdle(table.session);
+	const results = setupResults(table.session);
+	assert.deepEqual(results.map((row) => row.ok), [true, true, true], JSON.stringify(results));
+	const create = table.kernelRequests().find((row) => row.method === "campaign.create");
+	assert.equal(create.params.guidance_key, key, "the campaign pins the accepted guidance");
+	assert.equal(results[2].character_guidance?.scene, "The Dock", "the accepted guide is the one loaded");
+});
