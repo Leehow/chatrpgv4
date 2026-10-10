@@ -33,7 +33,8 @@ for(const [denied,seeded,stale] of [[false,false,false],[true,false,false],[fals
         const body=JSON.parse(init.body),cards=body.state.cards;
         assert.equal(body.state.situation.keeper_task,seeded&&!stale?'bind':'adjudicate');
         assert.equal(body.state.situation.task_reason,seeded&&!stale?'clerk_unbound':'check_unresolved');
-        if(seeded&&!stale)assert.equal(body.state.situation.compile.act.row,'purchase');
+        assert.deepEqual(body.state.situation.threat_clocks,[{name:'Patience',clock:'pressure',state:'0/4'}]);
+        if(seeded&&!stale){assert.equal(body.state.situation.compile.act.row,'purchase');assert.deepEqual(body.state.situation.host_operations[0].needed_fields,['amount','to']);}
         return new Response(JSON.stringify({model:body.model,
             answers:Object.fromEntries(Object.keys(body.questions).map((key,i)=>[key,{type:'noul',
                 noul:cards[i].name==='time'||cards[i].name==='pacing: Time'?.99:.01}])),
@@ -47,7 +48,7 @@ for(const [denied,seeded,stale] of [[false,false,false],[true,false,false],[fals
     const binding={version:1,campaign:'table',worldline:'main',loop:0,turn:0,source_revision:'a'.repeat(64)};
     const cap={turn:{number:0,player_text:'Wait until nine.'},recent:[],module:{title:'Fixture'},style:{},
         where:{scene:'library',clock:{at:'1920-10-13T03:00'}},present:[],
-        mods:{instructions:[{mod:'pacing',version:'2.0.0',form:'indexed',index_contract_version:2,instruction:'Core rules.',
+        mods:{pacing:{threat_clocks:[{threat:'Patience',clock:'pressure',state:'0/4'}]},instructions:[{mod:'pacing',version:'2.0.0',form:'indexed',index_contract_version:2,instruction:'Core rules.',
             sections:[{key:'pacing@2.0.0#0',heading:'Time',gates_open:true,topics:[],gates:[],triggers:['before_apply:time'],
                 applicability:{what:'Actual passage of time.',not_for:'Unattempted actions.',examples:[]},dependencies:['time']},
                 {key:'pacing@2.0.0#1',heading:'Money',gates_open:true,topics:[],gates:[],triggers:['before_apply:cash'],
@@ -65,7 +66,7 @@ for(const [denied,seeded,stale] of [[false,false,false],[true,false,false],[fals
     if(seeded)bus.get('coc:discovery-task')({campaign:'table',worldline:'main',loop:0,turn:0,
         source_revision:stale?'b'.repeat(64):binding.source_revision,run:'fixture-run',
         task:{purpose:'bind',reason:'clerk_unbound',features:{act:{row:'purchase',cleared:true}},
-            operations:[{verb:'apply',family:'cash',bound:{amount:20,currency:'USD',to:'here'},needs:[]}]}});
+            operations:[{verb:'apply',family:'cash',bound:{amount:20,currency:'USD',to:'here'},needs:['amount',{name:'to'}]}]}});
     const lifetime=new AbortController();
     bus.get('coc:task-provider-budget')(()=>({signal:lifetime.signal,deadlineAt:Date.now()+60000,
         reserve:async bound=>{

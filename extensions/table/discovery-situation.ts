@@ -10,7 +10,7 @@ export function discoverySituation(capsule:Row,task:Row={}):Row {
         task_reason:task.reason??null,
         preparation_needs:object(task.check_preparation).needs??null,
         host_operations:array(task.operations).map(operation=>({verb:operation.verb,family:operation.family,
-            bound_fields:Object.keys(object(operation.bound)),needed_fields:array(operation.needs).map(need=>need.name)})),
+            bound_fields:Object.keys(object(operation.bound)),needed_fields:array(operation.needs).map(need=>typeof need==='string'?need:object(need).name??null)})),
         scene:where.display_name??where.scene??null,scene_summary:where.summary??null,
         clock:where.clock??null,temporal:where.temporal??null,
         people:present.slice(0,16).map(person=>typeof person==='string'?{name:person}:{
@@ -20,7 +20,7 @@ export function discoverySituation(capsule:Row,task:Row={}):Row {
             last_spoke_turn:object(person.history).last_spoke_turn??null,
         }),
         known_clues_here:clues.slice(0,8).map(clue=>({name:clue.name,delivery:clue.delivery??null})),
-        threat_clocks:clocks.slice(0,8).map(clock=>({name:clock.name,current_segments:clock.current_segments??null})),
+        threat_clocks:clocks.slice(0,8).map(clock=>({name:clock.name??clock.threat??null,clock:clock.clock??null,state:clock.state??null})),
         unregistered_equipment:array(mods.unregistered_equipment).length,
         registered_objects:array(object(mods.objects).instances).length,
         reentry:object(mods.thread).reentry??null,

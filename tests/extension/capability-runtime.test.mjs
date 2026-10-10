@@ -11,6 +11,7 @@ await build({stdin:{contents:[
     "export * from './extensions/table/capability-runtime.ts';",
     "export {COC_TOOLS} from './extensions/kernel/tools.ts';",
     "export {offeredTools} from './extensions/kernel/lean-apply.ts';",
+    "export {packDecisionBatch} from './runtime/jev/question-packing.ts';",
     "export {discoverySituation} from './extensions/table/discovery-situation.ts';",
 ].join('\n'),resolveDir:root},outfile:join(temp,'api.mjs'),bundle:true,packages:'external',
     format:'esm',platform:'node',target:'node24',logLevel:'silent'});
@@ -20,6 +21,7 @@ const tools=api.offeredTools(api.COC_TOOLS,{});
 const binding={campaign:'table',worldline:'main',loop:0,turn:1,source_revision:'source-1'};
 const capsule={turn:{player_text:'Wait until nine.'},where:{scene:'library',clock:{at:'1920-10-13T03:00'}},present:[]};
 const port={decide:async(batch,lease)=>{
+    api.packDecisionBatch(batch);
     assert.deepEqual(batch.scope,lease.context.scope);assert.deepEqual(batch.readSet,lease.context.readSet);
     return{batchId:batch.id,model:batch.model,status:'complete',
         answers:Object.fromEntries(batch.questions.map((q,i)=>[q.key,{status:'answered',type:'noul',
@@ -152,4 +154,24 @@ test('encounter evidence is not inferred from whether a person has spoken',()=>{
     assert.deepEqual(view.people[0],{name:'Watchman',kind:'person',activity:null,encounters:4,last_seen_turn:12,last_spoke_turn:null});
     assert.equal(view.people[1].encounters,null);
     assert.equal(Object.hasOwn(view.people[0],'met_before'),false);
+});
+
+test('current host field needs keep both issued shapes JSON-packable',async()=>{
+    const task={operations:[{verb:'apply',family:'cash',bound:{currency:'USD'},needs:['amount',{name:'to'}]}]};
+    const situation=api.discoverySituation(capsule,task);
+    assert.deepEqual(situation.host_operations[0].needed_fields,['amount','to']);
+    const events=[];
+    const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>port,mode:()=> 'selective',record:e=>events.push(e)});
+    runtime.observe(capsule,binding,new AbortController().signal,task);await runtime.wait();
+    assert.ok(runtime.project(tools),'the real question packer must accept the current handoff');
+    assert.equal(events.some(e=>e.reason==='schema_error'),false);runtime.clear();
+});
+
+test('authored threat clock rows keep their canonical identity and progress in discovery',async()=>{
+    const actual={...capsule,mods:{pacing:{threat_clocks:[{threat:'Patience',clock:'pressure',state:'0/4'}]}}};
+    assert.deepEqual(api.discoverySituation(actual).threat_clocks,[{name:'Patience',clock:'pressure',state:'0/4'}]);
+    const events=[];const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>port,mode:()=> 'selective',record:e=>events.push(e)});
+    runtime.observe(actual,binding,new AbortController().signal);await runtime.wait();
+    assert.ok(runtime.project(tools),'the actual pacing row must reach Jev, rather than full fallback');
+    assert.equal(events.some(e=>e.reason==='schema_error'),false);runtime.clear();
 });
