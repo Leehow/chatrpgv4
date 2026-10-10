@@ -42468,6 +42468,16 @@ resource limits. Historical failures and original artifacts remain immutable evi
 Any changed source-repair input must be bound to the refused candidate and use the same
 deterministic publication and independent-review gates; no source-specific content patch.
 
+An unprepared source-answer page may carry `play_material` with a same-focus/question
+`prepare` lookup and a physical-reading instruction. It is Keeper navigation only: it
+does not identify a carrier, choose a handout, transfer ownership, reveal names or grant
+graph readiness. Use the actual existing carrier's bounded read when available; a chosen
+source-backed document uses the established prepare and handout receipt paths. The Keeper
+matches identities semantically and preserves the player's selected act. The optional
+guidance must fit the existing answer-page budget without removing source units or identity
+metadata; otherwise it is omitted and the tool/system instructions remain the fallback.
+Paging and cached replies retain the same evidence and continuation rules. No new RPC.
+
 The existing opt-in Grok transport observer records bounded error code/cause metadata in
 metadata-only mode. It retains recognized Node system, TLS and Undici error codes from
 wrapping causes and AggregateError children, with at most eight entries and depth four.
