@@ -25,7 +25,7 @@ import {createModSections,emptyCalls,noteCall,MOD_SECTIONS_MESSAGE} from './mod-
 import {createTemporalAdvice,TEMPORAL_ADVICE_MESSAGE} from './temporal-advice.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
     boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
-    capsuleUpdate, stableFirst, CAPSULE_UPDATE_TYPE, NPC_ADVICE_TYPE, CLERK_TYPE,
+    capsuleUpdate, stableFirst, CAPSULE_UPDATE_TYPE, NPC_ADVICE_TYPE, CLERK_TYPE, BRIEF_TYPE,
     type ContextBinding, type Quote, type Row} from './context-policy.ts';
 
 type KernelCall = (method: string, params: Row) => Promise<unknown>;
@@ -263,7 +263,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // A failed transport can hide a committed mutation. Re-read the actual kernel state;
         // never infer arrival or settlement from the requested effect or an error flag.
         const expressionRefresh=stateChanged&&!deliveredTurn&&!!readJevApiKey(sessionEnv)&&object(object(capsule?.mods).expression_reference).enabled;
-        if (!sourceChanged && !captured && !(stateChanged && (observedWorkspaceMode !== 'off' || prescreenEnabled() || expressionRefresh))) return;
+        if (!sourceChanged && !captured && !(stateChanged && (observedWorkspaceMode !== 'off' || prescreenEnabled() || expressionRefresh||discoveryMode()!=='full'))) return;
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; invalidate();
     });
     pi.on('session_start', async () => {capabilityRuntime.clear();modDiscovery.clear();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();pi.events.emit?.('coc:capability-discovery',{lookup:capabilityRuntime.lookup});temporalAdvice.clear();pendingTemporal=undefined;expression.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
@@ -497,17 +497,41 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         kind: 'context_diagnostic', reason,
         note: 'Some context could not be safely reduced and was retained. Preserve authoritative state and pending choices; do not invent missing history. This host notice is not a story event or a new obligation.',
     });
+    const discoveryEvidence=(messages:readonly Row[])=>messages.filter(message=>message.role!=='custom'
+        ||!['coc-capsule',BRIEF_TYPE,MOD_SECTIONS_MESSAGE,EXPRESSION_MESSAGE,TEMPORAL_ADVICE_MESSAGE,
+            PRESCREEN_TYPE,WORKSPACE_TYPE,CAPSULE_UPDATE_TYPE,CLERK_TYPE].includes(message.customType));
+    async function boundedDiscoveryRead<T>(read:()=>Promise<T>):Promise<T>{
+        if(discoveryMode()==='full'||!prescreenDeadlineAt)return read();
+        const remaining=prescreenDeadlineAt-Date.now();
+        if(remaining<=0)throw Error('discovery_snapshot_deadline');
+        const parent=foregroundBudget?.();
+        const lifetime=AbortSignal.any([inputLifetime.signal,optionalWork.signal,
+            ...(parent?[parent.signal]:[]),AbortSignal.timeout(remaining)]);
+        return new Promise<T>((resolve,reject)=>{
+            const abort=()=>reject(Error(Date.now()>=prescreenDeadlineAt?'discovery_snapshot_deadline':'discovery_snapshot_cancelled'));
+            if(lifetime.aborted){abort();return;}
+            lifetime.addEventListener('abort',abort,{once:true});
+            void Promise.resolve().then(read).then(value=>{lifetime.removeEventListener('abort',abort);resolve(value);},
+                error=>{lifetime.removeEventListener('abort',abort);reject(error);});
+        });
+    }
     pi.on('context', async (event, ctx) => {
         const ticket = generation;
         // Start before storage hydration so its elapsed time is not a free selection allowance.
         if(discoveryMode()!=='full')beginPreparationAllowance();
         // §143.6: NPC advice is retired; a copy a session recorded before that never reaches the model.
         const requestMessages=event.messages.filter(message=>message.role!=='custom'||message.customType!==NPC_ADVICE_TYPE);
-        let snapshot = await prepare();
+        let snapshot:Prepared|undefined;
         // A concurrent input may replace a generation while its optional work is awaiting I/O.
         // Try the current accepted binding once; an unaccepted input uses the normal fallback.
-        if (!snapshot && ticket !== generation && !inputPending) snapshot = await prepare();
-        if(!snapshot){capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();}
+        try{
+            snapshot=await boundedDiscoveryRead(prepare);
+            if(!snapshot&&ticket!==generation&&!inputPending)snapshot=await boundedDiscoveryRead(prepare);
+        }catch(error){
+            if(ticket===generation){capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
+                invalidate();degraded(String(error?.message??'discovery_snapshot_unavailable'));}
+        }
+        if(!snapshot&&ticket===generation){capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();}
         // Pi 0.87 restores the canonical system/tool checkpoint after this hook. Reserve its
         // serialized size on every exit, including degraded turns, without treating it as history.
         let systemBytes = 0, systemDigest: string | null = null;
@@ -527,7 +551,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             // No capsule means no projection, never an unbounded request: a long campaign's whole
             // stored branch is exactly what must not reach the provider on a degraded turn.
             // §176.8: renamed before the cut, so the ceiling measures the names and notes that go out.
-            const rest = rename((requestMessages as unknown as Row[]).filter(message => !(message.role === 'custom' && [DIAGNOSTIC_TYPE, PRESCREEN_TYPE].includes(message.customType))));
+            const evidence=discoveryMode()==='full'?requestMessages as unknown as Row[]:discoveryEvidence(requestMessages as unknown as Row[]);
+            const rest = rename(evidence.filter(message => !(message.role === 'custom' && [DIAGNOSTIC_TYPE, PRESCREEN_TYPE].includes(message.customType))));
             const notice = diagnostic(lastReason);
             const cut = boundedTail(rest, Math.max(0, budget - requestSize([notice])));
             const outgoing = rename([notice, ...cut.messages]);
@@ -706,6 +731,30 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if(expressionMessage&&requestSize([...outgoing,expressionMessage])+systemBytes<=ceiling
             &&Math.ceil((requestSize([...outgoing,expressionMessage])+systemBytes)/BYTES_PER_TOKEN)<=available){
             outgoing.push(expressionMessage);pendingExpression=expressionMessage;
+        }
+        if(discoveryMode()!=='full'){
+            const began=Date.now();
+            try{
+                if(!preparationCall)throw Error('discovery_snapshot_unavailable');
+                const fresh=object(await boundedDiscoveryRead(()=>preparationCall('table.capsule',{campaign:preparationCampaign}))),
+                    current=bindingOf(fresh._context),expected=snapshot.binding;
+                if(!current||current.unavailable||current.campaign!==expected.campaign||current.worldline!==expected.worldline
+                    ||current.loop!==expected.loop||current.turn!==expected.turn
+                    ||(current.task_source_revision??current.source_revision)!==(expected.task_source_revision??expected.source_revision)
+                    ||current.task_world_revision!==expected.task_world_revision)throw Error('discovery_snapshot_changed');
+                record({lane:'context',event:'discovery_snapshot',status:'current',ms:Date.now()-began,read_bytes:sizeOf(fresh)});
+            }catch(error){
+                const reason=String(error?.message??'discovery_snapshot_unavailable').slice(0,160);
+                record({lane:'context',event:'discovery_snapshot',turn:snapshot.binding.turn,status:'unavailable',reason,ms:Date.now()-began});
+                if(ticket===generation){
+                    capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
+                    pendingSections=undefined;pendingExpression=undefined;pendingTemporal=undefined;pendingProvider=undefined;
+                    capsule=undefined;rawBinding=undefined;brief=undefined;briefKey=undefined;invalidate();degraded(reason);
+                }
+                const notice=diagnostic(reason),evidence=discoveryEvidence(requestMessages as unknown as Row[]);
+                const tail=boundedTail(evidence,Math.max(0,budget-requestSize([notice])));
+                return{messages:rename([notice,...tail.messages]) as typeof requestMessages};
+            }
         }
         const bytes = requestSize(outgoing) + systemBytes, estimatedTokens = Math.ceil(bytes / BYTES_PER_TOKEN);
         const requestId=`prescreen:${snapshot.binding.turn}:${++providerSequence}`;

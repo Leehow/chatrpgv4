@@ -17,11 +17,12 @@ export function createCapabilityRuntime(deps:{
 }){
     let key='',binding:Row={},capsule:Row={},task:Row={},signal:AbortSignal=new AbortController().signal;
     let work:Promise<void>|undefined,control:AbortController|undefined,started=0;
-    let selected:Set<string>|undefined,visible:Set<string>|undefined,widenPending=false,reason='not_prepared';
+    let selected:Set<string>|undefined,visible:Set<string>|undefined,widenPending=false,fallbackPinned=false,reason='not_prepared';
     let budget={actions:16,ms:6000},input='',spent:(()=>void)|undefined;
     const expansions=new Set<string>();
+    const queries=new Map<string,ReturnType<typeof decide>>();
     const record=(v:Row)=>deps.record({lane:'capability-discovery',...v});
-    const clear=()=>{spent?.();spent=undefined;control?.abort();key='';work=undefined;selected=undefined;visible=undefined;widenPending=false;expansions.clear();};
+    const clear=()=>{spent?.();spent=undefined;control?.abort();key='';work=undefined;selected=undefined;visible=undefined;widenPending=false;fallbackPinned=false;expansions.clear();queries.clear();};
     const makeInput=(request:string)=>({
         binding:{campaign:String(binding.campaign),worldline:String(binding.worldline??'main'),
             loop:Number(binding.loop??0),turn:Number(binding.turn??0),epoch:key,
@@ -34,6 +35,12 @@ export function createCapabilityRuntime(deps:{
         const effects=(Array.isArray(task.operations)?task.operations:[]).filter((op:Row)=>op.verb==='apply')
             .map((op:Row)=>({kind:op.family,...op.bound,...Object.fromEntries((op.needs??[]).map((need:Row)=>[need.name,null]))}));
         return missingEffectCapabilities(effects,deps.tools(),new Set());
+    }
+    function cachedDecision(request:string){
+        const queryKey=hash([key,request]);
+        let pending=queries.get(queryKey);
+        if(!pending){pending=decide(request);queries.set(queryKey,pending);}
+        return pending;
     }
     async function decide(request:string){
         const port=deps.decision();if(!port)throw Error('unconfigured');
@@ -69,8 +76,8 @@ export function createCapabilityRuntime(deps:{
         reason='forced_full';
         if(deps.mode()==='full')return;
         const current=key;
-        work=decide(String(view.turn?.player_text??'Open the canonical table.')).then(result=>{
-            if(key!==current||signal.aborted)return;
+        work=cachedDecision(String(view.turn?.player_text??'Open the canonical table.')).then(result=>{
+            if(key!==current||signal.aborted||fallbackPinned)return;
             selected=new Set([...MANDATORY,...result.names]);reason='selected';
             record({event:'selected',turn:binding.turn,names:[...selected],ms:Date.now()-started});
         }).catch(error=>{
@@ -109,7 +116,7 @@ export function createCapabilityRuntime(deps:{
         const missing=missingEffectCapabilities(Array.isArray(args.effects)?args.effects:[],deps.tools(),visible??selected);
         if(!missing.length)return;
         const request=hash([key,args.effects]);if(expansions.has(request)){
-            selected=undefined;visible=undefined;widenPending=true;reason='repeated_expansion';
+            selected=undefined;visible=undefined;widenPending=true;fallbackPinned=true;reason='repeated_expansion';
             record({event:'fallback',turn:binding.turn,reason,no_commit:true});
             return{block:true,reason:'Capability expansion was not shown before this retry. Read the next full request and re-decide the whole batch; no world change was committed.'};
         }
@@ -120,14 +127,26 @@ export function createCapabilityRuntime(deps:{
     }
     async function lookup(args:Row):Promise<Row>{
         if(!key||signal.aborted)throw Error('Capability discovery has no current input');
+        const current=key;
         const catalogue=capabilityCatalogue(deps.tools());
         let names:string[];
         if(typeof args.name==='string'){
             const found=catalogue.find(c=>c.name.toLowerCase()===args.name.trim().toLowerCase());
             if(!found)throw Error('Unknown capability name');
             names=[found.name];
-        }else if(typeof args.query==='string'&&args.query.trim())names=(await decide(args.query)).names;
+        }else if(typeof args.query==='string'&&args.query.trim()){
+            try{names=(await cachedDecision(args.query)).names;}
+            catch(error){
+                if(key!==current||signal.aborted)throw Error('Capability lookup input was replaced or cancelled');
+                selected=undefined;visible=undefined;widenPending=true;fallbackPinned=true;
+                reason=String(error?.message??error).slice(0,160);
+                record({event:'lookup_fallback',turn:binding.turn,reason,no_commit:true});
+                return{status:'full_fallback',read_only:true,capabilities:[],reason,no_commit:true,
+                    next:'Read the next full canonical request and re-decide. This result performs no write.'};
+            }
+        }
         else throw Error('Capability discovery requires a semantic name or purpose query');
+        if(key!==current||signal.aborted)throw Error('Capability lookup input was replaced or cancelled');
         if(selected)for(const name of names)selected.add(name);
         return{read_only:true,capabilities:catalogue.filter(c=>names.includes(c.name)).map(c=>({
             name:c.name,applicability:c.applicability,exclusions:c.exclusions,detail:c.detail})),no_commit:true};
