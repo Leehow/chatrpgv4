@@ -38,6 +38,8 @@ export interface ToldTimeInput {
   sentences: string[];
 }
 export interface ToldTimeUsage { inputTokens: number; outputTokens: number; costUsd: number }
+/** §218.4: how far the told text carries the activity it tells. */
+export const TOLD_EXTENT_OPTIONS = ['begun', 'carried', 'unknown'] as const;
 export interface ToldTimeAnswered {
   status: 'answered';
   /** The leading row, or null when it is `none`. */
@@ -45,6 +47,8 @@ export interface ToldTimeAnswered {
   confidence: number;
   distribution: Record<string, number>;
   sentence: { key: string; text: string; confidence: number; distribution: Record<string, number> } | null;
+  /** §218.4: the `told_extent` Choice's leading option, its leading probability and distribution; null when unanswered. */
+  extent: { choice: string; top: number; distribution: Record<string, number> } | null;
   elapsedMs: number;
   usage: ToldTimeUsage;
 }
@@ -91,6 +95,15 @@ export function toldTimeQuestions(input: ToldTimeInput): DecisionQuestion[] {
       instructions: `${READS} Which one sentence of \`told\` tells the investigators carrying out the longest part of the activity the text tells them `
         + 'doing now? When no single sentence tells all of it, choose the one that tells the most of it.',
       criteria: sentences },
+    // §218.4: an activity the text only begins is the next declaration's to charge; owing it too would charge it twice.
+    { key: 'told_extent', target: 'how far the delivered text carries the activity it tells the investigators doing now', type: 'choice',
+      instructions: `${READS} How far does \`told\` carry the activity it tells the investigators doing now? Judge what the text tells happening, `
+        + 'not what the investigators intend next.',
+      criteria: {
+        begun: 'Only its start is told: they sit down to it, open it, set out on it or begin it, and the text stops there, with the rest of it still ahead.',
+        carried: 'The text tells it going on for a stretch, or through to an end or a result.',
+        unknown: 'Cannot be told from the text, or the text tells no activity.',
+      } },
   ];
 }
 
@@ -123,7 +136,10 @@ export async function runToldTime(input: ToldTimeInput, decision: DecisionPort, 
     if (!cost) return failed(result.failure?.code ?? 'cost_unanswered');
     const sentenceKeys = input.sentences.map((_, index) => sentenceKey(index));
     const told = leading(result.answers.sentence, sentenceKeys);
+    const extentKeys = [...TOLD_EXTENT_OPTIONS] as string[], extent = leading(result.answers.told_extent, extentKeys);
     return { status: 'answered', chosen: cost.top === 'none' ? null : cost.top, confidence: cost.confidence,
+      extent: extent ? { choice: extent.top, top: extent.probabilities[extent.top] ?? 0,
+        distribution: Object.fromEntries(extentKeys.map(key => [key, extent.probabilities[key] ?? 0])) } : null,
       distribution: Object.fromEntries(costKeys.map(key => [key, cost.probabilities[key] ?? 0])),
       sentence: told ? { key: told.top, text: input.sentences[Number(told.top.slice(1)) - 1]!, confidence: told.confidence,
         distribution: Object.fromEntries(sentenceKeys.map(key => [key, told.probabilities[key] ?? 0])) } : null,
@@ -140,7 +156,7 @@ export type ToldTimeDecision = { decision: 'owe'; band: string; quote: string } 
  * minutes reach `minDefaultMinutes`, and the sentence's confidence clears `sentenceMin`; otherwise stay with the first bar
  * missed. A row with no `default` is judged by its `min`.
  */
-export function toldTimeDecision(result: ToldTimeResult, budget: Pick<ToldTimeBudget, 'costMin' | 'sentenceMin' | 'minDefaultMinutes'>,
+export function toldTimeDecision(result: ToldTimeResult, budget: Pick<ToldTimeBudget, 'costMin' | 'sentenceMin' | 'minDefaultMinutes'> & Partial<Pick<ToldTimeBudget, 'extentMin'>>,
   bands: readonly TimeBandRow[]): ToldTimeDecision {
   if (result.status !== 'answered') return { decision: 'stay', why: result.reason };
   if (result.chosen === null) return { decision: 'stay', why: 'none' };
@@ -149,5 +165,8 @@ export function toldTimeDecision(result: ToldTimeResult, budget: Pick<ToldTimeBu
   if (!row || (row.default ?? row.min) < budget.minDefaultMinutes) return { decision: 'stay', why: 'under_floor' };
   if (!result.sentence) return { decision: 'stay', why: 'sentence_unanswered' };
   if (result.sentence.confidence < budget.sentenceMin) return { decision: 'stay', why: 'low_sentence' };
+  // §218.4: owed only when the text carried the activity; what it only began is the next declaration's.
+  if (result.extent?.choice === 'begun') return { decision: 'stay', why: 'begun' };
+  if (result.extent?.choice !== 'carried' || result.extent.top < (budget.extentMin ?? 0.5)) return { decision: 'stay', why: 'low_extent' };
   return { decision: 'owe', band: row.handle, quote: result.sentence.text };
 }

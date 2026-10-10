@@ -695,6 +695,7 @@ async function readToldPositionBudget(contentRoot?: string): Promise<ToldPositio
       movedMin: bar(block.moved_min, fallback.movedMin),
       placeMin: bar(block.place_min, fallback.placeMin),
       sentenceMin: bar(block.sentence_min, fallback.sentenceMin),
+      extentMin: bar(block.extent_min, fallback.extentMin),
       maxCandidates: finite(max) && Number.isInteger(max) && max >= 1 && max <= 64 ? max : fallback.maxCandidates,
       timeoutMs: finite(timeout) && timeout > 0 ? timeout : fallback.timeoutMs,
     };
@@ -773,6 +774,8 @@ export interface ToldTimeBudget {
   costMin: number;
   /** `told_time.sentence_min`: the `sentence` Choice's confidence. */
   sentenceMin: number;
+  /** `told_time.extent_min` (§218.4): the `told_extent` Choice's leading probability for `carried`. */
+  extentMin: number;
   /** `told_time.min_default_minutes`: a chosen row whose `default` minutes are below this is not owed. */
   minDefaultMinutes: number;
   /** `told_time.timeout_ms`: the read's own deadline; nothing waits on it. */
@@ -780,7 +783,7 @@ export interface ToldTimeBudget {
 }
 
 /** Used only if the file or its `told_time` section cannot be read; the shipped file carries the real values. */
-export const TOLD_TIME_FALLBACK: ToldTimeBudget = Object.freeze({mode: 'shadow', costMin: 0.7, sentenceMin: 0.5, minDefaultMinutes: 5, timeoutMs: 10_000});
+export const TOLD_TIME_FALLBACK: ToldTimeBudget = Object.freeze({mode: 'shadow', costMin: 0.7, sentenceMin: 0.5, extentMin: 0.5, minDefaultMinutes: 5, timeoutMs: 10_000});
 
 let toldTimeCached: Promise<ToldTimeBudget> | undefined;
 

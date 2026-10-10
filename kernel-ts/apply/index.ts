@@ -45,7 +45,7 @@ import {activeScene, openGuards} from '../read/obligations.js';
 import {bindStated, stampBasis, type StatedEffect} from './stated.js';
 import {bindBand} from './band.js';
 import { bindUntil } from './until.js';
-import { readOwed } from '../owed/index.js';
+import { owedBands, readOwed } from '../owed/index.js';
 import { owedRowFor, settleOwed } from '../owed/land.js';
 import { APPLY_KINDS } from './kinds.js';
 const KINDS = [...APPLY_KINDS];
@@ -230,6 +230,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             // §158.5: an effect may land a row the post review found owed; the ledger is read only when one names a row.
             const owedLedger = effects.some(effect => isJsonObject(effect) && effect.owed !== undefined) ? await readOwed(kernel, campaign.id) : null;
             const owedUsed = new Set<string>();
+            // §218.3: a move that names a road row takes that row's usual minutes; the rows are read only when one does.
+            const travelRows = effects.some(effect => isJsonObject(effect) && effect.kind === 'move' && effect.travel_band != null) ? (await owedBands(kernel)).travelMinutes : null;
             for (const [index, given] of effects.entries()) {
                 try {
                     if (!isJsonObject(given) || typeof given.kind !== 'string')
@@ -264,7 +266,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         ({receipt, event} = await contributions.adaptation(context, effect) as {receipt: Row; event: DomainEvent});
                     }
                     else if (kind === 'move') {
-                        const moved = stageMove(context, effect);
+                        const moved = stageMove(context, effect, travelRows);
                         receipt = moved.receipt;
                         if (!moved.event) {
                             receipts.push(receipt);
@@ -529,6 +531,11 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     + (entry.read_as === 'arrival' ? 'their arrival' : 'naming them')).join('; ')
                     + '. walk_on brings in someone this table does not have yet; leave it out for anyone it already has.';
             }
+            // §218.3: a journey no road has timed moved the clock by nothing; the Keeper is told which, once per batch.
+            const untimed = receipts.filter(receipt => receipt.kind === 'move' && string(row(receipt.travel).basis) === 'unknown');
+            if (untimed.length)
+                result.travel_note = `No road has a length yet for the journey to ${untimed.map(receipt => repr(receipt.to_label || receipt.to)).join(', ')}, so the clock did not move for it. `
+                    + 'On a move along a way no road times, give travel_minutes or travel_band (adjacent, local_travel, long_travel); the road then keeps that length.';
             if (passedTurns.length)
                 result.turn_passed = passedTurns;
             if (recovery.recovered.length)

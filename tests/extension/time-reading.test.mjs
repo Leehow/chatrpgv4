@@ -226,7 +226,7 @@ test("the apply schema offers until on time only (§145.1), and the narrate sche
 	const withUntil = variants.filter((variant) => variant.properties?.until);
 	assert.equal(withUntil.length, 1);
 	assert.deepEqual(withUntil[0].properties.kind.enum ?? [withUntil[0].properties.kind.const], ["time"]);
-	assert.deepEqual(Object.keys(withUntil[0].properties.until.properties).sort(), ["days", "time"]);
+	assert.deepEqual(Object.keys(withUntil[0].properties.until.properties).sort(), ["days", "either_half", "time"]);
 	assert.equal(COC_TOOLS.find((tool) => tool.name === "narrate").parameters.properties.time_reading, undefined);
 });
 

@@ -1,335 +1,217 @@
-/** Closed decision replay through current candidate, binder and canonical TS kernel; no model or play claims. */
+/**
+ * Contract §218.1 (amends §138.10's literal intervals, §211.2 and §211.3): the stated measure of a declared time -- the clock
+ * time at which what the investigator does now ends, or the length of the time they let pass -- is read by Jev on
+ * host-enumerated number grids, never by a host lexer. Closed decision replay through the current candidate, binder and
+ * canonical TS kernel with captured band answers from the d6c live table; no model call, no play claim.
+ */
 import assert from 'node:assert/strict';
 import {before,after,test} from 'node:test';
-import {mkdir,mkdtemp,rm,writeFile} from 'node:fs/promises';
+import {mkdir,mkdtemp,rm} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {spawnSync} from 'node:child_process';
 import {build} from 'esbuild';
 import {playtestScratch} from './playtest-scratch.mjs';
 const root=resolve(import.meta.dirname,'../..');
-const input='I stay in the safe room and wait 5 minutes for an explicit callback; I do not leave.';
 let api,bundle;
 before(async()=>{
     await mkdir(join(root,'.tmp'),{recursive:true});bundle=await mkdtemp(join(root,'.tmp/declared-time-'));
     await build({stdin:{contents:[
         "export {buildCandidates,kernelCall} from './runtime/jev/candidates.ts';",
-        "export {bindBatch,initialView,interpretBind,createStepPolicy} from './runtime/jev/step-policy.ts';",
+        "export {bindBatch,initialView,interpretBind,createStepPolicy,STATED_KEYS,STATED_AMOUNTS} from './runtime/jev/step-policy.ts';",
         "export {createKernelContext} from './kernel-ts/context.ts';",
         "export {createKernelRuntime} from './kernel-ts/registry.ts';",
-        "export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';"
-        ,"export {CampaignWriter} from './kernel-ts/write/store.ts';"
-        ,"export {declaredClockTimes,declaredDurations} from './runtime/jev/declared-duration.ts';"
+        "export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';",
+        "export {CampaignWriter} from './kernel-ts/write/store.ts';",
     ].join('\n'),resolveDir:root,sourcefile:'declared-time-entry.ts'},outfile:join(bundle,'api.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',logLevel:'silent'});
     api=await import(pathToFileURL(join(bundle,'api.mjs')).href);
 });
 after(async()=>{if(bundle)await rm(bundle,{recursive:true,force:true});});
 const scope={owner:'campaign:c1',campaign:'c1',worldline:'main',loop:0,audience:'keeper'};
-const context={scene:'commission-briefing',clock:null,present:[],receipts:[]};
-const reads={capsule:{},applyOptions:{},resolveOptions:{},bands:{time:[{handle:'short_rest',min:60,max:240},{handle:'quick_observation',min:0,max:5}],gates:{time:0.5}}};
-function candidate(text=input,source=reads){return api.buildCandidates(source,text).find(value=>value.key==='apply:time:declared');}
-function bind(value,selected,confidence=0.9){
-    const view=api.initialView({runId:'closed-duration-replay',rawInput:input,context,candidates:[value],compile:false,readFirst:false});
-    const batch=api.bindBatch(view,value,scope,[]);
-    const probabilities=Object.fromEntries(Object.keys(batch.questions[0].criteria).map(key=>[key,key===selected?confidence:key==='unknown'?1-confidence:0]));
-    const result={status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'choice',choice:selected,confidence,probabilities}]))};
-    return {batch,...api.interpretBind(value,batch,result,0.6)};
-}
-test('a fixed player wait has an issued exact interval beside ordinary activity bands',()=>{
-    const value=candidate(),durations=Object.entries(value.timeDurations??{});
-    assert.equal(durations.length,1,'the chosen fixed interval must be representable, instead of only a 60-240 minute rest');
-    const [alias,duration]=durations[0];assert.equal(duration.minutes,5);assert.equal(input.slice(duration.start,duration.end),duration.text);
-    const bound=bind(value,alias);assert.deepEqual(bound.pending.map(p=>[p.kind,p.purpose]),[['direct','execute']]);
-    const effect=api.kernelCall(value,bound.extra).params.effects[0];assert.equal(effect.minutes,5);assert.equal(effect.band,undefined);
-    assert.equal(bound.bindings[0].path,'jev');assert.equal(bound.bindings[0].band,undefined);
-    assert.ok(Object.hasOwn(bound.batch.questions[0].criteria,'short_rest'),'ordinary activities retain the actual kernel band');
-});
-test('different occurrences remain closed choices; the last number is never chosen by syntax',()=>{
-    const text='The earlier call took 5 minutes. I now wait 10 minutes.',value=candidate(text),entries=Object.entries(value.timeDurations??{});
-    assert.deepEqual(entries.map(([,v])=>v.minutes),[5,10]);
-    const chosen=bind(value,entries[1][0]);assert.equal(api.kernelCall(value,chosen.extra).params.effects[0].minutes,10);
-    const ordinary=bind(value,'quick_observation');assert.equal(api.kernelCall(value,ordinary.extra).params.effects[0].band,'quick_observation');
-    const unknown=bind(value,'unknown');assert.equal(unknown.pending.some(p=>p.purpose==='execute'||p.purpose==='bind'||p.purpose==='adjudicate'),false);
-    assert.equal(unknown.pending[0].purpose,'compose','only clarification/narration remains when the host cannot bind time');
-    const forged=bind(value,'duration:not-issued');assert.equal(forged.pending.some(p=>p.purpose==='execute'),false);
-    const low=bind(value,entries[1][0],0.2);assert.equal(low.pending.some(p=>p.purpose==='execute'),false);
-    const unavailable=api.interpretBind(value,chosen.batch,undefined,0.6);assert.equal(unavailable.pending[0].purpose,'compose');
-    const policy=api.createStepPolicy({context,candidates:[value],compile:false,readFirst:false,scope});
-    const state=policy.initial({runId:'unavailable-time',rawInput:input});state.view.pending=unavailable.pending;
-    const request=policy.next({policyState:state,observations:[],pendingProposals:[],steps:0});
-    assert.equal(request.purpose,'compose');assert.equal(request.request.declared_time_unresolved.time_unsettled,true,'the unsettled interval reaches the real driver request');
-});
-test('source numeral syntax includes the retained five-minute declaration without classifying its strategy',()=>{
-    const historical='\u6211\u6309\u8b66\u5458\u5efa\u8bae\u7ee7\u7eed\u7559\u5728\u65e0\u7a97\u5185\u5ba4\uff0c\u518d\u5b89\u9759\u7b49\u4e94\u5206\u949f\uff0c\u8ba9\u56fa\u5b9a\u603b\u673a\u6216\u4e3b\u7ba1\u7ed9\u51fa\u660e\u786e\u7684\u7b54\u590d\uff1b\u4e0d\u51fa\u95e8\u3002';
-    assert.deepEqual(Object.values(candidate(historical).timeDurations??{}).map(v=>v.minutes),[5]);
-    assert.deepEqual(Object.values(candidate('I wait 1.5 hours.').timeDurations??{}).map(v=>v.minutes),[90]);
-    assert.deepEqual(Object.values(candidate('I wait five minutes.').timeDurations??{}).map(v=>v.minutes),[5]);
-    assert.deepEqual(Object.values(candidate('I wait 120 seconds.').timeDurations??{}).map(v=>v.minutes),[2]);
-    for(const text of ['I wait -5 minutes.','I wait 0.5 minutes.','I wait 5-10 minutes.','It is 12:05 minutes.','I read file 5.',
-        'I wait 1 hour and 30 minutes.','I wait 5 minutes and 30 seconds.','I wait one hundred five minutes.','I wait 1 hour and a half.',
-        'I wait \u4e00\u767e\u4e94\u5206\u949f.',Array(17).fill('5 minutes.').join(' '),'x'.repeat(16001)+' 5 minutes.'])
-        assert.deepEqual(candidate(text).timeDurations??{},{});
-    assert.equal(candidate(input,{...reads,applyOptions:{context:{current_receipts:[{kind:'time',minutes:5}]}}}),undefined,'time is charged once');
-    assert.equal(candidate(input,{...reads,resolveOptions:{context:{session:{kind:'combat',status:'active'}}}}),undefined,'combat uses rounds');
-});
-test('unsupported complete numerals and compound intervals never expose an executable component to the real binder',()=>{
-    const rejected=['1,000 minutes','1,5 hours','1, 000 minutes','1 000 minutes','1 hour, 30 minutes','1 hour + 30 minutes',
-        'half an hour and 5 minutes','5 minutes and half an hour','5 minutes and 1 1/2 hours','1 1/2 hours and 5 minutes',
-        '1 hour and30 minutes','one hundred five minutes','1 hour + half','1 hour, half','1 hour/30 minutes','1 hour-30 minutes',
-        '\u4e94\u5206\u949f\u548c\u5341\u79d2'];
-    for(const interval of rejected){
-        const value=candidate(`I wait ${interval}.`);
-        assert.deepEqual(value.timeDurations??{},{},interval);
-        const batch=api.bindBatch(api.initialView({runId:'partial-duration',rawInput:`I wait ${interval}.`,context,candidates:[value],compile:false,readFirst:false}),value,scope,[]);
-        assert.equal(Object.keys(batch.questions[0].criteria).some(key=>key.startsWith('duration:')),false,interval);
-        const invented=bind(value,'duration:0');
-        assert.equal(invented.pending.some(item=>item.purpose==='execute'||item.purpose==='adjudicate'),false,interval);
-        assert.equal(invented.pending[0].purpose,'compose',interval);
-    }
-    for(const [interval,minutes] of [['1.5 hours',90],['5 minutes',5],['twenty-five minutes',25]]){
-        const value=candidate(`I wait ${interval}.`),alias=Object.keys(value.timeDurations)[0],bound=bind(value,alias);
-        assert.equal(api.kernelCall(value,bound.extra).params.effects[0].minutes,minutes,interval);
-    }
-});
-test('literal halves and quarters occupy a complete source span and bind only exact whole minutes',()=>{
-    const accepted=[['half an hour',30],['a half hour',30],['quarter hour',15],['a quarter hour',15],
-        ['one and a half hours',90],['9 and a half hours',570],['two and a quarter hours',135],
-        ['\u534a\u5c0f\u65f6',30],['\u534a\u4e2a\u5c0f\u65f6',30],['\u4e5d\u4e2a\u534a\u5c0f\u65f6',570],
-        ['\u4e5d\u500b\u534a\u5c0f\u6642',570],['9\u4e2a\u534a\u5c0f\u65f6',570],['\u4e00\u5929',1440]];
-    for(const [interval,minutes] of accepted){
-        const text=`I wait ${interval}.`,value=candidate(text),entries=Object.entries(value.timeDurations??{});
-        assert.equal(entries.length,1,interval);
-        const [alias,duration]=entries[0];assert.equal(duration.minutes,minutes,interval);
-        assert.equal(duration.text,interval);assert.equal(text.slice(duration.start,duration.end),interval);
-        assert.equal(api.kernelCall(value,bind(value,alias).extra).params.effects[0].minutes,minutes);
-    }
-    for(const interval of ['half a minute','quarter minute','1.5 and a half hours','one hundred and a half hours',
-        '1,000\u4e2a\u534a\u5c0f\u65f6','\u4e00\u767e\u4e94\u4e2a\u534a\u5c0f\u65f6','9007199254740990 and a half minutes',
-        '\u4e5d\u4e2a\u534a\u5c0f\u65f6\u534a','\u4e5d\u5c0f\u65f6\u534a',
-        '\u4e5d\u4e2a\u534a\u5c0f\u65f6\u548c\u4e94\u5206\u949f','half an hour and 5 minutes']){
-        const value=candidate(`I wait ${interval}.`);assert.deepEqual(value.timeDurations??{},{},interval);
-        assert.equal(bind(value,'duration:0').pending.some(item=>item.purpose==='execute'),false,interval);
-    }
-});
-test('unsupported amount lists stay bounded, including a failing suffix and near-limit input in a private process',async()=>{
-    const probe=spawnSync(process.execPath,['--input-type=module','-e',`
-        import {declaredDurations} from ${JSON.stringify(pathToFileURL(join(bundle,'api.mjs')).href)};
-        const inputs=[26,2000,7990].flatMap(n=>[
-            'I wait '+Array(n).fill('1').join(',')+'x minutes.',
-            'I wait '+Array(n).fill('1').join('/')+' minutes.'
-        ]);
-        inputs.push('I wait '+Array(1500).fill('one').join(' and ')+' minutes.');
-        const start=performance.now();
-        const results=inputs.map(text=>({characters:text.length,durations:declaredDurations(text)}));
-        console.log(JSON.stringify({results,elapsed_ms:performance.now()-start}));
-    `],{encoding:'utf8',timeout:3000});
-    assert.equal(probe.error,undefined,'the complete synchronous lexer must fit the private three-second deadline');
-    assert.equal(probe.status,0,probe.stderr);
-    const proof=JSON.parse(probe.stdout);
-    for(const result of proof.results)assert.deepEqual(result.durations,{},String(result.characters));
-    if(process.env.JEV04_LEXER_REPORT)await writeFile(process.env.JEV04_LEXER_REPORT,JSON.stringify({kind:'bounded-duration-source-probe',live_play:false,model_calls:0,
-        deadline_ms:3000,elapsed_ms:proof.elapsed_ms,results:proof.results},null,2)+'\n');
-});
-test('exact five-minute and nine-and-a-half-hour intervals reach apply, clock projection and replay without moving anyone',async()=>{
-    const home=playtestScratch('declared-time-interval-contracts'),kernel=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'fixed-wait',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(kernel);
-    try{
-        const call=(method,params={})=>runtime.handlers[method]({campaign:'c1',...params});
-        await call('campaign.create',{id:'c1',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});await call('table.open');
-        const campaign=new api.CampaignWriter(kernel,'c1'),evidence=[];
-        let initial,afterFirst;
-        for(let turn=1;turn<=2;turn++){
-            const declaration=turn===1?input:'\u6211\u539f\u5730\u7b49\u4e5d\u4e2a\u534a\u5c0f\u65f6\u3002',minutes=turn===1?5:570;
-            await call('table.player_input',{text:declaration});
-            const source={capsule:await call('table.capsule'),applyOptions:await call('table.apply.options'),resolveOptions:await call('table.resolve.options'),bands:{time:(await call('rules.bands',{field:'time.band'})).rows}};
-            const before=await campaign.readWorld();if(turn===1)initial=before;
-            const value=candidate(declaration,source),alias=Object.keys(value.timeDurations)[0],bound=bind(value,alias),operation=api.kernelCall(value,bound.extra);
-            const args={call_id:`t${turn}-c1`,...operation.params};
-            await call(operation.method,args);const replay=await call(operation.method,args);assert.equal(replay.replayed,true);
-            const status=await call('table.status'),after=await campaign.readWorld(),receipt=status.receipts.find(r=>r.kind==='time');
-            assert.equal(receipt.minutes,minutes);assert.equal(receipt.clock_after-receipt.clock_before,minutes);assert.equal(receipt.band,undefined);
-            assert.equal(after.active_scene,before.active_scene);assert.deepEqual(after.npc_locations,before.npc_locations);
-            const capsule=await call('table.capsule');assert.equal(capsule.where.clock.minutes,after.clock.minutes);
-            if(turn===1)afterFirst=after;else assert.equal(after.clock.minutes-afterFirst.clock.minutes,570);
-            evidence.push({turn,selected:alias,operation:operation.params,receipt,projected_minutes:capsule.where.clock.minutes,replayed:replay.replayed,scene_before:before.active_scene,scene_after:after.active_scene});
-            await call('table.narrate',{call_id:`t${turn}-c2`,text:'The chosen interval passes. There is no callback; the investigator remains in the room.'});
-        }
-        const final=await campaign.readWorld();assert.equal(final.clock.minutes-initial.clock.minutes,575);
-        if(process.env.JEV04_REPORT)await writeFile(process.env.JEV04_REPORT,JSON.stringify({kind:'closed-decision-kernel-contract',live_play:false,model_calls:0,initial_minutes:initial.clock.minutes,final_minutes:final.clock.minutes,evidence},null,2)+'\n');
-    }finally{await runtime.close();}
-});
-// §211 (issue #112 blocker 2): a declared clock endpoint -- "wait until 23:30" -- binds as `apply time {until: {time}}`;
-// the kernel counts the minutes to its next occurrence from the staged clock. Closed decision replay; no model, no play.
-const waitInput='I sit on the granite outside the closed library and wait until 23:30 before going back in. I do not leave.';
-test('§211.2 a literal clock time in the declaration is an issued endpoint beside the activity bands and intervals',()=>{
-    const value=candidate(waitInput),clocks=Object.entries(value.timeClocks??{});
-    assert.equal(clocks.length,1,'the chosen clock endpoint must be representable, instead of only estimated activity bands');
-    const [alias,clock]=clocks[0];assert.equal(alias,'clock:0');assert.equal(clock.time,'23:30');assert.equal(waitInput.slice(clock.start,clock.end),clock.text);
-    assert.deepEqual(value.timeDurations??{},{},'a clock endpoint is not an elapsed interval');
-    const batch=api.bindBatch(api.initialView({runId:'clock-replay',rawInput:waitInput,context,candidates:[value],compile:false,readFirst:false}),value,scope,[]);
-    assert.match(batch.questions[0].criteria[alias],/24-hour reading 23:30/);assert.match(batch.questions[0].instructions,/next occurrence/);
-    assert.ok(Object.hasOwn(batch.questions[0].criteria,'short_rest'),'ordinary activities retain the actual kernel band');
-    assert.equal(value.basis.clock_source.read,'current-player-input');
-});
-test('§211.2 a chosen clock endpoint binds until {time} with no days, minutes or band; unoffered, unknown or low stays unsettled',()=>{
-    const value=candidate(waitInput),alias=Object.keys(value.timeClocks)[0];
-    const bound=bind(value,alias);assert.deepEqual(bound.pending.map(p=>[p.kind,p.purpose]),[['direct','execute']]);
-    const effect=api.kernelCall(value,bound.extra).params.effects[0];
-    assert.deepEqual(effect.until,{time:'23:30'},'the host sends only the time; the kernel resolves the day and the minutes');
-    assert.equal(effect.minutes,undefined);assert.equal(effect.band,undefined);assert.equal(effect.kind,'time');
-    assert.equal(bound.bindings[0].name,'until');assert.equal(bound.bindings[0].path,'jev');assert.equal(bound.bindings[0].value,'23:30');
-    for(const held of [bind(value,'unknown'),bind(value,'clock:7'),bind(value,alias,0.2),api.interpretBind(value,bound.batch,undefined,0.6)]){
-        assert.equal(held.pending.some(p=>p.purpose==='execute'||p.purpose==='bind'||p.purpose==='adjudicate'),false);
-        assert.equal(held.pending[0].purpose,'compose');assert.equal(held.pending[0].extra.time_unsettled,true);
-    }
-    const ordinary=bind(value,'quick_observation');assert.equal(api.kernelCall(value,ordinary.extra).params.effects[0].band,'quick_observation');
-});
-test('§211.2 the clock lexer issues only bounded 24-hour literals; longer tokens, stamps and bad values expose nothing',()=>{
-    const accepted=[['23:30','23:30'],['9:05','09:05'],['00:00','00:00'],['23：30','23:30'],['18:01','18:01']];
-    for(const [literal,time] of accepted){
-        const text=`I wait until ${literal}.`,entries=Object.values(api.declaredClockTimes(text));
-        assert.equal(entries.length,1,literal);assert.equal(entries[0].time,time,literal);assert.equal(text.slice(entries[0].start,entries[0].end),literal);
-    }
-    assert.deepEqual(Object.values(api.declaredClockTimes('The call at 18:01 ended; I wait until 23:30.')).map(v=>v.time),['18:01','23:30'],'every occurrence is a closed choice; syntax chooses none');
-    for(const text of ['It is 1920-10-12T18:01 now.','I wait 12:05:30.','I wait until 24:00.','I wait until 23:60.','I wait until x23:30.','I wait until 23:30x.',
-        'I wait until 123:30.','I wait until 23:3.','I wait 1:30.5.','I wait until 23.30.','x'.repeat(16001)+' 23:30.',Array(17).fill('23:30.').join(' ')])
-        assert.deepEqual(api.declaredClockTimes(text),{},text.slice(0,40));
-    assert.equal(candidate('I wait until 23:30.',{...reads,applyOptions:{context:{current_receipts:[{kind:'time',minutes:5}]}}}),undefined,'time is charged once');
-});
-test('§211 over the TS kernel at 18:01: until 23:30 lands 329 minutes the same day, an earlier time of day lands the next day, equal lands 0',async()=>{
-    const home=playtestScratch('declared-clock-endpoint-contracts'),kernel=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'clock-wait',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(kernel);
-    try{
-        const call=(method,params={})=>runtime.handlers[method]({campaign:'c1',...params});
-        await call('campaign.create',{id:'c1',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});await call('table.open');
-        const campaign=new api.CampaignWriter(kernel,'c1');
-        // The evidence table's clock: The Haunting opens 10:00; the library closed at 18:01.
-        await call('table.player_input',{text:'I spend the day in the library until it closes.'});
-        await call('table.apply',{call_id:'t1-c1',effects:[{kind:'time',minutes:481,why:'the day in the library'}]});
-        await call('table.narrate',{call_id:'t1-c2',text:'The lamps go out at one minute past six; you are shown out.'});
-        assert.equal((await call('table.capsule')).where.clock.at,'1920-10-12T18:01');
-        const turns=[
-            {text:waitInput,time:'23:30',minutes:329,at:'1920-10-12T23:30',days:0,narrate:'The hours pass on the granite; at half past eleven you stand.'},
-            {text:'I wait until 06:00, when the first tram runs.',time:'06:00',minutes:390,at:'1920-10-13T06:00',days:1,narrate:'Dawn; the first tram.'},
-            {text:'I wait until 06:00 exactly, not a minute more.',time:'06:00',minutes:0,at:'1920-10-13T06:00',days:0,narrate:'It is six already.'}];
-        for(const [index,step] of turns.entries()){
-            const turn=index+2;
-            await call('table.player_input',{text:step.text});
-            const source={capsule:await call('table.capsule'),applyOptions:await call('table.apply.options'),resolveOptions:await call('table.resolve.options'),bands:{time:(await call('rules.bands',{field:'time.band'})).rows}};
-            const before=await campaign.readWorld();
-            const value=candidate(step.text,source),entries=Object.entries(value.timeClocks??{});
-            assert.equal(entries.length,1,step.text);assert.equal(entries[0][1].time,step.time);
-            const bound=bind(value,entries[0][0]),operation=api.kernelCall(value,bound.extra);
-            assert.deepEqual(operation.params.effects[0].until,{time:step.time});
-            const args={call_id:`t${turn}-c1`,...operation.params};
-            await call(operation.method,args);const replay=await call(operation.method,args);assert.equal(replay.replayed,true,'the same call lands once');
-            const status=await call('table.status'),after=await campaign.readWorld(),receipt=status.receipts.filter(r=>r.kind==='time').at(-1);
-            assert.equal(receipt.minutes,step.minutes,step.text);assert.equal(receipt.clock_after-receipt.clock_before,step.minutes);
-            assert.deepEqual(receipt.until,{days:step.days,time:step.time},'the receipt is absolute: the kernel resolved the day');
-            assert.equal(receipt.band,undefined);assert.equal(after.clock.minutes-before.clock.minutes,step.minutes);
-            assert.equal((await call('table.capsule')).where.clock.at,step.at);
-            assert.equal(after.active_scene,before.active_scene);assert.deepEqual(after.npc_locations,before.npc_locations);
-            await call('table.narrate',{call_id:`t${turn}-c2`,text:step.narrate});
-        }
-        // §145.1 unchanged: the Keeper's own until with days still counts from the day the turn began, and a bad time is refused.
-        await call('table.player_input',{text:'I come back the next morning.'});
-        await call('table.apply',{call_id:'t5-c1',effects:[{kind:'time',until:{days:1,time:'08:00'}}]});
-        const next=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
-        assert.equal(next.minutes,26*60);assert.deepEqual(next.until,{days:1,time:'08:00'});
-        await assert.rejects(call('table.apply',{call_id:'t5-c2',effects:[{kind:'time',until:{time:'8:00'}}]}),error=>error.details?.reason==='until_invalid');
-    }finally{await runtime.close();}
-});
-// §211.3 (issue #112, live table 9e7g turn 28): "go to bed; get up at 07:00 tomorrow" at 00:23. The endpoint was offered as
-// clock:0, but inside the one closed choice it competed with the activity it bounds: the three pooled views read
-// sleep_night .323, brief_activity .28, clock:0 .217, so the band won and the kernel rolled 595 minutes (10:18). The stated
-// end now has its own question; once Jev reads it as the player's chosen end it binds `until`, and the band is not rolled.
-const wakeInput='太晚了。我把晚报扔在桌上，就着搪瓷盆洗把脸，脱了外套上床睡觉。明早07:00起床。';
+const context={scene:'corbitt-house-ground',clock:null,present:[],receipts:[]};
+// The 17 act rows of the live table's time-costs (the told-time rows of d6c), in its order.
 const capturedRows=['speak_briefly','quick_observation','single_room_search','careful_house_search','library_research','first_aid','medicine_treatment','short_rest',
     'sleep_night','therapy_week','therapy_month','spell_learning','tome_study','investigation_recovery','momentary','brief_activity','record_lookup'];
-const capturedReads={...reads,bands:{time:capturedRows.map(handle=>handle==='sleep_night'?{handle,min:360,max:600}:{handle,min:1,max:30}),gates:{time:0.5}}};
-// Telemetry row 13464 (turn 28, purpose bind): the three views of the band question, verbatim.
-const zero=Object.fromEntries(capturedRows.map(handle=>[handle,0]));
-const capturedBand={
-    band:{...zero,short_rest:.01,sleep_night:.35,momentary:.01,brief_activity:.29,'clock:0':.16,unknown:.18},
-    band__semantic_facts:{...zero,short_rest:.01,sleep_night:.31,momentary:.01,brief_activity:.26,'clock:0':.27,unknown:.14},
-    band__semantic_execution:{...zero,short_rest:.01,sleep_night:.31,momentary:.01,brief_activity:.29,'clock:0':.22,unknown:.16}};
+const reads={capsule:{},applyOptions:{},resolveOptions:{},bands:{time:capturedRows.map(handle=>handle==='sleep_night'?{handle,min:360,max:600}
+    :handle==='tome_study'?{handle,min:168,max:6720}:{handle,min:1,max:30}),gates:{time:0.5}}};
 const views=key=>[key,`${key}__semantic_facts`,`${key}__semantic_execution`];
-function answeredWith(distributions){
+const zero=Object.fromEntries(capturedRows.map(handle=>[handle,0]));
+// d6c turn 43, telemetry row 20481 (purpose bind): "...read Corbitt's diaries until nine in the evening", written in Han numerals.
+// The three band views verbatim; the base bound tome_study (pooled .567) and the kernel rolled 5,488 minutes.
+const t43Input='天要黑了，我不在这屋里过夜。我把三本日记夹在胳膊底下，把椅子挪回原处，带上前门锁好。出门找街口最近一家还开着的小饭馆，要一份晚饭和一壶咖啡，坐在靠灯的位子上，从第一本开始读科比特的日记，一直读到晚上九点再说。';
+const t43Band={
+    band:{...zero,single_room_search:.01,careful_house_search:.01,library_research:.04,tome_study:.55,investigation_recovery:.01,momentary:.01,brief_activity:.09,record_lookup:.03,unknown:.25},
+    band__semantic_facts:{...zero,single_room_search:.01,careful_house_search:.01,library_research:.03,tome_study:.59,investigation_recovery:.01,momentary:.01,brief_activity:.07,record_lookup:.03,unknown:.24},
+    band__semantic_execution:{...zero,single_room_search:.01,careful_house_search:.01,library_research:.03,tome_study:.56,investigation_recovery:.01,brief_activity:.08,record_lookup:.04,unknown:.25}};
+// d6c turn 48 (purpose bind): "...walk back, buy a sandwich, write up the day, sleep, get up at 07:30". The band views verbatim,
+// re-keyed onto this vocabulary: the retired literal option clock:0 (.26/.27/.27) is dropped and the rest renormalized.
+const t48Input='“谢谢，那我明早来。”我出了市政厅，步行回寄宿处，路上在面包铺买个夹肉面包当晚饭。回屋把今天的事记进采访本，然后睡觉，07:30起床。';
+const renorm=dist=>{const sum=Object.values(dist).reduce((a,b)=>a+b,0);return Object.fromEntries(Object.entries(dist).map(([key,value])=>[key,value/sum]));};
+const t48Band={
+    band:renorm({...zero,speak_briefly:.02,sleep_night:.33,investigation_recovery:.01,momentary:.02,brief_activity:.11,record_lookup:.01,unknown:.24}),
+    band__semantic_facts:renorm({...zero,speak_briefly:.02,library_research:.01,sleep_night:.32,investigation_recovery:.01,momentary:.02,brief_activity:.12,record_lookup:.01,unknown:.22}),
+    band__semantic_execution:renorm({...zero,speak_briefly:.02,sleep_night:.35,investigation_recovery:.01,momentary:.01,brief_activity:.12,record_lookup:.01,unknown:.21})};
+function candidate(text,source=reads){return api.buildCandidates(source,text).find(value=>value.key==='apply:time:declared');}
+/** One grid read the same in its three views: `lead` carries `top`, the rest of the mass is spread over the other options. */
+function grid(batch,key,lead,top){
+    const options=Object.keys(batch.questions.find(q=>q.key===key).criteria),rest=(1-top)/(options.length-1);
+    const probabilities=Object.fromEntries(options.map(option=>[option,option===lead?top:rest]));
+    return Object.fromEntries(views(key).map(view=>[view,probabilities]));
+}
+function answered(distributions){
     const answers=Object.fromEntries(Object.entries(distributions).map(([key,probabilities])=>{
         const choice=Object.entries(probabilities).sort((a,b)=>b[1]-a[1])[0][0];
         return [key,{status:'answered',type:'choice',choice,confidence:probabilities[choice],probabilities}];}));
     return {status:'complete',answers};
 }
-const stated=(alias,probabilities)=>Object.fromEntries(views(`stated_measure:${alias}`).map(key=>[key,probabilities]));
-function wakeBind(text,distributions){
-    const value=api.buildCandidates(capturedReads,text).find(c=>c.key==='apply:time:declared');
-    const view=api.initialView({runId:'wake-time-replay',rawInput:text,context,candidates:[value],compile:false,readFirst:false});
-    const batch=api.bindBatch(view,value,scope,[]),band=Object.keys(batch.questions.find(q=>q.key==='band').criteria);
-    // The band views are re-keyed onto this input's issued vocabulary (a literal the capture did not have reads 0).
-    const onto=(key,dist)=>key.startsWith('band')?Object.fromEntries(band.map(option=>[option,dist[option]??0])):dist;
-    return {value,batch,...api.interpretBind(value,batch,answeredWith(Object.fromEntries(Object.entries(distributions).map(([key,dist])=>[key,onto(key,dist)]))),0.6)};
+/** Bind with the captured band views (re-keyed onto the issued rows) and the given grid answers. */
+function bindWith(text,band,grids=()=>({}),source=reads){
+    const value=candidate(text,source);
+    const view=api.initialView({runId:'stated-measure-replay',rawInput:text,context,candidates:[value],compile:false,readFirst:false});
+    const batch=api.bindBatch(view,value,scope,[]),rows=Object.keys(batch.questions.find(q=>q.key==='band').criteria);
+    const onto=dist=>Object.fromEntries(rows.map(option=>[option,dist[option]??0]));
+    const answers={...Object.fromEntries(Object.entries(band).map(([key,dist])=>[key,onto(dist)])),...grids(batch)};
+    return {value,batch,...api.interpretBind(value,batch,answered(answers),0.6)};
 }
-test('§211.3 the captured wake-up declaration asks its stated end on its own, beside the activity band',()=>{
-    const {value,batch}=wakeBind(wakeInput,capturedBand);
-    assert.deepEqual(Object.values(value.timeClocks).map(v=>v.time),['07:00']);
+const end=(hour,minute,half,top={hour:.8,minute:.85,half:.75})=>batch=>({...grid(batch,'stated_end:hour',hour,top.hour),
+    ...grid(batch,'stated_end:minute',minute,top.minute),...grid(batch,'stated_end:half',half,top.half)});
+const span=(unit,amount,top={unit:.8,amount:.8})=>batch=>({...grid(batch,'stated_span:unit',unit,top.unit),...grid(batch,'stated_span:amount',amount,top.amount)});
+const noMeasure=batch=>({...grid(batch,'stated_end:hour','none',.9),...grid(batch,'stated_span:unit','none',.9)});
+
+test('§218.1 the time candidate offers the activity rows only; the bind asks the five grids in three views, each with its none boundary',()=>{
+    const value=candidate(t43Input);
+    assert.equal(value.timeDurations,undefined);assert.equal(value.timeClocks,undefined);
+    const batch=api.bindBatch(api.initialView({runId:'grids',rawInput:t43Input,context,candidates:[value],compile:false,readFirst:false}),value,scope,[]);
+    const band=batch.questions.find(q=>q.key==='band');
+    assert.deepEqual(Object.keys(band.criteria),[...capturedRows,'unknown'],'no literal option: a stated measure is its own question');
     const keys=batch.questions.map(q=>q.key);
-    for(const key of views('stated_measure:clock:0'))assert.ok(keys.includes(key),`${key} is asked`);
-    const question=batch.questions.find(q=>q.key==='stated_measure:clock:0');
-    assert.deepEqual(Object.keys(question.criteria),['chosen','not_chosen','unknown']);
-    assert.match(question.target,/07:00/);assert.match(question.instructions,/does not compete with a stated end/);
-    assert.ok(Object.hasOwn(batch.questions[0].criteria,'sleep_night'),'the activity band question is unchanged');
+    for(const key of Object.values(api.STATED_KEYS))for(const view of views(key))assert.ok(keys.includes(view),`${view} is asked`);
+    const hour=batch.questions.find(q=>q.key==='stated_end:hour');
+    assert.deepEqual(Object.keys(hour.criteria),['none',...Array.from({length:12},(_,i)=>`h${i+1}`),'unknown']);
+    assert.match(hour.criteria.h9,/09:00-09:59 or 21:00-21:59/);assert.match(hour.criteria.h12,/00:00-00:59.*12:00-12:59/);
+    for(const word of ['schedule','opening or closing hour','appointment','quotation','deadline','past moment','condition that is not met now'])
+        assert.ok(hour.criteria.none.includes(word),word);
+    assert.equal(Object.keys(batch.questions.find(q=>q.key==='stated_end:minute').criteria).length,61);
+    assert.deepEqual(Object.keys(batch.questions.find(q=>q.key==='stated_end:half').criteria),['am','pm','not_said','unknown']);
+    assert.deepEqual(Object.keys(batch.questions.find(q=>q.key==='stated_span:unit').criteria),['none','minutes','hours','days','unknown']);
+    const amounts=Object.keys(batch.questions.find(q=>q.key==='stated_span:amount').criteria);
+    for(const key of ['x0.25','x0.5','x1','x9.5','x12','x13','x120','unknown'])assert.ok(amounts.includes(key),key);
+    assert.equal(amounts.includes('x12.5'),false,'halves stop at twelve');
+    assert.equal(api.STATED_AMOUNTS.length,134);
+    // The host reads no word: the same issued options for every script.
+    const english=api.bindBatch(api.initialView({runId:'grids-en',rawInput:'I read until nine.',context,candidates:[candidate('I read until nine.')],compile:false,readFirst:false}),candidate('I read until nine.'),scope,[]);
+    assert.deepEqual(english.questions.map(q=>[q.key,Object.keys(q.criteria)]),batch.questions.map(q=>[q.key,Object.keys(q.criteria)]));
 });
-test('§211.3 a stated end Jev reads as chosen binds until 07:00 over the leading band; otherwise the band decides as before',()=>{
-    // The captured answers alone (no stated-end answer): the closed choice still decides, as on the live table.
-    const before=wakeBind(wakeInput,capturedBand);
-    assert.equal(before.extra.band,'sleep_night');assert.equal(before.extra.until,undefined);
-    // The stated end read as chosen takes precedence over the band the closed choice leads with.
-    const chosen=wakeBind(wakeInput,{...capturedBand,...stated('clock:0',{chosen:.8,not_chosen:.12,unknown:.08})});
-    assert.deepEqual(chosen.pending.map(p=>[p.kind,p.purpose]),[['direct','execute']]);
-    assert.deepEqual(chosen.extra.until,{time:'07:00'});assert.equal(chosen.extra.band,undefined);assert.equal(chosen.extra.minutes,undefined);
-    const effect=api.kernelCall(chosen.value,chosen.extra).params.effects[0];
-    assert.deepEqual(effect.until,{time:'07:00'});assert.equal(effect.band,undefined);
-    const record=chosen.bindings.find(b=>b.name==='until');
-    assert.equal(record.path,'jev');assert.equal(record.value,'07:00');assert.equal(record.literal,'clock:0');
-    assert.equal(record.superseded.choice,'sleep_night','the band answer it took precedence over stays on the record');
-    assert.equal(chosen.bindings.some(b=>b.name==='band'),false,'no band is rolled');
-    // Read as not chosen, or unanswered: the activity band decides, unchanged.
-    const declined=wakeBind(wakeInput,{...capturedBand,...stated('clock:0',{chosen:.15,not_chosen:.75,unknown:.1})});
-    assert.equal(declined.extra.band,'sleep_night');assert.equal(declined.extra.until,undefined);
-    const unclear=wakeBind(wakeInput,{...capturedBand,...stated('clock:0',{chosen:.3,not_chosen:.3,unknown:.4})});
-    assert.equal(unclear.extra.band,'sleep_night');
+
+test('§218.1 t43: the captured band alone still binds tome_study; with the end read as nine in the evening it binds until 21:00 and rolls no band',()=>{
+    const base=bindWith(t43Input,t43Band);
+    assert.equal(base.extra.band,'tome_study','the live behaviour: the band decided');
+    const pm=bindWith(t43Input,t43Band,end('h9','m00','pm'));
+    assert.deepEqual(pm.pending.map(p=>[p.kind,p.purpose]),[['direct','execute']]);
+    assert.deepEqual(pm.extra.until,{time:'21:00'});assert.equal(pm.extra.band,undefined);assert.equal(pm.extra.minutes,undefined);
+    const effect=api.kernelCall(pm.value,pm.extra).params.effects[0];
+    assert.deepEqual(effect.until,{time:'21:00'});assert.equal(effect.band,undefined);
+    const record=pm.bindings.find(b=>b.name==='until');
+    assert.equal(record.path,'jev');assert.equal(record.value,'21:00');assert.equal(record.superseded.choice,'tome_study');
+    assert.equal(record.stated['stated_end:hour'].choice,'h9');
+    assert.equal(pm.bindings.some(b=>b.name==='band'),false,'no band is rolled');
+    // The half not fixed: the kernel takes the reading it reaches first.
+    const either=bindWith(t43Input,t43Band,end('h9','m00','not_said',{hour:.8,minute:.85,half:.7}));
+    assert.deepEqual(either.extra.until,{time:'09:00',either_half:true});
+    assert.equal(either.bindings.find(b=>b.name==='until').either_half,true);
+    const weakHalf=bindWith(t43Input,t43Band,end('h9','m00','pm',{hour:.8,minute:.85,half:.5}));
+    assert.deepEqual(weakHalf.extra.until,{time:'09:00',either_half:true},'a half below its bar is not fixed');
 });
-test('§211.3 a stated interval takes the same precedence; two chosen literals leave the closed choice to decide',()=>{
+
+test('§218.1 the hold: an end the grids lead with but cannot read with confidence never becomes a band roll',()=>{
+    for(const grids of [end('h9','m00','pm',{hour:.4,minute:.85,half:.75}),end('h9','m00','pm',{hour:.8,minute:.3,half:.75}),
+        span('minutes','x0.5'),span('hours','x9.5',{unit:.8,amount:.2})]){
+        const held=bindWith(t43Input,t43Band,grids);
+        assert.equal(held.pending.some(p=>p.purpose==='execute'),false);
+        assert.equal(held.pending[0].purpose,'compose');assert.equal(held.pending[0].extra.time_unsettled,true);
+        assert.equal(held.pending[0].extra.cause,'stated_measure_uncertain');
+        assert.equal(held.extra?.band,undefined,'the base rolled tome_study here');
+    }
+    // Neither grid leads with a measure: the band decides, as before.
+    const none=bindWith(t43Input,t43Band,noMeasure);
+    assert.equal(none.extra.band,'tome_study');
+});
+
+test('§218.1 t48: the captured band with the end read as 07:30 in the morning binds until 07:30 over sleep_night',()=>{
+    const base=bindWith(t48Input,t48Band);
+    assert.equal(base.extra.band,'sleep_night','the live behaviour: 401 minutes rolled, 00:21');
+    const bound=bindWith(t48Input,t48Band,end('h7','m30','am'));
+    assert.deepEqual(bound.extra.until,{time:'07:30'});assert.equal(bound.extra.band,undefined);
+    assert.equal(bound.bindings.find(b=>b.name==='until').superseded.choice,'sleep_night');
+});
+
+test('§218.1 a stated length binds whole minutes; with an end as well the end wins; a non-whole length holds',()=>{
     const text='I lie down and sleep for 8 hours.';
-    const interval=wakeBind(text,{...capturedBand,...stated('duration:0',{chosen:.7,not_chosen:.2,unknown:.1})});
-    assert.equal(interval.extra.minutes,480);assert.equal(interval.extra.band,undefined);
-    assert.equal(interval.bindings.find(b=>b.name==='minutes').literal,'duration:0');
-    const both='I sleep 8 hours and get up at 07:00.';
-    const ambiguous=wakeBind(both,{...capturedBand,...stated('duration:0',{chosen:.7,not_chosen:.2,unknown:.1}),...stated('clock:0',{chosen:.7,not_chosen:.2,unknown:.1})});
-    assert.equal(ambiguous.extra.band,'sleep_night','more than one chosen literal is not a precedence; the closed choice decides');
-    assert.equal(ambiguous.extra.until,undefined);assert.equal(ambiguous.extra.minutes,undefined);
+    const length=bindWith(text,t48Band,span('hours','x8'));
+    assert.equal(length.extra.minutes,480);assert.equal(length.extra.band,undefined);assert.equal(length.extra.until,undefined);
+    assert.equal(length.bindings.find(b=>b.name==='minutes').superseded.choice,'sleep_night');
+    const half=bindWith('I wait nine and a half hours.',t48Band,span('hours','x9.5'));
+    assert.equal(half.extra.minutes,570);
+    const quarter=bindWith('I wait a quarter of an hour.',t48Band,span('hours','x0.25'));
+    assert.equal(quarter.extra.minutes,15);
+    const both=bindWith('I sleep 8 hours and get up at 07:00.',t48Band,batch=>({...end('h7','m00','am')(batch),...span('hours','x8')(batch)}));
+    assert.deepEqual(both.extra.until,{time:'07:00'});assert.equal(both.extra.minutes,undefined);
+    assert.equal(both.bindings.find(b=>b.name==='until').superseded.span_minutes,480);
 });
-test('§211.3 over the TS kernel at 00:23: the captured declaration with its end read as chosen lands 397 minutes at 07:00, not a band roll',async()=>{
-    const home=playtestScratch('declared-wake-endpoint'),kernel=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'wake-time',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(kernel);
-    try{
-        const call=(method,params={})=>runtime.handlers[method]({campaign:'c1',...params});
-        await call('campaign.create',{id:'c1',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});await call('table.open');
-        // The evidence clock: The Haunting opens 10:00; the cab home arrived at 00:23 the next day.
-        await call('table.player_input',{text:'I spend the day and the evening on the case.'});
-        await call('table.apply',{call_id:'t1-c1',effects:[{kind:'time',minutes:863,why:'the day and evening on the case'}]});
-        await call('table.narrate',{call_id:'t1-c2',text:'The cab drops you at the rooming house after midnight.'});
-        assert.equal((await call('table.capsule')).where.clock.at,'1920-10-13T00:23');
-        await call('table.player_input',{text:wakeInput});
-        const source={capsule:await call('table.capsule'),applyOptions:await call('table.apply.options'),resolveOptions:await call('table.resolve.options'),bands:{time:(await call('rules.bands',{field:'time.band'})).rows}};
-        const value=api.buildCandidates(source,wakeInput).find(c=>c.key==='apply:time:declared');
-        const view=api.initialView({runId:'wake-kernel',rawInput:wakeInput,context,candidates:[value],compile:false,readFirst:false});
-        const batch=api.bindBatch(view,value,scope,[]),bandQuestion=batch.questions.find(q=>q.key==='band');
-        // The captured band views, re-keyed onto the real table's rows (rows the capture did not name read 0).
-        const onto=dist=>Object.fromEntries(Object.keys(bandQuestion.criteria).map(key=>[key,dist[key]??0]));
-        const answers={...Object.fromEntries(Object.entries(capturedBand).map(([key,dist])=>[key,onto(dist)])),...stated('clock:0',{chosen:.8,not_chosen:.12,unknown:.08})};
-        const bound=api.interpretBind(value,batch,answeredWith(answers),0.6),operation=api.kernelCall(value,bound.extra);
-        assert.deepEqual(operation.params.effects[0].until,{time:'07:00'});
-        await call(operation.method,{call_id:'t2-c1',...operation.params});
-        const receipt=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
-        assert.equal(receipt.minutes,397);assert.deepEqual(receipt.until,{days:0,time:'07:00'});assert.equal(receipt.band,undefined);
-        assert.equal((await call('table.capsule')).where.clock.at,'1920-10-13T07:00');
-    }finally{await runtime.close();}
+
+test('§218.1 time is still charged once and never in a fight; unknown, low or unavailable stays unsettled',()=>{
+    assert.equal(candidate(t43Input,{...reads,applyOptions:{context:{current_receipts:[{kind:'time',minutes:5}]}}}),undefined,'time is charged once');
+    assert.equal(candidate(t43Input,{...reads,resolveOptions:{context:{session:{kind:'combat',status:'active'}}}}),undefined,'combat uses rounds');
+    const value=candidate(t43Input);
+    const unknown=bindWith(t43Input,{band:{...zero,unknown:1},band__semantic_facts:{...zero,unknown:1},band__semantic_execution:{...zero,unknown:1}},noMeasure);
+    assert.equal(unknown.pending[0].purpose,'compose');
+    const batch=api.bindBatch(api.initialView({runId:'unavailable',rawInput:t43Input,context,candidates:[value],compile:false,readFirst:false}),value,scope,[]);
+    const unavailable=api.interpretBind(value,batch,undefined,0.6);assert.equal(unavailable.pending[0].purpose,'compose');
+    const policy=api.createStepPolicy({context,candidates:[value],compile:false,readFirst:false,scope});
+    const state=policy.initial({runId:'unavailable-time',rawInput:t43Input});state.view.pending=unavailable.pending;
+    const request=policy.next({policyState:state,observations:[],pendingProposals:[],steps:0});
+    assert.equal(request.purpose,'compose');assert.equal(request.request.declared_time_unresolved.time_unsettled,true);
+});
+
+test('§218.1 the declaration module is gone: no host lexer reads the player\'s words for time',()=>{
+    assert.equal(existsSync(join(root,'runtime/jev/declared-duration.ts')),false);
+});
+
+async function kernelAt(name,minutes,t){
+    const home=playtestScratch(name),kernel=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:name,locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(kernel);
+    t.after(()=>runtime.close());
+    const call=(method,params={})=>runtime.handlers[method]({campaign:'c1',...params});
+    await call('campaign.create',{id:'c1',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});await call('table.open');
+    await call('table.player_input',{text:'I spend the day on the case.'});
+    await call('table.apply',{call_id:'t1-c1',effects:[{kind:'time',minutes,why:'the day on the case'}]});
+    await call('table.narrate',{call_id:'t1-c2',text:'The day goes.'});
+    return call;
+}
+test('§218.1 over the TS kernel at 18:28: the captured t43 declaration with its end read binds until 21:00 -- 152 minutes, not 5,488',async t=>{
+    const call=await kernelAt('stated-end-t43',508,t);
+    assert.equal((await call('table.capsule')).where.clock.at,'1920-10-12T18:28');
+    await call('table.player_input',{text:t43Input});
+    const source={capsule:await call('table.capsule'),applyOptions:await call('table.apply.options'),resolveOptions:await call('table.resolve.options'),bands:{time:(await call('rules.bands',{field:'time.band'})).rows,gates:{time:0.5}}};
+    const bound=bindWith(t43Input,t43Band,end('h9','m00','not_said',{hour:.8,minute:.85,half:.7}),source);
+    const operation=api.kernelCall(bound.value,bound.extra);
+    assert.deepEqual(operation.params.effects[0].until,{time:'09:00',either_half:true});
+    await call(operation.method,{call_id:'t2-c1',...operation.params});
+    const receipt=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
+    assert.equal(receipt.minutes,152);assert.deepEqual(receipt.until,{days:0,time:'21:00',either_half:true});assert.equal(receipt.band,undefined);
+    assert.equal((await call('table.capsule')).where.clock.at,'1920-10-12T21:00');
+});
+test('§218.1 either_half at 23:10 reaches 07:00 the next morning; with days or an afternoon time it is until_invalid',async t=>{
+    const call=await kernelAt('stated-end-either',790,t);
+    assert.equal((await call('table.capsule')).where.clock.at,'1920-10-12T23:10');
+    await call('table.player_input',{text:'I go to bed and get up at seven.'});
+    await assert.rejects(call('table.apply',{call_id:'t2-c1',effects:[{kind:'time',until:{days:1,time:'07:00',either_half:true}}]}),error=>error.details?.reason==='until_invalid');
+    await assert.rejects(call('table.apply',{call_id:'t2-c2',effects:[{kind:'time',until:{time:'19:00',either_half:true}}]}),error=>error.details?.reason==='until_invalid');
+    await call('table.apply',{call_id:'t2-c3',effects:[{kind:'time',until:{time:'07:00',either_half:true}}]});
+    const receipt=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
+    assert.equal(receipt.minutes,470);assert.deepEqual(receipt.until,{days:1,time:'07:00',either_half:true});
+    assert.equal((await call('table.capsule')).where.clock.at,'1920-10-13T07:00');
+    // §211.1 unchanged: a fixed time without either_half is its own next occurrence.
+    await call('table.apply',{call_id:'t2-c4',effects:[{kind:'time',until:{time:'08:00'}}]});
+    const next=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
+    assert.equal(next.minutes,60);assert.deepEqual(next.until,{days:1,time:'08:00'});
 });

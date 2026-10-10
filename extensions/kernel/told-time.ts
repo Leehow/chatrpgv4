@@ -28,6 +28,8 @@ export interface ToldTimeDeps {
 	turn: number;
 	/** What the player read: the delivery's `rendered_text`. */
 	text: string | undefined;
+	/** §218.4: the delivering input's interaction scope (the interaction-scope lane's decision); not `world` is never read. */
+	scope?: "world" | "reference";
 	call: (method: string, params: Row) => Promise<unknown>;
 	record: (row: Row) => unknown;
 	signal?: AbortSignal;
@@ -89,6 +91,8 @@ export async function readToldTime(deps: ToldTimeDeps): Promise<string | null> {
 	const base = {lane: "told-time", event: "read", turn: deps.turn, mode};
 	try {
 		if (!deps.text?.trim()) { await deps.record({...base, ok: true, skipped: "no_text"}); return null; }
+		// §218.4: an out-of-fiction answer tells no in-world time; the scope is the lane's typed decision, not a reading of the text.
+		if (deps.scope !== undefined && deps.scope !== "world") { await deps.record({...base, ok: true, skipped: "out_of_fiction"}); return null; }
 		// Without Jev nothing can be read, and the kernel is not asked for anything.
 		if (!readJevApiKey(deps.env)) { await deps.record({...base, ok: true, skipped: "unconfigured"}); return null; }
 		let read: Row;
@@ -129,6 +133,7 @@ export async function readToldTime(deps: ToldTimeDeps): Promise<string | null> {
 		await deps.record({...base, ok: result.status === "answered", bands: bands.map(row => row.handle), sentences: {total, offered: sentences.length},
 			...(result.status === "answered" ? {chosen: result.chosen, confidence: result.confidence, distribution: result.distribution,
 				sentence: result.sentence ? {key: result.sentence.key, confidence: result.sentence.confidence, distribution: result.sentence.distribution} : null,
+				extent: result.extent ? {choice: result.extent.choice, confidence: result.extent.top, distribution: result.extent.distribution} : null,
 				usage: result.usage} : {reason: result.reason}),
 			decision: decided.decision, ...(decided.decision === "owe" ? {band: decided.band} : {why: decided.why}),
 			outcome, owed, ...dropped, ms: Date.now() - began});
