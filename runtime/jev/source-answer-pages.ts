@@ -67,6 +67,7 @@ export function sourceAnswerPage(answer: Row, input: SourceAnswerPageInput): Sou
   const part = input.part ?? 0;
   if (!Number.isSafeInteger(part) || part < 0) return {unavailable: 'invalid_part'};
   const bound = withSourceQuestion(input.question, answer);
+  delete bound.play_material;
   if (bound.prepared === false) {
     const playMaterial = {
       prepare: {kind: 'source', source_mode: 'prepare', query: input.focus, question: input.question},

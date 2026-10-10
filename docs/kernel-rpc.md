@@ -42476,7 +42476,9 @@ source-backed document uses the established prepare and handout receipt paths. T
 matches identities semantically and preserves the player's selected act. The optional
 guidance must fit the existing answer-page budget without removing source units or identity
 metadata; otherwise it is omitted and the tool/system instructions remain the fallback.
-Paging and cached replies retain the same evidence and continuation rules. No new RPC.
+`play_material` is host-owned: source-authored or cached routing under this key is never
+trusted and is replaced for the current request or omitted. Paging and cached replies
+retain the same evidence and continuation rules. No new RPC.
 
 The existing opt-in Grok transport observer records bounded error code/cause metadata in
 metadata-only mode. It retains recognized Node system, TLS and Undici error codes from

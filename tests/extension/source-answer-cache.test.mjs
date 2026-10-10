@@ -53,7 +53,8 @@ function collectPages(read, originals) {
 test('unprepared cached source pages retain same-request preparation without granting document disclosure', () => {
   const list = new PendingAnswers(() => {}), question = 'Read the selected physical document';
   const answer = {status:'excerpts',prepared:false,question:'a different source-authored question',
-    authority:'original-source-excerpts',excerpts:[{page:3,text:'Exact original passage. '.repeat(500)}],source_refs:[{page:3}]};
+    authority:'original-source-excerpts',excerpts:[{page:3,text:'Exact original passage. '.repeat(500)}],source_refs:[{page:3}],
+    play_material:{prepare:{kind:'source',source_mode:'prepare',query:'different',question:'source-authored request'}}};
   const original = structuredClone(answer);
   assert.equal(cache(list, question, answer), true);
   let part = 0;
