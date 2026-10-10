@@ -415,6 +415,39 @@ def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def test_concurrent_evidence_writers_have_independent_atomic_staging(tmp_path, monkeypatch):
+    spec = importlib.util.spec_from_file_location("driver_atomic_evidence", DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    target = tmp_path / "heartbeat.json"
+    barrier, failures = threading.Barrier(2), []
+    replace = module.os.replace
+
+    def simultaneous_replace(source, destination):
+        if destination == target:
+            barrier.wait(timeout=5)
+        return replace(source, destination)
+
+    monkeypatch.setattr(module.os, "replace", simultaneous_replace)
+    values = [{"writer": "heartbeat", "turn": 1}, {"writer": "turn", "turn": 2}]
+
+    def write(value):
+        try:
+            module.write_json(target, value)
+        except Exception as error:
+            failures.append(error)
+
+    threads = [threading.Thread(target=write, args=(value,)) for value in values]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+    assert all(not thread.is_alive() for thread in threads)
+    assert failures == []
+    assert read_json(target) in values
+    assert list(tmp_path.glob("heartbeat.json.tmp*")) == []
+
+
 def pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)

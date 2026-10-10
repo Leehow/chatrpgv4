@@ -1,5 +1,17 @@
 # PDF reading repair, 2026-10-09
 
+## Current approved optimization status
+
+Candidate code is 3508c826dcb8c4b732bce88a501f761041fe15b9, on the same owned branch/worktree.
+Final canonical LAN all is running (unified exec session 74781); do not call it passed yet.
+Kernel TypeScript noEmit check passed on the LAN box. Exact final runtime was fetched from
+that all run after its build completed. A zero-turn startup overlapped the fetch and was
+stopped/excluded; fresh accepted driver is pdf-query-optimization-final-20261010-play,
+daemon 55881 / Pi 55882, Grok 4.7 Fast / low. First natural input rests to next morning
+and collects the hospital water report. Preserve all raw evidence and the unrelated App.
+Guard session.resume was called first (epoch 5); retired plugin returned unsupported_save_schema.
+Continue only the current TS source driver, never alter saves to satisfy that retired plugin.
+
 ## Earlier repair status, 2026-10-09
 
 Five repairs are integrated into latest 0.9.7a at e0a30b08b. LAN all at 9cb131584 passed
@@ -277,3 +289,31 @@ No carried-answer deduplication assertion was removed. The query owner also pres
 pending response from the existing reading service while following its retained settlement.
 Targeted carried/prepare checks pass four/four, and source tool/text routing/turn checks pass 61/61.
 Final full regression follows this checkpoint; the intermediate failure record remains intact.
+
+Live follow-up T43 / turn 1 delivered a refused sleep-until-clock-time choice (declared_time_unresolved),
+52.534 seconds, no source consultation; this is not a successful action or a query regression.
+Natural clarification to sleep eight hours produced the actual 480-minute receipt in 29.439 seconds.
+The prose called it daylight despite the 03:13 clock; preserve that narrative limitation. Continue
+with five more hours and the hospital visit. Do not patch the unrelated temporal system here.
+Mainline advanced only in temporal documentation to ca51d7dfc; preserve it at integration.
+
+Fresh real turn 3 reached the hospital after the actual 300-minute receipt; wall 63.030 s.
+Its lookup kind=source/source_mode=answer returned pending in 8008.4 ms, no error. Query-owner
+telemetry: original/binding 3384 ms, fallback remainder 4616 ms, one shared 8000 ms allowance.
+The retained answer landed after another 137605 ms as unresolved, not supported or prepared
+material. This is genuine foreground-budget evidence, not a faster successful answer claim.
+Day-part prose still diverges from the 08:13 mechanics; keep that separate narrative limitation.
+Next natural turn requests the doctor's actual observations and further laboratory referral.
+
+Final all at 3508c826d: ext 5428 passed / zero failed (5429 total), loop 12 passed;
+pytest 2126 passed / one failed / two skipped, exit 1, 863 seconds. Failure was the
+transport stop test, during its preceding turn, with FileNotFoundError. Unchanged isolated
+driver suite passed 94/94, but that does not erase the all-suite failure. Inspection found
+heartbeat_loop and finalize/stop both write heartbeat.json using one tmp filename per pid.
+A deterministic two-writer rename barrier reproduced FileNotFoundError in the old writer.
+Unique per-write staging fixes it, with zero errors and zero staging files left in the same
+barrier reproduction. This directly protects the acceptance evidence path; no stop timeout,
+resource cap or playback behavior changed. Add the deterministic transport regression and
+run final LAN checks. The first five new real inputs are retained: four progressed, one
+absolute-clock-time declaration was refused. Water transfer to the laboratory completed;
+no completed full adventure is claimed.

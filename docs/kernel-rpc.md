@@ -42169,3 +42169,9 @@ It returns existing checked exact/memo evidence through acceptedEvidence/answerM
 retained artifact digests, or state=missing without enqueueing, attaching or promoting a job.
 The flag is host-only, boolean, and invalid for other purposes or owned preparation. Semantic
 answers are not duplicated into an unchecked host cache; the original-excerpt cache is separate.
+
+Transport evidence closeout: the play driver's concurrent heartbeat and turn writers stage
+each atomic JSON replacement in its own unique sibling file and remove only that staging
+file. A process id alone is not a write identity: both threads share it. This preserves
+the existing output schema and prevents a rename race from closing the control connection
+after a committed turn. It changes no Keeper behavior, stop timeout or resource budget.
