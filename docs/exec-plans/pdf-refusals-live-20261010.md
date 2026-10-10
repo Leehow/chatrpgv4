@@ -217,3 +217,12 @@ regressions and genuine low-effort wire traces verify the repair. Backend late-v
 and worst-case provider latency remain unknown. Fresh source rereading is PARTIAL, with old
 condition structures and map-to-current-scene delivery unverified. No source/whole-campaign
 completion claim, invented content, changed identity or lowered review threshold is made.
+
+Final allc3ac06c86 passed612s: extensions5429pass/0fail/1skip,pytest2128pass/2skip,
+routing12pass. Raw/per-file logs are retained in all-c3ac06c86; immutable-source reuse8/8
+also passed in this parallel load.687embedded source maps match,10runtime artifact hashes
+are byte-identical to genuine7905. The independent read-only review confirms the fixture
+correction did not weaken source/kernel checks or the500ms limit. Source uncertainty above
+is unchanged. Mainline is stilld01381199 but has another owner's uncommitted discovery
+fallback edits, including shared docs/kernel-rpc.md; preserve them and wait before serial
+integration. The acceptance result does not claim those uncommitted changes were tested.

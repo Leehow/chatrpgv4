@@ -774,3 +774,21 @@ action_proposal_mismatch; no overwrite. Two8min time receipts. No20/26s timeout 
 error;26trackedPIDs exited. SQLintegrityok/duplicateID0,15completed5failed2running3queued.
 Source18 original condition structure/map scene linkage remain unverified; no full-source
 acceptance claim. Test-only correction does not require another identical production replay.
+
+Read-only peer review confirms the immutable-fixture change preserves every source/kernel
+check,500ms and semantic assertions. c3ac06c86 commits outcome update only after475181642.
+Canonical probe selectedidleamax5.65; final allc3ac is running under canonical remote-test,
+localcontroller92776, loglan-final-c3ac06c86.log. Already-built runtime fetched read-only;
+687/687source maps match,10artifact hashes equal genuine7905runtime (accepted-c3ac-runtime-
+equivalence.json). Main remainedclean d013 at dispatch. Wait for actualexit, archive all
+per-file/raw logs before refresh; do not repeat model play for these test/docs-only changes.
+
+Final allc3ac passed612s: ext5429pass/0fail/1skip,py2128pass/2skip,loop12pass. Raw/per-file
+logs retained in all-c3ac06c86; immutable reuse8/8 passes under full parallel load. Tests
+and exact production runtime are accepted. Main remainsd013 but another owner now has dirty
+discovery fallback work in docs/kernel-rpc.md, specs/turn-capability-and-mod-discovery.md,
+extensions/table/context-runtime.ts and tests/extension/turn-discovery-context.test.mjs.
+Do not stage/overwrite those hunks or work around the shared-doc preservation boundary.
+Wait quietly for actual ownership settlement, then integrate own scoped stack and perform
+terminal lifecycle retained-evidence audit. Do not claim alltested the other owner's dirty
+changes; assess committed production drift before final integration. Heartbeat remainsactive.
