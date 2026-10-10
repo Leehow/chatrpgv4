@@ -1,3 +1,4 @@
+import {attachesReadingFocus, sameReadingFocusDomain, compareReadingPriority} from './reading-policy.js';
 /** One persisted source queue; native descriptor leases own publication attempts. */
 import { createHash, randomUUID } from 'node:crypto';
 import { copyFile, mkdir, readFile, rename, stat } from 'node:fs/promises';
@@ -79,8 +80,6 @@ const REFUSED_FIELDS = 8;
 const JOB_MARKERS = ['source_unit', 'review_scope_pages', 'reference_fragment', 'visual_scan', 'visual_asset', 'visual_identity', 'node_identity', 'map_scope', 'source_need'];
 /** §182.2: the markers of the read-ahead's own background asks; a live job carrying one keeps a short book's build open. */
 const STREAMED_MARKERS = ['source_unit', 'visual_scan', 'visual_asset', 'visual_identity', 'map_scope', 'source_need'];
-/** §22.2.1: the purposes that read graph material of a named focus, one reading of a focus at a time. */
-const FOCUSED = ['opening', 'detail'];
 /** §22.4.3 (SL-36): at most this many memoised answers (and index rows) travel with one consultation reply. */
 const ANSWER_MEMO_LIMIT = 4;
 /**
@@ -1451,6 +1450,10 @@ export class Reading {
         const mid = validateModuleId(params.module_id), purpose = params.purpose;
         if (!PURPOSES.includes(purpose))
             throw new RpcError('invalid_params', `purpose must be one of ${repr(PURPOSES)}`);
+        if (params.cache_only !== undefined && (typeof params.cache_only !== 'boolean' || purpose !== 'answer' || preparation))
+            throw new RpcError('invalid_params', 'cache_only is a boolean for unowned answer consultation');
+        if (params.cache_only === true && params.context_generation !== undefined)
+            throw new RpcError('invalid_params', 'cache_only cannot follow an in-flight context-generation waiter');
         // A repair asks the reader for one named thing on top of a completed reading (§90.3, thin-book-play B0);
         // it is its own reading identity, so the completed one neither answers for it nor blocks it.
         const repair = params.repair;
@@ -1626,6 +1629,7 @@ export class Reading {
                     const memo = await this.answerMemo(mid, meta, source.file_sha256, focus);
                     if (memo.length) return { ...result, state: 'ready', memo };
                 }
+                if (params.cache_only === true) return {...result, state: 'missing'};
             }
             const prepared = purpose === 'detail' ? array(reading.materials).find(material => material.key === key) : undefined;
             if (prepared && prepared.status === 'unusable') {
@@ -1655,12 +1659,11 @@ export class Reading {
             // attaches to it and is judged afresh once it has settled. An owned source preparation keeps the job
             // identity it binds (§22.4 answer/prepare ownership).
             let settling: Row | undefined;
-            if (!preparation && !(existing && ['queued', 'running'].includes(existing.state)) && (FOCUSED.includes(purpose) || purpose === 'answer') && focus.trim()) {
+            if (!preparation && !(existing && ['queued', 'running'].includes(existing.state)) && attachesReadingFocus({purpose}) && focus.trim()) {
                 const identity = await this.focusIdentity(mid), wanted = identity(focus);
                 // §22.4.3 (SL-36): one live consultation per focus; a second question on a running focus attaches to it.
-                const kinds = purpose === 'answer' ? ['answer'] : FOCUSED;
                 // A consultation of another context generation can never publish (§22.4.1): it is no reading to attach to.
-                settling = queue.find(job => job.state === 'running' && kinds.includes(job.purpose) && Reading.meet(identity(job.focus), wanted)
+                settling = queue.find(job => job.state === 'running' && attachesReadingFocus(job) && sameReadingFocusDomain({purpose}, job) && Reading.meet(identity(job.focus), wanted)
                     && (job.purpose !== 'answer' || equal(job.context_generation, meta.generation ?? 0)));
             }
             if (settling) {
@@ -1841,29 +1844,30 @@ export class Reading {
                 if (stale.state === 'queued' && stale.purpose === 'index' && !truth(stale.foreground) && !indexInBackground)
                     Object.assign(stale, { state: 'cancelled', detail: 'the background does not read the whole-book index of this book (§182.4)', finished_at: nowIso() });
             }
-            const purposePriority = (job: Row): number => job.purpose === 'opening' ? 0 : job.reference_fragment ? 1 : job.source_unit ? 3 : job.purpose === 'index' ? 2 : 1;
             const pending = queue.filter(job => job.state === 'queued' && !isJsonObject(job.merged_from)).sort((a, b) =>
-                Number(!truth(a.foreground)) - Number(!truth(b.foreground)) ||
-                purposePriority(a) - purposePriority(b) || compareUnicode(a.at, b.at));
+                compareReadingPriority(a, b) || compareUnicode(a.at, b.at));
             const identity = pending.length && active.length ? await this.focusIdentity(mid) : () => new Set<string>();
             // §22.4.6: a blocking read the one-focus rule lets run, refused only because every slot is held.
             let crowded = false;
+            const blocked: Row[] = [];
+            let blockedCount = 0;
+            const defer = (value: Row): void => {blockedCount++; if (blocked.length < 8) blocked.push(value);};
             for (const job of pending) {
                 // §22.4.6.1 (SL-54): a parked consultation is not failed for having waited; it is claimed under the current
                 // generation (`resumeUnder`, below).
                 const blocking = truth(job.foreground);
                 // §22.2.1: the request's consultation and publication domains also govern claims.
-                if (active.some(other => (job.purpose === 'answer') === (other.purpose === 'answer')
-                    && Reading.meet(identity(other.focus), identity(job.focus))))
-                    continue;
+                const conflict = active.find(other => sameReadingFocusDomain(job, other)
+                    && Reading.meet(identity(other.focus), identity(job.focus)));
+                if (conflict) { defer({job_id: job.job_id, reason: 'focus_busy', by_job: conflict.job_id}); continue; }
                 // §22.4.6: a blocking read takes any free slot; a background read never takes the last one.
                 if (active.length >= (blocking ? READING_SLOTS : READING_SLOTS - 1)) {
+                    blocked.push({job_id: job.job_id, reason: 'capacity'});
                     if (blocking && active.length >= READING_SLOTS) crowded = true;
                     continue;
                 }
                 const shared = await this.store.context.locks.acquire(join(directory, '.reader.lock'), 'shared', { nonblocking: true });
-                if (!shared)
-                    continue;
+                if (!shared) { blocked.push({job_id: job.job_id, reason: 'reader_owned'}); continue; }
                 let individual: LockLease | null;
                 try {
                     individual = await this.store.context.locks.acquire(join(directory, `.job-${job.job_id}.lock`), 'exclusive', { nonblocking: true });
@@ -1873,6 +1877,7 @@ export class Reading {
                     throw error;
                 }
                 if (!individual) {
+                    blocked.push({job_id: job.job_id, reason: 'job_owned'});
                     await shared.release();
                     continue;
                 }
@@ -1992,9 +1997,9 @@ export class Reading {
                 const [youngest] = active.filter(job => !truth(job.foreground) && job.owner === owner && this.leases.has(this.key(mid, job.job_id)))
                     .sort((a, b) => number(b.claim_seq ?? 0) - number(a.claim_seq ?? 0));
                 if (youngest)
-                    return { job_id: null, displace: youngest.job_id };
+                    return { job_id: null, displace: youngest.job_id, ...(params.diagnostics === true ? {blocked, blocked_count: blockedCount} : {}) };
             }
-            return { job_id: null };
+            return { job_id: null, ...(params.diagnostics === true ? {blocked} : {}) };
         });
     }
     async finish(params: Row): Promise<Row> {

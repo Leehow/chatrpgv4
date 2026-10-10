@@ -72,6 +72,22 @@ async function readAndReview(f, campaign, review = supported) {
 const finishArgs = (job, campaign) => ({campaign, module_id: MID, job_id: job.job_id, lease: job.lease, outcome: 'completed',
   draft_path: join(job.work_dir, 'draft.json'), review_path: join(job.work_dir, 'review.json')});
 
+test('a cache-only consultation never queues on a miss and revalidates the retained review on a hit', async t => {
+  const f = await kernel(t), args = {campaign: 'cache-probe', module_id: MID, purpose: 'answer',
+    focus: 'upper-floor-bedroom', question: 'What happens upstairs?', foreground: true};
+  await f.call('module.read.request', args);
+  const queued = await queueOf(f, args.campaign);
+  const miss = await f.call('module.read.request', {...args, question: 'Another question?', cache_only: true, foreground: false});
+  assert.equal(miss.state, 'missing');
+  assert.deepEqual(await queueOf(f, args.campaign), queued, 'a cache miss must not enqueue, attach or promote work');
+  const job = await readAndReview(f, args.campaign); await f.call('module.read.finish', finishArgs(job, args.campaign));
+  const hit = await f.call('module.read.request', {...args, cache_only: true, foreground: false});
+  assert.equal(hit.source_answer.answer, ANSWER.answer);
+  await appendFile(join(job.work_dir, 'review.json'), ' ');
+  const failure = await f.refusal('module.read.request', {...args, cache_only: true, foreground: false});
+  assert.equal(failure.details.reason, 'source_answer_integrity');
+});
+
 test('§22.4.3 a checked answer answers a later question on the same focus, by another spelling, from the campaign memo, and costs no read', async t => {
   const f = await kernel(t);
   const asked = await f.call('module.read.request', {campaign: 'c1', module_id: MID, purpose: 'answer', focus: 'upper-floor-bedroom',

@@ -841,7 +841,13 @@ function handle(method, params) {
 				},
 			};
 		}
+        case "module.source.snapshot":
+            return {ok: true, result: {version: 1, module_id: params.module_id, generation,
+                revision: JSON.stringify([params.module_id, generation]), file_sha256: 'c'.repeat(64), page_count: 3}};
+        case "module.reference.status":
+            return {ok: true, result: {generation, original_source_available: true}};
 		case "module.read.request":
+            if (params.cache_only === true) return {ok: true, result: {state: 'missing', generation}};
 			// FAKE_KERNEL_READING=1: the source is still being read and no host gets to claim the job,
 			// so a foreground wait runs out (contract §22.4's `reading_timeout`) on the real reading service.
 			if (process.env.FAKE_KERNEL_READING === "1") return { ok: true, result: { state: "reading", job_id: "read-7", generation } };

@@ -6,6 +6,24 @@ import {KernelError} from '../../extensions/kernel/client.ts';
 
 const answer={status:'answered',answer:'The source describes a harbor worker.',limitations:'',source_refs:[{source_id:'pdf:book',pdf_index:0}],authority:'source-consultation',prepared:false,supported:true};
 
+test('the actual lookup returns pending while its original-excerpt stage is still running', async t => {
+ const table=await openTable({env:{PI_COC_SOURCE_ANSWER_ALLOWANCE_MS:'20'},responses:[
+  fauxAssistantMessage([fauxToolCall('lookup',{kind:'source',source_mode:'answer',query:'Lena',question:'Her work?'})],{stopReason:'toolUse'}),
+  fauxAssistantMessage([fauxToolCall('narrate',{text:'The conversation continues at the harbor.'})],{stopReason:'toolUse'}),
+  fauxAssistantMessage('The conversation continues at the harbor.')
+ ]});t.after(()=>table.dispose());let finish, references=0, fallback=0;
+ table.emit('coc:reading-bridge',{reference:async()=>{references++;return new Promise(resolve=>{finish=resolve;});},
+  ensure:async()=>{fallback++;throw Error('The retained original has not failed.');}});
+ await table.session.prompt('Check her work.');
+ const result=table.session.messages.find(message=>message.role==='toolResult'&&message.toolName==='lookup');
+ assert.ok(result&&!result.isError);assert.match(JSON.stringify(result),/"status":\s*"pending"/);
+ assert.equal(references,1);assert.equal(fallback,0);
+ finish({state:'ready',source_answer:{status:'excerpts',authority:'original-source-excerpts',excerpts:[{page:1,text:'Original harbor text.'}]}});
+ for(let i=0;i<100&&!table.telemetry().some(row=>row.event==='answer_landed');i++)await new Promise(resolve=>setTimeout(resolve,5));
+ assert.ok(table.telemetry().some(row=>row.event==='answer_landed'));
+ assert.equal(references,1);assert.equal(fallback,0);
+});
+
 test('source answer mode returns checked evidence directly instead of a graph lookup',async t=>{
  const table=await openTable({responses:[
   fauxAssistantMessage([fauxToolCall('lookup',{kind:'source',source_mode:'answer',query:'Lena',question:'What does the book say about her work?'})],{stopReason:'toolUse'}),

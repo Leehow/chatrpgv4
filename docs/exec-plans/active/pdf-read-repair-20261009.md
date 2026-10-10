@@ -1,6 +1,6 @@
 # PDF reading repair, 2026-10-09
 
-## Final status, 2026-10-09
+## Earlier repair status, 2026-10-09
 
 Five repairs are integrated into latest 0.9.7a at e0a30b08b. LAN all at 9cb131584 passed
 ext 5413 / zero failed, pytest 2127 / two skipped, loop 12 / zero failed; all exit zero.
@@ -21,6 +21,23 @@ build hashes are protected under .coc/playtests/pdf-clue-readiness-final-2026100
 Worktree terminal classification is retained:protected_real_playtest_evidence; run closeout
 and final audit before yielding. Pause heartbeat pdf after integration and audit.
 All following checkpoints are historical evidence, not pending commands to repeat.
+
+## Authorized source-query optimization follow-up
+
+The user approved the proposed optimization after the earlier five repairs. Current baseline is
+latest mainline 0.9.7a at da90fa35a; same owned lifecycle tuple reactivated. Primary checkout is clean.
+Implement one end-to-end foreground allowance including source snapshot, original-excerpt retrieval
+and fallback. A pending reply follows the same retained task, with scoped exact-request reuse; source
+bytes, reviewed readiness, budgets and child limits remain authoritative. Centralize focus domains
+and job priority across request/claim/host checks, report blocked causes, preserve stage checkpoints.
+Reuse valid original excerpts without treating them as prepared graph material.
+
+Acceptance: slow reference returns pending inside one allowance, failed reference does not obtain a
+fresh allowance, joined requests share work but isolate cancellation, exact same-version cached
+excerpts avoid a new child, source/generation/campaign/worldline changes prevent cache reuse, and
+real queue tests preserve foreground reservation and source review gates. Run selected then final
+LAN checks, rebuild exact runtime, and use a real Grok 4.7 Fast / low driver follow-up. No App restart,
+new dependencies, resource-limit change, provider replacement, weakened review or deleted evidence.
 
 ## Objective and acceptance
 
@@ -232,3 +249,22 @@ WebDAV mount /Volumes/10.3.2.75. Final audit returned exit 0 with audit_pending,
 match, registered, terminal, dirty only for the protected evidence marker. Classification is
 retained:protected_real_playtest_evidence_and_incomplete_process_probe. No removal, mount repair,
 branch deletion or clean lifecycle completion is claimed. Detailed receipt: final run lifecycle-final.json.
+
+### Query optimization implementation checkpoint
+
+The query owner now includes binding, checked-cache preflight, original retrieval and fallback
+in one foreground allowance. It joins original work through fallback, preserves per-caller
+cancellation, and bounds original reuse to 16 entries / 64 KiB. Semantic answers use the existing
+kernel acceptedEvidence/answerMemo checks through cache_only, not another unchecked answer cache.
+A shared structural policy drives focus domains and priority; deferred claims expose bounded
+closed reasons only to host telemetry. Preserve the existing library-index yield to a campaign
+opening: the intermediate cross-campaign admission change was removed.
+
+First canonical LAN focused escalated to full coverage: ext 5397 passed / 26 failed, pytest 2127
+passed / two skipped, loop 12 passed; exit 1, 859 seconds. It tested an earlier uploaded overlay.
+Failures exposed an undefined client variable at the new production entry and the admission
+scope regression. The client is now state.kernel; a stale original variable was also corrected.
+The test kernel adapter now supplies source snapshot/status and cache-only misses. Full source
+evidence/cache and scheduling regressions were not weakened. Local reading-service 40/40, query
+owner 12/12 and targeted actual tool entry five/five pass; final integration checks remain pending.
+Raw first-run logs are preserved in final-readiness run query-optimization-intermediate-*.log.

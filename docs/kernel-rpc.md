@@ -42124,3 +42124,48 @@ Implementation and real-system acceptance are in progress; the specification rec
 - Existing telemetry records table, matching, scores, fallback, selected rows and actual request delivery. Actual
   scene/NPC receipts and natural narration prove adoption. Tests distinguish disabled/unavailable matching, multiple
   simultaneous items, stale answers, precise current-time context, fact protection and genuine product play.
+
+
+### 22.4.3.2 One foreground deadline across source lookup routes (2026-10-09)
+
+The source lookup's existing allowance starts at its query owner, before source binding, native
+original-excerpt retrieval and any full-reader fallback. A fast-path child keeps its existing
+120-second execution ceiling, but cannot hold the foreground for that ceiling before the
+allowance begins. Expiry returns pending and follows the same checked task; it never renews
+the foreground allowance at fallback. Answer work becomes background when no waiter remains;
+explicit preparation retains its existing blocking claim. Session shutdown aborts owned work.
+
+Exact live requests join only within campaign, module, source revision, worldline/loop, focus,
+question and mode. Cancelling one waiting caller does not cancel another's joined work. Original
+excerpt envelopes may be reused only under that same bound source revision, with the existing
+bounded host-cache limits; retry bypasses completed reuse. Reused excerpts remain navigation and
+original text, not semantic answer approval or graph/material readiness. Full-reader accepted
+answers still use their existing kernel memo and review gates. No resource ceilings change.
+
+One structural policy defines focus domains and job ordering for request attachment, kernel claim
+and host provider admission. Answers and publications have separate focus domains; graph-material
+requests still attach only within their supported domain. Blocking jobs precede opening, bounded
+reference/detail/answer work, index, source units and background reference-index streams. The
+host's cooperative priority wait compares runnable jobs of the same book, including a campaign
+opening ahead of its library's background index; process-wide child limits regulate shared capacity.
+Focus locks and result reuse remain scoped to their own campaign/module queue. Existing yield/resume retains
+attempt evidence and does not count displacement as completion, cancellation or review approval.
+
+Claim deferral returns closed reason codes (focus_busy, capacity, reader_owned, job_owned) and
+existing job identities to host telemetry only. Such reasons never become model pressure or
+player-visible implementation text. The kernel writes them, the host records them, and the
+query owner uses the existing bounded wait/pending policy.
+
+Implementation decisions: source-query ownership lives behind a small host interface; the
+reading scheduler's policy is shared rather than independently duplicated. Cross-checks:
+PostgreSQL snapshot reads separate readers from writers, and Kubernetes distinguishes queue
+priority from actual preemption. These support scoped snapshot reuse and retained background
+yield; neither supplies this project's evidence or guarantees its latency.
+https://www.postgresql.org/docs/current/mvcc-intro.html
+https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/
+
+The accepted-answer preflight is module.read.request with purpose=answer and cache_only=true.
+It returns existing checked exact/memo evidence through acceptedEvidence/answerMemo, including
+retained artifact digests, or state=missing without enqueueing, attaching or promoting a job.
+The flag is host-only, boolean, and invalid for other purposes or owned preparation. Semantic
+answers are not duplicated into an unchecked host cache; the original-excerpt cache is separate.

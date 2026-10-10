@@ -64,3 +64,17 @@ test('separating focus domains does not let a consultation exceed the reader cap
 	await request(book, 'answer', 'scene-dock', 'Who works on the dock?');
 	assert.equal((await claim(book)).job_id, null);
 });
+
+test('host claim diagnostics distinguish a focus conflict from exhausted capacity', async t => {
+    const book = await fixture(t);
+    const first = await request(book, 'detail', 'Dock', 'Prepare the fixtures.');
+    const queued = await request(book, 'detail', 'scene-dock', 'Prepare the route.');
+    assert.equal((await claim(book)).job_id, first.job_id);
+    let result = await book.raw('module.read.claim', {module_id: book.mid, owner: 'regression-host', diagnostics: true});
+    assert.deepEqual(result.blocked, [{job_id: queued.job_id, reason: 'focus_busy', by_job: first.job_id}]);
+    for (const focus of ['Tower', 'Harbor lane']) {await request(book, 'detail', focus, 'Prepare this place.'); await claim(book);}
+    const answer = await request(book, 'answer', 'scene-dock', 'Who works here?');
+    result = await book.raw('module.read.claim', {module_id: book.mid, owner: 'regression-host', diagnostics: true});
+    assert.ok(result.blocked.some(row => row.job_id === answer.job_id && row.reason === 'capacity'));
+    assert.deepEqual(await claim(book), {job_id: null}, 'ordinary claim callers keep their established envelope');
+});

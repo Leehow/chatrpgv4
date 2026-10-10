@@ -1,3 +1,4 @@
+import {readingPriority} from '../../kernel-ts/modules/reading-policy.ts';
 /** A single host service for PDF preparation and foreground/background reading. */
 import { readFile, readdir, writeFile, mkdir, copyFile, appendFile, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -137,7 +138,7 @@ export async function guidanceReviewPages(cwd:string,task:Row,sourceSha:string,p
 	return [...pages].sort((a,b)=>a-b);
 }
 export interface ReadingBridge {
-	reference?(moduleId:string,params:Row,signal?:AbortSignal):Promise<Row|undefined>;
+	reference?(moduleId:string,params:Row,signal?:AbortSignal,priority?:import('./reader.ts').ReaderPriority):Promise<Row|undefined>;
 	prepare(params: Row, signal?: AbortSignal, options?: ReadingOptions): Promise<Row>;
 	ensure(moduleId: string, params: Row, signal?: AbortSignal, options?:ReadingOptions): Promise<Row>;
 	pregens?(moduleId: string, params: Row, signal?: AbortSignal, options?:ReadingOptions): Promise<Row>;
@@ -397,6 +398,7 @@ export class ReadingService implements ReadingBridge {
 	private controllers = new Map<string, AbortController>();
 	private jobs = new Map<string, Row>();
 	private priorityWaiting=new Map<string,number>();
+	private blockedClaims = new Map<string, string>();
 	private cancelledJobs = new Set<string>();
 	/** Per claimed job, the moment it last reported anything: the lane's own heartbeat, never an inference from elapsed wall clock. */
 	private heartbeats = new Map<string, number>();
@@ -470,6 +472,7 @@ export class ReadingService implements ReadingBridge {
 		this.stopped = true;
 		this.lanes.abort();
 		this.stopSweep();
+        this.blockedClaims.clear();
 		for (const [key, controller] of this.controllers) {
 			if (options.handOff && (this.jobs.get(key)?.foreground !== true||this.jobs.get(key)?.source_unit)) this.handedOff.add(key);
 			controller.abort();
@@ -529,7 +532,7 @@ export class ReadingService implements ReadingBridge {
 
 	/** In-flight calls finish; source work yields before the next provider reservation. */
 	private async waitForPriority(job:Row,key:string,signal:AbortSignal,campaign?:string):Promise<void>{
-		const rank=(value:Row)=>value.foreground===true?0:value.purpose==='opening'?1:value.reference_fragment?2:value.reference_stream&&value.purpose==='index'?4:value.source_unit?3:2;
+		const rank = readingPriority;
 		const blocked=()=>{
 			const priority=rank(job);if(priority===0)return false;
 			// A pending request may need this reader's focus lock. Claim ordering and
@@ -570,7 +573,7 @@ export class ReadingService implements ReadingBridge {
 			details:{...published.opening?.choice,introduction:published.introduction,source_reference:true}});
 		return {...published,source_reference:true};
 	}
-	async reference(mid:string,params:Row,signal?:AbortSignal):Promise<Row|undefined>{
+	async reference(mid:string,params:Row,signal?:AbortSignal,priority?:import('./reader.ts').ReaderPriority):Promise<Row|undefined>{
 		if(!this.deps.runtime?.sourceReferences)return;
 		const campaign=this.campaign(params);
 		if(params.materialize_place)await this.readAhead({module_id:mid,focus:params.focus||''},campaign);
@@ -578,7 +581,7 @@ export class ReadingService implements ReadingBridge {
 		if(source.window)return;
 		try{const known=await this.call('module.reference.status',{module_id:mid,focus:params.focus||''},campaign);
 			const result=await runSourceReference({runtime:this.runtime(),source:{...source,cache:join(dirname(source.pdf),'cache','pages')},moduleId:mid,kind:'lookup',materializePlace:params.materialize_place===true,
-			focus:params.focus||'',question:params.question||'Read the requested physical place and its necessary conditions.',knownNodes:known.known_nodes,model:this.deps.model(),signal,record:this.deps.record});
+			focus:params.focus||'',question:params.question||'Read the requested physical place and its necessary conditions.',knownNodes:known.known_nodes,model:this.deps.model(),signal,priority,record:this.deps.record});
 			let material:Row|undefined;if(params.materialize_place){if(!result.packet.places?.length)return;material=await this.call('module.reference.materialize',{module_id:mid,work_dir:result.workDir},campaign);this.recordLibrarySync(material,{module_id:mid,campaign});if(material.state!=='ready')return;void this.readAhead({module_id:mid,focus:material.scene},campaign).then(()=>{this.wakes.set(JSON.stringify([campaign,mid]),'reference-place');return this.pump(mid,campaign);}).catch(()=>undefined);}
 			return {state:'ready',...(material?{material}:{}),source_answer:{status:'excerpts',authority:'original-source-excerpts',prepared:!!material,...(material?{scene:material.scene,scene_name:material.name,material_scope:'source-place-identity-only'}:{}),source_sha256:result.packet.source_sha256,
 				answer:result.packet.excerpts.map(span=>`[Original physical page ${span.page}]\n${span.text}`).join('\n\n'),excerpts:result.packet.excerpts,
@@ -1203,17 +1206,24 @@ export class ReadingService implements ReadingBridge {
 					const wake = new Promise<void>(resolve => this.pumpWakes.set(scope, () => {wakeRequested = true; resolve();}));
 					// §22.4.6: past its own capacity the pump claims only to place a blocking read one of its requests waits on.
 					while ((active.size < capacity || this.blockingWaiting(mid, campaign) !== undefined) && !this.stopped) {
-						const job = await this.bindBeforeClaim(mid, campaign, () => this.call("module.read.claim", { module_id: mid, owner: `host-${process.pid}` }, campaign));
+						const job = await this.bindBeforeClaim(mid, campaign, () => this.call("module.read.claim", { module_id: mid, owner: `host-${process.pid}`, diagnostics: true }, campaign));
 						// A wake does not choose a job; the claim does. The row that names the job names the wake it answered,
 						// and a wake that found nothing queued says so instead of leaving no trace (#65).
 						const wake = this.wakes.get(scope);
 						this.wakes.delete(scope);
 						if (!job.job_id) {
-							if (wake !== undefined) this.deps.record({ lane: "reading", event: "claim_empty", module_id: mid, campaign, wake });
+                            const deferred = JSON.stringify(job.blocked ?? []);
+                            if (job.blocked?.length && this.blockedClaims.get(scope) !== deferred) {
+                                this.blockedClaims.set(scope, deferred);
+                                this.note({lane: 'reading', event: 'claim_deferred', module_id: mid, campaign,
+                                    blocked: job.blocked, blocked_count: job.blocked_count ?? job.blocked.length});
+                            }
+							if (wake !== undefined) this.deps.record({ lane: "reading", event: "claim_empty", module_id: mid, campaign, wake, ...(job.blocked?.length ? {blocked: job.blocked} : {}) });
 							// §22.4.6: every slot is held and a blocking read waits; the claim names the background read that yields.
 							if (typeof job.displace === "string" && await this.displace(mid, campaign, job.displace, runningJobs)) continue;
 							break;
 						}
+						this.blockedClaims.delete(scope);
 						capacity = Math.max(1, Number(job.concurrency) || 1);
 						const key = JSON.stringify([campaign, mid, job.job_id]);
 						const controller = new AbortController();

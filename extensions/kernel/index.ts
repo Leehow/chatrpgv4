@@ -1,3 +1,4 @@
+import {SourceConsultations} from '../module/source-consultations.ts';
 import {CASH_CONSENT_POLICY} from "./admission.ts";
 import {boundCashAuthority} from './admission.ts';
 import {PurchaseRecovery} from './purchase-recovery.ts';
@@ -1582,6 +1583,7 @@ export default function (pi: ExtensionAPI) {
 	 * Written through the unwrapped telemetry sink: a background reading lands after its turn, and its row names that turn.
 	 */
 	const pendingAnswers = new PendingAnswers((row) => { void record(row); });
+	const sourceConsultations = new SourceConsultations((row) => { void record(row); });
 	function sourceConsultationsForAudit(state:TableState):Record<string,unknown>|undefined{
 		const evidence=pendingAnswers.audit(state.campaign,{scene:state.scene?.handle,turn:state.turn,scope:state.sourceAnswerScope});
 		if(state.sourceWait?.question&&!evidence.unavailable.some(row=>row.focus===state.sourceWait?.focus&&row.question===state.sourceWait?.question))
@@ -5657,18 +5659,41 @@ export default function (pi: ExtensionAPI) {
 						// `prepare` keeps its blocking slot instead (§22.4.6) -- the Keeper asked for this material now, so it is not
 						// competing with background work for a slot the way a demoted answer is.
 						const consult = answerOnly && !nativeSource;
-						const original = reading?.reference ? await reading.reference(readingModule,{...sourceRead,campaign:state.campaign,...(!answerOnly?{materialize_place:true}:{})},signal) : undefined;
-						if(original?.material)sourceMaterial=original.material;
-						if(Array.isArray(original?.source_answer?.excerpts))carriedText.note(state.campaign,state.turn,original.source_answer.excerpts.map((span:Record<string,any>)=>({scene:sourceMaterial?.scene??state.scene?.handle??null,page:span.page,label:null,text:span.text})));
-						const response = original ?? (answerOnly && nativeSource
-							? await nativeSource({moduleId: readingModule, campaign: state.campaign, toolCallId, question: String(params.question)}, signal)
-							: consult
-								? await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, ...(params.retry === true ? { memo: false } : {}), foreground: true },
-									signal, {allowanceMs: sourceAnswerAllowanceMs()})
-								: await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, foreground: true }, signal,
-									{allowanceMs: sourceAnswerAllowanceMs(), blocking: true}));
+						const response = await sourceConsultations.lookup({campaign: state.campaign, moduleId: readingModule,
+                            ...askedScope, focus: String(params.query), question: String(params.question ?? ''),
+                            mode: answerOnly ? 'answer' : 'prepare', retry: params.retry === true,
+                            allowanceMs: sourceAnswerAllowanceMs(), signal,
+                            binding: async workSignal => {
+                                workSignal.throwIfAborted();
+                                try {
+                                    const snapshot = await state.kernel.call<Record<string, any>>('module.source.snapshot', {module_id: readingModule, campaign: state.campaign});
+                                    return snapshot.revision;
+                                } catch (failure) {
+                                    if (!(failure instanceof KernelError) || failure.details?.reason !== 'source_unavailable') throw failure;
+                                    const status = await state.kernel.call<Record<string, any>>('module.reference.status', {module_id: readingModule, campaign: state.campaign});
+                                    return JSON.stringify(['no-original', status.generation]);
+                                }
+                            },
+                            accepted: async workSignal => {
+                                workSignal.throwIfAborted();
+                                const cached = await state.kernel.call<Record<string, any>>('module.read.request', {module_id: readingModule,
+                                    campaign: state.campaign, purpose: 'answer', focus: params.query, question: params.question,
+                                    cache_only: true, foreground: false});
+                                return cached.state === 'ready' ? cached : undefined;
+                            },
+                            reference: (workSignal, priority) => reading?.reference?.(readingModule,
+                                {...sourceRead, campaign: state.campaign, ...(!answerOnly ? {materialize_place: true} : {})}, workSignal, priority) ?? Promise.resolve(undefined),
+                            fallback: (workSignal, options) => answerOnly && nativeSource
+                                ? nativeSource({moduleId: readingModule, campaign: state.campaign, toolCallId, question: String(params.question)}, workSignal)
+                                : reading!.ensure(readingModule, {...sourceRead, retry: params.retry === true,
+                                    ...(params.retry === true ? {memo: false} : {}), foreground: options.foreground}, workSignal,
+                                    {allowanceMs: options.allowanceMs, ...(options.blocking ? {blocking: true} : {})})});
+                        if (response.material) sourceMaterial = response.material;
+                        if (Array.isArray(response.source_answer?.excerpts)) carriedText.note(state.campaign, state.turn,
+                            response.source_answer.excerpts.map((span: Record<string, any>) => ({scene: sourceMaterial?.scene ?? state.scene?.handle ?? null,
+                                page: span.page, label: null, text: span.text})));
 						// §135.20.1 (SL-102): the scene the party is at when the Keeper asks; an answer handed here is held while it stays.
-						if (consult && response.state === 'pending') {
+						if (answerOnly && response.state === 'pending') {
 							const read = { focus: String(params.query), question: String(params.question) };
 							pendingAnswers.register(state.campaign, read, askedTurn, asString(response.job_id), response.settled, 'answer', askedAt, askedScope);
 							sourceAnswer = pendingAnswer(response, read);
@@ -5680,7 +5705,7 @@ export default function (pi: ExtensionAPI) {
 							pendingAnswers.hold(state.campaign, askedAt, [...(response.memo as Array<Record<string, any>>)].reverse().map(entry => ({
 								focus: asString(entry?.focus) ?? String(params.query), question: String(entry?.question ?? ''), answer: entry?.source_answer })),
 							askedTurn, fromStep?.run, askedScope);
-						} else if (answerOnly || original?.material) {
+						} else if (answerOnly || response.material) {
 							if (!response.source_answer || typeof response.source_answer !== 'object') throw new KernelError({code:'internal', message:'The source consultation returned no checked answer'});
 							sourceAnswer = response.source_answer;
 							pendingAnswers.hold(state.campaign, askedAt, [{ focus: String(params.query), question: String(params.question), answer: response.source_answer }],
@@ -6762,6 +6787,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
+        sourceConsultations.close();
         if(table)quotationQueues.get(table)?.close();
 		await shutdownKernel();
 		sessionCtx = undefined;
