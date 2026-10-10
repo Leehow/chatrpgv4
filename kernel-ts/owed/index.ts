@@ -261,6 +261,8 @@ export function mergeOwed(ledger: OwedLedger, rows: Row[], at: string): OwedLedg
 export function owedSatisfied(graph: ModuleGraph, world: Row, entry: Row, party: readonly Row[] = []): boolean {
     const effect = row(entry.effect);
     if (entry.kind === 'move') {
+        // §213.2: a told departure to a place the table does not have is satisfied once the ledger stands anywhere else.
+        if (!entry.effect && text(row(entry.departure).from)) return text(row(entry.departure).from) !== text(world.active_scene);
         const scene = sceneOf(graph, effect.to);
         return !!scene && graph.handle(scene) === text(world.active_scene);
     }

@@ -111,7 +111,9 @@ export async function readToldPosition(deps: ToldPositionDeps): Promise<string |
 		if (decided.decision === "owe" && mode !== "on") outcome = "shadow";
 		else if (decided.decision === "owe" && !deps.signal?.aborted) {
 			try {
-				const answer = (await deps.call("table.owe", {campaign: deps.campaign, turn: deps.turn, effect: {kind: "move", to: decided.handle},
+				// §213.2: a departure for a place none of the candidates is owes the leaving, which the Keeper lands.
+				const effect = "departure" in decided ? {kind: "move", unlisted: true} : {kind: "move", to: decided.handle};
+				const answer = (await deps.call("table.owe", {campaign: deps.campaign, turn: deps.turn, effect,
 					quote: decided.quote, source: TOLD_POSITION_FAMILY}) ?? {}) as Row;
 				owed = typeof answer.owed === "string" ? answer.owed : null;
 				outcome = owed ? "owed" : "dropped";
@@ -126,7 +128,7 @@ export async function readToldPosition(deps: ToldPositionDeps): Promise<string |
 			...(result.status === "answered" ? {moved: result.moved, chosen: result.chosen, distribution: result.distribution, confidence: result.confidence,
 				sentence: result.sentence ? {key: result.sentence.key, confidence: result.sentence.confidence, distribution: result.sentence.distribution} : null,
 				usage: result.usage} : {reason: result.reason}),
-			decision: decided.decision, ...(decided.decision === "owe" ? {handle: decided.handle} : {why: decided.why}),
+			decision: decided.decision, ...(decided.decision === "owe" ? ("departure" in decided ? {departure: true} : {handle: decided.handle}) : {why: decided.why}),
 			outcome, owed, ...dropped, ms: Date.now() - began});
 		return owed;
 	} catch (error) {

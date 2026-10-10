@@ -233,6 +233,12 @@ test("an unavailable review refuses with a service status; the Keeper is not tol
 	assert.doesNotMatch(text, /tell the player/i);
 	// What already landed this turn is not un-narrated by the refusal of this batch.
 	assert.match(text, /already settled with a receipt .* did happen/);
+	// §213.1 (live 9e7 turn 26): the refusal holds the refused lines, not every later call, and the result of any declared act
+	// that no receipt carries at the close; owed state is no way around it.
+	assert.match(text, /does not forbid proposing another part of what the player declared/);
+	assert.match(text, /no receipt carries when the turn closes did not happen this turn: narrate the investigator beginning it/);
+	assert.match(text, /never its result \(an arrival, a departure, a payment/);
+	assert.match(text, /owed state is what an earlier delivery already told, not a way to tell what a refusal held/);
 	const [row] = admissionRows(table);
 	assert.equal(row.ok, false);
 	assert.equal(row.reason, "model_unavailable");

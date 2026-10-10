@@ -152,3 +152,39 @@ test('a newer told position supersedes an older one still open', t => {
     assert.deepEqual(open.map(row => [row.name, row.effect.to]), [['t3-owed-1', 'commission-briefing']]);
     assert.deepEqual(closed.map(row => [row.name, row.how, row.by]), [['t2-owed-1', 'superseded', 't3-owed-1']]);
 });
+
+test('§213.2: a told departure for a place the table does not have is owed without an effect, the Keeper\'s, and closed by the Keeper\'s move', t => {
+    // Live 9e7 turn 26: the Keeper told the cab driving the investigator home; told-position read moved .92 and `none` 1.0, and
+    // nothing was owed, so the ledger kept the party at the newsvendor's corner while the player was told they had left.
+    const workspace = toldTurnTwo(t);
+    const AWAY = 'You hail a cab at the corner and ride home through the dark.';
+    const departure = ['table.owe', {turn: 3, effect: {kind: 'move', unlisted: true}, quote: AWAY, source: 'told-position'}];
+    const answers = steps(workspace, [['table.player_input', {text: 'I take a cab home.'}], ['table.narrate', {call_id: 't3-c1', text: AWAY}],
+        departure, departure]);
+    assert.deepEqual(answers[2], {turn: 3, owed: 't3-owed-1', departure: true});
+    assert.deepEqual(answers[3], {turn: 3, owed: 't3-owed-1'}, 'the same read sent again answers the row it wrote');
+    const [row] = ledger(workspace).open;
+    assert.deepEqual({effect: row.effect, departure: row.departure, quote: row.quote, source: row.source},
+        {effect: null, departure: {from: 'hall-of-records'}, quote: AWAY, source: 'told-position'});
+    assert.match(row.what, /^departure from .*\(hall-of-records\) to a place the table does not have yet/);
+    assert.equal(turnRecord(workspace, 3).warnings.find(entry => entry.kind === 'owed_state').owed, 't3-owed-1');
+    const later = steps(workspace, [['table.player_input', {text: 'I unlock my door.'}], ['table.capsule', {}]]);
+    const shown = later[1].owed.find(entry => entry.name === 't3-owed-1');
+    assert.deepEqual({kind: shown.kind, clerk: shown.clerk, effect: shown.effect}, {kind: 'move', clerk: false, effect: undefined}, 'the Keeper lands it, not the clerk');
+    const named = frames(workspace, [['table.apply', {call_id: 't4-c1', effects: [{kind: 'move', to: 'central-library', owed: 't3-owed-1'}]}]]);
+    assert.equal(named[0].error.details.reason, 'owed_unresolved', 'no effect lands a departure by name');
+    steps(workspace, [['table.apply', {call_id: 't4-c2', effects: [{kind: 'move', to: 'Rented room', establish: {summary: 'The investigator\'s rented room.'}, via: 'The cab brought him home.'}]}]]);
+    const {open, closed} = ledger(workspace);
+    assert.deepEqual(open, []);
+    assert.deepEqual(closed.map(entry => [entry.name, entry.how]), [['t3-owed-1', 'superseded']]);
+});
+
+test('§213.2: a turn that landed a move owes no departure', t => {
+    const workspace = toldTurnTwo(t);
+    const WALK = 'You walk over to the library.';
+    const answers = steps(workspace, [['table.player_input', {text: 'I walk out.'}],
+        ['table.apply', {call_id: 't3-c1', effects: [{kind: 'move', to: 'central-library'}]}], ['table.narrate', {call_id: 't3-c2', text: WALK}],
+        ['table.owe', {turn: 3, effect: {kind: 'move', unlisted: true}, quote: WALK, source: 'told-position'}]]);
+    assert.deepEqual(answers[3], {turn: 3, owed: null, dropped: 'move_landed'});
+    assert.equal(ledger(workspace), null);
+});
