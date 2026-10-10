@@ -552,3 +552,15 @@ not weaker gates. Provider APIs differ; no provider/model/SDK/dependency is repl
 Sources: https://docs.x.ai/developers/model-capabilities/text/reasoning ;
 https://platform.claude.com/docs/en/build-with-claude/vision ;
 https://developers.openai.com/api/docs/guides/structured-outputs .
+
+Independent code review found no gate relaxation or additional established execution bug.
+The runtime_context need is not itself a deterministic readiness blocker: faithful source
+applicability remains an author obligation and an independently reviewed logic property.
+Do not claim the brief adds a universal runtime condition engine. read18 already selected
+full repair because its review included missing; targeted-fallback usability is not its
+root cause. Clarified the existing submission-time fallback rather than adding an API.
+Provider full dispatch also preserves toolChoice, the fourth installed Responses-only
+option; its real SDK request comparison passes together with the other22 observation cases.
+fc3517fb6 committed scoped repairs; merged latest committed mainline f8a7680b1 cleanly.
+No other-owner dirty files were imported or staged. First LAN all is still running against
+its original snapshot; combined final all/build/live remain pending.
