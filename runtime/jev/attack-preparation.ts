@@ -13,6 +13,22 @@ export function attackPreparationNeeds(row: unknown, action: Record<string, Json
     needs.push(`Prepare the actually chosen attack usage for ${String(action.weapon)} through apply usage. Place or adopt its existing physical identity if needed; do not duplicate it. Apply usage joins a pending base definition.`);
   return needs;
 }
+/** The kernel's closed options for rolling an unprepared held object as an improvised weapon (§224.7). */
+export interface ImprovisedOffer {object: string; options: string[]; close: string[]; profiles: Array<{id: string; name: string; skill: string; damage?: string | null; range?: number | null}>}
+/**
+ * §224.7 (Keeper Rulebook, Improvised Weapons p.104): when the chosen weapon's usage is the attack's only unfinished
+ * preparation, the kernel's first-blow row offers the weapons-table rows the host may roll it as this turn. A target that
+ * also needs preparation keeps the whole attack in preparation (the fight cannot read them); `undefined` then.
+ */
+export function improvisedPreparation(row: unknown, action: Record<string, Json>): ImprovisedOffer | undefined {
+  const preparation = record(record(row).preparation), offer = record(preparation.improvised), object = String(action.weapon ?? '');
+  if (!object || !Array.isArray(preparation.weapons) || !preparation.weapons.includes(object)) return undefined;
+  if (Array.isArray(preparation.targets) && preparation.targets.includes(action.target)) return undefined;
+  const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && !!item) : [];
+  const options = strings(offer.options), profiles = Array.isArray(offer.profiles) ? offer.profiles.filter(entry => record(entry).id && record(entry).skill) : [];
+  if (!options.length || !profiles.length) return undefined;
+  return {object, options, close: strings(record(offer.close)[object]), profiles};
+}
 export function preparedAttackReady(candidate: Candidate, prepared: Candidate): boolean {
   const row = record(record(candidate.basis).row), action = prepared.bound;
   return Array.isArray(row.targets) && row.targets.includes(action.target)

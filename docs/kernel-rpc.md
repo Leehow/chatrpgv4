@@ -43144,6 +43144,80 @@ treats a person is the player's.
 withholds.
 
 
+### 224.7 An unprepared held object is rolled as an improvised weapon (2026-10-10, found on a real table; amends §159.10.1 and the open case of §224.2 item 1)
+
+**Evidence.** TR-F2 run 3, turn 31 (Grok 4.7 Build fast, live Jev; `telemetry.jsonl` of campaign `game-af36b938`): the
+investigator had picked up 锈蚀匕首 two turns before, its definition still pending, so the kernel's first-blow row listed it
+under `preparation.weapons`. Walter Corbitt was present (`present[0]`). The player declared 「我握紧匕首，朝他胸口狠狠刺下去！」;
+the compile fired `first_blow`, Jev bound the weapon 锈蚀匕首 (0.93) and the target, and the clerk step was refused
+`check_preparation` ("Prepare the actually chosen attack usage for 锈蚀匕首 through apply usage…"). The Keeper's `apply usage`
+went to the materializer queue (its §138.7 preset question answered `none`, 0.53), nothing landed in the turn, and the
+delivery recorded a forced `check-preparation` no-roll (`why: preparation_incomplete`). The Keeper narrated the blade bouncing
+off without a roll -- the case §224.2 item 1 left open ("an ordinary held item Jev scored highest still takes §159.10.1's
+preparation").
+
+**The rulebook.** The Keeper runs combat (chapter 6) and decides the damage of an improvised or unlisted weapon by comparing
+it with the weapons table (Improvised Weapons, p.104); the attack is rolled with the fitting Fighting skill. A player who
+declares a stab with a dagger in hand has chosen the act and the object; which table row the object hits like is a rules
+binding (§224.1), not a reason to roll nothing.
+
+**The rule.** When a declared first blow's chosen weapon is a held object whose attack usage is not prepared, and that is the
+attack's *only* unfinished preparation (its target the fight can read), the host settles it in the same turn:
+
+1. **The kernel offers the rows.** `table.resolve.options.context.first_blow.preparation.improvised` carries the weapons
+   table's era rows as the host's closed options -- `options` (ids), `profiles` (`{id, name, skill, damage, range}`) and
+   `close` (each unprepared object's lexically nearest ids) -- the same reading as the `needs {field: "weapon"}` refusal and
+   the preset offer (`weaponBandOptions`, §138.6/§138.7). Absent when nothing is unprepared.
+2. **Jev compares; the host binds.** The host asks the §138.6 two-level weapon band question (`askBand`, family
+   `band-recovery`, on the run's own Jev port) with `improvised: true`: the state says what the answer is for (the player's
+   declared attack with this held thing, rolled now as an improvised weapon), and both levels ask for the *closest* row
+   rather than an exact profile, with `none` only for a thing no listed skill fits even roughly. The gate is the weapons
+   band's (`PI_COC_BAND_MIN_CONFIDENCE`, default 0.5). Above the gate the attack is dispatched with `action.weapon: <held
+   object>` and `action.improvised: <row id>`; the bind record is `{name: "improvised", path: "rule-default", rule:
+   "attack_fallback", value: <row>, table: "weapons", band: <row>, confidence, distribution}` -- a rules binding as §224.2's
+   weapon fallback is, so §32.12's compile exemption still applies. On `none`, below the gate, with Jev unavailable or
+   unconfigured, the attack is unarmed Fighting (Brawl) exactly as §224.2 item 1 binds it (`weapon: unarmed`,
+   `rule-default` / `attack_fallback`), and the Jev-bound 锈蚀匕首 record is replaced.
+3. **The kernel rolls the row as the object.** `resolve` of an investigator's `combat:attack` accepts `action.improvised`
+   beside `action.weapon`: the object must be in the investigator's hands (a sheet equipment row, or a managed instance they
+   own), the row one of the weapons table's (its id or display name); otherwise `needs {field: "weapon" | "improvised"}`.
+   The engine row is the table row under the table's id with the object's name and `improvised_object` /
+   `improvised_profile`; the fight starts (or, in a running fight, the investigator's participant gains it) with that row;
+   `pending_attack` carries `improvised_object`, and the result's `outcome.improvised: {object, weapon, profile}` names it as
+   `object_usage` names a usage. The `needs` refusal's fix (`armingFix`) now names this path for the Keeper too. Nothing is
+   written to the sheet or the object: no usage, no equipment profile.
+4. **Forced resolution.** Either outcome is recorded once (§163.3) as `family: "check-binding"`, `chosen.outcome: "roll"`,
+   `why: "attack_fallback"`, `uncertain` naming the object, the row (id, name, skill, damage) and Jev's confidence, or the
+   unarmed fallback and the reason; the `band-recovery` lane row (`for: "improvised"`) and a `bind` row (`clerk:
+   "improvised_weapon"`) carry the distributions. The Keeper reads it through `decided_under_uncertainty` as any §163 record.
+5. **Preparation is untouched.** A target that also needs preparation keeps the whole attack in preparation (the fight cannot
+   read them, §180.6); the `check_preparation` refusal and the retained attack (§159.10.1) are as before. The object's
+   background usage preparation (the materializer queue, prefetch proposals) runs as it did: once the usage lands the kernel
+   lists the object as ready, `preparation.weapons` no longer names it, and the ordinary binding (`selectObjectWeapon`) takes
+   over -- no band question is asked, no `improvised` bound.
+
+**Three ends (§31).** Writer: the kernel's first-blow row (`kernel-ts/runtime/resolve-operation.ts`) offers the rows;
+`improviseAttack` (`runtime/jev/hybrid-engine.ts`) asks and binds, through `askBand` (`extensions/kernel/band-recovery.ts`,
+now taking the caller's Jev port) and `runWeaponBand`'s improvised framing (`runtime/jev/band-recovery-domain.ts`);
+`improvisedPreparation` (`runtime/jev/attack-preparation.ts`) reads the offer. Reader: the combat slot
+(`kernel-ts/combat/index.ts`) and `improvisedWeapon` (`kernel-ts/combat/profiles.ts`) check object and row;
+`startCombat` / the running fight (`kernel-ts/combat/execution.ts`) build the participant row; admission reads the bind
+record. Actor: the kernel rolls the attack with the row's skill and damage; the Keeper narrates the receipt and may still
+prepare the object's own usage for later turns.
+
+**Tests.** `tests/extension/improvised-weapon.test.mjs` (real RPC fixture, faked Jev port): the first-blow row offers the
+rows for an unprepared chair and not for a ready revolver, and offers nothing when the target is unprepared; the kernel
+refuses a row that is not the table's and an object not held, rolls `Study chair` as `club_large` (Fighting (Brawl), 1D8)
+with `outcome.improvised` and writes no usage; the turn-31 shape through the engine dispatches `weapon: Study chair,
+improvised: club_large` with a forced `attack_fallback` roll and the `band-recovery` / `bind` rows; Jev `none` and no Jev
+dispatch `unarmed` with the same forced family; a prepared usage dispatches with no band question and no fallback.
+
+**Needs a live check.** Real Jev on the turn-31 declaration with the rulebook framing (turn 31's preset question, framed as a
+definition's profile, answered `none` for the dagger); canonical admission of a clerk `resolve` carrying `improvised` (the
+test's dispatcher calls the kernel directly); the Keeper's narration reading `outcome.improvised`. A `session_step` attack
+inside a running fight with an unprepared object is not routed here (the kernel accepts `improvised` there; the host asks
+only for the first blow).
+
 ## 225. A module's second authored opening is a start candidate, and the chosen opening is the table's scene (2026-10-10; amends §14.14, §14.19, §22.9; relies on §168.3)
 
 **Evidence.** Playtest `pdf-source-latency-opening-20261010` (book-1, a 1937 NKVD scenario PDF). The book authors two

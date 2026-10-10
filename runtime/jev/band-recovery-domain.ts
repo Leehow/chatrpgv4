@@ -55,6 +55,11 @@ export interface WeaponBandInput {
   close?: string[];
   /** The rulebook profiles behind the options, from the catalog. */
   profiles: WeaponProfile[];
+  /**
+   * §224.7: the thing is a held object the player is attacking with before its usage is prepared, and the rulebook has the
+   * Keeper compare an improvised weapon with the table (p.104): the question asks for the closest row, not an exact profile.
+   */
+  improvised?: boolean;
 }
 export interface BandUsage {inputTokens: number; outputTokens: number; costUsd: number}
 export interface BandDecided {
@@ -154,11 +159,14 @@ export async function runWeaponBand(input: WeaponBandInput, decision: DecisionPo
   const families = new Map<string, WeaponProfile[]>();
   for (const profile of profiles) families.set(profile.skill, [...(families.get(profile.skill) ?? []), profile]);
   const thing: Json = {name: input.thing.name, ...(input.thing.why ? {why: clip(input.thing.why, 300)} : {}), ...(input.thing.description ? {description: clip(input.thing.description, 600)} : {})};
-  const state: Json = {declaration: clip(input.declaration, 600), thing, ...(input.close?.length ? {closest_by_name: input.close} : {})};
+  const improvised = input.improvised === true;
+  const state: Json = {declaration: clip(input.declaration, 600), thing, ...(input.close?.length ? {closest_by_name: input.close} : {}),
+    ...(improvised ? {needed_for: 'the player\'s declared attack with this held thing, rolled now as an improvised weapon: the Keeper compares it with the closest weapons-table row'} : {})};
   const bindings = bindingsFor('weapon', input);
   const familyCriteria: Record<string, string> = Object.fromEntries([...families].map(([skill, members]) =>
     [skill, `${skill}: ${members.slice(0, 8).map(profile => profile.name).join(', ')}${members.length > 8 ? ', ...' : ''}`]));
-  familyCriteria.none = 'This thing is not a weapon anyone would fight with; it takes no rulebook profile.';
+  familyCriteria.none = improvised ? 'No listed weapon skill fits how this thing would be swung, thrown or fired, even roughly; it hurts no more than a bare hand.'
+    : 'This thing is not a weapon anyone would fight with; it takes no rulebook profile.';
   try {
     const first = await ask(decision, lease, batchOf(`band:weapon:family:${input.turn}:${digest(state)}`, bindings, state, [{
       key: 'family', target: `the weapon skill this thing is used with`, type: 'choice',
@@ -173,10 +181,12 @@ export async function runWeaponBand(input: WeaponBandInput, decision: DecisionPo
     if (!beam.includes(family.choice)) beam.unshift(family.choice);
     const questions: DecisionQuestion[] = beam.map((skill, index) => ({
       key: `profile_${index}`, target: `the ${skill} profile this thing hits like`, type: 'choice',
-      instructions: `Among the rulebook's ${skill} weapons, which profile is this thing closest to in how it hurts and how it is used? Choose none when no profile of this skill fits.`,
+      instructions: improvised
+        ? `Among the rulebook's ${skill} weapons, which row is this thing most like in size, weight and how it hurts? It is improvised, so the closest row counts, not an exact match. Choose none only when nothing of this skill is even roughly comparable.`
+        : `Among the rulebook's ${skill} weapons, which profile is this thing closest to in how it hurts and how it is used? Choose none when no profile of this skill fits.`,
       criteria: {...Object.fromEntries(families.get(skill)!.map(profile => [profile.id,
         `${profile.name}${profile.damage ? `: damage ${profile.damage}` : ''}${profile.range != null ? `, range ${profile.range} yards` : ''}`])),
-        none: `No ${skill} profile fits this thing.`}}));
+        none: improvised ? `Nothing among the ${skill} rows is even roughly comparable to this thing.` : `No ${skill} profile fits this thing.`}}));
     const second = await ask(decision, lease, batchOf(`band:weapon:profile:${input.turn}:${digest(state)}`, bindings, state, questions), usage);
     calls++;
     let best: {id: string; score: number; confidence: number; distribution: Record<string, number>; family: string} | undefined;

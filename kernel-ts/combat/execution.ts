@@ -13,7 +13,7 @@ import { objectTransferReceipt } from '../mods/object-transfer.js';
 import { selectObjectWeapon } from '../mods/usages.js';
 import { CombatSession, VALID_OUTCOMES } from './engine.js';
 import { UnknownWeaponError } from './catalog.js';
-import { authoredWeaponMatches, combatOperationDestinations, combatOperationFor, investigatorCombatParticipant, moduleWeapons, npcCombatParticipant, participantGaps, resolveInvestigatorWeapon, sheetSkillValue, weaponOptions } from './profiles.js';
+import { authoredWeaponMatches, combatOperationDestinations, combatOperationFor, improvisedWeapon, investigatorCombatParticipant, moduleWeapons, npcCombatParticipant, participantGaps, resolveInvestigatorWeapon, sheetSkillValue, weaponOptions } from './profiles.js';
 import { requireParticipantBlock } from './stat-block.js';
 import { syncCombatants } from './resources.js';
 import { archetypeIds } from '../apply/archetype.js';
@@ -127,7 +127,10 @@ export async function startCombat(context: SettleContext, args: Row): Promise<[
         });
     // §180.6 (CK-F2): a block that lacks what the participant is built from is refused with its completion.
     await requireParticipantBlock(context.kernel, context.graph, node, target, profile, `a fight against ${context.graph.displayName(node)}`);
-    const sheet = context.actor, weaponId = args.weapon_id, weapon = truth(weaponId) ? await resolveInvestigatorWeapon(context.tables, sheet, string(weaponId)) : null;
+    const sheet = context.actor, weaponId = args.weapon_id;
+    // §224.7: the slot named a held object's improvised row (Keeper Rulebook p.104); the engine row carries the object's name.
+    const weapon = truth(weaponId) ? truth(args.improvised_object) ? await improvisedWeapon(context.tables, context.world, sheet, string(args.improvised_object), string(weaponId))
+        : await resolveInvestigatorWeapon(context.tables, sheet, string(weaponId)) : null;
     if (truth(weaponId) && weapon === null)
         throw new RpcError('needs', `${repr(weaponId)} is not a weapon the investigator carries`, {
             fix: `set action.weapon to one of details.needs.options, or arm ${string(weaponId)} first with apply item: its name plus the rules-table profile in weapon (a heavy blunt tool is club_large)`,
@@ -214,6 +217,8 @@ function pendingAttack(session: CombatSession, context: SettleContext, actor: st
     const pending: Row = { attack_command_id: context.callId, actor_id: actor, target_actor_id: target, declared_intent: intent,
         resolution_hint: firearm ? 'firearm_attack' : 'opposed_melee', weapon_id: string(weapon.weapon_id || weaponId || 'unarmed'),
         ...(weapon.usage_id ? {usage_id:weapon.usage_id,object_id:weapon.object_id,usage:weapon.usage} : {}),
+        // §224.7: an improvised use says which held object the table row stands in for, so the receipt stays honest.
+        ...(weapon.improvised_object ? {improvised_object:weapon.improvised_object,improvised_profile:weapon.improvised_profile ?? null} : {}),
         rulebook_exception: null, on_success: null, victory_outcome: null, defeat_outcome: null,
         allowed_defenses: firearm ? ['dive_for_cover', 'none'] : ['dodge', 'fight_back'],
         // The attack is declared now and rolled on the defence call, so the keeper's dice wait here.
@@ -323,6 +328,10 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
     if (!Object.hasOwn(session.participants, actor))
         throw new RpcError('unknown_entity', `${actor} is not in this combat`, { details: { query: actor, candidates: sorted(Object.keys(session.participants)) } });
     if (kind === 'attack') await bindUsageSkill(context,session,actor,args.weapon_id);
+    // §224.7: an improvised use declared inside a running fight joins the investigator's participant weapons under the row's id.
+    if (kind === 'attack' && truth(args.improvised_object) && actor === context.actorId && truth(args.weapon_id)
+        && !session.participants[actor].weapons.some((value: Row | string) => (isJsonObject(value) ? value.weapon_id : value) === args.weapon_id))
+        session.participants[actor].weapons.unshift(await improvisedWeapon(context.tables, context.world, context.actor, string(args.improvised_object), string(args.weapon_id)));
     const before = hpState(session);
     let pending = session.pendingAttack, turn: Row | null = null, rolls: Row[] = [];
     if (pending && kind !== 'defend')
@@ -479,6 +488,11 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
         session: view.combatView(), pending_choice: view.pendingChoice(), started: started !== null };
     const used = row(session.weaponCatalog[string(turn?.weapon_id ?? pending?.weapon_id ?? args.weapon_id ?? '')]);
     if (used.usage_id) data.object_usage = {object:used.name,usage:used.usage,instance:used.object_id,usage_id:used.usage_id};
+    // §224.7: an improvised use is named on the result as a usage is: the held object, the weapons-table row it was rolled as.
+    const usedId = string(turn?.weapon_id ?? pending?.weapon_id ?? args.weapon_id ?? ''), usedBy = string(turn?.actor_id ?? pending?.actor_id ?? actor);
+    const improvisedRow = usedId && Object.hasOwn(session.participants, usedBy)
+        ? session.participants[usedBy].weapons.find((value: Row | string) => isJsonObject(value) && value.weapon_id === usedId && truth(value.improvised_object)) : undefined;
+    if (isJsonObject(improvisedRow)) data.improvised = {object: improvisedRow.improvised_object, weapon: usedId, profile: improvisedRow.improvised_profile ?? null};
     if (started) {
         data.initiative = started.initiative;
         data.preparations = started.preparations;

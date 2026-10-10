@@ -17,6 +17,8 @@ import {npcProfileOf} from '../resolve/context.js';
 import {incapacitatedBy} from '../healing/conditions.js';
 import {participantGaps, weaponOptions} from '../combat/profiles.js';
 import {VALID_OUTCOMES} from '../combat/engine.js';
+import {weaponBandOptions} from '../rules/bands.js';
+import {moduleDeclaration} from '../read/module-graph.js';
 import type {ModuleGraph} from '../read/module-graph.js';
 import {checkCatalog} from './check-catalog.js';
 import {committedOnLine, lastExchange} from '../read/exchange.js';
@@ -27,7 +29,7 @@ import {committedOnLine, lastExchange} from '../read/exchange.js';
  * identity `capsule.present` gives them, and the investigator's own weapons. One investigator only (the actor a resolve
  * without `actor` defaults to); no target, no row. A read: the kernel still opens the fight on the resolve.
  */
-function firstBlow(graph: ModuleGraph, world: Row, party: Row[], session: Row | null): Row | null {
+async function firstBlow(graph: ModuleGraph, world: Row, party: Row[], session: Row | null, tables: RuleTables): Promise<Row | null> {
     if (session && (session.kind === 'combat' || session.kind === 'chase') || party.length !== 1) return null;
     const scene = graph.scene(world.active_scene);
     if (!scene) return null;
@@ -47,10 +49,20 @@ function firstBlow(graph: ModuleGraph, world: Row, party: Row[], session: Row | 
         const profile = npcProfileOf(graph, world, graph.handle(node));
         return profile === null || participantGaps(profile).length > 0;
     });
-    return targets.length ? {decision: 'combat:attack', intent: 'combat', actor: string(sheet.name), targets, weapons,
+    if (!targets.length) return null;
+    const unprepared = weapons.filter(name => !ready.includes(name));
+    // §224.7 (Keeper Rulebook p.104): the weapons-table rows an unprepared held object may be rolled as this turn, the kernel's
+    // own closed options for the host's comparison -- the era's rows, their profiles, and each object's lexically closest ids.
+    // The same reading as the `needs {field: "weapon"}` refusal and the preset offer (§138.6, §138.7).
+    const table = unprepared.length && await tables.exists('weapons') ? await tables.weaponsTable() : {};
+    const era = string(sheet.era || moduleDeclaration(graph.moduleNode).era || '');
+    const offers = unprepared.map(name => weaponBandOptions(Object.entries(table), era, name));
+    const improvised = offers.length ? {options: offers[0].options, profiles: offers[0].profiles,
+        close: Object.fromEntries(unprepared.map((name, index) => [name, offers[index].close]))} : undefined;
+    return {decision: 'combat:attack', intent: 'combat', actor: string(sheet.name), targets, weapons,
         preparation: {targets: unready.map(node => graph.displayName(node)),
             completions: Object.fromEntries(unready.map(node => [graph.displayName(node), graph.isPerson(node) ? 'archetype' : 'creature'])),
-            weapons: weapons.filter(name => !ready.includes(name))}} : null;
+            weapons: unprepared, ...(improvised ? {improvised} : {})}};
 }
 
 export function ordinaryResolveHandlers(context: KernelContext): HandlerGroup {
@@ -81,7 +93,7 @@ export function ordinaryResolveHandlers(context: KernelContext): HandlerGroup {
                 .map(rule => ({text: rule.name, source_refs: rules.sourceRefsFor([rule.node_id])}))}));
         campaign.records = await campaign.files('turns');
         const history = committedOnLine(campaign), publicText = typeof history.previous?.rendered_text === 'string' ? history.previous.rendered_text : '';
-        const openingAttack = firstBlow(module.graph, campaign.world, campaign.party, sessions.activeSession());
+        const openingAttack = await firstBlow(module.graph, campaign.world, campaign.party, sessions.activeSession(), tables);
         const phases = Object.fromEntries(rules.decisionNodes().map(node => [semanticName(node.node_id), string(row(row(node.properties).implementation).phase)]));
         const selection = await checkCatalog(campaign, module.graph, sessions, profiles, decisions, {phases, openingAttack, history: history.records, publicText});
         const activeSession = sessions.activeSession();
