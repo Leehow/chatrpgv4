@@ -642,3 +642,57 @@ work into owned branch, preserve attribution and verify the combined runtime. Ne
 all/build/genuine continuation is justified by that production change, not a repeat of an
 unchanged build. Worker is investigating whether it explains empty Keeper source status;
 no causal claim until actual evidence. All old runs/errors/partial source state stay retained.
+
+Combined21d9303fa imports only committed988 source-discovery work; idle amax all running.
+Read-only audit identifies a source-map publication/projection seam: new player-safe asset
+depicts a different scene, current reference anchor has no occurs-at/located-in path. Actual
+where.assets contains only scene, no new map. No evidence of SQLite staleness: authoritative
+SQL/JSON generation/digests agree. Do not auto-merge these identities or credit source map
+visibility to the other owner's cache changes. Map metadata/evidence retained privately.
+
+To cover read18 without changing guard/retry API or editing evidence, start a genuinely
+fresh campaign using the same originalPDF/library through normal driver setup, root sole
+player, Grok4.7BuildFast/low, then natural opening/background reading. New campaign id
+pdf-refusals-fresh-20261010, setup run pdf-refusals-fresh-20261010-setup; same protected source
+home/library and existing production auth in child memory. A new campaign does not reset
+or relabel old failures; same configured per-job/stage limits and source gates. Do not fake
+character, replay private conditions to player, copy world state or hand-author rules.
+Ready launcher start-fresh-setup.mjs has no secret payload. Fetch the already-completed
+combined build read-only and verify embedded sources before this fresh validation.
+
+Combined all21d930 ended red606s: ext5487pass/1fail/1skip,pytest2128pass/2skip,loop12pass.
+Prescreen material-gap reused-packet wait expired after10s; its own production reuse500ms
+was not relaxed. Entire unchanged file passes8/8 in idle-LAN isolated22.971s, raw retained.
+All combined per-file/raw logs retained in all-21d9303fa before any refresh. Rerun unchanged
+full suite once to resolve this remaining acceptance uncertainty; no weakened assertion,
+skip, deadline, model or resource setting. This new red supersedes any claim combined all
+is green, while previous f059 all green remains genuine evidence.
+
+Fresh genuine setup has started (daemon16655/pi16657, combined21d930 runtime) and received
+three root natural inputs: sameoriginalPDF path,44-year-old agronomy professor, self-created
+card/crop-investigation entrance, sample tools, name Ivan Petrovich Sokolov. Root answered
+public setup questions only; no private conditions/source truth delivered to the player.
+Fresh read18 audit standard is prepared privately against original pages/spans; it must
+check retained applicability/dependencies, original-page independent review and publication,
+not matching job numbers. Continue this existing setup before starting a separate play run.
+
+Unchanged21d930 full rerun completed green605s: ext5488pass/0fail/1skip,pytest2128pass/2skip,
+routing12pass. Red606 and isolated8/8 retained, no assertion/500ms/resource changes. Full
+rerun raw/per-file logs saved in all-21d9303fa-rerun. New runtime proof689/689 plus9 relevant
+bundle hashes retained. Fresh setup5natural/9tools/124.3s and fresh play2natural/6tools now
+complete. Fresh turn1=78.1s; turn2=132.7s has real scene Office→Farm/clue mechanics. Worker
+must audit actual prepare/retry/memo/admission, not prose, before claiming that branch.
+
+Fresh source read1 attempt2 actually reprocessed original21–22 pages in new scope and
+publishedgeneration27 with plan/candidate/review hashes bound. Independent original-page
+semantic audit is PARTIAL:7nodes/9claims/ready7, old requirement/route not rebuilt/notready,
+related material deferred3. It avoids the old unconditional obligation, but does not prove
+old applicability/dependency structure repaired. Do not mark read18 closed or invent its
+conditions in a player utterance. This is legitimate deferred material, no new confirmed
+reviewer failure; further targeted live coverage needs a real use of that structure.
+
+Mainline moved through accepted native/history integration to c8c61e206, clean. Only those
+committed mainline changes may enter this owned branch; package list additions are local
+native-search code, no new dependency download. Stop fresh run normally; import latest
+committed baseline, exact combined all/build and genuine continuation, keep other owner's
+attribution. All pending source/limitations remain honest; no automatic scene identity merge.
