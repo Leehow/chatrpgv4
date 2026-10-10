@@ -258,3 +258,13 @@ reads, author/reviewer traces, failed/interrupted tests and transport logs. Afte
 integration, set the lifecycle owner terminal, perform audit/closeout against0.9.7a and
 retain the tuple on retained_dirty; never erase the marker or evidence for a clean audit.
 The actual CLI result and final audit will be stored beside the retained acceptance logs.
+
+Scoped stack integrated by fast-forward into latest0.9.7a at197a5d505; primary was clean,
+no other-owner changes were staged. Ancestry is verified. Lifecycle owner is terminal,
+closeout returnedretained_dirty(exit3), and final audit confirms the exact identity/path/
+branch still present and terminal. Its one pending entry is explicitly classified
+retained:protected_real_playtest_evidence; only untrackedPLAYTEST_EVIDENCE.json causes dirt,
+so no retryable cleanup or unclassified task entry remains. Actual CLI outputs are in
+final-lifecycle-retention.json. No evidence, worktree or branch is deleted. The exact tested
+runtime stays in the retained checkout; primary build artifacts and the running App were
+not replaced, preserving the other owner's live session. Heartbeat may now be paused.
