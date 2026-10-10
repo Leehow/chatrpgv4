@@ -109,7 +109,7 @@ continuation; held/carried layout and accounting stay original, without changing
 assertions. Original held/cache regression18/18passed locally.
 
 Exact7ae runtime690sources/0mismatch used for genuine setup: four natural player turns
-39.758/47.085/9.015/9.072s, only2toolcalls, normal stop. The last two replies claimed handoff
+39.758/47.085/8.967/9.118s, only2toolcalls, normal stop. The last two replies claimed handoff
 but kernel remainedsetting_up, no investigator and onlydraft. Preserve this real failure.
 Independent audit confirmed turn3 several_moves(card_fields.91/approval.82), turn4 approval.97;
 setup tool present in native checkpoint, no actual confirmation/completion calls. The setup
