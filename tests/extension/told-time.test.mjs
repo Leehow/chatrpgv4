@@ -39,9 +39,9 @@ const BANDS = [
 ];
 const INPUT = {campaign: CAMPAIGN, turn: 2, bands: BANDS, sentences: [CIRCUIT, '风从办公楼的夹缝里下来。']};
 
-test('one request: the time_cost Choice (none first, no road row, each row\'s covers) and the sentence Choice; the state is the told text alone', () => {
+test('one request: the told_cost Choice (none first, no road row, each row\'s covers) and the sentence Choice; the state is the told text alone', () => {
     const questions = toldTimeQuestions(INPUT);
-    assert.deepEqual(questions.map(question => [question.key, question.type]), [['time_cost', 'choice'], ['sentence', 'choice']]);
+    assert.deepEqual(questions.map(question => [question.key, question.type]), [['told_cost', 'choice'], ['sentence', 'choice']]);
     assert.deepEqual(Object.keys(questions[0].criteria), ['none', 'momentary', 'brief_activity', 'single_room_search'], 'a journey is its move\'s');
     assert.match(questions[0].criteria.single_room_search, /10 to 45 minutes: Searching one room or one small area\./);
     assert.deepEqual(Object.keys(questions[1].criteria), ['s1', 's2']);
@@ -166,18 +166,18 @@ test('the capsule shows the told time to the clerk, and apply time {band, owed} 
 // ---- through the real delivery path --------------------------------------------------------------------------------
 
 /**
- * The typed endpoint: the told-time batch puts `time_cost` on `band` and `sentence` on the delivered sentence `sentence`;
+ * The typed endpoint: the told-time batch puts `told_cost` on `band` and `sentence` on the delivered sentence `sentence`;
  * every other family's Choice gets its first criterion and every Noul 0.05 (no move, no clue given).
  */
 function installJev(t, {band = 'single_room_search', sentence = CIRCUIT, confidence = 0.9} = {}) {
     const original = globalThis.fetch, batches = [];
     globalThis.fetch = async (url, init) => {
         if (String(url) !== JEV_URL) return original(url, init);
-        const body = JSON.parse(init.body), told = ['time_cost', 'sentence'].every(key => Object.hasOwn(body.questions, key));
+        const body = JSON.parse(init.body), told = ['told_cost', 'sentence'].every(key => Object.hasOwn(body.questions, key));
         const state = typeof body.state === 'string' ? JSON.parse(body.state) : body.state;
         if (told) batches.push({body, state});
         const pick = (key, question) => {
-            if (told && key === 'time_cost') return band;
+            if (told && key === 'told_cost') return band;
             if (told && key === 'sentence') return Object.keys(state.told).find(alias => state.told[alias] === sentence) ?? Object.keys(question.criteria)[0];
             return Object.keys(question.criteria)[0];
         };

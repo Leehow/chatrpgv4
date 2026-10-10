@@ -3,7 +3,7 @@
  *
  * After a delivery whose turn charged no time, the host asks Jev, in one request, two things about the text the player just
  * read: which row of the rules' time-cost table (the road rows left out: a journey is its move's) the activity the text
- * tells is, or `none` (a Choice `time_cost`, each criterion the row's own name, range and `covers`, as §138.8's question
+ * tells is, or `none` (a Choice `told_cost`, each criterion the row's own name, range and `covers`, as §138.8's question
  * writes it), and which delivered sentence tells the longest part of it (a Choice `sentence` over the text split by
  * §190.2's splitter). The state is the delivered sentences and nothing else: not the clock, not the receipts, not the
  * player's words (Jev does not compare times, §145.2).
@@ -71,7 +71,7 @@ export function toldTimeState(input: ToldTimeInput): Json {
 
 const READS = '`told` is what the Keeper has just told the player, sentence by sentence in order.';
 
-/** The `time_cost` Choice (`none` first, then the act rows) and the `sentence` Choice, in one batch. */
+/** The `told_cost` Choice (`none` first, then the act rows) and the `sentence` Choice, in one batch. */
 export function toldTimeQuestions(input: ToldTimeInput): DecisionQuestion[] {
   const costs: Record<string, string> = {
     none: 'No in-world activity beyond a moment is told happening now, or none of the acts below fits what is told.',
@@ -80,7 +80,7 @@ export function toldTimeQuestions(input: ToldTimeInput): DecisionQuestion[] {
   const sentences: Record<string, string> = Object.fromEntries(input.sentences.map((sentence, index) =>
     [sentenceKey(index), `\`told.${sentenceKey(index)}\`: ${clip(sentence, 160)}`]));
   return [
-    { key: 'time_cost', target: 'the in-world activity the delivered text tells the investigators carrying out, as a cost in time', type: 'choice',
+    { key: 'told_cost', target: 'the in-world activity the delivered text tells the investigators carrying out, as a cost in time', type: 'choice',
       instructions: `${READS} Which option is the activity the investigators carry out in what \`told\` tells happening now, judged by its kind and its `
         + 'extent: how much ground it covers, how many things it goes through, how long it goes on? Each option is an act of a given extent with the '
         + 'time it takes at the table. Count only what the text tells them doing now. A journey between places does not count (the move carries its '
@@ -119,7 +119,7 @@ export async function runToldTime(input: ToldTimeInput, decision: DecisionPort, 
     usage.outputTokens += result.usage?.outputTokens ?? 0;
     usage.costUsd += result.usage?.costUsd ?? 0;
     const costKeys = Object.keys(questions[0]!.criteria as Record<string, string>);
-    const cost = leading(result.answers.time_cost, costKeys);
+    const cost = leading(result.answers.told_cost, costKeys);
     if (!cost) return failed(result.failure?.code ?? 'cost_unanswered');
     const sentenceKeys = input.sentences.map((_, index) => sentenceKey(index));
     const told = leading(result.answers.sentence, sentenceKeys);

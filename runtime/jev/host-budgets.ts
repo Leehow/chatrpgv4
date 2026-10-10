@@ -764,12 +764,12 @@ export function resetToldClueBudgetCache(): void { toldClueCached = undefined; }
 
 /**
  * Contract §216.1: the told-time read after a delivery. `mode` (`off | shadow | on`; the environment's `PI_COC_TOLD_TIME`
- * overrides it alone), the bar the `time_cost` Choice must clear, the bar its sentence Choice must clear, the fewest
+ * overrides it alone), the bar the `told_cost` Choice must clear, the bar its sentence Choice must clear, the fewest
  * `default` minutes a chosen row must carry to be owed, and the read's own deadline. Data, never a literal in the lane.
  */
 export interface ToldTimeBudget {
   mode: 'off' | 'shadow' | 'on';
-  /** `told_time.cost_min`: the `time_cost` Choice's confidence. */
+  /** `told_time.cost_min`: the `told_cost` Choice's confidence. */
   costMin: number;
   /** `told_time.sentence_min`: the `sentence` Choice's confidence. */
   sentenceMin: number;

@@ -42852,7 +42852,7 @@ asked) in these cases:
 
 Otherwise the host sends Jev one request with two questions:
 
-- **`time_cost`**: a Choice over the time-cost rows an act can take (`time.band` without the road rows, §138.9), plus `none`,
+- **`told_cost`** (a key apart from §138.8's `time_cost`: a different question over the same rows): a Choice over the time-cost rows an act can take (`time.band` without the road rows, §138.9), plus `none`,
   listed first. These are the same rows as §138.8's question, each criterion built by `timeCriterion` (the row's name, range
   and `covers`). The question asks which row is the in-world activity the investigators carry out in the told events, judged
   by kind and extent. Only what the text tells happening now counts. Not counted:
