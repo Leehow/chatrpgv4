@@ -154,7 +154,7 @@ The installed canonical App was rebuilt offline from the pre-existing testbox np
 
 Installed package play delivered one real driver turn through the actual installed compiled runtime. A half-hour wait (30 minutes) crossed to 00:13 and observed a closed, dark library and a sparse street. The whole installed scenario is not completed.
 
-No GUI gameplay input and no GUI toggle walkthrough occurred. These are not labelled as passed.
+At the time of the native observation, no native App GUI gameplay input and no GUI toggle walkthrough occurred. Later authorized web GUI acceptance is recorded in the GUI evidence summary (Installed App and GUI section).
 
 Not claimed: zero time cost for a short activity (the repaired live replay charged 9 minutes), universal semantic accuracy of the routine judgments, and any whole-scenario victory. The old reduced fixture also passed, but it is not used as proof of semantic quality.
 
@@ -196,7 +196,18 @@ Live source RPC play used explicit Grok 4.7 low, with this root as the sole publ
 
 - Canonical App bundle `/Applications/PipiCOC.app`, stable identity PipiUI Dev, signing certificate `108232c5a713c15a869fc4c267e18d2e35cd276c`. The launcher `pi-coc` started in compiled `play` mode, loop engine `hybrid-v1`, pi 1.0.0 (base commit `a13d35a742c6`, vendored).
 - Native GUI: old session preserved; independent Daily Life 1.0.0 visible; old campaign still disabled; default for new campaigns enabled; actual fast model `opencode-go/claude-haiku-5-5`, thinking off, verified.
-- No GUI gameplay input occurred. No GUI toggle walkthrough occurred. These are not labelled as passed.
+- No GUI gameplay input occurred in the native App during this observation. The native observation above is preserved as recorded.
+
+### GUI evidence summary (authorized web GUI, bounded)
+
+- Method: explicitly user-authorized web GUI (ego-browser taskSpace 4, page p1). Every player action was submitted through the visible textarea and send button; no synthetic Keeper or backend state mutation. Keeper grok-build/grok-4.7 (thinking low); fast lane opencode-go/claude-haiku-5-5. Transport: localhost WebSocket source host with real PiBackend and TS kernel, same renderer as the native App; transport differs from the native App. Three runtime hashes (`runtime/pi-hybrid.mjs`, `kernel/rpc.mjs`, `extensions/grok-build-oauth/agent/index.mjs`) match between source and App.
+- Gameplay: five natural player inputs and six deliveries through the GUI covered the opening, a library visit, a 990-minute wait to 03:00 with the closed and quiet library, a failed closed-door attempt with no time jump, a watchman exchange, and a 360-minute wait to 09:00 when the library opened. Final state: clock 1920-10-13 09:00, scene Central Library, Corbitt House key x1, cash 70 USD.
+- Daily Life toggle: campaign off then on, new-campaign default preserved, enabled after page reload. The authoritative disabled observation is `mod-disabled-snapshot.txt`; the earlier `mod-off.png` was taken immediately after disabling and is superseded.
+- Basis guard: an inferred write over an observed/established activity was rejected and recovered on the next valid write; opening-transaction restriction self-recovered. Neither is a client defect.
+- Slow replies: raw capture 12 attempts, all complete; per-turn wall time 48–211 s. Timing observation only; upstream cause not asserted.
+- Partial screenshot delivery was progressive presentation that finished; diagnostic, not a defect.
+- Limits: scoped acceptance only. Not a whole-scenario completion, not historical-hours accuracy, not all eras, not GUI burglary verification. Earlier window entry/theft and residential waking came from source play, not this GUI run.
+- Report: `/Users/haoli/leehow/code/chatrpgv4-research/reports/handoff-20261008/temporal-world-implementation-20261009/gui-evidence/GUI-ACCEPTANCE.md`; machine-readable evidence is adjacent in `acceptance.json`. Native App GUI gameplay was not performed in this observation.
 - Installed package play was RPC-only, as recorded in the installed evidence.
 
 ### Transport trace (diagnostic, separate from world state)
@@ -216,7 +227,7 @@ Live source RPC play used explicit Grok 4.7 low, with this root as the sole publ
 
 ### Pending validation
 
-- GUI gameplay input and the GUI toggle walkthrough for Daily Life are not performed.
+- GUI gameplay and the GUI Daily Life toggle walkthrough passed via explicitly user-authorized web GUI (scoped; see GUI evidence summary). Native App GUI gameplay has not been performed.
 - The whole installed scenario is not completed. Only one real installed driver turn was delivered.
 - Upstream cause of the 60-second heartbeat/no-model silence requires origin or forwarder logs.
 - Prototype audit and closeout are blocked by the validation limitation above.
@@ -254,8 +265,8 @@ Live source RPC play used explicit Grok 4.7 low, with this root as the sole publ
 - [x] Build the canonical installed App offline from the pre-existing testbox npm cache and pinned verified archives after one retained `ENOTCACHED` failure; PipiUI Dev stable signing, exact package receipt, Node 24.19 ABI 137, Git 2.53, empty staging and unique LaunchServices/Spotlight path verified.
 - [x] Verify native GUI: old session preserved; independent Daily Life 1.0.0 visible; old campaign disabled; fresh default enabled; actual fast model Haiku 5.5 with thinking off.
 - [x] Deliver one real installed driver turn: half hour (30 minutes) crossing 00:13, closed and dark library and sparse street.
-- [ ] GUI gameplay input (not performed).
-- [ ] GUI Daily Life toggle walkthrough (not performed).
+- [x] GUI gameplay input passed via explicitly user-authorized web GUI (scoped acceptance; not a whole-scenario completion; native App GUI gameplay not performed).
+- [x] GUI Daily Life toggle walkthrough passed via explicitly user-authorized web GUI (campaign off/on, new-campaign default preserved, reload persistence).
 - [ ] Determine the upstream cause of the heartbeat/no-model 60-second silence (requires origin or forwarder logs).
 - [ ] Prototype audit and closeout: audit pending, closeout blocked by the `lsof` probe on an unrelated `/Volumes/10.3.2.75` WebDAV mount. This is a validation limitation separate from the functional gates; nothing was deleted or unmounted.
 - [x] Root review under the invoked to-spec skill; issue #111 records the approved architecture and source evidence. Mainline commits are `efcb6f181`, `028ad047b`, `a1eae4c6b`, `8032361f1`, `781f96c28`.
