@@ -147,6 +147,7 @@ function carry(graph: Row, variant: Row, survivor: Row, visual: boolean): Identi
  * its own. Nothing is written when no decision lands. Offering a fork's generation to the library (§184.1) is the caller's.
  */
 export async function publishIdentities(store: ModuleStore, mid: string, writes: readonly IdentityWrite[]): Promise<Row> {
+    await store.prepare(mid);
     return withExclusiveLock(store.context.locks, join(store.moduleDir(mid), '.metadata.lock'), () => publishIdentitiesHeld(store, mid, writes));
 }
 

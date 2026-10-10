@@ -17,7 +17,8 @@ import {playtestScratch} from './playtest-scratch.mjs';
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {mkdir, mkdtemp, readFile, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile} from 'node:fs/promises';
+import {writeSourceFixture as writeFile} from './source-state-fixture.mjs';
 import {existsSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {join, resolve} from 'node:path';

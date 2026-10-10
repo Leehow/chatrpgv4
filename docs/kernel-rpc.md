@@ -11652,6 +11652,12 @@ The live `handoff-cold-harvest-20261009-02` evidence distinguishes two defects. 
 
 Detailed diagnostic tracing is enabled for the controlled acceptance run and inherited by its source children. It must not alter model/provider selection, payload, tools, stream ordering, backpressure, retry policy or timeout budgets. Default tracing stores only protocol, identity and timing/size metadata. Store trace files only in the run's writable diagnostic home, never in the signed bundle; preserve failed attempts and mark incomplete traces. Logging failure cannot fail or delay a model call. A timestamp-only observer is not evidence of server behavior before bytes reached the client.
 
+**Terminal-error observation (2026-10-10).** A wire `error` or `response.failed` is retained
+as an upstream failure in metadata-only traces and in the transport summary, even when the
+SDK throws before invoking its raw-event callback. Retain the event type, code presence/type,
+code/message hashes and message byte length, never plaintext error payloads in this mode.
+Wire failure observation does not reset progress, alter retries or publish partial output.
+
 **Response payload capture amendment (owner 2026-10-09: retain all original events).** The metadata-only interpretation
 did not satisfy the requested original-event evidence. With tracing enabled, `PI_COC_GROK_TRANSPORT_TRACE_RAW=1`
 additionally retains every parsed SSE data payload, heartbeat/comment text, SDK raw event and local abort/error cause.
@@ -21537,6 +21543,34 @@ on its first read, not only on a warm one. A node the table established (§14's 
 is built once per loaded graph. Profile (same table as §131): the cut was 77 ms of the 230 ms that
 remained after §131.1; a warm `table.workspace.read` now takes 150–210 ms and the index read 75 ms.
 Test: `tests/extension/graph-units-cache.test.mjs`.
+
+### 131.4 Unicode comparison without temporary arrays (2026-10-10)
+
+`compareUnicode` walks UTF-16 strings by code point without materializing character arrays. It preserves
+the previous comparator's exact numeric return value, including unequal prefix lengths in code points
+and unpaired surrogate code units. Canonical/stored JSON bytes, numeric types and every digest remain
+unchanged. The implementation is checked against the former comparator and the locked JSON reference.
+
+Focused pytest selection keeps the compatibility `py` boolean and adds `py_files`: an empty list when
+pytest is not selected, individual existing `test_*.py` files under `tests/kernel` or `tests/play` only
+when they are the sole Python triggers and no other Python file names their module, otherwise both
+suite directories. Shared helpers, conftest, deleted tests, runtime bundles, dependencies and unknown
+impact retain the full-suite fallback. Both remote runners consume `py_files`, with the old directories
+as a compatibility fallback. `scripts/select-tests.mjs --run-py` runs the selected paths locally through
+`uv run --frozen python -m pytest`, with two workers by default, and does not invoke pytest for an empty
+selection. The extension smoke set and full integration test gate are unchanged.
+
+The comparison follows [ECMAScript codePointAt](https://tc39.es/ecma262/2023/multipage/text-processing.html#sec-string.prototype.codepointat);
+the runner uses pytest's [file selection](https://docs.pytest.org/en/stable/how-to/usage.html#specifying-which-tests-to-run).
+On the Mac, 155 content JSON files (6,184,685 bytes) produced identical canonical JSON, stored JSON and
+digests before/after. The same 26 RPC tests with two workers passed both versions: 22.42 / 26.11 s before,
+21.48 / 24.09 s after. These small samples fluctuate and do not establish a full-suite speedup.
+An independent `test_resolve.py` edit selects 5 of the current 2130 pytest cases; the actual local runner
+passed those 5 in 6.54 s. Shared kernel changes still select the full corpus.
+Validation on the Mac: runtime build and kernel typecheck passed; the full pytest fallback passed
+2130/2130 (four low-priority workers, 664.09 s), the selected 345 extension files passed 3182/3182
+(two concurrent files), and the routing loop passed 12/12. This is source/runtime test evidence for
+this optimization, not App or live-play acceptance or a claim about concurrent unrelated changes.
 
 ## 132. A card the player already has is patched, not redrawn from scratch (2026-09-23, generalises §129's word, written there as 127.2)
 
@@ -42185,3 +42219,156 @@ each atomic JSON replacement in its own unique sibling file and remove only that
 file. A process id alone is not a write identity: both threads share it. This preserves
 the existing output schema and prevents a rename race from closing the control connection
 after a committed turn. It changes no Keeper behavior, stop timeout or resource budget.
+
+
+### 22.7 SQLite source-reading state (approved 2026-10-09)
+
+Source queue jobs and module metadata have one authority: local source-reading.sqlite under
+the Pi home's .coc directory, scoped by the canonical module directory. The existing
+ModuleStore interface remains the reader/writer seam; hosts read source metadata through
+that same storage interface. Original PDFs, immutable graph generations, index/source
+packets, author/reviewer work and all evidence remain files with their existing hash gates.
+World state, campaign transactions and Git/worldline history are outside this migration.
+
+First access imports the legacy module.json and deepen-queue.json together in one SQLite
+transaction. Import records preserve original bytes and digests before any compatibility
+projection replaces a filename. A completed import is never repeated because a JSON file
+changed or a database read failed. Corrupt/schema-incompatible DB state fails closed.
+Compatibility JSON is a one-way inspection/export projection; it is not a second authority.
+Read-only invariants hash every logical SQLite table/row and schema version; WAL/checkpoint
+and shared-memory bytes are storage machinery. All source/evidence artifacts keep byte hashes.
+
+Jobs retain their exact payloads and order, with scoped job ids and indexed key/state/focus/
+purpose/owner/lease fields. Short BEGIN IMMEDIATE transactions with version checks protect
+updates; WAL, foreign keys and full durability are enabled. A module's publication pointer,
+accepted answer/material metadata and completed job update together, after existing file
+and independent review checks. External immutable files are prepared before commit; an
+interrupted unreferenced generation remains retained evidence, never automatic readiness.
+An independently checked visual-identity verdict is its own durable decision (§152.4): it
+commits before a duplicate-draft refusal and does not publish that draft or finish its job.
+Model execution and file generation never run inside a database write transaction. Native
+descriptor ownership remains the liveness proof for running attempts; no lease or proof
+gate is replaced by an unchecked database flag. Registry/fork imports preserve scope and
+never copy a live WAL database as a source seed. New scopes seed from an accepted snapshot.
+
+The source store writes SQL state; kernel and host readers consume its bound snapshots;
+existing claim/pump/publication/capsule paths act on them. Migration changes persistence,
+not Keeper authority, model selection, capacity, review thresholds or original source truth.
+References: https://www.sqlite.org/lang_transaction.html ; https://www.sqlite.org/wal.html ;
+https://www.sqlite.org/pragma.html ; https://nodejs.org/docs/latest-v24.x/api/sqlite.html
+
+
+## 209. Turn-scoped capability and Mod discovery (approved 2026-10-10; issue #112)
+
+Implementation is in progress under `docs/specs/turn-capability-and-mod-discovery.md`. The selective policy remains gated until request, coverage and live acceptance pass. Production world-state and rules authority do not move.
+
+### 209.1 Principles
+
+- The canonical seven-verb surface, canonical apply atomicity and validation are unchanged.
+- Field shape and constraints are not relaxed by any projection.
+- The selector never authorizes actions. Selection controls visibility only.
+- Legacy locks and form-full remain. New discovery behaviour applies only to new Mod versions declaring the index contract.
+
+### 209.2 Host-owned capability names and detail cards
+
+Host-owned capability names are derived from canonical definitions. Each entry is an index card:
+
+| Field | Meaning |
+|---|---|
+| name | semantic capability or section name |
+| owner | owning module |
+| version | immutable version |
+| category | authored and validated category |
+| applicability | short summary |
+| exclusions | cases where it must not apply |
+| state_requirements | required host state |
+| dependencies | deterministic prerequisite names |
+| detail_ref | immutable reference to detail or schema |
+
+A detail result carries: name, version, applicability scope, frozen text, required flag, deterministic reason.
+
+Mods cannot override validators or grant core write authority. Dangling references, dependency cycles and changed bytes under the same version are rejected at authoring and install.
+
+### 209.3 Canonical apply schema subset
+
+- The apply definition is split into semantic fragments by effect family, with separate fragments for the npc and object subvariants.
+- Each fragment keeps exact types, required fields and constraints of its canonical validator.
+- A request's projected apply schema is the union of its selected fragments under the canonical name `apply`. No model-visible aliases that commit independently.
+- Mixed batches remain one canonical transaction: any invalid effect refuses the whole batch and writes nothing.
+
+### 209.4 Two-stage selection
+
+Stage A: one batched Jev relevance decision over index cards and a slim context (player input, current scene and people, canonical time and state, available compile features). Per candidate, independent relevance and fit probabilities. Host derives outcomes `selected | none | uncertain | unavailable | read-more` from versioned policy. No hard top-k cut. Large catalogues are split into stable category partitions and bounded batches; the whole capsule is never sent to Jev.
+
+Stage B: conditional on semantic ambiguity. Fetches candidate detail through host interfaces and asks independent per-candidate questions only where applicability is still semantic.
+
+Deterministic prerequisites (dependencies, mandatory sections, rule/receipt/consequence prerequisites) are enumerated by the host and never re-asked of Jev. Mandatory state is included without selection.
+
+Jev never writes text, executes calls, invents identifiers or authorizes actions. Results bind to campaign, worldline, loop, turn, input and source versions; stale or cross-campaign answers are rejected.
+
+### 209.5 Lookup kind for read-only expansion
+
+The existing lookup surface gains a `capability` (instruction discovery) kind accepting a semantic name or purpose query.
+
+- Input: semantic name or purpose query. The host supplies the bound epoch; the model does not.
+- Output: matched index cards and detail results. Read-only; authorizes no write.
+- Relevance exclusion is never permanent inaccessibility.
+
+### 209.6 Readiness and expansion
+
+- Intended operations from the existing compile and host plan seed their fragments and sections before the first relevant Keeper inference.
+- If a required capability or detail is absent when a mutating call arrives, the dispatcher holds all effects of that call before any mutation (no partial execution), and returns a structured expansion status:
+  - `requested`, `loaded`, `missing_capability` (name), `no_commit: true`.
+- The Keeper re-decides through the ordinary loop. Mutating calls are never replayed automatically. Inferred never silently becomes observed.
+- Only missing REQUIRED capability or detail triggers the gate; optional stylistic prose does not block a valid action.
+- Expansion for the same bound request is deduplicated. After one failed expansion, the documented wider safe view or existing explicit failure path is used; no unbounded retry.
+- Negative or error outcomes are never counted as successful actions.
+
+### 209.7 Mod section applicability and index-first loading
+
+- A Mod declares section `schema_version: 2` in its existing `contributes.sections` file and requires `instructions.discovery.v1` beside `instructions.sections.v1`. The kernel projects `index_contract_version: 2`; this is not a separate author-controlled manifest field. Resident entries keep their original shape. A situational entry adds `applicability: {what, not_for, examples}`, an open authored `category`, and optional `dependencies` naming existing core capabilities. Existing topics are optional hints; gates and triggers retain their canonical semantics. Applicability must be nonempty, examples have at most three entries, dependency names are checked, and every original heading/preamble remains covered once. Under that contract it supplies index cards for sections and a resident set limited to unconditional brief text, with shared invariants owned once.
+- Bulky situational prose becomes authored sections read whole through the existing immutable section-read path.
+- Index-first loading applies only to packages declaring the compatible contract. Budget overflow is no longer the activation condition.
+- Coverage failure widens only the affected family, or falls back explicitly to the current whole view for the bound request. Fallbacks are counted with their bytes and excluded from claimed selective success.
+- Unknown or new categories remain in the broad or uncertain discovery path.
+- Changing section metadata or resident membership requires a new package version. Locks are never silently upgraded. Legacy or incompatible packages stay full and are labelled `legacy-full`.
+
+### 209.8 Ephemeral request-system projection and active tool declarations
+
+- Projection is ephemeral and recorded by manifest and digest; raw transcript evidence stays append-only.
+- The public `context_with_system` seam, request-projection and active-tool interfaces are reused. No vendor or Pi patch, no dependency change, no direct agent-state mutation.
+- Schema registration, dispatch capability inventory and historical transcript records remain canonical. Each operation keeps exactly one execution adapter.
+- First host-triggered request, later requests, restore, error paths and fallback must each match their selected or explicit fallback manifest in captured provider requests.
+- Restore, fork and refresh recompute bound visibility; obsolete instructions are never restored from transcript checkpoints.
+
+### 209.9 No-selection, outage and fallback
+
+- No-match inputs, no Jev, slow Jev and invalid answers each end in bounded, explicit outcomes.
+- Selector waits reserve from the existing run allowance and first-wait lifecycle; no fixed per-call wait is added.
+- Results, including in-flight ones, are cached by epoch. Material state change invalidates only affected decisions.
+- On coverage that cannot be established, the bound request falls back explicitly to the full view and records it.
+
+### 209.10 Scope- and version-bound caches
+
+- Cache keys: campaign, worldline, loop, turn, bound epoch, catalogue and package versions, relevant state.
+- Cross-turn reuse keyed by relevant state and package and schema versions. Turn-local expansion does not accumulate across closed turns.
+- Catalogue versions and order are stable.
+
+### 209.11 SQLite distinctions
+
+- Source queue and module metadata are owned by the source-reading SQLite owner through ModuleStore/sourceMetadata. Static Mod packages, tool definitions and campaign transactions remain with their existing owners.
+- SQL exports are not authority. Imported scopes never fall back to stale JSON after a DB error.
+- Four versions are kept distinct: storage revision, published generation/digest, catalogue/package versions, input epoch.
+- Unrelated background queue writes do not invalidate unrelated selections.
+- A DB transaction is not held across Jev or model work: snapshot, release, then validate relevant versions after async completion.
+- Storage and lock waiting count toward the shared preparation deadline.
+- The SQLite migration (codex/pdf-read-repair-20261009 at ddff2f931) is consumed through its published interface when integrated; not copied or adopted.
+
+### 209.12 Metrics
+
+Request bytes and provider tokens are reported separately:
+
+- Request bytes: system prose, tool schema, Mod resident text, selected sections, current state, history.
+- Provider tokens: total, cache-read and uncached, reported distinctly. Provider counts include cache hits and are not a per-component breakdown.
+- Also: selected catalogue and package versions, mandatory/relevance/dependency/fallback reasons, selector and awaited durations, schema and section misses, expansion round trips, canonical refusals, player-visible first and final delivery timing.
+- Credentials are never logged. Selection counters are never fed to the Keeper as obligations.

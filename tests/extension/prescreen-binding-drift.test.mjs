@@ -9,7 +9,8 @@
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {mkdtemp, readFile, writeFile} from 'node:fs/promises';
+import {mkdtemp, readFile} from 'node:fs/promises';
+import {writeSourceFixture as writeFile} from './source-state-fixture.mjs';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';

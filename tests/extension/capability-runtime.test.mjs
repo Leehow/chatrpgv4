@@ -1,0 +1,59 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {mkdtemp,symlink,rm} from 'node:fs/promises';
+import {join,resolve} from 'node:path';
+import {tmpdir} from 'node:os';
+import {pathToFileURL} from 'node:url';
+import {build} from 'esbuild';
+const root=resolve(import.meta.dirname,'../..'),temp=await mkdtemp(join(tmpdir(),'capability-runtime-'));
+await symlink(join(root,'node_modules'),join(temp,'node_modules'),'dir');
+await build({stdin:{contents:[
+    "export * from './extensions/table/capability-runtime.ts';",
+    "export {COC_TOOLS} from './extensions/kernel/tools.ts';",
+    "export {offeredTools} from './extensions/kernel/lean-apply.ts';",
+].join('\n'),resolveDir:root},outfile:join(temp,'api.mjs'),bundle:true,packages:'external',
+    format:'esm',platform:'node',target:'node24',logLevel:'silent'});
+const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
+test.after(()=>rm(temp,{recursive:true,force:true}));
+const tools=api.offeredTools(api.COC_TOOLS,{});
+const binding={campaign:'table',worldline:'main',loop:0,turn:1,source_revision:'source-1'};
+const capsule={turn:{player_text:'Wait until nine.'},where:{scene:'library',clock:{at:'1920-10-13T03:00'}},present:[]};
+const port={decide:async(batch,lease)=>{
+    assert.deepEqual(batch.scope,lease.context.scope);assert.deepEqual(batch.readSet,lease.context.readSet);
+    return{batchId:batch.id,model:batch.model,status:'complete',
+        answers:Object.fromEntries(batch.questions.map((q,i)=>[q.key,{status:'answered',type:'noul',
+            noul:batch.state.cards[i].name==='time'?.99:.01}]))};
+}};
+test('the runtime keeps discovery reachable and expands the whole missing batch without committing',async()=>{
+    const events=[];
+    const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>port,mode:()=> 'selective',record:e=>events.push(e)});
+    runtime.observe(capsule,binding,new AbortController().signal);await runtime.wait();
+    const view=runtime.project(tools.filter(t=>t.name!=='resolve'));
+    assert.ok(view);
+    assert.deepEqual(view.find(t=>t.name==='lookup').parameters.properties.kind.enum,['capability']);
+    const effects=[{kind:'time',minutes:360},{kind:'cash',amount:20,currency:'USD',to:'here'}];
+    const hold=runtime.readiness('apply',{effects});
+    assert.equal(hold.block,true);assert.match(hold.reason,/no world change was committed/i);
+    const expanded=runtime.project(tools.filter(t=>t.name!=='resolve'));
+    assert.ok(expanded.find(t=>t.name==='apply').parameters.properties.effects.items.anyOf.some(s=>s.properties.kind.enum?.[0]==='cash'));
+    assert.equal(runtime.readiness('apply',{effects}),undefined);
+    assert.ok(events.some(e=>e.event==='expansion'&&e.no_commit));
+    runtime.clear();
+});
+test('named detail discovery is read-only and preserves canonical constraints',async()=>{
+    const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>port,mode:()=> 'selective',record:()=>{}});
+    runtime.observe(capsule,binding,new AbortController().signal);await runtime.wait();
+    const result=await runtime.lookup({name:'npc-activity'});
+    assert.equal(result.read_only,true);assert.equal(result.no_commit,true);
+    assert.ok(result.capabilities[0].detail.includes('wakefulness'));
+    await assert.rejects(runtime.lookup({name:'unknown-capability'}),/Unknown capability name/);
+    runtime.clear();
+    await assert.rejects(runtime.lookup({name:'time'}),/no current input/);
+});
+test('no decision service keeps the full current view instead of guessing a narrow one',async()=>{
+    const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>undefined,mode:()=> 'selective',record:()=>{}});
+    runtime.observe(capsule,binding,new AbortController().signal);await runtime.wait();
+    assert.equal(runtime.project(tools),undefined);
+    assert.equal(runtime.readiness('apply',{effects:[{kind:'time',minutes:360}]}),undefined);
+    runtime.clear();
+});

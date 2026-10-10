@@ -6,6 +6,7 @@ import {once} from 'node:events';
 import {mkdtemp,readFile,readdir,stat} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
 import {gzipSync,deflateSync,brotliCompressSync} from 'node:zlib';
+import {createHash} from 'node:crypto';
 import {getGlobalDispatcher,setGlobalDispatcher,Agent} from 'undici';
 import {getApiProvider} from '@earendil-works/pi-ai/compat';
 import {createGrokBuildProvider} from '../../extensions/grok-build-oauth/agent/provider.js';
@@ -102,6 +103,23 @@ test('UTF-8 split at every byte, CR/LF boundaries, multiline data, and unknown t
  assert.deepEqual(errors,[]);assert.equal(rows.filter(r=>r.event==='sse_event')[0].type,'response.future');privacy(rows);
  const limited=new SseMetadataParser(()=>{},reason=>errors.push(reason),16);limited.feed(encoder.encode('data: '+SECRET+'\n\n'),{});assert.ok(errors.includes('sse_frame_limit'));
  const invalid=new SseMetadataParser(()=>{},reason=>errors.push(reason));invalid.feed(Uint8Array.of(0xff),{});assert.ok(errors.includes('invalid_utf8'));
+});
+
+test('wire failure survives an SDK error before its raw hook without exposing provider payload',async t=>{
+ const message='Internal error during token generation '+SECRET;
+ const f=await fixture(t,'identity',(_req,res)=>{
+  res.write('data: '+JSON.stringify({type:'response.created',response:{id:'r-error',status:'in_progress'}})+'\n\n');
+  res.end('event: error\ndata: '+JSON.stringify({type:'error',code:null,param:null,message})+'\n\n');
+ });
+ const cap=capture(),config=createGrokBuildProvider({transportObservation:cap.options});
+ const result=await consume(config.streamSimple(model(f.url),context,opts));await cap.traces[0].close();
+ assert.equal(result.result.stopReason,'error');
+ assert.ok(!cap.rows.some(row=>row.event==='sdk_raw_event'&&row.type==='error'),'the public SDK throws before its raw hook');
+ const wire=cap.rows.find(row=>row.event==='sse_event'&&row.type==='error');
+ const expected={type:'error',codePresent:true,codeType:'null',messageHash:createHash('sha256').update(message).digest('hex'),messageBytes:Buffer.byteLength(message)};
+ assert.deepEqual(wire.upstreamFailure,expected);
+ assert.deepEqual(cap.rows.find(row=>row.event==='transport_summary').upstreamFailure,expected);
+ privacy(cap.rows);
 });
 
 test('concurrent attempts isolate IDs; duplicate install and non-Grok calls preserve global dispatch',async t=>{

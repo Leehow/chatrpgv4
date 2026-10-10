@@ -1,6 +1,160 @@
 # PDF reading repair, 2026-10-09
 
-## Current approved optimization status: integrated and verified
+## Current authorized opening-failure repair, 2026-10-10
+
+The user explicitly requested root causes and controllable repairs for the four real
+opening stream/token failures, followed by genuine reopening. Continue the SQLite task,
+not a replacement goal. Inspect retained provider request/stream and opening retry state;
+compare successful calls, protocol shape, failed partial messages and concurrency with
+bounded real evidence. Use the existing diagnosis worker for plot-free read-only audit.
+Candidate nontrivial changes need external primary-source cross-validation and contract
+first. Repair only confirmed host/provider/opening path defects; do not attribute provider
+backend failure to SQL, relax resource/review limits, switch Keeper/model or delete evidence.
+Rebuild the exact source runtime on the idle LAN box and reopen through the real driver,
+Grok4.7Fast/low, root sole natural player. Preserve all prior failed runs and active App.
+Same owned worktree/branch; primary dirty files still belong to the other owner.
+
+Opening checkpoint: wire diagnostic evidence confirms model-event stalls despite SSE
+keepalives and upstream token-generation errors preceding local transport cancellation.
+No request/replay/observer execution defect is established; backend trigger remains unknown.
+987202ddf fixes terminal-error provenance lost before the public SDK event hook (safe
+metadata only). Local observation21/21 and unchanged idle-LAN serial observation/layout/
+material-gap36/36 pass. Exact LAN987 build fetched,485 embedded sources match. Genuine
+reopening pdf-opening-rebuilt-20261010-play delivered four natural inputs
+(70.800/54.973/89.536/98.876s), reached the next scene with its receipt and stopped
+normally; same Grok4.7Fast/low and limits. Do not
+attribute that successful retry causally to the observability patch. Final all987 exited1,
+638s: pytest2128/2skip, loop12, ext5442pass/2fail/1skip. Material-gap reuse and admission
+typed-call count failed; unchanged idle serial material-gap and isolated admission passed.
+The all-suite failures remain retained and are not declared green; no gate/budget changed.
+All914 ended with pytest2128/2skip, loop12, ext5441pass/2 timingfail/1skip.
+Those original failing assertions passed unchanged in the serial idle-LAN check.
+Primary owner remains active with capability-catalogue and test-selection work; scoped
+integration must preserve it and wait if the shared contract paths cannot be separated safely.
+
+Continuation checkpoint: e67831b72 records the complete four-turn reopening and refusal
+audit. The whole unchanged admission file also passed41/41 on idle amax (258.185s), not
+only its isolated failed case; all987 red remains preserved. Primary then committed
+f6da29d60 (capability catalogue) and d5d41ab68 (test selection/Unicode comparison), with
+the shared paths clean. Merge71e8f37ca brings only those committed updates into this
+owned branch, cleanly preserving both contract changes. The owner's uncommitted capability
+discovery remains on primary and is not imported/staged. Next: exact combined build,
+all-suite validation on idle LAN, genuine continuation for the combined runtime and
+safe scoped mainline integration; preserve the existing App and all prior evidence.
+
+Combined checkpoint: exact LAN buildacf92a3ab and485 embedded source checks passed.
+Two additional genuine turns52.203/50.082s, five tools, zero provider/tool errors, normal
+stop; completed cold-read publicationgeneration16 remains correctly preparing. Full
+allacf ended611s red: ext5451pass/2fail/1skip,pytest2128pass/2skip,loop12. Admission is
+green there. All609 per-file/raw logs retained. Remaining told-position/material-gap
+failures use fixed50ms sleep/five retries; now replaced with existing wait.mjs condition
+waiting, assertions intact and each production reuse500ms unchanged. Targeted two-file
+LAN check passed17/17 (64.610s; readiness-fixes-targeted.log), then finalall before integration.
+Primary owner is again actively editing kernel-rpc/capabilitycatalogue/apply/read paths;
+preserve all their changes. Both real opening/combined drivers are stopped; no new live
+model test is needed after these test-only repairs unless production changes or new failures.
+
+Finalall eb6b03904 completed green,613s: ext5453/0fail/1skip,pytest2128/2skip,loop12.
+All609/raw logs retained in final-all-readiness-eb6b03904. Original all red records remain.
+Only safe mainline integration/outcome/audit remain: other owner's shared kernel-rpc change
+is an append-only§209 block, separate from the owned mid-file trace amendment/SQLite
+appendix. Plain patch check rejects the two independent appends. Preserve that full owner
+block in the working file; stage only the owned target blob and verify exact incoming tree
+before Git's normal fast-forward carry-forward. If ownership/base/append-only checks drift,
+stop mutations and resume against authoritative state. No force/stash/reset/restore.
+
+Integration completed safely: main0.9.7a d5d41ab68→a87168d0b, exact incoming committed
+tree, owner§209 appendix9,466bytes unchanged/unstaged, all other owner changes intact.
+Final accepted runtime has485matching embedded sources and five executable bundle hashes
+identical to the genuine combined runtime. Allcode/realvalidation/logretention/integration
+are complete; perform terminal lifecycle classification and pause this heartbeat. Do not
+retest unchanged production or erase evidence. Preserve provider-trigger/source-quality
+limitations and the untouched running App in the concise final Chinese report.
+
+## Current approved SQLite migration
+
+User approved moving source-reading queue and related metadata to SQLite, preserving all
+evidence. Baseline latest 0.9.7a at 4ccc69e45 (other task's documentation integrated). Same
+owned tuple reactivated; no new worktree. SQLite node:sqlite is available in existing Node
+24.19.0; no dependency download or production Python. LAN probe picks idle amax.
+
+Scope: source state persistence, ModuleStore and every production metadata reader/writer,
+source fork/library seeding, focused migration/atomicity/recovery tests and existing contracts.
+World state/Git/worldline mechanisms, original PDFs/assets, author/reviewer artifacts, all
+play evidence, source gates, scheduler resource limits and models remain in place.
+SQLite is authoritative after one atomic import. Initial JSON bytes are archived and hashed;
+legacy filenames may remain one-way compatibility projections, never recovery authorities.
+All real readers go through the source state interface. Live running old App is preserved.
+
+Acceptance: import preserves metadata/job order/payloads/artifact hashes; crash during import
+or commit is atomic and retryable; concurrent claim cannot duplicate ownership; checked
+publication pointer, accepted result and queue completion commit together; stale versions
+fail closed; corruption never falls back to old JSON; campaign/library scopes remain isolated;
+source graph and evidence remain traceable; final LAN all and exact-runtime real validation.
+No DB transaction remains open during model calls or external file generation.
+
+SQLite checkpoint: SourceState and host metadata readers are implemented; metadata/queue
+publication is staged outside the write transaction and committed with a checked revision.
+Initial local checks cover import bytes, rollback, abrupt process exit, concurrent real claims,
+idempotent checked completion, corrupt/missing authority, scope aliases and failed inspection
+exports (13 storage cases). Starter legacy-fixture inputs now target SQLite; 15 cases pass.
+The registered/existence seam was corrected so a corrupt library does not prevent a healthy
+fork's identity maintenance; all 10 identity cases pass. Source/scope material cases: 9 pass.
+
+Actual retained source home migration completed: pdf-text-20261009-home, 3 scoped modules,
+54 jobs, 8045 preexisting module/campaign files hashed before and after, zero changes.
+Original JSON bytes are present in both immutable import archives and SQL import receipts.
+quick_check=ok; foreign_key_check empty. Evidence is owned .coc/playtests/
+pdf-sqlite-20261009-audit/{before-hashes.json,import-result.json,source-state.mjs}.
+The bundle/source digests are retained; this is migration evidence, not real play.
+Epoch-7 session.resume guard was called first; the installed retired plugin still returns
+unsupported_save_schema. Do not change saves or restore the retired kernel to satisfy it.
+
+First canonical LAN focused run escalated to all and is still running. The box was idle on
+dispatch, but native-history-search-20261009 began a separate heavy run afterward; observed
+load126 and both checkouts' kernel processes. Preserve the first run and its timing failures;
+do not stop the other owner's processes or relax deadlines. Repair real fixture/storage
+failures, then rerun exact checks on an idle box. Final all/build/play/integration remain pending.
+
+First run completed red: wall1106s, pytest17 failures/2111 passed/two skipped, routing12 pass.
+All raw logs and per-file logs/times retained in pdf-sqlite-20261009-focused-evidence.
+Source-upgrade's newly seeded fork reproduced a recursive import/metadata lock wait; its
+owned test worker was terminated after six minutes without progress, with the signal/log
+retained. prepare now imports before taking that lock (and before identity publication);
+the exact source-upgrade file passes locally (9 plus one historical-input skip).
+Readonly guards now hash every SQL row/table/schema/import BLOB rather than volatile WAL/
+checkpoint bytes; no source/evidence file is excluded. Legacy metadata fixture writes target
+the SQL seam, preserving existing assertions. Read-window/library/visual files: 34 pass;
+storage14 pass; graph integrity9 pass; pregens5 pass; smoke15 pass. Visual identity review
+decisions flush before intentional duplicate refusals. All model/resource/review limits stay.
+
+Latest owned HEAD c02401b03: implementation ddff2f931, transaction fault follow-up5d83715be
+and source revision fixture follow-upc02401b03. Second canonical all at ddff2f931: pytest2128
+pass/two skipped, routing12 pass, ext5431 pass/11 fail (5443 total, one skip), wall1090s.
+Raw logs and per-file logs/times are retained in pdf-sqlite-20261009-all-evidence.
+All staging faults now assert full rollback; after-SQL-commit interruption additionally
+asserts cold idempotent proof reuse. All14 cases pass locally; revision-drift9 cases pass.
+Third final all/build/play/integration are pending. Amax remains occupied by the other
+native-history-search run's jev-provider-budget test (1241967, parent1241962, checked idle
+CPU but live for >11min). Do not signal that owner. Existing pdf heartbeat was updated via
+the app tool, preserving cadence/name/target and resumed ACTIVE for this durable wait.
+It stays quiet on unchanged state and pauses after actual completion. No new automation.
+
+User's explicit live-validation follow-up completed as documented in
+docs/exec-plans/pdf-sqlite-live-20261010.md. Exact canonical ddff2f931 runtime fetched
+read-only (485 sourcemap sources match). Legacy campaign4 real settled inputs; fresh
+original-PDF setup3 real inputs and independently reviewed SQL read-2 publication,
+navigation read-3 kept separate. Cold setup→play resumed unfinished jobs under a new
+host and preserved completed jobs, then reached8 completed. Integrity and hashes pass.
+Fresh automatic opening failed on four Keeper provider errors (322.920s), first input
+never entered T0, driver timed out after300.005s; normal stop/evidence retained. No
+SQLite/IPC stall (maxRPC841ms). No successful fresh-opening or whole-book claim.
+Final all at owned91458ffd4 is now running on amax after idle probe; session45993,
+local log pdf-sqlite-20261010-final-all.log. Preserve this run before any refresh.
+Primary now has another owner's dirty README/kernel-rpc/json/select-tests/foundation
+and untracked test-selection file; do not absorb, stage or overwrite those changes.
+
+## Previous query optimization status: integrated and verified
 
 Optimization commits 95909a4dd / 3508c826d and evidence writer fix 3f5859fab are
 integrated into latest 0.9.7a. Final canonical LAN all at 3f5859fab passed ext 5428 /

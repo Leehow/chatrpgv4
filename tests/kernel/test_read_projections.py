@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -14,9 +15,31 @@ from rpc_support import snapshot
 
 def state_bytes(workspace: Path) -> dict[str, str]:
     root = workspace / ".coc"
-    return {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+    result = {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in sorted(root.rglob("*")) if path.is_file()
-            and path.relative_to(root).parts[0] != "repos"}
+            and path.relative_to(root).parts[0] != "repos"
+            and path.relative_to(root).as_posix() not in {
+                "source-reading.sqlite", "source-reading.sqlite-wal", "source-reading.sqlite-shm"}}
+    database = root / "source-reading.sqlite"
+    if database.exists():
+        # WAL/checkpoint and shared-memory bytes are storage machinery, not source state.
+        # Retain the stronger invariant: hash every table/row, including historical and
+        # import BLOB bytes, plus the complete schema and its version in one SQL snapshot.
+        with sqlite3.connect(f"file:{database}?mode=ro", uri=True, timeout=25) as db:
+            db.execute("BEGIN")
+            schema = list(db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"))
+            tables = {}
+            for kind, name, _, _ in schema:
+                if kind != "table":
+                    continue
+                quoted = name.replace('"', '""')
+                rows = [[{"blob": value.hex()} if isinstance(value, bytes) else value for value in row]
+                        for row in db.execute(f'SELECT * FROM "{quoted}"')]
+                tables[name] = sorted(rows, key=lambda row: json.dumps(row, sort_keys=True))
+            state = {"version": db.execute("PRAGMA user_version").fetchone()[0], "schema": schema, "tables": tables}
+            db.commit()
+        result["source-reading.sqlite"] = hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
+    return result
 
 
 def prepare(workspace: Path, *, language: str = "en", rich: bool = False, content: Path | None = None) -> None:

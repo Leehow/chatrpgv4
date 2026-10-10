@@ -11,11 +11,12 @@ import { join } from "node:path";
 import type { KernelContext } from "../context.js";
 import { RpcError } from "../errors.js";
 import { parsePythonJson } from "../json.js";
-import { APPLY_KINDS } from "../apply/kinds.js";
+import { APPLY_KINDS, CORE_CAPABILITY_NAMES } from "../apply/kinds.js";
 import type { ModuleGraph } from "./module-graph.js";
 import { array, row, string, number, integer, numeric, type Row } from "./values.js";
 
 export const SECTIONS_CAPABILITY = "instructions.sections.v1";
+export const DISCOVERY_CAPABILITY = "instructions.discovery.v1";
 /** The UTF-8 bytes of package instructions a request carries whole before sectioned packages go indexed (§183.3). */
 export const INSTRUCTION_BUDGET = 65536;
 /** Gates the kernel evaluates on the turn's state (§183.3); `no_topic` is the host's (§183.5). */
@@ -31,6 +32,7 @@ export const HOST_GATES: readonly string[] = ["no_topic"];
 export const RESOLVE_FAMILIES: readonly string[] = ["chase", "combat", "core-check", "development", "healing", "magic", "objects",
     "psychology", "push-luck", "sanity", "social"];
 const ENTRY_FIELDS = new Set(["heading", "kind", "topics", "gates", "triggers", "topic_threshold"]);
+const DISCOVERY_FIELDS = new Set([...ENTRY_FIELDS,"applicability","category","dependencies"]);
 const TOPIC_ID = /^[a-z][a-z0-9_]{0,63}$/;
 const decode = (bytes: Uint8Array): string => new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 const plain = (value: unknown): value is Row => value != null && typeof value === "object" && !Array.isArray(value);
@@ -50,6 +52,10 @@ export type Section = {
     readonly topic_threshold: number;
     /** The section as the Keeper reads it: its `## ` line, then its text. The preamble has no heading line. */
     readonly text: string;
+    readonly index_contract_version?: 2;
+    readonly applicability?: {what:string;not_for:string;examples:string[]};
+    readonly category?: string;
+    readonly dependencies?: readonly string[];
 };
 
 /** `agent.md` cut at its `## ` lines. The preamble is the text before the first, less a leading `# ` title line. */
@@ -80,9 +86,12 @@ function trigger(manifest: Row, value: unknown, at: number): string {
 /** The declaration's shape against the package's own `agent.md`. Topic ids are checked against the product's list
  *  where the catalog loads (`validateSectionsContribution`); everything else is decided here. */
 export function parseSections(manifest: Row, raw: unknown, markdown: string): Section[] {
-    if (!plain(raw) || raw.schema_version !== 1 || !Array.isArray(raw.sections) || !raw.sections.length
+    if (!plain(raw) || ![1,2].includes(raw.schema_version) || !Array.isArray(raw.sections) || !raw.sections.length
         || Object.keys(raw).some(key => key !== "schema_version" && key !== "sections"))
-        refuse(manifest, "sections.json must be {schema_version: 1, sections: [...]} with at least one entry");
+        refuse(manifest, "sections.json must declare a supported schema_version and a nonempty sections list");
+    const discovery=raw.schema_version===2;
+    if(discovery&&!array(manifest.requires).includes(DISCOVERY_CAPABILITY))
+        refuse(manifest,'a version-2 section index must require '+DISCOVERY_CAPABILITY);
     const { preamble, parts } = cutInstruction(markdown);
     const headings = parts.map(part => part.heading);
     const twice = headings.find((heading, i) => headings.indexOf(heading) !== i);
@@ -90,7 +99,7 @@ export function parseSections(manifest: Row, raw: unknown, markdown: string): Se
         refuse(manifest, `agent.md has the heading "## ${twice}" twice`, { heading: twice });
     const seen = new Set<string | null>(), result: Section[] = [];
     (raw.sections as unknown[]).forEach((entry, at) => {
-        if (!plain(entry) || Object.keys(entry).some(key => !ENTRY_FIELDS.has(key)))
+        if (!plain(entry) || Object.keys(entry).some(key => !(discovery?DISCOVERY_FIELDS:ENTRY_FIELDS).has(key)))
             refuse(manifest, `section ${at} must be an object of ${[...ENTRY_FIELDS].join(", ")}`, { entry: at });
         const heading = entry.heading === null ? null : typeof entry.heading === "string" && entry.heading.trim() ? entry.heading : undefined;
         if (heading === undefined)
@@ -106,7 +115,7 @@ export function parseSections(manifest: Row, raw: unknown, markdown: string): Se
         if (kind !== "resident" && kind !== "situational")
             refuse(manifest, `section ${at}: kind is resident or situational`, { entry: at, kind: kind ?? null });
         const has = (key: string) => Object.hasOwn(entry, key);
-        if (kind === "resident" && ["topics", "gates", "triggers", "topic_threshold"].some(has))
+        if (kind === "resident" && ["topics", "gates", "triggers", "topic_threshold","applicability","category","dependencies"].some(has))
             refuse(manifest, `section ${at}: a resident section rides every turn and names no topics, gates or triggers`, { entry: at });
         const list = (key: string): unknown[] => {
             if (!has(key)) return [];
@@ -128,15 +137,37 @@ export function parseSections(manifest: Row, raw: unknown, markdown: string): Se
             return gate as string;
         });
         const triggers = list("triggers").map(value => trigger(manifest, value, at));
-        if (kind === "situational" && !topics.length && !triggers.length)
+        if (kind === "situational" && !discovery && !topics.length && !triggers.length)
             refuse(manifest, `section ${at}: a situational section names topics, triggers or both`, { entry: at });
-        if ((gates.length || has("topic_threshold")) && !topics.length)
+        if ((gates.length || has("topic_threshold")) && !topics.length && !discovery)
             refuse(manifest, `section ${at}: gates and topic_threshold qualify topics and need them`, { entry: at });
         const raw = has("topic_threshold") ? entry.topic_threshold : 0.5, threshold = typeof raw === "number" ? raw : numeric(raw) ? number(raw) : NaN;
         if (!Number.isFinite(threshold) || threshold <= 0 || threshold >= 1)
             refuse(manifest, `section ${at}: topic_threshold is a number between 0 and 1`, { entry: at, topic_threshold: raw ?? null });
+        let detail:Pick<Section,'applicability'|'category'|'dependencies'>={};
+        if(discovery&&kind==='situational'){
+            const applies=entry.applicability;
+            if(!plain(applies)||Object.keys(applies).some(key=>!['what','not_for','examples'].includes(key))
+                ||typeof applies.what!=='string'||!applies.what.trim()||applies.what.length>400
+                ||typeof applies.not_for!=='string'||applies.not_for.length>300
+                ||!Array.isArray(applies.examples)||applies.examples.length>3
+                ||applies.examples.some(value=>typeof value!=='string'||!value.trim()||value.length>200))
+                refuse(manifest,'section '+at+': invalid bounded applicability');
+            if(typeof entry.category!=='string'||!entry.category.trim()||entry.category.length>100)
+                refuse(manifest,'section '+at+': a discovery category must be authored nonempty text');
+            const rawDependencies=has('dependencies')?entry.dependencies:[];
+            if(!Array.isArray(rawDependencies)||new Set(rawDependencies).size!==rawDependencies.length)
+                refuse(manifest,'section '+at+': dependencies must be a list without repeats');
+            const dependencies=rawDependencies.map(value=>{
+                if(typeof value!=='string'||!CORE_CAPABILITY_NAMES.includes(value))
+                    refuse(manifest,'section '+at+': unknown capability dependency',{dependency:value});
+                return value as string;
+            });
+            detail={applicability:{what:applies.what,not_for:applies.not_for,examples:[...applies.examples]},
+                category:entry.category,dependencies};
+        }
         const body = heading === null ? preamble : parts.find(part => part.heading === heading)!.body;
-        result.push({ heading, kind, topics, gates, triggers, topic_threshold: threshold, text: heading === null ? body : `## ${heading}\n\n${body}`.trim() });
+        result.push({ heading, kind, topics, gates, triggers, topic_threshold: threshold, ...(discovery?{index_contract_version:2 as const}:{}),...detail, text: heading === null ? body : `## ${heading}\n\n${body}`.trim() });
     });
     const missing = headings.filter(heading => !seen.has(heading));
     if (missing.length)

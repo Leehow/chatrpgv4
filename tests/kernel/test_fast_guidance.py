@@ -221,7 +221,7 @@ def test_an_opening_published_ready_stays_ready_under_a_later_rule(kernel, tmp_p
     manifest["relation_count"], manifest["claim_count"] = len(graph.get("relations", [])), len(graph.get("claims", []))
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     meta["graph_digest"] = hashlib.sha256(graph_path.read_bytes()).hexdigest()
-    (module_dir / "module.json").write_text(json.dumps(meta), encoding="utf-8")
+    write(module_dir / "module.json", meta)
     assert request(kernel, mid, "opening", focus="Dock")["state"] == "ready"
     kernel.ok("campaign.create", {"id": "installed", "module": mid, "guidance_key": KEY, "play_language": "en"})
     kernel.ok("setup.prologue", {"campaign": "installed", "scene": "Dock", "text": "Who are you?"})

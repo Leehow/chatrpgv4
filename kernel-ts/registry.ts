@@ -35,6 +35,7 @@ import {ordinaryResolveHandlers} from './runtime/resolve-operation.js';
 import {ordinaryApplyHandlers} from './runtime/apply-operation.js';
 import {quotationHandlers} from './runtime/quotes.js';
 import { AdaptationJobs } from './adaptation/jobs.js';
+import {closeSourceState} from './modules/source-state.js';
 /** Integration owner only: add each later slice's static handler group here. */
 export function createKernelRuntime(context: KernelContext, options: { readonly retarget?: Retarget } = {}): {
     handlers: HandlerGroup;
@@ -64,6 +65,7 @@ export function createKernelRuntime(context: KernelContext, options: { readonly 
                 try { await modules.close(); } finally { await cast.close(); }
             }
             finally {
+                closeSourceState(context.stateRoot);
                 await context.git.close();
             } })();
         } });

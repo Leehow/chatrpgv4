@@ -1,3 +1,4 @@
+import {readSourceMetadata} from '../modules/source-state.js';
 /** Setup methods use the same campaign writer and source-readiness owner as play. */
 import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
@@ -38,7 +39,7 @@ export class Setup {
   async moduleMeta(id: string, campaign?: string): Promise<Row | null> {
     const root = campaign ? await scopedModuleRoot(this.context, campaign, id) ?? join(this.context.stateRoot, 'modules') : join(this.context.stateRoot, 'modules');
     const path = join(root, id, 'module.json');
-    return await this.context.snapshots.pathExists(path) ? row(await this.context.snapshots.readJson(path)) : null;
+    return readSourceMetadata(join(root,id), this.context.stateRoot, this.context.locks);
   }
   async campaign(params: Row): Promise<CampaignWriter> { return this.writer.campaign(params, {requireTurn: false, requireWorld: false}); }
   async settingUp(params: Row): Promise<[CampaignWriter, Row]> {

@@ -1,3 +1,4 @@
+import {sourceMetadata} from '../runtime/source-metadata.ts';
 /** Offline release preparation. Reader and independent reviewer retain their evidence. */
 import {readFile, mkdir, writeFile} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
@@ -28,7 +29,7 @@ const runner=({signal,...request}:ReaderRequest)=>runtime.runTask({kind:'reader'
 try {
   await kernel.call('module.register',{module_id:moduleId});
   const {occupations}=await kernel.call<any>('setup.occupations');
-  const meta=JSON.parse(await readFile(join(runtime.home,'.coc/modules',moduleId,'module.json'),'utf8'));
+  const meta=await sourceMetadata(join(runtime.home,'.coc/modules',moduleId));
   // One bundle per suggested play language: the set is open, so a release ships bundles only for
   // the tags a picker offers first, and any other tag generates its guidance per campaign.
   for(const language of await suggestedPlayLanguages(join(root,'content'))) {

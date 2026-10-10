@@ -1,3 +1,4 @@
+import {sourceMetadata} from '../runtime/source-metadata.ts';
 /** Host-owned source preparation and deterministic setup; never a Keeper substitute. */
 import { dirname, join } from 'node:path';
 import { readFile, readdir } from 'node:fs/promises';
@@ -57,7 +58,7 @@ async function withGuidance(prepared: any) {
     occupations: occupations.occupations, model: input.model, thinking: input.thinking, signal: guidanceAbort.signal, runner: runTask};
   const guidance = await prepareCharacterGuidance(options);
   const guidance_key = await guidanceFingerprint(options);
-  const meta = JSON.parse(await readFile(join(input.home,'.coc/modules',input.module_id,'module.json'),'utf8'));
+  const meta = await sourceMetadata(join(input.home,'.coc/modules',input.module_id));
   return {...prepared, guidance, ...(meta.character_guidance?.[guidance_key] ? {guidance_key} : {})};
 }
 /** The player-facing scenario catalog.
@@ -242,7 +243,7 @@ async function main() {
           if(action==='guidance'){
             const fields=await acceptedPublicGuidance(input.home,input.module_id,guidance_key!);
             if(fields){
-              const source=JSON.parse(await readFile(join(input.home,'.coc/modules',input.module_id,'module.json'),'utf8'));
+              const source=await sourceMetadata(join(input.home,'.coc/modules',input.module_id));
               emit('progress',{stage:'guidance',module_id:input.module_id,public_preparation:{source_sha256:source.file_sha256,
                 module_id:input.module_id,job_id:'accepted',attempt:'accepted',guidance_key,opening:input.start_scene||'',
                 fields:Object.fromEntries(Object.entries(fields).map(([key,field])=>[key,{state:field.status==='value'?'confirmed':field.status,

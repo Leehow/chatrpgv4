@@ -14,4 +14,8 @@ test('shipped reference has no external credential, library or historical lookup
  assert.equal(manifest.host_settings,undefined);
  assert.equal(manifest.version,'1.3.0');
  const source=readFileSync('extensions/kernel/tools.ts','utf8');assert(!source.includes('"historical_reference"'));
+ assert(!source.includes('reference_mode'));
+ assert(!source.includes('reference_queries'));
+ assert(source.includes('"capability"] as const'));
+ assert(source.includes('Provider-hosted historical search is offered separately by the host.'));
 });

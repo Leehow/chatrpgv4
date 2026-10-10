@@ -17,7 +17,8 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {mkdtemp, readFile, rm} from 'node:fs/promises';
+import {writeSourceFixture as writeFile} from './source-state-fixture.mjs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {createRuntime} from '../../runtime/host.ts';

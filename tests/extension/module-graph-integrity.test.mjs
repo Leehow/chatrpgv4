@@ -110,7 +110,7 @@ test('starter publication uses one captured source buffer even when the source c
  const third=api.parsePythonJson(api.pythonJsonDumps(graph));third.nodes[1].name='Version three';
  let changed=false;
  const raced={...context,snapshots:{...context.snapshots,async readJson(path){
-  if(path===store.moduleJson('test-starter')&&!changed){changed=true;await api.writeJsonAtomic(sourcePath,third);}
+  if(path===join(context.content,'modules','module-graph-contract-v3.json')&&!changed){changed=true;await api.writeJsonAtomic(sourcePath,third);}
   return context.snapshots.readJson(path);
  }}};
  const writer=new api.ModuleStore(raced);await writer.register('test-starter');

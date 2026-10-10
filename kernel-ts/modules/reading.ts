@@ -283,9 +283,16 @@ export class Reading {
     }
     private owned(): void { if (this.closed)
         throw new RpcError('invalid_params', 'this reading attempt no longer owns publication'); }
-    private mutex<T>(mid: string, action: () => Promise<T>): Promise<T> {
+    private async mutex<T>(mid: string, action: () => Promise<T>): Promise<T> {
         this.owned();
-        return withExclusiveLock(this.store.context.locks, join(this.store.moduleDir(mid), '.metadata.lock'), async () => { this.owned(); return action(); });
+        await this.store.prepare(mid);
+        let prior: Set<string> | undefined;
+        try {return await withExclusiveLock(this.store.context.locks, join(this.store.moduleDir(mid), '.metadata.lock'), async () => {
+            this.owned(); prior=new Set(this.leases.keys()); return this.store.transaction(mid, action);
+        });} catch (error) {
+            for (const [key, lease] of this.leases) if (prior && lease.moduleId===mid && !prior.has(key)) await this.release(lease.moduleId, lease.jobId);
+            throw error;
+        }
     }
     static initialState(): Row { return freshReadingState(); }
     async publishReference(params:Row):Promise<Row>{
@@ -308,6 +315,7 @@ export class Reading {
      * through the library's own publication instead; `key` is the reading this publication wrote, when it wrote one.
      */
     private async libraryFollows(mid: string, result: Row, key?: string): Promise<Row> {
+        await this.store.flush(mid);
         let campaign: unknown;
         try { campaign = (await this.store.module(mid)).campaign_scope; }
         catch (error) { return { ...result, library_sync: { state: 'failed', detail: (error instanceof Error ? error.message : String(error)).slice(0, 1000) } }; }
@@ -2006,6 +2014,7 @@ export class Reading {
         const mid = validateModuleId(params.module_id);
         return this.mutex(mid, async () => {
             const result = await this.finishHeld(mid, params);
+            await this.store.flush(mid);
             // §184.1: a completed reading that published (not a replay, not an answer put back in the queue) is followed by
             // the library. Source consultations stay private to their campaign (§184.4): their answers are never adopted.
             if (params.outcome !== 'completed' || truth(result.replayed) || result.state === 'queued') return result;
@@ -2181,8 +2190,12 @@ export class Reading {
                 const landing = await this.store.readGraph(mid);
                 const identityPairs = draftIdentityPairs(filled, landing, mid, identitySource(meta));
                 if (identityPairs.length) {
-                    if (params.identity_review_path !== undefined && await this.recordIdentityReview(meta, work, params.identity_review_path, identityPairs, string(job.job_id)))
+                    if (params.identity_review_path !== undefined && await this.recordIdentityReview(meta, work, params.identity_review_path, identityPairs, string(job.job_id))) {
                         await this.store.writeModule(meta);
+                        // The independently checked verdict survives a duplicate-draft refusal (§152.4).
+                        // It authorizes no graph/material publication or job completion by itself.
+                        await this.store.flush(mid);
+                    }
                     judgeDraftIdentity(identityPairs, meta);
                 }
                 // §192.1: one thing, one node, judged again against the generation this draft lands on: a reading claimed beside
@@ -2443,6 +2456,7 @@ export class Reading {
      * the library's lineage. The outcome is reported and never fails the fork's own repair.
      */
     private async repairFollows(mid: string, campaign: string, wrote: boolean, cast?: Row[]): Promise<Row> {
+        await this.store.flush(mid);
         let library_sync: Row | undefined;
         if (wrote) {
             library_sync = await syncLibraryFromCampaign(this.store.context, campaign, mid);

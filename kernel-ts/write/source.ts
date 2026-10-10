@@ -1,3 +1,4 @@
+import {readSourceMetadata, sourceState} from '../modules/source-state.js';
 /** Shared starter registration, source playability and published asset projections. */
 import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
@@ -453,8 +454,8 @@ async function copyStarterAsset(context: KernelContext, source: string, target: 
 async function publishStarterAssetsToCampaignScopes(context: KernelContext, id: string, graph: Row, moduleDirectory: string, meta: Row): Promise<void> {
     const scopesRoot = join(context.stateRoot, 'module-campaigns'), assets = array(assetRegistry(graph).assets);
     for (const campaign of await context.snapshots.sortedChildNames(scopesRoot,
-        path => context.snapshots.isFile(join(path, 'modules', id, 'module.json')))) {
-        const targetDirectory = join(scopesRoot, campaign, 'modules', id), targetMeta = row(await context.snapshots.readJson(join(targetDirectory, 'module.json')));
+        async path => !!await readSourceMetadata(join(path,'modules',id),context.stateRoot,context.locks))) {
+        const targetDirectory = join(scopesRoot, campaign, 'modules', id), targetMeta = row(await readSourceMetadata(targetDirectory,context.stateRoot,context.locks));
         if (targetMeta.source_generation !== meta.generation || targetMeta.graph_digest !== meta.graph_digest) continue;
         for (const asset of assets) {
             if (typeof asset.path !== 'string' || !asset.path) continue;
@@ -544,7 +545,8 @@ export async function registerStarter(context: KernelContext, id: string): Promi
     // Every registration path shares this lock and re-reads the module inside it, so two first
     // registrations of one starter cannot race the exclusive graph write.
     return withOptionalExclusiveLock(context.locks, join(context.stateRoot, 'modules', '.registry.lock'),
-        async () => registerStarterLocked(context, id));
+        async () => sourceState(context.stateRoot).transaction(join(context.stateRoot,'modules',id),
+            () => registerStarterLocked(context,id),context.locks));
 }
 async function registerStarterLocked(context: KernelContext, id: string): Promise<Row> {
     if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(id))
@@ -557,7 +559,7 @@ async function registerStarterLocked(context: KernelContext, id: string): Promis
     const sourceBytes = await readFile(graphFile);
     const graph = row(parsePythonJson(new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(sourceBytes)));
     const digest = createHash('sha256').update(sourceBytes).digest('hex');
-    const existing = await context.snapshots.pathExists(metaFile) ? clone(row(await context.snapshots.readJson(metaFile))) : null;
+    const existing = await readSourceMetadata(folder,context.stateRoot,context.locks);
     // An explicitly upgraded PDF/user publication owns its identity; a same-id bundled starter must not replace it.
     if (existing && existing.source !== 'starter' && array(existing.source_fact_upgrades).length) {
         const path = typeof existing.graph_file === 'string' ? await resolvedPath(childPath(folder, existing.graph_file)) : join(folder, 'module-graph.json');
@@ -567,7 +569,7 @@ async function registerStarterLocked(context: KernelContext, id: string): Promis
     const contract = row(await context.snapshots.readJson(join(context.content, 'modules', 'module-graph-contract-v3.json'))), dossier = row(contract.actor_dossier);
     const view = new ModuleGraph(id, graph, digest, dossier), template = row(await context.snapshots.readJson(join(context.content, 'modules', 'module-graph-template-v1.json')));
     let meta = existing;
-    const writeMeta = async () => { meta!.updated_at = nowIso(); await writeJsonAtomic(metaFile, meta!); };
+    const writeMeta = async () => { meta!.updated_at = nowIso(); await sourceState(context.stateRoot).update(folder,{metadata:meta!},context.locks); };
     if (existing?.source === 'starter' && array(existing.source_fact_upgrades).length && existing.starter_graph_digest !== digest)
         throw new RpcError('needs','The upstream starter changed after an explicit source-fact upgrade; preserve this generation and review the new source',
             {details:{reason:'source_upgrade_starter_changed',module:id,expected:existing.starter_graph_digest,actual:digest}});
@@ -712,9 +714,9 @@ async function registerStarterLocked(context: KernelContext, id: string): Promis
     // Contract §14.16: a starter that names a window of a book reads it through the same store an
     // imported module has. Library metadata is shared with reading publications, hence its lock.
     const bound = await withOptionalExclusiveLock(context.locks, join(folder, '.metadata.lock'), async () => {
-        const current = clone(row(await context.snapshots.readJson(metaFile)));
+        const current = clone(row(await readSourceMetadata(folder,context.stateRoot,context.locks)));
         const next = await ensureStarterSource(context, id, folder, current, installed.raw, existing);
-        if (next) { next.updated_at = nowIso(); await writeJsonAtomic(metaFile, next); }
+        if (next) { next.updated_at = nowIso(); await sourceState(context.stateRoot).update(folder,{metadata:next},context.locks); }
         return next;
     });
     if (bound) meta = bound;

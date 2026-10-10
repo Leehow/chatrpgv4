@@ -54,7 +54,7 @@ def test_checked_answer_peek_rebuilds_from_retained_checked_bytes(kernel, tmp_pa
     rows = list(meta["reading"]["answers"].values())
     assert len(rows) == 1
     rows[0]["result"] = {"source_answer": {"answer": "poisoned duplicate result"}}
-    module_path.write_text(json.dumps(meta), encoding="utf-8")
+    write(module_path, meta)
 
     peek = kernel.ok("module.source.answer.peek", {
         "module_id": mid,
@@ -86,7 +86,7 @@ def test_checked_answer_peek_rebuilds_from_retained_checked_bytes(kernel, tmp_pa
 
     changed = json.loads(module_path.read_text())
     changed["generation"] += 1
-    module_path.write_text(json.dumps(changed), encoding="utf-8")
+    write(module_path, changed)
     assert kernel.ok("module.source.answer.peek", {
         "module_id": mid,
         "focus": params["focus"],

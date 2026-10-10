@@ -96,7 +96,7 @@ test('book templates expose page provenance and load the deliberately non-derive
     error.code === 'unknown_entity' && error.details.candidates.includes(template.node_id));
   await assert.rejects(f.call('investigator.load', {campaign: 'book-table', pregen: template.node_id, library_id: 'another'}), /exactly one/);
   for (const state of ['queued', 'running', 'failed']) {
-    await f.store.writeQueue('pregen-book', [{material: 'pregens', state}]);
+    await f.store.writeQueue('pregen-book', [{job_id:'read-fixture-pregens',material: 'pregens', state}]);
     assert.equal((await f.call('investigator.list', {campaign: 'book-table'})).pregens_read, state === 'failed' ? 'failed' : 'reading');
   }
   const sourceMeta = await f.store.module('pregen-book');

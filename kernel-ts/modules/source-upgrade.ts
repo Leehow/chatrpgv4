@@ -85,6 +85,7 @@ export function assertSourceUpgradeRevision(report:Row,revision:any):void {
 export async function sourceUpgrade(store:ModuleStore,params:Row):Promise<Row> {
     const id=validateModuleId(params.module_id),action=params.action??'preview';
     if(!['preview','apply'].includes(action))return invalid('action must be preview or apply');
+    await store.prepare(id);
     return withExclusiveLock(store.context.locks,join(store.moduleDir(id),'.metadata.lock'),async()=>{
         const meta=await store.module(id),graph=await store.readGraph(id);
         if(!graph)throw new RpcError('needs','This source has no published graph to upgrade');

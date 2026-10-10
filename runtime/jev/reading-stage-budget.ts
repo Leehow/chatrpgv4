@@ -1,3 +1,4 @@
+import {sourceMetadata} from '../source-metadata.ts';
 /**
  * The provider lease an import's reading stage pays from, sized to the book (contract §20 addendum 2, SL-35).
  *
@@ -140,8 +141,8 @@ export function openStageProviderBudget(sized: StageBudget, options: {signal?: A
 export async function withStageLease<T>(stage: ReadingStage, options: {moduleDir: string; env: Record<string, string | undefined>; signal?: AbortSignal;
   report?: (row: Record<string, unknown>) => void}, body: (reading: {providerBudget?: TaskProviderBudget}) => Promise<T>): Promise<T> {
   let pageCount = 0;
-  try { pageCount = Number(JSON.parse(await readFile(join(options.moduleDir, 'module.json'), 'utf8')).page_count) || 0; }
-  catch { /* an unregistered module is refused by the reading itself */ }
+  try { pageCount = Number((await sourceMetadata(options.moduleDir)).page_count) || 0; }
+  catch(error) { if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error; /* an unregistered module is refused by the reading itself */ }
   const sized = options.env.PI_COC_READER_CMD?.trim() ? null
     : readingStageBudget(stage, {pageCount, perPage: await measuredPageCost(options.moduleDir)});
   if (!sized) return body({});

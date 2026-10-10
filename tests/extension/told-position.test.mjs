@@ -254,7 +254,7 @@ test('a read that owes nothing never settles the watch, so the next run does not
     release();
     const row = await toldRow(table);
     assert.deepEqual({decision: row.decision, why: row.why, owed: row.owed}, {decision: 'stay', why: 'not_moved', owed: null});
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await waitFor(() => !port.watch().in_flight, {label: 'the no-op told-position read to leave flight'});
     assert.equal(watch.landed(), false, 'nothing landed for a read to pick up');
     assert.equal(port.watch().in_flight, false);
     assert.equal(ledger(table.workspace), null);

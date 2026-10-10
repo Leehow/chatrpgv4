@@ -1673,6 +1673,11 @@ export default function (pi: ExtensionAPI) {
 	const setupMode = cocMode() === "setup";
 	// Contract §154 (prototype): lean `apply` arguments. Read once, like the tool schema itself; off is today's tools and payloads.
 	const leanApply = leanApplyEnabled(process.env);
+    let capabilityLookup:((args:Record<string,unknown>)=>Promise<Record<string,unknown>>)|undefined;
+    pi.events.on('coc:capability-discovery',value=>{
+        const bridge=value as {lookup?:unknown};
+        capabilityLookup=typeof bridge?.lookup==='function'?bridge.lookup as typeof capabilityLookup:undefined;
+    });
 	// Contract §168.5: the check of a delivery against the book's descriptions, on the fast model, after the delivery.
 	const firstSightLane = createFirstSightLane(pi, { ctx: () => sessionCtx, campaign: () => table?.campaign });
 	// Contract §203.6: the establishing check of a draft, on the fast model, before the delivery.
@@ -5340,6 +5345,11 @@ export default function (pi: ExtensionAPI) {
 		narratePath: "explicit" | "embedded" = "explicit",
 		ctx?: ExtensionContext,
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
+        if(spec.name==='lookup'&&params.kind==='capability'){
+            if(!capabilityLookup)throw new KernelError({code:'needs',message:'Current capability discovery is unavailable'});
+            const result=await capabilityLookup(params);
+            return{content:[{type:'text',text:JSON.stringify(result)}],details:result};
+        }
 		const providerBudget = dispatcher.providerBudget(toolCallId) ?? foregroundProviderBudget?.();
 		delete params._standing_defense;
 		const state = table;

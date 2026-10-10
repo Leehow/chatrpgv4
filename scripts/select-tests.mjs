@@ -1,7 +1,7 @@
 /**
  * Focused test selection: the extension tests and pytest scope a change can affect.
  *
- * Usage: node scripts/select-tests.mjs [--base <rev>] [--changed <file>] [--json] [--explain <test file>]
+ * Usage: node scripts/select-tests.mjs [--base <rev>] [--changed <file>] [--json] [--explain <test file>] [--run-py]
  *
  * The change is `git diff <base>...HEAD` plus the working tree's modified and untracked files (base defaults to the
  * merge base with 0.9.7a). `--changed <file>` reads that list instead, one path per line: the box gets the list from the
@@ -15,10 +15,10 @@
  * The smoke set always runs. A changed file this cannot place (a dependency manifest, a build script, a data file no
  * test names and that the product reads at runtime) selects everything: `full: true`.
  * The routing loop test (experiments/single-loop-routing/loop.test.mjs) is placed by the same rules.
- * pytest runs whole (`py: true`) when the change reaches an emitted bundle (tests/kernel and tests/play drive the emitted
- * kernel and host as a whole), touches Python or the pytest trees, or changes a file a Python test names.
+ * `py_files` narrows independent pytest-file changes; shared helpers, deleted tests and emitted bundles keep both
+ * suite directories. `py` remains a boolean for older runners. --run-py executes the selection locally (-n 2).
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -125,6 +125,7 @@ function closure(test) {
 
 let full = false;
 const unplaced = [];
+const isPytestFile = path => /^tests\/(kernel|play)\/(?:[^/]+\/)*test_[A-Za-z0-9_]+\.py$/.test(path);
 const isData = path => !moduleSet.has(path) && !INERT.some(rule => rule.test(path)) && !GLOBAL.some(rule => rule.test(path));
 /** The modules that name a data path, or the nearest of its directories that some module names. */
 function readersOf(path) {
@@ -139,6 +140,11 @@ function readersOf(path) {
 const affected = new Set([...changed].filter(path => moduleSet.has(path)));
 for (const path of changed) {
   if (GLOBAL.some(rule => rule.test(path))) { full = true; unplaced.push(path); continue; }
+  // A Python test is executable test code, not an unknown product data file.
+  if (isPytestFile(path)) {
+    for (const reader of readersOf(path)) affected.add(reader);
+    continue;
+  }
   if (!isData(path)) continue;
   const readers = readersOf(path);
   if (readers.length) for (const reader of readers) affected.add(reader);
@@ -172,19 +178,38 @@ function pythonUnder(dir, out = []) {
   }
   return out;
 }
-const pyText = pythonUnder('tests').map(path => readFileSync(join(root, path), 'utf8')).join('\n');
-const py = full || changedBundles.size > 0 || [...changed].some(path => path.endsWith('.py') || path.startsWith('tests/kernel/')
+const pySources = new Map(pythonUnder('tests').map(path => [path, readFileSync(join(root, path), 'utf8')]));
+const pyText = [...pySources.values()].join('\n');
+const pyTriggers = [...changed].filter(path => path.endsWith('.py') || path.startsWith('tests/kernel/')
   || path.startsWith('tests/play/') || (!INERT.some(rule => rule.test(path)) && pyText.includes(path.split('/').pop())));
-const ext = [...reasons.keys()].filter(test => test !== LOOP).sort();
+const py = full || changedBundles.size > 0 || pyTriggers.length > 0;
+// Naming a changed test module anywhere else is conservatively treated as shared usage,
+// including multiline imports and importlib calls. Helpers and implicit fixtures always run whole.
+const independent = path => isPytestFile(path) && existsSync(join(root, path)) && ![...pySources].some(([other, source]) =>
+  other !== path && new RegExp(`\\b${path.split('/').pop().slice(0, -3)}\\b`).test(source));
+const pyFiles = !py ? [] : !full && !changedBundles.size && pyTriggers.length && pyTriggers.every(independent)
+  ? [...new Set(pyTriggers)].sort() : ['tests/kernel', 'tests/play'];
+for (const path of pyFiles) reasons.set(path, isPytestFile(path) ? 'independent changed pytest file' : 'full pytest fallback');
+const ext = [...reasons.keys()].filter(test => test !== LOOP && !pyFiles.includes(test)).sort();
 const result = {
   base, changed: changed.size, full, unplaced,
   ext: full ? ['tests/extension/**/*.test.mjs'] : ext,
   py,
+  py_files: pyFiles,
   loop_routing: full || reasons.has(LOOP),
 };
 const explain = flag('--explain');
 if (explain) { console.log(reasons.get(explain) ?? 'not selected'); process.exit(0); }
-if (args.includes('--json')) console.log(JSON.stringify({ ...result, reasons: Object.fromEntries(reasons) }, null, 1));
+if (args.includes('--run-py')) {
+  console.log(`pytest selection: ${pyFiles.join(' ') || '(none)'}`);
+  if (pyFiles.length) {
+    const run = spawnSync('uv', ['run', '--frozen', 'python', '-m', 'pytest', ...pyFiles, '-n', flag('--py-workers') ?? '2', '-q', '-p', 'no:cacheprovider'],
+      { cwd: root, stdio: 'inherit', env: { ...process.env, COC_TEST_NODE: process.env.COC_TEST_NODE ?? process.execPath } });
+    if (run.error) throw run.error;
+    process.exitCode = run.status ?? (run.signal === 'SIGINT' ? 130 : 1);
+  }
+}
+else if (args.includes('--json')) console.log(JSON.stringify({ ...result, reasons: Object.fromEntries(reasons) }, null, 1));
 else {
   console.log(`base ${base.slice(0, 9)}  changed ${changed.size}  full ${full}  ext ${full ? 'all' : result.ext.length + '/' + (tests.length - 1)}  py ${result.py}  loop ${result.loop_routing}`);
   if (unplaced.length) console.log('unplaced: ' + unplaced.join(', '));

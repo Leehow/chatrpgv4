@@ -1,11 +1,41 @@
 """Deterministic source/read transport fixtures, never PDF or gameplay acceptance."""
 import hashlib
 import json
+import sqlite3
 from pathlib import Path
 
 
 def write(path, value):
-    Path(path).write_text(json.dumps(value), encoding="utf-8")
+    path = Path(path)
+    if path.name == "module.json":
+        write_source_metadata(path, value)
+    else:
+        path.write_text(json.dumps(value), encoding="utf-8")
+
+
+def write_source_metadata(path, value):
+    """Seed deliberate legacy/corrupt fixture fields in the current persistence authority.
+
+    This is test input, never a production mutation or an edit of the frozen Python oracle.
+    Homes not yet migrated retain their original JSON seed path.
+    """
+    path = Path(path)
+    root = next((parent for parent in path.parents if parent.name == ".coc"), None)
+    database = root / "source-reading.sqlite" if root else None
+    payload = json.dumps(value)
+    if database and database.exists():
+        with sqlite3.connect(database, timeout=25) as db:
+            scope = str(path.parent.relative_to(root))
+            db.execute("BEGIN IMMEDIATE")
+            saved = db.execute("SELECT revision FROM source_modules WHERE scope=?", (scope,)).fetchone()
+            if saved:
+                revision = saved[0] + 1
+                jobs = [json.loads(row[0]) for row in db.execute(
+                    "SELECT payload FROM source_jobs WHERE scope=? ORDER BY ordinal", (scope,))]
+                db.execute("UPDATE source_modules SET revision=?,payload=? WHERE scope=?", (revision, payload, scope))
+                db.execute("INSERT INTO source_revisions VALUES(?,?,?,?)", (scope, revision, payload, json.dumps(jobs)))
+                db.execute("UPDATE source_exports SET revision=?,error=NULL WHERE scope=?", (revision, scope))
+    path.write_text(payload, encoding="utf-8")
 
 
 def bind(client, tmp_path):

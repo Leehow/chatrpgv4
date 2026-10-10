@@ -7,7 +7,11 @@ import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {createHash} from 'node:crypto';
 import {dirname, join} from 'node:path';
 import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-agent';
-import {getCurrentSystemMessage} from '@earendil-works/pi-ai';
+import {getCurrentSystemMessage,getCurrentTools} from '@earendil-works/pi-ai';
+import {COC_TOOLS} from '../kernel/tools.ts';
+import {offeredTools} from '../kernel/lean-apply.ts';
+import {createCapabilityRuntime} from './capability-runtime.ts';
+import {createModDiscovery} from './mod-discovery.ts';
 import {compactAt} from './fold.ts';
 import {NO_UNTOLD, renameHandles, untoldRoster as readUntold, untoldView, type UntoldRoster} from '../kernel/untold-view.ts';
 import {createWorkpadStore, type WorkpadView} from './workspace/workpad-store.ts';
@@ -96,6 +100,12 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let pendingExpression:Row|undefined;
     // Contract §183.5: the indexed packages' sections this turn needs; the calls so far this turn are what triggers read.
     const modSections=createModSections({read:async(method,params)=>call?call(method,params):undefined,decision,record});
+    const discoveryMode=()=>['selective','shadow'].includes(sessionEnv.COC_TURN_DISCOVERY??'')?sessionEnv.COC_TURN_DISCOVERY!:'full';
+    const capabilityRuntime=createCapabilityRuntime({tools:()=>offeredTools(COC_TOOLS,sessionEnv),decision,mode:discoveryMode,record});
+    const modDiscovery=createModDiscovery({read:async(method,params)=>call?call(method,{campaign,...params}):undefined,
+        decision,mode:discoveryMode,record});
+    let pendingDiscovery:Row|undefined,requiredCapabilities:string[]=[];
+    let deliveredDiscoveryKeys=new Set<string>();
     const temporalAdvice=createTemporalAdvice({read:async(method,params)=>call?call(method,params):undefined,decision,record});
     let pendingTemporal:Row|undefined;
     let turnCalls=emptyCalls(),pendingSections:Row|undefined;
@@ -134,7 +144,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const key = `${generation}:${reason}`;
         if (key !== lastDegraded) {lastDegraded = key; record({lane: 'context', event: 'degraded', reason});}
     };
-    pi.on('input', async () => {inputPending=true;turnCalls=emptyCalls();invalidate();});
+    pi.on('input', async () => {capabilityRuntime.clear();modDiscovery.clear();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();inputPending=true;turnCalls=emptyCalls();invalidate();});
     pi.events.on('coc:kernel-bridge', data => {
         const value = object(data), nextCall = typeof value.call === 'function' ? value.call : undefined;
         const nextCampaign = typeof value.campaign === 'string' ? value.campaign : undefined;
@@ -179,7 +189,22 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; prescreenMemo=undefined;reusablePrescreen=undefined; invalidate();
     });
     pi.on('tool_call', async event => {
-        const input = object(event.input);
+        const input=object(event.input);
+        noteCall(turnCalls,event.toolName,input);
+        const needed=(Array.isArray(object(capsule?.mods).instructions)?object(capsule?.mods).instructions:[])
+            .filter((mod:Row)=>mod.index_contract_version===2)
+            .flatMap((mod:Row)=>(mod.sections??[]).filter((section:Row)=>(section.triggers??[]).some((trigger:string)=>{
+                const [kind,name]=trigger.split(':');
+                return kind==='before_apply'&&event.toolName==='apply'&&Array.isArray(input.effects)&&input.effects.some((effect:Row)=>effect.kind===name)
+                    ||kind==='before_resolve'&&event.toolName==='resolve'&&turnCalls.resolve.has(name);
+            })).map((section:Row)=>section.key));
+        const missing=needed.filter((key:string)=>!deliveredDiscoveryKeys.has(key));
+        if(missing.length){
+            record({lane:'mod-discovery',event:'readiness_expansion',turn:observedTurn,keys:missing,no_commit:true});
+            return{block:true,reason:'Required package detail was absent from the current request. No world change was committed. Read the next expanded request and re-decide the whole batch.'};
+        }
+        const hold=capabilityRuntime.readiness(event.toolName,object(event.input));
+        if(hold)return hold;
         if (event.toolName === 'look' || event.toolName === 'lookup')
             reads.set(event.toolCallId, {kind: String(input.kind ?? input.focus ?? ''),
                 name: typeof input.name === 'string' ? input.name : undefined,
@@ -215,10 +240,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (!sourceChanged && !captured && !(stateChanged && (observedWorkspaceMode !== 'off' || prescreenEnabled() || expressionRefresh))) return;
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; invalidate();
     });
-    pi.on('session_start', async () => {temporalAdvice.clear();pendingTemporal=undefined;expression.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
+    pi.on('session_start', async () => {capabilityRuntime.clear();modDiscovery.clear();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();pi.events.emit?.('coc:capability-discovery',{lookup:capabilityRuntime.lookup});temporalAdvice.clear();pendingTemporal=undefined;expression.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
         lastAttempt = undefined; sourceCalls.clear(); stateCalls.clear();prescreenDeadlineAt=0;prescreenMemo=undefined;reusablePrescreen=undefined;
         prescreenProviderBudget=preparationProviderBudget();});
-    pi.on('session_shutdown', async () => {temporalAdvice.clear();pendingTemporal=undefined;expression.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
+    pi.on('session_shutdown', async () => {capabilityRuntime.clear();modDiscovery.clear();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();pi.events.emit?.('coc:capability-discovery',{});temporalAdvice.clear();pendingTemporal=undefined;expression.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=NO_UNTOLD;sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
         prescreenMemo=undefined;reusablePrescreen=undefined;pendingProvider=undefined;prescreenDeadlineAt=0;
         prescreenProviderBudget={actions:0,inputTokens:0,outputTokens:0,costUsd:0};invalidate();});
 
@@ -454,6 +479,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // A concurrent input may replace a generation while its optional work is awaiting I/O.
         // Try the current accepted binding once; an unaccepted input uses the normal fallback.
         if (!snapshot && ticket !== generation && !inputPending) snapshot = await prepare();
+        if(!snapshot){capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();}
         // Pi 0.87 restores the canonical system/tool checkpoint after this hook. Reserve its
         // serialized size on every exit, including degraded turns, without treating it as history.
         let systemBytes = 0, systemDigest: string | null = null;
@@ -607,6 +633,18 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             &&Math.ceil((requestSize([...outgoing,sectionsMessage])+systemBytes)/BYTES_PER_TOKEN)<=available){
             outgoing.push(sectionsMessage);pendingSections=sectionsMessage;
         }else if(sectionsMessage)record({lane:'mod-sections',event:'omitted',turn:snapshot.binding.turn,reason:'request_ceiling',bytes:requestSize([sectionsMessage])});
+        capabilityRuntime.observe(snapshot.capsule,snapshot.binding,inputLifetime.signal);
+        modDiscovery.observe(snapshot.capsule,snapshot.binding,inputLifetime.signal,turnCalls);
+        await capabilityRuntime.wait();
+        const discoveryMessage=await modDiscovery.message(snapshot.capsule,snapshot.binding,preparationSignal,turnCalls);
+        pendingDiscovery=undefined;requiredCapabilities=[];
+        if(discoveryMessage){
+            if(requestSize([...outgoing,discoveryMessage])+systemBytes>ceiling)throw Error('mod_discovery_request_capacity');
+            outgoing.push(discoveryMessage);pendingDiscovery=discoveryMessage;
+            const keys=new Set(object(discoveryMessage.details).mod_sections?.keys??[]);
+            requiredCapabilities=(Array.isArray(object(snapshot.capsule.mods).instructions)?object(snapshot.capsule.mods).instructions:[])
+                .flatMap((mod:Row)=>(mod.sections??[]).filter((section:Row)=>keys.has(section.key)).flatMap((section:Row)=>section.dependencies??[]));
+        }
         const temporalMessage=await temporalWork;
         if(ticket!==generation||preparationSignal.aborted)return{messages:rename(baseline.messages) as typeof requestMessages};
         if(temporalMessage&&requestSize([...outgoing,temporalMessage])+systemBytes<=ceiling
@@ -647,9 +685,23 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             ...requestSegments(outgoing)});
         return {messages: outgoing as typeof requestMessages};
     });
+    pi.on('context_with_system',event=>{
+        const tools=getCurrentTools(event.messages as never);
+        const view=capabilityRuntime.project(tools as any,requiredCapabilities);
+        if(!view)return;
+        const {toolsAdded:_added,toolsRemoved:_removed,...head}=getCurrentSystemMessage(event.messages as never) as Row;
+        return{messages:[{...head,toolsAdded:view},...event.messages.filter(message=>message.role!=='system')] as never};
+    });
     // Public Pi seam after provider conversion. Observe only whether the exact prepared packet
     // survived serialization; never record headers, secrets or the private payload.
     pi.on('before_provider_request', event => {
+        const discovered=pendingDiscovery;pendingDiscovery=undefined;
+        deliveredDiscoveryKeys=new Set();
+        const discoveryDelivered=discovered&&payloadContains((event as unknown as Row).payload,String(discovered.content));
+        if(discoveryDelivered)deliveredDiscoveryKeys=new Set(object(discovered!.details).mod_sections?.keys??[]);
+        if(discovered)record({lane:'mod-discovery',event:'delivered',turn:object(discovered.details).mod_sections?.turn,
+            delivered:!!discoveryDelivered,
+            bytes:Buffer.byteLength(String(discovered.content))});
         const temporalSent=pendingTemporal;pendingTemporal=undefined;
         if(temporalSent)temporalAdvice.delivered(temporalSent,(event as unknown as Row).payload,payloadContains);
         const sectionsSent=pendingSections;pendingSections=undefined;

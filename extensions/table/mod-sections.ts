@@ -20,7 +20,7 @@ const array=(v:unknown):any[]=>Array.isArray(v)?v:[];
 const fingerprint=(v:unknown)=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const bytes=(v:string)=>Buffer.byteLength(v,'utf8');
 
-export const indexedRows=(capsule:Row):Row[]=>array(object(capsule.mods).instructions).filter(row=>object(row).form==='indexed');
+export const indexedRows=(capsule:Row):Row[]=>array(object(capsule.mods).instructions).filter(row=>object(row).form==='indexed'&&object(row).index_contract_version!==2);
 /** The calls a trigger can name, made so far this turn: effect kinds of every apply, decision families of every resolve. */
 export type TurnCalls={apply:Set<string>;resolve:Set<string>};
 export const emptyCalls=():TurnCalls=>({apply:new Set(),resolve:new Set()});
