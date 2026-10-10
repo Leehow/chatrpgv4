@@ -13,7 +13,8 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {after, test} from 'node:test';
-import {mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, readdir, rm, stat, symlink} from 'node:fs/promises';
+import {writeSourceFixture as writeFile} from './source-state-fixture.mjs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';

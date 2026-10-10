@@ -1,3 +1,4 @@
+import {readSourceMetadata} from '../modules/source-state.js';
 /** An operation's immutable saved inputs, loaded through the foundation read capability. */
 import { join, relative, resolve, sep , dirname} from "node:path";
 import { realpath, readFile } from "node:fs/promises";
@@ -234,7 +235,7 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
     }
     const moduleRoot = join(context.moduleRoot ?? join(context.stateRoot, "modules"), id),
         metadataPath = join(moduleRoot, "module.json");
-    const meta = await context.snapshots.pathExists(metadataPath) ? row(await context.snapshots.readJson(metadataPath)) : {};
+    const meta = row(await readSourceMetadata(moduleRoot, context.stateRoot, context.locks));
     const generation = number(meta.generation),
         registered = Object.keys(meta).length > 0;
     let path = join(context.content, "starters", id, "module-graph.json");

@@ -12,7 +12,8 @@ import {playtestScratch} from './playtest-scratch.mjs';
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {appendFile, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {appendFile, mkdir, mkdtemp, readFile, rm} from 'node:fs/promises';
+import {writeSourceFixture as writeFile} from './source-state-fixture.mjs';
 import {createHash} from 'node:crypto';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';

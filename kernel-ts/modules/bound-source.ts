@@ -12,6 +12,7 @@ import { sha256File, writeJsonAtomic } from '../fileio.js';
 import { array, equal, integer, number, repr, row, truth, type Row } from '../read/values.js';
 import { recordOf } from '../read/module-graph.js';
 import { childPath, inside } from './paths.js';
+import {sourceState} from './source-state.js';
 
 /**
  * Whether a module's playable material is published by the visual reading lane (a PDF book): its
@@ -167,10 +168,7 @@ export async function bindStarterSource(context: KernelContext, folder: string, 
     // the pages their own source_refs cite (names and page ranges only; no topics are guessed).
     const index = authoredIndex(graph, declaration), indexFile = 'index.json';
     await writeJsonAtomic(join(folder, indexFile), index);
-    const queue = join(folder, 'deepen-queue.json');
-    if (await context.snapshots.isFile(queue) && array(await context.snapshots.readJson(queue)).length)
-        await rename(queue, join(folder, `legacy-queue-${randomUUID().replaceAll('-', '')}.json`));
-    await writeJsonAtomic(queue, []);
+    // The database revision preserves the replaced queue; PDF and review artifacts stay on disk.
     if (!await context.snapshots.isFile(join(folder, 'sections.json'))) await writeJsonAtomic(join(folder, 'sections.json'), []);
     const reading = boundReadingState(graph, number(meta.generation));
     // Each indexed scene is prepared (authored) material, so the capsule's `reading` rows say `read`.
@@ -184,6 +182,7 @@ export async function bindStarterSource(context: KernelContext, folder: string, 
         index_file: indexFile,
         reading,
     });
+    await sourceState(context.stateRoot).update(folder, {metadata:meta, jobs:[]});
     return meta;
 }
 

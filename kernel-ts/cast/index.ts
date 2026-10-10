@@ -1,3 +1,4 @@
+import {readSourceMetadata} from '../modules/source-state.js';
 /**
  * Contract §177.2: the cast reader's methods, for a book read from its PDF.
  *
@@ -57,7 +58,7 @@ export function createCastRuntime(context: KernelContext): { handlers: HandlerGr
         const scoped = campaign !== undefined ? await scopedModuleRoot(context, campaign, id) : null;
         const dir = join(scoped ?? context.moduleRoot ?? join(context.stateRoot, 'modules'), id);
         const metaPath = join(dir, 'module.json');
-        const meta = await context.snapshots.pathExists(metaPath) ? row(await context.snapshots.readJson(metaPath)) : {};
+        const meta = row(await readSourceMetadata(dir,context.stateRoot,context.locks));
         return { id, dir, meta, sha: moduleSourceSha(meta), ...(campaign ? { campaign } : {}) };
     }
     const jobIdOf = (sha: string) => `cast:${sha.slice(0, 12)}`;

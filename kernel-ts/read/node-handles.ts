@@ -1,3 +1,4 @@
+import {readSourceMetadata} from '../modules/source-state.js';
 /**
  * Contract §185 (owner ruling 2026-10-06, docs/specs/name-free-handles.md): name-free handles.
  *
@@ -79,7 +80,7 @@ export async function campaignNodeHandles(context: KernelContext, campaign: stri
  */
 export async function handlesDirectory(context: KernelContext, campaign: string, moduleId: string): Promise<string> {
     const library = join(context.stateRoot, 'modules', moduleId);
-    if (await context.snapshots.pathExists(join(library, 'module.json')))
+    if (await readSourceMetadata(library,context.stateRoot,context.locks))
         return library;
     return join(await scopedModuleRoot(context, campaign, moduleId) ?? join(context.stateRoot, 'modules'), moduleId);
 }

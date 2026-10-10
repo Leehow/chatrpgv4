@@ -1,7 +1,8 @@
 /** #108 original-source material supply. Real public module RPC and a supplied PDF fixture; no model calls. */
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,rm} from 'node:fs/promises';
+import {writeSourceFixture as writeFile} from './source-state-fixture.mjs';
 import {tmpdir} from 'node:os';
 import {dirname,join,resolve} from 'node:path';
 import {after,before,test} from 'node:test';

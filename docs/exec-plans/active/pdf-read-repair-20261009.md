@@ -1,6 +1,63 @@
 # PDF reading repair, 2026-10-09
 
-## Current approved optimization status: integrated and verified
+## Current approved SQLite migration
+
+User approved moving source-reading queue and related metadata to SQLite, preserving all
+evidence. Baseline latest 0.9.7a at 4ccc69e45 (other task's documentation integrated). Same
+owned tuple reactivated; no new worktree. SQLite node:sqlite is available in existing Node
+24.19.0; no dependency download or production Python. LAN probe picks idle amax.
+
+Scope: source state persistence, ModuleStore and every production metadata reader/writer,
+source fork/library seeding, focused migration/atomicity/recovery tests and existing contracts.
+World state/Git/worldline mechanisms, original PDFs/assets, author/reviewer artifacts, all
+play evidence, source gates, scheduler resource limits and models remain in place.
+SQLite is authoritative after one atomic import. Initial JSON bytes are archived and hashed;
+legacy filenames may remain one-way compatibility projections, never recovery authorities.
+All real readers go through the source state interface. Live running old App is preserved.
+
+Acceptance: import preserves metadata/job order/payloads/artifact hashes; crash during import
+or commit is atomic and retryable; concurrent claim cannot duplicate ownership; checked
+publication pointer, accepted result and queue completion commit together; stale versions
+fail closed; corruption never falls back to old JSON; campaign/library scopes remain isolated;
+source graph and evidence remain traceable; final LAN all and exact-runtime real validation.
+No DB transaction remains open during model calls or external file generation.
+
+SQLite checkpoint: SourceState and host metadata readers are implemented; metadata/queue
+publication is staged outside the write transaction and committed with a checked revision.
+Initial local checks cover import bytes, rollback, abrupt process exit, concurrent real claims,
+idempotent checked completion, corrupt/missing authority, scope aliases and failed inspection
+exports (13 storage cases). Starter legacy-fixture inputs now target SQLite; 15 cases pass.
+The registered/existence seam was corrected so a corrupt library does not prevent a healthy
+fork's identity maintenance; all 10 identity cases pass. Source/scope material cases: 9 pass.
+
+Actual retained source home migration completed: pdf-text-20261009-home, 3 scoped modules,
+54 jobs, 8045 preexisting module/campaign files hashed before and after, zero changes.
+Original JSON bytes are present in both immutable import archives and SQL import receipts.
+quick_check=ok; foreign_key_check empty. Evidence is owned .coc/playtests/
+pdf-sqlite-20261009-audit/{before-hashes.json,import-result.json,source-state.mjs}.
+The bundle/source digests are retained; this is migration evidence, not real play.
+Epoch-7 session.resume guard was called first; the installed retired plugin still returns
+unsupported_save_schema. Do not change saves or restore the retired kernel to satisfy it.
+
+First canonical LAN focused run escalated to all and is still running. The box was idle on
+dispatch, but native-history-search-20261009 began a separate heavy run afterward; observed
+load126 and both checkouts' kernel processes. Preserve the first run and its timing failures;
+do not stop the other owner's processes or relax deadlines. Repair real fixture/storage
+failures, then rerun exact checks on an idle box. Final all/build/play/integration remain pending.
+
+First run completed red: wall1106s, pytest17 failures/2111 passed/two skipped, routing12 pass.
+All raw logs and per-file logs/times retained in pdf-sqlite-20261009-focused-evidence.
+Source-upgrade's newly seeded fork reproduced a recursive import/metadata lock wait; its
+owned test worker was terminated after six minutes without progress, with the signal/log
+retained. prepare now imports before taking that lock (and before identity publication);
+the exact source-upgrade file passes locally (9 plus one historical-input skip).
+Readonly guards now hash every SQL row/table/schema/import BLOB rather than volatile WAL/
+checkpoint bytes; no source/evidence file is excluded. Legacy metadata fixture writes target
+the SQL seam, preserving existing assertions. Read-window/library/visual files: 34 pass;
+storage14 pass; graph integrity9 pass; pregens5 pass; smoke15 pass. Visual identity review
+decisions flush before intentional duplicate refusals. All model/resource/review limits stay.
+
+## Previous query optimization status: integrated and verified
 
 Optimization commits 95909a4dd / 3508c826d and evidence writer fix 3f5859fab are
 integrated into latest 0.9.7a. Final canonical LAN all at 3f5859fab passed ext 5428 /

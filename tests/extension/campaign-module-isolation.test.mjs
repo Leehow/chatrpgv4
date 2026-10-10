@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink } from 'node:fs/promises';
+import {writeSourceFixture as writeFile} from './source-state-fixture.mjs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -422,10 +423,10 @@ test('two kernel processes isolate one source module per campaign in the same ho
     await save(metadataPath, { ...coldA.meta, campaign_scope: B });
     await assert.rejects(call(first, 'module.status', A), invalid);
   } finally { await writeFile(metadataPath, metadataBytes); }
-  // A private workspace that lost its binding is damaged, not a campaign that never forked.
+  // An absent inspection projection cannot erase a private workspace's SQLite binding.
   const heldMeta = metadataPath + '.held';
   await rename(metadataPath, heldMeta);
-  try { await assert.rejects(call(first, 'module.status', A), error => error.details?.reason === 'module_scope_incomplete'); }
+  try { assert.ok(await call(first,'module.status',A)); }
   finally { await rename(heldMeta, metadataPath); }
   assert.deepEqual(await treeDigest(store(A)), privateBytes);
 

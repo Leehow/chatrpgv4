@@ -1,7 +1,8 @@
+import {sourceState} from './source-state.js';
 /** Module metadata pointers publish complete, append-only generation directories. */
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
-import { dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import type { KernelContext } from '../context.js';
 import { RpcError } from '../errors.js';
 import { appendJsonl, sha256File, writeJsonAtomic } from '../fileio.js';
@@ -38,22 +39,25 @@ export class ModuleStore {
     moduleDir(id: string): string { return join(this.root, id); }
     moduleJson(id: string): string { return join(this.moduleDir(id), 'module.json'); }
     queuePath(id: string): string { return join(this.moduleDir(id), 'deepen-queue.json'); }
-    async ids(): Promise<string[]> { return this.context.snapshots.sortedChildNames(this.root, path => this.context.snapshots.pathExists(join(path, 'module.json'))); }
-    async exists(id: any): Promise<boolean> { return typeof id === 'string' && this.context.snapshots.pathExists(this.moduleJson(id)); }
+    async ids(): Promise<string[]> { return this.context.snapshots.sortedChildNames(this.root, path => this.exists(basename(path))); }
+    async exists(id: any): Promise<boolean> { return typeof id === 'string' && await sourceState(this.context.stateRoot).registered(this.moduleDir(id), this.context.locks); }
+    prepare(id: string): Promise<void> {return sourceState(this.context.stateRoot).ensure(this.moduleDir(id), this.context.locks);}
+    transaction<T>(id: string, action: () => Promise<T>): Promise<T> {return sourceState(this.context.stateRoot).transaction(this.moduleDir(id), action, this.context.locks);}
+    flush(id: string): Promise<void> {return sourceState(this.context.stateRoot).flush(this.moduleDir(id));}
     async module(id: any): Promise<Row> {
         if (typeof id !== 'string' || !id)
             throw new RpcError('invalid_params', 'params.module_id is required');
-        if (!await this.context.snapshots.pathExists(this.moduleJson(id))) {
+        if (!await this.exists(id)) {
             throw new RpcError('invalid_params', `unknown module ${repr(id)}`, {
                 fix: 'bind an original PDF with module.source.bind or register a starter', details: { module_id: id, modules: await this.ids() },
             });
         }
-        return clone(row(await this.context.snapshots.readJson(this.moduleJson(id))));
+        return clone((await sourceState(this.context.stateRoot).snapshot(this.moduleDir(id), this.context.locks)).metadata!);
     }
-    async writeModule(meta: Row): Promise<void> { meta.updated_at = nowIso(); await writeJsonAtomic(this.moduleJson(string(meta.id)), meta); }
+    async writeModule(meta: Row): Promise<void> {meta.updated_at = nowIso(); await sourceState(this.context.stateRoot).update(this.moduleDir(string(meta.id)), {metadata:meta}, this.context.locks);}
     async generation(id: string): Promise<number> { return number((await this.module(id)).generation || 0); }
     async graphPath(id: string, binding?: Row): Promise<string> {
-        if (binding || await this.context.snapshots.pathExists(this.moduleJson(id))) {
+        if (binding || await this.exists(id)) {
             const meta = binding ?? await this.module(id);
             if (typeof meta.graph_file === 'string') {
                 const path = await resolvedPath(childPath(this.moduleDir(id), meta.graph_file));
@@ -143,8 +147,8 @@ export class ModuleStore {
         }
         return null;
     }
-    async queue(id: string): Promise<Row[]> { return await this.context.snapshots.pathExists(this.queuePath(id)) ? clone(array(await this.context.snapshots.readJson(this.queuePath(id)))) : []; }
-    async writeQueue(id: string, queue: Row[]): Promise<void> { await writeJsonAtomic(this.queuePath(id), queue); }
+    async queue(id: string): Promise<Row[]> {return (await sourceState(this.context.stateRoot).snapshot(this.moduleDir(id), this.context.locks)).jobs;}
+    async writeQueue(id: string, queue: Row[]): Promise<void> {await sourceState(this.context.stateRoot).update(this.moduleDir(id), {jobs:queue}, this.context.locks);}
     async appendBuildLog(id: string, item: Row): Promise<void> { await appendJsonl(join(this.moduleDir(id), 'build.jsonl'), { at: nowIso(), ...item }); }
     async opening(graph: Row): Promise<Row> {
         const contract = await this.contract(), dossier = row(contract.graph.actor_dossier);

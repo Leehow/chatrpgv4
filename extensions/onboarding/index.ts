@@ -1,3 +1,4 @@
+import {sourceMetadata} from '../../runtime/source-metadata.ts';
 import {selectSetupSource} from './source-intake.ts';
 import {browseInvestigators} from './pregens.ts';
 import { computeMove, renderBrief, type SetupSlot, type SetupNotes } from './brief.ts';
@@ -278,7 +279,7 @@ export default function (pi: ExtensionAPI) {
     const moduleId=asString(context.module_id);
     if(!ctx || !bridge || !moduleId || !/^[a-z0-9-]{1,64}$/.test(moduleId) || !context.campaign)return;
     const home=cocHome(ctx.cwd);
-    if(!existsSync(join(home,'.coc/modules',moduleId,'module.json')))return;
+    try{await sourceMetadata(join(home,'.coc/modules',moduleId));}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return;throw error;}
     const owner=bridge;
     const stop=signal ? AbortSignal.any([guidanceAbort.signal,signal]) : guidanceAbort.signal;
     guidancePending=(async()=>{

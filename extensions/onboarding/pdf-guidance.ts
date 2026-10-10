@@ -1,5 +1,5 @@
+import {sourceMetadata} from '../../runtime/source-metadata.ts';
 /** Bind an original PDF, then prepare only its reviewed character-creation brief. */
-import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {guidanceFingerprint} from '../module/character-guidance.ts';
 import {KernelError} from '../kernel/client.ts';
@@ -15,7 +15,7 @@ export async function preparePdfCreationGuidance(input:{home:string;contentRoot?
  const moduleId=String(bound.module_id??params.module_id??'');
  if(!/^[a-z0-9-]{1,64}$/.test(moduleId))throw new Error('Source binding returned no valid module id');
  let meta:Row;
- try{meta=JSON.parse(await readFile(join(home,'.coc/modules',moduleId,'module.json'),'utf8'));}
+ try{meta=await sourceMetadata(join(home,'.coc/modules',moduleId));}
  catch{meta={};}
  if(!meta.file_sha256)return reading.prepare({...params,pdf:undefined,module_id:moduleId},signal);
  const playLanguage=await input.playLanguage(),occupations=await input.occupations();

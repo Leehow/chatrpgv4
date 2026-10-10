@@ -1,3 +1,4 @@
+import {sourceMetadata} from '../../runtime/source-metadata.ts';
 /** Module-owned, reviewed guidance shared by character creation sessions. */
 import {createHash, randomUUID} from 'node:crypto';
 import {access, mkdir, readFile, writeFile, rename} from 'node:fs/promises';
@@ -95,7 +96,7 @@ function guideSources(graph:Row,scene:Row|undefined):GuideSource[] {
 export async function guidanceFingerprint(options:Options):Promise<string> {
   const content = options.contentRoot ?? join(root, 'content');
   const folder=resolve(options.home,'.coc/modules',options.module_id);
-  const meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
+  const meta=await sourceMetadata(folder);
   const prompts=await Promise.all([join(content,'setup/character-guidance.md'),join(content,'setup/character-guidance-review.md'),...(meta.file_sha256?[join(content,'setup/visual-guidance.md'),join(content,'setup/source-reference-guidance.md')]:[])].map(path=>readFile(path,'utf8')));
   // A PDF module's guidance is the book's own first reading (§22.9; §20 addendum 2026-09-24, SL-32):
   // the host computes this key *before* that reading, when no graph exists yet, and the kernel
@@ -116,7 +117,7 @@ export async function guidanceFingerprint(options:Options):Promise<string> {
 export async function acceptedGuidance(home:string,moduleId:string,key:string):Promise<Guidance> {
   if(!/^[a-f0-9]{64}$/.test(key))throw coded('invalid_params','Invalid guidance reference');
   const folder=resolve(home,'.coc/modules',moduleId);
-  const meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
+  const meta=await sourceMetadata(folder);
   const saved=await json(join(folder,'character-guidance',key,'accepted.json'));
   if(saved.fingerprint!==key||saved.approved!==true||
     (meta.reading_version && meta.source !== 'starter' && !meta.character_guidance?.[key]))throw coded('guidance_not_ready','Guidance has not been accepted');
@@ -124,7 +125,7 @@ export async function acceptedGuidance(home:string,moduleId:string,key:string):P
 }
 export async function acceptedPublicGuidance(home:string,moduleId:string,key:string):Promise<PublicGuidance|undefined>{
  if(!/^[a-f0-9]{64}$/.test(key))throw coded('invalid_params','Invalid guidance reference');
- const folder=resolve(home,'.coc/modules',moduleId),meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
+ const folder=resolve(home,'.coc/modules',moduleId),meta=await sourceMetadata(folder);
  let saved:Row;
  try{saved=await json(join(folder,'character-guidance',key,'public.json'));}
  catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return undefined;throw error;}
@@ -176,7 +177,7 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
   if(!/^[a-z0-9-]{1,64}$/.test(options.module_id))throw coded('invalid_params','Invalid module');
   if(typeof options.play_language!=='string'||!LANGUAGE_TAG.test(options.play_language))throw coded('invalid_params','Invalid play language: name it as a BCP-47 language tag such as pt-BR');
   const folder=resolve(options.home,'.coc/modules',options.module_id);
-  const meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
+  const meta=await sourceMetadata(folder);
   const graphPath=resolve(folder,meta.graph_file || 'module-graph.json');
   const rel=relative(folder,graphPath);
   if(!rel||rel.startsWith('..')||isAbsolute(rel))throw coded('invalid_params','Module graph escapes its store');

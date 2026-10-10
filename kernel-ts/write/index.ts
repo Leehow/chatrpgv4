@@ -1,3 +1,4 @@
+import {readSourceMetadata} from '../modules/source-state.js';
 import { SINGLE_PASS_NARRATION } from '../runtime/narration-policy.ts';
 /** Static campaign and turn handlers. Other domains contribute through named seams. */
 import { mkdir, readFile, rm, unlink } from 'node:fs/promises';
@@ -504,8 +505,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         }
         const id = string(meta.module_id);
         const root = await scopedModuleRoot(context, value.id, id) ?? join(context.stateRoot, 'modules'), directory = join(root, id);
-        const moduleMeta = await context.snapshots.pathExists(join(directory, 'module.json'))
-            ? row(await context.snapshots.readJson(join(directory, 'module.json'))) : {};
+        const moduleMeta = row(await readSourceMetadata(directory,context.stateRoot,context.locks));
         const graphPath = await sourceGraphPath(id, value.id);
         if (!await context.snapshots.pathExists(graphPath))
             return false;
@@ -836,17 +836,17 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             validateDifficulty(difficulty);
         const starters = await context.snapshots.sortedChildNames(join(context.content, 'starters'), path => context.snapshots.pathExists(join(path, 'module-graph.json')));
         const starter = starters.includes(moduleId), metadata = join(context.stateRoot, 'modules', moduleId, 'module.json');
-        if (!starter && !await context.snapshots.pathExists(metadata))
+        if (!starter && !await readSourceMetadata(join(context.stateRoot,'modules',moduleId),context.stateRoot,context.locks))
             throw new RpcError('invalid_params', `unknown module ${repr(moduleId)}`, {
                 fix: `one of ${repr(starters)}, or a module registered with module.source.bind`
             });
-        const existing = await context.snapshots.pathExists(metadata) ? row(await context.snapshots.readJson(metadata)) : {};
+        const existing = row(await readSourceMetadata(join(context.stateRoot,'modules',moduleId),context.stateRoot,context.locks));
         if (playsFromReading(existing) && !contributions.openingReady)
             missingContribution('visual source creation');
         if(!contributions.mods)await defaultModPlan(context, {}, language);
         if (starter) await registerStarter(context, moduleId);
         const root = await scopedModuleRoot(context, id, moduleId) ?? join(context.stateRoot, 'modules');
-        const moduleMeta = clone(row(await context.snapshots.readJson(join(root, moduleId, 'module.json'))));
+        const moduleMeta = clone(row(await readSourceMetadata(join(root,moduleId),context.stateRoot,context.locks)));
         if (!starter && pregen != null)
             throw new RpcError('invalid_params', 'pregens exist only for starters', {
                 fix: 'create the investigator with setup.investigator'
@@ -961,7 +961,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if(!contributions.mods)await defaultModPlan(context, initial.world);
         const root = await scopedModuleRoot(context, initial.id, string(meta.module_id)) ?? join(context.stateRoot, 'modules');
         const metadata = join(root, string(meta.module_id), 'module.json');
-        const moduleReading = await context.snapshots.pathExists(metadata) && playsFromReading(row(await context.snapshots.readJson(metadata)));
+        const moduleReading = playsFromReading(row(await readSourceMetadata(join(root,string(meta.module_id)),context.stateRoot,context.locks)));
         if (moduleReading && !contributions.queueAdjacentReading)
             missingContribution('visual source opening and reading queue');
         if(!contributions.worldlines)await ensureMain(campaign, meta);

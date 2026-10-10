@@ -1,3 +1,4 @@
+import {readSourceMetadata} from '../modules/source-state.js';
 /**
  * Contract §185.5: the handle lane's two methods. `handles.job` lists the book nodes the book's `handles.json` neither names nor
  * gave up, with what the graph says of them and the cast forms a handle may not carry; `handles.submit` checks each proposed
@@ -52,9 +53,9 @@ export function createHandleHandlers(context: KernelContext, writer: ReturnType<
         const moduleId = validateModuleId(params.module);
         const directory = join(context.stateRoot, 'modules', moduleId), metadata = join(directory, 'module.json');
         const starter = await context.snapshots.isFile(join(context.content, 'starters', moduleId, 'module-graph.json'));
-        if (!starter && !await context.snapshots.isFile(metadata))
+        if (!starter && !await readSourceMetadata(directory,context.stateRoot,context.locks))
             throw new RpcError('invalid_params', `unknown module ${repr(moduleId)}`, { details: { field: 'module', module: moduleId } });
-        const meta = starter ? {} : row(await context.snapshots.readJson(metadata));
+        const meta = starter ? {} : row(await readSourceMetadata(directory,context.stateRoot,context.locks));
         if (starter || !playsFromReading(meta))
             throw new RpcError('invalid_params', `module ${repr(moduleId)} is authored and keeps its own handles`, {
                 fix: 'only a book the PDF reader built takes handles', details: { reason: 'authored', module: moduleId } });

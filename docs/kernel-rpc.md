@@ -42175,3 +42175,40 @@ each atomic JSON replacement in its own unique sibling file and remove only that
 file. A process id alone is not a write identity: both threads share it. This preserves
 the existing output schema and prevents a rename race from closing the control connection
 after a committed turn. It changes no Keeper behavior, stop timeout or resource budget.
+
+
+### 22.7 SQLite source-reading state (approved 2026-10-09)
+
+Source queue jobs and module metadata have one authority: local source-reading.sqlite under
+the Pi home's .coc directory, scoped by the canonical module directory. The existing
+ModuleStore interface remains the reader/writer seam; hosts read source metadata through
+that same storage interface. Original PDFs, immutable graph generations, index/source
+packets, author/reviewer work and all evidence remain files with their existing hash gates.
+World state, campaign transactions and Git/worldline history are outside this migration.
+
+First access imports the legacy module.json and deepen-queue.json together in one SQLite
+transaction. Import records preserve original bytes and digests before any compatibility
+projection replaces a filename. A completed import is never repeated because a JSON file
+changed or a database read failed. Corrupt/schema-incompatible DB state fails closed.
+Compatibility JSON is a one-way inspection/export projection; it is not a second authority.
+Read-only invariants hash every logical SQLite table/row and schema version; WAL/checkpoint
+and shared-memory bytes are storage machinery. All source/evidence artifacts keep byte hashes.
+
+Jobs retain their exact payloads and order, with scoped job ids and indexed key/state/focus/
+purpose/owner/lease fields. Short BEGIN IMMEDIATE transactions with version checks protect
+updates; WAL, foreign keys and full durability are enabled. A module's publication pointer,
+accepted answer/material metadata and completed job update together, after existing file
+and independent review checks. External immutable files are prepared before commit; an
+interrupted unreferenced generation remains retained evidence, never automatic readiness.
+An independently checked visual-identity verdict is its own durable decision (§152.4): it
+commits before a duplicate-draft refusal and does not publish that draft or finish its job.
+Model execution and file generation never run inside a database write transaction. Native
+descriptor ownership remains the liveness proof for running attempts; no lease or proof
+gate is replaced by an unchecked database flag. Registry/fork imports preserve scope and
+never copy a live WAL database as a source seed. New scopes seed from an accepted snapshot.
+
+The source store writes SQL state; kernel and host readers consume its bound snapshots;
+existing claim/pump/publication/capsule paths act on them. Migration changes persistence,
+not Keeper authority, model selection, capacity, review thresholds or original source truth.
+References: https://www.sqlite.org/lang_transaction.html ; https://www.sqlite.org/wal.html ;
+https://www.sqlite.org/pragma.html ; https://nodejs.org/docs/latest-v24.x/api/sqlite.html

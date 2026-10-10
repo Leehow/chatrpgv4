@@ -12,7 +12,8 @@ import {playtestScratch} from './playtest-scratch.mjs';
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {mkdir, mkdtemp, readFile, readdir, realpath, rename, symlink, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, readdir, realpath, rename, symlink} from 'node:fs/promises';
+import {writeSourceFixture as writeFile,withMissingSourceFixture} from './source-state-fixture.mjs';
 import {createHash} from 'node:crypto';
 import {join, relative, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -96,7 +97,7 @@ async function library(name, {reading} = {}) {
 	b.aside = async action => {
 		const binding = join(b.dir(), 'module.json');
 		await rename(binding, `${binding}.aside`);
-		try { return await action(); } finally { await rename(`${binding}.aside`, binding); }
+        try { return await withMissingSourceFixture(b.dir(),action); } finally { await rename(`${binding}.aside`, binding); }
 	};
 	b.queue = async campaign => JSON.parse(await readFile(join(b.dir(campaign), 'deepen-queue.json'), 'utf8'));
 	b.graph = async campaign => JSON.parse(await readFile(join(b.dir(campaign), (await b.meta(campaign)).graph_file), 'utf8'));

@@ -1,3 +1,4 @@
+import {readSourceMetadata} from './source-state.js';
 /** A reusable library publication seeds one independently writable campaign source. */
 import { constants } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, rename, rm } from 'node:fs/promises';
@@ -52,8 +53,9 @@ export async function scopedModuleRoot(context: KernelContext, campaign: string,
             return scopedModuleRoot(context, campaign, id);
         }
         const libraryJson = join(context.stateRoot, 'modules', id, 'module.json');
-        if (await context.snapshots.pathExists(libraryJson)) {
-            const shared = row(await context.snapshots.readJson(libraryJson));
+        const sharedMeta = await readSourceMetadata(join(context.stateRoot,'modules',id),context.stateRoot,context.locks);
+        if (sharedMeta) {
+            const shared = sharedMeta;
             if (shared.id !== id)
                 throw new RpcError('invalid_params', 'the shared module metadata names another module');
         }
