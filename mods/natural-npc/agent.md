@@ -2,14 +2,15 @@
 
 ## First impression
 
-The kernel rolls each person's first impression itself, the moment they first share a scene with an
-investigator: the higher of Appearance and Credit Rating, Regular difficulty, once per investigator and
-person. It happens inside whatever brought them together -- a move into the room, an `apply npc` that
-puts someone here, the start of a turn, the opening -- so never resolve natural-npc:first-impression
-yourself and never pre-roll anyone. The result reaches you three ways: the receipt of the call that
-brought them together, that call's `first_impressions` rows, and `mods.relationships`, where a row whose
-`since_turn` is this turn is new and should already show in how they meet the investigator. A person the
-book says reacts without a roll is not rolled; play them as the book says.
+The host offers each person's first impression (the higher of Appearance and Credit Rating, Regular
+difficulty, once per investigator and person) while they share a scene with an investigator, and rolls it
+only when the impression matters this turn: the investigator seeks something from them, approaches them
+socially, must get past them, or they are hostile or suspicious. Never resolve
+natural-npc:first-impression yourself and never pre-roll anyone. A rolled impression reaches you in that
+turn's receipt and in `mods.relationships`, where a row whose `since_turn` is this turn is new and should
+already show in how they meet the investigator. Someone met without a roll is played from their own
+disposition and your judgement; the impression can still be rolled on a later turn where it matters. A
+person the book says reacts without a roll is not rolled; play them as the book says.
 
 ## The impression in play
 

@@ -20,6 +20,7 @@ import {semanticQuestions, semanticChoice} from './semantic-votes.ts';
 import {createHash} from 'node:crypto';
 import {turnNow,type TurnContext} from './turn-context.ts';
 import {preparedAttackReady} from './attack-preparation.ts';
+import {ATTACK_FALLBACK_RULE, attackFallback, declaredAttack} from './attack-fallback.ts';
 import type {DeclaredDuration} from './declared-duration.ts';
 import {rosterReady, type ProfileRequirement} from './profile-readiness.ts';
 import type {ObservationView, OperationProposal, RunPolicy, RunView as DriverView, StepRequest as DriverStepRequest} from '@earendil-works/pi-agent-core';
@@ -833,7 +834,7 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
   const complete = result?.status === 'complete';
   const extra: Record<string, Json> = {}, bindings: BindRecord[] = [], later: Unbound[] = [], leads: Record<string, string> = {};
   let lowest = 1, cause = complete ? '' : 'jev_unavailable';
-  const softUnresolved: string[] = [], softWithheld: string[] = [];
+  const softUnresolved: string[] = [], softWithheld: string[] = [], fellBack: string[] = [];
   for (const parameter of closedParameters(candidate)) {
     if (candidate.clerk === 'declared_time' || candidate.checkOwner === 'jev' && parameter.owner === 'player') {
       const pooled = semanticChoice(result, parameter.name, [...parameter.options!, 'unknown']);
@@ -848,6 +849,16 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
         bindings.push(interval ? {name: 'minutes', path: 'jev', value: interval.minutes, confidence: confidence ?? null, distribution, semantic, ...admission}
           : {name: parameter.name, path, value: choice, confidence: confidence ?? null, distribution, semantic, ...admission, ...table, ...(band ? {band: choice} : {})});
       } else {
+        // §224.2: a declared attack's weapon or target is not withheld; the host binds the rulebook fallback.
+        const fallback = parameter.owner === 'player' && declaredAttack(candidate) ? attackFallback(parameter.name, parameter.options!, distribution) : undefined;
+        if (fallback) {
+          extra[parameter.name] = fallback.value;
+          fellBack.push(fallback.note);
+          bindings.push(parameter.name === 'weapon'
+            ? {name: parameter.name, path: 'rule-default', value: fallback.value, rule: ATTACK_FALLBACK_RULE, confidence: confidence ?? null, distribution, semantic}
+            : {name: parameter.name, path, value: fallback.value, confidence: confidence ?? null, distribution, semantic, cleared: false});
+          continue;
+        }
         softUnresolved.push(parameter.name);
         if (parameter.owner === 'player') softWithheld.push(parameter.name + ' has no leading declared choice');
         cause = answered ? 'unknown_binding' : 'jev_unavailable';
@@ -914,8 +925,8 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
   }
   if (unresolved.length) return {pending: keeperOwns(candidate, withheld.length ? 'player_choice' : cause || 'unknown_binding', unresolved, bindings, withheld),
     reason: 'clerk_unbound', bindings};
-  const forced = leaned.length ? forcedResolution({family: 'check-binding', subject: candidate.label, uncertain: leaned,
-    chosen: {outcome: 'roll', check: candidate.label, action: extra}, why: 'below_confidence_gate'}, candidate.key) : undefined;
+  const forced = leaned.length || fellBack.length ? forcedResolution({family: 'check-binding', subject: candidate.label, uncertain: [...leaned, ...fellBack],
+    chosen: {outcome: 'roll', check: candidate.label, action: extra}, why: fellBack.length ? 'attack_fallback' : 'below_confidence_gate'}, candidate.key) : undefined;
   const bound: Candidate = Object.keys(defaults).length
     ? {...candidate, basis: {...(candidate.basis && typeof candidate.basis === 'object' && !Array.isArray(candidate.basis) ? candidate.basis : {}),
       binding: 'rule-default', rule_default: defaults} as Json}
