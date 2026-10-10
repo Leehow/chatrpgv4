@@ -75,7 +75,7 @@ test("§138.10 builder: the declared action's time is one candidate over the tim
 	assert.equal(time.routeFact.selects, "costs");
 	assert.deepEqual(Object.keys(time.routeFact.criteria), ["costs", "none", "unknown"]);
 	assert.deepEqual(time.composed, ["why"]);
-	assert.equal(time.bound.why, `The time actually consumed by a supported completed/attempted portion, from a fitting kernel time-cost row; player: "${INPUT}"`);
+	assert.equal(time.bound.why, `The time actually consumed by the selected wait or supported completed/attempted portion, from a stated end, a stated length or a kernel time-cost row; player: "${INPUT}"`);
 	assert.deepEqual(keeperCall(time, { band: "single_room_search" }), { tool: "apply", args: { effects: [{ kind: "time", why: time.bound.why, band: "single_room_search" }] } });
 	assert.ok(!("minutes" in keeperCall(time, { band: "x" }).args.effects[0]));
 	// What Jev reads of it: no host key, basis, clerk or gate.
