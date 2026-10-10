@@ -68,16 +68,19 @@ export function sourceAnswerPage(answer: Row, input: SourceAnswerPageInput): Sou
   if (!Number.isSafeInteger(part) || part < 0) return {unavailable: 'invalid_part'};
   const bound = withSourceQuestion(input.question, answer);
   delete bound.play_material;
+  let playMaterial: Row | undefined;
   if (input.playMaterial === true && bound.prepared === false) {
-    const playMaterial = {
+    const candidate = {
       prepare: {kind: 'source', source_mode: 'prepare', query: input.focus, question: input.question},
       instruction: 'Keeper reference only. For chosen physical reading, use look object with document_page 1 on the actual registered carrier. If the authored document needs preparation, use prepare, then its actual handout receipt. Preserve the current owner; reading alone is not an ownership transfer. Do not copy source excerpts into an invented player-owned document or treat their names as already revealed.',
     };
     const metadata = Object.fromEntries(Object.entries(bound).filter(([key]) => !PAYLOAD.includes(key as typeof PAYLOAD[number])));
-    if (size({...metadata, play_material: playMaterial}) <= SOURCE_ANSWER_PAGE_BYTES - 1024) bound.play_material = playMaterial;
+    if (size({...metadata, play_material: candidate}) <= SOURCE_ANSWER_PAGE_BYTES - 1024) playMaterial = candidate;
   }
+  const present = (view: Row): Row => playMaterial && size({...view, play_material: playMaterial}) <= SOURCE_ANSWER_PAGE_BYTES
+    ? {...view, play_material: playMaterial} : view;
   const whole = {...bound, delivery: {complete: true, part: 0, total_parts: 1}};
-  if (size(whole) <= SOURCE_ANSWER_PAGE_BYTES) return part === 0 ? {view: whole} : {unavailable: 'invalid_part'};
+  if (size(whole) <= SOURCE_ANSWER_PAGE_BYTES) return part === 0 ? {view: present(whole)} : {unavailable: 'invalid_part'};
   const metadata = Object.fromEntries(Object.entries(bound).filter(([key]) => !PAYLOAD.includes(key as typeof PAYLOAD[number])));
   const units = unitsOf(bound), pages: number[][] = [];
   const omitted = PAYLOAD.filter(key => Object.hasOwn(bound, key));
@@ -103,5 +106,5 @@ export function sourceAnswerPage(answer: Row, input: SourceAnswerPageInput): Sou
   if (!pages.length) return {unavailable: 'metadata_budget'};
   if (part >= pages.length) return {unavailable: 'invalid_part'};
   const view = render(pages[part], part, pages.length);
-  return {view, truncated: true, omitted_fields};
+  return {view: present(view), truncated: true, omitted_fields};
 }

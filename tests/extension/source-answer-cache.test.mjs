@@ -53,7 +53,7 @@ function collectPages(read, originals) {
 test('unprepared cached source pages retain same-request preparation without granting document disclosure', () => {
   const list = new PendingAnswers(() => {}), question = 'Read the selected physical document';
   const answer = {status:'excerpts',prepared:false,question:'a different source-authored question',
-    authority:'original-source-excerpts',excerpts:[{page:3,text:'Exact original passage. '.repeat(500)}],source_refs:[{page:3}],
+    authority:'original-source-excerpts',excerpts:[{page:3,text:'Exact original passage. '.repeat(20)}],source_refs:[{page:3}],
     play_material:{prepare:{kind:'source',source_mode:'prepare',query:'different',question:'source-authored request'}}};
   const original = structuredClone(answer);
   assert.equal(sourceAnswerPage(answer,{focus:'book',question,canContinue:true}).view.play_material,undefined,
@@ -69,8 +69,25 @@ test('unprepared cached source pages retain same-request preparation without gra
     if(!page.read_next)break;
     part=page.read_next.answer_part;
   }
-  assert.ok(part>0,'guidance survives actual local continuation pages');
+  assert.equal(part,0,'optional guidance never creates a new page for an otherwise complete answer');
   assert.deepEqual(answer,original,'presentation never changes the cached source evidence');
+});
+
+test('an unprepared held answer continues with identical source ordinals through explicit local reads',()=>{
+  const list=new PendingAnswers(()=>{}),question='same ordinal';
+  const answer={status:'answered',prepared:false,answer:'Original source words 🌲 '.repeat(900)};
+  assert.equal(cache(list,question,answer),true);
+  let part=0;
+  for(;;){
+    const held=sourceAnswerPage(answer,{focus:'book',question,part,canContinue:true}).view;
+    const explicit=list.read('c',{scene:'office',focus:'book',question,part}).source_answer;
+    const {play_material:_optional,...original}=explicit;
+    assert.deepEqual(original,held,'navigation cannot repack, repeat or omit units after a carried continuation');
+    assert.ok(size(explicit)<=SOURCE_ANSWER_PAGE_BYTES);
+    if(!held.read_next)break;
+    part=held.read_next.answer_part;
+  }
+  assert.ok(part>0,'the regression crosses actual retained source pages');
 });
 
 test('optional physical-reading guidance cannot displace source identity or original units', () => {

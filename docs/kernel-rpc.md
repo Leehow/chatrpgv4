@@ -42479,6 +42479,9 @@ metadata; otherwise it is omitted and the tool/system instructions remain the fa
 Guidance is offered only by explicit source lookup/continuation presentation. It is absent
 from held-answer accounting and carried capsule views, so it cannot evict existing evidence
 from those aggregate budgets. Their original page layout and retention behavior remain.
+Decoration runs after the original page layout is fixed and may use only free bytes on
+that page. It cannot add pages, repack units or change continuation ordinals between a
+held view and a later explicit read. Full pages omit navigation and keep their evidence.
 `play_material` is host-owned: source-authored or cached routing under this key is never
 trusted and is replaced for the current request or omitted. Paging and cached replies
 retain the same evidence and continuation rules. No new RPC.
