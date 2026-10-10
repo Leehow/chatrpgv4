@@ -57,6 +57,18 @@ the SQL seam, preserving existing assertions. Read-window/library/visual files: 
 storage14 pass; graph integrity9 pass; pregens5 pass; smoke15 pass. Visual identity review
 decisions flush before intentional duplicate refusals. All model/resource/review limits stay.
 
+Latest owned HEAD c02401b03: implementation ddff2f931, transaction fault follow-up5d83715be
+and source revision fixture follow-upc02401b03. Second canonical all at ddff2f931: pytest2128
+pass/two skipped, routing12 pass, ext5431 pass/11 fail (5443 total, one skip), wall1090s.
+Raw logs and per-file logs/times are retained in pdf-sqlite-20261009-all-evidence.
+All staging faults now assert full rollback; after-SQL-commit interruption additionally
+asserts cold idempotent proof reuse. All14 cases pass locally; revision-drift9 cases pass.
+Third final all/build/play/integration are pending. Amax remains occupied by the other
+native-history-search run's jev-provider-budget test (1241967, parent1241962, checked idle
+CPU but live for >11min). Do not signal that owner. Existing pdf heartbeat was updated via
+the app tool, preserving cadence/name/target and resumed ACTIVE for this durable wait.
+It stays quiet on unchanged state and pauses after actual completion. No new automation.
+
 ## Previous query optimization status: integrated and verified
 
 Optimization commits 95909a4dd / 3508c826d and evidence writer fix 3f5859fab are
