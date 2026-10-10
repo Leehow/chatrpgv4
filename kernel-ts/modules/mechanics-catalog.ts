@@ -9,7 +9,7 @@ export const SHAPE_KINDS: Readonly<Record<string, readonly string[]>> = Object.f
     check: ["rule", "hazard"],
     hazard: ["rule", "hazard"],
     damage: ["rule", "hazard"],
-    sanity_loss: ["rule", "hazard", "object", "artifact"],
+    sanity_loss: ["rule", "hazard", "object", "artifact", "clue"],
     time_cost: ["rule", "hazard"],
     resource_cost: ["rule", "hazard", "object", "artifact"],
     weapon: ["object", "artifact"],

@@ -2075,7 +2075,18 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           requirements: outcome.pending!.requirements, needs: profilePreparationNeeds(outcome.pending!.requirements)}}))];
     run.pendingCheckPreparations = preparations.map(({candidate, needs}) => ({candidate, needs}));
     run.pendingAttackPreparation = !!view.policyState.view.preparingAttacks?.length;
-    if (preparations.length) content.check_preparation = {
+    // §221.5: a family whose every option is `check_arguments_unavailable` has no executable host binding in the present
+    // state -- nothing to prepare, so the participant-preparation instruction would be wrong for it. A combat or chase
+    // placeholder is the exception §159.10 names: its missing argument is a participant the Keeper registers.
+    const PARTICIPANT_FAMILIES = ['combat', 'chase'];
+    const argumentOnly = preparations.length > 0 && preparations.every(entry => entry.needs.length > 0 && entry.needs.every(need =>
+      need.startsWith('check_arguments_unavailable:') && !PARTICIPANT_FAMILIES.includes(need.slice('check_arguments_unavailable:'.length).split(':')[0])));
+    if (argumentOnly) content.check_preparation = {
+      needs: preparations.flatMap(entry => entry.preparation ? [entry.preparation] : []),
+      instruction: 'No host option for this rule family can execute in the present state, and there is nothing to prepare for it: no participant, profile or object is missing. '
+        + 'Narrate the moment by your own judgement without a roll and without inventing a numeric result; the host records it as decided under uncertainty, and later facts are reconciled forward. '
+        + 'Do not call resolve for it, and do not prepare participants to make it executable.'};
+    else if (preparations.length) content.check_preparation = {
       needs: preparations.flatMap(entry => entry.preparation ? [entry.preparation] : []),
       instruction: 'These are missing host arguments, not uncertainty about what the player wants. Prepare the observed participants and their profiles through the existing scene/source preparation tools, then register their actual presence with apply npc when needed. '
         + 'Source answer excerpts alone do not register participants. Use source_mode=prepare for missing playable entities. Do not invent numeric profiles, make model-origin resolve calls, or narrate an adjudicated result while preparing. '

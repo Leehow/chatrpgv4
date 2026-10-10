@@ -108,6 +108,12 @@ export function specializedTriggerQuestion(option: CheckOption): string | undefi
       + 'The host has already verified the patient is eligible for this rule-required treatment roll. Do not reassess injury, timing or arithmetic. '
       + 'Cleaning and bandaging a wound are part of First Aid, not earlier separate checks. A calm setting does not replace the treatment roll. '
       + 'Exclude a hypothetical discussion, merely asking another person for help, or a different rescuer/patient/method. The actor is the rescuer and the target is the patient.';
+  // §221.3(4): a horror the module gave no number for; Jev judges from what happened this turn, the ladder binds the loss.
+  if (option.action.decision === 'sanity:check' && option.facts?.loss_source === 'rulebook_examples')
+    return 'Did something this investigator actually met this turn threaten their sanity in a way the Keeper Rulebook\'s example costs cover (a corpse or body part, a mangled body, '
+      + 'blood where it should not be, someone known to be dead, a ghoul or worse)? Read facts.done_this_turn: the clues filed this turn and their content, the people who arrived, '
+      + 'the last committed narration and the declaration. A sight already settled by a sanity_check receipt, a merely tense or unpleasant moment, a horror listed under done_this_turn.stated '
+      + '(it has its own stated check), and a secret of the module the investigator has not met do not call for this roll. The player need not ask for dice.';
   if (option.action.decision === 'sanity:check' && option.action.san_loss)
     return 'Does this investigator perceive the listed source of horror now, including directly uncovering or looking at it in the declared action, '
       + 'or has that exposure already been narrated without its SAN check? The source requires the listed SAN check once exposed. '
@@ -493,7 +499,12 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
         }
         const pooled = semanticChoice(result, key, [...parameter.options.map((_, i) => valueAlias(i)), 'unknown']);
         const i = pooled.choice ? parameter.options.findIndex((_, index) => valueAlias(index) === pooled.choice) : -1;
-        if (i < 0) {
+        if (i < 0 && parameter.default) {
+          // §221.9: an override Jev leaned to but could not bind leaves the rules default standing -- the book's answer,
+          // recorded as forced, never a no-roll of the operation the default already answers.
+          action[parameter.name] = structuredClone(parameter.default.value);
+          note(`${parameter.name} override: ${pooled.choice ? 'unknown' : 'unanswered'}, rules default`, pooled.choice ? 'below_confidence_gate' : 'jev_unanswered');
+        } else if (i < 0) {
           if (playerOwned(selected, parameter, investigators)) {
             withheld.push(parameter.name);
             note(`${parameter.name}: the player's choice is unmade, unknown or tied`, 'player_choice');

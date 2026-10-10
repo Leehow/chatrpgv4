@@ -20,5 +20,74 @@
     "source_note": "Keeper Rulebook p.167 (Sanity checklist F9): an investigator's maximum Sanity starts at 99 and is reduced by the investigator's Cthulhu Mythos score (current unmodified Cthulhu Mythos skill percentage). Maximum Sanity cannot exceed 99.",
     "base_max": 99,
     "subtract": "cthulhu_mythos_current_skill"
+  },
+  "sample_loss_ladder": {
+    "source_note": "Keeper Rulebook p.155, sidebar 'Examples of Sanity Point Costs': twelve example situations in the book's order. The situation labels here are this repository's short paraphrases, not the book's sentences; the host offers these rows to Jev when a horror the module gives no number for is judged from what happened (contract §221.3).",
+    "rows": [
+      {
+        "san_loss": "0/1D2",
+        "situation": "surprised by a mangled animal carcass"
+      },
+      {
+        "san_loss": "0/1D3",
+        "situation": "surprised by a corpse or a body part"
+      },
+      {
+        "san_loss": "0/1D4",
+        "situation": "seeing water run with blood"
+      },
+      {
+        "san_loss": "1/1D4+1",
+        "situation": "finding a horrifically mangled human corpse"
+      },
+      {
+        "san_loss": "0/1D6",
+        "situation": "waking trapped inside a coffin"
+      },
+      {
+        "san_loss": "0/1D6",
+        "situation": "witnessing a friend's violent death"
+      },
+      {
+        "san_loss": "0/1D6",
+        "situation": "seeing a ghoul"
+      },
+      {
+        "san_loss": "1/1D6+1",
+        "situation": "meeting someone known to be dead"
+      },
+      {
+        "san_loss": "0/1D10",
+        "situation": "undergoing severe torture"
+      },
+      {
+        "san_loss": "1/1D10",
+        "situation": "seeing a corpse rise from its grave"
+      },
+      {
+        "san_loss": "2/2D10+1",
+        "situation": "seeing a gigantic severed head fall from the sky"
+      },
+      {
+        "san_loss": "1D10/1D100",
+        "situation": "seeing Great Cthulhu"
+      }
+    ]
+  },
+  "getting_used_to_the_awfulness": {
+    "source_note": "Keeper Rulebook p.169, 'Getting Used to the Awfulness': once an investigator has lost as many Sanity points to one sort of monster as that monster's maximum possible loss, no more is lost to it for a reasonable interval; every investigator development phase reduces each tracked total by 1. Investigators never truly get used to it (contract §221.6).",
+    "cap": "maximum_possible_loss",
+    "development_phase_reduction": 1
+  },
+  "mythos_hardened": {
+    "source_note": "Keeper Rulebook p.169, optional rule 'Mythos Hardened': once Cthulhu Mythos rises above current Sanity, all later Sanity loss is halved; the change is permanent and does not revert if Sanity later exceeds Cthulhu Mythos (contract §221.7).",
+    "optional": true,
+    "permanent": true,
+    "loss_divisor": 2
+  },
+  "sanity_day": {
+    "source_note": "Keeper Rulebook p.156: the 'day' of the one-fifth indefinite-insanity rule is defined by the Keeper, usually lasting until the investigator reaches a place of safety and rests. The product closes it by the calendar day until a closed rest signal exists (contract §221.10).",
+    "defined_by": "keeper",
+    "fallback": "calendar_day"
   }
 }

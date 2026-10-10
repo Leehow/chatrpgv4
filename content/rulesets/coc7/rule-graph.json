@@ -7959,7 +7959,22 @@
             {
               "name": "san_max",
               "ownership": "host-locked"
-            }
+            },
+              {
+                "name": "bout_choice",
+                "optional": true,
+                "ownership": "optional-semantic"
+              },
+              {
+                "name": "creature_type",
+                "optional": true,
+                "ownership": "host-locked"
+              },
+              {
+                "name": "clue_ref",
+                "optional": true,
+                "ownership": "host-locked"
+              }
           ],
           "phase": "resolve"
         }

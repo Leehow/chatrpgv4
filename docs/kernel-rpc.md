@@ -42562,3 +42562,191 @@ This is host storage only; no new kernel RPC, Keeper verb, world state, semantic
 resource setting or rules gate. Existing TaskStore and TranscriptStore callers are the
 consumers. Regression checks compare logical SQL state while original artifacts retain
 byte hashes. Spec, focused/full checks, exact runtime and genuine driver evidence are required.
+
+## 221. Sanity is judged from what happened, per the Keeper Rulebook (user ruling 2026-10-10; amends §136.5–§136.6 seat table, §136.13, §138.10, §159, §163 for sanity)
+
+### 221.1 The ruling and the evidence
+
+The owner's ruling of 2026-10-10: the module supplies content the Keeper performs; the rules adjudicate what actually
+happened in play, per the Keeper Rulebook, and never refuse an event because the script gave it no number. For sanity
+the product fell short of that in a verified way. In `hybrid-v1` the Keeper may not call `resolve` (§159); the host's
+check catalog (`kernel-ts/runtime/check-catalog.ts`) offered an executable `sanity:check` only from a scene rule node's
+`mechanics.sanity_loss` or a present actor's profile loss; every other horror was inventoried as
+`check_arguments_unavailable:sanity:check`, and the clerk note then told the Keeper to "prepare the observed participants"
+(`runtime/jev/hybrid-engine.ts`, `check_preparation.instruction`), which fits a missing combat profile and nothing about
+sanity. §138.10's sentence "Sanity … stay[s] the Keeper's" was agent text, never an owner ruling, and in `hybrid-v1` the
+Keeper has no way to make it so. A clue node could not carry `sanity_loss` (§136.1 seat table). The rules data
+(`content/rulesets/coc7/rules-json/sanity.json`) held no sample-loss ladder, while `kernel-ts/sanity/index.ts` carried
+one as a literal in a `needs` message.
+
+The real case: TR-F2 run 3, turn 18. A clue filed that turn read "Behind the boards lies a wizened, seemingly dead figure
+on a pallet …" (`clue-corbitt-body-found`, the haunting). The rulebook's sidebar *Examples of Sanity Point Costs*
+(p.155) places "surprised to find a corpse or body part" at 0/1D3; p.154 has the Keeper call a Sanity roll for each
+investigator entangled in a sanity-threatening situation. No roll happened and none could have.
+
+Rulebook pages this section reads (chapter 8): p.154 (the Keeper calls the roll; the loss depends on the situation; a
+failed roll costs an involuntary action the Keeper chooses; a fumble costs the maximum), p.155 (the twelve-row example
+ladder, 0/1D2 to 1D10/1D100), p.156 (the one-fifth "day" is defined by the Keeper, usually until the investigator reaches
+safety and rests), p.157–159 (Tables VII and VIII; the Keeper may roll or choose a fitting bout), p.168 (Keeper award at
+the end of a successful scenario or chapter, proportional to the danger faced, reduced or removed for cowardly, brutal or
+murderous conduct; the printed example is 1D6), p.169 (*Getting Used to the Awfulness*: an investigator who has lost as
+much to one sort of monster as that monster's maximum possible loss loses no more for a reasonable interval, every
+development phase reduces the tracked total by one, and investigators "never truly get used" to it; *Mythos Hardened*,
+optional: once Cthulhu Mythos exceeds Sanity all loss is halved, permanently, even if Sanity later rises above it).
+
+### 221.2 Rules data: the example ladder, the award scale, the awfulness and hardening constants
+
+`content/rulesets/coc7/rules-json/sanity.json` gains, beside the existing keys:
+
+- `sample_loss_ladder` — `{source_note, rows: [{san_loss: "<s>/<f>", situation: <short paraphrase>}]}`, the twelve rows
+  of p.155 in the book's order (0/1D2, 0/1D3, 0/1D4, 1/1D4+1, 0/1D6 ×3, 1/1D6+1, 0/1D10, 1/1D10, 2/2D10+1,
+  1D10/1D100). The `situation` is this repository's own short label, never the book's sentence. Each `san_loss` reads
+  through `parseSanLoss`/`validateSanLossExpression` (the grammar §136.3 already fixes).
+- `getting_used_to_the_awfulness` — `{source_note, cap: "maximum_possible_loss", development_phase_reduction: 1}` (p.169).
+- `mythos_hardened` — `{source_note, optional: true, permanent: true, loss_divisor: 2}` (p.169).
+- `sanity_day` — `{source_note, defined_by: "keeper", fallback: "calendar_day"}` (p.156; the behaviour is §221.10).
+
+`content/rulesets/coc7/rules-json/reward.json` gains `keeper_award` — `{source_note, printed_example: "1D6", scale:
+[{expression: null, label}, {expression: "1D3", label}, {expression: "1D6", label, printed: true}, {expression: "2D6",
+label}]}` (p.168). Only `1D6` is printed as a scenario award; the lesser and greater rungs are this repository's scale
+around it and say so in their labels, and `null` is the book's "reduce or remove". The rows are the only numbers the
+host ever issues; nobody types an expression.
+
+Validation: the kernel reads the ladder at load through the grammar (a malformed row fails `sanityLossLadder` loudly);
+`tests/extension/sanity-ladder.test.mjs` pins the twelve rows, their grammar and the award scale against the shipped
+files. `kernel-ts/sanity/index.ts` no longer carries a literal scale: the `needs` message for a missing `san_loss` lists
+the ladder's expressions.
+
+### 221.3 The catalog: a horror with no stated number is still a Sanity roll
+
+`checkCatalog` offers `sanity:check` from four sources, in this precedence, all `authorization: consequence`:
+
+1. **A rule node's stated loss** (`mechanics.sanity_loss`, unchanged, §136.23).
+2. **A present actor's stated loss** (`profile.sanity_loss` or the legacy keys, unchanged, §136.13; once per visit per
+   actor by the `npc_exposure` receipt, §180.3).
+3. **A clue filed this turn whose node states `mechanics.sanity_loss`** (new; the seat is §221.4). The option's action
+   is `{actor, clue: <handle>, san_loss: "<s>/<f>", goal: "seeing <clue label>"}`, its facts `perceived: {kind: "clue",
+   label, summary, how}`; the roll receipt records `clue_exposure: <handle>` and the option is not offered again while
+   a receipt on this line carries that exposure.
+4. **Judged from what happened this turn** (new): for each investigator with no `sanity_check` roll receipt yet this
+   turn, one option `{actor}` whose `san_loss` is a **Jev parameter** over the ladder — each option labelled
+   `<situation> (<san_loss>)`, value the expression — plus the existing `involuntary` parameter and the `bout` parameter
+   of §221.8. Its `definition` tells Jev to judge, from this turn's `done_this_turn` (the clues filed, the people who
+   arrived, the Keeper's last committed narration and the declaration), whether something threatened this
+   investigator's sanity and which example it is closest to; its facts are `{loss_source: "rulebook_examples",
+   done_this_turn: {clues: [{label, summary, how}], people_met: [names], last_narration}}`. A stated loss (1–3) wins
+   over it: when any stated option covers the same clue or actor, the clue or actor is listed under
+   `done_this_turn.stated` rather than left for the ladder, so the same sight is not both stated and judged.
+
+Jev's existing selection owns whether the roll is due: the family's now/later route (`runtime/jev/candidates.ts`), then
+the necessity question of `runtime/jev/resolve-selection.ts`, which for `loss_source: rulebook_examples` asks the
+specialised trigger "did something this turn threaten this investigator's sanity in a way the rulebook's examples
+cover; a sight already settled by a SAN receipt, a merely unpleasant or tense moment, and the module's secrets the
+investigator has not met do not". The `san_loss` choice carries `unknown`: Jev that cannot place the horror on the ladder
+leaves the check a forced no-roll named `unbound:san_loss` (§163), never a guessed number. Nothing in code compares
+words: no list of horrific nouns, no regex over the clue text.
+
+The `source` of the resulting receipt is the option's `goal` (the clue's label for 3; the declaration for 4), exactly as
+§136.13 reads it today.
+
+### 221.4 `sanity_loss` sits on a clue (amends §136.1's seat table)
+
+| key | shape | node kinds |
+| --- | --- | --- |
+| `sanity_loss` | `sanity_loss` | `rule`, `hazard`, `object`, `artifact`, **`clue`** |
+
+`SHAPE_KINDS.sanity_loss` (`kernel-ts/modules/mechanics-catalog.ts`) admits `clue`; `mechanicsRefusals` therefore accepts
+the shape there and still demands `source_refs` (`mechanics_unsourced`) for a clue that states one. The haunting's clues
+are **not** hand-authored here: the path is the system's (a reader or author that states a page's loss on the clue it
+belongs to lands in the seat), and until a module states one the ladder of §221.3(4) is what rolls.
+
+### 221.5 The clerk's missing-argument note fits the case (amends §159.10's notice)
+
+When every preparation need the delivery step carries is `check_arguments_unavailable:<decision>` for a decision outside the
+`combat` and `chase` families — a rule family with no executable option in the present state, not a participant without a
+profile (the chase placeholder of §159.10 keeps its participant instruction) — `check_preparation.instruction` says so
+instead of asking the Keeper to prepare participants: "no host option for this family can execute in the present state;
+there is nothing to prepare for it; narrate by your own judgement without a roll and the host records it as decided under
+uncertainty". The participant-preparation instruction is kept for needs that name a profile, an object usage or a chase
+role. With §221.3(4) the sanity family always has an executable option while an investigator who has not rolled this turn
+stands in the scene, so for sanity the placeholder case is unreachable.
+
+### 221.6 Getting Used to the Awfulness is derived, capped per the book, and healed by development (p.169)
+
+- **The sort of monster** is closed data, never a word: for a `sanity:check` with a target actor the kernel binds
+  `creature_type` host-locked as `catalog:<name>` when the actor's pinned profile carries `catalog` (§180.6), else the
+  actor's graph handle. A rule node's or a clue's loss, and the ladder's, bind none: a situation is not a creature.
+- **The cap** is the maximum possible loss of the failure half (`max(maxLoss(success), maxLoss(failure))`), the book's
+  "maximum possible Sanity point loss for that monster" (deep ones 0/1D6 → 6; 1/1D6+1 → 7). The earlier sum of both
+  halves (1/1D6+1 → 8) was wrong and is corrected.
+- **Development** (`development:end-session`, `development:settle-ending`): after an investigator's phase settles (not a
+  replay), every tracked total in `awfulness_caps` is reduced by the data's `development_phase_reduction` (1), floor 0,
+  and the sanity state records `awfulness_eased`.
+- The per-visit "once per actor" guard of §180.3 stays: it is the no-double-roll rule within one encounter (p.155: the
+  effect is for the encounter, not each ghoul seen), which the cap does not express.
+
+### 221.7 Mythos Hardened is permanent once reached (p.169)
+
+`SanitySession` sets `state.mythos_hardened = true` the first time a loss is rolled while `cm_value > san_current`, and
+halves every later loss by that flag, whether or not Sanity has since risen above Cthulhu Mythos. `closeSanityDays` carries
+the flag through the day close. Receipts keep `mythos_hardened` as before.
+
+### 221.8 A bout the Keeper picks (p.157–159)
+
+Every `sanity:check` option carries a `bout` parameter (`selection: compatible`): "Roll on the bout table (1D10)" (value
+`roll`) and the ten results of Table VII by their `kind` from `bout-tables.json`, each labelled by its result name. The
+question asks Jev, assuming a bout follows, which result fits what just happened. The kernel binds it as the semantic slot
+`bout_choice`; `startBout` uses the chosen `kind`'s row of the mode's table without rolling the table die (the duration
+dice still roll), records the pick as `bout_of_madness_table` with `outcome: "chosen"`, and a module `moduleBoutOverride`
+still wins over both. `roll` or an absent slot is the roll of today.
+
+### 221.9 The Keeper award is offered, from the book's expression or the data's scale (p.168)
+
+`development:end-session` for a `conclusion`, `retreat` or `cliffhanger` carries `scenario_san_reward_expr` as a Jev
+parameter with a rules **default**:
+
+- a stated reward (`statedEndingReward`, §136.17): default the book's expression; the override question asks whether the
+  investigators' conduct was cowardly, brutal or murderous (the book's grounds to reduce or remove); the other options are
+  the scale's rungs below the stated one and `null` (no award);
+- no stated reward: default `null`; the override question asks whether the investigators faced real danger in this
+  chapter such that a Keeper award applies; the options are the scale's rungs.
+
+The option's facts are `{reward_source: "stated" | "rulebook_scale", stated: <expression | null>}` and its definition
+quotes the rule in paraphrase. A `tpk` carries no award. The Keeper still types no expression (`prompts/keeper.md` ~44
+keeps "do not invent a reward"; the `ending_settlement_required` fix text says the host offers the award from the book or
+its scale). `resolve-selection.ts` learns one general rule for this: when a parameter has a rules default and its
+override's choice comes back `unknown`, the default stands and the result is recorded forced (`below_confidence_gate` or
+`jev_unanswered`) rather than a no-roll — a rules default is the book's answer, not a guess.
+
+### 221.10 The Sanity "day" (p.156): design recorded, code unchanged
+
+The book lets the Keeper define the day, usually until the investigator reaches safety and rests. The product has no
+closed signal for "reached safety and rested": `apply time` carries minutes, `why` (free text) and `until`; recovery
+(`stageRecovery`) treats every hour passed as rest; nothing records sleep. The faithful minimal version is a closed
+boolean `rest: true` on an `apply time` effect (the Keeper states the party has reached safety and rests), which would
+close the Sanity day for the party at that moment, with the calendar close (`stageDayBoundary`) kept as the fallback.
+That touches `table.apply.options`' time rows, the Keeper prompt, §138.10's time rows and the day-boundary tests, so it is
+recorded here as the design and **not** implemented in this slice; the calendar day stands and `sanity.json`'s
+`sanity_day` names the rule and the fallback. No TODO is left in code.
+
+### 221.11 The three ends (§31)
+
+- **Writer.** The ladder, the scale and the constants: the rules data (`sanity.json`, `reward.json`). The clue seat: a
+  module author or reader. The judged option: `checkCatalog` from this turn's receipts and the previous delivery.
+  `creature_type`, `clue_exposure`, `mythos_hardened`, `awfulness_eased`: the kernel.
+- **Reader.** Jev (`candidates.ts` route, `resolve-selection.ts` necessity and parameters); the sanity family's `slots`
+  and `execute`; `closeSanityDays`; the development executor.
+- **Actor.** The kernel rolls (`SanitySession.sanityCheck`, `startBout`), the roll and loss receipts land, the Keeper
+  narrates the committed result (§16.2). The offer ledger counts the judged option as any other.
+
+### 221.12 Tests
+
+`tests/extension/sanity-ladder.test.mjs` (rules data shape and grammar; the catalog's judged option, its ladder parameter
+and `done_this_turn`; a T18-style clue — a corpse filed with `establish`, no stated loss — reaches a stub Jev that picks
+0/1D3 and a `sanity_check` receipt lands; the clue seat of `SHAPE_KINDS`; the corrected cap, the permanent hardening flag,
+development easing and a chosen bout on `SanitySession`; the award offer's scale and default);
+`tests/extension/check-preparation-host.test.mjs` (the clerk note for an argument-only need beside a chase placeholder);
+`tests/extension/check-selection.test.mjs` (the rules-default fallback on an unknown override choice);
+`tests/kernel/test_sanity_awfulness.py` (through the emitted kernel: the creature type bound from the handle, the cap
+leaving nothing to lose on the second sight, the Keeper's bout pick, the `needs` ladder). The development offer's live
+behaviour (a real Jev judging danger and conduct) and the judged option's route through a real Jev need a real table.
