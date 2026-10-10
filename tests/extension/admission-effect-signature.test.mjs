@@ -246,7 +246,8 @@ test("a roll that differs only in its stakes and its dice reuses the verdict: ra
  * not carry. Kept here, beside the guard that makes every action field be one or the other. (`decision` is read and keyed
  * since §159.5.)
  */
-const RESOLVE_NOT_REVIEWED = ["modifiers", "coercion", "surprise", "motive", "mode", "step", "san_loss", "involuntary", "interrupted", "rest",
+// §221.8, §221.4, §222.3: the bout of madness and the clue a SAN or Idea roll is about are rules parameters the host's catalog binds.
+const RESOLVE_NOT_REVIEWED = ["modifiers", "coercion", "surprise", "motive", "mode", "step", "san_loss", "involuntary", "bout", "clue", "interrupted", "rest",
 	"ending", "scenario_san_reward_expr", "choice"];
 
 test("every field of a resolve action is either read by the reviewer (and keyed, unless rationale) or a rules parameter of the result", () => {
