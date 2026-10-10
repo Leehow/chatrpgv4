@@ -696,3 +696,28 @@ committed mainline changes may enter this owned branch; package list additions a
 native-search code, no new dependency download. Stop fresh run normally; import latest
 committed baseline, exact combined all/build and genuine continuation, keep other owner's
 attribution. All pending source/limitations remain honest; no automatic scene identity merge.
+
+Merged only committed latestc8 into owned3f0a141f7; no new npm dependency, only native-search
+extension/manifest registration. Exact LAN compiled3f0 proof687matching product sources,
+10executable hashes retained. Final genuine run pdf-refusals-final-20261010-play completed
+53.4/41.2/92.6s,3natural turns/6tools/187.2s, normal stop; notebook literal append/field visit
+and soil sample requested, Appearance22/45(hard) then60/45(failure), time25min receipts.
+Worker final audit pending. No source facts/spoilers fed to root; NPC conversation stayed normal.
+
+Fresh earlier132.738s prepare/retrytrue succeeded4.721s through original-source-excerpts /
+source-place-identity-only; no detailensure, so not a live memo-fallback proof. Handoffs refused
+for wrong unselected document and clue-handle-as-handout; correct action/identity gates, not
+new host faults. Scene/clue receipts did commit; one implicit establish-review failed20.004s,
+HTTP200+continuous11reasoning deltas/no verdict with low, no whole-context/replay defect seen.
+Do not conflate that20s caller cap with former26s admission timeout or invent provider token stats.
+
+Final3f0 all red613s: ext5426pass/1fail/1skip,pytest2128pass/2skip,loop12pass. Failed original
+native-text mutation test used setImmediate as if file had opened. Scheduler may mutate before
+opening, where successful new-source extraction is valid; assertion not testing intended seam.
+Replaced only test scheduling with a real PDF.js page-extraction barrier; mutation now happens
+after source opens and before extraction resumes, same /changed/ rejection assertion, no
+production hook/timeouts/model/gates changed. Seven local cases pass; initial cleanup typo
+(PDFDocumentProxy has no destroy; loading task owns destroy) red log retained. All3f0 raw/per-file
+logs retained before refresh. Next unchanged-production final all for test fix; then scoped
+integration, retained-evidence lifecycle audit and report limits. No need to replay identical
+production after this test-only fix.

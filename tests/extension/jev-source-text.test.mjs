@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import {getDocument} from "pdfjs-dist/legacy/build/pdf.mjs";
 import { closeSourceDocuments, sourceText, sourceTextVersion } from "../../extensions/module/source.ts";
 
 function textPdf(streams, brokenPage = -1) {
@@ -134,11 +135,23 @@ test("mutation during extraction is rejected against the opening source stamp", 
 	const { file, root } = await fixture(t, pages);
 	const replacement = join(root, "replacement.pdf");
 	await writeFile(replacement, textPdf(Array.from({ length: 32 }, (_, index) => textStream(`Changed-${index}`))));
-	const reading = sourceText(file, { pages: Array.from({ length: 32 }, (_, index) => index + 1) });
-	const rejection = assert.rejects(reading, /changed/);
-	await new Promise(resolve => setImmediate(resolve));
-	await rename(replacement, file);
-	await rejection;
+	// Obtain the real PDF.js page prototype; gate extraction, rather than guess async file-open ordering.
+	const loadingTask = getDocument({data:new Uint8Array(await readFile(file)),verbosity:0});
+	const probe = await loadingTask.promise;
+	const page = await probe.getPage(1), prototype = Object.getPrototypeOf(page), original = prototype.getTextContent;
+	let entered,release;
+	const opening=new Promise(resolve=>{entered=resolve;}),paused=new Promise(resolve=>{release=resolve;});
+	prototype.getTextContent=async function(...args){entered();await paused;return original.apply(this,args);};
+	try {
+		const reading = sourceText(file, { pages: Array.from({ length: 32 }, (_, index) => index + 1) });
+		const rejection = assert.rejects(reading, /changed/);
+		await Promise.race([opening,reading]);
+		await rename(replacement, file);
+		release();
+		await rejection;
+	} finally {
+		release();prototype.getTextContent=original;await loadingTask.destroy();
+	}
 });
 
 test("cancelling one native-text waiter does not cancel or destroy a peer document lease", async t => {
