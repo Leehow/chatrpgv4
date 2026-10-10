@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {spawn} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {DatabaseSync} from 'node:sqlite';
-import {TranscriptStore,TRANSCRIPT_RECORD_SCHEMA,sha256} from '../../extensions/module/transcript-store.ts';
+import {TranscriptStore,TRANSCRIPT_RECORD_SCHEMA,sha256,transcriptListing} from '../../extensions/module/transcript-store.ts';
 import {readSourcePageText} from '../../extensions/module/source-page-text.ts';
 import {build} from 'esbuild';
 const SHA='a'.repeat(64),VERSION='sqlite-test-native-v1',LINES=['Exact source line'];
@@ -75,4 +75,14 @@ test('the real kernel text projection reads SQL-only pages and never stale legac
   assert.deepEqual(await pageTranscript(context,SHA,1),{text:LINES[0],image_text:[]});
   await rm(join(store.root,'transcripts.sqlite'));
   assert.equal(await pageTranscript(context,SHA,1),null);
+});
+
+test('a listing-only first importer retains version-unknown legacy claim holds',async t=>{
+  const {home,store}=await fixture(t);await mkdir(store.dir(SHA),{recursive:true});
+  const path=join(store.dir(SHA),'page-0002.claim'),bytes=JSON.stringify({pid:1,at:new Date(10000).toISOString()});
+  await writeFile(path,bytes);
+  await transcriptListing({home,contentRoot:home},SHA);
+  assert.equal(await store.claim(SHA,2,1000,10500),null);
+  const takeover=await store.claim(SHA,2,1000,12000);assert(takeover);await takeover.release();
+  assert.equal(await readFile(path,'utf8'),bytes);
 });

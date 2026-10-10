@@ -11,6 +11,8 @@ import {join,resolve} from 'node:path';
 import {after,test} from 'node:test';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {DatabaseSync} from 'node:sqlite';
+import {createHash} from 'node:crypto';
 
 const ROOT=resolve(import.meta.dirname,'../..'),CONTENT=join(ROOT,'content');
 const SEED='31e36f72d0ac9a3654b61a09b1f071d3d82f25d78641e5069bfe343e44c5c7db';
@@ -140,8 +142,13 @@ test('§196.7 the book passages are cut once per store revision and keyed by the
   const grown=await api.bookPassages({source,roots,snapshot,signal});
   assert.equal(grown.status,'cached');assert.equal(reads,2);assert.notEqual(grown.key,first.key);assert(grown.pages.includes(30));
   assert.equal(grown.passages.filter(row=>row.page===30).length,first.passages.filter(row=>row.page===1).length);
-  // A listed file that is no record moves the listing and is read (it comes back native), but the records, so the key, are unchanged.
+  // Legacy edits after migration have no authority. Corrupt persisted SQL still causes native fallback, not stale material.
   await writeFile(join(dir,'page-0031.json'),'{}');
+  assert(!(await api.transcriptListing(roots,SEED)).pages.includes(31));
+  assert.equal((await api.bookPassages({source,roots,snapshot,signal})).status,'cached');
+  const db=new DatabaseSync(join(home,'.coc/source-transcripts/transcripts.sqlite'));
+  db.prepare('INSERT INTO transcript_records VALUES(?,?,?,?,?,?)').run(SEED,31,api.sourceTextVersion,'transcript-v1','{}',createHash('sha256').update('{}').digest('hex'));
+  db.close();
   const listed=await api.transcriptListing(roots,SEED);assert(listed.pages.includes(31));
   assert.equal((await api.bookPassages({source,roots,snapshot,signal})).status,'stale');await api.bookPassageBuilds();
   const same=await api.bookPassages({source,roots,snapshot,signal});
@@ -149,7 +156,7 @@ test('§196.7 the book passages are cut once per store revision and keyed by the
   assert.deepEqual(same.passages,grown.passages);
   // A readable record whose blocks cannot be recovered (its Markdown no longer matches its text) is read in its transcript
   // layer as line slices; those are never passages.
-  await writeFile(join(dir,'page-0032.json'),JSON.stringify({...record,page:32,markdown:'# Unrelated\n\nNothing here matches the text.'}));
+  await store.put({...record,page:32,markdown:'# Unrelated\n\nNothing here matches the text.'},record.text.split(/\r?\n/).filter(line=>line.trim()));
   assert.equal((await api.bookPassages({source,roots,snapshot,signal})).status,'stale');await api.bookPassageBuilds();
   const unaligned=await api.bookPassages({source,roots,snapshot,signal});
   assert.equal(unaligned.status,'cached');assert.notEqual(unaligned.key,grown.key,'a new record is a new key');
@@ -161,5 +168,5 @@ test('§196.7 the book passages are cut once per store revision and keyed by the
   assert.equal(fresh.status,'built');assert.equal(fresh.key,first.key);
   // No content root, no seeds: the listing is home's alone.
   assert.equal((await api.transcriptListing({home,contentRoot:join(temp,'missing')},SEED)).pages.join(),'30,31,32');
-  assert.deepEqual((await readdir(dir)).sort(),['page-0030.json','page-0031.json','page-0032.json']);
+  assert.deepEqual((await readdir(dir)).sort(),['page-0030.json','page-0031.json'],'legacy files stay intact; SQL publication adds no JSON authority');
 });

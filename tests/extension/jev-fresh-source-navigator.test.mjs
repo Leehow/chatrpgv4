@@ -9,6 +9,7 @@ import { bindDecisionAnswers } from "../../runtime/jev/contracts.ts";
 import { createFreshSourceNavigator } from "../../runtime/jev/fresh-source-navigator.ts";
 import { FRESH_SOURCE_ROLES } from "../../runtime/jev/fresh-source-navigation-domain.ts";
 import { createRuntime } from "../../runtime/host.ts";
+import {createTaskStore} from '../../runtime/jev/task-store.ts';
 
 const ROOT = resolve(import.meta.dirname, "../..");
 
@@ -76,8 +77,7 @@ async function privateRoot(table) {
 }
 
 async function taskRecords(root) {
-	const directory = join(root, "tasks"), files = await readdir(directory).catch(() => []);
-	return Promise.all(files.filter(file => file.endsWith(".json")).map(async file => JSON.parse(await readFile(join(directory, file), "utf8"))));
+	return createTaskStore(join(root,'tasks')).list();
 }
 
 test("real native PDF navigation crosses page batches, uses canonical owned operations, and caches only exact source/extractor identity", async t => {

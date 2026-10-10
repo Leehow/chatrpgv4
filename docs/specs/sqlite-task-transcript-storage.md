@@ -61,6 +61,8 @@ The kernel's existing text-only projection reads imported SQL through a read-onl
 adapter without PDF/layout code. It chooses the latest intact published version, consistent
 with its existing extraction-version-independent check. Only a never-imported home can use
 legacy JSON. Seed export reads through TranscriptStore rather than enumerating old files.
+Book passage listing revisions combine seed file stamps with file-scoped SQL record keys
+and payload digests; claims, other PDFs and volatile WAL bytes do not invalidate that book.
 The producer allocates a fresh work directory instead of replacing an earlier attempt;
 its trace and input page image are retained. Only the temporary render cache is cleaned.
 
@@ -86,6 +88,8 @@ append-only import table; source files are neither replaced nor deleted. Migrati
 file reads before beginning the SQL transaction. A concurrent initializer observes the
 committed migration instead of reimporting. Existing live legacy claims remain conservative
 holds until their original stale age, and incomplete claim timestamps use filemtime as before.
+Legacy claims have no extraction version: they are imported as version-independent holds,
+including when a listing-only reader is the first importer. Their old bytes remain files.
 Malformed optional transcript files are archived as bytes and are unavailable records;
 malformed required task records fail import without publishing a partial task database.
 

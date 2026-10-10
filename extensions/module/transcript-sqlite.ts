@@ -38,7 +38,7 @@ export function transcriptSqlite(root: string, extractionVersion: string,
           let value: any; try {value = JSON.parse(item.bytes.toString('utf8'));} catch {}
           if (item.claim) {
             const at = typeof value?.at === 'string' ? Date.parse(value.at) : NaN;
-            db.prepare('INSERT INTO transcript_claims VALUES(?,?,?,?,?,?,?)').run(item.sha, item.page, extractionVersion,
+            db.prepare('INSERT INTO transcript_claims VALUES(?,?,?,?,?,?,?)').run(item.sha, item.page, '',
               TRANSCRIPT_VERSION, 'legacy:' + digest(item.bytes), Number.isSafeInteger(value?.pid) ? value.pid : 0,
               Number.isFinite(at) ? at : item.mtime);
           } else if (typeof value?.native?.extraction_version === 'string' && valid(value, item.sha, item.page, value.native.extraction_version)) {
@@ -51,6 +51,11 @@ export function transcriptSqlite(root: string, extractionVersion: string,
     },
   };
   return {
+    async listing(sha: string): Promise<Array<[number,string,string,string]>> {
+      return await sqliteOperation(owner,false,db=>db.prepare(`SELECT page,extraction_version,transcript_version,digest
+        FROM transcript_records WHERE file_sha=? ORDER BY page,extraction_version,transcript_version`).all(sha)
+        .map(row=>[Number(row.page),String(row.extraction_version),String(row.transcript_version),String(row.digest)] as [number,string,string,string])) ?? [];
+    },
     async read(sha: string, pages: readonly number[]): Promise<Map<number, TranscriptRecord>> {
       return await sqliteOperation(owner, false, db => {
         const out = new Map<number, TranscriptRecord>();
@@ -78,19 +83,24 @@ export function transcriptSqlite(root: string, extractionVersion: string,
     async claimed(sha: string, page: number, staleMs: number, now: number): Promise<boolean> {
       try {
         return await sqliteOperation(owner, false, db => {
-          const row = db.prepare('SELECT claimed_at FROM transcript_claims WHERE file_sha=? AND page=? AND extraction_version=? AND transcript_version=?')
+          const row = db.prepare("SELECT MAX(claimed_at) AS claimed_at FROM transcript_claims WHERE file_sha=? AND page=? AND extraction_version IN ('',?) AND transcript_version=?")
             .get(sha, page, extractionVersion, TRANSCRIPT_VERSION);
-          return !!row && now - Number(row.claimed_at) <= staleMs;
+          return row?.claimed_at !== null && row?.claimed_at !== undefined && now - Number(row.claimed_at) <= staleMs;
         }) ?? false;
       } catch (error) {if (sqliteBusy(error)) return true; throw error;}
     },
     async claim(sha: string, page: number, staleMs: number, now: number): Promise<TranscriptClaim | null> {
       const token = randomUUID();
       try {
-        const won = await sqliteOperation(owner, true, db => db.prepare(`INSERT INTO transcript_claims VALUES(?,?,?,?,?,?,?)
+        const won = await sqliteOperation(owner, true, db => {
+          const legacy=db.prepare("SELECT claimed_at FROM transcript_claims WHERE file_sha=? AND page=? AND extraction_version='' AND transcript_version=?")
+            .get(sha,page,TRANSCRIPT_VERSION);
+          if(legacy && now-Number(legacy.claimed_at)<=staleMs)return 0;
+          return db.prepare(`INSERT INTO transcript_claims VALUES(?,?,?,?,?,?,?)
           ON CONFLICT(file_sha,page,extraction_version,transcript_version) DO UPDATE SET
           token=excluded.token,pid=excluded.pid,claimed_at=excluded.claimed_at WHERE transcript_claims.claimed_at<?`)
-          .run(sha, page, extractionVersion, TRANSCRIPT_VERSION, token, process.pid, now, now - staleMs).changes);
+          .run(sha, page, extractionVersion, TRANSCRIPT_VERSION, token, process.pid, now, now - staleMs).changes;
+        });
         if (!won) return null;
       } catch (error) {if (sqliteBusy(error)) return null; throw error;}
       return {release: async () => {

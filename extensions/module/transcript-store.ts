@@ -6,7 +6,7 @@
  * Publish-once records and token-owned claims keep their existing validation and stale-takeover rules.
  */
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {transcriptSqlite} from "./transcript-sqlite.ts";
 import { TRANSCRIPT_VERSION, transcriptPermutationHolds } from "./page-transcript.ts";
@@ -79,16 +79,15 @@ export function transcriptStoreFromEnv(env: NodeJS.ProcessEnv, extractionVersion
 }
 
 /**
- * §196.7: a file's record files as a listing revision -- each `page-NNNN.json` in the seeds and in home (the store's own two
- * directories) with its size and modification time, from the two directory listings and their stats; no record is read. A
+ * §196.7: immutable seed file stamps and home SQL record digests form a file-scoped listing revision. No payload is read. A
  * record is published once and never rewritten (§191.4), so the revision moves when a page gains (or loses) a record and at
  * no other time. Whether a listed record is readable is `read`'s to say.
  */
 export async function transcriptListing(roots: {home: string; contentRoot: string}, fileSha256: string): Promise<{pages: number[]; revision: string}> {
-	const rows: Array<[TranscriptSource, number, number, number]> = [];
+	const rows: Array<[string,number,...(number|string)[]]> = [];
 	if (isFileDigest(fileSha256)) {
 		const store = new TranscriptStore({ ...roots, extractionVersion: "" });
-		for (const [source, dir] of [["seed", join(store.seedRoot, fileSha256)], ["home", store.dir(fileSha256)]] as const) {
+		for (const [source, dir] of [["seed", join(store.seedRoot, fileSha256)]] as const) {
 			let names: string[];
 			try { names = await readdir(dir); } catch { continue; }
 			const listed = names.map(name => ({ name, page: Number(RECORD_FILE.exec(name)?.[1] ?? 0) })).filter(row => Number.isSafeInteger(row.page) && row.page >= 1);
@@ -98,6 +97,8 @@ export async function transcriptListing(roots: {home: string; contentRoot: strin
 				if (info?.isFile()) rows.push([source, row.page, info.size, Math.trunc(info.mtimeMs)]);
 			}
 		}
+		const home = transcriptSqlite(store.root,'',readableRecord);
+		for(const [page,extraction,version,digest] of await home.listing(fileSha256)) rows.push(['home',page,extraction,version,digest]);
 	}
 	rows.sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
 	return { pages: [...new Set(rows.map(row => row[1]))], revision: sha256(JSON.stringify(rows)) };

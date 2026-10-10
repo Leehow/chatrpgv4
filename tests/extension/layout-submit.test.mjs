@@ -245,7 +245,7 @@ test("§191.2 through the real child: no file tool, the host writes the layout, 
 	const work = store.workDir(file, 1, 1);
 	assert.equal(await readFile(join(work, "layout.md"), "utf8"), WHOLE, "the host wrote the kept layout");
 	assert.deepEqual((await readdir(work)).filter(name => !name.startsWith("run.jsonl") && name !== ".pi" && name !== "host-bin").sort(),
-		["layout.md", "lines.json", "lines.txt", "submissions.jsonl"], "page.png is removed with the page; nothing else was written");
+		["layout.md", "lines.json", "lines.txt", "page.png", "submissions.jsonl"], "the input image and original layout evidence are retained");
 	assert.equal(await exists(store.workDir(file, 1, 2)), false, "no repair child");
 });
 

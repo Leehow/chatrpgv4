@@ -74,3 +74,26 @@ input-image deletion assertion now asserts retention. All reds retained under
 amax wasbusy earlier, latestprobeidle5.17; recheck ownership before heavy dispatch. Next
 focused/full LAN + exact runtime + genuine driver with isolated home, then scoped integration
 and lifecycle evidence retention. Existing App, other task PDF evidence and primary stay untouched.
+
+First canonical focused2b completed RED563s:3150extpass/11fail,2128py/2skip,loop12pass.
+Raw/per-file outputs archived focused-2b7e0c5dd before refresh. Eight passage-related failures
+exposed the remaining filesystem-only transcriptListing (and its removed stat import).
+Listing now uses immutable seed stamps plus scoped SQL record digests; no WAL/claim/other-PDF
+churn. Three old tests inspected task JSON/input-image deletion; migrated to real TaskStore
+and retained-image/logical-state assertions. Book test now verifies legacy edits ignored
+and actual SQL corruption still falls back natively. A listing-first import cannot assign
+legacy claims an unknown/current extraction version: wildcard legacy holds protect every
+version until the original expiry. New regression preserves raw claim bytes.
+Local affected21 had20pass/1 oldfilesystem assertion; repaired that final assertion. Latest
+listing/claims subset11pass; previous related44 and kernel types green. Need final all/runtime.
+
+Real setup launch attempt with API-key environment references could not register authorized
+Grok4.7; no actual model turn, retained setupfailed. Supported native Pi credential-store
+file link (not credential copy) plus nonsecret catalog restores exact Grok4.7Fast/low;
+Jev vault is decrypted only in launch/child memory. Native-auth startup28763/28767 stopped
+normally at0turns because its compiled2b runtime predated the latest source fix; it is only
+an auth-startup check, not acceptance. Preserve both runs. Own agent home/settings remain
+isolated, old auth is existing Pi credential authority, no plaintext secret copied/newly
+written. No App/global model/threshold changes. Next exact new runtime, new run suffix,
+real natural setup/play with isolated source home (48 copied legacy pages, PDF SHA verified),
+then evidence/PID/SQL audit. Do not claim current source is validated by the old runtime.
