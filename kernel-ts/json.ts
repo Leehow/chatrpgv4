@@ -32,12 +32,18 @@ export function isJsonObject(value: unknown): value is JsonObject {
 
 /** Compare Unicode code points, as Python does, instead of UTF-16 code units. */
 export function compareUnicode(left: string, right: string): number {
-  const a = Array.from(left, character => character.codePointAt(0)!);
-  const b = Array.from(right, character => character.codePointAt(0)!);
-  for (let index = 0; index < Math.min(a.length, b.length); index++) {
-    if (a[index] !== b[index]) return a[index] - b[index];
+  let a = 0, b = 0;
+  while (a < left.length && b < right.length) {
+    const x = left.codePointAt(a)!, y = right.codePointAt(b)!;
+    if (x !== y) return x - y;
+    a += x > 0xffff ? 2 : 1;
+    b += y > 0xffff ? 2 : 1;
   }
-  return a.length - b.length;
+  // Preserve the former numeric result, not only its sign, for unequal prefixes.
+  let remaining = 0;
+  while (a < left.length) { a += left.codePointAt(a)! > 0xffff ? 2 : 1; remaining++; }
+  while (b < right.length) { b += right.codePointAt(b)! > 0xffff ? 2 : 1; remaining--; }
+  return remaining;
 }
 
 /** Preserve Python dict insertion order, including integer-looking string keys. */

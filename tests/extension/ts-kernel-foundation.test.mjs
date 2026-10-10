@@ -79,6 +79,22 @@ test("the public vocabulary and error frames match the locked Python reference",
   assert.throws(() => api.assembleHandlers(ctx, api.foundationHandlers(ctx), api.foundationHandlers(ctx)), /duplicate/);
 });
 
+test("Unicode comparison preserves exact results at surrogate and prefix boundaries", () => {
+  const points = [0, 0x7f, 0x80, 0xd7ff, 0xd800, 0xdbff, 0xdc00, 0xdfff, 0xe000, 0xffff, 0x10000, 0x10ffff];
+  const strings = ["", ...points.map(point => String.fromCodePoint(point))];
+  for (const a of points) for (const b of points) strings.push(String.fromCodePoint(a, b));
+  const former = (left, right) => {
+    const a = Array.from(left, char => char.codePointAt(0));
+    const b = Array.from(right, char => char.codePointAt(0));
+    for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i];
+    return a.length - b.length;
+  };
+  for (const left of strings) for (const right of strings) {
+    assert.equal(api.compareUnicode(left, right), former(left, right), JSON.stringify([left, right]));
+    assert.equal(api.compareUnicode("prefix" + left, "prefix" + right), former(left, right));
+  }
+});
+
 test("canonical hashes and stored JSON preserve Python numeric types, Unicode order and dict order", () => {
   for (const row of reference.json) {
     const value = api.parsePythonJson(row.source);
