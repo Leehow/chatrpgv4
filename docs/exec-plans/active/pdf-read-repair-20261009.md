@@ -268,3 +268,12 @@ The test kernel adapter now supplies source snapshot/status and cache-only misse
 evidence/cache and scheduling regressions were not weakened. Local reading-service 40/40, query
 owner 12/12 and targeted actual tool entry five/five pass; final integration checks remain pending.
 Raw first-run logs are preserved in final-readiness run query-optimization-intermediate-*.log.
+
+Follow-up integration checks on the exact rebuilt runtime found the old test expectation of a
+fresh full allowance at fallback; it now asserts the remaining allowance against elapsed telemetry.
+A zero-wait carried-answer fixture keeps zero for its first-step pending observation, then restores
+the unchanged production allowance for the memo lookup it requires to hand the answer directly.
+No carried-answer deduplication assertion was removed. The query owner also preserves an early
+pending response from the existing reading service while following its retained settlement.
+Targeted carried/prepare checks pass four/four, and source tool/text routing/turn checks pass 61/61.
+Final full regression follows this checkpoint; the intermediate failure record remains intact.

@@ -28,10 +28,11 @@ export class SourceConsultations {
     async lookup(input: SourceConsultation): Promise<Row> {
         if (this.closed) throw Error('Source query owner is closed');
         input.signal?.throwIfAborted();
-        const deadline = this.now() + input.allowanceMs, controller = new AbortController(), wait: Wait = {pending: false};
+        const began = this.now(), deadline = began + input.allowanceMs, controller = new AbortController(), wait: Wait = {pending: false};
         this.workflows.add(controller);
-        const note = (event: string) => this.record({lane: 'source-consultation', event, campaign: input.campaign,
-            module_id: input.moduleId, focus: input.focus, purpose: input.mode});
+        const note = (event: string, fields: Row = {}) => this.record({lane: 'source-consultation', event, campaign: input.campaign,
+            module_id: input.moduleId, focus: input.focus, purpose: input.mode, ...fields});
+        let publishPending: ((response?: Row) => void) | undefined;
         const settled = (async () => {
             const revision = await input.binding(controller.signal);
             controller.signal.throwIfAborted();
@@ -80,10 +81,12 @@ export class SourceConsultations {
             });
             controller.signal.throwIfAborted();
             if (original) { note('complete'); return structuredClone(original); }
-            note('fallback_start');
+            const elapsed = Math.max(0, this.now() - began), remaining = Math.max(0, input.allowanceMs - elapsed);
+            note('fallback_start', {elapsed_ms: elapsed, remaining_ms: remaining});
             // Each caller joins the existing reading service; its waiter ownership and promotion remain authoritative.
-            const response = await input.fallback(controller.signal, {allowanceMs: Math.max(0, deadline - this.now()),
+            const response = await input.fallback(controller.signal, {allowanceMs: remaining,
                 foreground: !wait.pending || input.mode === 'prepare', blocking: input.mode === 'prepare'});
+            if (response.state === 'pending' && response.settled) publishPending?.(response);
             const result = response.state === 'pending' && response.settled ? await response.settled : response;
             note('complete'); return result;
         })();
@@ -99,12 +102,14 @@ export class SourceConsultations {
         let cancelTimer: (() => void) | undefined, aborted: (() => void) | undefined;
         try {
             const pending = new Promise<Row>((resolve, reject) => {
-                cancelTimer = this.timer(() => {
+                publishPending = response => {
+                    if (wait.pending) return;
                     wait.pending = true;
                     if (wait.reference) wait.reference.retained = true;
                     wakeReaderSlots(); note('deadline_pending');
-                    resolve({state: 'pending', read: {focus: input.focus, question: input.question}, index: [], settled});
-                }, Math.max(0, deadline - this.now()));
+                    resolve({state: 'pending', read: {focus: input.focus, question: input.question}, index: [], ...response, settled});
+                };
+                cancelTimer = this.timer(() => publishPending?.(), Math.max(0, deadline - this.now()));
                 aborted = () => {controller.abort(input.signal?.reason); reject(controller.signal.reason);};
                 input.signal?.addEventListener('abort', aborted, {once: true});
                 if (input.signal?.aborted) aborted();

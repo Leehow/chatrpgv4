@@ -298,7 +298,9 @@ test("§135.31.2 at the extension seam: a consultation past its allowance answer
 
 	assert.equal(ensures.length, 1);
 	assert.equal(ensures[0].params.purpose, "answer");
-	assert.equal(ensures[0].options.allowanceMs, SOURCE_ANSWER_ALLOWANCE_MS, "the named default, not a literal at the call");
+    const fallback = table.table.telemetry().find(row => row.lane === 'source-consultation' && row.event === 'fallback_start');
+    assert.equal(ensures[0].options.allowanceMs, fallback.remaining_ms);
+    assert.equal(fallback.remaining_ms, Math.max(0, SOURCE_ANSWER_ALLOWANCE_MS - fallback.elapsed_ms), 'binding uses the same named allowance');
 	assert.equal(ensures[0].options.providerBudget, undefined, "past the allowance the reading is not the turn's provider work");
 	const result = table.table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "lookup");
 	const body = JSON.parse(result.content.map((block) => block.text ?? "").join(""));
@@ -355,7 +357,9 @@ test("§22.4.3.1 at the extension seam: a prepare lookup past its allowance answ
 
 	assert.equal(ensures.length, 1);
 	assert.equal(ensures[0].params.purpose, "detail");
-	assert.equal(ensures[0].options.allowanceMs, SOURCE_ANSWER_ALLOWANCE_MS, "the same named allowance as an answer, not the 120 s foreground wait");
+    const fallback = table.table.telemetry().find(row => row.lane === 'source-consultation' && row.event === 'fallback_start');
+    assert.equal(ensures[0].options.allowanceMs, fallback.remaining_ms);
+    assert.equal(fallback.remaining_ms, Math.max(0, SOURCE_ANSWER_ALLOWANCE_MS - fallback.elapsed_ms), 'prepare uses the same remaining allowance, not the 120 s material wait');
 	assert.equal(ensures[0].options.blocking, true, "a prepare consultation keeps its blocking slot (§22.4.6): the Keeper asked for this material now");
 	assert.equal(ensures[0].options.providerBudget, undefined, "past the allowance the reading is not the turn's provider work");
 	const result = table.table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "lookup");

@@ -408,7 +408,13 @@ test("§135.20.1 at the extension seam: a landed answer the Keeper's own lookup 
 		env: { PI_COC_SOURCE_ANSWER_ALLOWANCE_MS: "0" },
 		responses: [consult("commission-briefing", "What is behind the boards?"), narrate("Knott shrugs."),
 			// The answer lands while the Keeper's first step is out, and the Keeper asks again with another question.
-			() => { land({ state: "ready", source_answer: checked(SENTINEL) }); return consult("commission-briefing", "Is there a latch on the boards?"); },
+			() => {
+                land({ state: "ready", source_answer: checked(SENTINEL) });
+                // The first step deliberately had no wait. This lookup can now spend the normal allowance on binding
+                // and the immediate memo, so the test still exercises a handed answer rather than another pending call.
+                delete process.env.PI_COC_SOURCE_ANSWER_ALLOWANCE_MS;
+                return consult("commission-briefing", "Is there a latch on the boards?");
+            },
 			narrate("You run a hand along the boards."),
 			look("time"), narrate("The boards are cold.")] });
 	t.after(() => table.dispose());
