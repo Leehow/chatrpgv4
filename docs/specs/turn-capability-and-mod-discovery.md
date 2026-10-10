@@ -118,6 +118,8 @@ Final Grok retention proof uses the existing opt-in transport observer's public 
 
 ## Testing Decisions
 
+Index metadata must describe when guidance is needed before the immediate planned action or response, not only after that action changes the state. Do not declare a present-state gate on guidance that the original text requires before a planned encounter, and do not exclude unknown working-language cases merely because fluent communication may later be established. Correct such authored scope mismatches in a new candidate package version, preserving original instruction bytes, canonical gate meanings and existing locks. Independently reviewed tuning cases may test the correction; they do not replace untouched validation.
+
 Tests use the highest existing seam: real provider-request capture from normal host context assembly, followed by ordinary dispatcher and kernel receipts. Small deterministic tests cover schema dependency, atomicity and idempotency, but do not substitute for captured requests or live Keeper proof.
 
 **Held-out evaluation.** Tuning and held-out cases are pre-registered and disjoint. The held-out set has at least 60 inputs spanning waiting, day and night transitions, travel, NPC dialogue and awakening, objects, documents and money, investigation, combat and specialized rules, out-of-character and no-match inputs, mixed actions, failures and legacy Mods. Cases capture ordinary future capability use, not only keywords in the sentence. Recall is reported per family with missing-item cases.

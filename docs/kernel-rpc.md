@@ -42375,6 +42375,8 @@ The existing lookup surface gains a `capability` (instruction discovery) kind ac
 
 ### 209.7 Mod section applicability and index-first loading
 
+Authored scope describes instruction availability before the immediate planned use. A package must not attach a current-presence gate to guidance needed before planned first contact, or exclude language guidance just because a shared language may later be established. These are metadata corrections in a new package version; original text, canonical gate meanings, state authority and existing locks remain unchanged. Selection of guidance never establishes that its world-state condition has occurred.
+
 - A Mod declares section `schema_version: 2` in its existing `contributes.sections` file and requires `instructions.discovery.v1` beside `instructions.sections.v1`. The kernel projects `index_contract_version: 2`; this is not a separate author-controlled manifest field. Resident entries keep their original shape. A situational entry adds `applicability: {what, not_for, examples}`, an open authored `category`, and optional `dependencies` naming existing core capabilities. Existing topics are optional hints; gates and triggers retain their canonical semantics. Applicability must be nonempty, examples have at most three entries, dependency names are checked, and every original heading/preamble remains covered once. Under that contract it supplies index cards for sections and a resident set limited to unconditional brief text, with shared invariants owned once.
 - Bulky situational prose becomes authored sections read whole through the existing immutable section-read path.
 - Index-first loading applies only to packages declaring the compatible contract. Budget overflow is no longer the activation condition.
