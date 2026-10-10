@@ -13,7 +13,8 @@
  *   giving the will's executor and the chapel's closing. Both are owed and landed; the executor's Library Use, which no
  *   one rolled, is said on its row (`check_skipped`, §201.2).
  * - T18: the compile's `ask_clue` filed the hollow boards and the body behind them; the prose gives neither in full and
- *   says there is no hidden door. The read counts the body as landed and untold (§201.4) and changes nothing.
+ *   says there is no hidden door. The read counted the body as landed and untold (§201.4). Since §135.30.9.4 the body's row
+ *   asks whether the search finds it now -- it does not tear the boards -- so only the boards are filed.
  *
  * Jev is a controlled typed endpoint behind the real decision adapter (the told reads) and a scripted decision port (the
  * run's own compile and route).
@@ -154,12 +155,12 @@ function installJev(t, {told = {}, landed = {}, markers = {}} = {}) {
 
 /**
  * The run's own decisions: nothing the player's words could choose, except the compile `ask` rows a test names by a word of
- * their clue's summary (`seeks`), answered yes at 0.85 -- T18's compile.
+ * their clue's summary (`finds`), answered yes at 0.85 -- T18's compile.
  */
-function runJev({seeks = []} = {}) {
+function runJev({finds = []} = {}) {
     return {decide: async batch => {
         const pick = question => {
-            if (batch.family === COMPILE_FAMILY) return question.key.startsWith('ask_') ? (seeks.some(word => String(question.target).includes(word)) ? 'yes' : 'no') : 'none';
+            if (batch.family === COMPILE_FAMILY) return question.key.startsWith('ask_') ? (finds.some(word => String(question.target).includes(word)) ? 'yes' : 'no') : 'none';
             return question.key === 'exit' ? 'finish' : Object.keys(question.criteria)[0] === 'now' ? 'later' : 'unknown';
         };
         const answers = Object.fromEntries(batch.questions.map(question => {
@@ -198,8 +199,8 @@ const turnRecord = (workspace, turn) => JSON.parse(readFileSync(join(dir(workspa
 const clueRow = (table, turn) => waitFor(() => table.telemetry().find(row => row.lane === 'told-clue' && row.turn === turn), {label: `turn ${turn}'s told-clue row`, timeoutMs: 15_000});
 const narrate = text => fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'});
 const ENV = {EXT_JEV_APIKEY: 'test-jev-key', PI_COC_LOOP_ENGINE: 'hybrid-v1'};
-async function hybridTable(t, {prepareWorkspace, responses, seeks, laneResponses}) {
-    const rows = [], engine = createHybridEngine({env: process.env, record: row => rows.push(row), decision: runJev({seeks})});
+async function hybridTable(t, {prepareWorkspace, responses, finds, laneResponses}) {
+    const rows = [], engine = createHybridEngine({env: process.env, record: row => rows.push(row), decision: runJev({finds})});
     const table = await openTable({realKernel: true, prepareWorkspace, env: ENV, runDriver: engine.runDriver, laneResponses,
         extraExtensions: [{name: 'coc-hybrid-engine', factory: engine.extension}], responses});
     t.after(() => table.dispose());
@@ -275,21 +276,22 @@ test('T10: after T9\'s refused apply, the implicit close tells the executor and 
     assert.deepEqual(ledger(table.workspace).closed.map(entry => [entry.name, entry.how]), [['t3-owed-1', 'landed'], ['t3-owed-2', 'landed']]);
 });
 
-test('T18: the compile files the boards and the body; the prose gives neither in full -- the body is counted landed and untold, nothing else moves', async t => {
-    const batches = installJev(t, {landed: {'hollow-boards': 0.5, 'corbitt-body-found': 0.05}});
-    const {table, rows} = await hybridTable(t, {prepareWorkspace: inTheBasement, seeks: ['boards'], responses: [narrate(RUN3.t18.delivered), narrate('你蹲下来。')]});
+test('T18: the body\'s row asks whether the search finds it (§135.30.9.4): the boards are filed, the body behind them is not', async t => {
+    installJev(t, {landed: {'hollow-boards': 0.5}});
+    // Jev answers yes on the boards' row ("a cursory check reveals hollow spaces") and no on the body's: the search does not
+    // tear away the boards, the book's one cue for it.
+    const {table, rows} = await hybridTable(t, {prepareWorkspace: inTheBasement, finds: ['cursory check'], responses: [narrate(RUN3.t18.delivered), narrate('你蹲下来。')]});
     await table.session.prompt(RUN3.t18.player);
+    const compile = rows.find(entry => entry.lane === 'route' && entry.purpose === 'compile' && entry.features?.ask);
+    const asked = Object.fromEntries(Object.entries(compile.features.ask.rows).map(([alias, id]) => [id, compile.features.ask.answers[alias].choice]));
+    assert.deepEqual([asked['clue:hollow-boards'], asked['clue:corbitt-body-found']], ['yes', 'no']);
+    assert.deepEqual(compile.fired.map(fired => [fired.predicate, fired.candidate]), [['ask_clue', 'apply:clue:hollow-boards']]);
     const filed = turnRecord(table.workspace, 3).receipts.filter(receipt => receipt.kind === 'clue').map(receipt => receipt.clue);
-    assert.deepEqual(filed, ['hollow-boards', 'corbitt-body-found'], 'run 3\'s clerk steps: both filed by the compile');
-    const compile = rows.find(entry => entry.lane === 'route' && entry.purpose === 'compile' && entry.fired?.length);
-    assert.deepEqual(compile.fired.map(fired => [fired.predicate, fired.candidate]), [['ask_clue', 'apply:clue:hollow-boards'], ['ask_clue', 'apply:clue:corbitt-body-found']]);
+    assert.deepEqual(filed, ['hollow-boards'], 'the body is the Keeper\'s to land when the boards come away');
     const row = await clueRow(table, 3);
     assert.deepEqual({landed: row.landed, landed_untold: row.landed_untold, outcome: row.outcome, owed: row.owed},
-        {landed: ['hollow-boards', 'corbitt-body-found'], landed_untold: ['corbitt-body-found'], outcome: 'stay', owed: []});
-    assert.equal(row.landed_given['hollow-boards'], 0.5, 'half given is not counted');
-    assert.equal(batches.length, 1, 'nothing cleared, so no sentence request');
-    assert.equal(ledger(table.workspace), null, 'counted, never acted on');
-    assert.deepEqual(turnRecord(table.workspace, 3).receipts.filter(receipt => receipt.kind === 'clue').map(receipt => receipt.clue), filed, 'the receipts stand');
+        {landed: ['hollow-boards'], landed_untold: [], outcome: 'stay', owed: []});
+    assert.equal(ledger(table.workspace), null);
 });
 
 test('off: the read is not run, and nothing registers a flight for it', async t => {

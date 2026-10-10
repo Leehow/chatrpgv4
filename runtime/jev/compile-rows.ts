@@ -86,7 +86,12 @@ export function compileRows(reads: StateReads): FeatureRows {
       return {id: `obligation:${text(row.handle)}`, describe: {demand: text(row.name) || text(row.handle), ...(things.length ? {guards: things} : {})} as Json};
     }),
     ...options.filter(row => object(row.effect).kind === 'clue' && !text(row.guarded_by) && !guards.clues.has(text(object(row.effect).clue)))
-      .map(row => ({id: `clue:${text(object(row.effect).clue)}`, describe: {clue: text(object(row.description).summary) || text(object(row.effect).clue)} as Json})),
+      // §135.30.9.4: a clue row carries the book's cues for it (§135.30.9.2), so its question can ask whether the declaration finds it.
+      .map(row => {
+        const cues = strings(object(row.description).cues);
+        return {id: `clue:${text(object(row.effect).clue)}`, describe: {clue: text(object(row.description).summary) || text(object(row.effect).clue),
+          ...(cues.length ? {cues} : {})} as Json};
+      }),
     ...array(where.assets).map(object).filter(asset => asset.kind === 'handout' && text(asset.name) && asset.shown !== true && !shown.has(text(asset.name)))
       .map(asset => ({id: `handout:${text(asset.name)}`, describe: {handout: text(asset.name)} as Json})),
   ]);

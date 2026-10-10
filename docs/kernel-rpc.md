@@ -25944,6 +25944,68 @@ still runs last.
 
 The fan-out file's emitted cases now use the office's remaining clue rows.
 
+##### 135.30.9.4 Addendum (2026-10-10, player report on TR-F2 run 3; amends §135.30.9's question for a clue row and closes §201.4's open item): a clue row asks whether the declaration finds it now, not whether it seeks it
+
+**Evidence.** TR-F2 run 3 (campaign `game-af36b938-4ca6-421e-bdec-759080123f69`, Keeper `openai-codex/gpt-6-luna`): the
+compile filed two clues by `ask_clue` on that table, and both were given to the player as clue cards under prose that says
+the opposite.
+
+- **T12** (chapel ruins). "我…在废墟里仔细翻找，看有没有通往地下室的入口，或者牧师留下的文件、书信。" The `ask` row of
+  `chapel-cellar-remains` ("The sealed chapel cellar contains two skeletons…") answered `yes` 0.62 and cleared; the clerk filed
+  it. The prose: no entrance shows on the surface, the way is still unclear.
+- **T18** (basement). "日记说科比特葬在地下室。我用手电仔细照墙面和地面，找有没有砌死的墙、暗门或者翻动过的土。" `hollow-boards`
+  answered `yes` 0.85, `corbitt-body-found` ("Behind the boards lies a wizened, seemingly dead figure…") `yes` 0.55 (yes 0.70,
+  no 0.17); both cleared and were filed. The book's only cue for the body is the scene's `tear-boards` affordance: "Tear away
+  the boards fixed to the wall and enter the foul-smelling void and the hidden chamber beyond." The prose: fitted boards, no
+  light through them, "no hidden door or turned earth" -- and the player then saw the body's card. The player reported it
+  (2026-10-10): "它线索和文字对不上".
+
+Both answers were right to the question asked. §135.30.9's `ASK_ROW` asks whether the declaration *seeks* the thing ("Seeking
+it is enough; how the table answers is not this question"), and a player who searches for the cellar or the grave seeks
+exactly what lies in it. For an obligation's demand seeking is the right question (the attempt is the check, §135.30.9); for
+a clue, filing is finding, and a clue the book reaches by a further act (breaking the boards, opening the cellar) is then
+landed on a declaration that has not done it. §201.4 counted it (`landed_untold`) and left the question until the counts
+were read; two of two `ask_clue` filings on this table were untold.
+
+**The question for a clue row.** A clue row (id `clue:<c>`, id syntax) is asked one yes/no as before, in the same compile
+batch, key `ask_<n>`, options `yes` / `no` / `unclear`, but with **`CLUE_ROW`**'s wording: would the declared action, done
+as stated, find this clue now? Two things may say what finds it: the clue's own words ("a cursory check reveals…") and its
+**`cues`**, when the kernel row carries them (§135.30.9.2: the active scene's affordances that grant it), what the book says
+the investigator does here to get at it. Doing either finds it; seeking it, looking for it or doing less than either does
+not, and what lies behind, under or inside something is found only by getting past it. The row's
+`describe` gains `cues` beside `clue` (`runtime/jev/compile-rows.ts`), the same authored data the re-ask already reads; a row
+without cues is asked on its words alone. Jev judges; nothing compares words.
+
+**Not changed.** The reading (`rowClears`, §135.30.9.1) and the record: a clue row whose `yes` cleared is still **sought** in
+`features.ask`, `ask_cleared` and `cleared.ask`, so `guard_unlock`, `ask_clue`, the per-candidate evidence and §32.12's
+line-by-line admission read it unchanged. Obligation rows and handout rows keep `ASK_ROW`. The re-ask (§135.30.9.2) keeps
+its own question; its target and its `settled` carry the row's words without the cues (the target adds them once). A clue the compile does not file
+falls through to the route and the Keeper as before: the Keeper still lands it with its own `apply` when its narration gives
+it.
+
+**Three ends (§31).** *Writer:* the kernel (`cues` on the clue option row), `compileRows` (the row's `describe`), Jev (the
+answer). *Reader:* `readFeatures` and the clue predicates, unchanged. *Actor:* the clerk, which now files a clue only when
+the declaration finds it; the Keeper, which keeps the rest.
+
+*Tests.* `tests/extension/single-loop-ask-fanout.test.mjs`: a clue row is asked with `CLUE_ROW` and carries its cues in the
+target, an obligation row keeps `ASK_ROW`. `tests/extension/clue-ledger.test.mjs` T18: the run-3 declaration, answered
+`no` on the body's row (it does not tear the boards), files `hollow-boards` alone.
+
+*Live replay* (2026-10-10, `jev-1`, the `ask` rows alone with the kernel's summaries and cues, no materials, five calls per
+arm; `*` cleared). The old question was replayed in the same way, three calls each.
+
+| declaration | row | `ASK_ROW` (seeks) | `CLUE_ROW` (finds now) |
+| --- | --- | --- | --- |
+| T18 search | `hollow-boards` | yes 0.64–0.74* | no 0.18–0.22, once yes 0.19 (not cleared) |
+| T18 search | `corbitt-body-found` | yes 0.10 (live table: 0.55*) | no 0.89–0.92 |
+| T12 search | `chapel-cellar-remains` | yes 0.38–0.51 (one cleared; live table: 0.62*) | no 0.76–0.82 |
+| "我把墙根那段钉得死死的木板撬开，钻进后面的空间看看。" | `hollow-boards`, `corbitt-body-found` | yes 0.58–0.64*, yes 0.35–0.48 | yes 0.94–0.95*, yes 0.94–0.95* |
+| gate #6 accept, Knott's office | `knott-research-leads` | no 0.16–0.27 | yes 0.31–0.35 (not cleared) |
+
+The search no longer files the body or the cellar, breaking the boards files both, and the boards' hollow areas on the
+search fall to the Keeper (neither answer clears). The accept's leads are filed by the commission's settlement
+(§135.30.9.3), not by this row.
+
 #### 135.30.10 Addendum (2026-10-04, environment acceptance): one declaration, one destination -- the run's move settles where it goes
 
 It applies §135.30.8's rule ("a declaration's act is settled once") to the place the declaration goes. It amends §135.30's
@@ -41341,7 +41403,7 @@ reason, field}`. Anything else is left to Pi's schema check as before.
 The told-clue read asks `given` of each clue the delivered turn landed (not an owed landing) and lists those at or under
 `told_clue.untold_max` as `landed_untold` on its row (T18: `corbitt-body-found`; T12: `chapel-cellar-remains`). It is counted,
 never acted on: the receipt stands. Its cause on T18 is the compile's ask row ("does the declaration seek this thing",
-§135.30.9) filing a clue whose book finding is a further act; changing that question is left until these counts are read.
+§135.30.9) filing a clue whose book finding is a further act; §135.30.9.4 (2026-10-10) changes that question for clue rows.
 
 ### 201.5 Three ends (§31)
 
