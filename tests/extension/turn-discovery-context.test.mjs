@@ -18,9 +18,11 @@ await build({stdin:{contents:[
 const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
 test.after(()=>rm(temp,{recursive:true,force:true}));
 
-for(const [denied,seeded,stale,expired,sourceError] of [[false,false,false],[true,false,false],[false,true,false],[false,true,true],
-    [false,false,false,true,false],[false,false,false,true,true],[false,false,false,true,'foreground']])test(
-    expired?sourceError==='foreground'?'expired foreground ownership never clears the current write hold':sourceError?'optional expiry never clears a failed current-source write hold':'optional expiry after model time delivers a verified full view without renewing decisions'
+for(const [denied,seeded,stale,expired,sourceError,hybrid] of [[false,false,false],[true,false,false],[false,true,false],[false,true,true],
+    [false,false,false,true,false],[false,false,false,true,true],[false,false,false,true,'foreground'],
+    [false,false,false,true,false,true],[false,false,false,true,'foreground',true]])test(
+    hybrid?sourceError?'expired hybrid read ownership keeps mutation held':'hybrid optional expiry refreshes without a TaskRuntime reservation port'
+    :expired?sourceError==='foreground'?'expired foreground ownership never clears the current write hold':sourceError?'optional expiry never clears a failed current-source write hold':'optional expiry after model time delivers a verified full view without renewing decisions'
         :denied?'discovery shares foreground reservations and falls back before a refused provider dispatch'
         :seeded?stale?'a stale task source cannot seed current capability or package detail':'current host operations seed capability and package detail before inference'
         :'normal context hooks declare the selected schema and hold a first unshown instruction before mutation',async t=>{
@@ -70,7 +72,8 @@ for(const [denied,seeded,stale,expired,sourceError] of [[false,false,false],[tru
         task:{purpose:'bind',reason:'clerk_unbound',features:{act:{row:'purchase',cleared:true}},
             operations:[{verb:'apply',family:'cash',bound:{amount:20,currency:'USD',to:'here'},needs:['amount',{name:'to'}]}]}});
     const lifetime=new AbortController();let foregroundDeadline=Date.now()+20000;
-    bus.get('coc:task-provider-budget')(()=>({signal:lifetime.signal,deadlineAt:foregroundDeadline,
+    if(hybrid)bus.get('coc:discovery-read-owner')(()=>({signal:lifetime.signal,deadlineAt:foregroundDeadline}));
+    else bus.get('coc:task-provider-budget')(()=>({signal:lifetime.signal,deadlineAt:foregroundDeadline,
         reserve:async bound=>{
             reserved++;assert.equal(bound.model.provider,'typesafe');assert.ok(bound.inputTokens>0);
             if(denied)throw Error('foreground_test_refusal');

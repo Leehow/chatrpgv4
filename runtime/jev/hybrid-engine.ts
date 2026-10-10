@@ -528,6 +528,7 @@ interface RunState {
    */
   prescreenAllowanceMs: number;
   providerBudget: ReturnType<typeof preparationProviderBudget>;
+  readOwner?:{signal:AbortSignal;deadlineAt:number};
   turn?: number;
   scope?: ScopeBinding;
   readSet?: ReadSet;
@@ -1010,7 +1011,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   function makePorts(run: RunState): RunDriverPorts {
     return {
       clock: {now: stepNow},
-      record: {record: (event: RunEvent) => { record({lane: 'run', ...event}); if (event.type === 'run_end') budgetSummary(run); }},
+      record: {record: (event: RunEvent) => { record({lane: 'run', ...event}); if (event.type === 'run_end') {
+        budgetSummary(run); run.readOwner=undefined;
+        if(currentRunId===run.runId)api?.events?.emit?.('coc:discovery-read-owner',undefined);
+      } }},
       read: {
         async read(_proposal, invocation) {
           const began = stepNow();
@@ -1159,7 +1163,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           return {status: 'refused', reason: 'unknown_policy_operation', artifact: {kind: 'execute', executed: {ok: false, summary: {refused: 'unknown_policy_operation'}}}};
         },
       },
-      projection: {project: ({view, step, stepId}) => projection(run, view as unknown as {policyState: StepPolicyState}, step, stepId)},
+      projection: {project: ({view, step, stepId, signal}) => projection(run, view as unknown as {policyState: StepPolicyState}, step, stepId, signal)},
       decision: {decide: request => decide(run, request)},
     };
   }
@@ -1954,7 +1958,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   }
 
   /** The run's note to the Keeper before a model step. Nothing new to say: no message. */
-  async function projection(run: RunState, view: {policyState: StepPolicyState}, step: {purpose: string; reason: string; request?: unknown}, stepId: string) {
+  async function projection(run: RunState, view: {policyState: StepPolicyState}, step: {purpose: string; reason: string; request?: unknown}, stepId: string, signal?: AbortSignal) {
     // §135.11.2 (SL-50 stage 2): the run's first note opens with the head line (right after `kind`), once per run.
     const head = !run.headShown;
     const content: Row = {kind: 'single_loop_step', ...(head ? {head: CLERK_NOTE_HEAD} : {}), purpose: step.purpose, reason: step.reason};
@@ -2209,6 +2213,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     // §135.11: the turn-close steer, last, as the same `coc-host` message legacy's `agent_end` sends.
     if (run.steer && step.reason.startsWith('turn_close:')) { messages.push({role: 'custom', ...run.steer, timestamp: Date.now()}); run.steer = undefined; }
+    if(signal){
+      const {cap}=await keeperCallAllowance(),deadlineAt=Date.now()+cap,owner={signal,deadlineAt};
+      run.readOwner=owner;
+      api?.events?.emit?.('coc:discovery-read-owner',()=>currentRunId===run.runId&&run.readOwner===owner&&!signal.aborted&&cap>0?owner:undefined);
+      record({lane:'run',event:'discovery_read_owner',run:run.runId,step:stepId,deadline_at:deadlineAt,cap_ms:cap});
+    }
     return messages.length ? messages as any : undefined;
   }
 
@@ -2277,7 +2287,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   };
   /** The actual thinking level owns its existing allowance, including ordinary UI low-thinking play.
    * The experimental first-step flag is an additional allowance, not the only way a model can think. */
-  const resolveKeeperCallCapMs = async (): Promise<number> => {
+  const keeperCallAllowance = async (): Promise<{cap:number;level:unknown}> => {
     const ordinary = keeperCallCapMs(options.env);
     const level=api?.getThinkingLevel?.(),thinking=typeof level==='string'&&level!=='off';
     let cap=ordinary;
@@ -2285,6 +2295,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const {callCapMs: allowance}=await firstStepThinkingBudget();
       cap=thinking?Math.max(ordinary,allowance):firstStepCallCapMs(true,step,ordinary,allowance);
     }
+    return{cap,level};
+  };
+  const resolveKeeperCallCapMs = async (): Promise<number> => {
+    const {cap,level}=await keeperCallAllowance();
     record({lane:'run',event:'keeper_call_allowance',run:currentRunId??null,step,thinking:level??null,cap_ms:cap});
     return cap;
   };
@@ -2297,6 +2311,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       if (currentNpcRun) { currentNpcRun.checkInputsClosed = true; currentNpcRun.checkInputs?.clear(); }
       if (currentNpcRun?.pendingNpcActs?.size) recordUnpreparedChecks(currentNpcRun);
       currentRunId = context.runId;
+      api?.events?.emit?.('coc:discovery-read-owner',undefined);
       const allowance = readJevPreselectAllowanceMs(options.env as NodeJS.ProcessEnv), startedAt = now(), budgetMs = turnBudgetMs(options.env);
       const run: RunState = {runId: context.runId, rawInput: context.rawInput, inputRevision: context.inputRevision, session: context.session as unknown as Row,
         startedAt, prescreenAllowanceMs: allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,

@@ -92,6 +92,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let sessionEnv={...process.env},sharedAdapter:DecisionPort|undefined,sharedBudget:ReturnType<typeof preparationBudget>|undefined;
     let fallbackForInput=false,verifiedInputEpoch:string|undefined;
     let inputLifetime=new AbortController(),foregroundBudget:(()=>TaskProviderBudget|undefined)|undefined;
+    let hybridReadOwner:(()=>Pick<TaskProviderBudget,'signal'|'deadlineAt'>|undefined)|undefined;
+    const foregroundReadOwner=()=>foregroundBudget?.()??hybridReadOwner?.();
     const decision=()=>{
         if(!readJevApiKey(sessionEnv))return undefined;
         const capacity=Number(sessionEnv.PI_COC_JEV_CONCURRENCY??16);
@@ -129,6 +131,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let turnCalls=emptyCalls(),pendingSections:Row|undefined;
     const resetPreparation=()=>{fallbackForInput=false;verifiedInputEpoch=undefined;inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;heldDiscoveryRequests.clear();discoveryHandoff=undefined;discoveryUnavailable=false;};
     pi.events.on('coc:task-provider-budget',value=>{foregroundBudget=typeof value==='function'?value as typeof foregroundBudget:undefined;});
+    pi.events.on('coc:discovery-read-owner',value=>{hybridReadOwner=typeof value==='function'?value as typeof hybridReadOwner:undefined;});
     // Contract §168.5: a capsule this hook reads itself is handed over through the kernel extension's first-sight view, as
     // the player-input capsule already was: an item whose check is still running is left out, and what is carried is noted.
     let firstSight:{campaign:string;view:(capsule:Row)=>Row}|undefined;
@@ -507,7 +510,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             PRESCREEN_TYPE,WORKSPACE_TYPE,CAPSULE_UPDATE_TYPE,CLERK_TYPE].includes(message.customType));
     async function boundedDiscoveryRead<T>(read:()=>Promise<T>):Promise<T>{
         if(discoveryMode()==='full'||!prescreenDeadlineAt)return read();
-        const parent=foregroundBudget?.(),deadline=fallbackForInput?parent?.deadlineAt:prescreenDeadlineAt;
+        const parent=foregroundReadOwner(),deadline=fallbackForInput?parent?.deadlineAt:prescreenDeadlineAt;
         if(!deadline)throw Error('discovery_foreground_unavailable');
         const remaining=deadline-Date.now(),expired=fallbackForInput?'discovery_foreground_deadline':'discovery_snapshot_deadline';
         if(remaining<=0)throw Error(expired);
@@ -525,11 +528,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const ticket = generation;
         // Optional expiry stops discovery; a verified input can still use its existing core owner for fresh reads.
         if(!fallbackForInput&&inputEpoch&&verifiedInputEpoch===inputEpoch&&prescreenDeadlineAt
-            &&Date.now()>=prescreenDeadlineAt&&foregroundBudget?.()){
+            &&Date.now()>=prescreenDeadlineAt&&foregroundReadOwner()){
             fallbackForInput=true;discoveryUnavailable=true;sharedBudget?.close();sharedBudget=undefined;
             capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
             record({lane:'context',event:'discovery_fallback',turn:observedTurn,reason:'preparation_expired',
-                optional_deadline:prescreenDeadlineAt,foreground_deadline:foregroundBudget?.()?.deadlineAt});
+                optional_deadline:prescreenDeadlineAt,foreground_deadline:foregroundReadOwner()?.deadlineAt});
         }
         // Start before storage hydration so its elapsed time is not a free selection allowance.
         if(discoveryMode()!=='full')beginPreparationAllowance();
