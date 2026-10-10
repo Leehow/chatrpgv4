@@ -202,12 +202,28 @@ test('§205.4 a reused packet keeps what is missing only while its materials nee
   // The ferryman is found (his units are read before the loop), so the packet has material to reuse.
   const named=await prepare(t,f,{entity:{'Silas Crane':0.9},needs:{need_1:'missing',need_2:'none'},passage:card=>ledger(card)?0.5:0});
   assert.equal(named.packet.missing.length,1);assert(named.packet.materials.length>0);
+  // This fixture is immutable. Read its exact checkpoint pages before entering the reuse allowance: this case tests
+  // reassessment, not PDF I/O throughput under the full suite. The product still checks the real kernel binding and every
+  // quoted hash/version; source-mutation cases separately exercise fresh I/O and changed-page rejection.
+  const checkpoint=named.message.details.prescreen.source_checkpoint;
+  const pages=checkpoint.used.flatMap(use=>use.pages??[]),snapshotSource={...f.source};
+  const sourceInfoArgs={pdf:checkpoint.pdf,cache:f.source.home};
+  const info=await f.source.sourceInfo(sourceInfoArgs,new AbortController().signal);
+  snapshotSource.sourceInfo=async args=>{assert.deepEqual(args,sourceInfoArgs);return structuredClone(info);};
+  for(const [layer,method] of [['native','sourceText'],['transcript','sourcePageText']]){
+    const selected=[...new Set(pages.filter(row=>row.layer===layer).map(row=>row.page))].sort((a,b)=>a-b);
+    if(!selected.length)continue;
+    const args={pdf:checkpoint.pdf,pages:selected,expected_file_sha256:checkpoint.file_sha256,
+      ...(layer==='transcript'?{layer:'preferred'}:{})};
+    const read=await f.source[method](args,new AbortController().signal);
+    snapshotSource[method]=async actual=>{assert.deepEqual(actual,args);return structuredClone(read);};
+  }
   // The reuse checks run on the product's own 500 ms allowance; on a saturated test box one can run out, which is a refusal
   // to reuse, not what this test is about. A refusal is retried; whatever is reused is checked.
   const reuse=suppliedMessages=>waitForValue(async()=>{
       try{
         const reused=await api.reusePrescreen({call:(method,params)=>f.call(method,params),campaign:'c1',binding:f.binding,query:LINE,
-          message:named.message,suppliedMessages,byteBudget:16*1024,signal:new AbortController().signal,source:{moduleId:f.mid,runtime:f.source}});
+          message:named.message,suppliedMessages,byteBudget:16*1024,signal:new AbortController().signal,source:{moduleId:f.mid,runtime:snapshotSource}});
         return reused;
       }catch(error){
         if(!(error instanceof DOMException&&error.name==='TimeoutError'))throw error;

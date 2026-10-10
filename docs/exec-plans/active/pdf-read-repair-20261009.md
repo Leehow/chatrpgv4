@@ -744,3 +744,33 @@ its dirty discovery-situation/capability-runtime test; our accepted tree does no
 paths beyond already committed baseline. Verify actual state again before ff. Final scope
 report must retain unverified applicability/map relation and provider limits, not claim
 full-source/campaign acceptance. Complete retention audit and pause heartbeat after integration.
+
+Latest main changed during final outcome commit: doc345 plus productiond013 (two discovery
+projection lines keep host needs/threat facts JSON-packable). Owned7905a6ecd imports only
+those committed updates; original own source hunks preserved, main was clean. Their two
+targeted files pass16/16 locally. This production change requires final combined all/runtime,
+not falsely crediting prior07 all for it. Canonical probe foundamax55.75busy with another
+owner's main checkout all suite; stayed quiet and polled only probe until idle8.18. No other
+owner process was stopped/refreshed. Current owned all7905 dispatched only afteridle and
+is running, log lan-final-7905a6ecd.log. Original07all raw/per-file logs/10bundle equality
+proof stay retained. All old drivers stopped. Ready freshcamp continuation launcher
+start-accepted-play.mjs after exact7905build retrieval/proof; root stillsole natural player.
+
+Combined all7905 finished red614s: ext5428pass/1fail/1skip,pytest2128pass/2skip,loop12pass.
+All raw/per-file logs retained in all-7905a6ecd before any refresh. The sole repeated failure
+is the unchanged500ms prescreen reuse I/O deadline under parallel full-suite load, not a
+source/admission gate failure. Keep production500ms and semantic assertions unchanged.
+The immutable-fixture reassessment test now reads actual exact checkpoint pages first and
+returns cloned real snapshots with exact-argument assertions during reuse; actual kernel
+binding/snapshot and all hash/version validation remain. This small stable fixture change
+needs no external design research; no production interface or deadline change. Local8/8pass.
+An independent read-only review and another idle-LAN final all are pending. Other owner's
+main checkout currently occupiesamax; do not run/refresh until it is idle.
+
+Exact7905 runtime proof687/687 retained. Genuine accepted run3natural/2tools/134.768s,
+35.026/26.452/73.290s, Grok4.7Fast/low. Notebook literal append revision4, prefix/quote hash
+verified, target/content/execution.96/.91/.92 meet unchanged.9. Second write correctly refused
+action_proposal_mismatch; no overwrite. Two8min time receipts. No20/26s timeout or provider
+error;26trackedPIDs exited. SQLintegrityok/duplicateID0,15completed5failed2running3queued.
+Source18 original condition structure/map scene linkage remain unverified; no full-source
+acceptance claim. Test-only correction does not require another identical production replay.
