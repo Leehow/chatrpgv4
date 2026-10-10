@@ -99,7 +99,9 @@ export interface BindRecord {name: string; path: BindingPath; value: Json; confi
   held?: boolean; named?: boolean;
   /** Correlated-view diagnostics, never an execution gate. */
   semantic?: {answered: number; total: number; spread?: number};
-  table?: string; band?: string; roll?: Json}
+  table?: string; band?: string; roll?: Json;
+  /** §211.3: the issued literal alias a stated measure bound from, and the activity-band answer it took precedence over. */
+  literal?: string; superseded?: Json}
 /** One shape a candidate takes once its `decision` is bound: the chosen action with its own parameters. */
 export interface CandidateVariant {label: string; bound: Record<string, Json>; unbound: Unbound[]; basis?: Json}
 /**
@@ -763,7 +765,33 @@ export function bindBatch(view: RunView, candidate: Candidate, scope: ScopeBindi
       criteria: {...Object.fromEntries(value.options!.map(option => [option, value.descriptions?.[option] ?? option])),
         unknown: value.descriptions?.unknown ?? 'Cannot be determined from the supplied state.'}}).flatMap((question, index) =>
         candidate.clerk === 'declared_time' || candidate.checkOwner === 'jev' && closed[index].owner === 'player'
-          ? semanticQuestions(question) : [question])};
+          ? semanticQuestions(question) : [question]).concat(statedMeasureQuestions(candidate).flatMap(semanticQuestions))};
+}
+
+/**
+ * §211.3: the literal measures the host lexed from the current input (closed numeral syntax: an interval or a 24-hour clock
+ * time), each as its own question -- is this the measure of the time the player chose to let pass now? The activity band
+ * is a different proposition (what fills the time), so a stated end never competes with it inside one closed choice.
+ * Jev judges; the lexer reads no word, and the kernel still counts the minutes to an endpoint.
+ */
+export const STATED_MEASURE_OPTIONS = ['chosen', 'not_chosen', 'unknown'] as const;
+export const statedMeasureKey = (alias: string): string => `stated_measure:${alias}`;
+function statedMeasureQuestions(candidate: Candidate): DecisionBatch['questions'] {
+  if (candidate.clerk !== 'declared_time') return [];
+  const durations = Object.entries(candidate.timeDurations ?? {}).map(([alias, value]) => ({alias, text: value.text, start: value.start, end: value.end,
+    reading: `an interval of ${value.minutes} whole minutes`,
+    chosen: 'The player chose this interval as the whole time to let pass now, whatever activity fills it.'}));
+  const clocks = Object.entries(candidate.timeClocks ?? {}).map(([alias, value]) => ({alias, text: value.text, start: value.start, end: value.end,
+    reading: `the 24-hour clock time ${value.time}`,
+    chosen: 'The player chose to let time pass now until this clock time: it is when the declared wait, rest or sleep ends (the moment they get up, leave or act again), whatever activity fills the time before it.'}));
+  return [...durations, ...clocks].map(value => ({key: statedMeasureKey(value.alias),
+    target: `the literal ${JSON.stringify(value.text)} at input UTF-16 [${value.start}, ${value.end}), read as ${value.reading}`, type: 'choice' as const,
+    instructions: 'Judge only this one literal the host found in the player\'s current input by numeral syntax (it grants nothing). Is it the measure of the time the player chose to let pass now? '
+      + 'A named activity (washing, eating, reading, resting, sleeping) does not compete with a stated end or interval: the stated measure fixes how long that activity lasts. '
+      + 'A schedule, an opening or closing hour, an appointment, a quotation, a deadline, a past moment, an estimate, a negated or conditional time not reached, one part of a longer stated span, or a 12-hour reading the words contradict is not chosen.',
+    criteria: {chosen: value.chosen,
+      not_chosen: 'The literal is not the measure of the time chosen to pass now (see the instructions), or the declaration chooses no wait at all.',
+      unknown: 'Cannot be told from the supplied state.'}}));
 }
 
 /**
@@ -825,6 +853,17 @@ function ruleDefaultOf(rule: RuleDefault | undefined, parameter: Unbound, candid
   return value !== undefined && parameter.options?.includes(value) ? {value, rule} : undefined;
 }
 
+/** §211.3: the one issued literal whose own question pooled to `chosen`, if exactly one did. */
+function statedMeasure(candidate: Candidate, result: DecisionResult | undefined):
+  {alias: string; interval?: DeclaredDuration; clock?: DeclaredClock; vote: ReturnType<typeof semanticChoice>} | undefined {
+  const aliases = [...Object.keys(candidate.timeDurations ?? {}), ...Object.keys(candidate.timeClocks ?? {})];
+  const chosen = aliases.map(alias => ({alias, vote: semanticChoice(result, statedMeasureKey(alias), [...STATED_MEASURE_OPTIONS])}))
+    .filter(value => value.vote.choice === 'chosen');
+  if (chosen.length !== 1) return undefined;
+  const [{alias, vote}] = chosen;
+  return {alias, vote, interval: candidate.timeDurations?.[alias], clock: candidate.timeClocks?.[alias]};
+}
+
 /**
  * A clerk bind (§135.28). Each closed parameter is Jev's answer when it clears the gate, else its rules default; a
  * parameter with neither leaves the candidate to the Keeper. A default is stamped on the operation's basis
@@ -843,6 +882,20 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
       const semantic = {answered, total, ...(spread !== undefined ? {spread} : {})};
       const band = parameter.band, path: BindingPath = band ? 'banded' : 'jev', table = band ? {table: band.table} : {};
       const admission = confidence !== undefined && confidence < (band?.gate ?? gate) ? {cleared: false} : {};
+      // §211.3: a literal measure Jev reads as the player's chosen measure of the time takes precedence over the activity band.
+      // Exactly one such literal binds; none, or more than one, leaves the ordinary closed choice below to decide.
+      const stated = candidate.clerk === 'declared_time' && parameter.name === 'band' ? statedMeasure(candidate, result) : undefined;
+      if (stated) {
+        const {alias, interval, clock, vote} = stated;
+        if (interval) extra.minutes = interval.minutes; else extra.until = {time: clock!.time};
+        lowest = Math.min(lowest, vote.confidence ?? 1);
+        const voteSemantic = {answered: vote.answered, total: vote.total, ...(vote.spread !== undefined ? {spread: vote.spread} : {})};
+        bindings.push({name: interval ? 'minutes' : 'until', path: 'jev', value: interval ? interval.minutes : clock!.time, confidence: vote.confidence ?? null,
+          distribution: vote.distribution, semantic: voteSemantic, literal: alias,
+          ...(vote.confidence !== undefined && vote.confidence < (band?.gate ?? gate) ? {cleared: false} : {}),
+          superseded: {name: parameter.name, choice: choice ?? null, distribution} as Json});
+        continue;
+      }
       if (choice && choice !== 'unknown' && parameter.options!.includes(choice)) {
         const interval = candidate.clerk === 'declared_time' && parameter.name === 'band' ? candidate.timeDurations?.[choice] : undefined;
         // §211.2: a chosen clock endpoint sends only the time; the kernel resolves its next occurrence and the minutes.

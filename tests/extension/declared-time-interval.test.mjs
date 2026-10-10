@@ -237,3 +237,99 @@ test('§211 over the TS kernel at 18:01: until 23:30 lands 329 minutes the same 
         await assert.rejects(call('table.apply',{call_id:'t5-c2',effects:[{kind:'time',until:{time:'8:00'}}]}),error=>error.details?.reason==='until_invalid');
     }finally{await runtime.close();}
 });
+// §211.3 (issue #112, live table 9e7g turn 28): "go to bed; get up at 07:00 tomorrow" at 00:23. The endpoint was offered as
+// clock:0, but inside the one closed choice it competed with the activity it bounds: the three pooled views read
+// sleep_night .323, brief_activity .28, clock:0 .217, so the band won and the kernel rolled 595 minutes (10:18). The stated
+// end now has its own question; once Jev reads it as the player's chosen end it binds `until`, and the band is not rolled.
+const wakeInput='太晚了。我把晚报扔在桌上，就着搪瓷盆洗把脸，脱了外套上床睡觉。明早07:00起床。';
+const capturedRows=['speak_briefly','quick_observation','single_room_search','careful_house_search','library_research','first_aid','medicine_treatment','short_rest',
+    'sleep_night','therapy_week','therapy_month','spell_learning','tome_study','investigation_recovery','momentary','brief_activity','record_lookup'];
+const capturedReads={...reads,bands:{time:capturedRows.map(handle=>handle==='sleep_night'?{handle,min:360,max:600}:{handle,min:1,max:30}),gates:{time:0.5}}};
+// Telemetry row 13464 (turn 28, purpose bind): the three views of the band question, verbatim.
+const zero=Object.fromEntries(capturedRows.map(handle=>[handle,0]));
+const capturedBand={
+    band:{...zero,short_rest:.01,sleep_night:.35,momentary:.01,brief_activity:.29,'clock:0':.16,unknown:.18},
+    band__semantic_facts:{...zero,short_rest:.01,sleep_night:.31,momentary:.01,brief_activity:.26,'clock:0':.27,unknown:.14},
+    band__semantic_execution:{...zero,short_rest:.01,sleep_night:.31,momentary:.01,brief_activity:.29,'clock:0':.22,unknown:.16}};
+const views=key=>[key,`${key}__semantic_facts`,`${key}__semantic_execution`];
+function answeredWith(distributions){
+    const answers=Object.fromEntries(Object.entries(distributions).map(([key,probabilities])=>{
+        const choice=Object.entries(probabilities).sort((a,b)=>b[1]-a[1])[0][0];
+        return [key,{status:'answered',type:'choice',choice,confidence:probabilities[choice],probabilities}];}));
+    return {status:'complete',answers};
+}
+const stated=(alias,probabilities)=>Object.fromEntries(views(`stated_measure:${alias}`).map(key=>[key,probabilities]));
+function wakeBind(text,distributions){
+    const value=api.buildCandidates(capturedReads,text).find(c=>c.key==='apply:time:declared');
+    const view=api.initialView({runId:'wake-time-replay',rawInput:text,context,candidates:[value],compile:false,readFirst:false});
+    const batch=api.bindBatch(view,value,scope,[]),band=Object.keys(batch.questions.find(q=>q.key==='band').criteria);
+    // The band views are re-keyed onto this input's issued vocabulary (a literal the capture did not have reads 0).
+    const onto=(key,dist)=>key.startsWith('band')?Object.fromEntries(band.map(option=>[option,dist[option]??0])):dist;
+    return {value,batch,...api.interpretBind(value,batch,answeredWith(Object.fromEntries(Object.entries(distributions).map(([key,dist])=>[key,onto(key,dist)]))),0.6)};
+}
+test('§211.3 the captured wake-up declaration asks its stated end on its own, beside the activity band',()=>{
+    const {value,batch}=wakeBind(wakeInput,capturedBand);
+    assert.deepEqual(Object.values(value.timeClocks).map(v=>v.time),['07:00']);
+    const keys=batch.questions.map(q=>q.key);
+    for(const key of views('stated_measure:clock:0'))assert.ok(keys.includes(key),`${key} is asked`);
+    const question=batch.questions.find(q=>q.key==='stated_measure:clock:0');
+    assert.deepEqual(Object.keys(question.criteria),['chosen','not_chosen','unknown']);
+    assert.match(question.target,/07:00/);assert.match(question.instructions,/does not compete with a stated end/);
+    assert.ok(Object.hasOwn(batch.questions[0].criteria,'sleep_night'),'the activity band question is unchanged');
+});
+test('§211.3 a stated end Jev reads as chosen binds until 07:00 over the leading band; otherwise the band decides as before',()=>{
+    // The captured answers alone (no stated-end answer): the closed choice still decides, as on the live table.
+    const before=wakeBind(wakeInput,capturedBand);
+    assert.equal(before.extra.band,'sleep_night');assert.equal(before.extra.until,undefined);
+    // The stated end read as chosen takes precedence over the band the closed choice leads with.
+    const chosen=wakeBind(wakeInput,{...capturedBand,...stated('clock:0',{chosen:.8,not_chosen:.12,unknown:.08})});
+    assert.deepEqual(chosen.pending.map(p=>[p.kind,p.purpose]),[['direct','execute']]);
+    assert.deepEqual(chosen.extra.until,{time:'07:00'});assert.equal(chosen.extra.band,undefined);assert.equal(chosen.extra.minutes,undefined);
+    const effect=api.kernelCall(chosen.value,chosen.extra).params.effects[0];
+    assert.deepEqual(effect.until,{time:'07:00'});assert.equal(effect.band,undefined);
+    const record=chosen.bindings.find(b=>b.name==='until');
+    assert.equal(record.path,'jev');assert.equal(record.value,'07:00');assert.equal(record.literal,'clock:0');
+    assert.equal(record.superseded.choice,'sleep_night','the band answer it took precedence over stays on the record');
+    assert.equal(chosen.bindings.some(b=>b.name==='band'),false,'no band is rolled');
+    // Read as not chosen, or unanswered: the activity band decides, unchanged.
+    const declined=wakeBind(wakeInput,{...capturedBand,...stated('clock:0',{chosen:.15,not_chosen:.75,unknown:.1})});
+    assert.equal(declined.extra.band,'sleep_night');assert.equal(declined.extra.until,undefined);
+    const unclear=wakeBind(wakeInput,{...capturedBand,...stated('clock:0',{chosen:.3,not_chosen:.3,unknown:.4})});
+    assert.equal(unclear.extra.band,'sleep_night');
+});
+test('§211.3 a stated interval takes the same precedence; two chosen literals leave the closed choice to decide',()=>{
+    const text='I lie down and sleep for 8 hours.';
+    const interval=wakeBind(text,{...capturedBand,...stated('duration:0',{chosen:.7,not_chosen:.2,unknown:.1})});
+    assert.equal(interval.extra.minutes,480);assert.equal(interval.extra.band,undefined);
+    assert.equal(interval.bindings.find(b=>b.name==='minutes').literal,'duration:0');
+    const both='I sleep 8 hours and get up at 07:00.';
+    const ambiguous=wakeBind(both,{...capturedBand,...stated('duration:0',{chosen:.7,not_chosen:.2,unknown:.1}),...stated('clock:0',{chosen:.7,not_chosen:.2,unknown:.1})});
+    assert.equal(ambiguous.extra.band,'sleep_night','more than one chosen literal is not a precedence; the closed choice decides');
+    assert.equal(ambiguous.extra.until,undefined);assert.equal(ambiguous.extra.minutes,undefined);
+});
+test('§211.3 over the TS kernel at 00:23: the captured declaration with its end read as chosen lands 397 minutes at 07:00, not a band roll',async()=>{
+    const home=playtestScratch('declared-wake-endpoint'),kernel=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'wake-time',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(kernel);
+    try{
+        const call=(method,params={})=>runtime.handlers[method]({campaign:'c1',...params});
+        await call('campaign.create',{id:'c1',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});await call('table.open');
+        // The evidence clock: The Haunting opens 10:00; the cab home arrived at 00:23 the next day.
+        await call('table.player_input',{text:'I spend the day and the evening on the case.'});
+        await call('table.apply',{call_id:'t1-c1',effects:[{kind:'time',minutes:863,why:'the day and evening on the case'}]});
+        await call('table.narrate',{call_id:'t1-c2',text:'The cab drops you at the rooming house after midnight.'});
+        assert.equal((await call('table.capsule')).where.clock.at,'1920-10-13T00:23');
+        await call('table.player_input',{text:wakeInput});
+        const source={capsule:await call('table.capsule'),applyOptions:await call('table.apply.options'),resolveOptions:await call('table.resolve.options'),bands:{time:(await call('rules.bands',{field:'time.band'})).rows}};
+        const value=api.buildCandidates(source,wakeInput).find(c=>c.key==='apply:time:declared');
+        const view=api.initialView({runId:'wake-kernel',rawInput:wakeInput,context,candidates:[value],compile:false,readFirst:false});
+        const batch=api.bindBatch(view,value,scope,[]),bandQuestion=batch.questions.find(q=>q.key==='band');
+        // The captured band views, re-keyed onto the real table's rows (rows the capture did not name read 0).
+        const onto=dist=>Object.fromEntries(Object.keys(bandQuestion.criteria).map(key=>[key,dist[key]??0]));
+        const answers={...Object.fromEntries(Object.entries(capturedBand).map(([key,dist])=>[key,onto(dist)])),...stated('clock:0',{chosen:.8,not_chosen:.12,unknown:.08})};
+        const bound=api.interpretBind(value,batch,answeredWith(answers),0.6),operation=api.kernelCall(value,bound.extra);
+        assert.deepEqual(operation.params.effects[0].until,{time:'07:00'});
+        await call(operation.method,{call_id:'t2-c1',...operation.params});
+        const receipt=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
+        assert.equal(receipt.minutes,397);assert.deepEqual(receipt.until,{days:0,time:'07:00'});assert.equal(receipt.band,undefined);
+        assert.equal((await call('table.capsule')).where.clock.at,'1920-10-13T07:00');
+    }finally{await runtime.close();}
+});
