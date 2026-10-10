@@ -127,3 +127,15 @@ reopen the retained draft through driver to validate real confirmation and openi
 natural document reading. No manual RPC/state editing or fake UI click. All old evidence,
 native credential file symlink and separate App preserved. Do not claim7ae validates the
 new fixes or that the failed setup already opened a table.
+
+Current committed fixes:6932d3fe2 isolates optional guidance from held/carried budgets;
+0bbc3bc14 fixes approval/adjudication projection; f8ac06bd4 records actual driver timings.
+Existing initial-model-led/JeV-outage no-note tests remain intact; only drawn-card ambiguity
+gets a fresh state note. Local setup34/34 and held/cache18/18passed. The retained7ae build
+is stale for these changes and must not launch another acceptance run.
+leehow-pc is now occupied by other-owner test processes underagent-a44f1d1c024ce6c52 and
+wt-clue-narration-mismatch. Wait for canonical idle and absence of an in-progress build;
+do not run another heavy suite, override busy checks, refresh their checkouts or stop them.
+After idle run own combined all and readonly-fetch its new runtime, then continue the
+same genuine retained draft with a fresh setup run suffix. Preserve prior4failed setup
+turns. No confirmation/completion may be fabricated from the earlier prose.
