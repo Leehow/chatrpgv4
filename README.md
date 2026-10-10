@@ -65,6 +65,7 @@ uv run --frozen python -m pytest tests/kernel tests/play -q
 npm run test:ext
 npm run check:kernel                  # TS 内核严格类型检查
 npm run test:electron        # 复制进来的 PipiUI 套件，比对已记录的失败基线
+node scripts/select-tests.mjs --run-py  # selected pytest files, two local workers; shared changes fall back to both suites
 ```
 
 Contract-test scratch uses a fresh owned run under `.tmp/test-scratch/`, apart from real `.coc/playtests` evidence.

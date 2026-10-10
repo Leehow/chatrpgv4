@@ -21528,6 +21528,34 @@ is built once per loaded graph. Profile (same table as §131): the cut was 77 ms
 remained after §131.1; a warm `table.workspace.read` now takes 150–210 ms and the index read 75 ms.
 Test: `tests/extension/graph-units-cache.test.mjs`.
 
+### 131.4 Unicode comparison without temporary arrays (2026-10-10)
+
+`compareUnicode` walks UTF-16 strings by code point without materializing character arrays. It preserves
+the previous comparator's exact numeric return value, including unequal prefix lengths in code points
+and unpaired surrogate code units. Canonical/stored JSON bytes, numeric types and every digest remain
+unchanged. The implementation is checked against the former comparator and the locked JSON reference.
+
+Focused pytest selection keeps the compatibility `py` boolean and adds `py_files`: an empty list when
+pytest is not selected, individual existing `test_*.py` files under `tests/kernel` or `tests/play` only
+when they are the sole Python triggers and no other Python file names their module, otherwise both
+suite directories. Shared helpers, conftest, deleted tests, runtime bundles, dependencies and unknown
+impact retain the full-suite fallback. Both remote runners consume `py_files`, with the old directories
+as a compatibility fallback. `scripts/select-tests.mjs --run-py` runs the selected paths locally through
+`uv run --frozen python -m pytest`, with two workers by default, and does not invoke pytest for an empty
+selection. The extension smoke set and full integration test gate are unchanged.
+
+The comparison follows [ECMAScript codePointAt](https://tc39.es/ecma262/2023/multipage/text-processing.html#sec-string.prototype.codepointat);
+the runner uses pytest's [file selection](https://docs.pytest.org/en/stable/how-to/usage.html#specifying-which-tests-to-run).
+On the Mac, 155 content JSON files (6,184,685 bytes) produced identical canonical JSON, stored JSON and
+digests before/after. The same 26 RPC tests with two workers passed both versions: 22.42 / 26.11 s before,
+21.48 / 24.09 s after. These small samples fluctuate and do not establish a full-suite speedup.
+An independent `test_resolve.py` edit selects 5 of the current 2130 pytest cases; the actual local runner
+passed those 5 in 6.54 s. Shared kernel changes still select the full corpus.
+Validation on the Mac: runtime build and kernel typecheck passed; the full pytest fallback passed
+2130/2130 (four low-priority workers, 664.09 s), the selected 345 extension files passed 3182/3182
+(two concurrent files), and the routing loop passed 12/12. This is source/runtime test evidence for
+this optimization, not App or live-play acceptance or a claim about concurrent unrelated changes.
+
 ## 132. A card the player already has is patched, not redrawn from scratch (2026-09-23, generalises §129's word, written there as 127.2)
 
 User direction, 2026-09-23 (verbatim): 现在的 pipiui 基础设施是不是不支持回改 UI? 应该更新一下回改 UI 的能力，让这些异步加工的东西在加工结束之后回改 UI，丰富结果.
