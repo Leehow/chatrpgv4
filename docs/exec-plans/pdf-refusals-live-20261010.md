@@ -244,3 +244,17 @@ owner was stopped. Controllerexit255 and partial raw/per-file logs remain in all
 This attempt is not accepted as a final all result. Wait for the other owner's run to finish
 and rerun on an idle box. No concurrency/resource/test changes hide the collision. Main
 integration and terminal retention audit remain pending that final accepted combined gate.
+
+Final idle-box all68572d2a1 passed615s: extensions5432pass/0fail/1skip,pytest2128pass/2skip,
+routing12pass, all three exit0. All per-file/raw logs are retained in all-68572d2a1. The
+687source maps match and10artifact hashes exactly equal genuinef6a5; no further production
+changes were made. This supersedes the interrupted collision attempt as the combined gate.
+The source structures explicitly unverified above remain open; this closes the confirmed
+host repair iteration, not full-source or whole-campaign acceptance. App was not rebuilt.
+
+Retention decision for the exact owned path/branch is retained:protected_real_playtest_evidence.
+PLAYTEST_EVIDENCE.json deliberately remains untracked and protects all real campaigns, source
+reads, author/reviewer traces, failed/interrupted tests and transport logs. After scoped
+integration, set the lifecycle owner terminal, perform audit/closeout against0.9.7a and
+retain the tuple on retained_dirty; never erase the marker or evidence for a clean audit.
+The actual CLI result and final audit will be stored beside the retained acceptance logs.

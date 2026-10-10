@@ -813,3 +813,23 @@ nowgone. All partialper-file/py/routing/remote logs retained all-f6a5-collision,
 loglan-combined-105af8446.log. Do NOT call this interrupted run finalgreen. Wait forotherowner
 tofinish and canonicalprobeidle, then rerun combinedall. No script/limits/concurrency/gate
 changes to conceal collision. Current sourceHEADf6/maing105, primaryclean lastseen.
+
+Final peer audit combined42.325/69.773/32.837=144.935s,4tools/0refused. Literal notebook
+appendrevision5, prior95chars retained, new39chars inclseparator, exactplayerliteral/hash;
+binding.96/.94/.97>=.9. SixKeeper wirecompleted/EOF/low, no20/26timeouts/servererror,
+313msbackupcancelaftertypedverdict.17PIDsallgone.SQLok/duplicate0,18completed5failed2running
+2queued; oneincompletechildtrace retained. Safeaudit saved combined-f6a5-final-live-audit.json.
+Otherowner heavy105 suiteended and transitioned to real acceptance. Canonicalprobeamax6.68
+idle (confirmed no liveheavy), primaryclean105. Final ownall68572d2a1 launchedcontroller49672,
+loglan-final-68572d2a1.log. Source same asgenuinef6; test/docs-only no extra modelreplay.
+Archivebefore refresh, verifyactualexit/artifactequality, finalscopeintegration/retentionaudit.
+
+Final all68572d2a1 PASS615s: ext5432/0fail/1skip,pytest2128/2skip,loop12/0fail; controller49672
+exit0, three suite exits0. All raw/per-file logs retained all-68572d2a1. Exactsource687/687
+and10artifacts byteequal genuinef6. Main105 isclean at finalcheck; ownscope16files reviewed,
+no otherownerpendinghunks staged. Next serialff ofonlyownedstack; finaldocchangeonly, no
+newruntime replay. Terminal lifecycle/audit/closeout must retain exacttuple as protected real
+playtest evidence (markeruntracked/retained_dirty), storeactualCLIoutputs, noerase/cleanup.
+After integration/retention finalreportscopefixes+sameunverifiedconditions/map/backendlimits,
+pauseheartbeat. No package/push/Apprestart/limits/gatechange. This iteration accepts confirmed
+host repairs; full-source/campaign acceptance remains unclaimed.
