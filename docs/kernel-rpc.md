@@ -43203,7 +43203,10 @@ only for the first blow).
 rusty dagger as `knife_medium` (Fighting (Brawl) 1D4+2, p=0.58) and the host's resolve was then refused by the Pi tool schema
 (`action.improvised: schema is false`) -- the same seam as §221.11's `bout`: the host's resolve is validated like the
 Keeper's. `improvised` is a resolve action property now (`extensions/kernel/tools.ts`), a rules parameter of the result in
-§32.4.2's list, and `tests/extension/improvised-weapon.test.mjs` validates the dispatched arguments against the tool schema.
+§32.4.2's list, and `tests/extension/improvised-weapon.test.mjs` validates the dispatched arguments against the tool schema. The next stab opened the fight and the defender's step failed
+the combat snapshot's pending-attack contract (`kernel-ts/combat/snapshot.ts`), which did not know `improvised_object` and
+`improvised_profile`; both are optional strings there now. Then: Fighting (Brawl) 73 against 25 (failure), Corbitt's
+fight-back 94 against 50 (failure), Flesh Ward 2D6 = 10 armour, and the prose told both misses.
 
 ### 224.8 The skill a declared act uses is the Keeper's pick when one clearly fits (2026-10-10, found on a real table; narrows §163.8)
 
