@@ -11652,6 +11652,12 @@ The live `handoff-cold-harvest-20261009-02` evidence distinguishes two defects. 
 
 Detailed diagnostic tracing is enabled for the controlled acceptance run and inherited by its source children. It must not alter model/provider selection, payload, tools, stream ordering, backpressure, retry policy or timeout budgets. Default tracing stores only protocol, identity and timing/size metadata. Store trace files only in the run's writable diagnostic home, never in the signed bundle; preserve failed attempts and mark incomplete traces. Logging failure cannot fail or delay a model call. A timestamp-only observer is not evidence of server behavior before bytes reached the client.
 
+**Terminal-error observation (2026-10-10).** A wire `error` or `response.failed` is retained
+as an upstream failure in metadata-only traces and in the transport summary, even when the
+SDK throws before invoking its raw-event callback. Retain the event type, code presence/type,
+code/message hashes and message byte length, never plaintext error payloads in this mode.
+Wire failure observation does not reset progress, alter retries or publish partial output.
+
 **Response payload capture amendment (owner 2026-10-09: retain all original events).** The metadata-only interpretation
 did not satisfy the requested original-event evidence. With tracing enabled, `PI_COC_GROK_TRANSPORT_TRACE_RAW=1`
 additionally retains every parsed SSE data payload, heartbeat/comment text, SDK raw event and local abort/error cause.

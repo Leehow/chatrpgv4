@@ -16,6 +16,14 @@ function typeMeta(value) {
   if (value.length <= 96 && /^(?:response(?:\.[a-z][a-z0-9_]*)+|[a-z][a-z0-9_]{0,40})$/.test(value)) return {type: value};
   return {type: 'redacted', typeHash: hash(value.slice(0, 1024)), typeLength: value.length};
 }
+function upstreamFailureMeta(value) {
+  if (!value || !['error', 'response.failed'].includes(value.type)) return {};
+  const error = value.type === 'response.failed' ? value.response?.error : value;
+  return {upstreamFailure: {type: value.type, codePresent: Object.prototype.hasOwnProperty.call(error ?? {}, 'code'),
+    codeType: error?.code === null ? 'null' : typeof error?.code,
+    ...(typeof error?.code === 'string' ? {codeHash: hash(error.code)} : {}),
+    ...(typeof error?.message === 'string' ? {messageHash: hash(error.message), messageBytes: Buffer.byteLength(error.message)} : {})}};
+}
 function header(headers, name) {
   if (typeof headers?.get === 'function') return headers.get(name);
   if (Array.isArray(headers)) {
@@ -144,7 +152,8 @@ export class SseMetadataParser {
         if (this.data.length) {
           const text = this.data.join('\n'); let meta;
           if (text === '[DONE]') meta = {type: 'done'};
-          else try { meta = typeMeta(JSON.parse(text)?.type); } catch { meta = {type: 'invalid_json'}; this.markIncomplete('invalid_sse_json'); }
+          else try { const parsed=JSON.parse(text);meta={...typeMeta(parsed?.type),...upstreamFailureMeta(parsed)}; }
+          catch { meta = {type: 'invalid_json'}; this.markIncomplete('invalid_sse_json'); }
           this.record('sse_event', {ordinal: ++this.ordinal, ...meta, dataBytes: Buffer.byteLength(text), frameBytes: this.frameBytes,
             ...(this.rawResponse ? {_responsePayload: text} : {})}, receipt);
         }
@@ -175,6 +184,7 @@ class Wire {
   }
   record(event, fields = {}, receipt = now(), final = false) {
     if (event === 'sse_event') this.trace.observe('sse', receipt);
+    if (fields.upstreamFailure) this.upstreamFailure = fields.upstreamFailure;
     this.trace.record(event, {wire: this.id, ...fields}, receipt, final);
   }
   headers(status, headers, receipt) {
@@ -245,7 +255,8 @@ class Wire {
     this.record('transport_summary', {encodedBytes: this.encoded, decodedBytes: this.decoded, maxEncodedGapMs: this.maxGap,
       firstEncodedAt: this.first?.receiptTime ?? null, lastEncodedAt: this.last?.receiptTime ?? null,
       firstByteAfterHeadersMs: this.first && this.headersReceipt ? this.first.receiptMonoMs - this.headersReceipt.receiptMonoMs : null,
-      terminalGapMs: this.last && this.terminalReceipt ? this.terminalReceipt.receiptMonoMs - this.last.receiptMonoMs : null, eofObserved: this.terminalEvent === 'transport_eof'}, now(), true);
+      terminalGapMs: this.last && this.terminalReceipt ? this.terminalReceipt.receiptMonoMs - this.last.receiptMonoMs : null, eofObserved: this.terminalEvent === 'transport_eof',
+      ...(this.upstreamFailure ? {upstreamFailure:this.upstreamFailure} : {})}, now(), true);
     this.resolve();
   }
 }

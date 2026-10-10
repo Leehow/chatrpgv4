@@ -1,5 +1,19 @@
 # PDF reading repair, 2026-10-09
 
+## Current authorized opening-failure repair, 2026-10-10
+
+The user explicitly requested root causes and controllable repairs for the four real
+opening stream/token failures, followed by genuine reopening. Continue the SQLite task,
+not a replacement goal. Inspect retained provider request/stream and opening retry state;
+compare successful calls, protocol shape, failed partial messages and concurrency with
+bounded real evidence. Use the existing diagnosis worker for plot-free read-only audit.
+Candidate nontrivial changes need external primary-source cross-validation and contract
+first. Repair only confirmed host/provider/opening path defects; do not attribute provider
+backend failure to SQL, relax resource/review limits, switch Keeper/model or delete evidence.
+Rebuild the exact source runtime on the idle LAN box and reopen through the real driver,
+Grok4.7Fast/low, root sole natural player. Preserve all prior failed runs and active App.
+Same owned worktree/branch; primary dirty files still belong to the other owner.
+
 ## Current approved SQLite migration
 
 User approved moving source-reading queue and related metadata to SQLite, preserving all
