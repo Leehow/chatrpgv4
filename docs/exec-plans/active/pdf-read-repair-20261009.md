@@ -792,3 +792,24 @@ Do not stage/overwrite those hunks or work around the shared-doc preservation bo
 Wait quietly for actual ownership settlement, then integrate own scoped stack and perform
 terminal lifecycle retained-evidence audit. Do not claim alltested the other owner's dirty
 changes; assess committed production drift before final integration. Heartbeat remainsactive.
+
+Other owner committed105af8446 and primary becameclean; merged only that official commit
+into ownedf6a5cf4d0 with no conflicts. Main changes context-runtime optional-expiry fallback,
+so priorc3ac green is retained but cannot cover the combined production delta. Canonical
+probeamax3.79idle, combined allf6a5 dispatched(controller83351/loglan-combined-105af8446.log).
+No other owner's process disturbed. Fetch already-built exactruntime afterbuild completes;
+root will continue real campaign through newdriver runpdf-refusals-combined-20261010-play.
+Resume guard epoch14 called FIRST, retiredplugin stillunsupported_save_schema; do not
+read/migrate old saves or change production state. Root knows only last public beet sample
+turn. Ready launchscriptcredentialschildmemoryonly, newrun added protective evidence marker.
+
+Exactf6a5 rebuilt687source maps match. Genuinecombined run completed3natural turns/4tools/
+144.9s (42.3/69.8/32.8), normallystopped; auditpending. Public notebook/field-record action
+continues normally; no source/thinking toplayer. Modelwirelow confirmed in firstsnapshot.
+LAN startup RACE discovered: probeidle while builds are not counted; primary105 and ownedf6
+then both ran heavy suites. Enforce one suite/box: only ownremote bash49018 cwd andselfPGID
+were verified, ownPGID49018TERM; nootherprocess touched. Controller83351 exited255, owngroup
+nowgone. All partialper-file/py/routing/remote logs retained all-f6a5-collision, original
+loglan-combined-105af8446.log. Do NOT call this interrupted run finalgreen. Wait forotherowner
+tofinish and canonicalprobeidle, then rerun combinedall. No script/limits/concurrency/gate
+changes to conceal collision. Current sourceHEADf6/maing105, primaryclean lastseen.
