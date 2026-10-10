@@ -62,3 +62,84 @@ retained in the three run directories. New source home, queue revisions, graph g
 author/reviewer artifacts and import bytes are retained. PLAYTEST_EVIDENCE.json protects
 all paths. This validates live SQL queue publication/recovery and original consultation;
 remaining final LAN regression/integration belongs to the active execution plan.
+
+## Opening failure diagnosis and controlled repair
+
+The four original failed calls lasted 86.659 / 88.655 / 92.841 / 54.765 seconds.
+The first two progressed before the provider stopped delivering model events; the last
+two ended with its explicit token-generation error. A separate genuine diagnostic
+reopening retained wire frames under pdf-opening-diagnostics-20261010-evidence.
+For its stalled call, the server kept sending SSE comments every 15 seconds, but no
+model event followed the last useful event; the existing semantic-progress watchdog
+aborted at 60 seconds. This follows contract §135.29 and its existing regression.
+For its generation failure, the wire error preceded transport AbortError by 0.547 ms;
+there was no earlier caller abort. HTTP 200 and partial output are not successful replies.
+
+The evidence identifies upstream stalled/error generation, not its backend-internal
+trigger. A successful neighboring call used the same provider/model/low and 80,806 input
+tokens. Context size, tool schema, encrypted reasoning and concurrent readers are not
+proved causes. Current SDK filters failed/aborted assistant messages, and the host excludes
+failed recovery attempts. Maximum observer hook time was 6.4 ms; event callbacks were
+below 0.14 ms. Neither failed-partial replay nor observer backpressure explains these runs.
+SQLite/RPC continued independently throughout the failed opening.
+
+Commit 987202ddf repairs the confirmed observability seam: wire terminal errors may be
+thrown by the public SDK before its raw-event hook sees them. The opt-in safe trace now
+records event type, code presence/type/hash and message byte count/hash in the wire event
+and final transport summary. No plaintext error payload is recorded by that metadata
+path. An actual public-SDK/HTTP regression verifies throw-before-hook provenance and
+redaction. No request, retry, timeout, model, review gate or resource setting changed.
+This is an observation repair, not a claimed cure for an upstream generator.
+
+The exact canonical LAN build at 987202ddf completed successfully; all 485 checked
+embedded product sources match. Unchanged serial checks on idle amax passed 36/36,
+including provider observation and both prior all-suite timing failures. Previous red
+logs remain. Rebuilt genuine run pdf-opening-rebuilt-20261010-play successfully opened
+with the same Grok 4.7 Build Fast / low and root natural player. Four genuine inputs
+settled at 70.800 / 54.973 / 89.536 / 98.876 seconds, including original document reading,
+a clue receipt and departure to the next scene with its 360-minute scene receipt. The
+driver stopped normally (four turns, six tool calls, 314.2 seconds total). The final
+all-suite run completed red (see below). This shows a successful retry under unchanged
+execution behavior; it does not establish that intermittent upstream failure is fixed.
+The audit identified nine Keeper API calls, all response.completed, zero provider errors,
+and normal correlated wire EOF. Two of the six tool calls were refused with
+document_binding_unresolved/no_target and review_timeout; four delivered replies are not
+six successful actions. The later natural input completed the scene move. Final SQL
+integrity_check is ok, duplicate job ids zero;16 completed/4 failed/3 queued/2 running
+jobs remain traceable. Failed jobs and unfinished recovery checkpoints are retained.
+The driver stop left no live process among the run's29 recorded process identities.
+Plot-free refusal audit: read-9 and read-13 ended review_unsupported (claims/relations and
+map_regions respectively); read-18 lacked /review/missing required coverage; read-19
+was read-13's still-unsupported map retry. Their last attempts took160/290/427/433 seconds.
+Independent review refused publication; these are failed quality items, not SQL write
+failures. Structural inspection does not prove the reviewer correct without page review.
+Turn2's physical-carrier binding refusal took536.5ms. Turn3's admission review waited
+26,007ms against its unchanged26,000ms bound; HTTP200 from its three parallel judgments
+did not complete the verdict in time. Refusal stayed fail-closed. Neither those rejected
+jobs nor unexecuted apply calls count as acceptance successes.
+
+Primary references used to bound protocol hypotheses: [Grok 4.7](https://docs.x.ai/developers/grok-4-7),
+[reasoning](https://docs.x.ai/developers/model-capabilities/text/reasoning),
+[streaming](https://docs.x.ai/developers/model-capabilities/text/streaming) and
+[debugging](https://docs.x.ai/developers/debugging). They do not document the internal
+trigger behind the observed token-generation error. The public status page yielded no
+readable incident evidence; no service-wide outage claim is made.
+
+## Final regression and remaining integration boundary
+
+Canonical all at987202ddf exited1 after638 seconds: ext5445 total/5442 passed/2 failed/
+one skipped, pytest2128 passed/two skipped, routing12 passed. Raw remote logs, all607
+per-file logs/order/times are retained in pdf-opening-diagnostics-20261010-evidence/
+final-all-987202ddf; all-987202ddf.log retains the exact command summary. The two failures
+are material-gap packet reuse on its unchanged500ms allowance and admission's typed-call
+count (expected zero, saw one; its compile-path authorization assertion passed).
+Material-gap passed unchanged in the idle-LAN serial36-case run; the exact failed
+admission case passed unchanged on idle amax, including a repeated repository-cwd run.
+These controls do not erase the all-suite failures or establish their internal trigger.
+No assertion, retry gate, production allowance or concurrency setting was changed.
+
+Primary0.9.7a remains actively edited by another owner in README/kernel-rpc/json/test
+selection/foundation/capability-catalogue paths. Keep those edits intact; source migration
+and observation repairs remain on the owned branch pending scoped integration and final
+gate disposition. The existing heartbeat will resume against authoritative Git/process
+state when the shared integration paths settle. No App packaging/restart or push occurred.

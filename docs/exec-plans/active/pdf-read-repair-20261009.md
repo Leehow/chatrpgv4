@@ -14,6 +14,24 @@ Rebuild the exact source runtime on the idle LAN box and reopen through the real
 Grok4.7Fast/low, root sole natural player. Preserve all prior failed runs and active App.
 Same owned worktree/branch; primary dirty files still belong to the other owner.
 
+Opening checkpoint: wire diagnostic evidence confirms model-event stalls despite SSE
+keepalives and upstream token-generation errors preceding local transport cancellation.
+No request/replay/observer execution defect is established; backend trigger remains unknown.
+987202ddf fixes terminal-error provenance lost before the public SDK event hook (safe
+metadata only). Local observation21/21 and unchanged idle-LAN serial observation/layout/
+material-gap36/36 pass. Exact LAN987 build fetched,485 embedded sources match. Genuine
+reopening pdf-opening-rebuilt-20261010-play delivered four natural inputs
+(70.800/54.973/89.536/98.876s), reached the next scene with its receipt and stopped
+normally; same Grok4.7Fast/low and limits. Do not
+attribute that successful retry causally to the observability patch. Final all987 exited1,
+638s: pytest2128/2skip, loop12, ext5442pass/2fail/1skip. Material-gap reuse and admission
+typed-call count failed; unchanged idle serial material-gap and isolated admission passed.
+The all-suite failures remain retained and are not declared green; no gate/budget changed.
+All914 ended with pytest2128/2skip, loop12, ext5441pass/2 timingfail/1skip.
+Those original failing assertions passed unchanged in the serial idle-LAN check.
+Primary owner remains active with capability-catalogue and test-selection work; scoped
+integration must preserve it and wait if the shared contract paths cannot be separated safely.
+
 ## Current approved SQLite migration
 
 User approved moving source-reading queue and related metadata to SQLite, preserving all
