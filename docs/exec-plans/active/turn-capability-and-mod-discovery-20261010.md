@@ -1,6 +1,6 @@
 # Turn Capability and Mod Discovery — Execution Plan (20261010)
 
-Status: approved implementation of #112, solo. Experimental wiring is committed; combined full LAN source gate passed. Semantic and live release gates remain open.
+Status: approved implementation of #112, solo. Experimental wiring is committed; e091 combined full LAN source gate passed; subsequent real-GUI DTO repair needs its own LAN gate. Semantic and live release gates remain open.
 
 ## Approval
 
@@ -34,7 +34,7 @@ These belonged to the pytest optimization thread and were committed by its owner
 - [ ] Pure schema and capability view parity verified at the public `context_with_system` seam.
 - [ ] Versioned Mod index and detail selection implemented.
 - [ ] Expansion, readiness and telemetry implemented.
-- [x] Final combined full LAN source gate passes at e0913acb8, exit0,wall613s after recovery/snapshot changes and native-search integration. This does not close semantic or live gates.
+- [ ] Final current-source LAN gate: e0913acb8 passed exit0,wall613s after native integration; the subsequent GUI-exposed DTO repair still needs focused/full. Semantic and live gates remain open.
 - [ ] Held-out semantic matching meets pre-registered gates.
 - [ ] True GUI or canonical driver acceptance passes.
 - [ ] SQLite compatibility regression requirements (spec section) pass.
@@ -204,3 +204,13 @@ These belonged to the pytest optimization thread and were committed by its owner
 - Untouched validation61 remains unopened; tuning semantic recall0.444 is still failed. No label replacement, threshold tuning or selective default release.
 - All8 candidates are now installed and explicitly switched by normal GUI "Use this version" buttons in this owned test campaign; public catalogue confirms locks enhanced1.4.0,historical1.4.0,hostile1.1.0,pacing1.4.0,craft2.6.0,natural1.6.0,thread1.3.0,zh1.4.0. Selector UI choice alone only previews; actual buttons and lock confirmation were used. Snapshot candidate-locks-and-character.txt retained. This is a controlled test install, not release/publication or user campaign upgrade.
 - Real setup reply delivered in3m33s, character draft rendered; root confirmed it through the normal UI. Opening is in progress, no new player input queued. Resume TaskSpace5 and inspect delivered public narration before choosing the next natural action. Do not resend character input or replay confirmation. Gui transport trace contains attempt start, headers, encoded/decoded chunks, SSE boundaries/events/comments and summaries.
+
+## 2026-10-10 actual GUI packing failure and scoped repair (09:30 UTC)
+
+- Opening delivered genuine Grok4.7 low narration and a contact check; root's first actual play input accepted the job/reached for the offered key/asked about the previous tenants. Its delivered public reply reports the address, advance and asylum lead; UI turn2,reply2m48s. Public text and all model/transport/campaign evidence retained. No next player input queued. This is real gameplay but NOT selective acceptance: requests fell back full.
+- Preliminary credential suspicion was not confirmed: normal Jev settings showed Credential saved and subsequent shared preparation allowance started. Initial unconfigured means the discovery port/shared owner was absent; do not state that the vault credential was missing. ps environment inspection did not expose the child's captured env and cannot establish absence. No credential or context-preselection setting was changed.
+- Actual retained request capsule reproduced invalid discovery DTO paths $.threat_clocks[0].name and $.threat_clocks[1].name. Canonical authored pacing rows are {threat,clock,state,next?,on_full?}, as kernel-ts/read/pacing.ts and contract30 show, not {name,current_segments}. The mapper wrongly emitted undefined; the existing question packer correctly rejected it as schema_error before dispatch. Structural evidence live-shape-probe.json is retained; separate live-shape-probe-fixed.json replays the SAME archived capsule with no undefined paths. It is explicitly structural proof, not new gameplay.
+- Scoped source repair consumes the canonical threat identity/clock/state and supports both existing host needs shapes (string or {name,...}); no progress number is guessed from text. The second issue was independently reproduced with a failing test. Test ports now call the real packDecisionBatch. Normal context HTTP-adapter checks carry actual authored-clock shape and both needs forms. Combined12 capability/4 normal-context/5 language checks pass21. No semantic threshold, old label, validator or model default changed. External search skipped for this routine DTO field-shape correction: the actual producer, existing contract and failed actual request provide direct evidence, and the architecture was already cross-validated.
+- runtime-e0913acb8 remains the original unmodified all-gate artifact; do not overwrite it while its owned web child is active. The new source repair still needs LAN focused/full, a NEW independent artifact and real continuation proving selective provider delivery. Current amax probes report busy(load64.67 then36.61), leehow-pc unavailable; no heavy suite added.
+- Owned snapshot's copied source assets were incomplete for map words: extensions/module/map-presentation.md is absent. This is a snapshot assembly limitation, not proof of a production map bug. Next owned runtime must copy required source assets (or exact source extensions) in addition to emitted bundles/provider manifests; do not patch the active artifact or shared main build. DeepSeek installed auth-module path defect remains separately recorded/outside pair acceptance.
+- Semantic calibration remains unresolved, tuning recall0.444 failed and untouched61 unopened. Normal installs and source gate are useful evidence, not release completion. Keep production full and heartbeat active.
