@@ -42459,7 +42459,7 @@ resource setting or rules gate. Existing TaskStore and TranscriptStore callers a
 consumers. Regression checks compare logical SQL state while original artifacts retain
 byte hashes. Spec, focused/full checks, exact runtime and genuine driver evidence are required.
 
-## 211. Source failure recovery and bounded transport diagnostics (approved2026-10-10)
+## 212. Source failure recovery and bounded transport diagnostics (approved2026-10-10)
 
 Execution record: `docs/exec-plans/active/pdf-source-latency-opening-20261010.md`.
 Correct source and disclosure refusals remain refusals. Repairs consume the existing
