@@ -2215,9 +2215,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (run.steer && step.reason.startsWith('turn_close:')) { messages.push({role: 'custom', ...run.steer, timestamp: Date.now()}); run.steer = undefined; }
     if(signal){
       const {cap}=await keeperCallAllowance(),deadlineAt=Date.now()+cap,owner={signal,deadlineAt};
-      run.readOwner=owner;
-      api?.events?.emit?.('coc:discovery-read-owner',()=>currentRunId===run.runId&&run.readOwner===owner&&!signal.aborted&&cap>0?owner:undefined);
-      record({lane:'run',event:'discovery_read_owner',run:run.runId,step:stepId,deadline_at:deadlineAt,cap_ms:cap});
+      if(currentRunId===run.runId&&!signal.aborted){
+        run.readOwner=owner;
+        api?.events?.emit?.('coc:discovery-read-owner',()=>currentRunId===run.runId&&run.readOwner===owner&&!signal.aborted&&Number.isFinite(cap)&&cap>0?owner:undefined);
+        record({lane:'run',event:'discovery_read_owner',run:run.runId,step:stepId,deadline_at:deadlineAt,cap_ms:cap});
+      }
     }
     return messages.length ? messages as any : undefined;
   }

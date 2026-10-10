@@ -508,6 +508,10 @@ test("§135.30 at the engine: the compile row carries each feature's distributio
 		emit: () => {}, signal: new AbortController().signal, maxSteps: 30 });
 	assert.equal(readOwners.at(-1),undefined,"run end clears the hybrid read owner");
 	assert.ok(readOwners.filter(owner=>typeof owner==='function').every(owner=>owner()===undefined),"retained getters never revive an ended run");
+	engine.runDriver.prepare({runId:"replacement-run",inputRevision:"replacement-input",rawInput:INPUT,session:{}});
+	const published=readOwners.length;
+	await plan.ports.projection.project({view:{policyState:{view:{}}},stepId:"late-old-step",step:{kind:"infer",purpose:"compose",reason:"finish"},signal:new AbortController().signal});
+	assert.equal(readOwners.length,published,"a late old projection cannot overwrite the replacement read owner");
 	assert.equal(families[0], COMPILE_FAMILY, "the compile is the run's first Jev question");
 	// §135.6 (2026-09-24): a read without the prescreen says why -- here the preselect setting is off, as at live gate #4.
 	assert.deepEqual(rows.find((entry) => entry.lane === "run" && entry.event === "read")?.prescreen, { status: "not_run", reason: "preselect_off" });
