@@ -30,7 +30,7 @@ export interface HostOperationContext {
   validateCurrent(proposal: OperationProposal, prepared?: { method: string; request: Record<string, unknown> }): Promise<void>;
   /** Host-only read over the existing canonical call record; it must not execute an operation. */
   recover(identity: OperationIdentity): Promise<{ status: 'settled'; result: Record<string, Json> } | { status: 'absent'; activeTurn: number }>;
-  trace(event: { operationId: string; stage: string; recovered?: boolean }): void;
+  trace(event: { operationId: string; stage: string; recovered?: boolean; reason?: string }): void;
   onUpdate?: AgentToolUpdateCallback<unknown>;
   persist?(): Promise<void>;
   providerTrace?(event: Record<string, unknown>): void;
@@ -337,7 +337,13 @@ export function createCanonicalOperationDispatcher(stages?: Stages) {
         context.trace({ operationId: operation.id, stage: 'prepare' });
         const blocked = await runner.emitToolCall({ type: 'tool_call', toolCallId: operation.id, toolName: spec.name, input: args });
         live();
-        if (blocked?.block) return packet(operation, 'refused', { reason: blocked.reason, terminate: blocked.terminate });
+        // §209.14: a pre-tool gate's refusal keeps its reason. `code: "blocked"` and the gate's own text travel on the packet,
+        // so a host caller (the policy clerk) can tell the Keeper and its telemetry why nothing ran -- never a bare status.
+        if (blocked?.block) {
+          const reason = typeof blocked.reason === 'string' && blocked.reason.trim() ? blocked.reason : 'A tool_call gate blocked this operation before it ran.';
+          context.trace({ operationId: operation.id, stage: 'blocked', reason: reason.slice(0, 300) });
+          return packet(operation, 'refused', { code: 'blocked', message: reason, reason: blocked.reason, terminate: blocked.terminate });
+        }
         if (spec.name === 'resolve' || spec.name === 'apply') {
           frame.identity.callId ??= stages.preparedCallId(operation.id);
           if (!frame.identity.callId) throw new ContractError('operation_call_binding_missing');

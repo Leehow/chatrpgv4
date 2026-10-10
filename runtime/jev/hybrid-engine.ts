@@ -1420,9 +1420,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const {packet, callId} = dispatched;
     const ok = packet.status === 'succeeded';
     const result = object(packet.result);
-    const refusal = ok ? undefined : dispatched.staleCheck ? 'check_selection_stale' : object(result.coc_error).code ?? result.code ?? packet.status;
+    const refusal = ok ? undefined : dispatched.staleCheck ? 'check_selection_stale' : object(result.coc_error).code ?? result.code
+      ?? (typeof result.reason === 'string' && result.reason.trim() ? 'blocked' : packet.status);
     const canonicalError = object(result.coc_error);
     const errorFields = Object.fromEntries(['code', 'message', 'fix', 'details'].filter(key => result[key] !== undefined).map(key => [key, result[key]]));
+    // §209.14: a pre-tool gate answers `{reason}`; its words are the refusal's message, never dropped for a bare status.
+    if (!ok && errorFields.message === undefined && typeof result.reason === 'string' && result.reason.trim()) {
+      errorFields.message = result.reason;
+      errorFields.code ??= 'blocked';
+    }
     const refusedError = ok ? undefined : structuredClone(Object.keys(canonicalError).length ? canonicalError
       : Object.keys(errorFields).length ? errorFields : {code: String(refusal)}) as Json;
     const {goal: _goal, method: _method, ...shown} = object(tool === 'resolve' ? args.action : {}) as Row;
@@ -1437,7 +1443,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // A refused write landed no band: its line would tell the Keeper to rule otherwise on nothing.
     const binding = [defaultLine(candidate), bandLine, ok ? bandedLine(candidate, rolled) : undefined].filter((line): line is string => !!line).join(' ') || undefined;
     // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed, banded); none was a model call.
-    record({lane: 'run', event: 'bind', run: run.runId, step: invocation.stepId, candidate: candidate.key, clerk: candidate.clerk, call_id: callId, status: packet.status, bindings: rolled});
+    // §209.14: a refused clerk write records why -- the refusal code and the gate's or kernel's own words -- on its bind row.
+    const refusedText = ok ? undefined : [object(refusedError).message, object(refusedError).fix].find(value => typeof value === 'string' && value.trim());
+    record({lane: 'run', event: 'bind', run: run.runId, step: invocation.stepId, candidate: candidate.key, clerk: candidate.clerk, call_id: callId, status: packet.status, bindings: rolled,
+      ...(ok ? {} : {refusal: String(refusal), ...(typeof refusedText === 'string' ? {refusal_reason: refusedText.slice(0, 300)} : {})})});
     // §135.31: the people an executed clerk step names are carried to the Keeper before its next model step.
     if (ok) for (const name of namedPeople(candidate)) if (!run.named.includes(name)) run.named.push(name);
     run.clerkDid.push({step: invocation.stepId, operation: tool, label: candidate.label, clerk: candidate.clerk, call_id: callId, status: packet.status,

@@ -148,6 +148,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let discoveryHandoff:Row|undefined;
     let discoveryUnavailable=false;
     pi.events.on('coc:discovery-task',value=>{discoveryHandoff=object(value);});
+    // §209.14: the canonical gateway names who dispatched a call; a policy clerk's write is not the Keeper's decision.
+    let hostOrigin:((toolCallId:string)=>unknown)|undefined;
+    pi.events.on('coc:operation-dispatcher',value=>{const port=object(value);hostOrigin=typeof port.hostOrigin==='function'?port.hostOrigin as (id:string)=>unknown:undefined;});
     const temporalAdvice=createTemporalAdvice({read:async(method,params)=>call?call(method,params):undefined,decision,record});
     let pendingTemporal:Row|undefined;
     let turnCalls=emptyCalls(),pendingSections:Row|undefined;
@@ -237,8 +240,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     pi.on('tool_call', async event => {
         const input=object(event.input);
         noteCall(turnCalls,event.toolName,input);
-        if(discoveryMode()!=='full'&&discoveryUnavailable&&['apply','resolve'].includes(event.toolName))
+        if(discoveryMode()!=='full'&&discoveryUnavailable&&['apply','resolve'].includes(event.toolName)){
+            record({lane:'context',event:'write_held',turn:observedTurn,tool:event.toolName,reason:'discovery_unavailable',
+                origin:object(hostOrigin?.(event.toolCallId)).origin==='policy'?'policy':'model',no_commit:true});
             return{block:true,reason:'The current discovery snapshot could not be verified. Refresh the canonical context before re-deciding this operation. No world change was committed. '+JSON.stringify({status:'unavailable',no_commit:true})};
+        }
         const needed=(Array.isArray(object(capsule?.mods).instructions)?object(capsule?.mods).instructions:[])
             .filter((mod:Row)=>mod.index_contract_version===2)
             .flatMap((mod:Row)=>(mod.sections??[]).filter((section:Row)=>(section.triggers??[]).some((trigger:string)=>{
@@ -247,7 +253,12 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     ||kind==='before_resolve'&&event.toolName==='resolve'&&turnCalls.resolve.has(name);
             })).map((section:Row)=>section.key));
         const missing=needed.filter((key:string)=>!deliveredDiscoveryKeys.has(key));
-        if(missing.length){
+        // §209.14: the readiness hold exists so the Keeper re-decides with the detail in view. A host-origin (policy clerk)
+        // write decides nothing from the Keeper's request: it is not held here, and the triggered sections stay due for the
+        // Keeper's next request through the call noted above. Admission, Mod hooks and the kernel still run for it.
+        const hostWrite=object(hostOrigin?.(event.toolCallId)).origin==='policy';
+        if(hostWrite&&missing.length)record({lane:'mod-discovery',event:'readiness_deferred',turn:observedTurn,origin:'policy',tool:event.toolName,keys:missing});
+        if(missing.length&&!hostWrite){
             const request=fingerprint([inputEpoch,event.toolName,input]),repeated=heldDiscoveryRequests.has(request);
             heldDiscoveryRequests.add(request);
             const names=(object(capsule?.mods).instructions??[]).flatMap((mod:Row)=>(mod.sections??[])
@@ -259,7 +270,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 +'No world change was committed. '+JSON.stringify({status:repeated?'unavailable':'expansion',requested:names,
                     loaded:[],missing_capability:names,no_commit:true})};
         }
-        const hold=capabilityRuntime.readiness(event.toolName,object(event.input));
+        const hold=hostWrite?undefined:capabilityRuntime.readiness(event.toolName,object(event.input));
         if(hold)return hold;
         if (event.toolName === 'look' || event.toolName === 'lookup')
             reads.set(event.toolCallId, {kind: String(input.kind ?? input.focus ?? ''),

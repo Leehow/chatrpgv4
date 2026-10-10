@@ -113,7 +113,7 @@ export function createCapabilityRuntime(deps:{
         return view;
     }
     function readiness(tool:string,args:Row):Row|undefined{
-        if(tool==='apply'&&widenPending)return{block:true,reason:'A full capability view is required before retrying this whole batch; no world change was committed.'};
+        if(tool==='apply'&&widenPending){record({event:'held',turn:binding.turn,reason:'widen_pending',no_commit:true});return{block:true,reason:'A full capability view is required before retrying this whole batch; no world change was committed.'};}
         if(tool!=='apply'||deps.mode()!=='selective'||!selected)return;
         const missing=missingEffectCapabilities(Array.isArray(args.effects)?args.effects:[],deps.tools(),visible??selected);
         if(!missing.length)return;
