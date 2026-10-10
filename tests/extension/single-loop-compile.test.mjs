@@ -468,7 +468,9 @@ test("§135.30 on the driver: the compile replaces the first route, so the run's
 
 test("§135.30 at the engine: the compile row carries each feature's distribution and the predicates that fired; the clerk's step carries basis.compile", async () => {
 	const handlers = new Map(), rows = [], dispatched = [];
+	const discovery = [];
 	const bus = { on: (name, handler) => handlers.set(name, handler), emit: (name, value) => handlers.get(name)?.(value) };
+	bus.on("coc:discovery-task", packet => discovery.push(packet));
 	const families = [];
 	const decision = { decide: async (batch) => { families.push(batch.family);
 		return batch.family === COMPILE_FAMILY
@@ -485,7 +487,14 @@ test("§135.30 at the engine: the compile row carries each feature's distributio
 		return { status: "succeeded", receipts: ["move-1"], result: {} }; } });
 	const plan = engine.runDriver.prepare({ runId: "run-1", inputRevision: "rev", rawInput: INPUT, session: {} });
 	const modelEngine = {
-		async infer() { return fauxAssistantMessage("You set off.", { stopReason: "stop" }); },
+		async infer() {
+			const packet = discovery.at(-1);
+			assert.ok(packet, "host discovery facts precede Keeper inference");
+			assert.deepEqual([packet.campaign, packet.worldline, packet.loop, packet.turn, packet.source_revision], ["c", "main", 0, 3, source]);
+			assert.equal(packet.task.features.destination.row, "morgue");
+			assert.equal(packet.task.features.destination.cleared, true);
+			return fauxAssistantMessage("You set off.", { stopReason: "stop" });
+		},
 		async executeModelTool() { throw new Error("no model tool"); }, async refuseModelTool() { throw new Error("no model tool"); },
 		async closeTurn() { return { continueRequested: false }; },
 	};

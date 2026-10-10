@@ -40,14 +40,14 @@ export function createModDiscovery(deps:{
         if(values.some(v=>!texts.has(v.key)))throw Error('mod_discovery_detail_unavailable');
     }
     const reset=()=>{debit?.();debit=undefined;control?.abort();control=undefined;epoch='';work=undefined;result=undefined;};
-    function observe(capsule:Row,binding:Row,signal:AbortSignal,calls:TurnCalls):void{
+    function observe(capsule:Row,binding:Row,signal:AbortSignal,calls:TurnCalls,task:Row={}):void{
         const all=entries(capsule);if(signal.aborted||!all.length){reset();return;}
         const request=String(object(capsule.turn).player_text??'Open the table from its canonical starting state.');
         const currentInput=hash([binding.campaign,binding.worldline,binding.loop,binding.turn,request]);
         if(currentInput!==inputEpoch){reset();inputEpoch=currentInput;budget={ms:deps.allowanceMs??6000,actions:16};}
-        const situation=discoverySituation(capsule);
+        const situation=discoverySituation(capsule,task);
         const key=hash([binding.campaign,binding.worldline,binding.loop,binding.turn,request,
-            binding.task_source_revision??binding.source_revision,situation,all,[...calls.apply],[...calls.resolve]]);
+            binding.task_source_revision??binding.source_revision,situation,all,[...calls.apply],[...calls.resolve],deps.mode?.()??'full']);
         if(key===epoch)return;
         reset();epoch=key;started=Date.now();control=new AbortController();
         const mode=deps.mode?.()??'full';
@@ -114,8 +114,8 @@ export function createModDiscovery(deps:{
                 record({event:'fallback',turn:binding.turn,reason:result.reason});}
         }).finally(()=>{settle();ownedBudget.actions=Math.min(ownedBudget.actions,lease.context.budget.remainingActions);lease.close();});
     }
-    async function message(capsule:Row,binding:Row,signal:AbortSignal,calls:TurnCalls):Promise<Row|undefined>{
-        observe(capsule,binding,signal,calls);if(!epoch)return;
+    async function message(capsule:Row,binding:Row,signal:AbortSignal,calls:TurnCalls,task:Row={}):Promise<Row|undefined>{
+        observe(capsule,binding,signal,calls,task);if(!epoch)return;
         const key=epoch,mode=deps.mode?.()??'full',all=entries(capsule);
         const remaining=Math.max(0,started+(deps.firstWaitMs??2500)-Date.now());
         if(mode==='selective'&&!result&&work&&remaining)await new Promise<void>(resolve=>{
