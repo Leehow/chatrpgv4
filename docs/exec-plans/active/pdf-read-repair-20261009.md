@@ -721,3 +721,26 @@ production hook/timeouts/model/gates changed. Seven local cases pass; initial cl
 logs retained before refresh. Next unchanged-production final all for test fix; then scoped
 integration, retained-evidence lifecycle audit and report limits. No need to replay identical
 production after this test-only fix.
+
+07eaec09d commits only synchronized source mutation test and plan; idle amax final all is
+running, log lan-final-07eaec09d.log. Production is unchanged from genuine3f0 runtime;
+no extra model replay needed for this test-only change. Latest independent finalrun audit:
+53.447/41.172/92.584s, six tools success/0refused, notebook46literal chars verified/revision3,
+binding.94/.90/.94 with unchanged.9, eight Keeper+18wire completed/low, no20/26s timeout,
+providererror0. All17trackedPIDs exited. Fresh queue11completed/4failed/3running/2queued,
+integrityok and duplicateID0; six incomplete child traces retained, not silently completed.
+
+Next: preserve finalall per-file/raw logs and confirm actualexit; stage only owned outcome
+records, serially integrate against actual latest mainline without touching other-owner
+work; terminal lifecycle retained_dirty/protected_real_playtest_evidence classification,
+finalaudit, concise Chinese fixes+unverified source/provider limits and heartbeatpause.
+Do not call original source18 or all old21mapregions repaired. No allsource/fullcampaign claim.
+
+Final all07eaec09d green616s: ext5427pass/0fail/1skip,pytest2128pass/2skip,loop12pass.
+All raw/per-file outputs retained in all-07eaec09d;10remote-built executable hashes match
+the genuine3f0 runtime. No production changes after final real play. Update final outcome
+and integrate only task stack against latest main345dffc7e (doc-only relativec8). Preserve
+its dirty discovery-situation/capability-runtime test; our accepted tree does not alter those
+paths beyond already committed baseline. Verify actual state again before ff. Final scope
+report must retain unverified applicability/map relation and provider limits, not claim
+full-source/campaign acceptance. Complete retention audit and pause heartbeat after integration.

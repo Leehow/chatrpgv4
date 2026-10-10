@@ -1,5 +1,27 @@
 # Source-review and tool-refusal repair, 2026-10-10
 
+## Final validated host repair result
+
+Final idle-LAN all07eaec09d passed616s: extension5427pass/0fail/1skip,
+pytest2128pass/2skip, routing12pass. Its10executable bundle hashes are byte-identical
+to the genuine3f0a141f7 runtime;687embedded product sources match. Complete raw/per-file
+logs are retained in all-07eaec09d, including all earlier red/isolated/cleanup-error logs.
+The only last change synchronized a test, not production or acceptance thresholds.
+
+This phase retained14natural play inputs across four real runs, plus5natural setup inputs;
+Grok4.7BuildFast/low and root sole player throughout. The final three-turn run had zero
+tool refusals/provider errors or20/26s review timeouts and verified literal physical writing.
+Earlier correct refusals and the20s implicit reviewer abort remain failures in their logs.
+All own driver trees are stopped; App was untouched and source evidence is retained.
+
+Confirmed host fixes are actual repair image delivery, truthful review-policy projection
+with the unchanged shared gate, full Responses option preservation during observation,
+and correct answer/detail retry parameters. Applicability/full-repair briefing is improved,
+but originalread18 executable structures remain unverified and deferred. The new4-region
+map is not a complete repair of the old21-region candidate; scene identity/containment
+is unresolved. Provider backend generation/late-review causes are not established.
+This is scoped host repair validation, not full source or whole-campaign acceptance.
+
 The user authorized investigation and repair of four source-review refusals and two
 refused tool calls, without weakening any gate, followed by genuine driver acceptance.
 All historical failures remain evidence; a successful later call does not relabel them.
@@ -112,3 +134,52 @@ remain explicit even with green regression and new source completions.
 Other owner released988ea7f64 cleanly on mainline, containing bounded discovery snapshots,
 lookup recovery and SQLite source-binding changes. Combine only its committed work and
 perform an exact-runtime continuation, without attributing that owner's fixes to this task.
+
+## Latest combined runtime and honest remaining limits
+
+The owned branch merged only committed native/history/discovery mainline through c8c61e206,
+producing3f0a141f7. Exact idle-LAN compilation has687matching embedded product sources and
+10retained core/extension bundle hashes. Final genuine run completed53.447/41.172/92.584s,
+three natural turns, six successful tools,187.203s, normally stopped. Independent audit
+confirms actual notebook append:46characters exactly from player input, after/suffix hashes
+match current document, revision3. Binding target/content/execution.94/.90/.94 meets the
+unchanged.9 gates. A subsequent write does not change text. Admission completed; no20s
+establish or26s admission timeout in this run. Eight Keeper requests and18main wire calls
+completed with Grok4.7Fast/low; main provider errors0. All17tracked run PIDs exited.
+SQL integrity remainsok, duplicate job IDs0. Child traces without terminals stay incomplete.
+
+Fresh same-PDF setup was genuine5natural turns/9tools/124.3s and confirmation, not a fixture
+or copied world. Fresh play before mainline update had2natural turns/6tools/210.8s. Its
+prepare/retry call returned original excerpts/identity only before full-reader fallback, so
+live fallback memo coverage is not claimed. The actual host regression remains the exact
+proof of the corrected detail/answer argument wiring. One implicit20.004s establish reviewer
+kept reasoning without a verdict despite low, with no replay/whole-history defect found.
+The provider's backend cause remainsunknown; the cap is unchanged. Its handover refusals
+correctly rejected an unselected document and a clue handle passed as a handout, independently
+of that later implicit review. Neither is recast as a host execution bug.
+
+Same original pages21–22 were truly reread and published in fresh scope, but only7nodes /
+9claims / ready7. Original requirement/route structures are not rebuilt or markedready;
+related material is deferred. Independent original-page audit classifies this PARTIAL,
+not proof the two old applicability/dependency errors are repaired. No unconditional
+obligation was falsely recreated. Likewise read21's accepted4-region map is a different
+identity from the historical21-region candidate. Its absent current-scene projection has
+no validated containment path; no forced identity merge or fabricated map handout is made.
+These source/use cases remain unverified and must not be markedclosed or fullyaccepted.
+
+The final3f0 suite had one preexisting scheduling-race test failure: setImmediate could
+replace a PDF before the reader opened it, making successful new-source extraction valid.
+07eaec09d fixes only test synchronization at real PDF.js text extraction, keeping the exact
+changed-source rejection assertion, peer cancellation and all production limits. Seven
+local cases pass; original red logs and one cleanup typo log retained. This test-only change
+does not require replay of the unchanged production runtime. Its final all is pending.
+
+All source, campaign, author/reviewer, raw/per-file suite and private transport evidence is
+protected by PLAYTEST_EVIDENCE.json in the owned checkout. App and other owners' evidence
+are preserved. Scope integration, final all status and terminal retention audit must still
+be recorded before a completion claim.
+
+Final all07eaec09d passed616s (5427/2128/12, skips1/2); raw/per-file logs retained.
+Ten accepted-runtime hashes match the genuine final runtime exactly, no production replay
+needed for test-only synchronization. Only scope integration and retained lifecycle audit
+remain before closeout; unverified source structures remain explicitly open in this record.
