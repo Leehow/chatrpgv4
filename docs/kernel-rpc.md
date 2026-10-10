@@ -42909,7 +42909,7 @@ overrides the mode alone.
 
 | key | shipped value |
 | --- | --- |
-| `mode` | `on` |
+| `mode` | `shadow` |
 | `cost_min` | 0.7 |
 | `sentence_min` | 0.5 |
 | `min_default_minutes` | 5 |
@@ -42920,6 +42920,8 @@ calls. The sentence bar is the told-clue read's, and the cost bar sits above the
 `min_default_minutes` 5, `momentary`, `speak_briefly` and `quick_observation` (defaults 0–1) are never owed, while
 `brief_activity` (5) and longer rows are. The rows carry the whole distribution, so the next live table calibrates them.
 `PI_COC_TOLD_TIME=shadow` turns the writes off without a build.
+
+*Lead decision 2026-10-10 (integration):* the shipped mode is `shadow` until the bars are calibrated on live rows and the owner confirms §216 sits inside the §190.2 exception; a validation host sets `PI_COC_TOLD_TIME=on` explicitly and labels its run.
 
 **The row.** One per delivery:
 
