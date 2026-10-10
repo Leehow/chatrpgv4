@@ -20,7 +20,7 @@ import {semanticQuestions, semanticChoice} from './semantic-votes.ts';
 import {createHash} from 'node:crypto';
 import {turnNow,type TurnContext} from './turn-context.ts';
 import {preparedAttackReady} from './attack-preparation.ts';
-import type {DeclaredDuration} from './declared-duration.ts';
+import type {DeclaredClock, DeclaredDuration} from './declared-duration.ts';
 import {rosterReady, type ProfileRequirement} from './profile-readiness.ts';
 import type {ObservationView, OperationProposal, RunPolicy, RunView as DriverView, StepRequest as DriverStepRequest} from '@earendil-works/pi-agent-core';
 import type {DecisionBatch, DecisionResult, IntentBinding, ReadSet, ScopeBinding} from './contracts.ts';
@@ -157,6 +157,8 @@ export interface Candidate {
   detail?: Json;
   /** Host-issued literal intervals in this input; selected only through the declared-time closed bind. */
   timeDurations?: Record<string, DeclaredDuration>;
+  /** §211.2: host-issued literal clock endpoints in this input; a chosen one binds `until {time}`, the kernel counts. */
+  timeClocks?: Record<string, DeclaredClock>;
   /** The clerk authority that lets the host run it (internal: never shown to Jev or the model). */
   clerk?: ClerkAuthority;
   /** The kernel's issued row it was built from, carried by every step it causes (internal: never shown to Jev). */
@@ -843,9 +845,12 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
       const admission = confidence !== undefined && confidence < (band?.gate ?? gate) ? {cleared: false} : {};
       if (choice && choice !== 'unknown' && parameter.options!.includes(choice)) {
         const interval = candidate.clerk === 'declared_time' && parameter.name === 'band' ? candidate.timeDurations?.[choice] : undefined;
-        if (interval) extra.minutes = interval.minutes; else extra[parameter.name] = choice;
+        // §211.2: a chosen clock endpoint sends only the time; the kernel resolves its next occurrence and the minutes.
+        const clock = candidate.clerk === 'declared_time' && parameter.name === 'band' ? candidate.timeClocks?.[choice] : undefined;
+        if (interval) extra.minutes = interval.minutes; else if (clock) extra.until = {time: clock.time}; else extra[parameter.name] = choice;
         lowest = Math.min(lowest, confidence ?? 1);
         bindings.push(interval ? {name: 'minutes', path: 'jev', value: interval.minutes, confidence: confidence ?? null, distribution, semantic, ...admission}
+          : clock ? {name: 'until', path: 'jev', value: clock.time, confidence: confidence ?? null, distribution, semantic, ...admission}
           : {name: parameter.name, path, value: choice, confidence: confidence ?? null, distribution, semantic, ...admission, ...table, ...(band ? {band: choice} : {})});
       } else {
         softUnresolved.push(parameter.name);
@@ -860,9 +865,11 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
     const band = parameter.band, path: BindingPath = band ? 'banded' : 'jev', table = band ? {table: band.table} : {};
     if (choice && choice !== 'unknown' && parameter.options!.includes(choice) && (confidence === undefined || confidence >= (band?.gate ?? gate))) {
       const interval = candidate.clerk === 'declared_time' && parameter.name === 'band' ? candidate.timeDurations?.[choice] : undefined;
-      if (interval) extra.minutes = interval.minutes; else extra[parameter.name] = choice;
+      const clock = candidate.clerk === 'declared_time' && parameter.name === 'band' ? candidate.timeClocks?.[choice] : undefined;
+      if (interval) extra.minutes = interval.minutes; else if (clock) extra.until = {time: clock.time}; else extra[parameter.name] = choice;
       lowest = Math.min(lowest, confidence ?? 1);
       bindings.push(interval ? {name: 'minutes', path: 'jev', value: interval.minutes, confidence: confidence ?? null, distribution}
+        : clock ? {name: 'until', path: 'jev', value: clock.time, confidence: confidence ?? null, distribution}
         : {name: parameter.name, path, value: choice, confidence: confidence ?? null, distribution, ...table, ...(band ? {band: choice} : {})});
       continue;
     }

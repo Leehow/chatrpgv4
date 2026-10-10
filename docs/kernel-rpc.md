@@ -42458,3 +42458,77 @@ This is host storage only; no new kernel RPC, Keeper verb, world state, semantic
 resource setting or rules gate. Existing TaskStore and TranscriptStore callers are the
 consumers. Regression checks compare logical SQL state while original artifacts retain
 byte hashes. Spec, focused/full checks, exact runtime and genuine driver evidence are required.
+
+## 211. A declared clock endpoint binds as `apply time {until}`; the kernel counts to its next occurrence (2026-10-10, issue #112 blocker 2; amends §138.10's literal intervals and §145.1's `until`)
+
+**Evidence.** Table `gui-world-e091` / campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0` (runtime 934bc3383), turns 19-21,
+clock 1920-10-12 18:01 after the library closed. The player said, in two genuine inputs, first an evening meal and rest until
+23:30 and then, isolated, a wait until 23:30. Both runs bound `apply:time:declared` with `unknown_binding`, `unresolved: ["band"]`,
+and the run ended `declared_time_unresolved`; the clock stayed at 18:01 and the Keeper, correctly, invented nothing
+(`934-declared-clock-wait-blocker.json`). The guard did its job: the defect is upstream of it.
+
+**The gap, by the three ends (§31).** *Writer:* §138.10's declared-time candidate (`timeCandidate`, `runtime/jev/candidates.ts`)
+offers the time-cost rows and the literal **elapsed intervals** the lexer enumerates (`declaredDurations`,
+`runtime/jev/declared-duration.ts`: a numeral and a unit, "five minutes", "9 and a half hours"). A clock **endpoint** -- "until
+23:30" -- is neither a row nor an interval: the 2026-10-09 amendment to §138.10 said so explicitly ("absolute clock endpoints
+remain unsettled"), so Jev had no option that was true and answered `unknown`, as it must. The kernel already holds the right
+representation of an endpoint, §145.1's `apply time {until: {days, time}}`, and is the one place the elapsed delta is computed from
+the authoritative staged clock -- but nothing on the host could reach it: `clerkBind` (`runtime/jev/step-policy.ts`) maps a chosen
+alias only to `minutes`, and §145.1 demanded `days` counted from the day the turn began, which the host does not know (its capsule
+clock is the committed clock, not the staged one) and Jev must not compute (§145.2: Jev does not compare times). *Reader/actor:*
+the kernel's `bindUntil` and the clock, both idle for this case.
+
+**The decision.** The endpoint is represented where it already is -- `until` on the `time` effect -- and the delta is the kernel's
+to count, never the host's or Jev's or the Keeper's. Two amendments make the path whole:
+
+### 211.1 `until.days` is optional: absent, the next occurrence (amends §145.1)
+
+`until: {time}` without `days` names **the next occurrence** of that local time at or after the **staged** clock: that day when the
+time of day is not yet past, otherwise the day after; a time equal to the staged clock lands 0 minutes. `days`, when given, keeps
+§145.1's meaning (counted from the day this turn began) and its `until_not_forward` refusal. The receipt's `until` carries the
+`days` the kernel resolved beside the given `time`, so the receipt is an absolute statement either way, and the bound `minutes`
+drive the clock, rest and recovery exactly as before. `until_invalid` now reads "not `{days?: integer ≥ 0, time: "HH:MM"}`".
+The tool schema (`extensions/kernel/tools.ts`) makes `days` optional and says what its absence means; the fake kernel
+(`tests/extension/fixtures/fake-kernel.mjs`) binds the same way against its fixed clock. A Keeper that names a time without a day
+("until 08:00") gets the morning the prose reached, which is what §145.1's live case (`time-skip-a`, turn 5) wanted; §156's guard
+reads the bound minutes and is unchanged.
+
+### 211.2 The declared-time choice offers literal clock endpoints (amends §138.10)
+
+Beside the rows and the literal intervals, the host enumerates **literal 24-hour clock times** in the current player input
+(`declaredClockTimes`, `runtime/jev/declared-duration.ts`): one or two digits, a colon (ASCII `:` or fullwidth `：`), two digits,
+hour 00-23 and minute 00-59, bounded so that a longer numeric or alphanumeric token ("12:05:30", "1920-10-12T18:01", "x23:30")
+exposes nothing. Each occurrence is `{text, start, end, time: "HH:MM"}` under the alias `clock:<n>`, carried on the candidate as
+`timeClocks`, and described to Jev as "exact literal clock time ... the 24-hour reading HH:MM. Select only if the player chose to
+wait or let time pass until this clock time now; the kernel counts the minutes from the current game clock to its next
+occurrence." The instruction tells Jev that a clock time that is a schedule, an appointment, a quotation, a deadline, a past
+moment, a 12-hour reading the words contradict or a condition not reached is not a chosen endpoint. This is closed numeral syntax,
+like the interval lexer: no word is read, no language detected, no intent classified; **Jev**, from the model-produced structure,
+decides whether the literal is the endpoint the player chose, exactly as it decides for an interval. Han-numeral clock forms and
+12-hour forms are not enumerated: a player who writes them keeps today's path (unsettled; the Keeper asks in character), and the
+limit is recorded here rather than guessed at.
+
+**The binding** (`clerkBind`, `runtime/jev/step-policy.ts`). A chosen `clock:<n>` binds `extra.until = {time}` -- no `days`: the
+kernel resolves the occurrence -- and records `{name: "until", path: "jev", value: "HH:MM", confidence, distribution, semantic}`,
+as a chosen interval records `minutes`. `keeperCall` sends `apply time {why, until: {time}}` through the canonical gateway;
+admission already lists `until` among the time effect's fields (§32.12). The candidate's basis gains
+`clock_source: {read: "current-player-input", occurrences}` beside `duration_source`. The gate, the pooled three views (§163.10),
+the `declared_time_unresolved` path, the Keeper's replacement-time refusal and "time is charged once" are all unchanged: a
+clock literal below the gate, unoffered, forged or answered `unknown` still ends in the compose with the unsettled note.
+
+**Edge cases decided.** A target earlier than the staged clock's time of day (at 18:01, "until 06:00") is the next day's 06:00:
+the clock only moves forward and the player named a moment, not a day; a target equal to the clock lands 0 minutes; "until
+23:30" at 18:01 lands 329 minutes and the clock reads 23:30 the same day. The elapsed minutes come from the kernel's receipt,
+never from the host, and the `time-reading` reconciliation (§145.3) still reads the delivered prose against the books.
+
+**Three ends.** *Writer:* the host's lexer (occurrences) and Jev's choice (the endpoint), the clerk's `apply time {until}`, the
+kernel's `bindUntil` (the minutes). *Reader:* the `lane: "run"`, `event: "bind"` row with `name: "until"`; the time receipt's
+`until` and `minutes`; the capsule's clock; `kpi.py`'s `basis` counts the receipt as a clerk write like a literal interval.
+*Actor:* the kernel advances the clock, the rest entry and recovery; the Keeper narrates the time that actually passed.
+
+**Tests.** `tests/extension/declared-time-interval.test.mjs` (the lexer's accepted and refused clock forms and their spans; a
+chosen clock alias binds `until` without `days` and no `minutes`/`band`; an unoffered or `unknown` clock is the compose; over the
+TS kernel at 18:01: "until 23:30" lands 329 minutes and 23:30, an earlier time of day lands the next day, the receipt carries the
+resolved `days`, the Keeper's `until` with `days` is unchanged); `tests/kernel/test_time_until.py` (emitted kernel: `until`
+without `days` -- later today, next day when past, equal is 0, the batch's earlier time moves the base, the receipt's resolved
+`days`; `until_invalid` still refuses a bad `time`).
