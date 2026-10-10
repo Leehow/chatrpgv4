@@ -247,7 +247,7 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
         // Contract §190.2: the places a delivered text may leave the party at, and the owed move the host's read names.
         'table.owe.options': async (params) => {
             const loaded = await load(params);
-            return toldOptions(loaded, await briefWindow(context, loaded.module, loaded.snapshot.world), params);
+            return toldOptions(context, loaded, await briefWindow(context, loaded.module, loaded.snapshot.world), params);
         },
         'table.owe': async (params) => oweTold(context, await load(params), params, FORWARD.owed_state),
         // Contract §204.4: the host binds a place this table established to the book's mention it found in the background.

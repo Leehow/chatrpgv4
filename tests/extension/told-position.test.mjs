@@ -208,8 +208,8 @@ test('a move the review refused and the Keeper then told is owed: a refusal is n
 test('shadow (the env override since on ships), on the implicit close: the row says what on would do, and nothing is owed', async t => {
     const batches = installJev(t);
     let port;
-    // §201.1: the told-clue read shares the turn's flight and ships on; it is turned off so this asserts the position read alone.
-    const table = await openTable({realKernel: true, prepareWorkspace: atTheHall, env: {EXT_JEV_APIKEY: 'test-jev-key', PI_COC_TOLD_POSITION: 'shadow', PI_COC_TOLD_CLUE: 'off'},
+    // §201.1 and §216.1: the told-clue and told-time reads share the turn's flight and ship on; they are turned off so this asserts the position read alone.
+    const table = await openTable({realKernel: true, prepareWorkspace: atTheHall, env: {EXT_JEV_APIKEY: 'test-jev-key', PI_COC_TOLD_POSITION: 'shadow', PI_COC_TOLD_CLUE: 'off', PI_COC_TOLD_TIME: 'off'},
         responses: [fauxAssistantMessage(DELIVERY)],
         extraExtensions: [{name: 'owed-port-probe', factory: pi => pi.events.on('coc:owed-review', value => { port = value; })}]});
     t.after(() => table.dispose());

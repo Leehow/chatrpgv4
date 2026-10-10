@@ -763,6 +763,57 @@ async function readToldClueBudget(contentRoot?: string): Promise<ToldClueBudget>
 export function resetToldClueBudgetCache(): void { toldClueCached = undefined; }
 
 /**
+ * Contract §216.1: the told-time read after a delivery. `mode` (`off | shadow | on`; the environment's `PI_COC_TOLD_TIME`
+ * overrides it alone), the bar the `time_cost` Choice must clear, the bar its sentence Choice must clear, the fewest
+ * `default` minutes a chosen row must carry to be owed, and the read's own deadline. Data, never a literal in the lane.
+ */
+export interface ToldTimeBudget {
+  mode: 'off' | 'shadow' | 'on';
+  /** `told_time.cost_min`: the `time_cost` Choice's confidence. */
+  costMin: number;
+  /** `told_time.sentence_min`: the `sentence` Choice's confidence. */
+  sentenceMin: number;
+  /** `told_time.min_default_minutes`: a chosen row whose `default` minutes are below this is not owed. */
+  minDefaultMinutes: number;
+  /** `told_time.timeout_ms`: the read's own deadline; nothing waits on it. */
+  timeoutMs: number;
+}
+
+/** Used only if the file or its `told_time` section cannot be read; the shipped file carries the real values. */
+export const TOLD_TIME_FALLBACK: ToldTimeBudget = Object.freeze({mode: 'shadow', costMin: 0.7, sentenceMin: 0.5, minDefaultMinutes: 5, timeoutMs: 10_000});
+
+let toldTimeCached: Promise<ToldTimeBudget> | undefined;
+
+/** §216.1's budget, read once per process and cached. `contentRoot` is for tests only and is never cached. */
+export function toldTimeBudget(contentRoot?: string): Promise<ToldTimeBudget> {
+  if (contentRoot !== undefined) return readToldTimeBudget(contentRoot);
+  return toldTimeCached ??= readToldTimeBudget();
+}
+
+async function readToldTimeBudget(contentRoot?: string): Promise<ToldTimeBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot ?? extensionContentRoot(), 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      told_time?: Record<string, unknown>;
+    };
+    const block = raw.told_time ?? {}, fallback = TOLD_TIME_FALLBACK;
+    const bar = (value: unknown, otherwise: number): number => finite(value) && value > 0 && value <= 1 ? value : otherwise;
+    const floor = block.min_default_minutes, timeout = block.timeout_ms;
+    return {
+      mode: block.mode === 'off' || block.mode === 'shadow' || block.mode === 'on' ? block.mode : fallback.mode,
+      costMin: bar(block.cost_min, fallback.costMin),
+      sentenceMin: bar(block.sentence_min, fallback.sentenceMin),
+      minDefaultMinutes: finite(floor) && Number.isInteger(floor) && floor >= 0 ? floor : fallback.minDefaultMinutes,
+      timeoutMs: finite(timeout) && timeout > 0 ? timeout : fallback.timeoutMs,
+    };
+  } catch {
+    return TOLD_TIME_FALLBACK;
+  }
+}
+
+/** Test-only: forgets the cached value. */
+export function resetToldTimeBudgetCache(): void { toldTimeCached = undefined; }
+
+/**
  * Contract §191.2: the page-transcript producer's budget, from the same file's `transcript` section. `mode` (`on | off`,
  * shipped `on`; `off` makes `TranscriptService.ensure` a no-op and every reader native), how many layout children run at
  * once, one child's wall clock, the input and output tokens one child may spend (its own provider lease, never a reading
