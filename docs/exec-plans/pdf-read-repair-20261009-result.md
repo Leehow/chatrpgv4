@@ -84,3 +84,37 @@ WebDAV mount /Volumes/10.3.2.75. Final audit returned exit 0 with audit_pending,
 match, registered, terminal, dirty only for the protected evidence marker. Classification is
 retained:protected_real_playtest_evidence_and_incomplete_process_probe. No removal, mount repair,
 branch deletion or clean lifecycle completion is claimed. Detailed receipt: final run lifecycle-final.json.
+
+## Approved source-query optimization follow-up, 2026-10-10
+
+The user approved the design changes. Commits 95909a4dd / 3508c826d implement one
+foreground allowance across source binding, checked-cache preflight, original retrieval and
+fallback. Exact in-flight original work joins through fallback; cancelling one caller does
+not cancel another. Original envelopes reuse a source/revision/campaign/worldline-bound
+16-entry / 64 KiB cache. Accepted semantic answers use the kernel's existing retained
+draft/review digest checks with cache_only; a miss never queues or promotes work.
+Focus domains and priority now share one policy, with the existing library-to-campaign
+priority preserved. Host-only claim deferral records explain conflicts or capacity.
+
+A real Grok 4.7 Fast / low lookup returned pending in 8008.4 ms: 3384 ms used before
+fallback and only 4616 ms remaining. It continued in the background and landed as
+unresolved 137605 ms later. That is foreground-budget success, not a verified source
+answer or a whole-turn eight-second promise. Six genuine inputs followed; one absolute
+clock-time sleep declaration was refused (declared_time_unresolved), while explicit
+durations produced the 480- and 300-minute receipts. Day-part prose differed from the
+clock in two turns. These unrelated temporal/narrative limitations remain recorded.
+Water observations and laboratory transfer were delivered; no full adventure completion.
+
+Final all at 3f5859fab827adf22b27f523c956d013f82f4ba6 passed ext 5428 / zero failed,
+pytest 2128 / two skipped, loop 12 / zero failed; every exit code zero, wall 851 s.
+Kernel noEmit check passed. Earlier 3508 all had one Python FileNotFoundError, despite
+94 unchanged isolated driver tests passing. A deterministic concurrent rename reproduced
+the pid-only JSON staging collision. Commit 3f5859fab gives every write unique staging
+and cleans its own temporary file; the same barrier passes, and a real repaired driver
+completed and stopped with no staging leftovers. No timeout or resource limit was raised.
+
+Evidence: owned .coc/playtests/pdf-query-optimization-final-20261010-play (five inputs,
+query telemetry, runtime hashes, original failed logs and final green regression log),
+pdf-query-driver-closeout-20261010-play (one input and normal stop), and the excluded
+zero-turn startup pdf-query-optimization-20261010-play. All retained. The App was not
+repackaged or restarted by this task; the earlier pdf heartbeat remains PAUSED.

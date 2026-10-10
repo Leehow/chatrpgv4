@@ -2,15 +2,20 @@
 
 ## Current approved optimization status
 
-Candidate code is 3508c826dcb8c4b732bce88a501f761041fe15b9, on the same owned branch/worktree.
-Final canonical LAN all is running (unified exec session 74781); do not call it passed yet.
-Kernel TypeScript noEmit check passed on the LAN box. Exact final runtime was fetched from
-that all run after its build completed. A zero-turn startup overlapped the fetch and was
-stopped/excluded; fresh accepted driver is pdf-query-optimization-final-20261010-play,
-daemon 55881 / Pi 55882, Grok 4.7 Fast / low. First natural input rests to next morning
-and collects the hospital water report. Preserve all raw evidence and the unrelated App.
-Guard session.resume was called first (epoch 5); retired plugin returned unsupported_save_schema.
-Continue only the current TS source driver, never alter saves to satisfy that retired plugin.
+Candidate is 3f5859fab (query code remains 3508c826d; driver atomic evidence fix added).
+Final canonical LAN all at 3f5859fab passed: ext 5428 / zero failed, pytest 2128 / two skipped, loop 12 / zero failed; exit zero, wall 851 s. Prior all at 3508 passed all 5428 ext
+and 12 loop checks but had one Python transport failure; do not erase it. The concurrent writer
+race was reproduced deterministically and fixed with unique per-write JSON staging.
+Both genuine drivers stopped normally: pdf-query-optimization-final-20261010-play (five inputs,
+one refused absolute-time declaration) and pdf-query-driver-closeout-20261010-play (one input).
+The latter uses repaired Python transport with unchanged exact 3508 product bundles.
+Real source lookup returned pending in 8008.4 ms: 3384 ms before fallback, 4616 ms remaining;
+retained checked outcome was unresolved after 137605 ms. No fast successful-answer claim.
+Raw final logs and build hashes stay in the final optimization run; zero-turn overlapping startup
+is excluded. Mainline is ca51d7dfc, a documentation-only advance, to preserve at integration.
+Next: inspect final all exit/result, fetch logs locally before remote scratch refresh, integrate
+only owned source/records with mainline docs retained, then terminal lifecycle audit retaining
+all real evidence. Existing heartbeat pdf stays PAUSED; App session stays untouched.
 
 ## Earlier repair status, 2026-10-09
 
@@ -317,3 +322,10 @@ resource cap or playback behavior changed. Add the deterministic transport regre
 run final LAN checks. The first five new real inputs are retained: four progressed, one
 absolute-clock-time declaration was refused. Water transfer to the laboratory completed;
 no completed full adventure is claimed.
+
+Optimization source acceptance is complete. Mainline documentation ca51d7dfc was merged
+without conflict. Preserve every previous red log; final green log is
+pdf-query-optimization-final-20261010-play/final-regression-after-atomic-fix.log.
+Six fresh real inputs and both normal stop records remain protected. Final lifecycle
+classification is retained for protected evidence, with incomplete lsof probe if the unrelated
+WebDAV mount still prevents occupancy verification. No App packaging or full-adventure claim.
