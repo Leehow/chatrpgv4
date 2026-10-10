@@ -43077,3 +43077,180 @@ table held one page (1.18 MB); these consultations held four to six, which is th
 (the owner's 2026-10-06 ruling for cache reuse), billed by the provider per image rather than per byte, and nothing on the
 Keeper's context path; it is not a defect and nothing changes here. §217.2 removes the share that came from the
 redundant `read-8`. The raw-capture `request_body_limit` remains an observer bound only (§209.12).
+
+## 218. The time ledger: the stated measure is read on closed grids, time is charged once a turn, a road keeps its time, told time that only began is not owed (2026-10-10, issue #112 follow-up on the d6c live table; amends §5's `move`, §138.9's move default, §138.10's literal intervals, §145.1's `until`, §211.2, §211.3, §216.1)
+
+**Evidence.** Table `gui-world-e091`, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, runtime d6c81317e on grok-build lanes with
+`PI_COC_TOLD_TIME=on` (`d6c-live-revalidation.md`, `turns/0035`-`0067`, `telemetry.jsonl`). Five defects of one ledger:
+
+1. *t43* (clock 18:28). The player read the diaries in a diner "until nine in the evening", written with Han numerals. §211.2's lexer
+   enumerates only digit clock times, so no endpoint was offered; the band question chose `tome_study` (pooled .567, confidence .54,
+   above the time table's .5 gate) and the kernel rolled 5,488 minutes (`time:t43-c1`, 10-13 18:28 to 10-17 14:04). At t44 (out of
+   fiction) the Keeper told the player the story was still the 13th and to disregard the panel: prose and ledger diverged with no way
+   back.
+2. *t45*. The clerk's `until 07:00` landed first (`time:t45-c1`, 1,016 minutes), then the Keeper's batch moved the party 30 minutes by
+   tram and charged its own 570-minute sleep with `beyond_travel` (`time:t45-c3`): ledger 10-18 17:00, prose 07:00. §138.10's "time is
+   charged once a turn" bound only the clerk (no candidate after a time receipt), never the Keeper after the clerk.
+3. *t40, t48, t50, t56, t57*. Rides and walks landed 0 minutes. `stageMove` takes `travel_minutes`, else the edge's, else **0**: the
+   book road previous-tenants/corbitt-house-ground was left unfilled by §138.9's build (Jev .43, below the gate); the table's own
+   lodging (minted at t27 with a 20-minute walk, reached at t45/t46 with 30 and 40) has no road at all, so every later retrace to or
+   from it (t48, t56, t57) and the Keeper's improvised walk without minutes (t50, the road t46 walked in 40) moved nothing. The
+   told-time read excludes journeys by design (the move carries them), so that time is lost.
+4. *t51/t52*. §216 owed `record_lookup` (.97, sentence .90) for a delivery that told only the start of the search (the clerk opens
+   the deed register at the house's entry; the death certificates lie unopened); at t52 the clerk landed the owed row and then the
+   player's declared continuation of the same search: two `record_lookup` rolls (31 + 29). At t44 the out-of-fiction answer was read
+   as `tome_study` .30: the read does not know an out-of-fiction answer from a told event.
+5. *t48*. "... sleep, get up at 07:30": `stated_measure:clock:0` pooled chosen .47 / not_chosen .52 in all three views, so the band
+   (`sleep_night` .33) rolled 401 minutes (00:21). The question asked whether the literal was "the measure of the time the player chose
+   to let pass now", an indirect property of a multi-act declaration (walk, buy bread, write notes, sleep, get up): the jaggedness the
+   Jev skill calls indirect reasoning, answered near a coin flip.
+
+All five are systemic: none depends on the lane model. (1) and (5) are one gap: what the player stated about time was read by host
+syntax (digits, and for intervals a table of Han and English numeral words that `Agents.md` forbids), and what syntax could not read was
+replaced by an estimated band.
+
+### 218.1 The stated measure is read on closed grids; the host lexer is retired (amends §138.10's literal intervals, §211.2 and §211.3)
+
+`runtime/jev/declared-duration.ts` is deleted. The declared-time candidate (`timeCandidate`) offers the time-cost rows and `unknown`
+only: no literal options, no `timeDurations`/`timeClocks`. Beside the band question, the declared-time bind (`bindBatch`) asks, each in
+§163.10's three pooled views, closed questions over **host-enumerated grids** (number grids, not word lists: the same options for every
+language). Jev reads the player's words; the host converts a grid value into a time of day or minutes; the kernel counts.
+
+- **The stated end** -- the clock time at which what the investigator does now ends (they get up, wake, stop, leave or act again):
+  - `stated_end:hour`: `none`, `h1`..`h12` (the hour on a twelve-hour face; `h9` is "the nine o'clock hour, 09:00-09:59 or
+    21:00-21:59"; a quarter to eight falls in the seven o'clock hour), `unknown`.
+  - `stated_end:minute`: `m00`..`m59` (`m00`: on the hour, or no minutes given), `unknown`.
+  - `stated_end:half`: `am` (midnight to noon), `pm` (noon to midnight), `not_said` (neither the words nor the situation fix it), `unknown`.
+- **The stated length** -- how long the player says the time they let pass now lasts:
+  - `stated_span:unit`: `none`, `minutes`, `hours`, `days`, `unknown`.
+  - `stated_span:amount`: `x0.25`, `x0.5`, `x0.75`, `x1`, `x1.5` ... `x12` (halves to twelve), `x13` ... `x120` (`STATED_AMOUNTS`),
+    `unknown`.
+
+Each question is asked directly ("does the input name the clock time at which what the investigator does now ends; which hour?"),
+with what is *not* a stated end or length in its own `none` criterion: a schedule, an opening or closing hour, an appointment, a
+quotation, a deadline, a past moment, an estimate, a time inside a condition not met now, a time the player asks about. That is the
+skill's guidance: one property per question, the boundary in the criteria, no comparison or arithmetic asked of Jev (the host
+multiplies amount by unit; the kernel resolves the day).
+
+**Reading the answers** (`statedMeasureOf`, `runtime/jev/step-policy.ts`), each grid by its pooled leading probability:
+
+- *An end is bound* when `hour` leads with `h<k>` and `minute` leads with `m<mm>`, each at or above `STATED_MEASURE_MIN` (0.5). The
+  time is the morning reading `HH:MM` (`h12` is 00). When `half` leads with `am` or `pm` at or above `STATED_HALF_MIN` (0.6), the bind
+  is `until: {time}` in that half; otherwise `until: {time, either_half: true}`.
+- *A length is bound* when `unit` leads with a unit and `amount` leads with a value, each at or above `STATED_MEASURE_MIN`, and amount
+  times unit is a whole number of minutes: `minutes`.
+- **Precedence.** A bound end or length supersedes the band, as §211.3 decided for a chosen literal. Both bound: the end wins (it is
+  the moment play resumes, and the kernel counts to it from the staged clock); the length is recorded as superseded.
+- **The hold.** `hour` leads with an hour, or `unit` with a unit, but no measure is bound (a grid below the bar, or a length that is not
+  whole minutes): the player stated a measure the host could not read with confidence. No band is rolled -- a band in place of a
+  stated measure is t43's 5,488 minutes -- and the candidate goes to the existing unsettled compose (`declared_time_unresolved`,
+  cause `stated_measure_uncertain`; the Keeper's replacement time stays refused). This is §138.10's 2026-10-06 rule ("an explicit
+  interval that is not offered must remain unknown; never choose an estimated activity band to replace it") made language-open.
+- Neither leads with a measure: the band decides, unchanged (gate, pooled views, `unknown` to unsettled).
+
+The bind record is `{name: "until" | "minutes", path: "jev", value, confidence, semantic, stated: {<grid>: {choice, top,
+distribution}}, superseded: {name: "band", choice, distribution}}`, with `either_half: true` when the half was not fixed and `cleared:
+false` when the measure's weakest grid sits below the time table's gate (full admission, as before).
+
+**`apply time {until: {time, either_half: true}}`** (amends §145.1/§211.1, `kernel-ts/apply/until.ts`): without `days`, the kernel takes
+the earlier of the next occurrences of `time` and of `time` twelve hours on (the reading the clock reaches first: "until nine" at
+18:28 is 21:00; "get up at seven" at 23:10 is 07:00). `either_half` with `days`, or with a `time` at or after 12:00, is
+`until_invalid`. The receipt's `until` carries the resolved 24-hour `time`, the resolved `days` and `either_half: true`. The tool
+schema documents it; the fake kernel binds it the same way.
+
+**Why the lexer goes.** It read digits (§211.2) and, for intervals, a table of Han and English numeral and unit words
+(`declaredDurations`): a word list per language, which `Agents.md` forbids however closed it looks, and which still missed every form
+it did not list (t43). The grids hold the same values for every script. Live accuracy of the grid questions is **not measured** (no
+live calls in this slice); the captured shapes in the tests show only that the decision rules do what this section says.
+
+### 218.2 Time is charged once a turn, by the clerk or by the Keeper (amends §138.10's "time is charged once a turn")
+
+After the clerk's declared-time write landed in a run, a Keeper `apply` carrying a `time` effect without `owed` is refused by the
+model-step gate (`modelStep`, `runtime/jev/hybrid-engine.ts`) with `declared_time_landed`, before anything in it runs, the way
+`declared_time_unresolved` refuses a replacement time. The refusal says what the clerk's receipt charged (minutes, clock before and
+after) and tells the Keeper to send the batch again without the time effect and to narrate the clock where that receipt put it. An
+owed row's time (`owed`) still lands: it is an earlier delivery's. With no clerk time landed, the Keeper's time is unchanged; so are
+the kernel's §156 travel check and admission.
+
+*Not done:* t45's order. The clerk's `until 07:00` landed before the Keeper's 30-minute ride, so with the sleep refused the ledger
+reads 07:30. Absorbing a later move into an earlier `until` needs the kernel to know the move happened inside the stated span, which no
+structure says; it stays open for the owner.
+
+### 218.3 A move carries its road's time (amends §5's `move`, §138.9's default and §190.2's owed move)
+
+A road is one length both ways and every time (§138.9). Three additions make a move carry it where the book does not:
+
+- **The table's roads** (`world.table_roads`, keyed by the unordered pair of place handles, `{minutes, basis, turn}`): written by the
+  kernel when a move lands between two places that no timed book road joins and its minutes were given (`travel_minutes` > 0) or banded
+  (`travel_band`). Read by `roadMinutes` (`kernel-ts/read/places.ts`): a timed book road between the two (either direction) first,
+  then the table's road. `stageMove`'s default, the move rows of `table.apply.options` (`travel_minutes` on a way back or an untimed
+  book road when the table knows it; the capsule is unchanged) and the told-position owed move read it. A move whose minutes come
+  from a table road carries `travel: {basis: "travelled", turn}`.
+- **`apply move {travel_band}`**: `adjacent` (0), or a road row of `time-costs` (`local_travel`, `long_travel`) whose `default` is the
+  minutes (never a roll, as §138.9 fills a book road). `travel_band` beside `travel_minutes` is `travel_conflict`; another value is
+  `travel_band_unknown` with the rows in `details.options`. The receipt carries `travel: {basis: "banded", band}`.
+- **Unknown**: a move between two places that no road, book or table, has timed, with neither field, still lands with 0 minutes
+  (refusing it would take the walk away for a missing number) but says so: the receipt carries `travel: {basis: "unknown"}` and the
+  result a `travel_note` telling the Keeper the clock did not move for that journey and to give `travel_minutes` or `travel_band` on
+  such a move. A move within a place the two share (§204.2's related place) or a rename is not unknown: its 0 is the structure's.
+
+**The clerk's move** (`runtime/jev/candidates.ts`): a move row that carries no `travel_minutes` and is not a move within a place gets one
+closed parameter `travel_band` over `adjacent` and the road rows (from `reads.bands.time`), with §138.9's own criteria and instruction
+(`travelCriteria`; judge where the two places are), and the two places in the candidate's `detail.road` (the active scene's name and
+summary, the destination's). Its rule default is Jev's lead (`jev_lead`): a lead below the gate is taken, since a road row is nearer the
+truth than 0. The parameter is `omitWhenUnbound` (new on `Unbound`): `unknown`, no answer or an unavailable Jev leave it out of the
+call and the move lands exactly as before (its journey `unknown`, said so); it never takes the walk from the clerk. The band rides on
+the clerk's `apply move`, so the kernel writes the table's road and the next trip asks nothing. Without the time table's road rows the
+parameter is not issued.
+
+### 218.4 Told time that only began is not owed, and an out-of-fiction answer is not read (amends §216.1)
+
+- **`told_extent`**, a third Choice in the told-time request: how far the told text carries the activity it tells -- `begun` (only its
+  start is told: they sit down, open, set out, begin, and the text stops there), `carried` (the text tells it going on for a stretch,
+  or through to an end or a result), `unknown`. A fifth bar: the host owes only when `told_extent` leads with `carried` at or above
+  `told_time.extent_min` (0.5, in `host-budgets.json`); otherwise `stay`, why `begun` or `low_extent`. An activity the delivery only
+  began is the next declaration's to charge (t52's player declared exactly that), so owing it too charges it twice.
+- **Out of fiction**: the read is skipped (`skipped: "out_of_fiction"`, nothing asked) when the delivering input's interaction scope
+  (`TableState.interactionScope`, set by the interaction-scope lane) was not `world`. The scope is the lane's typed decision, read as
+  structure; no text is inspected.
+- The row gains `extent: {choice, confidence, distribution}`. Mode, the other bars and the drops are unchanged; §216 still ships in
+  `shadow`.
+
+### 218.5 The clock correction t44 asked for (owner decision; not built)
+
+The ledger only moves forward (§158). When a host-landed time overshoots what the delivery told (t43/t44) there is no way back, and
+§218.1's hold prevents the observed cause rather than repairing it. A correction would retract a receipt and everything computed from
+the clock after it (rest, recovery, scene reviews, NPC activity), which §158 does not allow without the owner. The options are recorded
+in the issue #112 handoff of this slice.
+
+### 218.6 Three ends (§31)
+
+- *Stated measure.* Writer: Jev's grid answers, `statedMeasureOf`, the clerk's `apply time {until | minutes}`, the kernel's `bindUntil`.
+  Reader: the bind row's `stated`/`superseded`; the time receipt's `until` (`either_half`). Actor: the kernel's clock; the Keeper
+  narrates the time that passed.
+- *Once a turn.* Writer: the clerk's landed declared time (`run.declaredTime`). Reader: the model-step gate. Actor: the Keeper, who
+  resends without the time effect; counted as `catalog_refused` rows with `reason: "declared_time_landed"`.
+- *Roads.* Writer: a move with given or banded minutes (`world.table_roads`); the clerk's `travel_band` bind. Reader: `roadMinutes`
+  (moves, `table.apply.options`' move rows, owed moves). Actor: the kernel's clock; counted by the receipts' `travel`.
+- *Told extent.* Writer: Jev's `told_extent`; the interaction-scope lane. Reader: `toldTimeDecision` and the told-time read. Actor: the
+  clerk, who lands an owed row only for what a delivery carried.
+
+### 218.7 Tests
+
+- `tests/extension/declared-time-interval.test.mjs` (rewritten for the grids): the candidate has no lexer options; the bind asks the five
+  grid questions in three views with their `none` boundaries; t43's captured band views with the end read `h9`/`m00`/`pm` bind `until
+  21:00` and roll no band, with `not_said` they bind `either_half`, and an end leading below the bar holds (`stated_measure_uncertain`)
+  where the base rolled `tome_study`; t48's captured band with `h7`/`m30`/`am` binds 07:30; a length binds minutes; both bound, the end
+  wins; neither, the band decides; over the TS kernel at 18:28 `until {09:00, either_half}` lands 152 minutes at 21:00 and at 23:10
+  lands 07:00 the next day; `either_half` with `days` or an afternoon time is `until_invalid`.
+- `tests/extension/time-once.test.mjs`: the model-step gate refuses a Keeper time after the clerk's declared time, passes an owed
+  landing, and passes the Keeper's time when no clerk time landed.
+- `tests/extension/move-travel.test.mjs` (over the TS kernel): a road walked with minutes is walked back with them (`travelled`), an
+  improvised walk on a travelled road takes them, `travel_band` lands a row's default and writes the road, conflicts and unknown bands
+  are refused, an untimed road says so (`travel_note`), the way back's move row shows a known road's minutes; the clerk's move
+  candidate for an untimed row asks `travel_band` and binds it onto `apply move`, and `unknown` or no answer leaves it out while the
+  move still runs.
+- `tests/extension/told-time.test.mjs`: `told_extent` is asked; t51's captured answers (`record_lookup` .97, sentence .90) with `begun`
+  stay where the base owed; `carried` owes; an out-of-fiction delivery is skipped.
+
+Each fails on the base.
