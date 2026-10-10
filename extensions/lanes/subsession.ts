@@ -247,6 +247,8 @@ function closingBrace(text: string, start: number): number | undefined {
 
 /** At most this many top-level objects are read from one reply. */
 const MAX_REPLY_OBJECTS = 16;
+/** At most this many opening braces that never close are passed over before the reply is given up on. */
+const MAX_UNCLOSED_STARTS = 64;
 
 /**
  * Contract §212: models may wrap, repeat or precede their JSON (an echoed line can carry an object, or an unclosed piece of
@@ -255,12 +257,13 @@ const MAX_REPLY_OBJECTS = 16;
  */
 export function jsonObjectCandidates(text: string): string[] {
 	const found: string[] = [];
-	let from = 0;
-	while (found.length < MAX_REPLY_OBJECTS) {
+	// Each unclosed start rescans the rest of the text; a bound keeps a brace-heavy reply linear in practice.
+	let from = 0, unclosed = 0;
+	while (found.length < MAX_REPLY_OBJECTS && unclosed <= MAX_UNCLOSED_STARTS) {
 		const start = text.indexOf("{", from);
 		if (start < 0) break;
 		const end = closingBrace(text, start);
-		if (end === undefined) { from = start + 1; continue; }
+		if (end === undefined) { unclosed++; from = start + 1; continue; }
 		found.push(text.slice(start, end + 1));
 		from = end + 1;
 	}
