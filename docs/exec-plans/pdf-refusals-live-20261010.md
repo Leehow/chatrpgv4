@@ -183,3 +183,37 @@ Final all07eaec09d passed616s (5427/2128/12, skips1/2); raw/per-file logs retain
 Ten accepted-runtime hashes match the genuine final runtime exactly, no production replay
 needed for test-only synchronization. Only scope integration and retained lifecycle audit
 remain before closeout; unverified source structures remain explicitly open in this record.
+
+## Final combined production validation
+
+Mainline subsequently committed d01381199, a small discovery projection change. It was
+merged as7905a6ecd; the prior07 suite does not validate that newer production tree. The
+exact7905 runtime has687 matching embedded product sources. Its genuine driver continuation
+completed three player turns35.026/26.452/73.290s (134.768s total), Grok4.7Fast/low, then
+stopped normally. A literal notebook append preserved the old prefix and committed revision4;
+target/content/execution probabilities.96/.91/.92 meet the unchanged.9 threshold. The second
+write was correctly refused as action_proposal_mismatch and did not overwrite the document.
+No20/26s timeout or Keeper provider error occurred. The305ms backup-lane cancellation followed
+an already completed typed verdict. All26 observed run PIDs exited. SQLite integrity isok,
+duplicate IDs0;15completed/5failed/2running/3queued rows remain as recorded recovery evidence.
+
+Combined all7905 ended red614s:5428 extension passes/1fail/1skip,2128 pytest passes/2skips,
+12 routing passes. Only the material-gap reuse test exhausted its retry window. Raw and
+per-file logs are retained in all-7905a6ecd. Its test-only correction reads the immutable
+fixture's real exact checkpoint pages before the reuse allowance, returns cloned real
+responses with exact argument assertions, and still checks the actual kernel binding and
+every source hash/version. Production500ms, original assertions and gates are unchanged.
+Local8/8 passed; final parallel all and scoped integration are pending. Production is
+unchanged from the genuinely validated7905 runtime, so this test-only change needs no
+additional identical model replay. Earlier red logs remain evidence, not reclassified green.
+
+The four source refusals trace to unsupported causal logic, incorrect map geometry/source
+identity and omitted applicability/dependency conditions. Host repairs improve repair
+evidence delivery and truthful classification instructions; they do not certify every old
+source structure. The two original tool denials separate a correctly unresolved writing
+target from an admission lane's continuous reasoning without a verdict before its cap.
+The observed provider wrapper previously dropped full reasoning/tool options; request-level
+regressions and genuine low-effort wire traces verify the repair. Backend late-verdict cause
+and worst-case provider latency remain unknown. Fresh source rereading is PARTIAL, with old
+condition structures and map-to-current-scene delivery unverified. No source/whole-campaign
+completion claim, invented content, changed identity or lowered review threshold is made.
