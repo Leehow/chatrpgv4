@@ -242,11 +242,19 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
                 const check = row(previous.check);
                 publicChecks.push({actor, skill: previous.skill ?? null, passed: previous.passed ?? check.passed ?? null,
                     roll: previous.roll ?? check.roll ?? null, threshold: previous.threshold ?? check.threshold ?? null, goal: check.goal ?? null});
-                if (check.push_eligible === true && previous.pushed !== true && previous.passed === false) {
+                if (check.push_eligible === true && previous.pushed !== true && previous.passed === false && previous.level !== 'fumble') {
+                    // §223.1 (pp.84-85): a push is the player's justified further attempt; foreshadowing the
+                    // consequence is the Keeper's option, not a precondition. The delivered sentences that
+                    // announce one are offered, and the rules default is none (`''`): the kernel then records
+                    // the Keeper's free rein over a failed push (p.86) instead of a consequence nobody said.
                     const sentences = [...new Intl.Segmenter(undefined, {granularity: 'sentence'}).segment(owners.publicText)]
                         .filter(part => part.index >= Math.max(0, owners.publicText.length - 4000)).map(part => part.segment.trim()).filter(Boolean).slice(-254);
-                    add('push-luck:pushed-roll', `${actor}: explicitly push the failed ${previous.skill} check with an accepted announced risk`,
-                        {actor, push: true}, [parameter('stakes', 'Select the previously published failure consequence which the player explicitly accepts for this pushed roll. Do not invent a risk or use a sentence that does not announce one.', sentences)]);
+                    add('push-luck:pushed-roll', `${actor}: explicitly push the failed ${previous.skill} check with a justified further attempt`,
+                        {actor, push: true}, [{...parameter('stakes', 'Which delivered sentence foreshadowed the consequence of failing this pushed attempt? Select only a sentence that announces one; do not invent a risk.', sentences),
+                            default: {value: '', question: 'Did the delivered text foreshadow a consequence of failing this pushed attempt (an "if you fail..." line the player can weigh)? The rule default is that none was foreshadowed and the Keeper has free rein over a failed push.'}}]);
+                    const added = options.at(-1);
+                    if (added?.action.decision === 'push-luck:pushed-roll') added.definition = 'The player declares a further attempt at the same goal after the failed check and describes the extra effort, time or risk that justifies it (p.84). '
+                        + 'A different method does not by itself choose a push; the declaration must be the player\'s choice to try again. A fumble, a combat skill, a pushed roll or a roll already altered with Luck is never pushed.';
                 }
                 const luck = Number(sheet.current_luck ?? row(sheet.characteristics).LUCK ?? 0);
                 if (Number.isSafeInteger(luck) && luck > 0 && luck <= 254 && previous.pushed !== true && previous.level !== 'fumble')

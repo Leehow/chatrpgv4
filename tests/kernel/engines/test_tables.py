@@ -103,10 +103,9 @@ def test_pushed_roll_rule_uses_structured_table(tables):
     assert table["maximum_attempts_after_initial_failure"] == 1
     _assert_subset(tables.pushed_roll_rule(), {
         "maximum_attempts_after_initial_failure": 1, "requires_changed_approach": True,
-        "requires_keeper_foreshadowed_failure": True, "requires_keeper_owned_failure_consequence": True,
-        "requires_player_confirmation": True,
-        "required_stages": ["player_reframes_action", "keeper_foreshadows_failure",
-                           "player_confirms_risk", "roll_resolved"],
+        "requires_keeper_foreshadowed_failure": False, "foreshadowing": "optional",
+        "requires_keeper_owned_failure_consequence": True, "requires_player_confirmation": True,
+        "required_stages": ["player_justifies_push", "keeper_approves", "roll_resolved"],
     })
 
 
@@ -576,7 +575,7 @@ def test_luck_rule_uses_structured_table(tables):
     rule = tables.luck_rule()
     assert rule["spend"]["luck_point_value"] == 1
     assert rule["spend"]["cost_per_point_off_roll"] == 1
-    assert rule["roll"]["group_roll_policy"] == "take_lowest"
+    assert rule["roll"]["group_roll_policy"] == "lowest_luck_rolls"
     assert rule["recovery"]["gain_on_success"] == "1D10"
     assert rule["recovery"]["cap"] == 99
     assert rule["recovery"]["optional_rule"] is True

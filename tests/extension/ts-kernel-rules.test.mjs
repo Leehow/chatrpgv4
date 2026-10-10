@@ -161,9 +161,10 @@ test('catalog kinds retain frozen counts and digests; the current time-rule desc
   await writeFile(join(evidence, 'record-digests-actual.json'), JSON.stringify(actual, null, 2));
   for (const kind of api.SUPPORTED_KINDS) {
     // §138.10.1 corrects the live time-rule description, not the frozen Python evidence; §202.3 then counts 19
-    // categories and names covers. Pin all current rule records; every other family's frozen digest remains unchanged.
+    // categories and names covers; §223.5 corrects the group Luck roll (p.93: the lowest Luck rolls, not the lowest
+    // roll). Pin all current rule records; every other family's frozen digest remains unchanged.
     const wanted = kind === 'rule'
-      ? { count: expected.rule.count, digest: 'd421b314727ddd1ff94b7e08c6dbb2e96bbb86dc76a336f6a785c77b15f4a3e5' }
+      ? { count: expected.rule.count, digest: 'f6ae1b0d299651cb60312d1499ecbaecfb982966c0fbfdad1b3d511b83721ea6' }
       : expected[kind];
     assert.deepEqual(actual[kind], wanted, kind);
   }
