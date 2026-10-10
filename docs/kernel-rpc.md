@@ -42355,6 +42355,7 @@ The existing lookup surface gains a `capability` (instruction discovery) kind ac
 - A DB transaction is not held across Jev or model work: snapshot, release, then validate relevant versions after async completion.
 - Storage and lock waiting count toward the shared preparation deadline.
 - In selective/shadow mode, the context owner bounds hydration and the final read-only `table.capsule` identity check by that same deadline. The final check compares campaign/worldline/loop/turn, task-source revision (falling back to source revision only when absent) and task-world revision. Queue bookkeeping does not change the task-source stamp. Failure or a changed stamp discards ephemeral selected instructions and schemas, emits an explicit context diagnostic and retains bounded original conversation evidence; it never reads stale JSON or presents a stale selection as current. No SQL transaction spans Jev. A timed-out read may finish inside its existing kernel process, but its late result cannot populate the invalidated preparation cache; the owner does not stop shared processes.
+- After an unavailable identity check, `apply`/`resolve` remain held with `no_commit: true` until a later request has a verified current snapshot. Clearing a stale capsule must not erase the readiness guard. An older preparation cannot clear or overwrite a successor's guard.
 - The SQLite migration (codex/pdf-read-repair-20261009 at ddff2f931) is consumed through its published interface when integrated; not copied or adopted.
 
 ### 209.12 Metrics

@@ -128,6 +128,8 @@ for(const mode of ['queue','publish','sql_error','deadline','locked_sql'])test('
         assert.ok(!out.messages.some(message=>message.customType==='coc-capsule'));
         assert.ok(out.messages.some(message=>message.customType===api.DIAGNOSTIC_TYPE));
         assert.ok(out.messages.some(message=>message.role==='user'));
+        const hold=await hooks.get('tool_call')({toolName:'apply',toolCallId:'unverified-write',input:{effects:[{kind:'time',minutes:60}]}});
+        assert.equal(hold.block,true);assert.match(hold.reason,/No world change was committed/);
         assert.equal(hooks.get('context_with_system')({messages:[system,...out.messages]},ctx),undefined);
         if(['deadline','locked_sql'].includes(mode)){
             assert.ok(Date.now()-began<1500,'the host deadline bounds a pending source read');assert.equal(fetches,0);
