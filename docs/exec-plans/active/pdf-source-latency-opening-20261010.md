@@ -175,3 +175,15 @@ The next authorized continuation must set this exact owned entryactive before us
 recheck main/process ownership and then run current canonicalall/exact rebuild/genuine
 approval+opening+document reading. Never count earlier prose as confirmation or the old
 runtime as new validation. The previous task's retained checkouts remain outside ownership.
+
+## Human-requested transfer to another AI
+
+The user requested a standalone handoff instead of further execution in this chat.
+Implementation and verification stop here. App heartbeat pdf was updated to PAUSED,
+preserving its prompt and schedule; the earlier ACTIVE record describes the prior wait.
+See docs/handoff-pdf-source-latency-opening-20261010.md for ordered successor steps,
+unverified repairs, failed genuine setup, latency findings and exact evidence routes.
+No new all, exact runtime or genuine confirmation/opening is claimed or performed.
+The exact lifecycle tuple remains terminal, retained:handoff_pending_verification.
+A different task must verify lifecycle ownership rather than silently adopt this tree.
+All real evidence and the protective marker remain.
