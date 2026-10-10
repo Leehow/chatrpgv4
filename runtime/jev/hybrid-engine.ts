@@ -1458,10 +1458,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (ok) for (const name of namedPeople(candidate)) if (!run.named.includes(name)) run.named.push(name);
     run.clerkDid.push({step: invocation.stepId, operation: tool, label: candidate.label, clerk: candidate.clerk, call_id: callId, status: packet.status,
       receipts: packet.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
-      // §178.3: a write that brought people together carries the first impressions the kernel rolled for them, so the
-      // Keeper's next step can let them show; the receipt ids alone say only that a die was cast.
+      // §224.3: a first impression the clerk rolls is a `resolve`, so its outcome (the impression) rides on the resolve row.
       ...(ok ? {result: (tool === 'resolve' ? {action: shown, outcome: result.outcome ?? null, ...(result.obligation ? {obligation: result.obligation} : {})}
-        : {effects: args.effects, ...(Array.isArray(result.first_impressions) ? {first_impressions: result.first_impressions, first_impressions_note: result.first_impressions_note ?? null} : {})}) as Json}
+        : {effects: args.effects}) as Json}
         : {proposed: (tool === 'resolve' ? {action: shown} : {effects: args.effects}) as Json, not_landed: true,
           coc_error: refusedError!}),
       ...(obligation ? {obligation} : {}), ...(crossed ? {obligation_open: crossed} : {}), ...(binding ? {binding} : {})});

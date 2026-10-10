@@ -18,6 +18,7 @@ import type { CampaignWritePort } from '../transactions.js';
 import { nowIso } from '../write/store.js';
 import { objectOwner } from './stage.js';
 import { castNpc, repairItem, useItem } from './effects.js';
+import { presenceReceiptFields } from './presence.js';
 import type { ModRuntime } from './runtime.js';
 
 export interface ModResolveInput {
@@ -88,7 +89,8 @@ function checkState(world: Row, modId: string): Row {
 }
 /**
  * One roll of a contributed actor-target check, recorded under its pair (§26). `resolve` calls it for a check it is asked
- * to settle; `presenceRolls` (§178.3) for a `presence` check the people's meeting owes. The world is changed, not written.
+ * to settle, whether its trigger is `contact` or `presence` (§224.3: the host offers a presence check; nothing rolls it on
+ * meeting). The world is changed, not written.
  */
 export function rollModCheck(args: {world: Row; graph: ModuleGraph; modId: string; recipe: Row; actor: Row; target: Row; turn: number;
     receiptId: string; callId: string; arithmetic: CheckArithmetic; rng: PythonRandom; extra?: Row; orientedFrom?: Row | null}): {receipt: Row; result: Row} {
@@ -185,8 +187,9 @@ export async function resolveBeforeMain(kernel: KernelContext, runtime: ModRunti
         const orphan = equal(prior.turn, turn.turn) && !array(turn.receipts).some(receipt => receipt.id === prior!.receipt.id);
         return {result: {...prior.result, reused: true}, receipts: orphan ? [prior.receipt] : []};
     }
+    // §224.3: a presence check the host selected keeps §178's receipt fields (`trigger`, `public_target_label`).
     const {receipt, result} = rollModCheck({world, graph, modId, recipe, actor, target, turn: turn.turn, receiptId: `roll:mod-${modId}-${callId}`, callId,
-        arithmetic: context.arithmetic, rng: context.rng, orientedFrom});
+        arithmetic: context.arithmetic, rng: context.rng, orientedFrom, extra: presenceReceiptFields(graph, world, recipe, target)});
     await campaign.writeWorld(world);
     return {result, receipts: [receipt]};
 }

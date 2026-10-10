@@ -1524,10 +1524,14 @@ export interface ClerkEvidence {
 export function registeredContactProposal(proposal: AdmissionProposal, payload: Record<string, unknown>, evidence: ClerkEvidence): AdmissionProposal {
 	if (proposal.tool !== "resolve" || evidence.origin !== "policy" || evidence.clerk !== "mod_contact") return proposal;
 	const basis = record(evidence.basis), contact = record(basis?.row), rule = record(contact?.rule), action = record(payload.action);
-	if (basis?.read !== "table.capsule" || rule?.trigger !== "contact" || rule.scope !== "actor-target" || rule.reusable !== true
+	if (basis?.read !== "table.capsule" || (rule?.trigger !== "contact" && rule?.trigger !== "presence") || rule.scope !== "actor-target" || rule.reusable !== true
 		|| !action || !contact || !["decision", "actor", "target"].every(key => typeof contact[key] === "string" && contact[key] === action[key])) return proposal;
+	// §224.3: a `presence` check is the person's first impression, offered while they share the scene and selected by the host
+	// only when it matters this turn; like a contact check it is a rule of the meeting, not an influence attempt.
 	const registered = { decision: contact.decision, actor: contact.actor, target: contact.target, rule,
-		settles: "The NPC's initial reaction to meaningful contact. This is a reusable contact rule, not the investigator persuading, deceiving or bargaining. Invocation intent does not prescribe an influence method. Meaningful contact must follow from the current declaration or an earlier chosen contact with this NPC; mere presence does not establish it." };
+		settles: rule.trigger === "presence"
+			? "The NPC's first impression of the investigator. This is a reusable rule of the meeting, not the investigator persuading, deceiving or bargaining. Invocation intent does not prescribe an influence method. It is rolled when that impression matters this turn: the investigator seeks something from this NPC, approaches them socially, must get past them, or the NPC is hostile or suspicious; mere presence does not establish it."
+			: "The NPC's initial reaction to meaningful contact. This is a reusable contact rule, not the investigator persuading, deceiving or bargaining. Invocation intent does not prescribe an influence method. Meaningful contact must follow from the current declaration or an earlier chosen contact with this NPC; mere presence does not establish it." };
 	return { ...proposal, key: canonical({ proposal: proposal.key, registered_contact_check: registered }),
 		lines: proposal.lines.map(line => `${line}; registered_contact_check=${JSON.stringify(registered)}`) };
 }

@@ -882,14 +882,17 @@ export function contactRows(graph: ModuleGraph, world: Row, party: Row[], active
                         impression: row(row(known.result).outcome).impression ?? null,
                         since_turn: known.turn
                     });
-                // §178.4: a `presence` check is the kernel's to roll when the people meet, so it is never pending for anyone else.
-                else if (check.trigger !== "presence")
+                // §224.3 (re-rules §178.4): a `presence` check is offered while the people share a scene and rolled only when the
+                // host's selection finds the impression matters this turn; nothing rolls it on meeting.
+                else
                     contacts.push({
                         actor: actor.name,
                         target: graph.displayName(npc),
                         handle: graph.handle(npc),
                         decision: name,
-                        when: "first meaningful contact, not merely appearing in this list",
+                        when: check.trigger === "presence"
+                            ? "only when this person's first impression of the investigator matters this turn, not merely because they share the scene"
+                            : "first meaningful contact, not merely appearing in this list",
                         rule: { trigger: check.trigger, scope: check.scope, reusable: check.reusable }
                     });
             }

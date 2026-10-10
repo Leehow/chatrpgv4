@@ -130,10 +130,10 @@ def test_after_a_landed_blow_the_rung_is_one_above_his_base_and_only_the_keeper_
     client = client_for(tmp_path, seed)
     try:
         hit_corbitt(client)
-        # §178.3: the Mod's first impression of him was rolled when the party met him, so no first-contact row is pending;
-        # a settled impression prepares no reaction either -- the die below still rolls.
+        # §224.3: meeting him rolled no first impression, so it is still offered; an offered impression prepares no
+        # reaction -- the die below still rolls.
         contact = [line for line in situation(client)["constraints"] if line.startswith("Mod check natural-npc:first-impression")]
-        assert not contact, "met on arrival: nothing is still to come"
+        assert contact and all("matters this turn" in line for line in contact), contact
         receipts = client.table("status")["receipts"]
         attack = next(r for r in receipts if r["kind"] == "roll" and r.get("combat_action") == "attack")
         assert attack["actor"] == INVESTIGATOR and attack["npc"] == CORBITT
