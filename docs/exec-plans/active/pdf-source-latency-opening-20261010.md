@@ -139,3 +139,10 @@ do not run another heavy suite, override busy checks, refresh their checkouts or
 After idle run own combined all and readonly-fetch its new runtime, then continue the
 same genuine retained draft with a fresh setup run suffix. Preserve prior4failed setup
 turns. No confirmation/completion may be fabricated from the earlier prose.
+
+Ordinal correction: a local probe exposed held/default pages5parts versus explicit guidance
+pages6parts for the same15Kanswer. Optional metadata was repacking the explicit view. Fixed
+decoration after the original layout; guidance consumes only already-free bytes, never
+changes ordinals, and is omitted on full pages. New cross-carriage continuation regression
+compares every explicit source unit/ordinal to the held view, with8cache cases passing.
+Source changes committedf030b1a2a; full/genuine validation still pending on the shared box.

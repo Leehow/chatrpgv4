@@ -386,7 +386,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
             + `After successful confirmation, use ${fullTool()} step complete. Confirmation commits the investigator; the play host opens the world later. `
             + 'If the input did not approve this card, preserve the draft and address what the player actually requested. If a tool refuses, preserve prior successful steps and handle its actual reason.'
           : request.refusal ? 'The host\'s last setup call was refused (refusal); nothing after it was executed. The full setup tool is yours for the rest of this turn.'
-            : 'This change is yours to make with the full setup tool; the kernel checks every number.'};
+            : 'Use the full setup tool only for the step the actual input selects; otherwise answer the question or ask a necessary clarification. Preserve the current draft and successful kernel results. The kernel checks every number.'};
     }
     if (!content) return undefined;
     return [{role: 'custom', customType: SETUP_STEP_TYPE, content: JSON.stringify(content), display: false,
