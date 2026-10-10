@@ -94,9 +94,9 @@ export class SanitySession {
         catch (error) { if ((error as Error).name === 'ValueError') return 1; throw error; }
         return parsed.kind === 'constant' ? parsed.value : parsed.count * parsed.sides + parsed.modifier;
     }
-    private async afterLoss(source: string, lost: number, alone: boolean, override: Row | null): Promise<void> {
+    private async afterLoss(source: string, lost: number, alone: boolean, override: Row | null, boutChoice: string | null = null): Promise<void> {
         const state = this.state;
-        if ((state.temporary_insane || state.indefinite_insane) && lost >= 1) await this.startBout(source, alone, override);
+        if ((state.temporary_insane || state.indefinite_insane) && lost >= 1) await this.startBout(source, alone, override, undefined, boutChoice);
         else if (lost >= 5) {
             const result = this.arithmetic.check(this.intValue, 'regular', 0, 0, this.rng);
             this.pendingRolls.push({ roll_id: this.rollId(), actor_id: this.investigatorId, skill: 'INT', goal: `determine temp insanity after ${source}`,
@@ -106,7 +106,7 @@ export class SanitySession {
                 state.temporary_insane = true;
                 const hours = this.rng.randint(1, 10);
                 state.temporary_insane_remaining_hours = hours;
-                await this.startBout(source, alone, override, hours);
+                await this.startBout(source, alone, override, hours, boutChoice);
                 this.scheduleRecovery(hours);
             }
         }
@@ -118,6 +118,7 @@ export class SanitySession {
     }
     async sanityCheck(source: string, lossSuccess: number | string, lossFailure: string, options: {
         involuntaryKind?: string | null; involuntarySummary?: string; alone?: boolean; moduleBoutOverride?: Row | null; creatureType?: string | null;
+        boutChoice?: string | null;
     } = {}): Promise<Row> {
         const state = this.state;
         if (state.permanently_insane) return this.event('sanity_check_skipped', 'Investigator is permanently insane');
@@ -126,10 +127,11 @@ export class SanitySession {
         let lost: number, rolls: number[] = [], resolution: string;
         if (result.outcome === 'fumble') { lost = this.maxLoss(lossFailure); resolution = 'fumble_maximum'; }
         else { [lost, rolls] = this.lossDetail(result.outcome === 'failure' ? lossFailure : string(lossSuccess)); resolution = rolls.length ? 'rolled' : 'constant'; }
-        const raw = lost, hardened = state.cm_value > before, creature = options.creatureType ?? null;
+        const raw = lost, hardened = this.hardened(before), creature = options.creatureType ?? null;
         if (hardened && lost > 0) lost = Math.floor(lost / 2);
         if (creature !== null) {
-            const maximum = this.maxLoss(string(lossSuccess)) + this.maxLoss(lossFailure), cumulative = state.awfulness_caps[creature] ?? 0;
+            // §221.6 (p.169): the cap is the monster's maximum possible loss -- the failure half's maximum -- not both halves added.
+            const maximum = Math.max(this.maxLoss(string(lossSuccess)), this.maxLoss(lossFailure)), cumulative = state.awfulness_caps[creature] ?? 0;
             lost = Math.min(lost, Math.max(0, maximum - cumulative));
             const caps = entries(state.awfulness_caps), existing = caps.findIndex(([key]) => key === creature);
             if (existing < 0) caps.push([creature, cumulative + lost]); else caps[existing] = [creature, cumulative + lost];
@@ -149,8 +151,25 @@ export class SanitySession {
             this.applyInvoluntary(options.involuntaryKind, options.involuntarySummary || '', source);
             record.involuntary_action = clone(state.involuntary_actions.at(-1)); event.payload.involuntary_action = clone(record.involuntary_action);
         }
-        await this.afterLoss(source, lost, options.alone ?? false, options.moduleBoutOverride ?? null);
+        await this.afterLoss(source, lost, options.alone ?? false, options.moduleBoutOverride ?? null, options.boutChoice ?? null);
         return event;
+    }
+    /** §221.7 (p.169, Mythos Hardened): permanent once Cthulhu Mythos has exceeded Sanity at a loss; never recomputed back to false. */
+    private hardened(sanBefore: number): boolean {
+        if (this.state.cm_value > sanBefore && !this.state.mythos_hardened) {
+            this.state.mythos_hardened = true;
+            this.event('mythos_hardened', { summary: `${this.investigatorId} is Mythos hardened: Cthulhu Mythos ${this.state.cm_value} exceeds SAN ${sanBefore}; all later SAN loss is halved, permanently (p.169).` });
+        }
+        return truth(this.state.mythos_hardened);
+    }
+    /** §221.6 (p.169): a development phase eases every tracked Getting-Used-to-the-Awfulness total by the data's reduction. */
+    easeAwfulness(reduction = 1): Row | null {
+        const caps = entries(this.state.awfulness_caps);
+        if (!caps.length || reduction <= 0) return null;
+        const eased = caps.map(([key, value]) => [key, Math.max(0, int(value) - reduction)] as [string, number]);
+        this.state.awfulness_caps = orderedObject(eased);
+        return this.event('awfulness_eased', { reduction, totals: Object.fromEntries(eased),
+            summary: `${this.investigatorId} development phase: each Sanity total lost to a sort of monster is reduced by ${reduction} (p.169).` });
     }
     async applyDirectLoss(source: string, expression: string, options: { multiplier?: number | bigint | PythonFloat; alone?: boolean; moduleBoutOverride?: Row | null } = {}): Promise<Row> {
         const state = this.state;
@@ -162,7 +181,7 @@ export class SanitySession {
         const parsed = validateSanLossExpression(expression), rolled = parsed.kind === 'constant' ? null : rollExpression(expression, this.rng);
         const raw = parsed.kind === 'constant' ? parsed.value : rolled!.total, rolls = parsed.kind === 'constant' ? [raw] : [...rolled!.rolls];
         let lost = int(raw * factor);
-        const before = state.san_current, hardened = state.cm_value > before;
+        const before = state.san_current, hardened = this.hardened(before);
         if (hardened && lost > 0) lost = Math.floor(lost / 2);
         state.san_current = Math.max(0, state.san_current - lost); state.daily_san_lost += lost;
         if (lost >= 1) { state.delusion_resistant = false; state.symptoms_suppressed_until_next_san_loss = false; }
@@ -175,24 +194,29 @@ export class SanitySession {
         await this.afterLoss(source, lost, options.alone ?? false, options.moduleBoutOverride ?? null);
         return event;
     }
-    async startBout(source: string, alone = false, override: Row | null = null, durationHours?: number): Promise<Row> {
+    async startBout(source: string, alone = false, override: Row | null = null, durationHours?: number, boutChoice: string | null = null): Promise<Row> {
         const state = this.state, hours = durationHours ?? this.rng.randint(1, 10);
         const mode = truth(override?.force_mode) ? override!.force_mode : alone ? 'summary' : 'real_time';
         this.pendingRolls.push({ roll_id: this.rollId(), actor_id: this.investigatorId, skill: 'Bout Duration', kind: 'bout_duration_hours',
             goal: `bout of madness duration after ${source}`, die_expression: '1D10', roll: hours, outcome: 'rolled', target: null, bout_mode: mode,
             marker: `[die]Bout Duration 1D10:(roll->${hours})[/die]` });
-        const roll = this.rng.randint(1, 10), tableKey = mode === 'summary' ? 'summary' : 'realtime';
+        const tableKey = mode === 'summary' ? 'summary' : 'realtime';
         let table: any[] = [];
         try { table = array(row(await this.tables.load('bout-tables'))[tableKey]); } catch { /* The Python engine permits an unavailable bout table. */ }
-        const entry = row(table.find(entry => int(field(entry, 'd10_roll', 0)) === roll));
+        // §221.8 (p.157-159): the Keeper may choose a fitting result instead of rolling; the choice names the row's `kind`
+        // of this mode's table, and the die is rolled only when no row answers it.
+        const chosen = boutChoice !== null && !truth(override?.result_description) ? row(table.find(entry => string(field(entry, 'kind', '')) === boutChoice)) : {};
+        const picked = Object.keys(chosen).length > 0;
+        const roll = picked ? int(field(chosen, 'd10_roll', 0)) : this.rng.randint(1, 10);
+        const entry = picked ? chosen : row(table.find(entry => int(field(entry, 'd10_roll', 0)) === roll));
         const result = truth(override?.result_description) ? override!.result_description : string(field(entry, 'result', '')), kind = string(field(entry, 'kind', ''));
         this.pendingRolls.push({ roll_id: this.rollId(), actor_id: this.investigatorId, skill: 'Bout of Madness', kind: 'bout_of_madness_table',
-            goal: `bout of madness behavior (${tableKey} table) after ${source}`, die_expression: '1D10', roll, outcome: 'rolled', target: null,
-            bout_mode: mode, bout_kind: kind, bout_result: result, marker: `[die]Bout of Madness (${tableKey}) 1D10:(roll->${roll})->${kind}[/die]` });
+            goal: `bout of madness behavior (${tableKey} table) after ${source}`, die_expression: '1D10', roll, outcome: picked ? 'chosen' : 'rolled', target: null,
+            bout_mode: mode, bout_kind: kind, bout_result: result, marker: picked ? `[die]Bout of Madness (${tableKey}) chosen->${kind}[/die]` : `[die]Bout of Madness (${tableKey}) 1D10:(roll->${roll})->${kind}[/die]` });
         const sequence = state.bouts_of_madness.length + 1, candidate = `${this.investigatorId}:bout:${sequence}`;
         const id = safeId(candidate) ? candidate : `bout:${createHash('sha256').update(`${this.investigatorId}\0${sequence}`, 'utf8').digest('hex')}`;
         const bout: Row = { bout_id: id, mode, summary_table: mode === 'summary' ? 'table_viii_summary' : 'table_vii_realtime', bout_roll: roll,
-            bout_result: result, bout_kind: kind, duration_hours: hours, source };
+            bout_result: result, bout_kind: kind, duration_hours: hours, source, ...(picked ? { bout_chosen: true } : {}) };
         if (mode === 'real_time') {
             bout.duration_rounds = this.rng.randint(1, 10); state.bout_active = true; state.bout_rounds_remaining = bout.duration_rounds; state.active_bout_id = id;
             this.pendingRolls.push({ roll_id: this.rollId(), actor_id: this.investigatorId, skill: 'Bout Duration (rounds)', kind: 'bout_duration_rounds',

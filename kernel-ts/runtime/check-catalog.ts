@@ -7,10 +7,11 @@ import {npcsPresent} from '../read/capsule.js';
 import {continuableCheck, npcProfileOf} from '../resolve/context.js';
 import {SOCIAL_APPROACH_SKILLS} from '../resolve/arithmetic.js';
 import {INVOLUNTARY_KINDS} from '../sanity/session.js';
-import {statedSanLoss} from '../sanity/index.js';
+import {sanityLossLadder, statedSanLoss} from '../sanity/index.js';
 import {parseSanLoss} from '../sanity/expression.js';
 import {knownSpells, magicStateName} from '../magic/state.js';
 import {statedCheck, statedEndingReward} from '../read/stated.js';
+import {keeperAwardScale} from '../development/award.js';
 import {jsonDigest} from '../json.js';
 import {RuleTables} from '../rules/tables.js';
 import {ENDING_KINDS} from '../development/plan.js';
@@ -32,6 +33,28 @@ const modifiers = (): Parameter[] => [
     {...parameter('penalty', 'How many penalty dice does an established disadvantage impose?', ['none', 'one', 'two']),
         default: {value: 'none', question: 'Does an established rule or disadvantage impose any penalty dice on this particular action?'}},
 ];
+
+const INVOLUNTARY_QUESTION = 'Assume the upcoming SAN roll fails. The SAN rule then authorizes the Keeper to choose one brief involuntary response from these legal options; this is not a voluntary player decision. Judge its immediate compatibility, not whether the roll has already failed. Do not choose an extended strategy.';
+const involuntary = (): Parameter => ({...parameter('involuntary', INVOLUNTARY_QUESTION, [...INVOLUNTARY_KINDS]), selection: 'compatible'});
+/** §221.8 (p.157-159): the Keeper may pick a fitting bout instead of rolling Table VII; `roll` keeps the die. */
+async function boutParameter(tables: RuleTables): Promise<Parameter> {
+    const rows = array(row(await tables.load('bout-tables')).realtime).map(row), seen = new Set<string>();
+    const options = [{label: 'Roll on the bout table (1D10)', value: 'roll'}];
+    for (const entry of rows) {
+        const kind = string(entry.kind), result = string(entry.result);
+        if (!kind || seen.has(kind)) continue;
+        seen.add(kind); options.push({label: `${result}: a fitting bout of madness if this roll drives the investigator insane`, value: kind});
+    }
+    return {name: 'bout', selection: 'compatible', options,
+        question: 'Assume this SAN roll fails and the investigator goes insane. Which bout of madness fits what just happened and who is present (the Keeper may choose a fitting result instead of rolling the table, p.157)? Rolling is always permissible.'};
+}
+/** §221.3(4): the rulebook's example ladder (p.155) as the `san_loss` choice of a horror the module gives no number for. */
+const ladderParameter = (ladder: Array<{san_loss: string; situation: string}>): Parameter => ({name: 'san_loss',
+    question: 'Which of the rulebook\'s example situations (p.155) is what this investigator met this turn closest to in horror? Read done_this_turn: the clues filed, the people who arrived, the last committed narration and the declaration. Select unknown when nothing this turn is as horrific as any example, or when the horror cannot be placed on this ladder.',
+    options: ladder.map(entry => ({label: `${entry.situation} (${entry.san_loss})`, value: entry.san_loss}))});
+const JUDGED_DEFINITION = 'The Keeper Rulebook (p.154) has the Keeper call a Sanity roll for each investigator entangled in a sanity-threatening situation, with the loss depending on the situation; the module gave this one no number, so the loss is chosen from the book\'s example ladder (p.155). '
+    + 'Judge from what actually happened this turn (facts.done_this_turn): a clue filed whose content is a horror, a person or creature who arrived, what the last committed narration showed. '
+    + 'A sight already settled by a sanity_check receipt, a merely tense or unpleasant moment, a secret of the module this investigator has not met, and a horror listed under done_this_turn.stated (it has its own stated check) do not call for this roll.';
 
 export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGraph, sessions: SessionView, profiles: Row[], decisions: Row[],
     owners: {phases: Record<string, string>; openingAttack: Row | null; history: Row[]; publicText: string}): Promise<Row> {
@@ -118,14 +141,35 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
                 vehicle_profiles: Object.entries(row(row(chaseRules.vehicles).entries)).map(([key, value]) => ({key, ...row(value)})),
             });
     }
+    const tables = new RuleTables(campaign.context);
     if (!session && campaign.party.length) {
         const actor = campaign.party[0].name;
+        const scale = await keeperAwardScale(tables);
         for (const ending of ENDING_KINDS) {
             if (ending === 'tpk' && !campaign.party.every(sheet => array(sheet.conditions).includes('dead'))) continue;
             const reward = statedEndingReward(graph, campaign.world, ending);
+            // §221.9 (p.168): the Keeper award is offered from the book's expression or the data's scale, Jev reducing or
+            // cancelling it for cowardly, brutal or murderous conduct; nobody types a figure. A tpk awards nothing.
+            const parameters: Parameter[] = [];
+            if (ending !== 'tpk') {
+                const rung = (expression: string | null) => scale.find(entry => entry.expression === expression);
+                const options = reward
+                    ? [{label: `The book's award for this conclusion: ${reward.expression}`, value: reward.expression},
+                        ...scale.filter(entry => entry.expression !== reward.expression && (entry.expression === null || (rung(reward.expression) ? scale.indexOf(entry) < scale.indexOf(rung(reward.expression)!) : true)))
+                            .map(entry => ({label: entry.label, value: entry.expression}))]
+                    : scale.map(entry => ({label: entry.label, value: entry.expression}));
+                parameters.push({name: 'scenario_san_reward_expr', options,
+                    question: reward ? 'Which Sanity award does the book\'s conclusion grant after the investigators\' conduct is weighed? The book\'s expression stands unless they were cowardly, brutal or murderous (p.168).'
+                        : 'Which Sanity award fits the danger the investigators faced in this chapter and how they acted (p.168)? Select unknown when the chapter\'s danger cannot be weighed.',
+                    default: {value: reward ? reward.expression : null, question: reward
+                        ? 'Were the investigators cowardly, brutal or murderous in this chapter, so that the Keeper should reduce or remove the book\'s Sanity award (p.168)?'
+                        : 'Did the investigators face and overcome real danger in this chapter, so that a Keeper award of Sanity applies even though the book states none (p.168)?'}});
+            }
             add('development:end-session', `Close the party's session as ${ending} and settle its source-bound development`,
-                {actor, intent: 'montage', ending, ...(reward ? {scenario_san_reward_expr: reward.expression} : {})}, [], [],
-                ending === 'tpk' ? 'consequence' : 'declaration');
+                {actor, intent: 'montage', ending}, parameters, [],
+                ending === 'tpk' ? 'consequence' : 'declaration', {reward_source: reward ? 'stated' : 'rulebook_scale', stated: reward ? reward.expression : null});
+            const added = options.at(-1);
+            if (added?.action.ending === ending) added.definition = 'Keeper Rulebook p.168: at the end of a successful scenario or chapter the Keeper may award a Sanity roll, the same for all participants, proportional to the danger the group faced; a cowardly, brutal or murderous party may have it reduced or removed. The host rolls the chosen expression at the development phase; a null value awards nothing.';
         }
     }
     const learningSources = magicLearningSources({graph, world: campaign.world, npcProfile: handle => npcProfileOf(graph, campaign.world, handle)});
@@ -134,7 +178,15 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
     receipts.forEach((receipt, index) => { if (receipt.kind === 'move' && receipt.from !== receipt.to) visitStart = index + 1; });
     const visitReceipts = receipts.slice(visitStart);
     const publicChecks: Row[] = [];
-    const descriptions = row((await new RuleTables(campaign.context).skillDescriptions()).skills);
+    const descriptions = row((await tables.skillDescriptions()).skills);
+    const ladder = await sanityLossLadder(tables), bout = await boutParameter(tables);
+    // §221.3: what happened this turn, as receipts -- the clues filed and the people who arrived here.
+    const cluesThisTurn = array(campaign.turn.receipts).filter(receipt => receipt.kind === 'clue').flatMap(receipt => {
+        const node = typeof receipt.clue === 'string' ? graph.find(receipt.clue, ['clue']) : null;
+        return node ? [{node, handle: graph.handle(node), label: string(receipt.label || graph.displayName(node)), summary: string(receipt.summary ?? node.summary ?? ''), how: typeof receipt.how === 'string' ? receipt.how : null}] : [];
+    });
+    const arrivedThisTurn = [...new Set(array(campaign.turn.receipts).filter(receipt => receipt.kind === 'npc' && receipt.to === campaign.world.active_scene)
+        .map(receipt => string(receipt.name || receipt.npc)).filter(Boolean))];
     for (const profile of profiles) {
         if (profile.availability !== 'bound') continue;
         // These are exact canonical rule bindings, the same ones used by ResolvePipeline.candidates.
@@ -166,6 +218,7 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
     }
     for (const actor of actors) {
         const own = profiles.filter(profile => profile.actor === actor && profile.availability === 'bound');
+        const statedSights: string[] = [];
         if (own.length >= 2) add('core-check:combined-check', `${actor}: one source-required combined roll using multiple skills, not a sequence of separate attempts`, {actor}, [
             {...parameter('skills', 'Which skills are jointly required by this one combined check? Do not combine separate sequential actions.', own.map(profile => profile.skill)), multiple: {minimum: 2}},
             parameter('mode', 'Does this combined check succeed if any one skill succeeds, or must all its required skills succeed?', ['any', 'all']),
@@ -184,8 +237,9 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
                     row(row(mechanics.hazard).trigger).kind === 'keeper' ? ['hazard_trigger_not_established'] : []);
             }
             const loss = statedSanLoss(mechanics.sanity_loss);
+            if (loss) statedSights.push(graph.displayName(node));
             if (loss) add('sanity:check', `${actor}: source-stated sanity check for ${graph.displayName(node)}`, {actor, rule, san_loss: loss.join('/')},
-                [{...parameter('involuntary', 'Assume the upcoming SAN roll fails. The SAN rule then authorizes the Keeper to choose one brief involuntary response from these legal options; this is not a voluntary player decision. Judge its immediate compatibility, not whether the roll has already failed. Do not choose an extended strategy.', [...INVOLUNTARY_KINDS]), selection: 'compatible'}], [], 'consequence');
+                [involuntary(), bout], [], 'consequence');
         }
         for (const [skill, prefix] of [['First Aid', 'first-aid'], ['Medicine', 'medicine']]) {
             if (!own.some(profile => profile.skill === skill)) continue;
@@ -231,8 +285,32 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
             const alreadyExposed = investigator && visitReceipts.some(receipt => receipt.kind === 'roll' && receipt.roll_kind === 'sanity_check'
                 && receipt.actor === investigator.id && sameNode(graph, receipt.npc_exposure, person.node));
             if (loss && investigator) covered.add('sanity:check');
+            if (loss && investigator) statedSights.push(person.name);
             if (loss && investigator && !alreadyExposed) add('sanity:check', `${actor}: source-stated sanity check on perceiving ${person.name}`, {actor, target: person.name, san_loss: loss.join('/')},
-                [{...parameter('involuntary', 'Assume the upcoming SAN roll fails. The SAN rule then authorizes the Keeper to choose one brief involuntary response from these legal options; this is not a voluntary player decision. Judge its immediate compatibility, not whether the roll has already failed. Do not choose an extended strategy.', [...INVOLUNTARY_KINDS]), selection: 'compatible'}], [], 'consequence');
+                [involuntary(), bout], [], 'consequence');
+        }
+        // §221.3(3): a clue filed this turn whose node states its loss is the book's own number for that sight.
+        for (const filed of cluesThisTurn) {
+            const loss = statedSanLoss(graph.mechanicsOf(filed.node).sanity_loss), investigator = campaign.party.find(sheet => sheet.name === actor);
+            if (!loss || !investigator) continue;
+            statedSights.push(filed.label);
+            const exposed = receipts.some(receipt => receipt.kind === 'roll' && receipt.roll_kind === 'sanity_check' && receipt.actor === investigator.id && receipt.clue_exposure === filed.handle);
+            if (!exposed) add('sanity:check', `${actor}: source-stated sanity check on seeing ${filed.label}`, {actor, clue: filed.handle, san_loss: loss.join('/'), goal: `seeing ${filed.label}`},
+                [involuntary(), bout], [], 'consequence', {perceived: {kind: 'clue', label: filed.label, summary: filed.summary, how: filed.how}});
+        }
+        // §221.3(4): a horror the module gives no number for is still a Sanity roll (p.154), its loss judged from what
+        // happened this turn against the book's example ladder (p.155). Once per investigator per turn: a sanity_check
+        // receipt this turn, stated or judged, is the encounter's roll.
+        {
+            const investigator = campaign.party.find(sheet => sheet.name === actor);
+            const rolled = investigator && array(campaign.turn.receipts).some(receipt => receipt.kind === 'roll' && receipt.roll_kind === 'sanity_check' && receipt.actor === investigator.id);
+            if (investigator && !rolled && ladder.length) add('sanity:check', `${actor}: a Sanity roll for what happened this turn, its loss judged from the rulebook's examples`, {actor},
+                [ladderParameter(ladder), involuntary(), bout], [], 'consequence', {loss_source: 'rulebook_examples', done_this_turn: {
+                    clues: cluesThisTurn.map(filed => ({label: filed.label, summary: filed.summary, how: filed.how})),
+                    people_met: arrivedThisTurn, last_narration: owners.publicText.slice(-1500), declaration,
+                    stated: [...new Set(statedSights)]}});
+            const added = options.at(-1);
+            if (added?.action.decision === 'sanity:check' && added.facts?.loss_source === 'rulebook_examples') added.definition = JUDGED_DEFINITION;
         }
         add('push-luck:luck-roll', `${actor}: a Luck percentile check`, {actor}, modifiers());
         const sheet = campaign.party.find(sheet => sheet.name === actor);

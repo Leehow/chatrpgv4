@@ -10,6 +10,7 @@ import type { ExecutionResult, SettleContext, SettlementExecutor } from '../reso
 import type { FixedFamilyBinding } from '../resolve/families.js';
 import { unsupportedValue } from '../resolve/pipeline.js';
 import { recordDice, recordPercentile } from '../resolve/session-receipts.js';
+import type { RuleTables } from '../rules/tables.js';
 import { parseSanLoss, sanityInt as int, validateSanLossExpression } from './expression.js';
 import { INVOLUNTARY_KINDS, SanitySession, sanityGainPendingName } from './session.js';
 
@@ -95,13 +96,15 @@ export const executeSanity: SettlementExecutor = async (context, args, plan) => 
                 fix: 'set action.involuntary to one of details.needs.options (optionally {kind, summary})', details: { needs: { field: 'involuntary', options: [...INVOLUNTARY_KINDS] } } });
             const event = await session.sanityCheck(string(payload.source || 'the unnatural'), field(payload, 'san_loss_success', '0'), string(payload.san_loss_fail_expr || '1'), {
                 involuntaryKind: involuntary, involuntarySummary: string(payload.involuntary_summary || ''), alone: truth(payload.alone),
-                creatureType: typeof payload.creature_type === 'string' ? payload.creature_type : null });
+                creatureType: typeof payload.creature_type === 'string' ? payload.creature_type : null,
+                boutChoice: typeof payload.bout_choice === 'string' ? payload.bout_choice : null });
             if (event.type === 'sanity_check_skipped') turnState(string(row(event.payload).summary || 'SAN check skipped'));
             // §180.3: what is perceived is any actor -- a creature's sight is the usual one -- so its once-only exposure is
             // recorded against it as against a person.
             const perceived = typeof context.action.target === 'string' ? context.graph.actor(context.action.target) : null;
             const ids = recordSanityRolls(context, session, { source: string(payload.source || ''),
-                ...(perceived ? {npc_exposure: context.graph.handle(perceived)} : {}) }), result = row(event.payload);
+                ...(perceived ? {npc_exposure: context.graph.handle(perceived)} : {}),
+                ...(typeof payload.clue_ref === 'string' && payload.clue_ref ? {clue_exposure: payload.clue_ref} : {}) }), result = row(event.payload);
             const sanRoll = ids.length ? row(context.receipts.find(receipt => receipt.id === ids[0])) : {};
             data.check = { skill: 'SAN', target: before, roll: sanRoll.roll ?? null, level: result.roll_outcome ?? null, passed: SUCCESS_OUTCOMES.has(result.roll_outcome),
                 san_loss: result.san_loss ?? null, source: result.source ?? null };
@@ -165,6 +168,23 @@ export const executeSanity: SettlementExecutor = async (context, args, plan) => 
     throw new RpcError('not_implemented', `Sanity capability ${string(capability)} is not implemented`);
 };
 
+/**
+ * §221.2: the rulebook's example ladder (p.155) as the rules data states it: `{san_loss, situation}` rows in the book's
+ * order, each expression read by the sanity grammar. A malformed row fails loudly; the data is the only number source.
+ */
+export async function sanityLossLadder(tables: Pick<RuleTables, 'load'>): Promise<Array<{ san_loss: string; situation: string }>> {
+    const rows = array(row(row(await tables.load('sanity')).sample_loss_ladder).rows).map(row);
+    return rows.map((entry, index) => {
+        const loss = string(entry.san_loss), situation = string(entry.situation);
+        if (!parseSanLoss(loss) || !situation.trim()) throw new RpcError('invalid_params', `sanity.json sample_loss_ladder.rows[${index}] is not {san_loss: "<s>/<f>", situation}`);
+        return { san_loss: loss, situation };
+    });
+}
+/** §221.6: the sort of monster a perceived actor is, as closed data: its pinned catalog entry, else its handle. */
+export function creatureTypeOf(graph: SettleContext['graph'], node: Row, profile: Row | null): string {
+    const catalog = row(profile).catalog;
+    return typeof catalog === 'string' && catalog.trim() ? `catalog:${catalog.trim()}` : graph.handle(node);
+}
 /** A typed `sanity_loss` shape (§136.6 shape 3) as the check's pair; null unless both halves are stated strings. */
 export function statedSanLoss(shape: any): [string, string] | null {
     if (!isJsonObject(shape) || typeof shape.success !== 'string' || typeof shape.failure !== 'string') return null;
@@ -188,7 +208,8 @@ export function createSanityFamily(): FixedFamilyBinding {
                     if (!loss) for (const key of ['san_loss', 'san_loss_to_see', 'sanity_loss']) { loss = parseSanLoss(profile[key]); if (loss) break; }
                 }
                 if (!loss) throw new RpcError('needs', 'the SAN check needs its loss expression (success/failure)', {
-                    fix: 'set action.san_loss like 0/1D6, or target an NPC whose profile states one', details: { needs: { field: 'san_loss', options: ['0/1', '0/1D3', '0/1D6', '1/1D6', '1/1D8', '1/1D10'] } } });
+                    fix: 'set action.san_loss to a rung of the rulebook\'s example ladder (details.needs.options, p.155), or target an NPC whose profile states one',
+                    details: { needs: { field: 'san_loss', options: [...new Set((await sanityLossLadder(context.tables)).map(entry => entry.san_loss))] } } });
                 for (const [label, expression] of [['success', loss[0]], ['failure', loss[1]]]) {
                     if (expression === '0' || expression === '') continue;
                     try { validateSanLossExpression(expression); }
@@ -200,6 +221,16 @@ export function createSanityFamily(): FixedFamilyBinding {
                 const source = goal || method || (targets.npc ? `seeing ${context.graph.displayName(targets.npc)}` : '');
                 if (!source) throw new RpcError('needs', 'the SAN check needs its source', { fix: 'put what the investigator beholds in action.goal', details: { needs: { field: 'goal', options: [] } } });
                 Object.assign(semantic, { source, loss_success: loss[0], loss_failure: loss[1], involuntary_kind: string(kind), involuntary_summary: string(truth(summary) ? summary : stakes || kind) });
+                // §221.8: the bout the Keeper (through Jev) picked for a failure that goes insane; `roll` or nothing keeps the die.
+                if (typeof action.bout === 'string' && action.bout.trim() && action.bout !== 'roll') semantic.bout_choice = action.bout.trim();
+                // §221.6: the sort of monster, closed data for Getting Used to the Awfulness; a situation or a clue binds none.
+                if (targets.npc) binding.creature_type = creatureTypeOf(context.graph, targets.npc, context.npcProfile(context.graph.handle(targets.npc)));
+                // §221.3(3): the clue whose sight this is, so the exposure is recorded once per line.
+                if (typeof action.clue === 'string' && action.clue.trim()) {
+                    const clue = context.graph.find(action.clue.trim(), ['clue']);
+                    if (!clue) throw new RpcError('unknown_entity', `no clue ${repr(action.clue)}`, { fix: 'name a clue filed on this line, or leave action.clue out' });
+                    binding.clue_ref = context.graph.handle(clue);
+                }
                 if (truth(action.trigger)) { semantic.trigger_ref = string(action.trigger); const trigger = string(action.trigger), at = trigger.indexOf(':'); binding.trigger_id = at < 0 ? trigger : trigger.slice(at + 1); }
             }
             else if (suffix === 'bout-tick' || suffix === 'bout-end') {
@@ -240,7 +271,8 @@ export function createSanityFamily(): FixedFamilyBinding {
             const command: Row = { decision_id: string(context.callId) };
             if (kind === 'bout_tick' || kind === 'bout_end') Object.assign(command, { choice_id: payload.pending_choice_ref ?? null, responder: 'keeper', revision: payload.bout_revision ?? null, action: kind === 'bout_tick' ? 'tick' : 'end' });
             else if (kind === 'sanity_check') Object.assign(command, { source: payload.source ?? null, san_loss_success: field(payload, 'loss_success', '0'), san_loss_fail_expr: payload.loss_failure ?? null,
-                involuntary_kind: payload.involuntary_kind ?? null, involuntary_summary: payload.involuntary_summary ?? null, trigger_id: payload.trigger_id ?? null });
+                involuntary_kind: payload.involuntary_kind ?? null, involuntary_summary: payload.involuntary_summary ?? null, trigger_id: payload.trigger_id ?? null,
+                bout_choice: payload.bout_choice ?? null, creature_type: payload.creature_type ?? null, clue_ref: payload.clue_ref ?? null });
             else if (kind === 'reality_check') command.request_reality_check = payload.request_reality_check ?? null;
             else if (kind === 'gain_current_san') Object.assign(command, { san_gain: payload.san_gain ?? null, gain_source: payload.gain_source ?? null });
             else if (kind === 'insane_insight') Object.assign(command, { insight: payload.insight ?? null, insanity_state: payload.insanity_state ?? null });

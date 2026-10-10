@@ -51,6 +51,7 @@ export function closeSanityDays(input: Row, investigatorId: string, cmValue: num
         awfulness_caps: orderedObject(entries(input.awfulness_caps).map(([key, value]) => [key, intField(value)])),
         temporary_insane: truth(input.temporary_insane), temporary_insane_remaining_hours: intField(field(input, 'temporary_insane_remaining_hours', 0)),
         indefinite_insane: truth(input.indefinite_insane), permanently_insane: truth(input.permanently_insane),
+        mythos_hardened: truth(input.mythos_hardened),
         bout_active: active, bout_rounds_remaining: rounds, active_bout_id: id,
         daily_san_lost: intField(field(input, 'daily_san_lost', 0)), day_start_san: intField(field(input, 'day_start_san', current)),
         bouts_of_madness: clone(bouts), involuntary_actions: clone(array(input.involuntary_actions)),
