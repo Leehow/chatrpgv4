@@ -16,6 +16,7 @@ import {join,resolve} from 'node:path';
 import {after,before,test} from 'node:test';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {waitForValue} from './wait.mjs';
 
 const ROOT=resolve(import.meta.dirname,'../..'),CONTENT=join(ROOT,'content');
 let api,bundle;
@@ -203,17 +204,15 @@ test('§205.4 a reused packet keeps what is missing only while its materials nee
   assert.equal(named.packet.missing.length,1);assert(named.packet.materials.length>0);
   // The reuse checks run on the product's own 500 ms allowance; on a saturated test box one can run out, which is a refusal
   // to reuse, not what this test is about. A refusal is retried; whatever is reused is checked.
-  const reuse=async suppliedMessages=>{
-    for(let attempt=0;attempt<5;attempt++){
+  const reuse=suppliedMessages=>waitForValue(async()=>{
       try{
         const reused=await api.reusePrescreen({call:(method,params)=>f.call(method,params),campaign:'c1',binding:f.binding,query:LINE,
           message:named.message,suppliedMessages,byteBudget:16*1024,signal:new AbortController().signal,source:{moduleId:f.mid,runtime:f.source}});
-        if(reused)return reused;
+        return reused;
       }catch(error){
         if(!(error instanceof DOMException&&error.name==='TimeoutError'))throw error;
       }
-    }
-  };
+  },{label:'the current material-gap packet to be reused'});
   const same=await reuse([]);
   assert(same,'reused');assert.deepEqual(JSON.parse(same.content).missing,named.packet.missing);
   const moved=await reuse([{role:'custom',customType:'coc-history',content:JSON.stringify({quotes:[]})}]);

@@ -42,6 +42,18 @@ discovery remains on primary and is not imported/staged. Next: exact combined bu
 all-suite validation on idle LAN, genuine continuation for the combined runtime and
 safe scoped mainline integration; preserve the existing App and all prior evidence.
 
+Combined checkpoint: exact LAN buildacf92a3ab and485 embedded source checks passed.
+Two additional genuine turns52.203/50.082s, five tools, zero provider/tool errors, normal
+stop; completed cold-read publicationgeneration16 remains correctly preparing. Full
+allacf ended611s red: ext5451pass/2fail/1skip,pytest2128pass/2skip,loop12. Admission is
+green there. All609 per-file/raw logs retained. Remaining told-position/material-gap
+failures use fixed50ms sleep/five retries; now replaced with existing wait.mjs condition
+waiting, assertions intact and each production reuse500ms unchanged. Targeted two-file
+LAN check passed17/17 (64.610s; readiness-fixes-targeted.log), then finalall before integration.
+Primary owner is again actively editing kernel-rpc/capabilitycatalogue/apply/read paths;
+preserve all their changes. Both real opening/combined drivers are stopped; no new live
+model test is needed after these test-only repairs unless production changes or new failures.
+
 ## Current approved SQLite migration
 
 User approved moving source-reading queue and related metadata to SQLite, preserving all

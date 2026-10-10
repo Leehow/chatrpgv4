@@ -143,3 +143,31 @@ selection/foundation/capability-catalogue paths. Keep those edits intact; source
 and observation repairs remain on the owned branch pending scoped integration and final
 gate disposition. The existing heartbeat will resume against authoritative Git/process
 state when the shared integration paths settle. No App packaging/restart or push occurred.
+
+## Combined committed-mainline validation
+
+Merge71e8f37ca includes only primary's committed f6da29d60/d5d41ab68; its uncommitted
+capability-discovery work is untouched. Exact LAN buildacf92a3ab succeeded,485 embedded
+sources match. Genuine continuation pdf-opening-combined-20261010-play settled two
+natural inputs52.203/50.082s. Five Keeper calls all completed, five tools all succeeded,
+no provider/tool errors, normal correlated wire EOF. Two lookups returned partial original
+references with prepared:false; they are not full material preparation. Normal stop left
+all24 recorded process identities exited. SQLintegrityok;17completed/4quality-failed/
+2queued/2running, zero duplicate job ids/active request groups. Repeated request keys
+are explicit failed-review retry lineage. New host30734 reclaimed unfinished21/22 with
+matching lease/packet/key/hash;22 completed and publishedgeneration16 as still preparing.
+
+Allacf92a3ab exited1 after611s: ext5454total/5451pass/2fail/1skip,pytest2128pass/2skip,
+routing12pass. All609 per-file logs and raw outputs are retained under
+pdf-opening-diagnostics-20261010-evidence/final-all-combined-acf92a3ab.
+Admission passed in this all run. The remaining failures exposed test synchronization:
+told-position waited50ms after a telemetry row before requiring asynchronous flight cleanup;
+material-gap used five retries rather than waiting for the reused packet it asserts. The
+existing tests/extension/wait.mjs explicitly requires waiting for the asserted condition,
+with its existing wall-clock bound, instead of fixed sleeps/iteration counts. These two
+tests now use that existing helper; all original outcome/material/absence assertions stay.
+The test uses the repository's existing10s condition-wait bound. Each production reuse
+still has500ms, and no production runtime/model/review/resource limit changed. External
+research was omitted for this trivial reuse of the repository's established test helper.
+Both complete repaired test files passed17/17 on idle amax in64.610s. The final all
+after these test-only repairs remains pending; original all red records stay retained.
