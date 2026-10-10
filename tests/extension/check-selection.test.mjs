@@ -823,6 +823,8 @@ test('§221.9: a rules default stands when Jev leans to an override but cannot b
     if (why) assert.deepEqual(result.forced, {uncertain: ['scenario_san_reward_expr override: unknown, rules default'], why});
     else assert.equal(result.forced, undefined);
   }
+});
+
 test('§222.3: the Idea roll is selected on the players\' request for a way forward, never inferred from a declared act', () => {
   const idea = {key: 'idea', family: 'core-check', label: 'Ada: the Idea roll -- the players are stuck and ask for a way forward',
     action: {actor: 'Ada', decision: 'core-check:idea-roll', intent: 'investigate'}, parameters: [], needs: [], authorization: 'declaration'};
