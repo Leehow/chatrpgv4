@@ -114,8 +114,14 @@ test('§224.7: the host settles the turn-31 shape -- unprepared held object, pre
   assert.deepEqual([band.ok, band.for, band.band, band.name], [true, 'improvised', 'club_large', 'Study chair']);
   const bind = h.rows.find(row => row.lane === 'run' && row.event === 'bind' && row.clerk === 'improvised_weapon');
   assert.deepEqual([bind.bindings[0].name, bind.bindings[0].path, bind.bindings[0].rule, bind.bindings[0].value], ['improvised', 'rule-default', 'attack_fallback', 'club_large']);
-  const pending = (await game.call('table.status')).session?.pending_attack ?? (await game.call('table.look', {focus: 'session'})).pending_attack;
-  if (pending) assert.deepEqual([pending.weapon_id, pending.improvised_object], ['club_large', 'Study chair'], 'the pending attack names the object and the row');
+  const session = (await game.call('table.resolve.options')).context?.session ?? {};
+  const pending = session.pending_defense;
+  assert.ok(pending, 'the first blow waits on the defender');
+  assert.equal(pending.actor, 'steven-knott');
+  // Live table 2026-10-10: the defender's step then failed the snapshot's pending-attack contract ("combat pending attack
+  // contract is invalid") because it did not know the two improvised fields. The defence settles the attack.
+  const defended = await game.call('table.resolve', {call_id: game.next(), action: {intent: 'combat', decision: 'combat:defend', actor: 'Steven Knott', defense: 'dodge', goal: 'dodge the chair'}});
+  assert.ok(defended, 'the defence resolves against an improvised attack');
 });
 
 test('§224.7: with no comparable row (Jev none) or no Jev, the attack is unarmed Fighting (Brawl) per §224.2, still a roll', async t => {
