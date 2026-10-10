@@ -86,3 +86,17 @@ omission without lost evidence. Initial two test errors were a missing constant 
 a helper's intentionally fixed question; both repaired without assertion relaxation.
 Transport focused LAN at3addda73d is running; it does not validate these later source changes.
 Next combined all/exact runtime and genuine original-PDF setup/opening, with actual limits.
+
+LAN routing correction: user confirmedamax is off the LAN; current box is leehow-pc.
+Stopped only own local hung SSH61559 for the earlieramax focused controller. Its final
+remote exit/results are uncollected and cannot count as passed; retain the local log and
+remote owned namespace without refreshing it. Never use FRP for these offline suites.
+Canonical probe now selects reachableleehow-pc at192.168.31.113, verifiedLinuxhost key,
+but its test processes belong to native-history-search-20261009, not this task. Preserve
+that owner and wait for actual idle before dispatching withRT_HOST=leehow-pc. No busy override.
+Owned branch merged doc-only main d821739c6; production candidate is748d89f84 plus transport
+50c7c2a2d. Local source cases13/13 and language guards5/5passed; no current all/runtime/live
+claim. Isolated fresh module/campaign input prepared from the original hashedPDF and48
+retained legacy transcripts only, no world/character clone. Native credential file symlink,
+Grok4.7Fast/low, encrypted Jev vault decoded only by launch/child memory. Startup script
+refuses existing run paths; protective real-evidence marker remains untracked.
