@@ -43199,6 +43199,12 @@ test's dispatcher calls the kernel directly); the Keeper's narration reading `ou
 inside a running fight with an unprepared object is not routed here (the kernel accepts `improvised` there; the host asks
 only for the first blow).
 
+**Live check** (2026-10-10, the rewound TR-F2 run 3 table, turn 31, Grok 4.7 Build fast, live Jev). The declared stab bound the
+rusty dagger as `knife_medium` (Fighting (Brawl) 1D4+2, p=0.58) and the host's resolve was then refused by the Pi tool schema
+(`action.improvised: schema is false`) -- the same seam as §221.11's `bout`: the host's resolve is validated like the
+Keeper's. `improvised` is a resolve action property now (`extensions/kernel/tools.ts`), a rules parameter of the result in
+§32.4.2's list, and `tests/extension/improvised-weapon.test.mjs` validates the dispatched arguments against the tool schema.
+
 ### 224.8 The skill a declared act uses is the Keeper's pick when one clearly fits (2026-10-10, found on a real table; narrows §163.8)
 
 **Evidence.** On the rewound TR-F2 run 3 basement (Grok 4.7 Build fast, live Jev), "我继续使劲撬那块最宽的木板，非把口子撬到能钻

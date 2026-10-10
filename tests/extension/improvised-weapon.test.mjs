@@ -8,6 +8,8 @@ import {table} from './object-usages-fixture.mjs';
 import {buildCandidates} from '../../runtime/jev/candidates.ts';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {improvisedPreparation} from '../../runtime/jev/attack-preparation.ts';
+import {validateToolArguments} from '@earendil-works/pi-ai';
+import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
 
 const INPUT = 'I swing the chair at Knott.';
 const choice = (probabilities, confidence = 0.9) => {
@@ -97,6 +99,11 @@ test('§224.7: the host settles the turn-31 shape -- unprepared held object, pre
   assert.equal(h.dispatched.length, 1, 'one resolve reached the kernel');
   assert.equal(h.dispatched[0].action.weapon, 'Study chair');
   assert.equal(h.dispatched[0].action.improvised, 'club_large');
+  // Live table 2026-10-10: the host's resolve is validated against the Pi tool schema, which refused `improvised` ("schema is
+  // false") until it was declared; this dispatcher bypasses that check, so the dispatched arguments are validated here.
+  const resolveTool = COC_TOOLS.find(spec => spec.name === 'resolve');
+  assert.doesNotThrow(() => validateToolArguments({name: 'resolve', description: '', parameters: resolveTool.parameters},
+    {type: 'toolCall', id: 't1', name: 'resolve', arguments: {action: h.dispatched[0].action}}));
   assert.ok(result.artifact.executed.ok, JSON.stringify(result.artifact.executed.summary).slice(0, 400));
   const forced = h.rows.find(row => row.lane === 'forced-resolution');
   assert.equal(forced.family, 'check-binding');
