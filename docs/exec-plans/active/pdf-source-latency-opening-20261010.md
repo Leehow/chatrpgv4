@@ -71,3 +71,18 @@ semantic continuation finding was new. No proven lost-source-input host fault; d
 force broad full rereads or patch source content merely to make these refusals disappear.
 The110s case submitted reading as ownership transfer, then a name with no successful public
 document evidence path. Inspect the existing physical-document/handout seam before repair.
+
+Document milestone: bounded audit found no registered target carrier or successful handout
+receipt in the110s turn. Original-source excerpt pages only offered more answer pages.
+The Keeper prompt incorrectly grouped investigator reading with object mutation operations.
+Corrected it to distinguish current-carrier look/document_page from NPC observation and
+ownership changes. Unprepared answer pages now offer same-request preparation navigation
+and the existing handout route, without inventing a carrier, selecting an asset or revealing
+names. Optional guidance yields to the existing4KiB page budget and preserves all source
+units/identity metadata. Tool descriptions carry the same routing instruction. All action,
+name, source and review gates remain unchanged. Existing cached replies also use this adapter.
+New cache regressions cover exact focus/question, original-byte preservation and guidance
+omission without lost evidence. Initial two test errors were a missing constant import and
+a helper's intentionally fixed question; both repaired without assertion relaxation.
+Transport focused LAN at3addda73d is running; it does not validate these later source changes.
+Next combined all/exact runtime and genuine original-PDF setup/opening, with actual limits.

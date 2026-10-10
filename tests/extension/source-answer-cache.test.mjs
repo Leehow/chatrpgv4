@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {PendingAnswers, memoAnswer, HELD_SOURCE_RAW_BYTES, HELD_SOURCE_ENTRIES} from '../../extensions/kernel/source-answers.ts';
-import {sourceAnswerPage, withSourceQuestion} from '../../runtime/jev/source-answer-pages.ts';
+import {sourceAnswerPage, withSourceQuestion, SOURCE_ANSWER_PAGE_BYTES} from '../../runtime/jev/source-answer-pages.ts';
 import {CARRIED_VIEW_BYTES, HELD_ANSWERS_BYTES} from '../../runtime/jev/carried-views.ts';
 
 const size = value => Buffer.byteLength(JSON.stringify(value), 'utf8');
@@ -49,6 +49,40 @@ function collectPages(read, originals) {
   }
   return [...units.values()];
 }
+
+test('unprepared cached source pages retain same-request preparation without granting document disclosure', () => {
+  const list = new PendingAnswers(() => {}), question = 'Read the selected physical document';
+  const answer = {status:'excerpts',prepared:false,question:'a different source-authored question',
+    authority:'original-source-excerpts',excerpts:[{page:3,text:'Exact original passage. '.repeat(500)}],source_refs:[{page:3}]};
+  const original = structuredClone(answer);
+  assert.equal(cache(list, question, answer), true);
+  let part = 0;
+  for (;;) {
+    const page = list.read('c',{scene:'office',focus:'book',question,part}).source_answer;
+    assert.ok(size(page)<=SOURCE_ANSWER_PAGE_BYTES);
+    assert.equal(page.prepared,false);
+    assert.deepEqual(page.play_material.prepare,{kind:'source',source_mode:'prepare',query:'book',question});
+    assert.equal(page.question,question);assert.equal(page.source_question,original.question);
+    if(!page.read_next)break;
+    part=page.read_next.answer_part;
+  }
+  assert.ok(part>0,'guidance survives actual local continuation pages');
+  assert.deepEqual(answer,original,'presentation never changes the cached source evidence');
+});
+
+test('optional physical-reading guidance cannot displace source identity or original units', () => {
+  const list=new PendingAnswers(()=>{}),text='Retained source words 🌲 '.repeat(400);
+  const answer={status:'excerpts',prepared:false,provenance:'p'.repeat(2550),excerpts:[{page:3,text}],source_refs:[{page:3}]};
+  assert.equal(cache(list,'combined',answer),true);
+  const read=part=>{
+    const result=list.read('c',{scene:'office',focus:'book',question:'combined',part});
+    assert.equal(result.source_answer.play_material,undefined);
+    assert.equal(result.source_answer.provenance,answer.provenance);
+    assert.deepEqual(result.source_answer.source_refs,answer.source_refs);
+    return result;
+  };
+  collectPages(read,new Map([['/excerpts/0',text]]));
+});
 
 test('a memo envelope neither replaces an original question nor consumes held presentation or audit space', () => {
   const rows = [], list = new PendingAnswers(row => rows.push(row));

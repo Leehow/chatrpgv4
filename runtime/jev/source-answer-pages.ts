@@ -67,6 +67,14 @@ export function sourceAnswerPage(answer: Row, input: SourceAnswerPageInput): Sou
   const part = input.part ?? 0;
   if (!Number.isSafeInteger(part) || part < 0) return {unavailable: 'invalid_part'};
   const bound = withSourceQuestion(input.question, answer);
+  if (bound.prepared === false) {
+    const playMaterial = {
+      prepare: {kind: 'source', source_mode: 'prepare', query: input.focus, question: input.question},
+      instruction: 'Keeper reference only. For chosen physical reading, use look object with document_page 1 on the actual registered carrier. If the authored document needs preparation, use prepare, then its actual handout receipt. Preserve the current owner; reading alone is not an ownership transfer. Do not copy source excerpts into an invented player-owned document or treat their names as already revealed.',
+    };
+    const metadata = Object.fromEntries(Object.entries(bound).filter(([key]) => !PAYLOAD.includes(key as typeof PAYLOAD[number])));
+    if (size({...metadata, play_material: playMaterial}) <= SOURCE_ANSWER_PAGE_BYTES - 1024) bound.play_material = playMaterial;
+  }
   const whole = {...bound, delivery: {complete: true, part: 0, total_parts: 1}};
   if (size(whole) <= SOURCE_ANSWER_PAGE_BYTES) return part === 0 ? {view: whole} : {unavailable: 'invalid_part'};
   const metadata = Object.fromEntries(Object.entries(bound).filter(([key]) => !PAYLOAD.includes(key as typeof PAYLOAD[number])));
