@@ -19,7 +19,7 @@
 
 import { createHash } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { runLane, type KeptReservation, type LaneResult, type LaneTransport } from "../lanes/subsession.ts";
+import { runLane, type KeptReservation, type LaneReplyEvidence, type LaneResult, type LaneTransport } from "../lanes/subsession.ts";
 import { KernelError } from "./client.ts";
 import { createDecisionAdapter, jevFailureTelemetry } from "../../runtime/jev/decision-adapter.ts";
 import { HANDOVER_GROUND_NOTE, PLAYER_EXECUTION_CHOICE_NOTE } from "../../runtime/jev/action-field-semantics.ts";
@@ -928,6 +928,8 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 	const input = buildAdmissionInput(options.proposal, options.context);
 	let lane: LaneResult<AdmissionVerdict> | undefined, model: string | undefined, firstByteMs: number | undefined, previous: string | undefined;
 	let attempts = 0, malformed = 0, transient: Record<string, unknown> | undefined;
+	// §212: what each malformed answer held (bounded), so a `bad_output` row says why it could not be read.
+	const malformedReplies: LaneReplyEvidence[] = [];
 	// §190.3 (§140.1): a transient failure's reservation, kept for its identical retry; charged whole if none takes it.
 	let kept: KeptReservation | undefined;
 	try { for (;;) {
@@ -958,6 +960,7 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 		if (firstByteMs === undefined && lane.firstByteMs !== undefined) firstByteMs = startedAt - began + lane.firstByteMs;
 		if (lane.ok || options.signal?.aborted) break;
 		// §143.15: a malformed answer is asked for once more, with one line saying why.
+		if (lane.reason === "bad_output" && lane.reply) malformedReplies.push(lane.reply);
 		if (lane.reason === "bad_output" && ++malformed < ADMISSION_LANE_ATTEMPTS) { previous = lane.detail; continue; }
 		// §190.3: a transient provider failure is asked again once, unchanged, after the data's wait and inside the deadline.
 		if (transient || !transientLaneFailure(lane)) break;
@@ -968,7 +971,8 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 		if (options.signal?.aborted) break;
 	} } finally { kept?.chargeWhole(); }
 	const ms = clock.now() - began;
-	const meta = { path: "lane", first_byte_ms: firstByteMs ?? null, attempts, ...(transient ? { transient_retry: transient } : {}) };
+	const meta = { path: "lane", first_byte_ms: firstByteMs ?? null, attempts, ...(transient ? { transient_retry: transient } : {}),
+		...(malformedReplies.length ? { malformed_replies: malformedReplies } : {}) };
 	// §32.12: a round cut at its cap -- whether the provider never answered or answered and streamed past it -- is the
 	// host's `review_timeout` verdict, a refusal; never an outage, and never an admit.
 	if (!lane!.ok && lane!.reason === "timeout") return { ok: true,

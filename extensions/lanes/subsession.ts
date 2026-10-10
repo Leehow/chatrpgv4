@@ -33,7 +33,25 @@ export type LaneFailureReason = "model_unavailable" | "model_error" | "bad_outpu
  */
 export type LaneResult<T> =
 	| { ok: true; value: T; ms: number; model: string; raw: string; usage?: ReturnType<typeof providerUsage>; firstByteMs?: number }
-	| { ok: false; reason: LaneFailureReason; detail: string; ms: number; model?: string; firstByteMs?: number; transport?: LaneTransport; kept?: KeptReservation };
+	| { ok: false; reason: LaneFailureReason; detail: string; ms: number; model?: string; firstByteMs?: number; transport?: LaneTransport; kept?: KeptReservation;
+		/** Contract §212: on `bad_output`, what the reply held, bounded; never parsed, never a verdict. */
+		reply?: LaneReplyEvidence };
+
+/**
+ * Contract §212: the bounded shape of a reply the lane could not read -- its block kinds in order, the provider's stop
+ * reason, the bytes of answer text and of reasoning, how many complete top-level objects the text held, and the text's
+ * first and last bytes (each at most `REPLY_EVIDENCE_BYTES`, never inside a code point). Reasoning text is counted, not kept.
+ */
+export interface LaneReplyEvidence {
+	blocks: string[];
+	stop_reason?: string;
+	text_bytes: number;
+	thinking_bytes: number;
+	objects: number;
+	head: string;
+	tail?: string;
+}
+export const REPLY_EVIDENCE_BYTES = 240;
 
 /**
  * Contract §190.3, extending §140.1's second rule (an identical resend is paid from its failed attempt's reservation) from a
@@ -209,10 +227,8 @@ function sessionIdOf(ctx: ExtensionContext): string | undefined {
 	return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-/** Models may wrap or repeat JSON: take the first complete top-level object, respecting quoted braces. */
-function extractJsonObject(text: string): string | undefined {
-	const start = text.indexOf("{");
-	if (start < 0) return undefined;
+/** The index of the brace closing the object opened at `start`, respecting quoted braces; undefined when it never closes. */
+function closingBrace(text: string, start: number): number | undefined {
 	let depth = 0, quoted = false, escaped = false;
 	for (let index = start; index < text.length; index++) {
 		const char = text[index];
@@ -224,9 +240,59 @@ function extractJsonObject(text: string): string | undefined {
 		}
 		if (char === '"') quoted = true;
 		else if (char === "{") depth++;
-		else if (char === "}" && --depth === 0) return text.slice(start, index + 1);
+		else if (char === "}" && --depth === 0) return index;
 	}
 	return undefined;
+}
+
+/** At most this many top-level objects are read from one reply. */
+const MAX_REPLY_OBJECTS = 16;
+
+/**
+ * Contract §212: models may wrap, repeat or precede their JSON (an echoed line can carry an object, or an unclosed piece of
+ * one): every complete top-level object, in order. An opening brace that never closes is passed over from the next
+ * character, so a stray or truncated brace in prose cannot hide the answer after it. Nothing here reads meaning.
+ */
+export function jsonObjectCandidates(text: string): string[] {
+	const found: string[] = [];
+	let from = 0;
+	while (found.length < MAX_REPLY_OBJECTS) {
+		const start = text.indexOf("{", from);
+		if (start < 0) break;
+		const end = closingBrace(text, start);
+		if (end === undefined) { from = start + 1; continue; }
+		found.push(text.slice(start, end + 1));
+		from = end + 1;
+	}
+	return found;
+}
+
+/** `text` cut to at most `maxBytes` UTF-8 bytes from its start, or from its end with `fromEnd`; never inside a code point. */
+function clipUtf8(text: string, maxBytes: number, fromEnd = false): string {
+	const chars = [...text];
+	if (fromEnd) chars.reverse();
+	let used = 0, kept = 0;
+	for (const char of chars) {
+		const size = Buffer.byteLength(char, "utf8");
+		if (used + size > maxBytes) break;
+		used += size; kept++;
+	}
+	const slice = chars.slice(0, kept);
+	return (fromEnd ? slice.reverse() : slice).join("");
+}
+
+function replyEvidence(content: ReadonlyArray<{ type: string; text?: string; thinking?: string }>, raw: string, objects: number, stopReason: unknown): LaneReplyEvidence {
+	const textBytes = Buffer.byteLength(raw, "utf8");
+	const head = clipUtf8(raw, REPLY_EVIDENCE_BYTES);
+	return {
+		blocks: content.map((block) => block.type),
+		...(typeof stopReason === "string" ? { stop_reason: stopReason } : {}),
+		text_bytes: textBytes,
+		thinking_bytes: content.reduce((sum, block) => sum + (block.type === "thinking" && typeof block.thinking === "string" ? Buffer.byteLength(block.thinking, "utf8") : 0), 0),
+		objects,
+		head,
+		...(textBytes > Buffer.byteLength(head, "utf8") ? { tail: clipUtf8(raw, REPLY_EVIDENCE_BYTES, true) } : {}),
+	};
 }
 
 /**
@@ -770,31 +836,38 @@ async function runLaneAttempt<T>(
 				...(kept ? { kept } : {}),
 			};
 		}
-		const raw = (reply.content ?? [])
-			.filter((block): block is { type: "text"; text: string } => block.type === "text")
+		const content = (reply.content ?? []) as ReadonlyArray<{ type: string; text?: string; thinking?: string }>;
+		// Only answer text is read: reasoning is the model's scratch, and JSON written there is never taken as its answer.
+		const raw = content
+			.filter((block): block is { type: "text"; text: string } => block.type === "text" && typeof block.text === "string")
 			.map((block) => block.text)
 			.join("")
 			.trim();
-		const json = extractJsonObject(raw);
-		if (!json) {
-			return { ok: false, reason: "bad_output", detail: "the reply held no JSON object", ms: clock.now() - began, model: label };
+		const candidates = jsonObjectCandidates(raw);
+		const malformed = (detail: string): LaneResult<T> => ({ ok: false, reason: "bad_output", detail, ms: clock.now() - began, model: label,
+			reply: replyEvidence(content, raw, candidates.length, reply.stopReason) });
+		if (!candidates.length) {
+			return malformed(raw || !content.length ? "the reply held no JSON object"
+				: `the reply held no answer text, only ${[...new Set(content.map((block) => block.type))].join(", ")}`);
 		}
-		let parsed: unknown;
-		try {
-			parsed = parseJsonWithRepair(json);
-		} catch (error) {
-			return {
-				ok: false,
-				reason: "bad_output",
-				detail: `JSON parse failed: ${error instanceof Error ? error.message : String(error)}`,
-				ms: clock.now() - began,
-				model: label,
-			};
+		// §212: the first complete object of the lane's own closed shape is the answer; an object of another shape before it
+		// (an echoed line) is passed over. A second object of that shape saying something else makes the reply no answer:
+		// the reader never picks between two answers.
+		let value: T | undefined, firstFailure: string | undefined;
+		for (const json of candidates) {
+			let parsed: unknown;
+			try {
+				parsed = parseJsonWithRepair(json);
+			} catch (error) {
+				firstFailure ??= `JSON parse failed: ${error instanceof Error ? error.message : String(error)}`;
+				continue;
+			}
+			const shaped = request.shape(parsed);
+			if (shaped === undefined) { firstFailure ??= "the JSON is not the shape this lane asked for"; continue; }
+			if (value === undefined) { value = shaped; continue; }
+			if (JSON.stringify(shaped) !== JSON.stringify(value)) return malformed("the reply held conflicting answers");
 		}
-		const value = request.shape(parsed);
-		if (value === undefined) {
-			return { ok: false, reason: "bad_output", detail: "the JSON is not the shape this lane asked for", ms: clock.now() - began, model: label };
-		}
+		if (value === undefined) return malformed(firstFailure ?? "the JSON is not the shape this lane asked for");
 		return { ok: true, value, ms: clock.now() - began, model: label, raw, usage:providerUsage(reply.usage) };
 	} catch (error) {
 		kept?.chargeWhole();
