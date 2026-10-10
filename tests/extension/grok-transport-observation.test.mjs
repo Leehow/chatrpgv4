@@ -39,6 +39,28 @@ function capture(extra={}){const rows=[],traces=[];return{rows,traces,options:{e
 function privacy(rows){assert.ok(!JSON.stringify(rows).includes(SECRET),'trace must contain no privacy sentinel');}
 function restore(t){const before=getGlobalDispatcher();t.after(()=>setGlobalDispatcher(before));return before;}
 
+test('final outgoing entity captures late payload changes and excludes credentials',async t=>{
+ restore(t);const endpoint=await fixture(t),cap=capture({rawResponse:true,rawRequest:true});
+ const config=createGrokBuildProvider({transportObservation:cap.options});
+ const packet='Original Mod detail: retain this complete packet.';
+ await consume(config.streamSimple(model(endpoint.url),context,{...opts,onPayload:payload=>({...payload,input:[...payload.input,{role:'user',content:[{type:'input_text',text:packet}]}],metadata:{api_key:opts.apiKey}})}));
+ await cap.traces[0].close();
+ const row=cap.rows.find(r=>r.event==='request_body_sent');assert.ok(row,'completed transport entity must be observed');
+ const actual=JSON.stringify(endpoint.requests[0].body);
+ assert.equal(row.byteDomain,'http_entity_not_tcp_tls');assert.equal(row.bytes,Buffer.byteLength(actual));
+ assert.equal(row.sha256,createHash('sha256').update(actual).digest('hex'));
+ assert.equal(row.complete,true);assert.ok(row.wire);
+ const captured=JSON.parse(row.payload_utf8);assert.deepEqual(captured.input,endpoint.requests[0].body.input);
+ assert.ok(row.payload_utf8.includes(packet));assert.ok(!row.payload_utf8.includes(opts.apiKey));assert.equal(captured.metadata.api_key,'[REDACTED_CREDENTIAL]');
+});
+
+test('request entity raw limit is explicit and cannot alter the request',async t=>{
+ restore(t);const endpoint=await fixture(t),cap=capture({rawResponse:true,rawRequest:true,limits:{requestBytes:8}});
+ await consume(createGrokBuildProvider({transportObservation:cap.options}).streamSimple(model(endpoint.url),context,opts));await cap.traces[0].close();
+ const row=cap.rows.find(r=>r.event==='request_body_sent');assert.ok(row);assert.equal(row.complete,false);assert.equal(row.payload_utf8,undefined);
+ assert.ok(cap.traces[0].reasons.has('request_body_limit'));assert.ok(endpoint.requests[0].body.input.length);
+});
+
 test('registered observation preserves full ModelRuntime.complete reasoning and provider options',async t=>{
  restore(t);const endpoint=await fixture(t),home=await mkdtemp(join(tmpdir(),'grok-full-observation-'));
  t.after(()=>rm(home,{recursive:true,force:true}));

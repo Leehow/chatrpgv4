@@ -85,6 +85,8 @@ The Keeper always sees a small semantic core of non-negotiable rules and a compa
 
 **Telemetry.** Existing request, run and mod-sections lanes gain catalogue and selected versions; mandatory, relevance, dependency and fallback reasons; byte breakdowns by system prose, tool schema, Mod resident text, selected sections, current state and history; actual provider delivery; selector and awaited durations; cache-read and uncached tokens; schema and section misses; expansion round trips; canonical refusals; and player-visible first and final delivery timing. Credentials are never logged. Raw logging is not promoted to default. Selection counters are never fed to the Keeper as obligations.
 
+Final Grok retention proof uses the existing opt-in transport observer's public Undici request diagnostics, after payload hooks. A completed outgoing HTTP entity has its own bytes and digest; the additional explicit `PI_COC_GROK_TRANSPORT_TRACE_RAW_REQUEST=1` flag together with raw-response capture permits bounded credential-redacted body evidence. Response-only capture never records prompt text. Adapter projections and provider echoes remain separate evidence. Incomplete or oversized captures cannot pass retention. Request streams and callbacks remain untouched, and disk logging is deferred; no dependency or provider default changes.
+
 **Writer, reader and actor map.** Each row names the existing owning module and its observable output. This is a specification interface, not new process machinery.
 
 | Stage | Writer | Reader | Actor | Observable output |
