@@ -187,3 +187,32 @@ No new all, exact runtime or genuine confirmation/opening is claimed or performe
 The exact lifecycle tuple remains terminal, retained:handoff_pending_verification.
 A different task must verify lifecycle ownership rather than silently adopt this tree.
 All real evidence and the protective marker remain.
+
+## Successor result (Claude thread, 2026-10-10)
+
+Worked in this checkout without adopting the Codex lifecycle entry; the entry stays terminal and retained.
+
+- LAN `all` on leehow-pc at `c49a4fbeb`: py 2133 pass / 2 skip, loop 12 pass, ext 5458 pass / 1 fail
+  (`untold-turn-receipts`: kernel shutdown timeout). A second ext pass passed that file and failed three other
+  timing-bound cases (lane-queue, name-phrase 20 s create, two-ledgers wait); box load was 55. No overlap between
+  the two runs' failures and none touches this task's files. Logs: `E/lan-all-c49a4fbeb.log`, `E/lan-ext-rerun-c49a4fbeb.log`.
+- Exact runtime for `c49a4fbeb`: 690 sources / 0 mismatches (`E/runtime-proof-c49a4fbeb.json`); the 7ae build is kept at `E/build-7ae3c440e`.
+- Genuine resume `-setup-r2` found a new system gap: create-campaign never passed the accepted `guidance_key`, so the
+  campaign pinned none (§22.9). On resume the host prepared guidance again from the campaign's name-free opening handle
+  `scene-298c9d` (= interim handle of `scene-source-entry-9`); the library reader refused it ("Selected opening is not
+  in the bound original context") and fell back to a whole-book guidance read (182 s + 59 s verify, ~1M input tokens)
+  while the player waited ~150 s per turn. Fixed in `19a28a2a9` (contract §212 addendum): the host pins the key, and
+  `setup.steps` reports the unique accepted guidance its recorded prologue showed for older campaigns.
+  Tests: `setup-guidance-pin.test.mjs` (kernel), `setup-opening-choice.test.mjs` (host); both fail without the fix.
+- LAN `focused` at `19a28a2a9` selected everything: ext 5463 pass / 0 fail, py 2133 pass, loop 12 pass, exit 0
+  (`E/lan-focused-19a28a2a9.log`). Exact runtime 690 / 0 (`E/runtime-proof-19a28a2a9.json`).
+- Genuine `-setup-r3` (home snapshots `E/home-snapshot-before-r2`, `-r3` kept): one natural line confirmed the
+  retained card; `setup.confirm` committed and `setup.complete` handed off in 16.7 s; campaign `ready_for_table`.
+- Genuine `-play-r3`: the automatic opening ran table.open and delivered the second (no-warrant) opening, but took
+  ~10 min: one Keeper step failed six times upstream (4x "Internal error during token generation", 2x 60 s stream
+  timeout) at ~340 KB provider projection before succeeding; the driver's first input timed out behind it (400 s).
+  Model, timeouts and retry policy were not changed. Request size is not proven to be the cause.
+- Natural reading: "I sit and read the two sheets he pushed over" settled in 93.2 s (3 calls 33.4/24.1/19.5 s):
+  two real handout receipts with original-page crops and a clue landed. Limitation: the Keeper handed card #1
+  (the arrest-warrant summary) in the no-warrant opening; the narration frames it as a copy, but whether opening 2
+  authors that card was not verified against the source.
