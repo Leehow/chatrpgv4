@@ -5696,7 +5696,7 @@ export default function (pi: ExtensionAPI) {
                             fallback: (workSignal, options) => answerOnly && nativeSource
                                 ? nativeSource({moduleId: readingModule, campaign: state.campaign, toolCallId, question: String(params.question)}, workSignal)
                                 : reading!.ensure(readingModule, {...sourceRead, retry: params.retry === true,
-                                    ...(params.retry === true ? {memo: false} : {}), foreground: options.foreground}, workSignal,
+                                    ...(answerOnly && params.retry === true ? {memo: false} : {}), foreground: options.foreground}, workSignal,
                                     {allowanceMs: options.allowanceMs, ...(options.blocking ? {blocking: true} : {})})});
                         if (response.material) sourceMaterial = response.material;
                         if (Array.isArray(response.source_answer?.excerpts)) carriedText.note(state.campaign, state.turn,

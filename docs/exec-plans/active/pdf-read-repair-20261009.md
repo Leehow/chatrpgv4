@@ -573,3 +573,30 @@ and treat unrenderable refused-candidate previews as optional diagnostics, never
 evidence. Author repair still runs and all original source gates still apply. New malformed
 preview fallback regression plus salvage18 now pass19/19; existing map_scope test verifies
 its two author passes and exact kind-only publication. Combined final all/build/live follow.
+
+### Genuine ca60 reopening and a new retry-wiring defect
+
+LAN ca60bb771 compiled once before all tests; read-only rsync fetched that exact build
+while its same-snapshot suite was running, without a second build/refresh or resource
+competition. 689 unique embedded product sources match current source bytes, zero
+mismatches; five executable bundle hashes retained in runtime-proof.json. Secure genuine
+Grok4.7BuildFast/low driver pdf-refusals-rebuilt-20261010-play returned31.4/47.7/50.2s,
+three natural inputs, four tools. Driver stopped normally after three turns; preserve it.
+Independent observer opening baseline was taken after startup and explicitly labelled so.
+
+turn1 OOC request did call source prepare/retry, but got a real invalid_params error:
+host injected memo:false into purpose=detail, although the kernel and existing contract
+allow memo only for answer consultation. The Keeper's subsequent "no failed preparation"
+statement is not accepted as evidence. Worker independently confirmed tool args and
+4.603s refusal. Fix only injects memo:false for answerOnly&&retry, preserving detail retry.
+Actual host lookup regression was red before and six cases pass after, including answer
+memo bypass. This is a trivial closed-parameter contract correction, so no further web
+research is needed; the kernel validator and existing explicit contract are exact authority.
+
+turn2 root asked for public writing materials; turn3 explicitly chose the public notebook,
+dictated public attributed facts and requested accompanied movement. Worker is auditing
+actual append/binding/admission/scene receipts and wire effort before any pass claim.
+Final all ca60 remains running. Preserve its complete output before refreshing; it cannot
+validate the later memo fix. Next idle LAN focused/all and exact rebuilt memo-fixed runtime
+must be followed by a fresh genuine driver run with source retry and natural continuation.
+No erased/edited history, fake Keeper, changed limits or relaxed review rules.

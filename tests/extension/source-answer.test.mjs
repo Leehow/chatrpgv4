@@ -69,3 +69,25 @@ test('an unresolved consultation is returned explicitly and never prepared impli
  assert.deepEqual(purposes,['answer']);assert.equal(table.kernelRequests().filter(r=>r.method==='table.lookup').length,0);
  assert.match(JSON.stringify(table.session.messages.filter(m=>m.role==='toolResult')),/unresolved/);
 });
+
+test('actual source retry keeps consultation memo only on answer, never on detail preparation',async t=>{
+ for(const mode of ['prepare','answer']){
+  const table=await openTable({responses:[
+   fauxAssistantMessage([fauxToolCall('lookup',{kind:'source',source_mode:mode,retry:true,query:'Lena',question:'Her work?'})],{stopReason:'toolUse'}),
+   fauxAssistantMessage([fauxToolCall('narrate',{text:'The source request remains explicit.'})],{stopReason:'toolUse'}),
+   fauxAssistantMessage('The source request remains explicit.')
+  ]});t.after(()=>table.dispose());const requests=[];
+  table.emit('coc:reading-bridge',{async ensure(_mid,params){
+   requests.push(params);
+   if(params.purpose==='detail'&&params.memo!==undefined)throw new KernelError({code:'invalid_params',message:'memo is a boolean, and only on a source consultation'});
+   return mode==='answer'?{state:'ready',source_answer:answer}:{state:'ready'};
+  }});
+  await table.session.prompt('Retry this source request.');
+  assert.equal(requests.length,1);assert.equal(requests[0].purpose,mode==='answer'?'answer':'detail');
+  assert.equal(requests[0].retry,true);
+  assert.equal(Object.hasOwn(requests[0],'memo'),mode==='answer','detail must not receive consultation-only memo');
+  if(mode==='answer')assert.equal(requests[0].memo,false,'explicit consultation retry still bypasses its memo');
+  const result=table.session.messages.find(m=>m.role==='toolResult'&&m.toolName==='lookup');
+  assert.ok(result&&!result.isError,JSON.stringify(result));
+ }
+});

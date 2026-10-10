@@ -42219,6 +42219,10 @@ bounded host-cache limits; retry bypasses completed reuse. Reused excerpts remai
 original text, not semantic answer approval or graph/material readiness. Full-reader accepted
 answers still use their existing kernel memo and review gates. No resource ceilings change.
 
+Explicit source retry preserves its selected mode: only an answer consultation carries
+`memo:false`. A detail preparation retry carries `retry:true` without consultation-only
+memo; it must still undergo the existing author, independent review and publication gates.
+
 One structural policy defines focus domains and job ordering for request attachment, kernel claim
 and host provider admission. Answers and publications have separate focus domains; graph-material
 requests still attach only within their supported domain. Blocking jobs precede opening, bounded

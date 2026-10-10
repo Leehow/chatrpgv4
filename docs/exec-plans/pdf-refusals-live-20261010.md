@@ -83,3 +83,13 @@ was new preview handling of a kind-only map_scope repair. Fixed by respecting it
 boundary and preserving author repair when a refused candidate cannot render its optional
 overlay. Existing map_scope assertion remains unchanged; new fallback regression checks
 there is no image evidence or skipped independent review after preview failure.
+
+Genuine ca60 driver reopening delivered three natural inputs31.4/47.7/50.2s and four tools;
+stopped normally. Exact rebuilt source check689/689 with five bundle hashes is retained.
+The first OOC retry uncovered an additional actual host bug: retry=true incorrectly sent
+answer-only memo:false for a detail preparation. Actual tool error and4.603s timing are
+retained; the Keeper's "no failed preparation" reply is not a successful retry. The small
+wiring fix limits memo to answerOnly; unchanged kernel validator and source gates remain.
+The actual host lookup regression failed before the fix and passes after, six cases total.
+The running ca60 all suite and first genuine run do not validate this later production
+change; another exact runtime and genuine request are required before completion.
