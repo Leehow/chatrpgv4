@@ -1,6 +1,6 @@
 # Turn Capability and Mod Discovery — Execution Plan (20261010)
 
-Status: approved for implementation of #112, solo. No acceptance gate is checked.
+Status: approved implementation of #112, solo. Experimental wiring is committed; semantic, full-suite and live release gates remain open.
 
 ## Approval
 
@@ -17,9 +17,9 @@ Replace the all-tools and whole-instruction default with turn-scoped capability 
 - Initial HEAD: `4ccc69e45`, on latest 0.9.7a.
 - The spec's baseline reference is ca51d7dfc; migration impact is reported against it separately.
 
-## Foreign dirty files (not owned by this plan)
+## Initial foreign dirty files (settled by their owner)
 
-These belong to the active pytest optimization thread. They must not be staged, committed, adopted or reverted by this work:
+These belonged to the pytest optimization thread and were committed by its owner in d5d41ab68. They were not absorbed by this work:
 
 - `README.md`
 - `docs/kernel-rpc.md`
@@ -28,13 +28,13 @@ These belong to the active pytest optimization thread. They must not be staged, 
 - `tests/extension/ts-kernel-foundation.test.mjs`
 - untracked `tests/extension/test-selection.test.mjs`
 
-## Acceptance (all unchecked)
+## Acceptance
 
-- [ ] Contract amendment applied after the shared contract file is clean.
+- [x] Contract amendment applied after the shared contract owner committed (section209, da53fd555).
 - [ ] Pure schema and capability view parity verified at the public `context_with_system` seam.
 - [ ] Versioned Mod index and detail selection implemented.
 - [ ] Expansion, readiness and telemetry implemented.
-- [ ] Focused and full LAN gates pass.
+- [x] Current full LAN gate passes, including focused coverage (e63bccb98, exit0; earlier failing snapshots retained).
 - [ ] Held-out semantic matching meets pre-registered gates.
 - [ ] True GUI or canonical driver acceptance passes.
 - [ ] SQLite compatibility regression requirements (spec section) pass.
@@ -65,7 +65,7 @@ These belong to the active pytest optimization thread. They must not be staged, 
 
 ## Infrastructure
 
-- SQLite worktree is separately owned and not integrated.
+- SQLite worktree is separately owned; its owner integrated it through039b9ffaa. No duplicate migration is owned here.
 - LAN probe selected `amax` for source tests and builds. Keep one heavy task per box.
 - Live models and the GUI stay on the Mac.
 - Preserve all evidence, campaign data and logs.
@@ -125,3 +125,27 @@ These belong to the active pytest optimization thread. They must not be staged, 
 - Next evaluation must tune only on disjoint tuning inputs and use a newly reserved untouched validation subset for changed criteria. Check annotation evidence/uncertainty without changing labels to match predictions. Existing archives have real replay gate rows, but do not feed post-turn receipt kinds or Keeper output into prediction.
 - Remaining: cumulative/shared-budget conformance, full request byte/token accounting after schema projection, controlled candidate installs, focused/all rerun on current039b baseline, SQLite scope regression, actual GUI/driver and cold/warm/end-to-end performance.
 - Do not overwrite shared build: old source PIDs12398/12439 remain. Owned runtime-snapshot has current copied resources but predates the newest discoverySituation/examples changes; future runtime builds should be fetched to an owned independent directory, not main build.
+
+## 2026-10-10 continuation checkpoint (07:10 UTC)
+
+- Shared accounting: both discovery controllers now use the existing preparationBudget port and foreground parent reservations. Selective/shadow initialization occurs before storage hydration, so that elapsed time consumes the same deadline. This does not itself interrupt the source owner's synchronous SQLite busy wait; the SQL lock bound remains an unproven release gate.
+- Host compile and current operation handoff added to section209.6. It binds campaign/worldline/loop/turn and task-source revision, carries slim current compile/task facts, seeds structural apply fragments and existing before-apply section triggers, and never creates execution authority. Unbound/no-Jev runs publish no handoff. Engine and normal-context point checks pass, including rejection of a stale source handoff.
+- Corrected visibility/readiness: a dependency actually included in the current schema is ready; repeated calls before expansion projection stay blocked and widen to an explicit full view. Repeated missing package delivery records unavailable instead of pretending the detail was loaded. Relevant clues, task facts, schema versions and mode changes invalidate the selection cache. Source publication clears old selector state immediately.
+- Added request_projection telemetry separating schema/prose/Mod JSON bytes and canonical versus projected schema size; provider_projection records adapter JSON bytes/digest only, explicitly before later hooks and never as wire bytes or provider tokens. No credentials or payload text is recorded.
+- Current small component suite:24 discovery/schema/index checks plus5 language guards pass;2 engine projection checks pass. Later two added handoff scope checks pass in the context file. Run the combined current suite again for the final count; no full-suite claim.
+- Focused LAN snapshot run65602 (uploaded before the later source-binding and fixture fixes) finished exit1,wall556s:ext3530 pass/14 fail,py2128 pass/2 skip,loop12 pass. Most failures were the new producer dereferencing absent run.scope in no-Jev paths; it is now guarded by a coherent scope and source revision. One fixture incorrectly used wakefulness at the NPC top level instead of activity; fixed without relaxing canonical shape. Source tests after upload changed, so this run is not evidence for current HEAD. Preserve remote-focused.log and pf/logs before the next run.
+- Reused81-case diagnostic v2 is preserved separately.57 selective cases:63/115 prior needed labels selected,recall0.548;16 full fallbacks and8 incoherent/missing gate snapshots are excluded from selective success. It is a diagnostic, not untouched validation. Default remains full.
+- A fresh campaign-isolated split is reserved before tuning:61 validation inputs from8 campaigns,88 tuning inputs. Files evaluation/preregistration-v2.json, validation-v2-inputs.json and tuning-v2-inputs.json. Do not inspect or tune validation predictions before criteria are frozen.
+- Annotation audit attempt1 hit the existing1M input-token budget at112.8s and left100/146 draft pair judgments. Attempt2, restricted to41 natural-NPC cases, returned a two-case partial at60.9s after oversized write attempts. Exact names/source phrases and coverage are not valid. Both are incomplete and invalid-for-acceptance; do not use them to revise gold or report improved recall. Preserve raw events and outcome files. Next approach must use bounded small batches with deterministic completeness/source-evidence gates, not repeat whole-corpus drafts or silently switch Haiku5.5.
+- Next: preserve this focused run's logs, rerun current full LAN gate without replacing the Mac build, fetch fresh artifacts only into an owned independent runtime directory, then finish bounded semantic calibration/untouched validation, SQLite regression and genuine GUI/driver plus cold/warm performance. No candidate package or selective default is released.
+- Prior-art cross-check: gRPC deadline propagation subtracts elapsed work (https://grpc.io/docs/guides/deadlines/); AWS shared retry quota constrains repeated attempts (https://docs.aws.amazon.com/sdkref/latest/guide/feature-retry-behavior.html). They support inherited deadlines and bounded repeated work; provider reservation accounting remains this project's existing implementation, not a copied retry policy.
+
+## 2026-10-10 full gate and runtime checkpoint (07:25 UTC)
+
+- Implementation fix commit e63bccb98 is clean and available for serial integration. Complete amax all at that exact commit passed exit0,wall606s:ext5475 pass/1 skip (5476 tests),py2128 pass/2 skip,loop12 pass. Raw logs copied to report lan-all-e63bccb98 before any future test overwrites the remote scratch. Earlier focused failures remain in lan-focused-0710. No tests or oracle expectations were weakened.
+- Current normal-context handoff tests cover four paths: selected first-use hold, foreground-budget refusal before provider dispatch, deterministic current host operation/section seeding, and stale source-handoff rejection. Combined small check count after the last added handoff cases is31 plus2 targeted engine checks; the all gate is the stronger proof.
+- Fresh remote build copied over the LAN into report runtime-e63bccb98, with exact kernel/host/hybrid/table hashes and all-gate provenance in snapshot-receipt.json. Resources and provider manifests copied; Mac native dependencies use an explicitly recorded read-only node_modules link. This is an owned source-mode validation snapshot, not a standalone package or live acceptance. Old runtime-snapshot and the shared Mac build were preserved. Original source processes12398/12439 remain untouched.
+- Bounded eight-case tool-enabled Haiku5.5 batches produced complete narrow audit data for41 unique inputs (two natural-NPC sections, exact names and source phrases mechanically checked). Five batches completed normally;batch2 hit its6-request limit after writing8 structurally complete cases (transport error retained), and was not rerun/overwritten. Remaining batches used10 requests and completed. Combined diagnostic has36 disagreements with prior needed labels. It does not replace gold, tune the validation set, or establish recall; original81 labels/predictions and invalid partial audit outputs remain intact.
+- Search coordination: native-search owner supplied branch0ffe474c5 and asked for committed shared seams. Read-only comparison is in native-search-compatibility.json. Lookup capability survives there, provider-hosted search lives outside the canonical Pi tool view, and non-system native_search_scope notes survive our system projection. Native policy/scope integration has not been tested jointly with e63 here. Search ownership takes precedence; do not restore old Exa/library/lookup/query-author/prefetch machinery.
+- Historical Reference candidate1.3.0 from the old instruction body collides with the native-search source1.3.0 and is marked obsolete. Never install/publish it. After the search owner integrates, regenerate discovery metadata from the new original instructions with a new version (at least1.4.0), using the required tool-enabled writer. Other frozen candidate evidence stays unchanged. GUI/driver acceptance must use the authoritative combined native-search runtime, not claim the old e63 history path is final.
+- Remaining release gates: comprehensive independently supported semantic labels/calibration on88 tuning cases; freeze criteria and evaluate untouched61 validation cases; SQLite error/scope/lock tests; provider-delivery and lookup recovery paths under selective mode; normal candidate installs and real GUI/driver acceptance; cold/warm provider cache/first/final latency. Default remains full, no candidate published, no App packaged or restarted.

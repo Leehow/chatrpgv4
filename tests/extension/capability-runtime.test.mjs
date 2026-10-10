@@ -57,3 +57,43 @@ test('no decision service keeps the full current view instead of guessing a narr
     assert.equal(runtime.readiness('apply',{effects:[{kind:'time',minutes:360}]}),undefined);
     runtime.clear();
 });
+test('a dependency already shown in the projected schema is ready, and relevant current facts invalidate selection',async()=>{
+    let calls=0;
+    const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>({decide:async(batch,lease)=>{
+        calls++;assert.equal(batch.state.situation.keeper_task,'adjudicate');
+        return port.decide(batch,lease);
+    }}),mode:()=> 'selective',record:()=>{}});
+    const signal=new AbortController().signal,task={purpose:'adjudicate'};
+    runtime.observe(capsule,binding,signal,task);await runtime.wait();
+    runtime.project(tools,['cash']);
+    assert.equal(runtime.readiness('apply',{effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]}),undefined);
+    const initial=calls;
+    runtime.observe(capsule,binding,signal,task);await runtime.wait();assert.equal(calls,initial);
+    runtime.observe({...capsule,known:{clues_here:[{name:'Letter',delivery:'read'}]}},binding,signal,task);
+    await runtime.wait();assert.ok(calls>initial);
+    runtime.clear();
+});
+test('a repeated call before expansion projection never slips through to mutation',async()=>{
+    const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>port,mode:()=> 'selective',record:()=>{}});
+    runtime.observe(capsule,binding,new AbortController().signal);await runtime.wait();runtime.project(tools);
+    const args={effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]};
+    assert.equal(runtime.readiness('apply',args).block,true);
+    assert.equal(runtime.readiness('apply',args).block,true);
+    assert.equal(runtime.readiness('apply',args).block,true);
+    assert.equal(runtime.project(tools),undefined);
+    assert.equal(runtime.readiness('apply',args),undefined);
+    runtime.clear();
+});
+test('host-issued operation fields seed fragments before inference without a semantic re-vote',async()=>{
+    const events=[];
+    const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>port,mode:()=> 'selective',record:e=>events.push(e)});
+    const signal=new AbortController().signal;
+    runtime.observe(capsule,binding,signal,{purpose:'bind',operations:[{verb:'apply',family:'npc',
+        bound:{name:'watchman'},needs:[{name:'activity'}]}]});await runtime.wait();
+    const view=runtime.project(tools);assert.ok(view,JSON.stringify(events));
+    const npc=view.find(t=>t.name==='apply').parameters.properties.effects.items.anyOf
+        .find(s=>s.properties.kind.enum?.[0]==='npc');
+    assert.ok(npc.properties.activity);
+    assert.equal(runtime.readiness('apply',{effects:[{kind:'npc',name:'watchman',activity:{wakefulness:'awake'},why:'Observed.'}]}),undefined);
+    runtime.clear();
+});

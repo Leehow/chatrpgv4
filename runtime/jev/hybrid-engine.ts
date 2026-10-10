@@ -653,6 +653,9 @@ interface RunState {
   keeperCalls: Record<KeeperResidualKey, number>;
   /** SL-78: how many `purpose: "compile"` Jev decisions this run asked, for the `residual` row. */
   compileCalls: number;
+  /** §209.6: latest compile facts for the same run's read-only discovery handoff. */
+  discoveryFeatures?: Json;
+  discoverySourceRevision?: string | null;
   /**
    * SL-85 (§135.32 addendum 2's own "once per turn" ruling): whether `closeConsequences` -- the one place that
    * writes the `route`/`consequence` pairing rows and the `residual` row -- has already run for this run. A run
@@ -806,6 +809,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     await stepsReady;
     const [capsule, status, applyOptions, resolveOptions, bands] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options'), bandReads()]);
     const table = readTable(capsule, status);
+    run.discoverySourceRevision = text(object(capsule._context).task_source_revision) || table.binding?.source_revision;
     const historyScene = text(object(capsule.where).scene);
     if (!run.history || run.history.scene !== historyScene || historySceneKey(run.history.context)!==historySceneKey(historyContext(capsule))) run.history = {enabled: false, allowed: false, asked: false,
       ...(run.history?.closed ? {closed: true, closedReason: run.history.closedReason} : {}),
@@ -1822,6 +1826,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         ? interpretCompile({candidates: array(question.candidates) as Candidate[], rows: (question.rows ?? undefined) as FeatureRows | undefined, actsSettled, moved},
           result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE)
         : undefined;
+      if (compiled) run.discoveryFeatures = compiled.features as unknown as Json;
       // §135.30.9.2 (SL-52 stage 2): the re-ask row names the settling steps, each clue's answer and what it filed.
       if (request.purpose === 'reask') {
         const input = object(question.input) as unknown as ReaskInput;
@@ -2301,6 +2306,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (establish) content.establish = establish;
     const shown = await carriedFor(run, view, request, stepId);
     if (shown) content.carried = shown;
+    if (run.scope && run.discoverySourceRevision) api?.events?.emit?.('coc:discovery-task', {campaign: bridge?.campaign, worldline: run.scope.worldline ?? 'main',
+      loop: run.scope.loop ?? 0, turn: run.turn, run: run.runId,
+      source_revision: run.discoverySourceRevision,
+      task: {purpose: step.purpose, reason: step.reason, features: run.discoveryFeatures ?? null,
+        operations: operation ? [operation] : [], check_preparation: content.check_preparation ?? null}});
     const messages: Row[] = [];
     // Nothing new to say: no message (§135.8) -- except the run's first note, whose head is something to say (§135.11.2).
     if (head || unseen.length || preparations.length || Object.keys(content).length > base || fresh.length || modelRefused.length) {

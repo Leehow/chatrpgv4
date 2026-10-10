@@ -15,21 +15,26 @@ export function createCapabilityRuntime(deps:{
     mode:()=>string;
     record:(row:Row)=>void;
 }){
-    let key='',binding:Row={},capsule:Row={},signal:AbortSignal=new AbortController().signal;
+    let key='',binding:Row={},capsule:Row={},task:Row={},signal:AbortSignal=new AbortController().signal;
     let work:Promise<void>|undefined,control:AbortController|undefined,started=0;
-    let selected:Set<string>|undefined,reason='not_prepared';
+    let selected:Set<string>|undefined,visible:Set<string>|undefined,widenPending=false,reason='not_prepared';
     let budget={actions:16,ms:6000},input='',spent:(()=>void)|undefined;
     const expansions=new Set<string>();
     const record=(v:Row)=>deps.record({lane:'capability-discovery',...v});
-    const clear=()=>{spent?.();spent=undefined;control?.abort();key='';work=undefined;selected=undefined;expansions.clear();};
+    const clear=()=>{spent?.();spent=undefined;control?.abort();key='';work=undefined;selected=undefined;visible=undefined;widenPending=false;expansions.clear();};
     const makeInput=(request:string)=>({
         binding:{campaign:String(binding.campaign),worldline:String(binding.worldline??'main'),
             loop:Number(binding.loop??0),turn:Number(binding.turn??0),epoch:key,
             source:String(binding.task_source_revision??binding.source_revision)},
-        request,situation:discoverySituation(capsule) as any,
-        cards:capabilityCatalogue(deps.tools()),mandatory:MANDATORY,
+        request,situation:discoverySituation(capsule,task) as any,
+        cards:capabilityCatalogue(deps.tools()),mandatory:[...MANDATORY,...taskCapabilities()],
         thresholds:{candidate:.25,selected:.5,direct:.9},
     });
+    function taskCapabilities():string[]{
+        const effects=(Array.isArray(task.operations)?task.operations:[]).filter((op:Row)=>op.verb==='apply')
+            .map((op:Row)=>({kind:op.family,...op.bound,...Object.fromEntries((op.needs??[]).map((need:Row)=>[need.name,null]))}));
+        return missingEffectCapabilities(effects,deps.tools(),new Set());
+    }
     async function decide(request:string){
         const port=deps.decision();if(!port)throw Error('unconfigured');
         if(budget.ms<=0||budget.actions<=0)throw Error('selection_budget_exhausted');
@@ -54,12 +59,13 @@ export function createCapabilityRuntime(deps:{
             return result;
         }finally{settle();ownedBudget.actions=Math.min(ownedBudget.actions,lease.context.budget.remainingActions);lease.close();}
     }
-    function observe(view:Row,context:Row,lifetime:AbortSignal){
+    function observe(view:Row,context:Row,lifetime:AbortSignal,currentTask:Row={}){
         const nextInput=hash([context.campaign,context.worldline,context.loop,context.turn,view.turn?.player_text]);
         if(nextInput!==input){clear();input=nextInput;budget={actions:16,ms:6000};}
-        const next=hash([nextInput,context.task_source_revision??context.source_revision,view.where,view.present,deps.mode()]);
+        const next=hash([nextInput,context.task_source_revision??context.source_revision,
+            discoverySituation(view,currentTask),capabilityCatalogue(deps.tools()).map(c=>[c.name,c.version]),deps.mode()]);
         if(next===key)return;
-        clear();key=next;binding=context;capsule=view;signal=lifetime;control=new AbortController();started=Date.now();
+        clear();key=next;binding=context;capsule=view;task=currentTask;signal=lifetime;control=new AbortController();started=Date.now();
         reason='forced_full';
         if(deps.mode()==='full')return;
         const current=key;
@@ -80,9 +86,10 @@ export function createCapabilityRuntime(deps:{
     }
     function project(tools:readonly CapabilityTool[],required:readonly string[]=[]):CapabilityTool[]|undefined{
         if(!key)return;
-        if(deps.mode()!=='selective'||!selected){record({event:'view',turn:binding.turn,status:'full',reason});return;}
+        if(deps.mode()!=='selective'||!selected){widenPending=false;record({event:'view',turn:binding.turn,status:'full',reason});return;}
         const available=new Set(capabilityCatalogue(tools).map(c=>c.name));
         const names=new Set([...selected,...required].filter(name=>available.has(name)));
+        visible=names;
         const view=projectCapabilityTools(tools,names,CORE);
         // Discovery itself remains available even when ordinary lookup was not selected.
         const lookup=view.find(t=>t.name==='lookup');
@@ -97,13 +104,19 @@ export function createCapabilityRuntime(deps:{
         return view;
     }
     function readiness(tool:string,args:Row):Row|undefined{
+        if(tool==='apply'&&widenPending)return{block:true,reason:'A full capability view is required before retrying this whole batch; no world change was committed.'};
         if(tool!=='apply'||deps.mode()!=='selective'||!selected)return;
-        const missing=missingEffectCapabilities(Array.isArray(args.effects)?args.effects:[],deps.tools(),selected);
+        const missing=missingEffectCapabilities(Array.isArray(args.effects)?args.effects:[],deps.tools(),visible??selected);
         if(!missing.length)return;
-        const request=hash([key,args.effects]);if(expansions.has(request)){selected=undefined;reason='repeated_expansion';return;}
+        const request=hash([key,args.effects]);if(expansions.has(request)){
+            selected=undefined;visible=undefined;widenPending=true;reason='repeated_expansion';
+            record({event:'fallback',turn:binding.turn,reason,no_commit:true});
+            return{block:true,reason:'Capability expansion was not shown before this retry. Read the next full request and re-decide the whole batch; no world change was committed.'};
+        }
         expansions.add(request);for(const name of missing)selected.add(name);
         record({event:'expansion',turn:binding.turn,names:missing,no_commit:true});
-        return{block:true,reason:'Required capability detail has been loaded; no world change was committed. Re-decide the whole batch with the expanded schema. '+JSON.stringify({missing_capabilities:missing,no_commit:true})};
+        return{block:true,reason:'Required capability detail has been loaded; no world change was committed. Re-decide the whole batch with the expanded schema. '+JSON.stringify({
+            status:'expansion',requested:missing,loaded:missing,missing_capability:missing,no_commit:true})};
     }
     async function lookup(args:Row):Promise<Row>{
         if(!key||signal.aborted)throw Error('Capability discovery has no current input');

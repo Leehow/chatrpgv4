@@ -25,7 +25,7 @@ import {createModSections,emptyCalls,noteCall,MOD_SECTIONS_MESSAGE} from './mod-
 import {createTemporalAdvice,TEMPORAL_ADVICE_MESSAGE} from './temporal-advice.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
     boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
-    capsuleUpdate, stableFirst, CAPSULE_UPDATE_TYPE, NPC_ADVICE_TYPE,
+    capsuleUpdate, stableFirst, CAPSULE_UPDATE_TYPE, NPC_ADVICE_TYPE, CLERK_TYPE,
     type ContextBinding, type Quote, type Row} from './context-policy.ts';
 
 type KernelCall = (method: string, params: Row) => Promise<unknown>;
@@ -96,20 +96,35 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const capacity=Number(sessionEnv.PI_COC_JEV_CONCURRENCY??16);
         return sharedAdapter??=createDecisionAdapter({env:sessionEnv,maxConcurrency:Number.isInteger(capacity)&&capacity>0?Math.min(capacity,16):16});
     };
+    const beginPreparationAllowance=()=>{
+        const port=decision();
+        if(!port||!campaign||!inputEpoch||prescreenDeadlineAt)return;
+        const parent=foregroundBudget?.();
+        prescreenDeadlineAt=Math.min(Date.now()+readJevPreselectAllowanceMs(sessionEnv),parent?.deadlineAt??Infinity);
+        sharedBudget=preparationBudget({decision:port,campaign,deadlineAt:prescreenDeadlineAt,signal:inputLifetime.signal,parent});
+        record({lane:'prescreen',owner:'keeper-preparation',event:'allowance_started',allowance_ms:readJevPreselectAllowanceMs(sessionEnv),
+            effective_ms:Math.max(0,prescreenDeadlineAt-Date.now())});
+    };
     const expression=createExpressionPreparation({read:async(method,params)=>call?call(method,params):undefined,decision,record});
     let pendingExpression:Row|undefined;
     // Contract §183.5: the indexed packages' sections this turn needs; the calls so far this turn are what triggers read.
     const modSections=createModSections({read:async(method,params)=>call?call(method,params):undefined,decision,record});
     const discoveryMode=()=>['selective','shadow'].includes(sessionEnv.COC_TURN_DISCOVERY??'')?sessionEnv.COC_TURN_DISCOVERY!:'full';
-    const capabilityRuntime=createCapabilityRuntime({tools:()=>offeredTools(COC_TOOLS,sessionEnv),decision,mode:discoveryMode,record});
+    // Both discovery stages reserve from the same preparation owner and its foreground parent.
+    // A missing owner is a full-view fallback, never an independent provider allowance.
+    const discoveryDecision=()=>sharedBudget?.decision;
+    const capabilityRuntime=createCapabilityRuntime({tools:()=>offeredTools(COC_TOOLS,sessionEnv),decision:discoveryDecision,mode:discoveryMode,record});
     const modDiscovery=createModDiscovery({read:async(method,params)=>call?call(method,{campaign,...params}):undefined,
-        decision,mode:discoveryMode,record});
+        decision:discoveryDecision,mode:discoveryMode,record});
     let pendingDiscovery:Row|undefined,requiredCapabilities:string[]=[];
     let deliveredDiscoveryKeys=new Set<string>();
+    const heldDiscoveryRequests=new Set<string>();
+    let discoveryHandoff:Row|undefined;
+    pi.events.on('coc:discovery-task',value=>{discoveryHandoff=object(value);});
     const temporalAdvice=createTemporalAdvice({read:async(method,params)=>call?call(method,params):undefined,decision,record});
     let pendingTemporal:Row|undefined;
     let turnCalls=emptyCalls(),pendingSections:Row|undefined;
-    const resetPreparation=()=>{inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;};
+    const resetPreparation=()=>{inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;heldDiscoveryRequests.clear();discoveryHandoff=undefined;};
     pi.events.on('coc:task-provider-budget',value=>{foregroundBudget=typeof value==='function'?value as typeof foregroundBudget:undefined;});
     // Contract §168.5: a capsule this hook reads itself is handed over through the kernel extension's first-sight view, as
     // the player-input capsule already was: an item whose check is still running is left out, and what is carried is noted.
@@ -144,7 +159,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const key = `${generation}:${reason}`;
         if (key !== lastDegraded) {lastDegraded = key; record({lane: 'context', event: 'degraded', reason});}
     };
-    pi.on('input', async () => {capabilityRuntime.clear();modDiscovery.clear();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();inputPending=true;turnCalls=emptyCalls();invalidate();});
+    pi.on('input', async () => {capabilityRuntime.clear();modDiscovery.clear();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();heldDiscoveryRequests.clear();inputPending=true;turnCalls=emptyCalls();invalidate();});
     pi.events.on('coc:kernel-bridge', data => {
         const value = object(data), nextCall = typeof value.call === 'function' ? value.call : undefined;
         const nextCampaign = typeof value.campaign === 'string' ? value.campaign : undefined;
@@ -185,7 +200,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // every request until the next accepted input runs degraded on `player_input_not_accepted`.
     pi.events.on('coc:input-refused', () => {inputPending = false; invalidate();});
     pi.events.on('coc:source-published', data => {
-        if (observedWorkspaceMode === 'off' && !prescreenEnabled() && !object(object(capsule?.mods).expression_reference).enabled || object(data).campaign && object(data).campaign !== campaign) return;
+        if ((observedWorkspaceMode === 'off' && !prescreenEnabled() && !object(object(capsule?.mods).expression_reference).enabled
+            &&discoveryMode()==='full') || object(data).campaign && object(data).campaign !== campaign) return;
+        discoveryHandoff=undefined;
+        capabilityRuntime.clear();modDiscovery.reset();
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; prescreenMemo=undefined;reusablePrescreen=undefined; invalidate();
     });
     pi.on('tool_call', async event => {
@@ -200,8 +218,16 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             })).map((section:Row)=>section.key));
         const missing=needed.filter((key:string)=>!deliveredDiscoveryKeys.has(key));
         if(missing.length){
-            record({lane:'mod-discovery',event:'readiness_expansion',turn:observedTurn,keys:missing,no_commit:true});
-            return{block:true,reason:'Required package detail was absent from the current request. No world change was committed. Read the next expanded request and re-decide the whole batch.'};
+            const request=fingerprint([inputEpoch,event.toolName,input]),repeated=heldDiscoveryRequests.has(request);
+            heldDiscoveryRequests.add(request);
+            const names=(object(capsule?.mods).instructions??[]).flatMap((mod:Row)=>(mod.sections??[])
+                .filter((section:Row)=>missing.includes(section.key)).map((section:Row)=>`${mod.mod}: ${section.heading??'Package core'}`));
+            record({lane:'mod-discovery',event:repeated?'readiness_unavailable':'readiness_expansion',turn:observedTurn,keys:missing,no_commit:true});
+            return{block:true,reason:(repeated
+                ?'Required package detail remained unavailable after expansion. Resolve the request capacity or delivery failure before trying this batch again. '
+                :'Required package detail was absent from the current request. Read the next expanded request and re-decide the whole batch. ')
+                +'No world change was committed. '+JSON.stringify({status:repeated?'unavailable':'expansion',requested:names,
+                    loaded:[],missing_capability:names,no_commit:true})};
         }
         const hold=capabilityRuntime.readiness(event.toolName,object(event.input));
         if(hold)return hold;
@@ -473,6 +499,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     });
     pi.on('context', async (event, ctx) => {
         const ticket = generation;
+        // Start before storage hydration so its elapsed time is not a free selection allowance.
+        if(discoveryMode()!=='full')beginPreparationAllowance();
         // §143.6: NPC advice is retired; a copy a session recorded before that never reaches the model.
         const requestMessages=event.messages.filter(message=>message.role!=='custom'||message.customType!==NPC_ADVICE_TYPE);
         let snapshot = await prepare();
@@ -577,11 +605,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const preparationSignal=optionalWork.signal,preparationCall=call,preparationCampaign=campaign;
         const materialEnabled=!runOwnsPrescreen&&prescreenEnabled()&&supplementBudget>=512;
         const port=decision();
-        if(materialEnabled&&port&&preparationCall&&preparationCampaign&&inputEpoch&&!prescreenDeadlineAt){
-            const parent=foregroundBudget?.();prescreenDeadlineAt=Math.min(Date.now()+readJevPreselectAllowanceMs(sessionEnv),parent?.deadlineAt??Infinity);
-            sharedBudget=preparationBudget({decision:port,campaign:preparationCampaign,deadlineAt:prescreenDeadlineAt,signal:inputLifetime.signal,parent});
-            record({lane:'prescreen',owner:'keeper-preparation',event:'allowance_started',allowance_ms:readJevPreselectAllowanceMs(sessionEnv),
-                effective_ms:Math.max(0,prescreenDeadlineAt-Date.now())});
+        if((materialEnabled||discoveryMode()!=='full')&&port&&preparationCall&&preparationCampaign&&inputEpoch&&!prescreenDeadlineAt){
+            beginPreparationAllowance();
         }
 
         if(runOwnsPrescreen){
@@ -633,10 +658,28 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             &&Math.ceil((requestSize([...outgoing,sectionsMessage])+systemBytes)/BYTES_PER_TOKEN)<=available){
             outgoing.push(sectionsMessage);pendingSections=sectionsMessage;
         }else if(sectionsMessage)record({lane:'mod-sections',event:'omitted',turn:snapshot.binding.turn,reason:'request_ceiling',bytes:requestSize([sectionsMessage])});
-        capabilityRuntime.observe(snapshot.capsule,snapshot.binding,inputLifetime.signal);
-        modDiscovery.observe(snapshot.capsule,snapshot.binding,inputLifetime.signal,turnCalls);
+        // Read only the current host-owned step, never a player's JSON or a past turn's plan.
+        const stepMessage=[...requestMessages].reverse().find(message=>message.role==='custom'&&message.customType===CLERK_TYPE
+            &&object(message.details).coc_host===true&&object(message.details).turn===snapshot.binding.turn);
+        let discoveryTask:Row={};
+        if(stepMessage)try{const step=object(JSON.parse(String(stepMessage.content)));
+            if(step.kind==='single_loop_step')discoveryTask={purpose:step.purpose,reason:step.reason,check_preparation:step.check_preparation,
+                operations:step.complete?[step.complete]:object(step.left_to_you).operation?[object(step.left_to_you).operation]:[]};
+        }catch{/* Malformed host material supplies no selection facts. */}
+        const handoff=discoveryHandoff;
+        if(handoff?.campaign===snapshot.binding.campaign&&handoff.turn===snapshot.binding.turn
+            &&(handoff.worldline??'main')===(snapshot.binding.worldline??'main')&&(handoff.loop??0)===(snapshot.binding.loop??0)
+            &&handoff.source_revision===(snapshot.binding.task_source_revision??snapshot.binding.source_revision))
+            discoveryTask=object(handoff.task);
+        const discoveryCalls={apply:new Set(turnCalls.apply),resolve:new Set(turnCalls.resolve)};
+        for(const op of discoveryTask.operations??[]){
+            if(op.verb==='apply'&&typeof op.family==='string')discoveryCalls.apply.add(op.family);
+            if(op.verb==='resolve'&&typeof op.family==='string')discoveryCalls.resolve.add(op.family);
+        }
+        capabilityRuntime.observe(snapshot.capsule,snapshot.binding,inputLifetime.signal,discoveryTask);
+        modDiscovery.observe(snapshot.capsule,snapshot.binding,inputLifetime.signal,discoveryCalls,discoveryTask);
         await capabilityRuntime.wait();
-        const discoveryMessage=await modDiscovery.message(snapshot.capsule,snapshot.binding,preparationSignal,turnCalls);
+        const discoveryMessage=await modDiscovery.message(snapshot.capsule,snapshot.binding,preparationSignal,discoveryCalls,discoveryTask);
         pendingDiscovery=undefined;requiredCapabilities=[];
         if(discoveryMessage){
             if(requestSize([...outgoing,discoveryMessage])+systemBytes>ceiling)throw Error('mod_discovery_request_capacity');
@@ -688,13 +731,29 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     pi.on('context_with_system',event=>{
         const tools=getCurrentTools(event.messages as never);
         const view=capabilityRuntime.project(tools as any,requiredCapabilities);
-        if(!view)return;
-        const {toolsAdded:_added,toolsRemoved:_removed,...head}=getCurrentSystemMessage(event.messages as never) as Row;
-        return{messages:[{...head,toolsAdded:view},...event.messages.filter(message=>message.role!=='system')] as never};
+        const current=getCurrentSystemMessage(event.messages as never) as Row|undefined;
+        if(!current)return;
+        const {toolsAdded:_added,toolsRemoved:_removed,...head}=current;
+        const messages=view?[{...head,toolsAdded:view},...event.messages.filter(message=>message.role!=='system')]:event.messages;
+        const finalHead=getCurrentSystemMessage(messages as never) as Row;
+        const {toolsAdded:_tools,toolsRemoved:_removedAgain,...prose}=finalHead;
+        const schemas=view??tools;
+        record({lane:'context',event:'request_projection',
+            mode:view?'selected':'full',projected_request_bytes:sizeOf(messages),
+            projected_system_bytes:sizeOf(finalHead),system_prose_bytes:sizeOf(prose),
+            tool_schema_bytes:sizeOf(schemas),canonical_tool_schema_bytes:sizeOf(tools),
+            projected_request_digest:fingerprint(messages),
+            mod_discovery_bytes:requestSize(messages.filter(message=>message.role==='custom'&&message.customType==='coc-mod-sections')),
+            measurement:'public_context_json_bytes_not_provider_tokens'});
+        if(view)return{messages:messages as never};
     });
     // Public Pi seam after provider conversion. Observe only whether the exact prepared packet
     // survived serialization; never record headers, secrets or the private payload.
     pi.on('before_provider_request', event => {
+        const payload=(event as unknown as Row).payload;
+        if(payload&&typeof payload==='object')record({lane:'context',event:'provider_projection',
+            provider_projection_bytes:sizeOf(payload),provider_projection_digest:fingerprint(payload),
+            measurement:'provider_adapter_json_bytes_before_later_hooks_not_wire_bytes_or_tokens'});
         const discovered=pendingDiscovery;pendingDiscovery=undefined;
         deliveredDiscoveryKeys=new Set();
         const discoveryDelivered=discovered&&payloadContains((event as unknown as Row).payload,String(discovered.content));

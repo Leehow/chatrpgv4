@@ -42344,6 +42344,7 @@ The existing lookup surface gains a `capability` (instruction discovery) kind ac
 ### 209.6 Readiness and expansion
 
 - Intended operations from the existing compile and host plan seed their fragments and sections before the first relevant Keeper inference.
+- The hybrid host emits `coc:discovery-task` before its model projection: `{campaign, worldline, loop, turn, source_revision, run, task: {purpose, reason, features, operations}}`. Features are the current run's latest compile result; operations are existing host-issued operation views, not new proposals. The context owner accepts only matching campaign/worldline/loop/turn and task-source revision, clears the handoff on input, source publication and session reset, and includes it in the selection epoch. Apply families and structural bound/needed fields seed capability fragments; their existing before-apply triggers seed required package detail. This handoff grants no execution authority and carries no future receipts.
 - If a required capability or detail is absent when a mutating call arrives, the dispatcher holds all effects of that call before any mutation (no partial execution), and returns a structured expansion status:
   - `requested`, `loaded`, `missing_capability` (name), `no_commit: true`.
 - The Keeper re-decides through the ordinary loop. Mutating calls are never replayed automatically. Inferred never silently becomes observed.
