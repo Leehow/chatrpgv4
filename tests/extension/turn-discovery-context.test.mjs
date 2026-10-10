@@ -18,16 +18,18 @@ await build({stdin:{contents:[
 const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
 test.after(()=>rm(temp,{recursive:true,force:true}));
 
-for(const [denied,seeded,stale] of [[false,false,false],[true,false,false],[false,true,false],[false,true,true]])test(
-    denied?'discovery shares foreground reservations and falls back before a refused provider dispatch'
+for(const [denied,seeded,stale,expired,sourceError] of [[false,false,false],[true,false,false],[false,true,false],[false,true,true],
+    [false,false,false,true,false],[false,false,false,true,true],[false,false,false,true,'foreground']])test(
+    expired?sourceError==='foreground'?'expired foreground ownership never clears the current write hold':sourceError?'optional expiry never clears a failed current-source write hold':'optional expiry after model time delivers a verified full view without renewing decisions'
+        :denied?'discovery shares foreground reservations and falls back before a refused provider dispatch'
         :seeded?stale?'a stale task source cannot seed current capability or package detail':'current host operations seed capability and package detail before inference'
         :'normal context hooks declare the selected schema and hold a first unshown instruction before mutation',async t=>{
-    const envNames=['COC_TURN_DISCOVERY','EXT_JEV_APIKEY','PI_COC_JEV_PRESELECT'],old=Object.fromEntries(envNames.map(n=>[n,process.env[n]]));
+    const envNames=['COC_TURN_DISCOVERY','EXT_JEV_APIKEY','PI_COC_JEV_PRESELECT','PI_COC_JEV_PRESELECT_ALLOWANCE_MS'],old=Object.fromEntries(envNames.map(n=>[n,process.env[n]]));
     process.env.COC_TURN_DISCOVERY='selective';process.env.EXT_JEV_APIKEY='test-only';
-    process.env.PI_COC_JEV_PRESELECT='0';
+    process.env.PI_COC_JEV_PRESELECT='0';if(expired)process.env.PI_COC_JEV_PRESELECT_ALLOWANCE_MS='2000';
     const previousFetch=globalThis.fetch;
     t.after(()=>{globalThis.fetch=previousFetch;for(const name of envNames){if(old[name]===undefined)delete process.env[name];else process.env[name]=old[name];}});
-    let fetched=0,reserved=0,settled=0;
+    let fetched=0,reserved=0,settled=0,failSource=false;
     globalThis.fetch=async(_url,init)=>{
         fetched++;
         const body=JSON.parse(init.body),cards=body.state.cards;
@@ -45,7 +47,7 @@ for(const [denied,seeded,stale] of [[false,false,false],[true,false,false],[fals
         emit:(name,value)=>bus.get(name)?.(value)},sendMessage(){},
         getAllTools:()=>api.COC_TOOLS,getActiveTools:()=>api.COC_TOOLS.map(t=>t.name).filter(n=>n!=='resolve')};
     api.installContextPolicy(pi,e=>rows.push(e));
-    const binding={version:1,campaign:'table',worldline:'main',loop:0,turn:0,source_revision:'a'.repeat(64)};
+    let binding={version:1,campaign:'table',worldline:'main',loop:0,turn:0,source_revision:'a'.repeat(64)};
     const cap={turn:{number:0,player_text:'Wait until nine.'},recent:[],module:{title:'Fixture'},style:{},
         where:{scene:'library',clock:{at:'1920-10-13T03:00'}},present:[],
         mods:{pacing:{threat_clocks:[{threat:'Patience',clock:'pressure',state:'0/4'}]},instructions:[{mod:'pacing',version:'2.0.0',form:'indexed',index_contract_version:2,instruction:'Core rules.',
@@ -56,7 +58,7 @@ for(const [denied,seeded,stale] of [[false,false,false],[true,false,false],[fals
     await hooks.get('session_start')();
     bus.get('coc:kernel-bridge')({campaign:'table',call:async(method,args)=>{
         calls.push(method);
-        if(method==='table.capsule')return{...cap,_context:binding};
+        if(method==='table.capsule'){if(failSource)throw Error('imported_SQL_unavailable');return{...cap,_context:binding};}
         if(method==='table.untold')return{};
         if(method==='mods.sections')return{sections:args.keys.map(key=>({key,text:'Immutable '+key}))};
         return{cards:[],_snapshot:'fixture'};
@@ -67,8 +69,8 @@ for(const [denied,seeded,stale] of [[false,false,false],[true,false,false],[fals
         source_revision:stale?'b'.repeat(64):binding.source_revision,run:'fixture-run',
         task:{purpose:'bind',reason:'clerk_unbound',features:{act:{row:'purchase',cleared:true}},
             operations:[{verb:'apply',family:'cash',bound:{amount:20,currency:'USD',to:'here'},needs:['amount',{name:'to'}]}]}});
-    const lifetime=new AbortController();
-    bus.get('coc:task-provider-budget')(()=>({signal:lifetime.signal,deadlineAt:Date.now()+60000,
+    const lifetime=new AbortController();let foregroundDeadline=Date.now()+20000;
+    bus.get('coc:task-provider-budget')(()=>({signal:lifetime.signal,deadlineAt:foregroundDeadline,
         reserve:async bound=>{
             reserved++;assert.equal(bound.model.provider,'typesafe');assert.ok(bound.inputTokens>0);
             if(denied)throw Error('foreground_test_refusal');
@@ -93,7 +95,33 @@ for(const [denied,seeded,stale] of [[false,false,false],[true,false,false],[fals
     const nativeNote=projected.find(message=>message.customType===api.CLERK_TYPE);
     assert.deepEqual(JSON.parse(nativeNote.content).native_search_scope,{run:'fixture-native-run',step:'fixture-native-step'});
     const apply=tools.find(t=>t.name==='apply');
-    if(denied){
+    if(expired){
+        hooks.get('before_provider_request')({payload:{input:outgoing.messages,tools}});
+        const before=fetched;
+        await new Promise(resolve=>setTimeout(resolve,2100));
+        cap.where.clock.at='1920-10-13T09:00';binding={...binding,task_world_revision:'world-2'};
+        await hooks.get('tool_call')({toolName:'apply',toolCallId:'expiry-change',input:{effects:[{kind:'time',minutes:360}]}});
+        await hooks.get('tool_result')({toolName:'apply',toolCallId:'expiry-change',input:{effects:[{kind:'time',minutes:360}]},isError:false,details:{}});
+        failSource=sourceError===true;if(sourceError==='foreground')foregroundDeadline=Date.now()-1;
+        const refreshed=await hooks.get('context')({messages:messages.filter(m=>m.role!=='system')},ctx);
+        const full=hooks.get('context_with_system')({messages:[messages[0],...refreshed.messages]},ctx);
+        const final=full?.messages??[messages[0],...refreshed.messages];
+        const finalTools=getCurrentTools(final);
+        assert.equal(fetched,before,'elapsed model time must not renew optional Jev decisions');
+        assert.ok(rows.some(r=>r.event==='discovery_fallback'&&r.reason==='preparation_expired'));
+        assert.deepEqual(finalTools.find(t=>t.name==='apply').parameters,declared.find(t=>t.name==='apply').parameters);
+        hooks.get('before_provider_request')({payload:{input:refreshed.messages,tools:finalTools}});
+        const hold=await hooks.get('tool_call')({toolName:'apply',toolCallId:'after-expiry',input:{effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]}});
+        if(sourceError){assert.equal(hold.block,true);assert.match(hold.reason,/no world change was committed/i);}
+        else{
+            assert.equal(hold,undefined);
+            const current=refreshed.messages.find(m=>m.customType==='coc-capsule-update');
+            assert.equal(JSON.parse(current.content).sections.where.clock.at,'1920-10-13T09:00');
+            const packet=refreshed.messages.find(m=>m.customType==='coc-mod-sections');
+            assert.equal(JSON.parse(packet.content).sections.length,2,'the whole current instruction view was actually delivered');
+            assert.ok(rows.some(r=>r.lane==='mod-discovery'&&r.event==='prepared'&&r.reason==='forced_full'));
+        }
+    }else if(denied){
         assert.equal(fetched,0);assert.ok(reserved>=2);
         assert.equal(tools.length,declared.length);
         assert.deepEqual(apply.parameters,declared.find(t=>t.name==='apply').parameters);
