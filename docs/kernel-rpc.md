@@ -42562,3 +42562,114 @@ This is host storage only; no new kernel RPC, Keeper verb, world state, semantic
 resource setting or rules gate. Existing TaskStore and TranscriptStore callers are the
 consumers. Regression checks compare logical SQL state while original artifacts retain
 byte hashes. Spec, focused/full checks, exact runtime and genuine driver evidence are required.
+
+## 223. Pushing, Luck and improvement ticks follow the Keeper Rulebook (user ruling 2026-10-10)
+
+The user's ruling of 2026-10-10: rules adjudicate what actually happened at the table, per the
+Keeper Rulebook; they do not refuse an event because a stricter house reading was written into
+code. This section aligns six findings of the rulebook audit. It amends §45.2 (`push_eligible`),
+§95 (modifier dice on a check), §159 (the host's push candidate) and the push/Luck hints of the
+settlement; it does not move check selection out of the host and Jev.
+
+### 223.1 Pushing: foreshadowing is optional, the justification is the player's
+
+Rulebook (p.84-85, "Pushing the Roll" / "Foreshadowing Failure"): a pushed roll is allowed if the
+player can justify it -- the player describes the extra effort or time; the Keeper approves. The
+consequence of failing the push *may* be foreshadowed, when the player asks or the Keeper chooses
+to; it is not a precondition. A failed push grants the Keeper free rein over the outcome (p.86),
+including the goal achieved at a cost.
+
+Product before this section: `rules-json/pushed-roll.json` said `requires_keeper_foreshadowed_failure:
+true` with a `keeper_foreshadows_failure` stage; `kernel-ts/resolve/basic.ts` wrote
+`keeper_foreshadowed_failure: true` on every pushed roll whatever had been said;
+`kernel-ts/resolve/settlement.ts` and `kernel-ts/resolve/pipeline.ts` refused a push without a
+`failure_consequence`; `kernel-ts/runtime/check-catalog.ts` offered the host's push candidate only
+when a sentence of the previous delivery could be quoted as the announced risk.
+
+Now:
+
+- The push candidate (`push-luck:pushed-roll`) is offerable whenever the previous continuable
+  check of this investigator failed as an ordinary failure, is `push_eligible`, has not been pushed
+  or bought with Luck, and the player declares a justified retry (Jev judges the declaration against
+  the option's definition; the player's words are the `method`). Its `stakes` parameter keeps the
+  previously delivered sentences that announce a consequence as options, and now carries the rules
+  default `''` (no foreshadowed consequence): Jev takes a sentence only when the delivery actually
+  foreshadowed one.
+- A push with an empty `failure_consequence` is legal. The receipt records honestly:
+  `pushed_roll_protocol.failure_consequence_source` is `delivered_text` when the consequence sentence
+  appears in a delivery already made at this table (the kernel checks the turn records'
+  `rendered_text`), `keeper_stated` when it was given on the call but was not delivered before, or
+  `keeper_free_rein` when none was given; `keeper_foreshadowed_failure` is true only for
+  `delivered_text`; `player_declared_push` replaces `player_confirmation_recorded`. The hint on a
+  failed push says the Keeper has free rein when no consequence was recorded.
+- `pushed-roll.json`: `requires_keeper_foreshadowed_failure: false`, `foreshadowing: "optional"`,
+  stages `player_justifies_push`, `keeper_approves`, `roll_resolved`; the push limits stay (one push,
+  no fumble, no combat skill, no Luck on a pushed roll, not in a chase, not Luck/SAN/damage rolls).
+- `prompts/keeper.md`: the Keeper may foreshadow the consequence of failing a pushed attempt in the
+  fiction ("if you fail…") when the player asks or when it heightens the danger; a menu is still not
+  offered and the push stays unexecuted until the player declares it.
+
+### 223.2 Improvement ticks: any bonus die withholds the tick
+
+Rulebook p.94: no tick is earned if the roll used a bonus die. The product withheld the tick only
+when the bonus die was needed for success (`bonus_die_only_success`). `skillTickEligible`
+(`kernel-ts/resolve/context.ts`) now withholds for any check whose net bonus dice are above zero;
+`development.json` names the exclusion `bonus_die_used` (the engine's `bonus_die_only_success`
+marker stays as a narrower, still-excluded case).
+
+### 223.3 Luck may raise a success level and may be spent on an opposed check
+
+Rulebook p.99: after a skill or characteristic roll, Luck may be spent 1-for-1 to alter the result;
+the example converts a Dodge to an Extreme success in an opposed contest. The product refused Luck on
+any passed roll (`luck_may_only_alter_a_failed_roll`), excluded non-combat opposed checks from the
+continuable receipts, and the combat path (`CombatSession.opposedLuck`) tried to raise a passed but
+losing roll through that refusal, so a precommitted Luck spend on a passed-but-losing roll threw.
+
+Now `CheckArithmetic.spendLuck` accepts a passed roll (the player may spend any amount up to their
+Luck; whether the new number changes the level is their gamble); the Luck exclusions stand (no Luck on Luck,
+SAN, SAN-loss or damage rolls; criticals, fumbles and malfunctions are not bought off; no Luck on a
+pushed roll; push or Luck, not both; no tick after Luck). `continuableCheck` admits the
+investigator's side of a non-combat `opposed_check`; its receipt carries `opponent_level` and
+`opponent_target` so `executeLuckSpend` recomputes the contest winner (`CheckArithmetic.contestWinner`,
+the same tie rule as `opposed`) and writes `opposed_won` on the bought roll. The settlement grants
+the Luck continuation after a regular, hard or extreme success as well as after a failure (a critical
+needs none). `CombatSession.opposedLuck` tries each point only where the raised level wins the
+contest and never asks the arithmetic to spend on a roll that does not change.
+
+### 223.4 Combined checks may be pushed and tick their skills
+
+Rulebook p.55 / p.85: a combined roll is one die compared with several skills; only skill and
+characteristic rolls can be pushed, and a combined skill roll is one. The rulebook puts no push or
+tick restriction on it. `executeCheck` no longer sets `push_eligible: false` on a combined check
+(it is pushable unless every named skill is a combat skill), `executePush` re-rolls a combined
+source with the same targets and mode, `executeLuckSpend` buys the one die down and compares it with
+every named skill again (`combined_roll` recomputed, no tick), and `recordSkillTicks` ticks each named
+skill the single die succeeded against (each judged by the ordinary tick rules); `development.json` drops
+`combined_roll_participant`. The whole combined receipt still has no tick of its own: its label is
+not a skill.
+
+### 223.5 Group Luck roll: the lowest Luck rolls
+
+Rulebook p.93: when the Keeper calls for a group Luck roll, the player whose investigator has the
+lowest Luck score rolls. `luck.json` and `rule-index.json` said "take the lowest individual roll";
+`group_roll_policy` is now `lowest_luck_rolls`. No kernel code reads the field; the Python table
+test is updated.
+
+### 223.6 Narration audit wording
+
+`mods/narration-audit/auditor.md` told the reviewer that a failed roll never earns the goal. p.86
+lets a failed pushed roll achieve the goal at a cost. §166 retired the pre-delivery audit and the
+deferred review runs only under `PI_COC_CONTINUITY_GATE` (`extensions/mods/index.ts` ~1013); the
+wording is corrected either way so a reviewer that does run does not flag a legal outcome.
+
+### 223.7 Three ends and tests
+
+Writer: `executeCheck`/`executePush`/`executeLuckSpend` (receipts), `recordSkillTicks`
+(development state), the check catalog (push candidate). Reader: the settlement hints and
+`shapeSettlement`, the mechanics projection, Jev's check selection. Actor: the player declares the
+push or the Luck spend; the Keeper narrates the recorded consequence or exercises free rein.
+
+Tests: `tests/extension/rulebook-rolls.test.mjs` (arithmetic: Luck raises a level and keeps the
+exclusions; opposed Luck recomputes the winner; push protocol records
+the consequence source honestly and accepts free rein; combined push and ticks; bonus-die tick
+withheld; combat opposedLuck on a passed-but-losing roll; catalog push default; rules data).
