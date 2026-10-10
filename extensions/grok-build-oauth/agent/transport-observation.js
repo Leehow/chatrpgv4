@@ -6,7 +6,8 @@ import { join, isAbsolute } from 'node:path';
 import { createGunzip, createInflate, createBrotliDecompress } from 'node:zlib';
 import { performance } from 'node:perf_hooks';
 import { subscribe } from 'node:diagnostics_channel';
-import { getGlobalDispatcher, setGlobalDispatcher } from 'undici';
+import { getSystemErrorMap } from 'node:util';
+import { errors as undiciErrors, getGlobalDispatcher, setGlobalDispatcher } from 'undici';
 
 const SHARED = Symbol.for('pipicoc.grok.transport-observation.v1');
 const now = () => ({receiptTime: new Date().toISOString(), receiptMonoMs: performance.now()});
@@ -32,12 +33,43 @@ function header(headers, name) {
   } else for (const key of Object.keys(headers ?? {})) if (key.toLowerCase() === name) return String(headers[key]);
   return undefined;
 }
+const errorNames = new Set(['Error', 'AbortError', 'TimeoutError', 'TypeError', 'AggregateError', ...Object.keys(undiciErrors)]);
+const systemCodes = new Set(['ENOTFOUND', ...[...getSystemErrorMap().values()].map(([name]) => name)]);
+const undiciCodes = new Set(['UND_ERR', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_HEADERS_OVERFLOW',
+  'UND_ERR_BODY_TIMEOUT', 'UND_ERR_INVALID_ARG', 'UND_ERR_INVALID_RETURN_VALUE', 'UND_ERR_ABORT', 'UND_ERR_ABORTED',
+  'UND_ERR_INFO', 'UND_ERR_REQ_CONTENT_LENGTH_MISMATCH', 'UND_ERR_RES_CONTENT_LENGTH_MISMATCH', 'UND_ERR_DESTROYED',
+  'UND_ERR_CLOSED', 'UND_ERR_SOCKET', 'UND_ERR_NOT_SUPPORTED', 'UND_ERR_BPL_MISSING_UPSTREAM',
+  'UND_ERR_RES_EXCEEDED_MAX_SIZE', 'UND_ERR_REQ_RETRY', 'UND_ERR_RESPONSE', 'UND_ERR_RESPONSE_STATUS_CODE', 'UND_ERR_PRX_TLS']);
+const tlsCodes = new Set(['ERR_TLS_CERT_ALTNAME_INVALID', 'ERR_TLS_CERT_SIGNATURE_ALGORITHM_UNSUPPORTED',
+  'CERT_HAS_EXPIRED', 'CERT_NOT_YET_VALID', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'ERR_SSL_WRONG_VERSION_NUMBER']);
+const errorField = (error, key) => {try {return error?.[key];} catch {return undefined;}};
+function errorIdentity(error) {
+  const name = errorField(error, 'name'), code = errorField(error, 'code');
+  const recognized = typeof code === 'string' && (systemCodes.has(code) || tlsCodes.has(code) || undiciCodes.has(code));
+  return {errorName: errorNames.has(name) ? name : 'other', ...(recognized ? {code} : {})};
+}
 function errorMeta(error, rawResponse = false) {
-  const names = new Set(['Error', 'AbortError', 'TimeoutError', 'TypeError']);
-  const code = typeof error?.code === 'string' && /^UND_ERR_[A-Z_]+$/.test(error.code) ? error.code : undefined;
-  return {errorName: names.has(error?.name) ? error.name : 'other', ...(code ? {code} : {}),
-    ...(rawResponse ? {_responsePayload: {name: error?.name, message: error?.message, code: error?.code,
-      cause: error?.cause ? {name: error.cause.name, message: error.cause.message, code: error.cause.code} : undefined}} : {})};
+  const seen = new Set(), causes = [];
+  let truncated = false;
+  function visit(value, depth, relation) {
+    if (!value || typeof value !== 'object' || seen.has(value)) return;
+    if (depth > 4 || seen.size >= 8) {truncated = true; return;}
+    seen.add(value);
+    if (depth) causes.push({depth, relation, ...errorIdentity(value)});
+    visit(errorField(value, 'cause'), depth + 1, 'cause');
+    const children = errorField(value, 'errors');
+    if (Array.isArray(children)) {
+      if (children.length > 4) truncated = true;
+      for (let index = 0; index < Math.min(children.length, 4); index++) visit(errorField(children, index), depth + 1, 'aggregate');
+    }
+  }
+  // Observation cannot throw into the provider's terminal callback, including for proxies.
+  try {visit(error, 0, 'root');} catch {truncated = true;}
+  const cause = errorField(error, 'cause');
+  return {...errorIdentity(error), ...(causes.length ? {errorCauses: causes} : {}), ...(truncated ? {errorCausesTruncated: true} : {}),
+    ...(rawResponse ? {_responsePayload: {name: errorField(error, 'name'), message: errorField(error, 'message'), code: errorField(error, 'code'),
+      cause: cause ? {name: errorField(cause, 'name'), message: errorField(cause, 'message'), code: errorField(cause, 'code')} : undefined}} : {})};
 }
 
 class Trace {

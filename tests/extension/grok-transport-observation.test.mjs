@@ -215,6 +215,43 @@ test('actual SDK cancellation and transport error preserve terminal outcome and 
  assert.ok(cap.rows.at(-1).incomplete.includes('transport_error'));assert.equal(cap.rows.find(r=>r.event==='transport_summary').eofObserved,false);privacy(cap.rows);
  }});
 
+test('metadata-only SDK connector failures retain bounded system causes without private fields',async t=>{
+ restore(t);
+ const endpoint=await fixture(t);
+ const leaf=Object.assign(Error(SECRET+' socket at private-address'),{code:'ECONNRESET',address:SECRET,stack:SECRET});
+ const dns=Object.assign(Error(SECRET),{code:'ENOTFOUND'});
+ const aggregate=new AggregateError([leaf,dns],SECRET);
+ const failure=Object.assign(Error(SECRET),{code:'UND_ERR_CONNECT_TIMEOUT',cause:aggregate});
+ leaf.cause=failure;
+ const agent=new Agent({connect(_options,callback){callback(failure);}});
+ setGlobalDispatcher(agent);t.after(()=>agent.close());
+ const cap=capture(),api=getApiProvider('openai-responses');
+ const stream=createObservedGrokStream(api.streamSimple,cap.options)(model(endpoint.url),context,opts);
+ const observed=await consume(stream);await cap.traces[0].close();
+ assert.equal(observed.result.stopReason,'error');
+ const row=cap.rows.find(r=>r.event==='transport_error');assert.ok(row);
+ assert.equal(row.code,'UND_ERR_CONNECT_TIMEOUT');
+ assert.deepEqual(row.errorCauses.map(value=>value.code).filter(Boolean),['ECONNRESET','ENOTFOUND']);
+ assert.equal(row.errorCauses[0].errorName,'AggregateError');
+ assert.equal(cap.traces.length,1,'observation creates no retry');
+ privacy(cap.rows);assert.ok(!JSON.stringify(cap.rows).includes('private-address'));
+});
+
+test('error metadata bounds cause trees and excludes unknown codes and throwing accessors',async()=>{
+ const cap=capture(),failure=Object.assign(Error(SECRET),{code:'UND_ERR_PRIVATE_SENTINEL'});
+ let cursor=failure;
+ for(let index=0;index<12;index++){cursor.cause=Object.assign(Error(SECRET),{code:index===0?SECRET:'ECONNRESET'});cursor=cursor.cause;}
+ Object.defineProperty(failure,'name',{get(){throw Error(SECRET);}});
+ const delegate=()=>{throw failure;};
+ assert.throws(()=>createObservedGrokStream(delegate,cap.options)(model('http://127.0.0.1:9'),context,opts),error=>error===failure);
+ await cap.traces[0].close();
+ const row=cap.rows.find(r=>r.event==='delegate_error');assert.ok(row);
+ assert.equal(row.errorName,'other');assert.equal(row.errorCausesTruncated,true);
+ assert.equal(row.code,undefined);assert.ok(!JSON.stringify(cap.rows).includes('UND_ERR_PRIVATE_SENTINEL'));
+ assert.ok(row.errorCauses.length<=7&&row.errorCauses.every(value=>value.depth<=4));
+ assert.equal(row.errorCauses[0].code,undefined);privacy(cap.rows);
+});
+
 test('opt-in raw capture retains SDK terminal errors even when HTTP failure has no SSE events',async t=>{
  restore(t);const f=await fixture(t,'identity',(_req,res)=>{
   res.end(JSON.stringify({error:{message:'UPSTREAM_FAILURE '+opts.apiKey,code:'overloaded'}}));
