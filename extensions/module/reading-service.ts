@@ -1527,11 +1527,17 @@ export class ReadingService implements ReadingBridge {
 							} catch { /* no completed source reading to carry */ }
 							await writeFile(join(cwd, "baseline.json"), JSON.stringify(previousDraft ?? {}) + "\n");
 							delete task.visual_previews;
-							if(previousDraft&&draftHasMapRegions(previousDraft)){
+							if(!job.map_scope&&previousDraft&&draftHasMapRegions(previousDraft)){
 								const binding=candidateDigest(previousDraft),relative=join('author-previews',binding),previewDir=join(cwd,relative);
-								await mkdir(previewDir,{recursive:true});
-								task.visual_previews=(await mapReviewPreviews({draft:previousDraft,paths:['/coverage'],cwd:previewDir,source:{pdf:job.source.path,cache}}))
-									.map(preview=>({...preview,file:join(relative,preview.file),candidate_digest:binding}));
+								try {
+									await mkdir(previewDir,{recursive:true});
+									task.visual_previews=(await mapReviewPreviews({draft:previousDraft,paths:['/coverage'],cwd:previewDir,source:{pdf:job.source.path,cache}}))
+										.map(preview=>({...preview,file:join(relative,preview.file),candidate_digest:binding}));
+								} catch(error) {
+									// A malformed refused candidate must still reach the author; previews never replace the source gates.
+									this.deps.record({lane:'reading',event:'author_preview_unavailable',module_id:job.module_id,job_id:job.job_id,round,campaign,
+										detail:error instanceof Error?error.message:String(error)});
+								}
 								await writeFile(join(cwd,'task.json'),JSON.stringify(task)+'\n');
 							}
 							try {

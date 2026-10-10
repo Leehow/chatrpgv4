@@ -513,3 +513,15 @@ test('map repair attaches candidate-bound overlays as real files while independe
  assert.deepEqual(delivered[0].regions[0].source_box,[.1,.1,.9,.9],'overlay belongs to the refused candidate being repaired');
  assert.ok(result.units.length>0,'original-page independent review still runs');
 });
+
+test('an unrenderable refused map candidate reaches its author repair without becoming source evidence',async t=>{
+ const map=box=>({nodes:[node('asset-map','asset',1,{properties:{map_regions:[{region_id:'place',name:'Place',source_asset:'missing-asset',source_box:box,placement:[0,0,1,1]}]}})],claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['asset-map']});
+ const result=await runFixture(t,{
+  author:(_task,_disk,pass)=>pass===1?map([.1,.1,.9,.9]):{...map([.1,.1,.9,.9]),nodes:[node('asset-map','asset',1)]},
+  verdict:(path,_unit,reads)=>reads===1&&path==='/nodes/0'?'unsupported':'supported',
+  async onRequest(request){assert.equal(request.attachments,undefined,'failed preview supplies no image evidence');}
+ });
+ assert.equal(result.reads.length,2,'author can repair the refused candidate');
+ assert.ok(result.rows.some(row=>row.event==='author_preview_unavailable'));
+ assert.ok(result.units.length>1,'repaired source still undergoes independent review');
+});

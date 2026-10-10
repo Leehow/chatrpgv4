@@ -3615,6 +3615,12 @@ candidate-specific preview directories retain earlier overlays; attributes such 
 task.visual_previews are never advertised as filesystem directories. Independent review
 still opens original source pages and rejects incorrect region geometry.
 
+Source repair preview boundary (2026-10-10): kind-only map_scope tasks cannot edit region
+geometry and receive no author overlays. A refused candidate with unrenderable geometry
+or incomplete asset declarations records author_preview_unavailable and continues to its
+normal source-grounded author repair; no substitute observation or approval is minted.
+The repaired candidate must still pass all existing source/independent review gates.
+
 An authored applicability condition must not become an unconditional executable trigger
 merely because its wording remains in summary/book prose. Use only conditions the existing
 schema can faithfully express. Otherwise retain the sourced rule and explicit runtime_context
@@ -24826,8 +24832,8 @@ mutations are in the SL-40 ticket's Comments.
 **Full-provider options under transport observation (2026-10-10).** Pi's public extension
 stream callback also receives ModelRuntime.complete's full API options. Grok's optional
 observer must delegate explicit OpenAI Responses options (reasoningEffort, reasoningSummary,
-serviceTier) to the full API stream unchanged; treating them as simple options silently
-drops the caller's selected effort/summary/tier. Simple calls retain the simple API path.
+serviceTier, toolChoice) to the full API stream unchanged; treating them as simple options silently
+drops the caller's selected effort/summary/tier/tool choice. Simple calls retain the simple API path.
 The registered-runtime regression compares complete requests with observation off/on,
 beside the existing simple-call equivalence checks. Requested low remains low; no model,
 admission confidence, verdict rule, timeout, retry or resource ceiling changes. This fixes

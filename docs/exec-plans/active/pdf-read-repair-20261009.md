@@ -564,3 +564,12 @@ option; its real SDK request comparison passes together with the other22 observa
 fc3517fb6 committed scoped repairs; merged latest committed mainline f8a7680b1 cleanly.
 No other-owner dirty files were imported or staged. First LAN all is still running against
 its original snapshot; combined final all/build/live remain pending.
+
+First LAN all snapshot completed red603s: ext5471pass/1fail/1skip,pytest2128pass/2skip,
+routing12pass. All per-file/raw output retained in lan-intermediate. A new preview regression
+made a kind-only map_scope repair render a straying partial region draft before the author
+could fix it. No test assertion is weakened: skip geometry previews for kind-only jobs,
+and treat unrenderable refused-candidate previews as optional diagnostics, never substitute
+evidence. Author repair still runs and all original source gates still apply. New malformed
+preview fallback regression plus salvage18 now pass19/19; existing map_scope test verifies
+its two author passes and exact kind-only publication. Combined final all/build/live follow.
