@@ -800,3 +800,23 @@ test('incomplete scoped chase prerequisite views are not dropped', async t => {
   input.decision={async decide(batch){const result=await base.decide(batch);if(batch.family==='check-selection-chase-prerequisite')result.status='incomplete';return result;}};
   assert.equal((await selectCheck(input)).status,'selected');
 });
+
+test('§221.9: a rules default stands when Jev leans to an override but cannot bind one; the result is forced, not a no-roll', async t => {
+  const ending = {key: 'end', family: 'development', label: 'Close the session as conclusion', authorization: 'declaration', needs: [],
+    action: {actor: 'Ada', decision: 'development:end-session', ending: 'conclusion', intent: 'montage'},
+    facts: {reward_source: 'rulebook_scale', stated: null},
+    parameters: [{name: 'scenario_san_reward_expr', question: 'Which Sanity award fits the danger faced?',
+      options: [{label: 'No award', value: null}, {label: 'Lesser', value: '1D3'}, {label: 'The book\'s example', value: '1D6'}],
+      default: {value: null, question: 'Did the investigators face real danger?'}}]};
+  for (const [bind, expected, why] of [['unknown', null, 'below_confidence_gate'], ['value_1', '1D6', undefined]]) {
+    const {input} = setup(t, (batch, question) => batch.family === 'check-selection-defaults' ? noul(0.95)
+      : question.type === 'choice' ? choice(question, bind) : noul(0.99), [ending]);
+    input.declaration = 'We close the book on the house.';
+    input.investigators = ['Ada'];
+    const result = await selectCheck(input);
+    assert.equal(result.status, 'selected', bind);
+    assert.equal(result.action.scenario_san_reward_expr, expected, bind);
+    if (why) assert.deepEqual(result.forced, {uncertain: ['scenario_san_reward_expr override: unknown, rules default'], why});
+    else assert.equal(result.forced, undefined);
+  }
+});
