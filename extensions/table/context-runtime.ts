@@ -6,7 +6,7 @@ import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 /** Request and persistence adapters for the one bounded play-context policy. */
 import {createHash} from 'node:crypto';
 import {dirname, join} from 'node:path';
-import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-agent';
+import type {ContextEvent, ContextEventResult, ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-agent';
 import {getCurrentSystemMessage,getCurrentTools} from '@earendil-works/pi-ai';
 import {COC_TOOLS} from '../kernel/tools.ts';
 import {offeredTools} from '../kernel/lean-apply.ts';
@@ -501,10 +501,25 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         return preparing;
     }
 
-    const diagnostic = (reason: string): Row => customMessage(DIAGNOSTIC_TYPE, {
-        kind: 'context_diagnostic', reason,
-        note: 'Some context could not be safely reduced and was retained. Preserve authoritative state and pending choices; do not invent missing history. This host notice is not a story event or a new obligation.',
+    const diagnostic = (reason: string, note = 'Some context could not be safely reduced and was retained. Preserve authoritative state and pending choices; do not invent missing history. This host notice is not a story event or a new obligation.'): Row => customMessage(DIAGNOSTIC_TYPE, {
+        kind: 'context_diagnostic', reason, note,
     });
+    // Contract §209.13: package detail the request could not carry is omitted whole and said so.
+    const PACKAGE_OMITTED_NOTE = 'Required package instructions could not be sent with this request and were omitted, not shortened. Writes that need them stay held until a request carries them; do not invent their content. This host notice is not a story event or a new obligation.';
+    const PACKAGE_OMISSIONS = new Set(['mod_discovery_capacity', 'mod_discovery_detail_unavailable']);
+    /** The serialized system head and tool declarations Pi restores after this hook (Pi 0.87). */
+    const systemMeasure = (ctx: ExtensionContext): {systemBytes: number; systemDigest: string | null} => {
+        if (typeof ctx.sessionManager?.buildSessionProjection === 'function') {
+            const system = getCurrentSystemMessage(ctx.sessionManager.buildSessionProjection().messages);
+            // §184.3: the prompt text and the tool declarations the provider sees; the transcript timestamp is not sent.
+            return {systemBytes: system ? sizeOf(system) + 1 : 0,
+                systemDigest: system ? shortDigest({content: system.content, sections: system.sections ?? null, tools: system.toolsAdded ?? []}) : null};
+        }
+        const active = typeof pi.getActiveTools === 'function' ? new Set(pi.getActiveTools()) : undefined;
+        const tools = typeof pi.getAllTools === 'function' ? pi.getAllTools().filter(tool => !active || active.has(tool.name)) : [];
+        const material = {system: typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '', tools};
+        return {systemBytes: sizeOf(material), systemDigest: shortDigest(material)};
+    };
     const discoveryEvidence=(messages:readonly Row[])=>messages.filter(message=>message.role!=='custom'
         ||!['coc-capsule',BRIEF_TYPE,MOD_SECTIONS_MESSAGE,EXPRESSION_MESSAGE,TEMPORAL_ADVICE_MESSAGE,
             PRESCREEN_TYPE,WORKSPACE_TYPE,CAPSULE_UPDATE_TYPE,CLERK_TYPE].includes(message.customType));
@@ -524,7 +539,42 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 error=>{lifetime.removeEventListener('abort',abort);reject(error);});
         });
     }
+    /**
+     * No capsule, or a projection that failed, means no projection, never an unbounded request: a long campaign's
+     * whole stored branch is exactly what must not reach the provider on a degraded turn.
+     */
+    function degradedRequest(requestMessages: Row[], ctx: ExtensionContext, reason: string, failure?: string): Row[] {
+        const {systemBytes, systemDigest} = systemMeasure(ctx);
+        const ceiling = requestBudget(ctx.model?.contextWindow), budget = Math.max(0, ceiling - systemBytes);
+        // §176.8: renamed before the cut, so the ceiling measures the names and notes that go out.
+        const evidence=discoveryMode()==='full'?requestMessages:discoveryEvidence(requestMessages);
+        const rest = rename(evidence.filter(message => !(message.role === 'custom' && [DIAGNOSTIC_TYPE, PRESCREEN_TYPE].includes(message.customType))));
+        const notice = diagnostic(reason);
+        const cut = boundedTail(rest, Math.max(0, budget - requestSize([notice])));
+        const outgoing = rename([notice, ...cut.messages]);
+        record({lane: 'context', event: 'request', at: new Date().toISOString(), version: POLICY_VERSION, reason,
+            ...(failure ? {error: failure} : {}),
+            request_bytes: requestSize(outgoing) + systemBytes, system_bytes: systemBytes, system_digest: systemDigest, ...requestSegments(outgoing),
+            local_token_estimate: Math.ceil((requestSize(outgoing) + systemBytes) / BYTES_PER_TOKEN),
+            ceiling_bytes: ceiling, dropped_tail: cut.dropped, context_window: ctx.model?.contextWindow ?? null,
+            ...(cut.over ? {capacity: 'request_ceiling_exceeded'} : {})});
+        return outgoing;
+    }
+    // Contract §209.13: Pi keeps the messages a `context` handler was given when it throws, and for this hook those are
+    // the whole stored branch. So nothing thrown leaves it: any failure is answered with the bounded degraded request.
     pi.on('context', async (event, ctx) => {
+        try {return await projectRequest(event, ctx);}
+        catch (error) {
+            const failure = (error instanceof Error ? error.message : String(error)).slice(0, 160);
+            discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
+            pendingSections=undefined;pendingExpression=undefined;pendingTemporal=undefined;pendingProvider=undefined;
+            invalidate();degraded('context_projection_failed');
+            const requestMessages=event.messages.filter(message=>message.role!=='custom'||message.customType!==NPC_ADVICE_TYPE);
+            try {return {messages: degradedRequest(requestMessages as unknown as Row[], ctx, 'context_projection_failed', failure) as typeof requestMessages};}
+            catch {return {messages: [diagnostic('context_projection_failed')] as unknown as typeof requestMessages};}
+        }
+    });
+    async function projectRequest(event: ContextEvent, ctx: ExtensionContext): Promise<ContextEventResult> {
         const ticket = generation;
         // Optional expiry stops discovery; a verified input can still use its existing core owner for fresh reads.
         if(!fallbackForInput&&inputEpoch&&verifiedInputEpoch===inputEpoch&&prescreenDeadlineAt
@@ -551,35 +601,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if(!snapshot&&ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();}
         // Pi 0.87 restores the canonical system/tool checkpoint after this hook. Reserve its
         // serialized size on every exit, including degraded turns, without treating it as history.
-        let systemBytes = 0, systemDigest: string | null = null;
-        if (typeof ctx.sessionManager?.buildSessionProjection === 'function') {
-            const system = getCurrentSystemMessage(ctx.sessionManager.buildSessionProjection().messages);
-            systemBytes = system ? sizeOf(system) + 1 : 0;
-            // §184.3: the prompt text and the tool declarations the provider sees; the transcript timestamp is not sent.
-            systemDigest = system ? shortDigest({content: system.content, sections: system.sections ?? null, tools: system.toolsAdded ?? []}) : null;
-        } else {
-            const active = typeof pi.getActiveTools === 'function' ? new Set(pi.getActiveTools()) : undefined;
-            const tools = typeof pi.getAllTools === 'function' ? pi.getAllTools().filter(tool => !active || active.has(tool.name)) : [];
-            const material = {system: typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '', tools};
-            systemBytes = sizeOf(material); systemDigest = shortDigest(material);
-        }
+        const {systemBytes, systemDigest} = systemMeasure(ctx);
         const ceiling = requestBudget(ctx.model?.contextWindow), budget = Math.max(0, ceiling - systemBytes);
-        if (!snapshot) {
-            // No capsule means no projection, never an unbounded request: a long campaign's whole
-            // stored branch is exactly what must not reach the provider on a degraded turn.
-            // §176.8: renamed before the cut, so the ceiling measures the names and notes that go out.
-            const evidence=discoveryMode()==='full'?requestMessages as unknown as Row[]:discoveryEvidence(requestMessages as unknown as Row[]);
-            const rest = rename(evidence.filter(message => !(message.role === 'custom' && [DIAGNOSTIC_TYPE, PRESCREEN_TYPE].includes(message.customType))));
-            const notice = diagnostic(lastReason);
-            const cut = boundedTail(rest, Math.max(0, budget - requestSize([notice])));
-            const outgoing = rename([notice, ...cut.messages]);
-            record({lane: 'context', event: 'request', at: new Date().toISOString(), version: POLICY_VERSION, reason: lastReason,
-                request_bytes: requestSize(outgoing) + systemBytes, system_bytes: systemBytes, system_digest: systemDigest, ...requestSegments(outgoing),
-                local_token_estimate: Math.ceil((requestSize(outgoing) + systemBytes) / BYTES_PER_TOKEN),
-                ceiling_bytes: ceiling, dropped_tail: cut.dropped, context_window: ctx.model?.contextWindow ?? null,
-                ...(cut.over ? {capacity: 'request_ceiling_exceeded'} : {})});
-            return {messages: outgoing as typeof requestMessages};
-        }
+        if (!snapshot) return {messages: degradedRequest(requestMessages as unknown as Row[], ctx, lastReason) as typeof requestMessages};
         const messages = requestMessages as unknown as Row[];
         let seen = false;
         // §103.5: the capsule the Keeper is sent is this copy, not the persisted message; it carries the Keeper's untold view.
@@ -679,14 +703,22 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             if(prescreen)reusablePrescreen=prescreen;
         }
         if(ticket!==generation||preparationSignal.aborted)return {messages:rename(baseline.messages) as typeof requestMessages};
-        let result=prescreen?project(messageBudget,{workspace,prescreen}):baseline;
+        const initial=prescreen?project(messageBudget,{workspace,prescreen}):baseline;
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
-        const reason = result.degraded ?? (Math.ceil((requestSize(result.messages) + systemBytes) / BYTES_PER_TOKEN) > available ? 'request_window_estimate' : undefined);
-        // Reserve a diagnostic only when one is needed. An optional workspace must not be
-        // displaced by a hypothetical notice on an otherwise healthy, within-budget request.
-        if (reason) result = project(Math.max(0,messageBudget-requestSize([diagnostic(reason)])),{workspace,prescreen});
-        const outgoing = rename([...(reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages), ...turnTail]
-            .filter(message=>!(message.role==='custom'&&[EXPRESSION_MESSAGE,MOD_SECTIONS_MESSAGE,TEMPORAL_ADVICE_MESSAGE].includes(message.customType))));
+        const fits=(list:Row[])=>requestSize(list)+systemBytes<=ceiling&&Math.ceil((requestSize(list)+systemBytes)/BYTES_PER_TOKEN)<=available;
+        // The request around `reserve` bytes that the caller appends after it (contract §209.13: required package
+        // detail), with the one diagnostic it is due. `omission` names package detail left out of this request.
+        const assemble=(reserve:number,omission?:string)=>{
+            let fitted=reserve||omission?project(Math.max(0,messageBudget-reserve),{workspace,prescreen}):initial;
+            const why=omission??fitted.degraded??(Math.ceil((requestSize(fitted.messages)+reserve+systemBytes)/BYTES_PER_TOKEN)>available?'request_window_estimate':undefined);
+            const notice=why?diagnostic(why,...(omission?[PACKAGE_OMITTED_NOTE]:[])):undefined;
+            // Reserve a diagnostic only when one is needed. An optional workspace must not be
+            // displaced by a hypothetical notice on an otherwise healthy, within-budget request.
+            if(notice)fitted=project(Math.max(0,messageBudget-reserve-requestSize([notice])),{workspace,prescreen});
+            return {fitted,messages:rename([...(notice?[notice,...fitted.messages.filter(message=>!(message.role==='custom'&&message.customType===DIAGNOSTIC_TYPE))]:fitted.messages),...turnTail]
+                .filter(message=>!(message.role==='custom'&&[EXPRESSION_MESSAGE,MOD_SECTIONS_MESSAGE,TEMPORAL_ADVICE_MESSAGE].includes(message.customType))))};
+        };
+        let {fitted:result,messages:outgoing}=assemble(0);
         // Contract §183.5: package sections this turn needs, at the end; nothing on a table whose instructions all go whole.
         pendingSections=undefined;
         pendingTemporal=undefined;
@@ -696,10 +728,6 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if(ticket!==generation||preparationSignal.aborted)return{messages:rename(baseline.messages) as typeof requestMessages};
         const sectionsMessage=await modSections.message(snapshot.capsule,snapshot.binding,turnCalls);
         if(ticket!==generation||preparationSignal.aborted)return{messages:rename(baseline.messages) as typeof requestMessages};
-        if(sectionsMessage&&requestSize([...outgoing,sectionsMessage])+systemBytes<=ceiling
-            &&Math.ceil((requestSize([...outgoing,sectionsMessage])+systemBytes)/BYTES_PER_TOKEN)<=available){
-            outgoing.push(sectionsMessage);pendingSections=sectionsMessage;
-        }else if(sectionsMessage)record({lane:'mod-sections',event:'omitted',turn:snapshot.binding.turn,reason:'request_ceiling',bytes:requestSize([sectionsMessage])});
         // Read only the current host-owned step, never a player's JSON or a past turn's plan.
         const stepMessage=[...requestMessages].reverse().find(message=>message.role==='custom'&&message.customType===CLERK_TYPE
             &&object(message.details).coc_host===true&&object(message.details).turn===snapshot.binding.turn);
@@ -721,10 +749,33 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         capabilityRuntime.observe(snapshot.capsule,snapshot.binding,inputLifetime.signal,discoveryTask);
         modDiscovery.observe(snapshot.capsule,snapshot.binding,inputLifetime.signal,discoveryCalls,discoveryTask);
         await capabilityRuntime.wait();
-        const discoveryMessage=await modDiscovery.message(snapshot.capsule,snapshot.binding,preparationSignal,discoveryCalls,discoveryTask);
+        let discoveryMessage:Row|undefined,omission:{reason:string;bytes?:number}|undefined,reserved=false;
+        try{discoveryMessage=await modDiscovery.message(snapshot.capsule,snapshot.binding,preparationSignal,discoveryCalls,discoveryTask);}
+        catch(error){
+            // §209.13: the packet's own bound and an unreadable immutable section are explicit omissions; any other
+            // failure is the hook's bounded degraded request.
+            const code=error instanceof Error?error.message:String(error);
+            if(!PACKAGE_OMISSIONS.has(code))throw error;
+            omission={reason:code};
+        }
+        // §209.13: required package detail outranks history and this turn's older tool traffic. When it does not fit
+        // beside them, they make room through the ordinary cut; when the protected floor alone leaves too little, the
+        // packet is omitted whole and said so. It is never thrown at Pi, which would send the unreduced branch.
+        if(discoveryMessage&&!fits([...outgoing,discoveryMessage])){
+            const widened=assemble(requestSize([discoveryMessage]));
+            if(fits([...widened.messages,discoveryMessage])){result=widened.fitted;outgoing=widened.messages;reserved=true;}
+            else{omission={reason:'mod_discovery_request_capacity',bytes:requestSize([discoveryMessage])};discoveryMessage=undefined;}
+        }
+        if(omission){
+            ({fitted:result,messages:outgoing}=assemble(0,omission.reason));
+            record({lane:'mod-discovery',event:'omitted',turn:snapshot.binding.turn,reason:omission.reason,...(omission.bytes?{bytes:omission.bytes}:{})});
+        }
+        // §183.5's sections are optional beside the discovery packet: they join only when both still fit.
+        if(sectionsMessage&&fits([...outgoing,sectionsMessage,...(discoveryMessage?[discoveryMessage]:[])])){
+            outgoing.push(sectionsMessage);pendingSections=sectionsMessage;
+        }else if(sectionsMessage)record({lane:'mod-sections',event:'omitted',turn:snapshot.binding.turn,reason:'request_ceiling',bytes:requestSize([sectionsMessage])});
         pendingDiscovery=undefined;requiredCapabilities=[];
         if(discoveryMessage){
-            if(requestSize([...outgoing,discoveryMessage])+systemBytes>ceiling)throw Error('mod_discovery_request_capacity');
             outgoing.push(discoveryMessage);pendingDiscovery=discoveryMessage;
             const keys=new Set(object(discoveryMessage.details).mod_sections?.keys??[]);
             requiredCapabilities=(Array.isArray(object(snapshot.capsule.mods).instructions)?object(snapshot.capsule.mods).instructions:[])
@@ -785,6 +836,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             history_bytes: sizeOf(snapshot.history), protected_bytes: result.protectedBytes, unknown_bytes: result.unknownBytes,
             ...(pendingExpression?{expression_injected:true,expression_bytes:requestSize([pendingExpression])}:{}),
             ...(pendingSections?{mod_sections_bytes:requestSize([pendingSections])}:{}),
+            ...(pendingDiscovery?{mod_discovery_bytes:requestSize([pendingDiscovery])}:{}),
+            ...(reserved?{mod_discovery_reserved:true}:{}),
+            ...(omission?.bytes?{mod_discovery_omitted_bytes:omission.bytes}:{}),
             request_bytes: bytes, system_bytes: systemBytes, system_digest: systemDigest, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
             ...(result.prescreenKept && prescreen ? {prescreen_bytes: requestSize([prescreen]), prescreen_injected: true} : {}),
             ...(turnTail.length ? {tail_bytes: requestSize(turnTail), tail: turnTail.map(message => message.customType)} : {}),
@@ -793,11 +847,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             ...(result.droppedTail ? {dropped_tail: result.droppedTail} : {}),
             ...(result.droppedUnknown ? {dropped_unknown: result.droppedUnknown} : {}),
             ...(result.degraded ? {reason: result.degraded} : {}),
-            ...(result.overCeiling ? {capacity: 'request_ceiling_exceeded'}
+            ...(omission ? {capacity: omission.reason} : result.overCeiling ? {capacity: 'request_ceiling_exceeded'}
                 : estimatedTokens > available ? {capacity: 'request_window_estimate'} : {}),
             ...requestSegments(outgoing)});
         return {messages: outgoing as typeof requestMessages};
-    });
+    }
     pi.on('context_with_system',event=>{
         const tools=getCurrentTools(event.messages as never);
         const view=capabilityRuntime.project(tools as any,requiredCapabilities);
