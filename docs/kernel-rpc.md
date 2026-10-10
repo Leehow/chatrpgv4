@@ -42350,6 +42350,7 @@ The existing lookup surface gains a `capability` (instruction discovery) kind ac
 - Input: semantic name or purpose query. The host supplies the bound epoch; the model does not.
 - Output: matched index cards and detail results. Read-only; authorizes no write.
 - Relevance exclusion is never permanent inaccessibility.
+- Purpose-query decisions (including in-flight and failed results) are cached for their exact input/source epoch. A query failure widens only that same bound request to an explicit full view, reports `status: "full_fallback"`, `read_only: true`, `no_commit: true`, and holds writes until the full schema is projected. A replaced input rejects the late query without widening or adding detail to its successor. Named lookups keep ordinary unknown-name validation; they never depend on Jev availability.
 
 ### 209.6 Readiness and expansion
 
@@ -42400,6 +42401,7 @@ The existing lookup surface gains a `capability` (instruction discovery) kind ac
 - Unrelated background queue writes do not invalidate unrelated selections.
 - A DB transaction is not held across Jev or model work: snapshot, release, then validate relevant versions after async completion.
 - Storage and lock waiting count toward the shared preparation deadline.
+- In selective/shadow mode, the context owner bounds hydration and the final read-only `table.capsule` identity check by that same deadline. The final check compares campaign/worldline/loop/turn, task-source revision (falling back to source revision only when absent) and task-world revision. Queue bookkeeping does not change the task-source stamp. Failure or a changed stamp discards ephemeral selected instructions and schemas, emits an explicit context diagnostic and retains bounded original conversation evidence; it never reads stale JSON or presents a stale selection as current. No SQL transaction spans Jev. A timed-out read may finish inside its existing kernel process, but its late result cannot populate the invalidated preparation cache; the owner does not stop shared processes.
 - The SQLite migration (codex/pdf-read-repair-20261009 at ddff2f931) is consumed through its published interface when integrated; not copied or adopted.
 
 ### 209.12 Metrics

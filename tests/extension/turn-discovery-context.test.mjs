@@ -22,8 +22,9 @@ for(const [denied,seeded,stale] of [[false,false,false],[true,false,false],[fals
     denied?'discovery shares foreground reservations and falls back before a refused provider dispatch'
         :seeded?stale?'a stale task source cannot seed current capability or package detail':'current host operations seed capability and package detail before inference'
         :'normal context hooks declare the selected schema and hold a first unshown instruction before mutation',async t=>{
-    const envNames=['COC_TURN_DISCOVERY','EXT_JEV_APIKEY'],old=Object.fromEntries(envNames.map(n=>[n,process.env[n]]));
+    const envNames=['COC_TURN_DISCOVERY','EXT_JEV_APIKEY','PI_COC_JEV_PRESELECT'],old=Object.fromEntries(envNames.map(n=>[n,process.env[n]]));
     process.env.COC_TURN_DISCOVERY='selective';process.env.EXT_JEV_APIKEY='test-only';
+    process.env.PI_COC_JEV_PRESELECT='0';
     const previousFetch=globalThis.fetch;
     t.after(()=>{globalThis.fetch=previousFetch;for(const name of envNames){if(old[name]===undefined)delete process.env[name];else process.env[name]=old[name];}});
     let fetched=0,reserved=0,settled=0;
@@ -104,6 +105,14 @@ for(const [denied,seeded,stale] of [[false,false,false],[true,false,false],[fals
         assert.equal(await hooks.get('tool_call')({toolName:'apply',toolCallId:'seeded-call',
             input:{effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]}}),undefined);
         assert.equal(reserved,fetched);assert.equal(settled,fetched);
+        const before=fetched;
+        cap.where.clock.at='1920-10-13T09:00';
+        await hooks.get('tool_result')({toolName:'apply',toolCallId:'seeded-call',input:{effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]},
+            isError:false,content:[{type:'text',text:'Committed.'}],details:{}});
+        const refreshed=await hooks.get('context')({messages:messages.filter(m=>m.role!=='system')},ctx);
+        const sent=refreshed.messages.find(m=>m.customType==='coc-capsule-update');
+        assert.equal(JSON.parse(sent.content).sections.where.clock.at,'1920-10-13T09:00');
+        assert.ok(fetched>before,'selective context refreshes current facts even with prescreen and workspace off');
     }else{
     assert.deepEqual(apply.parameters.properties.effects.items.anyOf.map(v=>v.properties.kind.enum?.[0]??v.properties.kind.const),['time']);
     const sectionMessages=outgoing.messages.filter(m=>m.customType==='coc-mod-sections');

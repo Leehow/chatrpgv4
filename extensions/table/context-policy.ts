@@ -81,6 +81,7 @@ export interface ContextBinding {
     source_revision: string | null;
     /** Optional scope-specific task snapshot; unrelated queue revisions are not selection epochs. */
     task_source_revision?: string;
+    task_world_revision?: string;
     memory_coverage?: Row;
     unavailable?: boolean;
 }

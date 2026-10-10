@@ -97,3 +97,51 @@ test('host-issued operation fields seed fragments before inference without a sem
     assert.equal(runtime.readiness('apply',{effects:[{kind:'npc',name:'watchman',activity:{wakefulness:'awake'},why:'Observed.'}]}),undefined);
     runtime.clear();
 });
+test('a failed purpose lookup widens the bound view once without spending again or committing',async()=>{
+    let attempts=0;
+    const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>({decide:async(batch,lease)=>{
+        attempts++;if(batch.state.request==='Find missing source consultation.')throw Error('decision_transport_unavailable');
+        return port.decide(batch,lease);
+    }}),mode:()=> 'selective',record:()=>{}});
+    runtime.observe(capsule,binding,new AbortController().signal);await runtime.wait();runtime.project(tools);
+    const result=await runtime.lookup({query:'Find missing source consultation.'});
+    assert.equal(result.status,'full_fallback');assert.equal(result.no_commit,true);assert.equal(result.read_only,true);
+    const count=attempts;assert.deepEqual(await runtime.lookup({query:'Find missing source consultation.'}),result);
+    assert.equal(attempts,count);
+    assert.equal(runtime.readiness('apply',{effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]}).block,true);
+    assert.equal(runtime.project(tools),undefined);
+    assert.equal(runtime.readiness('apply',{effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]}),undefined);
+    runtime.clear();
+});
+test('in-flight purpose lookups share a decision and a stale failure cannot widen a successor',async()=>{
+    let fail,started,queries=0;
+    const began=new Promise(resolve=>{started=resolve;});
+    const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>({decide:async(batch,lease)=>{
+        if(batch.state.request==='Find an object transfer.'){
+            queries++;started();return await new Promise((_resolve,reject)=>{fail=reject;});
+        }
+        return port.decide(batch,lease);
+    }}),mode:()=> 'selective',record:()=>{}});
+    const signal=new AbortController().signal;
+    runtime.observe(capsule,binding,signal);await runtime.wait();runtime.project(tools);
+    const first=runtime.lookup({query:'Find an object transfer.'}),second=runtime.lookup({query:'Find an object transfer.'});
+    const ended=Promise.allSettled([first,second]);await began;assert.equal(queries,1);
+    runtime.observe({...capsule,turn:{player_text:'Look at the door.'}},{...binding,turn:2},signal);await runtime.wait();
+    fail(Error('old_provider_failure'));const outcomes=await ended;
+    assert.ok(outcomes.every(result=>result.status==='rejected'&&/replaced/.test(result.reason.message)));
+    assert.ok(runtime.project(tools),'the successor still has its own selected view');
+    runtime.clear();
+});
+test('a late initial selection cannot narrow an epoch already widened after lookup failure',async()=>{
+    let release;
+    const gate=new Promise(resolve=>{release=resolve;});
+    const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>({decide:async(batch,lease)=>{
+        if(batch.state.request==='Find source consultation.')throw Error('selection_unavailable');
+        await gate;return port.decide(batch,lease);
+    }}),mode:()=> 'selective',record:()=>{}});
+    runtime.observe(capsule,binding,new AbortController().signal);
+    assert.equal((await runtime.lookup({query:'Find source consultation.'})).status,'full_fallback');
+    release();await runtime.wait();
+    assert.equal(runtime.project(tools),undefined);
+    runtime.clear();
+});
