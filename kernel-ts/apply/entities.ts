@@ -77,7 +77,7 @@ export async function stageClue(context:ApplyContext,effect:Row,told=false):Prom
     if(check&&!checkPassed(check,[...array(context.turn.receipts),...(context.staged?.()??[])])){
         const named=`${check.skill}${check.difficulty?` (${check.difficulty})`:''}`;
         throw new RpcError('needs',`the book finds clue ${repr(handle)} with a ${named} check, and no ${check.skill} roll has passed this turn`,{codeDetail:'check_first',
-            fix:`Leave clue ${handle} out of this apply and send the rest. It lands after a ${check.skill} roll for it has passed this turn; until then narrate the attempt without what the clue states. Do not land it another way or under another name.`,
+            fix:`Leave clue ${handle} out of this apply and send the rest. It lands after a ${check.skill} roll for it has passed this turn; until then narrate the attempt as still under way, without what the clue states and without settling that it fails: whether the attempt finds it is that roll's to decide. Do not land it another way or under another name.`,
             details:{reason:'check_first',clue:handle,check:{skill:check.skill,...(check.difficulty?{difficulty:check.difficulty}:{})}}});
     }
     let source:string|null=null;

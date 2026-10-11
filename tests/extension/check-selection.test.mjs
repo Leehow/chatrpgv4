@@ -751,7 +751,7 @@ test('three views pool each proposition separately and do not retry a usable wea
   const {input, seen}=setup(t, (_batch,q)=>noul(q.instructions.includes('Read this same proposition from the supplied facts')?.3:.84),[listen]);
   const result=await selectCheck(input);
   assert.equal(result.status,'selected');assert.equal(result.calls,1);
-  assert.equal(seen[0].familyVersion,'23');assert.equal(seen[0].questions.length,9);
+  assert.equal(seen[0].familyVersion,'24');assert.equal(seen[0].questions.length,9);
   assert.equal(seen.some(batch=>batch.family.endsWith('-refine')),false);
 });
 test('unknown participates in pooled player choice ranking even with high confidence', async t => {

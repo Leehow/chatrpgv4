@@ -94,7 +94,8 @@ export function specializedTriggerQuestion(option: CheckOption): string | undefi
       + 'An influence attempt seeks to change the target\'s willingness, decision or belief through the chosen approach. Ordinary factual questions or service inquiries without established resistance or withholding are not influence attempts. '
       + 'Talking to an NPC, or requesting ordinary information whose answer the player does not yet know, does not itself call for this operation. '
       + 'Exclude a hypothetical plan, a rules question, already freely agreed routine cooperation or an attempt already settled by receipts. '
-      + 'Missing facts do not establish target agreement or the attempt\'s outcome.';
+      + 'Missing facts do not establish target agreement or the attempt\'s outcome.'
+      + (typeof option.facts?.target_called === 'string' ? ' This target is the person the table and the public context call `facts.target_called`; the bound target name is only the name the rules bind.' : '');
   if (option.action.decision === 'chase:start')
     return 'Does the player choose an attempt by this investigator to pursue this escaping person or flee from this person? '
       + 'Judge the chosen pursuit or flight, not whether it succeeds or whether speeds have already been compared. The kernel performs that comparison. '
@@ -203,7 +204,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     input.lease.assertActive();
     if (calls >= (input.maxCalls ?? 24)) throw new Error('check_selection_budget');
     const batch: DecisionBatch = {id: digest([purpose, state, questions, input.scope, input.readSet]), model: JEV_MODEL,
-      family: `check-selection-${purpose}`, familyVersion: expanded ? '23' : '22', scope: input.scope, readSet: input.readSet, state, questions: expanded ? questions.flatMap(semanticQuestions) : questions};
+      family: `check-selection-${purpose}`, familyVersion: expanded ? '24' : '22', scope: input.scope, readSet: input.readSet, state, questions: expanded ? questions.flatMap(semanticQuestions) : questions};
     packDecisionBatch(batch);
     calls++;
     const result = await withinCheckLease(input.lease, () => input.decision.decide(batch, input.lease));
@@ -322,6 +323,8 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
         for (const entry of ranked) retained.add(entry.option);
       }
       if (!retained.size && groupsUnresolved) note('ordinary profile retrieval: no profile scored', 'jev_unanswered');
+      // §219.1: a profile whose skill the book names for a find here is judged on its own, never cut by the retrieval beam.
+      for (const option of simple) if (Array.isArray(option.facts?.book_finds) && option.facts.book_finds.length) retained.add(option);
       const simpleSet = new Set(simple);
       eligible = eligible.filter(option => !simpleSet.has(option) || retained.has(option));
     }
@@ -331,14 +334,17 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     const actualOf = new Map<string, number | undefined>();
     const judgePage = async (page: CheckOption[]): Promise<void> => {
       const state = {declaration: input.declaration, context: input.context, policy: POLICY,
-        alternatives: eligible.filter(option => playerAct(option, investigators) && page.some(entry => entry.action.actor === option.action.actor && entry.action.decision === option.action.decision)).map(option => ({label: option.label, action: actionView(option.action)})),
+        alternatives: eligible.filter(option => playerAct(option, investigators) && page.some(entry => entry.action.actor === option.action.actor && entry.action.decision === option.action.decision)).map(option => ({label: option.label, action: actionView(option.action),
+          ...(typeof option.facts?.target_called === 'string' ? {target_called: option.facts.target_called} : {})})),
         checks: Object.fromEntries(page.map((option, index) => [optionAlias(index), {family: option.family, label: option.label, trigger: option.authorization, action: actionView(option.action), ...(option.definition ? {definition: option.definition} : {}), ...(option.facts ? {facts: option.facts} : {})}]))};
       const questions: DecisionBatch['questions'] = page.flatMap((option, index) => option.action.decision === 'core-check:ordinary-check' && option.action.rule === undefined ? [
         {key: optionAlias(index), target: option.label, type: 'noul' as const,
-          instructions: 'Does this actor use this listed skill in a concrete method they actually declare? Judge only the fit between method and skill, not whether a roll is needed. Use its supplied rule definition when available.',
+          instructions: 'Does this actor use this listed skill in a concrete method they actually declare? Judge only the fit between method and skill, not whether a roll is needed. Use its supplied rule definition when available. '
+            + 'When `facts.book_finds` is present, the book finds those things here with this skill; a declared method aimed at one of them by this skill\'s means fits it, and another method aimed at the same thing does not.',
           criteria: {true: 'The declared method uses this skill.', false: 'This is not the declared method.'}},
         {key: optionAlias(index) + '_uncertain', target: option.label, type: 'noul' as const,
-          instructions: 'According to `context.rules` and this profile\'s supplied definition, does this attempt require a check rather than automatic resolution? Distinguish merely using a skill from a situation calling for a roll. Missing source details do not themselves require a roll or prove a discovery.',
+          instructions: 'According to `context.rules` and this profile\'s supplied definition, does this attempt require a check rather than automatic resolution? Distinguish merely using a skill from a situation calling for a roll. Missing source details do not themselves require a roll or prove a discovery. '
+            + 'When `facts.book_finds` is present, the book makes finding those things here a check of this skill: an attempt that seeks one of them requires this roll, even when the player does not ask for dice and however long the attempt takes; it never proves the find.',
           criteria: {true: 'The applicable rules require a roll for this attempt.', false: 'This attempt does not require a roll under the applicable rules.'}},
       ] : [{key: optionAlias(index), target: option.label, type: 'noul' as const,
         instructions: specializedTriggerQuestion(option) ?? 'Does this one listed check need to be resolved now, before narration, for the declared action or an established '
@@ -361,11 +367,12 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
         if (!playerAct(option, investigators) || !eligible.some(other => other.key !== option.key
           && other.action.decision === option.action.decision && other.action.actor === option.action.actor)) continue;
         questions.push({key: optionAlias(index) + '_selected', target: option.label, type: 'noul',
-          instructions: 'Does the current declaration actually identify this exact actor, target and method as a chosen attempt? Judge this alternative against the other issued alternatives, not merely whether it is plausible or useful. Several independent explicitly chosen attempts may each be identified. A future, hypothetical, ambiguous or unspecified alternative is not identified.',
+          instructions: 'Does the current declaration actually identify this exact actor, target and method as a chosen attempt? Judge this alternative against the other issued alternatives, not merely whether it is plausible or useful. Several independent explicitly chosen attempts may each be identified. A future, hypothetical, ambiguous or unspecified alternative is not identified. '
+            + 'A target with `target_called` is the person the table and the public context call by that word; the bound target is only the name the rules bind.',
           criteria: {true: 'This alternative is actually identified by the current declaration.', false: 'This is only plausible, ambiguous, future or not selected.'}});
       }
       try {
-        packDecisionBatch({id: 'sizing', model: JEV_MODEL, family: 'check-selection-need', familyVersion: '23',
+        packDecisionBatch({id: 'sizing', model: JEV_MODEL, family: 'check-selection-need', familyVersion: '24',
           scope: input.scope, readSet: input.readSet, state, questions: questions.flatMap(semanticQuestions)});
       } catch (error) {
         if (!(error instanceof PackingError) || error.failure !== 'packing_limit' || page.length <= 1) throw error;
