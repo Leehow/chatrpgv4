@@ -78,7 +78,8 @@ const LOG = process.env.FAKE_KERNEL_LOG;
 const FAKE_CLOCK_MINUTES = 555;
 /** §145.1 / §211.1: `until` into minutes from the fixture's clock; without `days`, the time's next occurrence. */
 function untilMinutes(until, match) {
-	const minuteOfDay = Number(match[1]) * 60 + Number(match[2]);
+	// §218.8: an either_half time is a twelve-hour face reading (00 to 12), so its hour counts modulo twelve.
+	const minuteOfDay = (until.either_half === true ? Number(match[1]) % 12 : Number(match[1])) * 60 + Number(match[2]);
 	const next = (ofDay) => ofDay >= FAKE_CLOCK_MINUTES ? ofDay - FAKE_CLOCK_MINUTES : ofDay + 1440 - FAKE_CLOCK_MINUTES;
 	// §218.1: either_half takes whichever of the morning reading and twelve hours later the clock reaches first.
 	if (until.days == null) return until.either_half === true ? Math.min(next(minuteOfDay), next(minuteOfDay + 720)) : next(minuteOfDay);
@@ -1079,8 +1080,9 @@ function handle(method, params) {
 					const match = /^(\d{2}):(\d{2})$/.exec(effect.until.time ?? "");
 					const half = effect.until.either_half;
 					if (effect.until.days != null && (!Number.isInteger(effect.until.days) || effect.until.days < 0) || !match || Number(match[1]) > 23 || Number(match[2]) > 59
-						|| half !== undefined && (typeof half !== "boolean" || half && (effect.until.days != null || Number(match[1]) >= 12)))
-						return refuse("until_invalid", "until must be {days?, time: HH:MM, either_half?}");
+						|| half !== undefined && (typeof half !== "boolean" || half && (effect.until.days != null || Number(match[1]) > 12))
+						|| effect.until.journeys !== undefined && effect.until.journeys !== "before" && effect.until.journeys !== "after")
+						return refuse("until_invalid", "until must be {days?, time: HH:MM, either_half?, journeys?}");
 					// §211.1: no days is the next occurrence of the time at or after the fixture's clock.
 					const minutes = untilMinutes(effect.until, match);
 					if (minutes < 0) return refuse("until_not_forward", "until is before the clock", { clock: { at: "1925-06-01T09:15", day_part: "morning" } });
