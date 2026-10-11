@@ -168,3 +168,22 @@ def test_fresh_clients_and_foreign_commands_spawn_their_own_process(tmp_path: Pa
         one.close()
         two.close()
     assert one.proc.returncode == 0 and two.proc.returncode == 0
+
+
+def test_evict_survives_an_emptied_idle_list() -> None:
+    """`acquire` pops the last parked kernel and leaves an empty list under its key; the next
+    release that crowds the pool must not trip over it (`min()` of an empty iterable)."""
+    from types import SimpleNamespace
+
+    from kernel_pool import KernelPool
+
+    def fake(at: float) -> SimpleNamespace:
+        return SimpleNamespace(parked_at=at, terminate=lambda: None)
+
+    pool = KernelPool()
+    # Four keys of two (within the per-key cap) overflow the total, so the oldest-across-keys path runs.
+    pool._idle = {("a", "1"): [], **{("k", str(n)): [fake(n * 10.0), fake(n * 10.0 + 1)] for n in range(4)}}
+    pool._evict()
+    assert ("a", "1") not in pool._idle
+    assert sum(len(v) for v in pool._idle.values()) == pool.IDLE_TOTAL
+    assert pool.stats["evicted"] == 2

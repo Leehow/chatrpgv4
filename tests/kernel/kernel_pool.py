@@ -228,14 +228,16 @@ class KernelPool:
 
     def _evict(self) -> None:
         while True:
+            # `acquire` pops the last parked kernel and leaves its (now empty) list behind; an empty list
+            # has no oldest member, so it must never reach the `min` below.
+            for key in [k for k, kernels in self._idle.items() if not kernels]:
+                del self._idle[key]
             crowded = [k for k, kernels in self._idle.items() if len(kernels) > self.IDLE_PER_KEY]
             total = sum(len(kernels) for kernels in self._idle.values())
             if not crowded and total <= self.IDLE_TOTAL:
                 return
             candidates = self._idle[crowded[0]] if crowded else min(self._idle.values(), key=lambda ks: min(k.parked_at for k in ks))
             self._discard(candidates.pop(0), "evicted")
-            for key in [k for k, kernels in self._idle.items() if not kernels]:
-                del self._idle[key]
 
     def _root_dir(self) -> Path:
         if self._root is None:

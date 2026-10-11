@@ -221,13 +221,31 @@ export class KernelClient {
 		this.closePromise = new Promise<void>((resolve, reject) => {
 			let escalation: NodeJS.Timeout | undefined;
 			let deadline: NodeJS.Timeout | undefined;
-			const done = () => { clearTimeout(escalation); clearTimeout(deadline); resolve(); };
+			let drain: NodeJS.Timeout | undefined;
+			const cleanup = () => { clearTimeout(escalation); clearTimeout(deadline); clearTimeout(drain); };
+			/** Nothing of this child may keep the host alive once close() has answered: drop its pipes and its handle. */
+			const release = () => {
+				for (const stream of [child.stdin, child.stdout, child.stderr]) {
+					try { stream?.destroy(); } catch { /* already closed */ }
+				}
+				try { child.unref(); } catch { /* already gone */ }
+			};
+			const done = () => { cleanup(); resolve(); };
 			child.once("close", done);
+			// `close` waits for the stdio pipes, and a grandchild (a git the kernel started) that inherited them keeps
+			// them open after the kernel itself is gone. The kernel having exited is the shutdown; the pipes only get
+			// a short drain before they are destroyed, so a leaked grandchild cannot stall close() or the host.
+			child.once("exit", () => {
+				drain = setTimeout(() => { release(); done(); }, Math.min(grace, 500));
+				drain.unref?.();
+			});
 			try {
 				child.stdin?.end();
 				child.kill();
 			} catch (error) {
 				child.removeListener("close", done);
+				cleanup();
+				release();
 				reject(error);
 				return;
 			}
@@ -239,6 +257,7 @@ export class KernelClient {
 				}
 				deadline = setTimeout(() => {
 					child.removeListener("close", done);
+					release();
 					reject(new KernelError({ code: "internal", message: "kernel shutdown did not complete after SIGKILL" }));
 				}, grace);
 				deadline.unref?.();
