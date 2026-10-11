@@ -9,7 +9,9 @@
  * kernel, and the real shared decision adapter behind a controlled typed endpoint (`fetch` answers the pinned Jev URL). The
  * captured shape is live turn 26 of the 9e7 table (`game-dcad7727`, turns/0026.json, 9e7-turn26-delivered.txt): the player
  * tipped the newsvendor a dime and took a cab home, the declared `apply time` band `speak_briefly` was refused
- * `admission_unavailable`, and the delivered prose paid the dime and drove the cab away with zero receipts. Whether a draft
+ * `admission_unavailable`, and the delivered prose paid the dime and drove the cab away with zero receipts. Here the refused
+ * line is the Keeper's own `apply cash` for the dime (a Keeper `apply time` is held earlier by §218's declared-time check,
+ * before admission); the guard reads any unavailable refusal of the turn the same way. Whether a draft
  * claims a held result is the model's judgement, not this file's: the answers are scripted. No live model is called.
  */
 import { strict as assert } from "node:assert";
@@ -30,8 +32,8 @@ const DELIVERED = "你把那枚一角放进他摊着的掌心，说多出来的�
 	+ "街角又过来一辆还亮着灯的出租汽车。你抬手，车在路灯照不到的一侧停住。你坐进去，把门带上。车子顺着街开走的时候，墙根那个人还坐在原处，膝上是没卖完的报纸，木匣盖没有合上。";
 /** A delivery that tells the investigator beginning the declared acts and no result (what §213.1 asks). */
 const BEGUN = "你从口袋里摸出一枚一角的硬币，朝他摊开的掌心伸过去，说多出来的算听故事的钱。报纸夹在胳膊底下，对街那扇门你没有去碰。街角有一辆亮着灯的出租汽车，你朝它抬起手。";
-/** The refused clerk line of turn 26: the declared time. */
-const DECLARED_TIME = { kind: "time", band: "speak_briefly", why: "a word with the newsvendor" };
+/** A line the unavailable review refuses: the dime of turn 26 (live, the refused line was the declared time). */
+const HELD_DIME = { kind: "cash", delta: -0.1, source: "quote", with: "Mr. Dooley", why: "a dime for the story" };
 
 const toolCall = (name, args) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
 const narrate = (text) => toolCall("narrate", { text });
@@ -87,7 +89,7 @@ const steers = (table) => table.telemetry().filter((row) => row.lane === "turn" 
 const narrated = (table) => table.kernelRequests().filter((request) => request.method === "table.narrate").map((request) => request.params.text);
 
 test("turn 26's shape: after an unavailable review, the draft that pays the dime and drives the cab away is corrected once and the begun draft is delivered", async (t) => {
-	const { table, asked, keeperCalls } = await turn26(t, { calls: [toolCall("apply", { effects: [DECLARED_TIME] }), narrate(DELIVERED), narrate(BEGUN)],
+	const { table, asked, keeperCalls } = await turn26(t, { calls: [toolCall("apply", { effects: [HELD_DIME] }), narrate(DELIVERED), narrate(BEGUN)],
 		outcome: (draft) => draft.includes("车子顺着街开走") ? 0.95 : 0.05 });
 	assert.equal(keeperCalls(), 3, "the refused apply, the claiming narrate and the corrected one");
 	assert.deepEqual(refusals(table, "apply").map((error) => [error.details?.reason, error.details?.cause]), [["admission_unavailable", "model_unavailable"]]);
@@ -100,7 +102,7 @@ test("turn 26's shape: after an unavailable review, the draft that pays the dime
 	assert.equal(asked.held[0].playerWords, PLAYER);
 	assert.equal(asked.held[0].held.refused.length, 1);
 	assert.equal(asked.held[0].held.refused[0].tool, "apply");
-	assert.ok(asked.held[0].held.refused[0].lines.some((line) => line.includes("speak_briefly")), JSON.stringify(asked.held[0].held));
+	assert.ok(asked.held[0].held.refused[0].lines.some((line) => line.includes("cash")), JSON.stringify(asked.held[0].held));
 	assert.deepEqual(asked.held[0].settledReceipts, []);
 	assert.equal(asked.held[0].draft, DELIVERED);
 	// The player reads the begun draft; the departure the review held is never committed.
@@ -109,7 +111,7 @@ test("turn 26's shape: after an unavailable review, the draft that pays the dime
 
 for (const [name, answer, reason] of [["a gray answer", 0.5, "outcome_uncertain"], ["an unavailable check", "unavailable", "outcome_unavailable"]])
 	test(`after an unavailable review, ${name} delivers the draft as written (§200.3)`, async (t) => {
-		const { table, keeperCalls } = await turn26(t, { calls: [toolCall("apply", { effects: [DECLARED_TIME] }), narrate(DELIVERED)], outcome: () => answer });
+		const { table, keeperCalls } = await turn26(t, { calls: [toolCall("apply", { effects: [HELD_DIME] }), narrate(DELIVERED)], outcome: () => answer });
 		assert.equal(keeperCalls(), 2);
 		assert.deepEqual(heldRows(table).map(([status, why]) => [status, why]), [["unclear", reason]]);
 		assert.deepEqual(refusals(table, "narrate"), []);
@@ -117,7 +119,7 @@ for (const [name, answer, reason] of [["a gray answer", 0.5, "outcome_uncertain"
 	});
 
 test("a claim the correction did not remove is delivered, recorded as claimed; the correction is not given twice", async (t) => {
-	const { table, keeperCalls } = await turn26(t, { calls: [toolCall("apply", { effects: [DECLARED_TIME] }), narrate(DELIVERED), narrate(DELIVERED + "\n\n车开出了街口。")],
+	const { table, keeperCalls } = await turn26(t, { calls: [toolCall("apply", { effects: [HELD_DIME] }), narrate(DELIVERED), narrate(DELIVERED + "\n\n车开出了街口。")],
 		outcome: () => 0.95 });
 	assert.equal(keeperCalls(), 3);
 	assert.deepEqual(heldRows(table), [["steer", "false_completion", 0.95], ["claimed", "false_completion_after_correction", 0.95]]);
@@ -126,8 +128,8 @@ test("a claim the correction did not remove is delivered, recorded as claimed; t
 });
 
 test("a turn whose review answered holds nothing: the guard asks no question", async (t) => {
-	const { table, asked, keeperCalls } = await turn26(t, { calls: [toolCall("apply", { effects: [DECLARED_TIME] }), narrate(DELIVERED)],
-		outcome: () => 0.95, admission: undefined });
+	const { table, asked, keeperCalls } = await turn26(t, { calls: [toolCall("apply", { effects: [HELD_DIME] }), narrate(DELIVERED)],
+		outcome: () => 0.95, admission: null });
 	assert.equal(keeperCalls(), 2);
 	assert.deepEqual(refusals(table, "apply"), []);
 	assert.equal(asked.held.length, 0);
