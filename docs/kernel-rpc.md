@@ -44436,7 +44436,7 @@ the independent technical audit reads them for failure attribution; no decision/
 is fed to the Keeper. Regression checks use actual public SDK/Undici boundaries with local
 fixtures and verify the original rejection identity and credential exclusion.
 
-## 227. A Keeper apply is refused for what did not happen, not for the host's own gaps (2026-10-11, live d6c/4d7 apply refusals; amends §208.1, the cash preview of §185, §218.2, §200.5)
+## 227. A Keeper apply is refused for what did not happen, not for the host's own gaps (2026-10-11, live d6c/4d7 apply refusals; amends §208.1, §58's cash preview, §218.2, §200.5)
 
 **Evidence.** Table `gui-world-e091`, transports `gui-transport-d6c` and `gui-transport-4d7` (`chatrpgv4-research/reports/grok-usage-20261010/apply-refusals/`):
 71 turns, 111 Keeper applies, 59 refused; each refusal resent the whole Keeper request (4.85M input tokens). Classified by
