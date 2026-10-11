@@ -43482,6 +43482,109 @@ later move (t97: 15:00, not 15:30, the road still written); `journeys: "after"` 
 06:40, until 08:30 after it, lands 09:00). `tests/extension/time-once.test.mjs`: a partial declared time admits one Keeper time and
 refuses a second. `tests/extension/told-time.test.mjs`: t71's `carried` .52 stays. Each fails on the base.
 
+### 218.9 A held time is asked in fiction, a wait for an event has a row, a half is a half, one part is a clear one part, a weak band rolls low, and an end after a landed journey says its order (2026-10-11, issue #112 follow-up on the 131 live table; owner decision 2026-10-11; amends 218.1's hold, 218.8's minute and unit questions, `STATED_SCOPE_MIN`, §138.10's band roll and 218.2's order)
+
+**Evidence.** Table `gui-world-e091`, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, runtime 13112c921 on
+`openai-codex/gpt-6-luna` lanes (`131-live-revalidation.md`/`.json`, `131-telemetry-analysis.json`, `turns/0102`-`0140`). The
+pooled grids and band of every declared-time bind pass of those turns are `tests/extension/fixtures/time-ledger-131-grids.json`
+(telemetry line of the route bind row and of the run bind row that followed it).
+
+| t | the player said (paraphrase) | read | result | defect |
+| --- | --- | --- | --- | --- |
+| 103 | wait here until half past nine | end_of_now .91/.93, h9 .71/.78, m30 .85/.89 | hold x2; the Keeper narrated the wait without asking; clock 07:57 | the hold is silent |
+| 104 | wait until the meeting ends (no clock) | no_time .87; band unknown .50, investigation_recovery .38 | unsettled; the clock froze | no path for an event-bounded wait |
+| 105 | sit another hour and a half, sorting notes meanwhile | hours .91, x1.5 .99, one_part .70 | 90 + a partial mark nothing used | simultaneous read as one part |
+| 108 | scan two directory volumes | library_research .67 | 294 minutes | a wide row rolled whole on a middling read |
+| 109 | read until half past four, then ride back | h4 .83, **m45 .79**, pm .99 | until 16:45 | a half read as a quarter to |
+| 120 | get up at eight tomorrow | end_of_now .68/.76, h8 .71/.71 | hold x2; not asked | the hold is silent |
+| 127 | look for half an hour | **minutes .91**, x0.5 .77 | hold (half a minute is not whole) | a half hour read as half a minute |
+| 135 | pick at a journal one morning | tome_study .50 (bind .47, `cleared: false`) | **3,861 minutes** | a weak read rolled a row reaching days |
+| 136 | sleep until 07:30, then ride to the house by nine | not routed (route `none` .31); the compile moved first | clerk move 30 at 23:21, the Keeper's `until 07:30` (459) and 50 (breakfast and tram): 08:20 | the move before the sleep |
+| 140 | look over the rooms, then twenty minutes on the wardrobe | minutes .97, x20 .87, one_part .99 | 20 + the Keeper's 4 | right |
+
+Five holds (t103 x2, t120 x2, t127) produced no in-fiction question: the compose note said "narrate settled facts **or** ask
+for the genuinely missing interval in character", so the Keeper narrated. 0 of 5 asked.
+
+**Decisions** (owner, 2026-10-11: when a stated end cannot be read confidently the Keeper asks in fiction; the Keeper does not
+charge the time itself; a clock correction is prevention only -- 218.5 stays unbuilt, nothing below rolls a receipt back).
+
+1. **A hold asks in fiction** (amends 218.1's hold and §138.10's unsettled note). The compose of a held declared time carries
+   `unsettled_time.ask_in_fiction: true` and `unsettled_time.heard` -- the grid leads the host could not bind (`end: {hour,
+   minute, half}` with their pooled probabilities, or `length: {unit, amount}`), so the Keeper can name what it heard -- and a
+   note that no longer offers narration instead: nothing was charged; do not narrate the wait, rest or sleep as having passed,
+   do not charge it, do not skip past it; end the turn in prose by asking in fiction, through a present person or the
+   investigator's own situation, when it ends (or how long), naming the time heard as a question for the player to confirm or
+   correct. The model-step refusal of a replacement time says the same. `ask` stays mechanics-only (the question is prose in
+   `narrate`), so this is a steer, not a gate; whether the Keeper asks is counted by the next live table.
+2. **A wait for an event has a row** (amends §218.8's `kind`). `stated_end:kind` gains `event_end`: the input names no clock
+   time, and what the investigator does now ends at an event in the world the player names (until the meeting ends, until she
+   comes back), committed to now. It is a non-end role for the clock grids (no hold, no `until`). With `kind` leading
+   `event_end` at or above `STATED_KIND_MIN` and no measure bound, the band decides as before; when the band leads `unknown`,
+   its most probable row at or above `EVENT_ROW_MIN` (0.2) is bound with `band_reach: "typical"` (decision 4), recorded
+   `event_wait: true`, `cleared: false` (full admission). The wait's length is the world's, so a row is nearer the truth than a
+   frozen clock, and the typical part of the row is the neutral estimate; the Keeper narrates the event at the clock the roll
+   reached. No row at that floor: the unsettled compose with cause `event_bounded` (the note: nothing was charged; narrate the
+   wait beginning and what the investigator notices; the Keeper does not charge it).
+3. **A half is a half; a half hour is hours** (amends 218.8's minute question and 218.1's unit question). The minute criteria
+   no longer say "a quarter to the next hour" (t109's `m45` .79 for "half past four" beside "before five"): `m15`, `m30`,
+   `m45` read "15 / 30 / 45 minutes past the hour (a quarter past / half past / three quarters past)". A coarse question asks
+   the same minute as a fraction of the hour, `stated_end:fraction`: `on_the_hour`, `quarter_past`, `half_past`,
+   `three_quarters_past`, `other_minutes`, `unknown`, each a structured criterion (`what`, `examples` in digits and in words).
+   Two differently shaped questions on one property: when `fraction` leads a named fraction at or above
+   `STATED_FRACTION_MIN` (0.6), the minute is bound only if the grid's lead is that same minute (then the grid's bar does not
+   apply: two shapes agree), and a disagreeing grid is a hold (decision 1 asks). `fraction` leading `other_minutes`,
+   unanswered or below its bar: the grid decides with `STATED_MINUTE_MIN`, as before (the captured 4d7 and 131 answers carry no
+   `fraction`). The unit question's `hours` reads "including a fraction of an hour (half an hour, a quarter of an hour, an hour
+   and a half)", `minutes` reads "a number of minutes"; a minutes unit with an amount below one or a half is still not whole
+   minutes and holds. The host does not remap "minutes x 0.5" to thirty minutes: which unit the player meant is Jev's to read,
+   and half a minute is a length a player can state.
+4. **A weak band rolls low** (amends §138.10's band roll for the clerk's declared time). The clerk's declared-time band carries
+   `band_reach` by the pooled band confidence: at or above `BAND_FULL_MIN` (0.8) the row's whole range (`band_reach` absent);
+   from the table's gate to 0.8, `"typical"` (the kernel rolls `[min, default]`); below the gate (`cleared: false`), `"least"`
+   (the row's `min`). The ledger only moves forward (§158, 218.5): an overshoot cannot be taken back and an undershoot can be
+   added to by the next declaration, so an uncertain read takes the low part of its row. Structure only: the row's own
+   `min`/`default`/`max` and the read's confidence; no word is read. The 131 reads: t108 .67 -> `typical` (60-180, not 294);
+   t135 .47 -> `least` (168, not 3,861); the confident reads (.88-.97) roll as before. `apply time {band, band_reach}`
+   (`kernel-ts/apply/band.ts`): `band_reach` is `full`, `typical` or `least`; without `band`, on a damage effect, or another
+   value it is refused `band_reach_invalid`; the receipt's `band_roll` carries `{min, max, total, reach}` with `max` the reached
+   bound. The tool schema documents it; admission lists it; the fake kernel validates it. The Keeper's own `band` is unchanged.
+5. **One part is a clear one part** (amends 218.8's `STATED_SCOPE_MIN`). The bar is 0.8: the 131 table's wrong `one_part`
+   (t105, activities done at the same time, .67/.70) and right one (t140, .99) sit on either side; 4d7 never asked it. `all`
+   now says "including activities done at the same time during it (sorting notes while waiting)"; `one_part` says "before or
+   after it, not during it".
+6. **An end after a landed journey says its order** (amends 218.2's "not done" and 218.8.6 for the Keeper). A Keeper `apply`
+   carrying a `time` with `until` and no `until.journeys`, in a run where a move with minutes already landed (the run's turn
+   receipts) and none rides in the same batch, is refused once by the model-step gate (`until_journeys_unstated`): the
+   refusal names the landed journeys and asks for `journeys: "before"` (they travelled first) or `"after"` (the end came
+   first; the kernel counts it from the clock before those journeys and adds them after it). A second such apply in the run
+   passes (no loop). t136's ledger reached 08:20 only because the absolute `until` swallowed the 30-minute ride that had landed
+   before it; with `journeys: "after"` and the 50 minutes resent without the tram the order holds, and §156's
+   `beyond_travel` remains the batch's guard.
+
+**Not done; recorded.** (a) t136's first cause: the compile's move ran before the route asked the time candidate, which then
+read `none` .31 in the new scene; making a declared move wait for a declared time of the same input needs the run to order
+two clerk candidates across a compile, not built. (b) t109/t114: a journey the prose told and no move carried lands as an owed
+move on the next turn (§190.2, §158 forward reconciliation): one turn of lag by design. (c) A bare confirmation ("yes") of a
+held time is read on its own input, which names no time; carrying the held declaration into the next bind is not built (the
+131 players restated, t104/t121). (d) Live accuracy of `event_end`, `fraction` and the reworded criteria is not measured; the
+replays use the captured 131 grids and, for the new questions, stated synthetic answers. (e) The Keeper's own `until`
+without journeys after a move that landed in a previous run of the turn is not seen by the gate (one run is one input).
+
+**Three ends.** *Writer:* Jev's `kind` (`event_end`), `fraction` and band answers; `statedMeasureOf`; `clerkBind`'s
+`band_reach`/`event_wait`; the kernel's `bindBand`. *Reader:* the compose's `unsettled_time` (`ask_in_fiction`, `heard`,
+cause); the bind row's `band_reach`, `event_wait`, `stated` (with `fraction`); the time receipt's `band_roll.reach`; the
+model-step gate's run receipts. *Actor:* the Keeper asks in fiction or sends `journeys`; the kernel rolls inside the reached
+part of the row.
+
+**Tests.** `tests/extension/declared-time-interval.test.mjs`: replaying `time-ledger-131-grids.json`, t103 and t120 hold and
+the compose says `ask_in_fiction` with the heard end; t104 binds `investigation_recovery` with `band_reach: "typical"` and
+`event_wait` when `kind` reads `event_end` (stated), and stays unsettled without it; t109 with `fraction` `half_past` holds
+where the base bound 16:45; t122's first pass binds 11:45 with `fraction` `three_quarters_past`; t105's `one_part` .70 is no
+longer one part and t140's still is; t108 binds `band_reach: "typical"`, t135 `"least"`, t131 none; the questions carry the
+new wording. Over the TS kernel: `band_reach` `typical` and `least` roll inside `[min, default]` and land `min`, the receipt
+says so, and the invalid forms are refused. `tests/extension/time-once.test.mjs`: a Keeper `until` without journeys after the
+clerk's move is refused once and passes the second time. Each fails on the base.
+
 ## 219. A book check reaches check selection, a person is matched by the table's word, and every request is accounted (2026-10-10, issue #112 follow-up on the 4d7 live table; amends §159's ordinary need questions and catalog facts, §201.2's `check_first` fix, §209.9's optional-expiry hand-over and §209.13's request rows)
 
 **Evidence.** 4d7 GUI table, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, turns 68–101, Grok 4.7 Keeper, hybrid engine

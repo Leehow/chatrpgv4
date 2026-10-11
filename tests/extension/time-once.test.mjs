@@ -125,3 +125,23 @@ test('§227.3 a zero-minute time charges nothing and is no second time', async t
     assert.equal(record.receipts.filter(receipt => receipt.kind === 'time' && receipt.minutes > 0).length, 1);
     assert.equal(rows.some(row => row.lane === 'run' && row.event === 'catalog_refused'), false);
 });
+
+// §218.9, live 131 turn 136: "sleep until 07:30, then ride to the house" -- the move had landed first, and the Keeper's
+// `until 07:30` named no order against it, so the ride sat before the sleep. A Keeper `until` without `journeys` after a journey
+// this run landed is asked its order once; the second such apply passes.
+const keeperMove = fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'move', to: 'newspaper-morgue', travel_minutes: 30}]})], {stopReason: 'toolUse'});
+const untilPlain = fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'time', until: {time: '15:00'}, why: 'Reading until three.'}]})], {stopReason: 'toolUse'});
+const untilAfter = fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'time', until: {time: '15:00', journeys: 'after'}, why: 'Reading until three, then the ride.'}]})], {stopReason: 'toolUse'});
+test('§218.9 a Keeper until without journeys after a landed journey is refused once; with journeys it keeps the order', async t => {
+    const {rows, record} = await turnTwo(t, false, [keeperMove, untilPlain, untilAfter, narrate]);
+    const refused = rows.filter(row => row.lane === 'run' && row.event === 'catalog_refused');
+    assert.deepEqual(refused.map(row => [row.operation, row.reason]), [['apply', 'until_journeys_unstated']]);
+    const times = record.receipts.filter(receipt => receipt.kind === 'time');
+    assert.equal(times.length, 1);
+    assert.equal(times[0].until.journeys, 'after');assert.equal(times[0].until.journeys_after, 30);
+});
+test('§218.9 the journeys question is asked once: a second until without journeys lands', async t => {
+    const {rows, record} = await turnTwo(t, false, [keeperMove, untilPlain, untilPlain, narrate]);
+    assert.deepEqual(rows.filter(row => row.lane === 'run' && row.event === 'catalog_refused').map(row => row.reason), ['until_journeys_unstated']);
+    assert.equal(record.receipts.filter(receipt => receipt.kind === 'time').length, 1);
+});

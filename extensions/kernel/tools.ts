@@ -257,6 +257,8 @@ const TimeEffect = Type.Object({
 	kind: StringEnum(["time"] as const, { description: "the world clock moves forward. A move already advances the clock by its journey: never send time for the same journey; send time only for time that passes beyond it" }),
 	stated: StatedAmount,
 	band: TimeBand,
+	// §218.9: how much of the band's row the kernel rolls in.
+	band_reach: Type.Optional(StringEnum(["full", "typical", "least"] as const, { description: "only beside band: full (the default) rolls the whole row, typical rolls from its min to its default, least lands its min; for a reading of the act you are unsure of" })),
 	// §145.1: the time the fiction reaches; the kernel counts the minutes from the clock.
 	until: Type.Optional(Type.Object({
 		days: Type.Optional(Type.Integer({ minimum: 0, description: "counted from the day this turn began: 0 = that day, 1 = the day after, and so on; left out, the next occurrence of the time at or after the clock (that day when not yet past, else the day after)" })),

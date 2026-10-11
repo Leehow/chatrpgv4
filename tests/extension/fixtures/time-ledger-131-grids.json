@@ -1,0 +1,1879 @@
+{
+ "source": "gui-world-e091 campaign game-dcad7727-c25b-4034-af3b-94dc6bebddd0, runtime 13112c921 on openai-codex/gpt-6-luna lanes (131-live-revalidation.md, turns 102-140): per declared-time bind pass, the route-lane bind row (telemetry_line) pooled over its answered views (the mean, as semanticChoice pools) -- the band and every stated grid -- and the outcome of the run-lane bind row that followed it (outcome_line)",
+ "turns": {
+  "103": [
+   {
+    "telemetry_line": 49641,
+    "band": {
+     "speak_briefly": 0.0233,
+     "quick_observation": 0.0067,
+     "single_room_search": 0.02,
+     "careful_house_search": 0.01,
+     "library_research": 0.04,
+     "medicine_treatment": 0.01,
+     "short_rest": 0.0567,
+     "investigation_recovery": 0.6867,
+     "brief_activity": 0.0367,
+     "record_lookup": 0.01,
+     "unknown": 0.1
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.91,
+      "start_only": 0.01,
+      "deadline": 0.0067,
+      "other_time": 0.0733
+     },
+     "stated_end:hour": {
+      "none": 0.2533,
+      "h9": 0.71,
+      "h10": 0.01,
+      "unknown": 0.0267
+     },
+     "stated_end:minute": {
+      "m30": 0.8467,
+      "m59": 0.01,
+      "unknown": 0.1433
+     },
+     "stated_end:half": {
+      "am": 0.7967,
+      "not_said": 0.1933,
+      "unknown": 0.01
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.3867,
+      "end_then_journey": 0.01,
+      "no_journey": 0.5933,
+      "unknown": 0.01
+     },
+     "stated_span:unit": {
+      "none": 0.41,
+      "minutes": 0.59
+     },
+     "stated_span:amount": {
+      "x0.5": 0.6067,
+      "x0.75": 0.02,
+      "x9": 0.0033,
+      "x9.5": 0.0033,
+      "x15": 0.0067,
+      "x30": 0.1667,
+      "x90": 0.0133,
+      "x91": 0.0067,
+      "x92": 0.01,
+      "x93": 0.01,
+      "x94": 0.01,
+      "x95": 0.01,
+      "x96": 0.01,
+      "x97": 0.01,
+      "x98": 0.01,
+      "x99": 0.01,
+      "unknown": 0.0933
+     },
+     "stated_span:scope": {
+      "all": 0.4367,
+      "one_part": 0.52,
+      "no_length": 0.0367,
+      "unknown": 0.0067
+     }
+    },
+    "input": "“那就麻烦您了。”我把信留在她桌角，自己到靠墙的长椅上坐着，顺手翻翻今早的报纸，看有没有科比特宅那条街的消息。早会说是九点开，我就在这儿一直等到九点半，等她散会回来拿信。",
+    "outcome_line": 49647,
+    "outcome": "unsettled",
+    "cause": "stated_measure_uncertain"
+   },
+   {
+    "telemetry_line": 49695,
+    "band": {
+     "speak_briefly": 0.0267,
+     "single_room_search": 0.0267,
+     "careful_house_search": 0.01,
+     "library_research": 0.0367,
+     "medicine_treatment": 0.01,
+     "short_rest": 0.0633,
+     "investigation_recovery": 0.6633,
+     "brief_activity": 0.0367,
+     "record_lookup": 0.01,
+     "unknown": 0.1167
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.9333,
+      "start_only": 0.01,
+      "other_time": 0.0567
+     },
+     "stated_end:hour": {
+      "none": 0.19,
+      "h9": 0.7833,
+      "h10": 0.01,
+      "unknown": 0.0133
+     },
+     "stated_end:minute": {
+      "m30": 0.8867,
+      "unknown": 0.1133
+     },
+     "stated_end:half": {
+      "am": 0.8767,
+      "not_said": 0.1133,
+      "unknown": 0.01
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.4067,
+      "end_then_journey": 0.01,
+      "no_journey": 0.5733,
+      "unknown": 0.01
+     },
+     "stated_span:unit": {
+      "none": 0.4033,
+      "minutes": 0.5967
+     },
+     "stated_span:amount": {
+      "x0.25": 0.02,
+      "x0.5": 0.6233,
+      "x0.75": 0.02,
+      "x15": 0.02,
+      "x30": 0.1733,
+      "x93": 0.0033,
+      "x94": 0.0067,
+      "x95": 0.0067,
+      "x96": 0.0067,
+      "x97": 0.01,
+      "x98": 0.01,
+      "x99": 0.01,
+      "unknown": 0.0867
+     },
+     "stated_span:scope": {
+      "all": 0.5033,
+      "one_part": 0.44,
+      "no_length": 0.05,
+      "unknown": 0.0067
+     }
+    },
+    "input": "“那就麻烦您了。”我把信留在她桌角，自己到靠墙的长椅上坐着，顺手翻翻今早的报纸，看有没有科比特宅那条街的消息。早会说是九点开，我就在这儿一直等到九点半，等她散会回来拿信。",
+    "outcome_line": 49699,
+    "outcome": "unsettled",
+    "cause": "stated_measure_uncertain"
+   }
+  ],
+  "104": [
+   {
+    "telemetry_line": 49868,
+    "band": {
+     "quick_observation": 0.02,
+     "single_room_search": 0.0033,
+     "library_research": 0.01,
+     "short_rest": 0.01,
+     "investigation_recovery": 0.3767,
+     "brief_activity": 0.0767,
+     "unknown": 0.5033
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.0833,
+      "condition": 0.0267,
+      "other_time": 0.02,
+      "no_time": 0.87
+     },
+     "stated_end:hour": {
+      "none": 0.8767,
+      "h7": 0.02,
+      "h8": 0.02,
+      "h9": 0.01,
+      "unknown": 0.0733
+     },
+     "stated_end:minute": {
+      "m57": 0.01,
+      "unknown": 0.99
+     },
+     "stated_end:half": {
+      "am": 0.8133,
+      "not_said": 0.1767,
+      "unknown": 0.01
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.0033,
+      "end_then_journey": 0.0267,
+      "no_journey": 0.96,
+      "unknown": 0.01
+     },
+     "stated_span:unit": {
+      "none": 1.0
+     },
+     "stated_span:amount": {
+      "x1": 0.0233,
+      "x90": 0.01,
+      "unknown": 0.9667
+     },
+     "stated_span:scope": {
+      "all": 0.0667,
+      "one_part": 0.0467,
+      "no_length": 0.88,
+      "unknown": 0.0067
+     }
+    },
+    "input": "我不催她，就在长椅上接着坐，报纸翻完了就看看屋里的人进进出出。等早会开完、她回到桌前把信拿走，我再起身。",
+    "outcome_line": 49874,
+    "outcome": "unsettled",
+    "cause": "unknown_binding"
+   }
+  ],
+  "105": [
+   {
+    "telemetry_line": 50088,
+    "band": {
+     "careful_house_search": 0.01,
+     "library_research": 0.0933,
+     "medicine_treatment": 0.0033,
+     "short_rest": 0.1533,
+     "tome_study": 0.01,
+     "investigation_recovery": 0.44,
+     "brief_activity": 0.01,
+     "unknown": 0.28
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.0667,
+      "start_only": 0.0033,
+      "other_time": 0.0267,
+      "no_time": 0.8933,
+      "unknown": 0.01
+     },
+     "stated_end:hour": {
+      "none": 0.7133,
+      "h6": 0.0033,
+      "h7": 0.02,
+      "h8": 0.0233,
+      "h9": 0.0867,
+      "h10": 0.0333,
+      "h12": 0.0033,
+      "unknown": 0.1167
+     },
+     "stated_end:minute": {
+      "m00": 0.0133,
+      "m29": 0.0067,
+      "m30": 0.24,
+      "m45": 0.0033,
+      "m57": 0.05,
+      "unknown": 0.68
+     },
+     "stated_end:half": {
+      "am": 0.76,
+      "pm": 0.0433,
+      "not_said": 0.1867,
+      "unknown": 0.01
+     },
+     "stated_end:journey": {
+      "end_then_journey": 0.0433,
+      "no_journey": 0.95,
+      "unknown": 0.0067
+     },
+     "stated_span:unit": {
+      "none": 0.01,
+      "minutes": 0.0767,
+      "hours": 0.9133
+     },
+     "stated_span:amount": {
+      "x1.5": 0.9933,
+      "x99": 0.0067
+     },
+     "stated_span:scope": {
+      "all": 0.2967,
+      "one_part": 0.7,
+      "unknown": 0.0033
+     }
+    },
+    "input": "我抬头看了眼墙上的钟，心里有数了，就在长椅上再坐一个半钟头，掏出笔记本把这几天的线索按日子重新排一遍，排完了会也该散了。",
+    "outcome_line": 50108,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "minutes",
+     "value": 90,
+     "scope": "one_part"
+    }
+   }
+  ],
+  "108": [
+   {
+    "telemetry_line": 51491,
+    "band": {
+     "single_room_search": 0.01,
+     "library_research": 0.6867,
+     "tome_study": 0.01,
+     "investigation_recovery": 0.01,
+     "brief_activity": 0.0133,
+     "record_lookup": 0.21,
+     "unknown": 0.06
+    },
+    "grids": {
+     "stated_end:kind": {
+      "other_time": 0.0033,
+      "no_time": 0.9967
+     },
+     "stated_end:hour": {
+      "none": 0.9833,
+      "h10": 0.0067,
+      "unknown": 0.01
+     },
+     "stated_end:minute": {
+      "m30": 0.02,
+      "unknown": 0.98
+     },
+     "stated_end:half": {
+      "am": 0.2867,
+      "pm": 0.0033,
+      "not_said": 0.7,
+      "unknown": 0.01
+     },
+     "stated_end:journey": {
+      "no_journey": 1.0
+     },
+     "stated_span:unit": {
+      "none": 1.0
+     },
+     "stated_span:amount": {
+      "unknown": 1.0
+     },
+     "stated_span:scope": {
+      "one_part": 0.0133,
+      "no_length": 0.9867
+     }
+    },
+    "input": "我在长桌前坐下等她拿来。名录到手后，我把一九一一、一九一二两本的居民栏从T字头一页页往下翻，找姓托马斯的，凡是叫迈克尔、或者职业写着牧师、传道的，地址都抄下来。",
+    "outcome_line": 51509,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "band",
+     "value": "library_research",
+     "confidence": 0.6682
+    }
+   }
+  ],
+  "109": [
+   {
+    "telemetry_line": 51972,
+    "band": {
+     "speak_briefly": 0.06,
+     "library_research": 0.7033,
+     "brief_activity": 0.0133,
+     "record_lookup": 0.1067,
+     "unknown": 0.1167
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.9867,
+      "deadline": 0.0133
+     },
+     "stated_end:hour": {
+      "none": 0.0067,
+      "h3": 0.01,
+      "h4": 0.8333,
+      "h5": 0.1433,
+      "h7": 0.0033
+     },
+     "stated_end:minute": {
+      "m00": 0.0933,
+      "m05": 0.0167,
+      "m25": 0.01,
+      "m30": 0.01,
+      "m44": 0.0133,
+      "m45": 0.79,
+      "unknown": 0.0567
+     },
+     "stated_end:half": {
+      "pm": 0.99,
+      "not_said": 0.01
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.02,
+      "end_then_journey": 0.96,
+      "both_sides": 0.0167,
+      "no_journey": 0.0033
+     },
+     "stated_span:unit": {
+      "none": 0.9633,
+      "minutes": 0.01,
+      "hours": 0.0267
+     },
+     "stated_span:amount": {
+      "x0.5": 0.0133,
+      "x1": 0.0267,
+      "x1.5": 0.02,
+      "x2": 0.02,
+      "x3": 0.02,
+      "x3.5": 0.02,
+      "x4": 0.02,
+      "x60": 0.02,
+      "x92": 0.0033,
+      "x93": 0.0033,
+      "x94": 0.0067,
+      "x95": 0.0067,
+      "x96": 0.0067,
+      "x97": 0.01,
+      "x98": 0.01,
+      "x99": 0.01,
+      "x120": 0.0067,
+      "unknown": 0.7767
+     },
+     "stated_span:scope": {
+      "all": 0.13,
+      "one_part": 0.5,
+      "no_length": 0.35,
+      "unknown": 0.02
+     }
+    },
+    "input": "糟，光顾着翻名录，中午早过了。我把名录还给馆员，顺便请她把波士顿老地产和老报纸的索引拿来——既然牧师查不到，我就从房子查起：科比特宅那栋楼是哪年盖的、早年有没有邻居跟房主打过官司。我查到四点半就收手，然后赶回报社，得在五点前把信取到。",
+    "outcome_line": 51992,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "until",
+     "value": "16:45",
+     "journeys": "after"
+    }
+   }
+  ],
+  "112": [
+   {
+    "telemetry_line": 53351,
+    "band": {
+     "speak_briefly": 0.0633,
+     "momentary": 0.01,
+     "brief_activity": 0.9167,
+     "unknown": 0.01
+    },
+    "grids": {
+     "stated_end:kind": {
+      "other_time": 0.01,
+      "no_time": 0.99
+     },
+     "stated_end:hour": {
+      "none": 0.9667,
+      "h5": 0.0233,
+      "unknown": 0.01
+     },
+     "stated_end:minute": {
+      "m05": 0.0033,
+      "m15": 0.04,
+      "unknown": 0.9567
+     },
+     "stated_end:half": {
+      "pm": 0.72,
+      "not_said": 0.27,
+      "unknown": 0.01
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.1433,
+      "no_journey": 0.7933,
+      "unknown": 0.0633
+     },
+     "stated_span:unit": {
+      "none": 0.8567,
+      "minutes": 0.1433
+     },
+     "stated_span:amount": {
+      "x0.5": 0.0267,
+      "x5": 0.4633,
+      "x97": 0.0067,
+      "x98": 0.0067,
+      "x99": 0.01,
+      "unknown": 0.4833
+     },
+     "stated_span:scope": {
+      "all": 0.0167,
+      "one_part": 0.0733,
+      "no_length": 0.9033,
+      "unknown": 0.0067
+     }
+    },
+    "input": "我拿起信，顺着里侧楼梯再上一层，走到走廊尽头那扇写着“总编”的橡木门前，敲了三下，报上名字：“我是艾伦·沃德，为科比特宅那封信来的，想当面占您五分钟。”",
+    "outcome_line": 53371,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "band",
+     "value": "brief_activity",
+     "confidence": 0.9118
+    }
+   }
+  ],
+  "114": [
+   {
+    "telemetry_line": 54332,
+    "band": {
+     "speak_briefly": 0.18,
+     "library_research": 0.01,
+     "tome_study": 0.01,
+     "investigation_recovery": 0.01,
+     "momentary": 0.0533,
+     "brief_activity": 0.4633,
+     "record_lookup": 0.04,
+     "unknown": 0.23
+    },
+    "grids": {
+     "stated_end:kind": {
+      "no_time": 1.0
+     },
+     "stated_end:hour": {
+      "none": 0.9833,
+      "h5": 0.0067,
+      "unknown": 0.01
+     },
+     "stated_end:minute": {
+      "m18": 0.1,
+      "unknown": 0.9
+     },
+     "stated_end:half": {
+      "pm": 0.6467,
+      "not_said": 0.3433,
+      "unknown": 0.01
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.04,
+      "end_then_journey": 0.1467,
+      "no_journey": 0.7467,
+      "unknown": 0.0667
+     },
+     "stated_span:unit": {
+      "none": 1.0
+     },
+     "stated_span:amount": {
+      "unknown": 1.0
+     },
+     "stated_span:scope": {
+      "no_length": 1.0
+     }
+    },
+    "input": "我把手收回来，点点头：“打扰了。”走廊里我把信折好塞回内袋，心里盘算：走法院这条路是走不通了，那就自己去看那座小堂还剩下什么。下楼出了报社，我在华盛顿街上找家五金店，买一支手电筒、几节备用电池、一根短撬棍和一盒火柴，问问老板多少钱。",
+    "outcome_line": 54352,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "band",
+     "value": "brief_activity",
+     "confidence": 0.4318,
+     "cleared": false
+    }
+   }
+  ],
+  "115": [
+   {
+    "telemetry_line": 54632,
+    "band": {
+     "speak_briefly": 0.0633,
+     "single_room_search": 0.0467,
+     "careful_house_search": 0.0033,
+     "medicine_treatment": 0.0367,
+     "short_rest": 0.01,
+     "therapy_month": 0.0067,
+     "investigation_recovery": 0.0833,
+     "momentary": 0.01,
+     "brief_activity": 0.4067,
+     "record_lookup": 0.01,
+     "unknown": 0.3233
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.0033,
+      "other_time": 0.0033,
+      "no_time": 0.9933
+     },
+     "stated_end:hour": {
+      "none": 0.82,
+      "h5": 0.0033,
+      "h6": 0.03,
+      "h7": 0.1133,
+      "h8": 0.0067,
+      "unknown": 0.0267
+     },
+     "stated_end:minute": {
+      "m52": 0.1067,
+      "m59": 0.0033,
+      "unknown": 0.89
+     },
+     "stated_end:half": {
+      "am": 0.0033,
+      "pm": 0.8367,
+      "not_said": 0.15,
+      "unknown": 0.01
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.31,
+      "end_then_journey": 0.01,
+      "both_sides": 0.0067,
+      "no_journey": 0.5833,
+      "unknown": 0.09
+     },
+     "stated_span:unit": {
+      "none": 1.0
+     },
+     "stated_span:amount": {
+      "x30": 0.04,
+      "x99": 0.0033,
+      "unknown": 0.95
+     },
+     "stated_span:scope": {
+      "all": 0.0033,
+      "one_part": 0.0567,
+      "no_length": 0.9367,
+      "unknown": 0.0033
+     }
+    },
+    "input": "“四样都要，电池就要这三节。”我数出两块七毛五放在柜台上，把手电装上一节电池试了试亮不亮，其余的揣进大衣口袋，撬棍用报纸裹了夹在胳膊底下。出了店我就坐电车回寄宿处，在楼下吃晚饭。",
+    "outcome_line": 54653,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "band",
+     "value": "brief_activity",
+     "confidence": 0.3718,
+     "cleared": false
+    }
+   }
+  ],
+  "117": [
+   {
+    "telemetry_line": 55699,
+    "band": {
+     "single_room_search": 0.0833,
+     "library_research": 0.7967,
+     "brief_activity": 0.01,
+     "record_lookup": 0.0633,
+     "unknown": 0.0433
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.98,
+      "deadline": 0.01,
+      "other_time": 0.01
+     },
+     "stated_end:hour": {
+      "none": 0.01,
+      "h12": 0.99
+     },
+     "stated_end:minute": {
+      "m00": 0.93,
+      "m59": 0.0067,
+      "unknown": 0.0633
+     },
+     "stated_end:half": {
+      "am": 0.3867,
+      "pm": 0.57,
+      "not_said": 0.0367,
+      "unknown": 0.0033
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.9933,
+      "end_then_journey": 0.0067
+     },
+     "stated_span:unit": {
+      "none": 0.98,
+      "hours": 0.02
+     },
+     "stated_span:amount": {
+      "x0.5": 0.05,
+      "x0.75": 0.02,
+      "x1": 0.03,
+      "x1.5": 0.02,
+      "x2": 0.02,
+      "x2.5": 0.0133,
+      "x3": 0.02,
+      "x3.5": 0.0067,
+      "x4": 0.0433,
+      "x5": 0.0233,
+      "x6.5": 0.02,
+      "x12": 0.05,
+      "x60": 0.02,
+      "x96": 0.0033,
+      "x97": 0.0067,
+      "x98": 0.01,
+      "x99": 0.01,
+      "x120": 0.02,
+      "unknown": 0.61
+     },
+     "stated_span:scope": {
+      "all": 0.1533,
+      "one_part": 0.7933,
+      "no_length": 0.0467,
+      "unknown": 0.0067
+     }
+    },
+    "input": "我起床洗漱，下楼喝碗粥垫垫肚子，带上纸夹和笔记本出门，坐电车去中央图书馆，等它开门就把昨天没要成的地产和旧报索引要来，查科比特宅的来历——哪年盖的、头一个房主是谁、有没有跟邻居打过官司。一直查到中午十二点。",
+    "outcome_line": 55721,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "until",
+     "value": "12:00",
+     "journeys": "before"
+    }
+   }
+  ],
+  "119": [
+   {
+    "telemetry_line": 56478,
+    "band": {
+     "library_research": 0.9733,
+     "unknown": 0.0267
+    },
+    "grids": {
+     "stated_end:kind": {
+      "no_time": 1.0
+     },
+     "stated_end:hour": {
+      "none": 0.9133,
+      "h4": 0.0567,
+      "h7": 0.02,
+      "unknown": 0.01
+     },
+     "stated_end:minute": {
+      "m00": 0.0033,
+      "m10": 0.0067,
+      "m50": 0.24,
+      "m57": 0.0067,
+      "m58": 0.0067,
+      "m59": 0.0067,
+      "unknown": 0.7267
+     },
+     "stated_end:half": {
+      "pm": 0.8033,
+      "not_said": 0.1867,
+      "unknown": 0.01
+     },
+     "stated_end:journey": {
+      "no_journey": 0.99,
+      "unknown": 0.01
+     },
+     "stated_span:unit": {
+      "none": 1.0
+     },
+     "stated_span:amount": {
+      "unknown": 1.0
+     },
+     "stated_span:scope": {
+      "no_length": 1.0
+     }
+    },
+    "input": "[GUI choice button: 孤注一掷]",
+    "outcome_line": 56498,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "band",
+     "value": "library_research",
+     "confidence": 0.9718
+    }
+   }
+  ],
+  "120": [
+   {
+    "telemetry_line": 56716,
+    "band": {
+     "speak_briefly": 0.1133,
+     "library_research": 0.66,
+     "sleep_night": 0.0733,
+     "momentary": 0.0067,
+     "brief_activity": 0.0333,
+     "record_lookup": 0.01,
+     "unknown": 0.1
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.6833,
+      "start_only": 0.1433,
+      "deadline": 0.0867,
+      "other_time": 0.0667,
+      "no_time": 0.01,
+      "unknown": 0.01
+     },
+     "stated_end:hour": {
+      "none": 0.2,
+      "h7": 0.0167,
+      "h8": 0.7067,
+      "h10": 0.01,
+      "h12": 0.02,
+      "unknown": 0.0433
+     },
+     "stated_end:minute": {
+      "m00": 0.9,
+      "m08": 0.0133,
+      "unknown": 0.0867
+     },
+     "stated_end:half": {
+      "am": 0.95,
+      "pm": 0.03,
+      "not_said": 0.02
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.9133,
+      "end_then_journey": 0.0333,
+      "both_sides": 0.04,
+      "no_journey": 0.01
+     },
+     "stated_span:unit": {
+      "none": 1.0
+     },
+     "stated_span:amount": {
+      "x99": 0.0067,
+      "unknown": 0.9933
+     },
+     "stated_span:scope": {
+      "all": 0.0033,
+      "one_part": 0.0467,
+      "no_length": 0.9467,
+      "unknown": 0.0033
+     }
+    },
+    "input": "我一抬头，窗外全黑了——怎么一下耗到这个钟点。我跟馆员道了声歉，说给她添乱了，收好纸夹出门，坐末班电车回寄宿处倒头就睡。明早八点起来，去档案处按“默想小堂”这个堂名查地契，看它当年落在哪条街。",
+    "outcome_line": 56725,
+    "outcome": "unsettled",
+    "cause": "stated_measure_uncertain"
+   },
+   {
+    "telemetry_line": 56772,
+    "band": {
+     "speak_briefly": 0.12,
+     "quick_observation": 0.0067,
+     "library_research": 0.5433,
+     "short_rest": 0.01,
+     "sleep_night": 0.1233,
+     "brief_activity": 0.0467,
+     "record_lookup": 0.01,
+     "unknown": 0.14
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.7567,
+      "start_only": 0.1033,
+      "deadline": 0.0633,
+      "other_time": 0.0567,
+      "no_time": 0.01,
+      "unknown": 0.01
+     },
+     "stated_end:hour": {
+      "none": 0.23,
+      "h7": 0.01,
+      "h8": 0.7067,
+      "h10": 0.01,
+      "h12": 0.01,
+      "unknown": 0.03
+     },
+     "stated_end:minute": {
+      "m00": 0.8633,
+      "m08": 0.0067,
+      "m30": 0.0033,
+      "unknown": 0.1267
+     },
+     "stated_end:half": {
+      "am": 0.9333,
+      "pm": 0.0467,
+      "not_said": 0.02
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.9167,
+      "end_then_journey": 0.03,
+      "both_sides": 0.0367,
+      "no_journey": 0.0133,
+      "unknown": 0.0033
+     },
+     "stated_span:unit": {
+      "none": 1.0
+     },
+     "stated_span:amount": {
+      "x99": 0.0033,
+      "unknown": 0.9967
+     },
+     "stated_span:scope": {
+      "one_part": 0.04,
+      "no_length": 0.96
+     }
+    },
+    "input": "我一抬头，窗外全黑了——怎么一下耗到这个钟点。我跟馆员道了声歉，说给她添乱了，收好纸夹出门，坐末班电车回寄宿处倒头就睡。明早八点起来，去档案处按“默想小堂”这个堂名查地契，看它当年落在哪条街。",
+    "outcome_line": 56769,
+    "outcome": "unsettled",
+    "cause": "stated_measure_uncertain"
+   }
+  ],
+  "121": [
+   {
+    "telemetry_line": 57014,
+    "band": {
+     "short_rest": 0.1867,
+     "sleep_night": 0.7867,
+     "unknown": 0.0267
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.9933,
+      "other_time": 0.0067
+     },
+     "stated_end:hour": {
+      "h8": 1.0
+     },
+     "stated_end:minute": {
+      "m00": 0.9867,
+      "m08": 0.0033,
+      "unknown": 0.01
+     },
+     "stated_end:half": {
+      "am": 0.9967,
+      "not_said": 0.0033
+     },
+     "stated_end:journey": {
+      "no_journey": 1.0
+     },
+     "stated_span:unit": {
+      "none": 1.0
+     },
+     "stated_span:amount": {
+      "x1": 0.02,
+      "x2": 0.0167,
+      "x8": 0.04,
+      "unknown": 0.9133
+     },
+     "stated_span:scope": {
+      "all": 0.2433,
+      "one_part": 0.01,
+      "no_length": 0.6933,
+      "unknown": 0.0533
+     }
+    },
+    "input": "我一觉睡到早上八点。",
+    "outcome_line": 57034,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "until",
+     "value": "08:00"
+    }
+   }
+  ],
+  "122": [
+   {
+    "telemetry_line": 57319,
+    "band": {
+     "single_room_search": 0.0033,
+     "library_research": 0.1567,
+     "short_rest": 0.01,
+     "investigation_recovery": 0.0433,
+     "momentary": 0.0067,
+     "brief_activity": 0.06,
+     "record_lookup": 0.11,
+     "unknown": 0.61
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.98,
+      "deadline": 0.01,
+      "other_time": 0.01
+     },
+     "stated_end:hour": {
+      "none": 0.0467,
+      "h9": 0.0033,
+      "h10": 0.0033,
+      "h11": 0.9167,
+      "h12": 0.03
+     },
+     "stated_end:minute": {
+      "m00": 0.02,
+      "m15": 0.22,
+      "m35": 0.0133,
+      "m45": 0.6433,
+      "m59": 0.0033,
+      "unknown": 0.0967
+     },
+     "stated_end:half": {
+      "am": 0.9167,
+      "pm": 0.03,
+      "not_said": 0.0533
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.9533,
+      "end_then_journey": 0.0467
+     },
+     "stated_span:unit": {
+      "none": 0.9733,
+      "minutes": 0.0167,
+      "hours": 0.01
+     },
+     "stated_span:amount": {
+      "x0.25": 0.02,
+      "x0.75": 0.0933,
+      "x1.5": 0.0367,
+      "x2": 0.02,
+      "x2.5": 0.2933,
+      "x3": 0.0233,
+      "x3.5": 0.02,
+      "x9": 0.01,
+      "x9.5": 0.01,
+      "x30": 0.02,
+      "x75": 0.0233,
+      "x87": 0.0033,
+      "x88": 0.0033,
+      "x89": 0.0033,
+      "x90": 0.0133,
+      "x91": 0.01,
+      "x92": 0.01,
+      "x93": 0.02,
+      "x94": 0.01,
+      "x95": 0.01,
+      "x96": 0.01,
+      "x97": 0.01,
+      "x98": 0.01,
+      "x99": 0.01,
+      "x105": 0.0133,
+      "x120": 0.02,
+      "unknown": 0.2733
+     },
+     "stated_span:scope": {
+      "all": 0.04,
+      "one_part": 0.9033,
+      "no_length": 0.05,
+      "unknown": 0.0067
+     }
+    },
+    "input": "我洗漱完下楼吃了早饭，带上纸夹出门。档案处九点才开门，我坐电车过去在门口等着，一开门就进去找文书，请他按“默想小堂”这个堂名调地契和产权登记，看它当年的地址落在哪条街。我打算在那儿查到十一点三刻。",
+    "outcome_line": 57322,
+    "outcome": "unsettled",
+    "cause": "stated_measure_uncertain"
+   },
+   {
+    "telemetry_line": 57365,
+    "band": {
+     "speak_briefly": 0.01,
+     "single_room_search": 0.0067,
+     "careful_house_search": 0.01,
+     "library_research": 0.2067,
+     "short_rest": 0.0033,
+     "investigation_recovery": 0.03,
+     "brief_activity": 0.04,
+     "record_lookup": 0.14,
+     "unknown": 0.55
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.98,
+      "deadline": 0.01,
+      "other_time": 0.01
+     },
+     "stated_end:hour": {
+      "none": 0.0367,
+      "h11": 0.92,
+      "h12": 0.0433
+     },
+     "stated_end:minute": {
+      "m00": 0.02,
+      "m15": 0.1633,
+      "m45": 0.75,
+      "m59": 0.0033,
+      "unknown": 0.06
+     },
+     "stated_end:half": {
+      "am": 0.9333,
+      "pm": 0.0333,
+      "not_said": 0.0333
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.97,
+      "end_then_journey": 0.0267,
+      "no_journey": 0.0033
+     },
+     "stated_span:unit": {
+      "none": 0.9833,
+      "minutes": 0.01,
+      "hours": 0.0067
+     },
+     "stated_span:amount": {
+      "x0.25": 0.02,
+      "x0.75": 0.0867,
+      "x1": 0.02,
+      "x1.5": 0.04,
+      "x2": 0.0233,
+      "x2.5": 0.2433,
+      "x3": 0.03,
+      "x3.5": 0.02,
+      "x9": 0.0033,
+      "x9.5": 0.0033,
+      "x30": 0.0067,
+      "x33": 0.0067,
+      "x45": 0.0067,
+      "x60": 0.0067,
+      "x71": 0.0067,
+      "x75": 0.02,
+      "x90": 0.0167,
+      "x91": 0.0067,
+      "x92": 0.0067,
+      "x93": 0.02,
+      "x94": 0.0067,
+      "x95": 0.0067,
+      "x96": 0.02,
+      "x97": 0.01,
+      "x98": 0.01,
+      "x99": 0.01,
+      "x105": 0.0067,
+      "x115": 0.0067,
+      "x117": 0.0067,
+      "x120": 0.02,
+      "unknown": 0.2967
+     },
+     "stated_span:scope": {
+      "all": 0.06,
+      "one_part": 0.8833,
+      "no_length": 0.0567
+     }
+    },
+    "input": "我洗漱完下楼吃了早饭，带上纸夹出门。档案处九点才开门，我坐电车过去在门口等着，一开门就进去找文书，请他按“默想小堂”这个堂名调地契和产权登记，看它当年的地址落在哪条街。我打算在那儿查到十一点三刻。",
+    "outcome_line": 57386,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "until",
+     "value": "11:45",
+     "journeys": "before"
+    }
+   }
+  ],
+  "125": [
+   {
+    "telemetry_line": 58757,
+    "band": {
+     "speak_briefly": 0.02,
+     "single_room_search": 0.1333,
+     "careful_house_search": 0.04,
+     "library_research": 0.2433,
+     "medicine_treatment": 0.01,
+     "investigation_recovery": 0.04,
+     "brief_activity": 0.0633,
+     "record_lookup": 0.0367,
+     "unknown": 0.41
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.6833,
+      "deadline": 0.2967,
+      "other_time": 0.01,
+      "no_time": 0.01
+     },
+     "stated_end:hour": {
+      "h4": 1.0
+     },
+     "stated_end:minute": {
+      "m00": 0.9,
+      "m45": 0.02,
+      "m57": 0.0033,
+      "m58": 0.0033,
+      "m59": 0.0033,
+      "unknown": 0.0667
+     },
+     "stated_end:half": {
+      "pm": 0.9667,
+      "not_said": 0.0333
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.98,
+      "end_then_journey": 0.01,
+      "no_journey": 0.01
+     },
+     "stated_span:unit": {
+      "none": 0.9633,
+      "hours": 0.0367
+     },
+     "stated_span:amount": {
+      "x1": 0.02,
+      "x4": 0.05,
+      "x60": 0.02,
+      "x98": 0.0033,
+      "x99": 0.0067,
+      "x120": 0.02,
+      "unknown": 0.88
+     },
+     "stated_span:scope": {
+      "all": 0.1933,
+      "one_part": 0.6,
+      "no_length": 0.1933,
+      "unknown": 0.0133
+     }
+    },
+    "input": "“那就不难为您了，多谢。”我上楼出了报社。纸上找不到，就问人。我坐电车去科比特宅那条街，找年头久的老住户、街角的杂货铺老板，打听二十年前附近有没有一座叫“默想小堂”的小教堂，是谁在那儿讲道、后来搬去了哪儿。我挨家问到下午四点钟，赶在天黑前收工。",
+    "outcome_line": 58776,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "until",
+     "value": "16:00",
+     "journeys": "before"
+    }
+   }
+  ],
+  "127": [
+   {
+    "telemetry_line": 59480,
+    "band": {
+     "single_room_search": 0.9267,
+     "careful_house_search": 0.0333,
+     "investigation_recovery": 0.0167,
+     "unknown": 0.0167
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.3033,
+      "deadline": 0.06,
+      "condition": 0.06,
+      "other_time": 0.0233,
+      "no_time": 0.54,
+      "unknown": 0.0133
+     },
+     "stated_end:hour": {
+      "none": 0.6067,
+      "h5": 0.01,
+      "h6": 0.0567,
+      "h7": 0.1367,
+      "h8": 0.0267,
+      "h9": 0.01,
+      "h10": 0.01,
+      "unknown": 0.1433
+     },
+     "stated_end:minute": {
+      "m30": 0.0233,
+      "m59": 0.0067,
+      "unknown": 0.97
+     },
+     "stated_end:half": {
+      "am": 0.01,
+      "pm": 0.83,
+      "not_said": 0.15,
+      "unknown": 0.01
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.8967,
+      "no_journey": 0.09,
+      "unknown": 0.0133
+     },
+     "stated_span:unit": {
+      "none": 0.0633,
+      "minutes": 0.9067,
+      "hours": 0.03
+     },
+     "stated_span:amount": {
+      "x0.5": 0.7667,
+      "x1": 0.0233,
+      "x30": 0.1733,
+      "x98": 0.0033,
+      "x99": 0.0067,
+      "unknown": 0.02
+     },
+     "stated_span:scope": {
+      "all": 0.59,
+      "one_part": 0.41
+     }
+    },
+    "input": "我离那只白眼远远的，绕到南边缺口，侧身钻进去，拧亮手电。我拿撬棍拨开长草，仔细搜地上那些发黑的板子底下和墙根，看有没有地窖口、台阶或者被人新动过的痕迹。就看半个钟头，天一黑透我就出来。",
+    "outcome_line": 59479,
+    "outcome": "unsettled",
+    "cause": "stated_measure_uncertain"
+   }
+  ],
+  "129": [
+   {
+    "telemetry_line": 60000,
+    "band": {
+     "quick_observation": 0.7733,
+     "single_room_search": 0.0167,
+     "momentary": 0.01,
+     "brief_activity": 0.1867,
+     "unknown": 0.01
+    },
+    "grids": {
+     "stated_end:kind": {
+      "no_time": 1.0
+     },
+     "stated_end:hour": {
+      "none": 0.95,
+      "h4": 0.04,
+      "unknown": 0.01
+     },
+     "stated_end:minute": {
+      "m30": 0.0433,
+      "unknown": 0.9567
+     },
+     "stated_end:half": {
+      "pm": 0.61,
+      "not_said": 0.38,
+      "unknown": 0.01
+     },
+     "stated_end:journey": {
+      "no_journey": 0.9967,
+      "unknown": 0.0033
+     },
+     "stated_span:unit": {
+      "none": 1.0
+     },
+     "stated_span:amount": {
+      "unknown": 1.0
+     },
+     "stated_span:scope": {
+      "no_length": 1.0
+     }
+    },
+    "input": "我用力把板子整块掀开，翻到一边靠在墙上，捡块碎石丢下去听听有多深，再趴在洞口拿手电往下照，看清底下是地窖还是坑，四壁有没有能踩的地方。",
+    "outcome_line": 60018,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "band",
+     "value": "quick_observation",
+     "confidence": 0.76
+    }
+   }
+  ],
+  "130": [
+   {
+    "telemetry_line": 60439,
+    "band": {
+     "quick_observation": 0.3833,
+     "single_room_search": 0.0533,
+     "investigation_recovery": 0.01,
+     "momentary": 0.03,
+     "brief_activity": 0.36,
+     "unknown": 0.16
+    },
+    "grids": {
+     "stated_end:kind": {
+      "no_time": 1.0
+     },
+     "stated_end:hour": {
+      "none": 0.97,
+      "h4": 0.01,
+      "unknown": 0.02
+     },
+     "stated_end:minute": {
+      "m35": 0.03,
+      "unknown": 0.97
+     },
+     "stated_end:half": {
+      "pm": 0.5667,
+      "not_said": 0.4233,
+      "unknown": 0.01
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.03,
+      "no_journey": 0.9267,
+      "unknown": 0.0433
+     },
+     "stated_span:unit": {
+      "none": 0.9967,
+      "unknown": 0.0033
+     },
+     "stated_span:amount": {
+      "x1": 0.0033,
+      "unknown": 0.9967
+     },
+     "stated_span:scope": {
+      "all": 0.01,
+      "one_part": 0.2633,
+      "no_length": 0.7033,
+      "unknown": 0.0233
+     }
+    },
+    "input": "我心里一阵发紧，盯着那两具骨架看了好一会儿。还是得下去看看那只柜子。我把撬棍别进腰带，手电咬在嘴里，转身背对洞口，踩着壁上那几处砖棱一点点往下爬。",
+    "outcome_line": 60473,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "band",
+     "value": "quick_observation",
+     "confidence": 0.3471,
+     "cleared": false
+    }
+   }
+  ],
+  "131": [
+   {
+    "telemetry_line": 60780,
+    "band": {
+     "quick_observation": 0.03,
+     "single_room_search": 0.8833,
+     "momentary": 0.01,
+     "brief_activity": 0.0567,
+     "unknown": 0.02
+    },
+    "grids": {
+     "stated_end:kind": {
+      "no_time": 1.0
+     },
+     "stated_end:hour": {
+      "none": 0.96,
+      "h4": 0.0267,
+      "unknown": 0.0133
+     },
+     "stated_end:minute": {
+      "m35": 0.0367,
+      "unknown": 0.9633
+     },
+     "stated_end:half": {
+      "pm": 0.42,
+      "not_said": 0.57,
+      "unknown": 0.01
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.0167,
+      "no_journey": 0.9767,
+      "unknown": 0.0067
+     },
+     "stated_span:unit": {
+      "none": 1.0
+     },
+     "stated_span:amount": {
+      "unknown": 1.0
+     },
+     "stated_span:scope": {
+      "no_length": 1.0
+     }
+    },
+    "input": "我绕开骨架，蹲到那只烂柜子前，用撬棍把歪着的柜门挑开，拿手电一格一格地照，看里面还剩下什么——书、纸、器物，什么都行。",
+    "outcome_line": 60800,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "band",
+     "value": "single_room_search",
+     "confidence": 0.8765
+    }
+   }
+  ],
+  "133": [
+   {
+    "telemetry_line": 61596,
+    "band": {
+     "single_room_search": 0.0833,
+     "careful_house_search": 0.02,
+     "library_research": 0.0167,
+     "tome_study": 0.01,
+     "investigation_recovery": 0.08,
+     "momentary": 0.01,
+     "brief_activity": 0.62,
+     "record_lookup": 0.0233,
+     "unknown": 0.1367
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.0167,
+      "deadline": 0.03,
+      "condition": 0.01,
+      "other_time": 0.0233,
+      "no_time": 0.9167,
+      "unknown": 0.0033
+     },
+     "stated_end:hour": {
+      "none": 0.84,
+      "h5": 0.0433,
+      "h6": 0.03,
+      "h7": 0.0467,
+      "h8": 0.01,
+      "unknown": 0.03
+     },
+     "stated_end:minute": {
+      "m08": 0.03,
+      "unknown": 0.97
+     },
+     "stated_end:half": {
+      "am": 0.0033,
+      "pm": 0.86,
+      "not_said": 0.1267,
+      "unknown": 0.01
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.28,
+      "end_then_journey": 0.0333,
+      "no_journey": 0.5933,
+      "unknown": 0.0933
+     },
+     "stated_span:unit": {
+      "none": 1.0
+     },
+     "stated_span:amount": {
+      "unknown": 1.0
+     },
+     "stated_span:scope": {
+      "one_part": 0.01,
+      "no_length": 0.99
+     }
+    },
+    "input": "我拿撬棍尖小心把那两本书从土里起出来，用那份晚报裹好塞进大衣里，不在这儿翻。天快黑透了，我照原路踩着砖棱爬上去，出了缺口把那块板子盖回洞口，坐电车回寄宿处。",
+    "outcome_line": 61617,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "band",
+     "value": "brief_activity",
+     "confidence": 0.5976
+    }
+   }
+  ],
+  "134": [
+   {
+    "telemetry_line": 62036,
+    "band": {
+     "library_research": 0.01,
+     "sleep_night": 0.0933,
+     "spell_learning": 0.0167,
+     "tome_study": 0.8133,
+     "brief_activity": 0.03,
+     "record_lookup": 0.0067,
+     "unknown": 0.03
+    },
+    "grids": {
+     "stated_end:kind": {
+      "end_of_now": 0.9733,
+      "start_only": 0.0267
+     },
+     "stated_end:hour": {
+      "none": 0.01,
+      "h7": 0.92,
+      "h10": 0.01,
+      "h11": 0.0533
+     },
+     "stated_end:minute": {
+      "m00": 0.8333,
+      "m01": 0.0133,
+      "m05": 0.0067,
+      "m07": 0.02,
+      "m23": 0.02,
+      "m25": 0.0067,
+      "m30": 0.0333,
+      "m58": 0.0033,
+      "m59": 0.0033,
+      "unknown": 0.0567
+     },
+     "stated_end:half": {
+      "am": 0.9233,
+      "pm": 0.0567,
+      "not_said": 0.02
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.94,
+      "end_then_journey": 0.01,
+      "both_sides": 0.0367,
+      "no_journey": 0.01,
+      "unknown": 0.0033
+     },
+     "stated_span:unit": {
+      "none": 0.9067,
+      "minutes": 0.03,
+      "hours": 0.0633
+     },
+     "stated_span:amount": {
+      "x6.5": 0.02,
+      "x7": 0.0233,
+      "x7.5": 0.0233,
+      "x8": 0.0867,
+      "x8.5": 0.0933,
+      "x9.5": 0.02,
+      "x10.5": 0.0067,
+      "x11.5": 0.03,
+      "x90": 0.0033,
+      "x91": 0.01,
+      "x92": 0.01,
+      "x93": 0.01,
+      "x94": 0.01,
+      "x95": 0.01,
+      "x96": 0.01,
+      "x97": 0.01,
+      "x98": 0.01,
+      "x99": 0.01,
+      "unknown": 0.5967
+     },
+     "stated_span:scope": {
+      "all": 0.0367,
+      "one_part": 0.9433,
+      "no_length": 0.0167
+     }
+    },
+    "input": "我坐电车回寄宿处，在楼下随便吃了点东西，回房锁上门，把灯拧亮，先翻那本薄的，看看能不能认出几个字。读到夜里十一点半就熄灯睡觉，明早七点起。",
+    "outcome_line": 62059,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "until",
+     "value": "07:00",
+     "journeys": "before"
+    }
+   }
+  ],
+  "135": [
+   {
+    "telemetry_line": 62615,
+    "band": {
+     "quick_observation": 0.0367,
+     "single_room_search": 0.02,
+     "library_research": 0.0233,
+     "tome_study": 0.5033,
+     "brief_activity": 0.1067,
+     "record_lookup": 0.2533,
+     "unknown": 0.0567
+    },
+    "grids": {
+     "stated_end:kind": {
+      "start_only": 0.0267,
+      "no_time": 0.9733
+     },
+     "stated_end:hour": {
+      "none": 0.9233,
+      "h7": 0.0533,
+      "h8": 0.01,
+      "unknown": 0.0133
+     },
+     "stated_end:minute": {
+      "m00": 0.0333,
+      "unknown": 0.9667
+     },
+     "stated_end:half": {
+      "am": 0.78,
+      "not_said": 0.2067,
+      "unknown": 0.0133
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.0033,
+      "end_then_journey": 0.0267,
+      "no_journey": 0.96,
+      "unknown": 0.01
+     },
+     "stated_span:unit": {
+      "none": 1.0
+     },
+     "stated_span:amount": {
+      "unknown": 1.0
+     },
+     "stated_span:scope": {
+      "one_part": 0.0067,
+      "no_length": 0.9933
+     }
+    },
+    "input": "我起床后没急着出门，把那本薄册子挪到窗前光最亮的地方，借房东的小刀沿着粘住的页边一点一点挑开，凑近了细看每一页上残下来的字迹，哪怕只认出一个日期、一个名字也好。",
+    "outcome_line": 62634,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "band",
+     "value": "tome_study",
+     "confidence": 0.4741,
+     "cleared": false
+    }
+   }
+  ],
+  "137": [
+   {
+    "telemetry_line": 63615,
+    "band": {
+     "quick_observation": 0.2,
+     "single_room_search": 0.02,
+     "careful_house_search": 0.0067,
+     "momentary": 0.02,
+     "brief_activity": 0.7167,
+     "unknown": 0.0367
+    },
+    "grids": {
+     "stated_end:kind": {
+      "no_time": 1.0
+     },
+     "stated_end:hour": {
+      "none": 0.95,
+      "h8": 0.0367,
+      "unknown": 0.0133
+     },
+     "stated_end:minute": {
+      "m20": 0.0767,
+      "unknown": 0.9233
+     },
+     "stated_end:half": {
+      "am": 0.5633,
+      "pm": 0.01,
+      "not_said": 0.4067,
+      "unknown": 0.02
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.0633,
+      "end_then_journey": 0.06,
+      "no_journey": 0.7933,
+      "unknown": 0.0833
+     },
+     "stated_span:unit": {
+      "none": 1.0
+     },
+     "stated_span:amount": {
+      "x1": 0.0133,
+      "unknown": 0.9867
+     },
+     "stated_span:scope": {
+      "all": 0.0067,
+      "one_part": 0.1167,
+      "no_length": 0.8767
+     }
+    },
+    "input": "我屏住气站在客厅里听了一会儿，楼上再没动静。我从大衣里摸出撬棍握在右手，左手打着手电，贴着墙根一级一级往楼上走，每走一步都先停下来听，走到楼梯拐角先探头往二楼走廊照一照。",
+    "outcome_line": 63635,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "band",
+     "value": "brief_activity",
+     "confidence": 0.7
+    }
+   }
+  ],
+  "138": [
+   {
+    "telemetry_line": 63871,
+    "band": {
+     "quick_observation": 0.0333,
+     "single_room_search": 0.01,
+     "brief_activity": 0.91,
+     "unknown": 0.0467
+    },
+    "grids": {
+     "stated_end:kind": {
+      "no_time": 1.0
+     },
+     "stated_end:hour": {
+      "none": 0.98,
+      "h8": 0.01,
+      "unknown": 0.01
+     },
+     "stated_end:minute": {
+      "m25": 0.0733,
+      "unknown": 0.9267
+     },
+     "stated_end:half": {
+      "am": 0.51,
+      "pm": 0.0033,
+      "not_said": 0.47,
+      "unknown": 0.0167
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.0233,
+      "no_journey": 0.9467,
+      "unknown": 0.03
+     },
+     "stated_span:unit": {
+      "none": 1.0
+     },
+     "stated_span:amount": {
+      "unknown": 1.0
+     },
+     "stated_span:scope": {
+      "no_length": 1.0
+     }
+    },
+    "input": "我贴着走廊一侧往里走，挨个在每扇门前停一停，把耳朵贴上去听里头有没有动静，先找那声沉响到底是从哪间屋里传出来的。",
+    "outcome_line": 63892,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "band",
+     "value": "brief_activity",
+     "confidence": 0.9047
+    }
+   }
+  ],
+  "139": [
+   {
+    "telemetry_line": 64195,
+    "band": {
+     "quick_observation": 0.75,
+     "momentary": 0.03,
+     "brief_activity": 0.21,
+     "unknown": 0.01
+    },
+    "grids": {
+     "stated_end:kind": {
+      "no_time": 1.0
+     },
+     "stated_end:hour": {
+      "none": 0.9733,
+      "h8": 0.02,
+      "unknown": 0.0067
+     },
+     "stated_end:minute": {
+      "m34": 0.1033,
+      "unknown": 0.8967
+     },
+     "stated_end:half": {
+      "am": 0.55,
+      "not_said": 0.4367,
+      "unknown": 0.0133
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.0367,
+      "no_journey": 0.9467,
+      "unknown": 0.0167
+     },
+     "stated_span:unit": {
+      "none": 1.0
+     },
+     "stated_span:amount": {
+      "unknown": 1.0
+     },
+     "stated_span:scope": {
+      "no_length": 1.0
+     }
+    },
+    "input": "我走到那扇有滴水声的门前，撬棍抵着门缝，左手慢慢拧把手，把门推开一条缝，先拿手电往里扫一圈再进去。",
+    "outcome_line": 64214,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "band",
+     "value": "quick_observation",
+     "confidence": 0.7353
+    }
+   }
+  ],
+  "140": [
+   {
+    "telemetry_line": 64468,
+    "band": {
+     "single_room_search": 0.8367,
+     "careful_house_search": 0.09,
+     "brief_activity": 0.02,
+     "unknown": 0.0533
+    },
+    "grids": {
+     "stated_end:kind": {
+      "other_time": 0.0167,
+      "no_time": 0.9833
+     },
+     "stated_end:hour": {
+      "none": 0.9733,
+      "h8": 0.0133,
+      "unknown": 0.0133
+     },
+     "stated_end:minute": {
+      "m20": 0.04,
+      "m24": 0.0033,
+      "m30": 0.0033,
+      "m39": 0.1467,
+      "unknown": 0.8
+     },
+     "stated_end:half": {
+      "am": 0.5333,
+      "pm": 0.01,
+      "not_said": 0.44,
+      "unknown": 0.0167
+     },
+     "stated_end:journey": {
+      "journey_then_end": 0.13,
+      "end_then_journey": 0.01,
+      "no_journey": 0.77,
+      "unknown": 0.09
+     },
+     "stated_span:unit": {
+      "none": 0.0267,
+      "minutes": 0.9733
+     },
+     "stated_span:amount": {
+      "x0.5": 0.0133,
+      "x1": 0.0233,
+      "x20": 0.8733,
+      "x96": 0.0033,
+      "x97": 0.0067,
+      "x98": 0.01,
+      "x99": 0.01,
+      "unknown": 0.0567
+     },
+     "stated_span:scope": {
+      "all": 0.0133,
+      "one_part": 0.9867
+     }
+    },
+    "input": "浴室没什么。我退出来把门带上，接着把二楼剩下几间屋子挨个推开看一眼，最后进那间主卧，花二十分钟把衣柜和抽屉仔仔细细翻一遍，看看有没有日记、信件之类的东西。",
+    "outcome_line": 64488,
+    "outcome": "succeeded",
+    "bound": {
+     "name": "minutes",
+     "value": 20,
+     "scope": "one_part"
+    }
+   }
+  ]
+ }
+}
