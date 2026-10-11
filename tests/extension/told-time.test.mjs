@@ -20,6 +20,7 @@ import {openTable, waitFor} from './harness.mjs';
 import {createHybridEngine} from './hybrid-engine-fixture.mjs';
 import {COMPILE_FAMILY} from '../../runtime/jev/route-compile.ts';
 import {toldTimeDecision, toldTimeQuestions, toldTimeState} from '../../runtime/jev/told-time.ts';
+import {readToldTime} from '../../extensions/kernel/told-time.ts';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CAMPAIGN = 'test-camp';
@@ -39,9 +40,10 @@ const BANDS = [
 ];
 const INPUT = {campaign: CAMPAIGN, turn: 2, bands: BANDS, sentences: [CIRCUIT, '风从办公楼的夹缝里下来。']};
 
-test('one request: the told_cost Choice (none first, no road row, each row\'s covers) and the sentence Choice; the state is the told text alone', () => {
+test('one request: the told_cost Choice (none first, no road row, each row\'s covers), the sentence Choice and the extent Choice; the state is the told text alone', () => {
     const questions = toldTimeQuestions(INPUT);
-    assert.deepEqual(questions.map(question => [question.key, question.type]), [['told_cost', 'choice'], ['sentence', 'choice']]);
+    assert.deepEqual(questions.map(question => [question.key, question.type]), [['told_cost', 'choice'], ['sentence', 'choice'], ['told_extent', 'choice']]);
+    assert.deepEqual(Object.keys(questions[2].criteria), ['begun', 'carried', 'unknown'], '§218.4: how far the text carries the activity');
     assert.deepEqual(Object.keys(questions[0].criteria), ['none', 'momentary', 'brief_activity', 'single_room_search'], 'a journey is its move\'s');
     assert.match(questions[0].criteria.single_room_search, /10 to 45 minutes: Searching one room or one small area\./);
     assert.deepEqual(Object.keys(questions[1].criteria), ['s1', 's2']);
@@ -50,9 +52,10 @@ test('one request: the told_cost Choice (none first, no road row, each row\'s co
 });
 
 test('the bars decide, in order, and the first one missed is the reason', () => {
-    const bars = {costMin: 0.7, sentenceMin: 0.5, minDefaultMinutes: 5};
-    const answered = (chosen, confidence, sentence) => ({status: 'answered', chosen, confidence, distribution: {}, elapsedMs: 1,
-        usage: {inputTokens: 0, outputTokens: 0, costUsd: 0}, sentence: sentence === null ? null : {key: 's1', text: CIRCUIT, confidence: sentence, distribution: {}}});
+    const bars = {costMin: 0.7, sentenceMin: 0.5, minDefaultMinutes: 5, extentMin: 0.5};
+    const answered = (chosen, confidence, sentence, extent = {choice: 'carried', top: 0.8}) => ({status: 'answered', chosen, confidence, distribution: {}, elapsedMs: 1,
+        usage: {inputTokens: 0, outputTokens: 0, costUsd: 0}, sentence: sentence === null ? null : {key: 's1', text: CIRCUIT, confidence: sentence, distribution: {}},
+        extent: extent && {...extent, distribution: {}}});
     assert.deepEqual(toldTimeDecision(answered('single_room_search', 0.9, 0.8), bars, BANDS), {decision: 'owe', band: 'single_room_search', quote: CIRCUIT});
     assert.deepEqual(toldTimeDecision(answered('brief_activity', 0.9, 0.8), bars, BANDS), {decision: 'owe', band: 'brief_activity', quote: CIRCUIT},
         'a row whose default reaches the floor is owed');
@@ -60,6 +63,37 @@ test('the bars decide, in order, and the first one missed is the reason', () => 
         answered('single_room_search', 0.9, null), answered('single_room_search', 0.9, 0.3), answered('unknown_row', 0.9, 0.8)]
         .map(result => toldTimeDecision(result, bars, BANDS).why), ['none', 'low_cost', 'under_floor', 'sentence_unanswered', 'low_sentence', 'under_floor']);
     assert.equal(toldTimeDecision({status: 'failed', reason: 'timeout', elapsedMs: 1, usage: {}}, bars, BANDS).why, 'timeout');
+    // §218.4: the fifth bar -- owed only when the text carried the activity.
+    assert.deepEqual([answered('single_room_search', 0.9, 0.8, {choice: 'begun', top: 0.7}), answered('single_room_search', 0.9, 0.8, {choice: 'carried', top: 0.4}),
+        answered('single_room_search', 0.9, 0.8, {choice: 'unknown', top: 0.6}), answered('single_room_search', 0.9, 0.8, null)]
+        .map(result => toldTimeDecision(result, bars, BANDS).why), ['begun', 'low_extent', 'low_extent', 'low_extent']);
+});
+
+// §218.4, live d6c turn 51: the delivery told only the start of the records search (the deed register opened at the house's
+// entry, the death certificates still unopened). The read answered record_lookup .97 and its sentence .90 and owed it; the
+// player's next declaration continued the same search, so t52 rolled record_lookup twice (31 + 29 minutes).
+const T51_SENTENCE = '你把采访本和钢笔搁在手边，先按住地契册，从科比特街那栋红砖的条目翻起。';
+const T51 = (extent) => ({status: 'answered', chosen: 'record_lookup', confidence: 0.97, elapsedMs: 1016, usage: {inputTokens: 2435, outputTokens: 309, costUsd: 0},
+    distribution: {none: 0, quick_observation: 0.01, library_research: 0.01, brief_activity: 0.01, record_lookup: 0.97},
+    sentence: {key: 's11', text: T51_SENTENCE, confidence: 0.9, distribution: {s11: 0.91, s12: 0.06}}, extent});
+const T51_BANDS = [...BANDS, {handle: 'record_lookup', min: 10, max: 45, default: 20, covers: 'Looking up one record or one set of files.'}];
+test('§218.4 t51\'s captured read: a search the delivery only began is not owed; carried, it is', () => {
+    const bars = {costMin: 0.7, sentenceMin: 0.5, minDefaultMinutes: 5, extentMin: 0.5};
+    assert.deepEqual(toldTimeDecision(T51({choice: 'begun', top: 0.78, distribution: {begun: 0.78, carried: 0.2, unknown: 0.02}}), bars, T51_BANDS),
+        {decision: 'stay', why: 'begun'}, 'the base owed record_lookup here');
+    assert.deepEqual(toldTimeDecision(T51({choice: 'carried', top: 0.8, distribution: {begun: 0.18, carried: 0.8, unknown: 0.02}}), bars, T51_BANDS),
+        {decision: 'owe', band: 'record_lookup', quote: T51_SENTENCE});
+});
+
+// §218.4, live d6c turn 44: an out-of-fiction answer (the player asked what day it was) was read as tome_study .30.
+test('§218.4 an out-of-fiction delivery is not read: nothing is asked of the kernel or Jev', async () => {
+    const rows = [], calls = [];
+    const owed = await readToldTime({env: {EXT_JEV_APIKEY: 'test-jev-key', PI_COC_TOLD_TIME: 'on'}, campaign: CAMPAIGN, turn: 44, scope: 'reference',
+        text: '场外说清楚。故事里现在仍是十月十三日晚上，大约九点。', call: async (method) => { calls.push(method); return {}; }, record: row => rows.push(row),
+        budget: {mode: 'on', costMin: 0.7, sentenceMin: 0.5, extentMin: 0.5, minDefaultMinutes: 5, timeoutMs: 1000}});
+    assert.equal(owed, null);
+    assert.deepEqual(calls, []);
+    assert.deepEqual(rows.map(row => [row.lane, row.skipped]), [['told-time', 'out_of_fiction']]);
 });
 
 // ---- the emitted kernel's RPC ----------------------------------------------------------------------------------------
@@ -169,7 +203,7 @@ test('the capsule shows the told time to the clerk, and apply time {band, owed} 
  * The typed endpoint: the told-time batch puts `told_cost` on `band` and `sentence` on the delivered sentence `sentence`;
  * every other family's Choice gets its first criterion and every Noul 0.05 (no move, no clue given).
  */
-function installJev(t, {band = 'single_room_search', sentence = CIRCUIT, confidence = 0.9} = {}) {
+function installJev(t, {band = 'single_room_search', sentence = CIRCUIT, confidence = 0.9, extent = 'carried'} = {}) {
     const original = globalThis.fetch, batches = [];
     globalThis.fetch = async (url, init) => {
         if (String(url) !== JEV_URL) return original(url, init);
@@ -178,6 +212,7 @@ function installJev(t, {band = 'single_room_search', sentence = CIRCUIT, confide
         if (told) batches.push({body, state});
         const pick = (key, question) => {
             if (told && key === 'told_cost') return band;
+            if (told && key === 'told_extent') return extent;
             if (told && key === 'sentence') return Object.keys(state.told).find(alias => state.told[alias] === sentence) ?? Object.keys(question.criteria)[0];
             return Object.keys(question.criteria)[0];
         };

@@ -67,7 +67,7 @@ test("§138.10 builder: the declared action's time is one candidate over the tim
 	// The bind is exactly the shadow lane's time question (§138.8), so the clerk asks what the shadow measured.
 	const shadow = timeQuestion(TIME_ROWS);
 	assert.ok(band.instruction.startsWith(shadow.instructions));
-	assert.match(band.instruction, /An explicit interval that is not offered must remain unknown/);
+	assert.match(band.instruction, /A clock time or a length the player states is asked separately/);
 	assert.deepEqual(band.descriptions, shadow.criteria);
 	assert.equal(band.descriptions.single_room_search, "single room search: 10 to 45 minutes");
 	assert.equal(band.ruleDefault, undefined, "a band has no rules default (spec D4)");
@@ -75,7 +75,7 @@ test("§138.10 builder: the declared action's time is one candidate over the tim
 	assert.equal(time.routeFact.selects, "costs");
 	assert.deepEqual(Object.keys(time.routeFact.criteria), ["costs", "none", "unknown"]);
 	assert.deepEqual(time.composed, ["why"]);
-	assert.equal(time.bound.why, `The time actually consumed by a supported completed/attempted portion, from a fitting kernel time-cost row; player: "${INPUT}"`);
+	assert.equal(time.bound.why, `The time actually consumed by the selected wait or supported completed/attempted portion, from a stated end, a stated length or a kernel time-cost row; player: "${INPUT}"`);
 	assert.deepEqual(keeperCall(time, { band: "single_room_search" }), { tool: "apply", args: { effects: [{ kind: "time", why: time.bound.why, band: "single_room_search" }] } });
 	assert.ok(!("minutes" in keeperCall(time, { band: "x" }).args.effects[0]));
 	// What Jev reads of it: no host key, basis, clerk or gate.

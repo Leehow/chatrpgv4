@@ -509,6 +509,8 @@ interface RunState {
   unresolvedAttack?: boolean;
   /** A failed host time bind is not a license for a model-origin replacement interval. */
   unresolvedTime?: boolean;
+  /** §218.2: the clerk's declared time that landed this run (its receipt's numbers); the turn's time is then charged. */
+  declaredTime?: {minutes: number | null; clock_before: number | null; clock_after: number | null; until?: Json; band?: string};
   /** §163: the run's forced resolutions in first-seen order, which are recorded (one telemetry row each), and which the Keeper was shown. */
   forced: ForcedResolution[];
   forcedRecorded: Set<string>;
@@ -1168,6 +1170,16 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     };
   }
 
+  /** §218.2: what the Keeper is told when it sends time after the clerk already charged the turn's declared time. */
+  function declaredTimeLanded(landed: NonNullable<RunState['declaredTime']>): string {
+    const until = object(landed.until), clock = landed.clock_after !== null && landed.clock_before !== null
+      ? ` (the clock moved from ${landed.clock_before} to ${landed.clock_after} minutes`
+        + (typeof until.time === 'string' ? `, until ${until.time}${Number.isInteger(until.days) ? ` on day +${until.days}` : ''})` : ')') : '';
+    return `The host already charged this turn's declared time: ${landed.minutes ?? '?'} minutes${landed.band ? ` from the ${landed.band} row` : ''}${clock}. `
+      + 'Time is charged once a turn, so nothing in this apply was executed: it carries another time effect. Send the rest of it again without the time effect, '
+      + 'and narrate the clock where the declared time put it. Only an owed row\'s time (owed) may land beside it.';
+  }
+
   /** One Keeper call of the batch its response made. A step that fails sends the rest of the batch back unrun. */
   async function modelStep(run: RunState, proposal: {operation: string; params?: unknown; assistantMessage?: unknown; toolCall?: {id: string}}, execute: () => Promise<any>,
     stepId: string, signal: AbortSignal) {
@@ -1185,10 +1197,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       && array(object(proposal.params).effects).some(effect => object(effect).kind === 'damage');
     const outsideScope = run.interactionScope?.mode !== undefined && run.interactionScope.mode !== 'world'
       && !permitsReferenceOperation(proposal.operation, proposal.params);
-    const replacementTime = run.unresolvedTime === true && proposal.operation === 'apply'
+    const timeEffect = proposal.operation === 'apply'
       && array(object(proposal.params).effects).some(value => object(value).kind === 'time' && !object(value).owed);
+    const replacementTime = run.unresolvedTime === true && timeEffect;
+    // §218.2: time is charged once a turn. After the clerk's declared time landed, a Keeper time beside it would charge it again.
+    const secondTime = !replacementTime && run.declaredTime !== undefined && timeEffect;
     const refuse = outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
       : replacementTime ? {code:'declared_time_unresolved',text:'The host could not bind the declared interval. This model-origin replacement time effect was not executed. Do not choose minutes or a band or claim that the wait completed. Narrate settled facts or return the genuinely missing interval to the player in character.'}
+      : secondTime ? {code: 'declared_time_landed', text: declaredTimeLanded(run.declaredTime!)}
       : presumedHit ? {code: 'check_outcome_unresolved', text: 'The declared attack has not been settled by the host. Damage cannot stand in for its missing check. '
       + 'Nothing in this apply was executed. Do not describe the attack as hitting or missing, or claim injury, damage, a changed condition, incapacitation, forced movement or another consequence of that attack. '
       + 'Narrate only settled events before the unresolved consequence. If a player-owned choice remains open, end with a present person or immediate situation returning that choice in character; do not leave the declared action hanging.'}
@@ -1449,6 +1465,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       ...(ok ? {} : {refusal: String(refusal), ...(typeof refusedText === 'string' ? {refusal_reason: refusedText.slice(0, 300)} : {})})});
     // §135.31: the people an executed clerk step names are carried to the Keeper before its next model step.
     if (ok) for (const name of namedPeople(candidate)) if (!run.named.includes(name)) run.named.push(name);
+    // §218.2: the declared time this run charged, as its receipt says; the model-step gate refuses a second charge.
+    if (ok && candidate.clerk === 'declared_time') {
+      const ids = array(packet.receipts).map(text), receipt = array(read?.receipts).map(object).find(row => row.kind === 'time' && ids.includes(text(row.id))) ?? {};
+      const number = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) ? value : null;
+      run.declaredTime = {minutes: number(receipt.minutes), clock_before: number(receipt.clock_before), clock_after: number(receipt.clock_after),
+        ...(receipt.until !== undefined ? {until: receipt.until as Json} : {}), ...(typeof receipt.band === 'string' ? {band: receipt.band} : {})};
+    }
     run.clerkDid.push({step: invocation.stepId, operation: tool, label: candidate.label, clerk: candidate.clerk, call_id: callId, status: packet.status,
       receipts: packet.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
       // §178.3: a write that brought people together carries the first impressions the kernel rolled for them, so the

@@ -79,7 +79,9 @@ const FAKE_CLOCK_MINUTES = 555;
 /** §145.1 / §211.1: `until` into minutes from the fixture's clock; without `days`, the time's next occurrence. */
 function untilMinutes(until, match) {
 	const minuteOfDay = Number(match[1]) * 60 + Number(match[2]);
-	if (until.days == null) return minuteOfDay >= FAKE_CLOCK_MINUTES ? minuteOfDay - FAKE_CLOCK_MINUTES : minuteOfDay + 1440 - FAKE_CLOCK_MINUTES;
+	const next = (ofDay) => ofDay >= FAKE_CLOCK_MINUTES ? ofDay - FAKE_CLOCK_MINUTES : ofDay + 1440 - FAKE_CLOCK_MINUTES;
+	// §218.1: either_half takes whichever of the morning reading and twelve hours later the clock reaches first.
+	if (until.days == null) return until.either_half === true ? Math.min(next(minuteOfDay), next(minuteOfDay + 720)) : next(minuteOfDay);
 	return until.days * 1440 + minuteOfDay - FAKE_CLOCK_MINUTES;
 }
 /** The turn whose one §145.3 refusal was spent. */
@@ -1075,8 +1077,10 @@ function handle(method, params) {
 					const fields = ["minutes", "stated"].filter((field) => effect[field] != null);
 					if (fields.length) return refuse("until_conflict", "until names the time the clock reaches; give one amount", { fields });
 					const match = /^(\d{2}):(\d{2})$/.exec(effect.until.time ?? "");
-					if (effect.until.days != null && (!Number.isInteger(effect.until.days) || effect.until.days < 0) || !match || Number(match[1]) > 23 || Number(match[2]) > 59)
-						return refuse("until_invalid", "until must be {days?, time: HH:MM}");
+					const half = effect.until.either_half;
+					if (effect.until.days != null && (!Number.isInteger(effect.until.days) || effect.until.days < 0) || !match || Number(match[1]) > 23 || Number(match[2]) > 59
+						|| half !== undefined && (typeof half !== "boolean" || half && (effect.until.days != null || Number(match[1]) >= 12)))
+						return refuse("until_invalid", "until must be {days?, time: HH:MM, either_half?}");
 					// §211.1: no days is the next occurrence of the time at or after the fixture's clock.
 					const minutes = untilMinutes(effect.until, match);
 					if (minutes < 0) return refuse("until_not_forward", "until is before the clock", { clock: { at: "1925-06-01T09:15", day_part: "morning" } });

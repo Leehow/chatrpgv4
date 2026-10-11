@@ -7,7 +7,7 @@ import {stageCash,type CashContext} from '../apply/inventory.js';
 import {clone,number} from '../read/values.js';
 import {CampaignSnapshot, loadCampaignModule} from '../read/campaign.js';
 import {whereSection, cluesHere, exitRows, npcsPresent, sceneLabel} from '../read/capsule.js';
-import {aroundExits, containers, isPlace, placesWithin, samePlace, sceneOfPlace} from '../read/places.js';
+import {aroundExits, containers, isPlace, placesWithin, roadMinutes, samePlace, sceneOfPlace} from '../read/places.js';
 import {SessionView} from '../read/session-view.js';
 import {taskWorldRevision} from '../read/context.js';
 import {fulfillmentHandlers, fulfillmentPromiseNavigation} from './fulfillment-options.js';
@@ -184,7 +184,9 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
             const destination=node?destinationView(graph,campaign.world,node,string(exit.display_name||exit.to)):{};
             // §135.30.6 (SL-40): an unmet unlock also says the place and the way to it from here exist.
             const guarded=unlock&&unlock.met===false?{unlock_when:{...unlock,...unlockGuard(graph,campaign.world,conditions.get(exit.to)),...guardedWay(graph,campaign.world,scene)}}:{};
-            add({kind:'move',to:exit.to},{kind:'move',...exit,...guarded,...(Object.keys(destination).length?{destination}:{}),...(exit.source_identity?{source_context:node?.summary??''}:{}),authority:'available_route_not_player_choice'},
+            // §218.3: a way back, or a road the book left untimed, shows the minutes the table already knows for it.
+            const known=Object.hasOwn(exit,'travel_minutes')||!node?null:roadMinutes(graph,campaign.world,scene,node);
+            add({kind:'move',to:exit.to},{kind:'move',...exit,...(known!==null?{travel_minutes:known}:{}),...guarded,...(Object.keys(destination).length?{destination}:{}),...(exit.source_identity?{source_context:node?.summary??''}:{}),authority:'available_route_not_player_choice'},
                 guards.exits.get(string(node?.node_id)));
         }
         // §204.7: a move within a place the active scene lies in -- to the place itself or to another place in it -- after the

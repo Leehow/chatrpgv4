@@ -193,3 +193,27 @@ export function personPlaces(graph: ModuleGraph, world: Row, person: Row): { bas
         .map(place => place?.node_kind === 'scene' ? place : null));
     return seat.length ? { basis: 'seat', places: seat } : { basis: null, places: [] };
 }
+
+/** §218.3: the key of the road between two places, the same both ways. */
+export function roadKey(a: string, b: string): string {
+    return JSON.stringify(a < b ? [a, b] : [b, a]);
+}
+/** §218.3: a road's minutes on the book graph between two scenes, either direction; null when no timed road joins them. */
+export function bookRoadMinutes(graph: ModuleGraph, here: Row, destination: Row): number | null {
+    const from = graph.handle(here), to = graph.handle(destination);
+    for (const exit of [graph.sceneExits(here).find(entry => entry.to === to), graph.sceneExits(destination).find(entry => entry.to === from)])
+        if (exit && Number.isSafeInteger(exit.travel_minutes) && Number(exit.travel_minutes) >= 0) return Number(exit.travel_minutes);
+    return null;
+}
+/** §218.3: the road this table already travelled between two places with known minutes (`world.table_roads`), or null. */
+export function tableRoad(world: Row, from: string, to: string): { minutes: number; basis: string; turn?: number; band?: string } | null {
+    const kept = row(row(world.table_roads)[roadKey(from, to)]);
+    return Number.isSafeInteger(kept.minutes) && Number(kept.minutes) >= 0
+        ? { minutes: Number(kept.minutes), basis: string(kept.basis), ...(Number.isSafeInteger(kept.turn) ? { turn: Number(kept.turn) } : {}),
+            ...(typeof kept.band === 'string' ? { band: kept.band } : {}) }
+        : null;
+}
+/** §218.3: a road's minutes as the table knows them: the book's timed road first, then the one this table travelled. */
+export function roadMinutes(graph: ModuleGraph, world: Row, here: Row, destination: Row): number | null {
+    return bookRoadMinutes(graph, here, destination) ?? tableRoad(world, graph.handle(here), graph.handle(destination))?.minutes ?? null;
+}

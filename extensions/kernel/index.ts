@@ -2521,7 +2521,7 @@ export default function (pi: ExtensionAPI) {
 	 */
 	function combatSceneMove(state: TableState, payload: Record<string, unknown>): string | undefined {
 		const effects = Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : [];
-		if (effects.length !== 1 || effects[0]?.kind !== "move" || effects[0].travel_minutes !== undefined) return undefined;
+		if (effects.length !== 1 || effects[0]?.kind !== "move" || effects[0].travel_minutes !== undefined || effects[0].travel_band !== undefined) return undefined;
 		const destination = asString(effects[0].to);
 		return destination && state.combatSceneMoves.has(destination) ? destination : undefined;
 	}
@@ -4264,7 +4264,7 @@ export default function (pi: ExtensionAPI) {
 		let open = 3, flight: { turn: number; done: Promise<void> } | undefined;
 		const ended = () => { open -= 1; if (open === 0 && flight && state.reviewInFlight === flight) state.reviewInFlight = undefined; };
 		// §216.1: the told time is the third read of the same delivery, in the same flight.
-		const flights = [startToldPosition(deps, ended), startToldClue(deps, ended), startToldTime(deps, ended)]
+		const flights = [startToldPosition(deps, ended), startToldClue(deps, ended), startToldTime({...deps, ...(state.interactionScope ? {scope: state.interactionScope} : {})}, ended)]
 			.filter((value): value is { turn: number; done: Promise<void> } => !!value);
 		flight = flights.length <= 1 ? flights[0]
 			: { turn, done: new Promise<void>(resolve => { for (const each of flights) void each.done.then(resolve, resolve); }) };

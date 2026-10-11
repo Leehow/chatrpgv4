@@ -28,7 +28,7 @@ import { closeSatisfied, clueOf, describe, mergeOwed, owedBands, owedNames, owed
 import { bandRows } from '../rules/bands.js';
 import { ROUTE_TRAVEL_ROWS } from '../modules/route-travel.js';
 import { checkPassed, clueCheck } from '../read/clue-check.js';
-import { containers, sceneOfPlace } from '../read/places.js';
+import { containers, roadMinutes, sceneOfPlace } from '../read/places.js';
 
 /** The source `table.owe` takes for a move (closed). */
 export const TOLD_SOURCE = 'told-position';
@@ -217,8 +217,8 @@ export async function oweTold(context: KernelContext, loaded: { campaign: Campai
     if (!scene) return dropped('unknown_scene');
     const delivered = deliveredScene(graph, world, record);
     if (target === graph.handle(delivered)) return dropped('same_scene');
-    const exit = graph.sceneExits(delivered).find(entry => entry.to === target);
-    const minutes = exit && integer(exit.travel_minutes) && number(exit.travel_minutes) >= 0 ? number(exit.travel_minutes) : 0;
+    // §218.3: the road's minutes as the table knows them, the book's either way or the ones this table travelled it in.
+    const minutes = roadMinutes(graph, world, delivered, scene) ?? 0;
     const owedEffect: Row = { kind: 'move', to: target, via: `Told in the delivery of turn ${turn}.`, travel_minutes: minutes };
     let ledger = resolveOwedEquipment(await readOwed(context, campaign.id), party);
     const taken = new Set([...owedNames(ledger), ...array(record.owed).map(entry => string(row(entry).name))]);
