@@ -1,6 +1,6 @@
 import {playtestScratch} from './playtest-scratch.mjs';
 /**
- * Contract §212 (with §22.9): a PDF campaign's setup keeps the accepted guidance its player was shown.
+ * Contract §226 (with §22.9): a PDF campaign's setup keeps the accepted guidance its player was shown.
  *
  * Found 2026-10-10 on a real resumed setup: the host never passed `guidance_key` to `campaign.create`, so the campaign pinned
  * none; on resume `setup.steps` reported no key, the host prepared guidance again from the campaign's opening handle (a
@@ -68,7 +68,7 @@ async function book(name, keys) {
 	return {workspace, mid, kernel, campaign: async id => JSON.parse(await readFile(join(workspace, '.coc/campaigns', id, 'campaign.json'), 'utf8'))};
 }
 
-test('§212: campaign.create pins the accepted guidance key, and a resumed setup reports it with prepare-module done', async () => {
+test('§226: campaign.create pins the accepted guidance key, and a resumed setup reports it with prepare-module done', async () => {
 	const key = 'd'.repeat(64), b = await book('pinned', [key]);
 	await b.kernel('campaign.create', {id: 'pinned', module: b.mid, play_language: 'en', start_scene: 'Harbor', guidance_key: key});
 	assert.equal((await b.campaign('pinned')).guidance_key, key);
@@ -77,7 +77,7 @@ test('§212: campaign.create pins the accepted guidance key, and a resumed setup
 	assert.ok(completed.includes('prepare-module'), 'accepted guidance is not prepared again');
 });
 
-test('§212: a campaign created without the key reports the one accepted guidance its recorded prologue showed', async () => {
+test('§226: a campaign created without the key reports the one accepted guidance its recorded prologue showed', async () => {
 	const key = 'e'.repeat(64), b = await book('unpinned', [key]);
 	const created = await b.kernel('campaign.create', {id: 'unpinned', module: b.mid, play_language: 'en', start_scene: 'Harbor'});
 	assert.equal((await b.campaign('unpinned')).guidance_key, undefined, 'the fixture reproduces a campaign created before the host pinned its key');
@@ -91,7 +91,7 @@ test('§212: a campaign created without the key reports the one accepted guidanc
 	assert.equal((await b.campaign('unpinned')).guidance_key, undefined, 'reporting the shown guidance writes nothing');
 });
 
-test('§212: two accepted guides for the shown scene and language are no answer', async () => {
+test('§226: two accepted guides for the shown scene and language are no answer', async () => {
 	const b = await book('ambiguous', ['a'.repeat(64), 'b'.repeat(64)]);
 	const created = await b.kernel('campaign.create', {id: 'ambiguous', module: b.mid, play_language: 'en', start_scene: 'Harbor'});
 	await b.kernel('setup.prologue', {campaign: 'ambiguous', scene: created.campaign?.opening_scene ?? 'Harbor', text: 'Harbor in 1925.'});

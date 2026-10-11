@@ -132,6 +132,14 @@
     "max_candidates": 24,
     "timeout_ms": 10000
   },
+  "told_time": {
+    "mode": "shadow",
+    "cost_min": 0.7,
+    "sentence_min": 0.5,
+    "extent_min": 0.5,
+    "min_default_minutes": 5,
+    "timeout_ms": 10000
+  },
   "transcript": {
     "mode": "on",
     "concurrency": 1,

@@ -65,10 +65,15 @@ test('the bars decide, in order, and the first one missed is the reason', () => 
     const answered = (moved, chosen, confidence, sentence) => ({status: 'answered', moved, chosen, confidence, distribution: {}, elapsedMs: 1,
         usage: {inputTokens: 0, outputTokens: 0, costUsd: 0}, sentence: sentence === null ? null : {key: 's1', text: TOLD, confidence: sentence, distribution: {}}});
     assert.deepEqual(toldDecision(answered(0.95, 'basement-rites', 0.9, 0.8), bars, 'hall-of-records'), {decision: 'owe', handle: 'basement-rites', quote: TOLD});
-    assert.deepEqual([answered(0.6, 'basement-rites', 0.9, 0.8), answered(0.95, null, 0.9, 0.8), answered(0.95, 'hall-of-records', 0.9, 0.8),
+    assert.deepEqual([answered(0.6, 'basement-rites', 0.9, 0.8), answered(0.95, null, 0.5, 0.8), answered(0.95, 'hall-of-records', 0.9, 0.8),
         answered(0.95, 'basement-rites', 0.5, 0.8), answered(0.95, 'basement-rites', 0.9, 0.3), answered(null, 'basement-rites', 0.9, 0.8)]
         .map(result => toldDecision(result, bars, 'hall-of-records').why), ['not_moved', 'none', 'same_scene', 'low_place', 'low_sentence', 'moved_unanswered']);
     assert.equal(toldDecision({status: 'failed', reason: 'timeout', elapsedMs: 1, usage: {}}, bars, 'x').why, 'timeout');
+    // §213.2 (live 9e7 turn 26: moved .92, `none` 1.0 -- the cab home, a place no candidate is): the departure is owed, and the
+    // sentence bar still applies; a `none` below the place bar stays.
+    assert.deepEqual(toldDecision(answered(0.92, null, 1, 0.71), bars, 'neighborhood-gossip'), {decision: 'owe', departure: true, quote: TOLD});
+    assert.equal(toldDecision(answered(0.92, null, 1, 0.3), bars, 'neighborhood-gossip').why, 'low_sentence');
+    assert.equal(toldDecision(answered(0.92, null, 1, null), bars, 'neighborhood-gossip').why, 'sentence_unanswered');
 });
 
 // ---- on the emitted kernel, through the real delivery paths ---------------------------------------------------------
@@ -79,6 +84,8 @@ test('the bars decide, in order, and the first one missed is the reason', () => 
  * `hold` (a promise) delays the told-position answer.
  */
 function installJev(t, {moved = 0.95, target = BASEMENT, sentence = TOLD, confidence = 0.9, hold} = {}) {
+    // `moved` may read the state: a delivery that tells no journey is not "moved" (§213.2 owes a departure for a `none`).
+    const movedFor = state => typeof moved === 'function' ? moved(state) : moved;
     const original = globalThis.fetch, batches = [];
     globalThis.fetch = async (url, init) => {
         if (String(url) !== JEV_URL) return original(url, init);
@@ -91,7 +98,7 @@ function installJev(t, {moved = 0.95, target = BASEMENT, sentence = TOLD, confid
             return Object.keys(question.criteria)[0];
         };
         const answers = Object.fromEntries(Object.entries(body.questions).map(([key, question]) => {
-            if (question.type === 'noul') return [key, {type: 'noul', noul: told && key === 'moved' ? moved : 0.05}];
+            if (question.type === 'noul') return [key, {type: 'noul', noul: told && key === 'moved' ? movedFor(state) : 0.05}];
             if (question.type === 'choice') {
                 const keys = Object.keys(question.criteria), choice = pick(key, question), rest = (1 - confidence) / Math.max(1, keys.length - 1);
                 return [key, {type: 'choice', choice, confidence, probabilities: Object.fromEntries(keys.map(k => [k, k === choice ? confidence : rest]))}];
@@ -138,7 +145,7 @@ function stillJev() {
 }
 
 test('RD-08\'s shape: a delivery that tells the party into a place with no move owes it, and the next run lands it first', async t => {
-    const batches = installJev(t), rows = [];
+    const batches = installJev(t, {moved: state => Object.values(state.told).includes(TOLD) ? 0.95 : 0.1}), rows = [];
     const engine = createHybridEngine({env: process.env, record: row => rows.push(row), decision: stillJev()});
     const table = await openTable({realKernel: true, prepareWorkspace: atTheHall, env: {...ENV, PI_COC_LOOP_ENGINE: 'hybrid-v1'}, runDriver: engine.runDriver,
         extraExtensions: [{name: 'coc-hybrid-engine', factory: engine.extension}],
@@ -166,7 +173,7 @@ test('RD-08\'s shape: a delivery that tells the party into a place with no move 
     assert.deepEqual(ledger(table.workspace).closed.map(entry => [entry.name, entry.how]), [['t2-owed-1', 'landed']]);
     // The owed landing is turn 2's position, not turn 3's own move: turn 3's delivery is still read (and stays, in the basement).
     const third = await waitFor(() => toldRows(table).find(entry => entry.turn === 3), {label: 'turn 3\'s told-position row', timeoutMs: 15_000});
-    assert.deepEqual({skipped: third.skipped, decision: third.decision, why: third.why}, {skipped: undefined, decision: 'stay', why: 'none'});
+    assert.deepEqual({skipped: third.skipped, decision: third.decision, why: third.why}, {skipped: undefined, decision: 'stay', why: 'not_moved'});
     assert.equal(batches.length, 2);
 });
 
@@ -201,8 +208,8 @@ test('a move the review refused and the Keeper then told is owed: a refusal is n
 test('shadow (the env override since on ships), on the implicit close: the row says what on would do, and nothing is owed', async t => {
     const batches = installJev(t);
     let port;
-    // §201.1: the told-clue read shares the turn's flight and ships on; it is turned off so this asserts the position read alone.
-    const table = await openTable({realKernel: true, prepareWorkspace: atTheHall, env: {EXT_JEV_APIKEY: 'test-jev-key', PI_COC_TOLD_POSITION: 'shadow', PI_COC_TOLD_CLUE: 'off'},
+    // §201.1 and §216.1: the told-clue and told-time reads share the turn's flight and ship on; they are turned off so this asserts the position read alone.
+    const table = await openTable({realKernel: true, prepareWorkspace: atTheHall, env: {EXT_JEV_APIKEY: 'test-jev-key', PI_COC_TOLD_POSITION: 'shadow', PI_COC_TOLD_CLUE: 'off', PI_COC_TOLD_TIME: 'off'},
         responses: [fauxAssistantMessage(DELIVERY)],
         extraExtensions: [{name: 'owed-port-probe', factory: pi => pi.events.on('coc:owed-review', value => { port = value; })}]});
     t.after(() => table.dispose());

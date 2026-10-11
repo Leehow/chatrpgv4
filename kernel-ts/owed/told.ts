@@ -1,5 +1,5 @@
 /**
- * Contract §190.2: the ledger follows the told position. §201.1: and the clues the story told.
+ * Contract §190.2: the ledger follows the told position. §201.1: and the clues the story told. §216.1: and the time it told.
  *
  * After a delivery the host reads where the delivered text leaves the party (a Jev lane over places this module
  * enumerates, `table.owe.options`) and, when the read clears its bars, names the place through `table.owe`. The kernel
@@ -24,14 +24,18 @@ import { array, chars, integer, number, row, string, truth, words, type Row } fr
 import type { CampaignWriter } from '../write/store.js';
 import { nowIso } from '../write/store.js';
 import { stripMarkers } from '../write/text.js';
-import { closeSatisfied, clueOf, describe, mergeOwed, owedNames, owedSatisfied, readOwed, resolveOwedEquipment, sceneOf, writeOwed } from './index.js';
+import { closeSatisfied, clueOf, describe, mergeOwed, owedBands, owedNames, owedSatisfied, readOwed, resolveOwedEquipment, sceneOf, writeOwed } from './index.js';
+import { bandRows } from '../rules/bands.js';
+import { ROUTE_TRAVEL_ROWS } from '../modules/route-travel.js';
 import { checkPassed, clueCheck } from '../read/clue-check.js';
-import { containers, sceneOfPlace } from '../read/places.js';
+import { containers, roadMinutes, sceneOfPlace } from '../read/places.js';
 
 /** The source `table.owe` takes for a move (closed). */
 export const TOLD_SOURCE = 'told-position';
 /** §201.1: the source `table.owe` takes for a clue (closed). Each source owes one kind. */
 export const TOLD_CLUE_SOURCE = 'told-clue';
+/** §216.1: the source `table.owe` takes for time (closed). */
+export const TOLD_TIME_SOURCE = 'told-time';
 /** The most candidates `table.owe.options` lists, and its default (`told_position.max_candidates` overrides it per call). */
 export const TOLD_OPTIONS_LIMIT = Object.freeze({ max: 64, fallback: 24 });
 /** §201.1: the most clues `table.owe.options` lists, and its default (`told_clue.max_candidates` overrides it per call). */
@@ -123,8 +127,30 @@ export function toldClueCandidates(graph: ModuleGraph, world: Row, scene: Row, r
     return rows;
 }
 
-/** `table.owe.options`: the delivered scene, that turn's move and clue receipts, and the place and clue candidates (read-only). */
-export async function toldOptions(loaded: { campaign: CampaignWriter; snapshot: { world: Row }; module: LoadedModule }, window: BriefWindow | null, params: Row): Promise<Row> {
+/**
+ * §216.1: the told turn's own clock -- its `time` receipts (an owed landing says so) and whether a session was running at
+ * delivery -- so the host's told-time read can skip a turn that already charged its time.
+ */
+function toldTime(record: Row): Row {
+    const receipts = array(record.receipts).map(row).filter(receipt => receipt.kind === 'time').map(receipt => ({
+        minutes: integer(receipt.minutes) ? number(receipt.minutes) : 0, ...(typeof receipt.band === 'string' ? { band: receipt.band } : {}),
+        ...(typeof receipt.owed === 'string' ? { owed: receipt.owed } : {}) }));
+    const session = row(record.world).session;
+    return { receipts, session: session !== null && session !== undefined };
+}
+
+/** §216.1: the time-cost rows an act can take (the road rows left out: a journey is its move's), as `rules.bands` lists them. */
+async function actTimeBands(context: KernelContext): Promise<Row[]> {
+    return (await bandRows(context, 'time.band')).filter(entry => !ROUTE_TRAVEL_ROWS.includes(entry.handle))
+        .map(entry => ({ handle: entry.handle, min: entry.min, max: entry.max, ...(entry.default !== undefined ? { default: entry.default } : {}),
+            ...(entry.covers ? { covers: entry.covers } : {}) }));
+}
+
+/**
+ * `table.owe.options`: the delivered scene, that turn's move, clue and time receipts, and the place, clue and time-cost
+ * candidates (read-only).
+ */
+export async function toldOptions(context: KernelContext, loaded: { campaign: CampaignWriter; snapshot: { world: Row }; module: LoadedModule }, window: BriefWindow | null, params: Row): Promise<Row> {
     if (Object.keys(params).some(key => !['campaign', 'turn', 'limit', 'clue_limit'].includes(key)))
         throw new RpcError('invalid_params', 'Told-position options accept the bound campaign, the delivered turn, an optional limit and an optional clue_limit');
     if (params.limit !== undefined && (!integer(params.limit) || number(params.limit) < 1 || number(params.limit) > TOLD_OPTIONS_LIMIT.max))
@@ -143,7 +169,7 @@ export async function toldOptions(loaded: { campaign: CampaignWriter; snapshot: 
         scene: { name: graph.handle(scene), display_name: sceneLabel(graph, world, scene), summary: chars(words(string(scene.summary || graph.prose(scene))), 300) },
         moved, candidates: toldCandidates(graph, world, scene, window, params.limit === undefined ? TOLD_OPTIONS_LIMIT.fallback : number(params.limit)), window,
         clues: toldClueCandidates(graph, world, scene, record, params.clue_limit === undefined ? TOLD_CLUE_LIMIT.fallback : number(params.clue_limit)),
-        clue_receipts: landed };
+        clue_receipts: landed, time: toldTime(record), time_bands: await actTimeBands(context) };
 }
 
 /** Whether a move moved the party in a turn after `turn` (a later record, or the turn open now). */
@@ -164,11 +190,14 @@ export async function oweTold(context: KernelContext, loaded: { campaign: Campai
     if (Object.keys(params).some(key => !['campaign', 'turn', 'effect', 'quote', 'source'].includes(key)))
         throw new RpcError('invalid_params', 'table.owe takes campaign, turn, effect, quote and source');
     if (params.source === TOLD_CLUE_SOURCE) return oweToldClue(context, loaded, params, fix);
+    if (params.source === TOLD_TIME_SOURCE) return oweToldTime(context, loaded, params, fix);
     if (params.source !== TOLD_SOURCE)
-        throw new RpcError('invalid_params', `source must be ${TOLD_SOURCE} or ${TOLD_CLUE_SOURCE}`, { details: { field: 'source' } });
+        throw new RpcError('invalid_params', `source must be ${TOLD_SOURCE}, ${TOLD_CLUE_SOURCE} or ${TOLD_TIME_SOURCE}`, { details: { field: 'source' } });
     const effect = row(params.effect);
-    if (effect.kind !== 'move' || typeof effect.to !== 'string' || !effect.to.trim() || Object.keys(effect).some(key => key !== 'kind' && key !== 'to'))
-        throw new RpcError('invalid_params', 'effect must be {kind: "move", to: <place>}', { details: { field: 'effect' } });
+    // §213.2: `{kind: "move", unlisted: true}` -- the text has the party leave for a place none of the candidates is.
+    const unlisted = effect.kind === 'move' && effect.unlisted === true && Object.keys(effect).every(key => key === 'kind' || key === 'unlisted');
+    if (!unlisted && (effect.kind !== 'move' || typeof effect.to !== 'string' || !effect.to.trim() || Object.keys(effect).some(key => key !== 'kind' && key !== 'to')))
+        throw new RpcError('invalid_params', 'effect must be {kind: "move", to: <place>} or {kind: "move", unlisted: true}', { details: { field: 'effect' } });
     if (typeof params.quote !== 'string' || !params.quote.trim())
         throw new RpcError('invalid_params', 'quote must be the delivered sentence that tells where the party ends up', { details: { field: 'quote' } });
     const { campaign, module } = loaded, graph = module.graph, turn = number(params.turn);
@@ -176,7 +205,8 @@ export async function oweTold(context: KernelContext, loaded: { campaign: Campai
     const world = await campaign.readWorld(), party = await campaign.party();
     const dropped = (reason: string): Row => ({ turn, owed: null, dropped: reason });
     const quote = locateExcerpt(rendered, params.quote) ?? locateExcerpt(rendered, stripMarkers(params.quote));
-    const scene = sceneOf(graph, effect.to.trim()), target = scene ? graph.handle(scene) : '';
+    if (unlisted) return oweDeparture(context, loaded, record, turn, quote, fix);
+    const scene = sceneOf(graph, string(effect.to).trim()), target = scene ? graph.handle(scene) : '';
     // The same read sent again answers the row it wrote.
     const again = array(record.owed).map(row).find(entry => entry.source === TOLD_SOURCE && entry.kind === 'move' && quote !== null
         && entry.quote === quote && row(entry.effect).to === target);
@@ -187,8 +217,8 @@ export async function oweTold(context: KernelContext, loaded: { campaign: Campai
     if (!scene) return dropped('unknown_scene');
     const delivered = deliveredScene(graph, world, record);
     if (target === graph.handle(delivered)) return dropped('same_scene');
-    const exit = graph.sceneExits(delivered).find(entry => entry.to === target);
-    const minutes = exit && integer(exit.travel_minutes) && number(exit.travel_minutes) >= 0 ? number(exit.travel_minutes) : 0;
+    // §218.3: the road's minutes as the table knows them, the book's either way or the ones this table travelled it in.
+    const minutes = roadMinutes(graph, world, delivered, scene) ?? 0;
     const owedEffect: Row = { kind: 'move', to: target, via: `Told in the delivery of turn ${turn}.`, travel_minutes: minutes };
     let ledger = resolveOwedEquipment(await readOwed(context, campaign.id), party);
     const taken = new Set([...owedNames(ledger), ...array(record.owed).map(entry => string(row(entry).name))]);
@@ -204,6 +234,45 @@ export async function oweTold(context: KernelContext, loaded: { campaign: Campai
         owed: entry.name, fix, at }];
     await campaign.writeTurnRecord(record);
     return { turn, owed: string(entry.name) };
+}
+
+/**
+ * §213.2: the delivered text has the party leave the scene the ledger holds for a place the table does not have (the read's
+ * `moved` cleared its bar and its `place` was `none`, confidently). The departure is owed like any told position, but no
+ * effect can be issued for it -- the place has no name the kernel could write -- so the row carries no `effect`: it is the
+ * Keeper's (`clerk: false` in the capsule), landed by an ordinary `apply move` (with `establish` and `via` for a new place),
+ * which supersedes it (§158.4); a ledger that no longer stands where the party left from satisfies it. While it is open no
+ * clerk move is built from the position the party left (§158.4's `owedMoveOpen`).
+ */
+async function oweDeparture(context: KernelContext, loaded: { campaign: CampaignWriter; module: { graph: ModuleGraph } }, record: Row, turn: number,
+    quote: string | null, fix: string): Promise<Row> {
+    const { campaign, module } = loaded, graph = module.graph;
+    const world = await campaign.readWorld(), party = await campaign.party();
+    const dropped = (reason: string): Row => ({ turn, owed: null, dropped: reason });
+    const from = graph.handle(deliveredScene(graph, world, record));
+    const again = array(record.owed).map(row).find(entry => entry.source === TOLD_SOURCE && entry.kind === 'move' && quote !== null
+        && entry.quote === quote && row(entry.departure).from === from);
+    if (again) return { turn, owed: string(again.name) };
+    if (partyMoves(record.receipts).length) return dropped('move_landed');
+    if (await movedSince(campaign, turn)) return dropped('superseded');
+    if (!quote) return dropped('quote_not_delivered');
+    let ledger = resolveOwedEquipment(await readOwed(context, campaign.id), party);
+    const taken = new Set([...owedNames(ledger), ...array(record.owed).map(entry => string(row(entry).name))]);
+    let index = 1;
+    while (taken.has(`t${turn}-owed-${index}`)) index++;
+    const at = nowIso(), label = sceneLabel(graph, world, deliveredScene(graph, world, record));
+    const entry: Row = { name: `t${turn}-owed-${index}`, turn, kind: 'move', effect: null, departure: { from }, quote,
+        what: chars(`departure from ${label} (${from}) to a place the table does not have yet: land it with an ordinary apply move to that place `
+            + '(establish {summary} and via when the table has no such place), without owed; that move closes this row', 300),
+        source: TOLD_SOURCE, at };
+    if (owedSatisfied(graph, world, entry, party)) return dropped('satisfied');
+    ledger = closeSatisfied(graph, world, mergeOwed(ledger, [entry], at), at, party).ledger;
+    await writeOwed(context, campaign.id, ledger);
+    record.owed = [...array(record.owed), entry];
+    record.warnings = [...array(record.warnings), { lane: TOLD_SOURCE, kind: 'owed_state', quote: chars(quote, 120), why: chars(string(entry.what), 200),
+        owed: entry.name, fix, at }];
+    await campaign.writeTurnRecord(record);
+    return { turn, owed: string(entry.name), departure: true };
 }
 
 /**
@@ -256,4 +325,48 @@ async function oweToldClue(context: KernelContext, loaded: { campaign: CampaignW
 /** The `check` and `check_skipped` an owed clue row carries, for the answer. */
 function checkOf(entry: Row): Row {
     return entry.check ? { check: entry.check, ...(entry.check_skipped === true ? { check_skipped: true } : {}) } : {};
+}
+
+/**
+ * §216.1: `table.owe {campaign, turn, effect: {kind: "time", band}, quote, source: "told-time"}` -> `{turn, owed: name | null,
+ * dropped?}`. The time the host's read found the delivered text told the investigators spending, as a row of the rules'
+ * time-cost table an act can take (never a road's: a journey is its move's). The quote must be in what that turn delivered;
+ * a turn that charged its own time (`time_landed`) or ran a session owes none. A turn owes told time once: a second call
+ * for a turn holding a told-time row answers that row. As with a told position, what the kernel cannot owe is an answer,
+ * never an error. The row has no `satisfied` state: it closes only when a receipt lands it, and the kernel rolls its band.
+ */
+async function oweToldTime(context: KernelContext, loaded: { campaign: CampaignWriter; module: { graph: ModuleGraph } }, params: Row, fix: string): Promise<Row> {
+    const effect = row(params.effect);
+    if (effect.kind !== 'time' || typeof effect.band !== 'string' || !effect.band.trim() || Object.keys(effect).some(key => key !== 'kind' && key !== 'band'))
+        throw new RpcError('invalid_params', 'effect must be {kind: "time", band: <a time-cost row>}', { details: { field: 'effect' } });
+    if (typeof params.quote !== 'string' || !params.quote.trim())
+        throw new RpcError('invalid_params', 'quote must be the delivered sentence that tells the time spent', { details: { field: 'quote' } });
+    const { campaign, module } = loaded, graph = module.graph, turn = number(params.turn);
+    const record = await deliveryRecord(campaign, params.turn), rendered = string(record.rendered_text || '');
+    const party = await campaign.party();
+    const dropped = (reason: string): Row => ({ turn, owed: null, dropped: reason });
+    // One told time per turn: the same read sent again, or another one, answers the row the first wrote.
+    const again = array(record.owed).map(row).find(entry => entry.source === TOLD_TIME_SOURCE && entry.kind === 'time');
+    if (again) return { turn, owed: string(again.name) };
+    const band = effect.band.trim();
+    if (!(await owedBands(context)).time.includes(band)) return dropped('unknown_band');
+    const clock = toldTime(record);
+    if (array(clock.receipts).some(receipt => typeof row(receipt).owed !== 'string')) return dropped('time_landed');
+    if (clock.session === true) return dropped('session');
+    const quote = locateExcerpt(rendered, params.quote) ?? locateExcerpt(rendered, stripMarkers(params.quote));
+    if (!quote) return dropped('quote_not_delivered');
+    const owedEffect: Row = { kind: 'time', band };
+    let ledger = resolveOwedEquipment(await readOwed(context, campaign.id), party);
+    const taken = new Set([...owedNames(ledger), ...array(record.owed).map(entry => string(row(entry).name))]);
+    let index = 1;
+    while (taken.has(`t${turn}-owed-${index}`)) index++;
+    const at = nowIso();
+    const entry: Row = { name: `t${turn}-owed-${index}`, turn, kind: 'time', effect: owedEffect, quote, what: describe(graph, owedEffect), source: TOLD_TIME_SOURCE, at };
+    ledger = mergeOwed(ledger, [entry], at);
+    await writeOwed(context, campaign.id, ledger);
+    record.owed = [...array(record.owed), entry];
+    record.warnings = [...array(record.warnings), { lane: TOLD_TIME_SOURCE, kind: 'owed_state', quote: chars(quote, 120), why: chars(string(entry.what), 200),
+        owed: entry.name, fix, at }];
+    await campaign.writeTurnRecord(record);
+    return { turn, owed: string(entry.name) };
 }

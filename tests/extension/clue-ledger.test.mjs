@@ -295,7 +295,7 @@ test('T18: the compile files the boards and the body; the prose gives neither in
 test('off: the read is not run, and nothing registers a flight for it', async t => {
     const batches = installJev(t, {told: {'will-executor-chapel': 0.95}});
     let port;
-    const table = await openTable({realKernel: true, prepareWorkspace: atTheHall, env: {EXT_JEV_APIKEY: 'test-jev-key', PI_COC_TOLD_CLUE: 'off', PI_COC_TOLD_POSITION: 'off'},
+    const table = await openTable({realKernel: true, prepareWorkspace: atTheHall, env: {EXT_JEV_APIKEY: 'test-jev-key', PI_COC_TOLD_CLUE: 'off', PI_COC_TOLD_POSITION: 'off', PI_COC_TOLD_TIME: 'off'},
         responses: [narrate(RUN3.t10.delivered)],
         extraExtensions: [{name: 'owed-port-probe', factory: pi => pi.events.on('coc:owed-review', value => { port = value; })}]});
     t.after(() => table.dispose());

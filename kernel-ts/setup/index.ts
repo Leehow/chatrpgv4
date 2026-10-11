@@ -23,7 +23,7 @@ import { investigatorRow, completeness } from './sheet.js';
 import { InvestigatorTemplates, TEMPLATE_SOURCE } from './templates.js';
 
 /**
- * Contract §212: the accepted guidance a campaign's setup already showed, for a campaign created before the host pinned
+ * Contract §226: the accepted guidance a campaign's setup already showed, for a campaign created before the host pinned
  * `guidance_key` (§22.9). Its recorded prologue names the scene; the one accepted guidance of the campaign's play language
  * for that scene is the guide the player saw. None, or more than one, is no answer: setup then prepares guidance as before.
  */

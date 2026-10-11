@@ -201,7 +201,7 @@ Worked in this checkout without adopting the Codex lifecycle entry; the entry st
   campaign pinned none (§22.9). On resume the host prepared guidance again from the campaign's name-free opening handle
   `scene-298c9d` (= interim handle of `scene-source-entry-9`); the library reader refused it ("Selected opening is not
   in the bound original context") and fell back to a whole-book guidance read (182 s + 59 s verify, ~1M input tokens)
-  while the player waited ~150 s per turn. Fixed in `19a28a2a9` (contract §212 addendum): the host pins the key, and
+  while the player waited ~150 s per turn. Fixed in `19a28a2a9` (contract §226 addendum): the host pins the key, and
   `setup.steps` reports the unique accepted guidance its recorded prologue showed for older campaigns.
   Tests: `setup-guidance-pin.test.mjs` (kernel), `setup-opening-choice.test.mjs` (host); both fail without the fix.
 - LAN `focused` at `19a28a2a9` selected everything: ext 5463 pass / 0 fail, py 2133 pass, loop 12 pass, exit 0
@@ -216,3 +216,6 @@ Worked in this checkout without adopting the Codex lifecycle entry; the entry st
   two real handout receipts with original-page crops and a clue landed. Limitation: the Keeper handed card #1
   (the arrest-warrant summary) in the no-warrant opening; the narration frames it as a copy, but whether opening 2
   authors that card was not verified against the source.
+
+Integration note: mainline took §212 for another change while this branch waited, so this contract was renumbered
+§226 when 0.9.7a was merged in (219 and 221-225 are used by other branches). Earlier commits on this branch say §212.

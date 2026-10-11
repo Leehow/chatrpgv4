@@ -8785,7 +8785,7 @@ A refusal reaches the Keeper as an ordinary tool refusal (§8's `code: message` 
   `model_unavailable`, `model_error`, `bad_output`, `timeout`, `session_gone`; `details.streak` is how
   many reviews in a row have failed) — no review, no authority.
   The `fix` tells the Keeper to say so to the player as a service notice, not as fiction, and to
-  narrate nothing as having happened. **Unavailability refuses; it never admits.** The alternative to an
+  narrate nothing as having happened. **Unavailability refuses; it never admits.** *(Amended 2026-10-10, §213.1: the fix also says the refusal holds the refused lines, not the rest of the turn; that a declared act no receipt carries at the close is narrated only as begun, never its result; and that owed state is not a route for delivering what a refusal held.)* The alternative to an
   unreviewed action is not a reviewed one, it is a Keeper choosing for the player.
 
 One failure reads as transient, a streak as an outage (2026-09-14, live table `game-3782bd90`: a lane
@@ -38131,6 +38131,10 @@ then told is owed. `told_position.mode` (data, `off | shadow | on`, shipped `sha
 by the next run's first read (§158.4's `coc:owed-review` port). Telemetry one `lane: "told-position"` row per delivery with
 the questions' distributions, the decision and the owed name.
 
+*Amended 2026-10-10 (§213.2):* `moved` cleared with `none` first at or above `place_min` owes the departure itself (`effect: {kind: "move", unlisted: true}`): a row with no effect that the Keeper lands with an ordinary move.
+
+*Amended 2026-10-10 (§216):* `table.owe` also takes `source: "told-time"` with `effect: {kind: "time", band}`, written by the told-time read that runs beside this one after every delivery; `table.owe.options` answers the told turn's `time` receipts and the `time_bands` rows.
+
 **Implementation decisions (TP-02, 2026-10-07).**
 
 - *Where the candidates come from.* `table.apply.options` answers only while a turn is open, and the read runs after the
@@ -41676,6 +41680,8 @@ the two new grounds: `within: <the shared place's handle>` (`shared`), `within: 
 destination>` (`around`), or `return_route: true`. `travel_minutes` is the exit's, else the reverse route's, else 0,
 as before. `via` still reaches anywhere; `not_reachable` is unchanged for a place with no ground at all.
 
+*Amended 2026-10-10 (§212.1):* an exit of one of the active scene's containers is a further ground (receipt `exit_of`); `table.apply.options` offers those roads as move rows after §204.7's.
+
 ### 204.3 A minted place lies in the place the party stood in
 
 The placement catalog marks an improvised candidate with `table_place: true`; the host uses that structural origin to
@@ -41764,6 +41770,7 @@ roster, not a placement or told candidate, not a container. Equality only (§2),
   reached through a person. The reviewer is told: a move between two places inside one place is a move within it; a
   move out to a place the party already stands inside goes nowhere new; neither is a separate destination the player
   must name. A place inside another is still its own place: standing at its door, or looking into it, is not entering it.
+- *Amended 2026-10-10 (§212.1):* after those rows, the containers' own exits, each with `exit_of`.
 
 ### 204.8 Three ends (§31)
 
@@ -42443,6 +42450,21 @@ Request bytes and provider tokens are reported separately:
 3. **What cannot fit is omitted explicitly, never cut or thrown.** If the protected floor plus the packet still exceeds the ceiling, or the packet exceeds its own bound (`mod_discovery_capacity`, mod-discovery.ts), or its immutable detail cannot be read (`mod_discovery_detail_unavailable`), the packet is not sent and is not truncated. The request carries a context diagnostic with that reason, the `context/request` row carries `capacity` with the same reason and `mod_discovery_omitted_bytes` when known, and the `mod-discovery` lane records `{event: "omitted", reason, bytes}`. Nothing was delivered, so a mutating call whose triggered sections are required meets the §209.6 readiness hold (`no_commit: true`). Other read failures (a transport error, say) take decision 1.
 4. The ceiling is not raised, the packet is not split, and no Pi patch is added (§209.8). `tests/extension/context-request-capacity.test.mjs` runs the installed hooks through the vendored runner's `emitContext` and measures what Pi hands the provider: a reserved packet under the ceiling, an explicit omission with its write hold, and a projection failure that stays bounded. Before this decision all three cases reached the runner as context-handler errors and the stored branch was returned.
 
+### 209.14 A purpose lookup is the Keeper's foreground read, not optional preparation (2026-10-10, #112 live 9e7; amends §209.5 and §209.9)
+
+**Observed.** On the 9e7 GUI table every real purpose lookup ended `capability-discovery {event: "lookup_fallback", reason: "task_deadline", no_commit: true}` (turns 22 and 24; earlier 934/a19 lookups too), and no healthy selective query/detail recovery was ever seen. Turn 22, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0` telemetry: `prescreen {event: "allowance_started", allowance_ms: 12000}` at line 9570 (deadline 18:11:19.122); the run published its read owner for step s9 at line 9575 (`deadline_at` 18:12:07.107, `cap_ms` 60000); the Keeper's first inference of the turn took 12,333 ms (line 9605, provider-call ends 18:11:21.094); the lookup ran in the next operate step and fell back 23 ms later (line 9610, step s10 `ms: 39`); the next projection then recorded `discovery_fallback {reason: "preparation_expired", optional_deadline: 1791655879122, foreground_deadline: 1791655941925}` (line 9616). Turn 24 is the same shape (lines 10185, 10217, 10222: optional deadline 18:15:15.144, foreground 18:16:16.664).
+
+**Cause (three ends).** *Writer:* the Keeper's `lookup {kind: "capability", query}`, which by construction is issued only after a Keeper inference. *Reader:* `createCapabilityRuntime.lookup` (`extensions/table/capability-runtime.ts`) asked its decision through the same port the pre-inference selection uses, `sharedBudget.decision` (`extensions/table/context-runtime.ts`), whose lease deadline is the optional preparation allowance (§124.10, 12 s from the input's first request). *Actor:* that lease's `reserve` refused with `task_deadline` before any Jev call, so the lookup became §209.5's full fallback. Grok Keeper inferences on this table take 12–32 s, so a lookup after the first inference meets an expired allowance on essentially every real turn: the scheduling, not the Jev work or its 6 s selector budget, made recovery impossible.
+
+**Decisions.**
+
+1. **Owner.** A purpose lookup's decision is owned by the Keeper's current foreground owner: TaskRuntime's provider owner when present (reservations go to it as the parent), otherwise the hybrid run's published read owner (§209.9, `coc:discovery-read-owner`: its `deadlineAt` and cancellation signal). The host builds one lookup lease per owner (`owner: "capability-lookup"`, the existing preparation decision caps, deadline = the owner's), closed when the owner changes and on input/session reset. Only when no foreground owner exists is the shared preparation port used, and then only before its allowance has expired.
+2. **No renewed allowance.** The lookup still runs inside the capability runtime's existing per-input selector budget (6 s, 16 Jev actions, shared with the input's view selection, never reset by a lookup), its query cache and its stale-epoch rejection. §209.9's rule that optional expiry creates no new *view-selection* decision is unchanged: the pinned full view stays full; a lookup adds names to a selected view only while one exists.
+3. **Fallback stays explicit.** With no live owner (none published, cancelled, or past its deadline) the lookup asks nothing and returns `status: "full_fallback"`, `read_only: true`, `no_commit: true`, `reason: "lookup_owner_unavailable"`, recording `lookup_fallback` with that reason; writes stay held until the full schema is projected (§209.5, §209.6). A Jev failure under a live owner keeps its own reason.
+4. **Authority unchanged.** The lookup result is read-only detail. It never admits, never commits, and the mutating call still meets the §209.6 projection hold until the expanded schema is actually sent.
+
+Tests: `tests/extension/capability-lookup-owner.test.mjs` (installed context hooks, a 2 s allowance, a selected first request, 2.1 s of Keeper time, then the lookup): under a hybrid read owner and under a TaskRuntime owner the lookup returns the `cash` detail card with no `lookup_fallback` (TaskRuntime: every lookup decision reserved and settled on the parent), and an `apply cash` still meets the projection hold; with the owner past its deadline the lookup asks no Jev, returns `lookup_owner_unavailable` full fallback and the apply is held. Before this decision all three returned `full_fallback` with `task_deadline`.
+
 ## 210. SQLite owns task records and home page-transcript management (approved2026-10-10)
 
 Specification: `docs/specs/sqlite-task-transcript-storage.md`. This first batch migrates
@@ -42547,7 +42569,693 @@ resolved `days`, the Keeper's `until` with `days` is unchanged); `tests/kernel/t
 without `days` -- later today, next day when past, equal is 0, the batch's earlier time moves the base, the receipt's resolved
 `days`; `until_invalid` still refuses a bad `time`).
 
-## 212. Source failure recovery and bounded transport diagnostics (approved2026-10-10)
+### 211.3 A stated end is asked on its own and takes precedence over the activity band (2026-10-10, issue #112 live defect; amends 211.2 and §163.10's declared-time choice)
+
+**Evidence.** Table `gui-world-e091`, runtime 9e7a59be0 on grok-build lanes (`9e7g-live-sleep-morning.md`), turn 28 at 00:23: the
+player washed, went to bed and said to get up at 07:00. §211.2 offered `clock:0` (07:00) inside the declared-time closed choice,
+beside the time-cost rows. The three pooled views (telemetry row `route/bind`, step s5) read sleep_night .323, brief_activity .28,
+clock:0 .217, unknown .16, so the band bound and the kernel rolled 595 of 360-600 minutes: 10:18, not 07:00.
+
+**The gap.** The closed choice asked one question -- "what activity or interval is chosen to elapse now" -- over alternatives
+that are not alternatives. Sleeping is *what fills* the time; "get up at 07:00" is *how long* it lasts. A model reading the
+sentence correctly splits its mass between the activity and the end it bounds, and the end, being the more specific, loses a
+plurality vote to the activity. This is not lane-specific: any model faces the same false choice, and the instruction "choose the
+literal instead of an estimated band" cannot repair a question that offers both as one answer.
+
+**Decision: the stated measure is its own proposition, and when Jev reads it as chosen it decides.** Beside the band question
+(unchanged, still listing the literals), the bind asks, for each literal the host lexed (each `duration:<n>` interval and each
+`clock:<n>` time, §138.10, §211.2), one closed question `stated_measure:<alias>` -- "is this literal the measure of the time the
+player chose to let pass now (for a clock time, when the declared wait, rest or sleep ends), whatever activity fills it?" -- with
+`chosen | not_chosen | unknown`, in §163.10's three pooled views. The instruction names what is not chosen (a schedule, an opening
+or closing hour, an appointment, a quotation, a deadline, a past moment, an estimate, a negated or conditional time not reached,
+one part of a longer stated span, a 12-hour reading the words contradict) and says that a named activity does not compete with a
+stated end.
+
+- **Exactly one** literal whose pooled answer leads with `chosen` binds: an endpoint as `until: {time}` (§211.1: the kernel counts
+  the minutes to its next occurrence from the staged clock), an interval as its `minutes`. No band is bound or rolled. Its bind
+  record is `{name: "until" | "minutes", path: "jev", value, confidence, distribution, semantic, literal: <alias>, superseded:
+  {name: "band", choice, distribution}}`, with `cleared: false` below the time table's gate, which sends the write through full
+  admission exactly like a pooled band (§163.10).
+- **None, or more than one,** leaves today's closed choice to decide, unchanged (band, literal, `unknown`/unsettled).
+- Authority does not move: the lexer reads only numeral syntax and grants nothing; Jev decides whether the literal is the
+  player's chosen measure; the kernel alone computes minutes and moves the clock; admission still reviews the write; the
+  `time-reading` reconciliation (§145.3) still reads the prose. No word, language or keyword is read by the host.
+
+**Three ends.** *Writer:* the host's question per issued literal, Jev's pooled answer, the clerk's `apply time {until | minutes}`.
+*Reader:* the `bind` row's `literal` and `superseded`; the time receipt's `until`/`minutes`. *Actor:* the kernel's clock, rest and
+recovery; the Keeper narrates the time that actually passed.
+
+**Tests.** `tests/extension/declared-time-interval.test.mjs`: the captured turn-28 declaration issues `stated_measure:clock:0` in
+three views beside the unchanged band question; the captured band distributions alone still bind sleep_night (the live
+behaviour), with the end read as chosen they bind `until 07:00` and record the superseded band, read as not chosen or unclear
+the band decides; a stated interval takes the same precedence; two chosen literals fall back; over the TS kernel at 00:23 the
+captured declaration lands 397 minutes at 1920-10-13T07:00 with no band roll. Not measured: how often live Jev reads such ends as
+chosen; that needs a live window.
+
+## 212. A road out of the place the party stands inside is a road from here (2026-10-10, issue #112 follow-up on the 9e7 live night; amends §204.2's reachability, §204.7's move rows and §135.30.4)
+
+**Evidence.** Table `gui-world-e091`, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, runtime 9e7a59be0, turns 22-24
+(`9e7-live-night-morning.md`). At 23:30 the party stood on 图书馆台阶 (`中央图书馆门外`), a place this table minted inside
+`central-library` (`where.within`). The player twice walked "to the address Knott gave", the Corbitt house the module knows
+and the investigator had not visited. The capsule showed the library's book roads under `where.within.exits`
+(`neighborhood-gossip`, `corbitt-house-ground`, `hall-of-records` ..., 30 minutes each), but the compile's `destination` rows
+were the four trail scenes only (`central-library`, `newspaper-morgue`, `previous-tenants`, `commission-briefing`), so Jev
+answered `none` (0.92, 0.79) and no clerk move was built. The Keeper's own `apply move neighborhood-gossip` then went to the
+lane review (typed confidence 0.5), which failed (`bad_output`), and the walk never landed; only the taxi at turn 24 did,
+with `via`. Had the review answered, `apply move` would still have refused it `not_reachable`: the library's roads were not
+the steps' roads.
+
+**The gap, by the three ends (§31).** *Writer:* the book's `route-to` edges of the container, which the capsule's
+`withinSection` already renders. *Readers:* `table.apply.options` (`kernel-ts/runtime/apply-operation.ts`) built move rows
+from the active scene's own exits, the trail, referenced window places and §204.7's places inside the containers -- never a
+container's exits; the candidate builder (`runtime/jev/candidates.ts`) and the compile's `destination` feature read only those
+rows. *Actor:* `apply move` (`kernel-ts/apply/move.ts`) reached an exit, the trail, a reverse road (§204.2) or a related place,
+never a container's road. Two ends saw the place, one end showed it, and the clerk and the kernel could not take it.
+
+### 212.1 The decision
+
+A place inside another shares its roads out: standing on the library's steps, in its reading room or at its counter, the
+library's roads are the party's. This is the book's own topology, read structurally (§204.1's containers); no place, name or
+route is invented, and "known to the investigator" is not inferred from prose.
+
+- **Reachability** (`apply move`, amends §204.2): after an exit, the trail, a reverse road and a related place, a destination
+  is reachable without `via` when it is an exit of one of the active scene's containers (nearest container first, each walked
+  to by its scene, `sceneOfPlace`). The receipt carries `exit_of: <the container's handle>`; `travel_minutes`, when not given,
+  is that exit's. `via` beside such a move does not make it `improvised`. A place in the active scene's own area, or its own
+  exit, is not counted here (those grounds come first).
+- **Move rows** (`table.apply.options`, amends §204.7 and §135.30.4): after every row above, the containers' exits not
+  already offered, nearest container first, at most `WITHIN_MOVES` (12), each as the capsule renders the container's exit
+  (`exitRows`: display name, travel minutes, `unlock_when` with `met`, material) plus `exit_of`, the §135.30.4 `destination`
+  view, and the §135.30.6 guard (`unlockGuard`, `guardedWay` from the container) for an unmet unlock. A row the kernel marks
+  `unlock_when.met: false` is withheld from the clerk as before.
+- **Unchanged:** admission (§32: a row is availability, `authority: available_route_not_player_choice`, never the player's
+  choice), the told-position candidates (§190.2, which already list the window's scenes), the placement lane, and a move to a
+  place with no ground at all (`not_reachable` without `via`).
+
+Helpers: `aroundExits` / `aroundExit` (`kernel-ts/read/places.ts`); `exitRows` is exported from `kernel-ts/read/capsule.ts`
+so the move row and the capsule's `where.within.exits` render one exit the same way.
+
+**Three ends.** *Writer:* the book's routes and §204.1's containment. *Reader:* `table.apply.options`' move rows, the clerk's
+move candidates and the compile's `destination` rows, the capsule's `where.within.exits` (unchanged). *Actor:* the clerk
+(a confident `destination` lands the walk on the compile's evidence, §32.12) and the Keeper (`apply move` without `via`); the
+receipt's `exit_of` counts them.
+
+**Tests.** `tests/extension/place-containment.test.mjs` "a road out of the place the party stands inside is a road from
+here": over the TS kernel, a corridor minted inside a briefing room offers the room's road to the house as a move row with
+`exit_of`, and `apply move` lands it without `via` (receipt `exit_of`, not `improvised`). On the base it fails: no move row.
+
+## 213. An unavailable review holds the declared act; a told departure the table has no place for is owed (2026-10-10, issue #112 follow-up on the 9e7 live night; amends §32.2's `admission_unavailable` fix, `prompts/keeper.md`'s admission paragraph and §190.2's decision)
+
+**Evidence.** Same table, turn 26 (`9e7-turn26-delivered.txt`, `turns/0026.json`, telemetry after line 9168). The player tipped
+the newsvendor a dime and took a cab home. The clerk's declared `apply time` (band `speak_briefly`) went to the lane review,
+which answered HTTP 429 (`GoUsageLimitError`): `admission_unavailable`, streak 1. The Keeper's adjudication step (57 s) then
+made **no** call: its reasoning read the refusal's "do not retry it this turn ... Close the turn with narrate" as "the host
+explicitly wants no further applies this turn", weighed "freezing the player in a non-event" against "an unlanded receipt",
+and chose to narrate the cab leaving with the investigator aboard, "leaving the cash and move as owed for next turn". The
+turn closed with zero receipts. The post-delivery told-position read (§190.2) answered `moved` 0.92 and `place` `none` 1.0
+(the investigator's lodging is no place the table has) and so owed nothing: the ledger kept the party at
+`neighborhood-gossip` while the player had been told they left.
+
+**What the contract already says, and where it gave out.** §32.2: an unavailable review is no authorization, so nothing of
+the refused batch lands and none of it is narrated as done. §17 / Agents.md: narration without a receipt did not happen --
+true of the Keeper's writing, which lands first and narrates second. §158 (owner ruling 2026-09-29): what was delivered is
+canon; the ledger follows forward, never retracts. §166 (owner ruling 2026-10-01): one-pass delivery, no general prose
+reviewer before delivery; the only pre-delivery outcome guard is §166.2's owner-authorized refused-document exception.
+
+### 213.1 Before delivery: the refusal holds the declared act, and says so (amends §32.2 and the Keeper prompt)
+
+The defect was in what the Keeper was told, so the fix is there. `admissionUnavailable`'s `fix`
+(`extensions/kernel/admission.ts`) keeps every sentence it had (the settled receipts stand, no rolls or landings for the
+refused batch, no retry of it, no service in the fiction, no request to repeat, the streak wording) and adds:
+
+- the refusal holds the refused lines, not the rest of the turn: proposing another part of what the player declared is
+  allowed, and each call is reviewed on its own (an outage still refuses each; a typed admission may admit one);
+- what the player declared and no receipt carries when the turn closes did not happen this turn: the delivery narrates the
+  investigator **beginning** it, never its **result** (an arrival, a departure, a payment, a thing changing hands);
+- a result is never told for the ledger to catch up later: owed state (§158) is what an earlier delivery already told, not a
+  route for delivering what a refusal held.
+
+The closing sentence becomes "take up what the player actually said, with what landed and without the result of what did
+not". `prompts/keeper.md`'s `admission_unavailable` sentence says the same in the Keeper's laws.
+
+**Not done, with reasons.** (1) A host gate that reads the draft before delivery and refuses one asserting an unsettled
+outcome would be a second §166.2-style exception; §166 reserves that to the owner, so it is recorded here as an open owner
+decision rather than built. (2) A player-facing "held" notice: the `coc-admission-status` family has no renderer (§38's
+"record, not a screen"), so a new entry would be a seam with no reader; the operator notice stays at streak 2.
+
+### 213.2 After delivery: a told departure for a place the table does not have is owed, and the Keeper lands it (amends §190.2 and §158.3)
+
+When the told-position read clears `moved_min`, its `place` Choice puts `none` first with a confidence at or above
+`place_min`, and the sentence clears `sentence_min`, the text has the party leave for a place none of the candidates is. Under
+§158 that departure happened; before this section the read stayed (`why: "none"`) and the ledger kept the party where the
+story had left. Now the host decides `{decision: "owe", departure: true, quote}` (`toldDecision`,
+`runtime/jev/told-position.ts`; a `none` below `place_min` still stays `none`) and calls `table.owe` with
+`effect: {kind: "move", unlisted: true}`.
+
+The kernel (`oweDeparture`, `kernel-ts/owed/told.ts`) applies the §190.2 drops (`move_landed`, `superseded`,
+`quote_not_delivered`) and writes a §158.3 row with **no effect** -- the place has no name the kernel could write --
+`{name, turn, kind: "move", effect: null, departure: {from: <the delivered scene's handle>}, quote, what, source:
+"told-position"}`, with the record's `owed` and `owed_state` warning as for any told position; the answer adds
+`departure: true`, and the same read sent again answers the row it wrote. `what` tells the Keeper to land it with an ordinary
+`apply move` to that place (`establish {summary}` and `via` when the table has none), without `owed`.
+
+- The capsule shows it with `clerk: false` (no effect), so the clerk never lands it, and §158.4's "while an owed move is open,
+  no other move is a candidate" keeps the clerk from building moves out of the place the party left.
+- The Keeper's ordinary move closes it `superseded` (§158.4's `settleOwed`); a ledger no longer standing at `departure.from`
+  closes it `satisfied` (`owedSatisfied`); a newer told move supersedes it (`mergeOwed`).
+- `apply move ... owed: <its name>` is refused `owed_unresolved` with a fix saying to leave `owed` out and land the departure
+  with an ordinary move.
+
+This reads delivered text only to bring the ledger forward, as §190.2's recorded exception to §166 already allows; it neither
+reviews nor edits prose. Telemetry: the `told-position` row carries `decision: "owe", departure: true` in place of `handle`.
+
+**Three ends.** *Writer:* the told-position read (Jev) and `table.owe`. *Reader:* the capsule's `owed` section, the clerk's
+candidate builder (withheld moves), `owedSatisfied`. *Actor:* the Keeper, whose ordinary move lands the departure; counted in
+`owed.json`'s `closed` (`superseded` / `satisfied`).
+
+**Tests.** `tests/extension/admission.test.mjs` (the unavailable refusal's `fix` carries 213.1's three sentences);
+`tests/extension/keeper-prose-contract.test.mjs` (the Keeper prompt carries them); `tests/extension/told-position.test.mjs`
+(the bars: turn 26's `moved` .92 / `none` 1.0 owes a departure, a low sentence or a low `none` stays; the RD-08 table's
+non-moving turn-3 delivery now answers `not_moved` from its typed endpoint); `tests/extension/told-position-owe.test.mjs`
+(over the emitted kernel: the departure row, its capsule `clerk: false`, `owed_unresolved` by name, the Keeper's establishing
+move superseding it, and `move_landed`). Each fails on the base.
+
+## 214. A lane reply is read as its candidate objects, and an unreadable reply keeps its evidence (2026-10-10, issue #112 live 9e7; amends §12.5's reader and §143.15's telemetry)
+
+**Observed.** On the 9e7 GUI table (campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, admission lane `opencode-go/claude-haiku-5-5`, `anthropic-messages`, lane thinking `off`, `thinking_carried: false`) both admission rounds of the investigator's walk to the house ended `bad_output: the reply held no JSON object` with `attempts: 2` (telemetry lines 9651 and 10012, turns 22 and 23); each attempt answered HTTP 200 and ended `stop_reason: "stop"` after 1.8–2.6 s of streaming (lines 9643–9650, 10004–10011), the same length as the lane's good answers. The same failure is at line 6246 (turn 11, the a19 runtime). Across the campaign every round with a `bad_output` attempt read a `move` line (turns 11, 18, 22, 23; turn 9's `time` line, whose round needed two attempts, was reviewed beside its batch's `move` line) or a `cash` line (turn 24); rounds without one (`clue`, `handout`, `object`, lone `time`) never did. Those are the inputs that carry an embedded JSON object (`registered_destination={...}`, the cash authority table). The replies themselves were never kept: the Keeper's transport trace (`gui-transport-9e7/process-16202`) observes only the Keeper's own stream, and `runLane` dropped the text of a failed reply, so the exact reply is not recoverable.
+
+**Cause, as far as the evidence reaches.** *Reader:* `extractJsonObject` took the first `{` in the reply and gave up when that object never closed. A reply that echoes part of a move or cash line before its verdict (an unclosed piece of `registered_destination={...}`, or a quote that leaves the scan inside a string) therefore reads as "no JSON object" however valid the verdict after it is; the retry repeats the same input and meets the same reader, which fits both attempts failing in every observed round. That is the defect fixed here. A second explanation is not excluded by the evidence: a reply whose content held only an adaptive-thinking block (the lane sends no thinking control for `anthropic-messages` at `off`, so the provider's default applies) has no answer text at all. Which one the live replies were is decided by the evidence this section now keeps, not guessed.
+
+**Decisions.**
+
+1. **Candidates, not the first brace.** The reader collects every complete top-level object in the answer text, in order (`jsonObjectCandidates`, `extensions/lanes/subsession.ts`; at most 16 objects, and at most 64 unclosed braces passed over); an opening brace that never closes is passed over from the next character. Each candidate is parsed (with the existing repair) and narrowed by the lane's own closed `shape`; the first that passes is the answer. Objects of another shape before it (an echoed line) are passed over.
+2. **Still strict about content.** Nothing is inferred from prose; no field is filled in; a verdict is only ever a shape-valid object the model wrote as its answer. Two shape-valid objects that differ make the reply `bad_output: the reply held conflicting answers` -- the reader never picks between two answers (identical repeats are one answer, as before). Only `text` blocks are read: JSON written in a reasoning block is never taken, and a reply with no answer text is `bad_output: the reply held no answer text, only <block kinds>`, distinct from "no JSON object".
+3. **A failed reply keeps bounded evidence.** Every `bad_output` failure carries `reply: {blocks, stop_reason, text_bytes, thinking_bytes, objects, head, tail?}` -- block kinds in order, the provider's stop reason, answer-text and reasoning byte counts, the number of complete objects found, and at most 240 UTF-8 bytes from each end of the answer text (never inside a code point; reasoning is counted, never kept). The admission round records each malformed attempt's evidence on its row as `malformed_replies` (with `attempts`, §143.15). It is telemetry only: it is not shown to the Keeper as an obligation, decides nothing, and never authorizes anything.
+4. **Unchanged.** §143.15's one retry and its added line, §32.2's `admission_unavailable` after two bad answers, §190.3's transient retry, the verdict enum and every gate: an unavailable review is still not authorization. The lane's thinking control on the wire (§12.8.1) is not changed here; whether `anthropic-messages` at `off` should carry an explicit disabled-thinking control is left open until a kept reply shows the reasoning-only shape.
+
+Tests: `tests/extension/lane-reply-json.test.mjs` (the `anthropic-messages` content shape: a thinking block beside the text block, `stopReason: "stop"`; the move line's own format): a verdict after an echoed, unclosed `registered_destination` object is read (before: "the reply held no JSON object"); a verdict after a complete echoed object of another shape is read (before: "not the shape"); two different verdicts are `conflicting`; a reasoning-only reply holding a verdict is `no answer text` with its block kinds; a prose reply keeps bounded `head`/`tail` evidence; `reviewAdmission` with two malformed attempts carries both attempts' evidence in `malformed_replies`.
+
+## 215. The readiness hold is the Keeper's; a refused host write says why (2026-10-10, issue #112 live 9e7g defect; amends §209.6, §209.5's write hold and §135.4's clerk record)
+
+**Evidence.** Table `gui-world-e091` / campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, runtime 9e7a59be0 on grok-build lanes
+(`9e7g-live-sleep-morning.md`), turns 30 and 31. The player, twice, took the streetcar back to last night's street. The compile
+cleared the destination (`neighborhood-gossip`, .87) and the policy clerk (`declared_bookkeeping`) proposed `apply move` to that
+visited exit. Both times the step settled `refused` in ~200 ms with `call_id: null`, no kernel `table.apply`, no admission row; the
+Keeper's note said only `coc_error: {code: "refused"}`. Turn 30 ended with zero receipts (the Keeper: "the refusal is still
+puzzling"); in turn 31 only the Keeper's own move landed, and a clerk `apply time` was refused the same way.
+
+**Root cause.** Telemetry orders it: `mod-discovery {event: "readiness_expansion", keys: ["narration-craft@2.6.0#6"]}`, then the
+gateway's `operation_stage: prepare`, then the refused bind. The table context hook's `tool_call` handler
+(`extensions/table/context-runtime.ts`) applies §209.6's hold to every `apply`: narration-craft's "Establishing a place" is
+situational with `before_apply:move` (§203), and the clerk runs before the turn's first Keeper request, so no section of this input
+has been delivered yet -- every declared clerk move under selective discovery with an indexed narration-craft is held, whatever
+the lane model. Turn 31's clerk time fell to the sibling hold in `capability-runtime.ts` (`widenPending`, set by the turn's
+`lookup_fallback`), which recorded nothing. The hold returns `{block, reason}`; the canonical gateway turned it into a packet
+`{reason, terminate}`, and `clerkStep` (`runtime/jev/hybrid-engine.ts`) copied only `code`/`message`/`fix`/`details`, so the reason
+was dropped and `{code: "refused"}` (the packet status) went to the Keeper and to the bind row. Systemic, not lane-specific: the
+grok lanes changed timing, not this path.
+
+**Decisions.**
+
+1. **Readiness is the Keeper's.** §209.6's hold exists so the Keeper re-decides with the missing detail in view; the clerk reads
+   nothing the request projection supplied and cannot re-decide. A call whose canonical-gateway host origin is `policy` (§135.4) is
+   therefore not held by the Mod-section readiness hold or by the capability-schema holds (expansion, `widenPending`). Everything
+   else runs for it unchanged: admission, Mod `tool_call` hooks, the kernel, `validateCurrent`. The sections its call made due stay
+   due: the call is noted before the gate, so the Keeper's next request loads them, and the `mod-discovery` lane records
+   `{event: "readiness_deferred", origin: "policy", tool, keys}`. The §209.11 identity hold (`discoveryUnavailable`) is an
+   integrity hold over stale source/world identity, not a visibility hold, and still applies to host writes.
+2. **Who dispatched is read from the gateway, never from the call.** The kernel extension's `coc:operation-dispatcher` port gains
+   read-only `hostOrigin(toolCallId)` (the dispatcher's own frame for a call it is running; `undefined` for the model's calls or when
+   the table is closed). Without the port every call is held as before.
+3. **A refusal carries its reason.** The canonical gateway answers a `tool_call` block with
+   `{code: "blocked", message: <the gate's words>, reason, terminate}` and traces `stage: "blocked"` with the reason. `clerkStep`
+   reads a bare `{reason}` the same way, so the Keeper's `clerk_did[].coc_error` is `{code, message}` (or the kernel's own
+   `coc_error`), and the `lane: "run", event: "bind"` row gains `refusal` (the code) and `refusal_reason` (≤ 300 characters). Holds
+   that recorded nothing now do: `capability-discovery {event: "held", reason: "widen_pending"}` and
+   `context {event: "write_held", reason: "discovery_unavailable", tool, origin}`.
+
+**Three ends.** *Writer:* the gate's words, the gateway's coded packet. *Reader:* the Keeper's `clerk_did` note, the bind row, the
+hold rows. *Actor:* the Keeper (retry, correct, or narrate the hold); the clerk's declared move lands through admission and the
+kernel.
+
+**Tests.** `tests/extension/clerk-write-readiness.test.mjs` (the captured section and move: a policy-origin call is not held and
+records `readiness_deferred`; the Keeper's identical call is held; no gateway port, held). `tests/extension/clerk-refusal-reason.test.mjs`
+(the captured `{reason}` packet and the coded packet reach `clerk_did` and the bind row with code and words; a kernel `coc_error`
+unchanged). `tests/extension/canonical-operation-dispatcher.test.mjs` (a gate's block of a host write: `code: "blocked"`, the
+gate's message, trace `prepare`/`blocked`, nothing ran, and the gate reads the host origin through the port).
+
+## 216. Time the prose told and no receipt carries is owed (2026-10-10, issue #112 follow-up on the 9e7g live table; uses §190.2's exception to §166 for told time, as §201.1 and §213.2 use it for told clues and told departures; amends §158.2's producer of owed time, §158.3 and §190.2's `table.owe`)
+
+**Evidence.** Table `gui-world-e091`, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, runtime 9e7a59be0 with grok lanes,
+turn 32 (`9e7g-live-sleep-morning.md`, `turns/0032.json`, `gui-evidence-e091/9e7g-turn32-delivered.txt`). The player walked
+down the narrow passage beside the Corbitt house. They examined the ground-floor windows, the side door and its lock, and
+crouched to look for cellar windows. The run's read offered `apply:time:declared`. The clerk's first step, a
+`declared_bookkeeping` move to `corbitt-house-ground`, was refused with a bare `refused` (§215's defect), so the declared-time
+step never ran. The Keeper's 75 s adjudication made no call (`keeper_calls` all 0). The implicit close delivered the whole
+circuit with zero receipts: the passage, each window frame, the side door, the overgrown back garden and the brick footing. The
+clock stayed at 11:57 into turn 33. The told-clue read ran (`stay`) and the told-position read ran (`low_place` 0.69).
+**Nothing read the told time.**
+
+**The gap, by the three ends (§31).**
+
+- *Writer: none.* §158.2's owed time had one producer, the post-delivery continuity review (`audit.owed.v1`'s `owed` field,
+  `kind: "time"`), and §166 retired that review. §145.2's pre-delivery time reading is off under single-pass narration
+  (`readTimeSkip` returns at `SINGLE_PASS_NARRATION`, `extensions/kernel/index.ts`), and §166.1 forbids a prose-implied time
+  gap from refusing a draft anyway. §190.2 and §201.1 restored post-delivery producers for the position and the clues, but
+  not for time.
+- *Readers: already in place.* The owed ledger takes time rows (`OWED_KINDS`, `describe`, and `capsuleOwed`'s order move,
+  npc, time in `kernel-ts/owed/index.ts`). The capsule shows them with `clerk: true`. §158.4's `owedCandidates`
+  (`runtime/jev/candidates.ts`) makes each one an `apply:owed:<name>` step and does not count it as this turn's declared time.
+- *Actors: already in place.* The clerk lands `apply time {band, owed}` under told admission (`toldAdmission`). The kernel
+  checks the row (`owedRowFor`'s `lands`: same band) and rolls the band (§138).
+
+Only the writer was missing.
+
+**Why this needs no new owner exception.** §166 retired reviewing and rewriting prose. §190.2 (owner-authorized, 2026-10-07)
+records one exception: a delivered text may be read after delivery *only to bring the ledger forward* (§158's owner ruling).
+That read never reviews, edits, retracts or annotates the text, and its result reaches the Keeper only as §158's owed row.
+§201.1 (told clues) and §213.2 (told departures) used the same exception for other kinds of told state, and §158.2 named owed
+time from the start. The read below does the same for time: it runs after delivery, in the background, is never awaited, and
+never touches the prose. It adds no pre-delivery gate and no rewrite. A gate that refused a draft for unrecorded time would be
+a new exception, which §166 reserves to the owner, so none is added here.
+
+### 216.1 The ledger follows the told time (uses §190.2's exception)
+
+Family `told-time` (Jev). The read runs after every delivery (explicit `narrate`/`ask`, an embedded narrate, the implicit
+close), in the background. The host first reads `table.owe.options`. The read is then skipped (one row with `skipped`, nothing
+asked) in these cases:
+
+- `time_landed`: the told turn holds a `time` receipt that is not an owed landing. The Keeper or the clerk already charged
+  this turn's time, and a second charge would double it; the read does not compare amounts.
+- `session`: a session (combat, chase) was running at delivery. Its time is rounds.
+- `no_text`, `unconfigured` (no Jev key) or `no_bands`.
+
+Otherwise the host sends Jev one request with two questions:
+
+- **`told_cost`** (a key apart from §138.8's `time_cost`: a different question over the same rows): a Choice over the time-cost rows an act can take (`time.band` without the road rows, §138.9), plus `none`,
+  listed first. These are the same rows as §138.8's question, each criterion built by `timeCriterion` (the row's name, range
+  and `covers`). The question asks which row is the in-world activity the investigators carry out in the told events, judged
+  by kind and extent. Only what the text tells happening now counts. Not counted:
+  - a journey between places (the move carries it);
+  - memories and plans;
+  - what someone *says* about another time;
+  - description of a place.
+
+  `none` is for a text that tells no activity beyond a moment, or none that fits.
+- **`sentence`**: a Choice over the delivered sentences (§190.2's splitter, at most `TOLD_TIME_SENTENCES_MAX` 48, keeping the
+  last ones of a longer text). The answer is the sentence that tells the longest part of that activity.
+
+The state is `told` (`s1..sN`) and nothing else: no clock, no receipts, no player words (Jev does not compare times, §145.2).
+
+The host decides `owe` when all four bars hold:
+
+1. the leading row is not `none`;
+2. the Choice's confidence is at least `told_time.cost_min`;
+3. the row's `default` minutes are at least `told_time.min_default_minutes` (a moment's word or glance is not worth a debt);
+4. the sentence's confidence is at least `told_time.sentence_min`.
+
+Otherwise it decides `stay`, with the first bar missed as the reason: `cost_unanswered`, `none`, `low_cost`, `under_floor`,
+`sentence_unanswered`, `low_sentence`, or the failed request's reason. On `owe` in `on` mode the host calls `table.owe
+{campaign, turn, effect: {kind: "time", band}, quote: <the sentence>, source: "told-time"}`.
+
+**`table.owe.options`** answers two more fields:
+
+- `time: {receipts: [{minutes, band?, owed?}], session: boolean}`: the told turn's `time` receipts, and whether its record
+  holds a session;
+- `time_bands: [{handle, min, max, default?, covers?}]`: the `time.band` rows without the road rows.
+
+**`table.owe` with `source: "told-time"`** takes `effect: {kind: "time", band}` and answers `{turn, owed: <name> | null,
+dropped?}`.
+
+- `dropped` is an answer, never an error. Its values are `unknown_band` (no such non-road row), `time_landed`, `session` and
+  `quote_not_delivered`.
+- The row is §158.3's: `{name, turn, kind: "time", effect: {kind: "time", band}, quote, what, source: "told-time"}`. `what` is
+  "time that passed beyond any journey: <band>". The row goes on the record and into `owed.json`, with an `owed_state` warning
+  row (`lane: "told-time"`).
+- A turn owes told time once. A second call for a turn that already holds a told-time row answers that row.
+- Time never supersedes time (`mergeOwed`), and the ledger never marks a time row `satisfied`. It closes only when a receipt
+  lands it.
+
+**Landing (unchanged).** The capsule's `owed` lists the row after move and npc rows (`clerk: true`). §158.4's clerk lands
+`apply time {band, owed}` first on the next run (`told_bookkeeping`, admitted `told`), and the kernel rolls the band. The owed
+landing is not counted as the next turn's declared time (`candidates.ts`), so the next declaration is charged as usual.
+
+**The flight.** The told-position, told-clue and told-time reads of one delivery are the turn's one §158.4 flight
+(`afterDeliveryTold`). It settles when any of them wrote an owed row and is cleared once all three ended. A read that cannot
+owe (mode not `on`, or no Jev key) registers none.
+
+**Bars and mode.** These live in `host-budgets.json` `told_time` (read by `toldTimeBudget`); `PI_COC_TOLD_TIME=off|shadow|on`
+overrides the mode alone.
+
+| key | shipped value |
+| --- | --- |
+| `mode` | `shadow` |
+| `cost_min` | 0.7 |
+| `sentence_min` | 0.5 |
+| `min_default_minutes` | 5 |
+| `timeout_ms` | 10,000 |
+
+An unreadable file reads as `shadow`. **These bars are not calibrated on live rows**, because this slice made no live model
+calls. The sentence bar is the told-clue read's, and the cost bar sits above the told-clue given bar. With
+`min_default_minutes` 5, `momentary`, `speak_briefly` and `quick_observation` (defaults 0–1) are never owed, while
+`brief_activity` (5) and longer rows are. The rows carry the whole distribution, so the next live table calibrates them.
+`PI_COC_TOLD_TIME=shadow` turns the writes off without a build.
+
+*Lead decision 2026-10-10 (integration):* the shipped mode is `shadow` until the bars are calibrated on live rows and the owner confirms §216 sits inside the §190.2 exception; a validation host sets `PI_COC_TOLD_TIME=on` explicitly and labels its run.
+
+**The row.** One per delivery:
+
+```
+{lane: "told-time", event: "read", turn, mode, ok, bands, sentences: {total, offered}, chosen, confidence, distribution,
+ sentence: {key, confidence, distribution}, usage, decision: "owe" | "stay", band?, why?,
+ outcome: "owed" | "dropped" | "shadow" | "stay", owed, dropped?, ms}
+```
+
+When nothing was asked, the row carries `skipped` as above (`time_landed` adds `landed: [minutes]`). A failure is `ok: false`
+with `reason: "options_failed" | "lane_crashed"`.
+
+### 216.2 Three ends (§31)
+
+- *Writer:* the told-time read (Jev and the bars), through `table.owe` (owed time rows).
+- *Reader:* the capsule's `owed`, §158.4's `owedCandidates`, `toldAdmission` and the kernel's `owedRowFor`.
+- *Actor:* the clerk, who lands the told time first on the next run as a kernel-rolled band; then the Keeper, who finds the
+  clock where the story put it.
+
+The Keeper never invents minutes: the kernel rolls the band. Jev chooses a closed row of the rules from the delivered text,
+and no code reads the prose for meaning.
+
+Counted: one `told-time` row per delivery by `outcome` or `skipped`, `owed.json`'s time rows with `source: "told-time"`, and
+the clerk's `apply:owed:*` bind rows with the receipts that land them.
+
+### 216.3 Tests
+
+`tests/extension/told-time.test.mjs` covers three layers.
+
+- **Pure.** The questions: `none` first, no road rows, the rows' `covers` in the criteria, and no clock and no player words in
+  the state. The bars decide in order, and the first one missed is the reason.
+- **Over the emitted kernel's RPC.**
+  - `table.owe.options`' `time` and `time_bands`.
+  - The told-time row on the record and in `owed.json`, with its warning, and one row per turn.
+  - The drops: `unknown_band`, a road row, `time_landed` and `quote_not_delivered`.
+  - The capsule's `clerk: true` row, and its landing by `apply time {band, owed}`.
+- **Through the real tool path.**
+  - Turn 32's shape (an implicit close that tells a walk round a house, with no receipt) owes the time, and the next run's
+    clerk lands it first, moving the clock.
+  - A delivery whose turn landed a `time` receipt is not read.
+
+Each case fails on the base, which has no `told-time` source and no read.
+
+## 217. A lookup answers for its input; a landing the run has not been handed answers first (2026-10-10, issue #112 follow-up on the d6c live night; amends §209.5, §209.6, §209.11, §209.14 and §135.20.1)
+
+Evidence: `capability-discovery-implementation-20261010/` (`d6c-live-revalidation.md` defects 7 and 8, its non-Keeper
+request note), session `gui-host-e091/…/2636689b….jsonl`, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`
+telemetry, transport trace `gui-transport-d6c/`.
+
+### 217.1 An in-input invalidation keeps the input's lookups and the request's write gate (defect 7, turn 54)
+
+**Observed.** Turn 54, session lines 27225–27239. The Keeper's inference ran 22:18:40.458–22:18:51.389. Inside it, at
+22:18:42.662, the background reading `read-8` (focus "Handout 7 Hall of Records", asked on turn 52) called
+`module.read.finish {outcome: completed}`. The inference returned two `lookup {kind: "capability"}` calls in one
+response. The first answered `Capability discovery has no current input` (error); the hybrid engine's batch rule
+(`batch_step_fell: lookup_refused`) sent the second back with `The host did not execute this call.` The player's input
+was the same throughout.
+
+**Cause (three ends).** *Writer:* the module extension emits `coc:source-published` on every completed reading
+(`extensions/module/index.ts`), whenever it lands. *Reader:* the context owner's handler
+(`extensions/table/context-runtime.ts`) answered it with `capabilityRuntime.clear()`, the same reset a new input gets,
+which set the capability runtime's epoch key to empty (`extensions/table/capability-runtime.ts`). Nothing observes a new
+epoch until the next request's `context` hook, so a lookup arriving in between met `!key` and threw. *Actor:* the hybrid
+batch rule treats any erroring call as the batch falling (`runtime/jev/hybrid-engine.ts` `modelStep`), so one lookup's
+false error cost its read-only sibling. The same reset had two more consequences the trace did not exercise but the code
+shows: a purpose lookup in flight across any epoch change of the same input (a source publication, a write that changed
+the situation) was rejected as `Capability lookup input was replaced or cancelled`; and the §209.6 readiness gate
+checked the *selection*, which the reset dropped, so an `apply` the Keeper decided from a narrow request would pass the
+gate if a publication landed between that request and the call. The other in-input resets (§209.9's
+`preparation_expired`, §209.11's unavailable or changed snapshot, §209.13's projection failure) had the same shape.
+
+**Decisions.**
+
+1. **Two resets, not one.** The capability runtime gains `invalidate()`: it drops the selected view, its in-flight view
+   selection and the epoch key, as `clear()` did. `clear()` (a new input, session start or shutdown) additionally ends
+   the input. Every in-input site of the context owner calls `invalidate()`: the source publication, the projection
+   failure, `preparation_expired`, and the unavailable and changed-snapshot paths. The input, session start and
+   shutdown keep `clear()`. Mod discovery's existing `reset()`/`clear()` split is unchanged.
+2. **A lookup answers for its input.** The runtime keeps the last epoch observed for the current input (its binding,
+   capsule and task) as the input's lookup basis; `invalidate()` keeps it, `clear()` ends it, and an aborted input
+   lifetime (a delivered turn) ends it. A named lookup answers from the catalogue; a purpose lookup is asked against the
+   basis through the §209.14 owner, under the same per-input selector budget, cached by (basis epoch, query). A lookup
+   is current while its input is current: a later epoch of the same input no longer rejects it; a new input does, as
+   §209.5 has it, without widening or adding detail to the successor. A lookup's decision is cancelled with its input,
+   not with the view selection's epoch.
+3. **What a lookup or an expansion loaded stays shown for the input.** The names a lookup returned or a §209.6 expansion
+   loaded are carried into every later selected view of the same input, so the request after a publication shows the
+   fragments the Keeper read. A widening (a failed purpose lookup, `repeated_expansion`) pins the full view for the rest
+   of the input, not only for the epoch it happened in.
+4. **The write gate reads what the request showed.** §209.6's readiness compares a mutating call with the capability
+   names the projected request actually carried (`visible`), which only the next projection or the end of the input
+   replaces. An invalidation between that request and the call therefore keeps the hold; a request projected full lifts
+   it and the widen hold together. Authority is unchanged: a lookup is read-only detail, never admits or commits, and
+   the kernel still validates every effect.
+5. The batch rule is unchanged: an erroring call still falls its batch. The false error is what is removed.
+
+*Tests.* `tests/extension/capability-lookup-owner.test.mjs` "a source publication during the Keeper inference leaves both
+of its capability lookups answerable" (installed context hooks; the publication between the request and two lookups:
+before this section the first threw `Capability discovery has no current input`; now the purpose lookup returns the
+`cash` card, the named one `npc-activity`, and an `apply cash` is still held before mutation).
+`tests/extension/capability-runtime.test.mjs`: a lookup after `invalidate()` answers and its names reach the successor
+view, while `clear()` still ends it (before: `no current input`); a purpose lookup in flight across an epoch change of
+the same input answers (before: `Capability lookup input was replaced or cancelled`); the gate after a mid-batch
+invalidation still holds an `apply cash` the request never showed (before: `undefined`, the call passed).
+
+### 217.2 A source lookup that races a landing is handed the landing first (defect 8, turns 51–54)
+
+**Observed.** The report's reading ("research found nothing while `held_wait` showed handout 7 pending; never landed")
+does not hold on the trace. Turn 51: the Keeper asked `lookup source answer` "Hall of Records Handout 7 will executor"
+(`read-7`, pending past its 8 s allowance) and a module lookup that returned both Hall of Records clues with
+`delivery_kind: skill_check`; the route offered `apply:handout:Handout 7` and left it (`selected: []`, the player asked
+for deed books and death certificates). Turn 52: the run's first model step began 22:15:43.705 with no wait left
+(`held_wait` `bound_ms: 0`, run elapsed 24 s); `read-7` landed at 22:16:05.809 inside that inference
+(`answer_landed`, status `unresolved` because the deed book, death certificates and cause of death are not in the book;
+its answer quotes Handout 7 and says it is passed on a successful Library Use roll). At 22:16:07.376 the inference
+returned a second source lookup, "Handout 7 Hall of Records", with a reworded question; the memo matches by focus, so it
+started `read-8` (147 s, two author and two verify children of 4–5 MB requests). The next step carried `read-7`. Turn
+53: the host's own clerk bound Library Use for the civil files, rolled 51 against 50, failure; the route left the
+handout (`need: later`), and the push was not selected. Handout 7 was withheld by that roll, as the book says. Turn 54:
+`read-8` landed at the Globe and was dropped with `scene_change`; its landing is also what cleared 217.1's epoch. So the
+`pending` focus in turn 53's `held_wait` was the redundant second reading, not an undelivered handout.
+
+**Cause (three ends).** *Writer:* the consultation's landing, which §135.20.1 hands to the run on its next model step.
+*Reader:* the source lookup path (`extensions/kernel/index.ts`), which consulted the book for a lookup decided before
+that landing could be seen. *Actor:* the Keeper re-asked in good faith; the memo (§22.4.3) catches a re-ask only under
+the same focus, and §22.2 forbids matching two questions by similarity.
+
+**Decision.** Before a source `answer` lookup consults the book, the host takes the answers that landed at the asking
+scene, in the asking run's scope, with readable answers, that this run has not been handed (`PendingAnswers.landedFor`,
+`extensions/kernel/source-answers.ts`). When there are any, the lookup returns them in the memo's shape, `{status:
+"landed", answers: [{question, focus, …answer}], note: LANDED_FIRST_NOTE}`, starts no reading, holds them for the run
+(so the next take names them `handed` and does not carry them again), and writes `lane: "reading", event:
+"answer_landed_first", {turn, focus, foci}` (never a question, §22 #65). The note tells the Keeper to read them first and,
+if none answers its question, to send the same lookup again; that resend (the landings are now handed) and any
+`retry: true` consult as before. Only lookups made in a run step are affected; `prepare` lookups are not. Nothing
+compares questions, and nothing about the roll, the route or the handout gate changes: what was found or withheld at the
+Hall of Records stays the rules' outcome.
+
+*Tests.* `tests/extension/single-loop-held-answers.test.mjs` "§217.2 … a lookup that races a landing is handed the landed
+answer first; its resend reads the book" (the d6c t52 shape through the emitted kernel and the vendored driver: before,
+the re-spelled lookup started a second reading and answered `pending`; now it returns the landing with no reading, the
+next note names it `handed`, and the resend consults). The §135.20.1 test of a re-ask under the same focus now meets
+the landing before the memo (`answer_landed_first`, no second reading call).
+
+### 217.3 Source-reader requests over 1 MB are inside §186.1's bound (finding; no change)
+
+The 30 non-Keeper requests over 1 MB (max 6,387,185 B) are tool-enabled reader children of source consultations. In
+each, one `pdf pages` result raises the next request from about 100 KB to 3–6 MB (`gui-transport-d6c`, e.g.
+process-86626 96,903 → 4,119,313 B after `read-7`'s verify read pages 2, 3, 4 and 16), so a page image costs about 1 MB
+on the wire (JPEG quality 92, 2,000 px long side, base64). §186.1 keeps a delivered image in every later request of its
+child until the hard pair overflows: 12 images (`host-budgets.json` `reading_images.count`) or 32 MB. Turn 34 on the 9e7g
+table held one page (1.18 MB); these consultations held four to six, which is the "5×". Within the bound, deliberate
+(the owner's 2026-10-06 ruling for cache reuse), billed by the provider per image rather than per byte, and nothing on the
+Keeper's context path; it is not a defect and nothing changes here. §217.2 removes the share that came from the
+redundant `read-8`. The raw-capture `request_body_limit` remains an observer bound only (§209.12).
+
+## 218. The time ledger: the stated measure is read on closed grids, time is charged once a turn, a road keeps its time, told time that only began is not owed (2026-10-10, issue #112 follow-up on the d6c live table; amends §5's `move`, §138.9's move default, §138.10's literal intervals, §145.1's `until`, §211.2, §211.3, §216.1)
+
+**Evidence.** Table `gui-world-e091`, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, runtime d6c81317e on grok-build lanes with
+`PI_COC_TOLD_TIME=on` (`d6c-live-revalidation.md`, `turns/0035`-`0067`, `telemetry.jsonl`). Five defects of one ledger:
+
+1. *t43* (clock 18:28). The player read the diaries in a diner "until nine in the evening", written with Han numerals. §211.2's lexer
+   enumerates only digit clock times, so no endpoint was offered; the band question chose `tome_study` (pooled .567, confidence .54,
+   above the time table's .5 gate) and the kernel rolled 5,488 minutes (`time:t43-c1`, 10-13 18:28 to 10-17 14:04). At t44 (out of
+   fiction) the Keeper told the player the story was still the 13th and to disregard the panel: prose and ledger diverged with no way
+   back.
+2. *t45*. The clerk's `until 07:00` landed first (`time:t45-c1`, 1,016 minutes), then the Keeper's batch moved the party 30 minutes by
+   tram and charged its own 570-minute sleep with `beyond_travel` (`time:t45-c3`): ledger 10-18 17:00, prose 07:00. §138.10's "time is
+   charged once a turn" bound only the clerk (no candidate after a time receipt), never the Keeper after the clerk.
+3. *t40, t48, t50, t56, t57*. Rides and walks landed 0 minutes. `stageMove` takes `travel_minutes`, else the edge's, else **0**: the
+   book road previous-tenants/corbitt-house-ground was left unfilled by §138.9's build (Jev .43, below the gate); the table's own
+   lodging (minted at t27 with a 20-minute walk, reached at t45/t46 with 30 and 40) has no road at all, so every later retrace to or
+   from it (t48, t56, t57) and the Keeper's improvised walk without minutes (t50, the road t46 walked in 40) moved nothing. The
+   told-time read excludes journeys by design (the move carries them), so that time is lost.
+4. *t51/t52*. §216 owed `record_lookup` (.97, sentence .90) for a delivery that told only the start of the search (the clerk opens
+   the deed register at the house's entry; the death certificates lie unopened); at t52 the clerk landed the owed row and then the
+   player's declared continuation of the same search: two `record_lookup` rolls (31 + 29). At t44 the out-of-fiction answer was read
+   as `tome_study` .30: the read does not know an out-of-fiction answer from a told event.
+5. *t48*. "... sleep, get up at 07:30": `stated_measure:clock:0` pooled chosen .47 / not_chosen .52 in all three views, so the band
+   (`sleep_night` .33) rolled 401 minutes (00:21). The question asked whether the literal was "the measure of the time the player chose
+   to let pass now", an indirect property of a multi-act declaration (walk, buy bread, write notes, sleep, get up): the jaggedness the
+   Jev skill calls indirect reasoning, answered near a coin flip.
+
+All five are systemic: none depends on the lane model. (1) and (5) are one gap: what the player stated about time was read by host
+syntax (digits, and for intervals a table of Han and English numeral words that `Agents.md` forbids), and what syntax could not read was
+replaced by an estimated band.
+
+### 218.1 The stated measure is read on closed grids; the host lexer is retired (amends §138.10's literal intervals, §211.2 and §211.3)
+
+`runtime/jev/declared-duration.ts` is deleted. The declared-time candidate (`timeCandidate`) offers the time-cost rows and `unknown`
+only: no literal options, no `timeDurations`/`timeClocks`. Beside the band question, the declared-time bind (`bindBatch`) asks, each in
+§163.10's three pooled views, closed questions over **host-enumerated grids** (number grids, not word lists: the same options for every
+language). Jev reads the player's words; the host converts a grid value into a time of day or minutes; the kernel counts.
+
+- **The stated end** -- the clock time at which what the investigator does now ends (they get up, wake, stop, leave or act again):
+  - `stated_end:hour`: `none`, `h1`..`h12` (the hour on a twelve-hour face; `h9` is "the nine o'clock hour, 09:00-09:59 or
+    21:00-21:59"; a quarter to eight falls in the seven o'clock hour), `unknown`.
+  - `stated_end:minute`: `m00`..`m59` (`m00`: on the hour, or no minutes given), `unknown`.
+  - `stated_end:half`: `am` (midnight to noon), `pm` (noon to midnight), `not_said` (neither the words nor the situation fix it), `unknown`.
+- **The stated length** -- how long the player says the time they let pass now lasts:
+  - `stated_span:unit`: `none`, `minutes`, `hours`, `days`, `unknown`.
+  - `stated_span:amount`: `x0.25`, `x0.5`, `x0.75`, `x1`, `x1.5` ... `x12` (halves to twelve), `x13` ... `x120` (`STATED_AMOUNTS`),
+    `unknown`.
+
+Each question is asked directly ("does the input name the clock time at which what the investigator does now ends; which hour?"),
+with what is *not* a stated end or length in its own `none` criterion: a schedule, an opening or closing hour, an appointment, a
+quotation, a deadline, a past moment, an estimate, a time inside a condition not met now, a time the player asks about. That is the
+skill's guidance: one property per question, the boundary in the criteria, no comparison or arithmetic asked of Jev (the host
+multiplies amount by unit; the kernel resolves the day).
+
+**Reading the answers** (`statedMeasureOf`, `runtime/jev/step-policy.ts`), each grid by its pooled leading probability:
+
+- *An end is bound* when `hour` leads with `h<k>` and `minute` leads with `m<mm>`, each at or above `STATED_MEASURE_MIN` (0.5). The
+  time is the morning reading `HH:MM` (`h12` is 00). When `half` leads with `am` or `pm` at or above `STATED_HALF_MIN` (0.6), the bind
+  is `until: {time}` in that half; otherwise `until: {time, either_half: true}`.
+- *A length is bound* when `unit` leads with a unit and `amount` leads with a value, each at or above `STATED_MEASURE_MIN`, and amount
+  times unit is a whole number of minutes: `minutes`.
+- **Precedence.** A bound end or length supersedes the band, as §211.3 decided for a chosen literal. Both bound: the end wins (it is
+  the moment play resumes, and the kernel counts to it from the staged clock); the length is recorded as superseded.
+- **The hold.** `hour` leads with an hour, or `unit` with a unit, but no measure is bound (a grid below the bar, or a length that is not
+  whole minutes): the player stated a measure the host could not read with confidence. No band is rolled -- a band in place of a
+  stated measure is t43's 5,488 minutes -- and the candidate goes to the existing unsettled compose (`declared_time_unresolved`,
+  cause `stated_measure_uncertain`; the Keeper's replacement time stays refused). This is §138.10's 2026-10-06 rule ("an explicit
+  interval that is not offered must remain unknown; never choose an estimated activity band to replace it") made language-open.
+- Neither leads with a measure: the band decides, unchanged (gate, pooled views, `unknown` to unsettled).
+
+The bind record is `{name: "until" | "minutes", path: "jev", value, confidence, semantic, stated: {<grid>: {choice, top,
+distribution}}, superseded: {name: "band", choice, distribution}}`, with `either_half: true` when the half was not fixed and `cleared:
+false` when the measure's weakest grid sits below the time table's gate (full admission, as before).
+
+**`apply time {until: {time, either_half: true}}`** (amends §145.1/§211.1, `kernel-ts/apply/until.ts`): without `days`, the kernel takes
+the earlier of the next occurrences of `time` and of `time` twelve hours on (the reading the clock reaches first: "until nine" at
+18:28 is 21:00; "get up at seven" at 23:10 is 07:00). `either_half` with `days`, or with a `time` at or after 12:00, is
+`until_invalid`. The receipt's `until` carries the resolved 24-hour `time`, the resolved `days` and `either_half: true`. The tool
+schema documents it; the fake kernel binds it the same way.
+
+**Why the lexer goes.** It read digits (§211.2) and, for intervals, a table of Han and English numeral and unit words
+(`declaredDurations`): a word list per language, which `Agents.md` forbids however closed it looks, and which still missed every form
+it did not list (t43). The grids hold the same values for every script. Live accuracy of the grid questions is **not measured** (no
+live calls in this slice); the captured shapes in the tests show only that the decision rules do what this section says.
+
+### 218.2 Time is charged once a turn, by the clerk or by the Keeper (amends §138.10's "time is charged once a turn")
+
+After the clerk's declared-time write landed in a run, a Keeper `apply` carrying a `time` effect without `owed` is refused by the
+model-step gate (`modelStep`, `runtime/jev/hybrid-engine.ts`) with `declared_time_landed`, before anything in it runs, the way
+`declared_time_unresolved` refuses a replacement time. The refusal says what the clerk's receipt charged (minutes, clock before and
+after) and tells the Keeper to send the batch again without the time effect and to narrate the clock where that receipt put it. An
+owed row's time (`owed`) still lands: it is an earlier delivery's. With no clerk time landed, the Keeper's time is unchanged; so are
+the kernel's §156 travel check and admission.
+
+*Not done:* t45's order. The clerk's `until 07:00` landed before the Keeper's 30-minute ride, so with the sleep refused the ledger
+reads 07:30. Absorbing a later move into an earlier `until` needs the kernel to know the move happened inside the stated span, which no
+structure says; it stays open for the owner.
+
+### 218.3 A move carries its road's time (amends §5's `move`, §138.9's default and §190.2's owed move)
+
+A road is one length both ways and every time (§138.9). Three additions make a move carry it where the book does not:
+
+- **The table's roads** (`world.table_roads`, keyed by the unordered pair of place handles, `{minutes, basis, turn}`): written by the
+  kernel when a move lands between two places that no timed book road joins and its minutes were given (`travel_minutes` > 0) or banded
+  (`travel_band`). Read by `roadMinutes` (`kernel-ts/read/places.ts`): a timed book road between the two (either direction) first,
+  then the table's road. `stageMove`'s default, the move rows of `table.apply.options` (`travel_minutes` on a way back or an untimed
+  book road when the table knows it; the capsule is unchanged) and the told-position owed move read it. A move whose minutes come
+  from a table road carries `travel: {basis: "travelled", turn}`.
+- **`apply move {travel_band}`**: `adjacent` (0), or a road row of `time-costs` (`local_travel`, `long_travel`) whose `default` is the
+  minutes (never a roll, as §138.9 fills a book road). `travel_band` beside `travel_minutes` is `travel_conflict`; another value is
+  `travel_band_unknown` with the rows in `details.options`. The receipt carries `travel: {basis: "banded", band}`.
+- **Unknown**: a move between two places that no road, book or table, has timed, with neither field, still lands with 0 minutes
+  (refusing it would take the walk away for a missing number) but says so: the receipt carries `travel: {basis: "unknown"}` and the
+  result a `travel_note` telling the Keeper the clock did not move for that journey and to give `travel_minutes` or `travel_band` on
+  such a move. A move within a place the two share (§204.2's related place) or a rename is not unknown: its 0 is the structure's.
+
+**The clerk's move** (`runtime/jev/candidates.ts`): a move row that carries no `travel_minutes` and is not a move within a place gets one
+closed parameter `travel_band` over `adjacent` and the road rows (from `reads.bands.time`), with §138.9's own criteria and instruction
+(`travelCriteria`; judge where the two places are), and the two places in the candidate's `detail.road` (the active scene's name and
+summary, the destination's). Its rule default is Jev's lead (`jev_lead`): a lead below the gate is taken, since a road row is nearer the
+truth than 0. The parameter is `omitWhenUnbound` (new on `Unbound`): `unknown`, no answer or an unavailable Jev leave it out of the
+call and the move lands exactly as before (its journey `unknown`, said so); it never takes the walk from the clerk. The band rides on
+the clerk's `apply move`, so the kernel writes the table's road and the next trip asks nothing. Without the time table's road rows the
+parameter is not issued.
+
+### 218.4 Told time that only began is not owed, and an out-of-fiction answer is not read (amends §216.1)
+
+- **`told_extent`**, a third Choice in the told-time request: how far the told text carries the activity it tells -- `begun` (only its
+  start is told: they sit down, open, set out, begin, and the text stops there), `carried` (the text tells it going on for a stretch,
+  or through to an end or a result), `unknown`. A fifth bar: the host owes only when `told_extent` leads with `carried` at or above
+  `told_time.extent_min` (0.5, in `host-budgets.json`); otherwise `stay`, why `begun` or `low_extent`. An activity the delivery only
+  began is the next declaration's to charge (t52's player declared exactly that), so owing it too charges it twice.
+- **Out of fiction**: the read is skipped (`skipped: "out_of_fiction"`, nothing asked) when the delivering input's interaction scope
+  (`TableState.interactionScope`, set by the interaction-scope lane) was not `world`. The scope is the lane's typed decision, read as
+  structure; no text is inspected.
+- The row gains `extent: {choice, confidence, distribution}`. Mode, the other bars and the drops are unchanged; §216 still ships in
+  `shadow`.
+
+### 218.5 The clock correction t44 asked for (owner decision; not built)
+
+The ledger only moves forward (§158). When a host-landed time overshoots what the delivery told (t43/t44) there is no way back, and
+§218.1's hold prevents the observed cause rather than repairing it. A correction would retract a receipt and everything computed from
+the clock after it (rest, recovery, scene reviews, NPC activity), which §158 does not allow without the owner. The options are recorded
+in the issue #112 handoff of this slice.
+
+### 218.6 Three ends (§31)
+
+- *Stated measure.* Writer: Jev's grid answers, `statedMeasureOf`, the clerk's `apply time {until | minutes}`, the kernel's `bindUntil`.
+  Reader: the bind row's `stated`/`superseded`; the time receipt's `until` (`either_half`). Actor: the kernel's clock; the Keeper
+  narrates the time that passed.
+- *Once a turn.* Writer: the clerk's landed declared time (`run.declaredTime`). Reader: the model-step gate. Actor: the Keeper, who
+  resends without the time effect; counted as `catalog_refused` rows with `reason: "declared_time_landed"`.
+- *Roads.* Writer: a move with given or banded minutes (`world.table_roads`); the clerk's `travel_band` bind. Reader: `roadMinutes`
+  (moves, `table.apply.options`' move rows, owed moves). Actor: the kernel's clock; counted by the receipts' `travel`.
+- *Told extent.* Writer: Jev's `told_extent`; the interaction-scope lane. Reader: `toldTimeDecision` and the told-time read. Actor: the
+  clerk, who lands an owed row only for what a delivery carried.
+
+### 218.7 Tests
+
+- `tests/extension/declared-time-interval.test.mjs` (rewritten for the grids): the candidate has no lexer options; the bind asks the five
+  grid questions in three views with their `none` boundaries; t43's captured band views with the end read `h9`/`m00`/`pm` bind `until
+  21:00` and roll no band, with `not_said` they bind `either_half`, and an end leading below the bar holds (`stated_measure_uncertain`)
+  where the base rolled `tome_study`; t48's captured band with `h7`/`m30`/`am` binds 07:30; a length binds minutes; both bound, the end
+  wins; neither, the band decides; over the TS kernel at 18:28 `until {09:00, either_half}` lands 152 minutes at 21:00 and at 23:10
+  lands 07:00 the next day; `either_half` with `days` or an afternoon time is `until_invalid`.
+- `tests/extension/time-once.test.mjs`: the model-step gate refuses a Keeper time after the clerk's declared time, passes an owed
+  landing, and passes the Keeper's time when no clerk time landed.
+- `tests/extension/move-travel.test.mjs` (over the TS kernel): a road walked with minutes is walked back with them (`travelled`), an
+  improvised walk on a travelled road takes them, `travel_band` lands a row's default and writes the road, conflicts and unknown bands
+  are refused, an untimed road says so (`travel_note`), the way back's move row shows a known road's minutes; the clerk's move
+  candidate for an untimed row asks `travel_band` and binds it onto `apply move`, and `unknown` or no answer leaves it out while the
+  move still runs.
+- `tests/extension/told-time.test.mjs`: `told_extent` is asked; t51's captured answers (`record_lookup` .97, sentence .90) with `begun`
+  stay where the base owed; `carried` owes; an out-of-fiction delivery is skipped.
+
+Each fails on the base.
+
+## 226. Source failure recovery and bounded transport diagnostics (approved2026-10-10)
 
 Execution record: `docs/exec-plans/active/pdf-source-latency-opening-20261010.md`.
 Correct source and disclosure refusals remain refusals. Repairs consume the existing

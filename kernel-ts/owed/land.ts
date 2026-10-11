@@ -95,6 +95,9 @@ export async function owedRowFor(campaign: { readTurnRecord(turn: number): Promi
     const entry = ledger.open.find(value => value.name === name);
     if (!name || !entry)
         throw refusal('owed_unknown', `${repr(given.owed)} names no open owed row`, 'Leave owed out, or name a row of the capsule\'s owed section exactly as it is written.', { owed: given.owed ?? null, open });
+    if (!entry.effect && entry.kind === 'move')
+        throw refusal('owed_unresolved', 'This owed departure names no place the table has, so no effect lands it by name.',
+            'Leave owed out: land the departure with an ordinary apply move to the place the delivery sent the party (establish {summary} and via when the table has no such place); that move closes this row.', {owed:name});
     if (!entry.effect)
         throw refusal('owed_unresolved', 'This owed row has no issued settlement effect.',
             'Do not guess an effect or attach this owed name to a different action. Resolve its ownership or definition through the existing preparation path; unrelated actions omit owed.', {owed:name});

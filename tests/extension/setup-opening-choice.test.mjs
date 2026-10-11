@@ -304,7 +304,7 @@ test("the Haunting starter is unchanged on the real kernel: no opening question,
 	assert.equal(state.prologue.opening, results[1].character_guidance.opening, "the shown prologue is recorded against it");
 });
 
-test("create-campaign pins the guidance key prepare-module accepted, so a resumed setup can load the guide the player saw (§22.9, §212)", async (t) => {
+test("create-campaign pins the guidance key prepare-module accepted, so a resumed setup can load the guide the player saw (§22.9, §226)", async (t) => {
 	const only = [OPENINGS[0]], key = "c".repeat(64);
 	const table = await openTable({
 		mode: "setup", campaign: null, env: moduleEnv("one-door", only),

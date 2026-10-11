@@ -107,6 +107,26 @@ test('an authored road is reachable in its reverse direction without an improvis
   assert.equal(receipt.improvised, undefined);
 });
 
+test('a road out of the place the party stands inside is a road from here (contract §212.1)', async t => {
+  // Live 9e7 turn 22: the party stood on the library's steps, a place the table minted inside the library; the library's
+  // book roads (to the Corbitt house's street) were in the capsule's `where.within.exits`, but no move row offered them and
+  // `apply move` refused them without `via`, so the walk never landed.
+  const game = await table(t);
+  await game.move(OPENING_TWO, undefined, {via: 'Into the second briefing room.'});
+  const steps = await game.mint('Corridor outside');
+  const capsule = await game.call('table.capsule');
+  assert.equal(capsule.where.within.name, (await game.call('table.lookup', {kind: 'module', query: OPENING_TWO, expected_kind: 'scene'})).entities[0].name);
+  const house = capsule.where.within.exits.map(exit => exit.to).find(to => to !== steps);
+  assert(house, 'the briefing room has a book road out of it');
+  const options = await game.call('table.apply.options');
+  const row = options.candidates.find(candidate => candidate.effect.kind === 'move' && candidate.effect.to === house);
+  assert(row, `a move row for the container's road: ${JSON.stringify(options.candidates.map(candidate => candidate.effect))}`);
+  assert.equal(row.description.exit_of, capsule.where.within.name);
+  const result = await game.move(house);
+  const receipt = (await game.call('table.status', {projection: 'receipts'})).receipts.find(entry => result.receipts.includes(entry.id) && entry.kind === 'move');
+  assert.deepEqual([receipt.from, receipt.to, receipt.exit_of, receipt.improvised], [steps, house, capsule.where.within.name, undefined]);
+});
+
 test('binding owners serialize the read and write across the actual file lock', async t => {
   const home = await mkdtemp(join(temporary, 'locking-'));
   const context = await api.createKernelContext({workspace: home, content: join(ROOT, 'content'), seed: 'binding-lock', locks: api.nativeAdvisoryLocks()});

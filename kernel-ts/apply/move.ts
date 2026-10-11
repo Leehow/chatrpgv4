@@ -8,8 +8,8 @@ import type { ApplyContext } from './index.js';
 import { advanceClock } from './clock.js';
 import { establishTableEntity, establishedWithin, validateEstablishment } from '../read/table-entities.js';
 import { isAmbiguity, recordOf, type ModuleGraph } from '../read/module-graph.js';
-import { personPlaces, placeRelation, returnRoute } from '../read/places.js';
-export function stageMove(context: ApplyContext, effect: Row): {
+import { aroundExit, bookRoadMinutes, personPlaces, placeRelation, returnRoute, roadKey, tableRoad } from '../read/places.js';
+export function stageMove(context: ApplyContext, effect: Row, travelRows?: ReadonlyMap<string, number> | null): {
     receipt: Row;
     event: DomainEvent | null;
 } {
@@ -72,24 +72,52 @@ export function stageMove(context: ApplyContext, effect: Row): {
     const listed = exits.has(target) || trail.includes(target) || established;
     const road = listed ? null : returnRoute(graph, current, destination);
     const related = listed || road ? null : placeRelation(graph, current, destination);
-    if (!listed && !road && !related && !via)
+    // §212.1: a road out of a place the party stands inside is a road from here.
+    const around = listed || road || related ? null : aroundExit(graph, current, destination);
+    if (!listed && !road && !related && !around && !via)
         throw new RpcError('not_reachable', `${repr(target)} is not reachable from ${repr(from)}`, {
             fix: `move to one of ${repr(sorted(exits.keys()))}, retrace to one of ${repr(back)}, or say how they got there in via`,
             details: { from, to: target, exits: sorted(exits.keys()), back }
         });
-    let minutes = effect.travel_minutes;
+    let minutes = effect.travel_minutes, travel: Row | null = null;
+    // §218.3: a road row named instead of minutes takes the row's usual minutes, as §138.9 fills a book road (never a roll).
+    const band = effect.travel_band;
+    if (band != null) {
+        if (minutes != null)
+            throw new RpcError('invalid_params', 'travel_band names the road\'s length, and travel_minutes is another; give one', {
+                fix: 'leave travel_minutes out to use the road row, or travel_band out to give your own minutes', details: { field: 'travel_band', reason: 'travel_conflict' } });
+        if (typeof band !== 'string' || !travelRows?.has(band))
+            throw new RpcError('invalid_params', `${repr(band)} is not a road row`, {
+                fix: 'name one of details.options, or give travel_minutes', details: { field: 'travel_band', reason: 'travel_band_unknown', options: [...(travelRows?.keys() ?? [])] } });
+        minutes = travelRows.get(band)!;
+        travel = { basis: 'banded', band };
+    }
+    // §204.2: a move within a place the two share has the structure's 0, never an unknown journey.
+    const insidePlace = !!related;
     if (minutes == null) {
-        const edge = exits.get(target) || graph.sceneExits(destination).find(exit => exit.to === from) || {};
-        minutes = Object.hasOwn(edge, 'travel_minutes') ? edge.travel_minutes : 0;
+        const edge = exits.get(target) || around?.exit || graph.sceneExits(destination).find(exit => exit.to === from) || {};
+        if (Object.hasOwn(edge, 'travel_minutes')) minutes = edge.travel_minutes;
+        else {
+            // §218.3: the road this table already travelled with known minutes; otherwise the journey's time is unknown, and says so.
+            const kept = tableRoad(world, from, target);
+            minutes = kept ? kept.minutes : 0;
+            if (kept) travel = { basis: 'travelled', ...(kept.turn !== undefined ? { turn: kept.turn } : {}) };
+            else if (!insidePlace) travel = { basis: 'unknown' };
+        }
     }
     if (!integer(minutes) || number(minutes) < 0)
         throw new RpcError('invalid_params', 'travel_minutes must be a non-negative integer');
+    // §218.3: a road no book road times keeps the minutes this move gave it, so the next trip either way takes the same.
+    if ((band != null || effect.travel_minutes != null && number(minutes) > 0) && bookRoadMinutes(graph, current, destination) === null)
+        (world.table_roads ??= {})[roadKey(from, target)] = { minutes: number(minutes), basis: band != null ? 'banded' : 'given', turn: turn.turn, ...(band != null ? { band } : {}) };
     const receipt: Row = { id: `move:${target}-t${turn.turn}-c${ordinal}`, kind: 'move', call_id: callId, from, to: target, from_label: sceneLabel(graph, world, current), to_label: label || sceneLabel(graph, world, destination), minutes, at: nowIso() };
+    if (travel) receipt.travel = travel;
     if (established) receipt.established = 'table';
     if (person) receipt.person = graph.handle(person);
     if (road) receipt.return_route = true;
     if (related) receipt.within = graph.handle(related.place);
-    if (via && !exits.has(target) && !trail.includes(target) && !road && !related) {
+    if (around) receipt.exit_of = graph.handle(around.place);
+    if (via && !exits.has(target) && !trail.includes(target) && !road && !related && !around) {
         receipt.via = via;
         receipt.improvised = true;
     }

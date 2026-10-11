@@ -19,7 +19,7 @@
 
 ## 按顺序接手
 
-1. **确认归属和实际状态。** 读主检出的 `AGENTS.md`、`docs/kernel-rpc.md` §212、PDF 规格，以及 `/Users/haoli/.codex/policies/worktree-lifecycle.md`。检查两个检出的 `git status --short --branch`、HEAD、最新 `0.*a` 和 `git worktree list`。新聊天不得默认拥有旧任务生命周期条目；依据政策核实归属，必要时用自己合法创建的检出承载修复，保留旧检出及证据。完成标准：主线漂移、归属、待验证源码及他人的改动已明确。
+1. **确认归属和实际状态。** 读主检出的 `AGENTS.md`、`docs/kernel-rpc.md` §226、PDF 规格，以及 `/Users/haoli/.codex/policies/worktree-lifecycle.md`。检查两个检出的 `git status --short --branch`、HEAD、最新 `0.*a` 和 `git worktree list`。新聊天不得默认拥有旧任务生命周期条目；依据政策核实归属，必要时用自己合法创建的检出承载修复，保留旧检出及证据。完成标准：主线漂移、归属、待验证源码及他人的改动已明确。
 2. **测试机空闲后验证当前源码。** 用户明确 amax 不在 LAN，使用 leehow-pc。读 `/Users/haoli/.codex/skills/leehow-pc-tests/SKILL.md`，执行 canonical probe，并另查在途构建。上次其他任务仍占用，交接没有重新探测，旧 PID 不代表当前状态。不要停止别人的进程或绕过 busy。完成标准：当前源码 canonical `all` 有真实退出码、三路汇总、全部日志，失败逐项处理。
 3. **取得精确运行时。** 归档远端本次 raw/per-file 日志，再只读取回本次构建到自己的 build，核对 source maps 和原样加载的 JS/提示文件。`E/check-runtime.mjs` 生成带源码提交和产物哈希的新证明；换检出须先调整硬编码路径。完成标准：实际运行产物与当前源码匹配、差异为 0；旧 690/0 不能冒充新验证。
 4. **真实复验保留的建卡草稿。** 用新 run 后缀保留旧 run。模型固定 Grok 4.7 Build Fast / low，主聊天为唯一自然语言玩家，一句一回合。恢复战役时 `session.resume` 是首个战役操作，走当前生产接线。完成标准：真实 `setup.confirm`、complete 收据和调查员状态成立，再真实 `table.open`，开场可以继续；正文自称完成不算。
@@ -37,7 +37,7 @@ RT_HOST=leehow-pc "$S" run /absolute/path/to/your-owned-worktree all
 
 ## 已提交修复：最终验收仍待完成
 
-契约是 `docs/kernel-rpc.md` **§212**。其他任务的 §209.13 和 §211 已保留；模型、超时、重试次数、资源上限、复核阈值未调整。
+契约是 `docs/kernel-rpc.md` **§226**。其他任务的 §209.13 和 §211 已保留；模型、超时、重试次数、资源上限、复核阈值未调整。
 
 | 修复 | 入口与行为 |
 | --- | --- |

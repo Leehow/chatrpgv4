@@ -117,7 +117,29 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // A missing owner is a full-view fallback, never an independent provider allowance.
     const visibilityMode=()=>fallbackForInput?'full':discoveryMode();
     const discoveryDecision=()=>fallbackForInput?undefined:sharedBudget?.decision;
-    const capabilityRuntime=createCapabilityRuntime({tools:()=>offeredTools(COC_TOOLS,sessionEnv),decision:discoveryDecision,mode:visibilityMode,record});
+    // Contract §209.14: a purpose lookup comes after a Keeper inference, so its decision is owned by the current foreground
+    // owner (TaskRuntime's provider owner, else the hybrid step's read owner), never by the optional allowance that inference
+    // has usually outlived. One lease per owner; the capability runtime's per-input selector budget still bounds the work.
+    let lookupBudget:{signal:AbortSignal;deadlineAt:number;budget:ReturnType<typeof preparationBudget>}|undefined;
+    const closeLookupBudget=()=>{lookupBudget?.budget.close();lookupBudget=undefined;};
+    const lookupDecision=():DecisionPort|string=>{
+        const port=decision();
+        if(!port||!campaign)return 'unconfigured';
+        const owner=foregroundReadOwner();
+        if(!owner||owner.signal.aborted||Date.now()>=owner.deadlineAt){
+            closeLookupBudget();
+            return !fallbackForInput&&sharedBudget&&Date.now()<prescreenDeadlineAt?sharedBudget.decision:'lookup_owner_unavailable';
+        }
+        if(lookupBudget?.signal!==owner.signal||lookupBudget.deadlineAt!==owner.deadlineAt){
+            closeLookupBudget();
+            const parent=foregroundBudget?.();
+            lookupBudget={signal:owner.signal,deadlineAt:owner.deadlineAt,budget:preparationBudget({decision:port,campaign,deadlineAt:owner.deadlineAt,
+                signal:parent?inputLifetime.signal:AbortSignal.any([inputLifetime.signal,owner.signal]),parent,
+                owner:'capability-lookup',goal:'Answer the Keeper read-only capability purpose lookup'})};
+        }
+        return lookupBudget.budget.decision;
+    };
+    const capabilityRuntime=createCapabilityRuntime({tools:()=>offeredTools(COC_TOOLS,sessionEnv),decision:discoveryDecision,lookupDecision,mode:visibilityMode,record});
     const modDiscovery=createModDiscovery({read:async(method,params)=>boundedDiscoveryRead(async()=>call?call(method,{campaign,...params}):undefined),
         decision:discoveryDecision,mode:visibilityMode,record});
     let pendingDiscovery:Row|undefined,requiredCapabilities:string[]=[];
@@ -126,10 +148,13 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let discoveryHandoff:Row|undefined;
     let discoveryUnavailable=false;
     pi.events.on('coc:discovery-task',value=>{discoveryHandoff=object(value);});
+    // §215: the canonical gateway names who dispatched a call; a policy clerk's write is not the Keeper's decision.
+    let hostOrigin:((toolCallId:string)=>unknown)|undefined;
+    pi.events.on('coc:operation-dispatcher',value=>{const port=object(value);hostOrigin=typeof port.hostOrigin==='function'?port.hostOrigin as (id:string)=>unknown:undefined;});
     const temporalAdvice=createTemporalAdvice({read:async(method,params)=>call?call(method,params):undefined,decision,record});
     let pendingTemporal:Row|undefined;
     let turnCalls=emptyCalls(),pendingSections:Row|undefined;
-    const resetPreparation=()=>{fallbackForInput=false;verifiedInputEpoch=undefined;inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;heldDiscoveryRequests.clear();discoveryHandoff=undefined;discoveryUnavailable=false;};
+    const resetPreparation=()=>{closeLookupBudget();fallbackForInput=false;verifiedInputEpoch=undefined;inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;heldDiscoveryRequests.clear();discoveryHandoff=undefined;discoveryUnavailable=false;};
     pi.events.on('coc:task-provider-budget',value=>{foregroundBudget=typeof value==='function'?value as typeof foregroundBudget:undefined;});
     pi.events.on('coc:discovery-read-owner',value=>{hybridReadOwner=typeof value==='function'?value as typeof hybridReadOwner:undefined;});
     // Contract §168.5: a capsule this hook reads itself is handed over through the kernel extension's first-sight view, as
@@ -209,14 +234,19 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if ((observedWorkspaceMode === 'off' && !prescreenEnabled() && !object(object(capsule?.mods).expression_reference).enabled
             &&discoveryMode()==='full') || object(data).campaign && object(data).campaign !== campaign) return;
         discoveryHandoff=undefined;
-        capabilityRuntime.clear();modDiscovery.reset();
+        // §217.1: a background publication lands inside the input, often while the Keeper's inference is out. It drops the
+        // selected view (the next request reselects against the new source); the Keeper's lookups still answer for the input.
+        capabilityRuntime.invalidate();modDiscovery.reset();
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; prescreenMemo=undefined;reusablePrescreen=undefined; invalidate();
     });
     pi.on('tool_call', async event => {
         const input=object(event.input);
         noteCall(turnCalls,event.toolName,input);
-        if(discoveryMode()!=='full'&&discoveryUnavailable&&['apply','resolve'].includes(event.toolName))
+        if(discoveryMode()!=='full'&&discoveryUnavailable&&['apply','resolve'].includes(event.toolName)){
+            record({lane:'context',event:'write_held',turn:observedTurn,tool:event.toolName,reason:'discovery_unavailable',
+                origin:object(hostOrigin?.(event.toolCallId)).origin==='policy'?'policy':'model',no_commit:true});
             return{block:true,reason:'The current discovery snapshot could not be verified. Refresh the canonical context before re-deciding this operation. No world change was committed. '+JSON.stringify({status:'unavailable',no_commit:true})};
+        }
         const needed=(Array.isArray(object(capsule?.mods).instructions)?object(capsule?.mods).instructions:[])
             .filter((mod:Row)=>mod.index_contract_version===2)
             .flatMap((mod:Row)=>(mod.sections??[]).filter((section:Row)=>(section.triggers??[]).some((trigger:string)=>{
@@ -225,7 +255,12 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     ||kind==='before_resolve'&&event.toolName==='resolve'&&turnCalls.resolve.has(name);
             })).map((section:Row)=>section.key));
         const missing=needed.filter((key:string)=>!deliveredDiscoveryKeys.has(key));
-        if(missing.length){
+        // §215: the readiness hold exists so the Keeper re-decides with the detail in view. A host-origin (policy clerk)
+        // write decides nothing from the Keeper's request: it is not held here, and the triggered sections stay due for the
+        // Keeper's next request through the call noted above. Admission, Mod hooks and the kernel still run for it.
+        const hostWrite=object(hostOrigin?.(event.toolCallId)).origin==='policy';
+        if(hostWrite&&missing.length)record({lane:'mod-discovery',event:'readiness_deferred',turn:observedTurn,origin:'policy',tool:event.toolName,keys:missing});
+        if(missing.length&&!hostWrite){
             const request=fingerprint([inputEpoch,event.toolName,input]),repeated=heldDiscoveryRequests.has(request);
             heldDiscoveryRequests.add(request);
             const names=(object(capsule?.mods).instructions??[]).flatMap((mod:Row)=>(mod.sections??[])
@@ -237,7 +272,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 +'No world change was committed. '+JSON.stringify({status:repeated?'unavailable':'expansion',requested:names,
                     loaded:[],missing_capability:names,no_commit:true})};
         }
-        const hold=capabilityRuntime.readiness(event.toolName,object(event.input));
+        const hold=hostWrite?undefined:capabilityRuntime.readiness(event.toolName,object(event.input));
         if(hold)return hold;
         if (event.toolName === 'look' || event.toolName === 'lookup')
             reads.set(event.toolCallId, {kind: String(input.kind ?? input.focus ?? ''),
@@ -566,7 +601,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         try {return await projectRequest(event, ctx);}
         catch (error) {
             const failure = (error instanceof Error ? error.message : String(error)).slice(0, 160);
-            discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
+            discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
             pendingSections=undefined;pendingExpression=undefined;pendingTemporal=undefined;pendingProvider=undefined;
             invalidate();degraded('context_projection_failed');
             const requestMessages=event.messages.filter(message=>message.role!=='custom'||message.customType!==NPC_ADVICE_TYPE);
@@ -580,7 +615,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if(!fallbackForInput&&inputEpoch&&verifiedInputEpoch===inputEpoch&&prescreenDeadlineAt
             &&Date.now()>=prescreenDeadlineAt&&foregroundReadOwner()){
             fallbackForInput=true;discoveryUnavailable=true;sharedBudget?.close();sharedBudget=undefined;
-            capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
+            capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
             record({lane:'context',event:'discovery_fallback',turn:observedTurn,reason:'preparation_expired',
                 optional_deadline:prescreenDeadlineAt,foreground_deadline:foregroundReadOwner()?.deadlineAt});
         }
@@ -595,10 +630,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             snapshot=await boundedDiscoveryRead(prepare);
             if(!snapshot&&ticket!==generation&&!inputPending)snapshot=await boundedDiscoveryRead(prepare);
         }catch(error){
-            if(ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
+            if(ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
                 invalidate();degraded(String(error?.message??'discovery_snapshot_unavailable'));}
         }
-        if(!snapshot&&ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();}
+        if(!snapshot&&ticket===generation){discoveryUnavailable=discoveryMode()!=='full';capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();}
         // Pi 0.87 restores the canonical system/tool checkpoint after this hook. Reserve its
         // serialized size on every exit, including degraded turns, without treating it as history.
         const {systemBytes, systemDigest} = systemMeasure(ctx);
@@ -819,7 +854,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 record({lane:'context',event:'discovery_snapshot',turn:snapshot.binding.turn,status:'unavailable',reason,ms:Date.now()-began});
                 if(ticket===generation){
                     discoveryUnavailable=true;
-                    capabilityRuntime.clear();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
+                    capabilityRuntime.invalidate();modDiscovery.reset();pendingDiscovery=undefined;requiredCapabilities=[];deliveredDiscoveryKeys.clear();
                     pendingSections=undefined;pendingExpression=undefined;pendingTemporal=undefined;pendingProvider=undefined;
                     capsule=undefined;rawBinding=undefined;brief=undefined;briefKey=undefined;invalidate();degraded(reason);
                 }

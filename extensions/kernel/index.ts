@@ -107,7 +107,7 @@ import { OPENING_PRESENCE_FAMILY } from "../../runtime/jev/opening-presence.ts";
 import { createPublicFigureJudge } from "./public-figures.ts";
 import { seatOpeningPeople } from "./opening-presence.ts";
 import { PlaceBindings } from "./place-binding.ts";
-import { PendingAnswers, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs, type SourceAnswerScope } from "./source-answers.ts";
+import { PendingAnswers, landedFirstAnswer, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs, type SourceAnswerScope } from "./source-answers.ts";
 import {sourceAnswerPage} from '../../runtime/jev/source-answer-pages.ts';
 import { PERSON_TEXT_NOTE, SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
 import { bookText, CarriedText, findPassage } from "./carried-text.ts";
@@ -163,6 +163,7 @@ import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-d
 import { watchOwedReview } from "./owed-review.ts";
 import { startToldPosition } from "./told-position.ts";
 import { startToldClue } from "./told-clue.ts";
+import { startToldTime } from "./told-time.ts";
 import { openingInstruction } from "./opening-instruction.ts";
 import { leaveOutRefused, leaveOutUnknownOwed, owedLeftOutNote, type OwedLeftOut } from "./owed-left-out.ts";
 import { splitNpcMood } from "./npc-mood-split.ts";
@@ -2520,7 +2521,7 @@ export default function (pi: ExtensionAPI) {
 	 */
 	function combatSceneMove(state: TableState, payload: Record<string, unknown>): string | undefined {
 		const effects = Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : [];
-		if (effects.length !== 1 || effects[0]?.kind !== "move" || effects[0].travel_minutes !== undefined) return undefined;
+		if (effects.length !== 1 || effects[0]?.kind !== "move" || effects[0].travel_minutes !== undefined || effects[0].travel_band !== undefined) return undefined;
 		const destination = asString(effects[0].to);
 		return destination && state.combatSceneMoves.has(destination) ? destination : undefined;
 	}
@@ -4249,19 +4250,22 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * Contract §190.2 and §201.1: after every delivery, read where the delivered text leaves the investigators and which of
-	 * the book's clues it gave them, in the background. Nothing here is awaited by the delivery and the prose is never
-	 * reviewed or edited (§190.2's one exception to §166, extended to clues by §201.1). When either read may owe, the reads
-	 * are the turn's one flight for §158.4's watch: it settles when either wrote an owed row, so the next run's first read
-	 * reads the table again for what either named; it is cleared once both reads ended.
+	 * Contract §190.2, §201.1 and §216.1: after every delivery, read where the delivered text leaves the investigators, which
+	 * of the book's clues it gave them and how much in-world time it told them spending, in the background. Nothing here is
+	 * awaited by the delivery and the prose is never reviewed or edited (§190.2's one exception to §166, used for clues by
+	 * §201.1 and for time by §216). When any read may owe, the reads are the turn's one flight for §158.4's watch: it settles
+	 * when any wrote an owed row, so the next run's first read reads the table again for what it named; it is cleared once
+	 * all three reads ended.
 	 */
 	function afterDeliveryTold(state: TableState, turn: number, prose: string | undefined): void {
 		const kernel = state.kernel, campaign = state.campaign;
 		const deps = { env: process.env, campaign, turn, text: prose, signal: state.lanes.signal,
 			call: (method: string, params: Record<string, unknown>) => kernel.call(method, params), record: (row: Record<string, unknown>) => record(row) };
-		let open = 2, flight: { turn: number; done: Promise<void> } | undefined;
+		let open = 3, flight: { turn: number; done: Promise<void> } | undefined;
 		const ended = () => { open -= 1; if (open === 0 && flight && state.reviewInFlight === flight) state.reviewInFlight = undefined; };
-		const flights = [startToldPosition(deps, ended), startToldClue(deps, ended)].filter((value): value is { turn: number; done: Promise<void> } => !!value);
+		// §216.1: the told time is the third read of the same delivery, in the same flight.
+		const flights = [startToldPosition(deps, ended), startToldClue(deps, ended), startToldTime({...deps, ...(state.interactionScope ? {scope: state.interactionScope} : {})}, ended)]
+			.filter((value): value is { turn: number; done: Promise<void> } => !!value);
 		flight = flights.length <= 1 ? flights[0]
 			: { turn, done: new Promise<void>(resolve => { for (const each of flights) void each.done.then(resolve, resolve); }) };
 		if (flight && open > 0) state.reviewInFlight = flight;
@@ -5617,7 +5621,18 @@ export default function (pi: ExtensionAPI) {
 					const askedAt = state.scene?.handle, askedTurn = state.turn, askedScope = state.sourceAnswerScope ? {...state.sourceAnswerScope} : undefined;
 					const sourceRead = { purpose: answerOnly ? "answer" : "detail", focus: params.query, question: params.question ?? "" };
 					let memoEnvelope = false;
-					try {
+					// §217.2: an answer that landed at this scene while this run was deciding, and was not handed to it yet, answers
+					// the lookup first (as the memo does), so a lookup that raced the landing never starts a second reading. The
+					// resend, or `retry: true`, reads the book. No question is matched against another.
+					const landedFirst = answerOnly && params.retry !== true && fromStep?.run
+						? pendingAnswers.landedFor(state.campaign, {scene: askedAt, run: fromStep.run, scope: askedScope}) : [];
+					if (landedFirst.length) {
+						for (const entry of landedFirst)
+							pendingAnswers.hold(state.campaign, askedAt, [{focus: entry.focus, question: entry.question, answer: entry.answer}], entry.turn, fromStep!.run, askedScope);
+						sourceAnswer = landedFirstAnswer(landedFirst);
+						memoEnvelope = true;
+						void record({ lane: 'reading', event: 'answer_landed_first', turn: state.turn, focus: String(params.query), foci: landedFirst.map(entry => entry.focus) });
+					} else try {
 						// §22.4.3 (SL-36) / §22.4.3.1 (SL-58): a consultation, checked or preparing, waits at most its allowance. Past
 						// it neither is the turn's provider work: an answer goes on in the background like a read-ahead, and a
 						// `prepare` keeps its blocking slot instead (§22.4.6) -- the Keeper asked for this material now, so it is not
@@ -6552,6 +6567,9 @@ export default function (pi: ExtensionAPI) {
 					if (!operationGate.open) throw new KernelError({ code: 'internal', message: 'The operation dispatcher is closed' });
 					return dispatcher.dispatch(...args);
 				},
+				// §215: who dispatched a call now running its `tool_call` gates (a policy clerk's host origin, or
+				// undefined for the model's own call). Read-only; it grants nothing.
+				hostOrigin: (toolCallId: string) => operationGate.open ? dispatcher.hostOrigin(toolCallId) : undefined,
 			}));
 			// §135.11: a driven run asks the turn close what it did, through this port, when it has no delivery evidence.
 			pi.events.emit('coc:turn-close', Object.freeze({

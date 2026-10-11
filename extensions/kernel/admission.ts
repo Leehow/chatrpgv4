@@ -19,7 +19,7 @@
 
 import { createHash } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { runLane, type KeptReservation, type LaneResult, type LaneTransport } from "../lanes/subsession.ts";
+import { runLane, type KeptReservation, type LaneReplyEvidence, type LaneResult, type LaneTransport } from "../lanes/subsession.ts";
 import { KernelError } from "./client.ts";
 import { createDecisionAdapter, jevFailureTelemetry } from "../../runtime/jev/decision-adapter.ts";
 import { HANDOVER_GROUND_NOTE, PLAYER_EXECUTION_CHOICE_NOTE } from "../../runtime/jev/action-field-semantics.ts";
@@ -431,7 +431,7 @@ export function keyDigest(key: string): string {
  * written (`time`'s band, until, stated and beyond_travel among them), and a verdict on one time cost was reused for another.
  */
 const IDENTIFYING_FIELDS: readonly string[] = [
-	"to", "establish", "label", "travel_minutes", "via", "clue", "minutes", "band", "until", "stated", "beyond_travel", "delta",
+	"to", "establish", "label", "travel_minutes", "travel_band", "via", "clue", "minutes", "band", "until", "stated", "beyond_travel", "delta",
 	"name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope", "object",
 	"description", "category", "adopt", "condition", "weapon", "definition", "source_object", "document", "part", "offer", "handover", "check",
 	"settlement", "source", "price_id", "currency", "mode", "quote", "bill", "items", "intent_ref", "intent_outcome", "owed","activity",
@@ -794,12 +794,19 @@ export const KEEPER_ADDED_FIX = "The player already made their choice; this prop
  */
 export function admissionUnavailable(proposal: AdmissionProposal, reason: string, detail: string, streak = 1): KernelError {
 	const landed = "Only this batch is unsettled: whatever this turn already settled with a receipt (a roll made, an effect that landed) did happen and is narrated as usual. For this batch, do not roll or land anything, do not narrate its effects as having happened, and do not retry it";
+	// §213.1 (live 9e7 turn 26): the Keeper read "close the turn with narrate" as "no further apply this turn", then narrated the
+	// player's cab ride home and the tip it never proposed, "leaving the cash and move as owed for next turn". The refusal now
+	// says what it holds -- the refused lines, and the result of any declared act no receipt carries at the close -- and that
+	// owed state is not a way to deliver what a refusal held.
+	const held = " This refusal does not forbid proposing another part of what the player declared: each call is reviewed on its own, and what lands is narrated."
+		+ " What the player declared and no receipt carries when the turn closes did not happen this turn: narrate the investigator beginning it (turning to it, setting out, reaching for it), never its result (an arrival, a departure, a payment, a thing changing hands)."
+		+ " Never tell a result and leave it for the ledger to catch up: owed state is what an earlier delivery already told, not a way to tell what a refusal held.";
 	// §47 as amended by §22.4.4 (SL-37): a lane that did not answer is the clerk's business, never the prose. The Keeper is told what
 	// is unsettled and what to do, never a sentence for the player; on SL-29A book A t7 "the service did not connect, go on next time" reached
 	// the fiction from the line this used to hand over. The operator is told out of the game (`coc-admission-status`, streak 2).
-	const fix = `${landed} this turn. Previously delivered fiction still stands; never retract it. The action review did not answer, and that is the clerk's business, not the player's:`
+	const fix = `${landed} this turn.${held} Previously delivered fiction still stands; never retract it. The action review did not answer, and that is the clerk's business, not the player's:`
 		+ " do not put the review, the service or its failure into the fiction or the prose, and do not ask the player to say their action again."
-		+ " Close the turn with narrate: take up what the player actually said, without that batch's effects."
+		+ " Close the turn with narrate: take up what the player actually said, with what landed and without the result of what did not."
 		+ (streak >= 2 ? ` The action review has failed ${streak} times in a row, so a resend will not fix it; the operator has been notified outside the game. Do not promise that the next input will work.`
 			: " The player's next input can try again.");
 	return new KernelError({
@@ -928,6 +935,8 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 	const input = buildAdmissionInput(options.proposal, options.context);
 	let lane: LaneResult<AdmissionVerdict> | undefined, model: string | undefined, firstByteMs: number | undefined, previous: string | undefined;
 	let attempts = 0, malformed = 0, transient: Record<string, unknown> | undefined;
+	// §214: what each malformed answer held (bounded), so a `bad_output` row says why it could not be read.
+	const malformedReplies: LaneReplyEvidence[] = [];
 	// §190.3 (§140.1): a transient failure's reservation, kept for its identical retry; charged whole if none takes it.
 	let kept: KeptReservation | undefined;
 	try { for (;;) {
@@ -958,6 +967,7 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 		if (firstByteMs === undefined && lane.firstByteMs !== undefined) firstByteMs = startedAt - began + lane.firstByteMs;
 		if (lane.ok || options.signal?.aborted) break;
 		// §143.15: a malformed answer is asked for once more, with one line saying why.
+		if (lane.reason === "bad_output" && lane.reply) malformedReplies.push(lane.reply);
 		if (lane.reason === "bad_output" && ++malformed < ADMISSION_LANE_ATTEMPTS) { previous = lane.detail; continue; }
 		// §190.3: a transient provider failure is asked again once, unchanged, after the data's wait and inside the deadline.
 		if (transient || !transientLaneFailure(lane)) break;
@@ -968,7 +978,8 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 		if (options.signal?.aborted) break;
 	} } finally { kept?.chargeWhole(); }
 	const ms = clock.now() - began;
-	const meta = { path: "lane", first_byte_ms: firstByteMs ?? null, attempts, ...(transient ? { transient_retry: transient } : {}) };
+	const meta = { path: "lane", first_byte_ms: firstByteMs ?? null, attempts, ...(transient ? { transient_retry: transient } : {}),
+		...(malformedReplies.length ? { malformed_replies: malformedReplies } : {}) };
 	// §32.12: a round cut at its cap -- whether the provider never answered or answered and streamed past it -- is the
 	// host's `review_timeout` verdict, a refusal; never an outage, and never an admit.
 	if (!lane!.ok && lane!.reason === "timeout") return { ok: true,

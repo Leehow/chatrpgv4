@@ -174,18 +174,26 @@ export async function runToldPosition(input: ToldInput, decision: DecisionPort, 
   }
 }
 
-export type ToldDecision = { decision: 'owe'; handle: string; quote: string } | { decision: 'stay'; why: string };
+export type ToldDecision = { decision: 'owe'; handle: string; quote: string } | { decision: 'owe'; departure: true; quote: string }
+  | { decision: 'stay'; why: string };
 
 /**
  * What the bars give (§190.2): owe when `moved` clears `movedMin`, the chosen place is not `none` and not the scene the
  * party stood in, the place's confidence clears `placeMin`, and the sentence's confidence clears `sentenceMin`; otherwise
- * stay, with the first bar that was not cleared.
+ * stay, with the first bar that was not cleared. §213.2: when `moved` clears its bar and the Choice puts `none` first with
+ * a confidence that clears `placeMin` -- the text has the party leave for a place none of the candidates is -- the
+ * departure is owed (`departure: true`), with the same sentence bar; below `placeMin` it stays `none`.
  */
 export function toldDecision(result: ToldResult, budget: Pick<ToldPositionBudget, 'movedMin' | 'placeMin' | 'sentenceMin'>, activeScene: string): ToldDecision {
   if (result.status !== 'answered') return { decision: 'stay', why: result.reason };
   if (result.moved === null) return { decision: 'stay', why: 'moved_unanswered' };
   if (result.moved < budget.movedMin) return { decision: 'stay', why: 'not_moved' };
-  if (result.chosen === null) return { decision: 'stay', why: 'none' };
+  if (result.chosen === null) {
+    if (result.confidence < budget.placeMin) return { decision: 'stay', why: 'none' };
+    if (!result.sentence) return { decision: 'stay', why: 'sentence_unanswered' };
+    if (result.sentence.confidence < budget.sentenceMin) return { decision: 'stay', why: 'low_sentence' };
+    return { decision: 'owe', departure: true, quote: result.sentence.text };
+  }
   if (result.chosen === activeScene) return { decision: 'stay', why: 'same_scene' };
   if (result.confidence < budget.placeMin) return { decision: 'stay', why: 'low_place' };
   if (!result.sentence) return { decision: 'stay', why: 'sentence_unanswered' };

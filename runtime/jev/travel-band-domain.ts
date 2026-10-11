@@ -75,6 +75,16 @@ export function travelCriteria(rows: readonly TravelBandRow[]): Record<string, s
 
 const INSTRUCTIONS = (key: string) => `\`roads.${key}\` holds two scenes of one scenario, \`a\` and \`b\`, each with its name, its summary and, where the book gives them, its places and place words. How long is the way from one to the other for people travelling between them in the story's world? Judge where the two scenes are, not what happens in them. Choose adjacent when both are parts of one building or one place (rooms, floors, a cellar and the house above it, a yard and its house). Choose local travel for two places of one town or city, or just outside it. Choose long travel for places in different towns, or somewhere far out of one.`;
 
+/**
+ * §218.3: the same question at play, for the clerk's move along a way no road has timed: the two places are in the bound
+ * candidate's `detail.road` (`from`, `to`), never a handle. The answer becomes the move's `travel_band`, which the kernel
+ * keeps as the road's length.
+ */
+export const TRAVEL_BIND_INSTRUCTION = '`chosen.detail.road` holds the two places of this move, `from` and `to`, each with its name and what is known of it. '
+  + 'How long is the way from one to the other for people travelling between them in the story\'s world? Judge where the two places are, not what happens in them '
+  + 'or how the player says they travel. Choose adjacent when both are parts of one building or one place (rooms, floors, a cellar and the house above it, a yard '
+  + 'and its house). Choose local travel for two places of one town or city, or just outside it. Choose long travel for places in different towns, or somewhere far out of one.';
+
 function questionFor(key: string, road: TravelRoad, criteria: Record<string, string>): DecisionQuestion {
   return {key, target: clip(`the way between ${road.briefs[0].name} and ${road.briefs[1].name}`, 240), type: 'choice',
     instructions: INSTRUCTIONS(key), criteria};

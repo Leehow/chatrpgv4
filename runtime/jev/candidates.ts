@@ -17,8 +17,8 @@ import {TIME_CANDIDATE_KEY, type Candidate, type Json, type Unbound} from './ste
 import {DICE, guardsOf, obligationCandidates, preordainedContacts} from './obligation-candidates.ts';
 import {composeSentence} from './composed-arguments.ts';
 import {npcTurnCandidate} from './npc-act-step.ts';
-import {damageQuestion, timeQuestion, type DamageBandRow, type TimeBandRow} from './band-shadow-domain.ts';
-import {declaredClockTimes, declaredDurations} from './declared-duration.ts';
+import {ROUTE_TIME_BANDS, damageQuestion, timeQuestion, type DamageBandRow, type TimeBandRow} from './band-shadow-domain.ts';
+import {TRAVEL_BIND_INSTRUCTION, travelCriteria} from './travel-band-domain.ts';
 
 type Row = Record<string, any>;
 export {bindingOf, type Binding, type Candidate, type Json, type Unbound} from './step-policy.ts';
@@ -63,41 +63,28 @@ export interface BandReads {time?: TimeBandRow[]; damage?: DamageBandRow[]; gate
 /**
  * §138.10: the time the player's declared action takes, as a row of the time-costs table (the road rows left out: a
  * move carries its road's minutes). The route asks a fact about the declaration -- is it an activity that costs table
- * time -- and the bind extends the shadow lane's time question (§138.8) with host-parsed literal intervals.
- * The `why` is composed; Jev selects an issued interval or row; the host converts or the kernel rolls minutes.
+ * time -- and the bind asks the shadow lane's time question (§138.8) beside §218.1's stated-measure grids (a stated end
+ * or a stated length, read by Jev on host-enumerated number grids, never by a lexer). The `why` is composed; Jev selects a
+ * row or reads a stated measure; the host converts a grid value, and the kernel counts or rolls the minutes.
  */
 function timeCandidate(rows: TimeBandRow[], rawInput: string, gate: number | undefined): Candidate | undefined {
-  // §211.2: literal clock endpoints beside the literal intervals; the kernel counts the minutes to a chosen endpoint.
-  const question = timeQuestion(rows), durations = declaredDurations(rawInput), clocks = declaredClockTimes(rawInput),
-    literal = Object.keys(durations).length > 0 || Object.keys(clocks).length > 0,
-    descriptions = {...question.criteria as Record<string,string>, ...Object.fromEntries(Object.entries(durations).map(([alias,value])=>[alias,
-      `Exact literal interval ${JSON.stringify(value.text)} at input UTF-16 [${value.start}, ${value.end}): ${value.minutes} whole minutes. Select only if the player chose this interval to elapse now.`])),
-      ...Object.fromEntries(Object.entries(clocks).map(([alias,value])=>[alias,
-      `Exact literal clock time ${JSON.stringify(value.text)} at input UTF-16 [${value.start}, ${value.end}): the 24-hour reading ${value.time}. Select only if the player chose to wait or let time pass until this clock time now; the kernel counts the minutes from the current game clock to its next occurrence.`]))},
+  const question = timeQuestion(rows), descriptions = {...question.criteria as Record<string, string>},
     options = Object.keys(descriptions).filter(key => key !== 'unknown');
   if (!options.length) return undefined;
   return {key: TIME_CANDIDATE_KEY, verb: 'apply', family: 'time', source: 'rules.bands',
-    label: 'Charge actual completed or attempted time, using a chosen interval, a chosen clock endpoint or a fitting activity band',
-    bound: {kind: 'time', why: composeSentence(literal
-      ? 'The time actually consumed by the selected wait or supported completed/attempted portion, from an exact interval, a chosen clock endpoint or kernel row'
-      : 'The time actually consumed by a supported completed/attempted portion, from a fitting kernel time-cost row', rawInput)},
+    label: 'Charge actual completed or attempted time, using a stated end, a stated length or a fitting activity band',
+    bound: {kind: 'time', why: composeSentence('The time actually consumed by the selected wait or supported completed/attempted portion, from a stated end, a stated length or a kernel time-cost row', rawInput)},
     composed: ['why'],
-    ...(Object.keys(durations).length ? {timeDurations: durations} : {}),
-    ...(Object.keys(clocks).length ? {timeClocks: clocks} : {}),
     unbound: [{name: 'band', required: true, vocabulary: 'closed', options, descriptions, instruction: String(question.instructions)
       + ' Select only the actual completed or attempted portion supported by the current state and known result. A chosen wait counts its actual interval; an inquiry, OOC clarification, future plan, quotation, estimate, deadline, negation or conditional step not reached belongs to unknown. An unavailable service or blocked access does not mean the full planned search, research, conversation or entry happened. Use a short fitting band for a genuinely established brief attempt, never charge the entire unreached goal. Do not invent NPC agreement, permission, completion or a venue.'
-      + ' An explicit interval that is not offered must remain unknown; never choose an estimated activity band to replace it.'
-      + (Object.keys(durations).length ? ' If the declaration chooses a fixed interval to elapse now, choose its exact literal duration instead of an estimated activity band. A historical interval, quoted promise, estimate, deadline, negated action or conditional future interval is not chosen time. A bounded wait that ended earlier uses only its actually settled interval. Compound or otherwise unsupported exact intervals need unknown; never substitute an estimate for them. The lexer only enumerates syntax; it grants no action or story outcome.' : '')
-      + (Object.keys(clocks).length ? ' If the declaration chooses to wait or let time pass until a literal clock time now, choose that exact clock time instead of an estimated activity band; the kernel counts the minutes to its next occurrence from the current game clock. A clock time that is a schedule, an opening or closing hour, an appointment, a quotation, a deadline, a past moment, a 12-hour reading the words contradict, or a condition not reached is not a chosen endpoint and needs unknown. The lexer only enumerates syntax; it grants no action or story outcome.' : ''),
+      + ' A clock time or a length the player states is asked separately; choose here the activity that fills the time.',
       band: {table: 'time-costs', field: 'time.band', primitive: 'choice', ...(gate !== undefined ? {gate} : {})}}],
     routeFact: {target: 'whether an actual completed or attempted portion consumes uncounted game time',
       instructions: 'Did an actual completed or attempted in-world portion take time that this clock must count, or did the player actually choose a wait? Use the current local context, availability and known outcome; intention alone does not establish a completed activity. OOC questions are not fictional conversation. Unavailable service and blocked access cannot justify the full proposed duration. If the consumed portion is not established yet, leave it to the Keeper after the outcome; do not pre-charge a speculative result.',
       criteria: {costs: 'An actual completed/attempted portion or chosen wait consumes time independently of any unreached goal.',
         none: 'No countable in-world activity happened, or this is only travel already counted by move, an OOC clarification, or an action inside a fight.',
         unknown: 'Cannot be told from the supplied state.'}, selects: 'costs'},
-    clerk: 'declared_time', basis: {read: 'rules.bands', path: 'time.band', row: {table: 'time-costs', rows: options},
-      ...(Object.keys(durations).length ? {duration_source: {read: 'current-player-input', occurrences: durations}} : {}),
-      ...(Object.keys(clocks).length ? {clock_source: {read: 'current-player-input', occurrences: clocks}} : {})} as Json};
+    clerk: 'declared_time', basis: {read: 'rules.bands', path: 'time.band', row: {table: 'time-costs', rows: options}} as Json};
 }
 
 /**
@@ -415,6 +402,16 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
   const relationships = array(object(capsule.mods).relationships).map(object);
   for (const candidate of sessionCandidates(session, rawInput, reads.answering ?? [], object(resolveContext.pending_choice), object(reads.fighter), relationships, strings(resolveContext.combat_outcomes)))
     if (candidate.forced) push(candidate);
+  // §218.3: the road rows of the time table (`local_travel`, `long_travel`) and the exit `adjacent`, as §138.9 asks them at build.
+  const travelRows = (reads.bands?.time ?? []).filter(row => ROUTE_TIME_BANDS.includes(row.handle));
+  const travelBand = (to: string, material: string): {parameter: Unbound; detail: Json} | undefined => {
+    if (!travelRows.length) return undefined;
+    const criteria = travelCriteria(travelRows);
+    return {parameter: {name: 'travel_band', required: true, vocabulary: 'closed', options: Object.keys(criteria), descriptions: criteria,
+      instruction: TRAVEL_BIND_INSTRUCTION, ruleDefault: {rule: 'jev_lead'}, omitWhenUnbound: true},
+      detail: {from: {name: text(where.display_name), ...(text(where.summary) ? {summary: text(where.summary).slice(0, 480)} : {})},
+        to: {name: to, ...(material ? {summary: material.slice(0, 480)} : {})}} as Json};
+  };
   // Effects the kernel issues for the current state.
   for (const [index, row] of array(object(reads.applyOptions).candidates).map(object).entries()) {
     const effect = object(row.effect), description = object(row.description), kind = text(effect.kind);
@@ -428,13 +425,18 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     // §201.2: a clue the book finds by a check is not the clerk's to file before this turn passed that check (`apply clue`
     // refuses it until then); the kernel row says whether it has (`check.passed`). Its compile `ask` row stays.
     if (kind === 'clue' && object(description.check).passed === false) continue;
-    if (kind === 'move') push({key: `apply:move:${text(effect.to)}`, verb: 'apply', family: 'move', source: 'table.apply.options',
+    if (kind === 'move') {
+      // §218.3: a way no road has timed (no minutes on the row, not a move within a place) is asked its road row, so the
+      // clerk's move carries the journey's time and the kernel keeps it as the road's length.
+      const road = !Number.isInteger(description.travel_minutes) && !text(description.within) ? travelBand(text(description.display_name) || text(effect.to), text(description.material)) : undefined;
+      push({key: `apply:move:${text(effect.to)}`, verb: 'apply', family: 'move', source: 'table.apply.options',
       label: `Move the party to ${text(description.display_name) || text(effect.to)}`, bound: {kind: 'move', to: text(effect.to)},
       unbound: [{name: 'travel_minutes', required: false, vocabulary: 'open'}, {name: 'label', required: false, vocabulary: 'open'},
-        {name: 'via', required: false, vocabulary: 'open'}],
-      detail: {available: true, ...(text(description.material) ? {material: text(description.material)} : {}),...(description.source_identity?{source_context:description.source_context}: {})} as Json,
+        {name: 'via', required: false, vocabulary: 'open'}, ...(road ? [road.parameter] : [])],
+      detail: {available: true, ...(text(description.material) ? {material: text(description.material)} : {}), ...(road ? {road: road.detail} : {}),...(description.source_identity?{source_context:description.source_context}: {})} as Json,
       ...(description.source_identity?{routeFact:{target:'requested original-source destination',instructions:'Does the supplied source permit the declared movement now without an unresolved access condition, obstacle or required check? A named place alone does not waive an entrance restriction. If the source states a relevant condition whose satisfaction is unknown, choose unknown.',criteria:{enter:'The declared ordinary travel has no unresolved source condition.',blocked:'An access condition currently prevents this movement.',unknown:'A relevant source condition requires adjudication first.'},selects:'enter'}}:{}),
       clerk: 'declared_bookkeeping', basis});
+    }
     else if(kind==='npc'&&description.kind==='source_presence')push({key:'apply:source-presence:'+text(effect.name),verb:'apply',family:'source_presence',source:'table.apply.options',
       label:'Initialize the authored presence of '+text(description.name)+' at '+text(description.scene),
       bound:{kind:'npc',name:text(effect.name),to:text(effect.to),why:composeSentence('The source places this previously unregistered actor in the current scene',rawInput)},

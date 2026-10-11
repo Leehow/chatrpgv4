@@ -475,6 +475,8 @@ One app-play-gated leaf, `runtime/jev/first-sight.ts` `createFirstSightLane.chec
 
 `extensions/kernel/told-clue.ts#ask` constructs one DecisionAdapter for the delivered-clue read (§201): a bounded leaf after delivery, sharing the owner's deadline, transport policy and provider allowance. It returns readings for the existing owed-state writer and cannot drive a Keeper run. Controlled evidence: `tests/extension/clue-ledger.test.mjs`.
 
+`extensions/kernel/told-time.ts#ask` constructs one DecisionAdapter for the delivered-time read (§216): a bounded leaf after delivery, beside the delivered-clue read, with its own deadline, transport policy and provider allowance. It returns a time-cost reading for the existing owed-state writer and cannot drive a Keeper run. Controlled evidence: `tests/extension/told-time.test.mjs`.
+
 `runtime/jev/establish-review.ts#createEstablishReviewLane.review` calls `runLane` for one short establishing verdict (§203). The owner approved the pre-delivery exception: at most 20 seconds, one possible rewrite, then delivery; unavailable review delivers the original. The existing caller owns that continuation. Controlled evidence: `tests/extension/scene-establish-host.test.mjs`; live App acceptance remains pending.
 
 ### Native historical search (2026-10-09)

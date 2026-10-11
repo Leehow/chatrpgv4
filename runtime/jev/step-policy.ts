@@ -20,7 +20,6 @@ import {semanticQuestions, semanticChoice} from './semantic-votes.ts';
 import {createHash} from 'node:crypto';
 import {turnNow,type TurnContext} from './turn-context.ts';
 import {preparedAttackReady} from './attack-preparation.ts';
-import type {DeclaredClock, DeclaredDuration} from './declared-duration.ts';
 import {rosterReady, type ProfileRequirement} from './profile-readiness.ts';
 import type {ObservationView, OperationProposal, RunPolicy, RunView as DriverView, StepRequest as DriverStepRequest} from '@earendil-works/pi-agent-core';
 import type {DecisionBatch, DecisionResult, IntentBinding, ReadSet, ScopeBinding} from './contracts.ts';
@@ -82,7 +81,12 @@ export interface Unbound {name: string; required: boolean; vocabulary: 'closed' 
    * kernel issued (the session's participant side, the pending defence's `for`, the investigator's first blow or stated check).
    * Absent: a fact, a rule or another person's own choice. A player-owned value is never taken from Jev below its gate.
    */
-  owner?: 'player'}
+  owner?: 'player';
+  /**
+   * §218.3: asked, but not needed to run the step: unbound (unknown, unanswered, Jev unavailable) it is left out of the call,
+   * which is what the step did before the parameter existed. Never set on a player-owned value or a band.
+   */
+  omitWhenUnbound?: boolean}
 /** How one parameter of a clerk step got its value (contract §135.28, §138): the five ways, none of them a model call. */
 export type BindingPath = 'jev' | 'rule-default' | 'stated' | 'composed' | 'banded';
 /**
@@ -99,7 +103,13 @@ export interface BindRecord {name: string; path: BindingPath; value: Json; confi
   held?: boolean; named?: boolean;
   /** Correlated-view diagnostics, never an execution gate. */
   semantic?: {answered: number; total: number; spread?: number};
-  table?: string; band?: string; roll?: Json}
+  table?: string; band?: string; roll?: Json;
+  /** §211.3/§218.1: the activity-band answer a stated measure took precedence over. */
+  superseded?: Json;
+  /** §218.1: the stated-measure grids a stated end or length was read from (pooled choice, leading probability, distribution). */
+  stated?: Json;
+  /** §218.1: the stated end's half of the day was not fixed; the kernel takes whichever reading the clock reaches first. */
+  either_half?: boolean}
 /** One shape a candidate takes once its `decision` is bound: the chosen action with its own parameters. */
 export interface CandidateVariant {label: string; bound: Record<string, Json>; unbound: Unbound[]; basis?: Json}
 /**
@@ -155,10 +165,6 @@ export interface Candidate {
   bound: Record<string, Json>;
   unbound: Unbound[];
   detail?: Json;
-  /** Host-issued literal intervals in this input; selected only through the declared-time closed bind. */
-  timeDurations?: Record<string, DeclaredDuration>;
-  /** §211.2: host-issued literal clock endpoints in this input; a chosen one binds `until {time}`, the kernel counts. */
-  timeClocks?: Record<string, DeclaredClock>;
   /** The clerk authority that lets the host run it (internal: never shown to Jev or the model). */
   clerk?: ClerkAuthority;
   /** The kernel's issued row it was built from, carried by every step it causes (internal: never shown to Jev). */
@@ -763,8 +769,119 @@ export function bindBatch(view: RunView, candidate: Candidate, scope: ScopeBindi
       criteria: {...Object.fromEntries(value.options!.map(option => [option, value.descriptions?.[option] ?? option])),
         unknown: value.descriptions?.unknown ?? 'Cannot be determined from the supplied state.'}}).flatMap((question, index) =>
         candidate.clerk === 'declared_time' || candidate.checkOwner === 'jev' && closed[index].owner === 'player'
-          ? semanticQuestions(question) : [question])};
+          ? semanticQuestions(question) : [question]).concat(statedMeasureQuestions(candidate).flatMap(semanticQuestions))};
 }
+
+/**
+ * §218.1: the stated measure -- the clock time at which what the investigator does now ends, or the length of the time they
+ * let pass now -- read by Jev on host-enumerated number grids (the same options for every language; no word is read by the
+ * host). Five questions, each asked in §163.10's three views: the end's hour on a twelve-hour face, its minute and its half
+ * of the day; the length's unit and amount. The activity band is a different proposition (what fills the time), so a stated
+ * measure never competes with it inside one closed choice. Jev reads; the host converts a grid value; the kernel counts.
+ */
+export const STATED_MEASURE_MIN = 0.5;
+export const STATED_HALF_MIN = 0.6;
+const pad = (value: number): string => String(value).padStart(2, '0');
+export const STATED_HOURS: readonly string[] = Array.from({length: 12}, (_, index) => `h${index + 1}`);
+export const STATED_MINUTES: readonly string[] = Array.from({length: 60}, (_, index) => `m${pad(index)}`);
+export const STATED_UNITS: Readonly<Record<string, number>> = Object.freeze({minutes: 1, hours: 60, days: 1440});
+/** The amounts a stated length may take: quarters below one, halves to twelve, whole numbers to 120. */
+export const STATED_AMOUNTS: readonly number[] = [0.25, 0.5, 0.75, ...Array.from({length: 23}, (_, index) => 1 + index / 2),
+  ...Array.from({length: 108}, (_, index) => 13 + index)];
+const amountKey = (value: number): string => `x${value}`;
+export const STATED_KEYS = {hour: 'stated_end:hour', minute: 'stated_end:minute', half: 'stated_end:half', unit: 'stated_span:unit', amount: 'stated_span:amount'} as const;
+const NOT_A_MEASURE = 'a schedule, an opening or closing hour, an appointment or meeting time, a quotation, a deadline, a past moment, an estimate, '
+  + 'a time inside a condition that is not met now, or a time the player asks about';
+function hourCriterion(index: number): string {
+  const hour = index % 12;
+  return index === 12 ? 'The stated end falls in the twelve o\'clock hour: 00:00-00:59 (around midnight) or 12:00-12:59 (around noon).'
+    : `The stated end falls in the ${index} o'clock hour: ${pad(hour)}:00-${pad(hour)}:59 or ${pad(hour + 12)}:00-${pad(hour + 12)}:59.`;
+}
+function amountCriterion(value: number): string {
+  return value === 0.25 ? '0.25 (a quarter)' : value === 0.5 ? '0.5 (a half)' : value === 0.75 ? '0.75 (three quarters)'
+    : Number.isInteger(value) ? String(value) : `${value} (${Math.floor(value)} and a half)`;
+}
+export function statedMeasureQuestions(candidate: Candidate): DecisionBatch['questions'] {
+  if (candidate.clerk !== 'declared_time') return [];
+  const reads = 'Read only the player\'s current input (`player_input`).';
+  return [
+    {key: STATED_KEYS.hour, target: 'the clock time at which what the investigator does now ends, by its hour', type: 'choice',
+      instructions: `${reads} Does it name the clock time at which what the investigator does now ends: the moment they get up, wake, stop, leave or act again `
+        + '(sleeping until it, reading until it, waiting until it)? If it does, which hour of a twelve-hour clock face does that time fall in? '
+        + 'A 24-hour time such as 19:30 falls in the seven o\'clock hour, and so does a quarter to eight. Choose none when it names no such time. '
+        + `A clock time that only describes something else is none: ${NOT_A_MEASURE}. A named activity (eating, reading, resting, sleeping) does not compete with the time it ends at.`,
+      criteria: {none: `The input names no clock time at which what the investigator does now ends: it names no clock time, or only ${NOT_A_MEASURE}.`,
+        ...Object.fromEntries(STATED_HOURS.map((key, index) => [key, hourCriterion(index + 1)])),
+        unknown: 'Cannot be told from the supplied state.'}},
+    {key: STATED_KEYS.minute, target: 'the minute of that stated end', type: 'choice',
+      instructions: `${reads} If it names the clock time at which what the investigator does now ends, which minute past the hour is it? Choose m00 when the time `
+        + 'is on the hour or gives no minutes; a half past is m30, a quarter past m15, a quarter to the next hour m45. Choose unknown when no such time is named or its minute cannot be told.',
+      criteria: {...Object.fromEntries(STATED_MINUTES.map((key, index) => [key, index === 0 ? 'On the hour, or no minutes are given.' : `${index} minutes past the hour.`])),
+        unknown: 'No such time is named, or its minute cannot be told.'}},
+    {key: STATED_KEYS.half, target: 'the half of the day of that stated end', type: 'choice',
+      instructions: `${reads} If it names the clock time at which what the investigator does now ends, which half of the day is that time in, as the player's words `
+        + 'and the current situation (`now`) say? Choose not_said when neither fixes the half, or when no such time is named.',
+      criteria: {am: 'Between midnight and noon: after midnight, before dawn or in the morning (a 24-hour time before 12:00).',
+        pm: 'Between noon and midnight: the afternoon, the evening or the night before midnight (a 24-hour time from 12:00).',
+        not_said: 'Neither the words nor the situation fix the half of the day, or no such time is named.',
+        unknown: 'Cannot be told from the supplied state.'}},
+    {key: STATED_KEYS.unit, target: 'the length of the time the investigator lets pass now, by its unit', type: 'choice',
+      instructions: `${reads} Does it state how long the time the investigator lets pass now lasts: waiting, resting, sleeping, reading or working for so many minutes, `
+        + `hours or days? If it does, in which unit is that length stated? Choose none when it states no such length. A length that only describes something else is none: ${NOT_A_MEASURE}, `
+        + 'or one part of a longer stated span. A clock time at which something ends is not a length.',
+      criteria: {none: `The input states no length of the time let pass now: it states no length, or only ${NOT_A_MEASURE}.`,
+        minutes: 'The length is stated in minutes.', hours: 'The length is stated in hours.', days: 'The length is stated in days.',
+        unknown: 'Cannot be told from the supplied state.'}},
+    {key: STATED_KEYS.amount, target: 'how many of that unit the stated length is', type: 'choice',
+      instructions: `${reads} If it states the length of the time the investigator lets pass now, how many of its unit is it? A half is 0.5, a quarter 0.25, one and a half 1.5. `
+        + 'Choose unknown when no such length is stated, or when its amount is none of the options (two units added together, a range).',
+      criteria: {...Object.fromEntries(STATED_AMOUNTS.map(value => [amountKey(value), amountCriterion(value)])),
+        unknown: 'No such length is stated, or its amount is none of the options.'}},
+  ];
+}
+
+/** One grid's pooled answer: the leading option, its pooled probability and the pooled distribution. */
+interface GridRead {choice: string | null; top: number; distribution: Record<string, number> | null; answered: number; total: number; spread?: number}
+function gridRead(result: DecisionResult | undefined, question: DecisionBatch['questions'][number]): GridRead {
+  const pooled = semanticChoice(result, question.key, Object.keys(question.criteria as Record<string, string>));
+  const choice = pooled.choice ?? null, top = choice && pooled.distribution ? pooled.distribution[choice] ?? 0 : 0;
+  return {choice, top, distribution: pooled.distribution, answered: pooled.answered, total: pooled.total, ...(pooled.spread !== undefined ? {spread: pooled.spread} : {})};
+}
+export interface StatedMeasureRead {
+  end?: {time: string; eitherHalf: boolean; weakest: number};
+  span?: {minutes: number; weakest: number};
+  /** A grid leads with a measure that nothing bound: the player stated something the host could not read with confidence. */
+  uncertain: boolean;
+  grids: Record<string, GridRead>;
+}
+/**
+ * §218.1: what the grids say. An end is bound when the hour and the minute lead at or above `STATED_MEASURE_MIN`; its half is
+ * fixed when `am`/`pm` leads at or above `STATED_HALF_MIN`, else the kernel takes the reading it reaches first. A length is
+ * bound when the unit and the amount lead at or above the bar and make whole minutes. With nothing bound, a grid that leads
+ * with a measure is `uncertain`.
+ */
+export function statedMeasureOf(candidate: Candidate, result: DecisionResult | undefined): StatedMeasureRead | undefined {
+  const questions = statedMeasureQuestions(candidate);
+  if (!questions.length) return undefined;
+  const grids = Object.fromEntries(questions.map(question => [question.key, gridRead(result, question)])) as Record<string, GridRead>;
+  const hour = grids[STATED_KEYS.hour], minute = grids[STATED_KEYS.minute], half = grids[STATED_KEYS.half];
+  const unit = grids[STATED_KEYS.unit], amount = grids[STATED_KEYS.amount];
+  const hourLeads = !!hour.choice && STATED_HOURS.includes(hour.choice), unitLeads = !!unit.choice && Object.hasOwn(STATED_UNITS, unit.choice);
+  let end: StatedMeasureRead['end'], span: StatedMeasureRead['span'];
+  if (hourLeads && hour.top >= STATED_MEASURE_MIN && minute.choice && STATED_MINUTES.includes(minute.choice) && minute.top >= STATED_MEASURE_MIN) {
+    const face = Number(hour.choice!.slice(1)) % 12, fixed = (half.choice === 'am' || half.choice === 'pm') && half.top >= STATED_HALF_MIN;
+    const clock = face + (fixed && half.choice === 'pm' ? 12 : 0);
+    end = {time: `${pad(clock)}:${minute.choice.slice(1)}`, eitherHalf: !fixed, weakest: Math.min(hour.top, minute.top)};
+  }
+  const value = amount.choice && amount.choice.startsWith('x') ? Number(amount.choice.slice(1)) : NaN;
+  if (unitLeads && unit.top >= STATED_MEASURE_MIN && STATED_AMOUNTS.includes(value) && amount.top >= STATED_MEASURE_MIN) {
+    const minutes = value * STATED_UNITS[unit.choice!];
+    if (Number.isSafeInteger(minutes) && minutes > 0) span = {minutes, weakest: Math.min(unit.top, amount.top)};
+  }
+  return {...(end ? {end} : {}), ...(span ? {span} : {}), uncertain: !end && !span && (hourLeads || unitLeads), grids};
+}
+const gridsRecord = (grids: Record<string, GridRead>): Json => Object.fromEntries(Object.entries(grids)
+  .map(([key, grid]) => [key, {choice: grid.choice, top: Math.round(grid.top * 1000) / 1000, distribution: grid.distribution}])) as Json;
 
 /**
  * Closed binding answers become bound values. For a clerk candidate (§135.28) a parameter Jev did not settle -- `unknown`,
@@ -843,15 +960,32 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
       const semantic = {answered, total, ...(spread !== undefined ? {spread} : {})};
       const band = parameter.band, path: BindingPath = band ? 'banded' : 'jev', table = band ? {table: band.table} : {};
       const admission = confidence !== undefined && confidence < (band?.gate ?? gate) ? {cleared: false} : {};
+      // §218.1: a stated end or length Jev reads on the grids takes precedence over the activity band (an end over a length);
+      // a measure the grids lead with but nothing bound holds the band, since a band in its place is an estimate of a stated time.
+      const measure = candidate.clerk === 'declared_time' && parameter.name === 'band' ? statedMeasureOf(candidate, result) : undefined;
+      if (measure?.end || measure?.span) {
+        const vote = measure.grids[measure.end ? STATED_KEYS.hour : STATED_KEYS.unit], weakest = measure.end ? measure.end.weakest : measure.span!.weakest;
+        if (measure.end) extra.until = {time: measure.end.time, ...(measure.end.eitherHalf ? {either_half: true} : {})};
+        else extra.minutes = measure.span!.minutes;
+        lowest = Math.min(lowest, weakest);
+        bindings.push({name: measure.end ? 'until' : 'minutes', path: 'jev', value: measure.end ? measure.end.time : measure.span!.minutes, confidence: weakest,
+          semantic: {answered: vote.answered, total: vote.total, ...(vote.spread !== undefined ? {spread: vote.spread} : {})},
+          stated: gridsRecord(measure.grids), ...(measure.end?.eitherHalf ? {either_half: true} : {}),
+          ...(weakest < (band?.gate ?? gate) ? {cleared: false} : {}),
+          superseded: {name: parameter.name, choice: choice ?? null, distribution,
+            ...(measure.end && measure.span ? {span_minutes: measure.span.minutes} : {})} as Json});
+        continue;
+      }
+      if (measure?.uncertain) {
+        softUnresolved.push(parameter.name);
+        cause = 'stated_measure_uncertain';
+        bindings.push({name: parameter.name, path, value: null, confidence: confidence ?? null, distribution, semantic, stated: gridsRecord(measure.grids), ...table});
+        continue;
+      }
       if (choice && choice !== 'unknown' && parameter.options!.includes(choice)) {
-        const interval = candidate.clerk === 'declared_time' && parameter.name === 'band' ? candidate.timeDurations?.[choice] : undefined;
-        // §211.2: a chosen clock endpoint sends only the time; the kernel resolves its next occurrence and the minutes.
-        const clock = candidate.clerk === 'declared_time' && parameter.name === 'band' ? candidate.timeClocks?.[choice] : undefined;
-        if (interval) extra.minutes = interval.minutes; else if (clock) extra.until = {time: clock.time}; else extra[parameter.name] = choice;
+        extra[parameter.name] = choice;
         lowest = Math.min(lowest, confidence ?? 1);
-        bindings.push(interval ? {name: 'minutes', path: 'jev', value: interval.minutes, confidence: confidence ?? null, distribution, semantic, ...admission}
-          : clock ? {name: 'until', path: 'jev', value: clock.time, confidence: confidence ?? null, distribution, semantic, ...admission}
-          : {name: parameter.name, path, value: choice, confidence: confidence ?? null, distribution, semantic, ...admission, ...table, ...(band ? {band: choice} : {})});
+        bindings.push({name: parameter.name, path, value: choice, confidence: confidence ?? null, distribution, semantic, ...admission, ...table, ...(band ? {band: choice} : {})});
       } else {
         softUnresolved.push(parameter.name);
         if (parameter.owner === 'player') softWithheld.push(parameter.name + ' has no leading declared choice');
@@ -864,13 +998,9 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
     // §138.10: a band is bound `banded`, named with its table, and gated by the table's own gate, never the run's.
     const band = parameter.band, path: BindingPath = band ? 'banded' : 'jev', table = band ? {table: band.table} : {};
     if (choice && choice !== 'unknown' && parameter.options!.includes(choice) && (confidence === undefined || confidence >= (band?.gate ?? gate))) {
-      const interval = candidate.clerk === 'declared_time' && parameter.name === 'band' ? candidate.timeDurations?.[choice] : undefined;
-      const clock = candidate.clerk === 'declared_time' && parameter.name === 'band' ? candidate.timeClocks?.[choice] : undefined;
-      if (interval) extra.minutes = interval.minutes; else if (clock) extra.until = {time: clock.time}; else extra[parameter.name] = choice;
+      extra[parameter.name] = choice;
       lowest = Math.min(lowest, confidence ?? 1);
-      bindings.push(interval ? {name: 'minutes', path: 'jev', value: interval.minutes, confidence: confidence ?? null, distribution}
-        : clock ? {name: 'until', path: 'jev', value: clock.time, confidence: confidence ?? null, distribution}
-        : {name: parameter.name, path, value: choice, confidence: confidence ?? null, distribution, ...table, ...(band ? {band: choice} : {})});
+      bindings.push({name: parameter.name, path, value: choice, confidence: confidence ?? null, distribution, ...table, ...(band ? {band: choice} : {})});
       continue;
     }
     if (!cause) cause = !choice || choice === 'unknown' ? 'unknown_binding' : 'low_confidence';
@@ -905,6 +1035,8 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
       if (at >= 0) bindings[at] = entry; else bindings.push(entry);
       continue;
     }
+    // §218.3: a parameter the step can run without is left out, as it was before the host asked it.
+    if (!taken && parameter.omitWhenUnbound) continue;
     if (!taken) { unresolved.push(parameter.name); continue; }
     const {value} = taken, {rule, read, composed} = taken.rule;
     extra[parameter.name] = value; defaults[parameter.name] = {value, rule, ...(read?.length ? {read: [...read]} : {})};

@@ -434,7 +434,9 @@ test("§135.20.1 at the extension seam: a landed answer the Keeper's own lookup 
 	assert.equal(occurrences(table.requests[3], SENTINEL), 1, "one copy in turn 3's request: the lookup's own result");
 	const handed = telemetryOf(table, "run", "carried").filter((row) => row.handed);
 	assert.deepEqual(handed.map((row) => row.handed), [[{ focus: "commission-briefing", since_turn: 2 }]], "the suppressed landing is named");
-	assert.deepEqual(telemetryOf(table, "reading", "answer_memo").map((row) => row.turn), [3]);
+	// §217.2: the landing this run had not been handed answers the raced lookup before the memo would; no reading, no memo call.
+	assert.deepEqual(telemetryOf(table, "reading", "answer_landed_first").map((row) => row.turn), [3]);
+	assert.equal(calls, 1, "the second lookup started nothing");
 
 	await table.table.session.prompt("I step back from the boards.");
 	const carried = answerViews(table.requests);
@@ -531,4 +533,44 @@ test('source audit sees pending, landed and held evidence without consuming deli
  await pause(0);
  assert.equal(list.audit('c',{scene:'station',turn:3}).unavailable.length,1);
  assert.equal(list.audit('c',{scene:'station',turn:4}).unavailable.length,0);
+});
+
+// Contract §217.2 (issue #112 live d6c, turn 52): consultation `read-7` ("Hall of Records Handout 7 will executor") landed
+// 1.6 s before the Keeper, whose inference had started before the landing, asked again under another spelling ("Handout 7
+// Hall of Records"). The memo matches by focus, so a second reading (`read-8`) ran 147 s for an answer already in the
+// house, and its `pending` row was all the next turn's `held_wait` showed. A landed answer the asking run was not yet handed
+// now answers that lookup first; the Keeper's resend, or `retry: true`, reads the book as before.
+test("§217.2 at the extension seam: a lookup that races a landing is handed the landed answer first; its resend reads the book", async (t) => {
+	const SENTINEL = "Civil records name Reverend Michael Thomas as executor (landed-first-sentinel).";
+	let land;
+	const settled = new Promise((resolve) => { land = resolve; });
+	const table = await hybridTable({ route: stay,
+		env: { PI_COC_SOURCE_ANSWER_ALLOWANCE_MS: "0" },
+		responses: [consult("commission-briefing", "What do the civil files say?"), narrate("The clerk fetches the files."),
+			() => { land({ state: "ready", source_answer: checked(SENTINEL) }); return consult("Knott records executor", "Who executed the will?"); },
+			consult("Knott records executor", "Who executed the will?"),
+			narrate("You copy the name into your notebook.")] });
+	t.after(() => table.dispose());
+	const ensures = [];
+	table.table.emit("coc:reading-bridge", {
+		async ensure(_mid, params) {
+			ensures.push(params.focus);
+			if (ensures.length === 1) return { state: "pending", job_id: "read-7", index: [], read: { purpose: "answer", focus: params.focus, question: params.question }, settled };
+			return { state: "pending", job_id: "read-8", index: [], read: { purpose: "answer", focus: params.focus, question: params.question }, settled: new Promise(() => {}) };
+		},
+		reading() { return false; },
+	});
+	await table.table.session.prompt("I ask the clerk for the civil files.");
+	await table.table.session.prompt("I read the will records.");
+	const results = table.table.session.messages.filter((message) => message.role === "toolResult" && message.toolName === "lookup");
+	assert.equal(results.length, 3);
+	const first = JSON.parse(textOf(results[1])).source_answer;
+	assert.equal(first.status, "landed", JSON.stringify(first));
+	assert.ok(JSON.stringify(first).includes(SENTINEL), "the landed answer is in the lookup's own result");
+	assert.deepEqual(ensures, ["commission-briefing", "Knott records executor"], "only the resend started a reading");
+	assert.equal(JSON.parse(textOf(results[2])).source_answer.status, "pending", "the resend is an ordinary consultation");
+	assert.deepEqual(telemetryOf(table, "reading", "answer_landed_first").map((row) => [row.turn, row.foci]), [[3, ["commission-briefing"]]]);
+	assert.ok(telemetryOf(table, "run", "carried").some((row) => (row.handed ?? []).some((entry) => entry.focus === "commission-briefing")),
+		"the next note names the landing as handed instead of carrying it a second time");
+	assert.equal(answerViews(table.requests).filter((entry) => entry.view?.answer === SENTINEL).length, 0, "no note repeats it in this run");
 });
