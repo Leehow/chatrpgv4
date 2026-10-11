@@ -1,5 +1,5 @@
 /**
- * Contract §224.7: improvised weapons are the Enhanced Items Mod's (user ruling 2026-10-11: 「临时武器那个应该归为物品增强mod里」).
+ * Contract §224.7: improvised weapons are the Enhanced Items Mod's (user ruling 2026-10-11, quoted there; kernel sources stay English, §16.1).
  * A package that requires `weapons.improvised.v1` turns the path on for the campaigns that lock it; without one, a declared
  * first blow with an unprepared held object keeps §159.10.1's preparation and `action.improvised` is not a resolve input.
  * Keeper Rulebook, Improvised Weapons p.104: the Keeper compares the object with the weapons table and rolls the fitting row.
