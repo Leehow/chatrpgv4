@@ -1,4 +1,4 @@
-import {expected as outcome, withoutPostFreezeRecovery} from "./oracle-fixture.mjs";
+import {expected as outcome, withoutPostFreezeCardSlots, withoutPostFreezeDecisions, withoutPostFreezeRecovery} from "./oracle-fixture.mjs";
 import {createHash} from "node:crypto";
 import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
@@ -161,9 +161,12 @@ test('catalog kinds retain frozen counts and digests; the current time-rule desc
   await writeFile(join(evidence, 'record-digests-actual.json'), JSON.stringify(actual, null, 2));
   for (const kind of api.SUPPORTED_KINDS) {
     // §138.10.1 corrects the live time-rule description, not the frozen Python evidence; §202.3 then counts 19
-    // categories and names covers. Pin all current rule records; every other family's frozen digest remains unchanged.
+    // categories and names covers; §223.5 corrects the group Luck roll (p.93: the lowest Luck rolls, not the lowest
+    // roll); §221.2 adds the Sanity ladder, awfulness, hardening and day constants and the Keeper award scale; §222.3
+    // rewords the Idea roll (pp.199-200); §223.1-§223.4 reword pushing, Luck and ticks. Pin all current rule records;
+    // every other family's frozen digest remains unchanged.
     const wanted = kind === 'rule'
-      ? { count: expected.rule.count, digest: 'd421b314727ddd1ff94b7e08c6dbb2e96bbb86dc76a336f6a785c77b15f4a3e5' }
+      ? { count: expected.rule.count, digest: '9207b86871f79df2daac9e3d330586ffad4d02554574cbd9451bd7b17022def2' }
       : expected[kind];
     assert.deepEqual(actual[kind], wanted, kind);
   }
@@ -293,7 +296,8 @@ test('cards, graph identity, grants and slot plans match the Python planning sea
       if (index === 6 && node.decision_ref === 'decision:coc7:healing:first-aid-ordinary') return DROP;
       return Object.fromEntries(Object.entries(node).filter(([key]) => key !== 'graph_generation').map(([key, item]) => [key, visit(item)]));
     };
-    return visit(value);
+    // §222.3: the Idea roll decision is the TS graph's own; the frozen Python never compiled it.
+    return visit(withoutPostFreezeDecisions(value));
   };
   for (const [index, value] of cases.entries()) await t.test(`planning case ${index}`, () => {
     let currentFacts = value.facts ?? {}, lastGrant = null;
@@ -326,7 +330,9 @@ test('all compiled decision cards preserve slots, capability refs and exception 
   const facts = { 'actor.id': 'alice', 'campaign.ruleset_id': 'coc7', 'actor.conditions': [], 'actor.resources.hp': 10, 'subsystem.snapshot.active': false, 'sanity.bout.pending': false, 'intent.action_kind': 'investigate' };
   const graph = new api.RuleGraph(observed, { campaignId: 'fixture', facts: () => facts });
   const actual = Object.fromEntries(graph.decisionNodes().map(node => [node.node_id, decoded(graph.card(node.node_id, facts))]));
-  assert.deepEqual(actual, await oracle('all_cards', { facts }));
+  // §222.3: the Idea roll card is the TS graph's own (`POST_FREEZE_DECISIONS`); §221.4/6/8: the Sanity check's three new
+  // optional slots (`POST_FREEZE_CARD_SLOTS`). Every frozen card and slot is still compared.
+  assert.deepEqual(withoutPostFreezeCardSlots(withoutPostFreezeDecisions(actual)), await oracle('all_cards', { facts }));
 });
 
 test('missing slot and authority failures retain the closed needs response shape', async () => {

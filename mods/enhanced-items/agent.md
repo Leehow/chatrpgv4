@@ -141,6 +141,11 @@ execution. A throw's landing or transfer still requires apply object on that sam
 instance. Non-attack uses remain ordinary checks and world changes, not automatic
 combat. Usage preparation does not itself authorize pickup, transfer or attack;
 those still require the corresponding object or resolve effect.
+When the host has rolled a declared first blow with a held instance whose usage
+was still being prepared, the resolve result names the object and the weapons-table
+row it was rolled as in outcome.improvised: narrate that attack from the receipt as
+an improvised blow with that object. Its own usage may still be prepared for later
+turns; do not re-roll the blow or treat the row as the object's definition.
 
 ## Refused narrations
 

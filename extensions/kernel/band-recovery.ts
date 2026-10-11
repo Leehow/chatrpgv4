@@ -21,6 +21,7 @@ import {composeSentence} from '../../runtime/jev/composed-arguments.ts';
 import {BAND_DEFAULT_MIN_CONFIDENCE, BAND_RECOVERY_FAMILY, bindingsFor, runArchetypeBand, runWeaponBand,
   type ArchetypeBandInput, type BandField, type BandGateField, type BandResult, type WeaponBandInput, type WeaponProfile} from '../../runtime/jev/band-recovery-domain.ts';
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
+import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
 import {BAND_SHADOW_FAMILY, runBandShadow, shadowBindings, type DamageBandRow, type ShadowInput, type ShadowResult,
   type TimeBandRow} from '../../runtime/jev/band-shadow-domain.ts';
 import {clip} from '../../runtime/jev/text.ts';
@@ -117,12 +118,14 @@ export interface BandAsk {
   signal?: AbortSignal;
   /** The provider budget the refused call runs under, when it has one: the band question is charged inside it. */
   parent?: TaskProviderBudget;
+  /** §224.7: the caller's own Jev port (the engine's, or a test's); without one the adapter is made from `env`. */
+  decision?: DecisionPort;
 }
 
 /** A recovery question (§138.6): the band a refused call needs. */
 export type RecoveryQuestion =
   {field: 'archetype'; person: {name: string; dossier: Json}; options: string[]} |
-  {field: 'weapon'; thing: {name: string; why?: string; description?: string}; options: string[]; close: string[]; profiles: WeaponProfile[]};
+  {field: 'weapon'; thing: {name: string; why?: string; description?: string}; options: string[]; close: string[]; profiles: WeaponProfile[]; improvised?: boolean};
 /**
  * A shadow question (§138.8): the band of one effect of a landed model-origin call, asked from the declaration and
  * what settled before the call. The Keeper's number is not part of it: it never reaches the question.
@@ -138,7 +141,7 @@ export type ShadowQuestion = {callId: string; index: number; settled: string[]} 
 export function askBand(ask: BandAsk, question: RecoveryQuestion): Promise<BandResult | undefined>;
 export function askBand(ask: BandAsk, question: ShadowQuestion): Promise<ShadowResult | undefined>;
 export async function askBand(ask: BandAsk, question: RecoveryQuestion | ShadowQuestion): Promise<BandResult | ShadowResult | undefined> {
-  if (!readJevApiKey(ask.env)) return undefined;
+  if (!ask.decision && !readJevApiKey(ask.env)) return undefined;
   const began = Date.now(), deadlineAt = Math.min(began + bandJevTimeoutMs(ask.env), ask.parent?.deadlineAt ?? Infinity);
   const outer = ask.signal ?? new AbortController().signal;
   const signal = ask.parent ? AbortSignal.any([outer, ask.parent.signal]) : outer;
@@ -149,14 +152,15 @@ export async function askBand(ask: BandAsk, question: RecoveryQuestion | ShadowQ
   const input: ArchetypeBandInput | WeaponBandInput | ShadowInput = question.field === 'archetype'
     ? {campaign: ask.campaign, turn: ask.turn, declaration: ask.declaration, person: question.person, options: question.options}
     : question.field === 'weapon'
-      ? {campaign: ask.campaign, turn: ask.turn, declaration: ask.declaration, thing: question.thing, options: question.options, close: question.close, profiles: question.profiles}
+      ? {campaign: ask.campaign, turn: ask.turn, declaration: ask.declaration, thing: question.thing, options: question.options, close: question.close, profiles: question.profiles,
+        ...(question.improvised ? {improvised: true} : {})}
       : {campaign: ask.campaign, turn: ask.turn, declaration: ask.declaration, callId: question.callId, index: question.index, settled: question.settled,
         ...(question.field === 'time' ? {kind: 'time' as const, rows: question.rows} : {kind: 'damage' as const, rows: question.rows})};
   const bindings = shadow ? shadowBindings(input as ShadowInput) : bindingsFor(question.field as BandField, input as ArchetypeBandInput | WeaponBandInput);
   let lease: TaskLease | undefined, accounting: ReturnType<typeof preparationBudget> | undefined;
   try {
     accounting = preparationBudget({
-      decision: createDecisionAdapter({env: ask.env, maxConcurrency: 2, retryPolicies: {[family]: {maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000}}}),
+      decision: ask.decision ?? createDecisionAdapter({env: ask.env, maxConcurrency: 2, retryPolicies: {[family]: {maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000}}}),
       campaign: ask.campaign, deadlineAt, signal, ...(ask.parent ? {parent: ask.parent} : {}),
       owner: family, goal,
     });

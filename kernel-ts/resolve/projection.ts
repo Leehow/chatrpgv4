@@ -9,7 +9,7 @@ import { orderedObject } from '../json.js';
 import { array, entries, normalize, number, row, string, truth, type Row } from '../read/values.js';
 import { SettleContext, continuableCheck } from './context.js';
 import { APPROACH_BY_SKILL } from './arithmetic.js';
-import { COMBINED, LUCK, LUCK_ROLL, OBSERVE, OPPOSED, ORDINARY, PUSH, REALIZE, SOCIAL } from './bindings.js';
+import { COMBINED, IDEA, LUCK, LUCK_ROLL, OBSERVE, OPPOSED, ORDINARY, PUSH, REALIZE, SOCIAL } from './bindings.js';
 export function continuationEntry(runtime: RuleGraph, ref: string): Row {
     const fields = ref === PUSH ? ['push', 'stakes', 'method'] : ref === LUCK ? ['luck'] : ['decision'];
     if (![PUSH, LUCK].includes(ref))
@@ -39,6 +39,9 @@ export function checkView(check: Row): Row {
 }
 export function outcomeOf(ref: string, result: Row): Row {
     const bound = row(result.bound_check);
+    // §222.3: the Idea roll's outcome names the clue it landed and tells the Keeper how it arrives (the clerk's note).
+    if (ref === IDEA)
+        return { kind: 'check', ...checkView(bound), pushed: false, idea_roll: true, clue: result.clue ?? null, clue_receipt: result.clue_receipt ?? null, note: result.note ?? null };
     if ([ORDINARY, COMBINED, LUCK_ROLL].includes(ref)) {
         if (ref === COMBINED || truth(bound.combined_roll)) {
             const combined = row(bound.combined_roll);
@@ -319,6 +322,9 @@ export function resolveResult(context: SettleContext, settled: Row): {
                 data: {name: receipt.name, to: receipt.subject_label ?? receipt.subject, from: receipt.from ?? null},
                 receipt: receipt.id
             });
+        // §222.3: the clue an Idea roll landed is an event of its own, as `apply clue`'s is.
+        else if (receipt.kind === 'clue')
+            events.push({type: 'clue-discovered', data: {clue: receipt.clue, scene: receipt.scene ?? null, how: receipt.how ?? null, found_by: receipt.found_by ?? null}, receipt: receipt.id});
         else if (receipt.kind === 'session') {
             const data: Row = {family: receipt.family ?? null, transition: receipt.transition ?? null};
             for (const key of ['outcome', 'summary']) if (receipt[key] != null) data[key] = receipt[key];

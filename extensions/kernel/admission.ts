@@ -1535,12 +1535,31 @@ export interface ClerkEvidence {
 export function registeredContactProposal(proposal: AdmissionProposal, payload: Record<string, unknown>, evidence: ClerkEvidence): AdmissionProposal {
 	if (proposal.tool !== "resolve" || evidence.origin !== "policy" || evidence.clerk !== "mod_contact") return proposal;
 	const basis = record(evidence.basis), contact = record(basis?.row), rule = record(contact?.rule), action = record(payload.action);
-	if (basis?.read !== "table.capsule" || rule?.trigger !== "contact" || rule.scope !== "actor-target" || rule.reusable !== true
+	if (basis?.read !== "table.capsule" || (rule?.trigger !== "contact" && rule?.trigger !== "presence") || rule.scope !== "actor-target" || rule.reusable !== true
 		|| !action || !contact || !["decision", "actor", "target"].every(key => typeof contact[key] === "string" && contact[key] === action[key])) return proposal;
+	// §224.3: a `presence` check is the person's first impression, offered while they share the scene and selected by the host
+	// only when it matters this turn; like a contact check it is a rule of the meeting, not an influence attempt.
 	const registered = { decision: contact.decision, actor: contact.actor, target: contact.target, rule,
-		settles: "The NPC's initial reaction to meaningful contact. This is a reusable contact rule, not the investigator persuading, deceiving or bargaining. Invocation intent does not prescribe an influence method. Meaningful contact must follow from the current declaration or an earlier chosen contact with this NPC; mere presence does not establish it." };
+		settles: rule.trigger === "presence"
+			? "The NPC's first impression of the investigator. This is a reusable rule of the meeting, not the investigator persuading, deceiving or bargaining. Invocation intent does not prescribe an influence method. It is rolled when that impression matters this turn: the investigator seeks something from this NPC, approaches them socially, must get past them, or the NPC is hostile or suspicious; mere presence does not establish it."
+			: "The NPC's initial reaction to meaningful contact. This is a reusable contact rule, not the investigator persuading, deceiving or bargaining. Invocation intent does not prescribe an influence method. Meaningful contact must follow from the current declaration or an earlier chosen contact with this NPC; mere presence does not establish it." };
 	return { ...proposal, key: canonical({ proposal: proposal.key, registered_contact_check: registered }),
 		lines: proposal.lines.map(line => `${line}; registered_contact_check=${JSON.stringify(registered)}`) };
+}
+
+/**
+ * §222.7: the host's Idea roll (Keeper Rulebook pp. 199-200) is chosen by the players' request for a way forward, in or out
+ * of character; the clue it names is the Keeper's to give, not a choice the player made. Read from the dispatcher-owned
+ * origin, clerk and the action's closed decision, never from words.
+ */
+export function ideaRollProposal(proposal: AdmissionProposal, payload: Record<string, unknown>, evidence: ClerkEvidence): AdmissionProposal {
+	const action = record(payload.action);
+	if (proposal.tool !== "resolve" || evidence.origin !== "policy" || evidence.clerk !== "declared_check" || action?.decision !== "core-check:idea-roll") return proposal;
+	const rule = { decision: "core-check:idea-roll", settles: "The Idea roll: the players asked for a way forward because the investigation stalled -- a hint, a nudge, help, "
+		+ "or the roll by name, in or out of character. That request chooses this roll. The investigator rolls INT; the clue it names arrives whichever way the die falls "
+		+ "(easily on a pass, in the thick of it on a failure), and which clue is the Keeper's to give, not the player's choice." };
+	return { ...proposal, key: canonical({ proposal: proposal.key, idea_roll: rule }),
+		lines: proposal.lines.map(line => `${line}; idea_roll_rule=${JSON.stringify(rule)}`) };
 }
 
 /**

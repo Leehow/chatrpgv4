@@ -717,6 +717,13 @@ const ResolveAction = Type.Object({
 				"the out-of-control behaviour on a failed sanity check, one of five: faint, flee, scream, freeze, attack; required for sanity:check, and yours to pick from the situation",
 		}),
 	),
+	// §221.8 / §221.4 / §222.3: arguments the host's check catalog binds (the bout of madness chosen for a SAN roll, the clue a
+	// SAN roll or an Idea roll is about). The Keeper does not call resolve in the driven engine;
+	// the host's own resolve goes through this same schema, so every key the catalog binds must be here.
+	bout: Type.Optional(Type.String({ description: "with sanity:check: the bout of madness to use if this roll drives the investigator insane, or roll to roll the table" })),
+	clue: Type.Optional(Type.String({ description: "with sanity:check, the filed clue whose stated loss this roll is for; with core-check:idea-roll, the undiscovered clue the roll lands" })),
+	// §224.7 (Enhanced Items, weapons.improvised.v1): the host's first blow with a held object whose own attack usage is not prepared yet: the weapons-table row it is rolled as.
+	improvised: Type.Optional(Type.String({ description: "with combat:attack and weapon naming a held object: the weapons-table row (id) that object is rolled as, an improvised weapon (Keeper Rulebook p.104); set by the host where the Enhanced Items Mod is enabled" })),
 	outcome: Type.Optional(
 		StringEnum(["investigators_win", "monsters_win", "fled", "stalemate"] as const, {
 			description: "give it when ending a combat: who won, who fled, or a stalemate",

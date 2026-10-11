@@ -330,6 +330,22 @@ export function startSceneCandidates(graph: Row, dossier: Row = {}): Row[] {
         for (const id of array(row(view.moduleNode?.properties).entry_scene_ids))
             if (view.nodes.get(id)?.node_kind === 'scene')
                 candidates.add(id);
+        // §225.1: a scene the book relates to an opening by `alternative-to` (an entrance relation,
+        // §168.3) is another authored opening, whether or not the reading that brought it marked it
+        // `is_entrance`. The 1937 NKVD book's second briefing (p.10 §2.2) reached the graph only as
+        // `alternative-to` the first, so the one declared entrance stayed the one candidate, no choice
+        // was asked, and the table opened on the briefing the player had not chosen. The relation is
+        // read in both directions and to its closure (an alternative of an alternative is one too).
+        const alternatives = (id: string): string[] => array(graph.relations)
+            .filter(rel => rel.relation_kind === 'alternative-to' && (rel.from_node_id === id || rel.to_node_id === id))
+            .map(rel => string(rel.from_node_id === id ? rel.to_node_id : rel.from_node_id));
+        for (const queue = [...candidates]; queue.length;) {
+            for (const other of alternatives(queue.shift()!))
+                if (!candidates.has(other) && view.nodes.get(other)?.node_kind === 'scene') {
+                    candidates.add(other);
+                    queue.push(other);
+                }
+        }
     }
     return sorted(candidates).map(id => {
         const node = view.nodes.get(id)!;

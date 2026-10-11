@@ -691,6 +691,17 @@ test('§163.8: two gray methods of the player\'s own investigator are the player
   }
 });
 
+test('§224.8: the player chose the act and one skill clearly fits its method -- the Keeper\'s pick (pp. 82-83), rolled and recorded', async t => {
+  const {input} = setup(t, (batch, question) => noul(baseKey(question.key).endsWith('_selected') ? .2
+    : batch.family.startsWith('check-selection-need') && baseKey(question.key).endsWith('_uncertain') ? 0.99
+    : batch.family.startsWith('check-selection-need') && !baseKey(question.key).endsWith('_blocked') ? (question.target === 'Spot Hidden' ? 0.5 : 0.9) : 0.99));
+  input.investigators = ['Ada'];
+  const result = await selectCheck(input);
+  assert.equal(result.status, 'selected');
+  assert.equal(result.action.skill, 'Listen');
+  assert.ok(result.forced.why.includes('skill_fallback'));
+});
+
 test('§163.8: one gray method with its alternative ruled out is a best guess even for the player\'s investigator', async t => {
   const {input} = setup(t, (batch, question) => noul(!batch.family.startsWith('check-selection-need') || baseKey(question.key).endsWith('_blocked') ? 0.99
     : question.target === 'Spot Hidden' ? 0.01 : 0.6));
@@ -728,7 +739,7 @@ test('§163.10: a current player approach below the old gate binds; NPC, modifie
   assert.deepEqual([established.status, established.action.rest], ['selected', 'incomplete'], 'a consequence\'s established facts are not the player\'s choice');
 });
 
-test('§163.10: a clerk reads a declared player target below the old confidence gate; unknown still withholds', () => {
+test('§163.10: a clerk reads a declared player target below the old confidence gate; §224.2: unknown takes the attack fallback', () => {
   const answer = (choice, confidence, probabilities = {Ghoul: .6, Rat: .3, unknown: .1}) => ({status: 'complete', answers: {target: {status: 'answered', type: 'choice', choice, confidence, probabilities}}});
   const blow = {...candidate, key: 'blow', clerk: 'first_blow', family: 'combat', label: 'Strike', bound: {decision: 'combat:attack'},
     unbound: [{name: 'target', required: true, vocabulary: 'closed', options: ['Ghoul', 'Rat'], owner: 'player'}]};
@@ -738,10 +749,14 @@ test('§163.10: a clerk reads a declared player target below the old confidence 
   const binding = mine.bindings.find(entry => entry.name === 'target');
   assert.equal(binding.cleared, false, 'the old confidence gate is not semantic permission');
   assert.deepEqual(binding.semantic, {answered: 1, total: 3, spread: 0});
+  // §224.2 (user ruling 2026-10-10): a declared attack is settled; the best-scored issued target is bound, recorded as forced.
   const unknown = interpretBind(blow, {questions: []}, answer('Ghoul', 1, {Ghoul: .3, Rat: .1, unknown: .6}), 0.85);
-  assert.deepEqual(unknown.pending.map(item => [item.kind, item.purpose, item.reason, item.extra.cause, item.extra.unresolved]),
-    [['infer', 'compose', 'check_unresolved', 'player_choice', ['target']]]);
-  assert.equal(unknown.forced, undefined);
+  assert.deepEqual(unknown.pending.map(item => [item.kind, item.purpose, item.extra.target]), [['direct', 'execute', 'Ghoul']]);
+  assert.equal(unknown.forced.why, 'attack_fallback');
+  assert.equal(unknown.bindings.find(entry => entry.name === 'target').cleared, false);
+  const unanswered = interpretBind(blow, {questions: []}, {status: 'complete', answers: {}}, 0.85);
+  assert.deepEqual(unanswered.pending.map(item => [item.kind, item.purpose, item.reason, item.extra.cause, item.extra.unresolved]),
+    [['infer', 'compose', 'check_unresolved', 'player_choice', ['target']]], 'a target nobody scored stays unbound');
   const theirs = interpretBind({...blow, unbound: [{...blow.unbound[0], owner: undefined}]}, {questions: []}, answer('Ghoul', 0.4), 0.85);
   assert.equal(theirs.pending[0].extra.target, 'Ghoul', 'an NPC\'s own choice retains its existing best guess');
 });
@@ -799,4 +814,33 @@ test('incomplete scoped chase prerequisite views are not dropped', async t => {
   const {input}=setup(t,()=>noul(.84),[chase]),base=input.decision;
   input.decision={async decide(batch){const result=await base.decide(batch);if(batch.family==='check-selection-chase-prerequisite')result.status='incomplete';return result;}};
   assert.equal((await selectCheck(input)).status,'selected');
+});
+
+test('§221.9: a rules default stands when Jev leans to an override but cannot bind one; the result is forced, not a no-roll', async t => {
+  const ending = {key: 'end', family: 'development', label: 'Close the session as conclusion', authorization: 'declaration', needs: [],
+    action: {actor: 'Ada', decision: 'development:end-session', ending: 'conclusion', intent: 'montage'},
+    facts: {reward_source: 'rulebook_scale', stated: null},
+    parameters: [{name: 'scenario_san_reward_expr', question: 'Which Sanity award fits the danger faced?',
+      options: [{label: 'No award', value: null}, {label: 'Lesser', value: '1D3'}, {label: 'The book\'s example', value: '1D6'}],
+      default: {value: null, question: 'Did the investigators face real danger?'}}]};
+  for (const [bind, expected, why] of [['unknown', null, 'below_confidence_gate'], ['value_1', '1D6', undefined]]) {
+    const {input} = setup(t, (batch, question) => batch.family === 'check-selection-defaults' ? noul(0.95)
+      : question.type === 'choice' ? choice(question, bind) : noul(0.99), [ending]);
+    input.declaration = 'We close the book on the house.';
+    input.investigators = ['Ada'];
+    const result = await selectCheck(input);
+    assert.equal(result.status, 'selected', bind);
+    assert.equal(result.action.scenario_san_reward_expr, expected, bind);
+    if (why) assert.deepEqual(result.forced, {uncertain: ['scenario_san_reward_expr override: unknown, rules default'], why});
+    else assert.equal(result.forced, undefined);
+  }
+});
+
+test('§222.3: the Idea roll is selected on the players\' request for a way forward, never inferred from a declared act', () => {
+  const idea = {key: 'idea', family: 'core-check', label: 'Ada: the Idea roll -- the players are stuck and ask for a way forward',
+    action: {actor: 'Ada', decision: 'core-check:idea-roll', intent: 'investigate'}, parameters: [], needs: [], authorization: 'declaration'};
+  const question = specializedTriggerQuestion(idea);
+  assert.match(question, /^Does the player ask for a way forward/);
+  assert.match(question, /A declared search, question, journey, conversation or any other act is its own check and never this one/);
+  assert.equal(specializedTriggerQuestion(listen), undefined, 'an ordinary check keeps its own two questions');
 });

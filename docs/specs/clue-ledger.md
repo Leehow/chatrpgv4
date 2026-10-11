@@ -63,7 +63,7 @@ own landed clues and counts `landed_untold`; nothing acts on it.
 5. **What lets prose skip a check is not closed here**: in the driven engine the Keeper cannot roll, check selection may
    choose `no_roll`, and the note then says to narrate the attempt by judgement. The count (`check_skipped`) measures it;
    a delivery-time guard is the owner's call.
-6. **The compile's "seeks" question (T18) is not changed**: `landed_untold` counts it first.
+6. **The compile's "seeks" question (T18)** was not changed here; `landed_untold` counted it first. Changed for clue rows by contract §135.30.9.4 (2026-10-10): a clue row asks whether the declaration finds it now.
 
 ## 4. Tickets
 

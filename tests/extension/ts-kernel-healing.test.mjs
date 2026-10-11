@@ -1,4 +1,4 @@
-import {expected as outcome} from "./oracle-fixture.mjs";
+import {expected as outcome, withoutPostFreezeSanity} from './oracle-fixture.mjs';
 import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
@@ -152,7 +152,8 @@ async function compare(name, cases, t) {
   await writeFile(join(evidence, name + '-input.json'), api.pythonJsonDumps(cases));
   await writeFile(join(evidence, name + '-captured.json'), captured);
   await writeFile(join(evidence, name + '-typescript.json'), api.pythonJsonDumps(actual));
-  for (let i = 0; i < cases.length; i++) await t.test(cases[i].name ?? `${name}-${i}`, () => assert.equal(api.canonicalJson(actual[i]), api.canonicalJson(expected[i]), `Evidence: ${evidence}`));
+  // §221.7: the TS Sanity state carries `mythos_hardened`, which the frozen capture predates; dropped from the live side only.
+  for (let i = 0; i < cases.length; i++) await t.test(cases[i].name ?? `${name}-${i}`, () => assert.equal(api.canonicalJson(withoutPostFreezeSanity(actual[i])), api.canonicalJson(expected[i]), `Evidence: ${evidence}`));
 }
 
 test('healing and dying treatment use the same draws, usage scopes and event evidence', async t => {

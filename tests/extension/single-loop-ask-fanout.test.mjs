@@ -127,6 +127,22 @@ test("§135.30.9 the question: one yes/no question per ask row, in the rows' ord
 	assert.equal(batch.questions.filter((question) => question.key === "destination").length, 1, "the other families stay one choice each");
 });
 
+test("§135.30.9.4 the question: a clue row asks whether the declaration finds it now and carries the book's cues; a handout row still asks whether it is sought", () => {
+	const { candidates, rows } = built(office());
+	const batch = compileBatch(initialView({ runId: "r", rawInput: INPUT, context, candidates, rows, readFirst: false }), scope, [], []);
+	const asked = batch.questions.filter(isAskRow);
+	const clues = asked.filter((_, index) => rows.ask[index].id.startsWith("clue:")), handout = asked.find((_, index) => rows.ask[index].id.startsWith("handout:"));
+	assert.equal(clues.length, 4);
+	assert.deepEqual(clues.map((question) => askWords(question).cues), [CUES.commission, CUES.leads, CUES.macario, CUES.keys], "each clue row carries its own cues");
+	assert.equal(new Set(clues.map((question) => question.instructions)).size, 1, "every clue row is asked the same question");
+	assert.notEqual(clues[0].instructions, handout.instructions, "the handout keeps the seek question");
+	assert.match(clues[0].instructions, /find it now/);
+	assert.match(clues[0].instructions, /Seeking it, looking for it or doing less than either is not finding it/);
+	assert.match(handout.instructions, /does the player's declared action seek/);
+	const bare = compileRows({ ...office(), applyOptions: { ...office().applyOptions, candidates: office().applyOptions.candidates.map((row) => row.effect.kind === "clue" ? { ...row, description: { ...row.description, cues: undefined } } : row) } });
+	assert.deepEqual(bare.ask.filter((row) => row.id.startsWith("clue:")).map((row) => Object.keys(row.describe)), [["clue"], ["clue"], ["clue"], ["clue"]], "a row without cues carries its words alone");
+});
+
 test("§135.30.9 policy: turn 1's accept seeks the leads and the keys -- both filed in row order, the move staged after both", () => {
 	const { view, row } = compileOver(office(), T1, T1_ASKS);
 	assert.deepEqual(row.detail.ask_cleared, ["clue:leads", "clue:keys"], "the sought rows, in row order");

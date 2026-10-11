@@ -52,6 +52,7 @@ export const SLOT_TO_ACTION: Readonly<Record<string, string>> = Object.freeze({
     loss_success: "san_loss",
     involuntary_kind: "involuntary",
     involuntary_summary: "involuntary",
+    bout_choice: "bout",
     trigger_ref: "trigger",
     gain_source: "goal",
     insight: "goal",
