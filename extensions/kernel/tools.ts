@@ -781,15 +781,16 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		method: "table.look",
 		description:
 			"See the side the turn capsule did not answer. The capsule already carries the current value of all of this: the world clock, the scene and its exits, the way back (the scenes walked through, nearest first), the clues here that are still undiscovered and how they are obtained, the agendas and secrets of those present, and what is pressing — do not look those up again, the capsule is current. Use this for what the capsule does not have: with no parameters it re-reads the scene (dramatic question, pressure moves, exits, affordances, who is present); focus npc with a name gives the Keeper view of an entity the capsule did not list (agenda, fear, secret, voice, relationships, known facts); focus investigator gives the detail of the investigator sheet; focus clues gives what is discovered and what is obtainable here; focus time gives the world clock; focus session gives the whole of a fight, a chase or a bout of madness that is underway — the round, whose turn it is, what may be done, what is owed — which is the one thing that survives a restart nowhere else. The opening turn has no capsule, so look at the opening scene first. Everything it returns is Keeper-only and must never be copied into the player's text.",
-		promptSnippet: "See missing current evidence. For a document, object name plus document_query locates exact words; document_page reads bounded current pages for semantic questions. A 200-character preview never proves absence.",
+		promptSnippet: "See missing current evidence. For a document, object name plus document_query locates exact words; document_page reads bounded current pages for semantic questions. A 200-character preview never proves absence. For public evidence across earlier days, focus knowledge lists all acquired clues, revealed handouts and committed Keeper accounts. Follow its issued read or next arguments verbatim for bounded original text; scores are advice, incomplete previews never prove absence.",
 		parameters: Type.Object({
 			using_skill: UsingSkill,
 			focus: Type.Optional(
-				StringEnum(["scene", "npc", "investigator", "clues", "time", "session", "object", "map"] as const, {
+				StringEnum(["scene", "npc", "investigator", "clues", "time", "session", "object", "map", "knowledge"] as const, {
 					description: "which side to look at; defaults to scene",
 				}),
 			),
 			name: Type.Optional(Type.String({ description: "the entity name to look at when focus is npc, object, or map" })),
+            knowledge_page: Type.Optional(Type.Object({offset:Type.Integer({minimum:0}),limit:Type.Integer({minimum:1,maximum:4096}),context:Type.Object({turn:Type.Integer(),view:Type.Integer(),line:Type.String(),loop:Type.Integer()})},{description:"Public knowledge only: issued catalogue or original-text continuation. Follow returned context and offset; stale reads require refreshing the catalogue"})),
             document_query: Type.Optional(Type.String({minLength:1,maxLength:256,description:"Object documents only: one exact case-sensitive literal to locate in ALL current readable writing, with original surrounding passages. No match means literal absence only; use document_page for a semantic question"})),
             document_page: Type.Optional(Type.Integer({minimum:1,description:"Object documents only: bounded current text page, or result page with document_query. Start at 1; follow the returned next call. Do not claim semantic absence from incomplete page coverage"})),
             document_revision: Type.Optional(Type.Integer({minimum:1,description:"Issued document revision; required after page 1. A changed revision needs fresh reading rather than an absence claim"})),

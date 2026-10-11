@@ -44608,10 +44608,142 @@ writing. The role bars stay .90. Live accuracy of the new wording is not measure
 
 ### 227.6 Tests
 
+**2026-10-11 continuation: family version 6 reads the investigator's public knowledge.** The real `apply-verify-2` turn 7
+write-up was refused (`outside_selected_addition` .78) because `recentTold` held only turns 5 and 6, while the player had
+heard Knott's terms in turn 2. For host append binding, `mods.document.options {_binding_context: true}` additionally
+returns `playerKnowledge`: acquired clue labels and their player-facing `how`, the held handouts' public text, and every
+delivered narration of the current game day on the active worldline and loop, in turn order. A narration crossing midnight
+belongs to both days it spans. Current-turn public deliveries are merged by the host. No graph summaries, unrevealed nodes,
+Keeper capsules, secrets or proposed suffixes supply knowledge. The existing public table view owns clue/handout projection;
+committed delivery records own narration. The two binding decisions read this same packet, with existing .90 role gates.
+There is no newest-only character trimming of this packet: the shared request packing limit fails closed if it cannot fit.
+The read-set digest binds all supplied knowledge. The prior recent-text input remains only for older callers. Producer:
+canonical public views and deliveries; reader: host document binding; actor: Keeper's selected append, settled by ordinary
+atomic apply. Real Jev replay of the retained request and a natural driver continuation remain separate acceptance checks.
+
+External comparison: [TypeSafe's state guide](https://docs.typesafe.ai/concepts/state) confirms that related supporting
+records belong together in a named state; [LangChain's memory guide](https://docs.langchain.com/oss/python/langchain/short-term-memory)
+warns that trimming history loses facts and that unbounded unrelated history distracts models. Here the game day and acquired
+public evidence bound relevance deterministically; neither source supplies player consent or authorizes hidden module data.
+
+**Pre-refinement continuation evidence (family 6/7).** A narration-only replay of turn 7 chose `within_selected_addition` .84,
+below the unchanged .90 gate. Corrected-runtime real turn 17 reaches content .90 but execution .89, and no addition lands.
+At that checkpoint public-material repair was not complete notebook acceptance; decision-structure changes still awaited owner approval.
+Those early replay packets omitted acquired clue cards and are `invalid-for-acceptance` of complete public-material supply;
+they remain diagnostic evidence. The later family 8 replay restores the original public clue cards from settled receipts.
+In the same natural continuation, turn 25 revisits the Hall of Records: its turn 9 observed midday record is replaced by an
+inferred morning record in one successful apply, retaining `previous`. This passes §227.1's real trigger. Evidence:
+`.coc/playtests/document-summary-replay-20261011/status.json`, `.coc/playtests/document-summary-live-20261011/turn-9.json`,
+and the original campaign `apply-verify-20261011b` retained in `chatrpgv4-apply-refusals`. Scoped document regression 12/12,
+smoke checks 21/21, kernel typecheck and LAN build passed; the broader focused suite is queued behind other testbox owners.
+
+**2026-10-11 owner-approved threshold revision, family version 7.** The owner approved trying .8 for the notebook content
+and execution decisions after the retained request (.84 content) and natural turn 17 (.90 content, .89 execution) were
+held at .90. `DOCUMENT_CONTENT_MIN` and `DOCUMENT_EXECUTION_MIN` are separate .8 selected-answer probability gates;
+`DOCUMENT_ROLE_PROBABILITY_MIN` remains .90 for identifying a complete dictated quotation. The destination rule is
+unchanged: one .90 candidate, or one clear .8 leader with every other candidate at or below .2. An affirmative selected
+answer is still required; unavailable, invalid, negative or below-bar answers never authorize writing. Public evidence,
+ownership, revision binding, exact quotation spans, append preservation and ordinary atomic settlement remain authoritative.
+This is a scoped calibration for physical notebook additions, not a global Jev or numerical-settlement threshold change.
+Validate both .8 boundaries, below-bar refusals, reading-only/deferred writing, unsupported additions, and the retained
+complete-quotation .90 boundary, then replay the original request and verify a real summary append in the existing campaign.
+
+**2026-10-11 owner refinement, family version 8: reviews inform the Keeper.** The owner wants public material and semantic
+review handed to the Keeper to organize, rather than low semantic scores vetoing the recording. This supersedes family 7's
+content/execution hard gates only in the notebook binding path. The binder owns one existing owned carrier and exact dictated
+quotation spans (.90); its first short decision binds those identities. A separate second batch reviews content and execution
+as advice, using .8 to mark concerns. A negative, low, invalid or unavailable advisory answer does not refuse an append and
+does not grant execution authority. The existing ordinary action admission remains the sole consent review; the kernel owns
+ownership, revisions, append preservation, settlement and receipts. Completion tracking must use that ordinary admitted
+operation or an issued editor request, never carrier binding alone.
+
+Before the Keeper composes a recording, a world-input physical-recording hint at or above .5 supplies public knowledge and
+owned carrier names once through the existing hybrid handoff. This is an information threshold, not an authorization gate.
+The existing public-knowledge projection supplies acquired clue cards, held handouts and the complete day's public prose;
+failure of this optional read carries an unavailable advisory note, not a hold. The apply result carries the draft's bounded
+content/execution review and concerns for the Keeper's following prose. No automatic rewrite, review retry, second Keeper,
+new verb, global threshold change or concealed source projection is introduced. Producer: public records and bounded Jev
+opinions; reader: the Keeper handoff and apply result; actor: KP chooses the writing/output, ordinary admission approves the
+chosen physical action, and canonical apply proves what changed. Reading/deferred inputs must still leave the notebook alone.
+
+**Family 8 acceptance.** The original turn 7 request binds with actual Jev content probability .72, carried as a concern;
+carrier binding grants no action. Source-mode real campaign turn 28, Keeper Grok 4.7 Fast / low, receives public material
+before drafting and writes a three-source summary despite advisory content .78. Ordinary admission separately returns
+`authorized`; the canonical notebook grows from 242 to 497 characters with the old prefix preserved, and the apply reply
+returns the review to KP. Turn 29 says to add a date only later and only read now: notebook text stays byte-for-byte unchanged.
+Evidence: `.coc/playtests/document-advisory-live-final-20261011/acceptance.json`, the two transport records and canonical
+document views; original records remain in campaign `apply-verify-20261011b` under `chatrpgv4-apply-refusals`. The carrier
+binding unit is not treated as consent evidence for deferred/reading inputs. Controlled ordinary-admission refusals also
+leave the document empty. Scoped checks 36/36, final authority cases 3/3, kernel typecheck and an isolated LAN runtime build
+passed; broader focused LAN validation was not completed while the shared box was occupied. No App package or GUI claim.
+
+**2026-10-11 owner-approved optimization: wide catalogue, bounded bodies, KP-directed reading.** Public material delivery
+is independent of the physical-recording hint and world/reference mode. The existing hybrid handoff supplies a bounded
+catalogue once per unchanged public snapshot: acquired clue cards, revealed handouts and committed public Keeper accounts
+on the active worldline/loop, including older days. Every eligible item remains reachable through catalogue continuation;
+relevance affects ordering/prefetch, never membership. Missing bodies remain explicitly unavailable. Material type, original
+source/turn, original preview, completeness and read-next arguments travel together; claims are not promoted to world truth.
+
+`mods.document.options {_knowledge_catalog: true}` returns the first public catalogue page and owned carrier names without
+building the whole player panel. `look {focus: "knowledge"}` lists it; `name` reads one issued item, and `knowledge_page`
+supplies offset/limit plus the issued semantic scope `{turn, view, line, loop}`. Listing pages contain at most 20 rows; text
+pages contain at most 4096 code points and 12 KiB including metadata. Continuations never return private module text.
+Stale scopes or changed original text return a refresh reference, not a write hold. A nonzero text continuation must follow
+a prefix delivered for the current body; a process restart cannot silently splice a prior body's continuation into a new one.
+No opaque digest/receipt identifier is echoed by KP. The host privately binds scope and original text digests.
+
+**Budget regression correction (2026-10-11).** Decision usage permits absent `costUsd`; missing/non-finite usage components retain their conservative request bounds rather than poisoning a shared budget with `NaN`. Unchanged public evidence reuses its advice and fits a smaller remaining allowance without another decision or body read. Both source preparation and public advice finish before the Keeper drafts. The design was cross-checked against [Anthropic context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents), which supports lightweight references and on-demand reads, and the [TypeSafe passage cookbook](https://docs.typesafe.ai/cookbooks/classifying_rag_passages), which retains token usage rather than relying on cached derived dollar costs. These support the fallback shape; the 512-byte reservation and source priority are project decisions verified by regression tests.
+
+The public catalogue shares one extraction with the player view and caches immutable original text metadata; the binder no
+longer gathers full public history. One Jev batch with a three-second optional deadline grades candidate previews for relevance and conflict with the
+player's premise before KP drafts. All scores, unknown results and conflicts are advisory. Public material occupies at most
+4 KiB of the existing 16 KiB optional material allowance. Prescreen runs first with 15.5 KiB, reserving only 512 bytes for an always-reachable public reader reference. Public material then uses the measured remainder, up to 4 KiB; a full catalogue/body packet never preemptively removes 4 KiB from scene material. Index pressure exposes
+continuation instead of silently dropping eligible entries. Issued public read/next references use the existing per-turn read coverage exemption once each; a low ordinary look budget cannot strand older public pages, while unissued/repeated reads keep that budget. A small prefetch may load the highest-ranked original bodies;
+KP chooses additional reads through the same look verb. There is no mandatory read or automatic rewrite.
+
+Append binding family 9 binds only an existing owned carrier and exact dictated quotation spans (.90). An exact canonical
+carrier name with no quotation needs no semantic binding call; uncertain references retain the existing identity review.
+The after-draft content/execution advice batch is retired: material opinions precede drafting, and ordinary admission alone
+reviews physical execution. Every model document write/append/requested edit is reviewed even when the recording hint is low
+and ownership does not transfer. Completion tracks ordinarily admitted operations, not the information hint. Kernel ownership,
+revision handling, original-text preservation and receipts remain authoritative. This does not alter numerical/rule selection.
+
+Producer: canonical public fields, published handouts and committed original delivery records. Reader: bounded catalogue and
+original-body pages in the hybrid handoff/look result. Actor: KP chooses material, reads it and composes; ordinary admission and
+canonical apply establish the chosen recording. Tests must cover low/unavailable scores, reference and unclear intent, large
+catalogues/bodies, stale and foreign scope, hidden-source exclusion, ordinary denial of unchosen writing, and original-prefix
+preservation. Natural Grok 4.7 Fast / low continuation must demonstrate a real supplemental read and a settled summary.
+
 `tests/kernel/test_temporal_context.py` (stale record yields, batch time decides), `tests/extension/purchase-settlement.test.mjs`
 (preview after `until` and move equals the settled debit; band stays `needs`; quote source filled), `tests/extension/time-once.test.mjs`
 (second time beside a flag: the flag lands, one time; zero minutes is not a second time), `tests/extension/physical-documents.test.mjs`
 (open/close without `from`), `tests/extension/document-recording-delivery.test.mjs` (clear leader, `recentTold`), `tests/extension/lean-apply.test.mjs`.
+
+**Optimization acceptance (2026-10-11).** Retained source-mode evidence:
+`.coc/playtests/public-knowledge-live-verified-20261011/acceptance.json`, `events.jsonl`, the three driver turns and
+canonical notebook before/after snapshots. Grok Build 4.7 fast/low continued `apply-verify-20261011b` naturally at turns
+30–32: read earlier committed originals, organized and appended the chosen findings, then inspected the acquired cards
+without writing. The new public catalogue continuation and two `look knowledge` original reads were actually used.
+One preview batch per input supplied advisory scores (including values below .80); packets were about 3.2 KiB. The canonical
+carrier needed zero semantic identity calls, ordinary admission authorized the append, and completion was committed.
+Notebook text grew from 497 to 973 code points with the old prefix intact; the later read/defer input left it identical.
+Final isolated LAN runtime build and 48 scoped regressions passed, including the foundation/inventory smokes and language
+boundary. The broader earlier snapshot is not an all-green gate: historical oracle cache permissions, scene/time assertions
+and two concurrent pushed-roll assertions remained; the missing-band assertion also fails with the HEAD hybrid engine
+without this optimization. No App packaging or GUI acceptance is claimed.
+
+**Budget repair acceptance (2026-10-11).** The scene-material failure was attributable to the optimization: absent fee
+usage could poison shared accounting, and the fixed 4 KiB reservation could drop the current scene identity. Formal code
+now retains conservative cost bounds and prepares scene support first, measuring its bytes before fitting public material.
+The existing first-visit carrying regression passes with the scene identity preserved; its telemetry asserts that source
+and public material together remain inside the original 16 KiB allowance. The 512-byte reader fallback, partial fee usage,
+unchanged-evidence reuse, public-page integrity, ordinary write admission and language boundaries pass in an isolated LAN
+runtime build and 232 checks across 24 related test files. Earlier claims that the remaining scene failure was unrelated, or
+that the historical oracle lacked its Git object, are superseded: the latter assertion is a writable cache directory.
+The nine time assertions also fail with the HEAD hybrid engine, and the two pushed-roll assertions run outside the new
+material flow. Those are separate findings, not green checks. Post-repair natural evidence is retained under
+`.coc/playtests/public-knowledge-budget-repaired-20261011/`; only its canonical before/after snapshots establish writing.
+
 ## 228. Disclosure is appended, never projected into the tool list (2026-10-11, owner: 「你来实现，先跑沙盒」; amends §209.3, §209.5, §209.6, §209.8, §209.9, §209.13, §215 and §217.1)
 
 Evidence: `chatrpgv4-research/reports/tool-disclosure-20261011/` (the plan, the provider probe and the sandbox:

@@ -239,6 +239,10 @@ test("§135.31.1 at the extension seam: a run that stays carries its scene's pas
 	// document answers what the passages do not cover (it said no_source_document before the window shipped).
 	assert.equal(clerkNotes(table.requests[0]).at(-1).carried.head, `${CARRIED_VIEWS_HEAD} ${CARRIED_PASSAGES_HEAD} ${CARRIED_DOCUMENT}`);
 	assert.equal(Object.keys(carried[0].view)[0], "scene:commission-briefing");
+    const materialBudgets=table.table.telemetry(CAMPAIGN).filter(row=>row.lane==='optional_material_budget');
+    assert.ok(materialBudgets.length,'the shared optional budget was measured');
+    assert.ok(materialBudgets.every(row=>row.source_bytes+row.public_bytes<=row.limit),'scene material and public metadata share the existing ceiling');
+
 	assert.equal(table.requests.length, 2, "two model steps");
 	assert.ok((clerkNotes(table.requests[0]).at(-1)?.carried?.views ?? []).some((view) => view.focus === "source"), "the first step's note carries them");
 	// The second request keeps the first note (append-only, §135.23); a note of its own, if any, carries no passages.

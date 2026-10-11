@@ -7,8 +7,8 @@
  * (runtime/jev/document-binding-domain.ts), the kernel's delivery record and capsule (kernel-ts/write/delivery.ts,
  * kernel-ts/write/index.ts, kernel-ts/read/assemble.ts), and the real shared decision adapter behind a controlled typed
  * endpoint (`fetch` answers the pinned Jev URL the way the typed API does). The Keeper's calls are TR-F2 run 3 turn 8's,
- * verbatim, in order (tests/extension/fixtures/tr-f2-run3-turn8.json); the endpoint answers with that turn's own Jev
- * telemetry. Whether a draft claims the recording is the model's judgement, not this file's: the answers are scripted.
+ * verbatim, in order (tests/extension/fixtures/tr-f2-run3-turn8.json); the endpoint uses controlled typed answers. The unresolved-carrier cases lower the carrier score to .63;
+ * family 9 intentionally no longer replays the historical content veto. Whether a draft claims the recording is the model's judgement, not this file's: the answers are scripted.
  * What is under test is what the host does with them. No live model is called.
  *
  * On the table, turn 8 went: two appends refused by the binding, a narrate that said the player kept it in mind refused by
@@ -48,7 +48,7 @@ const CLAIM_AGAIN = "笔记本上已经写好了马卡里奥一家和罗克斯�
 const temporary = await mkdtemp(join(tmpdir(), "document-recording-"));
 after(() => rm(temporary, { recursive: true, force: true }));
 await symlink(join(REPO, "node_modules"), join(temporary, "node_modules"), "dir");
-await build({ stdin: { contents: "export * from './kernel-ts/testing/api.ts'; export {UNCONFIRMED_RECORDING_LINE} from './kernel-ts/read/assemble.ts';",
+await build({ stdin: { contents: "export * from './kernel-ts/testing/api.ts'; export {UNCONFIRMED_RECORDING_LINE} from './kernel-ts/read/assemble.ts'; export {documentKnowledge} from './kernel-ts/mods/document-knowledge.ts';",
 	resolveDir: REPO, sourcefile: "document-recording-api.ts" }, outfile: join(temporary, "api.mjs"), bundle: true, packages: "external",
 	format: "esm", platform: "node", target: "node22", logLevel: "silent" });
 const api = await import(pathToFileURL(join(temporary, "api.mjs")).href);
@@ -65,6 +65,7 @@ async function inProcess(workspace, body) {
  * and 钢笔 (paper), empty. Turn 0 then closes on turn 7's prose, which is what the binding reads as `justTold`.
  */
 async function carriers(workspace, call) {
+	await call("mods.configure",{id:"enhanced-items",enabled:true});
 	await call("table.open");
 	const party = join(workspace, ".coc/campaigns", CAMPAIGN, "party");
 	const investigator = JSON.parse(await readFile(join(party, (await readdir(party)).find((name) => name.endsWith(".json"))), "utf8")).name;
@@ -120,7 +121,7 @@ function installJev(t, { outcome, binding = TURN8.jev.binding[0] }) {
 			const p = outcome(body.state.draft);
 			return p === "unavailable" ? new Response("{}", { status: 500 }) : reply({ false_completion: { type: "noul", noul: p } });
 		}
-		if (body.questions.content || body.questions.execution) {
+		if (body.questions.content || body.questions.execution || questions.some(([key]) => key.startsWith("document_"))) {
 			asked.binding.push(body);
 			return reply(Object.fromEntries(questions.map(([key, question]) => [key,
 				key.startsWith("document_") ? { type: "noul", noul: body.state.documents[Number(key.slice("document_".length))].name === "笔记本"
@@ -129,7 +130,7 @@ function installJev(t, { outcome, binding = TURN8.jev.binding[0] }) {
 						: key === "execution" ? choiceAnswer(Object.keys(question.criteria), "not_selected_operation", 0.9) : generic(question)])));
 		}
 		asked.other.push(Object.keys(body.questions));
-		return reply(Object.fromEntries(questions.map(([key, question]) => [key, generic(question)])));
+		return reply(Object.fromEntries(questions.map(([key, question]) => [key,generic(question)])));
 	};
 	t.after(() => { globalThis.fetch = original; });
 	return asked;
@@ -149,21 +150,25 @@ function engineAnswer(batch) {
 // The table.
 // ---------------------------------------------------------------------------------------------------
 
-const toolCall = (call) => fauxAssistantMessage([fauxToolCall(call.name, call.arguments)], { stopReason: "toolUse" });
+// The historical unresolved-carrier path now uses a shortened reference; canonical names have a deterministic fast path.
+const toolCall = (call) => {const args=structuredClone(call.arguments);if(call.name==='apply')for(const effect of args.effects??[])if(effect.document?.action==='append')effect.name='my notes';
+    return fauxAssistantMessage([fauxToolCall(call.name, args)], { stopReason: "toolUse" });};
 const narrate = (text) => toolCall({ name: "narrate", arguments: { text } });
 
 /** Turn 8's table: the player's words, the interaction scope's .94 recording, and the Keeper's scripted calls, counted. */
-async function turn8(t, { calls, outcome, documentRecording = TURN8.document_recording }) {
-	const asked = installJev(t, { outcome });
+async function turn8(t, { calls, outcome, documentRecording = TURN8.document_recording, binding = {...TURN8.jev.binding[0], document_0:{...TURN8.jev.binding[0].document_0,probability:.63}}, denyWriting = false, mode = "world", playerText = TURN8.player_text }) {
+	const asked = installJev(t, { outcome, binding });
 	const engine = createHybridEngine({ env: {}, decision: { decide: async (batch) => engineAnswer(batch) },
-		interactionScope: { mode: "world", reason: "preclassified_gameplay_fixture", calls: 0, documentRecording } });
+		interactionScope: { mode, reason: "preclassified_gameplay_fixture", calls: 0, documentRecording } });
 	let keeperCalls = 0;
 	const table = await openTable({ realKernel: true, prepareWorkspace: prepareCarriers,
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: "1", EXT_JEV_APIKEY: "test-jev-key" }, runDriver: engine.runDriver,
 		extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
+		...(denyWriting?{laneResponses:{admission:[()=>fauxAssistantMessage(JSON.stringify({player_words:"hold",verdict:"not_authorized",
+            grounds:"This declaration does not choose physical writing now.",missing:"Physical writing now",open_choice:"keeper_added"}))]}}:{}),
 		responses: calls.map((message) => () => { keeperCalls++; return message; }) });
 	t.after(() => table.dispose());
-	await table.session.prompt(TURN8.player_text);
+	await table.session.prompt(playerText);
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
 	return { table, asked, keeperCalls: () => keeperCalls };
 }
@@ -175,12 +180,12 @@ const outcomeRows = (table) => table.telemetry().filter((row) => row.lane === "r
 const unfinishedNotices = (table) => customMessages(table.session, "coc-delivery").filter((message) => message.details?.turn_unfinished);
 const steers = (table) => table.telemetry().filter((row) => row.lane === "turn" && row.event === "turn_close" && row.status === "steer");
 
-test("§200.3, turn 8 replayed: the binding fails twice, the first narrate is delivered, and none of the ten later calls is asked", async (t) => {
+test("§200.3, turn 8 calls with an unresolved carrier: the binding fails twice, the first narrate is delivered, and none of the ten later calls is asked", async (t) => {
 	const { table, asked, keeperCalls } = await turn8(t, { calls: TURN8.calls.map(toolCall), outcome: () => TURN8.jev.outcome_probability });
 	assert.equal(keeperCalls(), 3, "two appends and the first narrate; the run ends on that delivery");
 	const applies = refusals(table, "apply");
 	assert.deepEqual(applies.map((error) => [error.details?.reason, error.details?.cause]),
-		[["document_binding_unresolved", "addition_not_cleared"], ["document_binding_unresolved", "addition_not_cleared"]]);
+		[["document_binding_unresolved", "no_target"], ["document_binding_unresolved", "no_target"]]);
 	// §200.5: the refusal names what happened, and its fix sends the batch's other effects back without the addition.
 	assert.ok(applies.every((error) => !/unambiguous/.test(error.message)), JSON.stringify(applies.map((error) => error.message)));
 	assert.equal(asked.binding.length, 2, "one binding question per append, no execution question after a refused content");
@@ -194,9 +199,9 @@ test("§200.3, turn 8 replayed: the binding fails twice, the first narrate is de
 	assert.equal(record.closed_by, "narrate");
 	assert.equal(record.player_text, TURN8.player_text);
 	assert.ok(String(record.rendered_text ?? record.text).includes("市政档案馆"), "the delivered prose is the Keeper's draft");
-	assert.deepEqual(record.unconfirmed_recordings, [{ document: "笔记本", reason: "binding_unresolved", cause: "addition_not_cleared" }]);
+	assert.deepEqual(record.unconfirmed_recordings, [{ document: "笔记本", reason: "binding_unresolved", cause: "no_target" }]);
 	assert.deepEqual(table.telemetry().filter((row) => row.lane === "document_recording").map((row) => [row.status, row.reason, row.cause]),
-		[["unconfirmed", "binding_unresolved", "addition_not_cleared"]]);
+		[["unconfirmed", "binding_unresolved", "no_target"]]);
 
 	// §200.4 reader: the next input's capsule tells the Keeper the recording is unconfirmed, without the text.
 	table.faux.setResponses([narrate("档案职员把产权登记册推到你面前。")]);
@@ -206,6 +211,49 @@ test("§200.3, turn 8 replayed: the binding fails twice, the first narrate is de
 	assert.equal(capsule.turn.number, 2);
 	assert.deepEqual(capsule.unconfirmed_recordings, [{ turn: 1, document: "笔记本", reason: "binding_unresolved", line: api.UNCONFIRMED_RECORDING_LINE }]);
 	assert.ok(!JSON.stringify(capsule.unconfirmed_recordings).includes(NOTE), "the refused text is not handed back as if written");
+});
+
+test("§227.5: the ordinarily admitted append settles without an after-draft semantic review, and public materials preceded the draft", async (t) => {
+    const {table}=await turn8(t,{calls:[toolCall(SECOND_APPLY),narrate(KEPT_IN_MIND)],outcome:()=>.05,binding:TURN8.jev.binding[0]});
+    assert.deepEqual(refusals(table,"apply"),[]);
+    const view=await inProcess(table.workspace,call=>call("mods.document.view",{name:"笔记本"}));
+    assert.equal(view.text,NOTE,"canonical text, not a prose claim");
+    const result=table.session.messages.find(message=>message.role==="toolResult"&&message.toolName==="apply");
+    assert.equal(result.details?.document_reviews,undefined);
+    const handoff=table.session.messages.find(message=>message.role==="custom"&&typeof message.content==="string"&&message.content.includes('"document_recording_context"'));
+    assert.ok(handoff,"KP receives public materials before its first draft: "+JSON.stringify(table.telemetry().filter(row=>row.lane==='document_knowledge')));
+    const offered=JSON.parse(handoff.content).document_recording_context;
+    assert.ok(offered.entries.some(entry=>entry.kind==='transcript'&&TURN8.just_told.startsWith(entry.preview)));
+    assert.ok(offered.entries.every(entry=>entry.read?.focus==='knowledge'));
+    assert.ok(Buffer.byteLength(JSON.stringify(offered))<=4096);
+    assert.ok(!JSON.stringify(offered.owned_documents).includes("version"),"no opaque revision echo required from KP");
+});
+
+test("§227.5: advisory binding cannot bypass ordinary admission for reading-only or deferred writing", async (t) => {
+    for(const playerText of ["I only read my notebook; I do not write anything.","After I return from the archives I will write this. First I go there."]){
+        const {table}=await turn8(t,{playerText,documentRecording:.1,denyWriting:true,binding:TURN8.jev.binding[0],outcome:()=>.05,
+            calls:[toolCall(SECOND_APPLY),narrate(KEPT_IN_MIND)]});
+        const view=await inProcess(table.workspace,call=>call("mods.document.view",{name:"笔记本"}));
+        assert.equal(view.text,"","the carrier and semantic advice establish no execution permission");
+        assert.ok(refusals(table,"apply").some(error=>error.details?.reason==="action_not_authorized"));
+    }
+});
+
+test("§227.5: low recording hints do not hide materials or lose completion of ordinarily admitted writing", async(t)=>{
+    const {table}=await turn8(t,{documentRecording:.1,binding:TURN8.jev.binding[0],outcome:()=>.05,
+        calls:[toolCall(SECOND_APPLY),narrate(KEPT_IN_MIND)]});
+    assert.equal((await inProcess(table.workspace,call=>call("mods.document.view",{name:"笔记本"}))).text,NOTE);
+    assert.equal(turnRecord(table,1).unconfirmed_recordings,undefined);
+    const rows=table.telemetry().filter(row=>row.lane==='document_completion');
+    assert.ok(rows.some(row=>row.status==='committed'),JSON.stringify(rows));
+});
+
+test("§227.5: reference questions receive the public catalogue without a recording threshold",async(t)=>{
+    const {table}=await turn8(t,{mode:'reference',documentRecording:0,outcome:()=>.05,calls:[narrate('The earlier public terms remain in the account.')]});
+    const handoff=table.session.messages.find(message=>message.role==='custom'&&typeof message.content==='string'&&message.content.includes('"document_recording_context"'));
+    assert.ok(handoff);const offered=JSON.parse(handoff.content).document_recording_context;
+    assert.ok(offered.entries.some(entry=>entry.kind==='transcript'));assert.equal(offered.recording_hint,0);
+    assert.equal((await inProcess(table.workspace,call=>call("mods.document.view",{name:"笔记本"}))).text,'');
 });
 
 test("§200.3: a draft that claims the unconfirmed recording is corrected once, through the turn-close steer, and the correction is delivered", async (t) => {
@@ -221,7 +269,7 @@ test("§200.3: a draft that claims the unconfirmed recording is corrected once, 
 	const record = turnRecord(table, 1);
 	assert.equal(record.closed_by, "narrate");
 	assert.ok(String(record.rendered_text ?? record.text).includes("记在心里"), "the corrected draft is what the player reads");
-	assert.deepEqual(record.unconfirmed_recordings, [{ document: "笔记本", reason: "binding_unresolved", cause: "addition_not_cleared" }]);
+	assert.deepEqual(record.unconfirmed_recordings, [{ document: "笔记本", reason: "binding_unresolved", cause: "no_target" }]);
 });
 
 test("§200.3: a claim the correction did not remove is still delivered, recorded as claimed; the turn never ends empty for this", async (t) => {
@@ -291,7 +339,7 @@ test("§200.4: narrate keeps the host's unconfirmed_recordings on the record, re
 		await call("table.open");
 		await call("table.narrate", { call_id: "t0-c1", text: TURN8.just_told });
 		await call("table.player_input", { text: TURN8.player_text });
-		const row = { document: "笔记本", reason: "binding_unresolved", cause: "addition_not_cleared" };
+		const row = { document: "笔记本", reason: "binding_unresolved", cause: "no_target" };
 		for (const bad of [[{ reason: "" }], [{ ...row, text: NOTE }], [{ ...row, document: "x".repeat(201) }], Array(5).fill(row), row])
 			await assert.rejects(call("table.narrate", { call_id: "t1-c1", text: KEPT_IN_MIND, unconfirmed_recordings: bad }),
 				(error) => error.code === "invalid_params", JSON.stringify(bad).slice(0, 80));
@@ -319,7 +367,7 @@ test("§200.4: narrate keeps the host's unconfirmed_recordings on the record, re
 
 const DOCUMENTS = [{ name: "笔记本", owner: "托马斯·海斯", presentation: "notebook", version: "v1" }, { name: "钢笔", owner: "托马斯·海斯", presentation: "paper", version: "v2" }];
 const answered = (value) => ({ status: "answered", ...value });
-async function bind({ target = 0.91, other = 0.15, content, execution, playerText = TURN8.player_text, suffix = NOTE, recentTold }) {
+async function bind({ target = 0.91, other = 0.15, content, execution, playerText = TURN8.player_text, suffix = NOTE, recentTold, playerKnowledge, literal = ["other_quote", 0.9] }) {
 	const batches = [];
 	const decision = { async decide(batch) {
 		batches.push(batch);
@@ -327,33 +375,21 @@ async function bind({ target = 0.91, other = 0.15, content, execution, playerTex
 			question.key === "document_0" ? answered({ type: "noul", noul: target }) : question.key === "document_1" ? answered({ type: "noul", noul: other })
 				: question.key === "content" ? answered(choiceAnswer(Object.keys(question.criteria), ...content))
 					: question.key === "execution" ? answered(choiceAnswer(Object.keys(question.criteria), ...execution))
-						: answered(choiceAnswer(Object.keys(question.criteria), "other_quote", 0.9))]));
+						: answered(choiceAnswer(Object.keys(question.criteria), ...literal))]));
 		return { batchId: batch.id, status: "complete", answers, issues: [], coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] } };
 	} };
-	const input = { campaign: CAMPAIGN, turn: 8, playerText, justTold: TURN8.just_told, ...(recentTold ? { recentTold } : {}), actor: "托马斯·海斯", suffix, documents: DOCUMENTS };
+	const input = { campaign: CAMPAIGN, turn: 8, playerText, justTold: TURN8.just_told, ...(recentTold ? { recentTold } : {}), ...(playerKnowledge ? {playerKnowledge} : {}), actor: "托马斯·海斯", suffix, documents: DOCUMENTS };
 	const lease = new TaskLease({ owner: DOCUMENT_BINDING_FAMILY, goal: "test", ...documentBindingScope(input), capabilities: ["decision"],
 		signal: new AbortController().signal, budget: { deadlineAt: Date.now() + 10_000, remainingInputTokens: 200_000, remainingOutputTokens: 20_000, remainingCostUsd: 0.02, remainingActions: 2 } });
 	try { return { result: await bindDocumentAppend(input, decision, lease), batches }; } finally { lease.close(); }
 }
 
-test("§200.5/§227.5: family version 5 keeps the role gates at .90 on the answers measured live", async () => {
-	// Turn 8's note under version 5: content within .86, still under the gate; no execution question is asked.
-	const turn = await bind({ content: ["within_selected_addition", 0.86] });
-	assert.deepEqual([turn.result.status, turn.result.reason], ["unresolved", "addition_not_cleared"]);
-	assert.deepEqual(turn.batches.map((batch) => [batch.familyVersion, batch.questions.some((question) => question.key === "execution")]), [["5", false]]);
-	assert.ok(turn.batches[0].readSet.some((entry) => entry.kind === "family" && entry.revision === "5"));
-	// The dictated quote (C5): content within .97, execution .93 -- bound to the notebook, with the proposed words.
-	const quote = "马卡里奥一家，1918年初，罗克斯伯里";
-	const dictated = await bind({ playerText: `我在本子上写下：「${quote}」。`, suffix: quote, target: 0.9,
-		content: ["within_selected_addition", 0.97], execution: ["selected_operation", 0.93] });
-	assert.deepEqual([dictated.result.status, dictated.result.document?.name, dictated.result.suffix], ["bound", "笔记本", quote]);
-	// Deferred writing (C10): the words pass content, and execution's wrong-leaning .62 is held by the gate.
-	const deferred = await bind({ playerText: "等从档案馆回来，我再把马卡里奥一家和罗克斯伯里记到笔记本上。现在先去市政档案馆。", target: 0.95,
-		content: ["within_selected_addition", 0.92], execution: ["selected_operation", 0.62] });
-	assert.deepEqual([deferred.result.status, deferred.result.reason], ["unresolved", "execution_not_cleared"]);
-	// A read-only player (C3b): the target falls under the gate.
-	const reading = await bind({ playerText: "我翻开笔记本，看看之前记过马卡里奥一家和罗克斯伯里没有。", target: 0.63, content: ["within_selected_addition", 0.83] });
-	assert.deepEqual([reading.result.status, reading.result.reason], ["unresolved", "no_target"]);
+test("§227.5: family 9 binds carrier identity with one batch and never reviews the proposed contents or execution", async () => {
+    const checked=await bind({content:["outside_selected_addition",.98],execution:["not_selected_operation",.99]});
+    assert.equal(checked.result.status,"bound");assert.equal(checked.batches.length,1);
+    assert.equal(checked.batches[0].familyVersion,"9");
+    assert.ok(checked.batches[0].questions.every(question=>question.key.startsWith('document_')||question.key.startsWith('literal_')));
+    assert.equal(checked.result.advice,undefined);
 });
 
 // §227.5, live 4d7 t76: "copy the item's original words into the notebook" -- the notebook led .87 with every other carrier
@@ -364,7 +400,70 @@ test("§227.5: a clear leader names the carrier, and a copy of a text the player
 	const copied = await bind({ playerText: "我把那条短讯的原话抄进本子，谢过店员。", suffix: `\n${clipping}\n`, target: 0.87, other: 0.04, recentTold,
 		content: ["within_selected_addition", 0.95], execution: ["selected_operation", 0.93] });
 	assert.deepEqual([copied.result.status, copied.result.document?.name], ["bound", "笔记本"]);
-	assert.deepEqual(copied.batches[0].state.recentTold, recentTold, "the content question reads the recent told text");
+	assert.equal(copied.batches.length,1,"no after-draft review or public-history duplication");
 	const close = await bind({ target: 0.87, other: 0.3, content: ["within_selected_addition", 0.95], execution: ["selected_operation", 0.93] });
 	assert.deepEqual([close.result.status, close.result.reason], ["unresolved", "no_target"], "a runner-up above .2 is no clear leader");
+});
+
+test("§227.5: content concerns are advisory and complete quotation substitution still needs .9", async () => {
+    const outside=await bind({content:["outside_selected_addition",.98],execution:["selected_operation",.95]});
+    assert.equal(outside.result.status,"bound");
+    assert.equal(outside.batches.length,1);
+    const playerText='I write in my notebook: "My own stated belief."';
+    const weakQuote=await bind({playerText,literal:["addition_text",.89],content:["outside_selected_addition",.96],execution:["selected_operation",.9]});
+    assert.deepEqual([weakQuote.result.status,weakQuote.result.reason],["unresolved","literal_binding_uncertain"]);
+    const clearQuote=await bind({playerText,literal:["addition_text",.90],content:["outside_selected_addition",.96],execution:["selected_operation",.90]});
+    assert.deepEqual([clearQuote.result.status,clearQuote.result.origin,clearQuote.result.suffix],["bound","player_span","My own stated belief."]);
+});
+
+test("§227.5: the full public day survives the capsule window, excludes other lines and secrets, without duplicating history into carrier identity", async () => {
+    const early = "Knott offered twenty dollars per day and wanted findings he could use in an advertisement.";
+    const clock = {at:"1920-01-02T18:00",minutes:1980};
+    const record = (turn,text,minutes,extra={}) => ({turn,rendered_text:text,commit:"settled",worldline:"main",loop:0,
+        world:{clock:{minutes},secret:"keeper-only world"},capsule:{where:{clock:{at:"1920-01-02T09:00",minutes:1440}},secret:"keeper-only capsule"},...extra});
+    const view = {turn:8,clock,clues:{discovered:[{label:"Old house",how:"The house was sold in 1835.",summary:"unrevealed source"}]},
+        handouts:[{name:"Clipping",text:"The newspaper's public text.",path:"private path"}]};
+    const records = [record(2,early,1500),record(3,"public details ".repeat(600),1560),record(5,"Lunch.",1800),record(6,"Home.",1920),
+        record(1,"Previous day",0,{capsule:{}}),record(4,"Other worldline",1620,{worldline:"other"}),record(4,"Other loop",1620,{loop:1}),
+        record(4,"Superseded",1620,{superseded_by:7}),record(7,"Never delivered",1950,{commit:null}),record(9,"Future",2000)];
+    const knowledge = api.documentKnowledge(view,records,{active_worldline:"main",worldlines:{main:{loop:0}}});
+    assert.deepEqual(knowledge.narrations.map(entry=>entry.turn),[2,3,5,6]);
+    assert.deepEqual(knowledge.clues,[{label:"Old house",how:"The house was sold in 1835."}]);
+    assert.deepEqual(knowledge.handouts,[{name:"Clipping",text:"The newspaper's public text."}]);
+    assert.ok(!JSON.stringify(knowledge).includes("keeper-only"));
+    const checked = await bind({playerText:"I write up today's findings in my notebook.",suffix:early,playerKnowledge:knowledge,
+        content:["within_selected_addition",.97],execution:["selected_operation",.96]});
+    assert.equal(checked.result.status,"bound");
+    assert.equal(checked.batches.length,1);
+    assert.equal(checked.batches[0].state.playerKnowledge,undefined,"identity binding carries no unrelated public history");
+    const crossMidnight=record(7,"I organized the day, then slept until morning.",2340);
+    const tomorrow={...view,clock:{at:"1920-01-03T07:30",minutes:2790}};
+    assert.deepEqual(api.documentKnowledge(tomorrow,[crossMidnight],{active_worldline:"main"}).narrations.map(entry=>entry.turn),[7]);
+});
+
+test("§227.5: canonical document options supplies only public knowledge when the host requests it", async () => {
+    const workspace=join(temporary,"knowledge-options");
+    await inProcess(workspace,async call=>{
+        await call("campaign.create",{id:CAMPAIGN,module:"the-haunting",pregen:"thomas-hayes",play_language:"zh-Hans"});
+        await carriers(workspace,call);
+        const plain=await call("mods.document.options");
+        assert.equal(plain.playerKnowledge,undefined);
+        const catalogue=await call("mods.document.options",{_knowledge_catalog:true});
+        assert.equal(catalogue.playerKnowledge,undefined);
+        const original=await call("table.look",catalogue.knowledge.entries.find(entry=>entry.kind==='transcript').read);
+        assert.equal(original.text,TURN8.just_told);
+        const reordered={loop:original.context.loop,line:original.context.line,view:original.context.view,turn:original.context.turn};
+        assert.equal((await call("table.look",{...catalogue.knowledge.entries[0].read,knowledge_page:{...catalogue.knowledge.entries[0].read.knowledge_page,context:reordered}})).status,'original');
+        const savedPath=join(workspace,'.coc/campaigns',CAMPAIGN,'turns','0000.json');
+        const saved=JSON.parse(await readFile(savedPath,'utf8'));
+        await writeFile(savedPath,JSON.stringify({...saved,rendered_text:TURN8.just_told+' Changed public original.'}));
+        assert.equal((await call('table.look',catalogue.knowledge.entries[0].read)).status,'stale','same-turn edits invalidate issued original references');
+        const refreshed=await call('table.look',{focus:'knowledge'});
+        assert.ok(refreshed.context.view>catalogue.knowledge.context.view);
+
+
+        const supplied=await call("mods.document.options",{_binding_context:true});
+        assert.equal(supplied.playerKnowledge.narrations[0].text,TURN8.just_told+' Changed public original.');
+        assert.deepEqual(Object.keys(supplied.playerKnowledge).sort(),["clues","day","handouts","narrations"]);
+    });
 });
