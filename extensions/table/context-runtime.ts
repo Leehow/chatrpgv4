@@ -558,11 +558,26 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     const discoveryEvidence=(messages:readonly Row[])=>messages.filter(message=>message.role!=='custom'
         ||!['coc-capsule',BRIEF_TYPE,MOD_SECTIONS_MESSAGE,EXPRESSION_MESSAGE,TEMPORAL_ADVICE_MESSAGE,
             PRESCREEN_TYPE,WORKSPACE_TYPE,CAPSULE_UPDATE_TYPE,CLERK_TYPE].includes(message.customType));
+    /**
+     * §219.4: the owner a required discovery read runs under. After a verified request, §209.9 hands required hydration and
+     * identity checks to the foreground owner once the optional allowance expires; the pin happens at the next request,
+     * so a request whose projection was already under way when the allowance ran out (4d7 turn 88: prepared at 0.6 s
+     * before expiry, its package detail read 0.1 s after) keeps that same foreground owner for its reads instead of failing
+     * the whole projection. An unverified input keeps the shared preparation deadline.
+     */
+    const discoveryReadOwner=()=>{
+        const parent=foregroundReadOwner(),verified=!!parent&&!!inputEpoch&&verifiedInputEpoch===inputEpoch;
+        // Never shorter than the optional allowance the read would have had: the foreground owner only extends it.
+        const foreground=fallbackForInput||verified&&!!prescreenDeadlineAt&&parent!.deadlineAt>prescreenDeadlineAt;
+        return {parent,deadline:foreground?parent?.deadlineAt:prescreenDeadlineAt,
+            expired:foreground?'discovery_foreground_deadline':'discovery_snapshot_deadline',
+            owner:fallbackForInput||foreground&&!!prescreenDeadlineAt&&Date.now()>=prescreenDeadlineAt?'foreground_fallback':'preparation'};
+    };
     async function boundedDiscoveryRead<T>(read:()=>Promise<T>):Promise<T>{
         if(discoveryMode()==='full'||!prescreenDeadlineAt)return read();
-        const parent=foregroundReadOwner(),deadline=fallbackForInput?parent?.deadlineAt:prescreenDeadlineAt;
+        const {parent,deadline,expired}=discoveryReadOwner();
         if(!deadline)throw Error('discovery_foreground_unavailable');
-        const remaining=deadline-Date.now(),expired=fallbackForInput?'discovery_foreground_deadline':'discovery_snapshot_deadline';
+        const remaining=deadline-Date.now();
         if(remaining<=0)throw Error(expired);
         const lifetime=AbortSignal.any([inputLifetime.signal,optionalWork.signal,
             ...(parent?[parent.signal]:[]),AbortSignal.timeout(remaining)]);
@@ -690,6 +705,16 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const project=(budget:number,optional:{workspace?:Row;prescreen?:Row}={})=>projectedMessages({messages:selected,binding:snapshot.binding,
             history:snapshot.history,brief:briefSent,answering:snapshot.answering,budget,...optional,...(runOwnsPrescreen?{capsuleFirst:true}:{})});
         let messageBudget=room,baseline=project(room,{workspace});
+        // §219.3: a projection a newer generation or a cancelled preparation overtook still goes to the provider as its
+        // bounded baseline, so it still has its `context/request` row.
+        const superseded=():ContextEventResult=>{
+            const messages=rename(baseline.messages),bytes=requestSize(messages)+systemBytes;
+            record({lane:'context',event:'request',at:new Date().toISOString(),version:POLICY_VERSION,turn:snapshot!.binding.turn,
+                reason:'context_superseded',request_bytes:bytes,system_bytes:systemBytes,system_digest:systemDigest,
+                local_token_estimate:Math.ceil(bytes/BYTES_PER_TOKEN),ceiling_bytes:ceiling,context_window:ctx.model?.contextWindow??null,
+                ...(baseline.droppedTail?{dropped_tail:baseline.droppedTail}:{}),...requestSegments(messages)});
+            return {messages:messages as typeof requestMessages};
+        };
         // Compute the actual baseline only after system/tool/output reserves are known. Material
         // missing from this projection is not "already supplied" to the Keeper.
         try {
@@ -724,7 +749,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             const reused=prescreen,needsReassessment=object(object(reused?.details).prescreen).needs_reassessment===true;
             if(!prescreen||needsReassessment&&prescreenProviderBudget.actions>0&&Date.now()<prescreenDeadlineAt){
                 let refreshOutcome='unknown';
-                if(preparationSignal.aborted||ticket!==generation)return {messages:rename(baseline.messages) as typeof requestMessages};
+                if(preparationSignal.aborted||ticket!==generation)return superseded();
                 const refreshed=await preparePrescreen({call:preparationCall,campaign:preparationCampaign,binding:snapshot.binding,capsule:snapshot.capsule,
                     signal:preparationSignal,record:event=>{record(event);if(event.event==='prepared')refreshOutcome='prepared';
                         else if(event.event==='fallback')refreshOutcome='fallback';else if(event.event==='skipped')refreshOutcome=String(event.reason??'skipped');},
@@ -733,11 +758,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     providerBudget:prescreenProviderBudget,...(sourceRuntime&&moduleId?{source:{moduleId,runtime:sourceRuntime}}:{})});
                 prescreen=refreshed??(needsReassessment&&['prepared','empty_catalog'].includes(refreshOutcome)?undefined:reused);
             }
-            if(ticket!==generation||preparationSignal.aborted)return {messages:rename(baseline.messages) as typeof requestMessages};
+            if(ticket!==generation||preparationSignal.aborted)return superseded();
             prescreenMemo={key:memoKey,message:prescreen};
             if(prescreen)reusablePrescreen=prescreen;
         }
-        if(ticket!==generation||preparationSignal.aborted)return {messages:rename(baseline.messages) as typeof requestMessages};
+        if(ticket!==generation||preparationSignal.aborted)return superseded();
         const initial=prescreen?project(messageBudget,{workspace,prescreen}):baseline;
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
         const fits=(list:Row[])=>requestSize(list)+systemBytes<=ceiling&&Math.ceil((requestSize(list)+systemBytes)/BYTES_PER_TOKEN)<=available;
@@ -760,9 +785,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const temporalWork=temporalAdvice.message(snapshot.capsule,snapshot.binding,preparationSignal,requestMessages as unknown as Row[]);
         modSections.observe(snapshot.capsule,snapshot.binding,inputLifetime.signal);
         await modSections.waitForFirst(preparationSignal);
-        if(ticket!==generation||preparationSignal.aborted)return{messages:rename(baseline.messages) as typeof requestMessages};
+        if(ticket!==generation||preparationSignal.aborted)return superseded();
         const sectionsMessage=await modSections.message(snapshot.capsule,snapshot.binding,turnCalls);
-        if(ticket!==generation||preparationSignal.aborted)return{messages:rename(baseline.messages) as typeof requestMessages};
+        if(ticket!==generation||preparationSignal.aborted)return superseded();
         // Read only the current host-owned step, never a player's JSON or a past turn's plan.
         const stepMessage=[...requestMessages].reverse().find(message=>message.role==='custom'&&message.customType===CLERK_TYPE
             &&object(message.details).coc_host===true&&object(message.details).turn===snapshot.binding.turn);
@@ -817,7 +842,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 .flatMap((mod:Row)=>(mod.sections??[]).filter((section:Row)=>keys.has(section.key)).flatMap((section:Row)=>section.dependencies??[]));
         }
         const temporalMessage=await temporalWork;
-        if(ticket!==generation||preparationSignal.aborted)return{messages:rename(baseline.messages) as typeof requestMessages};
+        if(ticket!==generation||preparationSignal.aborted)return superseded();
         if(temporalMessage&&requestSize([...outgoing,temporalMessage])+systemBytes<=ceiling
             &&Math.ceil((requestSize([...outgoing,temporalMessage])+systemBytes)/BYTES_PER_TOKEN)<=available){
             outgoing.push(temporalMessage);pendingTemporal=temporalMessage;
@@ -826,11 +851,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const expressionView={...snapshot.capsule,expression_exchange:snapshot.history};
         expression.observe(expressionView,snapshot.binding,inputLifetime.signal);
         await expression.waitForFirst(expressionView,snapshot.binding,preparationSignal);
-        if(ticket!==generation||preparationSignal.aborted)return{messages:rename(baseline.messages) as typeof requestMessages};
+        if(ticket!==generation||preparationSignal.aborted)return superseded();
         // §103.5: the expression packet is host-written too; it reaches the Keeper by the same names.
         const projectedExpression=expression.project(expressionView,snapshot.binding);
         const expressionMessage=projectedExpression&&rename([projectedExpression])[0];
-        if(ticket!==generation||preparationSignal.aborted)return{messages:rename(baseline.messages) as typeof requestMessages};
+        if(ticket!==generation||preparationSignal.aborted)return superseded();
         if(expressionMessage&&requestSize([...outgoing,expressionMessage])+systemBytes<=ceiling
             &&Math.ceil((requestSize([...outgoing,expressionMessage])+systemBytes)/BYTES_PER_TOKEN)<=available){
             outgoing.push(expressionMessage);pendingExpression=expressionMessage;
@@ -847,7 +872,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     ||(current.task_source_revision??current.source_revision)!==(expected.task_source_revision??expected.source_revision)
                     ||current.task_world_revision!==expected.task_world_revision)throw Error('discovery_snapshot_changed');
                 record({lane:'context',event:'discovery_snapshot',status:'current',ms:Date.now()-began,read_bytes:sizeOf(fresh),
-                    read_owner:fallbackForInput?'foreground_fallback':'preparation'});
+                    read_owner:discoveryReadOwner().owner});
                 discoveryUnavailable=false;verifiedInputEpoch=inputEpoch;
             }catch(error){
                 const reason=String(error?.message??'discovery_snapshot_unavailable').slice(0,160);
@@ -858,9 +883,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     pendingSections=undefined;pendingExpression=undefined;pendingTemporal=undefined;pendingProvider=undefined;
                     capsule=undefined;rawBinding=undefined;brief=undefined;briefKey=undefined;invalidate();degraded(reason);
                 }
-                const notice=diagnostic(reason),evidence=discoveryEvidence(requestMessages as unknown as Row[]);
-                const tail=boundedTail(evidence,Math.max(0,budget-requestSize([notice])));
-                return{messages:rename([notice,...tail.messages]) as typeof requestMessages};
+                // §219.3: the same bounded degraded request as every other failure, with its `context/request` row.
+                return{messages:degradedRequest(requestMessages as unknown as Row[],ctx,reason) as typeof requestMessages};
             }
         }
         const bytes = requestSize(outgoing) + systemBytes, estimatedTokens = Math.ceil(bytes / BYTES_PER_TOKEN);
