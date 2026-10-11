@@ -554,7 +554,9 @@ async function arrival({ fact, compile, responses, firstExit = "finish", bind = 
 	const engine = createHybridEngine({ env: process.env, decision: { decide: async (batch) => { decisions.push(batch); return batch.family === BIND_FAMILY
 		? answered(batch, (question) => bind[semanticKey(question.key)], bindConfidence)
 		: batch.family === COMPILE_FAMILY ? answered(batch, (question) => compile === "demand" ? askDemand(question) : undefined)
-		: (routes++, answered(batch, (question) => question.key === "exit" ? (routes === 1 ? firstExit : "finish") : question.criteria.seeks ? fact : undefined)); } } });
+		: batch.family === ROUTE_FAMILY
+            ? (routes++, answered(batch, (question) => question.key === "exit" ? (routes === 1 ? firstExit : "finish") : question.criteria.seeks ? fact : undefined))
+            : answered(batch); } } });
 	const table = await openTable({
 		realKernel: true, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: PASS },
 		prepareWorkspace: (workspace) => kernelSteps(workspace, [["table.open", {}], ["table.player_input", { text: "我去《环球报》报馆" }],
