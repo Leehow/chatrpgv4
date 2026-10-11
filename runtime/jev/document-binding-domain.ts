@@ -10,7 +10,7 @@ export const DOCUMENT_BINDING_MIN = .9;
 export const DOCUMENT_ROLE_PROBABILITY_MIN = .9;
 /**
  * §227.5: a clear leader below DOCUMENT_BINDING_MIN still names the carrier when every other candidate is far below it. 4d7's
- * sole notebook ("the notebook" for 采访笔记本) led .83-.89 with every other carrier at .04-.06, and each addition was lost.
+ * sole notebook (the player's short word for its registered interview-notebook name) led .83-.89 with every other carrier at .04-.06, and each addition was lost.
  */
 export const DOCUMENT_LEAD_MIN = .8, DOCUMENT_OTHER_MAX = .2;
 /** §227.5: how much of the recent told text (player-visible deliveries, newest kept) the content questions read. */
