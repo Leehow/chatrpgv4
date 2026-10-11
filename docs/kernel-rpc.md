@@ -42911,7 +42911,7 @@ overrides the mode alone.
 
 | key | shipped value |
 | --- | --- |
-| `mode` | `shadow` |
+| `mode` | `on` |
 | `cost_min` | 0.7 |
 | `sentence_min` | 0.5 |
 | `min_default_minutes` | 5 |
@@ -42924,6 +42924,8 @@ calls. The sentence bar is the told-clue read's, and the cost bar sits above the
 `PI_COC_TOLD_TIME=shadow` turns the writes off without a build.
 
 *Lead decision 2026-10-10 (integration):* the shipped mode is `shadow` until the bars are calibrated on live rows and the owner confirms §216 sits inside the §190.2 exception; a validation host sets `PI_COC_TOLD_TIME=on` explicitly and labels its run.
+
+*Owner decision 2026-10-11:* §216 sits inside the §190.2 exception; the shipped mode is `on`. The bars are those of §218.8 (extent_min 0.6) and are recalibrated from live rows.
 
 **The row.** One per delivery:
 
