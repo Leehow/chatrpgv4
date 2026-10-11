@@ -23,6 +23,7 @@ before(async()=>{
         "export {createKernelRuntime} from './kernel-ts/registry.ts';",
         "export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';",
         "export {CampaignWriter} from './kernel-ts/write/store.ts';",
+        "export {packDecisionBatch,JEV_REQUEST_TOKEN_LIMIT} from './runtime/jev/question-packing.ts';",
     ].join('\n'),resolveDir:root,sourcefile:'declared-time-entry.ts'},outfile:join(bundle,'api.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',logLevel:'silent'});
     api=await import(pathToFileURL(join(bundle,'api.mjs')).href);
 });
@@ -473,4 +474,16 @@ test('§218.9 over the TS kernel: band_reach least lands the row\'s min, typical
     await call('table.apply',{call_id:'t2-c10',effects:[{kind:'time',band:'brief_activity',band_reach:'full'}]});
     const full=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
     assert.deepEqual([full.band_roll.min,full.band_roll.max,full.band_roll.reach],[2,10,undefined]);
+});
+
+test('§218.9 the declared-time bind batch fits one Jev request with headroom: the real rows and the longest 131 input pack under 60,000 bytes',()=>{
+    // 0.9.7a 0af629f3b: the fraction question pushed this batch to 64,438 of 64,000 and the packer refused it, so the clerk's
+    // band question was never asked (time-once, time-cost-fit, time-band-momentary). This guard keeps the batch packable.
+    const categories=JSON.parse(readFileSync(join(root,'content/rulesets/coc7/rules-json/time-costs.json'),'utf8')).categories;
+    const rows=Object.entries(categories).filter(([handle])=>!handle.endsWith('_travel')).map(([handle,row])=>({handle,min:row.min,max:row.max,default:row.default,covers:row.covers}));
+    const longest=Object.values(live131).flat().map(turn=>turn.input??'').sort((a,b)=>Buffer.byteLength(b)-Buffer.byteLength(a))[0];
+    const value=candidate(longest,{...reads,bands:{time:rows,gates:{time:0.5}}});
+    const batch=api.bindBatch(api.initialView({runId:'pack',rawInput:longest,context,candidates:[value],compile:false,readFirst:false}),value,scope,[]);
+    const {estimate}=api.packDecisionBatch(batch);
+    assert.ok(estimate.totalUpperBound<=60_000,`${estimate.totalUpperBound} bytes, limit ${api.JEV_REQUEST_TOKEN_LIMIT}`);
 });

@@ -43585,6 +43585,15 @@ new wording. Over the TS kernel: `band_reach` `typical` and `least` roll inside 
 says so, and the invalid forms are refused. `tests/extension/time-once.test.mjs`: a Keeper `until` without journeys after the
 clerk's move is refused once and passes the second time. Each fails on the base.
 
+**The batch's size (2026-10-11, the 0.9.7a `all` gate after 0af629f3b).** With `fraction` added the declared-time bind batch
+(band and nine grids, each in three views) measured 64,438 bytes against Jev's 64,000-token request bound
+(`question-packing.ts`'s UTF-8 upper bound) with the real time-costs rows, so the packer refused it and the clerk's band
+question was never asked (`time-once`, `time-cost-fit`, `time-band-momentary` red). The hour and minute criteria are now
+short readings (`09:00-09:59 or 21:00-21:59`; `7`; the instructions say what an option is), and the hour and unit
+instructions point at their `none` criterion instead of repeating its list: 57,745 bytes. A guard in
+`declared-time-interval.test.mjs` packs the batch over the real rows with the longest 131 input and requires at most 60,000.
+A packing refusal of this batch is an unavailable Jev for the bind (the declared time is unsettled); no live turn reached it.
+
 ## 219. A book check reaches check selection, a person is matched by the table's word, and every request is accounted (2026-10-10, issue #112 follow-up on the 4d7 live table; amends §159's ordinary need questions and catalog facts, §201.2's `check_first` fix, §209.9's optional-expiry hand-over and §209.13's request rows)
 
 **Evidence.** 4d7 GUI table, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, turns 68–101, Grok 4.7 Keeper, hybrid engine
