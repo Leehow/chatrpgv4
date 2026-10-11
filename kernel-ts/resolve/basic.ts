@@ -1,5 +1,6 @@
 /** The fixed check executors. Every receipt and save goes through SettleContext. */
 import { RpcError } from '../errors.js';
+import {preparePush, drawPushRisk, pushSourceCheck} from '../mods/pushed-roll.js';
 import { isJsonObject, sha256Text } from '../json.js';
 import { CHARACTERISTICS, SkillResolver } from '../rules/skills.js';
 import { array, clone, number, repr, row, string, truth, values, type Row } from '../read/values.js';
@@ -177,7 +178,7 @@ export const executeCheck: SettlementExecutor = async (context, args, plan) => {
         data.combined_targets = combined.map(value => ({label: string(value.label), value: number(value.value)}));
         data.improvement_tick_eligible = false;
         const pushable = await Promise.all(combined.map(value => context.arithmetic.skillPushable(string(value.label))));
-        data.push_eligible = pushable.some(Boolean);
+        data.push_eligible = pushable.every(Boolean);
         data.success = truth(data.combined_roll.overall_success);
         data.passed = data.success;
         if (!data.success)
@@ -198,6 +199,7 @@ export const executeCheck: SettlementExecutor = async (context, args, plan) => {
             source: summary === '' ? 'keeper_free_rein' : foreshadowed ? 'delivered_text' : 'keeper_stated'
         };
         Object.assign(data, {
+            ...(args.pushed_risk ? {pushed_risk: {...args.pushed_risk, activated: !data.success}} : {}),
             method_changed: string(args.method_changed || ''),
             failure_consequence: consequence,
             announced_consequence: consequence,
@@ -334,15 +336,10 @@ export const executeOpposed: SettlementExecutor = async (context, args) => {
     };
 };
 export const executePush: SettlementExecutor = async (context, args, plan) => {
-    const original = row(args.canonical_roll_receipt);
-    const verdict = await context.arithmetic.pushPolicy(original.outcome, truth(original.pushed), original.skill);
-    if (verdict)
-        throw new RpcError('turn_state', `the last check cannot be pushed: ${verdict}`, {
-            fix: 'let the failure stand and narrate its consequence, or spend Luck with action.luck',
-            details: {
-                source_receipt: args.original_check_decision_id ?? null
-            }
-        });
+    const {provider, source} = await preparePush(context);
+    const original = pushSourceCheck(source);
+    context.arithmetic.assertRollable(number(original.target), string(original.difficulty || 'regular'), string(original.skill), true);
+    const risk = drawPushRisk(context, provider);
     const characteristic = Object.hasOwn(CHARACTERISTICS, string(original.skill || '').toUpperCase());
     // §223.4: a combined check is pushed as the same one die against the same named skills.
     const combinedTargets = array(original.combined_targets).filter(isJsonObject);
@@ -352,17 +349,18 @@ export const executePush: SettlementExecutor = async (context, args, plan) => {
         skill: characteristic || combined.length ? null : original.skill ?? null,
         characteristic: characteristic ? original.skill : null,
         ...(combined.length ? {combined_targets: combined, combined_mode: original.combined_mode ?? row(original.combined_roll).comparison_mode ?? 'any'} : {}),
-        target: args.target ?? original.target,
-        difficulty: args.difficulty ?? original.difficulty,
-        bonus: args.bonus ?? original.bonus,
-        penalty: args.penalty ?? original.penalty,
+        target: original.target,
+        difficulty: original.difficulty,
+        bonus: original.bonus,
+        penalty: original.penalty,
         goal: original.goal ?? null,
         stakes: original.stakes ?? null,
         difficulty_basis: original.difficulty_basis ?? null,
         pushed: true,
+        pushed_risk: risk,
         method_changed: args.method_changed ?? null,
         failure_consequence: args.failure_consequence ?? null,
-        original_check_decision_id: args.original_check_decision_id ?? null,
+        original_check_decision_id: source.id,
         npc_id: original.npc_id ?? null,
         social_adjudication_ref: original.social_adjudication_ref ?? null
     }, plan);

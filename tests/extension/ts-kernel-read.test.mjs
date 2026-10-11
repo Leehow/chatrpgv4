@@ -233,8 +233,15 @@ test('Director signals and authored scoring match the Python decision table',asy
   // preserve its remaining projection.
   const FLOOR_SIGNALS=['empty_turns','repeat_input','previous_close','blocked_attempts'];
   const withoutFloor=sig=>Object.fromEntries(Object.entries(sig).filter(([key])=>!FLOOR_SIGNALS.includes(key)));
-  const withoutFloorBecause=section=>({...section,because:section.because.filter(line=>!FLOOR_SIGNALS.some(name=>line.startsWith(name+' = ')))});
-  await rows(t,cases,expected,c=>withoutFloor(api.signals({...c,graph,scene:graph.nodes.get(c.scene),present:c.present.map(id=>graph.nodes.get(id)),conditions:s=>c.conditions[s.id]||[],sanity:s=>c.sanity[s.id]||null})));
+  // Section 228 retires this signal. Assert current TS behavior directly; the immutable
+  // oracle still compares every other field of the historical projection.
+  const withoutRetired=({pushed_fail_pending,...rest})=>rest;
+  const withoutFloorBecause=section=>({...section,because:section.because.filter(line=>!['pushed_fail_pending',...FLOOR_SIGNALS].some(name=>line.startsWith(name+' = ')))});
+  await rows(t,cases,expected.map(withoutRetired),c=>{
+    const signals=api.signals({...c,graph,scene:graph.nodes.get(c.scene),present:c.present.map(id=>graph.nodes.get(id)),conditions:s=>c.conditions[s.id]||[],sanity:s=>c.sanity[s.id]||null});
+    assert.equal(signals.pushed_fail_pending,false);
+    return withoutRetired(withoutFloor(signals));
+  });
   const dg=new api.DirectorGraph(await json(join(CONTENT,'director/director-graph.json')),await json(join(CONTENT,'director/director-graph-manifest.json')));
   const quiet={...expected[0],intent:'none',undiscovered_here:0,agenda_npc_present:0,dramatic_question:false,exit_condition_met:false,main_line_complete:false,
     stalled_turns:0,turns_in_scene:1,hp_state:'healthy',sanity_state:'stable',session:'none',last_roll:'none',pushed_fail_pending:false,pending_choice:false,clock_near_full:false};
@@ -251,17 +258,19 @@ test('Director signals and authored scoring match the Python decision table',asy
   same(names.map(api.semanticName),oracle('semantic_names',{names}),'semantic decision names');
   const ontology=new api.Ontology(await json(join(CONTENT,'ontology/system-ontology.json')));
   const grounded=[cases[0],{...base,label:'subsystem decision grounding',session:{kind:'combat',status:'active'}},cases[1]];
-  // The frozen oracle predates explicit unknown-check wording; preserve its remaining projection.
-  const withoutGates=section=>({...section,...(section.reveal?{reveal:section.reveal.map(({gate,...clue})=>clue)}:{})});
-  await rows(t,grounded,oracle('grounding',{cases:grounded}).map(withoutGates),c=>{
+  // These cases contain a failed push: section 228 intentionally changes their derived
+  // beat, so test current TS directly instead of rewriting the frozen oracle.
+  for (const [index,c] of grounded.entries()) await t.test(c.label,()=>{
     const selected=graph.nodes.get(c.scene),present=c.present.map(id=>graph.nodes.get(id));
     const sig=api.signals({...c,graph,scene:selected,present,undiscovered:graph.sceneClueIds(selected).filter(id=>!c.world.discovered_clues.includes(graph.handle(graph.nodes.get(id)))).length,
       conditions:s=>c.conditions[s.id]||[],sanity:s=>c.sanity[s.id]||null});
+    assert.equal(sig.pushed_fail_pending,false);
     const section=api.directorSection(dg,ontology,graph,c.world,selected,sig,c.memory||[],present);
+    assert.equal(section.beat,['REVEAL','SUBSYSTEM','SUBSYSTEM'][index]);
+    assert.ok(section.because.includes('pushed_fail_pending = False'));
     if(section.reveal)assert.deepEqual(section.reveal.map(clue=>clue.gate),[
       'environmental: check unspecified','environmental: check unspecified','obvious: check unspecified',
       'obvious: check unspecified','environmental: check unspecified']);
-    return withoutSessionScores(withoutGates(withoutFloorBecause(section)));
   });
 });
 

@@ -33,6 +33,7 @@ await build({
             "export {executeCheck, executePush, executeLuckSpend} from './kernel-ts/resolve/basic.ts';",
             "export {skillTickEligible, continuableCheck, recordSkillTicks} from './kernel-ts/resolve/context.ts';",
             "export {CombatSession} from './kernel-ts/combat/engine.ts';",
+            "export {readModCatalog} from './kernel-ts/read/mods.ts';",
         ].join('\n'),
         resolveDir: ROOT, loader: 'ts', sourcefile: 'rulebook-rolls.ts',
     },
@@ -43,6 +44,8 @@ const kernel = await api.createKernelContext({workspace: join(temporary, 'worksp
 after(() => kernel.git.close());
 const tables = new api.RuleTables(kernel);
 const arithmetic = await api.CheckArithmetic.create(tables);
+const pushedManifest = JSON.parse(await readFile(join(ROOT, 'mods/pushed-roll/mod.json'), 'utf8'));
+const pushedMod = (await api.readModCatalog(kernel)).get('pushed-roll\0' + pushedManifest.version);
 const rules = async name => JSON.parse(await readFile(join(ROOT, 'content/rulesets/coc7/rules-json', name + '.json'), 'utf8'));
 
 const SHEET = {id: 'inv-harvey', name: 'Harvey', current_luck: 40,
@@ -56,6 +59,8 @@ function table({records = [], seed = 'rulebook-rolls', saves = new Map()} = {}) 
     return {rolls, deltas, continued, receipts, saves, sheet, context: {
         tables, arithmetic, rng: new api.PythonRandom(seed), actorId: sheet.id, actor: sheet, campaignId: 'rolls', receipts,
         snapshot: {records}, sheetById: id => (id === sheet.id ? sheet : null), npcNode: () => null,
+        kernel, world: {mods: {active: {'pushed-roll': {enabled: true, version: pushedMod.version, digest: pushedMod.digest}}}},
+        action: {push: true}, sessions: () => ({activeSession: () => null}), allReceipts: () => [...records.flatMap(record => record.receipts ?? []), ...receipts],
         addRoll(input) { rolls.push(input); return `roll:${rolls.length}`; },
         addDelta(resource, subject, before, afterValue, options) { deltas.push({resource, subject, before, after: afterValue, ...options}); return `delta:${deltas.length}`; },
         markReceiptContinued(id, kind) { continued.push([id, kind]); },
@@ -133,9 +138,17 @@ test('p.94: any bonus die withholds the improvement tick', () => {
     assert.equal(data, true, 'a penalty die is not a bonus die');
 });
 
-test('p.84-86: a push needs the player\'s justification; the consequence source is recorded honestly', async () => {
+function bindPushSource(context, check, id = 'roll:source') {
+    context.receipts.push({id, kind: 'roll', actor: context.actorId, roll_kind: check.kind ?? 'skill_check', skill: check.skill,
+        pushed: check.pushed === true, passed: check.outcome !== 'failure' && check.outcome !== 'fumble', level: check.outcome, visibility: 'public', check});
+}
+
+test('§228: the Mod owns declaration-only pushing; prior consequence provenance remains honest', async () => {
     const original = {skill: 'Spot Hidden', target: 50, difficulty: 'regular', outcome: 'failure', pushed: false, bonus: 0, penalty: 0, goal: 'find the hidden catch'};
-    const push = (context, args) => api.executePush(context, {canonical_roll_receipt: original, original_check_decision_id: 'roll:spot-hidden-t2-c1', method_changed: 'I tear the panelling off with the crowbar', ...args}, {decision_ref: null});
+    const push = (context, args) => {
+        bindPushSource(context, args.canonical_roll_receipt ?? original);
+        return api.executePush(context, {canonical_roll_receipt: original, original_check_decision_id: 'roll:spot-hidden-t2-c1', ...args}, {decision_ref: null});
+    };
     // No consequence was foreshadowed: the push rolls and the Keeper's free rein is on the receipt.
     const free = await push(table().context, {});
     assert.equal(free.data.pushed, true);
@@ -152,8 +165,8 @@ test('p.84-86: a push needs the player\'s justification; the consequence source 
     assert.equal(foreshadowed.data.failure_consequence.source, 'delivered_text');
     assert.equal(foreshadowed.data.pushed_roll_protocol.keeper_foreshadowed_failure, true);
     // The limits stand: a fumble, a pushed roll and a combat skill are never pushed.
-    for (const [source, message] of [[{...original, outcome: 'fumble'}, /fumbles are final/], [{...original, pushed: true}, /already been pushed/], [{...original, skill: 'Fighting (Brawl)'}, /combat skill/]]) {
-        const error = await api.executePush(table().context, {canonical_roll_receipt: source, original_check_decision_id: 'roll:x', method_changed: 'again'}, {decision_ref: null}).catch(error => error);
+    for (const [source, message] of [[{...original, outcome: 'fumble'}, /fumble is final/], [{...original, pushed: true}, /already been pushed/], [{...original, skill: 'Fighting (Brawl)'}, /combat skills/]]) {
+        const error = await push(table().context, {canonical_roll_receipt: source}).catch(error => error);
         assert.match(String(error.message), message);
     }
     const data = await rules('pushed-roll');
@@ -174,6 +187,7 @@ test('p.55: a combined check may be pushed and each skill the die beat may tick'
     const combat = await api.executeCheck(table().context, {combined_targets: [{label: 'Fighting (Brawl)', value: 50}, {label: 'Dodge', value: 60}], combined_mode: 'any'}, {decision_ref: null});
     assert.equal(combat.data.push_eligible, false, 'two combat skills: nothing to push');
     // The push repeats the same one die against the same named skills.
+    bindPushSource(context, {...first.data, outcome: 'failure', pushed: false});
     const pushed = await api.executePush(context, {canonical_roll_receipt: {...first.data, outcome: 'failure', pushed: false}, original_check_decision_id: 'roll:1', method_changed: 'I strip the housing and start over'}, {decision_ref: null});
     assert.equal(pushed.data.kind, 'combined_skill_check');
     assert.equal(pushed.data.pushed, true);
@@ -252,7 +266,7 @@ test('p.93: the investigator with the lowest Luck rolls the group Luck roll', as
     assert.equal(index.rules.find(rule => rule.id === 'core.luck.roll').numeric.group_roll_policy, 'lowest_luck_rolls');
 });
 
-test('§223.1 end to end: the host offers the push with no foreshadowed consequence, and the kernel settles it with free rein', async t => {
+test('§228 end to end: the Mod offers a bare push and supplies the committed risk without foreshadowing', async t => {
     const home = await mkdtemp(join(temporary, 'home-'));
     const context = await api.createKernelContext({workspace: home, content: join(ROOT, 'content'), seed: 'rulebook-rolls-push',
         locks: api.nativeAdvisoryLocks(), env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
@@ -273,14 +287,12 @@ test('§223.1 end to end: the host offers the push with no foreshadowed conseque
     const options = await call('table.resolve.options');
     const push = options.selection.options.find(option => option.action.decision === 'push-luck:pushed-roll');
     assert.ok(push, 'the push is offered although nothing foreshadowed a consequence');
-    assert.match(push.label, /justified further attempt/);
-    const stakes = push.parameters.find(parameter => parameter.name === 'stakes');
-    assert.deepEqual(stakes.default.value, '', 'the rules default is no foreshadowed consequence');
-    assert.ok(stakes.options.some(option => option.value === ''), 'the default is one of the options');
+    assert.match(push.label, /final pushed attempt/);
+    assert.ok(!push.parameters.some(parameter => parameter.name === 'stakes'), 'the Mod needs no player risk confirmation');
     // The host's validator reads the whole catalog; a default that is not an option made every later selection of the run
     // `check_catalog_binding_changed` (forced-resolution, check-catalog and admission-within-turn, 2026-10-10).
     assert.ok(validateCheckOptions(options.selection.options), 'the host accepts the catalog that offers the push');
-    assert.match(push.definition, /extra effort, time or risk/);
+    assert.match(push.definition, /declaration accepts extra effort and risk/);
     const pushed = await call('table.resolve', {call_id: id(), action: {intent: 'investigate', goal: 'cross the river', method: 'I lash the tiller and throw my whole weight against the current', skill: 'Pilot (Boat)', push: true}});
     assert.equal(pushed.outcome.kind, 'push');
     assert.equal(pushed.outcome.pushed, true);
@@ -292,7 +304,8 @@ test('§223.1 end to end: the host offers the push with no foreshadowed conseque
     assert.equal(roll.source_receipt, receipts[0].id);
     assert.deepEqual(roll.check.failure_consequence, {summary: '', source: 'keeper_free_rein'});
     assert.deepEqual(roll.check.pushed_roll_protocol, {failure_consequence_source: 'keeper_free_rein', keeper_foreshadowed_failure: false, player_declared_push: true});
-    assert.ok(pushed.hints.some(hint => /free rein/.test(hint)), pushed.hints.join(' | '));
+    assert.ok(pushed.outcome.pushed_risk.key);
+    assert.equal(pushed.outcome.pushed_risk.activated, !pushed.outcome.passed);
 });
 
 test('§223.3 end to end: a regular success grants the Luck continuation and the spend settles', async t => {

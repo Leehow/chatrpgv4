@@ -385,7 +385,7 @@ def test_reveal_adoption_only_counts_a_listed_clue(seeded_kernel):
     assert adoption["adopted"] is True and adoption["evidence"] == [f"clue:{director['reveal'][0]['clue']}-t2"]
 
 
-def test_a_pushed_failure_without_consequence_nudges_pressure(tmp_path):
+def test_a_pushed_failure_does_not_create_director_consequence_debt(tmp_path):
     client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "7"})
     try:
         open_turn(client, "我翻抽屉。")
@@ -397,14 +397,14 @@ def test_a_pushed_failure_without_consequence_nudges_pressure(tmp_path):
             return  # the seed pushed through; the nudge needs a failed push
         narrate(client, f"t1-c{n + 1}", "还是没找到。")
         director = client.table("player_input", text="继续。")["capsule"]["director"]
-        assert "pushed_fail_pending = True" in director["because"]
+        assert "pushed_fail_pending = True" not in director["because"]
         if "override" in director:
             return
         digits = threshold("score-precision-digits")
         # rolls alone leave the turn stalled (no clue, move or session): the stalled value is the base
         assert "stalled_turns = 1" in director["because"]
         base = min(float(threshold("pressure-posture-ceiling")),
-                   round(rule("PRESSURE", "clock-near-full-or-stalled") + rule("PRESSURE", "pushed-fail-nudge"), digits))
+                   round(rule("PRESSURE", "clock-near-full-or-stalled"), digits))
         assert director["scores"]["PRESSURE"] == round(base * weight("PRESSURE"), digits)
     finally:
         client.close()

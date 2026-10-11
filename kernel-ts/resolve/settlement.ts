@@ -7,6 +7,7 @@ import { BASIC_EXECUTORS } from './basic.js';
 import type { FixedFamilyBinding } from './families.js';
 import { COMBINED, IDEA, LUCK, LUCK_ROLL, OBSERVE, ORDINARY, PUSH, REALIZE, SOCIAL, executorArgs, hostLocked } from './bindings.js';
 import { nowIso } from '../write/store.js';
+import {preparePush, pushedRollProvider} from '../mods/pushed-roll.js';
 import { landIdeaClue } from './idea-roll.js';
 export interface SettlementPort {
     execute(plan: Row, selected: Row): Promise<ExecutionResult>;
@@ -121,13 +122,13 @@ export function compileSettlement(runtime: RuleGraph, selected: Row, id: string,
         authority: 'canonical-resolver-state-receipts'
     };
 }
-export function continuationsAfterCheck(runtime: RuleGraph, selected: Row, data: Row, id: string): string[] {
+export function continuationsAfterCheck(runtime: RuleGraph, selected: Row, data: Row, id: string, pushEnabled = false): string[] {
     // §223.3 (p.99): Luck may alter a passed roll too, so its continuation is granted after a regular,
     // hard or extreme success; a push answers an ordinary failure only (p.84). Criticals and fumbles
     // continue into nothing.
     if (!['failure', 'regular', 'hard', 'extreme'].includes(string(data.outcome || '')))
         return [];
-    const refs = data.outcome === 'failure' ? data.push_eligible !== false ? [PUSH, LUCK] : [LUCK] : [LUCK];
+    const refs = data.outcome === 'failure' && pushEnabled && data.push_eligible !== false ? [PUSH, LUCK] : [LUCK];
     const withSource = {
         ...selected,
         _host_source_receipt: clone(data)
@@ -246,6 +247,7 @@ export async function settleBasic(context: SettleContext, runtime: RuleGraph, se
     if (envelope.status !== 'compiled')
         return envelope;
     const ref = string(selected.decision_ref);
+    const pushEnabled = (await pushedRollProvider(context.kernel, context.world)) !== null;
     const plan = envelope.settlement.plan;
     const payload = row(row(plan.command).payload);
     const fail = (code: string, message: string, details: Row = {}) => failureEnvelope(runtime, ref, context.callId, code, message, details);
@@ -255,30 +257,7 @@ export async function settleBasic(context: SettleContext, runtime: RuleGraph, se
         return fail(code, message, details);
     }
     if (ref === PUSH) {
-        const method = string(payload.method_changed || '').trim();
-        const original = payload.canonical_roll_receipt;
-        const id = string(payload.original_check_decision_id || '').trim();
-        // §223.1: the player's justification (the changed method) is required (p.84); the consequence
-        // is not -- foreshadowing is the Keeper's option, and a failed push without one gives the
-        // Keeper free rein (p.86).
-        if (!method)
-            return fail('invalid_semantic_input', 'pushed roll requires the player\'s justification in method_changed before the roll', {
-                missing: ['method_changed']
-            });
-        if (payload.player_confirmed_risk !== true)
-            return fail('invalid_semantic_input', 'pushed roll requires player_confirmed_risk=true: the push is the player\'s declared choice', {
-                fields: ['player_confirmed_risk']
-            });
-        if (!id || !isJsonObject(original))
-            return fail('rule_decision_not_applicable', 'pushed roll requires a frozen failed non-pushed ordinary check');
-        if (truth(original.pushed) || truth(original.luck_roll))
-            return fail('rule_decision_not_applicable', 'only a failed non-pushed ordinary check may be pushed');
-        if (original.outcome === 'fumble')
-            return fail('rule_decision_not_applicable', 'a fumble cannot be pushed; it is final');
-        if (original.outcome !== 'failure')
-            return fail('rule_decision_not_applicable', 'only an ordinary failed original check may be pushed');
-        if (context.receiptContinued(id))
-            return fail('rule_decision_not_applicable', 'push or spend Luck, but not both');
+        await preparePush(context);
     }
     if (ref === LUCK) {
         if (!integer(payload.points) || number(payload.points) <= 0)
@@ -317,11 +296,11 @@ export async function settleBasic(context: SettleContext, runtime: RuleGraph, se
             pushed: false
         };
         if (data.outcome === 'failure') {
-            result.next_continuations = continuationsAfterCheck(runtime, selected, data, context.callId);
-            hints = [...hints, data.push_eligible !== false ? 'ordinary failure: the player may push this roll by justifying a further attempt (the consequence of failing it may be foreshadowed, and is otherwise the Keeper\'s free rein), or spend Luck; not both' : 'ordinary failure: this check cannot be pushed; the player may spend Luck instead'];
+            result.next_continuations = continuationsAfterCheck(runtime, selected, data, context.callId, pushEnabled);
+            hints = [...hints, pushEnabled && data.push_eligible !== false ? 'ordinary failure: a player-declared final attempt is owned by the active Pushed Roll Mod. Do not prompt or request another method or risk confirmation. Push and Luck are mutually exclusive.' : 'ordinary failure: the player may spend Luck when permitted'];
         }
         else {
-            result.next_continuations = continuationsAfterCheck(runtime, selected, data, context.callId);
+            result.next_continuations = continuationsAfterCheck(runtime, selected, data, context.callId, pushEnabled);
             if (data.outcome === 'fumble')
                 hints = [...hints, 'a fumble cannot be pushed or bought off with Luck'];
         }
@@ -362,11 +341,12 @@ export async function settleBasic(context: SettleContext, runtime: RuleGraph, se
             failure_consequence: string(payload.failure_consequence || '').trim(),
             method_changed: string(payload.method_changed || '').trim(),
             player_confirmed_risk: true,
+            pushed_risk: data.pushed_risk,
             next_continuations: []
         };
-        hints = [...hints, string(payload.failure_consequence || '').trim()
-            ? 'the recorded failure_consequence is authoritative; apply it if the pushed roll fails'
-            : 'no consequence was foreshadowed: if the pushed roll fails the Keeper has free rein over the outcome (p.86)'];
+        hints = [...hints, data.pushed_risk.activated
+            ? 'Realize the active Mod risk as a serious contextual consequence through ordinary apply; a goal achieved at that cost is allowed. Do not roll risk again or request confirmation.'
+            : 'The push succeeded. Achieve the goal; the drawn risk is inactive and incurs no failed-push penalty.'];
         extra.visibility = 'public';
     }
     else if (ref === LUCK) {
@@ -396,7 +376,7 @@ export async function settleBasic(context: SettleContext, runtime: RuleGraph, se
                 bound_check: clone(bound.data),
                 bound_check_plan: derived,
                 outcome: string(bound.data.outcome || ''),
-                next_continuations: continuationsAfterCheck(runtime, selected, bound.data, context.callId)
+                next_continuations: continuationsAfterCheck(runtime, selected, bound.data, context.callId, pushEnabled)
             });
         }
         else {

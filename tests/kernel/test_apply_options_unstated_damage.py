@@ -40,6 +40,7 @@ RULES = {
 
 def derived_content(root: Path) -> Path:
     shutil.copytree(CONTENT_DIR, root)
+    shutil.copytree(CONTENT_DIR.parent / "mods" / "pushed-roll", root.parent / "mods" / "pushed-roll")
     path = root / "starters" / "the-haunting" / "module-graph.json"
     graph = json.loads(path.read_text(encoding="utf-8"))
     for slug, mechanics in RULES.items():
@@ -102,7 +103,7 @@ def sheet(client):
 # Seeds, each recorded for the exact sequence of its test:
 JUMP_FAILS = 1          # dark-ledge step 0 (Jump) fails on the first roll of the turn
 JUMP_PASSES = 15        # dark-ledge step 0 (Jump) passes (regular) on the first roll of the turn
-JUMP_FAILS_PUSH_PASSES = 0  # dark-ledge fails, and the push that follows it passes
+JUMP_FAILS_PUSH_PASSES = 1  # failure, D100 risk, then a passed final attempt
 WOUND_LEDGE_FAILS_AID_PASSES = 1  # a 1D3 wound, then dark-ledge fails, then first aid on the wound passes (+1 HP)
 
 

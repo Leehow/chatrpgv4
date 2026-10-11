@@ -239,8 +239,6 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                     continue;
                 const raw = row(row(table.social)[string(approach || '')])[string(receipt.level || '')];
                 let delta = intLike(raw) ? number(raw) : 0;
-                if (truth(receipt.pushed) && !truth(receipt.passed))
-                    delta += number(table.pushed_failure_delta);
                 if (delta)
                     setStance(item, table, (intLike(row(item.stance).score) ? number(item.stance.score) : number(table.initial_score)) + delta, turn, receipt.id, {
                         how: 'social',

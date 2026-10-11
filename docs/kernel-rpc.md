@@ -44117,6 +44117,11 @@ settlement; it does not move check selection out of the host and Jev.
 
 ### 223.1 Pushing: foreshadowing is optional, the justification is the player's
 
+**2026-10-11 Mod amendment:** §228 implements a Mod-owned declaration-only house
+rule and weighted risk table. It replaces this section's justification workflow
+when the Mod is active. Existing rulebook exclusions and receipt authority remain;
+existing campaigns are not silently opted in.
+
 Rulebook (p.84-85, "Pushing the Roll" / "Foreshadowing Failure"): a pushed roll is allowed if the
 player can justify it -- the player describes the extra effort or time; the Keeper approves. The
 consequence of failing the push *may* be foreshadowed, when the player asks or the Keeper chooses
@@ -44837,3 +44842,98 @@ canonical rule text, and the canonical validator still refuses a malformed effec
 `tests/extension/capability-runtime.test.mjs`, `turn-discovery-context.test.mjs`, `capability-lookup-owner.test.mjs`,
 `clerk-write-readiness.test.mjs`, `discovery-sqlite-binding.test.mjs`, `context-request-capacity.test.mjs` updated
 to the fixed list, the ledger and attachment instead of the narrowed list and the hold.
+
+## 228. Pushed Roll Mod: one declaration, one risk draw, one final attempt (2026-10-11)
+
+**Status: 1.0.4 packaged with scoped live acceptance on Grok 4.5 / low; no full-suite green claim.** The full binding design, original weighted
+D100 table, applicability/refusal matrix, source binding, implementation limits
+and acceptance gates are in [pushed-roll-mod.md](specs/pushed-roll-mod.md).
+
+The user requested a low-complexity Mod: after hearing the first failure, the
+player's declaration accepts the extra risk without a method questionnaire or
+second confirmation. The active Mod owns policy, the table and Keeper instructions;
+the canonical core retains arithmetic, random numbers, identities, transactions,
+receipt reuse and world effects. This supersedes §223.1's declaration workflow and
+its global push candidate when the Mod is active. It does not amend
+§223.2/§223.3's improvement/Luck rules. For pushing, §223.4's mixed combined rule
+is narrowed: every component must be eligible; a combat component cannot gain a
+retry through a combined check. Combined skill improvement remains unchanged.
+
+Eligibility is checked before any dice/state mutation. Only an ordinarily failed,
+uncontinued action skill/characteristic check of the declaring investigator at a
+still-achievable goal qualifies. Luck, SAN, combat, chase, amount dice, actual
+opposed rolls, fumbles, already pushed or Luck-altered sources, and automatic
+development/recovery/Idea procedures do not qualify. Existing medical/magic
+procedure rules and their owners precede generic continuation; missing executable
+bindings are reported as unsupported, never disguised as rule prohibitions.
+
+One D100 risk draw and the final check commit in the same existing transaction.
+A success leaves the drawn risk unused; a failure activates it for Keeper
+realization. Replays reuse both. A failure may achieve the goal at the recorded
+cost. The table uses a fixed contextual fallback and a compound instruction, not
+recursive rolls, new stress resources or extra model/review lanes.
+
+An explicit ineligible declaration must reach player delivery: the existing
+refusal supplies a closed English reason and the Keeper gives a brief explanation
+in `play_language`. No automatic ordinary retry/no-roll substitution, new risk
+draw, fictional punishment or required clarification follows. Earlier settled
+events remain authoritative. A technical limitation is distinguished from a rule
+prohibition. Do not search past a prohibited latest action check to select an older
+eligible failure.
+
+A bare statement of the Pushed Roll rule's name is a rule declaration even when
+there has been no preceding action check. Eligibility is evaluated after semantic
+recognition; a missing source cannot erase the declaration or authorize accepting
+a commission, payment or other fictional action in its place.
+
+Declaration recognition and binding to the same source goal use the existing
+applicability gate rather than the automatic-check necessity gate. They match
+the player's selected action, rather than deciding that an automatic roll is
+necessary. Affirmative obsolete/ambiguous judgments keep the adjudication gate.
+Recognition authorizes examination of this named rule;
+the canonical exclusions and the separate same-goal adjudication still decide
+whether execution is possible. Questions and non-declarations remain no-roll.
+
+A bare declaration names the latest canonical failed action by definition.
+Ordinary failure, and an earlier no-roll/refusal without a pushed settlement, do
+not consume its final attempt or close its goal. Goal closure requires completion
+or a subsequent material change that prevents continuing. Binding uncertainty
+must be explained as uncertainty, not as a fabricated rule prohibition.
+
+The host-bound `push_context` enum is declared on the existing `resolve.action`
+tool schema as well as accepted by the kernel. Actual tool argument validation
+must pass before dispatch; direct kernel fixtures alone cannot prove this seam.
+
+Subsystem-owned catalogs retain explicitly forbidden push declarations solely
+for explanatory refusal. They do not expose ordinary checks or potentially
+executable pushes past the incumbent subsystem's ownership.
+
+**Consequence realization amendment (2026-10-11).** The effective risk row
+constrains the failed push's consequence, rather than merely supplying atmosphere.
+Except for `compound`, realize one primary serious consequence. Several existing
+effects may record that same consequence; do not add independent penalties from
+other rows. Ordinary failure to achieve the goal and genuinely spent time are
+not extra risk penalties. Show the perceptible causal chain from extra effort to
+the changed situation, without revealing the table or hidden identities. For
+`exposure`, bind what was exposed, to whom privately, and what usable response
+followed in the existing effect's `why` or causal note. A private clock increment
+with generic ominous prose alone is insufficient. The 1.0.4 Mod tightens these
+instructions without new state, validation lanes, dice, questions or exclusions;
+existing committed consequences and version locks remain authoritative.
+
+### Kernel decisions (implemented and packaged; scoped acceptance recorded)
+
+Use existing Mod loading/version locks and one purpose-specific data capability,
+`checks.pushed-roll.v1`, with `contributes.pushed_roll` referencing the policy/table
+file. No new Keeper verb, generic plugin execution framework, risk ledger or
+campaign resource. Remove base-product automatic push policy, NPC push penalties
+and Director push-debt heuristics; retain thin canonical settlement/source-link
+bindings. Historical receipts and campaign locks remain unchanged. The three ends
+and required deterministic/live evidence are specified in the linked document.
+Source/schema and related LAN checks passed. The installed canonical App exposes
+Pushed Roll 1.0.3; real Grok 4.7 Fast/low play verifies bare pushes, repeat refusal,
+inactive success risk, active failure risk, committed threat/window consequences
+and continued play. Existing user campaign locks remain unchanged; only the
+isolated test campaign was explicitly upgraded. See the specification's execution
+record for evidence and the remaining time-suite failures; no broad green gate
+is claimed.

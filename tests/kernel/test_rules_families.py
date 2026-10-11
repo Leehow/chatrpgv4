@@ -226,7 +226,7 @@ def test_social_adjudication_against_arty(seeded_kernel):
         assert result["continuations"] == []
     else:
         continuations = {c["decision"]: c["action"] for c in result["continuations"]}
-        assert continuations == {"push-luck:pushed-roll": ["push", "stakes", "method"], "push-luck:luck-spend": ["luck"]}
+        assert continuations == {"push-luck:pushed-roll": ["push"], "push-luck:luck-spend": ["luck"]}
 
     intimidate = resolve(seeded_kernel, "t1-c3", intent="social", goal="吓唬他", method="用恐吓", target="Arty Wilmot",
                          motive={"direction": "oppose", "intensity": 1})
@@ -239,7 +239,7 @@ def test_social_adjudication_against_arty(seeded_kernel):
 def test_push_executes_against_last_failure_and_refuses_a_second(seeded_kernel):
     open_turn(seeded_kernel, "我爬。")
     no_check = resolve_err(seeded_kernel, "t1-c1", intent="investigate", goal="x", method="y", stakes="z", push=True)
-    assert no_check["code"] == "needs" and no_check["details"]["needs"]["field"] == "intent"
+    assert no_check["code"] == "turn_state" and no_check["details"]["reason"] == "no_source"
 
     failed_id, failed = first_failure(seeded_kernel, "t1-c", intent="investigate", goal="爬上二楼的窗", method="用攀爬")
     assert [c["decision"] for c in failed["continuations"]] == ["push-luck:pushed-roll", "push-luck:luck-spend"]

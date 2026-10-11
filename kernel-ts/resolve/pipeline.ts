@@ -1,5 +1,6 @@
 /** Action routing, card selection and the existing action-to-slot contract. */
 import { RpcError } from '../errors.js';
+import {preparePush, pushSourceCheck} from '../mods/pushed-roll.js';
 import { isJsonObject } from '../json.js';
 import { RESOLVER_NAMES } from '../capabilities.js';
 import { actor as findActor, actorKnown } from '../read/handlers.js';
@@ -70,10 +71,7 @@ export function validateExtras(action: Row): void {
         throw new RpcError('invalid_params', 'action.push must be a boolean');
     if (action.luck != null && (!integer(action.luck) || number(action.luck) <= 0))
         throw new RpcError('invalid_params', 'action.luck must be a positive integer');
-    if (truth(action.push) && action.luck != null)
-        throw new RpcError('invalid_params', 'push or spend Luck, but not both', {
-            fix: 'send either push: true or luck: <points>'
-        });
+    // The active Mod's scope guard explains a conflicting push/Luck declaration without another player question (§228).
     for (const key of ['spell', 'weapon', 'improvised', 'target', 'decision', 'actor', 'ending', 'outcome', 'san_loss', 'scenario_san_reward_expr', 'trigger'])
         if (action[key] != null && (typeof action[key] !== 'string' || !action[key].trim()))
             throw new RpcError('invalid_params', `action.${key} must be a non-empty string`);
@@ -673,20 +671,8 @@ export class ResolvePipeline {
                 }, extras];
         }
         if (ref === PUSH) {
-            // §223.1: the consequence may be foreshadowed (action.stakes) but need not be; the player's
-            // justification of the further attempt (action.method) is what the book requires (p.84).
-            if (!this.method)
-                throw new RpcError('needs', 'a pushed roll needs the changed method', {
-                    fix: 'describe the new approach in action.method',
-                    details: {
-                        needs: {
-                            field: 'method',
-                            options: []
-                        }
-                    }
-                });
             return [{
-                    method_changed: this.method,
+                    method_changed: this.method || string(row(this.context.turn.player_input).text || this.context.turn.player_text || this.goal),
                     failure_consequence: this.stakesText,
                     player_confirmed_risk: true
                 }, extras];
@@ -745,6 +731,9 @@ export class ResolvePipeline {
     }
     async run(beforeExecute: () => Promise<void>): Promise<Row> {
         const context = this.context;
+        // §228: this guard runs even when the rules graph would withhold the card. Its refusal must reach delivery.
+        const pushing = truth(this.action.push) || ['push-luck:pushed-roll', PUSH].includes(string(this.action.decision));
+        const push = pushing ? await preparePush(context) : null;
         const npc = this.npcTarget();
         const routed = await this.route(npc);
         if (this.fledTarget && !routed.includes(CHASE_START))
@@ -779,7 +768,7 @@ export class ResolvePipeline {
             })
         });
         const runtime=runtimeFor(effectiveIntent);
-        const source = latestCheckReceipt(context);
+        const source = push ? [string(push.source.id), pushSourceCheck(push.source)] as [string, Row] : latestCheckReceipt(context);
         const question: Row = {
             kind: 'procedure',
             semantic_inputs: context.provisionalSemantic(typeof this.action.target==='string'?this.action.target:null)

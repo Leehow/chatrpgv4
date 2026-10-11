@@ -520,11 +520,14 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
   // compiled decision list (prototype run 1 offered all 52 decisions and Jev's right answer came back at 0.53).
   const selection = object(object(reads.resolveOptions).selection);
   const catalogOwned = selection.version === 1 && selection.owner === 'jev';
-  if (catalogOwned && selection.session_owned !== true) {
+  if (catalogOwned) {
     const identity = createHash('sha256').update(JSON.stringify([object(reads.resolveOptions).revision, object(reads.resolveOptions).world_revision])).digest('hex');
     const groups = new Map<string, Row[]>();
     for (const option of array(selection.options).map(object)) {
       const decision = text(object(option.action).decision);
+      // A subsystem still owns its actions; an explicitly forbidden push remains
+      // available solely so the canonical guard can explain the refusal.
+      if (selection.session_owned === true && (decision !== 'push-luck:pushed-roll' || !text(object(option.facts).push_refusal))) continue;
       // The first blow has its own owner. A chase start has no running session to own it yet.
       if (!decision || text(option.family) === 'combat' || text(option.family) === 'chase' && decision !== 'chase:start') continue;
       const group = groups.get(decision) ?? [];

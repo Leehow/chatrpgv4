@@ -6,12 +6,12 @@ import { latestNamed } from '../read/memory.js';
 import { semanticName } from '../read/rule-facts.js';
 import { markersFor } from '../write/text.js';
 import { orderedObject } from '../json.js';
-import { array, entries, normalize, number, row, string, truth, type Row } from '../read/values.js';
+import { array, entries, normalize, number, pick, row, string, truth, type Row } from '../read/values.js';
 import { SettleContext, continuableCheck } from './context.js';
 import { APPROACH_BY_SKILL } from './arithmetic.js';
 import { COMBINED, IDEA, LUCK, LUCK_ROLL, OBSERVE, OPPOSED, ORDINARY, PUSH, REALIZE, SOCIAL } from './bindings.js';
 export function continuationEntry(runtime: RuleGraph, ref: string): Row {
-    const fields = ref === PUSH ? ['push', 'stakes', 'method'] : ref === LUCK ? ['luck'] : ['decision'];
+    const fields = ref === PUSH ? ['push'] : ref === LUCK ? ['luck'] : ['decision'];
     if (![PUSH, LUCK].includes(ref))
         for (const slot of runtime.requiredSemanticSlots(ref)) {
             const field = SLOT_TO_ACTION[slot];
@@ -81,6 +81,7 @@ export function outcomeOf(ref: string, result: Row): Row {
             ...checkView(bound),
             pushed: true,
             source_receipt: result.original_check_decision_id ?? null,
+            pushed_risk: result.pushed_risk ? pick(result.pushed_risk, ['mod', 'version', 'roll', 'key', 'instruction', 'fallback', 'activated']) : null,
             failure_consequence: result.failure_consequence ?? null
         };
     if (ref === LUCK) {

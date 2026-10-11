@@ -86,7 +86,7 @@ PipiCOC 界面现已复制到本分支 `Electron/`，经 `pipicoc/rpc` 启动当
 **Pi-Coc 的验收 / 体验 / 开桌 / 实机测试 / 端到端只有一种方法**（用户说这些词就是在点这一条，不是在点建战役、pytest 或把命令行扔给用户）：
 
 1. 用 `tests/play/driver.py` 以 RPC 模式起 `bin/pi-coc`（建卡用 `--launcher bin/pi-coc-setup`）。驾驭器只做传输。
-2. **Grok Build 4.7 fast / low 默认当守秘人**（`grok-build/grok-4.7-build-fast`；2026-09-22 用户裁定），驱动全部判断、叙事、NPC、规则调用。源码游玩设置在 `.pi/coc-agent/settings.json`；驾驭器在进程启动时固定模型与 low，避免自动开场混用旧模型。历史基线对照可用 `--model` 显式指定 4.6 等模型，不改写旧测试证据。
+2. **Grok Build 4.5 / low 统一当守秘人**（`grok-build/grok-4.5`；2026-10-11 用户裁定），驱动全部判断、叙事、NPC、规则调用，后续不使用 4.7。源码游玩设置在 `.pi/coc-agent/settings.json`；App 新会话默认与驾驭器启动模型均为 4.5 / low。启动后核对实际模型，避免自动开场混用旧选择。历史测试保留其原始模型记录，不改写旧证据。
 3. **本主会话就是唯一玩家。** 一次一句自然的话，一回合一回，从建卡/开场跑到结局或真阻断。不问「要我当玩家吗」——角色已定死。
 4. 沿途覆盖要测的能力点，不预设脚本，由守秘人正常推进。
 5. **慢可以，假不行。**
@@ -112,7 +112,7 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 
 ### 永久禁令：不许用 gpt-6-astra（2026-10-03 用户裁定）
 
-任何建卡、开桌、守秘人、车道、worker、离线实验都**不许跑在 gpt-6-astra 上**（flapcode 或 opencode 哪个 provider 都不行）。App 全局默认模型（`~/Library/Application Support/Pipi/pipicoc/pi-coc/agent/settings.json` 的 `defaultModel`）已改为 `gpt-6-luna`，不许改回。新建会话前先看模型栏显示的是不是预期模型（显示「加载模型…」时不要建）；建完核对会话 jsonl 里最后一条 `model_change`。一旦发现有请求走了 astra：立刻停、切回、告诉用户，那段输出不算验收证据。起因：2026-10-02 夜第 10 桌，App 重启后模型状态还没加载完就新建了会话，会话悄悄落到当时的全局默认 astra，第一条建卡回复是 astra 出的，直到读遥测才发现。
+任何建卡、开桌、守秘人、车道、worker、离线实验都**不许跑在 gpt-6-astra 上**（flapcode 或 opencode 哪个 provider 都不行）。App 全局默认模型遵循上面的真桌验收裁定（`~/Library/Application Support/Pipi/pipicoc/pi-coc/agent/settings.json`），不得选用 astra。新建会话前先看模型栏显示的是不是预期模型（显示「加载模型…」时不要建）；建完核对会话 jsonl 里最后一条 `model_change`。一旦发现有请求走了 astra：立刻停、切回、告诉用户，那段输出不算验收证据。起因：2026-10-02 夜第 10 桌，App 重启后模型状态还没加载完就新建了会话，会话悄悄落到当时的全局默认 astra，第一条建卡回复是 astra 出的，直到读遥测才发现。
 
 ## 永久法：不许毁掉玩测证据
 

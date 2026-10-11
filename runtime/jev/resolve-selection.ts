@@ -88,6 +88,7 @@ export const SKILL_LEAD = 0.2;
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /** Rule eligibility is already host-owned; these questions ask only the remaining semantic trigger. */
 export function specializedTriggerQuestion(option: CheckOption): string | undefined {
+  if (option.action.decision === 'push-luck:pushed-roll') return option.definition;
   if (option.action.decision === 'social:adjudicate-difficulty' && option.facts?.stage === 'difficulty_adjudication'
     && option.facts?.actor_role === 'investigator')
     return 'Does this investigator make a concrete current attempt to influence this target through the declared social approach? '
@@ -235,6 +236,9 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     const ordinary = option.action.decision === 'core-check:ordinary-check' && option.action.rule === undefined;
     const keys = ordinary ? [optionAlias(index), optionAlias(index) + '_uncertain'] : [optionAlias(index)];
     const scores = keys.map(key => yes(result, key)), blocked = yes(result, optionAlias(index) + '_blocked');
+    // A push declaration reaches its scope guard even when forbidden. It does not wait for a prerequisite.
+    if (option.action.decision === 'push-luck:pushed-roll')
+      return scores[0] !== undefined && scores[0] >= gates.applicability ? 'selected' : 'no_roll';
     if (scores.some(score => score === undefined || score <= 0.5) || blocked === undefined) return 'no_roll';
     return blocked >= 0.5 ? 'deferred' : 'selected';
   };
@@ -536,6 +540,13 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
         if (parameter.selection === 'compatible' || parameter.multiple) {
           const scored = parameter.options.map((option, i) => ({option, p: yes(result, `${key}_${i}`)}));
           const supported = scored.filter((value): value is {option: CheckParameter['options'][number]; p: number} => value.p !== undefined && leansYes(value.p));
+          if (selected.action.decision === 'push-luck:pushed-roll' && parameter.name === 'push_context') {
+            const supported = scored.filter(value => value.p !== undefined && value.p >=
+              (value.option.value === 'same_goal' ? gates.applicability : gates.adjudication));
+            action.push_context = supported.length === 1 && scored.every(value => value === supported[0] || value.p !== undefined && value.p <= gates.noNeed)
+              ? structuredClone(supported[0].option.value) : 'judgment_unavailable';
+            continue;
+          }
           if (parameter.selection === 'compatible') {
             const compatible = scored.filter((value): value is {option: CheckParameter['options'][number]; p: number} => value.p !== undefined && value.p > 1 - gates.adjudication);
             const chosen = compatible.sort((a, b) => b.p - a.p)[0];

@@ -32,6 +32,7 @@ await build({
       "export {PythonRandom} from './kernel-ts/random.ts';",
       "export {CheckArithmetic} from './kernel-ts/resolve/arithmetic.ts';",
       "export {executeCheck, executePush} from './kernel-ts/resolve/basic.ts';",
+      "export {readModCatalog} from './kernel-ts/read/mods.ts';",
     ].join('\n'),
     resolveDir: ROOT,
     loader: 'ts',
@@ -45,6 +46,8 @@ const kernel = await api.createKernelContext({ workspace: join(temporary, 'works
 after(() => kernel.git.close());
 const tables = new api.RuleTables(kernel);
 const arithmetic = await api.CheckArithmetic.create(tables);
+const manifest = JSON.parse(await (await import('node:fs/promises')).readFile(join(ROOT, 'mods/pushed-roll/mod.json'), 'utf8'));
+const pushedMod = (await api.readModCatalog(kernel)).get('pushed-roll\0' + manifest.version);
 
 /** Thomas Reed as the real table had him: no Pilot row, so `Pilot (Boat)` -- the specialization the
  *  module actually named -- falls to the rulebook base of 1. The real table sent the bare group
@@ -63,6 +66,11 @@ function table() {
   return {
     rolls,
     context: {
+      kernel,
+      world: {mods: {active: {'pushed-roll': {version: pushedMod.version, digest: pushedMod.digest, enabled: true, settings: {}}}}},
+      action: {},
+      allReceipts: () => [],
+      sessions: () => ({activeSession: () => null}),
       tables,
       arithmetic,
       rng: new api.PythonRandom('impossible-check'),
@@ -144,6 +152,9 @@ test('an ordinary skill at hard is untouched', async () => {
 
 test('no unrollable check is ever offered as pushable, and a push cannot rescue one', async () => {
   const { context, rolls } = table();
+  context.allReceipts = () => [{id: 'roll:pilot-t2-c4', kind: 'roll', roll_kind: 'skill_check', actor: SHEET.id,
+    skill: 'Pilot (Boat)', passed: false, level: 'failure', pushed: false,
+    check: {kind: 'skill_check', skill: 'Pilot (Boat)', target: 1, difficulty: 'hard', outcome: 'failure', pushed: false, bonus: 0, penalty: 0}}];
   const error = await refusal(() => api.executePush(context, {
     canonical_roll_receipt: { skill: 'Pilot (Boat)', target: 1, difficulty: 'hard', outcome: 'failure', pushed: false, bonus: 0, penalty: 0 },
     original_check_decision_id: 'roll:pilot-t2-c4',

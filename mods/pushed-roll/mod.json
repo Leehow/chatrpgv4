@@ -1,0 +1,16 @@
+{
+  "id": "pushed-roll",
+  "version": "1.0.4",
+  "game_api": "pipicoc.game.v1",
+  "state_version": 1,
+  "author": "PipiCOC",
+  "name": "Pushed Roll",
+  "description": "Declare one final attempt without confirmation; a weighted risk table guides its serious failure consequence.",
+  "default_enabled": true,
+  "requires": ["checks.pushed-roll.v1", "mods.package-files.v1"],
+  "package_files": ["agent.md", "rules.json"],
+  "dependencies": {},
+  "conflicts": [],
+  "settings": {},
+  "contributes": {"instructions": "agent.md", "pushed_roll": "rules.json"}
+}

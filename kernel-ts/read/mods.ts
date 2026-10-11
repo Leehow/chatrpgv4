@@ -4,6 +4,7 @@ import { lstat, readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative, extname } from "node:path";
 import type { KernelContext } from "../context.js";
 import { RpcError } from "../errors.js";
+import {PUSH_CAPABILITY, validatePushRules} from '../mods/pushed-roll-policy.js';
 import { compareUnicode, jsonDigest, parsePythonJson } from "../json.js";
 import { ModuleGraph } from "./module-graph.js";
 import { npcsPresent } from "./capsule.js";
@@ -33,6 +34,7 @@ import {TEMPORAL_CAPABILITY,temporalItems,temporalProviders} from './temporal-mo
 import {IMPROVISED_WEAPON_CAPABILITY} from '../combat/improvised.js';
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "checks.presence.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
+MOD_CAPABILITIES.add(PUSH_CAPABILITY);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT_V2);
 // Contract §158.2: a continuity reviewer that also names what the ledger owes.
 MOD_CAPABILITIES.add(AUDIT_OWED);
@@ -328,7 +330,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("Game interface v1 settings are scalar values");
     if (!plain(manifest.settings_schema ?? {}))
         invalid("settings_schema must be an object");
-    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference", "style", "voice_lane", "voice_lane_addendum", "speech_edit_lane", "expression_cards", "sections", "establish", "establish_review","temporal_context"].includes(k)))
+    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference", "style", "voice_lane", "voice_lane_addendum", "speech_edit_lane", "expression_cards", "sections", "establish", "establish_review","temporal_context", "pushed_roll"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
     // Contract §28.9. A name this build does not know is recorded on the manifest and makes the
     // package incompatible -- exactly what an unknown capability in `requires` already does five
@@ -353,7 +355,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
             invalid(`contributes.${field} must name a package Markdown file`);
     }
     if (scoped) {
-        for (const field of ["instructions", "brief", "setup_instructions", "setup_slots", "materializer", "auditor", "voice_lane", "voice_lane_addendum", "speech_edit_lane"]) {
+        for (const field of ["instructions", "brief", "setup_instructions", "setup_slots", "materializer", "auditor", "voice_lane", "voice_lane_addendum", "speech_edit_lane", "pushed_roll"]) {
             const name = manifest.contributes[field];
             if (typeof name === "string" && !declared.includes(name))
                 invalid(`package_files must include contributes.${field}`);
@@ -375,6 +377,12 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     // Contract §183.1: the sections of the instruction, against its own headings.
     validateSectionsDeclaration(manifest, files);
     temporalItems(manifest,files);
+    if (manifest.contributes.pushed_roll != null) {
+        const path = manifest.contributes.pushed_roll;
+        if (!array(manifest.requires).includes(PUSH_CAPABILITY) || typeof path !== 'string' || !path.endsWith('.json') || !files.has(path))
+            invalid('contributes.pushed_roll requires checks.pushed-roll.v1 and a package JSON file');
+        validatePushRules(parsePythonJson(files.get(path)!.toString('utf8')));
+    }
     // Contract §203.1 and §203.6: what establishing owes, and the review that judges it, each with its capability.
     validateEstablishDeclaration(manifest, files);
     const checks = array(manifest.contributes.checks);
@@ -611,7 +619,7 @@ export function modProviders(active: Row[]): Row {
     for (const mod of active) {
         const contributions = mod.contributes,
             keys = array(contributions.checks).map(check => `check:${check.name}`);
-        keys.push(...["materializer", "document_editor"].filter(key => truth(contributions[key])));
+        keys.push(...["materializer", "document_editor", "pushed_roll"].filter(key => truth(contributions[key])));
         if (truth(contributions.auditor))
             keys.push(`audit:${contributions.audit_slot ?? mod.id}`);
         for (const key of keys)
@@ -652,6 +660,7 @@ export function effectiveMods(active: Row[]): Row[] {
     const providers = modProviders(active);
     return active.filter(mod => {
         const c = mod.contributes, policy = array(c.checks).map(check => `check:${check.name}`);
+        if (truth(c.pushed_roll)) policy.push('pushed_roll');
         if (truth(c.materializer)) policy.push('materializer');
         if (!policy.length && truth(c.document_editor)) policy.push('document_editor');
         if (!policy.length && truth(c.auditor)) policy.push(`audit:${c.audit_slot ?? mod.id}`);

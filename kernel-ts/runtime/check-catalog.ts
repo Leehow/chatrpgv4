@@ -23,6 +23,8 @@ import {npcPatient} from '../healing/patient.js';
 import {hitPointGaps, participantCapability} from '../combat/profiles.js';
 import {healingStatePath} from '../healing/session.js';
 import {evaluateCondition, factsFromState, RuleObservations} from '../read/rule-facts.js';
+import {pushedRollProvider, pushedRollDefinition} from '../mods/pushed-roll.js';
+import {latestPushSource, pushRefusal} from '../mods/pushed-roll-policy.js';
 
 interface Parameter {selection?: 'compatible'; name: string; question: string; options: Array<{label: string; value: any}>; multiple?: {minimum: number}; default?: {value: any; question: string}}
 interface Option {key: string; family: string; label: string; definition?: string; facts?: Row; action: Row; parameters: Parameter[]; needs: string[]; authorization: 'declaration' | 'consequence'}
@@ -108,9 +110,26 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
         options.push({key: `check:${options.length}`, family: string(decisions.find(row => row.name === decision)?.family ?? ''), label,
             action: boundAction, parameters, needs, authorization, ...(facts ? {facts} : {})});
     };
+    // §228: recognize explicit declarations even when forbidden, so the canonical guard can explain them.
+    const pushProvider = await pushedRollProvider(campaign.context, campaign.world);
+    const pushRules = await pushedRollDefinition(campaign.context, pushProvider);
+    const pushReceipts = [...owners.history.flatMap(record => array(record.receipts)), ...array(campaign.turn.receipts)];
+    const pushTables = new RuleTables(campaign.context);
+    covered.add('push-luck:pushed-roll');
+    if (pushRules) for (const sheet of campaign.party) {
+        const source = latestPushSource(pushReceipts, string(sheet.id));
+        const reason = await pushRefusal(pushProvider, source, {actor: string(sheet.id), receipts: pushReceipts, session}, pushTables);
+        const parameters: Parameter[] = !reason && row(source?.check).goal ? [{name: 'push_context', selection: 'compatible',
+            question: pushRules.context_question, options: ['same_goal', 'goal_obsolete', 'source_ambiguous'].map(value => ({label: value, value}))}] : [];
+        add('push-luck:pushed-roll', `${sheet.name}: declare a final pushed attempt${reason ? ' (blocked: explain the reason)' : ''}`,
+            {actor: sheet.name, push: true}, parameters, [], 'declaration', {actor_role: 'investigator', push_refusal: reason,
+                source_goal: source?.visibility === 'keeper' ? null : row(source?.check).goal ?? null});
+        const option = options.at(-1);
+        if (option?.action.decision === 'push-luck:pushed-roll') option.definition = pushRules.declaration;
+    }
     // Active combat/chase candidates are already issued by sessionCandidates. Do not invent another
     // session executor or let an out-of-session candidate bypass a pending choice.
-    if (pending || session && !currentActor) return {version: 1, owner: 'jev', options: [], session_owned: true,
+    if (pending || session && !currentActor) return {version: 1, owner: 'jev', options, session_owned: true,
         coverage: decisions.map(decision => ({decision: decision.name, owner: 'session', executable: false}))};
     if (owners.openingAttack) {
         const opening = owners.openingAttack;
@@ -355,24 +374,6 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
                 const check = row(previous.check);
                 publicChecks.push({actor, skill: previous.skill ?? null, passed: previous.passed ?? check.passed ?? null,
                     roll: previous.roll ?? check.roll ?? null, threshold: previous.threshold ?? check.threshold ?? null, goal: check.goal ?? null});
-                if (check.push_eligible === true && previous.pushed !== true && previous.passed === false && previous.level !== 'fumble') {
-                    // §223.1 (pp.84-85): a push is the player's justified further attempt; foreshadowing the
-                    // consequence is the Keeper's option, not a precondition. The delivered sentences that
-                    // announce one are offered, and the rules default is none (`''`): the kernel then records
-                    // the Keeper's free rein over a failed push (p.86) instead of a consequence nobody said.
-                    const sentences = [...new Intl.Segmenter(undefined, {granularity: 'sentence'}).segment(owners.publicText)]
-                        .filter(part => part.index >= Math.max(0, owners.publicText.length - 4000)).map(part => part.segment.trim()).filter(Boolean).slice(-253);
-                    // The rules default is itself an option (`validateCheckOptions` requires it; cf. the modifiers' `none`), else the
-                    // host reads the whole catalog as incoherent and every later selection of the run is `check_catalog_binding_changed`.
-                    const stakes = parameter('stakes', 'Which delivered sentence foreshadowed the consequence of failing this pushed attempt? Select only a sentence that announces one; do not invent a risk.', sentences);
-                    stakes.options.push({label: NO_FORESHADOWED_CONSEQUENCE, value: ''});
-                    add('push-luck:pushed-roll', `${actor}: explicitly push the failed ${previous.skill} check with a justified further attempt`,
-                        {actor, push: true}, [{...stakes,
-                            default: {value: '', question: 'Did the delivered text foreshadow a consequence of failing this pushed attempt (an "if you fail..." line the player can weigh)? The rule default is that none was foreshadowed and the Keeper has free rein over a failed push.'}}]);
-                    const added = options.at(-1);
-                    if (added?.action.decision === 'push-luck:pushed-roll') added.definition = 'The player declares a further attempt at the same goal after the failed check and describes the extra effort, time or risk that justifies it (p.84). '
-                        + 'A different method does not by itself choose a push; the declaration must be the player\'s choice to try again. A fumble, a combat skill, a pushed roll or a roll already altered with Luck is never pushed.';
-                }
                 const luck = Number(sheet.current_luck ?? row(sheet.characteristics).LUCK ?? 0);
                 if (Number.isSafeInteger(luck) && luck > 0 && luck <= 254 && previous.pushed !== true && previous.level !== 'fumble')
                     add('push-luck:luck-spend', `${actor}: explicitly spend Luck on the previous ${previous.skill} check`, {actor}, [{name: 'luck',

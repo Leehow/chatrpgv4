@@ -27,7 +27,7 @@ PUSH_LINE = "Arty has the investigator ejected and permanently bars them from th
 # Seeds for the sequence `at_morgue` -> `meet_arty` -> one Persuade against Arty (and, for PUSH, a push):
 PASS = 4       # the Persuade passes (regular)
 FAIL = 1       # the Persuade fails (an ordinary failure, not a fumble)
-PUSH = 5       # it fails, and the push that follows it passes
+PUSH = 1       # failure, D100 risk, then a passed final attempt
 # ... and for the two-turn sequence of the offer-ledger case, the Persuade on turn 2 passes:
 LEDGER_PASS = 4
 

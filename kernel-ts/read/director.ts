@@ -70,8 +70,8 @@ export function lastRollOf(record?: Row | null): string {
     return "none";
 }
 export function pushedFailPending(record?: Row | null): boolean {
-    const receipts = array(record?.receipts);
-    return receipts.some((r, i) => r.kind === "roll" && truth(r.pushed) && !truth(r.passed) && !receipts.slice(i + 1).some(n => n.kind === "delta" && integer(n.before) && integer(n.after) && number(n.after) < number(n.before) || n.kind === "roll" && n.form === "dice" || n.kind === "session" && n.transition === "start"));
+    // Historical signal shape remains readable; consequence realization belongs to the active Mod (§228).
+    return false;
 }
 export const structureType = (graph: ModuleGraph): string => typeof moduleDeclaration(graph.moduleNode).structure_type === "string" && moduleDeclaration(graph.moduleNode).structure_type || "branching_investigation";
 /** The Director's reveal rows: up to five clues here the table has not found (§192.3: found through any copy). */

@@ -83,6 +83,7 @@ def link(graph, kind, source, target):
 def derived_content(root: Path) -> Path:
     """The shipped content with the haunting graph derived as above; registration validates every shape (§136.8)."""
     shutil.copytree(CONTENT_DIR, root)
+    shutil.copytree(CONTENT_DIR.parent / "mods" / "pushed-roll", root.parent / "mods" / "pushed-roll")
     path = root / "starters" / "the-haunting" / "module-graph.json"
     graph = json.loads(path.read_text(encoding="utf-8"))
     for slug, mechanics in RULES.items():
@@ -157,7 +158,7 @@ def world(client):
 
 # Seeds, each recorded for the exact sequence of its test:
 LUCK_FAILS_JUMP_FAILS = 1   # chapel-floor step 0 (Luck) fails, then step 1 (Jump) fails
-JUMP_FAILS_PUSH = 0         # chapel-floor step 1 fails, and the push that follows it passes (regular)
+JUMP_FAILS_PUSH = 1         # failure, D100 risk, then a passed final attempt (regular)
 HAGGLE_PASSES = 15          # knott-haggle with Persuade reaches hard
 STARE_SEED = 0              # hound-stare: the investigator succeeds (regular) and loses to the hound (hard)
 

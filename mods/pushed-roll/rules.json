@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "maximum_attempts": 1,
+  "luck_conflict": true,
+  "declaration": "The player invokes the Pushed Roll rules option, including a bare statement of this rule's name in play_language. A bare rule declaration is an out-of-character instruction to attempt this rule, not fictional dialogue, agreement to a commission, or acceptance of an NPC's offer. Recognize it even when no previous check exists, the previous check succeeded, or facts.push_refusal says it is forbidden or unavailable: eligibility is checked by execution, which blocks and explains an invalid declaration. Do not require a failed source to recognize the request. An eligible declaration accepts extra effort and risk without a method or confirmation question. A quotation, rules question, hypothetical, negation or different action does not select a push. An ordinary change of method alone is not a push.",
+  "context_question": "Bind this rule continuation to facts.source_goal. A bare Pushed Roll declaration names this latest canonical failed action by definition and accepts extra effort. Select same_goal when its goal has not been accomplished or prevented by a subsequent material change. Ordinary failure, or an earlier no-roll/refusal with no pushed settlement, does not close the goal or consume its final attempt. Do not assess whether another identical try is useful: extra effort is already part of pushing. Select goal_obsolete only for an accomplished goal or a later material change that prevents continuing it. Select source_ambiguous only when the current declaration refers to another action that cannot be identified; a bare declaration is not ambiguous merely because it supplies no method. Do not request another player reply.",
+  "allowed_kinds": [
+    "skill_check",
+    "characteristic_check",
+    "combined_skill_check"
+  ],
+  "excluded_characteristics": [
+    "LUCK",
+    "SAN"
+  ],
+  "excluded_skills": [
+    "Artillery",
+    "Dodge"
+  ],
+  "excluded_groups": [
+    "Fighting",
+    "Firearms"
+  ],
+  "fallback": [
+    "threat_advantage",
+    "opportunity_lost"
+  ],
+  "rows": [
+    {
+      "min": 1,
+      "max": 15,
+      "weight": 15,
+      "key": "threat_advantage",
+      "instruction": "Give a danger already connected to this action a concrete advantage: it gains access, reaches its objective, blocks a safe route or closes in. Show what changed."
+    },
+    {
+      "min": 16,
+      "max": 30,
+      "weight": 15,
+      "key": "exposure",
+      "instruction": "Let the extra effort expose the investigator's presence, identity, purpose or interference to an existing connected observer or danger able to exploit it. Record what was exposed, who received it and their concrete response in the existing effect's why or causal note. Show the perceptible cause and response without disclosing hidden identities; a private clock increment or generic ominous atmosphere alone is insufficient. Do not add an independent lost route, damaged tool or injury."
+    },
+    {
+      "min": 31,
+      "max": 42,
+      "weight": 12,
+      "key": "opportunity_lost",
+      "instruction": "Close the current safe route or opportunity. Continuing the goal now requires dealing with a changed obstacle, rather than another identical check."
+    },
+    {
+      "min": 43,
+      "max": 54,
+      "weight": 12,
+      "key": "collateral",
+      "instruction": "Let the attempt damage or compromise a relevant person, place, evidence or relationship. Establish who or what was affected and the actionable consequence."
+    },
+    {
+      "min": 55,
+      "max": 64,
+      "weight": 10,
+      "key": "means_lost",
+      "instruction": "Remove or impair an important tool, resource or source of support actually involved in this action. Record its real loss or reduced usability."
+    },
+    {
+      "min": 65,
+      "max": 74,
+      "weight": 10,
+      "key": "dangerous_delay",
+      "instruction": "Let the extra effort consume enough time for an established danger or opportunity to change materially. Time passing alone is insufficient."
+    },
+    {
+      "min": 75,
+      "max": 82,
+      "weight": 8,
+      "key": "physical_harm",
+      "instruction": "Make the action's actual physical danger strike the appropriate participant. Use existing injury/damage rules and grounded severity; no unexplained injury."
+    },
+    {
+      "min": 83,
+      "max": 90,
+      "weight": 8,
+      "key": "horror_contact",
+      "instruction": "Bring the investigator into direct contact with a disturbing truth or threat connected to the attempt. Use a SAN check only when a real revealed stimulus warrants one."
+    },
+    {
+      "min": 91,
+      "max": 96,
+      "weight": 6,
+      "key": "endanger_other",
+      "instruction": "Put a relevant present or established ally, dependent or innocent in concrete danger through this attempt. When none exists, put the investigator in that danger."
+    },
+    {
+      "min": 97,
+      "max": 100,
+      "weight": 4,
+      "key": "compound",
+      "instruction": "Combine a substantial immediate loss with a concrete advantage for an existing connected danger. Both must arise from one coherent event and both must be realized."
+    }
+  ],
+  "refusals": {
+    "mod_disabled": "Pushed rolls are unavailable because the Pushed Roll Mod is not active for this campaign.",
+    "no_source": "There is no matching failed action check to push.",
+    "source_ambiguous": "The failed action this declaration refers to cannot be identified unambiguously.",
+    "wrong_actor": "An investigator cannot push another person's check.",
+    "goal_obsolete": "The original goal is no longer an unfinished achievable action in the current situation.",
+    "not_failure": "Only an ordinary failed action check can be pushed; this check did not fail that way.",
+    "fumble": "A fumble is final and cannot be pushed.",
+    "already_pushed": "This attempt has already been pushed; the second attempt is final.",
+    "luck_used": "This attempt has already been altered with Luck; it cannot also be pushed.",
+    "push_luck_conflict": "Choose either pushing or spending Luck; the same attempt cannot use both.",
+    "luck_roll": "Luck rolls cannot be pushed.",
+    "sanity_roll": "Sanity checks cannot be pushed.",
+    "combat_roll": "Combat checks and combat skills cannot be pushed.",
+    "chase_roll": "Checks in a chase cannot be pushed; further attempts use the chase's own actions.",
+    "amount_roll": "A die determining damage, Sanity loss or another amount cannot be pushed.",
+    "opposed_roll": "An opposed roll with both sides rolling cannot be pushed.",
+    "procedure_roll": "This automatic or special procedure is not an ordinary retryable action check.",
+    "procedure_unavailable": "This specialized procedure does not currently expose a supported pushed attempt; this is an implementation limitation, not a rule banning the skill.",
+    "judgment_unavailable": "The current declaration could not be reliably bound to an eligible unfinished action; no dice were rolled."
+  }
+}
