@@ -21,6 +21,7 @@ import {createHybridEngine} from './hybrid-engine-fixture.mjs';
 import {COMPILE_FAMILY} from '../../runtime/jev/route-compile.ts';
 import {toldTimeDecision, toldTimeQuestions, toldTimeState} from '../../runtime/jev/told-time.ts';
 import {readToldTime} from '../../extensions/kernel/told-time.ts';
+import {toldTimeBudget} from '../../runtime/jev/host-budgets.ts';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CAMPAIGN = 'test-camp';
@@ -83,6 +84,16 @@ test('§218.4 t51\'s captured read: a search the delivery only began is not owed
         {decision: 'stay', why: 'begun'}, 'the base owed record_lookup here');
     assert.deepEqual(toldTimeDecision(T51({choice: 'carried', top: 0.8, distribution: {begun: 0.18, carried: 0.8, unknown: 0.02}}), bars, T51_BANDS),
         {decision: 'owe', band: 'record_lookup', quote: T51_SENTENCE});
+});
+
+// §218.8, live 4d7 turn 71: a wait that only began was read `carried` at .52 (stayed on cost there); carried reads that were right
+// led at .82-.95. The shipped bar is 0.6, and it is read from the told_time block of the shipped budget.
+test('§218.8 the shipped extent bar is 0.6 and is read: t71\'s carried .52 stays, a carried .82 owes', async () => {
+    const shipped = await toldTimeBudget(join(REPO, 'content'));
+    assert.equal(shipped.extentMin, 0.6);
+    assert.deepEqual(toldTimeDecision(T51({choice: 'carried', top: 0.52, distribution: {begun: 0.46, carried: 0.52, unknown: 0.02}}), shipped, T51_BANDS),
+        {decision: 'stay', why: 'low_extent'});
+    assert.equal(toldTimeDecision(T51({choice: 'carried', top: 0.82, distribution: {begun: 0.16, carried: 0.82, unknown: 0.02}}), shipped, T51_BANDS).decision, 'owe');
 });
 
 // §218.4, live d6c turn 44: an out-of-fiction answer (the player asked what day it was) was read as tome_study .30.

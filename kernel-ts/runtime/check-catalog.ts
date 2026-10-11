@@ -11,6 +11,8 @@ import {statedSanLoss} from '../sanity/index.js';
 import {parseSanLoss} from '../sanity/expression.js';
 import {knownSpells, magicStateName} from '../magic/state.js';
 import {statedCheck, statedEndingReward} from '../read/stated.js';
+import {checkPassed, clueCheck} from '../read/clue-check.js';
+import {tableWord} from '../read/person-words.js';
 import {jsonDigest} from '../json.js';
 import {RuleTables} from '../rules/tables.js';
 import {ENDING_KINDS} from '../development/plan.js';
@@ -41,8 +43,15 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
     const currentActor = session?.kind === 'combat' ? campaign.party.find(sheet => sheet.id === session.turn_of || sheet.name === session.turn_of) : undefined;
     if (currentActor) profiles = profiles.filter(profile => profile.actor === currentActor.name);
     const scene = graph.scene(campaign.world.active_scene);
-    const people = scene ? npcsPresent(graph, campaign.world, scene).map(node => ({name: graph.displayName(node),
-        profile: npcProfileOf(graph, campaign.world, graph.handle(node)), node})) : [];
+    // §219.2: `called` is the word this table calls the person (§176.1's `tableWord`), when it is not the name a target
+    // binds by: the public context names people by that word, and a target known only by an untold book name cannot be
+    // matched to the person the player addresses. The bound `target` stays the canonical name.
+    const people = scene ? npcsPresent(graph, campaign.world, scene).map(node => {
+        const name = graph.displayName(node), word = tableWord(campaign.world, graph.handle(node));
+        return {name, profile: npcProfileOf(graph, campaign.world, graph.handle(node)), node,
+            ...(word && normalize(word) !== normalize(name) ? {called: word} : {})};
+    }) : [];
+    const calledFacts = (person: {called?: string}): Row => person.called ? {target_called: person.called} : {};
     // Numeric values remain host data. Only authored/pinned NPC profile rows become candidates;
     // neither another person's sheet nor an invented base chance supplies a missing helper skill.
     if (!session) {
@@ -135,16 +144,30 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
     const visitReceipts = receipts.slice(visitStart);
     const publicChecks: Row[] = [];
     const descriptions = row((await new RuleTables(campaign.context).skillDescriptions()).skills);
+    // §219.1: what the book finds here by a check of a named skill (§201.2's `clueCheck`), not yet found and not yet passed
+    // this turn. It is source evidence on the matching investigator profile: it may establish that the attempt is a roll,
+    // never that the player chose it, and it is read by skill identifier only, never from prose.
+    const bookFinds = new Map<string, Row[]>();
+    for (const id of scene ? graph.sceneClueIds(scene) : []) {
+        const node = graph.nodes.get(id);
+        if (!node || array(campaign.world.discovered_clues).includes(graph.handle(node))) continue;
+        const check = clueCheck(graph, node);
+        if (!check || checkPassed(check, array(campaign.turn.receipts))) continue;
+        const finds = bookFinds.get(normalize(check.skill)) ?? [];
+        finds.push({find: graph.displayName(node), skill: check.skill, ...(check.difficulty ? {difficulty: check.difficulty} : {})});
+        bookFinds.set(normalize(check.skill), finds);
+    }
     for (const profile of profiles) {
         if (profile.availability !== 'bound') continue;
         // These are exact canonical rule bindings, the same ones used by ResolvePipeline.candidates.
         // They are not a classifier of the declaration: Jev still judges the actual method.
         if (['First Aid', 'Medicine'].includes(profile.skill)) continue;
+        const finds = campaign.party.some(sheet => sheet.name === profile.actor) ? bookFinds.get(normalize(profile.skill)) : undefined;
         add('core-check:ordinary-check', `${profile.actor}: ordinary ${profile.skill} check`,
             {actor: profile.actor, skill: profile.skill}, [
                 parameter('intent', 'Which canonical intent describes this ordinary action? A specialized rule check is not ordinary.', ['investigate', 'move', 'social']),
                 ...modifiers(),
-            ]);
+            ], [], 'declaration', finds ? {book_finds: finds} : undefined);
         const definition = row(descriptions[profile.skill]).description;
         const added = options.at(-1);
         if (added && added.action.skill === profile.skill && typeof definition === 'string') added.definition = definition;
@@ -216,14 +239,16 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
                 add('social:adjudicate-difficulty', `${actor}: influence ${person.name} with a social approach`, {actor, target: person.name, intent: 'social'},
                     [{...parameter('skill', 'Which social skill fits the conduct the player actually described? The Keeper selects the skill from that conduct, not the player.', skills), selection: 'compatible'}, ...modifiers()], [], 'declaration',
                     {stage: 'difficulty_adjudication', actor_role: campaign.party.some(sheet => sheet.name === actor) ? 'investigator'
-                        : people.some(person => person.name === actor) ? 'npc' : 'unknown', target_role: 'npc'});
+                        : people.some(person => person.name === actor) ? 'npc' : 'unknown', target_role: 'npc', ...calledFacts(person)});
                 if (own.some(profile => profile.skill === 'Psychology'))
-                    add('psychology:observe-concealed', `${actor}: observe ${person.name} with Psychology`, {actor, target: person.name, skill: 'Psychology'});
+                    add('psychology:observe-concealed', `${actor}: observe ${person.name} with Psychology`, {actor, target: person.name, skill: 'Psychology'},
+                        [], [], 'declaration', person.called ? calledFacts(person) : undefined);
             }
             const opposing = [...Object.keys(row(row(person.profile).skills)), ...Object.keys(row(row(person.profile).characteristics))];
             const shared = own.map(profile => profile.skill).filter(skill => opposing.includes(skill));
             if (shared.length) add('core-check:opposed-check', `${actor}: opposed noncombat check against ${person.name}`, {actor, target: person.name},
-                [parameter('skill', 'Which shared skill or characteristic is the declared contest resolved with?', shared), ...modifiers()]);
+                [parameter('skill', 'Which shared skill or characteristic is the declared contest resolved with?', shared), ...modifiers()],
+                [], 'declaration', person.called ? calledFacts(person) : undefined);
             const profile = row(person.profile);
             let loss = statedSanLoss(profile.sanity_loss);
             for (const key of ['san_loss', 'san_loss_to_see', 'sanity_loss']) if (!loss) loss = parseSanLoss(profile[key]);
@@ -299,5 +324,5 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
     return {version: 1, owner: 'jev', options, profiles_revision: jsonDigest(profiles), coverage: decisions.map(decision => ({decision: decision.name, executable: covered.has(decision.name)
         && options.some(option => option.action.decision === decision.name && !option.needs.length),
         phase: owners.phases[decision.name], owner: options.some(option => option.action.decision === decision.name) ? 'jev' : 'existing-phase'})),
-        situation: {patients: patients.map(({rule_facts: _facts, ...patient}) => patient), public_checks: publicChecks, people: people.map(person => ({name: person.name, profile_available: person.profile !== null}))}};
+        situation: {patients: patients.map(({rule_facts: _facts, ...patient}) => patient), public_checks: publicChecks, people: people.map(person => ({name: person.name, ...(person.called ? {called: person.called} : {}), profile_available: person.profile !== null}))}};
 }

@@ -695,7 +695,6 @@ async function readToldPositionBudget(contentRoot?: string): Promise<ToldPositio
       movedMin: bar(block.moved_min, fallback.movedMin),
       placeMin: bar(block.place_min, fallback.placeMin),
       sentenceMin: bar(block.sentence_min, fallback.sentenceMin),
-      extentMin: bar(block.extent_min, fallback.extentMin),
       maxCandidates: finite(max) && Number.isInteger(max) && max >= 1 && max <= 64 ? max : fallback.maxCandidates,
       timeoutMs: finite(timeout) && timeout > 0 ? timeout : fallback.timeoutMs,
     };
@@ -783,7 +782,7 @@ export interface ToldTimeBudget {
 }
 
 /** Used only if the file or its `told_time` section cannot be read; the shipped file carries the real values. */
-export const TOLD_TIME_FALLBACK: ToldTimeBudget = Object.freeze({mode: 'shadow', costMin: 0.7, sentenceMin: 0.5, extentMin: 0.5, minDefaultMinutes: 5, timeoutMs: 10_000});
+export const TOLD_TIME_FALLBACK: ToldTimeBudget = Object.freeze({mode: 'shadow', costMin: 0.7, sentenceMin: 0.5, extentMin: 0.6, minDefaultMinutes: 5, timeoutMs: 10_000});
 
 let toldTimeCached: Promise<ToldTimeBudget> | undefined;
 
@@ -805,6 +804,8 @@ async function readToldTimeBudget(contentRoot?: string): Promise<ToldTimeBudget>
       mode: block.mode === 'off' || block.mode === 'shadow' || block.mode === 'on' ? block.mode : fallback.mode,
       costMin: bar(block.cost_min, fallback.costMin),
       sentenceMin: bar(block.sentence_min, fallback.sentenceMin),
+      // §218.8: read from the told_time block (218.4 left it in told_position's reader, so the shipped bar was never read).
+      extentMin: bar(block.extent_min, fallback.extentMin),
       minDefaultMinutes: finite(floor) && Number.isInteger(floor) && floor >= 0 ? floor : fallback.minDefaultMinutes,
       timeoutMs: finite(timeout) && timeout > 0 ? timeout : fallback.timeoutMs,
     };

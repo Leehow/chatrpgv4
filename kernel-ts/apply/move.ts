@@ -110,8 +110,15 @@ export function stageMove(context: ApplyContext, effect: Row, travelRows?: Reado
     // §218.3: a road no book road times keeps the minutes this move gave it, so the next trip either way takes the same.
     if ((band != null || effect.travel_minutes != null && number(minutes) > 0) && bookRoadMinutes(graph, current, destination) === null)
         (world.table_roads ??= {})[roadKey(from, target)] = { minutes: number(minutes), basis: band != null ? 'banded' : 'given', turn: turn.turn, ...(band != null ? { band } : {}) };
+    // §218.8: a stated end this turn whose journeys come before it ("ride home, then work until three") already counts this
+    // journey: the move lands inside that time, keeps its own minutes for the road above, and moves the clock no further.
+    const inside = number(minutes) > 0 ? [...array(turn.receipts).map(row), ...(context.staged?.() ?? [])]
+        .find(entry => string(entry.kind) === 'time' && row(entry.until).journeys === 'before') : undefined;
+    const journey = minutes;
+    if (inside) minutes = 0;
     const receipt: Row = { id: `move:${target}-t${turn.turn}-c${ordinal}`, kind: 'move', call_id: callId, from, to: target, from_label: sceneLabel(graph, world, current), to_label: label || sceneLabel(graph, world, destination), minutes, at: nowIso() };
     if (travel) receipt.travel = travel;
+    if (inside) receipt.inside_until = { receipt: string(inside.id), minutes: number(journey) };
     if (established) receipt.established = 'table';
     if (person) receipt.person = graph.handle(person);
     if (road) receipt.return_route = true;

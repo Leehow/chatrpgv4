@@ -136,7 +136,7 @@
     "mode": "shadow",
     "cost_min": 0.7,
     "sentence_min": 0.5,
-    "extent_min": 0.5,
+    "extent_min": 0.6,
     "min_default_minutes": 5,
     "timeout_ms": 10000
   },

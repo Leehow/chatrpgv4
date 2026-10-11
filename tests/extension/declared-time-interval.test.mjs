@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import {before,after,test} from 'node:test';
 import {mkdir,mkdtemp,rm} from 'node:fs/promises';
-import {existsSync} from 'node:fs';
+import {existsSync,readFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
@@ -185,6 +185,7 @@ async function kernelAt(name,minutes,t){
     await call('table.player_input',{text:'I spend the day on the case.'});
     await call('table.apply',{call_id:'t1-c1',effects:[{kind:'time',minutes,why:'the day on the case'}]});
     await call('table.narrate',{call_id:'t1-c2',text:'The day goes.'});
+    call.kernel=kernel;
     return call;
 }
 test('§218.1 over the TS kernel at 18:28: the captured t43 declaration with its end read binds until 21:00 -- 152 minutes, not 5,488',async t=>{
@@ -214,4 +215,150 @@ test('§218.1 either_half at 23:10 reaches 07:00 the next morning; with days or 
     await call('table.apply',{call_id:'t2-c4',effects:[{kind:'time',until:{time:'08:00'}}]});
     const next=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
     assert.equal(next.minutes,60);assert.deepEqual(next.until,{days:1,time:'08:00'});
+});
+
+/*
+ * §218.8: the 4d7 live table (runtime 4d77fddb4, turns 68-101). `fixtures/time-ledger-4d7-grids.json` holds, per stated-time turn,
+ * the player's input and the pooled distributions of the bind row (its stated grids and the superseded band), as captured; each
+ * pooled distribution is replayed in the three views. The questions §218.8 adds (kind, journey, scope) were not asked live: where a
+ * test needs them their answers are stated, synthetic, beside the captured grids.
+ */
+const live=JSON.parse(readFileSync(join(root,'tests/extension/fixtures/time-ledger-4d7-grids.json'),'utf8')).turns;
+/** A captured sparse pooled distribution over the issued options of `key`, renormalized, in its three views. */
+function captured(batch,key,dist){
+    const options=Object.keys(batch.questions.find(q=>q.key===key).criteria);
+    const sum=options.reduce((total,option)=>total+(dist[option]??0),0);
+    const probabilities=Object.fromEntries(options.map(option=>[option,(dist[option]??0)/sum]));
+    return Object.fromEntries(views(key).map(view=>[view,probabilities]));
+}
+/** Replay turn `t` with its captured band and grids, and any stated answers for the questions §218.8 adds. */
+function replay(t,extra=()=>({})){
+    const turn=live[t];
+    return bindWith(turn.input,{band:turn.band,band__semantic_facts:turn.band,band__semantic_execution:turn.band},
+        batch=>({...Object.fromEntries(Object.entries(turn.grids).flatMap(([key,dist])=>Object.entries(captured(batch,key,dist)))),...extra(batch)}));
+}
+const held=bound=>{
+    assert.equal(bound.pending.some(p=>p.purpose==='execute'),false,'nothing is executed');
+    assert.equal(bound.pending[0].purpose,'compose');assert.equal(bound.pending[0].extra.time_unsettled,true);
+    return bound.pending[0].extra.cause;
+};
+
+test('§218.8 the questions: what the stated time is, the order against a journey, how much a length covers; the minute and half say half past and noon',()=>{
+    const value=candidate(live[79].input);
+    const batch=api.bindBatch(api.initialView({runId:'grids-218-8',rawInput:live[79].input,context,candidates:[value],compile:false,readFirst:false}),value,scope,[]);
+    const keys=batch.questions.map(q=>q.key);
+    for(const key of ['stated_end:kind','stated_end:journey','stated_span:scope'])for(const view of views(key))assert.ok(keys.includes(view),`${view} is asked`);
+    const options=key=>Object.keys(batch.questions.find(q=>q.key===key).criteria);
+    assert.deepEqual(options('stated_end:kind'),['end_of_now','start_only','deadline','condition','other_time','no_time','unknown']);
+    assert.deepEqual(options('stated_end:journey'),['journey_then_end','end_then_journey','both_sides','no_journey','unknown']);
+    assert.deepEqual(options('stated_span:scope'),['all','one_part','no_length','unknown']);
+    const minute=batch.questions.find(q=>q.key==='stated_end:minute');
+    assert.equal(/no minutes are given/.test(minute.criteria.m00),false,'a half written as a word gives no minute digits: m00 is exactly on the hour');
+    assert.match(minute.criteria.m30,/half past/);assert.match(minute.criteria.m15,/quarter past/);assert.match(minute.criteria.m45,/quarter to/);
+    const half=batch.questions.find(q=>q.key==='stated_end:half');
+    assert.match(half.criteria.pm,/noon itself/);assert.match(half.criteria.am,/midnight itself/);
+    const hour=batch.questions.find(q=>q.key==='stated_end:hour');
+    assert.match(hour.instructions,/take when it ends/);
+});
+
+test('§218.8 the captured 4d7 misses: a condition, a deadline, a bedtime and a half-past minute hold where the base bound 14:00, 17:00, 18:00, 22:00 and 08:00',()=>{
+    for(const t of [73,90,99,76,79]){
+        const bound=replay(t);
+        assert.equal(bound.extra?.until,undefined,`t${t}: the base bound ${live[t].bound.value}`);
+        assert.equal(held(bound),'stated_measure_uncertain',`t${t}`);
+    }
+});
+
+test('§218.8 with the role read as a deadline or a condition no end was stated: the band decides',()=>{
+    const role=(choice,top=.85)=>batch=>grid(batch,'stated_end:kind',choice,top);
+    const t90=replay(90,role('deadline'));
+    assert.equal(t90.extra.until,undefined);assert.equal(t90.extra.band,'speak_briefly','the ride before the shift change is the move\'s, not an end');
+    const t99=replay(99,role('condition'));
+    assert.equal(t99.extra.until,undefined);assert.equal(t99.extra.band,'brief_activity');
+    // t73's band led unknown: the declared time stays unsettled, but not for a stated measure.
+    assert.equal(held(replay(73,role('condition'))),'unknown_binding');
+    // A role below its bar is unsure: hold, whatever the hour.
+    assert.equal(held(replay(93,role('end_of_now',.5))),'stated_measure_uncertain');
+    // A confident end with the hour, minute and half read binds it: t76 read as getting up at 06:30.
+    const t76=replay(76,batch=>({...role('end_of_now')(batch),...grid(batch,'stated_end:hour','h6',.9),...grid(batch,'stated_end:minute','m30',.85),...grid(batch,'stated_end:half','am',.9)}));
+    assert.equal(t76.extra.until.time,'06:30');
+});
+
+test('§218.8 t69: twelve noon with no fixed half binds 12:00 either_half, not 00:00',()=>{
+    const t69=replay(69);
+    assert.deepEqual(t69.extra.until,{time:'12:00',either_half:true});
+    const pm=replay(69,batch=>grid(batch,'stated_end:half','pm',.9));assert.deepEqual(pm.extra.until,{time:'12:00'});
+    const am=replay(69,batch=>grid(batch,'stated_end:half','am',.9));assert.deepEqual(am.extra.until,{time:'00:00'},'twelve in the first half is midnight');
+});
+
+test('§218.8 the captured 4d7 reads that were right still bind; t100\'s .65 minute holds at the calibrated bar',()=>{
+    for(const [t,time] of [[77,'06:30'],[84,'11:30'],[93,'07:00'],[97,'15:00']]){
+        const bound=replay(t);assert.equal(bound.extra.until.time,time,`t${t}`);
+    }
+    assert.equal(held(replay(100)),'stated_measure_uncertain');
+    for(const [t,minutes] of [[68,60],[78,10],[86,120],[92,480]])assert.equal(replay(t).extra.minutes,minutes,`t${t}`);
+});
+
+test('§218.8 the order against the turn\'s journeys binds until.journeys; a length of one part is recorded as one part',()=>{
+    const order=(choice,top=.85)=>batch=>grid(batch,'stated_end:journey',choice,top);
+    assert.deepEqual(replay(97,order('journey_then_end')).extra.until,{time:'15:00',journeys:'before'});
+    assert.deepEqual(replay(97,order('journey_then_end',.5)).extra.until,{time:'15:00'},'an order below its bar binds none');
+    assert.deepEqual(replay(97,order('no_journey')).extra.until,{time:'15:00'});
+    // t79's captured hour (.79) and minute hold; read as eight-thirty (stated), the order rides on the end.
+    const t79=replay(79,batch=>({...grid(batch,'stated_end:hour','h8',.85),...grid(batch,'stated_end:minute','m30',.85),...order('end_then_journey')(batch)}));
+    assert.deepEqual(t79.extra.until,{time:'08:30',journeys:'after'});
+    const part=replay(92,batch=>grid(batch,'stated_span:scope','one_part',.85));
+    assert.equal(part.extra.minutes,480);
+    assert.equal(part.bindings.find(b=>b.name==='minutes').scope,'one_part');
+    assert.equal(replay(92,batch=>grid(batch,'stated_span:scope','all',.85)).bindings.find(b=>b.name==='minutes').scope,undefined);
+});
+
+test('§218.8 over the TS kernel: either_half 12:00 is noon at 09:37 and midnight at 13:00; 13:00 either_half is until_invalid',async t=>{
+    const call=await kernelAt('stated-end-noon',1417,t);
+    assert.equal((await call('table.capsule')).where.clock.at,'1920-10-13T09:37');
+    await call('table.player_input',{text:live[69].input});
+    await assert.rejects(call('table.apply',{call_id:'t2-c1',effects:[{kind:'time',until:{time:'13:00',either_half:true}}]}),error=>error.details?.reason==='until_invalid');
+    await call('table.apply',{call_id:'t2-c2',effects:[{kind:'time',until:{time:'12:00',either_half:true}}]});
+    let receipt=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
+    assert.equal(receipt.minutes,143);assert.deepEqual(receipt.until,{days:0,time:'12:00',either_half:true});
+    await call('table.apply',{call_id:'t2-c3',effects:[{kind:'time',minutes:60}]});
+    await call('table.apply',{call_id:'t2-c4',effects:[{kind:'time',until:{time:'12:00',either_half:true}}]});
+    receipt=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
+    assert.equal(receipt.minutes,660);assert.deepEqual(receipt.until,{days:1,time:'00:00',either_half:true});
+});
+
+const LODGING={kind:'move',to:'rooming-house',establish:{summary:'A cheap rooming house a short walk from the commission office.'},via:'By tram to the rooming house.'};
+test('§218.8 over the TS kernel, t97: until 15:00 with journeys before -- the ride that lands after it is inside the stated time (15:00, not 15:30)',async t=>{
+    const call=await kernelAt('stated-end-before',1290,t);
+    assert.equal((await call('table.capsule')).where.clock.at,'1920-10-13T07:30');
+    await call('table.player_input',{text:live[97].input});
+    await call('table.apply',{call_id:'t2-c1',effects:[{kind:'time',until:{time:'15:00',journeys:'before'}}]});
+    const time=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
+    assert.equal(time.minutes,450);assert.equal(time.until.journeys,'before');
+    await call('table.apply',{call_id:'t2-c2',effects:[{...LODGING,travel_minutes:30}]});
+    const move=(await call('table.status')).receipts.filter(r=>r.kind==='move').at(-1);
+    assert.equal(move.minutes,0);assert.deepEqual(move.inside_until,{receipt:time.id,minutes:30});
+    assert.equal((await call('table.capsule')).where.clock.at,'1920-10-13T15:00');
+    // The road keeps the journey's minutes for the next trip.
+    const roads=(await new api.CampaignWriter(call.kernel,'c1').readWorld()).table_roads;
+    assert.deepEqual(Object.values(roads??{}).map(road=>road.minutes),[30]);
+    // Without journeys the base behaviour: the later ride adds its minutes.
+    const plain=await kernelAt('stated-end-plain',1290,t);
+    await plain('table.player_input',{text:live[97].input});
+    await plain('table.apply',{call_id:'t2-c1',effects:[{kind:'time',until:{time:'15:00'}}]});
+    await plain('table.apply',{call_id:'t2-c2',effects:[{...LODGING,travel_minutes:30}]});
+    assert.equal((await plain('table.capsule')).where.clock.at,'1920-10-13T15:30');
+});
+
+test('§218.8 over the TS kernel, t79: until 08:30 with journeys after -- a ride that landed first is counted after the stated end (09:00)',async t=>{
+    const call=await kernelAt('stated-end-after',1240,t);
+    assert.equal((await call('table.capsule')).where.clock.at,'1920-10-13T06:40');
+    await call('table.player_input',{text:live[79].input});
+    await call('table.apply',{call_id:'t2-c1',effects:[{...LODGING,travel_minutes:30}]});
+    assert.equal((await call('table.capsule')).where.clock.at,'1920-10-13T07:10');
+    await call('table.apply',{call_id:'t2-c2',effects:[{kind:'time',until:{time:'08:30',journeys:'after'}}]});
+    const time=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
+    assert.equal(time.minutes,110);assert.deepEqual(time.until,{days:0,time:'08:30',journeys:'after',journeys_after:30});
+    assert.equal((await call('table.capsule')).where.clock.at,'1920-10-13T09:00');
+    await assert.rejects(call('table.apply',{call_id:'t2-c3',effects:[{kind:'time',until:{time:'10:00',journeys:'sideways'}}]}),error=>error.details?.reason==='until_invalid');
 });

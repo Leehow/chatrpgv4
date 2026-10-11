@@ -41309,14 +41309,16 @@ unspecified)`, §30.12) is not gated: which roll satisfies it is the Keeper's ju
   "check_first"`, `details: {reason: "check_first", clue, check: {skill, difficulty?}}`, fix "Leave clue <c> out of this apply
   and send the rest. It lands after a <skill> roll for it has passed this turn; until then narrate the attempt without what
   the clue states. Do not land it another way or under another name." Not refused: a clue already found (a no-op), a clue the
-  table establishes, and an owed told row (§201.1: the story already gave it).
+  table establishes, and an owed told row (§201.1: the story already gave it). *Amended by §219.1 (2026-10-10): the fix now
+  says to narrate the attempt as still under way, without settling that it fails; whether it finds the clue is the roll's.*
 - **`table.apply.options`** carries the check on such a clue row: `description.check: {skill, difficulty?, passed}`, `passed`
   read from the turn's receipts at that read.
 - **The clerk does not offer what the kernel would refuse.** `clueFollowUpCandidates` (§135.32) and the plain `apply:clue`
   candidates (`buildCandidates`) skip a row whose `check.passed` is `false`; once a roll passes, the next fresh read offers it
   again. The compile's `ask` rows are unchanged (they read `table.apply.options` directly), and `ask_clue` already excluded
   a `skill_check` clue.
-- **What the prose can still skip.** In the driven engine the Keeper cannot roll (`check_selection_owned`); a check the host's
+- **What the prose can still skip.** *Amended by §219.1 (2026-10-10): check selection now reads the book's find on the matching
+  investigator profile.* In the driven engine the Keeper cannot roll (`check_selection_owned`); a check the host's
   check selection does not roll (T10: `no_roll` under the gate) leaves the Keeper "the attempt by your own judgement", and no
   reader stands between a draft and the player (§166). A told clue whose check the told turn did not pass is still owed --
   what the player was told stands (§158) -- and its row says `check_skipped: true`; the read counts it
@@ -43254,6 +43256,231 @@ in the issue #112 handoff of this slice.
   stay where the base owed; `carried` owes; an out-of-fiction delivery is skipped.
 
 Each fails on the base.
+
+### 218.8 What the stated end is, which minute, which half, which order, and how much of the turn a length covers (2026-10-11, issue #112 follow-up on the 4d7 live table; amends 218.1, 218.2's "not done", 218.4's `extent_min` and §145.1/§211.1's `until`)
+
+**Evidence.** Table `gui-world-e091`, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, runtime 4d77fddb4 on grok-build lanes
+(`4d7-live-time-ledger.md`/`.json`, `4d7-telemetry-analysis.json`, `turns/0068`-`0101`, telemetry lines 32472-48966). The grids read
+10 of 16 stated-time inputs correctly; no band ever replaced a stated measure. The misses, with their pooled leads:
+
+| t | the player said (paraphrase) | truth | pooled grid leads | bound | miss |
+| --- | --- | --- | --- | --- | --- |
+| 69 | read until twelve noon | 12:00 | h12 1.00, m00 1.00, am .54 | `{00:00, either_half}`, refused by admission ("00:00 misstates noon") | the h12 rendering |
+| 73 | if he is not out by two, knock | none (condition) | h2 .66 / none .33 | 14:00 | condition read as end |
+| 76 | to bed about ten, up at 6:30 | 06:30 | h10 .60 / h6 .37, m00 .67 | 22:00 | the start chosen over the end |
+| 79 | stay in until half past eight, then ride to be there at the nine o'clock opening | 08:30 | h8 .79, m00 .71 / m30 .12, am .65 | 08:00, refused | minute; and the clerk's move landed before the wait |
+| 90 | ride over, before their five o'clock shift change | none (deadline) | h5 .77 / none .18, pm .95 | 17:00 (+124); the Keeper then narrated the player late | deadline read as end |
+| 92 | ride home, write the application, sleep a full eight hours | ride + writing + 8 h | hours .93, x8 .95 | 480 from 17:20 (01:20) | a length of one part charged as the turn |
+| 97 | ride home, work until three in the afternoon | 15:00 | h3 .99, m00 .84, pm .91 | 15:00, then the Keeper's ride +30 (15:30) | order |
+| 99 | if they confer, wait, even until six | none (option) | h6 .72 / none .27 | 18:00 | condition read as end |
+
+Correct ends led at hour .93-1.0 and minute .65-1.0; every wrong hour led at .60-.77; the wrong minutes at .67 and .71; the half was
+right at .63, .65 and >= .79 and wrong at .54 (held); lengths led .84-.99 and were never wrong. `stated_measure_uncertain` never fired:
+every lead cleared 0.5. Told time's `told_extent` read `carried` .82-.95 where the text carried the activity and .52 for a wait that
+only began (t71).
+
+**The gaps.** (1) The hour question asked two things at once -- whether the input names when what the investigator does now ends, and
+which hour -- over fourteen options of which twelve are hours; a deadline's or a condition's hour is a literal hour, so the mass went to
+it, and one `none` criterion listing eleven exclusions could not compete (the skill's literal-reading and one-thing-per-question
+failures). (2) Nothing told the start of an activity from its end. (3) `m00` read "on the hour, or no minutes are given": a half written
+as a word gives no minute digits. (4) The h12 morning reading is 00:MM, which a reviewer reads as midnight; `am` and `pm` did not say
+where noon falls. (5) A length was read as the turn's time even when the input declared other activities (not journeys) beside it.
+(6) `until` is absolute, so its order against the turn's journeys decides the clock, and the order was the run's (the clerk's move ranks
+before the clerk's time; the Keeper's moves come after it), not the player's.
+
+**Decisions.**
+
+1. **What the stated time is, asked on its own** (`stated_end:kind`, a Choice in §163.10's three views beside the grids):
+   `end_of_now` (the input names the clock time at which what the investigator does now ends -- they get up, wake, stop, leave or act
+   again at it -- and the player commits to it now), `start_only` (it names only when something begins, such as a bedtime, and no end),
+   `deadline` (a time to be done or to arrive by; they do not stay until it), `condition` (a time inside a condition or an option the
+   player allows but does not commit to), `other_time` (a schedule, an opening or closing hour, an appointment, a quotation, a past
+   moment, an estimate, a time asked about), `no_time`, `unknown`. When the input names the end and other times too (a bedtime, a
+   deadline), the answer is `end_of_now`. Each role is its own option with its own boundary, so a deadline's hour no longer competes as
+   a literal against a one-line `none`.
+2. **The hour and the minute are of that end.** The hour question takes the end as given and says: when the input names when an
+   activity begins and when it ends, take when it ends; never the hour of a deadline, a condition, an opening hour or a start. Its
+   `none` keeps its boundary. The minute question asks the minute of that same time; `m00` is "exactly on the hour: no half, quarter or
+   minutes after it"; `m15`/`m30`/`m45` are a quarter past, a half past and a quarter to, "in digits or in words". `am`/`pm` say that
+   noon is `pm` and midnight `am`.
+3. **Bars from the 4d7 table** (constants in `runtime/jev/step-policy.ts`): `STATED_HOUR_MIN` 0.8 (holds all four wrong hours, loses
+   no right one), `STATED_MINUTE_MIN` 0.75 (holds both wrong minutes; costs t100's .65 one hold), `STATED_HALF_MIN` 0.6 (kept),
+   `STATED_SPAN_MIN` 0.5 for unit and amount (kept; `STATED_MEASURE_MIN` is retired), and 0.6 for the new questions
+   (`STATED_KIND_MIN`, `STATED_ORDER_MIN`, `STATED_SCOPE_MIN`: not measured live; the skill's read-only tier, each used only beside the
+   measured bars). `told_time.extent_min` 0.5 -> 0.6 (`host-budgets.json`): holds t71's .52 and keeps every observed carried read.
+4. **Reading an end** (`statedMeasureOf`). Bound when the hour leads with `h<k>` at or above 0.8 and the minute with `m<mm>` at or
+   above 0.75, unless `kind` was answered and does not lead `end_of_now` at or above 0.6. `kind` leading a non-end role at or above 0.6
+   means no end was stated: the hour's lead is that deadline's or condition's hour, and the band decides. `kind` unanswered or leading
+   `unknown`: the grids decide with their bars (the captured 4d7 answers carry no `kind`). **The hold** (`stated_measure_uncertain`)
+   fires whenever no measure is bound and the hour leads with an hour that no confident non-end `kind` explains, or `kind` leads
+   `end_of_now` at any probability, or the unit leads with a unit: an hour or minute below its bar, `kind` unsure, or an end asserted
+   with no readable hour.
+5. **h12** (amends §145.1/§211.1's `either_half`). The twelve o'clock hour without a fixed half is sent as `12:MM` with `either_half`;
+   `either_half` accepts a time from 00:00 to 12:59, reads its hour modulo twelve and takes the earlier of the two readings the clock
+   reaches (`12:00` at 09:37 is noon; at 13:00 it is midnight). `am` sends `00:MM` and `pm` `12:MM`, as before. `either_half` with a
+   time from 13:00 or with `days` stays `until_invalid`. The receipt's `until.time` is the resolved 24-hour time.
+6. **Order** (closes 218.2's "not done" for `until`; `stated_end:journey`, a Choice in three views, read only with an end bound):
+   `journey_then_end` (they travel to another place first and the end comes after they arrive), `end_then_journey` (the end comes first
+   and they travel after it), `both_sides`, `no_journey`, `unknown`. Leading at or above 0.6, the first two bind `until.journeys`:
+   `"before"` or `"after"`; anything else binds nothing and the clock counts as before. The kernel keeps the player's order:
+   - `journeys: "before"` (`stageMove`): a move that lands later **in the same turn** happened inside the stated time. It lands with
+     `minutes: 0` and `inside_until: {receipt, minutes}` (the journey's own minutes, which still write the table's road, 218.3); the
+     clock does not move. Moves earlier in the turn are already inside the count, as before.
+   - `journeys: "after"` (`bindUntil`): the end is counted from the clock as it stood before the moves this turn already landed, and
+     their minutes are added after it (the receipt's `until.journeys_after` carries them). Moves later in the turn add, as before.
+   Only `until` is order-sensitive (minutes and bands commute with a journey), so lengths and bands are unchanged. The Keeper may give
+   `journeys` too (tool schema; admission lists it under `until`). The fake kernel validates the field and does not model moves.
+7. **A length of one part** (`stated_span:scope`, a Choice in three views): `all` (the length covers all the time the investigator
+   lets pass now, apart from journeys between places), `one_part` (it covers one activity, and the input declares other activities, not
+   journeys, that take time of their own), `no_length`, `unknown`. With `one_part` leading at or above 0.6 the clerk still charges the
+   stated length -- it is what the player stated, read on the grids -- and its bind record carries `scope: "one_part"`; the run's
+   declared time is marked partial, so the once-a-turn gate (218.2) admits **one** Keeper time effect for the other declared
+   activities, and the clerk's line tells the Keeper so (charge only the other activities: not the stated length again, not a journey a
+   move carries). The mark is spent when a Keeper time effect lands; a second is refused with `declared_time_landed`, as before.
+   Otherwise the length is the turn's time, unchanged. Not chosen: a band for the other part (a band question over a sequence is the
+   indirect reading 218's t48 showed failing), or a hold (the stated part is read correctly; holding it loses it and the Keeper may not
+   replace it).
+
+**Not done; recorded.** A Keeper time effect that is neither the partial complement nor owed is still refused after the clerk's time.
+Whether a stated-measure hold should let the Keeper charge the time itself, instead of asking in character (§138.10's 2026-10-06 rule;
+t100 would hold on its .65 minute), is the owner's. Live accuracy of `kind`, `journey` and `scope` is not measured; the replay tests use
+the captured 4d7 pooled grid distributions (replayed in each view) and, for the new questions, stated synthetic answers.
+
+**Three ends.** *Writer:* Jev's `kind`, `journey` and `scope` answers and the grids; `statedMeasureOf`; the clerk's `apply time {until:
+{time, either_half?, journeys?} | minutes}`; the kernel's `bindUntil` and `stageMove`. *Reader:* the bind row's `stated` (every grid),
+`scope` and `journeys`; the time receipt's `until` (`journeys`, `journeys_after`); the move receipt's `inside_until`; the model-step
+gate's `run.declaredTime.part`. *Actor:* the kernel's clock; the Keeper narrates the clock where it stands and, for a partial length,
+charges the other activities once.
+
+**Tests.** `tests/extension/declared-time-interval.test.mjs`: the three new questions are asked in three views with their roles and the
+hour/minute/half wording; replaying the captured 4d7 grids, t73, t76, t79, t90 and t99 hold where the base bound 14:00, 22:00, 08:00,
+17:00 and 18:00, and with `kind` read as a condition or deadline the band decides; t69 binds `{12:00, either_half}`; t77, t84, t93, t97
+still bind and t100 holds on its .65 minute; t92 with `scope` `one_part` records it; `journey` binds `journeys`. Over the TS kernel:
+`12:00` either_half at 09:37 lands noon and at 13:00 midnight, `13:00` either_half is `until_invalid`; `journeys: "before"` absorbs a
+later move (t97: 15:00, not 15:30, the road still written); `journeys: "after"` counts after an earlier move (t79: a 30-minute ride from
+06:40, until 08:30 after it, lands 09:00). `tests/extension/time-once.test.mjs`: a partial declared time admits one Keeper time and
+refuses a second. `tests/extension/told-time.test.mjs`: t71's `carried` .52 stays. Each fails on the base.
+
+## 219. A book check reaches check selection, a person is matched by the table's word, and every request is accounted (2026-10-10, issue #112 follow-up on the 4d7 live table; amends §159's ordinary need questions and catalog facts, §201.2's `check_first` fix, §209.9's optional-expiry hand-over and §209.13's request rows)
+
+**Evidence.** 4d7 GUI table, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, turns 68–101, Grok 4.7 Keeper, hybrid engine
+(research `reports/handoff-20261008/capability-discovery-implementation-20261010/`).
+
+- **Turns 80–84 (Hall of Records).** The player read the probate volume for the will's executor (t80, t81), said in fiction
+  that he was doing it as Library Use (t82), asked the clerk to read it (t83) and compared hands under a lens until 11:30
+  (t84). The executor is `will-executor-chapel`, which the book finds by Library Use (regular) (§201.2's `clueCheck`). Each
+  turn the Keeper's `apply` with that clue was refused `check_first` (t80-c2, t81-c4, t83-c3, t84-c2), and its fix said
+  "until then narrate the attempt without what the clue states"; the Keeper narrated the attempt as having come to nothing.
+  The Keeper cannot roll on this engine (§159.2): check selection decides. On t80 its Library Use profile scored method fit
+  0.56 and roll needed 0.47, forced `no_roll`; on t81 and t84 the route's ordinary check scored now 0.44 / 0.38. Nothing in
+  the catalog said that the book makes this find a roll, so every judgement was made without the rule that decided it. The
+  player asked out of character on t85; t86's declaration named Library Use again, it rolled (40/50) and the clue landed.
+- **Turn 96 (the courts).** The player pressed the man in the corridor ("我想试试说服"). The two social options were
+  `influence Kim Debrun` and `influence 书记室窗口的书记员`. Kim Debrun's name was never told; every public line, the speech
+  rows and `world.person_labels` call him `夹着牛皮纸袋的法院联络员`. Jev scored Kim needed now 0.16 (chosen 0.07) and the
+  window clerk 0.89, the selection bound the clerk, and admission refused it `action_proposal_mismatch`. The refusal was
+  right; the selection had nothing that linked the book name to the person addressed.
+- **Cash.** Every purchase receipt has `delta: 0` beside a quoted price (t24–t101). The investigator is CR 9, Living Standard
+  Poor, Spending Level $2 (`party/investigator.json`). Food, fares and lodging were filed `category: living`
+  (`settlement: living_standard`); newspapers and a cigar `category: purchase`, with day totals of $0.09 and $0.02.
+- **§209.13 rows.** 116 Keeper provider requests, 115 `context/request` rows. The missing one is turn 95's first request
+  (telemetry lines 46177–46180): the final identity check answered `discovery_snapshot_changed`, and that branch returned its
+  bounded tail without a row. Turn 88's second request (lines 42420–42429) was prepared 0.6 s before the input's 12 s optional
+  allowance expired (`optional_deadline` 00:57:00.087); mod discovery's selection fell back `task_deadline`, its package
+  detail read started after the deadline and threw `discovery_snapshot_deadline`, and the whole projection became
+  `context_projection_failed`: that inference went out as a bounded tail with no capsule, while the run's foreground owner
+  had 76 s left (`foreground_deadline` 00:57:15.865, recorded at the next request's pin).
+
+### 219.1 What the book finds here by a check is evidence on the investigator's profile of that skill
+
+*Writer.* `checkCatalog` (`kernel-ts/runtime/check-catalog.ts`) reads the active scene's clues (`sceneClueIds`) that the table
+has not found and whose §201.2 check (`clueCheck`) has not passed this turn (`checkPassed` over the turn's receipts). Each
+such check is put, as `facts.book_finds: [{find, skill, difficulty?}]` (`find` is the clue's display name), on the ordinary
+`core-check:ordinary-check` profile option of every investigator whose skill equals it (NFKC, case and spacing folded). NPC
+profiles never carry it. Nothing reads prose: the match is the rules skill identifier.
+
+*Reader.* `selectCheck` (`runtime/jev/resolve-selection.ts`):
+- a profile with `book_finds` is retained past the ordinary retrieval beam: it is judged on its own whatever the Choice ranked
+  first;
+- the method-fit question says that a declared method aimed at one of those finds by the skill's means fits it, and another
+  method aimed at the same thing does not;
+- the roll-needed question says that the book makes finding those things here a check of this skill, so an attempt that seeks
+  one of them requires the roll even when the player does not ask for dice and however long the attempt takes, and that this
+  never proves the find.
+
+Family version `24` (was `23`). Gates, the `_selected` player-choice question, admission, the canonical dispatcher and §163's
+forced results are unchanged: the fact may establish necessity (§159.1: "private source material may establish
+difficulty/necessity, never grant consent"), never that the player chose the method. A roll of that skill in this scene
+settles the profile as before (§159.4 version 11); a roll passed this turn removes the clue's row.
+
+*The Keeper's end (amends §201.2's fix).* `apply clue`'s `check_first` fix reads: "Leave clue <c> out of this apply and send
+the rest. It lands after a <skill> roll for it has passed this turn; until then narrate the attempt as still under way,
+without what the clue states and without settling that it fails: whether the attempt finds it is that roll's to decide. Do
+not land it another way or under another name." Code, `details` and the gate are unchanged.
+
+### 219.2 A person is named to check selection by the table's word too
+
+`checkCatalog`'s people present carry `called`: the word this table calls them (§176.1's `tableWord`: `person_labels`, else the
+folded epithet) when it is not the name the target binds by. The social, Psychology and opposed options aimed at that person
+carry `facts.target_called`, and `situation.people[]` carries `called`. The bound `target` stays the canonical name
+(`table.resolve` and admission read it as before). The selector's social trigger question names `facts.target_called` as the
+word the table and the public context use for that target, the `_selected` question says the same, and `alternatives[]`
+carries `target_called`. A table person already goes by the table's word and has none. Nothing is told to the player: Jev's
+state is Keeper audience, as the book name already was.
+
+### 219.3 Every request the hook hands the provider has its `context/request` row (amends §209.13)
+
+The final identity check's failure (`discovery_snapshot_changed`, `discovery_snapshot_unavailable`, a deadline) returns
+`degradedRequest(...)` with that reason: the same bounded tail, notice and row as every other degraded request (§209.13
+decision 1). A projection that a newer generation or a cancelled preparation overtook (the hook's eight early returns of its
+bounded baseline) records a row with `reason: "context_superseded"`, its sizes and `dropped_tail`. `context/request` rows then
+equal the requests the hook returned; a superseded request the provider never received is the only way the rows can exceed
+the provider's count, and its reason says so.
+
+### 219.4 Optional expiry during a request hands its required reads to the foreground owner (amends §209.9)
+
+§209.9 pins the full-view fallback when a verified input's optional allowance has expired at the start of a request; from then
+on required hydration and identity checks use the foreground owner's deadline. A request already being projected when the
+allowance ran out had no such hand-over, so its next required read failed the whole projection. Now `boundedDiscoveryRead`
+(`extensions/table/context-runtime.ts`) runs a required read of a verified input (`verifiedInputEpoch === inputEpoch`) with a
+live foreground owner under that owner's deadline when it is later than the optional one (expiry
+`discovery_foreground_deadline`), and the identity row records `read_owner: "foreground_fallback"` once the optional deadline
+has passed. Nothing else moves: an unverified input keeps the shared preparation deadline (its reads still fail
+`discovery_snapshot_deadline`); no Jev decision is renewed (selection already fell back `task_deadline`); the pin and its full
+view still happen at the next request; the identity check still runs, and a changed snapshot still holds writes
+(`no_commit: true`).
+
+### 219.5 Cash: no change (decision recorded)
+
+The zero deltas are the rules, not a settlement defect. Keeper Rulebook pp. 46 and 95, as §32's 2026-09-19 paragraph and
+§58.9's `category` contract apply them: ordinary food, lodging and incidental travel within the living standard are not
+accounted, and additional purchases up to the Spending Level in a day spend no cash; above it the day's full total is
+debited. Every 4d7 price was bound (`price_bindings` match their receipts), every receipt carries `purchase_amount`,
+`settlement` and, for a purchase, the day's ledger; no day exceeded $2. Whether a given fare (the $0.75 night taxi at t24 and
+t27) is within a Poor living standard is the admission review's contextual judgement (§58.9), and no code decides it.
+
+### 219.6 Three ends (§31)
+
+*Writer:* `checkCatalog` (`book_finds`, `called` and `target_called`); `apply clue`'s `check_first` fix; the context hook's
+rows and read owner. *Reader:* `selectCheck`'s retrieval and need questions; the Keeper reading the refusal; the operator
+reading `context/request` and `discovery_snapshot`. *Actor:* Jev's need and choice answers, which the host's gates turn into a
+bound roll through admission and `table.resolve`; the Keeper, who keeps the attempt open for that roll; the operator's §209.13
+count.
+
+### 219.7 Tests
+
+- `tests/extension/check-catalog-book-finds-kernel.test.mjs` (the kernel in process over the shipped haunting): at the central
+  library the investigator's Library Use profile carries the book's find, a find rides only its own skill, a roll passed this
+  turn ends it, and the `check_first` fix keeps the attempt open; at the Hall of Records a person given a table word carries
+  it as `called` and on the social options aimed at them.
+- `tests/extension/check-selection-book-finds.test.mjs` (the selector with the 4d7 shapes): a book-named Library Use profile
+  among seventeen survives a retrieval that ranks Charm first, carries `book_finds` into the need state and both questions,
+  and is selected; Kim Debrun's option carries the table's word into the trigger question, `_selected` and `alternatives`.
+- `tests/extension/context-request-accounting.test.mjs` (the installed hooks, a hybrid read owner, a 2 s allowance): a final
+  identity check that finds the snapshot changed has its row; a verified input whose allowance runs out between its prepare
+  and its reads still sends the capsule (`read_owner: "foreground_fallback"`); an unverified input still fails its deadline.
+
+Each fails on the base except the unverified-input guard, which holds on both.
 
 ## 226. Source failure recovery and bounded transport diagnostics (approved2026-10-10)
 
