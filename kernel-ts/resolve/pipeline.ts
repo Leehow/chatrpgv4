@@ -71,7 +71,7 @@ export function validateExtras(action: Row): void {
         throw new RpcError('invalid_params', 'action.push must be a boolean');
     if (action.luck != null && (!integer(action.luck) || number(action.luck) <= 0))
         throw new RpcError('invalid_params', 'action.luck must be a positive integer');
-    // The active Mod's scope guard explains a conflicting push/Luck declaration without another player question (§228).
+    // The active Mod's scope guard explains a conflicting push/Luck declaration without another player question (§230).
     for (const key of ['spell', 'weapon', 'improvised', 'target', 'decision', 'actor', 'ending', 'outcome', 'san_loss', 'scenario_san_reward_expr', 'trigger'])
         if (action[key] != null && (typeof action[key] !== 'string' || !action[key].trim()))
             throw new RpcError('invalid_params', `action.${key} must be a non-empty string`);
@@ -731,7 +731,7 @@ export class ResolvePipeline {
     }
     async run(beforeExecute: () => Promise<void>): Promise<Row> {
         const context = this.context;
-        // §228: this guard runs even when the rules graph would withhold the card. Its refusal must reach delivery.
+        // §230: this guard runs even when the rules graph would withhold the card. Its refusal must reach delivery.
         const pushing = truth(this.action.push) || ['push-luck:pushed-roll', PUSH].includes(string(this.action.decision));
         const push = pushing ? await preparePush(context) : null;
         const npc = this.npcTarget();

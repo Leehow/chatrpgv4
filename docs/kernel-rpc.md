@@ -44117,7 +44117,7 @@ settlement; it does not move check selection out of the host and Jev.
 
 ### 223.1 Pushing: foreshadowing is optional, the justification is the player's
 
-**2026-10-11 Mod amendment:** §228 implements a Mod-owned declaration-only house
+**2026-10-11 Mod amendment:** §230 implements a Mod-owned declaration-only house
 rule and weighted risk table. It replaces this section's justification workflow
 when the Mod is active. Existing rulebook exclusions and receipt authority remain;
 existing campaigns are not silently opted in.
@@ -44843,7 +44843,7 @@ canonical rule text, and the canonical validator still refuses a malformed effec
 `clerk-write-readiness.test.mjs`, `discovery-sqlite-binding.test.mjs`, `context-request-capacity.test.mjs` updated
 to the fixed list, the ledger and attachment instead of the narrowed list and the hold.
 
-## 228. Pushed Roll Mod: one declaration, one risk draw, one final attempt (2026-10-11)
+## 230. Pushed Roll Mod: one declaration, one risk draw, one final attempt (2026-10-11)
 
 **Status: 1.0.4 packaged with scoped live acceptance on Grok 4.5 / low; no full-suite green claim.** The full binding design, original weighted
 D100 table, applicability/refusal matrix, source binding, implementation limits
@@ -44903,6 +44903,10 @@ must be explained as uncertainty, not as a fabricated rule prohibition.
 The host-bound `push_context` enum is declared on the existing `resolve.action`
 tool schema as well as accepted by the kernel. Actual tool argument validation
 must pass before dispatch; direct kernel fixtures alone cannot prove this seam.
+It is a rule eligibility parameter, not another player action. Admission reviews
+the declared push; the canonical guard reevaluates `push_context` on execution.
+It is outside admission's proposal line and reuse key, like other host-bound rule
+parameters, and is explicitly classified by the schema coverage guard (§32.4.2).
 
 Subsystem-owned catalogs retain explicitly forbidden push declarations solely
 for explanatory refusal. They do not expose ordinary checks or potentially

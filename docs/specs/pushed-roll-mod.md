@@ -2,7 +2,7 @@
 
 Status: **Source implemented on 2026-10-11; local regression/type checks passed.
 LAN focused retry is waiting for the shared box. No live play or installed-App acceptance.**
-Binding contract: [kernel RPC §228](../kernel-rpc.md#228-pushed-roll-mod-one-declaration-one-risk-draw-one-final-attempt-2026-10-11).
+Binding contract: [kernel RPC §230](../kernel-rpc.md#230-pushed-roll-mod-one-declaration-one-risk-draw-one-final-attempt-2026-10-11).
 
 ## Intent and scope
 
@@ -310,6 +310,15 @@ another player confirmation or a new program flow here.
   and costs even on a successful push differ from this CoC design and are omitted.
 
 ### Implementation record
+
+**1.0.5 instruction-budget repair (2026-10-11).** Pre-integration full-suite
+validation found that the 1.0.4 instruction displaced Story Thread's full text
+from the default capsule. An exact pre-feature/current RPC comparison confirmed
+this regression. The instruction is compressed with the same declaration,
+refusal, consequence, privacy, fallback and state-authority constraints; table
+weights and rules are unchanged. The existing budget remains fixed. Existing
+whole-instruction tests cover this seam; no new lane or framework is added.
+The 1.0.4 package/play records below retain their original version identity.
 
 **1.0.4 consequence clarification (2026-10-11).** The retained Mechanical Repair
 failure drew `exposure`, but its delivered prose emphasized a jammed retreat window

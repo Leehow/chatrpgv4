@@ -247,7 +247,8 @@ test("a roll that differs only in its stakes and its dice reuses the verdict: ra
  * since §159.5.)
  */
 // §221.8, §221.4, §222.3, §224.7: the bout of madness, the clue a SAN or Idea roll is about and an improvised weapon's row are rules parameters the host binds.
-const RESOLVE_NOT_REVIEWED = ["modifiers", "coercion", "surprise", "motive", "mode", "step", "san_loss", "involuntary", "bout", "clue", "improvised", "interrupted", "rest",
+// Section 230: push_context is host-bound rule eligibility, reevaluated by the canonical guard.
+const RESOLVE_NOT_REVIEWED = ["modifiers", "coercion", "surprise", "motive", "mode", "step", "san_loss", "involuntary", "bout", "clue", "improvised", "interrupted", "rest", "push_context",
 	"ending", "scenario_san_reward_expr", "choice"];
 
 test("every field of a resolve action is either read by the reviewer (and keyed, unless rationale) or a rules parameter of the result", () => {

@@ -233,7 +233,7 @@ test('Director signals and authored scoring match the Python decision table',asy
   // preserve its remaining projection.
   const FLOOR_SIGNALS=['empty_turns','repeat_input','previous_close','blocked_attempts'];
   const withoutFloor=sig=>Object.fromEntries(Object.entries(sig).filter(([key])=>!FLOOR_SIGNALS.includes(key)));
-  // Section 228 retires this signal. Assert current TS behavior directly; the immutable
+  // Section 230 retires this signal. Assert current TS behavior directly; the immutable
   // oracle still compares every other field of the historical projection.
   const withoutRetired=({pushed_fail_pending,...rest})=>rest;
   const withoutFloorBecause=section=>({...section,because:section.because.filter(line=>!['pushed_fail_pending',...FLOOR_SIGNALS].some(name=>line.startsWith(name+' = ')))});
@@ -258,7 +258,7 @@ test('Director signals and authored scoring match the Python decision table',asy
   same(names.map(api.semanticName),oracle('semantic_names',{names}),'semantic decision names');
   const ontology=new api.Ontology(await json(join(CONTENT,'ontology/system-ontology.json')));
   const grounded=[cases[0],{...base,label:'subsystem decision grounding',session:{kind:'combat',status:'active'}},cases[1]];
-  // These cases contain a failed push: section 228 intentionally changes their derived
+  // These cases contain a failed push: section 230 intentionally changes their derived
   // beat, so test current TS directly instead of rewriting the frozen oracle.
   for (const [index,c] of grounded.entries()) await t.test(c.label,()=>{
     const selected=graph.nodes.get(c.scene),present=c.present.map(id=>graph.nodes.get(id));

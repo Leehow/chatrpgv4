@@ -1,4 +1,4 @@
-/** Active package selection and canonical settlement adapter for §228. No package imports runtime objects. */
+/** Active package selection and canonical settlement adapter for §230. No package imports runtime objects. */
 import type {KernelContext} from '../context.js';
 import {activeMods, readModCatalog} from '../read/mods.js';
 import {parsePythonJson} from '../json.js';

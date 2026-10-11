@@ -110,7 +110,7 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
         options.push({key: `check:${options.length}`, family: string(decisions.find(row => row.name === decision)?.family ?? ''), label,
             action: boundAction, parameters, needs, authorization, ...(facts ? {facts} : {})});
     };
-    // §228: recognize explicit declarations even when forbidden, so the canonical guard can explain them.
+    // §230: recognize explicit declarations even when forbidden, so the canonical guard can explain them.
     const pushProvider = await pushedRollProvider(campaign.context, campaign.world);
     const pushRules = await pushedRollDefinition(campaign.context, pushProvider);
     const pushReceipts = [...owners.history.flatMap(record => array(record.receipts)), ...array(campaign.turn.receipts)];

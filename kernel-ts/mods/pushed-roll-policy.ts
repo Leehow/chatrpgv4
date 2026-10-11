@@ -1,4 +1,4 @@
-/** The one data contribution behind the declaration-only pushed-roll Mod (§228). */
+/** The one data contribution behind the declaration-only pushed-roll Mod (§230). */
 import {RpcError} from '../errors.js';
 import {array, integer, row, string, type Row} from '../read/values.js';
 import type {RuleTables} from '../rules/tables.js';

@@ -143,7 +143,7 @@ function bindPushSource(context, check, id = 'roll:source') {
         pushed: check.pushed === true, passed: check.outcome !== 'failure' && check.outcome !== 'fumble', level: check.outcome, visibility: 'public', check});
 }
 
-test('§228: the Mod owns declaration-only pushing; prior consequence provenance remains honest', async () => {
+test('§230: the Mod owns declaration-only pushing; prior consequence provenance remains honest', async () => {
     const original = {skill: 'Spot Hidden', target: 50, difficulty: 'regular', outcome: 'failure', pushed: false, bonus: 0, penalty: 0, goal: 'find the hidden catch'};
     const push = (context, args) => {
         bindPushSource(context, args.canonical_roll_receipt ?? original);
@@ -266,7 +266,7 @@ test('p.93: the investigator with the lowest Luck rolls the group Luck roll', as
     assert.equal(index.rules.find(rule => rule.id === 'core.luck.roll').numeric.group_roll_policy, 'lowest_luck_rolls');
 });
 
-test('§228 end to end: the Mod offers a bare push and supplies the committed risk without foreshadowing', async t => {
+test('§230 end to end: the Mod offers a bare push and supplies the committed risk without foreshadowing', async t => {
     const home = await mkdtemp(join(temporary, 'home-'));
     const context = await api.createKernelContext({workspace: home, content: join(ROOT, 'content'), seed: 'rulebook-rolls-push',
         locks: api.nativeAdvisoryLocks(), env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});

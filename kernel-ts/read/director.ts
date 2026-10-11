@@ -70,7 +70,7 @@ export function lastRollOf(record?: Row | null): string {
     return "none";
 }
 export function pushedFailPending(record?: Row | null): boolean {
-    // Historical signal shape remains readable; consequence realization belongs to the active Mod (§228).
+    // Historical signal shape remains readable; consequence realization belongs to the active Mod (§230).
     return false;
 }
 export const structureType = (graph: ModuleGraph): string => typeof moduleDeclaration(graph.moduleNode).structure_type === "string" && moduleDeclaration(graph.moduleNode).structure_type || "branching_investigation";
