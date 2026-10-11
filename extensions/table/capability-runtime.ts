@@ -1,15 +1,14 @@
-/** Input-bound model visibility and read-only expansion; canonical dispatch remains the owner. */
+/** Input-bound disclosure of apply capability detail over a fixed tool view; canonical dispatch remains the owner. */
 import {createHash} from 'node:crypto';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
 import {discoverCapabilities} from '../../runtime/jev/capability-discovery.ts';
 import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
-import {capabilityCatalogue,projectCapabilityTools,missingEffectCapabilities,type CapabilityTool} from './capability-catalogue.ts';
+import {capabilityCatalogue,fixedCapabilityTools,missingEffectCapabilities,type CapabilityTool} from './capability-catalogue.ts';
 import {discoverySituation} from './discovery-situation.ts';
 type Row=Record<string,any>;
 /** One observed selection epoch: the bound input, source and situation a decision is asked against. */
 type Epoch={key:string;input:string;binding:Row;capsule:Row;task:Row;signal:AbortSignal};
 const hash=(v:unknown)=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
-const CORE=['look','lookup','ask','narrate'];
 const MANDATORY=['look','ask','narrate'];
 export function createCapabilityRuntime(deps:{
     tools:()=>readonly CapabilityTool[];
@@ -17,29 +16,25 @@ export function createCapabilityRuntime(deps:{
     /** Contract §209.14: the Keeper's purpose lookup is asked through its foreground owner; a string names why none is live. */
     lookupDecision?:()=>DecisionPort|string;
     mode:()=>string;
+    /** §228.1: the configured discovery mode; an input pinned to `full` decisions keeps the fixed request view. */
+    view?:()=>string;
     record:(row:Row)=>void;
 }){
     let key='',binding:Row={},signal:AbortSignal=new AbortController().signal;
     let work:Promise<void>|undefined,control:AbortController|undefined,started=0;
-    let selected:Set<string>|undefined,widenPending=false,fallbackPinned=false,reason='not_prepared';
+    let selected:Set<string>|undefined,reason='not_prepared';
     let budget={actions:16,ms:6000},input='',spent:(()=>void)|undefined;
-    // §217.1: what the last projected request showed the Keeper. It belongs to that request, not to the selection epoch:
-    // only the next projection (or the end of the input) replaces it, so a mid-batch invalidation keeps the write gate.
-    let visible:Set<string>|undefined;
     // §217.1: the input's lookup basis -- the last epoch observed for the still-current player input. An in-input
-    // invalidation (source publication, failed snapshot check) drops the view but keeps the basis, so the Keeper's lookups,
-    // issued from a request of this input, still answer. Only `clear()` (new input, session reset) ends it.
-    let basis:Epoch|undefined,lookups=new AbortController(),pinned:string|undefined;
-    /** §217.1: names this input's lookups and expansions loaded; every later selected view of the same input shows them. */
-    const carried=new Set<string>();
-    const expansions=new Set<string>();
+    // invalidation (source publication, failed snapshot check) drops the selection but keeps the basis, so the Keeper's
+    // lookups, issued from a request of this input, still answer. Only `clear()` (new input, session reset) ends it.
+    let basis:Epoch|undefined,lookups=new AbortController();
     const queries=new Map<string,ReturnType<typeof decide>>();
     const record=(v:Row)=>deps.record({lane:'capability-discovery',...v});
-    /** Drop the selected view and its in-flight selection; the input's basis, its lookups and the last request's view stay. */
-    const drop=()=>{spent?.();spent=undefined;control?.abort();key='';work=undefined;selected=undefined;fallbackPinned=false;};
+    const fixed=()=>(deps.view?.()??deps.mode())==='selective';
+    /** Drop the selection and its in-flight decision; the input's basis and its lookups stay. */
+    const drop=()=>{spent?.();spent=undefined;control?.abort();key='';work=undefined;selected=undefined;};
     const invalidate=()=>{drop();};
-    const clear=()=>{drop();basis=undefined;lookups.abort();lookups=new AbortController();pinned=undefined;carried.clear();
-        visible=undefined;widenPending=false;expansions.clear();queries.clear();};
+    const clear=()=>{drop();basis=undefined;lookups.abort();lookups=new AbortController();queries.clear();};
     const makeInput=(request:string,epoch:Epoch)=>({
         binding:{campaign:String(epoch.binding.campaign),worldline:String(epoch.binding.worldline??'main'),
             loop:Number(epoch.binding.loop??0),turn:Number(epoch.binding.turn??0),epoch:epoch.key,
@@ -95,12 +90,10 @@ export function createCapabilityRuntime(deps:{
         drop();key=next;binding=context;signal=lifetime;control=new AbortController();started=Date.now();
         const epoch:Epoch={key,input,binding:context,capsule:view,task:currentTask,signal:lifetime};basis=epoch;
         reason='forced_full';
-        // §217.1: an input widened by a failed lookup or a repeated expansion stays widened for every later epoch of it.
-        if(pinned){fallbackPinned=true;reason=pinned;return;}
         if(deps.mode()==='full')return;
         work=cachedDecision(String(view.turn?.player_text??'Open the canonical table.'),epoch,'view').then(result=>{
-            if(key!==epoch.key||signal.aborted||fallbackPinned)return;
-            selected=new Set([...MANDATORY,...result.names,...carried]);reason='selected';
+            if(key!==epoch.key||signal.aborted)return;
+            selected=new Set(result.names);reason='selected';
             record({event:'selected',turn:binding.turn,names:[...selected],ms:Date.now()-started});
         }).catch(error=>{
             if(key===epoch.key){reason=String(error?.message??error);record({event:'fallback',turn:binding.turn,reason});}
@@ -113,44 +106,28 @@ export function createCapabilityRuntime(deps:{
         await new Promise<void>(resolve=>{const timer=setTimeout(resolve,remaining);
             void work!.then(()=>{clearTimeout(timer);resolve();});});
     }
-    function project(tools:readonly CapabilityTool[],required:readonly string[]=[]):CapabilityTool[]|undefined{
-        // §217.1: every request replaces what the previous one showed; a full view shows everything and lifts the widen hold.
-        if(!key){visible=undefined;widenPending=false;return;}
-        if(deps.mode()!=='selective'||!selected){visible=undefined;widenPending=false;record({event:'view',turn:binding.turn,status:'full',reason});return;}
-        const available=new Set(capabilityCatalogue(tools).map(c=>c.name));
-        const names=new Set([...selected,...required].filter(name=>available.has(name)));
-        visible=names;
-        const view=projectCapabilityTools(tools,names,CORE);
-        // Discovery itself remains available even when ordinary lookup was not selected.
-        const lookup=view.find(t=>t.name==='lookup');
-        if(lookup&&!names.has('lookup')){
-            const keep=['kind','name','query'];lookup.parameters.properties=Object.fromEntries(
-                Object.entries(lookup.parameters.properties).filter(([name])=>keep.includes(name)));
-            lookup.parameters.properties.kind={type:'string',enum:['capability']};
-            lookup.description='Read-only capability discovery. Use kind capability and a semantic name or purpose query to load missing tool detail. This never authorizes or commits a world change.';
-        }
-        record({event:'view',turn:binding.turn,status:'selected',names:[...names],
-            schema_bytes:Buffer.byteLength(JSON.stringify(view))});
-        return view;
+    /** §228.1: the request's tool view is the same bytes on every request of a table; nothing is narrowed or widened. */
+    function project(tools:readonly CapabilityTool[]):CapabilityTool[]|undefined{
+        if(fixed())return fixedCapabilityTools(tools);
     }
-    /** §217.1: widen the current input to the full view and hold writes until a full request is projected. */
-    function widen(why:string){selected=undefined;visible=undefined;widenPending=true;fallbackPinned=true;reason=why;pinned=why;}
-    function readiness(tool:string,args:Row):Row|undefined{
-        if(tool==='apply'&&widenPending){record({event:'held',turn:binding.turn,reason:'widen_pending',no_commit:true});return{block:true,reason:'A full capability view is required before retrying this whole batch; no world change was committed.'};}
-        // §217.1: the gate reads what the request the Keeper decided from actually showed (`visible`), so an invalidation
-        // between that request and this call (a source publication mid-batch) cannot open it.
-        if(tool!=='apply'||deps.mode()!=='selective'||!visible)return;
-        const missing=missingEffectCapabilities(Array.isArray(args.effects)?args.effects:[],deps.tools(),visible);
-        if(!missing.length)return;
-        const request=hash([input,args.effects]);if(expansions.has(request)){
-            widen('repeated_expansion');
-            record({event:'fallback',turn:binding.turn,reason:'repeated_expansion',no_commit:true});
-            return{block:true,reason:'Capability expansion was not shown before this retry. Read the next full request and re-decide the whole batch; no world change was committed.'};
-        }
-        expansions.add(request);for(const name of missing){carried.add(name);selected?.add(name);}
-        record({event:'expansion',turn:binding.turn,names:missing,no_commit:true});
-        return{block:true,reason:'Required capability detail has been loaded; no world change was committed. Re-decide the whole batch with the expanded schema. '+JSON.stringify({
-            status:'expansion',requested:missing,loaded:missing,missing_capability:missing,no_commit:true})};
+    /**
+     * §228.2: the apply detail this input is due: the selection, the host task's operations and the dependencies the
+     * caller names (of delivered package sections). The caller's disclosure ledger sends each name once. A slow or
+     * failed selection leaves the deterministic part; anything else is disclosed when first used or looked up.
+     */
+    function due(required:readonly string[]=[]):string[]{
+        if(!fixed()||!basis)return[];
+        const apply=new Set(capabilityCatalogue(deps.tools()).filter(c=>c.verb==='apply').map(c=>c.name));
+        return[...new Set([...(selected??[]),...taskCapabilities(basis.task),...required].filter(name=>apply.has(name)))];
+    }
+    /**
+     * §228.3: the capability detail a write's effects use. The call is never held for it: the canonical validator already
+     * accepted the arguments; whatever of it the input has not delivered rides on this call's result.
+     */
+    function used(tool:string,args:Row):string[]{
+        if(tool!=='apply'||!fixed())return[];
+        try{return missingEffectCapabilities(Array.isArray(args.effects)?args.effects:[],deps.tools(),new Set());}
+        catch{return[];}
     }
     async function lookup(args:Row):Promise<Row>{
         const epoch=basis;
@@ -169,17 +146,17 @@ export function createCapabilityRuntime(deps:{
             catch(error){
                 if(!live())throw Error('Capability lookup input was replaced or cancelled');
                 const why=String(error?.message??error).slice(0,160);
-                widen(why);
                 record({event:'lookup_fallback',turn:binding.turn,reason:why,no_commit:true});
-                return{status:'full_fallback',read_only:true,capabilities:[],reason:why,no_commit:true,
-                    next:'Read the next full canonical request and re-decide. This result performs no write.'};
+                // §228.4: no wider tool view exists to fall back to; the index answers and a named lookup reads detail.
+                return{status:'index_fallback',read_only:true,reason:why,no_commit:true,
+                    capabilities:catalogue.filter(c=>c.verb==='apply').map(c=>({name:c.name,applicability:c.applicability})),
+                    next:'Look up a capability by name for its exact fields. This result performs no write.'};
             }
         }
         else throw Error('Capability discovery requires a semantic name or purpose query');
         if(!live())throw Error('Capability lookup input was replaced or cancelled');
-        for(const name of names){carried.add(name);selected?.add(name);}
         return{read_only:true,capabilities:catalogue.filter(c=>names.includes(c.name)).map(c=>({
             name:c.name,applicability:c.applicability,exclusions:c.exclusions,detail:c.detail})),no_commit:true};
     }
-    return{observe,wait,project,readiness,lookup,invalidate,clear};
+    return{observe,wait,project,due,used,lookup,invalidate,clear};
 }

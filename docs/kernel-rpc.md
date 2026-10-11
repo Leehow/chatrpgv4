@@ -44603,3 +44603,96 @@ writing. The role bars stay .90. Live accuracy of the new wording is not measure
 (preview after `until` and move equals the settled debit; band stays `needs`; quote source filled), `tests/extension/time-once.test.mjs`
 (second time beside a flag: the flag lands, one time; zero minutes is not a second time), `tests/extension/physical-documents.test.mjs`
 (open/close without `from`), `tests/extension/document-recording-delivery.test.mjs` (clear leader, `recentTold`), `tests/extension/lean-apply.test.mjs`.
+## 228. Disclosure is appended, never projected into the tool list (2026-10-11, owner: 「你来实现，先跑沙盒」; amends §209.3, §209.5, §209.6, §209.8, §209.9, §209.13, §215 and §217.1)
+
+Evidence: `chatrpgv4-research/reports/tool-disclosure-20261011/` (the plan, the provider probe and the sandbox:
+`sandbox/probe-results.jsonl`, `sandbox/results.jsonl`, scripts beside them), the 4d7 and d6c transport traces under
+`capability-discovery-implementation-20261010/`.
+
+**Observed.** Under `COC_TURN_DISCOVERY=selective` the 4d7 table's 115 Keeper requests carried 32 different tool
+lists (23–88 KB): each turn opened on a selected list, and the first write that changed the situation dropped the
+selection, so the next request went out with the full list until a new selection landed. Between two requests of
+the same turn, an unchanged list read 59–60% of input from cache and a changed one 35–37% (about 20,000 fewer cached
+tokens per call). A direct probe on grok-4.7 with one conversation id: an identical repeat read 78,464 of 78,562
+tokens; the same request with one word added to apply's description read 17,536; with one tool removed, 1,152 (the
+provider's fixed preamble). Restoring the original list read 78,464 again. Tool declarations sit at the front of
+xAI's cached prefix, so a changed list re-bills everything after it. §184's 2026-10-04 probe on grok-4.5 found the
+opposite; it no longer holds. The same mode also re-sent the whole package-section packet (about 40 KB) at the end of
+every request, where no request can read it from cache.
+
+**Cause (three ends).** *Writer:* `capabilityRuntime.project` (`extensions/table/capability-runtime.ts`) rebuilt the
+request's tool list from the current selection on every request (§209.3, §209.8), widened it on fallback (§209.5,
+§209.9) and narrowed it again on the next selection. *Reader:* the provider caches by exact prefix, and the tools
+come first. *Actor:* every list change made the request after it pay again for system prompt, brief and capsule.
+
+**Prior art (summary).** Anthropic's tool search (`defer_loading`, `tool_reference`), OpenAI's `tool_search` and
+`allowed_tools`, Claude Code's deferred tools and Codex's tool search all keep the declared tool list byte-stable and
+put disclosed definitions in the conversation, appended. xAI offers none of those mechanisms; the portable form is
+the one Agent Skills, Cursor and Hermes use: the definition arrives as conversation text and the host validates.
+
+**Sandbox.** Two runs of consecutive real turns (4d7 turns 9–10, d6c turns 3–4), 13 Keeper requests, each sent as
+recorded and in the form below (fixed 34 KB list, a turn detail message, sections once): input 813,933 → 784,190
+tokens, cached 31% → 55%, uncached 558,317 → 355,390, billed $0.440 → $0.336. Every tool call in both forms (12 and
+17) passed Pi's own validator against the full canonical apply definition. The variant pre-loaded the kinds each
+turn actually used, so this is an upper bound on what selection achieves.
+
+### 228.1 The request's tool list is fixed
+
+In selective mode the context owner projects one tool list for the whole table: every offered tool keeps its
+canonical declaration except `apply`, whose `effects` items become a kind envelope (`{kind}` with the canonical kind
+enum, other fields open) and whose description lists each kind with its canonical description and, for npc and
+object, the host's facet cards (`fixedCapabilityTools`, `extensions/table/capability-catalogue.ts`). The list is the
+same bytes on every request; it changes only when the registered tools change. Nothing is narrowed or widened, and
+no request is "full" or "selected". The registered canonical definition still validates every call before any hook
+runs (Pi's `validateToolArguments` against the registered tool); the envelope relaxes nothing the kernel or the
+validator checks. Full and shadow modes keep the canonical list (§209.8's measured constraint from the narrator-only
+setting stands for them).
+
+### 228.2 What an input discloses is sent once, where it was first placed
+
+The context owner keeps a disclosure ledger per player input (`extensions/table/turn-disclosure.ts`):
+
+- **Due detail.** Package sections the mod discovery selects (§209.7) and apply capability detail: the selection's
+  names, the host task's operations (§209.6) and the dependencies of sections the input delivered. Each key
+  (`section:<key>`, `capability:<name>`) is offered once per input; a key the ledger delivered is never offered again.
+- **Placement.** A message created on a request is anchored to the turn traffic (Keeper calls and results after the
+  player's message) that request already carried. Every later request of the input re-inserts it before the traffic
+  message that followed it, or before the host's end-of-request material when none has. Earlier requests' prefixes
+  are therefore never edited, reordered or re-sent at the end.
+- **Shape.** Sections keep `coc-mod-sections` (`{authority, sections: [{package, section, text}]}`); apply detail is
+  `coc-capability-detail` (`{authority, capabilities: [{name, effect, applicability, exclusions, fields, version}]}`,
+  `fields` being the facet's exact canonical schema).
+- **Delivery.** A new message counts as delivered only when the provider payload carries it; one that did not
+  survive is withdrawn and offered again next request. The ledger ends with the input, session start or shutdown; an
+  in-input invalidation (§217.1) keeps it.
+- **Capacity (amends §209.13 decision 2).** The room reserved is the whole input's disclosure, not one packet. When it
+  does not fit beside the protected floor, this request's new messages are withdrawn (they stay due) with the
+  omission diagnostic; when even the earlier disclosure cannot fit, none is placed on that request.
+
+### 228.3 A write is never held for detail it was not shown (amends §209.6 and §215)
+
+When a Keeper `apply` or `resolve` uses a package section its triggers name (`before_apply:<kind>`,
+`before_resolve:<family>`) or an apply capability the input has not delivered, the call is not held. Admission, Mod
+hooks and the kernel decide it as usual. The undelivered detail is attached to that call's own result, whatever the
+result is: a text part `{kind: "disclosed_detail", authority, package_sections?: [{package, section, version, text}],
+capability_detail?: [...]}`, whose authority says to follow it for later decisions of the kind and that a write which
+already landed is not redone for it. Attached keys count as delivered for the input. A call blocked before execution
+(its result never reaches `tool_result`) leaves its keys owed; the next request's disclosure carries them. A policy
+clerk's write decides nothing from the Keeper's request: nothing is attached to it (§215 unchanged). The
+`discovery_unavailable` hold of §209.11 is unchanged.
+
+### 228.4 Lookup reads detail; its fallback is the index (amends §209.5, §209.14 and §217.1)
+
+`lookup {kind: "capability", name}` with a name the package index lists (`<package>: <heading>`) returns that
+section (`package_sections`). Any other name or a purpose query reads capability detail as before (§209.14's owner,
+§217.1's input basis). An unknown name returns `status: "not_found"` with the names that exist instead of an error,
+so it cannot fall a batch. A purpose query that cannot be decided returns `status: "index_fallback"` with every apply
+capability's name and applicability; there is no wider tool list to fall back to and no write hold. What a lookup
+returns is delivered with its result and counts for the input.
+
+*Tests.* `tests/extension/capability-catalogue.test.mjs` (the fixed list is byte-stable, keeps every kind and its
+canonical rule text, and the canonical validator still refuses a malformed effect);
+`tests/extension/turn-disclosure.test.mjs` (placement keeps earlier prefixes; once-per-input; withdrawal);
+`tests/extension/capability-runtime.test.mjs`, `turn-discovery-context.test.mjs`, `capability-lookup-owner.test.mjs`,
+`clerk-write-readiness.test.mjs`, `discovery-sqlite-binding.test.mjs`, `context-request-capacity.test.mjs` updated
+to the fixed list, the ledger and attachment instead of the narrowed list and the hold.

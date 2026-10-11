@@ -27,6 +27,8 @@ export function createModDiscovery(deps:{
     let inputEpoch='',budget={ms:0,actions:0};
     let debit:(()=>void)|undefined;
     const texts=new Map<string,string>();
+    /** §228.3: the last observed package index by key, so a result or a lookup can read a section after the capsule moved on. */
+    const known=new Map<string,Row>();
     const record=(row:Row)=>deps.record({lane:'mod-discovery',...row});
     const entries=(capsule:Row)=>discoveryRows(capsule).flatMap(mod=>array(mod.sections).map(section=>({
         ...section,mod:mod.mod,version:mod.version,name:String(mod.mod)+': '+String(section.heading??'Package core'),
@@ -41,7 +43,7 @@ export function createModDiscovery(deps:{
     }
     const reset=()=>{debit?.();debit=undefined;control?.abort();control=undefined;epoch='';work=undefined;result=undefined;};
     function observe(capsule:Row,binding:Row,signal:AbortSignal,calls:TurnCalls,task:Row={}):void{
-        const all=entries(capsule);if(signal.aborted||!all.length){reset();return;}
+        const all=entries(capsule);for(const v of all)known.set(v.key,v);if(signal.aborted||!all.length){reset();return;}
         const request=String(object(capsule.turn).player_text??'Open the table from its canonical starting state.');
         const currentInput=hash([binding.campaign,binding.worldline,binding.loop,binding.turn,request]);
         if(currentInput!==inputEpoch){reset();inputEpoch=currentInput;budget={ms:deps.allowanceMs??6000,actions:16};}
@@ -135,5 +137,16 @@ export function createModDiscovery(deps:{
         return{role:'custom',customType:'coc-mod-sections',display:false,content,timestamp:0,
             details:{coc_host:true,mod_sections:{turn:binding.turn,keys:wanted.map(v=>v.key),policy:'discovery-v2',status:choice.status}}};
     }
-    return{observe,message,reset,clear:()=>{reset();inputEpoch='';budget={ms:0,actions:0};texts.clear();}};
+    /** §228.3: exact immutable section text by key, in the delivered shape. */
+    async function sections(keys:readonly string[]):Promise<Row[]>{
+        const values=keys.map(key=>known.get(key)).filter((v):v is Row=>!!v);
+        await load(values);
+        return values.map(v=>({key:v.key,package:v.mod,section:v.heading??'(opening text)',version:String(v.version),text:texts.get(v.key)!}));
+    }
+    /** A section the package index lists under this name (`<package>: <heading>`), compared as the table writes it. */
+    const find=(name:string)=>[...known.values()].find(v=>v.name.toLowerCase()===name.trim().toLowerCase());
+    const names=()=>[...known.values()].map(v=>v.name as string);
+    /** Learn a capsule's package index without starting a selection (a write can arrive before any prepared request). */
+    const know=(capsule:Row)=>{for(const v of entries(capsule))known.set(v.key,v);};
+    return{observe,message,sections,find,names,know,reset,clear:()=>{reset();inputEpoch='';budget={ms:0,actions:0};texts.clear();known.clear();}};
 }
