@@ -1,3 +1,7 @@
+# 1.3.5
+- Requires `weapons.improvised.v1` (contract §224.7; user ruling 2026-10-11: 「临时武器那个应该归为物品增强mod里」). On a table where this package is enabled, a declared first blow with a held object whose attack usage is still being prepared is rolled that turn as the weapons-table row the object most resembles (Keeper Rulebook, Improvised Weapons p.104): the kernel offers the rows on `first_blow.preparation.improvised`, the host binds the closest one as `action.improvised`, and the result names it as `outcome.improvised`. No usage is written; the object's own usage preparation runs as before and takes over once it lands. With the package disabled the kernel offers no rows and the attack keeps its preparation, as before 1.3.5.
+- `agent.md` ("Attacking with an instance") tells the Keeper how to read `outcome.improvised`.
+
 # 1.3.4
 - "Documents on carriers" is resident (it rode only on the `readable` topic before) and covers the physical document operations of contract §179.3a: `append` replaces `write`; `show`, `observe` (shown or glimpsed, with the exact visible passage) and `close`; a sidebar save or reset is a physical edit request the turn settles (`turn.document_edit`), not a restore; long documents are read through `look focus` with `document_query` or `document_page` (§179.3b).
 - The auditor checks a claimed NPC reading against that person's document observation.

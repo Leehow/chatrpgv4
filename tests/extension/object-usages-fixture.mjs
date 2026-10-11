@@ -13,22 +13,36 @@ await build({stdin:{contents:"export * from './kernel-ts/testing/api.ts'; export
 export const api=await import(pathToFileURL(join(temporary,'api.mjs')).href);
 const fixture=join(temporary,'package');
 await cp(join(root,'mods/enhanced-items'),fixture,{recursive:true});
-const manifest=JSON.parse(await readFile(join(fixture,'mod.json'),'utf8'));
+const manifest=JSON.parse(await readFile(join(fixture,'mod.json'),'utf8')), shipped={id:manifest.id,version:manifest.version};
 manifest.id='usage-fixture'; manifest.version='1.0.0'; manifest.requires=[...new Set([...manifest.requires,'objects.usages.v1',api.CONTINUITY_AUDIT])];
 manifest.contributes={materializer:'creator.md',auditor:'auditor.md'};
 await writeFile(join(fixture,'mod.json'),JSON.stringify(manifest));
 export const usage=(name='swing',mode='melee')=>({name,description:'Swing the retained wooden chair.',basis:'The recorded solid wooden frame.',mode,
   parameters:{skill:mode==='thrown'?'Throw':'Fighting (Brawl)',damage:'1D6',base_range_yards:mode==='thrown'?5:null,
     uses_per_round:1,magazine:null,malfunction:null,impale:false,adds_damage_bonus:true},player_view:{description:'A wooden chair used to strike.',fields:['skill','damage']}});
-export async function table(t) {
+/** The same package minus the named capabilities (§224.7: a table whose package does not turn a kernel path on), version 1.0.1. */
+const variants=new Map();
+async function packageWithout(capabilities) {
+  const key=[...capabilities].sort().join(',');
+  if (variants.has(key)) return variants.get(key);
+  const path=join(temporary,`package-without-${variants.size}`);
+  await cp(fixture,path,{recursive:true});
+  const edited={...manifest,version:'1.0.1',requires:manifest.requires.filter(cap=>!capabilities.includes(cap))};
+  await writeFile(join(path,'mod.json'),JSON.stringify(edited));
+  const variant={path,manifest:edited}; variants.set(key,variant); return variant;
+}
+export async function table(t,{without=[]}={}) {
   const home=await mkdtemp(join(temporary,'home-'));
   const context=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'usage-rpc',locks:api.createAdvisoryLocks(async()=>{}),
     env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}});
   const runtime=api.createKernelRuntime(context); t.after(()=>runtime.close());
   const call=(method,params={})=>runtime.handlers[method]({campaign:'c1',...params});
   await call('campaign.create',{id:'c1',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});
-  await call('mods.install',{path:fixture});
-  await call('mods.configure',{id:manifest.id,version:manifest.version,enabled:true});
+  const installed=without.length?await packageWithout(without):{path:fixture,manifest};
+  await call('mods.install',{path:installed.path});
+  await call('mods.configure',{id:installed.manifest.id,version:installed.manifest.version,enabled:true});
+  // The shipped package is enabled by default on every campaign; a table without a capability has it off too.
+  if (without.length) await call('mods.configure',{...shipped,enabled:false});
   await call('table.open');
   const directory=join(home,'.coc/campaigns/c1'), party=join(directory,'party'), file=(await readdir(party)).find(name=>name.endsWith('.json'));
   const sheetPath=join(party,file), sheet=JSON.parse(await readFile(sheetPath,'utf8'));

@@ -1,13 +1,11 @@
 /** Authored and investigator weapon/participant projections used by combat and chase. */
 import { isJsonObject } from '../json.js';
 import { ModuleGraph, conditionStatus, recordOf } from '../read/module-graph.js';
-import { array, clone, entries, integer, normalize, number, repr, row, string, truth, values, type Row } from '../read/values.js';
+import { array, clone, entries, integer, normalize, number, row, string, truth, type Row } from '../read/values.js';
 import { RuleTables } from '../rules/tables.js';
 import { caseFold } from '../rules/casefold.js';
 import type { KernelContext } from '../context.js';
 import { resolveModuleWeapons } from './catalog.js';
-import { RpcError } from '../errors.js';
-import { weaponRowNamed } from '../rules/bands.js';
 export class NpcProfileError extends Error {
     override name = 'NpcProfileError';
 }
@@ -61,35 +59,6 @@ export async function resolveInvestigatorWeapon(tables: RuleTables, sheet: Row, 
         }
     }
     return null;
-}
-/**
- * Contract §224.7 (Keeper Rulebook, Improvised Weapons p.104): a held object the investigator attacks with before its own
- * attack usage is prepared, rolled as the weapons-table row it most resembles. The row is the host's (Jev's) comparison,
- * named in `action.improvised`; the object must be in the investigator's hands -- an equipment row of the sheet or a
- * managed object instance they own -- and the row must be one of the rules table's. The engine row keeps the table's
- * numbers under the table's id and says which object it stands in for (`improvised_object`), so every receipt stays honest.
- * Nothing is written to the sheet: once the object's usage lands, the ordinary binding takes over.
- */
-export async function improvisedWeapon(tables: RuleTables, world: Row, sheet: Row, object: string, improvised: string): Promise<Row> {
-    const name = normalize(object);
-    const equipment = array(sheet.equipment).some(item => normalize(typeof item === 'string' ? item : string(row(item).name)) === name);
-    const instance = values(row(row(world.objects).instances)).filter(item => normalize(string(item.name)) === name);
-    if (instance.length > 1)
-        throw new RpcError('unknown_entity', 'Object name is ambiguous', { details: { candidates: instance.map(item => item.name) } });
-    if (!equipment && !(instance.length === 1 && string(row(instance[0].owner).id) === string(sheet.id)))
-        throw new RpcError('needs', `${repr(object)} is not in the investigator's hands`, {
-            fix: 'an improvised weapon is an object the investigator holds: name a held item in action.weapon, or attack unarmed',
-            details: { needs: { field: 'weapon', options: weaponOptions(sheet) } } });
-    const table = await tables.exists('weapons') ? await tables.weaponsTable() : {};
-    const entry = weaponRowNamed(Object.entries(table), improvised);
-    if (!entry)
-        throw new RpcError('needs', `${repr(improvised)} is not a row of the weapons table`, {
-            fix: 'set action.improvised to the weapons-table row (its id or display name) the held object most resembles',
-            details: { needs: { field: 'improvised', options: Object.keys(table), source: 'content/rulesets/coc7/rules-json/weapons.json' } } });
-    const merged: Row = { ...entry, name: object, display_name: object, improvised_object: object, improvised_profile: string(entry.display_name || entry.weapon_id) };
-    if (!Object.hasOwn(merged, 'damage') && truth(merged.damage_die))
-        merged.damage = merged.damage_die;
-    return merged;
 }
 export async function sheetSkillValue(tables: RuleTables, sheet: Row, skill: string): Promise<number | null> {
     const key = normalize(skill);

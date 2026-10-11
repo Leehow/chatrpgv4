@@ -7,7 +7,9 @@ import type { FixedFamilyBinding } from '../resolve/families.js';
 import type { SettleContext } from '../resolve/context.js';
 import { usableWeapon } from '../mods/projection.js';
 import { MANEUVER_ALIASES, MANEUVER_GOALS, VALID_OUTCOMES } from './engine.js';
-import { combatOperationFor, improvisedWeapon, resolveInvestigatorWeapon, weaponOptions } from './profiles.js';
+import { combatOperationFor, resolveInvestigatorWeapon, weaponOptions } from './profiles.js';
+import { improvisedWeapon, improvisedWeaponsEnabled, improvisedWeaponsInactive } from './improvised.js';
+import { activeMods } from '../read/mods.js';
 import { archetypeIds } from '../apply/archetype.js';
 import {selectObjectWeapon, usageObject} from '../mods/usages.js';
 import { executeCombatEnd, executeCombatResolve, fightableOpponents, MANEUVER_ONLY_WHEN_DECLARED, NOTHING_TO_ANSWER } from './execution.js';
@@ -30,8 +32,10 @@ function damageViews(context: SettleContext): Row[] {
         expression: receipt.expression ?? null, faces: receipt.faces ?? null, total: receipt.total ?? null, receipt: receipt.id ?? null }));
 }
 /** Missing mechanics are prepared on the same physical object, never by cloning it into a weapon. */
-const armingFix = (weapon: string): string =>
-    `set action.weapon to one of details.needs.options, or prepare ${weapon} with apply usage (object, name and description). Keep an existing object's identity and condition. Unmanaged equipment may still use apply item with a rules-table weapon profile; never use that path to duplicate a managed object. A held object swung before its usage is prepared is rolled as an improvised weapon: keep it in action.weapon and name the closest weapons-table row in action.improvised (Keeper Rulebook p.104).`;
+const armingFix = (weapon: string, improvised: boolean): string =>
+    `set action.weapon to one of details.needs.options, or prepare ${weapon} with apply usage (object, name and description). Keep an existing object's identity and condition. Unmanaged equipment may still use apply item with a rules-table weapon profile; never use that path to duplicate a managed object.`
+    // §224.7 (Enhanced Items, weapons.improvised.v1): the improvised path is named only where a package turns it on.
+    + (improvised ? ` A held object swung before its usage is prepared is rolled as an improvised weapon: keep it in action.weapon and name the closest weapons-table row in action.improvised (Keeper Rulebook p.104).` : '');
 export function createCombatResolveContribution(): FixedFamilyBinding {
     return Object.freeze<FixedFamilyBinding>({
         matches(ref, capability) { return Object.hasOwn(DECISIONS, ref) && (capability === null || DECISIONS[ref] === capability); },
@@ -64,9 +68,12 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                 return done();
             }
             let objectWeapon: Row | null = null;
-            // §224.7: the investigator's held object rolled as the weapons-table row it most resembles (Improvised Weapons,
-            // p.104) while its own usage is not prepared. The object is not read as a usage; the row is checked below.
+            // §224.7 (Enhanced Items, `weapons.improvised.v1`): the investigator's held object rolled as the weapons-table row it
+            // most resembles (Improvised Weapons, p.104) while its own usage is not prepared. The object is not read as a usage;
+            // the row is checked below. On a table where no active package requires the capability it is not an input at all.
             const improvised = !isNpc && suffix === 'attack' && action.improvised != null;
+            const improvisedOn = suffix === 'attack' && improvisedWeaponsEnabled(await activeMods(context.kernel, context.world));
+            if (improvised && !improvisedOn) throw improvisedWeaponsInactive();
             if (improvised && (action.weapon == null || action.object != null))
                 throw new RpcError('invalid_params', 'an improvised attack names the held object in action.weapon and the weapons-table row in action.improvised');
             if (['attack','maneuver','aim','reload'].includes(suffix) && !improvised) {
@@ -134,7 +141,7 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                     const resolved = improvised ? await improvisedWeapon(context.tables, context.world, context.actor, string(weapon), string(action.improvised))
                         : objectWeapon ?? await resolveInvestigatorWeapon(context.tables, context.actor, string(weapon));
                     if (!resolved)
-                        throw new RpcError('needs', `${repr(weapon)} is not a weapon the investigator carries`, { fix: armingFix(string(weapon)), details: { needs: { field: 'weapon', options: weaponOptions(context.actor) } } });
+                        throw new RpcError('needs', `${repr(weapon)} is not a weapon the investigator carries`, { fix: armingFix(string(weapon), improvisedOn), details: { needs: { field: 'weapon', options: weaponOptions(context.actor) } } });
                     semantic.weapon_ref = string(resolved.weapon_id);
                     binding.weapon_id = string(resolved.weapon_id);
                     // §224.7: host-only, like `_actor_id`: the object the table row stands in for rides to the engine's args.
@@ -172,7 +179,7 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                 if (weapon != null && !isNpc) {
                     const resolved = objectWeapon ?? await resolveInvestigatorWeapon(context.tables, context.actor, string(weapon));
                     if (!resolved)
-                        throw new RpcError('needs', `${repr(weapon)} is not a weapon the investigator carries`, { fix: armingFix(string(weapon)), details: { needs: { field: 'weapon', options: weaponOptions(context.actor) } } });
+                        throw new RpcError('needs', `${repr(weapon)} is not a weapon the investigator carries`, { fix: armingFix(string(weapon), improvisedOn), details: { needs: { field: 'weapon', options: weaponOptions(context.actor) } } });
                     semantic.weapon_ref = string(resolved.weapon_id);
                     binding.weapon_id = string(resolved.weapon_id);
                 }

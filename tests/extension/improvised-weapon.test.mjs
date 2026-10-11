@@ -1,7 +1,10 @@
-// Contract §224.7 (user ruling 2026-10-10; Keeper Rulebook: Improvised Weapons p.104): a declared first blow with a held
-// object whose attack usage is not prepared is rolled this turn as the weapons-table row the object most resembles -- Jev's
-// comparison over the kernel's own rows -- recorded as a forced `attack_fallback` roll; with no comparable row it is unarmed
-// Fighting (Brawl) (§224.2). A prepared usage still takes precedence. Real RPC fixture; the Jev port is faked.
+// Contract §224.7 (user rulings 2026-10-10 and 2026-10-11; Keeper Rulebook: Improvised Weapons p.104): on a table where the
+// Enhanced Items Mod (a package requiring `weapons.improvised.v1`) is enabled, a declared first blow with a held object whose
+// attack usage is not prepared is rolled this turn as the weapons-table row the object most resembles -- Jev's comparison over
+// the kernel's own rows -- recorded as a forced `attack_fallback` roll; with no comparable row it is unarmed Fighting (Brawl)
+// (§224.2). A prepared usage still takes precedence. Without the capability the kernel offers no rows, the host keeps the
+// attack in preparation (§159.10.1) and `action.improvised` is not a resolve input. Real RPC fixture (the package copied from
+// `mods/enhanced-items`, so it requires what the shipped Mod requires); the Jev port is faked.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {table} from './object-usages-fixture.mjs';
@@ -158,4 +161,26 @@ test('§224.7: a prepared usage takes precedence -- the kernel lists the object 
   assert.equal(h.rows.some(row => row.lane === 'forced-resolution' && row.why === 'attack_fallback'), false);
   const outcome = result.artifact.executed.summary;
   assert.ok(JSON.stringify(outcome).includes('"usage"') || h.dispatched[0].action.weapon === 'Study chair', 'the prepared usage is the weapon');
+});
+
+test('§224.7: with the Mod disabled (no package requires weapons.improvised.v1) the first blow behaves as before: no offer, check_preparation, no improvised input', async t => {
+  const game = await table(t, {without: ['weapons.improvised.v1']});
+  await game.apply([{kind: 'npc', name: 'Steven Knott', archetype: 'ordinary_adult', why: 'The chosen attack requires his combat profile.'}]);
+  const row = (await game.call('table.resolve.options')).context.first_blow;
+  assert.ok(row.preparation.weapons.includes('Study chair'), 'the chair is still listed as unprepared');
+  assert.equal(row.preparation.improvised, undefined, 'the kernel offers no rows without the capability');
+  assert.equal(improvisedPreparation(row, {target: 'Steven Knott', weapon: 'Study chair'}), undefined);
+  await assert.rejects(game.call('table.resolve', {call_id: game.next(), action: {intent: 'combat', decision: 'combat:attack', target: 'Steven Knott', weapon: 'Study chair', improvised: 'club_large', goal: 'x'}}),
+    error => error.code === 'invalid_params' && error.details.reason === 'unsupported_capability' && error.details.required[0] === 'weapons.improvised.v1');
+  await assert.rejects(game.call('table.resolve', {call_id: game.next(), action: {intent: 'combat', decision: 'combat:attack', target: 'Steven Knott', weapon: 'Study chair', goal: 'x'}}),
+    error => error.code === 'needs' && !/improvised/.test(`${error.message} ${error.fix ?? ''}`), 'the refusal (no prepared usage) does not name a path the table does not have');
+  const h = await harness(t, game, {decide: async () => { throw new Error('no band question is asked without the capability'); }});
+  const result = await h.execute({target: 'Steven Knott', weapon: 'Study chair'});
+  assert.equal(result.status, 'refused');
+  assert.equal(result.artifact.executed.summary.refusal, 'check_preparation', 'the §159.10.1 preparation refusal, as before §224.7');
+  assert.match(result.artifact.executed.summary.preparation.needs[0], /Study chair/);
+  assert.equal(h.dispatched.length, 0, 'no resolve reached the kernel');
+  assert.equal(h.rows.some(row => row.lane === 'band-recovery' || row.why === 'attack_fallback'), false);
+  const prepared = await game.prepare(); await game.apply([prepared.effect]);
+  assert.equal((await game.call('table.resolve.options')).context.first_blow.preparation.weapons.includes('Study chair'), false, 'the prepared usage readies the chair as before');
 });

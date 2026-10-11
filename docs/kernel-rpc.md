@@ -6801,6 +6801,9 @@ the preset's `adds_damage_bonus` rule. Existing accepted definitions remain vali
 and unchanged. Player descriptions are generated in the campaign language.
 Enhanced Items 1.3.0 requires `weapons.preset.v1`: a weapon definition and an action usage copy the weapon preset
 the host names, and acceptance refuses a departure the creator did not state (§138.7).
+Enhanced Items 1.3.5 requires `weapons.improvised.v1`: a declared first blow with a held object whose usage is still being
+prepared is rolled as the weapons-table row it most resembles (§224.7); without a package requiring it the attack keeps its
+preparation.
 
 Packages contain `mod.json`, instructions, schemas and optional data/migrations.
 The manifest declares `id`, `version`, `game_api`, `state_version`, `name`,
@@ -43125,7 +43128,7 @@ clippings → `now` 0.83–0.85; walking through the lobby upstairs → `later` 
 notes → `later` 0.89–0.92. The attack fallback reads Jev's existing weapon and target scores and was not probed separately.
 Not gameplay acceptance.
 
-### 224.7 An unprepared held object is rolled as an improvised weapon (2026-10-10, found on a real table; amends §159.10.1 and the open case of §224.2 item 1)
+### 224.7 An unprepared held object is rolled as an improvised weapon: the Enhanced Items Mod's (2026-10-10, found on a real table; re-homed 2026-10-11 by user ruling; amends §159.10.1 and the open case of §224.2 item 1)
 
 **Evidence.** TR-F2 run 3, turn 31 (Grok 4.7 Build fast, live Jev; `telemetry.jsonl` of campaign `game-af36b938`): the
 investigator had picked up 锈蚀匕首 two turns before, its definition still pending, so the kernel's first-blow row listed it
@@ -43142,13 +43145,26 @@ it with the weapons table (Improvised Weapons, p.104); the attack is rolled with
 declares a stab with a dagger in hand has chosen the act and the object; which table row the object hits like is a rules
 binding (§224.1), not a reason to roll nothing.
 
-**The rule.** When a declared first blow's chosen weapon is a held object whose attack usage is not prepared, and that is the
-attack's *only* unfinished preparation (its target the fight can read), the host settles it in the same turn:
+**Whose it is (user ruling 2026-10-11, verbatim: 「认可，临时武器那个应该归为物品增强mod里，其他都可以合入推送」).** The behaviour
+is the Enhanced Items Mod's (物品增强), not the kernel's or the host's own: it is a feature of the package that prepares item
+usages, standing in for the usage that is not ready yet. As §138.7's preset offer is turned on by `weapons.preset.v1`, this path
+is turned on by the capability **`weapons.improvised.v1`** (`kernel-ts/combat/improvised.ts`, registered in `MOD_CAPABILITIES`),
+which Enhanced Items 1.3.5 is the first package to require. The kernel reads whether an active package of the campaign
+(`activeMods`) requires it; the host has no switch of its own and acts only on the kernel's offer (rule 1), so a table without
+such a package behaves exactly as before this section (rule 6). The mechanics stay where the architecture puts mechanics -- the
+kernel rolls, the host binds -- because a package is instructions and declarations, not code; what the package owns is whether
+the path exists on its table, the capability that says so, and the Keeper's reading of the receipt (`agent.md`, "Attacking with an
+instance").
+
+**The rule.** On a table where an enabled package requires `weapons.improvised.v1`, when a declared first blow's chosen weapon
+is a held object whose attack usage is not prepared, and that is the attack's *only* unfinished preparation (its target the
+fight can read), the host settles it in the same turn:
 
 1. **The kernel offers the rows.** `table.resolve.options.context.first_blow.preparation.improvised` carries the weapons
    table's era rows as the host's closed options -- `options` (ids), `profiles` (`{id, name, skill, damage, range}`) and
    `close` (each unprepared object's lexically nearest ids) -- the same reading as the `needs {field: "weapon"}` refusal and
-   the preset offer (`weaponBandOptions`, §138.6/§138.7). Absent when nothing is unprepared.
+   the preset offer (`weaponBandOptions`, §138.6/§138.7; `improvisedOffer`). Absent when nothing is unprepared, and absent
+   on a table where no active package requires the capability.
 2. **Jev compares; the host binds.** The host asks the §138.6 two-level weapon band question (`askBand`, family
    `band-recovery`, on the run's own Jev port) with `improvised: true`: the state says what the answer is for (the player's
    declared attack with this held thing, rolled now as an improvised weapon), and both levels ask for the *closest* row
@@ -43165,8 +43181,10 @@ attack's *only* unfinished preparation (its target the fight can read), the host
    The engine row is the table row under the table's id with the object's name and `improvised_object` /
    `improvised_profile`; the fight starts (or, in a running fight, the investigator's participant gains it) with that row;
    `pending_attack` carries `improvised_object`, and the result's `outcome.improvised: {object, weapon, profile}` names it as
-   `object_usage` names a usage. The `needs` refusal's fix (`armingFix`) now names this path for the Keeper too. Nothing is
-   written to the sheet or the object: no usage, no equipment profile.
+   `object_usage` names a usage. The `needs` refusal's fix (`armingFix`) names this path for the Keeper too, on such a table
+   only. Nothing is written to the sheet or the object: no usage, no equipment profile. Where no active package requires the
+   capability, `action.improvised` is not an input: `invalid_params` with `details.reason: "unsupported_capability"` and
+   `details.required: ["weapons.improvised.v1"]`, the fix naming the usage, a carried weapon or unarmed.
 4. **Forced resolution.** Either outcome is recorded once (§163.3) as `family: "check-binding"`, `chosen.outcome: "roll"`,
    `why: "attack_fallback"`, `uncertain` naming the object, the row (id, name, skill, damage) and Jev's confidence, or the
    unarmed fallback and the reason; the `band-recovery` lane row (`for: "improvised"`) and a `bind` row (`clerk:
@@ -43176,22 +43194,34 @@ attack's *only* unfinished preparation (its target the fight can read), the host
    background usage preparation (the materializer queue, prefetch proposals) runs as it did: once the usage lands the kernel
    lists the object as ready, `preparation.weapons` no longer names it, and the ordinary binding (`selectObjectWeapon`) takes
    over -- no band question is asked, no `improvised` bound.
+6. **Mod disabled.** On a table where no active package requires `weapons.improvised.v1` (Enhanced Items disabled, or locked to
+   1.3.4 or earlier), the first-blow row carries no `preparation.improvised`, `improvisedPreparation` finds nothing, and the
+   clerk step is refused `check_preparation` with the attack retained (§159.10.1) exactly as before this section; the
+   delivery records §163's forced no-roll (`preparation_incomplete`). §224.2's unarmed fallback for a weapon Jev could not
+   bind at all is unchanged either way: that fallback is the host's and asks no package.
 
-**Three ends (§31).** Writer: the kernel's first-blow row (`kernel-ts/runtime/resolve-operation.ts`) offers the rows;
-`improviseAttack` (`runtime/jev/hybrid-engine.ts`) asks and binds, through `askBand` (`extensions/kernel/band-recovery.ts`,
-now taking the caller's Jev port) and `runWeaponBand`'s improvised framing (`runtime/jev/band-recovery-domain.ts`);
-`improvisedPreparation` (`runtime/jev/attack-preparation.ts`) reads the offer. Reader: the combat slot
-(`kernel-ts/combat/index.ts`) and `improvisedWeapon` (`kernel-ts/combat/profiles.ts`) check object and row;
-`startCombat` / the running fight (`kernel-ts/combat/execution.ts`) build the participant row; admission reads the bind
-record. Actor: the kernel rolls the attack with the row's skill and damage; the Keeper narrates the receipt and may still
-prepare the object's own usage for later turns.
+**Three ends (§31).** Writer: Enhanced Items' manifest requires the capability; the kernel's first-blow row
+(`kernel-ts/runtime/resolve-operation.ts`, through `improvisedOffer` in `kernel-ts/combat/improvised.ts`) offers the rows where
+`activeMods` has such a package; `improviseAttack` (`runtime/jev/hybrid-engine.ts`) asks and binds, through `askBand`
+(`extensions/kernel/band-recovery.ts`, taking the caller's Jev port) and `runWeaponBand`'s improvised framing
+(`runtime/jev/band-recovery-domain.ts`); `improvisedPreparation` (`runtime/jev/attack-preparation.ts`) reads the offer. Reader:
+the combat slot (`kernel-ts/combat/index.ts`, gated by `improvisedWeaponsEnabled`) and `improvisedWeapon`
+(`kernel-ts/combat/improvised.ts`) check object and row; `startCombat` / the running fight (`kernel-ts/combat/execution.ts`)
+build the participant row; admission reads the bind record. Actor: the kernel rolls the attack with the row's skill and damage;
+the Keeper, told by the package's `agent.md` what `outcome.improvised` is, narrates the receipt and may still prepare the
+object's own usage for later turns.
 
-**Tests.** `tests/extension/improvised-weapon.test.mjs` (real RPC fixture, faked Jev port): the first-blow row offers the
-rows for an unprepared chair and not for a ready revolver, and offers nothing when the target is unprepared; the kernel
-refuses a row that is not the table's and an object not held, rolls `Study chair` as `club_large` (Fighting (Brawl), 1D8)
-with `outcome.improvised` and writes no usage; the turn-31 shape through the engine dispatches `weapon: Study chair,
-improvised: club_large` with a forced `attack_fallback` roll and the `band-recovery` / `bind` rows; Jev `none` and no Jev
-dispatch `unarmed` with the same forced family; a prepared usage dispatches with no band question and no fallback.
+**Tests.** `tests/extension/improvised-weapon.test.mjs` (real RPC fixture whose package is a copy of `mods/enhanced-items`,
+so it requires what the shipped Mod requires; faked Jev port): the first-blow row offers the rows for an unprepared chair and
+not for a ready revolver, and offers nothing when the target is unprepared; the kernel refuses a row that is not the table's
+and an object not held, rolls `Study chair` as `club_large` (Fighting (Brawl), 1D8) with `outcome.improvised` and writes no
+usage; the turn-31 shape through the engine dispatches `weapon: Study chair, improvised: club_large` with a forced
+`attack_fallback` roll and the `band-recovery` / `bind` rows; Jev `none` and no Jev dispatch `unarmed` with the same forced
+family; a prepared usage dispatches with no band question and no fallback. Mod disabled (the same package without
+`weapons.improvised.v1`): no offer on the row, `action.improvised` refused `unsupported_capability`, the arming fix silent
+about the path, the engine refusing `check_preparation` with nothing dispatched and no band or fallback row, and the prepared
+usage still readying the chair. `tests/extension/creator-preset.test.mjs` pins Enhanced Items 1.3.5 and its digest;
+`tests/kernel/test_jev_resolve.py` reads the offer on the shipped (default-enabled) package.
 
 **Needs a live check.** Real Jev on the turn-31 declaration with the rulebook framing (turn 31's preset question, framed as a
 definition's profile, answered `none` for the dagger); canonical admission of a clerk `resolve` carrying `improvised` (the

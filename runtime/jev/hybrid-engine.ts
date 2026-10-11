@@ -1403,8 +1403,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   }
 
   /**
-   * §224.7 (user ruling 2026-10-10; Keeper Rulebook: Improvised Weapons p.104, the Keeper runs combat ch. 6): a declared first
-   * blow whose chosen held object has no prepared attack usage yet is settled this turn. The host asks Jev the §138.6 weapon
+   * §224.7 (user rulings 2026-10-10 and 2026-10-11; Keeper Rulebook: Improvised Weapons p.104, the Keeper runs combat ch. 6): a
+   * declared first blow whose chosen held object has no prepared attack usage yet is settled this turn. The behaviour is the
+   * Enhanced Items Mod's (`weapons.improvised.v1`): the kernel offers the rows (`first_blow.preparation.improvised`) only where
+   * an enabled package requires the capability, and this function runs only on that offer. The host asks Jev the §138.6 weapon
    * band question over the kernel's own weapons-table rows, framed as the rulebook's comparison (the closest row, not an
    * exact profile), and binds the row as the attack's `improvised` parameter beside the held object; below the gate, on
    * `none`, or with no Jev, the attack is unarmed Fighting (Brawl) as §224.2 binds it. Either is a forced resolution
@@ -1473,8 +1475,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const action = object(args.action) as Record<string, Json>;
       const needs = attackPreparationNeeds(first, action);
       if (needs.length) {
-        // §224.7 (Keeper Rulebook p.104): the chosen weapon's usage as the only unfinished preparation does not stall the
-        // declared attack; the host rolls the held object as the weapons-table row Jev finds it most like, else unarmed.
+        // §224.7 (Enhanced Items, Keeper Rulebook p.104): where the kernel offers the rows, the chosen weapon's usage as the only
+        // unfinished preparation does not stall the declared attack; the host rolls the held object as the weapons-table row Jev
+        // finds it most like, else unarmed. With no offer (the Mod disabled) the attack keeps §159.10.1's preparation.
         const offer = improvisedPreparation(first, action);
         const settled = offer ? await improviseAttack(run, candidate, offer, invocation) : undefined;
         if (!settled) {

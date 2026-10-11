@@ -13,7 +13,8 @@ import { objectTransferReceipt } from '../mods/object-transfer.js';
 import { selectObjectWeapon } from '../mods/usages.js';
 import { CombatSession, VALID_OUTCOMES } from './engine.js';
 import { UnknownWeaponError } from './catalog.js';
-import { authoredWeaponMatches, combatOperationDestinations, combatOperationFor, improvisedWeapon, investigatorCombatParticipant, moduleWeapons, npcCombatParticipant, participantGaps, resolveInvestigatorWeapon, sheetSkillValue, weaponOptions } from './profiles.js';
+import { authoredWeaponMatches, combatOperationDestinations, combatOperationFor, investigatorCombatParticipant, moduleWeapons, npcCombatParticipant, participantGaps, resolveInvestigatorWeapon, sheetSkillValue, weaponOptions } from './profiles.js';
+import { improvisedWeapon } from './improvised.js';
 import { requireParticipantBlock } from './stat-block.js';
 import { syncCombatants } from './resources.js';
 import { archetypeIds } from '../apply/archetype.js';
@@ -128,7 +129,7 @@ export async function startCombat(context: SettleContext, args: Row): Promise<[
     // §180.6 (CK-F2): a block that lacks what the participant is built from is refused with its completion.
     await requireParticipantBlock(context.kernel, context.graph, node, target, profile, `a fight against ${context.graph.displayName(node)}`);
     const sheet = context.actor, weaponId = args.weapon_id;
-    // §224.7: the slot named a held object's improvised row (Keeper Rulebook p.104); the engine row carries the object's name.
+    // §224.7 (Enhanced Items, weapons.improvised.v1): the slot named a held object's improvised row; the engine row carries the object's name.
     const weapon = truth(weaponId) ? truth(args.improvised_object) ? await improvisedWeapon(context.tables, context.world, sheet, string(args.improvised_object), string(weaponId))
         : await resolveInvestigatorWeapon(context.tables, sheet, string(weaponId)) : null;
     if (truth(weaponId) && weapon === null)
