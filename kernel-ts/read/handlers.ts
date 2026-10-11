@@ -9,7 +9,8 @@ import { continuityView } from "./continuity.js";
 import { glossaryOf, RULES_DATA } from "./glossary.js";
 import { playLanguageOf } from "./languages.js";
 import { CampaignSnapshot, loadModule, loadCampaignModule, replayTrail, type LoadedModule } from "./campaign.js";
-import { heldHandouts } from "./handout-document.js";
+import {readKnowledge} from "./knowledge-catalogue.js";
+import {publicKnowledge} from './public-knowledge.js';
 import { ModuleGraph, recordOf } from "./module-graph.js";
 import { SessionView } from "./session-view.js";
 import { dispositionTable } from "../combat/standing.js";
@@ -33,7 +34,7 @@ import {isDocumentRead,readCurrentDocument} from './document-reading.js';
 import { knownMapViews, mapCatalog, mapView, type AssetReader } from './maps.js';
 import { BAND_FIELDS, bandRows } from "../rules/bands.js";
 import { array, row, entries, number, integer, truth, string, repr, normalize, clone, sorted, type Row } from "./values.js";
-const LOOK_FOCUS = ["clues", "investigator", "map", "npc", "object", "scene", "session", "time"];
+const LOOK_FOCUS = ["knowledge", "clues", "investigator", "map", "npc", "object", "scene", "session", "time"];
 const LOOKUP_KINDS = ["catalog", "module", "rule", "secret", "continuity"];
 export type RuleLookup = (campaign: CampaignSnapshot, module: LoadedModule, params: Row) => Promise<KernelResult>;
 export interface ReadContributions {
@@ -323,16 +324,7 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
     // intentions and the agendas the source wrote for the Keeper -- and it stops here. The row
     // carries `how`, the account the Keeper filed when `apply clue` landed, kept per clue in
     // `world.clue_how` exactly as the name is kept in `world.clue_labels`.
-    const discovered = array(world.discovered_clues).map(handle => {
-        const label = clueLabel(graph, world, handle),
-            filed = row(world.clue_how)[handle],
-            how = typeof filed === "string" ? filed.trim() : "";
-        return {
-            clue: handle,
-            label,
-            ...(how && how !== label ? { how } : {})
-        };
-    });
+    const evidence=await publicKnowledge(graph,world,campaign.dir,await campaign.turnRecords(),turn);
     return {
         ...snapshot,
         clock: clockSection(graph, world),
@@ -355,12 +347,11 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
                 ? {equipment_preparation:equipmentPreparationRows(preparation,sheet,campaign.meta.active_worldline ?? null)} : {}),
             incapacitated: incapacitatedBy(sheet.conditions)
         })),
-        clues: { discovered },
+        clues: evidence.clues,
         // The documents this table was handed, so a clipping read once can be read again from the
         // clue list after the delivery card has scrolled away (2026-09-23 ruling). Same body as the
         // card's `text`, so the handouts lane's projection answers both.
-        handouts: array(world.handouts_shown).length ? await heldHandouts(campaign.dir, array(world.handouts_shown),
-            [...(await campaign.files('turns')).flatMap(record=>array(record.receipts)),...array(turn.receipts)]) : [],
+        handouts: evidence.handouts,
         npcs: { journal: await npcJournalSection(campaign, graph) },
         labels: await playerGlossary(context, language)
     };
@@ -463,6 +454,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
             return { people: untoldRoster(module.graph, campaign.world, journal, records), protected: protectedNames(module.graph, campaign.world, journal, records) };
         },
         "table.look": async (params) => {
+            if(params.focus==='knowledge')return readKnowledge(context,params);
             const contextRead = params._context_read === true;
             const { campaign, module } = await readCampaign(context, params, false, true, contributions, contextRead),
                 { graph } = module,

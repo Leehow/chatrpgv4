@@ -526,7 +526,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 			if (kind === "cash" && effect.mode === "quote") return false;
 			if (kind === "move" && here.includes(norm(effect.to)) && !text(effect.label)) return false;
 			if (kind === "object") {
-				if (scope.selectedDocumentRecording && ['write','append','requested_edit'].includes(String((effect.document as Record<string,unknown> | undefined)?.action))) return true;
+                if (['write','append','requested_edit'].includes(String((effect.document as Record<string,unknown> | undefined)?.action))) return true;
 				// Adoption enriches an owned row; same-owner edits record state rather than transfer it.
 				if (!text(effect.to) || text(effect.adopt) || text(effect.from) && norm(effect.from) === norm(effect.to)) return false;
 			}

@@ -43585,6 +43585,15 @@ new wording. Over the TS kernel: `band_reach` `typical` and `least` roll inside 
 says so, and the invalid forms are refused. `tests/extension/time-once.test.mjs`: a Keeper `until` without journeys after the
 clerk's move is refused once and passes the second time. Each fails on the base.
 
+**The batch's size (2026-10-11, the 0.9.7a `all` gate after 0af629f3b).** With `fraction` added the declared-time bind batch
+(band and nine grids, each in three views) measured 64,438 bytes against Jev's 64,000-token request bound
+(`question-packing.ts`'s UTF-8 upper bound) with the real time-costs rows, so the packer refused it and the clerk's band
+question was never asked (`time-once`, `time-cost-fit`, `time-band-momentary` red). The hour and minute criteria are now
+short readings (`09:00-09:59 or 21:00-21:59`; `7`; the instructions say what an option is), and the hour and unit
+instructions point at their `none` criterion instead of repeating its list: 57,745 bytes. A guard in
+`declared-time-interval.test.mjs` packs the batch over the real rows with the longest 131 input and requires at most 60,000.
+A packing refusal of this batch is an unavailable Jev for the bind (the declared time is unsettled); no live turn reached it.
+
 ## 219. A book check reaches check selection, a person is matched by the table's word, and every request is accounted (2026-10-10, issue #112 follow-up on the 4d7 live table; amends §159's ordinary need questions and catalog facts, §201.2's `check_first` fix, §209.9's optional-expiry hand-over and §209.13's request rows)
 
 **Evidence.** 4d7 GUI table, campaign `game-dcad7727-c25b-4034-af3b-94dc6bebddd0`, turns 68–101, Grok 4.7 Keeper, hybrid engine
@@ -44599,7 +44608,232 @@ writing. The role bars stay .90. Live accuracy of the new wording is not measure
 
 ### 227.6 Tests
 
+**2026-10-11 continuation: family version 6 reads the investigator's public knowledge.** The real `apply-verify-2` turn 7
+write-up was refused (`outside_selected_addition` .78) because `recentTold` held only turns 5 and 6, while the player had
+heard Knott's terms in turn 2. For host append binding, `mods.document.options {_binding_context: true}` additionally
+returns `playerKnowledge`: acquired clue labels and their player-facing `how`, the held handouts' public text, and every
+delivered narration of the current game day on the active worldline and loop, in turn order. A narration crossing midnight
+belongs to both days it spans. Current-turn public deliveries are merged by the host. No graph summaries, unrevealed nodes,
+Keeper capsules, secrets or proposed suffixes supply knowledge. The existing public table view owns clue/handout projection;
+committed delivery records own narration. The two binding decisions read this same packet, with existing .90 role gates.
+There is no newest-only character trimming of this packet: the shared request packing limit fails closed if it cannot fit.
+The read-set digest binds all supplied knowledge. The prior recent-text input remains only for older callers. Producer:
+canonical public views and deliveries; reader: host document binding; actor: Keeper's selected append, settled by ordinary
+atomic apply. Real Jev replay of the retained request and a natural driver continuation remain separate acceptance checks.
+
+External comparison: [TypeSafe's state guide](https://docs.typesafe.ai/concepts/state) confirms that related supporting
+records belong together in a named state; [LangChain's memory guide](https://docs.langchain.com/oss/python/langchain/short-term-memory)
+warns that trimming history loses facts and that unbounded unrelated history distracts models. Here the game day and acquired
+public evidence bound relevance deterministically; neither source supplies player consent or authorizes hidden module data.
+
+**Pre-refinement continuation evidence (family 6/7).** A narration-only replay of turn 7 chose `within_selected_addition` .84,
+below the unchanged .90 gate. Corrected-runtime real turn 17 reaches content .90 but execution .89, and no addition lands.
+At that checkpoint public-material repair was not complete notebook acceptance; decision-structure changes still awaited owner approval.
+Those early replay packets omitted acquired clue cards and are `invalid-for-acceptance` of complete public-material supply;
+they remain diagnostic evidence. The later family 8 replay restores the original public clue cards from settled receipts.
+In the same natural continuation, turn 25 revisits the Hall of Records: its turn 9 observed midday record is replaced by an
+inferred morning record in one successful apply, retaining `previous`. This passes §227.1's real trigger. Evidence:
+`.coc/playtests/document-summary-replay-20261011/status.json`, `.coc/playtests/document-summary-live-20261011/turn-9.json`,
+and the original campaign `apply-verify-20261011b` retained in `chatrpgv4-apply-refusals`. Scoped document regression 12/12,
+smoke checks 21/21, kernel typecheck and LAN build passed; the broader focused suite is queued behind other testbox owners.
+
+**2026-10-11 owner-approved threshold revision, family version 7.** The owner approved trying .8 for the notebook content
+and execution decisions after the retained request (.84 content) and natural turn 17 (.90 content, .89 execution) were
+held at .90. `DOCUMENT_CONTENT_MIN` and `DOCUMENT_EXECUTION_MIN` are separate .8 selected-answer probability gates;
+`DOCUMENT_ROLE_PROBABILITY_MIN` remains .90 for identifying a complete dictated quotation. The destination rule is
+unchanged: one .90 candidate, or one clear .8 leader with every other candidate at or below .2. An affirmative selected
+answer is still required; unavailable, invalid, negative or below-bar answers never authorize writing. Public evidence,
+ownership, revision binding, exact quotation spans, append preservation and ordinary atomic settlement remain authoritative.
+This is a scoped calibration for physical notebook additions, not a global Jev or numerical-settlement threshold change.
+Validate both .8 boundaries, below-bar refusals, reading-only/deferred writing, unsupported additions, and the retained
+complete-quotation .90 boundary, then replay the original request and verify a real summary append in the existing campaign.
+
+**2026-10-11 owner refinement, family version 8: reviews inform the Keeper.** The owner wants public material and semantic
+review handed to the Keeper to organize, rather than low semantic scores vetoing the recording. This supersedes family 7's
+content/execution hard gates only in the notebook binding path. The binder owns one existing owned carrier and exact dictated
+quotation spans (.90); its first short decision binds those identities. A separate second batch reviews content and execution
+as advice, using .8 to mark concerns. A negative, low, invalid or unavailable advisory answer does not refuse an append and
+does not grant execution authority. The existing ordinary action admission remains the sole consent review; the kernel owns
+ownership, revisions, append preservation, settlement and receipts. Completion tracking must use that ordinary admitted
+operation or an issued editor request, never carrier binding alone.
+
+Before the Keeper composes a recording, a world-input physical-recording hint at or above .5 supplies public knowledge and
+owned carrier names once through the existing hybrid handoff. This is an information threshold, not an authorization gate.
+The existing public-knowledge projection supplies acquired clue cards, held handouts and the complete day's public prose;
+failure of this optional read carries an unavailable advisory note, not a hold. The apply result carries the draft's bounded
+content/execution review and concerns for the Keeper's following prose. No automatic rewrite, review retry, second Keeper,
+new verb, global threshold change or concealed source projection is introduced. Producer: public records and bounded Jev
+opinions; reader: the Keeper handoff and apply result; actor: KP chooses the writing/output, ordinary admission approves the
+chosen physical action, and canonical apply proves what changed. Reading/deferred inputs must still leave the notebook alone.
+
+**Family 8 acceptance.** The original turn 7 request binds with actual Jev content probability .72, carried as a concern;
+carrier binding grants no action. Source-mode real campaign turn 28, Keeper Grok 4.7 Fast / low, receives public material
+before drafting and writes a three-source summary despite advisory content .78. Ordinary admission separately returns
+`authorized`; the canonical notebook grows from 242 to 497 characters with the old prefix preserved, and the apply reply
+returns the review to KP. Turn 29 says to add a date only later and only read now: notebook text stays byte-for-byte unchanged.
+Evidence: `.coc/playtests/document-advisory-live-final-20261011/acceptance.json`, the two transport records and canonical
+document views; original records remain in campaign `apply-verify-20261011b` under `chatrpgv4-apply-refusals`. The carrier
+binding unit is not treated as consent evidence for deferred/reading inputs. Controlled ordinary-admission refusals also
+leave the document empty. Scoped checks 36/36, final authority cases 3/3, kernel typecheck and an isolated LAN runtime build
+passed; broader focused LAN validation was not completed while the shared box was occupied. No App package or GUI claim.
+
+**2026-10-11 owner-approved optimization: wide catalogue, bounded bodies, KP-directed reading.** Public material delivery
+is independent of the physical-recording hint and world/reference mode. The existing hybrid handoff supplies a bounded
+catalogue once per unchanged public snapshot: acquired clue cards, revealed handouts and committed public Keeper accounts
+on the active worldline/loop, including older days. Every eligible item remains reachable through catalogue continuation;
+relevance affects ordering/prefetch, never membership. Missing bodies remain explicitly unavailable. Material type, original
+source/turn, original preview, completeness and read-next arguments travel together; claims are not promoted to world truth.
+
+`mods.document.options {_knowledge_catalog: true}` returns the first public catalogue page and owned carrier names without
+building the whole player panel. `look {focus: "knowledge"}` lists it; `name` reads one issued item, and `knowledge_page`
+supplies offset/limit plus the issued semantic scope `{turn, view, line, loop}`. Listing pages contain at most 20 rows; text
+pages contain at most 4096 code points and 12 KiB including metadata. Continuations never return private module text.
+Stale scopes or changed original text return a refresh reference, not a write hold. A nonzero text continuation must follow
+a prefix delivered for the current body; a process restart cannot silently splice a prior body's continuation into a new one.
+No opaque digest/receipt identifier is echoed by KP. The host privately binds scope and original text digests.
+
+**Budget regression correction (2026-10-11).** Decision usage permits absent `costUsd`; missing/non-finite usage components retain their conservative request bounds rather than poisoning a shared budget with `NaN`. Unchanged public evidence reuses its advice and fits a smaller remaining allowance without another decision or body read. Both source preparation and public advice finish before the Keeper drafts. The design was cross-checked against [Anthropic context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents), which supports lightweight references and on-demand reads, and the [TypeSafe passage cookbook](https://docs.typesafe.ai/cookbooks/classifying_rag_passages), which retains token usage rather than relying on cached derived dollar costs. These support the fallback shape; the 512-byte reservation and source priority are project decisions verified by regression tests.
+
+The public catalogue shares one extraction with the player view and caches immutable original text metadata; the binder no
+longer gathers full public history. One Jev batch with a three-second optional deadline grades candidate previews for relevance and conflict with the
+player's premise before KP drafts. All scores, unknown results and conflicts are advisory. Public material occupies at most
+4 KiB of the existing 16 KiB optional material allowance. Prescreen runs first with 15.5 KiB, reserving only 512 bytes for an always-reachable public reader reference. Public material then uses the measured remainder, up to 4 KiB; a full catalogue/body packet never preemptively removes 4 KiB from scene material. Index pressure exposes
+continuation instead of silently dropping eligible entries. Issued public read/next references use the existing per-turn read coverage exemption once each; a low ordinary look budget cannot strand older public pages, while unissued/repeated reads keep that budget. A small prefetch may load the highest-ranked original bodies;
+KP chooses additional reads through the same look verb. There is no mandatory read or automatic rewrite.
+
+Append binding family 9 binds only an existing owned carrier and exact dictated quotation spans (.90). An exact canonical
+carrier name with no quotation needs no semantic binding call; uncertain references retain the existing identity review.
+The after-draft content/execution advice batch is retired: material opinions precede drafting, and ordinary admission alone
+reviews physical execution. Every model document write/append/requested edit is reviewed even when the recording hint is low
+and ownership does not transfer. Completion tracks ordinarily admitted operations, not the information hint. Kernel ownership,
+revision handling, original-text preservation and receipts remain authoritative. This does not alter numerical/rule selection.
+
+Producer: canonical public fields, published handouts and committed original delivery records. Reader: bounded catalogue and
+original-body pages in the hybrid handoff/look result. Actor: KP chooses material, reads it and composes; ordinary admission and
+canonical apply establish the chosen recording. Tests must cover low/unavailable scores, reference and unclear intent, large
+catalogues/bodies, stale and foreign scope, hidden-source exclusion, ordinary denial of unchosen writing, and original-prefix
+preservation. Natural Grok 4.7 Fast / low continuation must demonstrate a real supplemental read and a settled summary.
+
 `tests/kernel/test_temporal_context.py` (stale record yields, batch time decides), `tests/extension/purchase-settlement.test.mjs`
 (preview after `until` and move equals the settled debit; band stays `needs`; quote source filled), `tests/extension/time-once.test.mjs`
 (second time beside a flag: the flag lands, one time; zero minutes is not a second time), `tests/extension/physical-documents.test.mjs`
 (open/close without `from`), `tests/extension/document-recording-delivery.test.mjs` (clear leader, `recentTold`), `tests/extension/lean-apply.test.mjs`.
+
+**Optimization acceptance (2026-10-11).** Retained source-mode evidence:
+`.coc/playtests/public-knowledge-live-verified-20261011/acceptance.json`, `events.jsonl`, the three driver turns and
+canonical notebook before/after snapshots. Grok Build 4.7 fast/low continued `apply-verify-20261011b` naturally at turns
+30–32: read earlier committed originals, organized and appended the chosen findings, then inspected the acquired cards
+without writing. The new public catalogue continuation and two `look knowledge` original reads were actually used.
+One preview batch per input supplied advisory scores (including values below .80); packets were about 3.2 KiB. The canonical
+carrier needed zero semantic identity calls, ordinary admission authorized the append, and completion was committed.
+Notebook text grew from 497 to 973 code points with the old prefix intact; the later read/defer input left it identical.
+Final isolated LAN runtime build and 48 scoped regressions passed, including the foundation/inventory smokes and language
+boundary. The broader earlier snapshot is not an all-green gate: historical oracle cache permissions, scene/time assertions
+and two concurrent pushed-roll assertions remained; the missing-band assertion also fails with the HEAD hybrid engine
+without this optimization. No App packaging or GUI acceptance is claimed.
+
+**Budget repair acceptance (2026-10-11).** The scene-material failure was attributable to the optimization: absent fee
+usage could poison shared accounting, and the fixed 4 KiB reservation could drop the current scene identity. Formal code
+now retains conservative cost bounds and prepares scene support first, measuring its bytes before fitting public material.
+The existing first-visit carrying regression passes with the scene identity preserved; its telemetry asserts that source
+and public material together remain inside the original 16 KiB allowance. The 512-byte reader fallback, partial fee usage,
+unchanged-evidence reuse, public-page integrity, ordinary write admission and language boundaries pass in an isolated LAN
+runtime build and 232 checks across 24 related test files. Earlier claims that the remaining scene failure was unrelated, or
+that the historical oracle lacked its Git object, are superseded: the latter assertion is a writable cache directory.
+The nine time assertions also fail with the HEAD hybrid engine, and the two pushed-roll assertions run outside the new
+material flow. Those are separate findings, not green checks. Post-repair natural evidence is retained under
+`.coc/playtests/public-knowledge-budget-repaired-20261011/`; only its canonical before/after snapshots establish writing.
+
+## 228. Disclosure is appended, never projected into the tool list (2026-10-11, owner: 「你来实现，先跑沙盒」; amends §209.3, §209.5, §209.6, §209.8, §209.9, §209.13, §215 and §217.1)
+
+Evidence: `chatrpgv4-research/reports/tool-disclosure-20261011/` (the plan, the provider probe and the sandbox:
+`sandbox/probe-results.jsonl`, `sandbox/results.jsonl`, scripts beside them), the 4d7 and d6c transport traces under
+`capability-discovery-implementation-20261010/`.
+
+**Observed.** Under `COC_TURN_DISCOVERY=selective` the 4d7 table's 115 Keeper requests carried 32 different tool
+lists (23–88 KB): each turn opened on a selected list, and the first write that changed the situation dropped the
+selection, so the next request went out with the full list until a new selection landed. Between two requests of
+the same turn, an unchanged list read 59–60% of input from cache and a changed one 35–37% (about 20,000 fewer cached
+tokens per call). A direct probe on grok-4.7 with one conversation id: an identical repeat read 78,464 of 78,562
+tokens; the same request with one word added to apply's description read 17,536; with one tool removed, 1,152 (the
+provider's fixed preamble). Restoring the original list read 78,464 again. Tool declarations sit at the front of
+xAI's cached prefix, so a changed list re-bills everything after it. §184's 2026-10-04 probe on grok-4.5 found the
+opposite; it no longer holds. The same mode also re-sent the whole package-section packet (about 40 KB) at the end of
+every request, where no request can read it from cache.
+
+**Cause (three ends).** *Writer:* `capabilityRuntime.project` (`extensions/table/capability-runtime.ts`) rebuilt the
+request's tool list from the current selection on every request (§209.3, §209.8), widened it on fallback (§209.5,
+§209.9) and narrowed it again on the next selection. *Reader:* the provider caches by exact prefix, and the tools
+come first. *Actor:* every list change made the request after it pay again for system prompt, brief and capsule.
+
+**Prior art (summary).** Anthropic's tool search (`defer_loading`, `tool_reference`), OpenAI's `tool_search` and
+`allowed_tools`, Claude Code's deferred tools and Codex's tool search all keep the declared tool list byte-stable and
+put disclosed definitions in the conversation, appended. xAI offers none of those mechanisms; the portable form is
+the one Agent Skills, Cursor and Hermes use: the definition arrives as conversation text and the host validates.
+
+**Sandbox.** Two runs of consecutive real turns (4d7 turns 9–10, d6c turns 3–4), 13 Keeper requests, each sent as
+recorded and in the form below (fixed 34 KB list, a turn detail message, sections once): input 813,933 → 784,190
+tokens, cached 31% → 55%, uncached 558,317 → 355,390, billed $0.440 → $0.336. Every tool call in both forms (12 and
+17) passed Pi's own validator against the full canonical apply definition. The variant pre-loaded the kinds each
+turn actually used, so this is an upper bound on what selection achieves.
+
+### 228.1 The request's tool list is fixed
+
+In selective mode the context owner projects one tool list for the whole table: every offered tool keeps its
+canonical declaration except `apply`, whose `effects` items become a kind envelope (`{kind}` with the canonical kind
+enum, other fields open) and whose description lists each kind with its canonical description and, for npc and
+object, the host's facet cards (`fixedCapabilityTools`, `extensions/table/capability-catalogue.ts`). The list is the
+same bytes on every request; it changes only when the registered tools change. Nothing is narrowed or widened, and
+no request is "full" or "selected". The registered canonical definition still validates every call before any hook
+runs (Pi's `validateToolArguments` against the registered tool); the envelope relaxes nothing the kernel or the
+validator checks. Full and shadow modes keep the canonical list (§209.8's measured constraint from the narrator-only
+setting stands for them).
+
+### 228.2 What an input discloses is sent once, where it was first placed
+
+The context owner keeps a disclosure ledger per player input (`extensions/table/turn-disclosure.ts`):
+
+- **Due detail.** Package sections the mod discovery selects (§209.7) and apply capability detail: the selection's
+  names, the host task's operations (§209.6) and the dependencies of sections the input delivered. Each key
+  (`section:<key>`, `capability:<name>`) is offered once per input; a key the ledger delivered is never offered again.
+- **Placement.** A message created on a request is anchored to the turn traffic (Keeper calls and results after the
+  player's message) that request already carried. Every later request of the input re-inserts it before the traffic
+  message that followed it, or before the host's end-of-request material when none has. Earlier requests' prefixes
+  are therefore never edited, reordered or re-sent at the end.
+- **Shape.** Sections keep `coc-mod-sections` (`{authority, sections: [{package, section, text}]}`); apply detail is
+  `coc-capability-detail` (`{authority, capabilities: [{name, effect, applicability, exclusions, fields, version}]}`,
+  `fields` being the facet's exact canonical schema).
+- **Delivery.** A new message counts as delivered only when the provider payload carries it; one that did not
+  survive is withdrawn and offered again next request. The ledger ends with the input, session start or shutdown; an
+  in-input invalidation (§217.1) keeps it.
+- **Capacity (amends §209.13 decision 2).** The room reserved is the whole input's disclosure, not one packet. When it
+  does not fit beside the protected floor, this request's new messages are withdrawn (they stay due) with the
+  omission diagnostic; when even the earlier disclosure cannot fit, none is placed on that request.
+
+### 228.3 A write is never held for detail it was not shown (amends §209.6 and §215)
+
+When a Keeper `apply` or `resolve` uses a package section its triggers name (`before_apply:<kind>`,
+`before_resolve:<family>`) or an apply capability the input has not delivered, the call is not held. Admission, Mod
+hooks and the kernel decide it as usual. The undelivered detail is attached to that call's own result, whatever the
+result is: a text part `{kind: "disclosed_detail", authority, package_sections?: [{package, section, version, text}],
+capability_detail?: [...]}`, whose authority says to follow it for later decisions of the kind and that a write which
+already landed is not redone for it. Attached keys count as delivered for the input. A call blocked before execution
+(its result never reaches `tool_result`) leaves its keys owed; the next request's disclosure carries them. A policy
+clerk's write decides nothing from the Keeper's request: nothing is attached to it (§215 unchanged). The
+`discovery_unavailable` hold of §209.11 is unchanged.
+
+### 228.4 Lookup reads detail; its fallback is the index (amends §209.5, §209.14 and §217.1)
+
+`lookup {kind: "capability", name}` with a name the package index lists (`<package>: <heading>`) returns that
+section (`package_sections`). Any other name or a purpose query reads capability detail as before (§209.14's owner,
+§217.1's input basis). An unknown name returns `status: "not_found"` with the names that exist instead of an error,
+so it cannot fall a batch. A purpose query that cannot be decided returns `status: "index_fallback"` with every apply
+capability's name and applicability; there is no wider tool list to fall back to and no write hold. What a lookup
+returns is delivered with its result and counts for the input.
+
+*Tests.* `tests/extension/capability-catalogue.test.mjs` (the fixed list is byte-stable, keeps every kind and its
+canonical rule text, and the canonical validator still refuses a malformed effect);
+`tests/extension/turn-disclosure.test.mjs` (placement keeps earlier prefixes; once-per-input; withdrawal);
+`tests/extension/capability-runtime.test.mjs`, `turn-discovery-context.test.mjs`, `capability-lookup-owner.test.mjs`,
+`clerk-write-readiness.test.mjs`, `discovery-sqlite-binding.test.mjs`, `context-request-capacity.test.mjs` updated
+to the fixed list, the ledger and attachment instead of the narrowed list and the hold.

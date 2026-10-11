@@ -133,7 +133,7 @@ test('required package detail that no longer fits beside the turn traffic is res
         'a write whose detail was delivered is not held');
 });
 
-test('a protected floor that cannot also hold the packet omits it explicitly and holds its writes', async t => {
+test('a protected floor that cannot also hold the packet omits it explicitly; a write owes it instead of being held', async t => {
     withCeiling(t);
     // The current capsule alone takes most of the request: no cut of history or turn traffic can make room.
     const fixture = table({capsuleBytes: 50 * 1024}), messages = branch(fixture), errors = [];
@@ -151,8 +151,9 @@ test('a protected floor that cannot also hold the packet omits it explicitly and
     assert.ok(request.mod_discovery_omitted_bytes > 0);
     assert.ok(fixture.rows.some(row => row.lane === 'mod-discovery' && row.event === 'omitted' && row.reason === 'mod_discovery_request_capacity'));
     const held = await fixture.hooks.get('tool_call')({toolName: 'apply', toolCallId: 'time-1', input: {effects: [{kind: 'time', minutes: 30}]}});
-    assert.equal(held?.block, true, 'a write whose required detail was never sent is held');
-    assert.match(held.reason, /no world change was committed/i);
+    // §228.3: the write is not held; the omitted section it needs is owed and rides on its result or the next request.
+    assert.equal(held, undefined);
+    assert.ok(fixture.rows.some(row => row.lane === 'turn-disclosure' && row.event === 'owed' && row.keys.length && row.no_hold));
 });
 
 test('any other failure while projecting returns a bounded degraded request, never the stored branch', async t => {

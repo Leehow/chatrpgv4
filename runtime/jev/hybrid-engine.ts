@@ -1,3 +1,4 @@
+import {preparePublicKnowledge,PUBLIC_KNOWLEDGE_BYTES,PUBLIC_KNOWLEDGE_MIN_BYTES} from './knowledge-context.ts';
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
 import {attackPreparationNeeds, improvisedPreparation, type ImprovisedOffer} from './attack-preparation.ts';
@@ -51,7 +52,7 @@ import {checkAttemptIdentity, selectCheck, validateCheckOptions, withinCheckLeas
 import {interactionScopeBatch, interpretInteractionScope, permitsReferenceOperation, REFERENCE_SCOPE_NOTE, type InteractionScope} from './interaction-scope.ts';
 import {DECIDED_UNDER_UNCERTAINTY_NOTE, FORCED_CHOICE_CUE_FAMILY, forcedChoiceCueBatch, forcedChoiceCueReview, forcedResolution, scoreText,
   type ForcedChoiceCueReview, type ForcedPlayerChoice, type ForcedResolution} from './forced-resolution.ts';
-import { bindingOf, CLERK_TYPE, customMessage, PRESCREEN_TYPE, type ContextBinding } from '../../extensions/table/context-policy.ts';
+import { bindingOf, CLERK_TYPE, customMessage, PRESCREEN_TYPE, requestSize, type ContextBinding } from '../../extensions/table/context-policy.ts';
 import { prepareKeeperSupport, prescreenEnabled } from '../../extensions/table/prescreen.ts';
 import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev/agent/config.js';
 import type { HostOperationContext, OperationIdentity } from '../../extensions/kernel/canonical-operation-dispatcher.ts';
@@ -513,6 +514,8 @@ function defaultLine(candidate: Candidate): string | undefined {
 /** §158.4: the kernel extension's port for the previous delivery's post review still running (`coc:owed-review`). */
 interface OwedReviewPort {campaign: string; watch(): {in_flight: boolean; turn?: number; landed(): boolean}}
 interface RunState {
+  documentKnowledgeSent?: string;
+  publicKnowledge?: {signature:string;packet:Row};
   checkInputs?: Map<string, {options: Row; capsule: Row; snapshot: NonNullable<CheckSelection['snapshot']>}>;
   checkInputOrdinal?: number;
   checkInputEpoch?: number;
@@ -1096,7 +1099,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
               binding: table.binding, capsule, signal: invocation.signal, decision: jev,
               ...(bridge.moduleId&&bridge.runtime?.sourceInfo&&bridge.runtime?.sourceText?{source:{moduleId:bridge.moduleId,runtime:bridge.runtime}}:{}),env: options.env as NodeJS.ProcessEnv,
               record: event => { events.push(event); record({...event, run: run.runId, step: invocation.stepId}); },
-              byteBudget: PRESCREEN_BYTES, deadlineAt: stepNow() + allowance, providerBudget: run.providerBudget, ...leaseClock});
+              byteBudget: PRESCREEN_BYTES - PUBLIC_KNOWLEDGE_MIN_BYTES, deadlineAt: stepNow() + allowance, providerBudget: run.providerBudget, ...leaseClock});
             refreshAfterPrescreen = true;
             const prepared = events.find(event => event.event === 'prepared'), fallback = events.find(event => event.event === 'fallback');
             // A prescreen that fell back still spent its calls (§124.11): gate #5's read said 0 while 12 had run.
@@ -1117,6 +1120,17 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             run.prescreenSpent.reads++; run.prescreenSpent.jev_calls += calls; run.prescreenSpent.ms += prescreenMs;
           }
           run.lastRead = {scene,key:readKey, ...(outcome ? {outcome} : {})};
+          if(bridge?.call&&bridge.campaign){
+            const sourceBytes=packet?requestSize([packet]):0,publicBudget=Math.min(PUBLIC_KNOWLEDGE_BYTES,PRESCREEN_BYTES-sourceBytes);
+            try {run.publicKnowledge=await preparePublicKnowledge({campaign:bridge.campaign,playerText:run.rawInput,
+              call:(method,params)=>bridge!.call!(method,params),signal:invocation.signal,decision:jev,
+              byteBudget:publicBudget,providerBudget:run.providerBudget,previous:run.publicKnowledge,...leaseClock,
+              record:event=>record({...event,run:run.runId,step:invocation.stepId})});
+              record({lane:'optional_material_budget',run:run.runId,source_bytes:sourceBytes,
+                public_bytes:Buffer.byteLength(JSON.stringify(run.publicKnowledge.packet))+96,limit:PRESCREEN_BYTES});}
+            catch(error) {record({lane:'document_knowledge',status:'unavailable',cause:error instanceof Error?error.message:'optional_read_failed',run:run.runId});}
+          }
+
           // §135.31.1: the scene's source passages are read off the prescreen's own materials (the packet before the issued bodies).
           if (outcome?.message) {
             let content: Row = {};
@@ -2172,6 +2186,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         player_text: run.rawInput, mode: run.interactionScope.mode,
         ...(run.interactionScope.documentRecording === undefined ? {} : {documentRecording:run.interactionScope.documentRecording})});
       if (run.interactionScope.mode === 'reference') Object.assign(content, {interaction_scope: 'reference', interaction_scope_note: REFERENCE_SCOPE_NOTE});
+      const knowledgeDelivery=run.publicKnowledge?digest([run.publicKnowledge.signature,run.publicKnowledge.packet]):undefined;
+      if(run.publicKnowledge&&run.documentKnowledgeSent!==knowledgeDelivery){
+        run.documentKnowledgeSent=knowledgeDelivery;
+        content.document_recording_context={...run.publicKnowledge.packet,recording_hint:run.interactionScope.documentRecording??null};
+        api?.events?.emit?.('coc:knowledge-context',{campaign:bridge.campaign,turn:run.turn,player_text:run.rawInput,packet:run.publicKnowledge.packet});
+        record({lane:'document_knowledge',turn:run.turn,status:'supplied',bytes:Buffer.byteLength(JSON.stringify(content.document_recording_context))});
+      }
+
     }
     run.unresolvedAttack = view.policyState?.view?.fightDeclared === true && view.policyState?.view?.fightLanded !== true;
     const policyView = view.policyState?.view;

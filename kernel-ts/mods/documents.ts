@@ -4,7 +4,9 @@ import type { HandlerGroup } from '../handlers.js';
 import { RpcError } from '../errors.js';
 import { jsonDigest } from '../json.js';
 import { appendJsonl } from '../fileio.js';
-import { actor as selectActor } from '../read/handlers.js';
+import { actor as selectActor, tableView } from '../read/handlers.js';
+import {readKnowledge} from '../read/knowledge-catalogue.js';
+import {documentKnowledge} from './document-knowledge.js';
 import { playLanguageOf } from '../read/languages.js';
 import { findNamedObject, rootObjectOwner } from '../read/mods.js';
 import { clone, length, number, row, truth, values, type Row } from '../read/values.js';
@@ -110,7 +112,10 @@ export function createDocumentHandlers(writer: ReturnType<typeof createWriteRunt
                 const root=rootObjectOwner(world,item);
                 return [{query:name,actor_owned:actor ? root.kind==='investigator'&&root.id===actor.id : null}];
             }) : [];
-            return {actor:actor?.name ?? null, documents, known};
+            const playerKnowledge=params._binding_context===true&&actor
+                ?documentKnowledge(await tableView(campaign.context,{campaign:campaign.id}),await campaign.records(),await campaign.readCampaign()):undefined;
+            const knowledge=params._knowledge_catalog===true?await readKnowledge(campaign.context,{campaign:campaign.id,focus:'knowledge'}):undefined;
+            return {actor:actor?.name ?? null, documents, known,...(playerKnowledge?{playerKnowledge}:{}),...(knowledge?{knowledge}:{})};
         },
         'mods.document.view': async params => {
             const value=await owned(params),view=await response(value);

@@ -1548,6 +1548,10 @@ export default function (pi: ExtensionAPI) {
 		const engine = value && typeof value === "object" ? (value as { engine?: unknown }).engine : undefined;
 		drivenEngine = typeof engine === "string" && engine !== "legacy";
 	});
+    pi.events.on('coc:knowledge-context',(value:any)=>{
+        if(!table||value?.campaign!==table.campaign||value.turn!==table.turn||value.player_text!==table.playerText)return;
+        (table.documentReadCoverage??=new DocumentReadCoverage()).addKnowledge(value.packet);
+    });
 	pi.events.on('coc:interaction-scope', (value: any) => {
 		if (!table || value?.campaign !== table.campaign || value.turn !== table.turn
 			|| value.player_text !== table.playerText || !['world', 'reference'].includes(value.mode)) return;
@@ -3041,8 +3045,8 @@ export default function (pi: ExtensionAPI) {
     }
     return held;
   }
-  async function prepareWritingMatches(state:TableState,payload:Record<string,unknown>,bindings:BoundAppend[],run?:string):Promise<WritingMatch[]> {
-    if(!recordingSelected(state))return [];
+  async function prepareWritingMatches(state:TableState,payload:Record<string,unknown>,run?:string):Promise<WritingMatch[]> {
+    if(!recordingSelected(state)&&!writingAuthorities.get(state)?.size)return [];
     const ledger=writingLedger(state,run);if(!ledger)return [];
     const issued=documentEditInput(ledger.playerText);
     const rejectIssued=()=>{
@@ -3059,8 +3063,6 @@ export default function (pi: ExtensionAPI) {
       if(effect.kind!=='object'||!['append','write','requested_edit'].includes(operation)||typeof effect.name!=='string')continue;
       // A closed editor selection names its issued operation, never a replacement body invented beside it.
       if(issued&&operation!=='requested_edit')throw rejectIssued();
-      const bound=bindings.find(b=>b.name===effect.name&&b.turn===ledger.turn&&b.worldline===ledger.worldline&&b.playerText===ledger.playerText
-        &&operation==='append'&&b.actualBoundSuffix===effect.document.text);
       const admitted=writingAuthorities.get(state)?.has(effectSignature(effect))===true;
       try{
         const view=await state.kernel.call<{name:string;actor:string;text:string;version:string;_writing_identity:WritingMatch['identity'];
@@ -3071,12 +3073,12 @@ export default function (pi: ExtensionAPI) {
         const issuedAuthority=operation==='requested_edit'&&issued?.actor===view.actor&&issued.document===view.name
           &&request?.status==='selected'&&view._writing_request?.turn===ledger.turn&&view._writing_request.worldline===ledger.worldline;
         if(issued&&!issuedAuthority)throw rejectIssued();
-        if(!admitted&&!bound&&!issuedAuthority)continue;
+        if(!admitted&&!issuedAuthority)continue;
         const selectedText=operation==='requested_edit'?request?.text:effect.document.text;
         if(typeof selectedText!=='string'||typeof view.text!=='string'||typeof view.version!=='string'||!view.version||!view._writing_identity)continue;
         const match:WritingMatch={campaign:state.campaign,worldline:ledger.worldline,turn:ledger.turn,playerText:ledger.playerText,epoch:ledger.epoch,
           call:String(payload.call_id),occurrence,name:view.name,actor:view.actor,beforeVersion:view.version,beforeText:bodies.get(view.name)??view.text,operation,selectedText,
-          authority:issuedAuthority?'issued_request':bound?'bound_append':'admission',identity:view._writing_identity};
+          authority:issuedAuthority?'issued_request':'admission',identity:view._writing_identity};
         matches.push(match);
         bodies.set(view.name,operation==='append'?match.beforeText+selectedText:selectedText);
       }catch(error){
@@ -3138,7 +3140,7 @@ export default function (pi: ExtensionAPI) {
         await record({lane:'document_completion',turn:ledger.turn,status:'partial'});
     }catch{await record({lane:'document_completion',turn:ledger.turn,status:'observation_unknown'});}
   }
-  type BoundAppend = {name: string; version: string; originalText: string; actualBoundSuffix: string; proposedName: string; turn:number; worldline?:string; playerText:string};
+  type BoundAppend = {name:string};
   /**
    * §166.2's outcome boundary as §200.3 leaves it: a draft is refused only for the turn's one targeted correction (Jev at
    * .90 or above that it asserts the unconfirmed recording completed, correction still available, not the host's own
@@ -3375,7 +3377,7 @@ export default function (pi: ExtensionAPI) {
     const requireCurrentBinding = () => {
       if (!currentBinding()) throw new KernelError({code:'revision_conflict',message:'The document input changed',details:{reason:'refused_document_outcome_stale'}});
     };
-		const options = await state.kernel.call<{actor:string|null;documents:DocumentCandidate[];known:Array<{query:string;actor_owned:boolean|null}>}>('mods.document.options',
+		const options = await state.kernel.call<{actor:string|null;documents:DocumentCandidate[];playerKnowledge?:DocumentBindingInput['playerKnowledge'];known:Array<{query:string;actor_owned:boolean|null}>}>('mods.document.options',
 			{campaign:state.campaign,names:edits.map(effect=>effect.name)});
     requireCurrentBinding();
 		const normalize = (value: unknown) => typeof value === 'string' ? value.normalize('NFKC').trim().toLowerCase() : '';
@@ -3394,9 +3396,7 @@ export default function (pi: ExtensionAPI) {
 			const input: DocumentBindingInput = {campaign:state.campaign,turn:state.turn,playerText:state.playerText,
 				...(state.interruptedPlayerText ? {unfinished:state.interruptedPlayerText} : {}),
 				...(last ? {justTold:last.keeper.slice(0,1500)} : {}),
-				// §227.5: what the player was told this turn and in the turns the capsule keeps, so a copy of a text they read or a
-				// write-up of their findings can be bound to it (4d7: all ten notebook additions were unbound on justTold alone).
-				recentTold:[...state.recent,...state.delivered].map(entry=>({turn:entry.turn,text:entry.keeper})),
+				requestedName:effect.name,
 				actor:options.actor,suffix:effect.document.text,documents:options.documents};
 			const binding = documentBindingScope(input), deadlineAt = Math.min(Date.now()+4_000,parent?.deadlineAt??Infinity);
 			const outer = signal ?? new AbortController().signal;
@@ -3409,8 +3409,7 @@ export default function (pi: ExtensionAPI) {
 			try {
 				const result = await bindDocumentAppend(input,accounting.decision,lease);
 				await record({lane:'document_binding',ok:result.status==='bound',...(result.status==='bound'
-					? {target:result.document.name,text_origin:result.origin,target_probability:result.targetProbability,content_probability:result.contentProbability,content_confidence:result.contentConfidence,
-						execution_probability:result.executionProbability,execution_confidence:result.executionConfidence}
+					? {target:result.document.name,text_origin:result.origin,target_probability:result.targetProbability}
 					: {reason:result.reason,judgements:result.judgements})});
         requireCurrentBinding();
 				if (result.status !== 'bound') {
@@ -3448,8 +3447,7 @@ export default function (pi: ExtensionAPI) {
 			effect.name=result.document.name;effect.from=result.document.owner;effect.to=result.document.owner;
 			effect.document={action:'append',text:result.suffix};
 		}
-    return pending.map(value=>({name:value.result.document.name,version:value.result.document.version,originalText:value.originalText,
-      actualBoundSuffix:value.result.suffix,proposedName:value.proposedName,turn:value.turn,worldline:value.worldline,playerText:value.playerText}));
+    return pending.map(value=>({name:value.result.document.name}));
 	}
 
 	/**
@@ -3641,7 +3639,7 @@ export default function (pi: ExtensionAPI) {
 				// §135.11.1 (SL-50): the verdict of this call's review, for the drop row of the step the call came from.
 				evidence.onVerdict?.(verdict.verdict);
 				const admitted = ADMITTING_VERDICTS.has(verdict.verdict);
-                if(recordingSelected(state)&&['authorized','entailed'].includes(verdict.verdict)&&proposal.signatures){
+                if(['authorized','entailed'].includes(verdict.verdict)&&proposal.signatures){
                     let selected=writingAuthorities.get(state);if(!selected){selected=new Set();writingAuthorities.set(state,selected);}
                     for(const signature of proposal.signatures)selected.add(signature);
                 }
@@ -5599,7 +5597,7 @@ export default function (pi: ExtensionAPI) {
 			if (spec.name === 'narrate' && timeReading) payload.time_reading = timeReading; else delete payload.time_reading;
 			await dispatcher.beforeKernelInvoke(toolCallId, spec.method, payload);
       if(spec.name==='look')documentContinuation=state.documentReadCoverage?.consume(payload)??false;
-      if(spec.name==='apply')writingMatches=await prepareWritingMatches(state,payload,documentBindings,evidence.run);
+      if(spec.name==='apply')writingMatches=await prepareWritingMatches(state,payload,evidence.run);
       let result: Record<string, unknown>;
       try { result = await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress); }
       catch (error) {
@@ -5614,6 +5612,7 @@ export default function (pi: ExtensionAPI) {
         result = await state.kernel.call<Record<string, unknown>>(spec.method, resent, onProgress);
       }
       if(spec.name==='apply')await observeWritingCompletion(state,result,writingMatches);
+
       // §204.4: a model's committed mint is bound to the book in the background, independently of the next player turn.
       if (spec.name === 'apply' && !host && evidence.label === 'model' && Array.isArray(payload.effects)
         && payload.effects.some(effect => effect && typeof effect === 'object' && effect.kind === 'move' && effect.establish !== undefined)) {
@@ -6040,7 +6039,8 @@ export default function (pi: ExtensionAPI) {
 			// §138.8: what the turn had settled before this call, taken before this call's own line joins it.
 			const settledBefore = spec.name === "apply" ? [...state.landed] : [];
 			if (partial) result = partialAdmissionResult(state, result, partial);
-            if(spec.name==='look'&&result.document_read)(state.documentReadCoverage??=new DocumentReadCoverage()).add(result);
+            if(spec.name==='look'){const coverage=state.documentReadCoverage??=new DocumentReadCoverage();
+                if(result.document_read)coverage.add(result);if(payload.focus==='knowledge')coverage.addKnowledge(result);}
 			applyToolSuccess(state, spec.name, toolCallId, result);
 			if (spec.name === 'resolve') {
 				// A replay describes the original declaration, not necessarily a still-live attack.
