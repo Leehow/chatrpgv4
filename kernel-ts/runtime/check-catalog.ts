@@ -7,12 +7,13 @@ import {npcsPresent} from '../read/capsule.js';
 import {continuableCheck, npcProfileOf} from '../resolve/context.js';
 import {SOCIAL_APPROACH_SKILLS} from '../resolve/arithmetic.js';
 import {INVOLUNTARY_KINDS} from '../sanity/session.js';
-import {statedSanLoss} from '../sanity/index.js';
+import {sanityLossLadder, statedSanLoss} from '../sanity/index.js';
 import {parseSanLoss} from '../sanity/expression.js';
 import {knownSpells, magicStateName} from '../magic/state.js';
 import {statedCheck, statedEndingReward} from '../read/stated.js';
 import {checkPassed, clueCheck} from '../read/clue-check.js';
 import {tableWord} from '../read/person-words.js';
+import {keeperAwardScale} from '../development/award.js';
 import {jsonDigest} from '../json.js';
 import {RuleTables} from '../rules/tables.js';
 import {ENDING_KINDS} from '../development/plan.js';
@@ -26,6 +27,8 @@ import {evaluateCondition, factsFromState, RuleObservations} from '../read/rule-
 interface Parameter {selection?: 'compatible'; name: string; question: string; options: Array<{label: string; value: any}>; multiple?: {minimum: number}; default?: {value: any; question: string}}
 interface Option {key: string; family: string; label: string; definition?: string; facts?: Row; action: Row; parameters: Parameter[]; needs: string[]; authorization: 'declaration' | 'consequence'}
 const parameter = (name: string, question: string, values: string[]): Parameter => ({name, question, options: values.map(value => ({label: value, value}))});
+/** §223.1: the push's `stakes` option for no foreshadowed consequence (value `''`; the kernel then records the Keeper's free rein, p.86). */
+export const NO_FORESHADOWED_CONSEQUENCE = 'No delivered sentence foreshadowed a consequence of failing: the Keeper has free rein over a failed push (p.86)';
 const modifiers = (): Parameter[] => [
     {...parameter('difficulty', 'What success level does the established difficulty require? Use regular when no harder difficulty is established.', ['regular', 'hard', 'extreme']),
         default: {value: 'regular', question: 'Does an established rule or circumstance require this particular action to achieve a hard or extreme success, instead of the regular default?'}},
@@ -34,6 +37,29 @@ const modifiers = (): Parameter[] => [
     {...parameter('penalty', 'How many penalty dice does an established disadvantage impose?', ['none', 'one', 'two']),
         default: {value: 'none', question: 'Does an established rule or disadvantage impose any penalty dice on this particular action?'}},
 ];
+
+const INVOLUNTARY_QUESTION = 'Assume the upcoming SAN roll fails. The SAN rule then authorizes the Keeper to choose one brief involuntary response from these legal options; this is not a voluntary player decision. Judge its immediate compatibility, not whether the roll has already failed. Do not choose an extended strategy.';
+const involuntary = (): Parameter => ({...parameter('involuntary', INVOLUNTARY_QUESTION, [...INVOLUNTARY_KINDS]), selection: 'compatible'});
+/** §221.8 (p.157-159): the Keeper may pick a fitting bout instead of rolling Table VII; `roll` keeps the die. */
+async function boutParameter(tables: RuleTables): Promise<Parameter> {
+    const rows = array(row(await tables.load('bout-tables')).realtime).map(row), seen = new Set<string>();
+    const options = [{label: 'Roll on the bout table (1D10)', value: 'roll'}];
+    for (const entry of rows) {
+        const kind = string(entry.kind), result = string(entry.result);
+        if (!kind || seen.has(kind)) continue;
+        seen.add(kind); options.push({label: `${result}: a fitting bout of madness if this roll drives the investigator insane`, value: kind});
+    }
+    return {name: 'bout', selection: 'compatible', options,
+        question: 'Assume this SAN roll fails and the investigator goes insane. Which bout of madness fits what just happened and who is present (the Keeper may choose a fitting result instead of rolling the table, p.157)? Rolling is always permissible.'};
+}
+/** §221.3(4): the rulebook's example ladder (p.155) as the `san_loss` choice of a horror the module gives no number for. */
+const ladderParameter = (ladder: Array<{san_loss: string; situation: string}>): Parameter => ({name: 'san_loss',
+    question: 'Which of the rulebook\'s example situations (p.155) is what this investigator met this turn closest to in horror? Read done_this_turn: the clues filed, the people who arrived, the last committed narration and the declaration. Select unknown when nothing this turn is as horrific as any example, or when the horror cannot be placed on this ladder.',
+    options: ladder.map(entry => ({label: `${entry.situation} (${entry.san_loss})`, value: entry.san_loss}))});
+const JUDGED_DEFINITION = 'The Keeper Rulebook (p.154) has the Keeper call a Sanity roll for each investigator entangled in a sanity-threatening situation, with the loss depending on the situation; the module gave this one no number, so the loss is chosen from the book\'s example ladder (p.155). '
+    + 'Judge from what actually happened this turn (facts.done_this_turn): a clue filed whose content is a horror, a person or creature who arrived, what the last committed narration showed. '
+    + 'A sight already settled by a sanity_check receipt, a merely tense or unpleasant moment, a secret of the module this investigator has not met, and a horror listed under done_this_turn.stated (it has its own stated check) do not call for this roll. '
+    + 'facts.settled_this_visit lists the Sanity rolls this investigator already made here and what they were for: the loss is for the encounter, so a horror that merely continues from one of them (still lying there, seen again, its smell, the narration describing it again) is settled; only something new or markedly worse calls for a roll.';
 
 export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGraph, sessions: SessionView, profiles: Row[], decisions: Row[],
     owners: {phases: Record<string, string>; openingAttack: Row | null; history: Row[]; publicText: string}): Promise<Row> {
@@ -127,14 +153,35 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
                 vehicle_profiles: Object.entries(row(row(chaseRules.vehicles).entries)).map(([key, value]) => ({key, ...row(value)})),
             });
     }
+    const tables = new RuleTables(campaign.context);
     if (!session && campaign.party.length) {
         const actor = campaign.party[0].name;
+        const scale = await keeperAwardScale(tables);
         for (const ending of ENDING_KINDS) {
             if (ending === 'tpk' && !campaign.party.every(sheet => array(sheet.conditions).includes('dead'))) continue;
             const reward = statedEndingReward(graph, campaign.world, ending);
+            // §221.9 (p.168): the Keeper award is offered from the book's expression or the data's scale, Jev reducing or
+            // cancelling it for cowardly, brutal or murderous conduct; nobody types a figure. A tpk awards nothing.
+            const parameters: Parameter[] = [];
+            if (ending !== 'tpk') {
+                const rung = (expression: string | null) => scale.find(entry => entry.expression === expression);
+                const options = reward
+                    ? [{label: `The book's award for this conclusion: ${reward.expression}`, value: reward.expression},
+                        ...scale.filter(entry => entry.expression !== reward.expression && (entry.expression === null || (rung(reward.expression) ? scale.indexOf(entry) < scale.indexOf(rung(reward.expression)!) : true)))
+                            .map(entry => ({label: entry.label, value: entry.expression}))]
+                    : scale.map(entry => ({label: entry.label, value: entry.expression}));
+                parameters.push({name: 'scenario_san_reward_expr', options,
+                    question: reward ? 'Which Sanity award does the book\'s conclusion grant after the investigators\' conduct is weighed? The book\'s expression stands unless they were cowardly, brutal or murderous (p.168).'
+                        : 'Which Sanity award fits the danger the investigators faced in this chapter and how they acted (p.168)? Select unknown when the chapter\'s danger cannot be weighed.',
+                    default: {value: reward ? reward.expression : null, question: reward
+                        ? 'Were the investigators cowardly, brutal or murderous in this chapter, so that the Keeper should reduce or remove the book\'s Sanity award (p.168)?'
+                        : 'Did the investigators face and overcome real danger in this chapter, so that a Keeper award of Sanity applies even though the book states none (p.168)?'}});
+            }
             add('development:end-session', `Close the party's session as ${ending} and settle its source-bound development`,
-                {actor, intent: 'montage', ending, ...(reward ? {scenario_san_reward_expr: reward.expression} : {})}, [], [],
-                ending === 'tpk' ? 'consequence' : 'declaration');
+                {actor, intent: 'montage', ending}, parameters, [],
+                ending === 'tpk' ? 'consequence' : 'declaration', {reward_source: reward ? 'stated' : 'rulebook_scale', stated: reward ? reward.expression : null});
+            const added = options.at(-1);
+            if (added?.action.ending === ending) added.definition = 'Keeper Rulebook p.168: at the end of a successful scenario or chapter the Keeper may award a Sanity roll, the same for all participants, proportional to the danger the group faced; a cowardly, brutal or murderous party may have it reduced or removed. The host rolls the chosen expression at the development phase; a null value awards nothing.';
         }
     }
     const learningSources = magicLearningSources({graph, world: campaign.world, npcProfile: handle => npcProfileOf(graph, campaign.world, handle)});
@@ -143,7 +190,7 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
     receipts.forEach((receipt, index) => { if (receipt.kind === 'move' && receipt.from !== receipt.to) visitStart = index + 1; });
     const visitReceipts = receipts.slice(visitStart);
     const publicChecks: Row[] = [];
-    const descriptions = row((await new RuleTables(campaign.context).skillDescriptions()).skills);
+    const descriptions = row((await tables.skillDescriptions()).skills);
     // §219.1: what the book finds here by a check of a named skill (§201.2's `clueCheck`), not yet found and not yet passed
     // this turn. It is source evidence on the matching investigator profile: it may establish that the attempt is a roll,
     // never that the player chose it, and it is read by skill identifier only, never from prose.
@@ -157,6 +204,14 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
         finds.push({find: graph.displayName(node), skill: check.skill, ...(check.difficulty ? {difficulty: check.difficulty} : {})});
         bookFinds.set(normalize(check.skill), finds);
     }
+    const ladder = await sanityLossLadder(tables), bout = await boutParameter(tables);
+    // §221.3: what happened this turn, as receipts -- the clues filed and the people who arrived here.
+    const cluesThisTurn = array(campaign.turn.receipts).filter(receipt => receipt.kind === 'clue').flatMap(receipt => {
+        const node = typeof receipt.clue === 'string' ? graph.find(receipt.clue, ['clue']) : null;
+        return node ? [{node, handle: graph.handle(node), label: string(receipt.label || graph.displayName(node)), summary: string(receipt.summary ?? node.summary ?? ''), how: typeof receipt.how === 'string' ? receipt.how : null}] : [];
+    });
+    const arrivedThisTurn = [...new Set(array(campaign.turn.receipts).filter(receipt => receipt.kind === 'npc' && receipt.to === campaign.world.active_scene)
+        .map(receipt => string(receipt.name || receipt.npc)).filter(Boolean))];
     for (const profile of profiles) {
         if (profile.availability !== 'bound') continue;
         // These are exact canonical rule bindings, the same ones used by ResolvePipeline.candidates.
@@ -189,6 +244,7 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
     }
     for (const actor of actors) {
         const own = profiles.filter(profile => profile.actor === actor && profile.availability === 'bound');
+        const statedSights: string[] = [];
         if (own.length >= 2) add('core-check:combined-check', `${actor}: one source-required combined roll using multiple skills, not a sequence of separate attempts`, {actor}, [
             {...parameter('skills', 'Which skills are jointly required by this one combined check? Do not combine separate sequential actions.', own.map(profile => profile.skill)), multiple: {minimum: 2}},
             parameter('mode', 'Does this combined check succeed if any one skill succeeds, or must all its required skills succeed?', ['any', 'all']),
@@ -207,8 +263,9 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
                     row(row(mechanics.hazard).trigger).kind === 'keeper' ? ['hazard_trigger_not_established'] : []);
             }
             const loss = statedSanLoss(mechanics.sanity_loss);
+            if (loss) statedSights.push(graph.displayName(node));
             if (loss) add('sanity:check', `${actor}: source-stated sanity check for ${graph.displayName(node)}`, {actor, rule, san_loss: loss.join('/')},
-                [{...parameter('involuntary', 'Assume the upcoming SAN roll fails. The SAN rule then authorizes the Keeper to choose one brief involuntary response from these legal options; this is not a voluntary player decision. Judge its immediate compatibility, not whether the roll has already failed. Do not choose an extended strategy.', [...INVOLUNTARY_KINDS]), selection: 'compatible'}], [], 'consequence');
+                [involuntary(), bout], [], 'consequence');
         }
         for (const [skill, prefix] of [['First Aid', 'first-aid'], ['Medicine', 'medicine']]) {
             if (!own.some(profile => profile.skill === skill)) continue;
@@ -256,8 +313,39 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
             const alreadyExposed = investigator && visitReceipts.some(receipt => receipt.kind === 'roll' && receipt.roll_kind === 'sanity_check'
                 && receipt.actor === investigator.id && sameNode(graph, receipt.npc_exposure, person.node));
             if (loss && investigator) covered.add('sanity:check');
+            if (loss && investigator) statedSights.push(person.name);
             if (loss && investigator && !alreadyExposed) add('sanity:check', `${actor}: source-stated sanity check on perceiving ${person.name}`, {actor, target: person.name, san_loss: loss.join('/')},
-                [{...parameter('involuntary', 'Assume the upcoming SAN roll fails. The SAN rule then authorizes the Keeper to choose one brief involuntary response from these legal options; this is not a voluntary player decision. Judge its immediate compatibility, not whether the roll has already failed. Do not choose an extended strategy.', [...INVOLUNTARY_KINDS]), selection: 'compatible'}], [], 'consequence');
+                [involuntary(), bout], [], 'consequence');
+        }
+        // §221.3(3): a clue filed this turn whose node states its loss is the book's own number for that sight.
+        for (const filed of cluesThisTurn) {
+            const loss = statedSanLoss(graph.mechanicsOf(filed.node).sanity_loss), investigator = campaign.party.find(sheet => sheet.name === actor);
+            if (!loss || !investigator) continue;
+            statedSights.push(filed.label);
+            const exposed = receipts.some(receipt => receipt.kind === 'roll' && receipt.roll_kind === 'sanity_check' && receipt.actor === investigator.id && receipt.clue_exposure === filed.handle);
+            if (!exposed) add('sanity:check', `${actor}: source-stated sanity check on seeing ${filed.label}`, {actor, clue: filed.handle, san_loss: loss.join('/'), goal: `seeing ${filed.label}`},
+                [involuntary(), bout], [], 'consequence', {perceived: {kind: 'clue', label: filed.label, summary: filed.summary, how: filed.how}});
+        }
+        // §221.3(4): a horror the module gives no number for is still a Sanity roll (p.154), its loss judged from what
+        // happened this turn against the book's example ladder (p.155). Once per investigator per turn: a sanity_check
+        // receipt this turn, stated or judged, is the encounter's roll.
+        {
+            const investigator = campaign.party.find(sheet => sheet.name === actor);
+            const rolled = investigator && array(campaign.turn.receipts).some(receipt => receipt.kind === 'roll' && receipt.roll_kind === 'sanity_check' && receipt.actor === investigator.id);
+            // §221.11: the Sanity rolls this investigator already made on this visit, with what they were for. The rulebook's
+            // loss is for the encounter (p.154): a sight that continues on later turns is not met again. Live table: the
+            // body behind the boards was rolled for on three turns running while the narration kept showing it.
+            const settled = investigator ? owners.history.concat([{turn: campaign.turn.turn, receipts: array(campaign.turn.receipts)}]).flatMap(record =>
+                array(record.receipts).filter(receipt => visitReceipts.includes(receipt) && receipt.kind === 'roll' && receipt.roll_kind === 'sanity_check' && receipt.actor === investigator.id)
+                    .map(receipt => ({turn: record.turn ?? null, source: receipt.goal ?? receipt.source ?? null, san_loss: receipt.san_loss ?? null,
+                        ...(receipt.clue_exposure ? {clue: receipt.clue_exposure} : {}), ...(receipt.npc_exposure ? {person: receipt.npc_exposure} : {})}))) : [];
+            if (investigator && !rolled && ladder.length) add('sanity:check', `${actor}: a Sanity roll for what happened this turn, its loss judged from the rulebook's examples`, {actor},
+                [ladderParameter(ladder), involuntary(), bout], [], 'consequence', {loss_source: 'rulebook_examples', done_this_turn: {
+                    clues: cluesThisTurn.map(filed => ({label: filed.label, summary: filed.summary, how: filed.how})),
+                    people_met: arrivedThisTurn, last_narration: owners.publicText.slice(-1500), declaration,
+                    stated: [...new Set(statedSights)]}, settled_this_visit: settled});
+            const added = options.at(-1);
+            if (added?.action.decision === 'sanity:check' && added.facts?.loss_source === 'rulebook_examples') added.definition = JUDGED_DEFINITION;
         }
         add('push-luck:luck-roll', `${actor}: a Luck percentile check`, {actor}, modifiers());
         const sheet = campaign.party.find(sheet => sheet.name === actor);
@@ -267,11 +355,23 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
                 const check = row(previous.check);
                 publicChecks.push({actor, skill: previous.skill ?? null, passed: previous.passed ?? check.passed ?? null,
                     roll: previous.roll ?? check.roll ?? null, threshold: previous.threshold ?? check.threshold ?? null, goal: check.goal ?? null});
-                if (check.push_eligible === true && previous.pushed !== true && previous.passed === false) {
+                if (check.push_eligible === true && previous.pushed !== true && previous.passed === false && previous.level !== 'fumble') {
+                    // §223.1 (pp.84-85): a push is the player's justified further attempt; foreshadowing the
+                    // consequence is the Keeper's option, not a precondition. The delivered sentences that
+                    // announce one are offered, and the rules default is none (`''`): the kernel then records
+                    // the Keeper's free rein over a failed push (p.86) instead of a consequence nobody said.
                     const sentences = [...new Intl.Segmenter(undefined, {granularity: 'sentence'}).segment(owners.publicText)]
-                        .filter(part => part.index >= Math.max(0, owners.publicText.length - 4000)).map(part => part.segment.trim()).filter(Boolean).slice(-254);
-                    add('push-luck:pushed-roll', `${actor}: explicitly push the failed ${previous.skill} check with an accepted announced risk`,
-                        {actor, push: true}, [parameter('stakes', 'Select the previously published failure consequence which the player explicitly accepts for this pushed roll. Do not invent a risk or use a sentence that does not announce one.', sentences)]);
+                        .filter(part => part.index >= Math.max(0, owners.publicText.length - 4000)).map(part => part.segment.trim()).filter(Boolean).slice(-253);
+                    // The rules default is itself an option (`validateCheckOptions` requires it; cf. the modifiers' `none`), else the
+                    // host reads the whole catalog as incoherent and every later selection of the run is `check_catalog_binding_changed`.
+                    const stakes = parameter('stakes', 'Which delivered sentence foreshadowed the consequence of failing this pushed attempt? Select only a sentence that announces one; do not invent a risk.', sentences);
+                    stakes.options.push({label: NO_FORESHADOWED_CONSEQUENCE, value: ''});
+                    add('push-luck:pushed-roll', `${actor}: explicitly push the failed ${previous.skill} check with a justified further attempt`,
+                        {actor, push: true}, [{...stakes,
+                            default: {value: '', question: 'Did the delivered text foreshadow a consequence of failing this pushed attempt (an "if you fail..." line the player can weigh)? The rule default is that none was foreshadowed and the Keeper has free rein over a failed push.'}}]);
+                    const added = options.at(-1);
+                    if (added?.action.decision === 'push-luck:pushed-roll') added.definition = 'The player declares a further attempt at the same goal after the failed check and describes the extra effort, time or risk that justifies it (p.84). '
+                        + 'A different method does not by itself choose a push; the declaration must be the player\'s choice to try again. A fumble, a combat skill, a pushed roll or a roll already altered with Luck is never pushed.';
                 }
                 const luck = Number(sheet.current_luck ?? row(sheet.characteristics).LUCK ?? 0);
                 if (Number.isSafeInteger(luck) && luck > 0 && luck <= 254 && previous.pushed !== true && previous.level !== 'fumble')
@@ -311,6 +411,38 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
             }
         }
     }
+    // ---- §222.3: the Idea roll (begin) -------------------------------------------------------------------------------
+    // Keeper Rulebook pp. 199-200: when the investigation has stalled the players may ask for an Idea roll; the player whose
+    // investigator has the highest INT rolls; the roll decides how the missed clue comes, never whether. Offered outside a
+    // session, for that investigator, when the scene still holds an undiscovered clue. Jev selects it only on the player's
+    // request for a way forward (`specializedTriggerQuestion`); the clue and the difficulty are its closed parameters.
+    if (!session && scene && campaign.party.length) {
+        const intOf = (sheet: Row): number => Number(row(sheet.characteristics).INT ?? row(sheet.characteristics).int ?? -1);
+        const roller = [...campaign.party].sort((a, b) => intOf(b) - intOf(a))[0];
+        const found = new Set(array(campaign.world.discovered_clues).map(String));
+        const clues = graph.sceneClueIds(scene).map(id => graph.nodes.get(id)!).filter(node => !found.has(graph.handle(node)));
+        if (roller && Number.isFinite(intOf(roller)) && intOf(roller) >= 0 && clues.length) {
+            add('core-check:idea-roll', `${string(roller.name)}: the Idea roll -- the players are stuck and ask for a way forward`, {actor: string(roller.name), intent: 'investigate'}, [
+                // The clue is the Keeper's to give (p.200), not the player's choice: `compatible`, so §163.8 never withholds it;
+                // the best-scored clue is bound (live Jev 2026-10-10 withheld it as an unmade player choice).
+                {name: 'clue', question: 'Is this still-undiscovered clue of this scene one the investigation needs to get moving again -- a clue the players have missed that would point them onward? The most important such clue should score highest.',
+                    options: clues.map(node => ({label: `${graph.handle(node)}: ${string(node.summary || node.name || '').slice(0, 240)}`, value: graph.handle(node)})), selection: 'compatible'},
+                {...parameter('difficulty', 'How plainly had this clue been offered to the players? Never mentioned by the Keeper: regular. Mentioned but not emphasized: hard. Made clear, mentioned several times, or discussed by the players themselves: extreme.', ['regular', 'hard', 'extreme']),
+                    default: {value: 'regular', question: 'Had the Keeper already mentioned this clue to the players (hard), or made it clear or heard the players discuss it (extreme)? If it was never mentioned, the default regular applies.'}},
+            ]);
+            const added = options.at(-1);
+            if (added?.action.decision === 'core-check:idea-roll') {
+                added.definition = 'The Idea roll (Keeper Rulebook pp. 199-200) is proposed by the players, not the Keeper, when their investigators are stuck: '
+                    + 'they have missed a vital clue or do not know what to do next and the game has stalled, and they ask for a way forward, a hint, or the Idea roll itself, '
+                    + 'in or out of character. It is an INT roll by the investigator with the highest INT. The players get the clue whether the roll passes or fails: '
+                    + 'the roll decides only how -- easily on a pass, "in the thick of it" on a failure, where the Keeper opens with trouble. '
+                    + 'It is a highly significant and unusual event. A declared search, question, or any other act is its own ordinary check, never this; '
+                    + 'merely pausing, chatting, or asking about the scene is not a request for it.';
+                added.facts = {roller_int: intOf(roller), undiscovered_clues: clues.length};
+            }
+        }
+    }
+    // ---- §222.3: the Idea roll (end) ---------------------------------------------------------------------------------
     // Inventory every decision, including ones without a closed action adapter. An unsupported selected
     // family is a named need, never silently dropped or replaced by an ordinary roll.
     for (const decision of decisions) {

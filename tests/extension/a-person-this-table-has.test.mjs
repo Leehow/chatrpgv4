@@ -212,8 +212,8 @@ test('the b11 t17 batch replay lands whole', async t => {
 		{kind: 'npc', name: WOMAN, to: 'here', walk_on: true, why: '她是这家小饭馆的老板，正在柜台后面收拾锅灶'}]);
 	assert.equal(result.not_landed, undefined, `the b11 t17 batch should land whole, exactly as SL-70 rules: ${JSON.stringify(result.not_landed)}`);
 	assert.equal((result.receipts ?? []).filter(id => id.startsWith('npc:')).length, 3, 'all three npc receipts are in the one call\'s receipts');
-	// §178.3: the three meet the investigator in that call, so each one's first impression is rolled there too.
-	assert.deepEqual((result.first_impressions ?? []).map(row => row.target).sort(), [OLD_MAN, YOUNG_MAN, WOMAN].sort());
+	// §224.3: meeting them rolls no first impression; the host offers it only when it matters to a turn.
+	assert.equal(result.first_impressions, undefined);
 
 	const world = await game.world();
 	assert.deepEqual((world.table_people ?? []).map(person => person.name).sort(), [OLD_MAN, YOUNG_MAN, WOMAN].sort());

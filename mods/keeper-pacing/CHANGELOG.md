@@ -1,5 +1,8 @@
 # Keeper Pacing
 
+## 1.3.2
+- "A stuck or confused player": the Idea roll now exists in the product (contract §222.3: `decision:coc7:core-check:idea-roll`, offered by the host's check catalog when the player asks for a way forward, selected by Jev, rolled against the highest INT). The paragraph says who owns it -- the host calls it, the clerk's receipt and note say how the clue arrives -- and keeps the rulebook's two outcomes: woven in on a pass, in the thick of it on a failure. The Keeper never rolls it, never withholds the clue, never invents one unasked.
+
 ## 1.3.1
 - Declares the sections of `agent.md` (`sections.json`, `instructions.sections.v1`, contract §183): which ride every turn and which a turn loads by its topics, the table's state or the Keeper's calls, for a table whose instructions exceed the instruction budget. Under the budget, as every table is today, the whole text goes as before.
 - `brief.md` is gone. A 2026-10-04 probe of real provider requests found the Keeper received the full `agent.md` every turn; the brief existed only in the capsule (§183, evidence).

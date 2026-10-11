@@ -76,3 +76,14 @@ test('§163: an implicit accepted delivery records the pending preparation as a 
     assert.equal(f.notices.length, 0);
   }
 });
+
+test('§221.5: a family with no executable option and nothing to prepare is told so, not told to prepare participants', async () => {
+  const f = await fixture();
+  const needs = ['check_arguments_unavailable:sanity:gain-current-san'];
+  const note = await f.project([{candidate: 'Sanity gain', needs, preparation: {decision: 'sanity:gain-current-san', needs}}]);
+  assert.match(note, /nothing to prepare for it/);
+  assert.match(note, /Narrate the moment by your own judgement without a roll/);
+  assert.doesNotMatch(note, /Prepare the observed participants/);
+  const mixed = await f.project([{candidate: 'Sanity gain', needs, preparation: {decision: 'sanity:gain-current-san', needs}}, f.pending]);
+  assert.match(mixed, /Prepare the observed participants/, 'a chase placeholder in the same step keeps the participant instruction');
+});

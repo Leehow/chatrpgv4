@@ -24,7 +24,7 @@
       "node_ids": [
         "data-table:coc7:development:table-1"
       ],
-      "sha256": "sha256:2c4bcc5d30ac76dfec3af0fd4e693d7ef83b3f0d7835d82222123982fe31c217"
+      "sha256": "sha256:38589d6943d9057473fd3892c7814e556626b4eb0c851540a155b0a4ce8dffd2"
     },
     {
       "table_name": "difficulty-levels.json",
@@ -39,7 +39,7 @@
         "data-table:coc7:development:table-2",
         "data-table:coc7:luck"
       ],
-      "sha256": "sha256:c9a0073acbaaeca703258f8d5ab34bdc04d8a65abe0c23c00fbc75be84b0348d"
+      "sha256": "sha256:8ab8154b5c4d63ffaf51f74df83113d513bd749d503fdd1282e98db04f6fb56f"
     },
     {
       "table_name": "manias.json",
@@ -67,7 +67,7 @@
       "node_ids": [
         "data-table:coc7:pushed-roll"
       ],
-      "sha256": "sha256:63c01366232f033ce5f887d25d9d9085b02aef6e8c1ec5395a9679704b6f69c7"
+      "sha256": "sha256:8360fa5f0a81f2348f191bebd2a8733146fc1776772baf1f3bd695221f18aff1"
     },
     {
       "table_name": "roll-modifiers.json",
