@@ -830,13 +830,14 @@ const NOT_A_MEASURE = 'a schedule, an opening or closing hour, an appointment or
   + 'a time inside a condition that is not met now, the time an activity starts, or a time the player asks about';
 function hourCriterion(index: number): string {
   const hour = index % 12;
-  return index === 12 ? 'The stated end falls in the twelve o\'clock hour: 00:00-00:59 (around midnight) or 12:00-12:59 (around noon).'
-    : `The stated end falls in the ${index} o'clock hour: ${pad(hour)}:00-${pad(hour)}:59 or ${pad(hour + 12)}:00-${pad(hour + 12)}:59.`;
+  // §218.9: short criteria (the instruction says what they are) keep the bind batch under Jev's request limit.
+  return index === 12 ? '00:00-00:59 (around midnight) or 12:00-12:59 (around noon)'
+    : `${pad(hour)}:00-${pad(hour)}:59 or ${pad(hour + 12)}:00-${pad(hour + 12)}:59`;
 }
 function minuteCriterion(index: number): string {
-  return index === 0 ? 'Exactly on the hour: the time has no half, no quarter and no minutes after its hour.'
-    : index === 15 ? '15 minutes past the hour (a quarter past).' : index === 30 ? '30 minutes past the hour (half past: the hour and a half).'
-      : index === 45 ? '45 minutes past the hour (three quarters past).' : `${index} minutes past the hour.`;
+  return index === 0 ? 'Exactly on the hour: no half, no quarter, no minutes after it.'
+    : index === 15 ? '15 (a quarter past)' : index === 30 ? '30 (half past: the hour and a half)'
+      : index === 45 ? '45 (three quarters past)' : String(index);
 }
 function amountCriterion(value: number): string {
   return value === 0.25 ? '0.25 (a quarter)' : value === 0.5 ? '0.5 (a half)' : value === 0.75 ? '0.75 (three quarters)'
@@ -861,12 +862,12 @@ export function statedMeasureQuestions(candidate: Candidate): DecisionBatch['que
     {key: STATED_KEYS.hour, target: 'the hour of the clock time at which what the investigator does now ends', type: 'choice',
       instructions: `${reads} Take ${theEnd}. Which hour of a twelve-hour clock face is it in? A 24-hour time such as 19:30 is in the seven o'clock hour, `
         + 'and so is a quarter to eight. When the input names when an activity begins and when it ends (to bed at one time, up at another), take when it ends. '
-        + `Never take the hour of something else: ${NOT_A_MEASURE}. Choose none when the input names no such end. A named activity (eating, reading, resting, sleeping) does not compete with the time it ends at.`,
+        + 'Never take the hour of something else (the times listed under none). The options give each hour\'s readings on a 24-hour clock. Choose none when the input names no such end. A named activity (eating, reading, resting, sleeping) does not compete with the time it ends at.',
       criteria: {none: `The input names no clock time at which what the investigator does now ends: it names no clock time, or only ${NOT_A_MEASURE}.`,
         ...Object.fromEntries(STATED_HOURS.map((key, index) => [key, hourCriterion(index + 1)])),
         unknown: 'Cannot be told from the supplied state.'}},
     {key: STATED_KEYS.minute, target: 'the minute of the clock time at which what the investigator does now ends', type: 'choice',
-      instructions: `${reads} Take ${theEnd}, the same time whose hour is asked, not any other time in the input (never a deadline's or a start's). Which minute past its hour is it? `
+      instructions: `${reads} Take ${theEnd}, the same time whose hour is asked, not any other time in the input (never a deadline's or a start's). Which minute past its hour is it? Each option mNN is NN minutes past the hour. `
         + 'The hour and a half (half past four, four thirty, 4:30) is m30; a quarter past is m15; three quarters past (a quarter before the next hour) is m45; written in digits or in words. '
         + 'Choose m00 only when the time is exactly on the hour. Choose unknown when no such time is named or its minute cannot be told.',
       criteria: {...Object.fromEntries(STATED_MINUTES.map((key, index) => [key, minuteCriterion(index)])),
@@ -898,7 +899,7 @@ export function statedMeasureQuestions(candidate: Candidate): DecisionBatch['que
         unknown: 'Cannot be told from the supplied state.'}},
     {key: STATED_KEYS.unit, target: 'the length of the time the investigator lets pass now, by its unit', type: 'choice',
       instructions: `${reads} Does it state how long the time the investigator lets pass now lasts: waiting, resting, sleeping, reading or working for so many minutes, `
-        + `hours or days? If it does, in which unit is that length stated? Choose none when it states no such length. A length that only describes something else is none: ${NOT_A_MEASURE}. `
+        + `hours or days? If it does, in which unit is that length stated? Choose none when it states no such length. A length that only describes something else (the times listed under none) is none. `
         + 'A clock time at which something ends is not a length.',
       criteria: {none: `The input states no length of the time let pass now: it states no length, or only ${NOT_A_MEASURE}.`,
         minutes: 'The length is stated as a number of minutes (twenty minutes, 45 min).',
