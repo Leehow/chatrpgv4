@@ -126,32 +126,44 @@ export function capabilityCatalogue(tools: readonly CapabilityTool[]): Capabilit
     return cards;
 }
 
-/** Fold selected facets of the same effect into one canonical shape, preserving mixed batches. */
-export function projectCapabilityTools(tools: readonly CapabilityTool[], selected: ReadonlySet<string>,
-    core: readonly string[] = ['look','lookup','recall','ask','narrate']): CapabilityTool[] {
+const FIXED_NOTE = 'Effect kinds and what each is for are listed below. The exact fields of a kind arrive in the conversation as capability detail (a turn detail message, or attached to a result); for a kind whose detail you have not been shown, call lookup with kind capability and its name first. Every effect is still validated against its full canonical definition before anything is written.';
+const fixedViews = new WeakMap<readonly CapabilityTool[], CapabilityTool[]>();
+
+/**
+ * Contract §227.1: the byte-stable request view. Every offered tool keeps its canonical declaration except apply, whose
+ * effects become a kind envelope listing each kind's index card; field detail is disclosed in the conversation. The
+ * registered canonical validator is unchanged and still validates every call.
+ */
+export function fixedCapabilityTools(tools: readonly CapabilityTool[]): CapabilityTool[] {
+    const cached = fixedViews.get(tools);
+    if (cached) return cached;
     const catalogue = capabilityCatalogue(tools);
-    const unknown = [...selected].filter(name => !catalogue.some(card => card.name === name));
-    if (unknown.length) throw Error('Unknown capability selection: '+unknown.join(','));
-    const applyCards = catalogue.filter(card => card.verb === 'apply' && selected.has(card.name));
-    const effects = new Set(applyCards.map(card => card.effect));
-    return tools.flatMap(tool => {
-        if (tool.name !== 'apply') return core.includes(tool.name) || selected.has(tool.name) ? [clone(tool)] : [];
-        if (!applyCards.length) return [];
+    const view = tools.map(tool => {
+        if (tool.name !== 'apply') return tool;
         const projected = clone(tool);
-        projected.parameters.properties.effects.items.anyOf = variantsOf(projected).filter(variant => {
-            const effect = kindOf(variant)!;
-            if (!effects.has(effect)) return false;
-            const cards = applyCards.filter(card => card.effect === effect);
-            if (cards.every(card => card.fields)) {
-                const fields = new Set(cards.flatMap(card => [...card.fields!]));
-                variant.properties = Object.fromEntries(Object.entries(variant.properties).filter(([field]) => fields.has(field)));
-            }
-            // This restricts the model view; the complete registered canonical validator remains unchanged.
-            variant.additionalProperties = false;
-            return true;
+        const kinds = variantsOf(tool).map(variant => kindOf(variant)!);
+        // The canonical kind description is the author's own rule text; the host card covers kinds that have none.
+        const lines = variantsOf(tool).map(variant => {
+            const kind = kindOf(variant)!, cards = catalogue.filter(card => card.effect === kind);
+            const said = variant.properties.kind.description ?? (cards[0].fields ? undefined : cards[0].applicability);
+            const facets = cards.some(card => card.fields) ? ' Detail: ' + cards.map(card => `${card.name} (${card.applicability})`).join('; ') : '';
+            return `- ${kind}: ${said ?? ''}${facets}`.trimEnd();
         });
-        return [projected];
+        projected.description = `${tool.description}\n\n${FIXED_NOTE}\n${lines.join('\n')}`;
+        projected.parameters.properties.effects.items = {type: 'object', required: ['kind'],
+            properties: {kind: {type: 'string', enum: kinds}}, additionalProperties: true};
+        return projected;
     });
+    fixedViews.set(tools, view);
+    return view;
+}
+
+/** The disclosed form of apply capability cards: what a turn detail message or an attachment carries. */
+export function capabilityDetail(tools: readonly CapabilityTool[], names: Iterable<string>): Row[] {
+    const wanted = new Set(names);
+    return capabilityCatalogue(tools).filter(card => card.verb === 'apply' && wanted.has(card.name)).map(card => ({
+        name: card.name, effect: card.effect, applicability: card.applicability, exclusions: card.exclusions,
+        fields: JSON.parse(card.detail), version: card.version}));
 }
 
 /** Structural missing-view check only. It never interprets intent or grants permission. */

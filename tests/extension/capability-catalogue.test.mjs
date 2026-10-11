@@ -25,27 +25,27 @@ const tools=api.offeredTools(api.COC_TOOLS,{});
 const apply=tools.find(t=>t.name==='apply');
 const variant=(tool,kind)=>tool.parameters.properties.effects.items.anyOf.find(v=>(v.properties.kind.const??v.properties.kind.enum?.[0])===kind);
 
-test('a mixed temporal view retains canonical constraints and excludes unrelated state changes',()=>{
+test('§227.1 the fixed view keeps every kind and its rule text; the canonical definition still validates',()=>{
     const before=JSON.stringify(tools);
-    const view=api.projectCapabilityTools(tools,new Set(['time','scene','npc-presence','npc-activity']));
+    const view=api.fixedCapabilityTools(tools);
+    assert.equal(api.fixedCapabilityTools(tools),view,'one view object per registered tool list');
+    assert.equal(JSON.stringify(api.fixedCapabilityTools(tools)),JSON.stringify(view));
+    assert.equal(JSON.stringify(tools),before,'the registered definitions are not touched');
+    assert.deepEqual(view.map(t=>t.name),tools.map(t=>t.name));
+    for(const tool of view)if(tool.name!=='apply')assert.equal(tool,tools.find(t=>t.name===tool.name));
     const projected=view.find(t=>t.name==='apply');
-    const valid={effects:[
-        {kind:'time',until:{days:0,time:'09:00'}},
-        {kind:'scene',name:'here',activity:{summary:'The day staff have opened the doors.',basis:'established',service:'open'},why:'The staff arrived.'},
-        {kind:'npc',name:'watchman',to:'away',why:'His round ended.'},
-        {kind:'npc',name:'watchman',activity:{summary:'Awake after his round.',basis:'observed',wakefulness:'awake'}},
-    ]};
-    assert.equal(Check(projected.parameters,valid),true);
-    assert.equal(Check(apply.parameters,valid),true);
-    for(const bad of [
-        {effects:[{kind:'time',until:{days:-1,time:'09:00'}}]},
-        {effects:[{kind:'npc',name:'watchman',activity:{summary:'Resting.',basis:'invented',wakefulness:'awake'}}]},
-        {effects:[{kind:'cash',currency:'USD',amount:20,to:'here'}]},
-        {effects:[{kind:'npc',name:'watchman',defense:'dodge'}]},
-    ]) assert.equal(Check(projected.parameters,bad),false);
-    assert.equal(JSON.stringify(tools),before);
-    assert.deepEqual(variant(projected,'time').properties.until,variant(apply,'time').properties.until);
+    const kinds=apply.parameters.properties.effects.items.anyOf.map(v=>v.properties.kind.const??v.properties.kind.enum[0]);
+    assert.deepEqual(projected.parameters.properties.effects.items.properties.kind.enum,kinds);
+    assert.match(projected.description,/never send time for the same journey/);
+    assert.match(projected.description,/npc-activity \(/);
     assert.ok(Buffer.byteLength(JSON.stringify(projected))<Buffer.byteLength(JSON.stringify(apply))*.3);
+    const bad={effects:[{kind:'time',until:{days:-1,time:'09:00'}}]};
+    assert.equal(Check(projected.parameters,bad),true,'the envelope is open');
+    assert.equal(Check(apply.parameters,bad),false,'the registered definition still refuses it');
+    const detail=api.capabilityDetail(tools,['time','npc-activity']);
+    assert.deepEqual(detail.map(card=>card.name),['time','npc-activity']);
+    assert.deepEqual(detail[0].fields,variant(apply,'time'));
+    assert.ok(detail[1].fields.properties.activity&&!detail[1].fields.properties.defense);
 });
 
 test('readiness finds every missing purpose in the whole batch before any dispatcher action',()=>{
@@ -60,24 +60,18 @@ test('new canonical fields require an explicit capability owner rather than disa
     const copy=structuredClone(tools);
     variant(copy.find(t=>t.name==='apply'),'npc').properties.new_behavior={type:'string'};
     assert.throws(()=>api.capabilityCatalogue(copy),/fields need capability owners/);
-    assert.throws(()=>api.projectCapabilityTools(tools,new Set(['not-a-capability'])),/Unknown capability selection/);
     const cards=api.capabilityCatalogue(tools);
     assert.ok(cards.every(card=>card.version.length===64&&card.applicability.length<240));
 });
 
-test('public system projection replaces old declarations without rewriting their evidence',()=>{
+test('public system projection replaces the declarations with the fixed view without rewriting their evidence',()=>{
     const declared=tools.filter(t=>t.name!=='resolve').map(({name,description,parameters})=>({name,description,parameters}));
     const messages=[{role:'system',content:'Canonical Keeper rules.',toolsAdded:declared,timestamp:1},
         {role:'user',content:[{type:'text',text:'Wait until nine.'}],timestamp:2}];
     const evidence=JSON.stringify(messages);
-    const head=getCurrentSystemMessage(messages);
-    const {toolsAdded,toolsRemoved,...system}=head;
-    const selected=api.projectCapabilityTools(getCurrentTools(messages),new Set(['time','scene','npc-presence','npc-activity']));
-    const request=[{...system,toolsAdded:selected},...messages.filter(m=>m.role!=='system')];
+    const {toolsAdded,toolsRemoved,...system}=getCurrentSystemMessage(messages);
+    const request=[{...system,toolsAdded:api.fixedCapabilityTools(getCurrentTools(messages))},...messages.filter(m=>m.role!=='system')];
     assert.equal(JSON.stringify(messages),evidence);
-    assert.deepEqual(getCurrentTools(request).map(t=>t.name),['look','lookup','recall','apply','ask','narrate']);
-    const fields=variant(getCurrentTools(request).find(t=>t.name==='apply'),'npc').properties;
-    assert.ok(fields.activity&&fields.to);
-    assert.equal(fields.defense,undefined);
-    assert.equal(fields.document,undefined);
+    assert.deepEqual(getCurrentTools(request).map(t=>t.name),declared.map(t=>t.name));
+    assert.equal(getCurrentTools(request).find(t=>t.name==='apply').parameters.properties.effects.items.anyOf,undefined);
 });

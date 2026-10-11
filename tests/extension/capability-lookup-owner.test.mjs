@@ -1,7 +1,8 @@
 // Contract §209.14 (issue #112 live 9e7, turns 22 and 24): the Keeper's purpose lookup is a foreground read. It runs
 // after the Keeper's own inference, which on a real table outlasts the 12 s optional preparation allowance, so it is owned
 // by the current step's read owner, not by that expired allowance; the per-input selector budget is not renewed, and a
-// missing owner is still an explicit no-commit full fallback.
+// missing owner is an explicit no-commit fallback. §227.3/§227.4: that fallback is the capability index
+// (`index_fallback`), no write is held, and detail a write used before it was delivered rides on that write's result.
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {build} from 'esbuild';
@@ -22,6 +23,18 @@ const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
 test.after(()=>rm(temp,{recursive:true,force:true}));
 
 const QUERY='Record the fare the investigator pays the cab driver.';
+const PAY={effects:[{kind:'cash',amount:'0.75',currency:'USD',to:'driver'}]};
+
+/** §227.3: run a write's tool_call and tool_result hooks; returns the call verdict and the attached `disclosed_detail`, if any. */
+async function write(hooks,toolCallId,input=PAY){
+    const verdict=await hooks.get('tool_call')({toolName:'apply',toolCallId,input});
+    const content=[{type:'text',text:'Applied.'}];
+    const patched=await hooks.get('tool_result')({toolName:'apply',toolCallId,input,content,details:{},isError:false});
+    assert.ok(!patched||patched.content.length===content.length+1,'at most one part is attached');
+    const detail=patched?JSON.parse(patched.content.at(-1).text):undefined;
+    if(detail)assert.deepEqual(patched.content.slice(0,-1),content,'the result itself is kept as it was');
+    return{verdict,detail};
+}
 
 /** One input on the installed context hooks: a selected first request, then the Keeper's model time past the allowance. */
 async function table(t,{owner,waitMs=2100}){
@@ -82,48 +95,63 @@ for(const owner of ['hybrid','task'])test(`a purpose lookup after the optional a
     const {hooks,rows,seen,lookup,shutdown}=await table(t,{owner});
     assert.equal(typeof lookup,'function');
     const result=await lookup({kind:'capability',query:QUERY});
-    assert.notEqual(result.status,'full_fallback',JSON.stringify(result));
+    assert.notEqual(result.status,'index_fallback',JSON.stringify(result));
     assert.equal(result.read_only,true);assert.equal(result.no_commit,true);
     const cash=result.capabilities.find(c=>c.name==='cash');
     assert.ok(cash?.detail,'the cash detail card is returned, not only a name');
     assert.ok(seen.lookups>0,'the lookup asked its own decision');
     if(owner==='task'){assert.ok(seen.reserved>=seen.lookups,'the lookup reserves from the foreground provider owner');assert.equal(seen.settled,seen.reserved);}
     assert.equal(rows.some(r=>r.event==='lookup_fallback'),false);
-    // The lookup authorizes nothing: an apply still meets §209.6's projection hold until the expanded schema is sent.
-    const hold=await hooks.get('tool_call')({toolName:'apply',toolCallId:'after-lookup',input:{effects:[{kind:'cash',amount:'0.75',currency:'USD',to:'driver'}]}});
-    assert.equal(hold?.block,true);assert.match(hold.reason,/no world change was committed/i);
+    // §227.3/§227.4: the write is not held, and the cash detail the lookup returned counts as delivered for the input,
+    // so nothing is attached to the write's result.
+    const {verdict,detail}=await write(hooks,'after-lookup');
+    assert.equal(verdict,undefined);
+    assert.equal(detail,undefined,'the looked-up detail is not sent again');
     await shutdown();
 });
 
-test('a purpose lookup without a live foreground owner is an explicit no-commit full fallback',async t=>{
+test('a purpose lookup without a live foreground owner is an explicit no-commit index fallback, and the write is not held',async t=>{
     const {hooks,rows,seen,lookup,foreground,shutdown}=await table(t,{owner:'hybrid'});
     foreground.deadlineAt=Date.now()-1;
     const result=await lookup({kind:'capability',query:QUERY});
-    assert.equal(result.status,'full_fallback');assert.equal(result.read_only,true);assert.equal(result.no_commit,true);
+    // §227.4: there is no wider tool list to fall back to; the index answers with every apply capability's name and use.
+    assert.equal(result.status,'index_fallback');assert.equal(result.read_only,true);assert.equal(result.no_commit,true);
     assert.equal(result.reason,'lookup_owner_unavailable');
+    const cash=result.capabilities.find(c=>c.name==='cash');
+    assert.ok(cash?.applicability,'the index lists cash with its applicability');
+    assert.ok(result.capabilities.every(c=>c.detail===undefined),'the index carries no field detail');
     assert.equal(seen.lookups,0,'no decision is asked without an owner');
     assert.ok(rows.some(r=>r.event==='lookup_fallback'&&r.reason==='lookup_owner_unavailable'&&r.no_commit));
-    const hold=await hooks.get('tool_call')({toolName:'apply',toolCallId:'held',input:{effects:[{kind:'cash',amount:'0.75',currency:'USD',to:'driver'}]}});
-    assert.equal(hold?.block,true);
+    // §227.3: no write hold follows the fallback; the cash detail the write used undelivered is attached to its result.
+    const {verdict,detail}=await write(hooks,'not-held');
+    assert.equal(verdict,undefined);
+    assert.equal(detail?.kind,'disclosed_detail');assert.match(detail.authority,/not redone/);
+    assert.deepEqual(detail.capability_detail.map(c=>c.name),['cash']);
+    assert.equal(typeof detail.capability_detail[0].fields,'object','the exact canonical field schema is attached');
+    assert.ok(rows.some(r=>r.lane==='turn-disclosure'&&r.event==='attached'&&r.capabilities?.includes('cash')));
+    // Once per input: a second cash write carries nothing more.
+    const again=await write(hooks,'not-held-again');
+    assert.equal(again.verdict,undefined);assert.equal(again.detail,undefined);
     await shutdown();
 });
 
 // Contract §217.1 (issue #112 live d6c, turn 54, session line 27231): a background reading published its source while the
 // Keeper's inference was out. The publication cleared the capability epoch, so the first of the Keeper's two capability
 // lookups answered `Capability discovery has no current input` and the batch rule sent the second back unrun. The player's
-// input was still current: both lookups are read-only detail and must answer, and the write gate must stay where it was.
+// input was still current: both lookups are read-only detail and must answer. §227.2/§227.3: the publication keeps the
+// input's disclosure ledger, so the detail the lookups delivered is not attached again, and no write is held.
 test('a source publication during the Keeper inference leaves both of its capability lookups answerable',async t=>{
     const {hooks,bus,rows,lookup,shutdown}=await table(t,{owner:'hybrid',waitMs:0});
     bus.get('coc:source-published')({campaign:'table',module_id:'fixture'});
     const purpose=await lookup({kind:'capability',query:QUERY});
     const named=await lookup({kind:'capability',name:'npc-activity'});
     assert.equal(purpose.read_only,true);assert.equal(purpose.no_commit,true);
-    assert.notEqual(purpose.status,'full_fallback',JSON.stringify(purpose));
+    assert.notEqual(purpose.status,'index_fallback',JSON.stringify(purpose));
     assert.ok(purpose.capabilities.find(c=>c.name==='cash')?.detail,'the purpose lookup returns the cash detail card');
     assert.ok(named.capabilities.find(c=>c.name==='npc-activity')?.detail,'the named lookup returns its detail card');
     assert.equal(rows.some(r=>r.event==='lookup_fallback'),false);
-    // The request the Keeper decided from was narrow: its write is still held before mutation.
-    const hold=await hooks.get('tool_call')({toolName:'apply',toolCallId:'after-publication',input:{effects:[{kind:'cash',amount:'0.75',currency:'USD',to:'driver'}]}});
-    assert.equal(hold?.block,true);assert.match(hold.reason,/no world change was committed/i);
+    const {verdict,detail}=await write(hooks,'after-publication');
+    assert.equal(verdict,undefined,'the write reaches admission and the kernel');
+    assert.equal(detail,undefined,'the cash detail the lookup delivered survives the in-input invalidation');
     await shutdown();
 });

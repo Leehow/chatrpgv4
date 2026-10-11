@@ -4,6 +4,10 @@
  * Establishing a place", `before_apply:move`) before the Keeper's first request of the turn had been sent, every turn, and
  * the clerk can never "re-decide with the expanded request". Here the context hook is driven exactly as the kernel
  * extension's canonical gateway drives it: the gateway port names the call's host origin.
+ *
+ * §227.3 (amends §209.6 and §215): no write is held for detail it was not shown any more. The Keeper's own write reaches
+ * admission and the kernel, and the section it used undelivered is attached to that call's result as `disclosed_detail`,
+ * once per input. A policy clerk's write decides nothing from the Keeper's request, so nothing is attached to it.
  */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
@@ -32,30 +36,86 @@ function install(){
             sections:[{key:'narration-craft@2.6.0#6',heading:'Establishing a place',gates_open:true,topics:[],gates:[],triggers:['state:establish','before_apply:move'],
                 applicability:{what:'Arriving somewhere.',not_for:'Staying put.',examples:[]}}]}]}};
     const binding={version:1,campaign:'game',worldline:'main',loop:0,turn:30,source_revision:'a'.repeat(64)};
+    const reads=[];
+    pi.events.emit('coc:kernel-bridge',{campaign:'game',call:async(method,args)=>{
+        if(method==='mods.sections'){reads.push(...args.keys);return{sections:args.keys.map(key=>({key,text:'Open on what the place does to arrivals.'}))};}
+        if(method==='table.capsule')return{...capsule,_context:binding};
+        if(method==='table.untold')return{};
+        return{cards:[],_snapshot:'fixture'};
+    }});
     pi.events.emit('coc:capsule',{capsule,context:binding,epoch:'input-30'});
-    return {hooks,rows,emit:pi.events.emit};
+    const messages=[{role:'user',content:[{type:'text',text:capsule.turn.player_text}],timestamp:1},
+        {role:'custom',customType:'coc-capsule',content:JSON.stringify(capsule),details:{context:binding,epoch:'input-30'},timestamp:2}];
+    const ctx={model:{contextWindow:500000},getContextUsage:()=>({percent:1}),
+        sessionManager:{getBranch:()=>[],buildSessionProjection:()=>({messages:[{role:'system',content:'Keeper core.',timestamp:0},...messages]})}};
+    /**
+     * The Keeper's request of the turn. Its section packet did not reach the provider payload, so §227.2 withdraws it and
+     * the section is still undelivered when the Keeper writes (the case §227.3's attachment exists for).
+     */
+    const keeperRequest=async()=>{
+        const out=await hooks.get('context')({messages},ctx);
+        assert.ok(out.messages.some(m=>m.customType==='coc-mod-sections'),'the request prepared the section packet');
+        hooks.get('before_provider_request')({payload:{input:out.messages.filter(m=>m.customType!=='coc-mod-sections')}});
+        assert.ok(rows.some(row=>row.lane==='mod-discovery'&&row.event==='delivered'&&row.delivered===false));
+    };
+    return {hooks,rows,reads,keeperRequest,emit:pi.events.emit};
 }
 const move={effects:[{kind:'move',to:'neighborhood-gossip'}]};
+/** One write through the tool_call and tool_result hooks, as Pi runs them; returns the verdict and any attached detail. */
+async function write(hooks,toolCallId){
+    const verdict=await hooks.get('tool_call')({toolName:'apply',toolCallId,input:move});
+    const content=[{type:'text',text:'Moved.'}];
+    const patched=await hooks.get('tool_result')({toolName:'apply',toolCallId,input:move,content,details:{},isError:false});
+    if(patched)assert.deepEqual(patched.content.slice(0,-1),content,'the result itself is kept as it was');
+    return{verdict,detail:patched?JSON.parse(patched.content.at(-1).text):undefined};
+}
+const establishing=[{package:'narration-craft',section:'Establishing a place',version:'2.6.0',text:'Open on what the place does to arrivals.'}];
 
-test('§215 a policy clerk write is not held for package detail the Keeper has not been sent yet; the Keeper\'s own call still is',async()=>{
-    const {hooks,rows,emit}=install();
+test('§215/§227.3 a policy clerk write is not held and gets nothing attached; the Keeper\'s own write is not held and gets the section on its result',async()=>{
+    const {hooks,rows,reads,keeperRequest,emit}=install();
     const origins=new Map([['clerk:run-30:s4/op1',{origin:'policy',run:'run-30',step:'run-30:s4',clerk:'declared_bookkeeping'}]]);
     emit('coc:operation-dispatcher',Object.freeze({dispatch:async()=>{throw Error('unused');},hostOrigin:id=>origins.get(id)}));
     // The clerk runs before the turn's first Keeper request, as in the evidence: nothing has been delivered yet.
-    const clerk=await hooks.get('tool_call')({toolName:'apply',toolCallId:'clerk:run-30:s4/op1',input:move});
-    assert.equal(clerk,undefined,'the declared move reaches admission and the kernel');
+    const clerk=await write(hooks,'clerk:run-30:s4/op1');
+    assert.equal(clerk.verdict,undefined,'the declared move reaches admission and the kernel');
+    assert.equal(clerk.detail,undefined,'nothing is attached to a policy clerk\'s result');
     const deferred=rows.find(row=>row.lane==='mod-discovery'&&row.event==='readiness_deferred');
-    assert.deepEqual(deferred?.keys,['narration-craft@2.6.0#6'],'the section the write made due is recorded as owed to the Keeper\'s next request');
+    assert.deepEqual(deferred?.keys,['narration-craft@2.6.0#6'],'the section the write made due is recorded for the Keeper\'s request');
     assert.equal(deferred.origin,'policy');
-    assert.equal(rows.some(row=>row.event==='readiness_expansion'),false);
-    // The same call from the Keeper is held exactly as §209.6 says: it re-decides with the detail in view.
-    const keeper=await hooks.get('tool_call')({toolName:'apply',toolCallId:'call-keeper-1|fc_1',input:move});
-    assert.equal(keeper?.block,true);assert.match(keeper.reason,/Required package detail was absent/);
-    assert.ok(rows.some(row=>row.lane==='mod-discovery'&&row.event==='readiness_expansion'));
+    assert.equal(rows.some(row=>row.lane==='turn-disclosure'),false,'the clerk owes the Keeper nothing');
+    assert.deepEqual(reads,[],'no section text is read for the clerk');
+    // The same move from the Keeper, after its request went out without the section: not held (§227.3), and the section
+    // rides on its own result instead of a re-decision.
+    await keeperRequest();
+    const keeper=await write(hooks,'call-keeper-1|fc_1');
+    assert.equal(keeper.verdict,undefined,'the Keeper\'s write is not held');
+    assert.equal(keeper.detail?.kind,'disclosed_detail');assert.match(keeper.detail.authority,/not redone/);
+    assert.deepEqual(keeper.detail.package_sections,establishing);
+    assert.equal(keeper.detail.capability_detail,undefined);
+    assert.ok(rows.some(row=>row.lane==='turn-disclosure'&&row.event==='owed'&&row.no_hold===true));
+    assert.equal(rows.some(row=>row.event==='readiness_expansion'||row.event==='write_held'),false,'no hold of any kind');
+    // Once per input: the Keeper's next move carries nothing more.
+    const again=await write(hooks,'call-keeper-2|fc_2');
+    assert.equal(again.verdict,undefined);assert.equal(again.detail,undefined);
 });
 
-test('§215 without a gateway port every call keeps the hold (fails closed)',async()=>{
+// §227.3: without a gateway port no call can be shown to be a policy clerk's, so each is treated as the Keeper's own:
+// it is not held, and the section it used undelivered is attached to its result.
+test('§215/§227.3 without a gateway port a call is treated as the Keeper\'s: not held, the section attached to its result',async()=>{
+    const {hooks,rows,keeperRequest}=install();
+    await keeperRequest();
+    const call=await write(hooks,'clerk:run-30:s4/op1');
+    assert.equal(call.verdict,undefined);
+    assert.deepEqual(call.detail?.package_sections,establishing);
+    assert.equal(rows.some(row=>row.event==='readiness_deferred'),false,'nothing is recorded as a policy write');
+});
+
+// §227.3: a Keeper write can arrive before any request of its input was prepared (a degraded first request). The
+// tool_call learns the package index from the capsule, and the ledger keeps what the input owed before its first request.
+test('§227.3 a Keeper write before any prepared request of the input still gets the section on its result',
+    async()=>{
     const {hooks}=install();
-    const held=await hooks.get('tool_call')({toolName:'apply',toolCallId:'clerk:run-30:s4/op1',input:move});
-    assert.equal(held?.block,true);
+    const call=await write(hooks,'call-keeper-0|fc_0');
+    assert.equal(call.verdict,undefined);
+    assert.deepEqual(call.detail?.package_sections,establishing);
 });

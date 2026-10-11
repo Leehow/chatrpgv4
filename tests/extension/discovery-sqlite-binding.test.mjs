@@ -1,4 +1,8 @@
-/** §209: real SQL metadata -> task identity -> asynchronous host selection -> request delivery. */
+/**
+ * §209: real SQL metadata -> task identity -> asynchronous host selection -> request delivery.
+ * §227.1: in selective mode the request's tool list is the one fixed view (canonical tools, apply's effects as a kind
+ * envelope) on every request, including the degraded request of an input whose discovery snapshot was not verified.
+ */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {DatabaseSync} from 'node:sqlite';
@@ -24,6 +28,20 @@ const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
 await build({stdin:{contents:"export {sourceMetadata} from './runtime/source-metadata.ts';",resolveDir:root},
     outfile:join(temp,'metadata-reader.mjs'),bundle:true,packages:'external',format:'esm',platform:'node',logLevel:'silent'});
 test.after(()=>rm(temp,{recursive:true,force:true}));
+
+/** §227.1: the fixed view: every canonical tool unchanged except apply, whose effects items are the kind envelope. */
+function assertFixedView(projected,tools){
+    assert.ok(projected,'selective mode always projects the fixed view');
+    const view=projected.messages[0].toolsAdded;
+    assert.deepEqual(view.map(tool=>tool.name),tools.map(tool=>tool.name),'nothing is narrowed or widened');
+    for(const tool of tools.filter(tool=>tool.name!=='apply'))assert.deepEqual(view.find(t=>t.name===tool.name),tool);
+    const apply=view.find(tool=>tool.name==='apply'),items=apply.parameters.properties.effects.items;
+    assert.ok(apply.description.startsWith(tools.find(tool=>tool.name==='apply').description));
+    assert.deepEqual(items.required,['kind']);assert.equal(items.additionalProperties,true);
+    assert.ok(items.properties.kind.enum.includes('time')&&items.properties.kind.enum.includes('cash'),'every kind is offered');
+    assert.ok(projected.messages.slice(1).every(message=>message.role!=='system'));
+    return JSON.stringify(view);
+}
 
 for(const mode of ['queue','publish','sql_error','deadline','locked_sql'])test('SQL discovery binding: '+mode,async t=>{
     const envNames=['COC_TURN_DISCOVERY','EXT_JEV_APIKEY','PI_COC_JEV_PRESELECT'];
@@ -123,6 +141,7 @@ for(const mode of ['queue','publish','sql_error','deadline','locked_sql'])test('
         assert.ok(out.messages.some(message=>message.customType==='coc-mod-sections'));
         assert.ok(events.some(row=>row.event==='discovery_snapshot'&&row.status==='current'));
         assert.ok(fetches>0);
+        assertFixedView(hooks.get('context_with_system')({messages:[system,...out.messages]},ctx),tools);
     }else{
         assert.ok(!out.messages.some(message=>message.customType==='coc-mod-sections'));
         assert.ok(!out.messages.some(message=>message.customType==='coc-capsule'));
@@ -130,7 +149,9 @@ for(const mode of ['queue','publish','sql_error','deadline','locked_sql'])test('
         assert.ok(out.messages.some(message=>message.role==='user'));
         const hold=await hooks.get('tool_call')({toolName:'apply',toolCallId:'unverified-write',input:{effects:[{kind:'time',minutes:60}]}});
         assert.equal(hold.block,true);assert.match(hold.reason,/No world change was committed/);
-        assert.equal(hooks.get('context_with_system')({messages:[system,...out.messages]},ctx),undefined);
+        // §227.1: the unverified snapshot does not widen the list to the canonical one; the same fixed bytes go out.
+        const view=assertFixedView(hooks.get('context_with_system')({messages:[system,...out.messages]},ctx),tools);
+        assert.equal(assertFixedView(hooks.get('context_with_system')({messages:[system,...out.messages]},ctx),tools),view,'byte-stable across requests');
         if(['deadline','locked_sql'].includes(mode)){
             assert.ok(Date.now()-began<1500,'the host deadline bounds a pending source read');assert.equal(fetches,0);
             const before=events.filter(row=>row.event==='prepared').length;

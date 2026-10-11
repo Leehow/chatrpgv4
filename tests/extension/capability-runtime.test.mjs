@@ -27,20 +27,18 @@ const port={decide:async(batch,lease)=>{
         answers:Object.fromEntries(batch.questions.map((q,i)=>[q.key,{status:'answered',type:'noul',
             noul:batch.state.cards[i].name==='time'?.99:.01}]))};
 }};
-test('the runtime keeps discovery reachable and expands the whole missing batch without committing',async()=>{
+test('§227.1 selective mode projects one fixed view; due names come from the selection; a write is never held',async()=>{
     const events=[];
     const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>port,mode:()=> 'selective',record:e=>events.push(e)});
     runtime.observe(capsule,binding,new AbortController().signal);await runtime.wait();
-    const view=runtime.project(tools.filter(t=>t.name!=='resolve'));
-    assert.ok(view);
-    assert.deepEqual(view.find(t=>t.name==='lookup').parameters.properties.kind.enum,['capability']);
-    const effects=[{kind:'time',minutes:360},{kind:'cash',amount:20,currency:'USD',to:'here'}];
-    const hold=runtime.readiness('apply',{effects});
-    assert.equal(hold.block,true);assert.match(hold.reason,/no world change was committed/i);
-    const expanded=runtime.project(tools.filter(t=>t.name!=='resolve'));
-    assert.ok(expanded.find(t=>t.name==='apply').parameters.properties.effects.items.anyOf.some(s=>s.properties.kind.enum?.[0]==='cash'));
-    assert.equal(runtime.readiness('apply',{effects}),undefined);
-    assert.ok(events.some(e=>e.event==='expansion'&&e.no_commit));
+    const view=runtime.project(tools);
+    assert.equal(runtime.project(tools),view,'every request gets the same view');
+    assert.deepEqual(view.map(t=>t.name),tools.map(t=>t.name));
+    assert.equal(view.find(t=>t.name==='apply').parameters.properties.effects.items.anyOf,undefined);
+    assert.deepEqual(runtime.due(),['time']);
+    assert.equal(runtime.readiness,undefined,'§227.3: there is no readiness hold');
+    assert.deepEqual(runtime.used('apply',{effects:[{kind:'time',minutes:360},{kind:'cash',amount:20,currency:'USD',to:'here'}]}),['time','cash']);
+    assert.deepEqual(runtime.used('narrate',{text:'x'}),[]);
     runtime.clear();
 });
 test('named detail discovery is read-only and preserves canonical constraints',async()=>{
@@ -53,14 +51,24 @@ test('named detail discovery is read-only and preserves canonical constraints',a
     runtime.clear();
     await assert.rejects(runtime.lookup({name:'time'}),/no current input/);
 });
-test('no decision service keeps the full current view instead of guessing a narrow one',async()=>{
+test('no decision service leaves only the deterministic part due; the view is still the fixed one',async()=>{
     const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>undefined,mode:()=> 'selective',record:()=>{}});
     runtime.observe(capsule,binding,new AbortController().signal);await runtime.wait();
-    assert.equal(runtime.project(tools),undefined);
-    assert.equal(runtime.readiness('apply',{effects:[{kind:'time',minutes:360}]}),undefined);
+    assert.ok(runtime.project(tools));
+    assert.deepEqual(runtime.due(),[]);
+    assert.deepEqual(runtime.due(['cash','look']),['cash'],'required section dependencies are due; non-apply names are not detail');
     runtime.clear();
 });
-test('a dependency already shown in the projected schema is ready, and relevant current facts invalidate selection',async()=>{
+test('full and shadow modes keep the canonical declarations and disclose nothing',async()=>{
+    for(const mode of ['full','shadow']){
+        const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>port,mode:()=>mode,record:()=>{}});
+        runtime.observe(capsule,binding,new AbortController().signal);await runtime.wait();
+        assert.equal(runtime.project(tools),undefined);assert.deepEqual(runtime.due(['cash']),[]);
+        assert.deepEqual(runtime.used('apply',{effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]}),[]);
+        runtime.clear();
+    }
+});
+test('relevant current facts invalidate the selection; an unchanged epoch is not asked again',async()=>{
     let calls=0;
     const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>({decide:async(batch,lease)=>{
         calls++;assert.equal(batch.state.situation.keeper_task,'adjudicate');
@@ -68,52 +76,33 @@ test('a dependency already shown in the projected schema is ready, and relevant 
     }}),mode:()=> 'selective',record:()=>{}});
     const signal=new AbortController().signal,task={purpose:'adjudicate'};
     runtime.observe(capsule,binding,signal,task);await runtime.wait();
-    runtime.project(tools,['cash']);
-    assert.equal(runtime.readiness('apply',{effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]}),undefined);
     const initial=calls;
     runtime.observe(capsule,binding,signal,task);await runtime.wait();assert.equal(calls,initial);
     runtime.observe({...capsule,known:{clues_here:[{name:'Letter',delivery:'read'}]}},binding,signal,task);
     await runtime.wait();assert.ok(calls>initial);
     runtime.clear();
 });
-test('a repeated call before expansion projection never slips through to mutation',async()=>{
+test('host-issued operation fields make their detail due before inference without a semantic re-vote',async()=>{
     const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>port,mode:()=> 'selective',record:()=>{}});
-    runtime.observe(capsule,binding,new AbortController().signal);await runtime.wait();runtime.project(tools);
-    const args={effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]};
-    assert.equal(runtime.readiness('apply',args).block,true);
-    assert.equal(runtime.readiness('apply',args).block,true);
-    assert.equal(runtime.readiness('apply',args).block,true);
-    assert.equal(runtime.project(tools),undefined);
-    assert.equal(runtime.readiness('apply',args),undefined);
-    runtime.clear();
-});
-test('host-issued operation fields seed fragments before inference without a semantic re-vote',async()=>{
-    const events=[];
-    const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>port,mode:()=> 'selective',record:e=>events.push(e)});
-    const signal=new AbortController().signal;
-    runtime.observe(capsule,binding,signal,{purpose:'bind',operations:[{verb:'apply',family:'npc',
+    runtime.observe(capsule,binding,new AbortController().signal,{purpose:'bind',operations:[{verb:'apply',family:'npc',
         bound:{name:'watchman'},needs:[{name:'activity'}]}]});await runtime.wait();
-    const view=runtime.project(tools);assert.ok(view,JSON.stringify(events));
-    const npc=view.find(t=>t.name==='apply').parameters.properties.effects.items.anyOf
-        .find(s=>s.properties.kind.enum?.[0]==='npc');
-    assert.ok(npc.properties.activity);
-    assert.equal(runtime.readiness('apply',{effects:[{kind:'npc',name:'watchman',activity:{wakefulness:'awake'},why:'Observed.'}]}),undefined);
+    assert.ok(runtime.due().includes('npc-activity'),JSON.stringify(runtime.due()));
     runtime.clear();
 });
-test('a failed purpose lookup widens the bound view once without spending again or committing',async()=>{
+test('§227.4 a failed purpose lookup answers with the index once, without spending again or holding writes',async()=>{
     let attempts=0;
     const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>({decide:async(batch,lease)=>{
         attempts++;if(batch.state.request==='Find missing source consultation.')throw Error('decision_transport_unavailable');
         return port.decide(batch,lease);
     }}),mode:()=> 'selective',record:()=>{}});
-    runtime.observe(capsule,binding,new AbortController().signal);await runtime.wait();runtime.project(tools);
+    runtime.observe(capsule,binding,new AbortController().signal);await runtime.wait();
+    const view=runtime.project(tools);
     const result=await runtime.lookup({query:'Find missing source consultation.'});
-    assert.equal(result.status,'full_fallback');assert.equal(result.no_commit,true);assert.equal(result.read_only,true);
+    assert.equal(result.status,'index_fallback');assert.equal(result.no_commit,true);assert.equal(result.read_only,true);
+    assert.ok(result.capabilities.some(c=>c.name==='cash'&&c.applicability&&!c.detail));
     const count=attempts;assert.deepEqual(await runtime.lookup({query:'Find missing source consultation.'}),result);
     assert.equal(attempts,count);
-    assert.equal(runtime.readiness('apply',{effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]}).block,true);
-    assert.equal(runtime.project(tools),undefined);
-    assert.equal(runtime.readiness('apply',{effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]}),undefined);
+    assert.equal(runtime.project(tools),view,'nothing widens');
     runtime.clear();
 });
 test('in-flight purpose lookups share a decision and a stale failure cannot widen a successor',async()=>{
@@ -135,7 +124,7 @@ test('in-flight purpose lookups share a decision and a stale failure cannot wide
     assert.ok(runtime.project(tools),'the successor still has its own selected view');
     runtime.clear();
 });
-test('a late initial selection cannot narrow an epoch already widened after lookup failure',async()=>{
+test('a late initial selection only adds due names after a failed lookup',async()=>{
     let release;
     const gate=new Promise(resolve=>{release=resolve;});
     const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>({decide:async(batch,lease)=>{
@@ -143,9 +132,10 @@ test('a late initial selection cannot narrow an epoch already widened after look
         await gate;return port.decide(batch,lease);
     }}),mode:()=> 'selective',record:()=>{}});
     runtime.observe(capsule,binding,new AbortController().signal);
-    assert.equal((await runtime.lookup({query:'Find source consultation.'})).status,'full_fallback');
+    assert.equal((await runtime.lookup({query:'Find source consultation.'})).status,'index_fallback');
+    assert.deepEqual(runtime.due(),[]);
     release();await runtime.wait();
-    assert.equal(runtime.project(tools),undefined);
+    assert.deepEqual(runtime.due(),['time']);
     runtime.clear();
 });
 test('encounter evidence is not inferred from whether a person has spoken',()=>{
@@ -178,19 +168,15 @@ test('authored threat clock rows keep their canonical identity and progress in d
 
 // Contract §217.1 (issue #112 live d6c t54): an invalidation inside one input -- a source publication, a failed snapshot
 // check -- drops the selected view, but not the input the Keeper's lookups answer for, nor what the last request showed.
-test('a lookup after an in-input invalidation answers for the still-current input and carries its names forward',async()=>{
+test('a lookup after an in-input invalidation answers for the still-current input',async()=>{
     const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>port,mode:()=> 'selective',record:()=>{}});
     const signal=new AbortController().signal;
-    runtime.observe(capsule,binding,signal);await runtime.wait();assert.ok(runtime.project(tools));
+    runtime.observe(capsule,binding,signal);await runtime.wait();
     runtime.invalidate();
     const named=await runtime.lookup({name:'npc-activity'});
     assert.equal(named.read_only,true);assert.ok(named.capabilities[0].detail);
     const purpose=await runtime.lookup({query:'Record the time the wait takes.'});
     assert.ok(purpose.capabilities.some(c=>c.name==='time'&&c.detail),JSON.stringify(purpose));
-    // The successor epoch of the same input (a new source revision) shows what the Keeper looked up.
-    runtime.observe(capsule,{...binding,source_revision:'source-2'},signal);await runtime.wait();
-    const names=runtime.project(tools).find(t=>t.name==='apply').parameters.properties.effects.items.anyOf.map(s=>s.properties.kind.enum?.[0]);
-    assert.ok(names.includes('npc'),JSON.stringify(names));
     runtime.clear();
     await assert.rejects(runtime.lookup({name:'time'}),/no current input/,'a new input or session still ends the basis');
 });
@@ -208,14 +194,5 @@ test('a purpose lookup in flight across an epoch change of the same input answer
     release();
     const result=await pending;
     assert.equal(result.read_only,true);assert.ok(result.capabilities.some(c=>c.name==='time'&&c.detail),JSON.stringify(result));
-    runtime.clear();
-});
-test('the write gate reads what the last request showed even after the selection was invalidated mid-batch',async()=>{
-    const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>port,mode:()=> 'selective',record:()=>{}});
-    runtime.observe(capsule,binding,new AbortController().signal);await runtime.wait();runtime.project(tools);
-    runtime.invalidate();
-    const hold=runtime.readiness('apply',{effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]});
-    assert.equal(hold?.block,true,'the cash fragment was never shown to the Keeper');
-    assert.match(hold.reason,/no world change was committed/i);
     runtime.clear();
 });

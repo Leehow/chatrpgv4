@@ -25,7 +25,7 @@ for(const [denied,seeded,stale,expired,sourceError,hybrid] of [[false,false,fals
     :expired?sourceError==='foreground'?'expired foreground ownership never clears the current write hold':sourceError?'optional expiry never clears a failed current-source write hold':'optional expiry after model time delivers a verified full view without renewing decisions'
         :denied?'discovery shares foreground reservations and falls back before a refused provider dispatch'
         :seeded?stale?'a stale task source cannot seed current capability or package detail':'current host operations seed capability and package detail before inference'
-        :'normal context hooks declare the selected schema and hold a first unshown instruction before mutation',async t=>{
+        :'normal context hooks declare the fixed list, disclose due detail once and attach a first unshown instruction to its result',async t=>{
     const envNames=['COC_TURN_DISCOVERY','EXT_JEV_APIKEY','PI_COC_JEV_PRESELECT','PI_COC_JEV_PRESELECT_ALLOWANCE_MS'],old=Object.fromEntries(envNames.map(n=>[n,process.env[n]]));
     process.env.COC_TURN_DISCOVERY='selective';process.env.EXT_JEV_APIKEY='test-only';
     process.env.PI_COC_JEV_PRESELECT='0';if(expired)process.env.PI_COC_JEV_PRESELECT_ALLOWANCE_MS='2000';
@@ -98,6 +98,13 @@ for(const [denied,seeded,stale,expired,sourceError,hybrid] of [[false,false,fals
     const nativeNote=projected.find(message=>message.customType===api.CLERK_TYPE);
     assert.deepEqual(JSON.parse(nativeNote.content).native_search_scope,{run:'fixture-native-run',step:'fixture-native-step'});
     const apply=tools.find(t=>t.name==='apply');
+    // §227.1: one fixed list in every branch: canonical declarations, apply as a kind envelope.
+    assert.deepEqual(tools.map(t=>t.name),declared.map(t=>t.name));
+    assert.equal(apply.parameters.properties.effects.items.anyOf,undefined);
+    assert.deepEqual(apply.parameters.properties.effects.items.properties.kind.enum,
+        declared.find(t=>t.name==='apply').parameters.properties.effects.items.anyOf.map(v=>v.properties.kind.enum?.[0]??v.properties.kind.const));
+    const detailNames=list=>new Set(list.filter(m=>m.customType==='coc-capability-detail').flatMap(m=>JSON.parse(m.content).capabilities.map(c=>c.name)));
+    const sectionNames=list=>list.filter(m=>m.customType==='coc-mod-sections').flatMap(m=>JSON.parse(m.content).sections.map(s=>s.section));
     if(expired){
         hooks.get('before_provider_request')({payload:{input:outgoing.messages,tools}});
         const before=fetched;
@@ -112,7 +119,7 @@ for(const [denied,seeded,stale,expired,sourceError,hybrid] of [[false,false,fals
         const finalTools=getCurrentTools(final);
         assert.equal(fetched,before,'elapsed model time must not renew optional Jev decisions');
         assert.ok(rows.some(r=>r.event==='discovery_fallback'&&r.reason==='preparation_expired'));
-        assert.deepEqual(finalTools.find(t=>t.name==='apply').parameters,declared.find(t=>t.name==='apply').parameters);
+        assert.equal(JSON.stringify(finalTools),JSON.stringify(tools),'the expired input keeps the same list');
         hooks.get('before_provider_request')({payload:{input:refreshed.messages,tools:finalTools}});
         const hold=await hooks.get('tool_call')({toolName:'apply',toolCallId:'after-expiry',input:{effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]}});
         if(sourceError){assert.equal(hold.block,true);assert.match(hold.reason,/no world change was committed/i);}
@@ -120,22 +127,20 @@ for(const [denied,seeded,stale,expired,sourceError,hybrid] of [[false,false,fals
             assert.equal(hold,undefined);
             const current=refreshed.messages.find(m=>m.customType==='coc-capsule-update');
             assert.equal(JSON.parse(current.content).sections.where.clock.at,'1920-10-13T09:00');
-            const packet=refreshed.messages.find(m=>m.customType==='coc-mod-sections');
-            assert.equal(JSON.parse(packet.content).sections.length,2,'the whole current instruction view was actually delivered');
+            assert.deepEqual(new Set(sectionNames(refreshed.messages)),new Set(['Time','Money']),'the whole current instruction view was delivered, each section once');
+            assert.equal(sectionNames(refreshed.messages).length,2);
             assert.ok(rows.some(r=>r.lane==='mod-discovery'&&r.event==='prepared'&&r.reason==='forced_full'));
         }
     }else if(denied){
         assert.equal(fetched,0);assert.ok(reserved>=2);
         assert.equal(tools.length,declared.length);
-        assert.deepEqual(apply.parameters,declared.find(t=>t.name==='apply').parameters);
-        const sections=outgoing.messages.filter(m=>m.customType==='coc-mod-sections');
-        assert.equal(JSON.parse(sections[0].content).sections.length,2);
+        assert.equal(sectionNames(outgoing.messages).length,2);
+        assert.deepEqual(detailNames(outgoing.messages),new Set(['time','cash']),'delivered sections make their dependencies due');
         assert.ok(rows.some(r=>r.lane==='capability-discovery'&&r.event==='fallback'));
         assert.ok(rows.some(r=>r.lane==='mod-discovery'&&r.event==='selection'&&r.status==='full'&&r.reason));
     }else if(seeded&&!stale){
-        assert.deepEqual(new Set(apply.parameters.properties.effects.items.anyOf.map(v=>v.properties.kind.enum?.[0]??v.properties.kind.const)),new Set(['time','cash']));
-        const sections=outgoing.messages.filter(m=>m.customType==='coc-mod-sections');
-        assert.deepEqual(new Set(JSON.parse(sections[0].content).sections.map(s=>s.section)),new Set(['Time','Money']));
+        assert.deepEqual(detailNames(outgoing.messages),new Set(['time','cash']));
+        assert.deepEqual(new Set(sectionNames(outgoing.messages)),new Set(['Time','Money']));
         hooks.get('before_provider_request')({payload:{input:outgoing.messages,tools}});
         assert.equal(await hooks.get('tool_call')({toolName:'apply',toolCallId:'seeded-call',
             input:{effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]}}),undefined);
@@ -149,22 +154,32 @@ for(const [denied,seeded,stale,expired,sourceError,hybrid] of [[false,false,fals
         assert.equal(JSON.parse(sent.content).sections.where.clock.at,'1920-10-13T09:00');
         assert.ok(fetched>before,'selective context refreshes current facts even with prescreen and workspace off');
     }else{
-    assert.deepEqual(apply.parameters.properties.effects.items.anyOf.map(v=>v.properties.kind.enum?.[0]??v.properties.kind.const),['time']);
-    const sectionMessages=outgoing.messages.filter(m=>m.customType==='coc-mod-sections');
-    assert.equal(sectionMessages.length,1);
-    assert.equal(JSON.parse(sectionMessages[0].content).sections[0].section,'Time');
+    assert.deepEqual(detailNames(outgoing.messages),new Set(['time']));
+    assert.deepEqual(sectionNames(outgoing.messages),['Time']);
     hooks.get('before_provider_request')({payload:{input:outgoing.messages,tools}});
     assert.ok(rows.some(r=>r.lane==='mod-discovery'&&r.event==='delivered'&&r.delivered));
-    const hold=await hooks.get('tool_call')({toolName:'apply',toolCallId:'fixture-call',
-        input:{effects:[{kind:'cash',amount:20,currency:'USD',to:'here'}]}});
-    assert.equal(hold.block,true);
-    assert.match(hold.reason,/No world change was committed/);
+    // §227.3: the unshown Money section and cash detail never hold the write; they ride on its result, once.
+    const effects=[{kind:'cash',amount:20,currency:'USD',to:'here'}];
+    assert.equal(await hooks.get('tool_call')({toolName:'apply',toolCallId:'fixture-call',input:{effects}}),undefined);
+    const attached=await hooks.get('tool_result')({toolName:'apply',toolCallId:'fixture-call',input:{effects},
+        isError:true,content:[{type:'text',text:'Refused for another reason.'}],details:{}});
+    const extra=JSON.parse(attached.content.at(-1).text);
+    assert.equal(attached.content[0].text,'Refused for another reason.');
+    assert.equal(extra.kind,'disclosed_detail');
+    assert.deepEqual(extra.package_sections.map(s=>s.section),['Money']);
+    assert.deepEqual(extra.capability_detail.map(c=>c.name),['cash']);
+    assert.equal(await hooks.get('tool_call')({toolName:'apply',toolCallId:'fixture-call-2',input:{effects}}),undefined);
+    assert.equal(await hooks.get('tool_result')({toolName:'apply',toolCallId:'fixture-call-2',input:{effects},
+        isError:false,content:[{type:'text',text:'Committed.'}],details:{}}),undefined,'attached once per input');
+    const next=await hooks.get('context')({messages:messages.filter(m=>m.role!=='system')},ctx);
+    assert.equal(sectionNames(next.messages).filter(name=>name==='Money').length,0,'an attached section is not re-sent');
+    assert.deepEqual(sectionNames(next.messages),['Time'],'the first disclosure stays in place');
     assert.equal(reserved,fetched);assert.equal(settled,fetched);
     }
     const measured=rows.find(r=>r.event==='request_projection');
     assert.equal(measured.projected_request_bytes,Buffer.byteLength(JSON.stringify(projected)));
     assert.equal(measured.tool_schema_bytes,Buffer.byteLength(JSON.stringify(tools)));
-    if(!denied)assert.ok(measured.tool_schema_bytes<measured.canonical_tool_schema_bytes);
+    assert.ok(measured.tool_schema_bytes<measured.canonical_tool_schema_bytes);
     assert.ok(!calls.includes('table.apply'));
     assert.equal(JSON.stringify(messages),original);
     await hooks.get('session_shutdown')();
