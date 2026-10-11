@@ -545,7 +545,7 @@ const NpcEffect = Type.Object({
 		maxLength: MOOD_MAX,
 		description: `what this person feels right now, in the fiction, as you would put it: one short line in play_language, at most ${MOOD_MAX} characters, no line break (the heat, the hour, what just happened, what was just said or done to them, what is on their mind besides you). Their card's present[].now shows it from the next turn; write it when it is missing or no longer true, before they speak: it needs no result, so this apply goes in the same response as the narrate that carries their words, apply first and narrate last, never a step of its own. A new line replaces the old. This variant stands alone in one npc effect: moving or re-standing them is a second effect of the same batch`,
 	})),
-	why: Type.Optional(Sentence("why they moved, why they now stand there, how they died, what changed how they defend, or why they attack, hold back or fight the way they do")),
+	why: Type.Optional(Sentence("required with activity: what caused the activity change (§208.1); otherwise why they moved, why they now stand there, how they died, what changed how they defend, or why they attack, hold back or fight the way they do")),
 	owed: OwedRef,
 });
 

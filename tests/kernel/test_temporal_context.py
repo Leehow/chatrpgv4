@@ -89,6 +89,38 @@ def test_awakened_person_survives_routine_guess_and_five_minutes(kernel):
     assert "unconscious" not in named.get("state", {}).get("conditions", [])
 
 
+def test_inferred_account_lands_once_the_observed_record_no_longer_applies(kernel):
+    """§227.1, 4d7 t76: the boarding house kept the previous morning's established record; at night the Keeper's
+    inferred account of now was refused although the capsule itself asked for review."""
+    open_turn(kernel, "I come back to my room in the evening.")
+    apply(kernel, 1, scene(service="open", crowd="quiet", review_after_minutes=180))
+    apply(kernel, 2, dict(kind="time", until=dict(days=1, time="21:00"), why="The day passed elsewhere."))
+    stale = kernel.table("capsule")["where"]["temporal"]
+    assert stale["current"] is False and "day_changed" in stale["review_reasons"]
+    night = dict(kind="scene", name="here", activity=dict(summary="Night in the house; the room lamp is lit.", basis="inferred",
+        service="limited", crowd="quiet", review_after_minutes=480), why="The investigator returned at night.")
+    landed = apply(kernel, 3, night)
+    assert landed["receipts"]
+    view = kernel.table("capsule")["where"]["temporal"]
+    assert view["basis"] == "inferred" and view["current"] is True
+    receipt = next(r for r in read_json(campaign_dir(kernel.workspace) / "turn.json")["receipts"] if r.get("kind") == "scene" and r.get("call_id") == "t1-c3")
+    assert receipt["previous"]["basis"] == "established", "The observed history stays in the receipt."
+
+
+def test_time_earlier_in_the_batch_decides_whether_the_record_still_applies(kernel):
+    """§227.1, 4d7 t71: `time until 12:00` then an inferred noon account in one batch; the record was current only
+    before the batch's own time effect."""
+    open_turn(kernel, "I read until noon.")
+    apply(kernel, 1, dict(kind="time", until=dict(days=0, time="10:30"), why="Morning."))
+    apply(kernel, 2, scene(service="open", crowd="active", review_after_minutes=180))
+    noon = dict(kind="scene", name="here", activity=dict(summary="Noon readers remain at the long tables.", basis="inferred",
+        service="open", crowd="active"), why="Reading ran to noon.")
+    refused = kernel.table_err("apply", call_id="t1-c3", effects=[noon])
+    assert refused["details"]["reason"] == "activity_basis", "Still current: the established record guards."
+    landed = apply(kernel, 4, dict(kind="time", until=dict(days=0, time="13:30"), why="Reading ran past noon."), noon)
+    assert landed["receipts"]
+
+
 def test_invalid_activity_rolls_back_time_and_scene_atomically(kernel):
     open_turn(kernel, "I look around.")
     before = world(kernel)

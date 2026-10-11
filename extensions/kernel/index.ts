@@ -1607,13 +1607,16 @@ export default function (pi: ExtensionAPI) {
 	 * §151.5: with the narrator-only setting on, the engine also announces a call its step's catalog does not admit
 	 * (`refuse`, the sentence the Keeper reads, and `refuse_code`); the tool gate refuses it before anything runs.
 	 */
-	const modelSteps = new Map<string, { run: string; step: string; refuse?: string; refuseCode?: string; holdEmbeddedNarration?: boolean }>();
+	const modelSteps = new Map<string, { run: string; step: string; refuse?: string; refuseCode?: string; stripTime?: string; holdEmbeddedNarration?: boolean }>();
+	/** §227.3: the note an apply whose second time line the host left out carries in its result, by tool call. */
+	const timeStripped = new Map<string, string>();
 	pi.events.on("coc:model-step", (value) => {
 		const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
 		if (typeof data.toolCallId !== "string" || typeof data.run !== "string" || typeof data.step !== "string") return;
 		if (modelSteps.size >= 256) modelSteps.clear();
 		modelSteps.set(data.toolCallId, { run: data.run, step: data.step,
 			...(data.hold_embedded_narration === true ? {holdEmbeddedNarration:true} : {}),
+			...(typeof data.strip_time === "string" && data.strip_time ? { stripTime: data.strip_time } : {}),
 			...(typeof data.refuse === "string" && data.refuse ? { refuse: data.refuse, refuseCode: typeof data.refuse_code === "string" ? data.refuse_code : "narrator_catalog" } : {}) });
 	});
 	/**
@@ -3311,7 +3314,11 @@ export default function (pi: ExtensionAPI) {
 			const context = admissionContextFor(state), last = context.delivered.at(-1);
 			const input: DocumentBindingInput = {campaign:state.campaign,turn:state.turn,playerText:state.playerText,
 				...(state.interruptedPlayerText ? {unfinished:state.interruptedPlayerText} : {}),
-				...(last ? {justTold:last.keeper.slice(0,1500)} : {}),actor:options.actor,suffix:effect.document.text,documents:options.documents};
+				...(last ? {justTold:last.keeper.slice(0,1500)} : {}),
+				// §227.5: what the player was told this turn and in the turns the capsule keeps, so a copy of a text they read or a
+				// write-up of their findings can be bound to it (4d7: all ten notebook additions were unbound on justTold alone).
+				recentTold:[...state.recent,...state.delivered].map(entry=>({turn:entry.turn,text:entry.keeper})),
+				actor:options.actor,suffix:effect.document.text,documents:options.documents};
 			const binding = documentBindingScope(input), deadlineAt = Math.min(Date.now()+4_000,parent?.deadlineAt??Infinity);
 			const outer = signal ?? new AbortController().signal;
 			const combined = parent ? AbortSignal.any([outer,parent.signal]) : outer;
@@ -6024,6 +6031,8 @@ export default function (pi: ExtensionAPI) {
 			}
 			const besideNote = takeBesideSteer(toolCallId, spec.name);
 			if (besideNote) result = { ...result, prose_dropped: besideNote };
+			const strippedTime = timeStripped.get(toolCallId);
+			if (strippedTime) { timeStripped.delete(toolCallId); result = { ...result, time_not_landed: strippedTime }; }
 			await noteBesideOutcome(toolCallId, { outcome: "landed", ...(admissionVerdict ? { admission: admissionVerdict } : {}) });
 			if (spec.name === "narrate" || spec.name === "ask") {
 				// A turn inside a session must be accountable on its own: round trips in combat are not the same as in investigation.
@@ -6193,10 +6202,13 @@ export default function (pi: ExtensionAPI) {
 			});
 			keepRead(false);
 			const besideNote = takeBesideSteer(toolCallId, spec.name);
+			const strippedTime = timeStripped.get(toolCallId);
+			if (strippedTime) timeStripped.delete(toolCallId);
 			await noteBesideOutcome(toolCallId, { outcome: reason === "review_pending" ? "pending" : "refused", code, ...(reason ? { reason } : {}),
 				...(admissionVerdict ? { admission: admissionVerdict } : {}) });
 			return {
-				content: [{ type: "text", text: errorText(error) + (besideNote ? `\nprose_dropped: ${JSON.stringify(besideNote)}` : "") }],
+				content: [{ type: "text", text: errorText(error) + (besideNote ? `\nprose_dropped: ${JSON.stringify(besideNote)}` : "")
+					+ (strippedTime ? `\ntime_not_landed: ${strippedTime}` : "") }],
         ...(state.reviewUnavailable || state.commitUnavailable || stopForChoiceRepair ? {terminate: true} : {}),
 				details: {
 					...(besideNote ? { prose_dropped: besideNote } : {}),
@@ -7447,6 +7459,16 @@ export default function (pi: ExtensionAPI) {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: announced.refuseCode ?? "narrator_catalog",
 				run: announced.run, step: announced.step });
 			return { block: true, reason: announced.refuse };
+		}
+		// §227.3: time is charged once a turn. A Keeper apply carrying a second time beside other effects loses only that line;
+		// the array is the call's own input, so the rest runs exactly as proposed.
+		if (announced?.stripTime && name === "apply" && Array.isArray(input.effects) && dispatcher.hostOrigin(event.toolCallId)?.origin !== "policy") {
+			const kept = (input.effects as Array<Record<string, unknown>>).filter(effect => effect?.kind !== "time" || effect.owed !== undefined);
+			if (kept.length && kept.length < input.effects.length) {
+				input.effects.splice(0, input.effects.length, ...kept);
+				timeStripped.set(event.toolCallId, announced.stripTime);
+				await record({ tool: name, ok: true, code: "time_stripped", reason: "declared_time_landed", run: announced.run, step: announced.step });
+			}
 		}
 		// Only an adaptation wait owns anything, and only the writes that need what it is building (§135.11 addendum,
 		// SL-23): one named job with its own control verb. A source wait is not here on purpose -- one unread page never

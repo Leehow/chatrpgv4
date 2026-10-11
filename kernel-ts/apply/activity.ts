@@ -2,7 +2,7 @@
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
 import {clockSection} from '../read/capsule.js';
-import {temporalAnchor} from '../read/temporal.js';
+import {activityView,temporalAnchor} from '../read/temporal.js';
 import {clone,integer,number,row,string,type Row} from '../read/values.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
 import {nowIso} from '../write/store.js';
@@ -25,7 +25,11 @@ function validate(value:unknown,npc:boolean):Row {
 function record(context:ApplyContext,effect:Row,npc:boolean,scene:string|null,previous:Row):Row {
     const value=validate(effect.activity,npc);
     if(typeof effect.why!=='string'||!effect.why.trim())throw new RpcError('invalid_params','An activity change requires why');
-    if(value.basis==='inferred'&&['observed','established'].includes(string(previous.basis)))throw new RpcError('invalid_params','An inferred routine cannot overwrite an observed or established activity',{
+    // §227.1: an observed or established record guards only while it still applies at the staged clock -- the same
+    // applicability the capsule reports (`activityView`). Once the reader asks for review, a later inferred account of now
+    // describes another time; the old record stays in the receipt's `previous`.
+    if(value.basis==='inferred'&&['observed','established'].includes(string(previous.basis))&&activityView(context.graph,context.world,previous,scene).current===true)
+        throw new RpcError('invalid_params','An inferred routine cannot overwrite an observed or established activity that still applies',{
         fix:'Preserve the recorded event. For an actual supported transition, record observed or established activity and explain its cause in why.',details:{reason:'activity_basis',previous:clone(previous)}});
     const clock=clockSection(context.graph,context.world);
     return {...value,recorded_clock:clock,anchor:temporalAnchor(context.graph,context.world),scene,turn:context.turn.turn,

@@ -4,6 +4,11 @@ import type {HandlerGroup} from '../handlers.js';
 import {RpcError} from '../errors.js';
 import {jsonDigest,isJsonObject} from '../json.js';
 import {stageCash,type CashContext} from '../apply/inventory.js';
+import {advanceClock} from '../apply/clock.js';
+import {stageMove} from '../apply/move.js';
+import {bindUntil} from '../apply/until.js';
+import {owedBands} from '../owed/index.js';
+import type {ApplyContext} from '../apply/index.js';
 import {clone,number} from '../read/values.js';
 import {CampaignSnapshot, loadCampaignModule} from '../read/campaign.js';
 import {whereSection, cluesHere, exitRows, npcsPresent, sceneLabel} from '../read/capsule.js';
@@ -86,6 +91,31 @@ function movesWithin(graph:ModuleGraph,scene:Row):Array<[Row,Row]>{
     return out;
 }
 
+/**
+ * §227.2: one clock-changing effect of a cash preview, staged on the preview's cloned world with apply's own arithmetic.
+ * A move to a place the book or table already has runs `stageMove` itself; one that would mint a place takes the minutes
+ * it gives (a new place has no road yet). A move apply would refuse moves the preview clock by the minutes it names: the
+ * real apply reports the refusal.
+ */
+function previewClock(context:ApplyContext,effect:Row,travel:ReadonlyMap<string,number>|null,receipts:Row[]):void {
+    const before=number(row(context.world.clock).minutes);
+    if(effect.kind==='time'){
+        const bound=bindUntil(context,effect),minutes=bound.minutes;
+        if(!integer(minutes)||number(minutes)<0)throw new RpcError('invalid_params','time minutes must be a non-negative integer',{details:{reason:'preview_clock_invalid'}});
+        advanceClock(context.world,number(minutes));
+        receipts.push({kind:'time',minutes:number(minutes),...(bound.until?{until:bound.until}:{})});
+        return;
+    }
+    const given=():number=>integer(effect.travel_minutes)?number(effect.travel_minutes):typeof effect.travel_band==='string'&&travel?.has(effect.travel_band)?travel.get(effect.travel_band)!:0;
+    let known=true;
+    try{context.graph.scene(string(effect.to));}catch{known=false;}
+    if(known||effect.establish===undefined){
+        try{stageMove(context,effect,travel);}
+        catch(error){if(!(error instanceof RpcError))throw error;advanceClock(context.world,given());}
+    }else advanceClock(context.world,receipts.some(entry=>entry.kind==='time'&&row(entry.until).journeys==='before')?0:given());
+    receipts.push({kind:'move',minutes:number(row(context.world.clock).minutes)-before});
+}
+
 export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
     return {...fulfillmentHandlers(context), 'table.apply.placement': async (params): Promise<Row> => {
         if (Object.keys(params).some(key=>key!=='campaign'&&key!=='limit')) throw new RpcError('invalid_params','Placement candidates accept the bound campaign and optional limit');
@@ -106,7 +136,8 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
         const module=await loadCampaignModule(context,string(campaign.meta.module_id),campaign.world,campaign.id), graph=module.graph;
         if(params.cash_effects!==undefined){
             if(!Array.isArray(params.cash_effects))throw new RpcError('invalid_params','cash_effects must be an ordered apply batch');
-            const world=clone(campaign.world),sheets=new Map<string,Row>(),previews:Row[]=[];
+            const world=clone(campaign.world),sheets=new Map<string,Row>(),previews:Row[]=[],clockReceipts:Row[]=[];
+            let travel:ReadonlyMap<string,number>|null|undefined;
             const cashContext:CashContext={kernel:context,world,graph,turn:campaign.turn,campaign:{party:async()=>campaign.party},callId:'preview',ordinal:0,mint:base=>base};
             for(const [index,effect] of params.cash_effects.entries()){
                 if(!isJsonObject(effect))throw new RpcError('invalid_params','Each preview effect must be an object');
@@ -116,9 +147,12 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
                     catch(error){if(!(error instanceof RpcError))throw error;throw new RpcError(error.code,error.message,{fix:error.fix,details:{...error.details,cash_index:index}});}
                     previews.push({index,...Object.fromEntries(['subject','subject_label','with','with_label','quote','category','settlement','living_standard','items','purchase_amount','spending_level','daily_total','delta','before','after','currency'].filter(key=>Object.hasOwn(receipt,key)).map(key=>[key,receipt[key]]))});
                 }else if(['time','move'].includes(string(effect.kind))&&params.cash_effects.slice(index+1).some(value=>isJsonObject(value)&&value.kind==='cash')){
-                    if(effect.kind==='time'&&typeof effect.minutes==='number'&&Number.isInteger(effect.minutes)&&effect.minutes>=0&&!effect.band&&!effect.until&&!effect.stated){
-                        world.clock={...row(world.clock),minutes:number(row(world.clock).minutes)+effect.minutes};
-                    }else throw new RpcError('needs','Settle a clock-changing action before previewing its subsequent purchases',{fix:'Apply the move or unresolved time effect first, then settle the purchase against the resulting game day.'});
+                    // §227.2: the purchase is previewed on the game day the batch reaches, by apply's own clock arithmetic
+                    // (`bindUntil`, `stageMove` on this cloned world). Only a rolled or book-stated length is unknown here.
+                    if(effect.kind==='time'&&(effect.band!=null||effect.stated!=null))
+                        throw new RpcError('needs','Settle a rolled or book-stated time before previewing its subsequent purchases',{fix:'Apply the time effect first, then settle the purchase against the resulting game day.',details:{reason:'preview_clock_unknown',cash_index:index}});
+                    travel??=params.cash_effects.some(value=>isJsonObject(value)&&value.kind==='move'&&value.travel_band!=null)?(await owedBands(context)).travelMinutes:null;
+                    previewClock({graph,world,turn:campaign.turn,callId:'preview',ordinal:0,staged:()=>clockReceipts} as unknown as ApplyContext,effect,travel,clockReceipts);
                 }
             }
             return {version:1,cash_previews:previews,world_revision:taskWorldRevision(campaign.world,campaign.party,campaign.turn.receipts,campaign.turn.pending_choice)};

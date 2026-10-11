@@ -107,3 +107,21 @@ test('§218.8 a stated length of the whole turn keeps the once-a-turn refusal', 
     assert.deepEqual(record.receipts.filter(receipt => receipt.kind === 'time').map(receipt => receipt.minutes), [120]);
     assert.deepEqual(rows.filter(row => row.lane === 'run' && row.event === 'catalog_refused').map(row => row.reason), ['declared_time_landed']);
 });
+
+// §227.3, live 4d7 turns 76 and 89: a second time beside other effects is that line only -- the rest of the apply lands.
+const flag = {kind: 'flag', name: 'register-names-copied', why: 'The names are copied into the notebook.'};
+const keeperTimeAndFlag = fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'time', minutes: 90, why: 'The whole register.'}, flag]})], {stopReason: 'toolUse'});
+test('§227.3 after the clerk charged the declared time, a second time beside other effects is left out and the rest lands', async t => {
+    const {rows, record} = await turnTwo(t, true, [keeperTimeAndFlag, narrate]);
+    assert.deepEqual(record.receipts.filter(receipt => receipt.kind === 'time').map(receipt => receipt.band), ['single_room_search'], 'time is charged once a turn');
+    assert.ok(record.receipts.some(receipt => receipt.kind === 'flag'), 'the other effect of the same apply landed');
+    assert.equal(rows.some(row => row.lane === 'run' && row.event === 'catalog_refused'), false);
+});
+
+const keeperNoTime = fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'time', minutes: 0, why: 'No extra time.'}, flag]})], {stopReason: 'toolUse'});
+test('§227.3 a zero-minute time charges nothing and is no second time', async t => {
+    const {rows, record} = await turnTwo(t, true, [keeperNoTime, narrate]);
+    assert.ok(record.receipts.some(receipt => receipt.kind === 'flag'));
+    assert.equal(record.receipts.filter(receipt => receipt.kind === 'time' && receipt.minutes > 0).length, 1);
+    assert.equal(rows.some(row => row.lane === 'run' && row.event === 'catalog_refused'), false);
+});
