@@ -117,6 +117,16 @@ test('unsettled declared time projects clarification and refuses a model replace
 	assert.equal((await later.model('s2','apply',{effects:[{kind:'time',minutes:5}]})).status,'ok','a fresh run does not inherit the earlier hold');
 });
 
+test('§218.9 a held stated time projects ask_in_fiction with what the host heard, and the replacement refusal says to ask',async()=>{
+	const h=harness({env:{COC_NARRATOR_ONLY:'off'}});
+	const heard={end:{hour:{choice:'h9',p:.71}},reading:'9:30 am'};
+	const note=await h.project('s1','compose','declared_time_unresolved',[],{declared_time_unresolved:{cause:'stated_measure_uncertain',unresolved:['band'],ask_in_fiction:true,heard}});
+	assert.equal(note.unsettled_time.ask_in_fiction,true);assert.deepEqual(note.unsettled_time.heard,heard);
+	assert.match(note.unsettled_time_note,/asking in fiction/);assert.equal(/Narrate settled facts or ask/.test(note.unsettled_time_note),false);
+	const outcome=await h.model('s2','apply',{effects:[{kind:'time',until:{time:'09:30'}}]});assert.equal(outcome.status,'refused');
+	assert.equal(h.announced.at(-1).refuse_code,'declared_time_unresolved');assert.match(h.announced.at(-1).refuse,/asking in fiction/);
+});
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The setting.
 

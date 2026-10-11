@@ -16,9 +16,17 @@ import { refusalOf, type StatedEffect } from "./stated.js";
 
 const refusal = refusalOf("band");
 
+/** §218.9: how much of a time row a band rolls in: the whole row, its typical part (min..default), or its least (min). */
+const BAND_REACHES = ["full", "typical", "least"] as const;
+
 /** Bind `band` into a time or damage effect; an effect without `band` passes through untouched. */
 export async function bindBand(context: ApplyContext, bound: StatedEffect): Promise<StatedEffect> {
-    const effect = bound.effect, kind = string(effect.kind);
+    const effect = bound.effect, kind = string(effect.kind), reach = effect.band_reach;
+    // §218.9: `band_reach` narrows a time band's roll; it means nothing without a time band.
+    if (reach != null && (effect.band == null || kind !== "time" || !(BAND_REACHES as readonly unknown[]).includes(reach)))
+        throw refusal("invalid_params", "band_reach_invalid", `band_reach must be one of ${BAND_REACHES.join(", ")} beside a time effect's band, not ${repr(reach)}${effect.band == null ? " without a band" : ""}`, {
+            fix: "leave band_reach out, or give it beside band on a time effect: full rolls the whole row, typical rolls from its min to its default, least lands its min",
+            details: { field: "band_reach", options: [...BAND_REACHES] } });
     if (effect.band == null)
         return bound;
     if (!BAND_KINDS.includes(kind))
@@ -42,11 +50,15 @@ export async function bindBand(context: ApplyContext, bound: StatedEffect): Prom
             details: { table: BAND_FIELDS[field].table, options: rows } });
     const next: Row = { ...effect };
     delete next.band;
+    delete next.band_reach;
     if (kind === "time") {
         // A row whose min is 0 may roll 0: the receipt and the event carry it, exactly as a Keeper's `minutes: 0` would.
-        const min = chosen.min ?? 0, max = chosen.max ?? min, total = context.kernel.rng.randint(min, max);
+        // §218.9: a narrowed reach rolls from min to the row's default (typical) or lands its min (least); a row without a default keeps its max.
+        const min = chosen.min ?? 0, whole = chosen.max ?? min;
+        const max = reach === "least" ? min : reach === "typical" ? Math.max(min, Math.min(whole, chosen.default ?? whole)) : whole;
+        const total = context.kernel.rng.randint(min, max);
         next.minutes = total;
-        return { effect: next, stated: null, band: chosen.handle, bandRoll: { min, max, total } };
+        return { effect: next, stated: null, band: chosen.handle, bandRoll: { min, max, total, ...(reach != null && reach !== "full" ? { reach } : {}) } };
     }
     next.dice = chosen.dice ?? "";
     return { effect: next, stated: null, band: chosen.handle };

@@ -77,7 +77,7 @@ import { establishStep } from './establish-step.ts';
 import { COMMERCE_GUIDANCE, IMPROVISATION_GUIDANCE, CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
 import {withSourceQuestion} from './source-answer-pages.ts';
 import {
-  CLERK_AUTHORITY, createStepPolicy, consumedByEffects, consumedByClaim, consumedByResolve, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, exhaustedBy, interpretRoute, missedUnlocks, npcScanDue, overRun, PROPOSED_REASON, ROUTE_FAMILY,
+  CLERK_AUTHORITY, createStepPolicy, consumedByEffects, consumedByClaim, consumedByResolve, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, exhaustedBy, interpretRoute, missedUnlocks, npcScanDue, overRun, PROPOSED_REASON, ROUTE_FAMILY, unsettledTimeNote,
   type BindRecord, type Budget, type Candidate, type DeferredStep, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
 } from './step-policy.ts';
 
@@ -530,6 +530,10 @@ interface RunState {
   unresolvedAttack?: boolean;
   /** A failed host time bind is not a license for a model-origin replacement interval. */
   unresolvedTime?: boolean;
+  /** §218.9: why the declared time was not bound (`stated_measure_uncertain`, `event_bounded`, ...), for the refusal's words. */
+  unresolvedTimeCause?: string;
+  /** §218.9: a Keeper `until` without `journeys` after a journey this run landed was refused once; the next passes. */
+  journeysAsked?: boolean;
   /** §218.2: the clerk's declared time that landed this run (its receipt's numbers); the turn's time is then charged. */
   declaredTime?: {minutes: number | null; clock_before: number | null; clock_after: number | null; until?: Json; band?: string;
     /** §218.8: the clerk charged a stated length of one part; the Keeper's one time effect for the other activities is still open. */
@@ -1210,6 +1214,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       + 'and narrate the clock where the declared time put it. Only an owed row\'s time (owed) may land beside it.';
   }
 
+  /** §218.9: what the Keeper is told when its `until` names no order against a journey this run already landed. */
+  function untilJourneysUnstated(journeys: Row[]): string {
+    const where = journeys.map(receipt => `${text(receipt.to_label) || text(receipt.to) || 'a place'} (${String(receipt.minutes)} min)`).join(', ');
+    return `A journey already landed this turn: ${where}. This apply's time effect names a time the fiction reaches (until) without saying whether that journey came `
+      + 'before it or after it, and the clock cannot keep the player\'s order without it. Nothing in this apply was executed. Send it again with until.journeys: '
+      + '"before" when they travelled first and the time is reached after arriving, or "after" when the time came first and they travelled after it (the kernel then '
+      + 'counts the time from the clock before that journey and adds the journey after it). Do not put the journey\'s own time into another time effect: its move carries it.';
+  }
+
   /** §227.3: what the Keeper is told when the host left its time line out of an apply whose other effects landed. */
   function declaredTimeStripped(landed: NonNullable<RunState['declaredTime']>): string {
     const charged = declaredTimeLanded(landed).split('. Time is charged once a turn')[0];
@@ -1248,9 +1261,19 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const secondTime = !replacementTime && run.declaredTime !== undefined && timeEffect && run.declaredTime.part !== true;
     // §227.3: beside other effects the second time is only that line: the host strips it and the rest lands (4d7 t76, t89).
     const stripTime = secondTime && effects.some(value => object(value).kind !== 'time');
+    // §218.9: an `until` that names no order against a journey this run already landed (and none rides in this batch) cannot be
+    // counted in the player's order; it is asked once (`journeys`), and a second such apply passes.
+    const landedJourneys = run.turnReceipts.filter(receipt => receipt.kind === 'move' && typeof receipt.minutes === 'number' && receipt.minutes > 0);
+    const untilUnordered = !replacementTime && !secondTime && !run.journeysAsked && landedJourneys.length > 0
+      && !effects.some(value => object(value).kind === 'move')
+      && effects.some(value => { const effect = object(value), until = object(effect.until);
+        return effect.kind === 'time' && !effect.owed && effect.until !== undefined && until.journeys === undefined; });
     const refuse = outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
-      : replacementTime ? {code:'declared_time_unresolved',text:'The host could not bind the declared interval. This model-origin replacement time effect was not executed. Do not choose minutes or a band or claim that the wait completed. Narrate settled facts or return the genuinely missing interval to the player in character.'}
+      : replacementTime ? {code:'declared_time_unresolved',text:run.unresolvedTimeCause === 'stated_measure_uncertain' || run.unresolvedTimeCause === 'event_bounded'
+        ? `This model-origin replacement time effect was not executed. ${unsettledTimeNote(run.unresolvedTimeCause)}`
+        : 'The host could not bind the declared interval. This model-origin replacement time effect was not executed. Do not choose minutes or a band or claim that the wait completed. Narrate settled facts or return the genuinely missing interval to the player in character.'}
       : secondTime && !stripTime ? {code: 'declared_time_landed', text: declaredTimeLanded(run.declaredTime!)}
+      : untilUnordered ? {code: 'until_journeys_unstated', text: untilJourneysUnstated(landedJourneys)}
       // §224.2 rule 4: the host binds a fallback for every declared attack it can; one still unsettled had no attacker or target to bind.
       : presumedHit ? {code: 'check_outcome_unresolved', text: 'The host could not bind the declared attack to a check (no attacker sheet or target it can settle), so no roll was made. Damage cannot stand in for that missing check. '
       + 'Nothing in this apply was executed. Narrate the attempt and its outcome by your own judgement without numbers: write no damage, HP or condition effect for that attack. '
@@ -1273,6 +1296,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         scope: run.scope, turn: run.turn}} : {}),
       ...(refuse ? {refuse: refuse.text, refuse_code: refuse.code} : !refuse && stripTime ? {strip_time: declaredTimeStripped(run.declaredTime!)} : {})});
     if (refuse) record({lane: 'run', event: 'catalog_refused', run: run.runId, step: stepId, operation: proposal.operation, reason: refuse.code});
+    if (refuse?.code === 'until_journeys_unstated') run.journeysAsked = true;
     // SL-78 (§135.32 addendum 2, the `residual` row): every Keeper tool call among the five bookkeeping verbs is
     // counted here, attempt or not -- a refused free-text call is exactly the residual SL-78 measures.
     if (isKeeperResidualKey(proposal.operation)) run.keeperCalls[proposal.operation]++;
@@ -2337,10 +2361,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (step.reason === 'declared_time_unresolved') {
       run.unresolvedTime = true;
       const held = object(request.declared_time_unresolved);
+      if (typeof held.cause === 'string') run.unresolvedTimeCause = held.cause;
       record({lane:'run',event:'bind',run:run.runId,step:stepId,candidate:request.candidate??null,outcome:'unsettled',cause:held.cause??null,
         unresolved:held.unresolved??[],bindings:held.bindings??[]});
-      Object.assign(content,{unsettled_time:{cause:held.cause??null,unresolved:held.unresolved??[]},
-        unsettled_time_note:'The host could not bind the declared interval, so no time effect was executed. Do not choose minutes or a band, apply elapsed time, or claim that the wait completed. Narrate settled facts or ask for the genuinely missing interval in character. An NPC callback or other result is not established by waiting alone.'});
+      // §218.9 (owner, 2026-10-11): a held stated time is asked in fiction, with what the host heard; the Keeper never charges it.
+      Object.assign(content,{unsettled_time:{cause:held.cause??null,unresolved:held.unresolved??[],
+        ...(held.ask_in_fiction===true?{ask_in_fiction:true}:{}),...(held.heard!==undefined?{heard:held.heard}:{})},
+        unsettled_time_note:unsettledTimeNote(held.cause)});
     }
     if (step.reason === 'clerk_unbound' && operation) {
       record({lane: 'run', event: 'bind', run: run.runId, step: stepId, candidate: request.candidate ?? null, outcome: 'keeper', cause: unbound.cause ?? null,
