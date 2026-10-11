@@ -474,6 +474,14 @@ function compiledCheck(candidate: Candidate): {intent: 'investigate' | 'social'}
   const compile = object(object(candidate.basis).compile), intent = object(object(compile.bound).intent).value;
   return compile.predicate === 'ordinary_check' && (intent === 'investigate' || intent === 'social') ? {intent} : undefined;
 }
+/** §218.8: the clerk's declared time charged a stated length the player gave for one of several declared activities. */
+const statedPart = (records: BindRecord[]): BindRecord | undefined => records.find(entry => entry.name === 'minutes' && entry.scope === 'one_part');
+/** §218.8: the Keeper's line for a stated length of one part: the rest of the turn's declared activities are the Keeper's to charge, once. */
+function partLine(records: BindRecord[]): string | undefined {
+  const part = statedPart(records);
+  return part ? `time: the player stated ${String(part.value)} minutes for one of the activities they declared, and the host charged only that. `
+    + 'Charge the time of the other activities they declared this turn with one time effect: not this stated length again, and not a journey, which its move carries.' : undefined;
+}
 /** The Keeper's line for a clerk write that took a rules default (§135.28), or none. */
 function defaultLine(candidate: Candidate): string | undefined {
   const basis = object(candidate.basis), defaults = object(basis.rule_default);
@@ -510,7 +518,9 @@ interface RunState {
   /** A failed host time bind is not a license for a model-origin replacement interval. */
   unresolvedTime?: boolean;
   /** §218.2: the clerk's declared time that landed this run (its receipt's numbers); the turn's time is then charged. */
-  declaredTime?: {minutes: number | null; clock_before: number | null; clock_after: number | null; until?: Json; band?: string};
+  declaredTime?: {minutes: number | null; clock_before: number | null; clock_after: number | null; until?: Json; band?: string;
+    /** §218.8: the clerk charged a stated length of one part; the Keeper's one time effect for the other activities is still open. */
+    part?: boolean};
   /** §163: the run's forced resolutions in first-seen order, which are recorded (one telemetry row each), and which the Keeper was shown. */
   forced: ForcedResolution[];
   forcedRecorded: Set<string>;
@@ -1201,7 +1211,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       && array(object(proposal.params).effects).some(value => object(value).kind === 'time' && !object(value).owed);
     const replacementTime = run.unresolvedTime === true && timeEffect;
     // §218.2: time is charged once a turn. After the clerk's declared time landed, a Keeper time beside it would charge it again.
-    const secondTime = !replacementTime && run.declaredTime !== undefined && timeEffect;
+    // §218.8: a stated length of one part leaves the Keeper one time effect for the turn's other declared activities.
+    const secondTime = !replacementTime && run.declaredTime !== undefined && timeEffect && run.declaredTime.part !== true;
     const refuse = outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
       : replacementTime ? {code:'declared_time_unresolved',text:'The host could not bind the declared interval. This model-origin replacement time effect was not executed. Do not choose minutes or a band or claim that the wait completed. Narrate settled facts or return the genuinely missing interval to the player in character.'}
       : secondTime ? {code: 'declared_time_landed', text: declaredTimeLanded(run.declaredTime!)}
@@ -1234,6 +1245,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       ? await proposeStep(run, proposal.toolCall.id, object(proposal.params).key, stepId) : undefined;
     if (proposal.operation === 'lookup' && object(proposal.params).kind === 'historical_reference') run.historyAttempted = true;
     const toolResult = await execute();
+    // §218.8: the partial declared time's complement is spent once a Keeper time effect lands beside it.
+    if (timeEffect && !toolResult.isError && run.declaredTime?.part) run.declaredTime.part = false;
     // This narrow final-outcome refusal uses the existing turn-close steer, not a new batch adjudication/rewrite loop.
     if (object(object(toolResult.details).coc_error).details?.reason === 'refused_document_outcome') {
       run.forceTurnClose = true; run.forceTurnCloseReason = 'refused_document_outcome';
@@ -1457,7 +1470,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §138.10: a band the clerk named carries the kernel's roll on its record, read back from the turn's receipts.
     const rolled = bandRolls(bindings, ok ? packet.receipts : [], read?.receipts ?? []);
     // A refused write landed no band: its line would tell the Keeper to rule otherwise on nothing.
-    const binding = [defaultLine(candidate), bandLine, ok ? bandedLine(candidate, rolled) : undefined].filter((line): line is string => !!line).join(' ') || undefined;
+    const binding = [defaultLine(candidate), bandLine, ok ? bandedLine(candidate, rolled) : undefined, ok ? partLine(bindings) : undefined]
+      .filter((line): line is string => !!line).join(' ') || undefined;
     // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed, banded); none was a model call.
     // §215: a refused clerk write records why -- the refusal code and the gate's or kernel's own words -- on its bind row.
     const refusedText = ok ? undefined : [object(refusedError).message, object(refusedError).fix].find(value => typeof value === 'string' && value.trim());
@@ -1470,7 +1484,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const ids = array(packet.receipts).map(text), receipt = array(read?.receipts).map(object).find(row => row.kind === 'time' && ids.includes(text(row.id))) ?? {};
       const number = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) ? value : null;
       run.declaredTime = {minutes: number(receipt.minutes), clock_before: number(receipt.clock_before), clock_after: number(receipt.clock_after),
-        ...(receipt.until !== undefined ? {until: receipt.until as Json} : {}), ...(typeof receipt.band === 'string' ? {band: receipt.band} : {})};
+        ...(receipt.until !== undefined ? {until: receipt.until as Json} : {}), ...(typeof receipt.band === 'string' ? {band: receipt.band} : {}),
+        ...(statedPart(bindings) ? {part: true} : {})};
     }
     run.clerkDid.push({step: invocation.stepId, operation: tool, label: candidate.label, clerk: candidate.clerk, call_id: callId, status: packet.status,
       receipts: packet.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),

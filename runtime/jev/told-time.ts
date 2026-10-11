@@ -16,7 +16,7 @@
 import type { DecisionAnswer, DecisionBatch, DecisionQuestion, DecisionResult, Json, ReadSet, ScopeBinding } from './contracts.ts';
 import type { DecisionPort } from './decision-port.ts';
 import type { TaskLease } from './task-context.ts';
-import type { ToldTimeBudget } from './host-budgets.ts';
+import { TOLD_TIME_FALLBACK, type ToldTimeBudget } from './host-budgets.ts';
 import { JEV_MODEL, packDecisionBatch, PackingError } from './question-packing.ts';
 import { clip, digest16 as digest } from './text.ts';
 import { toldSentences } from './told-position.ts';
@@ -167,6 +167,6 @@ export function toldTimeDecision(result: ToldTimeResult, budget: Pick<ToldTimeBu
   if (result.sentence.confidence < budget.sentenceMin) return { decision: 'stay', why: 'low_sentence' };
   // §218.4: owed only when the text carried the activity; what it only began is the next declaration's.
   if (result.extent?.choice === 'begun') return { decision: 'stay', why: 'begun' };
-  if (result.extent?.choice !== 'carried' || result.extent.top < (budget.extentMin ?? 0.5)) return { decision: 'stay', why: 'low_extent' };
+  if (result.extent?.choice !== 'carried' || result.extent.top < (budget.extentMin ?? TOLD_TIME_FALLBACK.extentMin)) return { decision: 'stay', why: 'low_extent' };
   return { decision: 'owe', band: row.handle, quote: result.sentence.text };
 }

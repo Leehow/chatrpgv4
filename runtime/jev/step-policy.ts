@@ -109,7 +109,11 @@ export interface BindRecord {name: string; path: BindingPath; value: Json; confi
   /** §218.1: the stated-measure grids a stated end or length was read from (pooled choice, leading probability, distribution). */
   stated?: Json;
   /** §218.1: the stated end's half of the day was not fixed; the kernel takes whichever reading the clock reaches first. */
-  either_half?: boolean}
+  either_half?: boolean;
+  /** §218.8: the stated end's order against the turn's journeys, as `until.journeys` carries it. */
+  journeys?: 'before' | 'after';
+  /** §218.8: the stated length covers one of several declared activities; the Keeper may charge the others once. */
+  scope?: 'one_part'}
 /** One shape a candidate takes once its `decision` is bound: the chosen action with its own parameters. */
 export interface CandidateVariant {label: string; bound: Record<string, Json>; unbound: Unbound[]; basis?: Json}
 /**
@@ -773,14 +777,24 @@ export function bindBatch(view: RunView, candidate: Candidate, scope: ScopeBindi
 }
 
 /**
- * §218.1: the stated measure -- the clock time at which what the investigator does now ends, or the length of the time they
- * let pass now -- read by Jev on host-enumerated number grids (the same options for every language; no word is read by the
- * host). Five questions, each asked in §163.10's three views: the end's hour on a twelve-hour face, its minute and its half
- * of the day; the length's unit and amount. The activity band is a different proposition (what fills the time), so a stated
- * measure never competes with it inside one closed choice. Jev reads; the host converts a grid value; the kernel counts.
+ * §218.1/§218.8: the stated measure -- the clock time at which what the investigator does now ends, or the length of the time
+ * they let pass now -- read by Jev on host-enumerated number grids (the same options for every language; no word is read by the
+ * host), each asked in §163.10's three views. §218.8 asks what the stated time is (`kind`: the end of what they do now, a start,
+ * a deadline, a condition, another time), then its hour on a twelve-hour face, its minute and its half of the day, and the order
+ * of that end against the turn's journeys; for a length, its unit, amount and how much of the turn it covers. The activity band
+ * is a different proposition (what fills the time), so a stated measure never competes with it inside one closed choice. Jev
+ * reads; the host converts a grid value; the kernel counts.
  */
-export const STATED_MEASURE_MIN = 0.5;
+/** §218.8: bars calibrated on the 4d7 live table (hour: right .93-1.0, wrong .60-.77; minute: right .65-1.0, wrong .67/.71). */
+export const STATED_HOUR_MIN = 0.8;
+export const STATED_MINUTE_MIN = 0.75;
 export const STATED_HALF_MIN = 0.6;
+/** §218.8: the length's unit and amount (live .84-.99, never wrong). */
+export const STATED_SPAN_MIN = 0.5;
+/** §218.8: the questions 4d7 did not ask; the skill's read-only tier, each used only beside the measured bars. */
+export const STATED_KIND_MIN = 0.6;
+export const STATED_ORDER_MIN = 0.6;
+export const STATED_SCOPE_MIN = 0.6;
 const pad = (value: number): string => String(value).padStart(2, '0');
 export const STATED_HOURS: readonly string[] = Array.from({length: 12}, (_, index) => `h${index + 1}`);
 export const STATED_MINUTES: readonly string[] = Array.from({length: 60}, (_, index) => `m${pad(index)}`);
@@ -789,13 +803,21 @@ export const STATED_UNITS: Readonly<Record<string, number>> = Object.freeze({min
 export const STATED_AMOUNTS: readonly number[] = [0.25, 0.5, 0.75, ...Array.from({length: 23}, (_, index) => 1 + index / 2),
   ...Array.from({length: 108}, (_, index) => 13 + index)];
 const amountKey = (value: number): string => `x${value}`;
-export const STATED_KEYS = {hour: 'stated_end:hour', minute: 'stated_end:minute', half: 'stated_end:half', unit: 'stated_span:unit', amount: 'stated_span:amount'} as const;
+export const STATED_KEYS = {kind: 'stated_end:kind', hour: 'stated_end:hour', minute: 'stated_end:minute', half: 'stated_end:half',
+  journey: 'stated_end:journey', unit: 'stated_span:unit', amount: 'stated_span:amount', scope: 'stated_span:scope'} as const;
+/** §218.8: the roles of a named clock time that are not the end of what the investigator does now. */
+const NOT_AN_END: readonly string[] = ['start_only', 'deadline', 'condition', 'other_time', 'no_time'];
 const NOT_A_MEASURE = 'a schedule, an opening or closing hour, an appointment or meeting time, a quotation, a deadline, a past moment, an estimate, '
-  + 'a time inside a condition that is not met now, or a time the player asks about';
+  + 'a time inside a condition that is not met now, the time an activity starts, or a time the player asks about';
 function hourCriterion(index: number): string {
   const hour = index % 12;
   return index === 12 ? 'The stated end falls in the twelve o\'clock hour: 00:00-00:59 (around midnight) or 12:00-12:59 (around noon).'
     : `The stated end falls in the ${index} o'clock hour: ${pad(hour)}:00-${pad(hour)}:59 or ${pad(hour + 12)}:00-${pad(hour + 12)}:59.`;
+}
+function minuteCriterion(index: number): string {
+  return index === 0 ? 'Exactly on the hour: the time has no half, no quarter and no minutes after its hour.'
+    : index === 15 ? '15 minutes past the hour (a quarter past).' : index === 30 ? '30 minutes past the hour (half past).'
+      : index === 45 ? '45 minutes past the hour (a quarter to the next hour).' : `${index} minutes past the hour.`;
 }
 function amountCriterion(value: number): string {
   return value === 0.25 ? '0.25 (a quarter)' : value === 0.5 ? '0.5 (a half)' : value === 0.75 ? '0.75 (three quarters)'
@@ -804,31 +826,49 @@ function amountCriterion(value: number): string {
 export function statedMeasureQuestions(candidate: Candidate): DecisionBatch['questions'] {
   if (candidate.clerk !== 'declared_time') return [];
   const reads = 'Read only the player\'s current input (`player_input`).';
+  const theEnd = 'the clock time at which what the investigator does now ends (the moment they get up, wake, stop, leave or act again)';
   return [
-    {key: STATED_KEYS.hour, target: 'the clock time at which what the investigator does now ends, by its hour', type: 'choice',
-      instructions: `${reads} Does it name the clock time at which what the investigator does now ends: the moment they get up, wake, stop, leave or act again `
-        + '(sleeping until it, reading until it, waiting until it)? If it does, which hour of a twelve-hour clock face does that time fall in? '
-        + 'A 24-hour time such as 19:30 falls in the seven o\'clock hour, and so does a quarter to eight. Choose none when it names no such time. '
-        + `A clock time that only describes something else is none: ${NOT_A_MEASURE}. A named activity (eating, reading, resting, sleeping) does not compete with the time it ends at.`,
+    {key: STATED_KEYS.kind, target: 'what the clock time the input names is', type: 'choice',
+      instructions: `${reads} What does it say about when what the investigator does now ends? When it names that end and also other times `
+        + '(a bedtime, a deadline, an opening hour), choose end_of_now.',
+      criteria: {end_of_now: `It names ${theEnd}, and the player commits to it now: sleeping, reading, working or waiting until it, getting up at it.`,
+        start_only: 'It names only a clock time at which something begins (going to bed at ten), and no clock time at which it ends.',
+        deadline: 'The clock time is a deadline or a time to arrive by: something is to be done or reached before or by it. The investigator does not stay until it.',
+        condition: 'The clock time is inside a condition or an option the player allows but does not commit to now (if he is not out by two; waiting until six if they must).',
+        other_time: 'The clock time is only a schedule, an opening or closing hour, an appointment, a quotation, a past moment, an estimate, or a time the player asks about.',
+        no_time: 'The input names no clock time.',
+        unknown: 'Cannot be told from the supplied state.'}},
+    {key: STATED_KEYS.hour, target: 'the hour of the clock time at which what the investigator does now ends', type: 'choice',
+      instructions: `${reads} Take ${theEnd}. Which hour of a twelve-hour clock face is it in? A 24-hour time such as 19:30 is in the seven o'clock hour, `
+        + 'and so is a quarter to eight. When the input names when an activity begins and when it ends (to bed at one time, up at another), take when it ends. '
+        + `Never take the hour of something else: ${NOT_A_MEASURE}. Choose none when the input names no such end. A named activity (eating, reading, resting, sleeping) does not compete with the time it ends at.`,
       criteria: {none: `The input names no clock time at which what the investigator does now ends: it names no clock time, or only ${NOT_A_MEASURE}.`,
         ...Object.fromEntries(STATED_HOURS.map((key, index) => [key, hourCriterion(index + 1)])),
         unknown: 'Cannot be told from the supplied state.'}},
-    {key: STATED_KEYS.minute, target: 'the minute of that stated end', type: 'choice',
-      instructions: `${reads} If it names the clock time at which what the investigator does now ends, which minute past the hour is it? Choose m00 when the time `
-        + 'is on the hour or gives no minutes; a half past is m30, a quarter past m15, a quarter to the next hour m45. Choose unknown when no such time is named or its minute cannot be told.',
-      criteria: {...Object.fromEntries(STATED_MINUTES.map((key, index) => [key, index === 0 ? 'On the hour, or no minutes are given.' : `${index} minutes past the hour.`])),
+    {key: STATED_KEYS.minute, target: 'the minute of the clock time at which what the investigator does now ends', type: 'choice',
+      instructions: `${reads} Take ${theEnd}, the same time whose hour is asked, not any other time in the input. Which minute past its hour is it? `
+        + 'A half past is m30, a quarter past m15 and a quarter to the next hour m45, whether written in digits or in words. Choose m00 only when the time is exactly on the hour. '
+        + 'Choose unknown when no such time is named or its minute cannot be told.',
+      criteria: {...Object.fromEntries(STATED_MINUTES.map((key, index) => [key, minuteCriterion(index)])),
         unknown: 'No such time is named, or its minute cannot be told.'}},
-    {key: STATED_KEYS.half, target: 'the half of the day of that stated end', type: 'choice',
-      instructions: `${reads} If it names the clock time at which what the investigator does now ends, which half of the day is that time in, as the player's words `
-        + 'and the current situation (`now`) say? Choose not_said when neither fixes the half, or when no such time is named.',
-      criteria: {am: 'Between midnight and noon: after midnight, before dawn or in the morning (a 24-hour time before 12:00).',
-        pm: 'Between noon and midnight: the afternoon, the evening or the night before midnight (a 24-hour time from 12:00).',
+    {key: STATED_KEYS.half, target: 'the half of the day of the clock time at which what the investigator does now ends', type: 'choice',
+      instructions: `${reads} Take ${theEnd}. Which half of the day is it in, as the player's words and the current situation (\`now\`) say? `
+        + 'Choose not_said when neither fixes the half, or when no such time is named.',
+      criteria: {am: 'Between midnight and noon: midnight itself, after midnight, before dawn or in the morning (a 24-hour time before 12:00).',
+        pm: 'Between noon and midnight: noon itself, the afternoon, the evening or the night before midnight (a 24-hour time from 12:00).',
         not_said: 'Neither the words nor the situation fix the half of the day, or no such time is named.',
+        unknown: 'Cannot be told from the supplied state.'}},
+    {key: STATED_KEYS.journey, target: 'the order of the stated end and the input\'s journeys', type: 'choice',
+      instructions: `${reads} If it names ${theEnd} and also a journey to another place, does the journey come before that end or after it?`,
+      criteria: {journey_then_end: 'They travel to another place first, and the end comes after they arrive (ride home, then work until three; ride home and sleep until seven).',
+        end_then_journey: 'The end comes first, and they travel to another place after it (stay in until half past eight, then ride to the hall).',
+        both_sides: 'They travel both before the end and after it.',
+        no_journey: 'The input names no journey to another place, or no such end.',
         unknown: 'Cannot be told from the supplied state.'}},
     {key: STATED_KEYS.unit, target: 'the length of the time the investigator lets pass now, by its unit', type: 'choice',
       instructions: `${reads} Does it state how long the time the investigator lets pass now lasts: waiting, resting, sleeping, reading or working for so many minutes, `
-        + `hours or days? If it does, in which unit is that length stated? Choose none when it states no such length. A length that only describes something else is none: ${NOT_A_MEASURE}, `
-        + 'or one part of a longer stated span. A clock time at which something ends is not a length.',
+        + `hours or days? If it does, in which unit is that length stated? Choose none when it states no such length. A length that only describes something else is none: ${NOT_A_MEASURE}. `
+        + 'A clock time at which something ends is not a length.',
       criteria: {none: `The input states no length of the time let pass now: it states no length, or only ${NOT_A_MEASURE}.`,
         minutes: 'The length is stated in minutes.', hours: 'The length is stated in hours.', days: 'The length is stated in days.',
         unknown: 'Cannot be told from the supplied state.'}},
@@ -837,6 +877,13 @@ export function statedMeasureQuestions(candidate: Candidate): DecisionBatch['que
         + 'Choose unknown when no such length is stated, or when its amount is none of the options (two units added together, a range).',
       criteria: {...Object.fromEntries(STATED_AMOUNTS.map(value => [amountKey(value), amountCriterion(value)])),
         unknown: 'No such length is stated, or its amount is none of the options.'}},
+    {key: STATED_KEYS.scope, target: 'how much of the time let pass now the stated length covers', type: 'choice',
+      instructions: `${reads} If it states how long something the investigator does now lasts, does that length cover all the time they let pass now, `
+        + 'or only one of several activities the input declares?',
+      criteria: {all: 'The length covers all the time the investigator lets pass now, apart from journeys between places.',
+        one_part: 'The length covers one activity, and the input also declares other activities, not journeys, that take time of their own before or after it (writing a letter and then sleeping eight hours).',
+        no_length: 'The input states no such length.',
+        unknown: 'Cannot be told from the supplied state.'}},
   ];
 }
 
@@ -848,37 +895,50 @@ function gridRead(result: DecisionResult | undefined, question: DecisionBatch['q
   return {choice, top, distribution: pooled.distribution, answered: pooled.answered, total: pooled.total, ...(pooled.spread !== undefined ? {spread: pooled.spread} : {})};
 }
 export interface StatedMeasureRead {
-  end?: {time: string; eitherHalf: boolean; weakest: number};
-  span?: {minutes: number; weakest: number};
-  /** A grid leads with a measure that nothing bound: the player stated something the host could not read with confidence. */
+  end?: {time: string; eitherHalf: boolean; weakest: number; journeys?: 'before' | 'after'};
+  span?: {minutes: number; weakest: number; part: boolean};
+  /** A measure was stated that nothing bound: the player stated something the host could not read with confidence. */
   uncertain: boolean;
   grids: Record<string, GridRead>;
 }
 /**
- * §218.1: what the grids say. An end is bound when the hour and the minute lead at or above `STATED_MEASURE_MIN`; its half is
- * fixed when `am`/`pm` leads at or above `STATED_HALF_MIN`, else the kernel takes the reading it reaches first. A length is
- * bound when the unit and the amount lead at or above the bar and make whole minutes. With nothing bound, a grid that leads
- * with a measure is `uncertain`.
+ * §218.1/§218.8: what the grids say. An end is bound when the hour leads at or above `STATED_HOUR_MIN` and the minute at or
+ * above `STATED_MINUTE_MIN`, unless `kind` was answered and does not lead `end_of_now` at or above `STATED_KIND_MIN`. Its half is
+ * fixed when `am`/`pm` leads at or above `STATED_HALF_MIN`, else the kernel takes the reading it reaches first (the twelve o'clock
+ * hour as 12:MM); its order against the turn's journeys rides on it when `journey` leads at or above `STATED_ORDER_MIN`. A length
+ * is bound when the unit and the amount lead at or above `STATED_SPAN_MIN` and make whole minutes; `scope` marks one part. With
+ * nothing bound, `uncertain` when the hour leads with an hour no confident non-end `kind` explains, `kind` leads `end_of_now`,
+ * or the unit leads with a unit.
  */
 export function statedMeasureOf(candidate: Candidate, result: DecisionResult | undefined): StatedMeasureRead | undefined {
   const questions = statedMeasureQuestions(candidate);
   if (!questions.length) return undefined;
   const grids = Object.fromEntries(questions.map(question => [question.key, gridRead(result, question)])) as Record<string, GridRead>;
-  const hour = grids[STATED_KEYS.hour], minute = grids[STATED_KEYS.minute], half = grids[STATED_KEYS.half];
-  const unit = grids[STATED_KEYS.unit], amount = grids[STATED_KEYS.amount];
+  const kind = grids[STATED_KEYS.kind], hour = grids[STATED_KEYS.hour], minute = grids[STATED_KEYS.minute], half = grids[STATED_KEYS.half];
+  const journey = grids[STATED_KEYS.journey], unit = grids[STATED_KEYS.unit], amount = grids[STATED_KEYS.amount], scope = grids[STATED_KEYS.scope];
   const hourLeads = !!hour.choice && STATED_HOURS.includes(hour.choice), unitLeads = !!unit.choice && Object.hasOwn(STATED_UNITS, unit.choice);
+  // §218.8: kind unanswered (or unknown) leaves the grids to decide with their bars; answered, it must name the end.
+  const kindAnswered = !!kind.choice && kind.choice !== 'unknown', kindEnd = kind.choice === 'end_of_now';
+  const kindClears = !kindAnswered || kindEnd && kind.top >= STATED_KIND_MIN;
+  const noEnd = kindAnswered && NOT_AN_END.includes(kind.choice!) && kind.top >= STATED_KIND_MIN;
   let end: StatedMeasureRead['end'], span: StatedMeasureRead['span'];
-  if (hourLeads && hour.top >= STATED_MEASURE_MIN && minute.choice && STATED_MINUTES.includes(minute.choice) && minute.top >= STATED_MEASURE_MIN) {
+  if (kindClears && hourLeads && hour.top >= STATED_HOUR_MIN && minute.choice && STATED_MINUTES.includes(minute.choice) && minute.top >= STATED_MINUTE_MIN) {
     const face = Number(hour.choice!.slice(1)) % 12, fixed = (half.choice === 'am' || half.choice === 'pm') && half.top >= STATED_HALF_MIN;
-    const clock = face + (fixed && half.choice === 'pm' ? 12 : 0);
-    end = {time: `${pad(clock)}:${minute.choice.slice(1)}`, eitherHalf: !fixed, weakest: Math.min(hour.top, minute.top)};
+    // §218.8: the twelve o'clock hour with no half fixed is 12:MM, which the kernel reads as noon or midnight, whichever comes first.
+    const clock = fixed ? face + (half.choice === 'pm' ? 12 : 0) : face === 0 ? 12 : face;
+    const order = journey.top < STATED_ORDER_MIN ? undefined
+      : journey.choice === 'journey_then_end' ? 'before' as const : journey.choice === 'end_then_journey' ? 'after' as const : undefined;
+    end = {time: `${pad(clock)}:${minute.choice.slice(1)}`, eitherHalf: !fixed, weakest: Math.min(hour.top, minute.top, ...(kindAnswered ? [kind.top] : [])),
+      ...(order ? {journeys: order} : {})};
   }
   const value = amount.choice && amount.choice.startsWith('x') ? Number(amount.choice.slice(1)) : NaN;
-  if (unitLeads && unit.top >= STATED_MEASURE_MIN && STATED_AMOUNTS.includes(value) && amount.top >= STATED_MEASURE_MIN) {
+  if (unitLeads && unit.top >= STATED_SPAN_MIN && STATED_AMOUNTS.includes(value) && amount.top >= STATED_SPAN_MIN) {
     const minutes = value * STATED_UNITS[unit.choice!];
-    if (Number.isSafeInteger(minutes) && minutes > 0) span = {minutes, weakest: Math.min(unit.top, amount.top)};
+    if (Number.isSafeInteger(minutes) && minutes > 0)
+      span = {minutes, weakest: Math.min(unit.top, amount.top), part: scope.choice === 'one_part' && scope.top >= STATED_SCOPE_MIN};
   }
-  return {...(end ? {end} : {}), ...(span ? {span} : {}), uncertain: !end && !span && (hourLeads || unitLeads), grids};
+  const endStated = hourLeads && !noEnd || kindEnd;
+  return {...(end ? {end} : {}), ...(span ? {span} : {}), uncertain: !end && !span && (endStated || unitLeads), grids};
 }
 const gridsRecord = (grids: Record<string, GridRead>): Json => Object.fromEntries(Object.entries(grids)
   .map(([key, grid]) => [key, {choice: grid.choice, top: Math.round(grid.top * 1000) / 1000, distribution: grid.distribution}])) as Json;
@@ -965,12 +1025,14 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
       const measure = candidate.clerk === 'declared_time' && parameter.name === 'band' ? statedMeasureOf(candidate, result) : undefined;
       if (measure?.end || measure?.span) {
         const vote = measure.grids[measure.end ? STATED_KEYS.hour : STATED_KEYS.unit], weakest = measure.end ? measure.end.weakest : measure.span!.weakest;
-        if (measure.end) extra.until = {time: measure.end.time, ...(measure.end.eitherHalf ? {either_half: true} : {})};
+        // §218.8: the end's order against the turn's journeys rides on `until` for the kernel to keep (`journeys`).
+        if (measure.end) extra.until = {time: measure.end.time, ...(measure.end.eitherHalf ? {either_half: true} : {}), ...(measure.end.journeys ? {journeys: measure.end.journeys} : {})};
         else extra.minutes = measure.span!.minutes;
         lowest = Math.min(lowest, weakest);
         bindings.push({name: measure.end ? 'until' : 'minutes', path: 'jev', value: measure.end ? measure.end.time : measure.span!.minutes, confidence: weakest,
           semantic: {answered: vote.answered, total: vote.total, ...(vote.spread !== undefined ? {spread: vote.spread} : {})},
           stated: gridsRecord(measure.grids), ...(measure.end?.eitherHalf ? {either_half: true} : {}),
+          ...(measure.end?.journeys ? {journeys: measure.end.journeys} : {}), ...(!measure.end && measure.span!.part ? {scope: 'one_part' as const} : {}),
           ...(weakest < (band?.gate ?? gate) ? {cleared: false} : {}),
           superseded: {name: parameter.name, choice: choice ?? null, distribution,
             ...(measure.end && measure.span ? {span_minutes: measure.span.minutes} : {})} as Json});
