@@ -21,6 +21,19 @@ export interface RefusedDocumentBasis {
  */
 export type DocumentOutcomeVerdict = {status: 'clean' | 'steer' | 'unclear' | 'claimed' | 'stale' | 'inactive';
   reason: string; probability?: number; basisHash?: string; draftHash?: string; attempt: number};
+/**
+ * §200.3's table, shared by every §166.2 outcome guard (the refused document and, since the owner's 2026-10-11 decision, the
+ * act held by an unavailable review): only a strong claim (p >= .90) on the first attempt with the turn's correction still
+ * available refuses; every other answer delivers.
+ */
+export function outcomeStatus(p: number | undefined, attempts: number, correctionIssued: boolean, correctionAvailable: boolean):
+  ['clean' | 'steer' | 'unclear' | 'claimed', string] {
+  if (p === undefined || !Number.isFinite(p) || p < 0 || p > 1) return ['unclear', 'outcome_unavailable'];
+  if (p <= .1) return ['clean', 'no_false_completion'];
+  if (p >= .9 && attempts === 1 && !correctionIssued && correctionAvailable) return ['steer', 'false_completion'];
+  if (p >= .9) return ['claimed', correctionIssued ? 'false_completion_after_correction' : 'false_completion_without_correction'];
+  return ['unclear', 'outcome_uncertain'];
+}
 /** §200.4: a recording the turn closes with and no writing result settled, as the delivery carries it to the turn record. */
 export type UnconfirmedRecording = {document?: string; reason: 'binding_unresolved' | 'not_written' | 'unverified'; cause?: string};
 
@@ -111,12 +124,8 @@ export class RefusedDocumentOutcome {
       const result = await Promise.race([input.decision.decide(batch, lease), cancelled]), value = result.answers.false_completion;
       if (!await current()) return verdict('stale', 'refusal_binding_changed');
       const p = result.status === 'complete' && value?.status === 'answered' && value.type === 'noul' ? value.noul : undefined;
-      // §200.3: only a strong claim with the correction still available refuses; everything else delivers.
-      answer = p === undefined || !Number.isFinite(p) || p < 0 || p > 1 ? verdict('unclear', 'outcome_unavailable')
-        : p <= .1 ? verdict('clean', 'no_false_completion', p)
-          : p >= .9 && this.attempts === 1 && !this.correctionIssued && input.correctionAvailable ? verdict('steer', 'false_completion', p)
-            : p >= .9 ? verdict('claimed', this.correctionIssued ? 'false_completion_after_correction' : 'false_completion_without_correction', p)
-              : verdict('unclear', 'outcome_uncertain', p);
+      const [status, reason] = outcomeStatus(p, this.attempts, this.correctionIssued, input.correctionAvailable);
+      answer = verdict(status, reason, status === 'unclear' && reason === 'outcome_unavailable' ? undefined : p);
     } catch {
       if (!await current()) return verdict('stale', 'refusal_binding_changed');
       answer = verdict('unclear', 'outcome_unavailable');
