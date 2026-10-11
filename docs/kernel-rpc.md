@@ -6801,6 +6801,9 @@ the preset's `adds_damage_bonus` rule. Existing accepted definitions remain vali
 and unchanged. Player descriptions are generated in the campaign language.
 Enhanced Items 1.3.0 requires `weapons.preset.v1`: a weapon definition and an action usage copy the weapon preset
 the host names, and acceptance refuses a departure the creator did not state (§138.7).
+Enhanced Items 1.3.5 requires `weapons.improvised.v1`: a declared first blow with a held object whose usage is still being
+prepared is rolled as the weapons-table row it most resembles (§224.7); without a package requiring it the attack keeps its
+preparation.
 
 Packages contain `mod.json`, instructions, schemas and optional data/migrations.
 The manifest declares `id`, `version`, `game_api`, `state_version`, `name`,
@@ -14194,6 +14197,8 @@ adds prices or infers coverage. Existing arithmetic and debit ceilings remain un
 Writer: the Keeper proposes the complete chosen expense and the kernel previews its debit.
 Reader: Keeper guidance, the native carried-source/clerk note, and both reviewers read
 coverage policy; reviewers also receive the computed preview.
+(Amended by §135.11.2.1, 2026-10-10: the clerk note carries it only while commerce is open; the
+system prompt always.)
 Actor: the Keeper settles and narrates completion; the player answers only an unmade choice.
 
 The Keeper decides the open semantic question, using `category: living|purchase|transfer` on a
@@ -23180,6 +23185,45 @@ model steps: the first note carries `head` equal to `CLERK_NOTE_HEAD` right afte
 `head`, and the next turn's first note carries it again; a first model step with nothing else to say still has a note, with
 the head. Structure only, never wording. Mutations in the SL-50 ticket's Comments.
 
+##### 135.11.2.1 Addendum (2026-10-10, player report on TR-F2 run 3; amends §135.11.2's head, §150's carried guidance and §58.9's reader line): the head is turn-flow guidance; the commerce policy rides only while commerce is open
+
+**Evidence.** TR-F2 run 3, T18 (basement, no one selling anything): the run's first `coc-clerk` note was 26,844 characters. Its
+`head` was 4,960 of them, opening with "A refused purchase retains its original merchandise prices…"; `clerk_did`, which said the
+two clues were committed, began at character 18,006, after 8.5 KB of historical reference. The Keeper narrated against it.
+`CLERK_NOTE_HEAD` opened with `IMPROVISATION_GUIDANCE` (`runtime/jev/carried-views.ts`), which grew from 427 characters
+(§150, 2026-09-28, `ed1aa30ff`) to 3,835 in eight repairs between 2026-09-29 and 2026-10-06, six of them commerce (§58.9);
+24 of its 40 sentences were also `prompts/keeper.md`'s line 19, so the system prompt and every run's first note each carried
+the purchase policy. The session file of run 3 holds its first sentence 20 times. Each repair's test asserted the sentence
+was there; none asserted where it must not be.
+
+**The split.** `IMPROVISATION_GUIDANCE` keeps §150's improvisation sentences and the memory and custody ones (≈1 KB):
+improvise where the book is silent, register what lasts, memory records are history, the party leaving moves no NPC,
+showing a possession gives nothing away, a technical wait is no fictional obstacle. The commerce sentences (§58.9's purchase
+recovery, bargaining, bound price speech, covered services) become **`COMMERCE_GUIDANCE`**, unchanged in wording.
+`CLERK_NOTE_HEAD`, `CARRIED_SCENE_TEXT_HEAD`, `CARRIED_PERSON_TEXT_HEAD` and the legacy scene and person notes carry
+`IMPROVISATION_GUIDANCE` only.
+
+**When commerce rides.** The run's first `coc-clerk` note that goes out while the latest read finds **commerce open**
+carries **`commerce`**: `COMMERCE_GUIDANCE`, once per run (after `head` when both ride). Commerce is open
+(`commerceOpen`, `runtime/jev/hybrid-engine.ts`) when the capsule's `known.cash_quotes` is not empty (a quote neither
+settled nor cancelled) or `known.prices_paid` has a row of this turn or the one before. Kernel state only; nothing reads the
+player's words. A turn that opens commerce from nothing (the player first asks a price) has no quote yet: the Keeper reads
+the policy in its system prompt, the price fields' own descriptions (`extensions/kernel/tools.ts`) and the kernel's refusal
+fixes, as §58.9 already places them. `commerce` does not by itself make a note go out.
+
+**The system prompt.** `prompts/keeper.md` keeps the commerce paragraph and gains the four commerce sentences only the
+constant had (a chosen covered service completes now, its full billed quantity, asking a price chooses nothing, debits and
+new commitments need accepted terms), so no sentence is lost. §58.9's reader line ("Keeper guidance, the native
+carried-source/clerk note, and both reviewers read coverage policy") now reads: the system prompt always, the clerk note
+while commerce is open.
+
+**Three ends (§31).** *Writer:* the kernel (`known.cash_quotes`, `known.prices_paid`), `commerceOpen`. *Reader:* the engine's
+`projection`. *Actor:* the Keeper, who reads the policy beside the open bill.
+
+*Tests.* `tests/extension/single-loop-note-head.test.mjs`: with nothing open no note carries `commerce`; with a quote open the
+run's first note carries it once, beside the head; no commerce sentence is in the head, every one is in `prompts/keeper.md`,
+and the head stays under 2,600 bytes (2,204 now, against 4,960).
+
 #### 135.11.3 A run the refusal budget's runaway abort ends is a delivery drop like any other: the fallback narrates once, and the stranded record is never written for it (2026-09-25, SL-63)
 
 **Evidence** (long gate #10 t4, the same table as §11.5.6/SL-62). After three `unknown_entity` refusals of one class the
@@ -25943,6 +25987,68 @@ still runs last.
 - the Keeper's bookkeeping of the office after that move (the Macario summary) lands at the office (§135.30.7).
 
 The fan-out file's emitted cases now use the office's remaining clue rows.
+
+##### 135.30.9.4 Addendum (2026-10-10, player report on TR-F2 run 3; amends §135.30.9's question for a clue row and closes §201.4's open item): a clue row asks whether the declaration finds it now, not whether it seeks it
+
+**Evidence.** TR-F2 run 3 (campaign `game-af36b938-4ca6-421e-bdec-759080123f69`, Keeper `openai-codex/gpt-6-luna`): the
+compile filed two clues by `ask_clue` on that table, and both were given to the player as clue cards under prose that says
+the opposite.
+
+- **T12** (chapel ruins). "我…在废墟里仔细翻找，看有没有通往地下室的入口，或者牧师留下的文件、书信。" The `ask` row of
+  `chapel-cellar-remains` ("The sealed chapel cellar contains two skeletons…") answered `yes` 0.62 and cleared; the clerk filed
+  it. The prose: no entrance shows on the surface, the way is still unclear.
+- **T18** (basement). "日记说科比特葬在地下室。我用手电仔细照墙面和地面，找有没有砌死的墙、暗门或者翻动过的土。" `hollow-boards`
+  answered `yes` 0.85, `corbitt-body-found` ("Behind the boards lies a wizened, seemingly dead figure…") `yes` 0.55 (yes 0.70,
+  no 0.17); both cleared and were filed. The book's only cue for the body is the scene's `tear-boards` affordance: "Tear away
+  the boards fixed to the wall and enter the foul-smelling void and the hidden chamber beyond." The prose: fitted boards, no
+  light through them, "no hidden door or turned earth" -- and the player then saw the body's card. The player reported it
+  (2026-10-10): "它线索和文字对不上".
+
+Both answers were right to the question asked. §135.30.9's `ASK_ROW` asks whether the declaration *seeks* the thing ("Seeking
+it is enough; how the table answers is not this question"), and a player who searches for the cellar or the grave seeks
+exactly what lies in it. For an obligation's demand seeking is the right question (the attempt is the check, §135.30.9); for
+a clue, filing is finding, and a clue the book reaches by a further act (breaking the boards, opening the cellar) is then
+landed on a declaration that has not done it. §201.4 counted it (`landed_untold`) and left the question until the counts
+were read; two of two `ask_clue` filings on this table were untold.
+
+**The question for a clue row.** A clue row (id `clue:<c>`, id syntax) is asked one yes/no as before, in the same compile
+batch, key `ask_<n>`, options `yes` / `no` / `unclear`, but with **`CLUE_ROW`**'s wording: would the declared action, done
+as stated, find this clue now? Two things may say what finds it: the clue's own words ("a cursory check reveals…") and its
+**`cues`**, when the kernel row carries them (§135.30.9.2: the active scene's affordances that grant it), what the book says
+the investigator does here to get at it. Doing either finds it; seeking it, looking for it or doing less than either does
+not, and what lies behind, under or inside something is found only by getting past it. The row's
+`describe` gains `cues` beside `clue` (`runtime/jev/compile-rows.ts`), the same authored data the re-ask already reads; a row
+without cues is asked on its words alone. Jev judges; nothing compares words.
+
+**Not changed.** The reading (`rowClears`, §135.30.9.1) and the record: a clue row whose `yes` cleared is still **sought** in
+`features.ask`, `ask_cleared` and `cleared.ask`, so `guard_unlock`, `ask_clue`, the per-candidate evidence and §32.12's
+line-by-line admission read it unchanged. Obligation rows and handout rows keep `ASK_ROW`. The re-ask (§135.30.9.2) keeps
+its own question; its target and its `settled` carry the row's words without the cues (the target adds them once). A clue the compile does not file
+falls through to the route and the Keeper as before: the Keeper still lands it with its own `apply` when its narration gives
+it.
+
+**Three ends (§31).** *Writer:* the kernel (`cues` on the clue option row), `compileRows` (the row's `describe`), Jev (the
+answer). *Reader:* `readFeatures` and the clue predicates, unchanged. *Actor:* the clerk, which now files a clue only when
+the declaration finds it; the Keeper, which keeps the rest.
+
+*Tests.* `tests/extension/single-loop-ask-fanout.test.mjs`: a clue row is asked with `CLUE_ROW` and carries its cues in the
+target, an obligation row keeps `ASK_ROW`. `tests/extension/clue-ledger.test.mjs` T18: the run-3 declaration, answered
+`no` on the body's row (it does not tear the boards), files `hollow-boards` alone.
+
+*Live replay* (2026-10-10, `jev-1`, the `ask` rows alone with the kernel's summaries and cues, no materials, five calls per
+arm; `*` cleared). The old question was replayed in the same way, three calls each.
+
+| declaration | row | `ASK_ROW` (seeks) | `CLUE_ROW` (finds now) |
+| --- | --- | --- | --- |
+| T18 search | `hollow-boards` | yes 0.64–0.74* | no 0.18–0.22, once yes 0.19 (not cleared) |
+| T18 search | `corbitt-body-found` | yes 0.10 (live table: 0.55*) | no 0.89–0.92 |
+| T12 search | `chapel-cellar-remains` | yes 0.38–0.51 (one cleared; live table: 0.62*) | no 0.76–0.82 |
+| "我把墙根那段钉得死死的木板撬开，钻进后面的空间看看。" | `hollow-boards`, `corbitt-body-found` | yes 0.58–0.64*, yes 0.35–0.48 | yes 0.94–0.95*, yes 0.94–0.95* |
+| gate #6 accept, Knott's office | `knott-research-leads` | no 0.16–0.27 | yes 0.31–0.35 (not cleared) |
+
+The search no longer files the body or the cellar, breaking the boards files both, and the boards' hollow areas on the
+search fall to the Keeper (neither answer clears). The accept's leads are filed by the commission's settlement
+(§135.30.9.3), not by this row.
 
 #### 135.30.10 Addendum (2026-10-04, environment acceptance): one declaration, one destination -- the run's move settles where it goes
 
@@ -33317,7 +33423,7 @@ The strict gates are unchanged and still decide whenever they clear (§159.4's `
 6. **Preparation still comes first.** A check whose every option lacks arguments still hands the Keeper §159.10's preparation step, and a successful preparation still reopens Jev's adjudication. A preparation still pending when the turn is delivered is a forced no-roll, recorded at the accepted delivery; the Keeper's preparation instruction says to narrate the attempt by judgement when preparation cannot complete this turn.
 7. **An unsettled interaction scope is a world turn.** Only a confident out-of-fiction request (`world_action` ≤ .35 and `system_request` ≥ .8) is `reference`. Everything else that is not confidently world -- a gray pair, a pair leaning out of fiction below the reference gate, no answer, no credential, an exception -- plays as `world`, recorded as forced. The Keeper may answer a plainly out-of-fiction part of the message briefly in fiction-neutral words, then keep playing; it does not ask the player to confirm what they meant. The `uncertain` mode no longer exists as an output.
 
-The Keeper still never chooses or rolls a check: model-origin resolve stays refused on every path (§159.2), and "narrate by judgement" means prose and the Keeper's ordinary non-check operations, never a substitute roll. Damage still cannot stand in for an attack check the host did not settle (`check_outcome_unresolved`); its refusal tells the Keeper not to describe a hit, miss or consequence of that attack, and to keep the narration before the unresolved consequence.
+The Keeper still never chooses or rolls a check: model-origin resolve stays refused on every path (§159.2), and "narrate by judgement" means prose and the Keeper's ordinary non-check operations, never a substitute roll. Damage still cannot stand in for an attack check the host did not settle (`check_outcome_unresolved`); its refusal tells the Keeper not to describe a hit, miss or consequence of that attack, and to keep the narration before the unresolved consequence. *Re-ruled by §224.2 (user ruling 2026-10-10, 「全部」): a declared attack's unsettled weapon or target takes the host's rulebook fallback and is rolled; only an attack with no attacker or target to bind stays a no-roll, which the Keeper narrates with its outcome by judgement, without numbers.*
 
 ### 163.3 What is recorded, and what the Keeper sees
 
@@ -34649,6 +34755,8 @@ Tests:
 - `tests/extension/npc-epithets-lane.test.mjs`: a published cast asks again, and another campaign's does not.
 
 ## 178. A first impression is rolled when the people meet (owner ruling, 2026-10-04; amends §26's contributed checks, §134.3's trigger enum and §16.5's roll card)
+
+*Re-ruled by §224.3 (user ruling 2026-10-10, 「全部」): the kernel no longer rolls a presence check when people meet; the host offers it and Jev selects it only when the impression matters this turn. The receipt shape below is kept.*
 
 ### 178.1 The ruling and the evidence
 
@@ -41347,7 +41455,7 @@ reason, field}`. Anything else is left to Pi's schema check as before.
 The told-clue read asks `given` of each clue the delivered turn landed (not an owed landing) and lists those at or under
 `told_clue.untold_max` as `landed_untold` on its row (T18: `corbitt-body-found`; T12: `chapel-cellar-remains`). It is counted,
 never acted on: the receipt stands. Its cause on T18 is the compile's ask row ("does the declaration seek this thing",
-§135.30.9) filing a clue whose book finding is a further act; changing that question is left until these counts are read.
+§135.30.9) filing a clue whose book finding is a further act; §135.30.9.4 (2026-10-10) changes that question for clue rows.
 
 ### 201.5 Three ends (§31)
 
@@ -43481,6 +43589,782 @@ count.
   and its reads still sends the capsule (`read_owner: "foreground_fallback"`); an unverified input still fails its deadline.
 
 Each fails on the base except the unverified-input guard, which holds on both.
+
+## 221. Sanity is judged from what happened, per the Keeper Rulebook (user ruling 2026-10-10; amends §136.5–§136.6 seat table, §136.13, §138.10, §159, §163 for sanity)
+
+### 221.1 The ruling and the evidence
+
+The owner's ruling of 2026-10-10: the module supplies content the Keeper performs; the rules adjudicate what actually
+happened in play, per the Keeper Rulebook, and never refuse an event because the script gave it no number. For sanity
+the product fell short of that in a verified way. In `hybrid-v1` the Keeper may not call `resolve` (§159); the host's
+check catalog (`kernel-ts/runtime/check-catalog.ts`) offered an executable `sanity:check` only from a scene rule node's
+`mechanics.sanity_loss` or a present actor's profile loss; every other horror was inventoried as
+`check_arguments_unavailable:sanity:check`, and the clerk note then told the Keeper to "prepare the observed participants"
+(`runtime/jev/hybrid-engine.ts`, `check_preparation.instruction`), which fits a missing combat profile and nothing about
+sanity. §138.10's sentence "Sanity … stay[s] the Keeper's" was agent text, never an owner ruling, and in `hybrid-v1` the
+Keeper has no way to make it so. A clue node could not carry `sanity_loss` (§136.1 seat table). The rules data
+(`content/rulesets/coc7/rules-json/sanity.json`) held no sample-loss ladder, while `kernel-ts/sanity/index.ts` carried
+one as a literal in a `needs` message.
+
+The real case: TR-F2 run 3, turn 18. A clue filed that turn read "Behind the boards lies a wizened, seemingly dead figure
+on a pallet …" (`clue-corbitt-body-found`, the haunting). The rulebook's sidebar *Examples of Sanity Point Costs*
+(p.155) places "surprised to find a corpse or body part" at 0/1D3; p.154 has the Keeper call a Sanity roll for each
+investigator entangled in a sanity-threatening situation. No roll happened and none could have.
+
+Rulebook pages this section reads (chapter 8): p.154 (the Keeper calls the roll; the loss depends on the situation; a
+failed roll costs an involuntary action the Keeper chooses; a fumble costs the maximum), p.155 (the twelve-row example
+ladder, 0/1D2 to 1D10/1D100), p.156 (the one-fifth "day" is defined by the Keeper, usually until the investigator reaches
+safety and rests), p.157–159 (Tables VII and VIII; the Keeper may roll or choose a fitting bout), p.168 (Keeper award at
+the end of a successful scenario or chapter, proportional to the danger faced, reduced or removed for cowardly, brutal or
+murderous conduct; the printed example is 1D6), p.169 (*Getting Used to the Awfulness*: an investigator who has lost as
+much to one sort of monster as that monster's maximum possible loss loses no more for a reasonable interval, every
+development phase reduces the tracked total by one, and investigators "never truly get used" to it; *Mythos Hardened*,
+optional: once Cthulhu Mythos exceeds Sanity all loss is halved, permanently, even if Sanity later rises above it).
+
+### 221.2 Rules data: the example ladder, the award scale, the awfulness and hardening constants
+
+`content/rulesets/coc7/rules-json/sanity.json` gains, beside the existing keys:
+
+- `sample_loss_ladder` — `{source_note, rows: [{san_loss: "<s>/<f>", situation: <short paraphrase>}]}`, the twelve rows
+  of p.155 in the book's order (0/1D2, 0/1D3, 0/1D4, 1/1D4+1, 0/1D6 ×3, 1/1D6+1, 0/1D10, 1/1D10, 2/2D10+1,
+  1D10/1D100). The `situation` is this repository's own short label, never the book's sentence. Each `san_loss` reads
+  through `parseSanLoss`/`validateSanLossExpression` (the grammar §136.3 already fixes).
+- `getting_used_to_the_awfulness` — `{source_note, cap: "maximum_possible_loss", development_phase_reduction: 1}` (p.169).
+- `mythos_hardened` — `{source_note, optional: true, permanent: true, loss_divisor: 2}` (p.169).
+- `sanity_day` — `{source_note, defined_by: "keeper", fallback: "calendar_day"}` (p.156; the behaviour is §221.10).
+
+`content/rulesets/coc7/rules-json/reward.json` gains `keeper_award` — `{source_note, printed_example: "1D6", scale:
+[{expression: null, label}, {expression: "1D3", label}, {expression: "1D6", label, printed: true}, {expression: "2D6",
+label}]}` (p.168). Only `1D6` is printed as a scenario award; the lesser and greater rungs are this repository's scale
+around it and say so in their labels, and `null` is the book's "reduce or remove". The rows are the only numbers the
+host ever issues; nobody types an expression.
+
+Validation: the kernel reads the ladder at load through the grammar (a malformed row fails `sanityLossLadder` loudly);
+`tests/extension/sanity-ladder.test.mjs` pins the twelve rows, their grammar and the award scale against the shipped
+files. `kernel-ts/sanity/index.ts` no longer carries a literal scale: the `needs` message for a missing `san_loss` lists
+the ladder's expressions.
+
+### 221.3 The catalog: a horror with no stated number is still a Sanity roll
+
+`checkCatalog` offers `sanity:check` from four sources, in this precedence, all `authorization: consequence`:
+
+1. **A rule node's stated loss** (`mechanics.sanity_loss`, unchanged, §136.23).
+2. **A present actor's stated loss** (`profile.sanity_loss` or the legacy keys, unchanged, §136.13; once per visit per
+   actor by the `npc_exposure` receipt, §180.3).
+3. **A clue filed this turn whose node states `mechanics.sanity_loss`** (new; the seat is §221.4). The option's action
+   is `{actor, clue: <handle>, san_loss: "<s>/<f>", goal: "seeing <clue label>"}`, its facts `perceived: {kind: "clue",
+   label, summary, how}`; the roll receipt records `clue_exposure: <handle>` and the option is not offered again while
+   a receipt on this line carries that exposure.
+4. **Judged from what happened this turn** (new): for each investigator with no `sanity_check` roll receipt yet this
+   turn, one option `{actor}` whose `san_loss` is a **Jev parameter** over the ladder — each option labelled
+   `<situation> (<san_loss>)`, value the expression — plus the existing `involuntary` parameter and the `bout` parameter
+   of §221.8. Its `definition` tells Jev to judge, from this turn's `done_this_turn` (the clues filed, the people who
+   arrived, the Keeper's last committed narration and the declaration), whether something threatened this
+   investigator's sanity and which example it is closest to; its facts are `{loss_source: "rulebook_examples",
+   done_this_turn: {clues: [{label, summary, how}], people_met: [names], last_narration}}`. A stated loss (1–3) wins
+   over it: when any stated option covers the same clue or actor, the clue or actor is listed under
+   `done_this_turn.stated` rather than left for the ladder, so the same sight is not both stated and judged.
+
+Jev's existing selection owns whether the roll is due: the family's now/later route (`runtime/jev/candidates.ts`), then
+the necessity question of `runtime/jev/resolve-selection.ts`, which for `loss_source: rulebook_examples` asks the
+specialised trigger "did something this turn threaten this investigator's sanity in a way the rulebook's examples
+cover; a sight already settled by a SAN receipt, a merely unpleasant or tense moment, and the module's secrets the
+investigator has not met do not". The `san_loss` choice carries `unknown`: Jev that cannot place the horror on the ladder
+leaves the check a forced no-roll named `unbound:san_loss` (§163), never a guessed number. Nothing in code compares
+words: no list of horrific nouns, no regex over the clue text.
+
+The `source` of the resulting receipt is the option's `goal` (the clue's label for 3; the declaration for 4), exactly as
+§136.13 reads it today.
+
+### 221.4 `sanity_loss` sits on a clue (amends §136.1's seat table)
+
+| key | shape | node kinds |
+| --- | --- | --- |
+| `sanity_loss` | `sanity_loss` | `rule`, `hazard`, `object`, `artifact`, **`clue`** |
+
+`SHAPE_KINDS.sanity_loss` (`kernel-ts/modules/mechanics-catalog.ts`) admits `clue`; `mechanicsRefusals` therefore accepts
+the shape there and still demands `source_refs` (`mechanics_unsourced`) for a clue that states one. The haunting's clues
+are **not** hand-authored here: the path is the system's (a reader or author that states a page's loss on the clue it
+belongs to lands in the seat), and until a module states one the ladder of §221.3(4) is what rolls.
+
+### 221.5 The clerk's missing-argument note fits the case (amends §159.10's notice)
+
+When every preparation need the delivery step carries is `check_arguments_unavailable:<decision>` for a decision outside the
+`combat` and `chase` families — a rule family with no executable option in the present state, not a participant without a
+profile (the chase placeholder of §159.10 keeps its participant instruction) — `check_preparation.instruction` says so
+instead of asking the Keeper to prepare participants: "no host option for this family can execute in the present state;
+there is nothing to prepare for it; narrate by your own judgement without a roll and the host records it as decided under
+uncertainty". The participant-preparation instruction is kept for needs that name a profile, an object usage or a chase
+role. With §221.3(4) the sanity family always has an executable option while an investigator who has not rolled this turn
+stands in the scene, so for sanity the placeholder case is unreachable.
+
+### 221.6 Getting Used to the Awfulness is derived, capped per the book, and healed by development (p.169)
+
+- **The sort of monster** is closed data, never a word: for a `sanity:check` with a target actor the kernel binds
+  `creature_type` host-locked as `catalog:<name>` when the actor's pinned profile carries `catalog` (§180.6), else the
+  actor's graph handle. A rule node's or a clue's loss, and the ladder's, bind none: a situation is not a creature.
+- **The cap** is the maximum possible loss of the failure half (`max(maxLoss(success), maxLoss(failure))`), the book's
+  "maximum possible Sanity point loss for that monster" (deep ones 0/1D6 → 6; 1/1D6+1 → 7). The earlier sum of both
+  halves (1/1D6+1 → 8) was wrong and is corrected.
+- **Development** (`development:end-session`, `development:settle-ending`): after an investigator's phase settles (not a
+  replay), every tracked total in `awfulness_caps` is reduced by the data's `development_phase_reduction` (1), floor 0,
+  and the sanity state records `awfulness_eased`.
+- The per-visit "once per actor" guard of §180.3 stays: it is the no-double-roll rule within one encounter (p.155: the
+  effect is for the encounter, not each ghoul seen), which the cap does not express.
+
+### 221.7 Mythos Hardened is permanent once reached (p.169)
+
+`SanitySession` sets `state.mythos_hardened = true` the first time a loss is rolled while `cm_value > san_current`, and
+halves every later loss by that flag, whether or not Sanity has since risen above Cthulhu Mythos. `closeSanityDays` carries
+the flag through the day close. Receipts keep `mythos_hardened` as before.
+
+### 221.8 A bout the Keeper picks (p.157–159)
+
+Every `sanity:check` option carries a `bout` parameter (`selection: compatible`): "Roll on the bout table (1D10)" (value
+`roll`) and the ten results of Table VII by their `kind` from `bout-tables.json`, each labelled by its result name. The
+question asks Jev, assuming a bout follows, which result fits what just happened. The kernel binds it as the semantic slot
+`bout_choice`; `startBout` uses the chosen `kind`'s row of the mode's table without rolling the table die (the duration
+dice still roll), records the pick as `bout_of_madness_table` with `outcome: "chosen"`, and a module `moduleBoutOverride`
+still wins over both. `roll` or an absent slot is the roll of today.
+
+### 221.9 The Keeper award is offered, from the book's expression or the data's scale (p.168)
+
+`development:end-session` for a `conclusion`, `retreat` or `cliffhanger` carries `scenario_san_reward_expr` as a Jev
+parameter with a rules **default**:
+
+- a stated reward (`statedEndingReward`, §136.17): default the book's expression; the override question asks whether the
+  investigators' conduct was cowardly, brutal or murderous (the book's grounds to reduce or remove); the other options are
+  the scale's rungs below the stated one and `null` (no award);
+- no stated reward: default `null`; the override question asks whether the investigators faced real danger in this
+  chapter such that a Keeper award applies; the options are the scale's rungs.
+
+The option's facts are `{reward_source: "stated" | "rulebook_scale", stated: <expression | null>}` and its definition
+quotes the rule in paraphrase. A `tpk` carries no award. The Keeper still types no expression (`prompts/keeper.md` ~44
+keeps "do not invent a reward"; the `ending_settlement_required` fix text says the host offers the award from the book or
+its scale). `resolve-selection.ts` learns one general rule for this: when a parameter has a rules default and its
+override's choice comes back `unknown`, the default stands and the result is recorded forced (`below_confidence_gate` or
+`jev_unanswered`) rather than a no-roll — a rules default is the book's answer, not a guess.
+
+### 221.10 The Sanity "day" (p.156): design recorded, code unchanged
+
+The book lets the Keeper define the day, usually until the investigator reaches safety and rests. The product has no
+closed signal for "reached safety and rested": `apply time` carries minutes, `why` (free text) and `until`; recovery
+(`stageRecovery`) treats every hour passed as rest; nothing records sleep. The faithful minimal version is a closed
+boolean `rest: true` on an `apply time` effect (the Keeper states the party has reached safety and rests), which would
+close the Sanity day for the party at that moment, with the calendar close (`stageDayBoundary`) kept as the fallback.
+That touches `table.apply.options`' time rows, the Keeper prompt, §138.10's time rows and the day-boundary tests, so it is
+recorded here as the design and **not** implemented in this slice; the calendar day stands and `sanity.json`'s
+`sanity_day` names the rule and the fallback. No TODO is left in code.
+
+### 221.11 The three ends (§31)
+
+- **Writer.** The ladder, the scale and the constants: the rules data (`sanity.json`, `reward.json`). The clue seat: a
+  module author or reader. The judged option: `checkCatalog` from this turn's receipts and the previous delivery.
+  `creature_type`, `clue_exposure`, `mythos_hardened`, `awfulness_eased`: the kernel.
+- **Reader.** Jev (`candidates.ts` route, `resolve-selection.ts` necessity and parameters); the sanity family's `slots`
+  and `execute`; `closeSanityDays`; the development executor.
+- **Actor.** The kernel rolls (`SanitySession.sanityCheck`, `startBout`), the roll and loss receipts land, the Keeper
+  narrates the committed result (§16.2). The offer ledger counts the judged option as any other.
+
+### 221.12 Tests
+
+`tests/extension/sanity-ladder.test.mjs` (rules data shape and grammar; the catalog's judged option, its ladder parameter
+and `done_this_turn`; a T18-style clue — a corpse filed with `establish`, no stated loss — reaches a stub Jev that picks
+0/1D3 and a `sanity_check` receipt lands; the clue seat of `SHAPE_KINDS`; the corrected cap, the permanent hardening flag,
+development easing and a chosen bout on `SanitySession`; the award offer's scale and default);
+`tests/extension/check-preparation-host.test.mjs` (the clerk note for an argument-only need beside a chase placeholder);
+`tests/extension/check-selection.test.mjs` (the rules-default fallback on an unknown override choice);
+`tests/kernel/test_sanity_awfulness.py` (through the emitted kernel: the creature type bound from the handle, the cap
+leaving nothing to lose on the second sight, the Keeper's bout pick, the `needs` ladder). The development offer's live
+behaviour (a real Jev judging danger and conduct) and the judged option's route through a real Jev need a real table.
+
+Frozen oracle (integration, 2026-10-10): the Python oracle predates this section, so its comparisons project the
+additions out of the live side only, by name, in `tests/extension/oracle-fixture.mjs`: `POST_FREEZE_SANITY_FIELDS`
+(`mythos_hardened` on the Sanity state; `ts-kernel-healing`) and `POST_FREEZE_CARD_SLOTS` (the Sanity check card's
+`clue_ref`, `creature_type` and `bout_choice`; `ts-kernel-rules`). The rule-record digest of `ts-kernel-rules` is
+re-pinned over the rules data of §221.2. The frozen captures are untouched.
+
+### 221.11 Live check (2026-10-10, real Jev, the emitted kernel over the haunting, Chinese declarations, two calls each)
+
+The first live run answered the ladder `unknown` at 1.0 ("not determined by supplied state"): the parameter batch
+(`check-selection-bind`) carried the option's label and action but not its `facts`, so `done_this_turn` never reached the
+question that names it. The bind and defaults batches now carry `selected.facts` (`runtime/jev/resolve-selection.ts`).
+Then: the corpse behind the boards → `0/1D3` (p.155, a corpse or body part), a body torn open in a blood-slick cellar →
+`1/1D4+1` (a horrifically mangled corpse), both with `cry_out`; reading old newspapers with a 1918 clipping filed, and
+walking to a café, → no roll (the trigger answered no). Not gameplay acceptance.
+
+The first real table (2026-10-10, a copy of TR-F2 run 3's campaign rewound to T17, Grok 4.7 Build fast as Keeper, live
+Jev): the search filed the hollow boards only and the prose agreed; prying the boards off filed `corbitt-body-found`, and
+check selection then chose this roll (needed now 0.77, `1/1D4+1` at 0.52, `freeze`, a bout) -- and the host's own
+`resolve` was refused by the tool schema: `action.bout: schema is false`. The host's resolve goes through the same Pi tool
+schema as the Keeper's (`extensions/kernel/tools.ts`), which had no `bout` (§221.8) or `clue` (§221.4, §222.3). Both are
+properties now, and `tests/extension/sanity-ladder.test.mjs` asserts every key a catalog option binds is one (the host folds
+`difficulty`, `bonus` and `penalty` into `modifiers` first).
+
+## 222. A clue the book finds by a check has the rulebook's ways in: obvious clues, other fitting checks, the Idea roll (user ruling 2026-10-10; amends §201.2, §135.30.9, §159; `kernel-ts/read/clue-check.ts`, `kernel-ts/apply/entities.ts`, `kernel-ts/runtime/check-catalog.ts`, `runtime/jev/clue-route.ts`, `extensions/kernel/clue-route.ts`)
+
+**Ruling.** The module supplies content the Keeper performs; the rules adjudicate what happened at the table, and they do not
+refuse an event because it does not match the script. §201.2 made the kernel do exactly that for one case: a clue whose
+profile says `delivery_kind: "skill_check"` with a named skill was refused (`check_first`) unless an investigator's roll of
+*that* skill passed *this turn*. The Keeper Rulebook has more ways to the same information, and this section lets each of
+them land the clue, with the receipt saying which one did.
+
+**Evidence.** Rulebook ch. 10, *Disseminating Information* (pp. 201-202): information the Keeper wants the players to have
+is an *obvious clue*, found without dice; never let one concealed clue be the key to the whole adventure; give important
+information several routes; when a clue is missed there is always the Idea roll. *The Idea Roll* (pp. 199-200): proposed by
+the players when the investigation has stalled; the roll decides *how* the clue comes, never *whether*; a win delivers it
+woven into the story, a loss delivers it with the investigators "in the thick of it"; the Keeper sets the difficulty by how
+plainly the clue had been offered (never mentioned: Regular; mentioned: Hard; made clear or discussed by the players:
+Extreme); the player whose investigator has the highest INT rolls. Ch. 5 (pp. 82-83, 89): the Keeper chooses which skill a
+method uses; an Idea roll is an INT roll made in the same manner as any other. Product: `kernel-ts/apply/entities.ts`
+`stageClue` (the gate), `kernel-ts/read/clue-check.ts` `checkPassed` (this turn, exact skill, investigator only),
+`runtime/jev/candidates.ts` and `consequence-candidates.ts` (`check.passed === false` rows withheld),
+`mods/keeper-pacing/agent.md` ("use the Idea roll as the rulebook has it") against `kernel-ts/resolve/bindings.ts`
+`BASIC_DECISIONS` (no such decision), `kernel-ts/capabilities.ts` (`idea_roll` only as a resolver name) and
+`content/rulesets/coc7/rules-json/rule-index.json` (`core.resolution.idea_roll` described as a recall roll). TR-F2 run 3:
+T10 the host decided `no_roll` and the Keeper gave the executor by judgement (§201.2 admits it; the ledger could not take
+it); T6/T13 landed Library Use and Spot Hidden clues with no roll.
+
+### 222.1 The routes the kernel lands a checked clue by (amends §201.2)
+
+`clueRoute(check, {clue, receipts, foundBy})` (`kernel-ts/read/clue-check.ts`) answers the route that finds the clue, or
+null. `receipts` are **this visit's**: the turn's committed receipts, the batch's staged ones, and the receipts of the earlier
+turns since the party last moved into the active scene (`visitReceipts`, read from the turn records; a move whose `from`
+differs from its `to` starts a visit). The receipts are read by their own fields; nothing reads prose.
+
+1. **`check`** -- a `kind: "roll"` receipt with `passed: true` whose `skill` (or `check.skill`) is the book's skill after NFKC,
+   case and spacing folding. Any actor: an investigator's, or an NPC helper's (`actor_is_investigator: false`, recorded
+   `helper: true` -- ch. 5: whoever the Keeper lets make the roll made it). This turn or an earlier turn of the visit (`turn`
+   recorded when earlier). `§201.2`'s "this turn" is withdrawn: one attempt at one place is one attempt.
+2. **`idea_roll`** -- a roll receipt with `roll_kind: "idea_roll"` whose `clue` names this clue, passed or failed (`passed`
+   recorded): the rulebook's roll decides how, not whether.
+3. **`fitting_check`** -- the effect carries `found_by: {route: "fitting_check", roll: <id>}` and that receipt is a passed roll of
+   the visit of another skill: Jev judged the investigator's method fits the clue (§222.2). The kernel verifies the receipt
+   and records `judged: "jev"`.
+4. **`obvious`** -- `found_by: {route: "obvious"}`: Jev judged the clue obvious for progress (§222.2). Recorded `judged: "jev"`.
+5. **`no_roll`** -- `found_by: {route: "no_roll"}`: the host's check selection decided no roll this turn (§163; a cleared
+   `no_roll` or a forced one) and the Keeper gives it by judgement. Recorded `check_skipped: true`, `judged: "host"`; §201.1's
+   `check_skipped` count keeps its meaning.
+
+**The receipt** of a checked clue carries `check: {skill, difficulty?}` and `found_by: {route, roll?, passed?, turn?, helper?,
+judged?}`; `check_skipped: true` on route 5. An unchecked clue, a found clue (no-op), a table-established clue and an owed
+told row (§201.1) carry none and are gated by none, as before.
+
+**The refusal** when no route stands is §201.2's `needs` / `check_first`, with `details.routes: {other_rolls: [{id, skill,
+actor, turn}], idea_roll: true}` -- the visit's other passed rolls, for the host's fit judgement -- and a fix that names the
+ways in: the book's skill, another skill the host judges to fit, the Idea roll when the player asks for a way forward, the
+clue being obvious, the host's no roll; "until then narrate the attempt without what the clue states".
+
+**Only the host sends `found_by`.** The Keeper's `apply` schema (`extensions/kernel/tools.ts`) does not carry it, so Pi's
+schema check refuses it from the model; the host's own `table.apply` calls (the clue-route lane, §222.2) do. A `found_by` with
+an unknown route, or a `fitting_check` whose roll is not a passed roll of the visit, is `invalid_params`
+(`code_detail: "found_by_invalid"`).
+
+**`table.apply.options`** (`kernel-ts/runtime/apply-operation.ts`): a checked clue row's `description.check` is `{skill,
+difficulty?, passed, found_by?, other_rolls?}`: `passed: true` with `found_by` when route 1 or 2 stands on the visit, else
+`passed: false` with the visit's `other_rolls`. The clerk's readers (`buildCandidates`, `clueFollowUpCandidates`) keep
+skipping `passed: false` rows: an earlier turn's roll and an Idea roll now open them; a Jev route is the Keeper's apply's.
+
+### 222.2 The host opens the routes the kernel cannot verify: the `clue-route` lane
+
+`runtime/jev/clue-route.ts` (pure) and `extensions/kernel/clue-route.ts`. When the Keeper's `apply` is refused `check_first`
+with `details.routes`, the dispatcher (the model's call, never the clerk's) asks, before handing the refusal back:
+
+- **`no_roll`** -- no Jev: if the engine's check selection for this turn decided no roll (`coc:check-decided` on the Pi event
+  bus, emitted by `runtime/jev/hybrid-engine.ts` on a `check-selection` row whose `status` is `no_roll` and on a forced
+  `no_roll` of the `check-selection` / `check-binding` families; the extension keeps `{turn, why}` per table), the effect is
+  re-sent with `found_by: {route: "no_roll"}`.
+- **`fitting_check`** -- one Noul per `other_rolls` entry, `fit_r<n>`: does the method this passed roll settled -- its skill, its
+  goal -- find this clue, as the book describes it (the clue's summary and cues)? Not whether any skill is relevant; whether
+  *this* roll's method reaches it. Yes at or above `clue_route.fit_min` re-sends with `found_by: {route: "fitting_check",
+  roll}` (the highest-scored roll).
+- **`obvious`** -- one Noul, `obvious`: is this clue information the scenario needs the investigators to have to go on --
+  the kind the rulebook calls obvious, which the players get without dice -- rather than an advantage they may miss? State: the
+  clue's summary, the conclusions it supports and their `importance` when the graph carries one (`conclusion.importance`,
+  `core` / `critical`), the scene's other undiscovered clues. Yes at or above `clue_route.obvious_min` re-sends with
+  `found_by: {route: "obvious"}`.
+
+The order is as listed: the first route that opens lands it; nothing else of the batch changes. Bars and mode:
+`host-budgets.json` `clue_route: {mode: "on", fit_min: 0.6, obvious_min: 0.65, timeout_ms: 8000}` (`clueRouteBudget`;
+`PI_COC_CLUE_ROUTE=off|shadow|on` overrides the mode alone; `shadow` asks and records but re-sends nothing). Without a Jev
+key only the `no_roll` route is tried. Telemetry `{lane: "clue-route", event: "judged", turn, clue, check, no_roll, fit:
+{<roll>: p}, obvious: p, chosen: <route> | null, resent, ms}`; a lane failure is `{ok: false, reason}` and the original
+refusal stands. The re-sent call is the same `apply` with one effect's `found_by` added; its result is the Keeper's.
+
+### 222.3 The Idea roll exists (amends §159's catalog, §135.30.9's clue rows)
+
+- **Rules data.** `content/rulesets/coc7/rule-graph.json` gains `decision:coc7:core-check:idea-roll` (family `core-check`,
+  adapter `resolver`, kind `check`, `payload_constants: {characteristic: "INT"}`, slots `difficulty`, `goal`, `stakes`,
+  `difficulty_basis`, `clue` (keeper-semantic), `target` and `investigator_id` (host-locked)); the manifest's
+  `graph_content_digest` follows. Like `push-luck:luck-roll` it declares no intent trigger: it is reached by its decision.
+  `rule-index.json`'s `core.resolution.idea_roll` now says what the rulebook says: the players' request when the
+  investigation stalls; the roll decides how the missed clue comes, not whether; failure lands them in the thick of it.
+- **Kernel.** `IDEA` joins `BASIC_DECISIONS` and `MODIFIER_CARRIERS`. `action.clue` is required and must be an undiscovered
+  clue of the active scene or of the trail (`needs`, `details.needs.options` the handles); `action.difficulty`
+  (`regular | hard | extreme`, the rulebook's three) binds the difficulty beside `action.modifiers.difficulty`. The target is
+  the sheet's INT (`hostLocked`). The settlement lands the clue in the same call, whichever way the die fell: `world.discovered_clues`,
+  a clue receipt `{kind: "clue", clue, found_by: {route: "idea_roll", roll, passed}, check?}` and a `clue-discovered` event
+  beside the roll's; the roll receipt is `roll_kind: "idea_roll"` with `clue`. The result is `{bound_check, outcome, idea_roll:
+  true, clue, clue_receipt, next_continuations: []}`; `outcomeOf` adds `idea_roll: true`, `clue`, `clue_receipt` and **`note`**:
+  on a pass, deliver the clue woven into the story with a strong direction; on a failure, the clue still arrives and the
+  investigators are in the thick of it -- open in medias res with trouble of the kind the book already has on the table.
+  The note travels on `clerk_did[].result.outcome` (§135.11) and in the result's `hints`. Luck may not be spent on it and
+  it is not pushed (`next_continuations: []`), as the Luck roll.
+- **Catalog** (`kernel-ts/runtime/check-catalog.ts`, its own delimited block): outside a session, one option
+  `core-check:idea-roll` for the investigator with the highest INT (the rulebook's roller), when the scene holds an
+  undiscovered clue: label "<actor>: the Idea roll -- the players are stuck and ask for a way forward", a `definition`
+  paraphrasing pp. 199-200, parameters `clue` (Choice over the scene's undiscovered clue handles, labelled by summary --
+  which missed clue gets the investigation moving) and `difficulty` (how plainly the clue had been offered: never mentioned
+  Regular, mentioned Hard, made clear Extreme; default Regular). Jev selects it under `specializedTriggerQuestion`
+  (`runtime/jev/resolve-selection.ts`): does the player ask for a way forward -- say they are stuck, out of leads, ask for a
+  hint or for an Idea roll, in or out of character -- rather than declare a search, a question or any other act? A declared
+  act is its own check, never this.
+- **Mod.** `mods/keeper-pacing/agent.md`'s stuck-player paragraph now says who owns it: the host offers the Idea roll when
+  the player asks for a way forward and Jev selects it; the clerk's receipt names the clue and the note says how it arrives;
+  the Keeper weaves it in and, on a failure, opens with the trouble. `prompts/keeper.md` law 1 is unchanged: the Keeper
+  never chooses the check.
+
+### 222.4 Three ends (§31)
+
+*Writer:* the kernel's `clueRoute` (the receipt's `found_by`, `check_skipped`, the option row's `check`, the `check_first`
+refusal's `routes`); the Idea roll settlement (the roll and clue receipts, the outcome's `note`); the engine's
+`coc:check-decided`; the clue-route lane (the `found_by` on the re-sent effect, the `clue-route` row). *Reader:* `apply
+clue`, `table.apply.options`' readers, the clerk's `clerk_did`, the catalog's Jev selection, the Keeper's capsule receipts.
+*Actor:* the Keeper, whose apply lands through the route that stands and who weaves an Idea roll's clue in as the note
+says; the clerk, which files a clue an earlier turn's roll or an Idea roll opened; the operator, who reads `found_by`,
+`check_skipped` and the `clue-route` rows.
+
+### 222.5 Tests
+
+`tests/extension/clue-ledger-kernel.test.mjs`: the book's roll of an earlier turn of the same visit lands the clue
+(§201.2's test amended); an NPC helper's passed roll lands it; `found_by` `fitting_check` with a passed roll of another
+skill, `obvious`, `no_roll` (`check_skipped`), an unknown route and a failed roll (`found_by_invalid`); the Idea roll through
+`table.resolve.options` (offered for the highest-INT investigator with the scene's undiscovered clues) and `table.resolve`
+(the roll, the clue landed either way, the note); the option row's `check.found_by` / `other_rolls`.
+`tests/extension/clue-route.test.mjs`: the lane's questions and reading over a typed Jev double (fit, obvious, no_roll first,
+shadow, below bars). `tests/extension/check-selection.test.mjs`: the Idea roll's trigger question.
+`tests/kernel/test_rule_graph_data.py`: the decision is in `DECISIONS_WITHOUT_INTENT` and the manifest digest holds.
+
+### 222.6 Live check (2026-10-10, real Jev, the emitted kernel over the haunting at Knott's office, two calls each)
+
+The Idea roll's trigger answered as the rulebook reads it: "我卡住了，不知道下一步该做什么。KP，有什么提示吗？" and
+"我们好像漏掉了什么关键线索，能过个灵感检定吗？" called it; "我去《环球报》查科比特宅的旧报道。" and a question to Knott did not.
+The first run then withheld it: its `clue` parameter, on a `declaration` option an investigator acts in, read as the
+player's unmade choice (§163.8). The clue is the Keeper's to give (p.200), so the parameter is `selection: compatible`
+(best-scored clue bound); after that the two requests bound `knott-commission` (once `knott-macario-summary`), difficulty
+regular. Not gameplay acceptance.
+
+The clue-route lane, same day, three declarations at the Hall of Records over a core clue the book finds by Library Use
+(two calls each). As first written the `obvious` question judged the clue alone, so listening to the archivist chat made it
+obvious (0.74–0.75) as readily as asking for the register (0.77). The rulebook gives an obvious clue to investigators who look
+in the right place, so the question now also asks whether the declared act looks where the book puts it
+(`runtime/jev/clue-route.ts`). Then: asking the clerk for the deed register → obvious 0.71–0.72 (lands); listening → 0.16–0.17;
+a passed Spot Hidden through the deed boxes → fit 0.35, obvious 0.56–0.59 (nothing clears: the Keeper keeps it).
+
+### 222.7 The Idea roll asked out of character (2026-10-10, found on a real table)
+
+The rulebook lets the players propose the Idea roll "in or out of character" (pp. 199-200). On a copy of TR-F2 run 3's
+campaign in the basement (Grok 4.7 Build fast, live Jev), "（场外）我有点卡住了，不知道接下来该怎么办，能给点思路吗？" was read
+`reference` (out-of-fiction 0.92), and three gates in turn kept the roll from running: the reference read dropped every
+candidate, the reference route cleared the pending steps, and the clerk refused every policy write (`interaction_scope`);
+past those, admission refused it as an action the player had not chosen.
+
+**The rule.** In a reference turn the Idea roll's check family (candidate key `…:core-check:idea-roll…`, the catalog's closed
+decision) is kept by the read, routed, selected and executed exactly as in a world turn; every other candidate and step is
+dropped as before, and the turn ends with the reference compose (`runtime/jev/step-policy.ts` `ideaRollStep`). The clerk lets
+that one resolve through in a reference scope (`clerkStep`), and so does the extension's scope gate for a policy-origin
+resolve of that decision (`extensions/kernel/index.ts`). Admission reads it with an `idea_roll_rule` line
+(`ideaRollProposal`, `extensions/kernel/admission.ts`): the players' request chooses the roll; the clue is the Keeper's.
+
+**Live.** After the fix the same message rolled INT 20 against 60 (hard success) and landed `rusted-basement-dagger` by the
+Idea roll; the reference answer named the dagger in the tool pile and left the next step to the player.
+
+*Tests.* `tests/extension/interaction-scope.test.mjs` (the reference read and route keep only the Idea roll's steps),
+`tests/extension/idea-roll-reference.test.mjs` (admission's reading).
+
+## 223. Pushing, Luck and improvement ticks follow the Keeper Rulebook (user ruling 2026-10-10)
+
+The user's ruling of 2026-10-10: rules adjudicate what actually happened at the table, per the
+Keeper Rulebook; they do not refuse an event because a stricter house reading was written into
+code. This section aligns six findings of the rulebook audit. It amends §45.2 (`push_eligible`),
+§95 (modifier dice on a check), §159 (the host's push candidate) and the push/Luck hints of the
+settlement; it does not move check selection out of the host and Jev.
+
+### 223.1 Pushing: foreshadowing is optional, the justification is the player's
+
+Rulebook (p.84-85, "Pushing the Roll" / "Foreshadowing Failure"): a pushed roll is allowed if the
+player can justify it -- the player describes the extra effort or time; the Keeper approves. The
+consequence of failing the push *may* be foreshadowed, when the player asks or the Keeper chooses
+to; it is not a precondition. A failed push grants the Keeper free rein over the outcome (p.86),
+including the goal achieved at a cost.
+
+Product before this section: `rules-json/pushed-roll.json` said `requires_keeper_foreshadowed_failure:
+true` with a `keeper_foreshadows_failure` stage; `kernel-ts/resolve/basic.ts` wrote
+`keeper_foreshadowed_failure: true` on every pushed roll whatever had been said;
+`kernel-ts/resolve/settlement.ts` and `kernel-ts/resolve/pipeline.ts` refused a push without a
+`failure_consequence`; `kernel-ts/runtime/check-catalog.ts` offered the host's push candidate only
+when a sentence of the previous delivery could be quoted as the announced risk.
+
+Now:
+
+- The push candidate (`push-luck:pushed-roll`) is offerable whenever the previous continuable
+  check of this investigator failed as an ordinary failure, is `push_eligible`, has not been pushed
+  or bought with Luck, and the player declares a justified retry (Jev judges the declaration against
+  the option's definition; the player's words are the `method`). Its `stakes` parameter keeps the
+  previously delivered sentences that announce a consequence as options, and now carries the rules
+  default `''` (no foreshadowed consequence): Jev takes a sentence only when the delivery actually
+  foreshadowed one.
+- A push with an empty `failure_consequence` is legal. The receipt records honestly:
+  `pushed_roll_protocol.failure_consequence_source` is `delivered_text` when the consequence sentence
+  appears in a delivery already made at this table (the kernel checks the turn records'
+  `rendered_text`), `keeper_stated` when it was given on the call but was not delivered before, or
+  `keeper_free_rein` when none was given; `keeper_foreshadowed_failure` is true only for
+  `delivered_text`; `player_declared_push` replaces `player_confirmation_recorded`. The hint on a
+  failed push says the Keeper has free rein when no consequence was recorded.
+- `pushed-roll.json`: `requires_keeper_foreshadowed_failure: false`, `foreshadowing: "optional"`,
+  stages `player_justifies_push`, `keeper_approves`, `roll_resolved`; the push limits stay (one push,
+  no fumble, no combat skill, no Luck on a pushed roll, not in a chase, not Luck/SAN/damage rolls).
+- `prompts/keeper.md`: the Keeper may foreshadow the consequence of failing a pushed attempt in the
+  fiction ("if you fail…") when the player asks or when it heightens the danger; a menu is still not
+  offered and the push stays unexecuted until the player declares it.
+
+### 223.2 Improvement ticks: any bonus die withholds the tick
+
+Rulebook p.94: no tick is earned if the roll used a bonus die. The product withheld the tick only
+when the bonus die was needed for success (`bonus_die_only_success`). `skillTickEligible`
+(`kernel-ts/resolve/context.ts`) now withholds for any check whose net bonus dice are above zero;
+`development.json` names the exclusion `bonus_die_used` (the engine's `bonus_die_only_success`
+marker stays as a narrower, still-excluded case).
+
+### 223.3 Luck may raise a success level and may be spent on an opposed check
+
+Rulebook p.99: after a skill or characteristic roll, Luck may be spent 1-for-1 to alter the result;
+the example converts a Dodge to an Extreme success in an opposed contest. The product refused Luck on
+any passed roll (`luck_may_only_alter_a_failed_roll`), excluded non-combat opposed checks from the
+continuable receipts, and the combat path (`CombatSession.opposedLuck`) tried to raise a passed but
+losing roll through that refusal, so a precommitted Luck spend on a passed-but-losing roll threw.
+
+Now `CheckArithmetic.spendLuck` accepts a passed roll (the player may spend any amount up to their
+Luck; whether the new number changes the level is their gamble); the Luck exclusions stand (no Luck on Luck,
+SAN, SAN-loss or damage rolls; criticals, fumbles and malfunctions are not bought off; no Luck on a
+pushed roll; push or Luck, not both; no tick after Luck). `continuableCheck` admits the
+investigator's side of a non-combat `opposed_check`; its receipt carries `opponent_level` and
+`opponent_target` so `executeLuckSpend` recomputes the contest winner (`CheckArithmetic.contestWinner`,
+the same tie rule as `opposed`) and writes `opposed_won` on the bought roll. The settlement grants
+the Luck continuation after a regular, hard or extreme success as well as after a failure (a critical
+needs none). `CombatSession.opposedLuck` tries each point only where the raised level wins the
+contest and never asks the arithmetic to spend on a roll that does not change.
+
+### 223.4 Combined checks may be pushed and tick their skills
+
+Rulebook p.55 / p.85: a combined roll is one die compared with several skills; only skill and
+characteristic rolls can be pushed, and a combined skill roll is one. The rulebook puts no push or
+tick restriction on it. `executeCheck` no longer sets `push_eligible: false` on a combined check
+(it is pushable unless every named skill is a combat skill), `executePush` re-rolls a combined
+source with the same targets and mode, `executeLuckSpend` buys the one die down and compares it with
+every named skill again (`combined_roll` recomputed, no tick), and `recordSkillTicks` ticks each named
+skill the single die succeeded against (each judged by the ordinary tick rules); `development.json` drops
+`combined_roll_participant`. The whole combined receipt still has no tick of its own: its label is
+not a skill.
+
+### 223.5 Group Luck roll: the lowest Luck rolls
+
+Rulebook p.93: when the Keeper calls for a group Luck roll, the player whose investigator has the
+lowest Luck score rolls. `luck.json` and `rule-index.json` said "take the lowest individual roll";
+`group_roll_policy` is now `lowest_luck_rolls`. No kernel code reads the field; the Python table
+test is updated.
+
+### 223.6 Narration audit wording
+
+`mods/narration-audit/auditor.md` told the reviewer that a failed roll never earns the goal. p.86
+lets a failed pushed roll achieve the goal at a cost. §166 retired the pre-delivery audit and the
+deferred review runs only under `PI_COC_CONTINUITY_GATE` (`extensions/mods/index.ts` ~1013); the
+wording is corrected either way so a reviewer that does run does not flag a legal outcome.
+
+### 223.7 Three ends and tests
+
+Writer: `executeCheck`/`executePush`/`executeLuckSpend` (receipts), `recordSkillTicks`
+(development state), the check catalog (push candidate). Reader: the settlement hints and
+`shapeSettlement`, the mechanics projection, Jev's check selection. Actor: the player declares the
+push or the Luck spend; the Keeper narrates the recorded consequence or exercises free rein.
+
+Tests: `tests/extension/rulebook-rolls.test.mjs` (arithmetic: Luck raises a level and keeps the
+exclusions; opposed Luck recomputes the winner; push protocol records
+the consequence source honestly and accepts free rein; combined push and ticks; bonus-die tick
+withheld; combat opposedLuck on a passed-but-losing roll; catalog push default; rules data).
+
+Integration (2026-10-10): the push candidate's `stakes` parameter lists its rules default `''` as an option (label
+"No delivered sentence foreshadowed a consequence…"), because the host's `validateCheckOptions` requires every default
+to be one of its parameter's options; without it the whole catalog read as incoherent and every later check selection
+of the run was `check_catalog_binding_changed` (`forced-resolution`, `check-catalog`, `admission-within-turn`).
+`rulebook-rolls` now runs the validator over the live catalog. The Python replays and family tests follow §223.1,
+§223.3 and §223.4: a push without `stakes` is legal (`test_push_without_a_foreshadowed_consequence_is_legal`), a
+regular, hard or extreme success continues into `push-luck:luck-spend`, a combined check continues like any skill roll.
+
+## 224. A declared attack is always settled, and first impressions are rolled only when they matter (user ruling 2026-10-10, re-rules §163.2 and §178 per the Keeper Rulebook)
+
+### 224.1 The ruling and the evidence
+
+The user's ruling (2026-10-10): the module only supplies content pulled to the Keeper; the rules adjudicate the events that actually happen in play, per the CoC 7e Keeper Rulebook; rules never intercept or refuse an event because it does not match the script. The rulebook audit listed two places where the product departed from the rulebook that were earlier owner rulings (§163.2's no-roll attack and §178's first impression on every meeting). Told so, the user answered 「全部」 (all of them): both are re-ruled here.
+
+- **The no-roll attack (amends §163.2 items 2 and 5 and its last paragraph, §163.8's target and weapon of the investigator's own attack).** When the host could not bind an attack's arguments (Jev did not read which weapon or whom, or did not answer), §163.8 withheld the value as the player's, the host rolled nothing, `check_outcome_unresolved` refused the Keeper's damage, and the Keeper was told not to narrate a hit or a miss: a declared fight stalled. The rulebook gives the Keeper the decision where the rules do not settle a situation (chapter 5's opening sidebar, The Keeper's Decision is Final) and has the Keeper run combat (chapter 6); an improvised weapon is resolved with Fighting (Brawl) and a comparable weapon-table row the Keeper picks (Improvised Weapons, p.104). The player declared the attack; which listed weapon the investigator swings is a rules binding, not a new choice to hand back.
+- **The automatic first impression (amends §178.2, §178.3, §178.4, §178.5).** The kernel rolled APP/Credit Rating for every investigator–person pair the first time they shared a scene. The rulebook presents Credit Rating as a tool the Keeper may use to gauge first impressions (p.60), and asks for a roll only when there is tension and something at stake (When to Roll Dice, pp.82-83). Rolling on every meeting made a die of each passer-by.
+
+### 224.2 The declared attack's fallback binding
+
+The ownership model stays: Jev and the host select and bind; the kernel computes; the Keeper never resolves. A declared attack (an investigator's `combat:attack`: the first blow, `clerk: first_blow`; the investigator's own turn in a fight, `clerk: session_step`; and the check catalog's `combat:attack` options) is settled in the same turn:
+
+1. **Weapon.** When Jev's pooled bind does not settle the weapon (`unknown`, a tie, below its gate, or no answer), the host binds a fallback from the closed options it issued: the issued weapon Jev scored highest for the described method (probability above zero; a tie goes to the first listed), else `unarmed` -- the weapon-table row whose skill is Fighting (Brawl) (`content/rulesets/coc7/rules-json/weapons.json`), which the kernel always accepts for an investigator. An ordinary held item Jev scored highest still takes §159.10.1's preparation (`apply usage`: the Keeper chooses its comparable weapon-table profile, p.104); this section does not change preparation.
+2. **Target.** When the pooled bind does not settle whom the attack is at, the host binds the issued target Jev scored highest (probability above zero; a tie goes to the first listed). With no score at all the target stays unbound (rule 4).
+3. **The catalog's alternatives.** A needed `combat:attack` option that §163.8 would withhold as "one of N alternatives the player has not settled" is no longer withheld when no other attack of that actor is selected: the host takes the alternative whose `_selected` score is highest (above zero; a tie goes to catalog order); with none scored and all alternatives at one target, that target's `unarmed` option. Its parameters are then bound as any selected check's.
+4. **Only an impossible attack is a no-roll.** With no attacker sheet the host can bind (no first-blow row: a party of more than one, or no person present the fight can read), or no target score at all, the attack takes no roll. The Keeper narrates the attempt *and its outcome* by judgement, without numbers: no damage, HP or condition effect is written (`check_outcome_unresolved` still refuses a damage effect standing in for the unsettled check). The refusal text, `DECIDED_UNDER_UNCERTAINTY_NOTE` and `prompts/keeper.md` rules 1 and the combat paragraph say so instead of "do not describe a hit or miss".
+
+Every fallback is recorded once as a forced resolution (§163.3): `family: "check-binding"` (clerk binds) or `"check-selection"` (catalog), `chosen.outcome: "roll"`, `why: "attack_fallback"` (new member of the closed `ForcedWhy`), `uncertain` naming the parameter and what was bound (`weapon: unarmed (Fighting (Brawl) fallback)`, `target: Mr Finch p=0.41`). A fallback weapon is a rules binding: its bind record is `path: "rule-default"`, `rule: "attack_fallback"`, so §32.12's compile exemption still applies when the compile cleared the attack itself. A fallback target is `path: "jev"`, `cleared: false`, so canonical admission reviews it in full. §163.8 is otherwise unchanged: a defence, a push, a Luck spend, an approach, a combined check's skills and every non-attack player-owned value are still withheld.
+
+### 224.3 The first impression is a check option Jev selects when it matters
+
+- **`trigger: "presence"` (§178.2) now means "offered while the people share a scene".** The kernel rolls nothing by itself: `table.apply`, `table.player_input` and `table.open` no longer call a presence roller (`presenceRolls` and `FIRST_IMPRESSIONS_NOTE` are removed; `apply`'s result no longer carries `first_impressions`). An unrecorded presence pair is listed in `mods.pending_contacts` with `rule.trigger: "presence"`, as a `contact` pair always was; the preordained exclusion (§134.5) and a recorded pair's `mods.relationships` row are unchanged.
+- **The host's check option.** The clerk's `mod_contact` candidate for a presence row carries its own route question (`routeFact`), asked of Jev for that pair this turn: whether this person's first impression of the investigator matters now -- the investigator seeks something from them, makes a social approach to them, must get past them (a gate, a demand, an obligation they hold), or they are hostile or suspicious toward the investigator. Jev answers `now` / `later` / `unknown`; only `now` past the route gate selects it, and the clerk resolves it through the ordinary `resolve` of the Mod check (§26). Otherwise no roll is made: the person reacts by the Keeper's judgement and their own disposition, and the pair stays offered for a later turn where it matters. A `contact` row (natural-npc 1.4.4 and older) keeps the generic route question.
+- **Admission.** Canonical admission's registered contact evidence (`registeredContactProposal`, `extensions/kernel/admission.ts`) accepts the clerk's presence row as it accepts a contact row, with its own `settles` sentence: the person's first impression, a rule of the meeting rather than an influence attempt, rolled when it matters this turn. Without it the reviewers would read an impression roll the player never declared as an unchosen action.
+- **The receipt shape is kept.** A presence check rolled by `resolve` carries `trigger: "presence"` and `public_target_label` (§178.3, §178.4), so the roll card (`target_label`), the relationships row, `npc.situation`, the NPC-ledger fold's `isImpressionRoll` and the confluence union read it unchanged.
+- **natural-npc 1.6.0.** Only `agent.md`'s "First impression" section changes: the host offers the check, Jev selects it only when the impression matters this turn, the Keeper never resolves it, and a person met without a roll is played from their own disposition; the manifest description follows. Its sections, settings and requirements are unchanged.
+
+### 224.4 The three ends (§31)
+
+*Attack.* Writer: `clerkBind`'s fallback (`runtime/jev/step-policy.ts`) and `selectCheck`'s attack alternative (`runtime/jev/resolve-selection.ts`), recorded through `forcedResolution`. Reader: the engine's `recordForced` and the Keeper's `decided_under_uncertainty` marker; the kernel's combat resolve reads the bound weapon and target. Actor: the kernel rolls the attack; the Keeper narrates its receipt.
+*First impression.* Writer: `contactRows` (`kernel-ts/read/mods.ts`) lists the presence pair; `resolveBeforeMain` (`kernel-ts/mods/resolve.ts`) records the roll with the §178 receipt fields. Reader: the `mod_contact` candidate and its route question (`runtime/jev/candidates.ts`). Actor: Jev selects; the clerk resolves; the Keeper realises the impression or, without one, the person's own disposition.
+
+### 224.5 Tests
+
+- `tests/extension/attack-fallback.test.mjs`: `clerkBind` on a first blow whose weapon Jev answered `unknown` binds the best-scored issued weapon, and with no score binds `unarmed`; a gray target binds its leader; each is a `check-binding` roll with `why: "attack_fallback"` (the weapon `rule-default`, the target `cleared: false`); a target with no score at all stays unbound; a non-attack player-owned value (an obligation check's approach) is still withheld. `selectCheck` with two attack alternatives Jev did not settle selects the higher `_selected` one and records the fallback; a non-attack player alternative is still withheld.
+- `tests/extension/presence-impression.test.mjs` (rewritten): moving into a room with people, staging a walk-on, a turn start and the opening roll nothing; the presence pair appears in `pending_contacts`; the `mod_contact` candidate carries the "matters" route question; resolving the pair rolls a receipt with `trigger: "presence"` and `public_target_label`; preordained people are not offered.
+- `tests/extension/presence-impression-clerk.test.mjs` (rewritten): a presence row's `mod_contact` candidate carries the impression-matters route question and a contact row does not; only a confident `now` selects it, `later` and a gray `now` select nothing and force nothing. `contact-admission-rule.test.mjs`: a presence row is registered rule evidence for admission.
+- The tests that counted kernel-rolled first impressions follow the new rule: `single-loop-candidates`, `a-person-this-table-has`, `person-text-landing`, `scene-obligations` (a served obligation step now rolls the impression itself, with `trigger: "presence"`), and in pytest `test_capsule`, `test_facts_warn`, `test_apply`, `test_system_language`, `test_transactions`, `test_recall`, `test_narrate`, `test_npc_stakes` (an offered impression prepares no reaction; the stakes die still rolls); `conftest.met` is removed.
+- Needs a live check: a real Jev on a social turn (asking a clerk for a record) answers the presence question `now`, and on a walk-past turn `later`.
+
+### 224.6 Live check of the presence question (2026-10-10, real Jev, two calls each)
+
+`impressionMatters`'s question asked as the route asks a candidate's need (a probe batch carrying the player input, the person
+present and the scene; the full route state carries more), for Arty Wilmot at the Globe: asking him to pull the Corbitt
+clippings → `now` 0.83–0.85; walking through the lobby upstairs → `later` 0.97; nodding to him and sitting down with one's own
+notes → `later` 0.89–0.92. The attack fallback reads Jev's existing weapon and target scores and was not probed separately.
+Not gameplay acceptance.
+
+### 224.7 An unprepared held object is rolled as an improvised weapon: the Enhanced Items Mod's (2026-10-10, found on a real table; re-homed 2026-10-11 by user ruling; amends §159.10.1 and the open case of §224.2 item 1)
+
+**Evidence.** TR-F2 run 3, turn 31 (Grok 4.7 Build fast, live Jev; `telemetry.jsonl` of campaign `game-af36b938`): the
+investigator had picked up 锈蚀匕首 two turns before, its definition still pending, so the kernel's first-blow row listed it
+under `preparation.weapons`. Walter Corbitt was present (`present[0]`). The player declared 「我握紧匕首，朝他胸口狠狠刺下去！」;
+the compile fired `first_blow`, Jev bound the weapon 锈蚀匕首 (0.93) and the target, and the clerk step was refused
+`check_preparation` ("Prepare the actually chosen attack usage for 锈蚀匕首 through apply usage…"). The Keeper's `apply usage`
+went to the materializer queue (its §138.7 preset question answered `none`, 0.53), nothing landed in the turn, and the
+delivery recorded a forced `check-preparation` no-roll (`why: preparation_incomplete`). The Keeper narrated the blade bouncing
+off without a roll -- the case §224.2 item 1 left open ("an ordinary held item Jev scored highest still takes §159.10.1's
+preparation").
+
+**The rulebook.** The Keeper runs combat (chapter 6) and decides the damage of an improvised or unlisted weapon by comparing
+it with the weapons table (Improvised Weapons, p.104); the attack is rolled with the fitting Fighting skill. A player who
+declares a stab with a dagger in hand has chosen the act and the object; which table row the object hits like is a rules
+binding (§224.1), not a reason to roll nothing.
+
+**Whose it is (user ruling 2026-10-11, verbatim: 「认可，临时武器那个应该归为物品增强mod里，其他都可以合入推送」).** The behaviour
+is the Enhanced Items Mod's (物品增强), not the kernel's or the host's own: it is a feature of the package that prepares item
+usages, standing in for the usage that is not ready yet. As §138.7's preset offer is turned on by `weapons.preset.v1`, this path
+is turned on by the capability **`weapons.improvised.v1`** (`kernel-ts/combat/improvised.ts`, registered in `MOD_CAPABILITIES`),
+which Enhanced Items 1.3.5 is the first package to require. The kernel reads whether an active package of the campaign
+(`activeMods`) requires it; the host has no switch of its own and acts only on the kernel's offer (rule 1), so a table without
+such a package behaves exactly as before this section (rule 6). The mechanics stay where the architecture puts mechanics -- the
+kernel rolls, the host binds -- because a package is instructions and declarations, not code; what the package owns is whether
+the path exists on its table, the capability that says so, and the Keeper's reading of the receipt (`agent.md`, "Attacking with an
+instance").
+
+**The rule.** On a table where an enabled package requires `weapons.improvised.v1`, when a declared first blow's chosen weapon
+is a held object whose attack usage is not prepared, and that is the attack's *only* unfinished preparation (its target the
+fight can read), the host settles it in the same turn:
+
+1. **The kernel offers the rows.** `table.resolve.options.context.first_blow.preparation.improvised` carries the weapons
+   table's era rows as the host's closed options -- `options` (ids), `profiles` (`{id, name, skill, damage, range}`) and
+   `close` (each unprepared object's lexically nearest ids) -- the same reading as the `needs {field: "weapon"}` refusal and
+   the preset offer (`weaponBandOptions`, §138.6/§138.7; `improvisedOffer`). Absent when nothing is unprepared, and absent
+   on a table where no active package requires the capability.
+2. **Jev compares; the host binds.** The host asks the §138.6 two-level weapon band question (`askBand`, family
+   `band-recovery`, on the run's own Jev port) with `improvised: true`: the state says what the answer is for (the player's
+   declared attack with this held thing, rolled now as an improvised weapon), and both levels ask for the *closest* row
+   rather than an exact profile, with `none` only for a thing no listed skill fits even roughly. The gate is the weapons
+   band's (`PI_COC_BAND_MIN_CONFIDENCE`, default 0.5). Above the gate the attack is dispatched with `action.weapon: <held
+   object>` and `action.improvised: <row id>`; the bind record is `{name: "improvised", path: "rule-default", rule:
+   "attack_fallback", value: <row>, table: "weapons", band: <row>, confidence, distribution}` -- a rules binding as §224.2's
+   weapon fallback is, so §32.12's compile exemption still applies. On `none`, below the gate, with Jev unavailable or
+   unconfigured, the attack is unarmed Fighting (Brawl) exactly as §224.2 item 1 binds it (`weapon: unarmed`,
+   `rule-default` / `attack_fallback`), and the Jev-bound 锈蚀匕首 record is replaced.
+3. **The kernel rolls the row as the object.** `resolve` of an investigator's `combat:attack` accepts `action.improvised`
+   beside `action.weapon`: the object must be in the investigator's hands (a sheet equipment row, or a managed instance they
+   own), the row one of the weapons table's (its id or display name); otherwise `needs {field: "weapon" | "improvised"}`.
+   The engine row is the table row under the table's id with the object's name and `improvised_object` /
+   `improvised_profile`; the fight starts (or, in a running fight, the investigator's participant gains it) with that row;
+   `pending_attack` carries `improvised_object`, and the result's `outcome.improvised: {object, weapon, profile}` names it as
+   `object_usage` names a usage. The `needs` refusal's fix (`armingFix`) names this path for the Keeper too, on such a table
+   only. Nothing is written to the sheet or the object: no usage, no equipment profile. Where no active package requires the
+   capability, `action.improvised` is not an input: `invalid_params` with `details.reason: "unsupported_capability"` and
+   `details.required: ["weapons.improvised.v1"]`, the fix naming the usage, a carried weapon or unarmed.
+4. **Forced resolution.** Either outcome is recorded once (§163.3) as `family: "check-binding"`, `chosen.outcome: "roll"`,
+   `why: "attack_fallback"`, `uncertain` naming the object, the row (id, name, skill, damage) and Jev's confidence, or the
+   unarmed fallback and the reason; the `band-recovery` lane row (`for: "improvised"`) and a `bind` row (`clerk:
+   "improvised_weapon"`) carry the distributions. The Keeper reads it through `decided_under_uncertainty` as any §163 record.
+5. **Preparation is untouched.** A target that also needs preparation keeps the whole attack in preparation (the fight cannot
+   read them, §180.6); the `check_preparation` refusal and the retained attack (§159.10.1) are as before. The object's
+   background usage preparation (the materializer queue, prefetch proposals) runs as it did: once the usage lands the kernel
+   lists the object as ready, `preparation.weapons` no longer names it, and the ordinary binding (`selectObjectWeapon`) takes
+   over -- no band question is asked, no `improvised` bound.
+6. **Mod disabled.** On a table where no active package requires `weapons.improvised.v1` (Enhanced Items disabled, or locked to
+   1.3.4 or earlier), the first-blow row carries no `preparation.improvised`, `improvisedPreparation` finds nothing, and the
+   clerk step is refused `check_preparation` with the attack retained (§159.10.1) exactly as before this section; the
+   delivery records §163's forced no-roll (`preparation_incomplete`). §224.2's unarmed fallback for a weapon Jev could not
+   bind at all is unchanged either way: that fallback is the host's and asks no package.
+
+**Three ends (§31).** Writer: Enhanced Items' manifest requires the capability; the kernel's first-blow row
+(`kernel-ts/runtime/resolve-operation.ts`, through `improvisedOffer` in `kernel-ts/combat/improvised.ts`) offers the rows where
+`activeMods` has such a package; `improviseAttack` (`runtime/jev/hybrid-engine.ts`) asks and binds, through `askBand`
+(`extensions/kernel/band-recovery.ts`, taking the caller's Jev port) and `runWeaponBand`'s improvised framing
+(`runtime/jev/band-recovery-domain.ts`); `improvisedPreparation` (`runtime/jev/attack-preparation.ts`) reads the offer. Reader:
+the combat slot (`kernel-ts/combat/index.ts`, gated by `improvisedWeaponsEnabled`) and `improvisedWeapon`
+(`kernel-ts/combat/improvised.ts`) check object and row; `startCombat` / the running fight (`kernel-ts/combat/execution.ts`)
+build the participant row; admission reads the bind record. Actor: the kernel rolls the attack with the row's skill and damage;
+the Keeper, told by the package's `agent.md` what `outcome.improvised` is, narrates the receipt and may still prepare the
+object's own usage for later turns.
+
+**Tests.** `tests/extension/improvised-weapon.test.mjs` (real RPC fixture whose package is a copy of `mods/enhanced-items`,
+so it requires what the shipped Mod requires; faked Jev port): the first-blow row offers the rows for an unprepared chair and
+not for a ready revolver, and offers nothing when the target is unprepared; the kernel refuses a row that is not the table's
+and an object not held, rolls `Study chair` as `club_large` (Fighting (Brawl), 1D8) with `outcome.improvised` and writes no
+usage; the turn-31 shape through the engine dispatches `weapon: Study chair, improvised: club_large` with a forced
+`attack_fallback` roll and the `band-recovery` / `bind` rows; Jev `none` and no Jev dispatch `unarmed` with the same forced
+family; a prepared usage dispatches with no band question and no fallback. Mod disabled (the same package without
+`weapons.improvised.v1`): no offer on the row, `action.improvised` refused `unsupported_capability`, the arming fix silent
+about the path, the engine refusing `check_preparation` with nothing dispatched and no band or fallback row, and the prepared
+usage still readying the chair. `tests/extension/creator-preset.test.mjs` pins Enhanced Items 1.3.5 and its digest;
+`tests/kernel/test_jev_resolve.py` reads the offer on the shipped (default-enabled) package.
+
+**Needs a live check.** Real Jev on the turn-31 declaration with the rulebook framing (turn 31's preset question, framed as a
+definition's profile, answered `none` for the dagger); canonical admission of a clerk `resolve` carrying `improvised` (the
+test's dispatcher calls the kernel directly); the Keeper's narration reading `outcome.improvised`. A `session_step` attack
+inside a running fight with an unprepared object is not routed here (the kernel accepts `improvised` there; the host asks
+only for the first blow).
+
+**Live check** (2026-10-10, the rewound TR-F2 run 3 table, turn 31, Grok 4.7 Build fast, live Jev). The declared stab bound the
+rusty dagger as `knife_medium` (Fighting (Brawl) 1D4+2, p=0.58) and the host's resolve was then refused by the Pi tool schema
+(`action.improvised: schema is false`) -- the same seam as §221.11's `bout`: the host's resolve is validated like the
+Keeper's. `improvised` is a resolve action property now (`extensions/kernel/tools.ts`), a rules parameter of the result in
+§32.4.2's list, and `tests/extension/improvised-weapon.test.mjs` validates the dispatched arguments against the tool schema. The next stab opened the fight and the defender's step failed
+the combat snapshot's pending-attack contract (`kernel-ts/combat/snapshot.ts`), which did not know `improvised_object` and
+`improvised_profile`; both are optional strings there now. Then: Fighting (Brawl) 73 against 25 (failure), Corbitt's
+fight-back 94 against 50 (failure), Flesh Ward 2D6 = 10 armour, and the prose told both misses.
+
+### 224.8 The skill a declared act uses is the Keeper's pick when one clearly fits (2026-10-10, found on a real table; narrows §163.8)
+
+**Evidence.** On the rewound TR-F2 run 3 basement (Grok 4.7 Build fast, live Jev), "我继续使劲撬那块最宽的木板，非把口子撬到能钻
+进去不可。" needed a roll (roll needed 0.62–0.81 across the skills), but the six skill alternatives of the ordinary check were
+read as the player's unmade choice (§163.8) and nothing was rolled; the Keeper narrated the board holding. The Keeper Rulebook
+has the Keeper choose the skill from the method the player describes (When to Roll Dice / Skill Rolls, pp. 82-83); the player
+chose the act.
+
+**The rule.** For an ordinary check without a stated rule (`core-check:ordinary-check`) whose act the player chose, when its
+skill alternatives are unsettled, the host takes the skill whose method fit (the option's main need question) Jev scored
+highest -- above `noNeed` and leading the next by at least `SKILL_LEAD` (0.2, `runtime/jev/resolve-selection.ts`) -- recorded
+as forced with `why: skill_fallback`. Two methods that fit about equally are still the player's open choice (§163.8 stands for
+a genuine tie). Approach choices of social influence (`social:adjudicate-difficulty`) are unchanged: how the investigator
+treats a person is the player's.
+
+*Tests.* `tests/extension/check-selection.test.mjs`: a clear leader is rolled with `skill_fallback`; the §163.8 tie case still
+withholds.
+
+## 225. A module's second authored opening is a start candidate, and the chosen opening is the table's scene (2026-10-10; amends §14.14, §14.19, §22.9; relies on §168.3)
+
+**Evidence.** Playtest `pdf-source-latency-opening-20261010` (book-1, a 1937 NKVD scenario PDF). The book authors two
+openings: p.9 §2.1, a command-room briefing that hands cards #1 (the arrest warrant) and #2, and p.10 §2.2, a briefing with
+no warrant that hands cards #2 and #3 (`keeper_notes`: "a second authored opening"). The reader brought the second into the
+graph at generation 6 as `scene-investigator-introduction-2`, related to the first by `alternative-to` and by nothing else:
+no `is_entrance`, not in the module node's `entry_scene_ids` (which the source-reference packet had declared as the one
+entry it bound, `scene-source-entry-9`). `startSceneCandidates` (`kernel-ts/write/source.ts`) admitted only `is_entrance`,
+`is_start` and `entry_scene_ids`, so the book kept one candidate through generation 15; the campaign was created at
+generation 12 with no question asked, `opening_scene` landed as the first briefing's handle, every capsule offered cards #1
+and #2 as the scene's assets, and the Keeper handed the warrant in the opening that has none. The player's choice of the
+second opening survives only as free text in `campaign.json` `setup.prologue.pending_action`. Only at generation 16 did a
+later reading mark both briefings `is_entrance` -- after the table was active.
+
+**Ruling applied.** The module is reference, not bible; but which of the book's openings the table starts on is the
+player's closed choice (§14.19), and the kernel must offer every opening the book authors before that choice binds.
+
+### 225.1 The start candidates include the alternatives of an entrance (`kernel-ts/write/source.ts` `startSceneCandidates`)
+
+A scene the graph relates to a candidate by `alternative-to` -- the entrance relation of §168.3 and the template's
+`entrance_relation_kinds` -- is itself a candidate. The relation is read in both directions and to its closure (the
+alternative of an alternative is one too); only scene nodes are admitted; `alternative-to` between scenes that are not
+openings (two variants of a later place) adds nothing because neither end is a candidate. The rule lives inside the same
+guard as the other admissions (a book that declares `entry_scene_ids: []` still offers nothing). It is a closed relation
+kind, not words: a scene named "second opening" with no relation is not admitted.
+
+Consumers that change with it, all through `ModuleStore.candidates`: `module.status` `opening_candidates`;
+`module.opening.choose` and `resolveStartScene` (the second opening can now be chosen by handle or name);
+`applyOpeningChoice` (marks every candidate `is_entrance` and pins the chosen one as `is_start`); the reading service's
+`prepare-module` question (`extensions/module/reading-service.ts`, `opening_candidates.length > 1` → `needs_choice`);
+`openingReport.choice` when the book declares no single entrance. `openingReport`'s readiness is unchanged: it still reads
+`entrances()` (declared `entry_scene_ids` or the `is_entrance` marks), so a book with one declared entrance and an
+alternative stays `opening_ready` on that entrance until the table chooses -- readiness is not revoked by a later reading
+(§46), the choice is asked in setup (§225.3).
+
+### 225.2 The player's choice binds `start_scene`, and `campaign.create` lands it as `opening_scene`
+
+Unchanged path, now reachable for the second opening: the setup host carries the chosen candidate's `scene` handle as
+`context.start_scene` (§14.19), `campaign.create {start_scene}` checks it with `resolveStartScene` and `initialWorld` opens
+the world on it, so `campaign.json` `opening_scene` and `world.json` `active_scene` are the chosen opening's handle and the
+capsule's scene assets (`discoverable-at` that scene: cards #2 and #3, not #1) are that opening's. The choice is closed: the
+guide calls the preparation step with the exact `candidate.scene`; the kernel refuses anything else with `needs_choice` and
+the candidates. A player's free-text answer ("按第二条开场开始") is resolved by the guide model that is asked to match it to
+the candidates' names and summaries (`reading-service.ts` `fix: match the player's intent to the candidate summaries`), never
+by keyword matching in the host.
+
+### 225.3 Candidates that arrive after a choice are asked again (`extensions/onboarding/index.ts`)
+
+The host keeps `openingsOffered`: the candidate node ids of every opening question it has posed this setup (`poseOpening`).
+Before `create-campaign`, `unchosenOpenings` reads `module.status` `opening_candidates` and refuses with `needs_choice` when
+there are two or more and either no choice is recorded, or some candidate was never shown to the player (`details.unseen`).
+In the second case the refusal carries `details.reason: "opening_candidates_changed"` and `details.previous_choice`, and the
+recorded `context.start_scene` is set aside so `campaign.create` cannot carry it; the preparation step is open again
+(`remedyOpen`) and records the new answer. The NKVD sequence -- sole candidate when the module was prepared, two at
+creation -- is therefore a question at creation, not a silent carry. A choice the guide made with no question asked is also
+put to the player once.
+
+*Not done, and why.* (a) The library's `module.opening_choice` (written by `module.reference.publish` for a sole packet
+entry and by `module.opening.choose`) is not rewritten before the campaign exists: the host's context is the pre-creation
+authority (§14.19) and `module.opening.choose` without a campaign writes the shared library, which other tables read
+(§98 addendum 9). It is the campaign's own fork that `campaign.create` pins. (b) After `create-campaign` the opening is
+landed; a candidate arriving later is the book being read further, and §46 says a landed opening is not revoked. (c) The
+source-reference packet (`module.reference.publish`) binds only the entries the reference agent found; a chosen opening that
+is a candidate but not a packet entry fails `publishReferenceContext` ("Selected opening has no bound original reference")
+and the reading service falls back to visual guidance for it (`guidance_fallback`). Making the reference agent bind both
+openings is the reference lane's work, not this section's. (d) Duplicate scenes for one printed opening (the NKVD graph's
+`scene-opening-1` beside `scene-source-entry-9`, both p.9 §2.1) appear as two candidates once the reader marks both; the
+survivor map (§192.3) does not yet fold candidates.
+
+### 225.4 The three ends (§31)
+
+- *Writer*: the reader's `alternative-to` claim between scenes (visual.ts claim → relation); the host's `poseOpening`
+  on every opening question.
+- *Reader*: `startSceneCandidates` → `module.status.opening_candidates` → the host's `unchosenOpenings` and the reading
+  service's `prepare-module` question; `campaign.create` → `opening_scene`/`active_scene` → the capsule's scene assets.
+- *Actor*: the guide asks the player and calls the preparation step with the chosen `candidate.scene`; the kernel opens
+  the world on it.
+
+*Tests.* `tests/extension/second-opening-candidates.test.mjs`: `startSceneCandidates` admits the alternatives of an
+entrance in either direction and to closure, not a later scene's variant nor a person; on the emitted kernel a book whose
+second briefing is only `alternative-to` the first reports both candidates, `module.opening.choose` takes the second, and
+`campaign.create {start_scene}` lands its handle as `opening_scene` and `active_scene`. `tests/extension/setup-opening-choice.test.mjs`:
+a sole candidate that grows to two before `create-campaign` is asked, the chosen one is created and `opening_scene`; a choice
+among two is re-asked when a third arrives, naming the one set aside, and only the re-made choice reaches the kernel.
+`tests/extension/fixtures/fake-kernel.mjs` gains `FAKE_KERNEL_OPENINGS_FILE` (candidates re-read from a file the test rewrites).
+Needs a live check: the Keeper guide, told the two NKVD briefings by name and summary, answers "按第二条开场开始" with the
+second candidate's handle.
 
 ## 226. Source failure recovery and bounded transport diagnostics (approved2026-10-10)
 

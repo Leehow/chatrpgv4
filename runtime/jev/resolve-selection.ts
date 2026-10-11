@@ -10,6 +10,7 @@ import {JEV_MODEL, PackingError, packDecisionBatch} from './question-packing.ts'
 import type {DecisionPort} from './decision-port.ts';
 import type {TaskLease} from './task-context.ts';
 import {selectChaseRoster} from './chase-roster-selection.ts';
+import {UNARMED_WEAPON} from './attack-fallback.ts';
 
 export interface CheckParameter {
   name: string;
@@ -82,6 +83,8 @@ export function playerOwned(option: CheckOption, parameter: CheckParameter, inve
   return playerAct(option, investigators) && parameter.default === undefined && parameter.selection !== 'compatible';
 }
 
+/** §224.8: how far one skill's method fit must lead the next for the Keeper to pick it (else the player's open choice, §163.8). */
+export const SKILL_LEAD = 0.2;
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /** Rule eligibility is already host-owned; these questions ask only the remaining semantic trigger. */
 export function specializedTriggerQuestion(option: CheckOption): string | undefined {
@@ -109,6 +112,20 @@ export function specializedTriggerQuestion(option: CheckOption): string | undefi
       + 'The host has already verified the patient is eligible for this rule-required treatment roll. Do not reassess injury, timing or arithmetic. '
       + 'Cleaning and bandaging a wound are part of First Aid, not earlier separate checks. A calm setting does not replace the treatment roll. '
       + 'Exclude a hypothetical discussion, merely asking another person for help, or a different rescuer/patient/method. The actor is the rescuer and the target is the patient.';
+  // §221.3(4): a horror the module gave no number for; Jev judges from what happened this turn, the ladder binds the loss.
+  if (option.action.decision === 'sanity:check' && option.facts?.loss_source === 'rulebook_examples')
+    return 'Did something this investigator actually met this turn threaten their sanity in a way the Keeper Rulebook\'s example costs cover (a corpse or body part, a mangled body, '
+      + 'blood where it should not be, someone known to be dead, a ghoul or worse)? Read facts.done_this_turn: the clues filed this turn and their content, the people who arrived, '
+      + 'the last committed narration and the declaration. A sight already settled by a sanity_check receipt, a merely tense or unpleasant moment, a horror listed under done_this_turn.stated '
+      + '(it has its own stated check), and a secret of the module the investigator has not met do not call for this roll. Read facts.settled_this_visit too: the loss is for the encounter, '
+      + 'so a horror that merely continues from a Sanity roll already made on this visit (still there, seen again, described again) is settled; only something new or markedly worse calls for it. The player need not ask for dice.';
+  // §222.3: the Idea roll is the players' request, never an inference from a declared act (Keeper Rulebook pp. 199-200).
+  if (option.action.decision === 'core-check:idea-roll')
+    return 'Does the player ask for a way forward -- say they are stuck or out of leads, do not know what to do next, ask for a hint, '
+      + 'a nudge, or for an Idea roll by name, in or out of character? Judge the request itself: the Idea roll is proposed by the players '
+      + 'when the investigation has stalled, and the host lands the missed clue whichever way the die falls. A declared search, question, '
+      + 'journey, conversation or any other act is its own check and never this one; pausing, reflecting, chatting, or asking what the scene '
+      + 'looks like is not a request for it; nor is a player who still has a lead and is pursuing it.';
   if (option.action.decision === 'sanity:check' && option.action.san_loss)
     return 'Does this investigator perceive the listed source of horror now, including directly uncovering or looking at it in the declared action, '
       + 'or has that exposure already been narrated without its SAN check? The source requires the listed SAN check once exposed. '
@@ -190,7 +207,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
   const gates = {...CHECK_SELECTION_GATES, ...input.gates}, gate = gates.need;
   // §163: every gate decided by Jev's best score (or with no score) is named here; a result that used one is forced.
   const forced: string[] = [], whys = new Set<string>();
-  const note = (what: string, why: 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable' | 'player_choice') => { forced.push(what); whys.add(why); };
+  const note = (what: string, why: 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable' | 'player_choice' | 'attack_fallback' | 'skill_fallback') => { forced.push(what); whys.add(why); };
   const conditions: unknown[] = isPlainRecord(input.context) && Array.isArray(input.context.conditions) ? input.context.conditions : [];
   const investigators = new Set((input.investigators ?? conditions.flatMap(row => isPlainRecord(row) ? [String(row.actor ?? '')] : [])).filter(Boolean));
   const done = (result: CheckSelection): CheckSelection => {
@@ -332,6 +349,8 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     const pages = Array.from({length: Math.ceil(eligible.length / 24)}, (_, index) => eligible.slice(index * 24, index * 24 + 24));
     const statusOf = new Map<string, CheckSelection['status']>();
     const actualOf = new Map<string, number | undefined>();
+    // §224.8: the method-fit score of an ordinary check (its main question), read when the Keeper picks the skill.
+    const fitOf = new Map<string, number | undefined>();
     const judgePage = async (page: CheckOption[]): Promise<void> => {
       const state = {declaration: input.declaration, context: input.context, policy: POLICY,
         alternatives: eligible.filter(option => playerAct(option, investigators) && page.some(entry => entry.action.actor === option.action.actor && entry.action.decision === option.action.decision)).map(option => ({label: option.label, action: actionView(option.action),
@@ -395,6 +414,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
         const status = classify(option, index, result);
         statusOf.set(option.key, status);
         actualOf.set(option.key, yes(result, optionAlias(index) + '_selected'));
+        fitOf.set(option.key, yes(result, optionAlias(index)));
         const ordinary = option.action.decision === 'core-check:ordinary-check' && option.action.rule === undefined;
         const scores = [yes(result, optionAlias(index)), ...(ordinary ? [yes(result, optionAlias(index) + '_uncertain')] : []), yes(result, optionAlias(index) + '_blocked')];
         if (scores.some(score => score === undefined)) note(`necessity of ${option.label}: unanswered`, 'jev_unanswered');
@@ -405,16 +425,53 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       }
     };
     await Promise.all(pages.map(judgePage));
+    const unsettledAttacks: Array<{option: CheckOption; rivals: number}> = [];
+    const unsettledSkills: Array<{option: CheckOption; rivals: number}> = [];
     for (const option of eligible) {
       const status = statusOf.get(option.key);
       const rivals = playerAct(option, investigators) ? eligible.filter(other => other.key !== option.key
         && other.action.decision === option.action.decision && other.action.actor === option.action.actor) : [];
       if (status === 'selected' && rivals.length && !leansYes(actualOf.get(option.key) ?? 0)) {
+        // §224.2: a declared attack is settled; its unsettled alternatives take the host's fallback below.
+        if (option.action.decision === 'combat:attack') { unsettledAttacks.push({option, rivals: rivals.length + 1}); continue; }
+        // §224.8: an ordinary check whose act the player chose: which skill the method uses is the Keeper's pick (Keeper
+        // Rulebook pp. 82-83), taken below from Jev's method-fit scores; it is not an unmade player choice.
+        if (option.action.decision === 'core-check:ordinary-check' && option.action.rule === undefined) { unsettledSkills.push({option, rivals: rivals.length + 1}); continue; }
         note(`${option.label}: one of ${rivals.length + 1} alternatives the player has not settled`, 'player_choice');
         continue;
       }
       if (status === 'selected') needed.push(option);
       else if (status === 'deferred') deferred++;
+    }
+    // §224.2 rule 3: the alternative Jev scored highest (ties to catalog order); none scored and one target, its unarmed
+    // option (Fighting (Brawl), Improvised Weapons p.104). An actor with an attack already selected takes no fallback.
+    for (const actor of new Set(unsettledAttacks.map(entry => String(entry.option.action.actor)))) {
+      if (needed.some(option => option.action.decision === 'combat:attack' && String(option.action.actor) === actor)) continue;
+      const mine = unsettledAttacks.filter(entry => String(entry.option.action.actor) === actor);
+      const scored = mine.map(entry => ({entry, p: actualOf.get(entry.option.key)}))
+        .filter((value): value is {entry: typeof mine[number]; p: number} => typeof value.p === 'number' && Number.isFinite(value.p) && value.p > 0)
+        .sort((left, right) => right.p - left.p);
+      const single = new Set(mine.map(entry => JSON.stringify(entry.option.action.target ?? null))).size === 1;
+      const chosen = scored[0]?.entry.option ?? (single ? mine.find(entry => entry.option.action.weapon === UNARMED_WEAPON)?.option : undefined);
+      if (chosen) {
+        needed.push(chosen);
+        note(`${chosen.label}: attack fallback over ${mine[0].rivals} unsettled alternatives (${scored[0] ? scoreText(scored[0].p) : 'unarmed, Fighting (Brawl)'})`, 'attack_fallback');
+      } else for (const entry of mine) note(`${entry.option.label}: one of ${entry.rivals} alternatives the player has not settled`, 'player_choice');
+    }
+    // §224.8: per actor, the skill whose method fit Jev scored highest, when it is at least not ruled out (above noNeed).
+    for (const actor of new Set(unsettledSkills.map(entry => String(entry.option.action.actor)))) {
+      if (needed.some(option => option.action.decision === 'core-check:ordinary-check' && String(option.action.actor) === actor)) continue;
+      const mine = unsettledSkills.filter(entry => String(entry.option.action.actor) === actor);
+      const scored = mine.map(entry => ({entry, p: fitOf.get(entry.option.key)}))
+        .filter((value): value is {entry: typeof mine[number]; p: number} => typeof value.p === 'number' && Number.isFinite(value.p) && value.p > gates.noNeed)
+        .sort((left, right) => right.p - left.p);
+      // §163.8 stands for a genuine tie: only a skill whose fit clearly leads (by SKILL_LEAD over the next) is the Keeper's.
+      const runnerUp = mine.map(entry => fitOf.get(entry.option.key)).filter((p): p is number => typeof p === 'number' && Number.isFinite(p))
+        .sort((left, right) => right - left)[1] ?? 0;
+      if (scored[0] && scored[0].p - runnerUp >= SKILL_LEAD) {
+        needed.push(scored[0].entry.option);
+        note(`${scored[0].entry.option.label}: the Keeper's skill for the declared method over ${mine[0].rivals} alternatives (${scoreText(scored[0].p)})`, 'skill_fallback');
+      } else for (const entry of mine) note(`${entry.option.label}: one of ${entry.rivals} alternatives the player has not settled`, 'player_choice');
     }
     // Independent ready profiles do not compete for a probability mass of one. The agent receives
     // one bound operation, observes its actual result, and may request the remaining work afresh.
@@ -433,7 +490,8 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     const defaults = parameters.filter(parameter => parameter.default);
     if (defaults.length) {
       const state = {declaration: input.declaration, context: input.context,
-        selected: {label: selected.label, action: selected.action}, policy: POLICY};
+        // §221: the bound parameters read the option's host facts too (a judged Sanity roll's done_this_turn), as its trigger did.
+        selected: {label: selected.label, action: selected.action, ...(selected.facts ? {facts: selected.facts} : {})}, policy: POLICY};
       const questions: DecisionBatch['questions'] = defaults.map((parameter, index) => ({key: parameterAlias(index), target: parameter.name, type: 'noul' as const,
         instructions: parameter.default!.question,
         criteria: {true: 'An established condition requires a non-default modifier.',
@@ -459,7 +517,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     }
     if (parameters.length) {
       const state = {declaration: input.declaration, context: input.context,
-        selected: {label: selected.label, action}, policy: POLICY};
+        selected: {label: selected.label, action, ...(selected.facts ? {facts: selected.facts} : {})}, policy: POLICY};
       const questions = parameters.flatMap((parameter, index): DecisionBatch['questions'] => parameter.selection === 'compatible'
           ? parameter.options.map((option, optionIndex) => ({key: `${parameterAlias(index)}_${optionIndex}`, target: `${parameter.name}: ${option.label}`,
             type: 'noul', instructions: `${parameter.question} Judge only this option: is it a permissible choice consistent with the supplied situation? It need not already have happened. Other options may also be permissible.`,
@@ -500,7 +558,12 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
         }
         const pooled = semanticChoice(result, key, [...parameter.options.map((_, i) => valueAlias(i)), 'unknown']);
         const i = pooled.choice ? parameter.options.findIndex((_, index) => valueAlias(index) === pooled.choice) : -1;
-        if (i < 0) {
+        if (i < 0 && parameter.default) {
+          // §221.9: an override Jev leaned to but could not bind leaves the rules default standing -- the book's answer,
+          // recorded as forced, never a no-roll of the operation the default already answers.
+          action[parameter.name] = structuredClone(parameter.default.value);
+          note(`${parameter.name} override: ${pooled.choice ? 'unknown' : 'unanswered'}, rules default`, pooled.choice ? 'below_confidence_gate' : 'jev_unanswered');
+        } else if (i < 0) {
           if (playerOwned(selected, parameter, investigators)) {
             withheld.push(parameter.name);
             note(`${parameter.name}: the player's choice is unmade, unknown or tied`, 'player_choice');

@@ -43,6 +43,8 @@ def test_options_is_read_only_and_uses_canonical_sheet_and_rule_vocabulary(kerne
     # the host's check-preflight and the ordinary resolve domain read it to bind a decision to this
     # state; every other reader strips it. It is not vocabulary and never reaches a model.
     assert snapshot["context"].pop("_binding") == {"campaign": "c1", "worldline": "main", "loop": 0, "turn": 1}
+    # §224.7: the unprepared inventory carries the weapons-table rows each object may be rolled as; checked in its own test.
+    assert snapshot["context"]["first_blow"]["preparation"].pop("improvised")["options"]
     assert snapshot["context"] == {
         "scene": "Knott's Office",
         "pending_choice": None,
@@ -161,6 +163,9 @@ def test_first_blow_names_target_and_preparations_until_the_fight_opens(kernel):
     """§§135.30.2/159.10.1: name a present target and required preparations; the row is gone once the fight opens."""
     open_turn(kernel, "我一拳打过去。")
     unprepared = options(kernel)["context"]["first_blow"]
+    # §224.7: each unprepared object's improvised rows (Keeper Rulebook p.104), keyed by the object; the kernel's own band reading.
+    improvised = unprepared["preparation"].pop("improvised")
+    assert improvised["options"] and set(improvised["close"]) <= set(unprepared["preparation"]["weapons"])
     assert unprepared == {
         "decision": "combat:attack", "intent": "combat", "actor": "托马斯·海斯", "targets": ["Steven Knott"],
         "weapons": [
@@ -178,6 +183,7 @@ def test_first_blow_names_target_and_preparations_until_the_fight_opens(kernel):
     kernel.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Steven Knott", "archetype": "ordinary_adult", "why": "test"}])
     before = fingerprint(kernel)
     row = options(kernel)["context"]["first_blow"]
+    assert row["preparation"].pop("improvised")["options"]
     assert fingerprint(kernel) == before, "a read"
     present = [person["name"] for person in kernel.table("capsule")["present"]]
     assert row == {

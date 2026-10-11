@@ -3,11 +3,13 @@
   "spend": {
     "cost_per_point_off_roll": 1,
     "luck_point_value": 1,
-    "applies": "lower_total_roll_toward_target",
-    "source_note": "Keeper Rulebook p.99: after a skill/characteristic roll, Luck points may be spent 1-for-1 to alter the result, up to the investigator's current Luck value.",
+    "applies": "alter_roll_toward_or_below_target",
+    "source_note": "Keeper Rulebook p.99: after a skill or characteristic roll, Luck points may be spent 1-for-1 to alter the result, up to the investigator's current Luck value; the alteration may turn a failure into a success or raise the level of a success (the book's example converts a failed Dodge to an Extreme success in an opposed contest).",
     "constraints": [
       "luck_may_be_spent_after_roll",
       "luck_may_push_total_below_target_to_succeed",
+      "luck_may_raise_the_success_level",
+      "luck_may_alter_an_opposed_roll",
       "luck_may_not_be_spent_on_luck_rolls",
       "luck_may_not_be_spent_on_damage_rolls",
       "luck_may_not_be_spent_on_sanity_rolls",
@@ -21,8 +23,8 @@
   },
   "roll": {
     "use": "group_luck_check",
-    "group_roll_policy": "take_lowest",
-    "source_note": "Keeper Rulebook p.93: when several investigators make a Luck roll as a group, use the single lowest individual Luck roll to represent the whole group."
+    "group_roll_policy": "lowest_luck_rolls",
+    "source_note": "Keeper Rulebook p.93: when the Keeper calls for a group Luck roll, the player whose investigator has the lowest Luck score (among those present in the scene) makes the roll; a misfortune meant for one member falls on whoever has the lowest Luck at that moment."
   },
   "recovery": {
     "applies_when": "after_each_session",

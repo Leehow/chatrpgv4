@@ -13,10 +13,12 @@ export const OPPOSED = 'decision:coc7:core-check:opposed-check';
 export const PUSH = 'decision:coc7:push-luck:pushed-roll';
 export const LUCK = 'decision:coc7:push-luck:luck-spend';
 export const LUCK_ROLL = 'decision:coc7:push-luck:luck-roll';
+/** §222.3: the rulebook's Idea roll (pp. 199-200) -- an INT roll the players ask for when the investigation has stalled; the clue it names lands either way. */
+export const IDEA = 'decision:coc7:core-check:idea-roll';
 export const SOCIAL = 'decision:coc7:social:adjudicate-difficulty';
 export const OBSERVE = 'decision:coc7:psychology:observe-concealed';
 export const REALIZE = 'decision:coc7:psychology:realize-player-safe';
-export const BASIC_DECISIONS = new Set([ORDINARY, COMBINED, OPPOSED, PUSH, LUCK, LUCK_ROLL, SOCIAL, OBSERVE, REALIZE]);
+export const BASIC_DECISIONS = new Set([ORDINARY, COMBINED, OPPOSED, PUSH, LUCK, LUCK_ROLL, IDEA, SOCIAL, OBSERVE, REALIZE]);
 export const semanticSlug = (value: any): string => string(truth(value) ? value : '').replace(/[^\p{L}\p{N}]/gu, ' ').toLowerCase().split(/\s+/).filter(Boolean).join('-');
 export function sheetCheck(sheet: Row, ref: string): [
     string,
@@ -142,7 +144,7 @@ export async function hostLocked(context: SettleContext, runtime: RuleGraph, sel
     const declared = runtime.declaredPayloadSlots(ref);
     const locked: Row = {};
     const sheet = context.sheetById(context.actorId) || {};
-    if ([ORDINARY, COMBINED, OPPOSED, LUCK_ROLL].includes(ref)) {
+    if ([ORDINARY, COMBINED, OPPOSED, LUCK_ROLL, IDEA].includes(ref)) {
         if (declared.has('investigator_id'))
             locked.investigator_id = context.actorId;
         if (ref === ORDINARY) {
@@ -235,6 +237,9 @@ export async function hostLocked(context: SettleContext, runtime: RuleGraph, sel
             if (opponent)
                 locked.opponent_value = opponent[1];
         }
+        else if (ref === IDEA)
+            // §222.3: the Idea roll is made against INT (Keeper Rulebook p. 89, p. 199); the characteristic is the decision's constant.
+            locked.target = number(sheetCheck(sheet, 'characteristic:INT')?.[1] ?? row(sheet.characteristics).INT);
         else
             locked.target = number(sheet.current_luck ?? row(sheet.characteristics).LUCK);
     }
@@ -283,7 +288,7 @@ export function executorArgs(context: SettleContext, plan: Row, selected: Row): 
             output[key] = clone(payload[key]); };
     if (capability === 'check') {
         output.investigator = string(payload.investigator_id || context.actorId);
-        copy(['skill', 'characteristic', 'target', 'combined_targets', 'combined_mode', 'difficulty', 'goal', 'stakes', 'difficulty_basis', 'bonus', 'penalty', 'npc_id', 'social_adjudication_ref', 'pushed', 'method_changed', 'failure_consequence', 'original_check_decision_id']);
+        copy(['skill', 'characteristic', 'target', 'combined_targets', 'combined_mode', 'difficulty', 'goal', 'stakes', 'difficulty_basis', 'bonus', 'penalty', 'npc_id', 'social_adjudication_ref', 'pushed', 'method_changed', 'failure_consequence', 'original_check_decision_id', 'clue']);
         // A combined check declares no `bonus`/`penalty` payload slot, so the keeper's declared dice
         // were filtered out of the plan and the roll came out plain (§95). The pushed roll keeps the
         // original check's dice, which `locked` already wrote into the payload -- only fill in when

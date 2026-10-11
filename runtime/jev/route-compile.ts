@@ -95,6 +95,23 @@ const ASK_ROW = {
   criteria: {[YES]: 'The declared action seeks this thing.', [NO]: 'The declared action does not seek this thing.',
     [UNCLEAR]: 'The input does not tell whether it seeks this thing.'},
 } as const;
+/**
+ * §135.30.9.4: a clue row's question. Filing a clue is finding it, so the row asks whether the declaration finds it now --
+ * by what its own words say reveals it, or by what a book cue describes -- not whether it seeks it. Worded against live Jev
+ * on run 3's T12 and T18 and a tear-the-boards control (the addendum's replay table).
+ */
+const CLUE_ROW = {
+  instructions: 'Judge this one clue on its own: would the player\'s declared action, done as stated, find it now? Two things may say what '
+    + 'finds it: the clue\'s own words (what it says reveals it, such as a glance or a cursory check), and its cues, when listed (what the book '
+    + 'says the investigator does here to get at it). Doing either finds it. Seeking it, looking for it or doing less than either is not finding '
+    + 'it: what lies behind, under or inside something is found only by getting past it. Other listed clues may be found too; judge only this '
+    + 'one. Choose unclear when the input does not tell.',
+  criteria: {[YES]: 'The declared action, done as stated, finds this clue now.',
+    [NO]: 'The declared action does not find this clue now, even if it seeks it.',
+    [UNCLEAR]: 'The input does not tell whether the declared action finds this clue now.'},
+} as const;
+/** §135.30.9.4: the question an `ask` row gets -- `CLUE_ROW` for a clue (id syntax), `ASK_ROW` for an obligation or a handout. */
+const askRowQuestion = (row: FeatureRow): {instructions: string; criteria: Record<string, string>} => row.id.startsWith('clue:') ? CLUE_ROW : ASK_ROW;
 /** The words a row carries into its own question's target. */
 const rowWords = (describe: Json): string => typeof describe === 'string' ? describe : JSON.stringify(describe);
 
@@ -397,7 +414,7 @@ export function compileBatch(view: CompileView, scope: ScopeBinding, readSet: Re
     const rows = view.rows![family]!, wording = QUESTIONS[family];
     // §135.30.9 (SL-52): one yes/no question per `ask` row, keyed by the row's alias, in the rows' order.
     if (family === 'ask') return rows.map((row, index) => ({key: aliasOf(family, index), target: `${aliasOf(family, index)}: ${rowWords(row.describe ?? row.id)}`,
-      type: 'choice' as const, instructions: ASK_ROW.instructions, criteria: {...ASK_ROW.criteria}}));
+      type: 'choice' as const, instructions: askRowQuestion(row).instructions, criteria: {...askRowQuestion(row).criteria}}));
     return [{key: family, target: wording.target, type: 'choice', instructions: wording.instructions,
       criteria: {...Object.fromEntries(rows.map((row, index) => [aliasOf(family, index), row.describe ?? row.id])), [NONE]: wording.none, [UNCLEAR]: wording.unclear}}];
   });
@@ -662,6 +679,12 @@ export interface Settlement {key: string; words: Json}
 /** The pending re-ask's inputs: the settling steps, the clue keys asked about, and the step the filed clues wait for. */
 export interface ReaskInput {settled: Settlement[]; clues: string[]; after: string}
 
+/** §135.30.9.4: an `ask` row's words without the cues its `describe` carries for the compile's own question. */
+const rowWordsOnly = (describe: Json | undefined): Json | undefined => {
+  if (describe === undefined || describe === null || typeof describe !== 'object' || Array.isArray(describe)) return describe;
+  const {cues: _cues, ...rest} = describe as Row;
+  return rest as Json;
+};
 /** The book's cues for a clue in this scene, as the kernel's clue row carries them (§135.30.9.2). */
 export const clueCues = (candidate: Candidate): string[] =>
   (Array.isArray(object(object(basisOf(candidate).row).description).cues) ? object(object(basisOf(candidate).row).description).cues as unknown[] : [])
@@ -682,7 +705,7 @@ export function reaskOf(candidates: Candidate[], rows: FeatureRows | undefined, 
   const words = (entry: CompileSelection): Json => {
     const own = COMPILE_PREDICATES.find(value => value.name === entry.predicate)?.askRow?.(entry.candidate);
     const opens = unlocked.find(value => value.after === entry.candidate.key)?.place;
-    return {settles: (rows?.ask ?? []).find(row => row.id === own)?.describe ?? entry.candidate.label, ...(opens ? {opens} : {})} as Json;
+    return {settles: rowWordsOnly((rows?.ask ?? []).find(row => row.id === own)?.describe) ?? entry.candidate.label, ...(opens ? {opens} : {})} as Json;
   };
   return {settled: settling.map(entry => ({key: entry.candidate.key, words: words(entry)})), clues: clues.map(candidate => candidate.key),
     after: settling.at(-1)!.candidate.key};
@@ -704,7 +727,8 @@ export const reaskAlias = (index: number): string => `reask_${index + 1}`;
 /** The re-ask question: one yes/no per clue, the target carrying the clue's words and its cues. */
 export function reaskBatch(view: CompileView, input: ReaskInput, scope: ScopeBinding, readSet: ReadSet, done: Json[]): DecisionBatch {
   const clues = input.clues.map(key => view.candidates.find(candidate => candidate.key === key)).filter((value): value is Candidate => !!value);
-  const words = (candidate: Candidate): Json => (view.rows?.ask ?? []).find(row => row.id === clueRow(candidate))?.describe ?? {clue: clueOf(candidate)};
+  // §135.30.9.4: the row's `describe` carries the cues too; the target names them once, beside the row's words.
+  const words = (candidate: Candidate): Json => rowWordsOnly((view.rows?.ask ?? []).find(row => row.id === clueRow(candidate))?.describe) ?? {clue: clueOf(candidate)};
   const questions: DecisionQuestion[] = clues.map((candidate, index) => ({key: reaskAlias(index),
     target: `${reaskAlias(index)}: ${JSON.stringify({clue: words(candidate), cues: clueCues(candidate)})}`,
     type: 'choice' as const, instructions: REASK_ROW.instructions, criteria: {...REASK_ROW.criteria}}));

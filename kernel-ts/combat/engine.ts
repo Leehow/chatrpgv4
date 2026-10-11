@@ -314,6 +314,9 @@ export class CombatSession {
         const record = isAttack ? attackRecord : defenseRecord, wins = new Set(['attacker_higher', 'tie_attacker_wins']);
         if ((isAttack ? wins.has(opposed) : !wins.has(opposed)) || ['critical', 'fumble'].includes(record.outcome))
             return unchanged;
+        // §223.3 (p.99): the book's example buys a failed Dodge up to an Extreme success against an
+        // Extreme attack. A roll that passed but lost the contest is raised the same way: the smallest
+        // spend whose new level wins is applied, and `spendLuck` no longer refuses a passed roll.
         const luck = number(precommit.current_luck), cap = Math.min(number(precommit.max_points), luck), original = number(record.roll);
         for (let points = 1; points <= Math.min(cap, original - 2); points++) {
             const next = this.arithmetic.resolve(original - points, number(record.base_target), string(record.required_level)).outcome;

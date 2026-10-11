@@ -1,14 +1,12 @@
 /**
- * Contract §178: a Mod check declared `trigger: "presence"` (natural-npc 1.5.0's first impression) is rolled by the kernel
- * the first time a person shares a scene with an investigator -- inside the apply that brought them together, at a turn's
- * start, or before the opening -- once per pair, with the card saying whom it is about in the table's word for them.
+ * Contract §224.3 (user ruling 2026-10-10, re-rules §178 per the Keeper Rulebook: Credit Rating gauges first impressions,
+ * p.60; roll only when there is tension and something at stake, pp.82-83): a Mod check declared `trigger: "presence"`
+ * (natural-npc's first impression) is no longer rolled by the kernel when people meet. While a person shares a scene with an
+ * investigator the pair is offered in `mods.pending_contacts`; the host's selection rolls it only when it matters, through
+ * `resolve`, and the receipt keeps §178's shape (`trigger`, `public_target_label`) so the card still names whom it is about.
  *
- * Installed App a7f5cbe57, Blood Road `game-45cd3976` (2026-10-04): nine turns, six people met, no first impression. The
- * capsule listed every pending contact and the brief said to resolve it; the Keeper never did, and the clerk asked whether
- * the player had declared it, which a player never does.
- *
- * The Haunting stands in: Knott seats the start scene, the newspaper morgue seats Ruth Blake and Arty Wilmot (whose
- * reaction the book preordains, §134.5), the basement seats the rat pack (a creature).
+ * The Haunting stands in: Knott seats the start scene, the newspaper morgue seats Ruth Blake and Arty Wilmot, the fixture's
+ * start scene also seats a creature.
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
@@ -76,111 +74,82 @@ async function table(t, content = plain, module = 'the-haunting') {
 }
 const impressions = receipts => receipts.filter(receipt => receipt.kind === 'roll' && receipt.decision === 'natural-npc:first-impression');
 
-test('the opening rolls the start scene\'s people before it is written, and its record carries the card', async t => {
+const offered = capsule => capsule.mods.pending_contacts.filter(row => row.rule.trigger === 'presence').map(row => row.handle).sort();
+
+test('§224.3: the opening rolls nothing; the start scene\'s person is offered as a presence pair', async t => {
   const {call, read} = await table(t);
   await call('table.open');
-  const opening = impressions((await read('turn.json')).receipts);
-  assert.deepEqual(opening.map(receipt => [receipt.npc, receipt.call_id, receipt.trigger]), [['steven-knott', 't0-open', 'presence']]);
-  assert.equal(opening[0].actor, 'thomas-hayes');
-  assert.ok(['Appearance', 'Credit Rating'].includes(opening[0].skill));
-  // Opening the table again rolls nothing more: the pair has its result.
-  await call('table.open');
-  assert.equal(impressions((await read('turn.json')).receipts).length, 1);
-  const narrated = await call('table.narrate', {call_id: 't0-c1', text: 'The opening.'});
-  assert.deepEqual(narrated.mechanics.filter(row => row.kind === 'roll').map(row => row.receipt), [opening[0].id]);
+  assert.deepEqual(impressions((await read('turn.json')).receipts), []);
+  await call('table.narrate', {call_id: 't0-c1', text: 'The opening.'});
   const input = await call('table.player_input', {text: 'I go on.'});
-  assert.deepEqual(input.capsule.mods.relationships.map(row => [row.handle, row.since_turn]), [['steven-knott', 0]]);
-  assert.deepEqual(input.capsule.mods.pending_contacts, []);
+  assert.deepEqual(impressions((await read('turn.json')).receipts), [], 'a turn start rolls nothing either');
+  assert.deepEqual(offered(input.capsule), ['steven-knott']);
+  assert.match(input.capsule.mods.pending_contacts[0].when, /matters this turn/);
+  assert.deepEqual(input.capsule.mods.relationships, []);
 });
 
-test('a move rolls the people it brings the party to, in the same apply, but not one the book preordains or anyone twice', async t => {
-  const {call, read} = await table(t);
+test('§224.3: a move or a walk-on rolls nothing; the people met are offered instead', async t => {
+  const {call} = await table(t);
   await call('table.open');
   await call('table.narrate', {call_id: 't0-c1', text: 'The opening.'});
   await call('table.player_input', {text: 'I go to the newspaper morgue.'});
   const moved = await call('table.apply', {call_id: 't1-c1', effects: [{kind: 'move', to: 'newspaper-morgue'}]});
-  const rolled = impressions((await call('table.status')).receipts).filter(receipt => moved.receipts.includes(receipt.id));
-  assert.deepEqual(rolled.map(receipt => receipt.npc), ['ruth-blake'], 'Ruth Blake is rolled; Arty Wilmot\'s reaction is the book\'s');
-  assert.deepEqual(moved.first_impressions.map(row => [row.handle, row.receipt]), [['ruth-blake', rolled[0].id]]);
-  assert.ok(moved.first_impressions[0].impression.reaction, 'the Keeper reads the impression it left');
-  assert.match(moved.first_impressions_note, /never resolve the check again/);
-  const again = await call('table.apply', {call_id: 't1-c2', effects: [{kind: 'time', minutes: 5, why: 'reading'}]});
-  assert.equal(again.first_impressions, undefined);
-  assert.deepEqual(again.receipts, ['time:t1-c2']);
-  const world = await read('world.json');
-  assert.equal(Object.values(world.mods.state).filter(state => state.checks).flatMap(state => Object.values(state.checks)).length, 2, 'Knott and Ruth Blake');
-  // Arty Wilmot stands here with no record, and a presence check is never pending for the Keeper or the clerk.
+  const staged = await call('table.apply', {call_id: 't1-c2', effects: [{kind: 'npc', name: 'a dock worker', to: 'here', why: 'he walks in from the street', walk_on: true}]});
+  for (const result of [moved, staged]) assert.equal(result.first_impressions, undefined);
+  assert.deepEqual(impressions((await call('table.status')).receipts), []);
   await call('table.narrate', {call_id: 't1-c3', text: 'The morgue.'});
-  const input = await call('table.player_input', {text: 'I ask for the clippings.'});
-  assert.ok(input.capsule.present.some(person => person.name === 'Arty Wilmot'));
-  assert.deepEqual(input.capsule.mods.pending_contacts, []);
+  const input = await call('table.player_input', {text: 'I look around.'});
+  for (const handle of ['ruth-blake', 'a dock worker']) assert.ok(offered(input.capsule).includes(handle), `${handle} is offered`);
 });
 
-test('a creature shares the scene and is not rolled', async t => {
-  const {call, read} = await table(t, plain, 'presence-fixture');
-  await call('table.open');
-  const world = await read('world.json');
-  assert.equal(world.npc_presence['cellar-hound'], world.active_scene, 'the hound is an actor at the start scene');
-  assert.deepEqual(impressions((await read('turn.json')).receipts).map(receipt => receipt.npc), ['steven-knott']);
-});
-
-test('someone put on stage is rolled in that apply, and the card names them in the table\'s word, never an untold book name', async t => {
+test('§224.3: an offered pair the host resolves keeps §178\'s receipt shape and the card names the person in the table\'s word', async t => {
   const {call, read, write} = await table(t);
   await call('table.open');
   await call('table.narrate', {call_id: 't0-c1', text: 'The opening.'});
   await call('table.player_input', {text: 'I go to the newspaper morgue.'});
-  // Ruth Blake has an epithet and no told name (§176.1).
   const world = await read('world.json');
   world.person_epithets = {...world.person_epithets, 'ruth-blake': {word: 'the archivist', by: 'graph'}};
   await write('world.json', world);
   await call('table.apply', {call_id: 't1-c1', effects: [{kind: 'move', to: 'newspaper-morgue'}]});
-  const staged = await call('table.apply', {call_id: 't1-c2', effects: [{kind: 'npc', name: 'a dock worker', to: 'here', why: 'he walks in from the street', walk_on: true}]});
-  assert.deepEqual(staged.first_impressions.map(row => row.target), ['a dock worker']);
-  const labels = impressions((await call('table.status')).receipts).map(receipt => [receipt.npc, receipt.public_target_label]);
-  assert.deepEqual(labels, [['ruth-blake', 'the archivist'], ['a dock worker', 'a dock worker']]);
-  const narrated = await call('table.narrate', {call_id: 't1-c3', text: 'Two of them look up.'});
-  const cards = narrated.mechanics.filter(row => row.kind === 'roll').map(row => row.target_label);
-  assert.deepEqual(cards, ['the archivist', 'a dock worker']);
+  await call('table.narrate', {call_id: 't1-c2', text: 'The morgue.'});
+  await call('table.player_input', {text: 'I ask the archivist for the 1918 clippings.'});
+  const resolved = await call('table.resolve', {call_id: 't2-c1', action: {intent: 'social', decision: 'natural-npc:first-impression', target: 'Ruth Blake'}});
+  assert.ok(resolved.outcome.impression, 'the impression is the outcome');
+  const [rolled] = impressions((await call('table.status')).receipts);
+  assert.deepEqual([rolled.npc, rolled.trigger, rolled.public_target_label], ['ruth-blake', 'presence', 'the archivist']);
+  const narrated = await call('table.narrate', {call_id: 't2-c2', text: 'She looks up.'});
+  assert.deepEqual(narrated.mechanics.filter(row => row.kind === 'roll').map(row => row.target_label), ['the archivist']);
   assert.ok(!JSON.stringify(narrated.mechanics).includes('Ruth Blake'), 'the book name of someone untold never reaches the card');
+  const input = await call('table.player_input', {text: 'I thank her.'});
+  assert.deepEqual(input.capsule.mods.relationships.map(row => [row.handle, row.since_turn]), [['ruth-blake', 2]]);
+  assert.equal(offered(input.capsule).includes('ruth-blake'), false, 'a recorded pair is no longer offered');
 });
 
-test('a turn\'s start rolls anyone present without a record, before the capsule is built', async t => {
-  const {call, read, write} = await table(t);
+test('a creature shares the scene and is not offered', async t => {
+  const {call, read} = await table(t, plain, 'presence-fixture');
   await call('table.open');
-  await call('table.narrate', {call_id: 't0-c1', text: 'The opening.'});
-  await call('table.player_input', {text: 'I wait.'});
-  await call('table.narrate', {call_id: 't1-c1', text: 'Nothing happens.'});
-  // A presence no apply wrote (an older package upgraded mid-play, a path that is not apply): Dooley is simply here.
   const world = await read('world.json');
-  world.npc_presence.dooley = world.active_scene;
-  await write('world.json', world);
-  const input = await call('table.player_input', {text: 'Who is that?'});
-  const rolled = impressions((await read('turn.json')).receipts);
-  assert.deepEqual(rolled.map(receipt => [receipt.npc, receipt.call_id]), [['dooley', 't2-input']]);
-  assert.deepEqual(input.capsule.mods.relationships.find(row => row.handle === 'dooley').since_turn, 2);
-  const turn2 = await call('table.player_input', {text: 'x'}).catch(error => error);
-  assert.equal(turn2.code, 'turn_state', 'the turn is open; nothing else was written');
+  assert.equal(world.npc_presence['cellar-hound'], world.active_scene, 'the hound is an actor at the start scene');
+  await call('table.narrate', {call_id: 't0-c1', text: 'The opening.'});
+  const input = await call('table.player_input', {text: 'I go on.'});
+  assert.deepEqual(offered(input.capsule), ['steven-knott']);
 });
 
-test('a contact check still pends and is never rolled by the kernel', async t => {
+test('a contact check pends beside the presence one, and neither is rolled by the kernel', async t => {
   const {call} = await table(t, withContact);
   await call('table.open');
   await call('table.narrate', {call_id: 't0-c1', text: 'The opening.'});
   const input = await call('table.player_input', {text: 'I go on.'});
-  assert.deepEqual(input.capsule.mods.pending_contacts.map(row => [row.decision, row.handle, row.rule.trigger]),
-    [['contact-npc:first-impression', 'steven-knott', 'contact']], 'the contact pair pends; the presence pair was rolled');
-  const moved = await call('table.apply', {call_id: 't1-c1', effects: [{kind: 'move', to: 'newspaper-morgue'}]});
-  assert.deepEqual(moved.first_impressions.map(row => row.handle), ['ruth-blake']);
-  const decisions = impressions((await call('table.status')).receipts).map(receipt => receipt.decision);
-  assert.ok(decisions.every(decision => decision === 'natural-npc:first-impression'));
-  const contact = (await call('table.status')).receipts.filter(receipt => receipt.decision === 'contact-npc:first-impression');
-  assert.deepEqual(contact, []);
+  assert.deepEqual(input.capsule.mods.pending_contacts.map(row => [row.decision, row.handle, row.rule.trigger]).sort(),
+    [['contact-npc:first-impression', 'steven-knott', 'contact'], ['natural-npc:first-impression', 'steven-knott', 'presence']]);
+  await call('table.apply', {call_id: 't1-c1', effects: [{kind: 'move', to: 'newspaper-morgue'}]});
+  assert.deepEqual((await call('table.status')).receipts.filter(receipt => receipt.kind === 'roll' && receipt.family === 'mod'), []);
 });
 
 test('a package that declares a presence check must require checks.presence.v1', async () => {
   const files = new Map([['mod.json', await readFile(join(root, 'mods/natural-npc/mod.json'))]]);
   for (const name of JSON.parse(files.get('mod.json').toString('utf8')).package_files) files.set(name, await readFile(join(root, 'mods/natural-npc', name)));
-  assert.equal(api.manifestFrom(files).version, '1.5.0');
+  assert.equal(api.manifestFrom(files).version, '1.6.0');
   const manifest = JSON.parse(files.get('mod.json').toString('utf8'));
   manifest.requires = manifest.requires.filter(value => value !== 'checks.presence.v1');
   files.set('mod.json', Buffer.from(JSON.stringify(manifest)));

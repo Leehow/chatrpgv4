@@ -22,9 +22,9 @@ def test_move_reachable_and_unreachable(kernel):
 
     moved = kernel.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "Hall of Records",
                                                               "travel_minutes": 30}])
-    # §178.3: the move, then the first impression of the clerk the party meets there.
-    assert moved["receipts"] == ["move:hall-of-records-t1-c1", "roll:mod-natural-npc-t1-c1"]
-    assert [row["handle"] for row in moved["first_impressions"]] == ["records-clerk"]
+    # §224.3: meeting the clerk there rolls no first impression; the host offers it only when it matters.
+    assert moved["receipts"] == ["move:hall-of-records-t1-c1"]
+    assert "first_impressions" not in moved
     assert moved["world"] == {"active_scene": "hall-of-records", "clock": {"minutes": 30}}
     assert moved["material_ready"] is True
     state = world(kernel)
@@ -212,8 +212,8 @@ def test_batch_is_atomic(kernel):
         {"kind": "time", "minutes": 15, "beyond_travel": True},  # §156: time spent after arriving
     ])
     assert result["receipts"] == ["clue:knott-research-leads-t1", "move:hall-of-records-t1-c1",
-                                  "clue:chapel-closed-1912-t1", "time:t1-c1", "roll:mod-natural-npc-t1-c1"], \
-        "the batch's own receipts, then the clerk's first impression (§178.3)"
+                                  "clue:chapel-closed-1912-t1", "time:t1-c1"], \
+        "the batch's own receipts; meeting the clerk rolls nothing (§224.3)"
     assert world(kernel)["discovered_clues"] == ["knott-research-leads", "chapel-closed-1912"]
 
 

@@ -236,15 +236,22 @@ export class CheckArithmetic {
     opposed(target: number, opponent: number, rng: PythonRandom, bonus = 0, penalty = 0): Row {
         const mine = this.check(target, 'regular', bonus, penalty, rng);
         const theirs = this.check(opponent, 'regular', 0, 0, rng);
-        const myLevel = ranks[mine.outcome] || 0;
-        const theirLevel = ranks[theirs.outcome] || 0;
-        const winner = myLevel !== theirLevel ? myLevel > theirLevel ? 'investigator' : 'opponent'
-            : !myLevel ? 'none' : target >= opponent ? 'investigator' : 'opponent';
         return {
             investigator_roll: mine,
             opponent_roll: theirs,
-            winner
+            winner: this.contestWinner(string(mine.outcome), target, string(theirs.outcome), opponent)
         };
+    }
+    /**
+     * Who wins a non-combat opposed roll (p.83): the higher success level; on equal levels the higher
+     * skill; both failing is nobody. One rule for the first roll and for the roll Luck has altered
+     * (§223.3), so a bought level decides the contest the way a rolled one does.
+     */
+    contestWinner(myOutcome: string, myTarget: number, theirOutcome: string, theirTarget: number): string {
+        const myLevel = ranks[myOutcome] || 0;
+        const theirLevel = ranks[theirOutcome] || 0;
+        return myLevel !== theirLevel ? myLevel > theirLevel ? 'investigator' : 'opponent'
+            : !myLevel ? 'none' : myTarget >= theirTarget ? 'investigator' : 'opponent';
     }
     combined(targets: Row[], roll: number, required: string, mode: string): Row {
         if (!['any', 'all'].includes(mode))
@@ -299,8 +306,6 @@ export class CheckArithmetic {
             valueError('percentile_result_contradicts_canonical_contract');
         if (['critical', 'fumble'].includes(result.outcome))
             valueError('criticals_fumbles_malfunctions_cannot_be_bought_off');
-        if (result.passed === true)
-            valueError('luck_may_only_alter_a_failed_roll');
         if (points <= 0)
             valueError('points_must_be_positive');
         if (points > currentLuck)
@@ -310,6 +315,9 @@ export class CheckArithmetic {
             valueError('criticals_fumbles_malfunctions_cannot_be_bought_off');
         const output = clone(result);
         output.roll = roll;
+        // p.99 (§223.3): Luck alters the result of a passed roll too -- the book's own example buys a
+        // Dodge up to an Extreme success in an opposed contest. The player may spend any amount up to
+        // their Luck; whether the new number changes the level is the player's gamble, not a refusal.
         Object.assign(output, this.resolve(roll, number(result.base_target), string(result.required_level)));
         return Object.assign(output, {
             luck_spent: points,

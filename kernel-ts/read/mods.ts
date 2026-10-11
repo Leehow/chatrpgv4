@@ -30,6 +30,7 @@ import {EXPRESSION_REFERENCE_CAPABILITY,expressionCards,expressionCatalogRevisio
 import { ESTABLISH_CAPABILITY, ESTABLISH_REVIEW_CAPABILITY, validateEstablishDeclaration, establishProvider, establishItem } from "./establish.js";
 import { SECTIONS_CAPABILITY, DISCOVERY_CAPABILITY, validateSectionsDeclaration, validateSectionsContribution, packageSections, sectioned, sectionKey, instructionBudget, residentText, topicList, annotateGates, sceneFacts, type TurnFacts } from "./sections.js";
 import {TEMPORAL_CAPABILITY,temporalItems,temporalProviders} from './temporal-mod.js';
+import {IMPROVISED_WEAPON_CAPABILITY} from '../combat/improvised.js';
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "checks.presence.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT_V2);
@@ -67,6 +68,9 @@ MOD_CAPABILITIES.add(ESTABLISH_REVIEW_CAPABILITY);
 export const WEAKNESSES_CAPABILITY = "actor.weaknesses.v1";
 MOD_CAPABILITIES.add(WEAKNESSES_CAPABILITY);
 MOD_CAPABILITIES.add(TEMPORAL_CAPABILITY);
+/** Contract §224.7: a package where an enabled package requires this rolls a declared first blow's unprepared held object as
+ *  the weapons-table row it most resembles (`first_blow.preparation.improvised`, `action.improvised`); Enhanced Items 1.3.5 is the first. */
+MOD_CAPABILITIES.add(IMPROVISED_WEAPON_CAPABILITY);
 /** Contract 28.3 and §180.8: the two dossier spines a package may add words to, a person's and a creature's. */
 export const VOCABULARY_SPINES = ["actor_profile_keys", "creature_profile_keys"] as const;
 const invalid = (message: string): never => {
@@ -882,14 +886,17 @@ export function contactRows(graph: ModuleGraph, world: Row, party: Row[], active
                         impression: row(row(known.result).outcome).impression ?? null,
                         since_turn: known.turn
                     });
-                // §178.4: a `presence` check is the kernel's to roll when the people meet, so it is never pending for anyone else.
-                else if (check.trigger !== "presence")
+                // §224.3 (re-rules §178.4): a `presence` check is offered while the people share a scene and rolled only when the
+                // host's selection finds the impression matters this turn; nothing rolls it on meeting.
+                else
                     contacts.push({
                         actor: actor.name,
                         target: graph.displayName(npc),
                         handle: graph.handle(npc),
                         decision: name,
-                        when: "first meaningful contact, not merely appearing in this list",
+                        when: check.trigger === "presence"
+                            ? "only when this person's first impression of the investigator matters this turn, not merely because they share the scene"
+                            : "first meaningful contact, not merely appearing in this list",
                         rule: { trigger: check.trigger, scope: check.scope, reusable: check.reusable }
                     });
             }

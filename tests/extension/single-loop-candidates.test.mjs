@@ -473,11 +473,10 @@ test("SL-08: an NPC's turn without a disposition is a forced closed bind that in
 	assert.equal(bindingOf(inference), "closed");
 	assert.deepEqual(inference.unbound[0].options, ["fights_to_the_end", "fights_then_flees", "avoids_fighting", "surrenders"]);
 	assert.deepEqual(inference.unbound[0].descriptions, fighter.combat_disposition.options, "the criteria are the kernel's table descriptions");
-	// The material is his own parameters as the card issued them, plus the first impression natural-npc settled when the
-	// party met him (§178.3: rolled at the turn's start), and the basis names which were read.
-	const settled = state.capsule.mods.relationships.find((row) => row.target === fighter.name)?.impression;
-	assert.ok(settled, "he was met, so his first impression is settled");
-	const material = { ...fighter.combat_disposition.material, first_impression: settled };
+	// The material is his own parameters as the card issued them, and the basis names which were read. §224.3: meeting him
+	// rolled no first impression (the host offers it only when it matters), so none is part of the material.
+	assert.equal(state.capsule.mods.relationships.find((row) => row.target === fighter.name), undefined, "meeting him rolled nothing");
+	const material = { ...fighter.combat_disposition.material };
 	assert.deepEqual(inference.detail.person, material);
 	assert.deepEqual(inference.basis.row.read, Object.keys(material));
 	const view = initialView({ runId: "r", rawInput: "我揍他", context, candidates: [], readFirst: false });
