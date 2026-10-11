@@ -1,0 +1,109 @@
+/**
+ * §166.2's refusal-result guard for an act held by an unavailable admission review (owner decision 2026-10-11, contract §213.1).
+ *
+ * Writer: an `admission_unavailable` refusal this turn (`hold`). Reader: the shared final-delivery boundary, which asks one
+ * bounded Jev Noul whether the draft asserts the result of what the player declared and no settled receipt carries. Actor:
+ * the Keeper, corrected once through the existing turn-close steer (§200.3's table, `outcomeStatus`); every other answer
+ * delivers. The host owns eligibility, binding and control flow; Jev neither writes text nor decides what happened.
+ */
+import type {DecisionBatch, Json} from './contracts.ts';
+import type {DecisionPort} from './decision-port.ts';
+import {TaskLease} from './task-context.ts';
+import {JEV_MODEL, packDecisionBatch} from './question-packing.ts';
+import {documentOutcomeDigest as outcomeDigest, outcomeStatus} from './refused-document-outcome.ts';
+
+export const HELD_ACT_OUTCOME_FAMILY = 'held-act-outcome';
+export const HELD_ACT_OUTCOME_REASON = 'held_act_outcome';
+/** At most this many held refusals and settled receipts reach the question; each line at most `HELD_LINE_MAX` code points. */
+export const HELD_ROWS_MAX = 12;
+export const HELD_LINE_MAX = 300;
+
+export interface HeldRefusal {tool: string; lines: string[]; cause: string}
+export interface HeldActBasis {campaign: string; worldline?: string; turn: number; playerText: string; held: HeldRefusal[]}
+export type HeldActVerdict = {status: 'clean' | 'steer' | 'unclear' | 'claimed' | 'stale' | 'inactive';
+  reason: string; probability?: number; basisHash?: string; draftHash?: string; attempt: number};
+
+const clip = (text: string) => [...text].slice(0, HELD_LINE_MAX).join('');
+/**
+ * A settled receipt as the question shows it: its scalar fields, clipped. A projection of the kernel's own row, not a reading
+ * of it; which act it carries is Jev's to judge.
+ */
+export function receiptLine(receipt: Record<string, unknown>): string {
+  const fields = Object.entries(receipt).filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
+    .map(([key, value]) => `${key}=${String(value)}`);
+  return clip(fields.join(' '));
+}
+
+export class HeldActOutcome {
+  basis?: HeldActBasis;
+  revision = 0;
+  attempts = 0;
+  correctionIssued = false;
+  private checked = new Map<string, HeldActVerdict>();
+  /** Every unavailable refusal of the turn joins one basis; the turn's decision and correction budget is not renewed. */
+  hold(input: Omit<HeldActBasis, 'held'>, refusal: HeldRefusal): void {
+    const basis = this.basis;
+    if (basis && (basis.turn !== input.turn || basis.playerText !== input.playerText || basis.worldline !== input.worldline)) return;
+    const row = {tool: refusal.tool, lines: refusal.lines.map(clip), cause: refusal.cause};
+    const held = basis?.held ?? [];
+    if (held.some(value => JSON.stringify(value) === JSON.stringify(row)) || held.length >= HELD_ROWS_MAX) return;
+    this.basis = {...input, held: [...held, row]}; this.revision++;
+  }
+  issuedCorrection(): void { this.correctionIssued = true; }
+  async check(input: {draft: string; receipts: string[]; decision: DecisionPort; signal: AbortSignal; deadlineAt?: number;
+    correctionAvailable: boolean; current: () => boolean}): Promise<HeldActVerdict> {
+    const basis = this.basis, revision = this.revision;
+    if (!basis) return {status: 'inactive', reason: 'no_held_act', attempt: this.attempts};
+    const receipts = input.receipts.slice(0, HELD_ROWS_MAX).map(clip);
+    const basisHash = outcomeDigest({basis, receipts}), draftHash = outcomeDigest(input.draft), key = basisHash + ':' + draftHash;
+    const verdict = (status: HeldActVerdict['status'], reason: string, probability?: number): HeldActVerdict =>
+      ({status, reason, attempt: this.attempts, basisHash, draftHash, ...(probability === undefined ? {} : {probability})});
+    const current = () => !input.signal.aborted && this.basis === basis && this.revision === revision && input.current();
+    if (!current()) return verdict('stale', 'held_binding_changed');
+    const prior = this.checked.get(key);
+    if (prior) {
+      // §200.3: the draft the correction was asked for, sent again after it, is delivered; the claim is recorded.
+      if (prior.status === 'steer' && this.correctionIssued) return verdict('claimed', 'repeated_false_completion', prior.probability);
+      return prior;
+    }
+    if (this.attempts >= 2) return verdict('unclear', 'outcome_check_exhausted');
+    if (!this.correctionIssued && [...this.checked.values()].some(value => value.status === 'steer'))
+      return verdict('steer', 'correction_pending');
+    this.attempts++;
+    const deadlineAt = Math.min(Date.now() + 2_000, input.deadlineAt ?? Infinity);
+    const signal = AbortSignal.any([input.signal, AbortSignal.timeout(Math.max(1, deadlineAt - Date.now()))]);
+    const scope = {owner: HELD_ACT_OUTCOME_FAMILY, campaign: basis.campaign, ...(basis.worldline ? {worldline: basis.worldline} : {}), audience: 'keeper' as const};
+    const readSet = [{kind: 'draft' as const, resource: `turn:${basis.turn}:held-act`, revision: basisHash},
+      {kind: 'draft' as const, resource: `turn:${basis.turn}:final-held-outcome`, revision: draftHash}];
+    const lease = new TaskLease({owner: HELD_ACT_OUTCOME_FAMILY, goal: 'Check only the result of the act an unavailable review held', scope, readSet, signal,
+      capabilities: ['decision'], budget: {deadlineAt, remainingActions: 1, remainingInputTokens: 32_000, remainingOutputTokens: 2_000, remainingCostUsd: .01}});
+    let answer: HeldActVerdict;
+    let removeAbort: (() => void) | undefined;
+    try {
+      const batch: DecisionBatch = {id: `held-act-outcome:${basis.turn}:${draftHash.slice(0, 16)}`, family: HELD_ACT_OUTCOME_FAMILY,
+        familyVersion: '1', model: JEV_MODEL, scope, readSet,
+        state: {playerWords: basis.playerText,
+          held: {status: 'The action review was unavailable this turn, so the proposals below were refused without review. What the player declared and no settled receipt carries did not happen this turn.',
+            refused: basis.held.map(row => ({tool: row.tool, lines: row.lines}))},
+          settledReceipts: receipts, draft: input.draft} as Json,
+        questions: [{key: 'held_result', type: 'noul', target: 'result of an act the review held',
+          instructions: 'Does the draft assert or presuppose the result of an act the player declared that no settled receipt carries: an arrival, a departure, a payment, a thing changing hands, or another completed change to where the investigator is or what anyone holds? Settled receipts did happen and may be told. The investigator beginning the act (turning to it, setting out, reaching for it, hailing a cab), an intention, a refusal, speech, a gesture, looking and listening are not results. Do not judge style, authorization, plausibility or whether the act was wise.'}]};
+      packDecisionBatch(batch);
+      const cancelled = new Promise<never>((_, reject) => {
+        const abort = () => reject(new Error('Outcome decision cancelled or expired'));
+        signal.addEventListener('abort', abort, {once: true}); removeAbort = () => signal.removeEventListener('abort', abort);
+        if (signal.aborted) abort();
+      });
+      const result = await Promise.race([input.decision.decide(batch, lease), cancelled]), value = result.answers.held_result;
+      if (!current()) return verdict('stale', 'held_binding_changed');
+      const p = result.status === 'complete' && value?.status === 'answered' && value.type === 'noul' ? value.noul : undefined;
+      const [status, reason] = outcomeStatus(p, this.attempts, this.correctionIssued, input.correctionAvailable);
+      answer = verdict(status, reason, reason === 'outcome_unavailable' ? undefined : p);
+    } catch {
+      if (!current()) return verdict('stale', 'held_binding_changed');
+      answer = verdict('unclear', 'outcome_unavailable');
+    } finally { removeAbort?.(); lease.close(); }
+    this.checked.set(key, answer);
+    return answer;
+  }
+}

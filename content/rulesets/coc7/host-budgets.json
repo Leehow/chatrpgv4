@@ -133,7 +133,7 @@
     "timeout_ms": 10000
   },
   "told_time": {
-    "mode": "shadow",
+    "mode": "on",
     "cost_min": 0.7,
     "sentence_min": 0.5,
     "extent_min": 0.6,

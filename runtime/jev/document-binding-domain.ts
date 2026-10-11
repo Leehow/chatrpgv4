@@ -8,9 +8,16 @@ import {JEV_MODEL, packDecisionBatch} from './question-packing.ts';
 export const DOCUMENT_BINDING_FAMILY = 'owned-document-binding';
 export const DOCUMENT_BINDING_MIN = .9;
 export const DOCUMENT_ROLE_PROBABILITY_MIN = .9;
+/**
+ * §227.5: a clear leader below DOCUMENT_BINDING_MIN still names the carrier when every other candidate is far below it. 4d7's
+ * sole notebook (the player's short word for its registered interview-notebook name) led .83-.89 with every other carrier at .04-.06, and each addition was lost.
+ */
+export const DOCUMENT_LEAD_MIN = .8, DOCUMENT_OTHER_MAX = .2;
+/** §227.5: how much of the recent told text (player-visible deliveries, newest kept) the content questions read. */
+export const DOCUMENT_TOLD_CHARS = 6000;
 export interface DocumentCandidate {name:string;owner:string;presentation?:string;version:string}
 export interface DocumentBindingInput {
-  campaign:string;turn:number;playerText:string;unfinished?:string;justTold?:string;actor:string;
+  campaign:string;turn:number;playerText:string;unfinished?:string;justTold?:string;recentTold?:Array<{turn:number|string;text:string}>;actor:string;
   suffix:string;documents:DocumentCandidate[];
 }
 /** Closed quotation syntax only; Jev decides which, if any, passage is selected writing. */
@@ -38,10 +45,18 @@ function quotedSpans(text:string):Array<{start:number;end:number;text:string}> {
   return spans;
 }
 const digest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** §227.5: the recent told text, oldest first, newest kept whole within DOCUMENT_TOLD_CHARS. */
+function told(input:DocumentBindingInput):Array<{turn:number|string;text:string}>|null {
+  const out:Array<{turn:number|string;text:string}>=[];let room=DOCUMENT_TOLD_CHARS;
+  for(const entry of [...input.recentTold??[]].reverse()){
+    if(room<=0)break;const text=entry.text.slice(-room);room-=text.length;out.unshift({turn:entry.turn,text});
+  }
+  return out.length?out:null;
+}
 export function documentBindingScope(input:DocumentBindingInput):{scope:ScopeBinding;readSet:ReadSet} {
   return {scope:{owner:DOCUMENT_BINDING_FAMILY,campaign:input.campaign,audience:'player'},
     readSet:[{kind:'draft',resource:`turn:${input.turn}:document-append`,revision:digest(input)},
-      {kind:'family',resource:DOCUMENT_BINDING_FAMILY,revision:'4'}]};
+      {kind:'family',resource:DOCUMENT_BINDING_FAMILY,revision:'5'}]};
 }
 export async function bindDocumentAppend(input:DocumentBindingInput,decision:DecisionPort,lease:TaskLease):Promise<
   {status:'bound';document:DocumentCandidate;suffix:string;origin:'player_span'|'proposal';span?:{start:number;end:number};targetProbability:number;contentProbability:number;contentConfidence:number;executionProbability:number;executionConfidence:number}
@@ -55,8 +70,8 @@ export async function bindDocumentAppend(input:DocumentBindingInput,decision:Dec
     const literals=quotedSpans(input.playerText);
     if(literals.length>32)return unresolved('unsupported_literal_catalog');
     const batch:DecisionBatch={id:`document-append:${input.turn}:${digest(input).slice(0,16)}`,model:JEV_MODEL,
-      family:DOCUMENT_BINDING_FAMILY,familyVersion:'4',...binding,
-      state:{playerWords:input.playerText,unfinishedDeclaration:input.unfinished??null,justTold:input.justTold??null,
+      family:DOCUMENT_BINDING_FAMILY,familyVersion:'5',...binding,
+      state:{playerWords:input.playerText,unfinishedDeclaration:input.unfinished??null,justTold:input.justTold??null,recentTold:told(input),
         investigator:input.actor,proposedSuffix:input.suffix,
         documents:input.documents.map((row,index)=>({alias:`document_${index}`,name:row.name,presentation:row.presentation??null})),
         quotedPassages:literals.map((span,index)=>({alias:`literal_${index}`,text:span.text})),
@@ -68,8 +83,8 @@ export async function bindDocumentAppend(input:DocumentBindingInput,decision:Dec
           instructions:`What role does quotedPassages[${index}].text have in the current player declaration? Classify its role, not whether the quoted claim is true.`,
           criteria:{addition_text:'The complete text the player supplies as the addition to write.',other_quote:'A name, topic, example, question, text to read, or only part of the addition rather than its complete text.'}})),
         {key:'content',target:'playerWords',type:'choice',
-          instructions:'Is proposedSuffix the writing the player chose? A player either dictates the words to write, or names what to write down (people, places, facts) and leaves the wording to the Keeper. For named things, the chosen writing is what justTold, unfinishedDeclaration or playerWords say about them; a shorter or reworded record of exactly that is the chosen writing. The proposal is not evidence of consent. Ignore a separator newline. Do not judge whether a claim is true in the world.',
-          criteria:{within_selected_addition:'The suffix records only the dictated words, or only what the public context says about the people, places or facts the player named to write down (for example: the player says to note the clerk address, and the suffix records the address the clerk just gave, in shorter words).',outside_selected_addition:'The suffix adds something the player did not name or the public context does not say (another topic, a conclusion, a guess), replaces old text, or the player chose no writing.'}}]};
+          instructions:'Is proposedSuffix the writing the player chose? A player either dictates the words to write, names what to write down (people, places, facts, a text they read) and leaves the wording to the Keeper, or asks to copy out a text they read, or to write up or sort what they found. For named things, the chosen writing is what justTold, recentTold, unfinishedDeclaration or playerWords say about them; a copy of a text recentTold shows them reading is the chosen writing; for a write-up of their findings, a record of what recentTold says they found is the chosen writing; a shorter or reworded record of exactly that is the chosen writing. The proposal is not evidence of consent. Ignore a separator newline. Do not judge whether a claim is true in the world.',
+          criteria:{within_selected_addition:'The suffix records only the dictated words, or only what the public context says about the people, places, facts or text the player named to write down or copy, or, for a write-up of findings, only what the public context says the investigator found (for example: the player says to note the clerk address, and the suffix records the address the clerk just gave, in shorter words).',outside_selected_addition:'The suffix adds something the player did not name or the public context does not say (another topic, a conclusion, a guess, a finding nobody told), replaces old text, or the player chose no writing.'}}]};
     packDecisionBatch(batch);
     const result=await decision.decide(batch,lease);
     if(result.status!=='complete')return unresolved(result.failure?.code??`decision_${result.status}`);
@@ -93,6 +108,10 @@ export async function bindDocumentAppend(input:DocumentBindingInput,decision:Dec
       if(answer?.status!=='answered'||answer.type!=='noul'||!Number.isFinite(answer.noul)||answer.noul<0||answer.noul>1)return unresolved('invalid_target_answer');
       if(answer.noul>=DOCUMENT_BINDING_MIN)selected.push({index,probability:answer.noul});
     }
+    if(!selected.length){
+      const ranked=input.documents.map((_,index)=>({index,probability:(result.answers[`document_${index}`] as {noul:number}).noul})).sort((a,b)=>b.probability-a.probability);
+      if(ranked[0]!.probability>=DOCUMENT_LEAD_MIN&&ranked.slice(1).every(entry=>entry.probability<=DOCUMENT_OTHER_MAX))selected.push(ranked[0]!);
+    }
     const content=role('content',['within_selected_addition','outside_selected_addition']);
     if(!content)return unresolved('invalid_content_answer');
     if(selected.length!==1)return unresolved(selected.length?'ambiguous_target':'no_target');
@@ -114,14 +133,14 @@ export async function bindDocumentAppend(input:DocumentBindingInput,decision:Dec
       contentProbability=literal.probability;contentConfidence=literal.confidence;
     }else if(content.choice!=='within_selected_addition'||contentProbability<DOCUMENT_ROLE_PROBABILITY_MIN)return unresolved('addition_not_cleared');
     const executionBatch:DecisionBatch={...batch,id:batch.id+':execution',
-      state:{playerWords:input.playerText,unfinishedDeclaration:input.unfinished??null,justTold:input.justTold??null,
+      state:{playerWords:input.playerText,unfinishedDeclaration:input.unfinished??null,justTold:input.justTold??null,recentTold:told(input),
         playerControls:input.actor,ownedCarrier:{name:document.name,owner:input.actor,registered:true},
         operation:{kind:'append',writer:input.actor,document:document.name,text:suffix,existingText:'The kernel preserves every existing character exactly.',status:'unperformed_proposal'},
         policy:'Judge the player choice, not whether the operation is feasible or has already happened. The host has bound the registered carrier and ownership. A technical naming failure in a prior attempt is not a player withdrawal or an in-fiction prerequisite. A first-person declared action is a request to act. The proposed operation is not evidence of consent. Do not judge whether the written claim is true.'},
       questions:[{key:'execution',target:'operation',type:'choice',
         instructions:'Classify this exact append against what the player chooses, rather than whether it can be executed. Use the public context only to interpret the player request or the player own conditions. The carrier identity and ownership are already bound; a technical failure of an earlier attempt does not withdraw the request.',
-        criteria:{selected_operation:'The player chooses to write this addition to this carrier now: the text is the player dictated words or, when the player named what to write down, a record of what the public context says about those named things (for example: the player says to note the clerk address, and the text records the address the clerk just gave). Subsequent read-back is part of that request; preserving old writing is guaranteed by the kernel.',
-          not_selected_operation:'The player only reads, discusses, withdraws or defers writing, sets a prerequisite not established by public context, chose another carrier, or the text records something the player did not name.'}}]};
+        criteria:{selected_operation:'The player chooses to write this addition to this carrier now: the text is the player dictated words, a copy of a text the player asked to copy out, a write-up of what the public context says they found when they asked for one, or, when the player named what to write down, a record of what the public context says about those named things (for example: the player says to note the clerk address, and the text records the address the clerk just gave). Subsequent read-back is part of that request; preserving old writing is guaranteed by the kernel.',
+          not_selected_operation:'The player only reads, discusses, withdraws or defers writing, sets a prerequisite not established by public context, chose another carrier, or the text records something the player did not name, copy or ask to write up.'}}]};
     packDecisionBatch(executionBatch);
     const confirmation=await decision.decide(executionBatch,lease);
     if(confirmation.status!=='complete')return unresolved(confirmation.failure?.code??`execution_${confirmation.status}`);

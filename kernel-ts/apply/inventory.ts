@@ -158,6 +158,10 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
         return {receipt:{id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,subject:id,subject_label:personLabel(context.world,id,string(sheet.name)),before:cash.amount??null,after:cash.amount??null,delta:0,currency:cash.currency??null,settlement:'cancelled',quote_status:'cancelled',...(effect.bill?{bill:effect.bill}:{}),...(quote?{quote:quote.name}:{}),why:effect.why??null,at:nowIso()},event:null};
     }
     if(mode==='quote'&&effect.source===undefined)effect={...effect,source:effect.price_id!==undefined?'price':'quote'};
+    // §227.4: priced lines with the person who named them and no printed price_id have one source, the quote of that person
+    // (4d7 t44, t91, t94 named `with` and unit prices and left source out). Without `with` the source is still the Keeper's.
+    if(mode==='settle'&&effect.source===undefined&&effect.price_id===undefined&&effect.items!==undefined&&typeof effect.with==='string'&&effect.with.trim())
+        effect={...effect,source:'quote'};
     const requested=effect.settlement;
     if(requested!==undefined&&requested!=='cash'&&requested!=='spending_level')throw new RpcError('invalid_params','settlement must be cash or spending_level');
     const sheet=await stagedSheet(context,staged,effect.subject),id=string(sheet.id),subject=string(sheet.name||sheet.id);

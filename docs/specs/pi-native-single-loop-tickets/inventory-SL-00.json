@@ -2185,6 +2185,18 @@
       "note": "Gate: a Jev key, and this turn a document recording was refused before any writing landed or the player selected one with no writing receipt (state.documentRecording at or above DOCUMENT_RECORDING_INTENT_MIN). One bounded check of the draft (maxRetries 0) under the foreground deadline; steer once or stop unconfirmed, never writes."
     },
     {
+      "file": "extensions/kernel/index.ts",
+      "symbol": "guardHeldActDelivery",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "kernel ext: a narrate/ask that tells the result of an act an unavailable admission review held",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "held_act_outcome",
+      "note": "Gate: a Jev key, and this turn an admission review refused admission_unavailable (owner decision 2026-10-11, contract 166.2/213.1). One bounded check of the draft (maxRetries 0) under the foreground deadline; steers once (the turn-close steer) or delivers, never writes."
+    },
+    {
       "file": "extensions/kernel/scene-placement.ts",
       "symbol": "ask",
       "kind": "jev-adapter",

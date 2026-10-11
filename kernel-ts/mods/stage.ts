@@ -192,7 +192,10 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
             ? {version:await documentVersion(campaign,world,prior),text:string(prior.document?.text),
                 root:rootObjectOwner(world,prior),direct:clone(prior.owner)} : null;
         if(prior&&PHYSICAL_DOCUMENT_ACTIONS.includes(row(effect.document).action)){
-            if(!equal(source,owner))throw new RpcError('invalid_params','Physical document operations use the same actual from/to owner');
+            // §227.4: open, close, show or read on a carrier its `to` already holds: the current owner is the only `from` there is
+            // (4d7 t48: "close the notebook" named the investigator in `to` alone, refused three times).
+            const holder=source??(row(prior.owner).kind===owner.kind&&row(prior.owner).id===owner.id?owner:null);
+            if(!equal(holder,owner))throw new RpcError('invalid_params','Physical document operations use the same actual from/to owner');
             return physicalDocumentAction(context,prior,effect);
         }
         if (prior && effect.condition != null && effect.condition !== beforeCondition && !string(effect.why || '').trim()) throw new RpcError('invalid_params', 'A physical state change needs its causal reason in why');

@@ -11,6 +11,7 @@ import {documentEditInput} from '../../runtime/document-edit-input.ts';
 import {DocumentReadCoverage} from './document-read-coverage.ts';
 import {writingDigest,canonicalWritingResult,matchWritingResult,completesRefusedAddition,type WritingMatch,type WritingCompletion} from '../../runtime/jev/document-completion.ts';
 import {RefusedDocumentOutcome, REFUSED_DOCUMENT_OUTCOME_FAMILY, REFUSED_DOCUMENT_OUTCOME_REASON, documentOutcomeDigest, type DocumentOutcomeVerdict} from '../../runtime/jev/refused-document-outcome.ts';
+import {HeldActOutcome, HELD_ACT_OUTCOME_FAMILY, HELD_ACT_OUTCOME_REASON, receiptLine} from '../../runtime/jev/held-act-outcome.ts';
 import {DOCUMENT_RECORDING_INTENT_MIN, permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
 /**
  * The pi-coc kernel extension: it starts the Python kernel, wires the seven verbs onto RPC,
@@ -1618,13 +1619,16 @@ export default function (pi: ExtensionAPI) {
 	 * §151.5: with the narrator-only setting on, the engine also announces a call its step's catalog does not admit
 	 * (`refuse`, the sentence the Keeper reads, and `refuse_code`); the tool gate refuses it before anything runs.
 	 */
-	const modelSteps = new Map<string, { run: string; step: string; refuse?: string; refuseCode?: string; holdEmbeddedNarration?: boolean }>();
+	const modelSteps = new Map<string, { run: string; step: string; refuse?: string; refuseCode?: string; stripTime?: string; holdEmbeddedNarration?: boolean }>();
+	/** §227.3: the note an apply whose second time line the host left out carries in its result, by tool call. */
+	const timeStripped = new Map<string, string>();
 	pi.events.on("coc:model-step", (value) => {
 		const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
 		if (typeof data.toolCallId !== "string" || typeof data.run !== "string" || typeof data.step !== "string") return;
 		if (modelSteps.size >= 256) modelSteps.clear();
 		modelSteps.set(data.toolCallId, { run: data.run, step: data.step,
 			...(data.hold_embedded_narration === true ? {holdEmbeddedNarration:true} : {}),
+			...(typeof data.strip_time === "string" && data.strip_time ? { stripTime: data.strip_time } : {}),
 			...(typeof data.refuse === "string" && data.refuse ? { refuse: data.refuse, refuseCode: typeof data.refuse_code === "string" ? data.refuse_code : "narrator_catalog" } : {}) });
 	});
 	/**
@@ -1814,9 +1818,9 @@ export default function (pi: ExtensionAPI) {
 		if (state.reviewUnavailable) return { none: "review_unavailable" };
 		if (state.runAbandoned) return { none: "run_abandoned" };
 		if (state.steeredThisTurn) return { none: "steer_spent" };
-    if (state.deliveryFix?.kind === REFUSED_DOCUMENT_OUTCOME_REASON) {
+    if (state.deliveryFix?.kind === REFUSED_DOCUMENT_OUTCOME_REASON || state.deliveryFix?.kind === HELD_ACT_OUTCOME_REASON) {
       const fix = state.deliveryFix; state.deliveryFix = undefined; state.steeredThisTurn = true;
-      refusedDocuments.get(state)?.issuedCorrection();
+      (fix.kind === HELD_ACT_OUTCOME_REASON ? heldActs.get(state) : refusedDocuments.get(state))?.issuedCorrection();
       return {kind: fix.kind, text: fix.text};
     }
 		if (state.preparationWait) {
@@ -3242,6 +3246,73 @@ export default function (pi: ExtensionAPI) {
       details: {reason: REFUSED_DOCUMENT_OUTCOME_REASON, outcome: result.status}});
   }
   /**
+   * §166.2's refusal-result guard for an act an unavailable review held (owner decision 2026-10-11, §213.1). Writer: every
+   * `admission_unavailable` refusal of the turn joins the turn's held basis (`holdUnavailable`).
+   */
+  const heldActs = new WeakMap<TableState, HeldActOutcome>();
+  function holdUnavailable(state: TableState, proposal: {tool: string; lines: string[]}, cause: string): void {
+    if (!state.playerText) return;
+    let boundary = heldActs.get(state);
+    if (!boundary) { boundary = new HeldActOutcome(); heldActs.set(state, boundary); }
+    boundary.hold({campaign: state.campaign, ...(state.documentWorldline ? {worldline: state.documentWorldline} : {}), turn: state.turn,
+      playerText: state.playerText}, {tool: proposal.tool, lines: [...proposal.lines], cause});
+  }
+  /**
+   * Reader: the same final-delivery boundary as the refused document (§166.2 as §200.3 leaves it). One bounded Jev Noul asks
+   * whether the draft asserts the result of what the player declared and no settled receipt carries; only a strong claim with
+   * the turn's correction still available refuses, for the one targeted correction through the turn-close steer. Every other
+   * answer, and the refusal-budget fallback (`final`), delivers.
+   */
+  async function guardHeldActDelivery(state: TableState, draft: string, signal?: AbortSignal, parent?: TaskProviderBudget,
+    {final = false}: {final?: boolean} = {}): Promise<void> {
+    const boundary = heldActs.get(state), basis = boundary?.basis;
+    if (!boundary || !basis) return;
+    const turn = state.turn, playerText = state.playerText;
+    const sameInput = () => table === state && state.turn === turn && state.playerText === playerText && heldActs.get(state) === boundary
+      && !state.lanes.signal.aborted && !signal?.aborted;
+    const stale = () => new KernelError({code: 'revision_conflict', message: 'The held-act delivery input changed', details: {reason: 'held_act_outcome_stale'}});
+    if (basis.turn !== turn || basis.playerText !== playerText) throw stale();
+    if (final) {
+      await record({lane: HELD_ACT_OUTCOME_REASON, turn, status: 'unclear', reason: 'refusal_budget_fallback', attempt: boundary.attempts,
+        held: basis.held.length, draft_hash: documentOutcomeDigest(draft), probability: null});
+      return;
+    }
+    // No Jev key: nothing can be asked, so the draft delivers (§200.3's unavailable row) without reading the receipts.
+    if (!readJevApiKey(process.env)) {
+      await record({lane: HELD_ACT_OUTCOME_REASON, turn, status: 'unclear', reason: 'unconfigured', attempt: boundary.attempts,
+        held: basis.held.length, draft_hash: documentOutcomeDigest(draft), probability: null});
+      return;
+    }
+    let receipts: string[] = [];
+    let result: Awaited<ReturnType<HeldActOutcome['check']>>;
+    try {
+      const status = await state.kernel.call<{turn: number; receipts: Array<Record<string, unknown>>}>('table.status',
+        {campaign: state.campaign, projection: 'receipts', expected_turn: turn});
+      if (!sameInput()) throw stale();
+      receipts = Array.isArray(status.receipts) ? status.receipts.filter(value => !!value && typeof value === 'object').map(receiptLine) : [];
+      result = await boundary.check({draft, receipts, current: sameInput, signal: signal ? AbortSignal.any([signal, state.lanes.signal]) : state.lanes.signal,
+        deadlineAt: parent?.deadlineAt, correctionAvailable: !state.steeredThisTurn,
+        decision: createDecisionAdapter({retryPolicies: {[HELD_ACT_OUTCOME_FAMILY]: {maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000}}})});
+    } catch (error) {
+      if (isKernelError(error) && error.details?.reason === 'held_act_outcome_stale') throw error;
+      result = {status: 'unclear', reason: 'outcome_validation_unavailable', attempt: boundary.attempts};
+    }
+    if (!sameInput()) throw stale();
+    // §200.3: a moved binding or a claim whose correction is already spent still delivers.
+    if (result.status === 'stale') result = {...result, status: 'unclear', reason: 'outcome_binding_unconfirmed'};
+    if (result.status === 'steer' && state.steeredThisTurn) result = {...result, status: 'claimed', reason: 'false_completion_without_correction'};
+    await record({lane: HELD_ACT_OUTCOME_REASON, turn, status: result.status, reason: result.reason, attempt: result.attempt, held: basis.held.length,
+      receipts: receipts.length, basis_hash: result.basisHash ?? null, draft_hash: result.draftHash ?? null, probability: result.probability ?? null});
+    if (!sameInput()) throw stale();
+    if (result.status !== 'steer') return;
+    state.deliveryFix = {kind: HELD_ACT_OUTCOME_REASON, text: 'The action review was unavailable this turn, so what the player declared and no receipt carries was held: it did not happen this turn. '
+      + 'Correct only the claim of its result (an arrival, a departure, a payment, a thing changing hands): narrate the investigator beginning it, never its result. '
+      + "Preserve every settled event, what landed and the player's own words. Do not put the review or the service into the fiction, and do not tell a result for the ledger to catch up later. Deliver once with narrate or ask."};
+    throw new KernelError({code: 'needs', message: 'The draft tells the result of an act the unavailable review held',
+      fix: 'The existing turn-close steer owns the one targeted correction; do not retry this draft.',
+      details: {reason: HELD_ACT_OUTCOME_REASON, outcome: result.status}});
+  }
+  /**
    * §200.4 writer: the delivery that closes the turn carries the recording no writing result settled (host-only, outside the
    * digest, §135.31's channel, like §190.3's refused_moves). The telemetry row is written once per turn, when first carried.
    */
@@ -3322,7 +3393,11 @@ export default function (pi: ExtensionAPI) {
 			const context = admissionContextFor(state), last = context.delivered.at(-1);
 			const input: DocumentBindingInput = {campaign:state.campaign,turn:state.turn,playerText:state.playerText,
 				...(state.interruptedPlayerText ? {unfinished:state.interruptedPlayerText} : {}),
-				...(last ? {justTold:last.keeper.slice(0,1500)} : {}),actor:options.actor,suffix:effect.document.text,documents:options.documents};
+				...(last ? {justTold:last.keeper.slice(0,1500)} : {}),
+				// §227.5: what the player was told this turn and in the turns the capsule keeps, so a copy of a text they read or a
+				// write-up of their findings can be bound to it (4d7: all ten notebook additions were unbound on justTold alone).
+				recentTold:[...state.recent,...state.delivered].map(entry=>({turn:entry.turn,text:entry.keeper})),
+				actor:options.actor,suffix:effect.document.text,documents:options.documents};
 			const binding = documentBindingScope(input), deadlineAt = Math.min(Date.now()+4_000,parent?.deadlineAt??Infinity);
 			const outer = signal ?? new AbortController().signal;
 			const combined = parent ? AbortSignal.any([outer,parent.signal]) : outer;
@@ -3635,6 +3710,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (!ctx && !part?.outcome) {
 				await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest, path: "none", ms: 0, ...refusedCompile, ...refusedConsequence, ...refusedTold, ...partRows, ...origin, ...who });
+				holdUnavailable(state, proposal, "session_gone");
 				throw admissionUnavailable(proposal, "session_gone", "the session was gone before the review could start");
 			}
 			const base = context();
@@ -3780,6 +3856,7 @@ export default function (pi: ExtensionAPI) {
 					}
 					pi.events.emit("coc:admission-status", status);
 				}
+				holdUnavailable(state, proposal, outcome.reason);
 				throw admissionUnavailable(proposal, outcome.reason, outcome.detail, streak);
 			}
 			// A live verdict, admitting or refusing, proves the review is back: the outage streak ends. A review cut at its cap
@@ -5500,6 +5577,8 @@ export default function (pi: ExtensionAPI) {
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery(undefined, 'committing');
       if (spec.name === 'narrate' || spec.name === 'ask') await guardRefusedDocumentDelivery(state,
         [payload.text, payload.prompt].filter(value=>typeof value==='string').join('\n'), signal, providerBudget);
+      if (spec.name === 'narrate' || spec.name === 'ask') await guardHeldActDelivery(state,
+        [payload.text, payload.prompt].filter(value=>typeof value==='string').join('\n'), signal, providerBudget);
       // §203.6: an establishing turn's draft is judged once before it commits; the record keeps the verdict (host-only).
       if (spec.name === 'narrate' || spec.name === 'ask') {
         delete payload.establish_review;
@@ -6048,6 +6127,8 @@ export default function (pi: ExtensionAPI) {
 			}
 			const besideNote = takeBesideSteer(toolCallId, spec.name);
 			if (besideNote) result = { ...result, prose_dropped: besideNote };
+			const strippedTime = timeStripped.get(toolCallId);
+			if (strippedTime) { timeStripped.delete(toolCallId); result = { ...result, time_not_landed: strippedTime }; }
 			await noteBesideOutcome(toolCallId, { outcome: "landed", ...(admissionVerdict ? { admission: admissionVerdict } : {}) });
 			if (spec.name === "narrate" || spec.name === "ask") {
 				// A turn inside a session must be accountable on its own: round trips in combat are not the same as in investigation.
@@ -6217,10 +6298,13 @@ export default function (pi: ExtensionAPI) {
 			});
 			keepRead(false);
 			const besideNote = takeBesideSteer(toolCallId, spec.name);
+			const strippedTime = timeStripped.get(toolCallId);
+			if (strippedTime) timeStripped.delete(toolCallId);
 			await noteBesideOutcome(toolCallId, { outcome: reason === "review_pending" ? "pending" : "refused", code, ...(reason ? { reason } : {}),
 				...(admissionVerdict ? { admission: admissionVerdict } : {}) });
 			return {
-				content: [{ type: "text", text: errorText(error) + (besideNote ? `\nprose_dropped: ${JSON.stringify(besideNote)}` : "") }],
+				content: [{ type: "text", text: errorText(error) + (besideNote ? `\nprose_dropped: ${JSON.stringify(besideNote)}` : "")
+					+ (strippedTime ? `\ntime_not_landed: ${strippedTime}` : "") }],
         ...(state.reviewUnavailable || state.commitUnavailable || stopForChoiceRepair ? {terminate: true} : {}),
 				details: {
 					...(besideNote ? { prose_dropped: besideNote } : {}),
@@ -6949,6 +7033,7 @@ export default function (pi: ExtensionAPI) {
 				if (mods && !SINGLE_PASS_NARRATION) await mods.prepare("narrate", payload, state.lanes.signal);
 				await reviewForcedPlayerChoiceCue(state, String(payload.text ?? ''), state.lanes.signal, 'implicit');
         await guardRefusedDocumentDelivery(state,String(payload.text??''),state.lanes.signal,foregroundProviderBudget?.(),{final:true});
+        await guardHeldActDelivery(state,String(payload.text??''),state.lanes.signal,foregroundProviderBudget?.(),{final:true});
 				// §203.6: the fallback is never judged (no steer is left); it carries a steered turn's note to the record.
 				if (state.establish?.turn === state.turn && state.establish.note) payload.establish_review = state.establish.note;
 				// §190.3: the fallback closes the turn too, so it carries the moves admission refused this turn to the record.
@@ -7085,7 +7170,7 @@ export default function (pi: ExtensionAPI) {
 			state.turn = typeof result.turn === "number" ? result.turn : state.turn + 1;
 			state.state = result.state ?? "open";
             state.documentReadCoverage=undefined;
-      refusedDocuments.delete(state);
+      refusedDocuments.delete(state); heldActs.delete(state);
       writingLedgers.delete(state);writingAuthorities.delete(state);
       state.documentWorldline = asString((result._context as Record<string,unknown> | undefined)?.worldline);
       const sourceContext = result._context as Record<string,unknown> | undefined;
@@ -7475,6 +7560,16 @@ export default function (pi: ExtensionAPI) {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: announced.refuseCode ?? "narrator_catalog",
 				run: announced.run, step: announced.step });
 			return { block: true, reason: announced.refuse };
+		}
+		// §227.3: time is charged once a turn. A Keeper apply carrying a second time beside other effects loses only that line;
+		// the array is the call's own input, so the rest runs exactly as proposed.
+		if (announced?.stripTime && name === "apply" && Array.isArray(input.effects) && dispatcher.hostOrigin(event.toolCallId)?.origin !== "policy") {
+			const kept = (input.effects as Array<Record<string, unknown>>).filter(effect => effect?.kind !== "time" || effect.owed !== undefined);
+			if (kept.length && kept.length < input.effects.length) {
+				input.effects.splice(0, input.effects.length, ...kept);
+				timeStripped.set(event.toolCallId, announced.stripTime);
+				await record({ tool: name, ok: true, code: "time_stripped", reason: "declared_time_landed", run: announced.run, step: announced.step });
+			}
 		}
 		// Only an adaptation wait owns anything, and only the writes that need what it is building (§135.11 addendum,
 		// SL-23): one named job with its own control verb. A source wait is not here on purpose -- one unread page never
@@ -7979,6 +8074,7 @@ export default function (pi: ExtensionAPI) {
 					notePrepared(state, prepared);
 					await reviewForcedPlayerChoiceCue(state, String(params.text ?? ''), state.lanes.signal, 'implicit', ctx);
           await guardRefusedDocumentDelivery(state,String(params.text??''),state.lanes.signal,foregroundProviderBudget?.());
+          await guardHeldActDelivery(state,String(params.text??''),state.lanes.signal,foregroundProviderBudget?.());
 					// §203.6: the implicit close skips the Mod hooks, not the establishing check.
 					const establishNote = referenceAnswer || state.openingPending ? undefined
 						: await guardEstablishDelivery(state, draft, 'implicit', state.lanes.signal, foregroundProviderBudget?.());
@@ -8014,6 +8110,10 @@ export default function (pi: ExtensionAPI) {
 					if (isKernelError(error) && [REFUSED_DOCUMENT_OUTCOME_REASON,'refused_document_outcome_stale'].includes(String(error.details?.reason))) {
             state.floorDraft = undefined;
             return dropText('refused_document_outcome', {code:error.code,reason:error.details?.reason});
+          }
+					if (isKernelError(error) && [HELD_ACT_OUTCOME_REASON,'held_act_outcome_stale'].includes(String(error.details?.reason))) {
+            state.floorDraft = undefined;
+            return dropText(HELD_ACT_OUTCOME_REASON, {code:error.code,reason:error.details?.reason});
           }
 					// §203.6: the guard held this draft and set the one steer's fix; the turn close carries it to the Keeper.
 					if (isKernelError(error) && error.details?.reason === 'establish_thin')

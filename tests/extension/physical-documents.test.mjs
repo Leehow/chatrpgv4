@@ -192,3 +192,12 @@ test('search uses current legibility rather than acquisition originals, erased t
   assert.ok(visible.fragments[0].sources.some(source=>source.kind==='legible_mark'));
   await assert.rejects(game.call('table.look',{focus:'npc',name:'Steven Knott',document_page:1}),/require focus object/);
 });
+
+// §227.4, live 4d7 t48: "close the notebook" with only `to`, refused three times in one turn. The carrier's holder is `from`.
+test('opening or closing a carrier its to already holds needs no from; another holder still does',async t=>{
+  const game=await paper(t);
+  const {from:_from,...bare}=game.doc({action:'open'},'He opens his notebook.');
+  await game.apply([bare]);
+  await game.apply([{...bare,document:{action:'close'},why:'He closes it again.'}]);
+  await assert.rejects(game.apply([{...bare,to:'Steven Knott',document:{action:'open'}}]),/same actual from\/to owner/);
+});
