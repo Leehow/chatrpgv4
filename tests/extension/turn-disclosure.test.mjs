@@ -18,7 +18,7 @@ const packet=keys=>({role:'custom',customType:'coc-capability-detail',content:ke
 const placed=(ledger,messages,tailLength=1)=>ledger.place(messages,messages.length-tailLength);
 
 test('§227.2 a disclosure keeps its place, so every earlier request is a prefix of the next',()=>{
-    const ledger=api.createTurnDisclosure();ledger.begin('input-1');
+    const ledger=api.createTurnDisclosure();ledger.forInput('input-1');
     const first=[brief,user,clerk,tail];
     const a=ledger.offer(['capability:time','section:s1'],ledger.count(first.slice(0,-1)),packet);
     const r1=placed(ledger,first);
@@ -38,19 +38,19 @@ test('§227.2 a disclosure keeps its place, so every earlier request is a prefix
 });
 
 test('§227.2 a withdrawn disclosure is due again; a new input starts empty',()=>{
-    const ledger=api.createTurnDisclosure();ledger.begin('input-1');
+    const ledger=api.createTurnDisclosure();ledger.forInput('input-1');
     const message=ledger.offer(['capability:cash'],0,packet);
     assert.equal(ledger.has('capability:cash'),true);
     ledger.withdraw(message);
     assert.equal(ledger.has('capability:cash'),false);
     assert.deepEqual(ledger.messages(),[]);
     assert.ok(ledger.offer(['capability:cash'],0,packet));
-    ledger.begin('input-1');assert.equal(ledger.has('capability:cash'),true,'the same input keeps its ledger');
-    ledger.begin('input-2');assert.equal(ledger.has('capability:cash'),false);
+    ledger.forInput('input-1');assert.equal(ledger.has('capability:cash'),true,'the same input keeps its ledger');
+    ledger.forInput('input-2');assert.equal(ledger.has('capability:cash'),false);
 });
 
 test('§227.3 owed keys stay owed until a result or a request carries them',()=>{
-    const ledger=api.createTurnDisclosure();ledger.begin('input-1');
+    const ledger=api.createTurnDisclosure();ledger.forInput('input-1');
     ledger.offer(['section:s1'],0,packet);
     ledger.owe(['section:s1','section:s2','capability:cash']);
     assert.deepEqual(ledger.owed(),['section:s2','capability:cash'],'what was delivered is not owed');
@@ -63,6 +63,6 @@ test('§227.3 owed keys stay owed until a result or a request carries them',()=>
 test('§227.3 what an input attached or owed before its first prepared request is kept',()=>{
     const ledger=api.createTurnDisclosure();ledger.clear();
     ledger.attached(['section:s1']);ledger.owe(['capability:cash']);
-    ledger.begin('input-1');
+    ledger.forInput('input-1');
     assert.equal(ledger.has('section:s1'),true);assert.deepEqual(ledger.owed(),['capability:cash']);
 });

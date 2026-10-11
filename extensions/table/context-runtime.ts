@@ -871,7 +871,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // §227.2: this input's disclosure. Every request re-places what earlier requests of the input carried, at the
         // places they had, and adds once what is newly due: package sections the selection or a write needs, and apply
         // detail. Nothing already sent is sent again, and nothing is moved to the end of the request.
-        disclosure.begin(String(inputEpoch??snapshot.key));
+        disclosure.forInput(String(inputEpoch??snapshot.key));
         let discoveryMessage:Row|undefined,omission:{reason:string;bytes?:number}|undefined,reserved=false;
         try{discoveryMessage=await modDiscovery.message(snapshot.capsule,snapshot.binding,preparationSignal,discoveryCalls,discoveryTask);}
         catch(error){

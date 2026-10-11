@@ -20,7 +20,7 @@ export function createTurnDisclosure(){
      * Name the input; the same input keeps its deliveries and their places. What was attached or owed after `clear()`
      * and before the input's first prepared request belongs to that input and is kept.
      */
-    function begin(key:string){
+    function forInput(key:string){
         if(key===input)return;
         if(input){deliveries.length=0;delivered.clear();owed.clear();}
         input=key;
@@ -69,7 +69,7 @@ export function createTurnDisclosure(){
         return[...out,...tail];
     }
     function messages(){return deliveries.map(d=>d.message);}
-    return{begin,count,offer,withdraw,place,messages,
+    return{forInput,count,offer,withdraw,place,messages,
         has:(key:string)=>delivered.has(key),
         /** A call used these keys undelivered; they are owed until a result or a request carries them. */
         owe:(keys:Iterable<string>)=>{for(const key of keys)if(!delivered.has(key))owed.add(key);},
