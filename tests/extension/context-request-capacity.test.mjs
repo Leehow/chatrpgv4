@@ -151,7 +151,7 @@ test('a protected floor that cannot also hold the packet omits it explicitly; a 
     assert.ok(request.mod_discovery_omitted_bytes > 0);
     assert.ok(fixture.rows.some(row => row.lane === 'mod-discovery' && row.event === 'omitted' && row.reason === 'mod_discovery_request_capacity'));
     const held = await fixture.hooks.get('tool_call')({toolName: 'apply', toolCallId: 'time-1', input: {effects: [{kind: 'time', minutes: 30}]}});
-    // §227.3: the write is not held; the omitted section it needs is owed and rides on its result or the next request.
+    // §228.3: the write is not held; the omitted section it needs is owed and rides on its result or the next request.
     assert.equal(held, undefined);
     assert.ok(fixture.rows.some(row => row.lane === 'turn-disclosure' && row.event === 'owed' && row.keys.length && row.no_hold));
 });

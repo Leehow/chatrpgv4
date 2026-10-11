@@ -25,7 +25,7 @@ const tools=api.offeredTools(api.COC_TOOLS,{});
 const apply=tools.find(t=>t.name==='apply');
 const variant=(tool,kind)=>tool.parameters.properties.effects.items.anyOf.find(v=>(v.properties.kind.const??v.properties.kind.enum?.[0])===kind);
 
-test('§227.1 the fixed view keeps every kind and its rule text; the canonical definition still validates',()=>{
+test('§228.1 the fixed view keeps every kind and its rule text; the canonical definition still validates',()=>{
     const before=JSON.stringify(tools);
     const view=api.fixedCapabilityTools(tools);
     assert.equal(api.fixedCapabilityTools(tools),view,'one view object per registered tool list');

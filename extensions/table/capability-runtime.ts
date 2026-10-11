@@ -16,7 +16,7 @@ export function createCapabilityRuntime(deps:{
     /** Contract §209.14: the Keeper's purpose lookup is asked through its foreground owner; a string names why none is live. */
     lookupDecision?:()=>DecisionPort|string;
     mode:()=>string;
-    /** §227.1: the configured discovery mode; an input pinned to `full` decisions keeps the fixed request view. */
+    /** §228.1: the configured discovery mode; an input pinned to `full` decisions keeps the fixed request view. */
     view?:()=>string;
     record:(row:Row)=>void;
 }){
@@ -106,12 +106,12 @@ export function createCapabilityRuntime(deps:{
         await new Promise<void>(resolve=>{const timer=setTimeout(resolve,remaining);
             void work!.then(()=>{clearTimeout(timer);resolve();});});
     }
-    /** §227.1: the request's tool view is the same bytes on every request of a table; nothing is narrowed or widened. */
+    /** §228.1: the request's tool view is the same bytes on every request of a table; nothing is narrowed or widened. */
     function project(tools:readonly CapabilityTool[]):CapabilityTool[]|undefined{
         if(fixed())return fixedCapabilityTools(tools);
     }
     /**
-     * §227.2: the apply detail this input is due: the selection, the host task's operations and the dependencies the
+     * §228.2: the apply detail this input is due: the selection, the host task's operations and the dependencies the
      * caller names (of delivered package sections). The caller's disclosure ledger sends each name once. A slow or
      * failed selection leaves the deterministic part; anything else is disclosed when first used or looked up.
      */
@@ -121,7 +121,7 @@ export function createCapabilityRuntime(deps:{
         return[...new Set([...(selected??[]),...taskCapabilities(basis.task),...required].filter(name=>apply.has(name)))];
     }
     /**
-     * §227.3: the capability detail a write's effects use. The call is never held for it: the canonical validator already
+     * §228.3: the capability detail a write's effects use. The call is never held for it: the canonical validator already
      * accepted the arguments; whatever of it the input has not delivered rides on this call's result.
      */
     function used(tool:string,args:Row):string[]{
@@ -147,7 +147,7 @@ export function createCapabilityRuntime(deps:{
                 if(!live())throw Error('Capability lookup input was replaced or cancelled');
                 const why=String(error?.message??error).slice(0,160);
                 record({event:'lookup_fallback',turn:binding.turn,reason:why,no_commit:true});
-                // §227.4: no wider tool view exists to fall back to; the index answers and a named lookup reads detail.
+                // §228.4: no wider tool view exists to fall back to; the index answers and a named lookup reads detail.
                 return{status:'index_fallback',read_only:true,reason:why,no_commit:true,
                     capabilities:catalogue.filter(c=>c.verb==='apply').map(c=>({name:c.name,applicability:c.applicability})),
                     next:'Look up a capability by name for its exact fields. This result performs no write.'};

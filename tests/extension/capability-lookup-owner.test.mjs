@@ -1,7 +1,7 @@
 // Contract §209.14 (issue #112 live 9e7, turns 22 and 24): the Keeper's purpose lookup is a foreground read. It runs
 // after the Keeper's own inference, which on a real table outlasts the 12 s optional preparation allowance, so it is owned
 // by the current step's read owner, not by that expired allowance; the per-input selector budget is not renewed, and a
-// missing owner is an explicit no-commit fallback. §227.3/§227.4: that fallback is the capability index
+// missing owner is an explicit no-commit fallback. §228.3/§228.4: that fallback is the capability index
 // (`index_fallback`), no write is held, and detail a write used before it was delivered rides on that write's result.
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
@@ -25,7 +25,7 @@ test.after(()=>rm(temp,{recursive:true,force:true}));
 const QUERY='Record the fare the investigator pays the cab driver.';
 const PAY={effects:[{kind:'cash',amount:'0.75',currency:'USD',to:'driver'}]};
 
-/** §227.3: run a write's tool_call and tool_result hooks; returns the call verdict and the attached `disclosed_detail`, if any. */
+/** §228.3: run a write's tool_call and tool_result hooks; returns the call verdict and the attached `disclosed_detail`, if any. */
 async function write(hooks,toolCallId,input=PAY){
     const verdict=await hooks.get('tool_call')({toolName:'apply',toolCallId,input});
     const content=[{type:'text',text:'Applied.'}];
@@ -102,7 +102,7 @@ for(const owner of ['hybrid','task'])test(`a purpose lookup after the optional a
     assert.ok(seen.lookups>0,'the lookup asked its own decision');
     if(owner==='task'){assert.ok(seen.reserved>=seen.lookups,'the lookup reserves from the foreground provider owner');assert.equal(seen.settled,seen.reserved);}
     assert.equal(rows.some(r=>r.event==='lookup_fallback'),false);
-    // §227.3/§227.4: the write is not held, and the cash detail the lookup returned counts as delivered for the input,
+    // §228.3/§228.4: the write is not held, and the cash detail the lookup returned counts as delivered for the input,
     // so nothing is attached to the write's result.
     const {verdict,detail}=await write(hooks,'after-lookup');
     assert.equal(verdict,undefined);
@@ -114,7 +114,7 @@ test('a purpose lookup without a live foreground owner is an explicit no-commit 
     const {hooks,rows,seen,lookup,foreground,shutdown}=await table(t,{owner:'hybrid'});
     foreground.deadlineAt=Date.now()-1;
     const result=await lookup({kind:'capability',query:QUERY});
-    // §227.4: there is no wider tool list to fall back to; the index answers with every apply capability's name and use.
+    // §228.4: there is no wider tool list to fall back to; the index answers with every apply capability's name and use.
     assert.equal(result.status,'index_fallback');assert.equal(result.read_only,true);assert.equal(result.no_commit,true);
     assert.equal(result.reason,'lookup_owner_unavailable');
     const cash=result.capabilities.find(c=>c.name==='cash');
@@ -122,7 +122,7 @@ test('a purpose lookup without a live foreground owner is an explicit no-commit 
     assert.ok(result.capabilities.every(c=>c.detail===undefined),'the index carries no field detail');
     assert.equal(seen.lookups,0,'no decision is asked without an owner');
     assert.ok(rows.some(r=>r.event==='lookup_fallback'&&r.reason==='lookup_owner_unavailable'&&r.no_commit));
-    // §227.3: no write hold follows the fallback; the cash detail the write used undelivered is attached to its result.
+    // §228.3: no write hold follows the fallback; the cash detail the write used undelivered is attached to its result.
     const {verdict,detail}=await write(hooks,'not-held');
     assert.equal(verdict,undefined);
     assert.equal(detail?.kind,'disclosed_detail');assert.match(detail.authority,/not redone/);
@@ -138,7 +138,7 @@ test('a purpose lookup without a live foreground owner is an explicit no-commit 
 // Contract §217.1 (issue #112 live d6c, turn 54, session line 27231): a background reading published its source while the
 // Keeper's inference was out. The publication cleared the capability epoch, so the first of the Keeper's two capability
 // lookups answered `Capability discovery has no current input` and the batch rule sent the second back unrun. The player's
-// input was still current: both lookups are read-only detail and must answer. §227.2/§227.3: the publication keeps the
+// input was still current: both lookups are read-only detail and must answer. §228.2/§228.3: the publication keeps the
 // input's disclosure ledger, so the detail the lookups delivered is not attached again, and no write is held.
 test('a source publication during the Keeper inference leaves both of its capability lookups answerable',async t=>{
     const {hooks,bus,rows,lookup,shutdown}=await table(t,{owner:'hybrid',waitMs:0});

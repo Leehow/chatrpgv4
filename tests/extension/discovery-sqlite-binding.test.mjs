@@ -1,6 +1,6 @@
 /**
  * §209: real SQL metadata -> task identity -> asynchronous host selection -> request delivery.
- * §227.1: in selective mode the request's tool list is the one fixed view (canonical tools, apply's effects as a kind
+ * §228.1: in selective mode the request's tool list is the one fixed view (canonical tools, apply's effects as a kind
  * envelope) on every request, including the degraded request of an input whose discovery snapshot was not verified.
  */
 import assert from 'node:assert/strict';
@@ -29,7 +29,7 @@ await build({stdin:{contents:"export {sourceMetadata} from './runtime/source-met
     outfile:join(temp,'metadata-reader.mjs'),bundle:true,packages:'external',format:'esm',platform:'node',logLevel:'silent'});
 test.after(()=>rm(temp,{recursive:true,force:true}));
 
-/** §227.1: the fixed view: every canonical tool unchanged except apply, whose effects items are the kind envelope. */
+/** §228.1: the fixed view: every canonical tool unchanged except apply, whose effects items are the kind envelope. */
 function assertFixedView(projected,tools){
     assert.ok(projected,'selective mode always projects the fixed view');
     const view=projected.messages[0].toolsAdded;
@@ -149,7 +149,7 @@ for(const mode of ['queue','publish','sql_error','deadline','locked_sql'])test('
         assert.ok(out.messages.some(message=>message.role==='user'));
         const hold=await hooks.get('tool_call')({toolName:'apply',toolCallId:'unverified-write',input:{effects:[{kind:'time',minutes:60}]}});
         assert.equal(hold.block,true);assert.match(hold.reason,/No world change was committed/);
-        // §227.1: the unverified snapshot does not widen the list to the canonical one; the same fixed bytes go out.
+        // §228.1: the unverified snapshot does not widen the list to the canonical one; the same fixed bytes go out.
         const view=assertFixedView(hooks.get('context_with_system')({messages:[system,...out.messages]},ctx),tools);
         assert.equal(assertFixedView(hooks.get('context_with_system')({messages:[system,...out.messages]},ctx),tools),view,'byte-stable across requests');
         if(['deadline','locked_sql'].includes(mode)){

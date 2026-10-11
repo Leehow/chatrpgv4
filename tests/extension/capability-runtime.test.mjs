@@ -27,7 +27,7 @@ const port={decide:async(batch,lease)=>{
         answers:Object.fromEntries(batch.questions.map((q,i)=>[q.key,{status:'answered',type:'noul',
             noul:batch.state.cards[i].name==='time'?.99:.01}]))};
 }};
-test('§227.1 selective mode projects one fixed view; due names come from the selection; a write is never held',async()=>{
+test('§228.1 selective mode projects one fixed view; due names come from the selection; a write is never held',async()=>{
     const events=[];
     const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>port,mode:()=> 'selective',record:e=>events.push(e)});
     runtime.observe(capsule,binding,new AbortController().signal);await runtime.wait();
@@ -36,7 +36,7 @@ test('§227.1 selective mode projects one fixed view; due names come from the se
     assert.deepEqual(view.map(t=>t.name),tools.map(t=>t.name));
     assert.equal(view.find(t=>t.name==='apply').parameters.properties.effects.items.anyOf,undefined);
     assert.deepEqual(runtime.due(),['time']);
-    assert.equal(runtime.readiness,undefined,'§227.3: there is no readiness hold');
+    assert.equal(runtime.readiness,undefined,'§228.3: there is no readiness hold');
     assert.deepEqual(runtime.used('apply',{effects:[{kind:'time',minutes:360},{kind:'cash',amount:20,currency:'USD',to:'here'}]}),['time','cash']);
     assert.deepEqual(runtime.used('narrate',{text:'x'}),[]);
     runtime.clear();
@@ -89,7 +89,7 @@ test('host-issued operation fields make their detail due before inference withou
     assert.ok(runtime.due().includes('npc-activity'),JSON.stringify(runtime.due()));
     runtime.clear();
 });
-test('§227.4 a failed purpose lookup answers with the index once, without spending again or holding writes',async()=>{
+test('§228.4 a failed purpose lookup answers with the index once, without spending again or holding writes',async()=>{
     let attempts=0;
     const runtime=api.createCapabilityRuntime({tools:()=>tools,decision:()=>({decide:async(batch,lease)=>{
         attempts++;if(batch.state.request==='Find missing source consultation.')throw Error('decision_transport_unavailable');

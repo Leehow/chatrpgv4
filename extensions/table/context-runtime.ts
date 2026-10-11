@@ -29,9 +29,9 @@ import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quot
     boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
     capsuleUpdate, stableFirst, CAPSULE_UPDATE_TYPE, NPC_ADVICE_TYPE, CLERK_TYPE, BRIEF_TYPE,
     type ContextBinding, type Quote, type Row} from './context-policy.ts';
-/** §227.3: what a result carries when a write used detail it was not shown. */
+/** §228.3: what a result carries when a write used detail it was not shown. */
 const ATTACHED_AUTHORITY='Detail this call used before it was shown to you: exact package sections and apply fields, as instructions. Follow them for later decisions of this kind; a write that already landed is not redone for them.';
-/** §227.2: a turn detail message: apply fields for kinds this turn is likely to use. */
+/** §228.2: a turn detail message: apply fields for kinds this turn is likely to use. */
 const CAPABILITY_DETAIL_TYPE='coc-capability-detail';
 const SECTIONS_AUTHORITY='Full sections of active locked packages relevant to this turn. They are instructions, not player input, world facts, permission or new goals.';
 const CAPABILITY_AUTHORITY='Exact apply fields of the effect kinds named here, for this turn. They are instructions about tool use, not player input, world facts, permission or new goals.';
@@ -150,9 +150,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     const capabilityRuntime=createCapabilityRuntime({tools:()=>offeredTools(COC_TOOLS,sessionEnv),decision:discoveryDecision,lookupDecision,mode:visibilityMode,view:discoveryMode,record});
     const modDiscovery=createModDiscovery({read:async(method,params)=>boundedDiscoveryRead(async()=>call?call(method,{campaign,...params}):undefined),
         decision:discoveryDecision,mode:visibilityMode,record});
-    // §227.2: this input's disclosure (capability detail and package sections), sent once at a stable place.
+    // §228.2: this input's disclosure (capability detail and package sections), sent once at a stable place.
     const disclosure=createTurnDisclosure();
-    /** §227.3: what a write used before its detail was delivered, attached to that call's own result. */
+    /** §228.3: what a write used before its detail was delivered, attached to that call's own result. */
     const attachments=new Map<string,{sections:string[];capabilities:string[]}>();
     let pendingDiscovery:Row[]=[];
     const sectionKey=(key:string)=>'section:'+key,capabilityKey=(name:string)=>'capability:'+name;
@@ -164,7 +164,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         return keys.map((key,index)=>({key,...object(sections[index])}));
     };
     /**
-     * §227.4: the Keeper's `lookup {kind: "capability"}`. A name the package index lists reads that section; any other
+     * §228.4: the Keeper's `lookup {kind: "capability"}`. A name the package index lists reads that section; any other
      * name or a purpose query reads capability detail. What it returns is delivered with the result, once per input.
      */
     const discoveryLookup=async(args:Row):Promise<Row>=>{
@@ -298,7 +298,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             })).map((section:Row)=>section.key));
         if(capsule)modDiscovery.know(capsule);
         const missing=needed.filter((key:string)=>!disclosure.has(sectionKey(key)));
-        // §227.3 (amends §209.6 and §215): a write is never held for detail it was not shown. Admission, Mod hooks and the
+        // §228.3 (amends §209.6 and §215): a write is never held for detail it was not shown. Admission, Mod hooks and the
         // kernel still decide it; the detail it used undelivered rides on its own result, once for the input. A policy
         // clerk's write decides nothing from the Keeper's request, so nothing is attached to it.
         const hostWrite=object(hostOrigin?.(event.toolCallId)).origin==='policy';
@@ -318,7 +318,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             || event.toolName === 'apply' && Array.isArray(input.effects) && input.effects.some((effect: Row) => effect.kind === 'adaptation'))
             sourceCalls.add(event.toolCallId);
     });
-    // §227.3: the detail a write used undelivered rides on that write's own result, whatever it was, once per input.
+    // §228.3: the detail a write used undelivered rides on that write's own result, whatever it was, once per input.
     const attachDisclosure=async(event:ToolResultEvent)=>{
         const owed=attachments.get(event.toolCallId);
         if(!owed)return;
@@ -868,7 +868,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         capabilityRuntime.observe(snapshot.capsule,snapshot.binding,inputLifetime.signal,discoveryTask);
         modDiscovery.observe(snapshot.capsule,snapshot.binding,inputLifetime.signal,discoveryCalls,discoveryTask);
         await capabilityRuntime.wait();
-        // §227.2: this input's disclosure. Every request re-places what earlier requests of the input carried, at the
+        // §228.2: this input's disclosure. Every request re-places what earlier requests of the input carried, at the
         // places they had, and adds once what is newly due: package sections the selection or a write needs, and apply
         // detail. Nothing already sent is sent again, and nothing is moved to the end of the request.
         disclosure.forInput(String(inputEpoch??snapshot.key));
@@ -1035,7 +1035,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if(payload&&typeof payload==='object')record({lane:'context',event:'provider_projection',
             provider_projection_bytes:sizeOf(payload),provider_projection_digest:fingerprint(payload),
             measurement:'provider_adapter_json_bytes_before_later_hooks_not_wire_bytes_or_tokens'});
-        // §227.2: a new disclosure counts as delivered only when the provider payload carries it; one that did not
+        // §228.2: a new disclosure counts as delivered only when the provider payload carries it; one that did not
         // survive is withdrawn and offered again on the next request.
         const discovered=pendingDiscovery;pendingDiscovery=[];
         for(const message of discovered){

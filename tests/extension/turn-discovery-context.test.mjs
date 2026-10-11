@@ -98,7 +98,7 @@ for(const [denied,seeded,stale,expired,sourceError,hybrid] of [[false,false,fals
     const nativeNote=projected.find(message=>message.customType===api.CLERK_TYPE);
     assert.deepEqual(JSON.parse(nativeNote.content).native_search_scope,{run:'fixture-native-run',step:'fixture-native-step'});
     const apply=tools.find(t=>t.name==='apply');
-    // §227.1: one fixed list in every branch: canonical declarations, apply as a kind envelope.
+    // §228.1: one fixed list in every branch: canonical declarations, apply as a kind envelope.
     assert.deepEqual(tools.map(t=>t.name),declared.map(t=>t.name));
     assert.equal(apply.parameters.properties.effects.items.anyOf,undefined);
     assert.deepEqual(apply.parameters.properties.effects.items.properties.kind.enum,
@@ -158,7 +158,7 @@ for(const [denied,seeded,stale,expired,sourceError,hybrid] of [[false,false,fals
     assert.deepEqual(sectionNames(outgoing.messages),['Time']);
     hooks.get('before_provider_request')({payload:{input:outgoing.messages,tools}});
     assert.ok(rows.some(r=>r.lane==='mod-discovery'&&r.event==='delivered'&&r.delivered));
-    // §227.3: the unshown Money section and cash detail never hold the write; they ride on its result, once.
+    // §228.3: the unshown Money section and cash detail never hold the write; they ride on its result, once.
     const effects=[{kind:'cash',amount:20,currency:'USD',to:'here'}];
     assert.equal(await hooks.get('tool_call')({toolName:'apply',toolCallId:'fixture-call',input:{effects}}),undefined);
     const attached=await hooks.get('tool_result')({toolName:'apply',toolCallId:'fixture-call',input:{effects},

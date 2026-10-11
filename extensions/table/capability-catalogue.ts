@@ -130,7 +130,7 @@ const FIXED_NOTE = 'Effect kinds and what each is for are listed below. The exac
 const fixedViews = new WeakMap<readonly CapabilityTool[], CapabilityTool[]>();
 
 /**
- * Contract §227.1: the byte-stable request view. Every offered tool keeps its canonical declaration except apply, whose
+ * Contract §228.1: the byte-stable request view. Every offered tool keeps its canonical declaration except apply, whose
  * effects become a kind envelope listing each kind's index card; field detail is disclosed in the conversation. The
  * registered canonical validator is unchanged and still validates every call.
  */

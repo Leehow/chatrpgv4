@@ -1,5 +1,5 @@
 /**
- * Contract §227.2: what an input discloses to the Keeper (apply capability detail, package sections) is sent once and
+ * Contract §228.2: what an input discloses to the Keeper (apply capability detail, package sections) is sent once and
  * stays where it was first placed. Every later request of the input re-inserts the same message at the same place in
  * the turn, so the request prefix the provider cached is never edited, reordered or re-sent at the end.
  */

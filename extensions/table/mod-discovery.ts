@@ -27,7 +27,7 @@ export function createModDiscovery(deps:{
     let inputEpoch='',budget={ms:0,actions:0};
     let debit:(()=>void)|undefined;
     const texts=new Map<string,string>();
-    /** §227.3: the last observed package index by key, so a result or a lookup can read a section after the capsule moved on. */
+    /** §228.3: the last observed package index by key, so a result or a lookup can read a section after the capsule moved on. */
     const known=new Map<string,Row>();
     const record=(row:Row)=>deps.record({lane:'mod-discovery',...row});
     const entries=(capsule:Row)=>discoveryRows(capsule).flatMap(mod=>array(mod.sections).map(section=>({
@@ -137,7 +137,7 @@ export function createModDiscovery(deps:{
         return{role:'custom',customType:'coc-mod-sections',display:false,content,timestamp:0,
             details:{coc_host:true,mod_sections:{turn:binding.turn,keys:wanted.map(v=>v.key),policy:'discovery-v2',status:choice.status}}};
     }
-    /** §227.3: exact immutable section text by key, in the delivered shape. */
+    /** §228.3: exact immutable section text by key, in the delivered shape. */
     async function sections(keys:readonly string[]):Promise<Row[]>{
         const values=keys.map(key=>known.get(key)).filter((v):v is Row=>!!v);
         await load(values);

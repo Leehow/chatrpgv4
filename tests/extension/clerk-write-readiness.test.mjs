@@ -5,7 +5,7 @@
  * the clerk can never "re-decide with the expanded request". Here the context hook is driven exactly as the kernel
  * extension's canonical gateway drives it: the gateway port names the call's host origin.
  *
- * §227.3 (amends §209.6 and §215): no write is held for detail it was not shown any more. The Keeper's own write reaches
+ * §228.3 (amends §209.6 and §215): no write is held for detail it was not shown any more. The Keeper's own write reaches
  * admission and the kernel, and the section it used undelivered is attached to that call's result as `disclosed_detail`,
  * once per input. A policy clerk's write decides nothing from the Keeper's request, so nothing is attached to it.
  */
@@ -49,8 +49,8 @@ function install(){
     const ctx={model:{contextWindow:500000},getContextUsage:()=>({percent:1}),
         sessionManager:{getBranch:()=>[],buildSessionProjection:()=>({messages:[{role:'system',content:'Keeper core.',timestamp:0},...messages]})}};
     /**
-     * The Keeper's request of the turn. Its section packet did not reach the provider payload, so §227.2 withdraws it and
-     * the section is still undelivered when the Keeper writes (the case §227.3's attachment exists for).
+     * The Keeper's request of the turn. Its section packet did not reach the provider payload, so §228.2 withdraws it and
+     * the section is still undelivered when the Keeper writes (the case §228.3's attachment exists for).
      */
     const keeperRequest=async()=>{
         const out=await hooks.get('context')({messages},ctx);
@@ -71,7 +71,7 @@ async function write(hooks,toolCallId){
 }
 const establishing=[{package:'narration-craft',section:'Establishing a place',version:'2.6.0',text:'Open on what the place does to arrivals.'}];
 
-test('§215/§227.3 a policy clerk write is not held and gets nothing attached; the Keeper\'s own write is not held and gets the section on its result',async()=>{
+test('§215/§228.3 a policy clerk write is not held and gets nothing attached; the Keeper\'s own write is not held and gets the section on its result',async()=>{
     const {hooks,rows,reads,keeperRequest,emit}=install();
     const origins=new Map([['clerk:run-30:s4/op1',{origin:'policy',run:'run-30',step:'run-30:s4',clerk:'declared_bookkeeping'}]]);
     emit('coc:operation-dispatcher',Object.freeze({dispatch:async()=>{throw Error('unused');},hostOrigin:id=>origins.get(id)}));
@@ -84,7 +84,7 @@ test('§215/§227.3 a policy clerk write is not held and gets nothing attached; 
     assert.equal(deferred.origin,'policy');
     assert.equal(rows.some(row=>row.lane==='turn-disclosure'),false,'the clerk owes the Keeper nothing');
     assert.deepEqual(reads,[],'no section text is read for the clerk');
-    // The same move from the Keeper, after its request went out without the section: not held (§227.3), and the section
+    // The same move from the Keeper, after its request went out without the section: not held (§228.3), and the section
     // rides on its own result instead of a re-decision.
     await keeperRequest();
     const keeper=await write(hooks,'call-keeper-1|fc_1');
@@ -99,9 +99,9 @@ test('§215/§227.3 a policy clerk write is not held and gets nothing attached; 
     assert.equal(again.verdict,undefined);assert.equal(again.detail,undefined);
 });
 
-// §227.3: without a gateway port no call can be shown to be a policy clerk's, so each is treated as the Keeper's own:
+// §228.3: without a gateway port no call can be shown to be a policy clerk's, so each is treated as the Keeper's own:
 // it is not held, and the section it used undelivered is attached to its result.
-test('§215/§227.3 without a gateway port a call is treated as the Keeper\'s: not held, the section attached to its result',async()=>{
+test('§215/§228.3 without a gateway port a call is treated as the Keeper\'s: not held, the section attached to its result',async()=>{
     const {hooks,rows,keeperRequest}=install();
     await keeperRequest();
     const call=await write(hooks,'clerk:run-30:s4/op1');
@@ -110,9 +110,9 @@ test('§215/§227.3 without a gateway port a call is treated as the Keeper\'s: n
     assert.equal(rows.some(row=>row.event==='readiness_deferred'),false,'nothing is recorded as a policy write');
 });
 
-// §227.3: a Keeper write can arrive before any request of its input was prepared (a degraded first request). The
+// §228.3: a Keeper write can arrive before any request of its input was prepared (a degraded first request). The
 // tool_call learns the package index from the capsule, and the ledger keeps what the input owed before its first request.
-test('§227.3 a Keeper write before any prepared request of the input still gets the section on its result',
+test('§228.3 a Keeper write before any prepared request of the input still gets the section on its result',
     async()=>{
     const {hooks}=install();
     const call=await write(hooks,'call-keeper-0|fc_0');
