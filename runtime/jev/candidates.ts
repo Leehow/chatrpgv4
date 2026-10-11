@@ -343,6 +343,23 @@ function firstBlowCandidate(row: Row, rawInput: string): Candidate | undefined {
     basis: {read: 'table.resolve.options', path: 'context.first_blow', row: row as Json}};
 }
 
+/**
+ * §224.3 (user ruling 2026-10-10; Keeper Rulebook: Credit Rating gauges first impressions, p.60; roll only when there is
+ * tension and something at stake, pp.82-83): a presence check's own route question. Jev judges whether this person's first
+ * impression of the investigator bears on this turn; only `now` selects the roll, otherwise the person reacts by the Keeper's
+ * judgement and their own disposition, and the check stays offered for a later turn.
+ */
+function impressionMatters(actor: string, target: string): NonNullable<Candidate['routeFact']> {
+  return {target: `whether ${target}'s first impression of ${actor || 'the investigator'} matters this turn`, selects: 'now',
+    instructions: `Does how ${target} first regards ${actor || 'the investigator'} bear on what happens this turn? It matters when the investigator seeks something `
+      + 'from this person (information, help, access or a favour beyond a routine exchange), makes a social approach to them, must get past them '
+      + '(a gate, a demand, an obligation this person holds), or this person is hostile or suspicious toward the investigator. Merely sharing the scene, '
+      + 'passing by, a greeting or a routine service with nothing at stake does not make it matter. Use only the player input and the supplied situation.',
+    criteria: {now: 'The impression matters now: the host rolls it before the Keeper narrates.',
+      later: 'Nothing this turn turns on how this person regards the investigator; no roll is made now.',
+      unknown: 'Cannot be told from the supplied state.'}};
+}
+
 /** Scene obligations (SO-04, contract §135.26): their candidates, what they guard, and the Mod checks they preordain. */
 export {obligationCandidates} from './obligation-candidates.ts';
 /** SL-76 (§135.32, §135.3.1): the three consequence candidate classes, shadow-routed by `consequence-route.ts`. */
@@ -493,7 +510,8 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
       bound: {decision, ...(actor ? {actor} : {}), target, goal: rawInput, method: rawInput},
       // The Mod's declaration issues no intent, so the intent is Jev's alone: it has no rules default (§135.28).
       unbound: [{name: 'intent', required: true, vocabulary: 'closed', options: resolveIntents()}], composed: ['goal', 'method'],
-      clerk: 'mod_contact', basis: {read: 'table.capsule', path: `mods.pending_contacts[${index}]`, row: contact as Json}});
+      clerk: 'mod_contact', basis: {read: 'table.capsule', path: `mods.pending_contacts[${index}]`, row: contact as Json},
+      ...(object(contact.rule).trigger === 'presence' ? {routeFact: impressionMatters(actor, target)} : {})});
   }
   // The obligation checks, after the Mod contact checks (precedence person -> mod_check -> obligation_check -> ...).
   for (const candidate of stated) if (candidate.family !== 'person') push(candidate);

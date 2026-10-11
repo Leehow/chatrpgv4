@@ -1,15 +1,30 @@
 {
-  "source_note": "Keeper Rulebook pushed rolls allow one reroll only after a failed check when the player changes approach and the Keeper states the consequence of failure before the player confirms.",
+  "source_note": "Keeper Rulebook pp.84-86 (Pushing the Roll, Foreshadowing Failure, Pushed Roll: Failure): one further attempt after a failed skill or characteristic check, allowed when the player justifies the extra effort or time and the Keeper approves. The consequence of failing the push may be foreshadowed by the Keeper (when the player asks or the Keeper chooses); it is not required. A failed pushed roll gives the Keeper free rein over the outcome, which may include the goal achieved at a cost.",
   "maximum_attempts_after_initial_failure": 1,
   "requires_changed_approach": true,
-  "requires_keeper_foreshadowed_failure": true,
+  "foreshadowing": "optional",
+  "requires_keeper_foreshadowed_failure": false,
+  "failure_consequence_sources": [
+    "delivered_text",
+    "keeper_stated",
+    "keeper_free_rein"
+  ],
   "requires_keeper_owned_failure_consequence": true,
   "requires_player_confirmation": true,
   "required_stages": [
-    "player_reframes_action",
-    "keeper_foreshadows_failure",
-    "player_confirms_risk",
+    "player_justifies_push",
+    "keeper_approves",
     "roll_resolved"
+  ],
+  "cannot_push": [
+    "luck_rolls",
+    "sanity_rolls",
+    "combat_rolls",
+    "damage_rolls",
+    "sanity_loss_rolls",
+    "fumbles",
+    "already_pushed_rolls",
+    "rolls_altered_with_luck"
   ],
   "non_pushable_source_note": "The rulebook removes the push option from combat rolls. It states the restriction once per combat skill in the Chapter 4 skill descriptions -- Artillery (p.71 / PDF idx 70), Dodge (p.75 / PDF idx 74), Fighting (p.76 / PDF idx 75) and Firearms (p.76 / PDF idx 75) each close their Opposing skill/Difficulty level block with 'Note: as a combat skill, this cannot be pushed.' -- and once categorically in the Chapter 6 'No Pushing Combat Rolls' sidebar (p.116 / PDF idx 115): 'There is no option to push combat rolls (either Fighting or Firearms).' Fighting and Firearms are group skills, so non_pushable_specialization_groups names the skills.json group and covers every specialization without listing all fifteen; Artillery and Dodge are standalone canonical skill names.",
   "non_pushable_skill_names": [

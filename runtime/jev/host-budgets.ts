@@ -814,8 +814,53 @@ async function readToldTimeBudget(contentRoot?: string): Promise<ToldTimeBudget>
   }
 }
 
+/**
+ * Contract §222.2: the clue-route lane, which opens the rulebook's ways to a checked clue the kernel cannot read itself.
+ * `mode` (`off | shadow | on`; the environment's `PI_COC_CLUE_ROUTE` overrides it alone; `shadow` asks and records but
+ * re-sends nothing), the bar a passed roll's `fit` Noul must clear, the bar the clue's `obvious` Noul must clear, and the
+ * lane's own deadline. Data, never a literal in the lane.
+ */
+export interface ClueRouteBudget {
+  mode: 'off' | 'shadow' | 'on';
+  /** `clue_route.fit_min`: the `fit` Noul (this passed roll's method finds the clue as the book describes it). */
+  fitMin: number;
+  /** `clue_route.obvious_min`: the `obvious` Noul (the clue is information the scenario needs the investigators to have). */
+  obviousMin: number;
+  /** `clue_route.timeout_ms`: the lane's deadline; the Keeper's refused apply waits on it. */
+  timeoutMs: number;
+}
+
+/** Used only if the file or its `clue_route` section cannot be read; the shipped file carries the real values. */
+export const CLUE_ROUTE_FALLBACK: ClueRouteBudget = Object.freeze({mode: 'shadow', fitMin: 0.6, obviousMin: 0.65, timeoutMs: 8_000});
+
+let clueRouteCached: Promise<ClueRouteBudget> | undefined;
+export function clueRouteBudget(contentRoot?: string): Promise<ClueRouteBudget> {
+  if (contentRoot !== undefined) return readClueRouteBudget(contentRoot);
+  return clueRouteCached ??= readClueRouteBudget();
+}
+
+async function readClueRouteBudget(contentRoot?: string): Promise<ClueRouteBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot ?? extensionContentRoot(), 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      clue_route?: Record<string, unknown>;
+    };
+    const block = raw.clue_route ?? {}, fallback = CLUE_ROUTE_FALLBACK;
+    const bar = (value: unknown, otherwise: number): number => finite(value) && value > 0 && value <= 1 ? value : otherwise;
+    const timeout = block.timeout_ms;
+    return {
+      mode: block.mode === 'off' || block.mode === 'shadow' || block.mode === 'on' ? block.mode : fallback.mode,
+      fitMin: bar(block.fit_min, fallback.fitMin),
+      obviousMin: bar(block.obvious_min, fallback.obviousMin),
+      timeoutMs: finite(timeout) && timeout > 0 ? timeout : fallback.timeoutMs,
+    };
+  } catch {
+    return CLUE_ROUTE_FALLBACK;
+  }
+}
+
 /** Test-only: forgets the cached value. */
 export function resetToldTimeBudgetCache(): void { toldTimeCached = undefined; }
+export function resetClueRouteBudgetCache(): void { clueRouteCached = undefined; }
 
 /**
  * Contract §191.2: the page-transcript producer's budget, from the same file's `transcript` section. `mode` (`on | off`,

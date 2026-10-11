@@ -5,7 +5,9 @@ import { array, clone, integer, number, repr, row, string, truth, type Row } fro
 import { SettleContext, type ExecutionResult } from './context.js';
 import { BASIC_EXECUTORS } from './basic.js';
 import type { FixedFamilyBinding } from './families.js';
-import { COMBINED, LUCK, LUCK_ROLL, OBSERVE, ORDINARY, PUSH, REALIZE, SOCIAL, executorArgs, hostLocked } from './bindings.js';
+import { COMBINED, IDEA, LUCK, LUCK_ROLL, OBSERVE, ORDINARY, PUSH, REALIZE, SOCIAL, executorArgs, hostLocked } from './bindings.js';
+import { nowIso } from '../write/store.js';
+import { landIdeaClue } from './idea-roll.js';
 export interface SettlementPort {
     execute(plan: Row, selected: Row): Promise<ExecutionResult>;
     beforeExecute?(): Promise<void>;
@@ -120,9 +122,12 @@ export function compileSettlement(runtime: RuleGraph, selected: Row, id: string,
     };
 }
 export function continuationsAfterCheck(runtime: RuleGraph, selected: Row, data: Row, id: string): string[] {
-    if (data.outcome !== 'failure')
+    // §223.3 (p.99): Luck may alter a passed roll too, so its continuation is granted after a regular,
+    // hard or extreme success; a push answers an ordinary failure only (p.84). Criticals and fumbles
+    // continue into nothing.
+    if (!['failure', 'regular', 'hard', 'extreme'].includes(string(data.outcome || '')))
         return [];
-    const refs = data.push_eligible !== false ? [PUSH, LUCK] : [LUCK];
+    const refs = data.outcome === 'failure' ? data.push_eligible !== false ? [PUSH, LUCK] : [LUCK] : [LUCK];
     const withSource = {
         ...selected,
         _host_source_receipt: clone(data)
@@ -251,15 +256,17 @@ export async function settleBasic(context: SettleContext, runtime: RuleGraph, se
     }
     if (ref === PUSH) {
         const method = string(payload.method_changed || '').trim();
-        const consequence = string(payload.failure_consequence || '').trim();
         const original = payload.canonical_roll_receipt;
         const id = string(payload.original_check_decision_id || '').trim();
-        if (!method || !consequence)
-            return fail('invalid_semantic_input', 'pushed roll requires method_changed and failure_consequence locked before the roll', {
-                missing: [['method_changed', method], ['failure_consequence', consequence]].filter(([, value]) => !value).map(([name]) => name)
+        // §223.1: the player's justification (the changed method) is required (p.84); the consequence
+        // is not -- foreshadowing is the Keeper's option, and a failed push without one gives the
+        // Keeper free rein (p.86).
+        if (!method)
+            return fail('invalid_semantic_input', 'pushed roll requires the player\'s justification in method_changed before the roll', {
+                missing: ['method_changed']
             });
         if (payload.player_confirmed_risk !== true)
-            return fail('invalid_semantic_input', 'pushed roll requires player_confirmed_risk=true after the Keeper announces the failure consequence', {
+            return fail('invalid_semantic_input', 'pushed roll requires player_confirmed_risk=true: the push is the player\'s declared choice', {
                 fields: ['player_confirmed_risk']
             });
         if (!id || !isJsonObject(original))
@@ -311,10 +318,10 @@ export async function settleBasic(context: SettleContext, runtime: RuleGraph, se
         };
         if (data.outcome === 'failure') {
             result.next_continuations = continuationsAfterCheck(runtime, selected, data, context.callId);
-            hints = [...hints, data.push_eligible !== false ? 'ordinary failure: the player may push this roll with a changed method and an announced consequence, or spend Luck; not both' : 'ordinary failure: this check cannot be pushed; the player may spend Luck instead'];
+            hints = [...hints, data.push_eligible !== false ? 'ordinary failure: the player may push this roll by justifying a further attempt (the consequence of failing it may be foreshadowed, and is otherwise the Keeper\'s free rein), or spend Luck; not both' : 'ordinary failure: this check cannot be pushed; the player may spend Luck instead'];
         }
         else {
-            result.next_continuations = [];
+            result.next_continuations = continuationsAfterCheck(runtime, selected, data, context.callId);
             if (data.outcome === 'fumble')
                 hints = [...hints, 'a fumble cannot be pushed or bought off with Luck'];
         }
@@ -330,6 +337,22 @@ export async function settleBasic(context: SettleContext, runtime: RuleGraph, se
         hints = [...hints, 'Luck may not be spent on Luck rolls (luck.json constraints)'];
         extra.visibility = 'public';
     }
+    else if (ref === IDEA) {
+        // §222.3: the Idea roll decides how the clue comes, never whether (Keeper Rulebook pp. 199-200): the clue it names lands
+        // in this same call, and the note tells the Keeper how it arrives.
+        const landed = await landIdeaClue(context, string(payload.clue), data, nowIso());
+        result = {
+            bound_check: clone(data),
+            outcome: string(data.outcome || ''),
+            idea_roll: true,
+            clue: landed.clue,
+            clue_receipt: landed.receipt,
+            note: landed.note,
+            next_continuations: []
+        };
+        hints = [...hints, landed.note, 'an Idea roll is not pushed and Luck is not spent on it'];
+        extra.visibility = 'public';
+    }
     else if (ref === PUSH) {
         result = {
             bound_check: clone(data),
@@ -341,7 +364,9 @@ export async function settleBasic(context: SettleContext, runtime: RuleGraph, se
             player_confirmed_risk: true,
             next_continuations: []
         };
-        hints = [...hints, 'the recorded failure_consequence is authoritative; apply it if the pushed roll fails'];
+        hints = [...hints, string(payload.failure_consequence || '').trim()
+            ? 'the recorded failure_consequence is authoritative; apply it if the pushed roll fails'
+            : 'no consequence was foreshadowed: if the pushed roll fails the Keeper has free rein over the outcome (p.86)'];
         extra.visibility = 'public';
     }
     else if (ref === LUCK) {

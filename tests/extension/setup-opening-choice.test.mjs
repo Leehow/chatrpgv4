@@ -270,6 +270,115 @@ test("a single-opening book is unchanged: no question, no pin, create-campaign c
 	assert.ok(table.kernelRequests().some(row=>row.method==="module.read.request"&&row.params.purpose==="opening"&&row.params.foreground===false&&row.params.opening_scope==="first_interaction"),"the accepted sole guidance scene starts reading during creation even without an explicit opening choice");
 });
 
+const THIRD = { node_id: "scene-train", scene: "train", name: "The Train", summary: "The investigators board a night train in 1927." };
+
+/** The fake kernel's openings as a file the test rewrites: the book's reading brings a candidate in while setup runs (§225.3). */
+function growingOpenings(t, rows) {
+	const dir = mkdtempSync(join(tmpdir(), "sl225-openings-")), file = join(dir, "openings.json");
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const set = (next) => writeFileSync(file, JSON.stringify(next));
+	set(rows);
+	return { file, set };
+}
+
+test("a second opening the reading brings in after a sole candidate was taken as chosen is asked before create-campaign, and the chosen one is the campaign's opening (§225.2-3)", async (t) => {
+	// The NKVD table: one candidate when the module was prepared (the second briefing was in the graph only as
+	// `alternative-to` and not yet a candidate), two by the time the campaign was created, no question asked,
+	// the campaign opened on the first. Here the candidates grow between the two prompts.
+	const openings = growingOpenings(t, [OPENINGS[0]]);
+	const table = await openTable({
+		mode: "setup", campaign: null, env: { ...moduleEnv("two-door", [OPENINGS[0]]), FAKE_KERNEL_OPENINGS_FILE: openings.file },
+		responses: [
+			setupCall({ step: "choose-source", kind: "module", module: "two-door" }),
+			setupCall({ step: "prepare-module" }),
+			fauxAssistantMessage("The book is prepared."),
+		],
+	});
+	t.after(() => table.dispose());
+	installBook(table, "two-door", OPENINGS);
+	const packets = [];
+	withGuidanceReader(table, packets);
+	const prepared = [];
+	table.emit("coc:reading-bridge", { async prepare(params) { prepared.push(params); return { ok: true, module_id: "two-door", opening_ready: true }; } });
+
+	await table.session.prompt("Let's play the book with two doors.");
+	await waitForIdle(table.session);
+	assert.deepEqual(setupResults(table.session).map((row) => row.ok), [true, true], "one candidate: nothing to ask yet");
+
+	openings.set(OPENINGS);
+	table.faux.setResponses([
+		setupCall({ step: "create-campaign", id: "two-door-table", title: "Two doors", play_language: "en" }),
+		setupCall({ step: "prepare-module", start_scene: "tower" }),
+		setupCall({ step: "create-campaign", id: "two-door-table", title: "Two doors", play_language: "en" }),
+		fauxAssistantMessage("Who are you?"),
+	]);
+	await table.session.prompt("I'll take the second one.");
+	await waitForIdle(table.session);
+	const [asked, chose, created] = setupResults(table.session).slice(2);
+	assert.equal(asked.code, "needs_choice", `the new candidate is put to the player, not carried past: ${JSON.stringify(asked)}`);
+	assert.deepEqual(asked.details.candidates, OPENINGS);
+	assert.equal(asked.details.reason, undefined, "no earlier choice was set aside: none had been made");
+	assert.equal(chose.ok, true, JSON.stringify(chose));
+	assert.equal(prepared.at(-1).start_scene, "tower");
+	assert.equal(created.ok, true, JSON.stringify(created));
+	const creates = table.kernelRequests().filter((row) => row.method === "campaign.create");
+	assert.equal(creates.length, 1, "no campaign was created on the unasked opening");
+	assert.equal(creates[0].params.start_scene, "tower", "the campaign is created on the opening the player chose");
+	assert.equal(created["campaign.create"]?.campaign?.opening_scene ?? created.campaign?.opening_scene, "tower", "and the kernel's record names it as the opening scene");
+	assert.deepEqual(packets.map((packet) => packet.opening), ["The Tower"], "guidance is written for the chosen opening");
+});
+
+test("a choice made among two openings is asked again when a third arrives before create-campaign, naming the one set aside (§225.3)", async (t) => {
+	const openings = growingOpenings(t, OPENINGS);
+	const table = await openTable({
+		mode: "setup", campaign: null, env: { ...moduleEnv("two-door", OPENINGS), FAKE_KERNEL_OPENINGS_FILE: openings.file },
+		responses: [
+			setupCall({ step: "choose-source", kind: "module", module: "two-door" }),
+			setupCall({ step: "prepare-module" }),
+			setupCall({ step: "prepare-module", start_scene: "dock" }),
+			fauxAssistantMessage("The dock it is."),
+		],
+	});
+	t.after(() => table.dispose());
+	installBook(table, "two-door", [...OPENINGS, THIRD]);
+	const packets = [];
+	withGuidanceReader(table, packets);
+	const prepared = [];
+	table.emit("coc:reading-bridge", { async prepare(params) {
+		prepared.push(params);
+		if (!params.start_scene) throw Object.assign(new Error("choose the opening for this new campaign"), { code: "needs_choice", fix: "pass its scene as start_scene", details: { field: "start_scene", candidates: OPENINGS } });
+		return { ok: true, module_id: "two-door", opening_ready: true };
+	} });
+
+	await table.session.prompt("Let's play the book with two doors.");
+	await waitForIdle(table.session);
+	const [, firstAsk, chose] = setupResults(table.session);
+	assert.equal(firstAsk.code, "needs_choice", JSON.stringify(firstAsk));
+	assert.equal(chose.ok, true, JSON.stringify(chose));
+
+	openings.set([...OPENINGS, THIRD]);
+	table.faux.setResponses([
+		setupCall({ step: "create-campaign", id: "two-door-table", title: "Two doors", play_language: "en" }),
+		setupCall({ step: "prepare-module", start_scene: "train" }),
+		setupCall({ step: "create-campaign", id: "two-door-table", title: "Two doors", play_language: "en" }),
+		fauxAssistantMessage("Who are you?"),
+	]);
+	await table.session.prompt("Make the campaign.");
+	await waitForIdle(table.session);
+	const [reasked, rechose, created] = setupResults(table.session).slice(3);
+	assert.equal(reasked.code, "needs_choice", `the third opening is put to the player: ${JSON.stringify(reasked)}`);
+	assert.deepEqual(reasked.details.candidates, [...OPENINGS, THIRD]);
+	assert.equal(reasked.details.reason, "opening_candidates_changed");
+	assert.deepEqual(reasked.details.unseen, ["scene-train"]);
+	assert.equal(reasked.details.previous_choice, "dock", "the choice set aside is named");
+	assert.equal(typeof reasked.player_reason, "string");
+	assert.equal(rechose.ok, true, JSON.stringify(rechose));
+	assert.equal(created.ok, true, JSON.stringify(created));
+	const creates = table.kernelRequests().filter((row) => row.method === "campaign.create");
+	assert.deepEqual(creates.map((row) => row.params.start_scene), ["train"], "only the re-made choice reaches the kernel");
+	assert.deepEqual(packets.map((packet) => packet.opening), ["The Train"]);
+});
+
 /** One cold kernel process over the workspace: each request in order, every one must succeed. */
 function coldKernel(workspace, requests) {
 	const repo = join(dirname(fileURLToPath(import.meta.url)), "..", "..");

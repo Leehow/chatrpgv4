@@ -1,6 +1,7 @@
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
-import {attackPreparationNeeds} from './attack-preparation.ts';
+import {attackPreparationNeeds, improvisedPreparation, type ImprovisedOffer} from './attack-preparation.ts';
+import {ATTACK_FALLBACK_RULE, UNARMED_WEAPON} from './attack-fallback.ts';
 import {historyEnabled, historyContext, historyNeedQuestion, historyInterruptionQuestion, historyNeed, HISTORY_OFFER, HISTORY_UNAVAILABLE, HISTORY_NOT_SELECTED} from '../historical-reference.ts';
 import {nativeSearchCapability} from '../native-search.js';
 /**
@@ -48,7 +49,7 @@ import { preparationProviderBudget } from './preparation-budget.ts';
 import { prepareCheckPreflight } from './check-preflight.ts';
 import {checkAttemptIdentity, selectCheck, validateCheckOptions, withinCheckLease, type CheckSelection} from './resolve-selection.ts';
 import {interactionScopeBatch, interpretInteractionScope, permitsReferenceOperation, REFERENCE_SCOPE_NOTE, type InteractionScope} from './interaction-scope.ts';
-import {DECIDED_UNDER_UNCERTAINTY_NOTE, FORCED_CHOICE_CUE_FAMILY, forcedChoiceCueBatch, forcedChoiceCueReview, forcedResolution,
+import {DECIDED_UNDER_UNCERTAINTY_NOTE, FORCED_CHOICE_CUE_FAMILY, forcedChoiceCueBatch, forcedChoiceCueReview, forcedResolution, scoreText,
   type ForcedChoiceCueReview, type ForcedPlayerChoice, type ForcedResolution} from './forced-resolution.ts';
 import { bindingOf, CLERK_TYPE, customMessage, PRESCREEN_TYPE, type ContextBinding } from '../../extensions/table/context-policy.ts';
 import { prepareKeeperSupport, prescreenEnabled } from '../../extensions/table/prescreen.ts';
@@ -67,12 +68,13 @@ import { isNpcAct, runNpcAct, runNpcScan, struckReceipts, type NpcActDeps, type 
 import {profilePreparationNeeds} from './profile-readiness.ts';
 import { SHADOW_FIELDS, type DamageBandRow, type TimeBandRow } from './band-shadow-domain.ts';
 import { readBandRows } from '../../extensions/kernel/band-shadow.ts';
-import { bandMinConfidence } from '../../extensions/kernel/band-recovery.ts';
+import { askBand, bandMinConfidence } from '../../extensions/kernel/band-recovery.ts';
+import type { BandResult } from './band-recovery-domain.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import { firstSightStep, type FirstSightViewPort } from './first-sight-step.ts';
 import { establishStep } from './establish-step.ts';
-import { IMPROVISATION_GUIDANCE, CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
+import { COMMERCE_GUIDANCE, IMPROVISATION_GUIDANCE, CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
 import {withSourceQuestion} from './source-answer-pages.ts';
 import {
   CLERK_AUTHORITY, createStepPolicy, consumedByEffects, consumedByClaim, consumedByResolve, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, exhaustedBy, interpretRoute, missedUnlocks, npcScanDue, overRun, PROPOSED_REASON, ROUTE_FAMILY,
@@ -387,6 +389,17 @@ export function readTable(capsule: Row, status: Row): {context: TurnContext; sco
       {kind: 'model', resource: 'decision', revision: JEV_MODEL}, {kind: 'family', resource: ROUTE_FAMILY, revision: '1'}]};
 }
 
+/**
+ * §135.11.2.1: commerce is open when the capsule shows a quote not yet settled or cancelled (`known.cash_quotes`) or a price
+ * paid on this turn or the one before (`known.prices_paid`, a covered service's completion or a bargain over it). Kernel
+ * state only; nothing reads the player's words.
+ */
+export function commerceOpen(capsule: Row, turn: number | undefined): boolean {
+  const known = object(capsule.known);
+  if (array(known.cash_quotes).length > 0) return true;
+  return typeof turn === 'number' && array(known.prices_paid).some(row => typeof object(row).turn === 'number' && object(row).turn >= turn - 1);
+}
+
 /** A resolve whose check the kernel reports failed: the failure branch of a Keeper batch step (closed field `outcome.success`). */
 function failedCheck(details: unknown): boolean {
   return object(object(details).outcome).success === false;
@@ -530,6 +543,9 @@ interface RunState {
   owedWatched?: boolean;
   /** §135.11.2: the note's head (`CLERK_NOTE_HEAD`) was sent in this run's first note. */
   headShown?: boolean;
+  /** §135.11.2.1: the latest read found commerce open (`commerceOpen`), and whether this run's notes carried `commerce` yet. */
+  commerce?: boolean;
+  commerceShown?: boolean;
   rawInput: string;
   inputRevision: string;
   session?: Row;
@@ -777,6 +793,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       run.forced.push(entry);
       record({lane: 'forced-resolution', run: run.runId, ...(step ? {step} : {}), ...(run.turn !== undefined ? {turn: run.turn} : {}),
         family: entry.family, subject: entry.subject, uncertain: entry.uncertain, chosen: entry.chosen, why: entry.why});
+      // §222.2: a forced no-roll of a check decision is the host's decision too (§163); the clue-route lane reads it.
+      if (entry.chosen.outcome === 'no_roll' && ['check-selection', 'check-binding'].includes(entry.family) && bridge?.campaign && run.turn !== undefined)
+        api?.events?.emit?.('coc:check-decided', {campaign: bridge.campaign, turn: run.turn, run: run.runId, status: 'no_roll', why: entry.why, option: entry.subject});
     }
   };
   /** §163 (amends §159.10): a preparation still pending when the turn is delivered was narrated by judgement: a forced no-roll. */
@@ -804,6 +823,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     await stepsReady;
     const [capsule, status, applyOptions, resolveOptions, bands] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options'), bandReads()]);
     const table = readTable(capsule, status);
+    run.commerce = commerceOpen(capsule, table.turn);
     run.discoverySourceRevision = text(object(capsule._context).task_source_revision) || table.binding?.source_revision;
     const historyScene = text(object(capsule.where).scene);
     if (!run.history || run.history.scene !== historyScene || JSON.stringify(run.history.context)!==JSON.stringify(historyContext(capsule))) run.history = {enabled: false, allowed: false, asked: false,
@@ -1231,9 +1251,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const refuse = outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
       : replacementTime ? {code:'declared_time_unresolved',text:'The host could not bind the declared interval. This model-origin replacement time effect was not executed. Do not choose minutes or a band or claim that the wait completed. Narrate settled facts or return the genuinely missing interval to the player in character.'}
       : secondTime && !stripTime ? {code: 'declared_time_landed', text: declaredTimeLanded(run.declaredTime!)}
-      : presumedHit ? {code: 'check_outcome_unresolved', text: 'The declared attack has not been settled by the host. Damage cannot stand in for its missing check. '
-      + 'Nothing in this apply was executed. Do not describe the attack as hitting or missing, or claim injury, damage, a changed condition, incapacitation, forced movement or another consequence of that attack. '
-      + 'Narrate only settled events before the unresolved consequence. If a player-owned choice remains open, end with a present person or immediate situation returning that choice in character; do not leave the declared action hanging.'}
+      // §224.2 rule 4: the host binds a fallback for every declared attack it can; one still unsettled had no attacker or target to bind.
+      : presumedHit ? {code: 'check_outcome_unresolved', text: 'The host could not bind the declared attack to a check (no attacker sheet or target it can settle), so no roll was made. Damage cannot stand in for that missing check. '
+      + 'Nothing in this apply was executed. Narrate the attempt and its outcome by your own judgement without numbers: write no damage, HP or condition effect for that attack. '
+      + 'Do not leave the declared action hanging, and do not ask the player to repeat it.'}
       : proposal.operation === 'resolve' ? {code: 'check_selection_owned', text: 'Jev and the host own check selection. This model-origin resolve was not executed. '
       + 'Narrate committed receipts, and use judgement for a no-roll attempt only when no player-owned value remains open and the host has not refused its consequence. '
       + 'A no-roll with why player_choice does not settle success or failure: do not imply a hit, miss, harm, condition change, incapacitation or other consequence of that check. Narrate settled events only, then return the withheld choice through a present person or immediate situation in character; do not leave the action hanging or choose a replacement check.'}
@@ -1426,13 +1447,61 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   }
 
   /**
+   * §224.7 (user rulings 2026-10-10 and 2026-10-11; Keeper Rulebook: Improvised Weapons p.104, the Keeper runs combat ch. 6): a
+   * declared first blow whose chosen held object has no prepared attack usage yet is settled this turn. The behaviour is the
+   * Enhanced Items Mod's (`weapons.improvised.v1`): the kernel offers the rows (`first_blow.preparation.improvised`) only where
+   * an enabled package requires the capability, and this function runs only on that offer. The host asks Jev the §138.6 weapon
+   * band question over the kernel's own weapons-table rows, framed as the rulebook's comparison (the closest row, not an
+   * exact profile), and binds the row as the attack's `improvised` parameter beside the held object; below the gate, on
+   * `none`, or with no Jev, the attack is unarmed Fighting (Brawl) as §224.2 binds it. Either is a forced resolution
+   * (`attack_fallback`, a roll) naming the object and the row, and the bind records say so. The object's background usage
+   * preparation is untouched: once it lands, the kernel's row lists the object as ready and this path is never entered.
+   */
+  async function improviseAttack(run: RunState, candidate: Candidate, offer: ImprovisedOffer, invocation: {stepId: string; signal: AbortSignal}):
+    Promise<{action: Record<string, Json>; bindings: BindRecord[]; forced: ForcedResolution} | undefined> {
+    if (!bridge?.campaign || run.turn === undefined) return undefined;
+    const common = {lane: 'band-recovery', run: run.runId, step: invocation.stepId, for: 'improvised', name: offer.object, table: 'weapons'};
+    let result: BandResult | undefined;
+    try {
+      // Under its own band lease and timeout (§138.6), on the run's Jev port; the run's preparation allowance is not a provider budget.
+      result = await askBand({env: options.env as NodeJS.ProcessEnv, campaign: bridge.campaign, turn: run.turn, declaration: run.rawInput, signal: invocation.signal,
+        ...(jev ? {decision: jev} : {})},
+        {field: 'weapon', thing: {name: offer.object, why: run.rawInput}, options: offer.options, close: offer.close, profiles: offer.profiles, improvised: true});
+    } catch { result = undefined; }
+    const cost = result ? {jev_calls: result.calls, jev_ms: result.elapsedMs} : {};
+    const distribution = result?.distribution ?? null, confidence = result?.confidence ?? null;
+    if (result?.status === 'decided') {
+      const profile = offer.profiles.find(entry => entry.id === result!.band);
+      const label = `${result.band}${profile ? ` (${profile.name}; ${profile.skill}${profile.damage ? ` ${profile.damage}` : ''})` : ''}`;
+      record({...common, ok: true, reason: 'decided', band: result.band, confidence, ...cost});
+      record({lane: 'run', event: 'bind', run: run.runId, step: invocation.stepId, clerk: 'improvised_weapon', status: 'succeeded', name: offer.object, table: 'weapons', ...cost,
+        bindings: [{name: 'improvised', path: 'rule-default', rule: ATTACK_FALLBACK_RULE, value: result.band, table: 'weapons', confidence, distribution, ...(result.family ? {family: result.family} : {})}]});
+      return {action: {improvised: result.band},
+        bindings: [{name: 'improvised', path: 'rule-default', rule: ATTACK_FALLBACK_RULE, value: result.band, table: 'weapons', band: result.band, confidence, distribution}],
+        forced: forcedResolution({family: 'check-binding', subject: candidate.label,
+          uncertain: [`weapon: ${offer.object} has no prepared attack usage; rolled as the improvised weapons-table row ${label} ${scoreText(result.confidence)} (Keeper Rulebook p.104)`],
+          chosen: {outcome: 'roll'}, why: 'attack_fallback'})};
+    }
+    const reason = result ? result.reason : jev ? 'band_owner_error' : 'unconfigured';
+    record({...common, ok: false, reason, ...(confidence === null ? {} : {confidence}), ...cost});
+    if (result) record({lane: 'run', event: 'bind', run: run.runId, step: invocation.stepId, clerk: 'improvised_weapon', outcome: 'unarmed', cause: reason, name: offer.object, table: 'weapons', ...cost,
+      bindings: [{name: 'weapon', path: 'rule-default', rule: ATTACK_FALLBACK_RULE, value: UNARMED_WEAPON, table: 'weapons', confidence, distribution, ...(result.band ? {band: result.band} : {})}]});
+    return {action: {weapon: UNARMED_WEAPON},
+      bindings: [{name: 'weapon', path: 'rule-default', rule: ATTACK_FALLBACK_RULE, value: UNARMED_WEAPON, confidence, distribution}],
+      forced: forcedResolution({family: 'check-binding', subject: candidate.label,
+        uncertain: [`weapon: ${UNARMED_WEAPON} (Fighting (Brawl) fallback): ${offer.object} has no prepared attack usage and no comparable weapons-table row was named (${reason}${confidence === null ? '' : `, ${scoreText(confidence)}`})`],
+        chosen: {outcome: 'roll'}, why: 'attack_fallback'})};
+  }
+  /**
    * A clerk (policy-origin) write: the candidate's Keeper verb through the kernel extension's canonical gateway, so
    * the `tool_call` gates, admission, Mod hooks, the kernel and the `tool_result` hooks run exactly as for the model.
    */
   async function clerkStep(run: RunState, params: Row, invocation: {runId: string; stepId: string; operationId: string; signal: AbortSignal}) {
     const candidate = params.candidate as Candidate | undefined, extra = object(params.extra) as Record<string, Json>;
     const refuse = (reason: string) => ({status: 'refused' as const, reason, artifact: {kind: 'execute', executed: {ok: false, summary: {origin: 'policy', refused: reason}}}});
-    if (run.interactionScope && run.interactionScope.mode !== 'world') return refuse('interaction_scope');
+    // §222.7: the host's own Idea roll is the one clerk step an out-of-fiction request carries (asked "in or out of character").
+    const ideaRoll = candidate?.verb === 'resolve' && object(candidate.bound).decision === 'core-check:idea-roll';
+    if (run.interactionScope && run.interactionScope.mode !== 'world' && !ideaRoll) return refuse('interaction_scope');
     if (!candidate) return refuse('no_candidate');
     // The IntentBinding is required: no policy-origin write before a read has bound the run to this player input.
     if (!run.intent || !run.scope || run.turn === undefined) return refuse('intent_unbound');
@@ -1443,21 +1512,33 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §143.3/§143.4: a person's own act is its own step: generated, bound, then written through this same gateway.
     if (isNpcAct(candidate)) return npcActStep(run, candidate, invocation);
     const {tool, args} = keeperCall(candidate, extra);
+    const savedBindings = array(object(candidate.basis).preparation_bindings);
+    let stepBindings = (savedBindings.length ? savedBindings : array(params.bindings)) as BindRecord[];
     if (candidate.clerk === 'first_blow') {
       const latest = await call('table.resolve.options'), first = object(object(latest.context).first_blow);
-      const needs = attackPreparationNeeds(first, object(args.action) as Record<string, Json>);
+      const action = object(args.action) as Record<string, Json>;
+      const needs = attackPreparationNeeds(first, action);
       if (needs.length) {
-        const preparation = {decision:'combat:attack', needs};
-        record({lane:'check-preparation', run:run.runId, step:invocation.stepId, ...preparation});
-        const fresh = (await freshOf(run, invocation.stepId, invocation.signal))?.fresh;
-        return {status:'refused' as const, artifact:{kind:'execute', executed:{ok:false, summary:{refusal:'check_preparation', preparation,
-          action:object(args.action), bindings:array(params.bindings)}}, ...(fresh ? {fresh} : {})}};
+        // §224.7 (Enhanced Items, Keeper Rulebook p.104): where the kernel offers the rows, the chosen weapon's usage as the only
+        // unfinished preparation does not stall the declared attack; the host rolls the held object as the weapons-table row Jev
+        // finds it most like, else unarmed. With no offer (the Mod disabled) the attack keeps §159.10.1's preparation.
+        const offer = improvisedPreparation(first, action);
+        const settled = offer ? await improviseAttack(run, candidate, offer, invocation) : undefined;
+        if (!settled) {
+          const preparation = {decision:'combat:attack', needs};
+          record({lane:'check-preparation', run:run.runId, step:invocation.stepId, ...preparation});
+          const fresh = (await freshOf(run, invocation.stepId, invocation.signal))?.fresh;
+          return {status:'refused' as const, artifact:{kind:'execute', executed:{ok:false, summary:{refusal:'check_preparation', preparation,
+            action, bindings:array(params.bindings)}}, ...(fresh ? {fresh} : {})}};
+        }
+        Object.assign(action, settled.action); Object.assign(extra, settled.action);
+        stepBindings = [...stepBindings.filter(entry => !Object.hasOwn(settled.action, entry.name)), ...settled.bindings];
+        recordForced(run, [settled.forced], invocation.stepId);
       }
     }
     // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed); none was a model call.
     // Computed before the dispatch (§32.12): admission reads it off the host origin to admit a compile selection.
-    const savedBindings = array(object(candidate.basis).preparation_bindings);
-    const bindings = bindRecords(candidate, extra, (savedBindings.length ? savedBindings : array(params.bindings)) as BindRecord[]);
+    const bindings = bindRecords(candidate, extra, stepBindings);
     const dispatched = await dispatchClerk(run, {tool, args, clerk: candidate.clerk, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
       bindings: admissionBindings(bindings, extra) as Json}, invocation);
     if (dispatched.unavailable) return unavailable;
@@ -1504,10 +1585,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     run.clerkDid.push({step: invocation.stepId, operation: tool, label: candidate.label, clerk: candidate.clerk, call_id: callId, status: packet.status,
       receipts: packet.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
-      // §178.3: a write that brought people together carries the first impressions the kernel rolled for them, so the
-      // Keeper's next step can let them show; the receipt ids alone say only that a die was cast.
+      // §224.3: a first impression the clerk rolls is a `resolve`, so its outcome (the impression) rides on the resolve row.
       ...(ok ? {result: (tool === 'resolve' ? {action: shown, outcome: result.outcome ?? null, ...(result.obligation ? {obligation: result.obligation} : {})}
-        : {effects: args.effects, ...(Array.isArray(result.first_impressions) ? {first_impressions: result.first_impressions, first_impressions_note: result.first_impressions_note ?? null} : {})}) as Json}
+        : {effects: args.effects}) as Json}
         : {proposed: (tool === 'resolve' ? {action: shown} : {effects: args.effects}) as Json, not_landed: true,
           coc_error: refusedError!}),
       ...(obligation ? {obligation} : {}), ...(crossed ? {obligation_open: crossed} : {}), ...(binding ? {binding} : {})});
@@ -1793,6 +1873,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       }
       record({lane: 'check-selection', run: run.runId, step: request.stepId, status: selection.status,
         option: selection.option?.label ?? null, needs: selection.needs, calls: selection.calls});
+      // §222.2: a no-roll decision reaches the extension, whose clue-route lane lets the Keeper give a checked clue by judgement.
+      if (selection.status === 'no_roll' && bridge?.campaign && run.turn !== undefined)
+        api?.events?.emit?.('coc:check-decided', {campaign: bridge.campaign, turn: run.turn, run: run.runId, status: 'no_roll',
+          why: selection.needs.length ? selection.needs.join(', ') : 'no_check_needed', option: selection.option?.label ?? null});
       return {status: 'ok' as const, artifact: {kind: 'check-selection', selection} as StepArtifact};
     }
     if (request.purpose === 'bind-ordinary') {
@@ -2024,6 +2108,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §135.11.2 (SL-50 stage 2): the run's first note opens with the head line (right after `kind`), once per run.
     const head = !run.headShown;
     const content: Row = {kind: 'single_loop_step', ...(head ? {head: CLERK_NOTE_HEAD} : {}), purpose: step.purpose, reason: step.reason};
+    // §135.11.2.1: the commerce policy rides once per run, and only while the read finds commerce open.
+    if (run.commerce && !run.commerceShown) content.commerce = COMMERCE_GUIDANCE;
     const observations = array(view.policyState.view.observations);
     const modelRefused = observations.filter(value => (step.purpose === 'adjudicate' || step.purpose === 'compose')
       && value.kind === 'direct' && value.purpose === 'execute' && value.status === 'refused')
@@ -2120,7 +2206,18 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           requirements: outcome.pending!.requirements, needs: profilePreparationNeeds(outcome.pending!.requirements)}}))];
     run.pendingCheckPreparations = preparations.map(({candidate, needs}) => ({candidate, needs}));
     run.pendingAttackPreparation = !!view.policyState.view.preparingAttacks?.length;
-    if (preparations.length) content.check_preparation = {
+    // §221.5: a family whose every option is `check_arguments_unavailable` has no executable host binding in the present
+    // state -- nothing to prepare, so the participant-preparation instruction would be wrong for it. A combat or chase
+    // placeholder is the exception §159.10 names: its missing argument is a participant the Keeper registers.
+    const PARTICIPANT_FAMILIES = ['combat', 'chase'];
+    const argumentOnly = preparations.length > 0 && preparations.every(entry => entry.needs.length > 0 && entry.needs.every(need =>
+      need.startsWith('check_arguments_unavailable:') && !PARTICIPANT_FAMILIES.includes(need.slice('check_arguments_unavailable:'.length).split(':')[0])));
+    if (argumentOnly) content.check_preparation = {
+      needs: preparations.flatMap(entry => entry.preparation ? [entry.preparation] : []),
+      instruction: 'No host option for this rule family can execute in the present state, and there is nothing to prepare for it: no participant, profile or object is missing. '
+        + 'Narrate the moment by your own judgement without a roll and without inventing a numeric result; the host records it as decided under uncertainty, and later facts are reconciled forward. '
+        + 'Do not call resolve for it, and do not prepare participants to make it executable.'};
+    else if (preparations.length) content.check_preparation = {
       needs: preparations.flatMap(entry => entry.preparation ? [entry.preparation] : []),
       instruction: 'These are missing host arguments, not uncertainty about what the player wants. Prepare the observed participants and their profiles through the existing scene/source preparation tools, then register their actual presence with apply npc when needed. '
         + 'Source answer excerpts alone do not register participants. Use source_mode=prepare for missing playable entities. Do not invent numeric profiles, make model-origin resolve calls, or narrate an adjudicated result while preparing. '
@@ -2272,6 +2369,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       messages.push({role: 'custom', customType: CLERK_TYPE, content: JSON.stringify(content), display: false,
         details: {coc_host: true, run: run.runId, step: stepId, ...(run.turn !== undefined ? {turn: run.turn} : {})}, timestamp: Date.now()});
       run.headShown = true;
+      if (content.commerce) run.commerceShown = true;
     }
     // §135.11: the turn-close steer, last, as the same `coc-host` message legacy's `agent_end` sends.
     if (run.steer && step.reason.startsWith('turn_close:')) { messages.push({role: 'custom', ...run.steer, timestamp: Date.now()}); run.steer = undefined; }

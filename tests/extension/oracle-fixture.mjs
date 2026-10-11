@@ -217,3 +217,52 @@ export function expected(key, produce, source) {
   }
   return text;
 }
+
+/**
+ * Contract §221.7 (2026-10-10): `mythos_hardened` is a field of the Sanity state the TS kernel keeps (p.169, permanent once
+ * reached). The frozen Python never had it, so every captured Sanity state predates it. Dropped from the LIVE side only; the
+ * flag's own behaviour is asserted in `sanity-ladder.test.mjs`.
+ */
+export const POST_FREEZE_SANITY_FIELDS = Object.freeze(["mythos_hardened"]);
+/** A plain record (not a class instance such as `PythonFloat`, whose canonical JSON the projection must not rewrite). */
+const plain = value => !!value && typeof value === "object" && !Array.isArray(value)
+  && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+export function withoutPostFreezeSanity(value) {
+  if (Array.isArray(value)) return value.map(withoutPostFreezeSanity);
+  if (!plain(value)) return value;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !POST_FREEZE_SANITY_FIELDS.includes(key))
+    .map(([key, inner]) => [key, withoutPostFreezeSanity(inner)]));
+}
+
+/**
+ * Contract §221.4, §221.6 and §221.8 (2026-10-10): the Sanity check decision gained three optional slots in the rule graph --
+ * `clue_ref` (the clue a loss sits on), `creature_type` (Getting Used to the Awfulness) and `bout_choice` (a bout the Keeper
+ * picks). The frozen Python graph compiled the card without them. Dropped from the LIVE card only, by decision; every other
+ * slot of that card and every other card are still compared whole. The slots have their own tests (`sanity-ladder`,
+ * `tests/kernel/test_sanity_awfulness.py`).
+ */
+export const POST_FREEZE_CARD_SLOTS = Object.freeze({"decision:coc7:sanity:check": Object.freeze(["bout_choice", "creature_type", "clue_ref"])});
+export function withoutPostFreezeCardSlots(cards) {
+  return Object.fromEntries(Object.entries(cards).map(([ref, card]) => {
+    const slots = POST_FREEZE_CARD_SLOTS[ref];
+    if (!slots || !plain(card)) return [ref, card];
+    return [ref, {...card,
+      ...(Array.isArray(card.locked_inputs) ? {locked_inputs: card.locked_inputs.filter(name => !slots.includes(name))} : {}),
+      ...(Array.isArray(card.required_inputs) ? {required_inputs: card.required_inputs.filter(input => !slots.includes(input?.name))} : {})}];
+  }));
+}
+
+/**
+ * Contract §222.3 (2026-10-10): the Idea roll is a decision of the TS rule graph (`decision:coc7:core-check:idea-roll`) that the
+ * frozen Python graph never compiled. Its node, card and id are dropped from both sides of a planning comparison, as the
+ * first-aid card of `ts-kernel-rules` already is; the decision has its own tests (`check-selection`, `clue-check`).
+ */
+export const POST_FREEZE_DECISIONS = Object.freeze(["decision:coc7:core-check:idea-roll"]);
+export function withoutPostFreezeDecisions(value) {
+  if (Array.isArray(value)) return value.filter(item => !(typeof item === "string" && POST_FREEZE_DECISIONS.includes(item))
+    && !(item && typeof item === "object" && POST_FREEZE_DECISIONS.includes(item.decision_ref))).map(withoutPostFreezeDecisions);
+  if (!plain(value)) return value;
+  return Object.fromEntries(Object.entries(value).filter(([key, inner]) => !POST_FREEZE_DECISIONS.includes(key)
+    && !(inner && typeof inner === "object" && !Array.isArray(inner) && POST_FREEZE_DECISIONS.includes(inner.decision_ref)))
+    .map(([key, inner]) => [key, withoutPostFreezeDecisions(inner)]));
+}

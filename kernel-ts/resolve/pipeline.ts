@@ -13,7 +13,7 @@ import { noAvailableDecision, selectAvailableDecision, throwPlanningFailure } fr
 import { campaignEffectiveOptionalRules, disabledDecisionGates, OptionalRuleError } from '../rules/options.js';
 import { APPROACH_BY_SKILL, SOCIAL_APPROACH_SKILLS } from './arithmetic.js';
 import { SettleContext, latestCheckReceipt, recordSkillTicks } from './context.js';
-import { BASIC_DECISIONS, COMBINED, LUCK, LUCK_ROLL, OBSERVE, OPPOSED, ORDINARY, PUSH, REALIZE, SOCIAL, psychologyBinding, psychologyRealizeBinding, socialBinding } from './bindings.js';
+import { BASIC_DECISIONS, COMBINED, IDEA, LUCK, LUCK_ROLL, OBSERVE, OPPOSED, ORDINARY, PUSH, REALIZE, SOCIAL, psychologyBinding, psychologyRealizeBinding, socialBinding } from './bindings.js';
 import { settleBasic, settleFamily } from './settlement.js';
 import { familyBinding, type FixedFamilies } from './families.js';
 import {parseSanLoss} from '../sanity/expression.js';
@@ -33,7 +33,7 @@ import { shapeSettlement, tagNpcReceipts } from './projection.js';
  */
 // The social adjudication carries them too (§113): its roll is the ordinary check that follows it, and a
 // die the player's own words earned is the one advantage a social attempt can be given.
-const MODIFIER_CARRIERS = new Set([ORDINARY, COMBINED, OPPOSED, LUCK_ROLL, SOCIAL,
+const MODIFIER_CARRIERS = new Set([ORDINARY, COMBINED, OPPOSED, LUCK_ROLL, IDEA, SOCIAL,
     'decision:coc7:combat:attack', 'decision:coc7:combat:defend', 'decision:coc7:combat:maneuver']);
 /** What to do instead, per decision that cannot carry the declaration. Never a bare "remove it". */
 const MODIFIER_INSTEAD: Readonly<Record<string, string>> = Object.freeze({
@@ -74,7 +74,7 @@ export function validateExtras(action: Row): void {
         throw new RpcError('invalid_params', 'push or spend Luck, but not both', {
             fix: 'send either push: true or luck: <points>'
         });
-    for (const key of ['spell', 'weapon', 'target', 'decision', 'actor', 'ending', 'outcome', 'san_loss', 'scenario_san_reward_expr', 'trigger'])
+    for (const key of ['spell', 'weapon', 'improvised', 'target', 'decision', 'actor', 'ending', 'outcome', 'san_loss', 'scenario_san_reward_expr', 'trigger'])
         if (action[key] != null && (typeof action[key] !== 'string' || !action[key].trim()))
             throw new RpcError('invalid_params', `action.${key} must be a non-empty string`);
     if (action.interrupted != null && typeof action.interrupted !== 'boolean')
@@ -210,6 +210,26 @@ export class ResolvePipeline {
     get action(): Row { return this.context.action; }
     skillMatches(): string[] {
         return actionSkills(this.action, this.resolver);
+    }
+    /**
+     * §222.3: the clue an Idea roll gets the investigation back to -- `action.clue`, an undiscovered clue of the active scene
+     * or of the trail (the places the party has stood). The choice is the host's (Jev's, from the catalog's closed options);
+     * the kernel only checks it names such a clue.
+     */
+    ideaClue(): string {
+        const graph = this.context.graph, world = this.context.world;
+        const scenes = [world.active_scene, ...[...array(world.scene_trail)].reverse()].map(handle => graph.find(string(handle), ['scene'])).filter((node): node is Row => !!node);
+        const found = new Set(array(world.discovered_clues).map(String));
+        const options = [...new Set(scenes.flatMap(scene => graph.sceneClueIds(scene).map(id => graph.handle(graph.nodes.get(id)!))))].filter(handle => !found.has(handle));
+        const name = typeof this.action.clue === 'string' ? this.action.clue.trim() : '';
+        const refuse = (message: string) => new RpcError('needs', message, { fix: 'set action.clue to one of details.needs.options: the undiscovered clue the Idea roll gets the investigation back to',
+            details: { needs: { field: 'clue', options } } });
+        if (!name) throw refuse('an Idea roll names the clue it gets the investigation back to');
+        let node: Row;
+        try { node = graph.clue(name); } catch (error) { if (error instanceof RpcError) throw refuse(`${repr(name)} is not a clue of this book`); throw error; }
+        const handle = graph.handle(node);
+        if (!options.includes(handle)) throw refuse(found.has(handle) ? `clue ${repr(handle)} is already found` : `clue ${repr(handle)} is not a clue of this scene or of the trail`);
+        return handle;
     }
     oneSkill(): string {
         const matches = this.skillMatches();
@@ -442,16 +462,27 @@ export class ResolvePipeline {
         const context = this.context;
         const action = this.action;
         const extras: Row = {};
-        if ([ORDINARY, LUCK_ROLL].includes(ref)) {
+        if ([ORDINARY, LUCK_ROLL, IDEA].includes(ref)) {
             // The Luck roll's characteristic is the decision's own payload constant (LUCK) and its target is host-locked:
             // it declares no skill slot, so naming one was refused as an undeclared input (found by §136.20's Luck step).
+            // §222.3: the Idea roll is the same shape against INT, and names the clue it gets the investigation back to.
             const fold = ref === ORDINARY ? this.fold : null;
             if (fold) {
                 this.folded = true;
                 context.declaredModifiers = fold.modifiers;
             }
-            const skill = ref === LUCK_ROLL ? null : fold ? this.resolver.resolveExplicit(fold.skill) ?? fold.skill : this.oneSkill();
-            const [bonus, penalty, difficulty] = fold ? fold.modifiers : this.modifiers;
+            const skill = ref !== ORDINARY ? null : fold ? this.resolver.resolveExplicit(fold.skill) ?? fold.skill : this.oneSkill();
+            let [bonus, penalty, difficulty] = fold ? fold.modifiers : this.modifiers;
+            const clue = ref === IDEA ? this.ideaClue() : null;
+            if (ref === IDEA) {
+                // The catalog's closed `difficulty` parameter (§222.3) rides on the action beside `modifiers.difficulty`.
+                if (typeof action.difficulty === 'string' && action.difficulty.trim()) {
+                    const wanted = action.difficulty.trim().toLowerCase();
+                    if (!context.arithmetic.difficulties().includes(wanted))
+                        throw new RpcError('invalid_params', `unknown difficulty ${repr(action.difficulty)}`, { details: { needs: { field: 'difficulty', options: context.arithmetic.difficulties() } } });
+                    difficulty = wanted;
+                }
+            }
             const semantic: Row = {
                 difficulty,
                 goal: this.goal || this.method || this.intent,
@@ -460,6 +491,8 @@ export class ResolvePipeline {
             };
             if (skill !== null)
                 semantic[Object.hasOwn(CHARACTERISTICS, skill) ? 'characteristic' : 'skill'] = skill;
+            if (clue !== null)
+                semantic.clue = clue;
             if (bonus)
                 semantic.bonus = bonus;
             if (penalty)
@@ -640,16 +673,8 @@ export class ResolvePipeline {
                 }, extras];
         }
         if (ref === PUSH) {
-            if (!this.stakesText)
-                throw new RpcError('needs', 'a pushed roll needs the announced consequence of failing it', {
-                    fix: 'put the consequence in action.stakes',
-                    details: {
-                        needs: {
-                            field: 'stakes',
-                            options: []
-                        }
-                    }
-                });
+            // §223.1: the consequence may be foreshadowed (action.stakes) but need not be; the player's
+            // justification of the further attempt (action.method) is what the book requires (p.84).
             if (!this.method)
                 throw new RpcError('needs', 'a pushed roll needs the changed method', {
                     fix: 'describe the new approach in action.method',

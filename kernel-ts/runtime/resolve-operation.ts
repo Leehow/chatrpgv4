@@ -17,6 +17,8 @@ import {npcProfileOf} from '../resolve/context.js';
 import {incapacitatedBy} from '../healing/conditions.js';
 import {participantGaps, weaponOptions} from '../combat/profiles.js';
 import {VALID_OUTCOMES} from '../combat/engine.js';
+import {improvisedOffer, improvisedWeaponsEnabled} from '../combat/improvised.js';
+import {activeMods} from '../read/mods.js';
 import type {ModuleGraph} from '../read/module-graph.js';
 import {checkCatalog} from './check-catalog.js';
 import {committedOnLine, lastExchange} from '../read/exchange.js';
@@ -27,7 +29,7 @@ import {committedOnLine, lastExchange} from '../read/exchange.js';
  * identity `capsule.present` gives them, and the investigator's own weapons. One investigator only (the actor a resolve
  * without `actor` defaults to); no target, no row. A read: the kernel still opens the fight on the resolve.
  */
-function firstBlow(graph: ModuleGraph, world: Row, party: Row[], session: Row | null): Row | null {
+async function firstBlow(graph: ModuleGraph, world: Row, party: Row[], session: Row | null, tables: RuleTables, improvisedOn: boolean): Promise<Row | null> {
     if (session && (session.kind === 'combat' || session.kind === 'chase') || party.length !== 1) return null;
     const scene = graph.scene(world.active_scene);
     if (!scene) return null;
@@ -47,10 +49,16 @@ function firstBlow(graph: ModuleGraph, world: Row, party: Row[], session: Row | 
         const profile = npcProfileOf(graph, world, graph.handle(node));
         return profile === null || participantGaps(profile).length > 0;
     });
-    return targets.length ? {decision: 'combat:attack', intent: 'combat', actor: string(sheet.name), targets, weapons,
+    if (!targets.length) return null;
+    const unprepared = weapons.filter(name => !ready.includes(name));
+    // §224.7 (Enhanced Items, `weapons.improvised.v1`): the weapons-table rows an unprepared held object may be rolled as this
+    // turn, offered only where an active package requires the capability; without one the host sees no offer and the object
+    // keeps §159.10.1's preparation.
+    const improvised = improvisedOn ? await improvisedOffer(tables, graph, sheet, unprepared) : undefined;
+    return {decision: 'combat:attack', intent: 'combat', actor: string(sheet.name), targets, weapons,
         preparation: {targets: unready.map(node => graph.displayName(node)),
             completions: Object.fromEntries(unready.map(node => [graph.displayName(node), graph.isPerson(node) ? 'archetype' : 'creature'])),
-            weapons: weapons.filter(name => !ready.includes(name))}} : null;
+            weapons: unprepared, ...(improvised ? {improvised} : {})}};
 }
 
 export function ordinaryResolveHandlers(context: KernelContext): HandlerGroup {
@@ -81,7 +89,8 @@ export function ordinaryResolveHandlers(context: KernelContext): HandlerGroup {
                 .map(rule => ({text: rule.name, source_refs: rules.sourceRefsFor([rule.node_id])}))}));
         campaign.records = await campaign.files('turns');
         const history = committedOnLine(campaign), publicText = typeof history.previous?.rendered_text === 'string' ? history.previous.rendered_text : '';
-        const openingAttack = firstBlow(module.graph, campaign.world, campaign.party, sessions.activeSession());
+        const openingAttack = await firstBlow(module.graph, campaign.world, campaign.party, sessions.activeSession(), tables,
+            improvisedWeaponsEnabled(await activeMods(context, campaign.world)));
         const phases = Object.fromEntries(rules.decisionNodes().map(node => [semanticName(node.node_id), string(row(row(node.properties).implementation).phase)]));
         const selection = await checkCatalog(campaign, module.graph, sessions, profiles, decisions, {phases, openingAttack, history: history.records, publicText});
         const activeSession = sessions.activeSession();

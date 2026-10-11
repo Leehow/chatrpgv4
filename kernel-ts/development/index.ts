@@ -9,6 +9,7 @@ import { array, clone, entries, equal, integer, number, repr, row, string, truth
 import { nowIso } from '../write/store.js';
 import { ENDING_KINDS, endingIdForEvent } from './plan.js';
 import { buildEndingCapsule, capsuleForCampaignEnding, loadEndingCapsule, pendingSettlements, persistEndingCapsule, runDevelopmentPhase } from './state.js';
+import { SanitySession } from '../sanity/session.js';
 export { stageEnding, type EndingStage } from './ending.js';
 export { deterministicDevelopmentPlan, sanityBaseline, endingIdForEvent, endingEventId } from './plan.js';
 export { buildEndingCapsule, pendingSettlements, listEndings, loadEndingCapsule, persistEndingCapsule, runDevelopmentPhase, capsuleForCampaignEnding } from './state.js';
@@ -23,6 +24,19 @@ async function luckRecoveryGate(context: SettleContext): Promise<Row | null> {
     if (gate && truth(gate.conflict))
         throw new RpcError('campaign_not_ready', gateMessage(gate));
     return gate;
+}
+/**
+ * §221.6 (p.169, Getting Used to the Awfulness): a development phase reduces every Sanity total an investigator has lost
+ * to one sort of monster by the data's reduction (1). Only a settled phase eases; a replay changes nothing. Read from the
+ * sanity state the phase did not otherwise touch, so an investigator with no state is left without one.
+ */
+async function easeAwfulness(context: SettleContext, sheet: Row): Promise<void> {
+    const id = string(sheet.id);
+    if (!await context.transaction.campaign.saveExists(`sanity-state/${id}.json`)) return;
+    const session = await SanitySession.load(context, sheet);
+    const data = row(row(await context.tables.load('sanity')).getting_used_to_the_awfulness);
+    const reduction = integer(data.development_phase_reduction) ? number(data.development_phase_reduction) : 1;
+    if (session.easeAwfulness(reduction)) await session.save(context);
 }
 function settlementEffects(context: SettleContext, investigator: string, before: Row, sheet: Row, receipt: Row): void {
     if (!equal(sheet.current_luck ?? null, before.current_luck ?? null))
@@ -102,8 +116,10 @@ export const executeEndSession: SettlementExecutor = async (context, args) => {
         };
         const receipt = await runDevelopmentPhase(context.tables, campaign, id, sheet, capsule);
         await context.writeSheet(sheet);
-        if (!truth(receipt.replayed))
+        if (!truth(receipt.replayed)) {
             settlementEffects(context, id, before, sheet, receipt);
+            await easeAwfulness(context, sheet);
+        }
         settlements.push({
             investigator_id: id,
             status: 'PASS',
@@ -155,8 +171,10 @@ export const executeDevelopmentSettle: SettlementExecutor = async (context, args
     };
     const receipt = await runDevelopmentPhase(context.tables, campaign, context.actorId, sheet, capsule);
     await context.writeSheet(sheet);
-    if (!truth(receipt.replayed))
+    if (!truth(receipt.replayed)) {
         settlementEffects(context, context.actorId, before, sheet, receipt);
+        await easeAwfulness(context, sheet);
+    }
     return {
         data: {
             ending_id: ending,

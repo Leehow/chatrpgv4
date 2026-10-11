@@ -30,7 +30,7 @@ import {stageDraw, stageProduce} from './draw.js';
 import {fightTurn} from '../combat/execution.js';
 import {establishTableEntity, validateEstablishment} from '../read/table-entities.js';
 import {tableWord} from '../read/person-words.js';
-import {checkPassed,clueCheck} from '../read/clue-check.js';
+import {asVisit,clueCheck,clueRoute,earlierVisitTurns,foundByOf,foundByProblem,otherRolls,type ClueRoute} from '../read/clue-check.js';
 /** §135.30.7 (SL-42): the scenes the party left during this turn, latest departure first, from the turn's own move receipts. */
 function departedThisTurn(context:ApplyContext):string[]{
     const moves=[...array(context.turn.receipts),...(context.staged?.()??[])].filter(receipt=>isJsonObject(receipt)&&receipt.kind==='move'&&receipt.renamed!==true&&typeof receipt.from==='string'&&receipt.from!==receipt.to);
@@ -71,14 +71,28 @@ export async function stageClue(context:ApplyContext,effect:Row,told=false):Prom
     const left=here.includes(node.node_id)?undefined:departedThisTurn(context).map(handle=>graph.scene(handle)).find(value=>graph.sceneClueIds(value).includes(node.node_id));
     const scene=left??active;
     if(!here.includes(node.node_id)&&!left&&!told)throw new RpcError('not_here',`clue ${repr(handle)} is not discoverable at ${repr(graph.handle(scene))}`,{fix:'discover one of details.clues_here, or move first',details:{clue:handle,scene:graph.handle(scene),clues_here:here.map(id=>graph.handle(graph.nodes.get(id)!))}});
-    // §201.2: a clue the book finds by a check of a named skill lands after that check passed this turn, never instead of
-    // it. A clue already found is a no-op below, and a told row (`told`) is the story's, not a new find.
+    // §201.2 / §222.1: a clue the book finds by a check of a named skill lands by one of the rulebook's ways to it -- the
+    // book's roll on this visit, an Idea roll naming it, or a route the host attests (`found_by`: a fitting other roll Jev
+    // judged, an obvious clue, the host's no roll) -- never instead of them. A clue already found is a no-op below, and a
+    // told row (`told`) is the story's, not a new find.
     const check=established||told||array(world.discovered_clues).includes(handle)?null:clueCheck(graph,node);
-    if(check&&!checkPassed(check,[...array(context.turn.receipts),...(context.staged?.()??[])])){
-        const named=`${check.skill}${check.difficulty?` (${check.difficulty})`:''}`;
-        throw new RpcError('needs',`the book finds clue ${repr(handle)} with a ${named} check, and no ${check.skill} roll has passed this turn`,{codeDetail:'check_first',
-            fix:`Leave clue ${handle} out of this apply and send the rest. It lands after a ${check.skill} roll for it has passed this turn; until then narrate the attempt as still under way, without what the clue states and without settling that it fails: whether the attempt finds it is that roll's to decide. Do not land it another way or under another name.`,
-            details:{reason:'check_first',clue:handle,check:{skill:check.skill,...(check.difficulty?{difficulty:check.difficulty}:{})}}});
+    let foundBy:ClueRoute|null=null;
+    if(check){
+        const visit=asVisit([...array(context.turn.receipts),...(context.staged?.()??[])],
+            await earlierVisitTurns(turnNumber=>context.campaign.readTurnRecord(turnNumber),string(world.active_scene),turn));
+        const attested=foundByOf(effect);
+        const problem=attested?foundByProblem(attested,visit):null;
+        if(problem)throw new RpcError('invalid_params',`clue ${repr(handle)}: ${problem}`,{codeDetail:'found_by_invalid',
+            fix:'found_by is the host\'s attestation of a route it judged (§222.2); leave it out, or name a passed roll of this visit for fitting_check',
+            details:{reason:'found_by_invalid',clue:handle,found_by:attested}});
+        foundBy=clueRoute(check,{clue:handle,visit,foundBy:attested});
+        if(!foundBy){
+            const named=`${check.skill}${check.difficulty?` (${check.difficulty})`:''}`;
+            throw new RpcError('needs',`the book finds clue ${repr(handle)} with a ${named} check, and no way the rulebook allows has found it on this visit`,{codeDetail:'check_first',
+                fix:`Leave clue ${handle} out of this apply and send the rest. It lands once a ${check.skill} roll for it has passed on this visit, once the host judges another passed roll's method fits it or the clue obvious for progress, once the host's check selection decided no roll this turn, or by the Idea roll when the player asks for a way forward; until then narrate the attempt as still under way, without what the clue states and without settling that it fails: whether the attempt finds it is that roll's to decide. Do not land it another way or under another name.`,
+                details:{reason:'check_first',clue:handle,check:{skill:check.skill,...(check.difficulty?{difficulty:check.difficulty}:{})},
+                    routes:{other_rolls:otherRolls(check,visit),idea_roll:true}}});
+        }
     }
     let source:string|null=null;
     if(typeof effect.from==='string'&&effect.from.trim())source=graph.handle(npcNode(graph,world,effect.from));
@@ -89,7 +103,9 @@ export async function stageClue(context:ApplyContext,effect:Row,told=false):Prom
     }
     // Without a keeper label the receipt files the graph's display name: a handle is a machine word and never reaches the player.
     const receipt={id:`clue:${handle}-t${turn}`,kind:'clue',call_id:context.callId,clue:handle,label:label||graph.displayName(node),summary:node.summary||node.name,scene:graph.handle(scene),how,from:source,
-        ...(left?{left_this_turn:true}:{}),...(established?{established:'table'}:{}),at:nowIso()};
+        ...(left?{left_this_turn:true}:{}),...(established?{established:'table'}:{}),
+        // §222.1: the book's check and the way the table came through it; a no-roll route keeps §201's `check_skipped` count.
+        ...(check&&foundBy?{check:{...check},found_by:{...foundBy},...(foundBy.route==='no_roll'?{check_skipped:true}:{})}:{}),at:nowIso()};
     if(label)(world.clue_labels??={})[handle]=label;
     // §80: the account of how this table came by the clue, kept beside its name because that is
     // what the player's own record of it says. The graph's summary is the Keeper's and stays on

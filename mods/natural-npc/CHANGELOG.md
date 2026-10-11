@@ -1,5 +1,9 @@
 # Natural NPC
 
+## 1.6.0
+- The first impression is rolled only when it matters (contract §224.3, user ruling 2026-10-10, per the Keeper Rulebook: Credit Rating gauges first impressions, p.60; a roll needs tension and something at stake, pp.82-83). The kernel no longer rolls it the moment people share a scene: the host offers it as a check option and Jev selects it when the investigator seeks something from the person, approaches them socially, must get past them, or the person is hostile or suspicious. Otherwise no roll is made and the person is played from their own disposition.
+- Only the "First impression" section of `agent.md` and the manifest description change. The trigger stays `presence`, the requirements, settings and `sections.json` are unchanged.
+
 ## 1.5.0
 - The first impression is rolled by the kernel the moment a person first shares a scene with an investigator (contract §178): the check's trigger is `presence`, and the package requires `checks.presence.v1`. On two Blood Road tables of 2026-10-04 the Keeper called `resolve` for it zero times, and the single loop's clerk asked whether the player had declared it, which a player never does; of the App's 17 tables of 10-02..10-04 with three or more turns, 3 rolled any. Nothing about a meeting needs judging: the higher of Appearance and Credit Rating is rolled when the ledger puts the people together.
 - Only the "First impression" section of `agent.md` is new text: the kernel rolls, the Keeper never resolves it, and where the result arrives. Its `sections.json` entry (§183.1) and every other section keep their bytes from 1.4.6, the intent reading of 1.4.5 included. A campaign locked to 1.4.6 or earlier keeps the Keeper-called `contact` check until it is upgraded.

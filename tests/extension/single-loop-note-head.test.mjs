@@ -11,12 +11,14 @@
  */
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
 import { CLERK_NOTE_HEAD, createHybridEngine } from "./hybrid-engine-fixture.mjs";
+import { COMMERCE_GUIDANCE } from "../../runtime/jev/carried-views.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CAMPAIGN = "test-camp";
@@ -79,6 +81,38 @@ test("§135.11.2 the run's first clerk note carries the head right after kind; l
 	const two = runNotes(firstRun, requests.length).filter((note) => !one.some((seen) => JSON.stringify(seen) === JSON.stringify(note)));
 	assert.equal(two.filter((note) => Object.hasOwn(note, "head")).length, 1, "the next run's first note carries it");
 	assert.equal(two[0].head, CLERK_NOTE_HEAD);
+	// §135.11.2.1: no quote open, nothing paid: no commerce policy in any note.
+	assert.ok([...one, ...two].every((note) => !Object.hasOwn(note, "commerce")), "no commerce while none is open");
+});
+
+test("§135.11.2.1 an open quote: the run's first note carries the commerce policy once, beside the head", async (t) => {
+	const requests = [];
+	const engine = createHybridEngine({ env: process.env, decision: { decide: async (batch) => answered(batch) } });
+	const table = await openTable({ realKernel: true, prepareWorkspace: (workspace) => kernelSteps(workspace, [
+		["table.open", {}], ["table.player_input", { text: "这间房一晚多少钱？" }],
+		["table.apply", { call_id: "t1-c1", effects: [{ kind: "cash", mode: "quote", quote: "a room for the night", items: [{ name: "room", quantity: 1, unit_price: "2" }], source: "quote", category: "purchase", with: "Steven Knott" }] }],
+		["table.narrate", { call_id: "t1-c2", text: "诺特报了价。" }]]),
+		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你考虑了一下。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "你又看了看。" })], { stopReason: "toolUse" })]
+			.map((response) => (context) => { requests.push(context); return response; }) });
+	t.after(() => table.dispose());
+	await table.session.prompt("我再想想。");
+	const notes = [...new Set(requests.flatMap(clerkNotes))].map((raw) => JSON.parse(raw));
+	assert.equal(notes[0].head, CLERK_NOTE_HEAD);
+	assert.equal(notes[0].commerce, COMMERCE_GUIDANCE, "the quote is open: the policy rides in the first note");
+	assert.equal(notes.filter((note) => Object.hasOwn(note, "commerce")).length, 1, "once per run");
+});
+
+test("§135.11.2.1 the head carries no commerce sentence; every commerce sentence is still in the Keeper's prompt", () => {
+	const keeper = readFileSync(join(REPO, "prompts/keeper.md"), "utf8");
+	const sentences = COMMERCE_GUIDANCE.split(/(?<=\.) (?=[A-Z])/);
+	assert.ok(sentences.length > 20);
+	for (const sentence of sentences) {
+		assert.ok(!CLERK_NOTE_HEAD.includes(sentence), `not in the head: ${sentence}`);
+		assert.ok(keeper.includes(sentence), `kept in prompts/keeper.md: ${sentence}`);
+	}
+	assert.ok(Buffer.byteLength(CLERK_NOTE_HEAD) <= 2600, `the head stays turn-flow guidance (${Buffer.byteLength(CLERK_NOTE_HEAD)} bytes); situational policy rides on its own key`);
 });
 
 test("§135.11.2 at the engine: a run's first step with nothing else to say still has a note, carrying only the head; the next step with nothing to say has none", () => {

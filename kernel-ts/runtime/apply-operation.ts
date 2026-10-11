@@ -18,12 +18,12 @@ import {taskWorldRevision} from '../read/context.js';
 import {fulfillmentHandlers, fulfillmentPromiseNavigation} from './fulfillment-options.js';
 import {array, chars, integer, normalize, row, string, words, type Row} from '../read/values.js';
 import {briefWindow, citedPages} from '../read/brief-window.js';
-import type {ModuleGraph} from '../read/module-graph.js';
+import {recordOf, type ModuleGraph} from '../read/module-graph.js';
 import {obligationNodes, openGuards, sceneObligations} from '../read/obligations.js';
 import {unstatedDamage} from '../read/stated.js';
 import {activeMods} from '../read/mods.js';
 import {destinationView, grantingCues, guardedWay, unlockGuard} from '../read/destination-rows.js';
-import {checkPassed, clueCheck} from '../read/clue-check.js';
+import {asVisit, clueCheck, clueRoute, earlierVisitTurns, otherRolls} from '../read/clue-check.js';
 
 /**
  * Contract §187.3.2: whether the table's own record keeps the book from offering this person at `place` again -- the
@@ -161,19 +161,26 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
         // Contract §134.10: a candidate an unsettled stated obligation guards keeps its row and names the guard.
         const guards=openGuards(graph,campaign.world,scene);
         const add=(effect:Row,description:Row,guard?:string)=>candidates.push({alias:`effect:${candidates.length}`,effect,description,...(guard?{guarded_by:guard}:{})});
+        const records=await campaign.files('turns'),receipts=[...records.flatMap(record=>array(record.receipts)),...array(campaign.turn.receipts)];
         // §135.30.9.2 (SL-52 stage 2): a clue row carries the book's cues for it here -- the affordances of this scene that grant it.
-        // §201.2: a clue the book finds by a check of a named skill says so, and whether this turn passed it: `kernel/apply`
-        // refuses it until then (`check_first`), so no reader offers it to the clerk before the roll.
+        // §201.2 / §222.1: a clue the book finds by a check of a named skill says so, and whether a way the kernel can read has
+        // found it on this visit (`passed`, `found_by`: the book's roll this turn or an earlier turn here, an Idea roll naming
+        // it); `kernel/apply` refuses it until a route stands (`check_first`), so no reader offers it to the clerk before one.
+        // `other_rolls` are the visit's passed rolls of other skills, for the host's fit judgement (§222.2).
+        const byTurn=new Map(records.map(record=>[number(record.turn),record]));
+        const visit=asVisit(array(campaign.turn.receipts),await earlierVisitTurns(async turn=>byTurn.get(turn)??null,string(campaign.world.active_scene),number(campaign.turn.turn)));
         for (const clue of cluesHere(graph,campaign.world,scene,module.material)) if (clue.discovered!==true) {
             const node=graph.find(clue.name,['clue']), cues=node&&scene?grantingCues(scene,string(node.node_id)):[];
-            const check=node?clueCheck(graph,node):null;
-            add({kind:'clue',clue:clue.name},{kind:'clue',...clue,...(cues.length?{cues}:{}),
-                ...(check?{check:{...check,passed:checkPassed(check,array(campaign.turn.receipts))}}:{}),
+            const check=node?clueCheck(graph,node):null, route=check?clueRoute(check,{clue:clue.name,visit}):null;
+            // §222.2: the conclusions the clue supports and their authored importance, for the host's obviousness judgement.
+            const supports=node?(graph.out.get(string(node.node_id))??[]).filter((rel:Row)=>rel.relation_kind==='supports').map((rel:Row)=>graph.nodes.get(string(rel.to_node_id)))
+                .filter((target):target is Row=>!!target&&target.node_kind==='conclusion').map((target:Row)=>({name:graph.handle(target),importance:recordOf(target).importance??null})):[];
+            add({kind:'clue',clue:clue.name},{kind:'clue',...clue,...(cues.length?{cues}:{}),...(supports.length?{supports}:{}),
+                ...(check?{check:{...check,passed:route!==null,...(route?{found_by:route}:{other_rolls:otherRolls(check,visit)})}}:{}),
                 authority:'authored_candidate_not_discovered'},guards.clues.get(string(node?.node_id)));
         }
         // §187.3: the book's people for the active scene and for the book place it lies in (`where.within`), from the current
         // graph on every call; the table's ledger wins over the book (§187.3.2).
-        const records=await campaign.files('turns'),receipts=[...records.flatMap(record=>array(record.receipts)),...array(campaign.turn.receipts)];
         let ledger:Row={};
         try{ledger=row(await campaign.optional('npc-ledger.json'));}catch{/* an unreadable ledger reads as empty, as for look */}
         const excluded:Row[]=[];

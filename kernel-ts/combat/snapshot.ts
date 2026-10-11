@@ -343,9 +343,11 @@ export function restoreCombatSnapshot(session: CombatSession, input: Row, option
         // call before it is rolled (§95). They are optional and carry their own range check, so they
         // are held out of the key-set comparison rather than multiplying its accepted combinations.
         // §142.11: `first_blow` marks a blow struck outside the rounds; optional, and only ever `true`.
-        const declared = ['bonus_dice', 'penalty_dice', 'first_blow'], original = Object.keys(pending).filter(key => !declared.includes(key));
+        // §224.7: an improvised use names the held object and the table row's profile beside `weapon_id`; optional, both strings.
+        const declared = ['bonus_dice', 'penalty_dice', 'first_blow', 'improvised_object', 'improvised_profile'], original = Object.keys(pending).filter(key => !declared.includes(key));
         const declaredValid = ['bonus_dice', 'penalty_dice'].every(field => !Object.hasOwn(pending, field) || [0, 1, 2].some(value => equal(value, pending[field])))
-            && (!Object.hasOwn(pending, 'first_blow') || pending.first_blow === true);
+            && (!Object.hasOwn(pending, 'first_blow') || pending.first_blow === true)
+            && ['improvised_object', 'improvised_profile'].every(field => !Object.hasOwn(pending, field) || typeof pending[field] === 'string' && pending[field].trim() !== '');
         for (const key of extras)
             if (!Object.hasOwn(pending, key))
                 pending[key] = null;

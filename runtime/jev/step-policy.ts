@@ -20,6 +20,7 @@ import {semanticQuestions, semanticChoice} from './semantic-votes.ts';
 import {createHash} from 'node:crypto';
 import {turnNow,type TurnContext} from './turn-context.ts';
 import {preparedAttackReady} from './attack-preparation.ts';
+import {ATTACK_FALLBACK_RULE, attackFallback, declaredAttack} from './attack-fallback.ts';
 import {rosterReady, type ProfileRequirement} from './profile-readiness.ts';
 import type {ObservationView, OperationProposal, RunPolicy, RunView as DriverView, StepRequest as DriverStepRequest} from '@earendil-works/pi-agent-core';
 import type {DecisionBatch, DecisionResult, IntentBinding, ReadSet, ScopeBinding} from './contracts.ts';
@@ -464,12 +465,17 @@ export function next(view: RunView): StepRequest {
   if (!packingRefused && (!view.interactionScope || view.interactionScope.mode === 'world') && turnWriting(request) && npcScanDue(view) && !overRun(view.budget)) return {kind: 'direct', item: npcScanItem(view)};
   return request;
 }
+/** §222.7: a pending step of the Idea roll (its check family, its selection, its execution), by the candidate's key. */
+const ideaRollCandidate = (candidate: Candidate): boolean => String(candidate.key).includes(':core-check:idea-roll');
+const ideaRollStep = (item: PendingItem): boolean => !!item.candidate && ideaRollCandidate(item.candidate);
 function routeNext(view: RunView): StepRequest {
   if (view.stopped) return {kind: 'finish', reason: view.stopped.reason};
   const last = view.observations.at(-1), head = view.pending[0];
   // Guard 2: an LLM result is followed by direct execution or completion, never a Jev re-review.
   if (last?.kind === 'infer') return head?.kind === 'direct' ? {kind: 'direct', item: head} : {kind: 'finish', reason: `after_infer_${last.purpose}`};
-  if (view.interactionScope?.mode === 'reference') {
+  // §222.7: an out-of-fiction request may still be the players' call for an Idea roll (pp. 199-200: "in or out of
+  // character"); its check steps run as in a world turn, then the reference compose answers.
+  if (view.interactionScope?.mode === 'reference' && !(head && ideaRollStep(head))) {
     if (head?.kind === 'direct' && head.purpose === 'read') return {kind: 'direct', item: head};
     if (exhausted(view.budget) && !budgetComposed(view)) return {kind: 'infer', purpose: 'compose', reason: 'jev_budget'};
     if (!view.referenceRouted) return {kind: 'decide', purpose: 'route', digest: routeDigest(view)};
@@ -1012,7 +1018,7 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
   const complete = result?.status === 'complete';
   const extra: Record<string, Json> = {}, bindings: BindRecord[] = [], later: Unbound[] = [], leads: Record<string, string> = {};
   let lowest = 1, cause = complete ? '' : 'jev_unavailable';
-  const softUnresolved: string[] = [], softWithheld: string[] = [];
+  const softUnresolved: string[] = [], softWithheld: string[] = [], fellBack: string[] = [];
   for (const parameter of closedParameters(candidate)) {
     if (candidate.clerk === 'declared_time' || candidate.checkOwner === 'jev' && parameter.owner === 'player') {
       const pooled = semanticChoice(result, parameter.name, [...parameter.options!, 'unknown']);
@@ -1049,6 +1055,16 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
         lowest = Math.min(lowest, confidence ?? 1);
         bindings.push({name: parameter.name, path, value: choice, confidence: confidence ?? null, distribution, semantic, ...admission, ...table, ...(band ? {band: choice} : {})});
       } else {
+        // §224.2: a declared attack's weapon or target is not withheld; the host binds the rulebook fallback.
+        const fallback = parameter.owner === 'player' && declaredAttack(candidate) ? attackFallback(parameter.name, parameter.options!, distribution) : undefined;
+        if (fallback) {
+          extra[parameter.name] = fallback.value;
+          fellBack.push(fallback.note);
+          bindings.push(parameter.name === 'weapon'
+            ? {name: parameter.name, path: 'rule-default', value: fallback.value, rule: ATTACK_FALLBACK_RULE, confidence: confidence ?? null, distribution, semantic}
+            : {name: parameter.name, path, value: fallback.value, confidence: confidence ?? null, distribution, semantic, cleared: false});
+          continue;
+        }
         softUnresolved.push(parameter.name);
         if (parameter.owner === 'player') softWithheld.push(parameter.name + ' has no leading declared choice');
         cause = answered ? 'unknown_binding' : 'jev_unavailable';
@@ -1115,8 +1131,8 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
   }
   if (unresolved.length) return {pending: keeperOwns(candidate, withheld.length ? 'player_choice' : cause || 'unknown_binding', unresolved, bindings, withheld),
     reason: 'clerk_unbound', bindings};
-  const forced = leaned.length ? forcedResolution({family: 'check-binding', subject: candidate.label, uncertain: leaned,
-    chosen: {outcome: 'roll', check: candidate.label, action: extra}, why: 'below_confidence_gate'}, candidate.key) : undefined;
+  const forced = leaned.length || fellBack.length ? forcedResolution({family: 'check-binding', subject: candidate.label, uncertain: [...leaned, ...fellBack],
+    chosen: {outcome: 'roll', check: candidate.label, action: extra}, why: fellBack.length ? 'attack_fallback' : 'below_confidence_gate'}, candidate.key) : undefined;
   const bound: Candidate = Object.keys(defaults).length
     ? {...candidate, basis: {...(candidate.basis && typeof candidate.basis === 'object' && !Array.isArray(candidate.basis) ? candidate.basis : {}),
       binding: 'rule-default', rule_default: defaults} as Json}
@@ -1674,7 +1690,7 @@ function applyFresh(view: RunView, fresh: Fresh): void {
       && Array.isArray(option.parameters) && option.parameters.map(object).every(parameter => parameter.available === true));
   };
   view.heldCheckPreparations = view.heldCheckPreparations?.filter(key => !fresh.candidates.some(candidate => checkHoldKey(fresh.context.scene, candidate) === key && executable(candidate)));
-  view.context = fresh.context;view.candidates = fresh.candidates.filter(candidate => (!view.interactionScope || view.interactionScope.mode === 'world') && !view.consumed.includes(candidate.key)
+  view.context = fresh.context;view.candidates = fresh.candidates.filter(candidate => (!view.interactionScope || view.interactionScope.mode === 'world' || ideaRollCandidate(candidate)) && !view.consumed.includes(candidate.key)
     && (candidate.checkOwner !== 'jev' || typeof candidate.bound.decision !== 'string' || !view.expiredCheckDecisions?.includes(candidate.bound.decision))
     && (!checkHoldKey(fresh.context.scene, candidate) || !view.heldCheckDecisions?.includes(checkHoldKey(fresh.context.scene, candidate)!)
       && !view.heldCheckPreparations?.includes(checkHoldKey(fresh.context.scene, candidate)!)));view.stateVersion++;
@@ -2220,7 +2236,7 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         const {batch, offered} = binding ? routeBatch(policyState.view, binding.scope, binding.readSet)
           : {batch: {state: null} as unknown as DecisionBatch, offered: policyState.view.candidates};
         settleRoute(view, step, batch, offered, decisionOf(observation), observation.ms, policyState.gate);
-        if (view.interactionScope?.mode === 'reference') { view.referenceRouted = true; view.pending = []; }
+        if (view.interactionScope?.mode === 'reference') { view.referenceRouted = true; view.pending = view.pending.filter(ideaRollStep); }
       } else if (request.kind === 'decide' && request.purpose === 'compile') {
         const batch = binding ? compileBatch(policyState.view, binding.scope, binding.readSet, doneThisTurn(policyState.view))
           : {family: COMPILE_FAMILY, questions: []} as unknown as DecisionBatch;

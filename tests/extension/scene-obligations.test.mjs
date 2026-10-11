@@ -110,17 +110,17 @@ test('a claim on a served step with no frozen result rolls the Mod check once, a
     } finally { await table.runtime.close(); }
 });
 
-test('§178.3: on natural-npc 1.5.0 walking in rolled the impression, and a claim on the served step settles on it', async () => {
+test('§224.3: on natural-npc 1.6.0 walking in rolls no impression; a claim on the served step rolls it with the presence fields', async () => {
     const table = await atMorgue(await contentWith());
     try {
-        const rolled = (await table.call('table.status')).receipts.filter(receipt => receipt.decision === MOD_CHECK && receipt.npc === 'arty-wilmot');
-        assert.equal(rolled.length, 1, 'his first impression was rolled by the move');
-        assert.equal(rolled[0].trigger, 'presence');
+        const met = (await table.call('table.status')).receipts.filter(receipt => receipt.decision === MOD_CHECK && receipt.npc === 'arty-wilmot');
+        assert.equal(met.length, 0, 'walking in rolled nothing');
         const claimed = await table.call('table.resolve', {call_id: 't1-c3', action: {intent: 'social', obligation: HANDLE}});
         assert.equal(claimed.decision, MOD_CHECK);
-        assert.equal(claimed.reused, true);
-        assert.equal(claimed.outcome.level, rolled[0].level);
-        assert.equal(claimed.obligation.settled, settling(rolled[0].level));
+        assert.notEqual(claimed.reused, true);
+        assert.equal(claimed.obligation.settled, settling(claimed.outcome.level));
+        const [rolled] = (await table.call('table.status')).receipts.filter(receipt => receipt.decision === MOD_CHECK && receipt.npc === 'arty-wilmot');
+        assert.equal(rolled.trigger, 'presence', 'the §178 receipt shape is kept');
     } finally { await table.runtime.close(); }
 });
 

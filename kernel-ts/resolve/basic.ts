@@ -113,6 +113,18 @@ async function resolveTarget(context: SettleContext, args: Row): Promise<[
     }
     return [canonical, target, Object.hasOwn(CHARACTERISTICS, canonical) || Object.hasOwn(row(sheet.skills), canonical) ? 'sheet' : 'rulebook_base', Object.hasOwn(CHARACTERISTICS, canonical) ? 'characteristic_check' : 'skill_check'];
 }
+/**
+ * Whether a consequence sentence was already said to the player: it appears in the rendered text of
+ * a delivered turn record (§223.1). The kernel keeps those records, so the receipt can say
+ * `delivered_text` without a host attestation; a sentence it cannot find was stated on this call.
+ */
+function deliveredBefore(context: SettleContext, sentence: string): boolean {
+    const needle = sentence.replace(/\s+/g, ' ').trim();
+    if (!needle)
+        return false;
+    return array(context.snapshot.records).some(record => typeof record.rendered_text === 'string'
+        && record.rendered_text.replace(/\s+/g, ' ').includes(needle));
+}
 export const executeCheck: SettlementExecutor = async (context, args, plan) => {
     const actor = string(args.investigator || context.actorId);
     // SL-71 (§11.5.9): a check whose actor is a person the table knows rather than an investigator on
@@ -156,9 +168,16 @@ export const executeCheck: SettlementExecutor = async (context, args, plan) => {
     };
     data.push_eligible = kind === 'skill_check' && await context.arithmetic.skillPushable(label) || kind === 'characteristic_check';
     if (Array.isArray(combined) && combined.length) {
+        // §223.4: one die against several skills is still a skill roll (p.55); the book removes the
+        // push only from combat rolls, so a combined roll is pushable unless every named skill is one.
+        // The whole receipt has no tick of its own -- its label is not a skill -- but each named skill
+        // the die succeeded against ticks under the ordinary rules (`recordSkillTicks`).
         data.combined_roll = context.arithmetic.combined(combined, number(check.roll), difficulty, string(args.combined_mode || 'any'));
+        data.combined_mode = string(args.combined_mode || 'any');
+        data.combined_targets = combined.map(value => ({label: string(value.label), value: number(value.value)}));
         data.improvement_tick_eligible = false;
-        data.push_eligible = false;
+        const pushable = await Promise.all(combined.map(value => context.arithmetic.skillPushable(string(value.label))));
+        data.push_eligible = pushable.some(Boolean);
         data.success = truth(data.combined_roll.overall_success);
         data.passed = data.success;
         if (!data.success)
@@ -168,17 +187,24 @@ export const executeCheck: SettlementExecutor = async (context, args, plan) => {
         if (args[key] != null)
             data[key] = args[key];
     if (pushed) {
+        // §223.1 (pp.84-86): foreshadowing the consequence is the Keeper's option, not a precondition.
+        // The receipt says where the consequence came from instead of asserting it was announced:
+        // a sentence already delivered at this table, one stated on this call, or none -- a failed
+        // push then gives the Keeper free rein over the outcome (p.86).
+        const summary = string(args.failure_consequence || '').trim();
+        const foreshadowed = summary !== '' && deliveredBefore(context, summary);
         const consequence = {
-            summary: string(args.failure_consequence || '')
+            summary,
+            source: summary === '' ? 'keeper_free_rein' : foreshadowed ? 'delivered_text' : 'keeper_stated'
         };
         Object.assign(data, {
             method_changed: string(args.method_changed || ''),
             failure_consequence: consequence,
             announced_consequence: consequence,
             pushed_roll_protocol: {
-                failure_consequence_source: 'keeper',
-                keeper_foreshadowed_failure: true,
-                player_confirmation_recorded: true
+                failure_consequence_source: consequence.source,
+                keeper_foreshadowed_failure: foreshadowed,
+                player_declared_push: true
             },
             original_check: {
                 decision_id: args.original_check_decision_id ?? null,
@@ -212,7 +238,9 @@ export const executeCheck: SettlementExecutor = async (context, args, plan) => {
     if (data.outcome === 'fumble')
         hints.push('fumble: realize a source-bound cost and its causal complication');
     if (pushed && !data.success)
-        hints.push('pushed roll failed: the announced consequence is authoritative');
+        hints.push(row(data.failure_consequence).source === 'keeper_free_rein'
+            ? 'pushed roll failed: no consequence was recorded, so the Keeper has free rein over the outcome (p.86), which may include the goal achieved at a cost'
+            : 'pushed roll failed: the recorded consequence is authoritative; the goal may still be achieved at that cost (p.86)');
     return {
         data,
         warnings: [],
@@ -253,6 +281,12 @@ export const executeOpposed: SettlementExecutor = async (context, args) => {
             investigator_id: context.actorId,
             skill: label,
             opposed_won: winner === 'investigator',
+            // §223.3: Luck may alter this side of the contest later; the opponent's level and target
+            // travel on the receipt so the bought roll can be judged against them. An opposed roll is
+            // not pushed through this executor (the contest, not the die, would have to be repeated).
+            opponent_level: theirs.outcome,
+            opponent_target: theirs.target,
+            push_eligible: false,
             kind: 'opposed_check'
         }
     });
@@ -310,9 +344,14 @@ export const executePush: SettlementExecutor = async (context, args, plan) => {
             }
         });
     const characteristic = Object.hasOwn(CHARACTERISTICS, string(original.skill || '').toUpperCase());
+    // §223.4: a combined check is pushed as the same one die against the same named skills.
+    const combinedTargets = array(original.combined_targets).filter(isJsonObject);
+    const combined = combinedTargets.length ? combinedTargets : array(row(original.combined_roll).targets).filter(isJsonObject)
+        .map(target => ({label: string(target.label), value: number(target.value)}));
     return executeCheck(context, {
-        skill: characteristic ? null : original.skill ?? null,
+        skill: characteristic || combined.length ? null : original.skill ?? null,
         characteristic: characteristic ? original.skill : null,
+        ...(combined.length ? {combined_targets: combined, combined_mode: original.combined_mode ?? row(original.combined_roll).comparison_mode ?? 'any'} : {}),
         target: args.target ?? original.target,
         difficulty: args.difficulty ?? original.difficulty,
         bonus: args.bonus ?? original.bonus,
@@ -333,9 +372,17 @@ export const executeLuckSpend: SettlementExecutor = async (context, args) => {
     const points = args.points;
     const sheet = context.actor;
     const current = number(sheet.current_luck ?? row(sheet.characteristics).LUCK);
+    // §223.4: a combined check's receipt carries the overall verdict in `outcome`; the canonical
+    // percentile fields of its one die (against the highest named skill) are what Luck alters, and
+    // the die is then compared with every named skill again.
+    const combinedTargets = string(original.kind || '') === 'combined_skill_check'
+        ? array(original.combined_targets).filter(isJsonObject).map(target => ({label: string(target.label), value: number(target.value)})) : [];
+    const canonicalOriginal = combinedTargets.length
+        ? {...original, ...context.arithmetic.resolve(number(original.roll), number(original.base_target ?? original.target), string(original.required_level || original.difficulty || 'regular'))}
+        : original;
     let recomputed: Row;
     try {
-        recomputed = context.arithmetic.spendLuck(original, points, current);
+        recomputed = context.arithmetic.spendLuck(canonicalOriginal, points, current);
     }
     catch (error) {
         if ((error as Error).name !== 'ValueError')
@@ -343,7 +390,6 @@ export const executeLuckSpend: SettlementExecutor = async (context, args) => {
         const reason = (error as Error).message;
         const fixes: Row = {
             insufficient_luck: `the investigator has ${current} Luck; spend at most that`,
-            luck_may_only_alter_a_failed_roll: 'the last check passed; there is nothing to buy',
             criticals_fumbles_malfunctions_cannot_be_bought_off: 'a fumble stands; spend less or accept it',
             luck_may_not_alter_a_pushed_roll: 'a pushed roll cannot be altered with Luck'
         };
@@ -355,6 +401,21 @@ export const executeLuckSpend: SettlementExecutor = async (context, args) => {
                 points
             }
         });
+    }
+    if (combinedTargets.length) {
+        const mode = string(original.combined_mode || row(original.combined_roll).comparison_mode || 'any');
+        recomputed.combined_roll = context.arithmetic.combined(combinedTargets, number(recomputed.roll), string(recomputed.required_level || 'regular'), mode);
+        recomputed.success = recomputed.passed = truth(recomputed.combined_roll.overall_success);
+        if (!recomputed.success)
+            recomputed.outcome = recomputed.level = recomputed.achieved_level = 'failure';
+        recomputed.improvement_tick_eligible = false;
+    }
+    // §223.3: on an opposed check the bought level is judged against the opponent's recorded level,
+    // the way the book's example buys a Dodge up to Extreme to beat the Dark Young's attack.
+    if (string(original.kind || '') === 'opposed_check' && original.opponent_level != null) {
+        const winner = context.arithmetic.contestWinner(string(recomputed.outcome), number(recomputed.target ?? original.target),
+            string(original.opponent_level), number(original.opponent_target ?? 0));
+        Object.assign(recomputed, {opposed_won: winner === 'investigator', contest_winner: winner});
     }
     const after = current - points;
     sheet.current_luck = after;
@@ -377,7 +438,8 @@ export const executeLuckSpend: SettlementExecutor = async (context, args) => {
         kind: 'luck_bought',
         source_receipt: source || null,
         skill_label: original.skill_label,
-        luck_spent: points
+        luck_spent: points,
+        ...(recomputed.contest_winner != null ? {contest_winner: recomputed.contest_winner, opposed_side: 'investigator'} : {})
     });
     return {
         data: {
@@ -392,7 +454,8 @@ export const executeLuckSpend: SettlementExecutor = async (context, args) => {
             kind: 'luck_spend'
         },
         warnings: [],
-        hints: [`Luck spent: no improvement tick for this check; the roll now reads ${recomputed.roll}`]
+        hints: [`Luck spent: no improvement tick for this check; the roll now reads ${recomputed.roll} (${string(recomputed.outcome)})`,
+            ...(recomputed.contest_winner != null ? [`opposed check re-judged with the bought level: winner ${string(recomputed.contest_winner)}`] : [])]
     };
 };
 export const executeSocial: SettlementExecutor = async (context, args) => {
