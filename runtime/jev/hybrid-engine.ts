@@ -1269,8 +1269,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §218.8: the partial declared time's complement is spent once a Keeper time effect lands beside it.
     if (timeEffect && !toolResult.isError && run.declaredTime?.part) run.declaredTime.part = false;
     // This narrow final-outcome refusal uses the existing turn-close steer, not a new batch adjudication/rewrite loop.
-    if (object(object(toolResult.details).coc_error).details?.reason === 'refused_document_outcome') {
-      run.forceTurnClose = true; run.forceTurnCloseReason = 'refused_document_outcome';
+    // The owner's 2026-10-11 extension (§213.1): the act an unavailable review held takes the same one correction.
+    const outcomeRefusal = String(object(object(toolResult.details).coc_error).details?.reason ?? '');
+    if (outcomeRefusal === 'refused_document_outcome' || outcomeRefusal === 'held_act_outcome') {
+      run.forceTurnClose = true; run.forceTurnCloseReason = outcomeRefusal;
     }
     if (!toolResult.isError && proposal.operation === 'lookup' && object(proposal.params).kind === 'historical_reference'
       && object(object(toolResult.details).retrieval).state === 'closed' && run.history && !run.history.closed) {
