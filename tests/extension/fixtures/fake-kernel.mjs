@@ -1080,6 +1080,11 @@ function handle(method, params) {
 							details: { index, field: "band", reason: "band_conflict", fields } } };
 					}
 				}
+				// Contract §218.9: band_reach narrows a time band's roll; never without a time band, never another value.
+				if (effect.band_reach != null && (effect.band == null || effect.kind !== "time" || !["full", "typical", "least"].includes(effect.band_reach))) {
+					return { ok: false, error: { code: "invalid_params", message: "band_reach must be full, typical or least beside a time effect's band",
+						details: { index, field: "band_reach", reason: "band_reach_invalid", options: ["full", "typical", "least"] } } };
+				}
 				// Contract §145.1: until names the time the clock reaches, against the fixture's clock (09:15, day 1).
 				if (effect.until != null) {
 					const refuse = (reason, message, details = {}) => ({ ok: false, error: { code: "invalid_params", message,

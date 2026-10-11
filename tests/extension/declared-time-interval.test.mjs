@@ -249,12 +249,12 @@ test('§218.8 the questions: what the stated time is, the order against a journe
     const keys=batch.questions.map(q=>q.key);
     for(const key of ['stated_end:kind','stated_end:journey','stated_span:scope'])for(const view of views(key))assert.ok(keys.includes(view),`${view} is asked`);
     const options=key=>Object.keys(batch.questions.find(q=>q.key===key).criteria);
-    assert.deepEqual(options('stated_end:kind'),['end_of_now','start_only','deadline','condition','other_time','no_time','unknown']);
+    assert.deepEqual(options('stated_end:kind'),['end_of_now','start_only','deadline','condition','event_end','other_time','no_time','unknown']);
     assert.deepEqual(options('stated_end:journey'),['journey_then_end','end_then_journey','both_sides','no_journey','unknown']);
     assert.deepEqual(options('stated_span:scope'),['all','one_part','no_length','unknown']);
     const minute=batch.questions.find(q=>q.key==='stated_end:minute');
     assert.equal(/no minutes are given/.test(minute.criteria.m00),false,'a half written as a word gives no minute digits: m00 is exactly on the hour');
-    assert.match(minute.criteria.m30,/half past/);assert.match(minute.criteria.m15,/quarter past/);assert.match(minute.criteria.m45,/quarter to/);
+    assert.match(minute.criteria.m30,/half past/);assert.match(minute.criteria.m15,/quarter past/);assert.match(minute.criteria.m45,/three quarters past/);
     const half=batch.questions.find(q=>q.key==='stated_end:half');
     assert.match(half.criteria.pm,/noon itself/);assert.match(half.criteria.am,/midnight itself/);
     const hour=batch.questions.find(q=>q.key==='stated_end:hour');
@@ -361,4 +361,116 @@ test('§218.8 over the TS kernel, t79: until 08:30 with journeys after -- a ride
     assert.equal(time.minutes,110);assert.deepEqual(time.until,{days:0,time:'08:30',journeys:'after',journeys_after:30});
     assert.equal((await call('table.capsule')).where.clock.at,'1920-10-13T09:00');
     await assert.rejects(call('table.apply',{call_id:'t2-c3',effects:[{kind:'time',until:{time:'10:00',journeys:'sideways'}}]}),error=>error.details?.reason==='until_invalid');
+});
+
+/*
+ * §218.9: the 131 live table (runtime 13112c921, turns 102-140). `fixtures/time-ledger-131-grids.json` holds, per declared-time
+ * bind pass, the player's input and the pooled band and grids of its route bind row, and the outcome of the run bind row that
+ * followed it, as captured. The questions §218.9 adds (`event_end`, `fraction`) were not asked live: where a test needs them
+ * their answers are stated, synthetic, beside the captured grids.
+ */
+const live131=JSON.parse(readFileSync(join(root,'tests/extension/fixtures/time-ledger-131-grids.json'),'utf8')).turns;
+function replay131(t,pass=0,extra=()=>({})){
+    const turn=live131[t][pass];
+    return bindWith(turn.input,{band:turn.band,band__semantic_facts:turn.band,band__semantic_execution:turn.band},
+        batch=>({...Object.fromEntries(Object.entries(turn.grids??{}).flatMap(([key,dist])=>Object.entries(captured(batch,key,dist)))),...extra(batch)}));
+}
+
+test('§218.9 a held time is asked in fiction: t103, t120 and t127 hold, and the compose says ask_in_fiction with what the host heard',()=>{
+    for(const [t,pass,reading] of [[103,0,'9:30 am'],[103,1,'9:30 am'],[120,0,'8:00 am'],[120,1,'8:00 am'],[127,0,'0.5 minutes']]){
+        const bound=replay131(t,pass);
+        assert.equal(live131[t][pass].cause,'stated_measure_uncertain',`t${t} held live`);
+        assert.equal(held(bound),'stated_measure_uncertain',`t${t}`);
+        const extra=bound.pending[0].extra;
+        assert.equal(extra.ask_in_fiction,true,`t${t}: the Keeper is told to ask, not offered narration instead`);
+        assert.equal(extra.heard.reading,reading,`t${t}`);
+        assert.match(extra.instruction,/asking in fiction/);
+        assert.equal(/Narrate settled facts or ask/.test(extra.instruction),false,'no longer an either-or');
+    }
+    assert.equal(replay131(103).pending[0].extra.heard.end.hour.choice,'h9');
+    // Another cause keeps its own note, and no ask flag.
+    const unknown=bindWith(t43Input,{band:{...zero,unknown:1},band__semantic_facts:{...zero,unknown:1},band__semantic_execution:{...zero,unknown:1}},noMeasure);
+    assert.equal(unknown.pending[0].extra.ask_in_fiction,undefined);
+});
+
+test('§218.9 t104: a wait for the meeting to end, with no clock, takes the band\'s most probable row in its typical part instead of freezing the clock',()=>{
+    assert.equal(held(replay131(104)),'unknown_binding','the live behaviour: the band led unknown .50 and the clock froze');
+    const eventEnd=batch=>grid(batch,'stated_end:kind','event_end',.85);
+    const waited=replay131(104,0,eventEnd);
+    assert.deepEqual(waited.pending.map(p=>[p.kind,p.purpose]),[['direct','execute']]);
+    assert.equal(waited.extra.band,'investigation_recovery');assert.equal(waited.extra.band_reach,'typical');
+    const record=waited.bindings.find(b=>b.name==='band');
+    assert.equal(record.event_wait,true);assert.equal(record.cleared,false);assert.equal(record.band_reach,'typical');
+    assert.equal(api.kernelCall(waited.value,waited.extra).params.effects[0].band_reach,'typical');
+    // No row at the floor: unsettled, and the Keeper is told not to charge it.
+    const t104=live131[104][0];
+    const none=bindWith(t104.input,{band:{...zero,unknown:1},band__semantic_facts:{...zero,unknown:1},band__semantic_execution:{...zero,unknown:1}},eventEnd);
+    assert.equal(held(none),'event_bounded');assert.match(none.pending[0].extra.instruction,/Do not charge the wait yourself/);
+    assert.equal(none.pending[0].extra.ask_in_fiction,undefined);
+});
+
+test('§218.9 the minute in a second shape: t109\'s half past four read as m45 holds when the fraction reads half past; agreeing shapes bind',()=>{
+    assert.deepEqual(replay131(109).extra.until,{time:'16:45',journeys:'after'},'the live behaviour: 15 minutes late');
+    const fraction=(choice,top=.9)=>batch=>grid(batch,'stated_end:fraction',choice,top);
+    const t109=replay131(109,0,fraction('half_past'));
+    assert.equal(t109.extra?.until,undefined);assert.equal(held(t109),'stated_measure_uncertain');
+    // t122's first pass held on its .64 quarter-to minute; the fraction agreeing, it binds 11:45 (the second pass did, at .75).
+    assert.equal(held(replay131(122,0)),'stated_measure_uncertain');
+    const t122=replay131(122,0,fraction('three_quarters_past'));
+    assert.deepEqual(t122.extra.until,{time:'11:45',journeys:'before'});
+    assert.equal(t122.bindings.find(b=>b.name==='until').stated['stated_end:fraction'].choice,'three_quarters_past');
+    // A confident grid and an agreeing fraction bind; other minutes leave the grid to decide.
+    assert.equal(replay131(121,0,fraction('on_the_hour')).extra.until.time,'08:00');
+    assert.equal(replay131(121,0,fraction('other_minutes')).extra.until.time,'08:00');
+    assert.equal(held(replay131(121,0,fraction('half_past'))),'stated_measure_uncertain','two shapes that disagree are asked');
+});
+
+test('§218.9 the questions: the fraction of the hour, a half hour in hours, simultaneous activities are all of the length',()=>{
+    const value=candidate(live131[109][0].input);
+    const batch=api.bindBatch(api.initialView({runId:'grids-218-9',rawInput:live131[109][0].input,context,candidates:[value],compile:false,readFirst:false}),value,scope,[]);
+    const keys=batch.questions.map(q=>q.key);
+    for(const view of views('stated_end:fraction'))assert.ok(keys.includes(view),`${view} is asked`);
+    const question=key=>batch.questions.find(q=>q.key===key);
+    assert.deepEqual(Object.keys(question('stated_end:fraction').criteria),['on_the_hour','quarter_past','half_past','three_quarters_past','other_minutes','unknown']);
+    assert.ok(question('stated_end:fraction').criteria.half_past.examples.includes('4:30'));
+    assert.equal(/quarter to the next hour/.test(JSON.stringify(question('stated_end:minute'))),false,'no "quarter to" beside a deadline\'s hour');
+    assert.match(question('stated_end:minute').instructions,/four thirty/);
+    assert.match(question('stated_span:unit').criteria.hours,/half an hour/);
+    assert.match(question('stated_span:scope').criteria.all,/at the same time/);
+    assert.match(question('stated_end:kind').criteria.event_end,/until the meeting ends/);
+});
+
+test('§218.9 one part is a clear one part: t105\'s simultaneous note-sorting (.70) is the whole length, t140\'s (.99) is one part',()=>{
+    const t105=replay131(105);
+    assert.equal(t105.extra.minutes,90);
+    assert.equal(t105.bindings.find(b=>b.name==='minutes').scope,undefined,'the live behaviour marked one_part and opened a complement nobody used');
+    const t140=replay131(140);
+    assert.equal(t140.extra.minutes,20);assert.equal(t140.bindings.find(b=>b.name==='minutes').scope,'one_part');
+});
+
+test('§218.9 a weak band rolls low: t108 (.67) in the typical part, t135 (.47) at the least, a confident band (t131 .88) its whole row',()=>{
+    const t108=replay131(108);assert.equal(t108.extra.band,'library_research');assert.equal(t108.extra.band_reach,'typical');
+    const t135=replay131(135);assert.equal(t135.extra.band,'tome_study');assert.equal(t135.extra.band_reach,'least');
+    assert.equal(t135.bindings.find(b=>b.name==='band').band_reach,'least');
+    const t131=replay131(131);assert.equal(t131.extra.band,'single_room_search');assert.equal(t131.extra.band_reach,undefined);
+    assert.equal(api.kernelCall(t135.value,t135.extra).params.effects[0].band_reach,'least');
+});
+
+test('§218.9 over the TS kernel: band_reach least lands the row\'s min, typical rolls up to its default, and the invalid forms are refused',async t=>{
+    const call=await kernelAt('band-reach',508,t);
+    await call('table.player_input',{text:live131[135][0].input});
+    await call('table.apply',{call_id:'t2-c1',effects:[{kind:'time',band:'tome_study',band_reach:'least',why:'the journal one morning'}]});
+    const least=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
+    assert.equal(least.minutes,168,'not 3,861');assert.deepEqual(least.band_roll,{min:168,max:168,total:168,reach:'least'});
+    for(let index=0;index<6;index++){
+        await call('table.apply',{call_id:`t2-c${index+2}`,effects:[{kind:'time',band:'library_research',band_reach:'typical',why:'two directories'}]});
+        const typical=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
+        assert.ok(typical.minutes>=60&&typical.minutes<=180,`${typical.minutes} inside 60-180`);
+        assert.equal(typical.band_roll.max,180);assert.equal(typical.band_roll.reach,'typical');
+    }
+    for(const effect of [{kind:'time',minutes:5,band_reach:'least'},{kind:'time',band:'tome_study',band_reach:'most'}])
+        await assert.rejects(call('table.apply',{call_id:'t2-c9',effects:[effect]}),error=>error.details?.reason==='band_reach_invalid',JSON.stringify(effect));
+    await call('table.apply',{call_id:'t2-c10',effects:[{kind:'time',band:'brief_activity',band_reach:'full'}]});
+    const full=(await call('table.status')).receipts.filter(r=>r.kind==='time').at(-1);
+    assert.deepEqual([full.band_roll.min,full.band_roll.max,full.band_roll.reach],[2,10,undefined]);
 });

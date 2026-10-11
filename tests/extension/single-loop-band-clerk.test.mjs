@@ -219,7 +219,8 @@ test("§138.10 on the driver: the route's fact selects the time band, Jev names 
 	const landed = await drive({ candidates: [time], decide: (batch) => batch.family === BIND_FAMILY ? answer({ band: ["single_room_search", 0.8] }) : route("costs")(batch), infer: prose });
 	const clerk = landed.log.find((entry) => entry.clerk === TIME_CANDIDATE_KEY);
 	assert.ok(clerk, "the clerk charged the time");
-	assert.deepEqual(clerk.args.effects, [{ kind: "time", why: time.bound.why, band: "single_room_search" }]);
+	// §218.9: a band read below BAND_FULL_MIN (here .79) rolls the typical part of its row.
+	assert.deepEqual(clerk.args.effects, [{ kind: "time", why: time.bound.why, band: "single_room_search", band_reach: "typical" }]);
 	assert.deepEqual(clerk.bindings.map((entry) => [entry.name, entry.path, entry.value, entry.table]), [["band", "banded", "single_room_search", "time-costs"]]);
 	assert.deepEqual(landed.log.filter((entry) => typeof entry === "string" && entry.startsWith("decide")), ["decide:route", "decide:bind", "decide:route"]);
 	assert.deepEqual(landed.inferred, ["compose"], "one model step, the compose: no bind");
@@ -265,13 +266,13 @@ test("§138.10 at the engine: the rows are read once, the bind row carries the k
 	const bind = rows.find((row) => row.event === "bind");
 	assert.deepEqual([bind.clerk, bind.status], ["declared_time", "succeeded"]);
 	assert.deepEqual(bind.bindings.map((entry) => [entry.name, entry.path]), [["why", "composed"], ["band", "banded"]]);
-	assert.deepEqual(bind.bindings[1], { name: "band", path: "banded", value: "single_room_search", confidence: 0.75, distribution: {speak_briefly: 0, quick_observation: 0, single_room_search: 0.8, careful_house_search: 0, unknown: 0.2}, semantic: {answered: 1, total: 3, spread: 0}, table: "time-costs", band: "single_room_search", roll: { min: 10, max: 45, total: 23 } });
+	assert.deepEqual(bind.bindings[1], { name: "band", path: "banded", value: "single_room_search", confidence: 0.75, distribution: {speak_briefly: 0, quick_observation: 0, single_room_search: 0.8, careful_house_search: 0, unknown: 0.2}, semantic: {answered: 1, total: 3, spread: 0}, table: "time-costs", band: "single_room_search", band_reach: "typical", roll: { min: 10, max: 45, total: 23 } });
 	assert.ok(!executed.artifact.fresh.candidates.some((candidate) => candidate.key === TIME_CANDIDATE_KEY), "the fresh read holds a time receipt: time is charged");
 	// line-2 made the projection port async (gathered 2026-09-27); its note is awaited.
 	const [message] = await plan.ports.projection.project({ view: { policyState: { view: {} } }, stepId: "s4", step: { kind: "infer", purpose: "compose", reason: "finish" } });
 	const note = JSON.parse(message.content);
 	assert.equal(note.clerk_did[0].binding, "band: band single_room_search (time-costs, confidence 0.75), the kernel rolled 23 minutes inside 10-45; the host read the player's declared action as this row. To rule otherwise, settle it with your own operation.");
-	assert.deepEqual(note.clerk_did[0].result, { effects: [{ kind: "time", why: time.bound.why, band: "single_room_search" }] });
+	assert.deepEqual(note.clerk_did[0].result, { effects: [{ kind: "time", why: time.bound.why, band: "single_room_search", band_reach: "typical" }] });
 	// The roll reader on its own: a damage roll receipt, a record without its receipt, a record that is not banded.
 	const damaged = bandRolls([{ name: "band", path: "banded", value: "severe", table: "hazards", band: "severe" }, { name: "subject", path: "stated", value: "tom" }], ["roll:damage-t3-c2", "delta:hp-t3-c2"],
 		[{ id: "roll:damage-t3-c2", kind: "roll", expression: "1D10", total: 7, basis: "banded", band: "severe" }, { id: "delta:hp-t3-c2", kind: "delta", basis: "banded", band: "severe" }]);
