@@ -1210,6 +1210,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       + 'and narrate the clock where the declared time put it. Only an owed row\'s time (owed) may land beside it.';
   }
 
+  /** §227.3: what the Keeper is told when the host left its time line out of an apply whose other effects landed. */
+  function declaredTimeStripped(landed: NonNullable<RunState['declaredTime']>): string {
+    const charged = declaredTimeLanded(landed).split('. Time is charged once a turn')[0];
+    return `${charged}. Time is charged once a turn, so the time effect of this apply was left out and did not land; its other effects were applied as the receipts show. `
+      + 'Do not send the time again: narrate the clock where the declared time put it.';
+  }
+
   /** One Keeper call of the batch its response made. A step that fails sends the rest of the batch back unrun. */
   async function modelStep(run: RunState, proposal: {operation: string; params?: unknown; assistantMessage?: unknown; toolCall?: {id: string}}, execute: () => Promise<any>,
     stepId: string, signal: AbortSignal) {
@@ -1227,15 +1234,23 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       && array(object(proposal.params).effects).some(effect => object(effect).kind === 'damage');
     const outsideScope = run.interactionScope?.mode !== undefined && run.interactionScope.mode !== 'world'
       && !permitsReferenceOperation(proposal.operation, proposal.params);
-    const timeEffect = proposal.operation === 'apply'
-      && array(object(proposal.params).effects).some(value => object(value).kind === 'time' && !object(value).owed);
+    // §227.3: a time of zero minutes with no until, band or stated length charges nothing ("no extra time", 4d7 t89).
+    const charges = (value: unknown): boolean => {
+      const effect = object(value);
+      return effect.kind === 'time' && !effect.owed
+        && !(effect.minutes === 0 && effect.until === undefined && effect.band === undefined && effect.stated === undefined);
+    };
+    const effects = proposal.operation === 'apply' ? array(object(proposal.params).effects) : [];
+    const timeEffect = effects.some(charges);
     const replacementTime = run.unresolvedTime === true && timeEffect;
     // §218.2: time is charged once a turn. After the clerk's declared time landed, a Keeper time beside it would charge it again.
     // §218.8: a stated length of one part leaves the Keeper one time effect for the turn's other declared activities.
     const secondTime = !replacementTime && run.declaredTime !== undefined && timeEffect && run.declaredTime.part !== true;
+    // §227.3: beside other effects the second time is only that line: the host strips it and the rest lands (4d7 t76, t89).
+    const stripTime = secondTime && effects.some(value => object(value).kind !== 'time');
     const refuse = outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
       : replacementTime ? {code:'declared_time_unresolved',text:'The host could not bind the declared interval. This model-origin replacement time effect was not executed. Do not choose minutes or a band or claim that the wait completed. Narrate settled facts or return the genuinely missing interval to the player in character.'}
-      : secondTime ? {code: 'declared_time_landed', text: declaredTimeLanded(run.declaredTime!)}
+      : secondTime && !stripTime ? {code: 'declared_time_landed', text: declaredTimeLanded(run.declaredTime!)}
       // §224.2 rule 4: the host binds a fallback for every declared attack it can; one still unsettled had no attacker or target to bind.
       : presumedHit ? {code: 'check_outcome_unresolved', text: 'The host could not bind the declared attack to a check (no attacker sheet or target it can settle), so no roll was made. Damage cannot stand in for that missing check. '
       + 'Nothing in this apply was executed. Narrate the attempt and its outcome by your own judgement without numbers: write no damage, HP or condition effect for that attack. '
@@ -1256,7 +1271,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       ...(run.history && run.scope ? {historical_reference: {...run.history, allowed: run.history.allowed && !run.history.closed,
         ...(run.history.closed ? {retrieval: {state: 'closed', reason: run.history.closedReason ?? 'budget_exhausted'}} : {}),
         scope: run.scope, turn: run.turn}} : {}),
-      ...(refuse ? {refuse: refuse.text, refuse_code: refuse.code} : {})});
+      ...(refuse ? {refuse: refuse.text, refuse_code: refuse.code} : !refuse && stripTime ? {strip_time: declaredTimeStripped(run.declaredTime!)} : {})});
     if (refuse) record({lane: 'run', event: 'catalog_refused', run: run.runId, step: stepId, operation: proposal.operation, reason: refuse.code});
     // SL-78 (§135.32 addendum 2, the `residual` row): every Keeper tool call among the five bookkeeping verbs is
     // counted here, attempt or not -- a refused free-text call is exactly the residual SL-78 measures.

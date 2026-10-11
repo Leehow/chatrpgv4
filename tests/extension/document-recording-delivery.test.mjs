@@ -319,29 +319,29 @@ test("§200.4: narrate keeps the host's unconfirmed_recordings on the record, re
 
 const DOCUMENTS = [{ name: "笔记本", owner: "托马斯·海斯", presentation: "notebook", version: "v1" }, { name: "钢笔", owner: "托马斯·海斯", presentation: "paper", version: "v2" }];
 const answered = (value) => ({ status: "answered", ...value });
-async function bind({ target = 0.91, content, execution, playerText = TURN8.player_text, suffix = NOTE }) {
+async function bind({ target = 0.91, other = 0.15, content, execution, playerText = TURN8.player_text, suffix = NOTE, recentTold }) {
 	const batches = [];
 	const decision = { async decide(batch) {
 		batches.push(batch);
 		const answers = Object.fromEntries(batch.questions.map((question) => [question.key,
-			question.key === "document_0" ? answered({ type: "noul", noul: target }) : question.key === "document_1" ? answered({ type: "noul", noul: 0.15 })
+			question.key === "document_0" ? answered({ type: "noul", noul: target }) : question.key === "document_1" ? answered({ type: "noul", noul: other })
 				: question.key === "content" ? answered(choiceAnswer(Object.keys(question.criteria), ...content))
 					: question.key === "execution" ? answered(choiceAnswer(Object.keys(question.criteria), ...execution))
 						: answered(choiceAnswer(Object.keys(question.criteria), "other_quote", 0.9))]));
 		return { batchId: batch.id, status: "complete", answers, issues: [], coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] } };
 	} };
-	const input = { campaign: CAMPAIGN, turn: 8, playerText, justTold: TURN8.just_told, actor: "托马斯·海斯", suffix, documents: DOCUMENTS };
+	const input = { campaign: CAMPAIGN, turn: 8, playerText, justTold: TURN8.just_told, ...(recentTold ? { recentTold } : {}), actor: "托马斯·海斯", suffix, documents: DOCUMENTS };
 	const lease = new TaskLease({ owner: DOCUMENT_BINDING_FAMILY, goal: "test", ...documentBindingScope(input), capabilities: ["decision"],
 		signal: new AbortController().signal, budget: { deadlineAt: Date.now() + 10_000, remainingInputTokens: 200_000, remainingOutputTokens: 20_000, remainingCostUsd: 0.02, remainingActions: 2 } });
 	try { return { result: await bindDocumentAppend(input, decision, lease), batches }; } finally { lease.close(); }
 }
 
-test("§200.5: family version 4 keeps every gate at .90 on the answers measured live", async () => {
-	// Turn 8's note under version 4: content within .86, still under the gate; no execution question is asked.
+test("§200.5/§227.5: family version 5 keeps the role gates at .90 on the answers measured live", async () => {
+	// Turn 8's note under version 5: content within .86, still under the gate; no execution question is asked.
 	const turn = await bind({ content: ["within_selected_addition", 0.86] });
 	assert.deepEqual([turn.result.status, turn.result.reason], ["unresolved", "addition_not_cleared"]);
-	assert.deepEqual(turn.batches.map((batch) => [batch.familyVersion, batch.questions.some((question) => question.key === "execution")]), [["4", false]]);
-	assert.ok(turn.batches[0].readSet.some((entry) => entry.kind === "family" && entry.revision === "4"));
+	assert.deepEqual(turn.batches.map((batch) => [batch.familyVersion, batch.questions.some((question) => question.key === "execution")]), [["5", false]]);
+	assert.ok(turn.batches[0].readSet.some((entry) => entry.kind === "family" && entry.revision === "5"));
 	// The dictated quote (C5): content within .97, execution .93 -- bound to the notebook, with the proposed words.
 	const quote = "马卡里奥一家，1918年初，罗克斯伯里";
 	const dictated = await bind({ playerText: `我在本子上写下：「${quote}」。`, suffix: quote, target: 0.9,
@@ -354,4 +354,17 @@ test("§200.5: family version 4 keeps every gate at .90 on the answers measured 
 	// A read-only player (C3b): the target falls under the gate.
 	const reading = await bind({ playerText: "我翻开笔记本，看看之前记过马卡里奥一家和罗克斯伯里没有。", target: 0.63, content: ["within_selected_addition", 0.83] });
 	assert.deepEqual([reading.result.status, reading.result.reason], ["unresolved", "no_target"]);
+});
+
+// §227.5, live 4d7 t76: "copy the item's original words into the notebook" -- the notebook led .87 with every other carrier
+// at .04, and the words came from a clipping read the turn before, which justTold alone never showed.
+test("§227.5: a clear leader names the carrier, and a copy of a text the player read binds on the recent told text", async () => {
+	const clipping = "一九一二年 Chapel of Contemplation 该堂关门。";
+	const recentTold = [{ turn: 75, text: `资料室的抽屉里有一条短讯：${clipping}` }, { turn: 76, text: "店员把抽屉合上。" }];
+	const copied = await bind({ playerText: "我把那条短讯的原话抄进本子，谢过店员。", suffix: `\n${clipping}\n`, target: 0.87, other: 0.04, recentTold,
+		content: ["within_selected_addition", 0.95], execution: ["selected_operation", 0.93] });
+	assert.deepEqual([copied.result.status, copied.result.document?.name], ["bound", "笔记本"]);
+	assert.deepEqual(copied.batches[0].state.recentTold, recentTold, "the content question reads the recent told text");
+	const close = await bind({ target: 0.87, other: 0.3, content: ["within_selected_addition", 0.95], execution: ["selected_operation", 0.93] });
+	assert.deepEqual([close.result.status, close.result.reason], ["unresolved", "no_target"], "a runner-up above .2 is no clear leader");
 });

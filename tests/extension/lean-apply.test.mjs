@@ -78,7 +78,7 @@ test("on, every listed field carries its lean description, and the whys a reader
 		}
 	}
 	// The consumers the map found: the kernel refuses these without a why, or a projection/lane reads it back.
-	assert.match(variant(lean, "npc").properties.why.description, /required with defense, action or disposition; keep it with stance/);
+	assert.match(variant(lean, "npc").properties.why.description, /required with activity, defense, action or disposition \(an activity change is refused without its cause/);
 	assert.match(variant(lean, "object").properties.why.description, /required for a condition change or any physical document operation/);
 	assert.match(variant(lean, "flag").properties.why.description, /waiving it: why is what makes it a waiver/);
 	// Read elsewhere, so untouched.

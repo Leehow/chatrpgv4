@@ -14261,8 +14261,9 @@ The host obtains a read-only `table.apply.options {cash_effects: <ordered batch>
 the same `stageCash` calculation against cloned state. It returns the actual debit alongside
 the purchase price, including same-batch cumulative spending. Admission reads that computed
 debit for the player's cash budget. A host-owned debit ceiling binds the subsequent write; a
-larger debit refuses for fresh preview/admission before any state changes. Unresolved movement
-or time before a purchase must land separately so its game day is established first. This adds
+larger debit refuses for fresh preview/admission before any state changes. A move or an `until`
+before a purchase is staged on the cloned state with apply's own arithmetic (§227.2); only a rolled or
+book-stated time before a purchase must land separately so its game day is established first. This adds
 no model call and never counts or pays an expense during preview.
 
 Writer: `stageCash` stages the quote and per-investigator ledger; reader: apply's quotation
@@ -42220,7 +42221,8 @@ background. Ordinary residents may rest; entertainment, night work, preparations
 - `apply npc` has a standalone `activity` variant: the same `summary`, `basis`, and optional `review_after_minutes`,
   with required `wakefulness: awake | asleep | resting | unknown`. It changes no seat, location, stance, rules condition,
   inventory or skill. Combine other changes as separate effects of the same atomic batch, as with `mood`.
-- Every context write requires a nonempty `why`. An inferred write cannot replace an observed or established record.
+- Every context write requires a nonempty `why`. An inferred write cannot replace an observed or established record
+  that still applies at the staged clock (`activityView` current, §227.1); a record the reader marks for review can be.
   A supported actual transition, such as an awakening or ordinary reopening, uses `established` or `observed` and its cause.
   Inferred means a defeasible fictional expectation, not an eyewitness fact or exact external historical authority.
 - `world.scene_activity` and `world.npc_activity` hold the records under canonical scene/person handles. The kernel
@@ -44433,3 +44435,59 @@ No new kernel RPC or Keeper verb. The transport callback writes these metadata r
 the independent technical audit reads them for failure attribution; no decision/obligation
 is fed to the Keeper. Regression checks use actual public SDK/Undici boundaries with local
 fixtures and verify the original rejection identity and credential exclusion.
+
+## 227. A Keeper apply is refused for what did not happen, not for the host's own gaps (2026-10-11, live d6c/4d7 apply refusals; amends §208.1, §58's cash preview, §218.2, §200.5)
+
+**Evidence.** Table `gui-world-e091`, transports `gui-transport-d6c` and `gui-transport-4d7` (`chatrpgv4-research/reports/grok-usage-20261010/apply-refusals/`):
+71 turns, 111 Keeper applies, 59 refused; each refusal resent the whole Keeper request (4.85M input tokens). Classified by
+cause: format 14, readiness hold 11, inferred activity 8, document binding 7, purchase preview 5, second time 4, book check 4
+(fixed by §219), review timeout 3, admission 2, discovery snapshot 1. The readiness hold is the tool-disclosure owner's; the
+review timeout is left for its own design. This section removes the causes that were the host's or the kernel's own gaps.
+
+### 227.1 An observed record guards only while it applies
+
+`kernel-ts/apply/activity.ts` refused every inferred activity after an observed or established one, while the capsule's
+`activityView` already reported that record `current: false` (day, day part, review boundary or scene changed) and asked the
+Keeper to reassess. 7 of 8 refusals came after such a request; the eighth after `time until 12:00` earlier in the same batch.
+The guard now reads the same `activityView` on the staged world at the effect's position: an inferred write is refused only
+while the previous record is current. The previous record stays in the receipt's `previous`.
+
+### 227.2 A purchase preview reaches the batch's game day
+
+`table.apply.options {cash_effects}` staged plain minutes only and refused (`needs`) any move or `until` before a purchase, so
+"ride home and buy a sandwich" was refused whole (5 times, all move or `until`). The preview now stages a move with `stageMove`
+on its cloned world (a move that would mint a place takes the minutes it gives) and an `until` with `bindUntil`, the same
+arithmetic apply uses. A rolled (`band`) or book-stated time before a purchase is still `needs`, with `details.reason:
+"preview_clock_unknown"`.
+
+### 227.3 Time once a turn refuses one line, not the batch
+
+§218.2's model-step gate refused a whole Keeper apply carrying a second time. Now: a `time` of zero minutes with no `until`,
+`band` or `stated` charges nothing and is not a second time; a second time beside other effects is announced as `strip_time`,
+the kernel extension removes the batch's non-owed time effects from that call's own input before it runs, and the result
+carries `time_not_landed` with the clerk's charged time. An apply of time alone is still refused `declared_time_landed`.
+
+### 227.4 The kernel fills a field only one value can take
+
+- A physical document operation (open, close, show, observe, edits) on a carrier its `to` already holds takes that holder as
+  `from` (4d7 t48: refused three times for "close the notebook").
+- A settled cash effect with `items`, a `with` person and no `price_id` or `source` is that person's quote (`source: "quote"`).
+  Without `with`, the source is still asked (§58).
+- `npc.why` says activity needs it (full and lean descriptions).
+
+### 227.5 A copied text or a write-up of findings binds to what was told
+
+All ten notebook additions of the table were unbound (8 `no_target`, 2 `addition_not_cleared`). The carrier question led
+.83-.89 for the sole notebook with every other carrier at .04-.06, under the .90 bar; and the content question saw only the
+last delivery, so a copy of a clipping read earlier, or a write-up of the day, had nothing to be checked against. Family
+version 5: a carrier is chosen when one leads at or above .8 and every other is at or below .2 (`DOCUMENT_LEAD_MIN`,
+`DOCUMENT_OTHER_MAX`); the content and execution questions read `recentTold` (the capsule's recent deliveries and this turn's,
+newest kept within 6,000 characters) and name copying a text the player read and writing up what they found as chosen
+writing. The role bars stay .90. Live accuracy of the new wording is not measured.
+
+### 227.6 Tests
+
+`tests/kernel/test_temporal_context.py` (stale record yields, batch time decides), `tests/extension/purchase-settlement.test.mjs`
+(preview after `until` and move equals the settled debit; band stays `needs`; quote source filled), `tests/extension/time-once.test.mjs`
+(second time beside a flag: the flag lands, one time; zero minutes is not a second time), `tests/extension/physical-documents.test.mjs`
+(open/close without `from`), `tests/extension/document-recording-delivery.test.mjs` (clear leader, `recentTold`), `tests/extension/lean-apply.test.mjs`.

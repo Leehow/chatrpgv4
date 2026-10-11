@@ -226,3 +226,36 @@ test('cancelled offers cannot be repaid or resurrected by an older deferred quot
   await assert.rejects(game.call('apply',{call_id:'t2-c4',effects:[{kind:'cash',quote:draft.quote}]}),e=>e.code==='needs');
   assert.equal((await game.sheet()).finance.cash.amount,before);
 });
+
+// §227.2 (4d7/d6c, five refused batches): a purchase after a move or an `until` is previewed on the game day apply reaches.
+test('a purchase after a move or an until previews on the day the batch reaches, as apply settles it',async t=>{
+  const game=await table(t);
+  await game.call('apply',{call_id:'t1-c1',effects:[spend(6),spend(4)]});
+  const unchanged=await game.sheet();
+  const overnight=[{kind:'time',until:{time:'08:00'},why:'Slept until morning.'},spend(3)];
+  const preview=await game.call('apply.options',{cash_effects:overnight});
+  assert.deepEqual(await game.sheet(),unchanged,'a preview neither counts nor charges');
+  assert.equal(preview.cash_previews.length,1);
+  assert.equal(preview.cash_previews[0].index,1);
+  await game.call('apply',{call_id:'t1-c2',effects:overnight});
+  const settled=(await game.receipts()).at(-1);
+  assert.equal(preview.cash_previews[0].delta,settled.delta,'the preview debits what apply debits on the new day');
+  assert.equal((await game.sheet()).finance.daily_spending.total,3);
+  const ride=[{kind:'move',to:'corner lunchroom',establish:{summary:'A small corner lunchroom near the house, still serving.'},via:'Walked to the nearest open lunchroom.',travel_minutes:8},spend(0.45,'living')];
+  const before=await game.sheet(),rode=await game.call('apply.options',{cash_effects:ride});
+  assert.deepEqual(await game.sheet(),before);
+  assert.equal(rode.cash_previews[0].index,1);
+  await game.call('apply',{call_id:'t1-c3',effects:ride});
+  assert.equal(rode.cash_previews[0].delta,(await game.receipts()).at(-1).delta);
+  await assert.rejects(game.call('apply.options',{cash_effects:[{kind:'time',band:'sleep_night'},spend(1)]}),e=>e.code==='needs'&&e.details.reason==='preview_clock_unknown');
+});
+
+// §227.4, live 4d7 t44/t91/t94: priced lines with the person who named them and no source settle as that person's quote.
+test('priced lines with with and no price_id settle as a quote; without with the source is still asked',async t=>{
+  const game=await table(t);
+  const lines={kind:'cash',mode:'settle',category:'living',with:'Steven Knott',why:'Tram fare',items:[{name:'Tram ticket',quantity:1,unit_price:'0.10'}]};
+  await game.call('apply',{call_id:'t1-c1',effects:[lines]});
+  assert.equal((await game.receipts()).at(-1).source,'quote');
+  const {with:_with,...nobody}=lines;
+  await assert.rejects(game.call('apply',{call_id:'t1-c2',effects:[nobody]}),e=>e.code==='invalid_params'&&/needs a source/.test(e.message));
+});
