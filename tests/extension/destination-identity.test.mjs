@@ -96,14 +96,14 @@ const INTERIOR_WITH_GATEKEEPER = "我去剪报室，但进门先找到威尔莫�
 /** Whether the Keeper's narrate of `text` has a tool result in the session. */
 function delivered(session, text) {
 	const call = session.messages.flatMap((message) => message.role === "assistant" && Array.isArray(message.content) ? message.content : [])
-		.find((block) => block.type === "toolCall" && block.name === "narrate" && block.arguments?.text === text);
+		.find((block) => block.type === "toolCall" && block.name === "output" && block.arguments?.text === text);
 	return Boolean(call && session.messages.some((message) => message.role === "toolResult" && message.toolCallId === call.id));
 }
 
 function turn(playerFacing) {
 	return [
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "newspaper-morgue", travel_minutes: 20 }] })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: playerFacing })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: playerFacing })], { stopReason: "toolUse" }),
 	];
 }
 
@@ -114,7 +114,7 @@ test("the reviewer is handed the place the module authored, not the handle's slu
 		campaign: CAMPAIGN,
 		responses: [
 			fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙放下，说前一家租户出了事。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "诺特把钥匙放下，说前一家租户出了事。" })], { stopReason: "toolUse" }),
 			...turn("你走进报社的大厅。"),
 			...turn("威尔莫特抬起头。"),
 		],
@@ -163,9 +163,9 @@ test("a scene answers to the names the module gives its place, so a Keeper can l
 		campaign: `${CAMPAIGN}-lookup`,
 		responses: [
 			fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙放下。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "诺特把钥匙放下。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "module", query: alias, expected_kind: "scene" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "报社在城的另一头。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "报社在城的另一头。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -209,9 +209,9 @@ test("a move to a name the module already owns lands on the registered scene, wi
 		campaign: `${CAMPAIGN}-move`,
 		responses: [
 			fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙放下。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "诺特把钥匙放下。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: identity.aliases[0], via: "走过去" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你走进报社。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你走进报社。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());

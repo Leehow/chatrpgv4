@@ -88,17 +88,18 @@ const SECOND = "You press the diaries under your coat and push yourself up. The 
 
 
 
-test("SL-23: a steered second leg that brings nothing under a wait delivers the draft the wait dropped", async (t) => {
+test("An explicit output can publish current material during an unrelated preparation wait", async (t) => {
 	const table = await hybridTable({
 		env: { FAKE_KERNEL_ADAPTATION_PENDING: "1" },
-		responses: [prepare(), fauxAssistantMessage(FIRST), fauxAssistantMessage([{ type: "thinking", thinking: "Nothing to add." }], { stopReason: "stop" })],
+		responses: [prepare(), fauxAssistantMessage([fauxToolCall("output", {text:FIRST})],{stopReason:"toolUse"}), fauxAssistantMessage([{ type: "thinking", thinking: "Nothing to add." }], { stopReason: "stop" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("I pack what I found and leave the house.");
 
 	const narrates = kernel(table.table, "table.narrate");
 	assert.deepEqual(narrates.map((request) => request.params.text), [FIRST]);
-	assert.deepEqual(narrates[0].params.preparation_wait, { kind: "adaptation", name: PROPOSAL });
+	assert.equal(kernel(table.table, "adaptation.prepare").length, 1);
+	assert.equal(table.table.telemetry().filter(row=>row.lane==="final-output"&&row.event==="start").length, 1);
 	assert.equal(runEnds(table.events).at(-1).status, "delivered");
 	assert.equal(unfinished(table.table.session).length, 0);
 });
@@ -116,7 +117,7 @@ test("SL-23: a pending preparation still blocks the write that needs it -- a mov
 		responses: [
 			prepare(),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: PROPOSAL }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: FIRST })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: FIRST })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -166,9 +167,9 @@ test("SL-23 (turn 20): the next turn's clerk move to an existing scene is not bl
 			// Turn 2 (the first prompt): the Keeper prepares a place the book does not have, and says what the player did.
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", purpose: "new_destination", name: "harbor-flat",
 				anchors: ["scene: commission-briefing"], request: "A rented flat by the harbor the investigator chose to take." })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你把地址记在本子上。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你把地址记在本子上。" })], { stopReason: "toolUse" }),
 			// Turn 3: after the clerk's move, the Keeper closes.
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你到了报馆。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你到了报馆。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -211,11 +212,11 @@ test("SL-23: a proposal the clerk's move staled is told to the Keeper once, on t
 		responses: [
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", purpose: "new_destination", name: "harbor-flat",
 				anchors: ["scene: commission-briefing"], request: "A rented flat by the harbor the investigator chose to take." })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你把地址记在本子上。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你到了报馆。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你把地址记在本子上。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你到了报馆。" })], { stopReason: "toolUse" }),
 			// Turn 3: the Keeper's first own call reads the notice; its second is taken.
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你回到了诺特的办公室。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你回到了诺特的办公室。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你回到了诺特的办公室。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你回到了诺特的办公室。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -237,7 +238,7 @@ test("SL-23: a proposal the clerk's move staled is told to the Keeper once, on t
 	}
 	const notice = telemetry.filter((entry) => entry.code === "blocked" && entry.reason === "adaptation_stale");
 	assert.equal(notice.length, 1, "said once");
-	assert.equal(notice[0].tool, "narrate", "on the Keeper's own call");
+	assert.equal(notice[0].tool, "output", "on the Keeper's own call");
 	assert.equal(runEnds(table.events).at(-1).status, "delivered");
 });
 
@@ -247,7 +248,7 @@ test("SL-23: a retained ready proposal blocks neither reads nor unrelated writes
 		responses: [
 			fauxAssistantMessage([fauxToolCall("look", { focus: "scene" }), fauxToolCall("apply", { effects: [{ kind: "time", minutes: 5, why: "the walk" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "Athens Study" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "You take stock." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "You take stock." })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());

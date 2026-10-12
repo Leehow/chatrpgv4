@@ -9,6 +9,7 @@ import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "./pi.mjs";
 import kernelExtension from "../../extensions/kernel/index.ts";
+import {ownedOutputProvider} from "./fixtures/owned-output-provider.mjs";
 import { bindDecisionAnswers } from "../../runtime/jev/contracts.ts";
 import { MEMORY_READ_POLICY_VERSION } from "../../runtime/jev/memory-read-domain.ts";
 import { createTaskHostAdapter } from "../../runtime/jev/task-host-session.ts";
@@ -165,7 +166,7 @@ async function openHost(t, { responses, decide = answers, memoryReadEnabled = tr
 			pi.on("tool_result", event => control.hooks.push({ type: "tool_result", id: event.toolCallId, name: event.toolName, error: event.isError }));
 		},
 	};
-	const factories = [probe, { name: "coc-kernel", factory: kernelExtension }];
+	const factories = [probe, { name: "coc-kernel", factory: pi => kernelExtension(pi, {capabilities: ownedOutputProvider}) }];
 	if (adapter) factories.push({ name: "memory-read-task-host", factory: adapter.extension });
 	const loader = new DefaultResourceLoader({ cwd, agentDir: join(cwd, "agent"), settingsManager, extensionFactories: factories });
 	await loader.reload();
@@ -194,7 +195,7 @@ test("ordinary recall query runs a shared child owner task, keeps refs private, 
 		ownerOptions: { publicPadding: 9_000 },
 		responses: [
 			fauxAssistantMessage([fauxToolCall("recall", { what: "memory", query: "What did Knott promise?" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "Knott's reported promise was payment after the written report." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "Knott's reported promise was payment after the written report." })], { stopReason: "toolUse" }),
 		],
 		decide(batch) { batches.push(structuredClone(batch)); return answers(batch); },
 	});
@@ -233,7 +234,7 @@ test("ordinary recall query runs a shared child owner task, keeps refs private, 
 	assert.equal(requests.filter(row => row.method === "table.narrate").length, 1);
 	assert.equal(requests.some(row => row.method === "table.apply"), false);
 	assert.ok(host.control.receiptTracking.includes(true));
-	for (const name of ["recall", "narrate"]) {
+	for (const name of ["recall", "output"]) {
 		assert.deepEqual(host.control.hooks.filter(row => row.name === name).map(row => row.type), ["tool_call", "tool_result"]);
 	}
 });
@@ -256,7 +257,7 @@ test("a private plan may choose memory search while opaque evidence coordinates 
 	const host = await openHost(t, {
 		responses: [
 			fauxAssistantMessage([fauxToolCall("submit_plan_packet", privatePlan)], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "Knott's reported promise was payment after the written report." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "Knott's reported promise was payment after the written report." })], { stopReason: "toolUse" }),
 		],
 		decide: planAnswers,
 	});
@@ -282,7 +283,7 @@ for (const revision of ["world", "source"]) {
 			ownerOptions: { staleAfterSnapshot: revision },
 			responses: [
 				fauxAssistantMessage([fauxToolCall("recall", { what: "memory", query: "What did Knott promise?" })], { stopReason: "toolUse" }),
-				fauxAssistantMessage([fauxToolCall("narrate", { text: "This stale answer must not be delivered." })], { stopReason: "toolUse" }),
+				fauxAssistantMessage([fauxToolCall("output", { text: "This stale answer must not be delivered." })], { stopReason: "toolUse" }),
 			],
 		});
 		await host.session.prompt("What did Knott promise?", { source: "rpc" }).catch(() => undefined);
@@ -302,7 +303,7 @@ test("cancelling a running semantic decision aborts the shared query and prevent
 	const host = await openHost(t, {
 		responses: [
 			fauxAssistantMessage([fauxToolCall("recall", { what: "memory", query: "What did Knott promise?" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "This cancelled answer must not be delivered." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "This cancelled answer must not be delivered." })], { stopReason: "toolUse" }),
 		],
 		decide(_batch, lease) {
 			started.resolve();
@@ -324,7 +325,7 @@ test("without the typed owner a query is refused explicitly while ordinary raw r
 	const host = await openHost(t, { withAdapter: false, memoryReadEnabled: false, responses: [
 		fauxAssistantMessage([fauxToolCall("recall", { what: "memory", query: "What did Knott promise?" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("recall", { what: "memory" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "The direct memory listing remains available." })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "The direct memory listing remains available." })], { stopReason: "toolUse" }),
 	] });
 	await host.session.prompt("Check the memory owner fallback.", { source: "rpc" });
 	const requests = await host.requests();
@@ -341,7 +342,7 @@ test("public query rejects direct read, detail, and nonzero unissued page combin
 		fauxAssistantMessage([fauxToolCall("recall", { what: "memory", query, read: { turn: 1, role: "keeper" } })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("recall", { what: "memory", query, detail: { section: "hits", index: 0 } })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("recall", { what: "memory", query, page: { section: "hits", offset: 1 } })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "The invalid continuations were refused." })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "The invalid continuations were refused." })], { stopReason: "toolUse" }),
 	] });
 	await host.session.prompt("Try invalid memory continuations.", { source: "rpc" });
 	const requests = await host.requests();

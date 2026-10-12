@@ -249,6 +249,14 @@ export function createTaskHostAdapter(getSession: () => AgentSession, decision: 
           .then(() => trace({ kind: 'delivered', commit: event.commit }), error => trace({ kind: 'bookkeeping-error', message: String(error) }));
       }
     });
+    pi.events.on('coc:reference-answer',value=>{
+      const event=value as {campaign?:string;turn?:number;commit?:string};
+      if(attempt&&runtime&&event.campaign===attempt.intent.scope.campaign&&event.turn===attempt.intent.turn&&event.commit){
+        const active=attempt;releaseWriter(active.id);
+        void runtime.finishDelivery(active.id,{kind:'narrate',campaign:event.campaign!,turn:event.turn!,commit:event.commit})
+          .then(()=>trace({kind:'delivered',scope:'reference',commit:event.commit}),error=>trace({kind:'bookkeeping-error',message:String(error)}));
+      }
+    });
     pi.on('session_start', () => {
       closed = false;
       const session = getSession();
@@ -407,7 +415,7 @@ export function createTaskHostAdapter(getSession: () => AgentSession, decision: 
         releaseWriter(id);
         if (attempt?.id === id && runtime?.snapshot(id).status !== 'closed') void getSession().abort();
       }, { once: true });
-      pi.setActiveTools(['submit_plan_packet', 'look', 'recall', 'lookup', 'narrate', 'ask']);
+      pi.setActiveTools(['submit_plan_packet', 'look', 'recall', 'lookup', 'narrate', 'output', 'ask']);
       trace({ kind: 'planning', intent: intent.id, model });
       const protocol = options.resolveEnabled || options.applyEnabled ? PROTOCOL.replace('This opt-in read-only domain cannot settle world changes; preserve that limit instead of narrating an unexecuted action.',
         (options.resolveEnabled ? 'For a player-selected uncertain ordinary skill or characteristic action, submit a semantic plan requesting resolve. ' : '')
@@ -472,7 +480,7 @@ export function createTaskHostAdapter(getSession: () => AgentSession, decision: 
           recover: async () => { throw new ContractError('direct_read_cannot_mutate'); }, trace: data => trace({kind: 'direct-read', ...data})});
         directReads.set(event.toolCallId, {proposal, release}); await runtime!.persistBudget(active.id); return;
       }
-      if (!['submit_plan_packet', 'narrate', 'ask'].includes(event.toolName)) return { block: true, reason: 'Submit a bounded plan; the current host task owns its reads.' };
+      if (!['submit_plan_packet', 'narrate', 'output', 'ask'].includes(event.toolName)) return { block: true, reason: 'Submit a bounded plan; the current host task owns its reads.' };
     });
     pi.on('tool_result', async event => {
       const incumbent = incumbentCalls.get(event.toolCallId);
@@ -488,7 +496,7 @@ export function createTaskHostAdapter(getSession: () => AgentSession, decision: 
           status: event.isError || (event.details as Record<string, unknown>)?.coc_error ? 'refused' : 'succeeded', result: data,
           refs: direct.source?.refs ?? [], receipts: [], readSet: direct.proposal.readSet, coverage: direct.source?.coverage ?? {used: [], omitted: [], unknown: []}});
       }
-      if (!attempt || !runtime || event.isError || !['narrate', 'ask'].includes(event.toolName)) return;
+      if (!attempt || !runtime || event.isError || !['output', 'ask'].includes(event.toolName)) return;
       const details = event.details as Record<string, unknown> | undefined;
       if (details && !details.coc_error && event.toolName === 'ask' && runtime.snapshot(attempt.id).status === 'ready') {
         const choice = details.pending_choice as { name?: unknown } | undefined;
@@ -566,7 +574,7 @@ export function createTaskHostAdapter(getSession: () => AgentSession, decision: 
         try {
           if (signal?.aborted) abort();
           const result = await runtime.submit(active.id, params), record = runtime.snapshot(active.id);
-          if (result.handoff) pi.setActiveTools(['look', 'recall', 'lookup', 'narrate', 'ask', ...result.handoff.verbs]);
+          if (result.handoff) pi.setActiveTools(['look', 'recall', 'lookup', 'narrate', 'output', 'ask', ...result.handoff.verbs]);
           trace({ kind: 'task-result', result, steps: record.steps });
           const details = { ...result, observations: record.observations.map(value => value.packet),
             replan: record.phase === 'planning', settledReceipts: result.receipts };

@@ -134,7 +134,7 @@ test("neither wait instruction asks the Keeper to put the wait in front of the p
 			// The live Keeper's next move: the write that needs the destination, which the wait blocks with the instruction
 			// (SL-23: the only kind of write it blocks).
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "roxbury-sanitarium" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你在门口把外套抻平，把名片捏在手里。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你在门口把外套抻平，把名片捏在手里。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -154,7 +154,7 @@ test("a tool the preparation wait blocks leaves a telemetry row, like every othe
 		responses: [
 			fauxAssistantMessage([PREPARE], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "roxbury-sanitarium" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你在门口把外套抻平。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你在门口把外套抻平。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -167,7 +167,7 @@ test("a tool the preparation wait blocks leaves a telemetry row, like every othe
 	assert.equal(blocked[0].ok, false);
 	assert.equal(blocked[0].proposal, "roxbury-sanitarium");
 	// The evidence's own symptom: a turn that spent a call and looks, in telemetry, like zero failures.
-	assert.ok(table.telemetry().some((row) => row.tool === "narrate" && row.ok === true), "and the turn still closed");
+	assert.ok(table.telemetry().some((row) => row.tool === "output" && row.ok === true), "and the turn still closed");
 });
 
 test("a pending adaptation cannot block the pure registration its narration audit requires", async (t) => {
@@ -182,7 +182,7 @@ test("a pending adaptation cannot block the pure registration its narration audi
 		responses: [
 			fauxAssistantMessage([PREPARE], { stopReason: "toolUse" }),
 			fauxAssistantMessage([registration], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: delivered })], { stopReason: "toolUse" }),
 			fauxAssistantMessage(delivered),
 		],
 	});
@@ -209,9 +209,9 @@ test("a finished preparation is never described as still running", async (t) => 
 			FAKE_KERNEL_ADAPTATION_READY_ON_SECOND_STATUS: "1" },
 		responses: [
 			fauxAssistantMessage([PREPARE], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你在门口把外套抻平。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你在门口把外套抻平。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "roxbury-sanitarium" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你跨过门槛。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你跨过门槛。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -240,7 +240,7 @@ test("a delivery made under an adaptation wait carries the host's own notice, be
 		env: { FAKE_KERNEL_ADAPTATION_PENDING: "1", PI_COC_ADAPTATION_WAIT_MS: "0" },
 		responses: [
 			fauxAssistantMessage([PREPARE], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: delivered })], { stopReason: "toolUse" }),
 			fauxAssistantMessage(delivered),
 		],
 	});
@@ -273,7 +273,7 @@ test("a delivery made under a source-reading wait is the turn's answer: the noti
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "adventure-begins", question: "who holds the lamp" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: delivered })], { stopReason: "toolUse" }),
 			fauxAssistantMessage(delivered),
 		],
 	});
@@ -299,7 +299,7 @@ test("a preparation that landed before the player was told is not announced as s
 			FAKE_KERNEL_ADAPTATION_READY_ON_SECOND_STATUS: "1" },
 		responses: [
 			fauxAssistantMessage([PREPARE], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: delivered })], { stopReason: "toolUse" }),
 			fauxAssistantMessage(delivered),
 		],
 	});
@@ -327,7 +327,7 @@ test("a source reading that finished before the player was told is not announced
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "adventure-begins", question: "who holds the lamp" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: delivered })], { stopReason: "toolUse" }),
 			fauxAssistantMessage(delivered),
 		],
 	});
@@ -369,7 +369,7 @@ test("a preparation that landed is told to the player, not withheld as if there 
 			fauxAssistantMessage([PREPARE], { stopReason: "toolUse" }),
 			// Turn 93's own shape: the move the player asked for, refused by the wait the same turn made.
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "roxbury-sanitarium" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: delivered })], { stopReason: "toolUse" }),
 			fauxAssistantMessage(delivered),
 		],
 	});
@@ -407,7 +407,7 @@ test("a preparation that is gone is still withheld: the player hears about work,
 			FAKE_KERNEL_ADAPTATION_FAILED_ON_SECOND_STATUS: "1" },
 		responses: [
 			fauxAssistantMessage([PREPARE], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: delivered })], { stopReason: "toolUse" }),
 			fauxAssistantMessage(delivered),
 		],
 	});

@@ -85,7 +85,7 @@ test('§198.3 at the real entry: the opening run\'s capsule and the Keeper\'s lo
 	const reply = message => context => { requests.push(context); return message; };
 	const table = await openTable({realKernel: true, seedCampaign: false, campaign: CAMPAIGN, env: {EXT_JEV_APIKEY: 'test-jev-key'},
 		responses: [reply(fauxAssistantMessage([fauxToolCall('look', {})], {stopReason: 'toolUse'})),
-			reply(fauxAssistantMessage([fauxToolCall('narrate', {text: 'The captain knocks on the desk with his knuckles.'})], {stopReason: 'toolUse'}))],
+			reply(fauxAssistantMessage([fauxToolCall("output", {text: 'The captain knocks on the desk with his knuckles.'})], {stopReason: 'toolUse'}))],
 		prepareWorkspace: async workspace => { await prepareRoster(workspace); }});
 	t.after(() => table.dispose());
 	await waitForIdle(table.session, {timeoutMs: 60_000});

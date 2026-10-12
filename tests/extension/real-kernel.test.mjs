@@ -16,17 +16,17 @@ const CAMPAIGN = "haunting-seam";
 /** Whether the Keeper's narrate of `text` has a tool result in the session (SL-87: the waits below are on deliveries). */
 function narrated(session, text) {
 	const call = session.messages.flatMap((message) => message.role === "assistant" && Array.isArray(message.content) ? message.content : [])
-		.find((block) => block.type === "toolCall" && block.name === "narrate" && block.arguments?.text === text);
+		.find((block) => block.type === "toolCall" && block.name === "output" && block.arguments?.text === text);
 	return Boolean(call && session.messages.some((message) => message.role === "toolResult" && message.toolCallId === call.id));
 }
 
 test("a source wait closes without creating a story action menu", async t => {
 	const notice = "资料仍在准备，要继续等待还是暂停？";
 	const table = await openTable({ realKernel: true, campaign: "source-wait-seam", responses: [
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "委托人把文件放在桌上，等你开口。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "委托人把文件放在桌上，等你开口。" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Knott", question: "The original commission" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage(notice),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: notice })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: notice })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	// SL-87: waits on the opening's delivery and on turn 1's record, not on an idle heuristic. On a loaded box `waitForIdle`
@@ -54,7 +54,7 @@ test("真内核：开场与一个回合走通，收据、渲染、git 提交齐�
 			// 开桌那一轮：宿主消息触发，look 之后 narrate 开场。
 			fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
 			fauxAssistantMessage(
-				[fauxToolCall("narrate", { text: "1920 年的波士顿。诺特律师把一把钥匙放在桌上，房子在查珀尔街。\n\n他说前一家租户出了事。" })],
+				[fauxToolCall("output", { text: "1920 年的波士顿。诺特律师把一把钥匙放在桌上，房子在查珀尔街。\n\n他说前一家租户出了事。" })],
 				{ stopReason: "toolUse" },
 			),
 			fauxAssistantMessage(
@@ -76,7 +76,7 @@ test("真内核：开场与一个回合走通，收据、渲染、git 提交齐�
 			),
 			// The prose names no figure (§16.3, 2026-09-09): the roll reaches the player as a projection row.
 			fauxAssistantMessage(
-				[fauxToolCall("narrate", { text: "诺特抬起眼，手指在文件上停了一下。\n\n他说，市政厅和报社都有这栋房子的旧档。" })],
+				[fauxToolCall("output", { text: "诺特抬起眼，手指在文件上停了一下。\n\n他说，市政厅和报社都有这栋房子的旧档。" })],
 				{ stopReason: "toolUse" },
 			),
 		],
@@ -108,7 +108,7 @@ test("真内核：开场与一个回合走通，收据、渲染、git 提交齐�
 	// 交付就是内核 narrate 回的 `rendered_text`，一字节不差：扩展不往里插东西、也不剥东西
 	// （契约 §8、§16.1）。内核那边 `rendered_text` 就是守秘人的正文原样。
 	const narrateResult = table.session.messages
-		.filter((message) => message.role === "toolResult" && message.toolName === "narrate")
+		.filter((message) => message.role === "toolResult" && message.toolName === "output")
 		.map((message) => message.details)
 		.at(-1);
 	assert.ok(narrateResult?.rendered_text, "真内核的 narrate 回了 rendered_text");
@@ -139,12 +139,12 @@ test("a placed marker leaves the delivery and reaches the frontend on the projec
 	// 这条走真内核，因为要验的正是「内核铸的标记穿过扩展到达前端」这一段接缝，stub 验不了。
 	const table = await openTable({ realKernel: true, campaign: "marker-seam", responses: [
 		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("resolve", { action: {
 			intent: "investigate", goal: "看清他没说的事", method: "打量他的神色", skill: "Spot Hidden",
 		} })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "clue", clue: "clue-knott-research-leads", how: "他提到旧档" }] })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", {
+		fauxAssistantMessage([fauxToolCall("output", {
 			text: "你打量他的神色{{check:spot-hidden}}，他松口提起了市政厅的旧档{{clue:knott-research-leads}}。",
 		})], { stopReason: "toolUse" }),
 	] });
@@ -177,12 +177,12 @@ test("a source read that times out refuses only that material: the rest of the t
 	const campaign = "blocked-source-seam";
 	const table = await openTable({ realKernel: true, campaign, responses: [
 		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "the-ruins", question: "What waits at the ruins?" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("resolve", { action: {
 			intent: "investigate", goal: "看清诺特没说的事", method: "打量他的神色和手上的文件", skill: "Spot Hidden" } })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "clue", clue: "clue-knott-research-leads", how: "诺特提到可以去查档案" }] })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特抬起眼，手指在文件上停了一下。遗址那几页还在核读，他说不出更多。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "诺特抬起眼，手指在文件上停了一下。遗址那几页还在核读，他说不出更多。" })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
@@ -231,13 +231,13 @@ test("a source wait dies with its turn instead of owning the rest of the session
 	const campaign = "source-wait-lifetime";
 	const table = await openTable({ realKernel: true, campaign, responses: [
 		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "the-ruins", question: "What waits at the ruins?" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "遗址那几页还在核读。诺特还坐在你对面。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "遗址那几页还在核读。诺特还坐在你对面。" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "the-ruins", question: "What waits at the ruins?" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("resolve", { action: {
 			intent: "investigate", goal: "看清诺特没说的事", method: "打量他的神色", skill: "Spot Hidden" } })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "他的手指在文件边缘停住。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "他的手指在文件边缘停住。" })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await waitForIdle(table.session, { timeoutMs: 60_000 });

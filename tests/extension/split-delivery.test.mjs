@@ -25,11 +25,11 @@ import { assistantTexts, customMessages, openTable, toolResultTexts, waitForIdle
 
 /** The live shape: one message, two narrate calls, the second carrying the rest of the line. */
 const split = (first, second) =>
-	fauxAssistantMessage([fauxToolCall("narrate", { text: first }), fauxToolCall("narrate", { text: second })],
+	fauxAssistantMessage([fauxToolCall("output", { text: first }), fauxToolCall("output", { text: second })],
 		{ stopReason: "toolUse" });
 
 const whole = (text) => [
-	fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" }),
+	fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" }),
 	fauxAssistantMessage("Should never be consumed."),
 ];
 
@@ -87,7 +87,7 @@ test("a second split in the same turn delivers the first half and tells the play
 
 	const rows = session.telemetry();
 	// The first half landed and closed the turn; the continuation was blocked after close.
-	assert.ok(rows.some((row) => row.tool === "narrate" && row.event === "turn-closed"), JSON.stringify(rows));
+	assert.ok(rows.some((row) => row.tool === "output" && row.event === "turn-closed"), JSON.stringify(rows));
 	const blocked = rows.filter((row) => row.blocked_after_close);
 	assert.equal(blocked.length, 1, JSON.stringify(blocked));
 	assert.equal(blocked[0].delivery_cut_short, true, "the host already knew the refused call was a delivery");
@@ -107,7 +107,7 @@ test("a tool blocked after close that is not a delivery says nothing to the play
 	// delivery cut in half, and the player has nothing to be told about it.
 	const session = await openTable({
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅里落满灰。" }), fauxToolCall("look", { kind: "scene" })],
+			fauxAssistantMessage([fauxToolCall("output", { text: "门厅里落满灰。" }), fauxToolCall("look", { kind: "scene" })],
 				{ stopReason: "toolUse" }),
 			fauxAssistantMessage("Should never be consumed."),
 		],

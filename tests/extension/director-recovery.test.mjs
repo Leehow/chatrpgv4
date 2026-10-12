@@ -145,7 +145,7 @@ for (const example of [
 ]) test(`legacy recovery debt does not block first-attempt ${example.name}`, async (t) => {
   const table = await openTable({
     env: {FAKE_KERNEL_DIRECTOR: LEGACY_OWED},
-    responses: [fauxAssistantMessage([fauxToolCall('narrate', {text: example.text})], {stopReason: 'toolUse'})],
+    responses: [fauxAssistantMessage([fauxToolCall("output", {text: example.text})], {stopReason: 'toolUse'})],
   });
   t.after(() => table.dispose());
 

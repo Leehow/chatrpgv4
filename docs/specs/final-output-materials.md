@@ -1,13 +1,141 @@
 # 统一最终输出：素材与表达分离
 
-Status: ready-for-agent
+## 当前实施与验收记录（2026-10-12）
+
+集成检查点（最新覆盖先前 pending continuous-play 记述；保留负面证据）：已批准 split 在自有提交 d8f6581a5 实现，并入最新 main relay cccada1dc；功能补丁已接入主线 0.9.7a（本次集成提交），保留全部 39 个原有 dirty/untracked 文件与手工冲突工具描述。公共 narrate 可私有 prepare/check 且可重复；可选 output 仅选一 tool-enabled G45low author 与一次 accepted publication；OOC 直连可见；无 direct_reply；无 automatic writer。canonical private table.narrate/table.ask 拥有 publication/Git/memory。native18：repeat checks、single publish、optional output、OOC/mixed transport、source/privacy、failedGit/restart/stale。UI15 与 source guards9 通过。Linux final full all7 对 cccada1dc 已通过：扩展 5673 pass / 1 skip / 0 fail，Python 2141 pass / 2 skip，路由 12 pass；三路 exit=0，wall=1215s。主检出整合后的关键接口另行验证，原有未提交工作不计入本次提交。保留 all5 40fails、all6 3fails1skip；corrected3files rerun27pass；driver96pass。实玩 G45low 连续会话自然完成一次 asylum visit（turns20-23：登记/许可、女患者访谈含 NPC/time/clue receipts、玩家明确结束并返回）；Whole Haunting 仍可玩、未结束。OOC zero writer 已验证；mixed 直通道与 accepted story 分离可见。FrontKeeper 仅选 NPC/time effects 写 registry，object-document settlement 未建立——记为 limitation，不改邻系统。Outbound time360min vs return30 为 frontKeeper 参数连续性怪异，算术正确，非 author 算术改动证据。同材2case A/B 偏旧 baseline，无自然度优越证据。结构 coverage ≠ 语义 fidelity。无 push/package。证据：.coc/playtests/final-output-validation-20261012/linux-integrated-all-7.log 与 live final-output-continuous-20261012。
+
+## 历史交付检查点（最终记录见上）
+
+Status: implementation in progress；未完成；不得宣称 overall completion、ready、文笔/自然度改进或 scenario/ending 完成。
+
+保留已批准架构：公共 narrate 可重复 private prepare/check；output 为独立 OPTIONAL 有界 tool-enabled final author/publication；OOC 直连；无 direct_reply 参数/classifier/automatic writer。table.narrate / table.ask 仍为 publication owners；numeric resolve 与 transactions 不动。
+
+Native test seam：真实 Pi public hooks + 真实 TS kernel，显式 deterministic author/provider substitutes；不得称这些为 gameplay。feature18：repeated checks、one canonical output、OOCnoJev、pendingchoice、mixed reply transport、privacy、source aliases、invalid/stale/failedGit/restart。UI15 pass；source guards9 pass；foundation/reader31 pass；TSc/build pass。
+
+Linux 证据（非单一全绿 full-snapshot）：all6 snapshot 5671 extensiontests、5667 pass、3 fail +1 skipped；failure files：single-loop-looks-first-visit、markup-in-prose、provider-empty-responses。三文件已修正并同机 rerun：27pass0fail（.coc/playtests/final-output-validation-20261012/linux-split-all-6.log、linux-corrected-three.log）。保留 earlier all4 interrupted logs；all5 曾 40 fails；all6 曾 3 fails；原件保留。Python2141pass2skip；routing12pass；driver96pass after current source upload（linux-driver-final.log）。Test adapter：既有 trusted runtime adapter 用于 final author 并在 owned 时 reserve/settle budget；其他 readers 保留原行为与 extension order。Runtime writer 仅限 read/write/edit/bash 于 approved packet/draft/checker；expectedG45low validated。Factinput：既有 public mechanics projection；hidden die/grade withheld；names masked；cache 绑定 writerpolicy 与 constraints。Structural coverage ≠ semantic proof。
+
+Real campaign final-output-live-20261012：turn15 pureOOC zero tools/writer clock53unchanged；turn16 mixed failed OOCinartifact retained；turn18 front 分离 OOC 但 driver 丢失 earlier reply；以既有 visible coc-delivery reference_reply:true hostmetadata 修复，无 tool argument 或 world promotion；turn19 reply 分开展示，recorded artifact excludes OOC，accepted storyone 但 Keeper 在两帧步骤重复 confirmation。Prompt 收紧：needed reads 后一次完整 OOC 作答，retries 不重复；overlapping material claims 可共享一句/coverage quote，避免 NPC speech 冗余叙事摘要。连续实玩已两度 settled 场景转换至 Knott's office 再至 asylum（registration/permission）；最新 NPC 对话仍进行中——不宣称结局完成。KP 对 incidental registry writing 仅选 NPC/time effects；记为 front Keeper logic/provenance gap，非 object-document settlement。同模 2-case A/B 偏 baseline，不建立优越性/自然度改进声称。
+
+Worktree final-output-materials-20261012 on codex/final-output-materials-20261012 base afc44ce14；main 0.9.7 a8adf66266 dirty overlapping paths 与 active pytest performance task。无 main integration/push/package。剩余：realplay natural ending/trueblock、review+commit owned changes、ownership safe 时 latest main integration、final lifecycle audit/classification。无 new spec scope 或 permissions；不把 implementation status 混入 game prompts。
+
+## 真实混合回合的失败与修正（历史检查点）
+
+Status: implementation in progress；未完成；不得宣称完成、ready、或文笔/自然度/mixed separation 改进。
+
+保留既有分离：公共 narrate 可重复 private prepare/check；output 为独立 OPTIONAL 有界 tool-enabled final author/publication；无 automatic output；OOC 直连；无 direct_reply；无 new classifier。table.narrate / table.ask 仍为 publication owners；numeric resolve 与 transactions 不动。
+
+最新 real-host 验收纪要（final-output-live-20261012）：turn15 pure OOC zero tools、无 author、clock53 不变、只展示一次——接受。turn16 mixed FAILED：optional material 的 ooc_confirm 进入 writer 并留在 artifact。重复 output 尝试含 absent-artifact/error，与唯一 canonical publication 分开计数。turn17 实进展落地两次场景转换（含 30min）与 NPC Knott 回复；canonical speech/receipt 检查仍 pending。不得声称 mixed separation 或 naturalness 已成功。更早同材 2-case diagnostic 仍偏好 baseline；不作优越性声称。
+
+校验快照：Core72pass 与 UI15pass；TS typecheck/buildpass；Linux all4 interrupted（logs preserved）因旧 controlled writer/budget override fixture 不受支持。新 deterministic test providers 使用既有 runtime adapter 与 reserve/settle budget；never live evidence。All5 running，not all green；primary 仍 dirty 且 unintegrated。Source empty optional embedded material logging 曾错误引用 out-of-scope publicName；已改为 registered tool name，targeted retest pending。
+
+权威边界（pure-fiction first）：每个 delivery row 与 presentation 排除 rules、OOC 与 tool/process explanation；mixed 回复在 calls 旁发射封闭 {{ooc}}...{{/ooc}}。若 optional OOC material 漏入，author 省略它/coverage；若 required 则 stop、不产 artifact。Presentation/expression guidance 不得覆盖此边界。Full player input 仅 reference context，不是 artifact 内回答 OOC 的指令。Proposal 措辞非绑定：author 应将 notes 重写为自然 narrative/spoken sentences，保留 assertions、uncertainty、speaker、audience 与 stance；允许 combine/split/rephrase；无供给材料时仍禁止添加 gestures/actions/emotions/facts。
+
+本修正为对已批准 split 的窄修正；无 new stages、interface arguments、semantic regex/gates 或 extra worker/LLM lane。失败证据保留；需 fresh validation；不标记 completed。
+
+## 当前实现补充（验收进行中）
+
+Status: implementation in progress；未完成；不得宣称完成或文笔改进。
+
+保留既有分离：公共 narrate 可重复 private prepare/check；output 为独立 OPTIONAL 有界 tool-enabled final author；无 automatic output；无 direct_reply。table.narrate / table.ask 仍为 publication owners；numeric resolve 与 transactions 不动。
+
+用户期望正常 OOC 直连对话、zero author。现行代码经 private table.reference.answer 暴露独立 intentional assistant answers；记录 reference frame，不把 world facts/NPC knowledge 提升；即使 optional Jev scope score 未配置仍可见。既有 task guard 适用；coc:reference-answer 关闭既有 read-task lifecycle。
+
+与工具调用并列的 mixed OOC 使用显式封闭 {{ooc}}...{{/ooc}} transport span，暴露不依赖任何 system_request score 阈值。独立 optional Jev scores 仅 advisory；无新 classifier 或 direct_reply。前端须将 OOC 排除出 story material。
+
+权威补充：Electron live-prose 默认无 argument previews，故 narrate/apply/ask/output 的 private text fields 永不作为 player prose 流式展示；仅 accepted output artifact 或 intentional assistant direct response 可见。Grammar utility 保留显式 opt-in legacy fields 供 unit tests，无 production bypass。
+
+校验进行中（非全绿）：native feature16passed，core49passed，UI15passed；较早 Linux all3 Python2140pass2skip 与 loop12pass；extension158fail out5669 主要为过时 terminal fixtures 待迁移与实际 guard 核实。同模 2-case A/B 未显示 prose 优势。旧失败对当前 split 仍作 invalid-for-current-split acceptance 保留。实测曾见 G45low split check/output story 一次选用与 direct pureOOC zero tools；duplicate-backstop 修复仍待最新 live verification。尚无 deployment/package/push/main integration；dirty primary checkout 保留。
+
+
+## Current approved amendment: narrate 准备/校验 与 output 最终写出分离
+
+Status: ready-for-agent（设计稳定） / **implementation in progress**（实现进行中，未完成）
+Date: 2026-10-12
+Baseline: 延续 final-output-materials；**Latest user supersedes earlier design**（八动词拆分）。
+Kernel: `kernel-ts` only；同一 real-Pi-host / real-TS-kernel / highest seam（已批准，不再请求确认）。
+Active worktree: `codex/final-output-materials-20261012`；main dirty untouched；no push/package。
+Implementation remains in progress；Old Mac Python2141pass1skip；old extension full interrupted for interface change；**no new all-green**；不得宣称完成或文笔/自然度改进。
+
+**Owner superseding decision（无需再确认）：**
+- 准备/校验可重复；**最终输出是独立的 OPTIONAL 工具**。
+- OOC 回复直接可见；**NO `direct_reply` argument**；不新增分类器。
+- 公共 `narrate({delivery})`：**只**校验/准备当前材料计划——不写 prose、不发布、不关回合、不做 Git commit、不做 memory promotion、不启动 writer。可重复调用；最新通过校验的计划可再修订。
+- 新公共 `output({delivery?, text?, choice?, quotes?, workpad_patch?})`：**唯一**显式选用有界 tool-enabled final writer 的入口。省略 `delivery` 则使用当前输入下最后一次校验通过的计划；显式 `delivery` 可走内部 check，**无强制先 check 序列**。
+- `text` 仅为 **legacy untrusted material**，**始终**经 writer；**绝不**直接发布。
+- `choice` 可将既有封闭 mechanics `{kind:mechanics, options, binds?}` 转入既有 durable ask owner；**无** prompt/story choice menus。
+- `output` 生成**一件** accepted artifact 并 **publish once**；writer 失败重试复用 valid artifact；**check many ≠ public prose many**。
+- 既有 private `table.narrate` / `table.ask` 仍为 canonical publication / Git / choice / memory owners。
+- `apply` 的 delivery 与 legacy narrate：仅在 effects **之后** prepare/check；**NEVER** 自动 launch writer/publish。
+- `ask` 可暴露既有 mechanics controls；任何携带 text 为 prepared material，**不是** player prose。
+- 既有 `resolve`/`apply` 算术与事务不变。
+- **八个公共动词**：`look`, `lookup`, `recall`, `resolve`, `apply`, `ask`, `narrate`, `output`——**不要**用重载假装仍是七个。
+- Pure OOC：直接可见，zero writer，无隐式故事发布。Mixed OOC：与工具调用并列直接可见（既有显式 `{{ooc}}` framing 可接受；**NO** special tool argument）；仅被选中的故事走 `output`。
+- Internal materials/tool chatter 保持 private。
+- 整协议：**不得**再走旧 implicit prose fallback；**NEVER auto-call output**。纯世界观助手 prose **不得**无 `output` 而自动发布。
+- 先前 narrate-writer / apply-writer / ask-writer 规格与证据为 **HISTORICAL**，对当前 split acceptance **无效**。
+
+## 失效的旧方案要点
+
+- 「演进 `narrate({delivery})` 作为首选故事 prose 接口、不新增第八动词」→ **作废**。
+- narrate/apply/ask 终端自动进入 writer/publish → **作废**。
+- 任何 finish/message_end 隐式 final stage → **作废**。
+
+## 行为合同（规范叙述）
+
+1. **narrate（可重复材料 check）**：对 `delivery` 做 validate/prepare；更新「当前已 check 计划」；零 effects 发布；零 Git；零 memory promotion；零 writer。
+2. **output（可选最终写出）**：显式选用时才组装/冻结 packet（若需）、调用共享 writer、一件产物、一次发布；宿主不得隐式代调。
+3. **apply 后路径**：effects 提交后，delivery/legacy 仅 prepare/check；发布仍等后续 `output`。
+4. **ask**：mechanics 控件与 durable ask owner 不变；story 前言材料不经 ask 直接成为玩家可读 prose。
+5. **OOC**：pure 直接可见；mixed 与 calls 并列可见；不进入 story materials。
+6. **权威所有者不变**：table.narrate/table.ask、收据、Mod、NPC 归因、记忆候选所有者；expression Mods 仅在选用 writer 的一次写作阶段纳入。
+
+## User stories（续 38）
+
+**US-38** 作为 Keeper，我可以多次调用 `narrate({delivery})` 只做材料计划校验/准备并修订最新计划，且不产生任何对玩家可见 prose、Git commit 或 memory promotion。
+
+**US-39** 作为 Keeper，我在需要故事成稿时显式调用 `output`；可省略 `delivery` 以复用最后一次 check 通过的计划，或带显式 `delivery` 经内部 check 后写出；无强制 check 前置序列。
+
+**US-40** 作为宿主，`output` 只生成一件 accepted artifact 并发布一次；writer 失败重试时复用已 valid artifact；多次 check ≠ 多次公开 prose。
+
+**US-41** 作为 Keeper，纯 OOC 规则/玩法/澄清以直接可见文本回复，零 writer、零 `output`；不引入 `direct_reply` 参数或新分类器。
+
+**US-42** 作为 Keeper，mixed 回合中 `{{ooc}}...{{/ooc}}`（或既有等价 framing）与工具调用并列直接可见；仅故事路径经 `output`；OOC 从不进入 writer materials。
+
+**US-43** 作为宿主，`apply` 后 delivery/legacy narrate 只 prepare/check，绝不自动 writer/publish；`output` 永不被 finish/message_end 自动调用；无旧 implicit prose fallback。
+
+**US-44** 作为协议维护者，公共动词表为八：`look|lookup|recall|resolve|apply|ask|narrate|output`；private `table.narrate`/`table.ask` 仍为 publication/Git/choice/memory 权威；`text` legacy 始终经 writer。
+
+**US-45** 作为验收者，测试：重复 check 零 effects/publication → 一次 `output`；可选无 check 的 `output`；pure OOC；mixed；failed writer 复用；canonical memory 路径。旧 narrate-writer 证据不计入通过。
+
+## 外部对照（记录，非证明）
+
+- Anthropic *Building effective agents*：支持聚焦工具边界；**无**本 split 的质量证明。
+- xAI function calling：允许多次调用；**host must own one durable publication**。
+- Same-model A/B 两案：**未**显示 new author naturalness superiority。
+- **No improvement claim。**
+
+## Non-goals（本修正）
+
+- 不宣称实现完成、全绿、或 prose 更优。
+- 不新增 `direct_reply`、不新增常驻分类器、不新增 story choice menu。
+- 不把 table.narrate/ask 权威挪给 public narrate。
+- 不自动 output。
+
+
+The material, provenance, privacy, confinement, artifact, canonical receipt and memory requirements below remain binding; the earlier tool selection/publication routing is superseded by this amendment.
+
+## Previous design and implementation evidence — historical routing
+
+
+Status: ready-for-agent（设计稳定） / **implementation in progress**（实现进行中，未完成）
 
 Date: 2026-10-12
 Baseline branch: `0.9.7a`
 Kernel: `kernel-ts` only
 Model assumption for writer: Grok Build / grok-4.5 low（实现时报告实际模型；本规格不授权 Astra）
+Active worktree: `codex/final-output-materials-20261012` from `afc44ce14`
 
-设计与最高测试接口已由用户于 2026-10-12 确认。规格可进入实施；实现与验收均未运行。
+设计与最高测试接口已由用户于 2026-10-12 确认。规格设计状态保持 ready-for-agent；**实现在独立 worktree 进行中，尚未最终成功，不得宣称全部绿灯或产品完成。**
 
 **Owner amendment 2026-10-12（用户显式更正，无需再确认）：** 最终输出能力是**智能体在需要实现故事材料时主动选用的工具**，不是写死在流程末段的强制阶段，也不是覆盖一切助手文本的万能中间件。玩家中途的超游/OOC 询问（规则、玩法、系统、叙述澄清）由 Keeper **直接回复**，**不必**也不应仅为作答去调用本工具。「单一写作者 / 一件 prose 产物」约束适用于**一次已选用的 final-output 任务之内**，不是整段会话的每一句回复。不新增常驻语义分类器，也不靠 keyword/regex 强制路由；既有 interaction-scope 语义与 Keeper 判断可辅助是否选用工具。世界观内虚构仍服从既有收据与权威；仅贴 OOC 标签不能洗白未执行效果或秘密知识。
 
@@ -354,7 +482,7 @@ prepare → frozen writing attempt → ready artifact → existing durable publi
 
 ### 状态与 gate
 
-Status: ready-for-agent。用户已确认最高测试接口及单独的文笔验收方法；2026-10-12 owner 更正：final-output 为 agent 选用工具，OOC 直接车道保留。实现与验收未运行。契约修订是同一 feature 的实现前置文档义务；本文件不修改当前脏契约。
+Status: ready-for-agent（设计）+ **implementation in progress**（实现）。用户已确认最高测试接口及单独的文笔验收方法；2026-10-12 owner 更正：final-output 为 agent 选用工具，OOC 直接车道保留。契约 §233 已落盘并追加 implementation decisions；主 checkout 在重叠 host/kernel/contract 路径仍脏——**本 worktree 不吸收、不改主 checkout。** 无 runtime app packaging / push 授权。无最终 task success。
 
 ### 外部对照（原则借用，非框架移植；无实测收益声称）
 
@@ -387,3 +515,113 @@ Status: ready-for-agent。用户已确认最高测试接口及单独的文笔验
 ### 经验未知
 
 文笔质量与端到端性能、成本仍须实测；规格不预设改善。测试接口确认不代表产品已经完成或验收通过。
+
+
+## Implementation Record（2026-10-12；durable plan — active implementation, not complete）
+
+**状态：** **implementation in progress**。设计规格仍为 ready-for-agent（稳定）。契约 §233 已在写码前落盘并追加 source implications（§233.9）。独立 worktree `codex/final-output-materials-20261012` @ `afc44ce14`。**无最终 task success**；不得用成功声称覆盖下列红灯/失败证据。
+
+### 实现指针（记录用；不改变设计正文）
+
+- Host owner / writer entry：`extensions/kernel/final-output.ts`（inventory：`write` → `runtime.runTask`，app-play-gated driver）
+- Artifact / 校验辅助：`runtime/final-output-artifact.ts`
+- 相关接线：`extensions/kernel/index.ts`、`extensions/kernel/tools.ts`、`kernel-ts/handlers.ts`、`kernel-ts/write/index.ts`、`kernel-ts/memory/jobs.ts`、`extensions/memory/index.ts`、`runtime/tasks.ts`、`runtime/jev/interaction-scope.ts`、module reader 上下文
+- 控制流 inventory：`docs/specs/pi-native-single-loop-tickets/inventory-SL-00.json` / `.md`（新增 selected final-output host owner 一行）
+- 契约：`docs/kernel-rpc.md` §233（含 §233.9 Implementation decisions）
+
+### 执行计划（保留为唯一 durable plan）
+
+| 步骤 | 内容 | 状态 |
+|------|------|------|
+| 0 | 契约 → 批准规格写入 `docs/kernel-rpc.md` §233（写码前） | **已做**；§233.9 追加当前源含义 |
+| 1 | 源检 / 形状对照（DeliveryPlan v1 / Artifact v1 / writer 禁闭 / OOC 旁路） | **进行中**（worktree 已有实现草稿；主 checkout 重叠脏路径未吸收） |
+| 2 | vertical / 本地 real-Pi-host + real TS-kernel 路径 | **先前快照部分通过（3 paths）**：显式 selected writer → canonical record/Git + memory job evidence / private omission；pure OOC direct（zero final writer / zero world change）；apply-carried final writing + one-time receipt。**非**全部完成 |
+| 2b | Guard boundary | **先前快照 19 tests passed**（含 final packet/draft-only access、symlink/parent、immutable checker/command injection） |
+| 2c | Typecheck kernel | **先前快照 passed** |
+| 3 | ask evidence | **目前红**：outdated Mac emitted bundle；source wiring 已加，**next LAN build/fetch pending**。**不得声称 ask 绿灯** |
+| 4 | LAN focused（先前快照） | **ext 3673/3680 pass**；**7 failures in 5 files**（保留，不标全绿）：long-campaign-context ×3 request-byte overshoots；text-tool-call empty narrate accepted；supportlookup packet invalid extra property；kernel vocabulary oracle expected-new-method list；new controlflow owner missing inventory。Python 2140 pass / 2 skip；routing loop 12 pass；exit 1，629s |
+| 4b | 已做/进行中的修复方向 | 减少 duplicate delivery tool schema；anyOf requires text/delivery（text-tool-call 27 local now pass）；don't decorate closed keeper_support；register TS-only new reference-answer method without touching frozen oracle；**register new owner now**（本 documentation 更新 inventory） |
+| 5 | Next | 校验上述 failures + current feature tests → focused/all as necessary → independent code review → **actual canonical driver play + same-material quality evidence** → scoped commit/integration + lifecycle audit |
+| 6 | packaging / push / 主 checkout 吸收 | **未授权 / 不做** |
+
+### 目标与范围
+
+- **目标：** 故事材料选用时，前置语义与素材准备与最终措辞 realization 分离；单一有界 Pi writer；既有 terminal/memory/Git 权威不变；OOC 直接车道保留。
+- **范围：** 可选 `narrate({delivery})` / `ask({...,delivery})`；apply 仅在 effects 成功且显式携带 delivery 后调用；DeliveryPlan v1；Artifact v1 + UTF-16 coverage；host 组装/冻结/校验；keeper-only 永不入 writer；source 仅绑本轮已签发名。
+- **非范围：** 强制 loop-end writer、新常驻语义分类器/keyword 路由、嵌套 kernel、任意 shell、调用方可信 metadata 注入、语义正则保真证明、文笔已改善声称、runtime packaging/push。
+
+### 基线所有权
+
+- 世界算术/事务：kernel resolve/apply
+- 材料组装/冻结/陈旧/收据：Delivery Material Host（selected final-output host owner）
+- 措辞 realization：Final Writer（无语义添加）
+- 发布/Git：既有 terminal write + ADR 0001
+- ask 待选：既有 durable choice/pending
+- 事实与承诺晋升：既有 memory 归因（可消费 delivery evidence，不可 promote）
+- 生产代码权威：`kernel-ts` only；实现仅在本 worktree；**主 checkout 保持脏且不修改/不吸收**
+
+### §233.9 源含义摘要（详见契约英文）
+
+- private `table.reference.answer`：既有 reference-record 权威，**不**调 final writer
+- host-call source metadata：仅语义名，无 hashes
+- packet play language：实际 campaign projection
+- 显式 Mod adapter：narration-craft / zh-optimize / npc-voice；active revisions / disabled 行为不变
+- serialized v7 advice：verified inclusion 才转发，world mutation 后丢弃
+- memory：可消费 delivery evidence，不可 promote
+- structural coverage：UTF-16 writer-artifact-text 坐标；保留 exact artifact text（marker/name 渲染可能改变 player-facing offsets）；**无语义证明**
+
+### 明确非声称
+
+- **无**最终 task success；**无**全部测试绿灯；**无** ask 绿灯；**无** quality/latency 改善证明
+- **无** packaging / push / 安装 App 验收；**无**主 checkout 合并
+- 不得把先前快照的局部通过写成当前全面成功；保留 LAN 7 failures 与 ask-red 证据
+
+
+---
+
+（2026-10-12 文档追加 — 仅状态与门闩；不改写上文设计正文）
+
+**状态：implementation in progress（进行中，非完成）。** 无最终 task success；无 packaging / push / merge / commit；主 checkout 重叠脏路径**未**修改、**未**吸收。
+
+### 历史失败证据（保留，不得抹绿）
+
+- **LAN all1 / all2：失败并保留**（不得标全绿）。
+- **LAN all3：transfer disconnected**（保留）。
+- **probe：none**；用户要求走 **Mac**。
+- 早期 ask 曾因 outdated Mac emitted bundle 红灯（见上文快照）；**不得**用局部通过覆盖历史红灯叙述。
+- 初始 **pytest 默认 Node 失败**；已改为 **Node24** 正确跑法（进行中记录）。
+- **Turn6** attention/gaze 超出 materials 的添加 = **保真失败**（证据保留）。
+- **Mixed8**：OOC 被误纳入 materials = **失败分区证据**（保留）。
+- 先前 LAN focused 快照 **7 failures in 5 files** 等历史条目仍保留在上文，不删除、不改写为通过。
+
+### 当前已核验进展（worktree / Mac；非主仓合并）
+
+- **selected ask：rebuild 后现已通过**（仅该门；非全面成功声称）。
+- **focused Mac：59/59**。
+- **restarted cache/stale tests：2/2**。
+- **kernel typecheck：passed**。
+- **full ext / Python：仍在跑**（未完成，不得预支绿灯）。
+- Real **G45low** driver `final-output-live-20261012`：**selected writer** 已发布 turn **5、6、8、9**，并写 **canonical Git**。
+- **Pure OOC7**：**zero tools / zero writer**，clock **unchanged**。
+- **Turn9** required-material 对比：无实质性新增命题。
+- 同材料 **A/B 两案已生成**；**无** quality improvement 声称。
+- Budgeted **source alias** 上下文：**tool returns 不变**；**receipts alias canonical**。
+
+### 保真与守卫（文档约束追加）
+
+- 更严 writer：**禁止**轻微发明行为（turn6 类 fidelity failure 不得再现）。
+- writer 指令：**排除**误入的 OOC material；若 required 场景无法排除则 **stop**。
+- Mixed OOC **不得**进入 story materials（见 keeper / 契约追加）。
+- **无**新 classifier / **无** forced stage。
+
+### 剩余门闩（未完成）
+
+1. full ext / Python 跑完并如实记录；LAN all* 历史失败仍在册。
+2. 其余 failure 校验 + 必要 focused/all（不预支）。
+3. independent code review。
+4. 更多 canonical driver play 与 same-material 证据（**不**声称文笔/质量提升）。
+5. 按实现 skill 在任务分支 scoped commit；主 checkout 安全整合另待所有权确认；lifecycle audit；**当前未授权** package/push/主 checkout 吸收。
+
+### 实现指针
+
+仍以独立 worktree 与既有 host owner / artifact / §233 为准；本追加只更新状态与门闩，不改变设计范围或非范围。

@@ -178,7 +178,7 @@ for (const skills of [['Listen'], ['Listen', 'Spot Hidden']]) test(`the agent co
       } finally { await kernel.close(); }
     },
     extraExtensions: [{name: 'check-selection-engine', factory: engine.extension}],
-    responses: [fauxAssistantMessage([fauxToolCall('narrate', {text: 'You pause near the door and listen carefully before deciding where to go next.'})], {stopReason: 'toolUse'})]});
+    responses: [fauxAssistantMessage([fauxToolCall("output", {text: 'You pause near the door and listen carefully before deciding where to go next.'})], {stopReason: 'toolUse'})]});
   t.after(() => table.dispose());
   await table.session.prompt(skills.length === 1 ? 'I listen carefully by the office door.' : 'I listen carefully by the office door, then inspect the floor for traces.');
   const telemetry = table.telemetry();

@@ -188,7 +188,7 @@ test('normal streamed text reaches canonical delivery once without normalization
   assert.equal(requests(), 2);
   assert.equal(runEnd(events).status, 'delivered');
   assert.equal(applies(table).length, 1);
-  assert.equal(table.kernelRequests().filter(row => row.method === 'table.narrate').length, 1);
+  assert.equal(table.kernelRequests().filter(row => row.method === 'table.reference.answer').length, 1);
   assert.equal(table.session.messages.findLast(row => row.role === 'assistant').content.find(row => row.type === 'text').text, PROSE);
   assert.equal(table.telemetry().filter(row => row.lane === 'provider-normalization').length, 0);
 });
@@ -201,7 +201,7 @@ test('normally normalized Responses text tool calls survive restoration and exec
   assert.equal(applies(table).length, 1, 'the existing restoration must preserve the valid tool proposal');
   assert.equal(requests(), 2);
   assert.equal(runEnd(events).status, 'delivered');
-  assert.equal(table.kernelRequests().filter(row => row.method === 'table.narrate').length, 1);
+  assert.equal(table.kernelRequests().filter(row => row.method === 'table.reference.answer').length, 1);
   assert.equal(table.telemetry().filter(row => row.lane === 'provider-normalization').length, 0);
   assert.deepEqual(table.telemetry().filter(row => row.lane === 'model-output' && row.event === 'textual_tool_calls')
     .flatMap(row => row.restored), ['apply']);

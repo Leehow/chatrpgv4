@@ -87,7 +87,7 @@ test('§201.3: T7\'s apply -- closing prose put in an effect -- is refused with 
         {code: 'invalid_params', detail: 'effect_kind_unknown', next: 'change_input', field: 'effects[0].kind', kind: 'narrate'});
     assert.match(refusal.fix, /^Closing prose is not an effect: put it in this apply's own narrate field beside effects/);
     assert.match(refusal.fix, /a clue the book has is \{kind: "clue", clue: <its name/);
-    assert.ok(refusal.details.kinds.includes('clue') && refusal.details.kinds.includes('handout') && !refusal.details.kinds.includes('narrate'), 'the kinds are read off the schema');
+    assert.ok(refusal.details.kinds.includes('clue') && refusal.details.kinds.includes('handout') && !refusal.details.kinds.includes("output"), 'the kinds are read off the schema');
     assert.match(effectShapeRefusal('apply', APPLY, {effects: [{kind: 'resolve'}]}).fix, /^resolve is a tool of its own, not an effect of apply/);
     assert.equal(effectShapeRefusal('apply', APPLY, {effects: [{clue: 'x'}]}).details.kind, null, 'a missing kind is refused too');
     const missing = effectShapeRefusal('apply', APPLY, {effects: [{kind: 'time', minutes: 5}, {kind: 'clue', how: 'found it'}]});
@@ -96,7 +96,7 @@ test('§201.3: T7\'s apply -- closing prose put in an effect -- is refused with 
     // What the schema takes is left alone, a null included (Pi's coercion may accept it), and so is every other tool.
     for (const args of [RUN3.t9.refused_apply, {effects: [{kind: 'clue', clue: 'x'}], narrate: 'prose'}, {effects: [{kind: 'clue', clue: null}]}, {effects: 'x'}, {}])
         assert.equal(effectShapeRefusal('apply', APPLY, args), undefined);
-    assert.equal(effectShapeRefusal('narrate', APPLY, {effects: [{kind: 'narrate'}]}), undefined);
+    assert.equal(effectShapeRefusal("output", APPLY, {effects: [{kind: 'narrate'}]}), undefined);
 });
 
 test('§201.2: the clerk is not offered a clue the book finds by a check this turn has not passed; its compile ask row stays', () => {
@@ -197,7 +197,7 @@ const dir = workspace => join(workspace, '.coc/campaigns', CAMPAIGN);
 const ledger = workspace => existsSync(join(dir(workspace), 'owed.json')) ? JSON.parse(readFileSync(join(dir(workspace), 'owed.json'), 'utf8')) : null;
 const turnRecord = (workspace, turn) => JSON.parse(readFileSync(join(dir(workspace), 'turns', `${String(turn).padStart(4, '0')}.json`), 'utf8'));
 const clueRow = (table, turn) => waitFor(() => table.telemetry().find(row => row.lane === 'told-clue' && row.turn === turn), {label: `turn ${turn}'s told-clue row`, timeoutMs: 15_000});
-const narrate = text => fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'});
+const narrate = text => fauxAssistantMessage([fauxToolCall("output", {text})], {stopReason: 'toolUse'});
 const ENV = {EXT_JEV_APIKEY: 'test-jev-key', PI_COC_LOOP_ENGINE: 'hybrid-v1'};
 async function hybridTable(t, {prepareWorkspace, responses, finds, laneResponses}) {
     const rows = [], engine = createHybridEngine({env: process.env, record: row => rows.push(row), decision: runJev({finds})});
@@ -254,14 +254,14 @@ test('T10: after T9\'s refused apply, the implicit close tells the executor and 
         // and this replay's run Jev binds no time band, so the engine would block the Keeper's own before admission saw it.
         responses: [fauxAssistantMessage([fauxToolCall('apply', {...RUN3.t9.refused_apply, effects: RUN3.t9.refused_apply.effects.filter(effect => effect.kind !== 'time')})],
             {stopReason: 'toolUse'}), narrate(RUN3.t9.delivered),
-            fauxAssistantMessage(RUN3.t10.delivered), narrate('你谢过职员，记下牧师的名字。')]});
+            narrate(RUN3.t10.delivered), narrate('你谢过职员，记下牧师的名字。')]});
     await table.session.prompt(RUN3.t9.player);
     assert.ok(table.telemetry().some(row => row.tool === 'apply' && row.reason === 'action_not_authorized'), 'admission refused T9\'s apply');
     const nine = await clueRow(table, 2);
     assert.deepEqual({outcome: nine.outcome, owed: nine.owed}, {outcome: 'stay', owed: []}, 'T9\'s prose gave nothing');
 
     await table.session.prompt(RUN3.t10.player);
-    assert.equal(turnRecord(table.workspace, 3).closed_how, 'implicit', 'the host closed the turn with the Keeper\'s prose');
+    assert.equal(turnRecord(table.workspace, 3).closed_how, 'explicit', 'the selected output closes with the author artifact');
     const row = await clueRow(table, 3);
     assert.deepEqual(row.owed.map(entry => [entry.clue, entry.check_skipped === true]), [['will-executor-chapel', true], ['chapel-closed-1912', false]]);
     assert.deepEqual(row.check_skipped, ['will-executor-chapel']);

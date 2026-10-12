@@ -102,7 +102,7 @@ const submits = async task => {
  */
 const settledThenDelivered = () => [
     fauxAssistantMessage([fauxToolCall('resolve', {action: {intent: 'investigate', goal: '看清崖上那盏灯', method: '用侦查盯住'}})], {stopReason: 'toolUse'}),
-    fauxAssistantMessage([fauxToolCall('narrate', {text: 'The turn the review never judged.'})], {stopReason: 'toolUse'}),
+    fauxAssistantMessage([fauxToolCall("output", {text: 'The turn the review never judged.'})], {stopReason: 'toolUse'}),
     fauxAssistantMessage('Should never be consumed.'),
 ];
 

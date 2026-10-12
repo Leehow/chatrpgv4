@@ -5,7 +5,7 @@ import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable, waitFor} from './harness.mjs';
 
 const look = () => fauxAssistantMessage([fauxToolCall('look', {focus: 'scene'})], {stopReason: 'toolUse'});
-const narrate = text => fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'});
+const narrate = text => fauxAssistantMessage([fauxToolCall("output", {text})], {stopReason: 'toolUse'});
 
 test('an input immediately after a delayed successful release carries no stale stranded flag', async t => {
 	const table = await openTable({env: {FAKE_KERNEL_RELEASE_REPLY_DELAY_MS: '1000'}, responses: [

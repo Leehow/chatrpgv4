@@ -17,7 +17,7 @@ import { openTable, waitFor } from "./harness.mjs";
 function keeperTurn(text) {
 	return [
 		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" }),
 		fauxAssistantMessage("守秘人在 narrate 之后又写的正文，应该被换掉"),
 	];
 }

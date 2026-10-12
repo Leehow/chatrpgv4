@@ -1764,7 +1764,7 @@ function applyFresh(view: RunView, fresh: Fresh): void {
     view.preparingAttacks = view.preparingAttacks?.filter(candidate => !keys.includes(candidate.key));
     view.consumed = view.consumed.filter(key => !keys.includes(key));
     view.unresolvedChecks = view.unresolvedChecks?.filter(entry => entry.preparation?.decision !== 'combat:attack');
-    view.pending = view.pending.filter(item => !item.call || !['narrate','ask'].includes(item.call.method));
+    view.pending = view.pending.filter(item => !item.call || !['output','ask'].includes(item.call.method));
     view.pending.unshift(...readyAttacks.flatMap(candidate => itemsFor(candidate, 'attack_prepared')));
   }
   const executable = (candidate: Candidate) => {

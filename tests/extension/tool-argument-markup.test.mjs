@@ -24,12 +24,12 @@ const PATCH = { focus: "the letter on the desk", upserts: [{ id: "q1", kind: "op
 const root = resolve(import.meta.dirname, "../..");
 
 test("§144: the argument's own closing tag is markup, and so is a swallowed parameter; clean text is not touched", () => {
-	const trailing = unwrapArgumentMarkup("narrate", schema("narrate"), { text: "{{say:扛包的汉子}}「雨停了我就走。」{{/say}}\n</text>\n" });
+	const trailing = unwrapArgumentMarkup("output", schema("output"), { text: "{{say:扛包的汉子}}「雨停了我就走。」{{/say}}\n</text>\n" });
 	assert.equal(trailing.ok, true);
 	assert.deepEqual(trailing.args, { text: "{{say:扛包的汉子}}「雨停了我就走。」{{/say}}" });
 	assert.deepEqual(trailing.repairs, [{ field: "text", recovered: [], kept: [] }]);
 
-	const swallowed = unwrapArgumentMarkup("narrate", schema("narrate"),
+	const swallowed = unwrapArgumentMarkup("output", schema("output"),
 		{ text: `指节压得发白。</text>\n<parameter name="workpad_patch">${JSON.stringify(PATCH)}`, using_skill: "keeper" });
 	assert.deepEqual(swallowed.args, { text: "指节压得发白。", workpad_patch: PATCH, using_skill: "keeper" });
 	assert.deepEqual(swallowed.repairs, [{ field: "text", recovered: ["workpad_patch"], kept: [] }]);
@@ -39,30 +39,30 @@ test("§144: the argument's own closing tag is markup, and so is a swallowed par
 	for (const text of [`指节压得发白。</text>\n<parameter name="workpad_patch">${JSON.stringify(PATCH)}</parameter>\n</invoke>`,
 		`指节压得发白。\n<parameter name="workpad_patch">${JSON.stringify(PATCH)}</parameter>`,
 		`指节压得发白。</text><workpad_patch>${JSON.stringify(PATCH)}</workpad_patch>`]) {
-		const result = unwrapArgumentMarkup("narrate", schema("narrate"), { text });
+		const result = unwrapArgumentMarkup("output", schema("output"), { text });
 		assert.deepEqual(result.args, { text: "指节压得发白。", workpad_patch: PATCH }, text);
 	}
 	// A value wrapped whole, in either spelling.
 	for (const text of ["<text>你推开门。</text>", '<parameter name="text">你推开门。</parameter>'])
-		assert.deepEqual(unwrapArgumentMarkup("narrate", schema("narrate"), { text }).args, { text: "你推开门。" });
+		assert.deepEqual(unwrapArgumentMarkup("output", schema("output"), { text }).args, { text: "你推开门。" });
 	// ask's text is repaired the same way: the rule reads the tool's own parameters, not a list of tools.
 	assert.deepEqual(unwrapArgumentMarkup("ask", schema("ask"), { kind: "mechanics", options: ["push", "accept"], text: "门没开。</text>" }).args,
 		{ kind: "mechanics", options: ["push", "accept"], text: "门没开。" });
 
 	// A parameter given as its own field wins over a copy swallowed into the text; the copy is reported, not used.
-	const kept = unwrapArgumentMarkup("narrate", schema("narrate"), { text: `a</text><workpad_patch>{"focus":"z"}</workpad_patch>`, workpad_patch: PATCH });
+	const kept = unwrapArgumentMarkup("output", schema("output"), { text: `a</text><workpad_patch>{"focus":"z"}</workpad_patch>`, workpad_patch: PATCH });
 	assert.deepEqual(kept.args, { text: "a", workpad_patch: PATCH });
 	assert.deepEqual(kept.repairs, [{ field: "text", recovered: [], kept: ["workpad_patch"] }]);
 
 	// Text with no markup of its own tool is the same object, even with other angle brackets in it.
 	const clean = { text: "你推开门，屋里没人。<b>门后</b>" };
-	const untouched = unwrapArgumentMarkup("narrate", schema("narrate"), clean);
+	const untouched = unwrapArgumentMarkup("output", schema("output"), clean);
 	assert.equal(untouched.args, clean);
 	assert.deepEqual(untouched.repairs, []);
 });
 
 test("§144: prose after the closing tag is refused with a fix, never dropped", () => {
-	const result = unwrapArgumentMarkup("narrate", schema("narrate"), { text: "他站起来。</text>然后他又说了一句。" });
+	const result = unwrapArgumentMarkup("output", schema("output"), { text: "他站起来。</text>然后他又说了一句。" });
 	assert.equal(result.ok, false);
 	assert.equal(result.refusal.code, "invalid_params");
 	assert.equal(result.refusal.code_detail, "argument_markup");
@@ -76,7 +76,7 @@ for (const engine of ["legacy", "hybrid-v1"]) {
 		const table = await openTable({
 			...(hybrid ? { runDriver: hybrid.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: hybrid.extension }], env: { PI_COC_LOOP_ENGINE: "hybrid-v1" } } : {}),
 			responses: [
-				fauxAssistantMessage([fauxToolCall("narrate", { text: "他把碗搁下。「雨停了我就走。」\n</text>\n" })], { stopReason: "toolUse" }),
+				fauxAssistantMessage([fauxToolCall("output", { text: "他把碗搁下。「雨停了我就走。」\n</text>\n" })], { stopReason: "toolUse" }),
 				fauxAssistantMessage("他把碗搁下。"),
 			],
 		});
@@ -86,7 +86,7 @@ for (const engine of ["legacy", "hybrid-v1"]) {
 		assert.equal(narrates.length, 1);
 		assert.equal(narrates[0].params.text, "他把碗搁下。「雨停了我就走。」");
 		const rows = table.telemetry().filter((row) => row.lane === "tool_arguments");
-		assert.deepEqual(rows.map((row) => [row.event, row.tool, row.repairs]), [["markup_unwrapped", "narrate", [{ field: "text", recovered: [], kept: [] }]]]);
+		assert.deepEqual(rows.map((row) => [row.event, row.tool, row.repairs]), [["markup_unwrapped", "output", [{ field: "text", recovered: [], kept: [] }]]]);
 	});
 }
 
@@ -95,7 +95,7 @@ test("§144: a workpad patch swallowed into the text is filed as the Keeper's pa
 	const leaked = `The letter sits where you left it.</text>\n<parameter name="workpad_patch">${JSON.stringify(PATCH)}`;
 	const table = await openTable({
 		campaign: "markup-live", realKernel: false, retainAt: directory, env: { FAKE_KERNEL_WORKSPACE: "1" },
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: leaked })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: leaked })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.session.prompt("I take the letter from the desk.");
@@ -121,17 +121,17 @@ test("§144: a workpad patch swallowed into the text is filed as the Keeper's pa
 test("§144: prose after </text> is refused before the kernel with the fix, and the resent call lands", async (t) => {
 	const table = await openTable({
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "他站起来。</text>然后他又说了一句。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "他站起来，又说了一句。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "他站起来。</text>然后他又说了一句。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "他站起来，又说了一句。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("他站起来，又说了一句。"),
 		],
 	});
 	t.after(() => table.dispose());
 	await table.session.prompt("我等着");
-	const results = table.session.messages.filter((message) => message.role === "toolResult" && message.toolName === "narrate");
+	const results = table.session.messages.filter((message) => message.role === "toolResult" && message.toolName === "output");
 	assert.equal(results[0].isError, true);
 	const text = results[0].content.map((block) => block.text ?? "").join("");
-	assert.match(text, /^invalid_params: narrate: text carries tool-call markup with text after it/);
+	assert.match(text, /^invalid_params: output: text carries tool-call markup with text after it/);
 	assert.match(text, /fix: Send text as its plain value only/);
 	const narrates = table.kernelRequests().filter((request) => request.method === "table.narrate");
 	assert.deepEqual(narrates.map((request) => request.params.text), ["他站起来，又说了一句。"], "only the resent call reached the kernel");

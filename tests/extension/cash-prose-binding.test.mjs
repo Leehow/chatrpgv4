@@ -43,17 +43,17 @@ test('legacy total-only bills bind their nominal price, never the zero coverage 
     assert.equal(bindPriceText('{{price:Fill-up:unit}}',[{kind:'cash',bill:'Fill-up',delta:0,purchase_amount:9}]).text,'\u2026');
 });
 test('a fully received bill binds while closing prose streams; partial decimals are held',()=>{
-    const live=new LiveDeliveryProse('prices');live.start(0,'apply');
+    const live=new LiveDeliveryProse('prices',{narrate:"text",ask:"text",apply:"narrate"});live.start(0,'apply');
     assert.equal(live.update(0,'{"effects":[{"kind":"cash","bill":"Fill-up","items":[{"quantity":10,"unit_price":0'),undefined);
     const prefix=JSON.stringify({effects:[expense]}).slice(0,-1)+',"narrate":"';
     const draw=live.update(0,prefix+template.replaceAll('"','\\"'));
     assert.equal(draw.text,expected);
     assert.equal(live.end(0,{effects:[expense],narrate:template}),undefined,'final arguments do not redraw identical bound prose');
-    const encoded=new LiveDeliveryProse('encoded');encoded.start(0,'apply');
+    const encoded=new LiveDeliveryProse('encoded',{narrate:"text",ask:"text",apply:"narrate"});encoded.start(0,'apply');
     assert.equal(encoded.end(0,JSON.stringify({effects:[expense],narrate:template})).text,expected);
 });
 test('prose-first offers show words before late price fields; completed fields fill the same draft without a quote RPC',()=>{
-    const live=new LiveDeliveryProse('offers');live.start(0,'narrate');
+    const live=new LiveDeliveryProse('offers',{narrate:"text",ask:"text",apply:"narrate"});live.start(0,'narrate');
     const text='The clerk greets you. Total {{price:Counter:total}}.';
     const first=live.update(0,'{"text":'+JSON.stringify(text).slice(0,-1));
     assert.equal(first.text,'The clerk greets you. Total \u2026.');

@@ -29,7 +29,7 @@ const allShown = (prose) => JSON.stringify({ items: [
 const thinVerdict = JSON.stringify({ items: [
 	{ key: "space", verdict: "missing" }, { key: "people", verdict: "missing" }, { key: "things", verdict: "shown", quote: "桌上摊着索引卡和剪报" },
 	{ key: "senses", verdict: "missing" }, { key: "period", verdict: "shown", quote: "仍有打字机声" }, { key: "hook", verdict: "missing" }] });
-const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
+const narrate = (text) => fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" });
 const calls = (table, method) => table.kernelRequests().filter((row) => row.method === method);
 const rows = (table, event) => table.telemetry().filter((row) => row.lane === "establish" && (!event || row.event === event));
 const toolErrors = (session) => session.messages.filter((m) => m.role === "toolResult" && m.isError)
@@ -92,7 +92,7 @@ test("a rich establishing draft goes straight out with its verdict; a turn that 
 test("the implicit close is checked too: a thin prose-only draft is held, the turn close steers once, and the next leg lands", async (t) => {
 	const table = await openTable({
 		env: { FAKE_KERNEL_ESTABLISH: JSON.stringify(VIEW) },
-		responses: [fauxAssistantMessage(THIN), fauxAssistantMessage(RICH)],
+		responses: [narrate(THIN), narrate(RICH)],
 		laneResponses: { establish: [fauxAssistantMessage(thinVerdict), fauxAssistantMessage(allShown(RICH))] },
 	});
 	t.after(() => table.dispose());
@@ -100,12 +100,12 @@ test("the implicit close is checked too: a thin prose-only draft is held, the tu
 	await waitForIdle(table.session);
 	const delivered = calls(table, "table.narrate");
 	assert.equal(delivered.length, 1);
-	assert.equal(delivered[0].params.implicit, true);
+	assert.equal(delivered[0].params.implicit, undefined);
 	assert.equal(delivered[0].params.text, RICH, "the steered leg is what the player got");
 	assert.equal(delivered[0].params.establish_review.status, "steered");
 	const steer = table.session.messages.filter((m) => m.role === "custom" && m.customType === "coc-host").map((m) => String(m.content)).join("\n");
-	assert.match(steer, /does not yet establish: space: the space itself/, "the turn close carried the fix");
-	assert.ok(table.telemetry().some((row) => row.lane === "delivery" && row.reason === "establish_thin"), "the held draft's drop is on the record");
+	assert.equal(steer, "", "the explicit final tool returns the advisory refusal directly; no implicit draft is adopted");
+	assert.ok(table.telemetry().some(row=>row.tool==="output"&&row.ok===false&&row.code==="needs"), "the private first artifact was refused before accepted publication");
 });
 
 test("an unavailable review delivers the draft as written and says why; an unanchored quote counts as missing", async (t) => {

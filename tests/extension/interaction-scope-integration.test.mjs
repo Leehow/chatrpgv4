@@ -33,7 +33,7 @@ for (const variant of ['implicit', 'explicit', 'mutation']) test(`reference scop
   const engine = createHybridEngine({env: {...process.env, PI_COC_JEV_PRESELECT: '0'}, decision, npcAct: null});
   let beforeWorld, beforeLedger;
   const delivery = variant === 'explicit'
-    ? fauxAssistantMessage([fauxToolCall('narrate', {text: answer})], {stopReason: 'toolUse'}) : fauxAssistantMessage(answer);
+    ? fauxAssistantMessage("{{ooc}}" + answer + "{{/ooc}}") : fauxAssistantMessage(answer);
   const responses = variant === 'mutation' ? [fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'time', minutes: 94, why: 'Researching archives'}]})], {stopReason: 'toolUse'}), delivery] : [delivery];
   const table = await openTable({realKernel: true, env: {PI_COC_LOOP_ENGINE: 'hybrid-v1'}, runDriver: engine.runDriver,
     extraExtensions: [{name: 'scope-engine', factory: engine.extension}], responses,
@@ -83,7 +83,7 @@ for (const [variant, port, why] of [['no Jev credential', null, 'jev_unanswered'
   const prose = 'Knott glances at the clock. "The Globe keeps its clippings by subject," he says, and slides the office key across the desk.';
   const table = await openTable({realKernel: true, env: {PI_COC_LOOP_ENGINE: 'hybrid-v1'}, runDriver: engine.runDriver,
     extraExtensions: [{name: 'scope-engine', factory: engine.extension}],
-    responses: [context => { requests.push(context); return fauxAssistantMessage([fauxToolCall('narrate', {text: prose})], {stopReason: 'toolUse'}); }],
+    responses: [context => { requests.push(context); return fauxAssistantMessage([fauxToolCall("output", {text: prose})], {stopReason: 'toolUse'}); }],
     prepareWorkspace: workspace => rpc(workspace, [['table.open', {}], ['table.player_input', {text: 'I wait in the office.'}],
       ['table.narrate', {call_id: 't1-c1', text: 'Knott waits beside his desk while you remain in the office.'}]])});
   t.after(() => table.dispose());

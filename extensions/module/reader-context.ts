@@ -131,6 +131,8 @@ export function createReaderToolGuard(cwd: string, env: NodeJS.ProcessEnv = proc
 	const roots = sourceRoots(cwd, env);
 	const check = roots.error ? {} : captureCheck(cwd, roots.task, env);
 	return (event: ToolCall): ToolGate => {
+		if(env.PI_COC_FINAL_OUTPUT==='1'&&!['read','write','edit','bash'].includes(event.toolName))
+            return blocked(event.toolName,'only the four confined author tools are permitted');
 		if (event.toolName === "pdf") return roots.error ? blocked("pdf", roots.error) : undefined;
 		if (!["bash", "read", "write", "edit"].includes(event.toolName)) return;
 		if (roots.error) return blocked(event.toolName, roots.error);
@@ -141,12 +143,16 @@ export function createReaderToolGuard(cwd: string, env: NodeJS.ProcessEnv = proc
 		}
 		if (event.toolName === "read") {
 			const target = canonicalExisting(cwd, event.input?.path);
+			if (env.PI_COC_FINAL_OUTPUT === '1' && target !== join(roots.task, 'task.json') && target !== join(roots.task, 'draft.json'))
+				return blocked('read', 'only the approved packet and current draft are readable');
 			if (!target || !(within(roots.task, target) || target === roots.pdf || !!roots.cache && within(roots.cache, target)))
 				return blocked("read", "the path is outside the task directory and its bound PDF cache");
 			return;
 		}
 		const target = writableInside(cwd, roots.task, event.input?.path);
 		if (!target) return blocked(event.toolName, "the path escapes the task directory or crosses a symlink boundary");
+		if (env.PI_COC_FINAL_OUTPUT === '1' && target.relative !== 'draft.json')
+			return blocked(event.toolName, 'only draft.json is writable');
 		const first = target.relative.split(sep)[0];
 		if (first === "host-bin" || HOST_FILES.has(target.relative) || target.relative.endsWith('.jsonl'))
 			return blocked(event.toolName, "host-owned task inputs and executable wrappers are immutable");
@@ -222,7 +228,7 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 	const leased = env.PI_COC_PROVIDER_BUDGET === "ipc-v1";
 	const configuredOutput = Number(env.PI_COC_PROVIDER_OUTPUT_LIMIT);
 	const outputRoom = Number.isSafeInteger(configuredOutput) && configuredOutput > 0 ? configuredOutput : READING_STAGE_BUDGET.callOutputTokens;
-	if (env.PI_COC_READER_SOURCE) {
+	if (env.PI_COC_READER_SOURCE || env.PI_COC_FINAL_OUTPUT === '1') {
 		confineReaderEnvironment(cwd, env);
 		const guard = createReaderToolGuard(cwd, env);
 		pi.on("tool_call", (event: ToolCall) => guard(event));

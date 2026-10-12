@@ -31,7 +31,7 @@ const COMMIT_FAILED = {
 /** A Keeper that keeps trying, exactly as the live one did. */
 const narrates = (times) =>
 	Array.from({ length: times }, (_, index) =>
-		fauxAssistantMessage([fauxToolCall("narrate", { text: `attempt ${index + 1}` })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: `attempt ${index + 1}` })], { stopReason: "toolUse" }),
 	).concat(fauxAssistantMessage("Nothing more to say."));
 
 const notices = (session) =>
@@ -46,7 +46,7 @@ test("a commit that keeps failing for the same cause stops being retried", async
 	await session.session.prompt("I write it down.");
 	await waitForIdle(session.session);
 
-	const attempts = session.telemetry().filter((row) => row.tool === "narrate" && row.code === "commit_failed");
+	const attempts = session.telemetry().filter((row) => row.tool === "output" && row.code === "commit_failed");
 	assert.equal(attempts.length, 2, `the second failure of the same cause ends the run: ${JSON.stringify(attempts)}`);
 	// The second one says so on the row, not only in the message handed back.
 	assert.equal(attempts[1].reason, "commit_unavailable");

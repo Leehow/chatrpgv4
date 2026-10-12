@@ -101,7 +101,7 @@ const realHybridTable = ({ responses, env }) => {
 
 test("section 166: a short embedded draft keeps the accepted clue", async (t) => {
 	const draft = "A pause.";
-	const table = await realHybridTable({responses: [fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings"}], narrate: draft})], {stopReason: "toolUse"})]});
+	const table = await realHybridTable({responses: [fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings"}], narrate: draft}), fauxToolCall("output", {})], {stopReason: "toolUse"})]});
 	t.after(() => table.dispose());
 	await table.session.prompt("I browse the clippings for the old story.");
 	await waitForIdle(table.session);
@@ -118,7 +118,7 @@ test("SL-93: a 40-plus-code-point apply.narrate delivers on its first leg, in on
 		fauxAssistantMessage([fauxToolCall("apply", {
 			effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }],
 			narrate: "你在剪报室里翻了十分钟，指尖沾了灰，纸页边缘已经发黄发脆，终于找到了那篇被压下的旧闻 {{clue:globe-unpublished-story}}。",
-		})], { stopReason: "toolUse" }),
+		}), fauxToolCall("output", {})], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
@@ -126,7 +126,7 @@ test("SL-93: a 40-plus-code-point apply.narrate delivers on its first leg, in on
 
 	assert.equal(floorRows(table).length, 0, "at 44 code points this draft never meets the floor");
 	assert.equal(keeperCalls(table), 1, "one model call settled the write and closed the turn");
-	assert.equal(table.telemetry().filter((entry) => entry.tool === "narrate" && entry.ok === true && entry.event === undefined).length, 1);
+	assert.equal(table.telemetry().filter((entry) => entry.tool === "output" && entry.ok === true && entry.event === undefined).length, 1);
 	const record = turnRecord(table.workspace, 2);
 	assert.equal(record.closed_by, "narrate");
 	assert.ok(record.rendered_text.includes("找到了那篇被压下的旧闻"));
@@ -171,7 +171,7 @@ test("SL-93 (re-scoped): an explicit narrate is not length-floored -- a short li
 	// every-path floor. A narrate the Keeper calls itself may be legitimately short; the floor is apply.narrate's alone.
 	const table = await fakeHybridTable({
 		env: { FAKE_KERNEL_PRESENT: "[]" },
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅很安静，你准备怎么做？" })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "门厅很安静，你准备怎么做？" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("我看看门厅。");
@@ -185,7 +185,7 @@ test("SL-93 (re-scoped): an explicit narrate is not length-floored -- a short li
 
 test("section 166: the first embedded draft closes without spending a floor steer", async (t) => {
 	const draft = "A pause.";
-	const table = await realHybridTable({responses: [fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings"}], narrate: draft})], {stopReason: "toolUse"})]});
+	const table = await realHybridTable({responses: [fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings"}], narrate: draft}), fauxToolCall("output", {})], {stopReason: "toolUse"})]});
 	t.after(() => table.dispose());
 	await table.session.prompt("I browse the clippings for the old story.");
 	await waitForIdle(table.session);
@@ -201,7 +201,7 @@ test("SL-93: a 40-plus-code-point Chinese draft delivers on the explicit path's 
 	const long = "门在你身后合上，销栓落下的声响在寂静的走廊里回荡了很久，冷意顺着门缝钻了进来，让你打了个哆嗦。";
 	const table = await fakeHybridTable({
 		env: { FAKE_KERNEL_PRESENT: "[]" },
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: long })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: long })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("我关上门。");
@@ -248,7 +248,7 @@ test("SL-93: lowering delivery_floor.min_prose_chars lets an apply.narrate the s
 		fauxAssistantMessage([fauxToolCall("apply", {
 			effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }],
 			narrate: "门开了。",
-		})], { stopReason: "toolUse" }),
+		}), fauxToolCall("output", {})], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
@@ -261,7 +261,7 @@ test("SL-93: lowering delivery_floor.min_prose_chars lets an apply.narrate the s
 
 test("section 166: a high legacy floor cannot force another draft", async (t) => {
 	const draft = "The clippings are dusty, but the editor leaves them within reach.";
-	const table = await realHybridTable({responses: [fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings"}], narrate: draft})], {stopReason: "toolUse"})], env: { PI_COC_CONTENT_ROOT: contentRootWithFloor(t, 200) }});
+	const table = await realHybridTable({responses: [fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings"}], narrate: draft}), fauxToolCall("output", {})], {stopReason: "toolUse"})], env: { PI_COC_CONTENT_ROOT: contentRootWithFloor(t, 200) }});
 	t.after(() => table.dispose());
 	await table.session.prompt("I browse the clippings for the old story.");
 	await waitForIdle(table.session);

@@ -131,11 +131,11 @@ const nothingSetOut = (workspace) => kernelSteps(workspace, [
 const ledgerRef = (workspace, line) => Object.values(JSON.parse(readFileSync(join(workspace, ".coc/campaigns", CAMPAIGN, "npc-ledger.json"), "utf8")))
 	.flatMap((entry) => entry.intents ?? []).find((row) => row.text === line)?.ref;
 const turnRecord = (table, turn) => JSON.parse(readFileSync(join(table.workspace, ".coc/campaigns", CAMPAIGN, "turns", `${String(turn).padStart(4, "0")}.json`), "utf8"));
-const narrateRows = (table) => table.telemetry(CAMPAIGN).filter((row) => row.tool === "narrate" && row.call_id && row.event === undefined);
+const narrateRows = (table) => table.telemetry(CAMPAIGN).filter((row) => row.tool === "output" && row.call_id && row.event === undefined);
 const purposeRows = (table) => table.telemetry(CAMPAIGN).filter((row) => row.lane === "purpose" && row.event === "purpose_check");
 const gateRows = (table) => table.telemetry(CAMPAIGN).filter((row) => row.lane === "delivery" && row.reason === "purpose_repeated");
 const refusedNarrates = (table) => table.session.messages
-	.filter((message) => message.role === "toolResult" && message.toolName === "narrate" && message.details?.coc_error).map((message) => message.details.coc_error);
+	.filter((message) => message.role === "toolResult" && message.toolName === "output" && message.details?.coc_error).map((message) => message.details.coc_error);
 const shownText = (table) => (table.session.messages.filter((message) => message.role === "assistant").at(-1)?.content ?? [])
 	.filter((block) => block.type === "text").map((block) => block.text).join("");
 const npcActRows = (table) => table.telemetry(CAMPAIGN).filter((row) => row.lane === "run" && row.event === "npc_act");
@@ -143,7 +143,7 @@ const npcActRows = (table) => table.telemetry(CAMPAIGN).filter((row) => row.lane
 /** The Keeper gives the papers row up (the overrule of §143.7): a function step, so it names the ref the ledger holds. */
 const giveUp = (workspace) => () => fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "npc", name: "Arty Wilmot",
 	intent_ref: ledgerRef(workspace.path, PAPERS), intent_outcome: "abandoned", why: "他不再提纸的事，只按着灯等人走" }] })], { stopReason: "toolUse" });
-const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
+const narrate = (text) => fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" });
 
 async function b2Table(t, { prepareWorkspace = papersAsked, responses, purpose = papersAgain, env = {} }) {
 	const asked = installJev(t, purpose);

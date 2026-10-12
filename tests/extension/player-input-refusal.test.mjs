@@ -91,7 +91,7 @@ test("the host-driven opening is not a player message and is not checked as one"
 	const table = await openTable({
 		env: { FAKE_KERNEL_OPENING: "1" },
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅里只亮着一盏灯。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "门厅里只亮着一盏灯。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("门厅里只亮着一盏灯。"),
 		],
 	});

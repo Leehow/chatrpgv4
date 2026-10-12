@@ -382,7 +382,7 @@ test("a first-arrival card reaches the player in the campaign's play language", 
 		env: { PI_COC_HOME: home, FAKE_KERNEL_LOOK_MAPS: JSON.stringify([ARRIVAL_VIEW]) },
 		responses: [
 			fauxAssistantMessage([fauxToolCall("look", { focus: "map" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅在你面前展开。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "门厅在你面前展开。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("门厅在你面前展开。"),
 		],
 	});
@@ -410,7 +410,7 @@ test("a card whose words are not ready still ships, says so, and leaves a row", 
 		},
 		responses: [
 			fauxAssistantMessage([fauxToolCall("look", { focus: "map" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅在你面前展开。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "门厅在你面前展开。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("门厅在你面前展开。"),
 		],
 	});
@@ -438,7 +438,7 @@ test("a Keeper-written card is never rewritten and never asks the lane for anyth
 		},
 		responses: [
 			fauxAssistantMessage([fauxToolCall("look", { focus: "map" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅在你面前展开。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "门厅在你面前展开。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("门厅在你面前展开。"),
 		],
 	});
@@ -466,7 +466,7 @@ test("§39.4: a look at a map the table holds reaches the player as a row, never
 			render: { layers: [{ region: "ground-entry-hall", path: "/nowhere.png", source_box: [0, 0, 1, 1], placement: [0, 0, 1, 1], redactions: [] }] } }]) },
 		responses: [
 			fauxAssistantMessage([fauxToolCall("look", { focus: "map", name: "house-map" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你又看了一眼那张图。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你又看了一眼那张图。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("你又看了一眼那张图。"),
 		],
 	});
@@ -497,7 +497,7 @@ test("§39.4: an arrival update the kernel projects is delivered in the play lan
 	const table = await openTable({
 		env: { PI_COC_HOME: home, FAKE_KERNEL_NARRATE_MECHANICS: JSON.stringify([update]) },
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅你已经记下了。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "门厅你已经记下了。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("门厅你已经记下了。"),
 		],
 	});

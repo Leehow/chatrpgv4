@@ -191,7 +191,7 @@ test("§200.3, turn 8 calls with an unresolved carrier: the binding fails twice,
 	assert.equal(asked.binding.length, 2, "one binding question per append, no execution question after a refused content");
 	assert.equal(asked.outcome.length, 1, "the guard asks once");
 	assert.deepEqual(outcomeRows(table), [["unclear", "outcome_uncertain", 0.12]]);
-	assert.deepEqual(refusals(table, "narrate"), [], "no narrate is refused");
+	assert.deepEqual(refusals(table, "output"), [], "no narrate is refused");
 	assert.deepEqual(unfinishedNotices(table), [], "the player is never told the turn ended without a result");
 	assert.equal(table.telemetry().filter((row) => row.event === "input_ended").length, 0);
 	// §200.4 writer: the delivery carries the recording to the turn record, with its reason.
@@ -260,7 +260,7 @@ test("§200.3: a draft that claims the unconfirmed recording is corrected once, 
 	const { table, asked, keeperCalls } = await turn8(t, { calls: [toolCall(SECOND_APPLY), narrate(CLAIM), narrate(KEPT_IN_MIND)],
 		outcome: (draft) => draft.includes("记进笔记本") ? 0.95 : 0.05 });
 	assert.equal(keeperCalls(), 3);
-	assert.deepEqual(refusals(table, "narrate").map((error) => [error.details?.reason, error.details?.outcome]), [["refused_document_outcome", "steer"]]);
+	assert.deepEqual(refusals(table, "output").map((error) => [error.details?.reason, error.details?.outcome]), [["refused_document_outcome", "steer"]]);
 	assert.equal(steers(table).length, 1, "one correction");
 	assert.equal(steers(table)[0].kind, "refused_document_outcome");
 	assert.deepEqual(asked.outcome, [CLAIM, KEPT_IN_MIND]);
@@ -286,7 +286,7 @@ for (const [name, answer, reason] of [["a gray answer", 0.5, "outcome_uncertain"
 		const { table, keeperCalls } = await turn8(t, { calls: [toolCall(SECOND_APPLY), narrate(KEPT_IN_MIND)], outcome: () => answer });
 		assert.equal(keeperCalls(), 2);
 		assert.deepEqual(outcomeRows(table).map(([status, why]) => [status, why]), [["unclear", reason]]);
-		assert.deepEqual(refusals(table, "narrate"), []);
+		assert.deepEqual(refusals(table, "output"), []);
 		assert.deepEqual(unfinishedNotices(table), []);
 		assert.equal(turnRecord(table, 1).closed_by, "narrate");
 	});

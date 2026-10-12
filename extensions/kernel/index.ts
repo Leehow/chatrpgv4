@@ -14,19 +14,20 @@ import {RefusedDocumentOutcome, REFUSED_DOCUMENT_OUTCOME_FAMILY, REFUSED_DOCUMEN
 import {HeldActOutcome, HELD_ACT_OUTCOME_FAMILY, HELD_ACT_OUTCOME_REASON, receiptLine} from '../../runtime/jev/held-act-outcome.ts';
 import {DOCUMENT_RECORDING_INTENT_MIN, permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
 /**
- * The pi-coc kernel extension: it starts the Python kernel, wires the seven verbs onto RPC,
+ * The pi-coc kernel extension: it starts the compiled TypeScript kernel, wires the eight verbs onto RPC,
  * and mirrors the turn state machine on the extension side. Responsibilities in
  * docs/kernel-rpc.md §8.
  */
 
 import { readTextToolCalls, restoreTextCallList, textToolCallFix } from "./text-tool-call.ts";
 import {narrationTransport} from './narration-transport.ts';
+import {createFinalOutputOwner,unselectedDeliveryPlan,legacyDeliveryPlan} from './final-output.ts';
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
+import { createRuntime, type HostRuntime, type RuntimeCapabilities } from "../../runtime/host.ts";
 import { takeHostNotices } from "../../runtime/host-notices.ts";
 import { hostNoticeMessage, isHostNoticeMessage } from "./host-notices.ts";
 import { adaptationModel, adaptationService, adaptationWaitMs } from './adaptation.ts';
@@ -390,6 +391,9 @@ interface TableState {
 	telemetryPath: string;
 	/** The campaign's play_language, used to tell the verifier lane which language to write `why` in; not mentioned when the kernel gives none. */
 	playLanguage?: string;
+	/** A selected writing task's draft may never become an implicit legacy fallback. */
+	selectedWriting?: boolean;
+    referenceReplies?: Set<string>;
 	/** The host workspace mode from private context metadata (contract §19.2): off reads and writes nothing. */
 	workpadMode: "off" | "shadow" | "on";
 	turn: number;
@@ -837,7 +841,7 @@ function strikeRefusalClass(
 	state.refusalsThisTurn += 1;
 	const closing = "Nothing refused has happened. Stop trying it: close the turn with narrate on what landed with a receipt, or hand the player the pending choice with ask.";
 	let tripped = false;
-	const isDoor = !closed && ["narrate", "ask"].includes(tool);
+	const isDoor = !closed && ["narrate", "output", "ask"].includes(tool);
 	if (count >= REFUSAL_CLASS_LIMIT && !state.exhausted.has(tool) && !isDoor) {
 		state.exhausted.set(tool, `${tool} has been refused ${count} times this turn for the same reason (${last}). ${closing}`);
 		tripped = true;
@@ -1437,7 +1441,7 @@ function readMechanics(result: Record<string, unknown>): Array<Record<string, un
 	return raw.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object" && !Array.isArray(row));
 }
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilities} = {}) {
 	// JEV-OPEN-02: compare the original decoder result before any host rewrite,
 	// including textual-tool restoration. Keep only its shape for the stream summary.
 	// Pi propagates an error replacement into infer and durable history before tools run.
@@ -1481,6 +1485,28 @@ export default function (pi: ExtensionAPI) {
 		return { message: restored.message };
 	});
 	let runtime: HostRuntime | undefined;
+	const finalOutput = createFinalOutputOwner({runtime: () => runtime,
+		call: (method, params) => {if (!table) throw Error('The table is unavailable'); return table.kernel.call(method, params);}, record,
+		constraints:()=>{
+			if(!table)return{};
+			const held=heldActs.get(table)?.basis,refused=refusedDocuments.get(table)?.basis;
+			return {held_tools:held?.turn===table.turn?held.held.map(row=>row.tool):[],
+				refused_recording:refused?.turn===table.turn,selected_recording:(table.documentRecording??0)>=DOCUMENT_RECORDING_INTENT_MIN,
+				note:'A held or previously refused act is not a completed result. Only matching canonical settled facts establish completion; intentions and proposals do not.'};
+		}});
+
+	pi.events.on('coc:writing-reference', (value) => {
+		const reference=value as {campaign:string;turn:number;content:string;revision:string};
+		if(table&&reference?.campaign===table.campaign&&reference.turn===table.turn&&typeof reference.content==='string')finalOutput.advice(reference);
+	});
+	pi.events.on('coc:writing-guidance',(value:any)=>{
+		if(!table||value?.campaign!==table.campaign||value.turn!==table.turn)return;
+		if(value.kind==='sections')finalOutput.sections(value);else if(value.kind==='temporal')finalOutput.temporal(value);
+	});
+	pi.events.on('coc:native-search-event',(value:any)=>{
+		if(table&&value?.protocol?.campaign===table.campaign&&typeof value.run==='string'&&Array.isArray(value.sources))
+			finalOutput.external(table.campaign,table.turn,value.run,value.sources);
+	});
 	let foregroundProviderBudget: (() => TaskProviderBudget | undefined) | undefined;
 	pi.events.on('coc:task-provider-budget', value => { foregroundProviderBudget = typeof value === 'function' ? value as typeof foregroundProviderBudget : undefined; });
 	/**
@@ -1687,7 +1713,7 @@ export default function (pi: ExtensionAPI) {
 	const readsOfTurn = (state: TableState): KeeperRead[] =>
 		turnReads?.campaign === state.campaign && turnReads.turn === state.turn ? turnReads.rows.map((row) => ({ ...row })) : [];
 	// The setup process needs the kernel too (`campaign.*`, `module.*` and `setup.*` all live there),
-	// but it has no table: it registers none of the seven verbs, does not `table.open`, and runs no
+	// but it has no table: it registers none of the eight verbs, does not `table.open`, and runs no
 	// verifier lane (contract §14.4). The mode is read in the factory rather than at module top level:
 	// when one process loads this several times, a top-level constant freezes on the first value.
 	const setupMode = cocMode() === "setup";
@@ -1861,7 +1887,7 @@ export default function (pi: ExtensionAPI) {
 				`The kernel is waiting for the player to choose: ${pending.prompt ?? pending.name ?? "the pending choice from the last adjudication"}. ` +
 					`Use ask kind=mechanics with the available option identifiers and no prompt. The frontend renders the controls.` };
 		}
-		return { kind: "steer", text: "This turn is not closed yet: deliver it to the player with one narrate, or hand the choice back with one ask." };
+		return { kind: "steer", text: "This turn is not closed yet: select output to publish it once, or hand the choice back with one ask." };
 	}
 
 	/**
@@ -4174,6 +4200,10 @@ export default function (pi: ExtensionAPI) {
 			}
 			case "narrate": {
 				state.state = "awaiting_player";
+				if(result.interaction_scope==='reference'&&result.pending_choice) {
+					state.pendingChoice=result.pending_choice as PendingChoice;
+					state.lastAsk=Array.isArray((result.pending_choice as any).options)?(result.pending_choice as any).options.map(String):state.lastAsk;
+				}
 				state.openingPending = false;
 				state.closedThisRun = true;
 				// §86: the turn, not the run. A later run finds this and knows the player has read something.
@@ -5435,7 +5465,17 @@ export default function (pi: ExtensionAPI) {
 		// is the one caller that passes "embedded".
 		narratePath: "explicit" | "embedded" = "explicit",
 		ctx?: ExtensionContext,
+		finalRun?: string,
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
+        const publicName=spec.name;
+        const finalSelection=publicName==='output';
+        if(finalSelection) {
+            const choice=params.choice as Record<string,unknown>|undefined;
+            if(params.text!==undefined&&params.delivery!==undefined)throw new KernelError({code:'invalid_params',message:'Supply delivery or legacy text, not both.'});
+            params={...params,...choice,...(params.text!==undefined?{delivery:legacyDeliveryPlan(params.text)}:{})};
+            delete params.choice;delete params.text;
+            spec={...spec,name:choice?'ask':'narrate',method:choice?'table.ask':'table.narrate'};
+        }
         if(spec.name==='lookup'&&params.kind==='capability'){
             if(!capabilityLookup)throw new KernelError({code:'needs',message:'Current capability discovery is unavailable'});
             const result=await capabilityLookup(params);
@@ -5443,7 +5483,17 @@ export default function (pi: ExtensionAPI) {
         }
 		const providerBudget = dispatcher.providerBudget(toolCallId) ?? foregroundProviderBudget?.();
 		delete params._standing_defense;
+		delete params._delivery_evidence;
 		const state = table;
+        if(!finalSelection&&spec.name==='narrate') {
+            if(!state)throw new KernelError({code:'needs',message:'The table is unavailable'});
+            try {
+                const checked=await finalOutput.check(state.campaign,state.turn,params.delivery??legacyDeliveryPlan(params.text));
+                modelSteps.delete(toolCallId);
+                await record({tool:'narrate',turn:state.turn,ok:true,checked:true,published:false});
+                return {content:[{type:'text',text:JSON.stringify(checked)}],details:checked};
+            } catch(error) {return {content:[{type:'text',text:errorText(error)}],details:{coc_error:{code:isKernelError(error)?error.code:'invalid_params',message:error instanceof Error?error.message:String(error)}}};}
+        }
 		// §135.31: a look/lookup keeps the arguments the Keeper sent (before any host key is set or taken) and, on the
 		// single-loop engine, the run step it came from.
 		const readArgs = READ_TOOLS.has(spec.name) ? readArguments(params) : undefined;
@@ -5464,7 +5514,7 @@ export default function (pi: ExtensionAPI) {
 		const readRow: Record<string, unknown> = readArgs ? { args: readArgs.args, ...(readArgs.cut.length ? { args_cut: readArgs.cut } : {}),
 			...(readArgs.withheld.length ? { args_withheld: readArgs.withheld } : {}) } : {};
 		const keepRead = (ok: boolean): void => {
-			if (readArgs && !host && state) noteRead(state, { tool: spec.name, args: readArgs.args, ...(readArgs.withheld.length ? { withheld: readArgs.withheld } : {}),
+			if (readArgs && !host && state) noteRead(state, { tool: publicName, args: readArgs.args, ...(readArgs.withheld.length ? { withheld: readArgs.withheld } : {}),
 				ok, ...(fromStep ? { run: fromStep.run, step: fromStep.step } : {}) });
 		};
 		// §11.5.3: `_inferred` marks the combat disposition Jev inferred for the clerk (authority disposition_inference),
@@ -5538,6 +5588,8 @@ export default function (pi: ExtensionAPI) {
 		// every effect below lands, through the same path an explicit narrate call takes (see the end of this
 		// function). §135.5 addendum 2.
 		const embeddedNarrateText = spec.name === "apply" && !fromStep?.holdEmbeddedNarration && typeof payload.narrate === "string" ? payload.narrate : undefined;
+		const embeddedDelivery = spec.name === 'apply' ? payload.delivery : undefined;
+		if (spec.name === 'apply') delete payload.delivery;
         const embeddedQuotes=spec.name==="apply"?payload.quotes:undefined;
         if(spec.name!=="narrate"&&spec.name!=="ask")delete payload.quotes;
 		delete payload.narrate;
@@ -5548,7 +5600,7 @@ export default function (pi: ExtensionAPI) {
 		delete payload._lean;
 		if (spec.name === "apply" && leanApply) payload._lean = true;
         if (dispatcher.tracksMutation(toolCallId)) payload._task_read_set = true;
-		if (WRITE_TOOLS.has(spec.name)) {
+		if (WRITE_TOOLS.has(spec.name) || finalSelection) {
 			payload.call_id = takeCallId(state, toolCallId);
 			await dispatcher.bindKernelCallId(toolCallId, payload.call_id);
 		}
@@ -5596,6 +5648,10 @@ export default function (pi: ExtensionAPI) {
 			// §145.2: so does the time reading (host-only, outside the digest).
 			if (spec.name === 'narrate' && timeReading) payload.time_reading = timeReading; else delete payload.time_reading;
 			await dispatcher.beforeKernelInvoke(toolCallId, spec.method, payload);
+			if (payload._delivery_evidence && (spec.name==='narrate'||spec.name==='ask')) {
+				const artifact=payload._delivery_evidence as Record<string,unknown>;
+				if(artifact.artifact_text!==payload.text)artifact.input_text=payload.text;
+			}
       if(spec.name==='look')documentContinuation=state.documentReadCoverage?.consume(payload)??false;
       if(spec.name==='apply')writingMatches=await prepareWritingMatches(state,payload,evidence.run);
       let result: Record<string, unknown>;
@@ -5627,6 +5683,20 @@ export default function (pi: ExtensionAPI) {
       return result;
 		};
 			try {
+            if(spec.name==='ask'&&!finalSelection)await guardTaskDelivery();
+			if (finalSelection) {
+				if (referenceScope) throw new KernelError({code:'invalid_params',message:'Answer out-of-fiction questions directly; a final writing task is not needed.'});
+				state.selectedWriting=true;
+				await guardTaskDelivery();
+				const written = await finalOutput.write(state.campaign, state.turn, payload.delivery, signal, providerBudget,fromStep?.run??finalRun);
+				delete payload.delivery;
+				payload.text = written.text;
+				payload._delivery_evidence = written.evidence;
+			}
+            else if(spec.name==='ask'&&(payload.delivery!==undefined||payload.text!==undefined)) {
+                await finalOutput.check(state.campaign,state.turn,payload.delivery??legacyDeliveryPlan(payload.text));
+                delete payload.delivery;delete payload.text;
+            }
 			if (state.forcedPlayerChoiceCueRejects?.turn === state.turn && state.forcedPlayerChoiceCueRejects.count >= 1
 				&& state.deliveryFix?.kind === 'forced-player-choice-cue' && state.forcedPlayerChoiceCueRepairSteered !== state.turn)
 				throw new KernelError({code: 'needs', next: 'stop', message: 'A targeted narration repair is queued at turn close.',
@@ -5825,7 +5895,7 @@ export default function (pi: ExtensionAPI) {
 			let prepared: ReviewPrepared | void = undefined;
 			// Action admission (contract §32) runs ahead of every Mod hook and of the kernel: a refused
 			// proposal pays for no definition agent and reaches no transaction.
-			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery();
+
             if(spec.name==='apply' && !dispatcher.hostOrigin(toolCallId)){
                 rejectZeroPricedInputs(state,payload);
                 await purchaseRecovery(state).check(payload,state.turn);
@@ -6041,7 +6111,9 @@ export default function (pi: ExtensionAPI) {
 			if (partial) result = partialAdmissionResult(state, result, partial);
             if(spec.name==='look'){const coverage=state.documentReadCoverage??=new DocumentReadCoverage();
                 if(result.document_read)coverage.add(result);if(payload.focus==='knowledge')coverage.addKnowledge(result);}
-			applyToolSuccess(state, spec.name, toolCallId, result);
+			if(finalSelection && typeof result.rendered_text==='string' && !result.rendered_text.trim())
+                await record({lane:'delivery',tool:publicName,turn:state.turn,ok:false,reason:'rendered_nothing',held:true});
+            applyToolSuccess(state, spec.name, toolCallId, result);
 			if (spec.name === 'resolve') {
 				// A replay describes the original declaration, not necessarily a still-live attack.
 				const current = result.replayed
@@ -6097,9 +6169,13 @@ export default function (pi: ExtensionAPI) {
 			// A call that came back is proof the history store answered: the commit streak ends here
 			// (contract §38.11), not at a turn boundary.
 			state.commitOutage = undefined;
+			if ((READ_TOOLS.has(spec.name)||spec.name==='recall') && result && typeof result === 'object') {
+				finalOutput.observe(state.campaign,state.turn,spec.name,params,result);
+			}
+
 			state.commitOutageNotified = false;
 			await record({
-				tool: spec.name,
+				tool: publicName,
 				call_id: payload.call_id ?? null,
 				started_at: startedAt,
 				ms: Date.now() - began,
@@ -6111,6 +6187,7 @@ export default function (pi: ExtensionAPI) {
 				...(spec.name === "recall" ? {response_bytes: Buffer.byteLength(JSON.stringify(result), "utf8")} : {}),
 			});
 			keepRead(true);
+			if (spec.name === 'apply' || spec.name === 'resolve') finalOutput.invalidateAdvice();
 			// Contract §34.12's look budget addendum (SL-72): a successful look/lookup/recall counts once here.
 			// A `lookup kind=source` still `pending` (§22.4.3, SL-36) counts once too, keyed on its own focus and
 			// question: the pending note tells the Keeper not to resend it this turn, but nothing stops a resend,
@@ -6133,7 +6210,7 @@ export default function (pi: ExtensionAPI) {
 			if (spec.name === "narrate" || spec.name === "ask") {
 				// A turn inside a session must be accountable on its own: round trips in combat are not the same as in investigation.
 				await record({
-					tool: spec.name,
+					tool: publicName,
 					event: "turn-closed",
 					round_trips: state.roundTrips,
 					ok: true,
@@ -6156,9 +6233,9 @@ export default function (pi: ExtensionAPI) {
 			// marker resolution (an effect-key marker naming one of this apply's own effects included), the
 			// narration audit and turn close all run unchanged. The kernel sees the same two calls, `table.apply`
 			// then `table.narrate`, it always has; only their one model tool call is new.
-			if (spec.name === "apply" && embeddedNarrateText !== undefined && !partial?.notLanded) {
+			if (spec.name === "apply" && (embeddedNarrateText !== undefined || embeddedDelivery !== undefined) && !partial?.notLanded) {
 				const narrateSpec = COC_TOOLS.find((tool) => tool.name === "narrate")!;
-				const embedded = await runTool(narrateSpec, `${toolCallId}:narrate`, { text: embeddedNarrateText, ...(embeddedQuotes!==undefined?{quotes:embeddedQuotes}:{}) }, signal, onUpdate, "embedded", ctx);
+				const embedded = await runTool(narrateSpec, `${toolCallId}:narrate`, { ...(embeddedDelivery !== undefined ? {delivery:embeddedDelivery} : {text:embeddedNarrateText}) }, signal, onUpdate, "embedded", ctx,fromStep?.run);
 				const embeddedError = (embedded.details as { coc_error?: Record<string, unknown> } | undefined)?.coc_error;
 				if (embeddedError) {
 					// Nothing is delivered: the effects above already landed and stand (a receipt cannot be
@@ -6173,13 +6250,9 @@ export default function (pi: ExtensionAPI) {
 					return { content: [{ type: "text", text: JSON.stringify(refused) }], details: refused,
 						...(embedded.terminate ? {terminate: true} : {}) };
 				}
-				// The embedded delivery landed: one model call both settled the writes and closed the turn.
-				// `state.deliveryToolCallId` names the call the player's transcript actually shows -- this apply's
-				// own toolCallId, not the synthetic id the embedded narrate ran under.
-				state.deliveryToolCallId = toolCallId;
-				await record({ lane: "delivery", turn: state.turn, ok: true, reason: "narrate_in_apply", call_id: payload.call_id ?? null });
-				const delivered = { ...result, ...(embedded.details as Record<string, unknown>), narrate_in_apply: true };
-				return { content: [{ type: "text", text: JSON.stringify(delivered) }], details: delivered, terminate: true };
+				// Settled effects and the checked material remain private until output is selected.
+				const prepared = { ...result,material_check:embedded.details,narrate_in_apply:false };
+				return { content: [{ type: "text", text: JSON.stringify(prepared) }], details: prepared };
 			}
 			return {
 				content: [{ type: "text", text: JSON.stringify(result) }],
@@ -6283,7 +6356,7 @@ export default function (pi: ExtensionAPI) {
 			if (reason === 'continuity_review_unavailable') pauseReview(state, error);
 			const stopForChoiceRepair = isKernelError(error) && error.details?.forced_choice_cue_stop === true;
 			await record({
-				tool: spec.name,
+				tool: publicName,
 				call_id: payload.call_id ?? null,
 				started_at: startedAt,
 				ms: Date.now() - began,
@@ -6327,7 +6400,7 @@ export default function (pi: ExtensionAPI) {
 		finalize: finalizeOperation,
 		preparedCallId: id => table?.mintedCallIds.get(id),
 	});
-	// The setup process's tool surface is only onboarding's `setup`: not one of the seven verbs is registered (contract §14.4).
+	// The setup process's tool surface is only onboarding's `setup`: not one of the eight verbs is registered (contract §14.4).
 	for (const spec of setupMode ? [] : offeredTools(COC_TOOLS, process.env)) {
 		pi.registerTool({
 			name: spec.name,
@@ -6504,7 +6577,7 @@ export default function (pi: ExtensionAPI) {
 		startupError = undefined;
 		try {
 			runtime = createRuntime({ owner: "session", home: cocHome(ctx.cwd),
-				campaign: process.env.PI_COC_CAMPAIGN?.trim() || undefined });
+				campaign: process.env.PI_COC_CAMPAIGN?.trim() || undefined },host);
 			const kernel = runtime.openKernel({
 				prepareCall: untoldSpanJudge,
 				hostOnlyParams: UNTOLD_HOST_PARAMS,
@@ -6643,6 +6716,7 @@ export default function (pi: ExtensionAPI) {
 				campaign,
 				moduleId: readingModule,
 				call: bridgeCall(kernel),
+				materialSources:(turn:number)=>finalOutput.inventory(campaign,turn),
 				runtime,
 				// The call ordinal lives here, so anything that has to write on the Keeper's behalf mints its
 				// id here too instead of inventing one the kernel refuses -- and never reuses a live ordinal,
@@ -6905,10 +6979,7 @@ export default function (pi: ExtensionAPI) {
 				fallback: run.selected !== null && (diverged || run.refusal_classes.length > 0 || !run.delivered) });
 		}
 		if (table !== settledTable || table.turn !== settledTurn) return;
-		// §135.11.3 (SL-63): a run the refusal budget's runaway abort cut is a drop like any other, not a
-		// verdict -- before the turn is judged undelivered, one fallback narrate is tried carrying what
-		// already landed and the Keeper's own last draft if any. Only when that itself lands nothing does
-		// the ordinary undelivered path below run, exactly as it did before this section.
+		// A runaway abort follows the service/stranding path; no writer is implicitly selected.
 		if (table.refusalBudgetCut && (table.state === "open" || table.state === "acting")
 			&& !table.closedThisRun && table.renderedText === undefined) {
 			table.refusalBudgetCut = false;
@@ -7000,70 +7071,10 @@ export default function (pi: ExtensionAPI) {
 		else if (undelivered) await releaseStrandedTurn(table);
 	});
 
-	/**
-	 * Contract §135.11.3 (SL-63). The refusal budget's runaway abort (`ctx.abort()` at `blockedAfterExhausted >=
-	 * RUNAWAY_ABORT_AT`) ends the Keeper's attempts, not the turn: the run then ends `aborted_during_operate` with
-	 * no further model step and no `message_end` of its own, so this is the one place left to close the turn
-	 * before §38's stranding logic runs. One fallback narrate, carrying the Keeper's own last draft this turn
-	 * (`floorDraft`, the same draft a floor or speech steer would otherwise fall back to) when there is one, or an
-	 * honest service line when there is none -- never a fabricated fictional consequence. Tried at most once; a
-	 * refusal here is not retried, and the ordinary undelivered/stranding path stands exactly as before it: the
-	 * notice `agent_settled` already sends is this fallback's own fallback, never the whole delivery. The one
-	 * exception is a refusal the kernel lets through on the same turn's next delivery of the same text (§143.11:
-	 * §143.10's markup, §142.7's owed result): the same text goes again, once per such reason.
-	 */
+	/** An abort retains its receipts but cannot select a final writer on behalf of the Keeper. */
 	async function deliverRefusalBudgetFallback(state: TableState): Promise<boolean> {
-		let text = state.floorDraft;
-		if (!text) {
-			text = "This turn's back-and-forth ran too long, so it closes here. Anything already settled is kept exactly as it landed; send anything to continue.";
-			try { text = (await surface.words()).line("refusal_budget_fallback_notice"); }
-			catch { /* an unreadable content root still owes the player the English line */ }
-		}
-		const resent = new Set<string>();
-		for (;;) {
-			const callId = mintCallId(state);
-			const payload: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text };
-			if (state.preparationWait) payload.preparation_wait = { kind: state.preparationWait.kind, ...(state.preparationWait.name ? { name: state.preparationWait.name } : {}) };
-			else if (state.sourceWait) payload.preparation_wait = { kind: "source", ...(state.sourceWait.focus ? { name: state.sourceWait.focus } : {}) };
-			if (state.rebindingRefused) payload.rebinding_refused = { ...state.rebindingRefused };
-			payload.source_consultations=sourceConsultationsForAudit(state);
-			try {
-				payload.quotes=await purchaseRecovery(state).offers(undefined,state.turn);
-				payload._cash_requests=await purchaseRecovery(state).requests(state.turn);
-				if (mods && !SINGLE_PASS_NARRATION) await mods.prepare("narrate", payload, state.lanes.signal);
-				await reviewForcedPlayerChoiceCue(state, String(payload.text ?? ''), state.lanes.signal, 'implicit');
-        await guardRefusedDocumentDelivery(state,String(payload.text??''),state.lanes.signal,foregroundProviderBudget?.(),{final:true});
-        await guardHeldActDelivery(state,String(payload.text??''),state.lanes.signal,foregroundProviderBudget?.(),{final:true});
-				// §203.6: the fallback is never judged (no steer is left); it carries a steered turn's note to the record.
-				if (state.establish?.turn === state.turn && state.establish.note) payload.establish_review = state.establish.note;
-				// §190.3: the fallback closes the turn too, so it carries the moves admission refused this turn to the record.
-				if (state.refusedMoves?.length) payload.refused_moves = state.refusedMoves.map((move) => ({ ...move }));
-				await carryUnconfirmedRecordings(state, payload);
-				const result = await state.kernel.call<Record<string, unknown>>("table.narrate", payload);
-				if (mods?.after) await mods.after("narrate", payload, state.lanes.signal);
-				state.floorDraft = undefined;
-				state.forcedPlayerChoiceCue = undefined;
-				state.forcedPlayerChoiceCueChecked = undefined;
-				state.forcedPlayerChoiceCueRejects = undefined;
-				state.forcedPlayerChoiceCueRejected = undefined;
-				state.forcedPlayerChoiceCueRepairSteered = undefined;
-				state.forcedPlayerChoiceCueRepairAttempted = undefined;
-				state.renderedText = asString(result.rendered_text) ?? text;
-				state.state = (typeof result.state === "string" ? result.state : "awaiting_player") as TurnState;
-				state.turn = typeof result.turn === "number" ? result.turn : state.turn + 1;
-				state.closedThisRun = true;
-				void record({ tool: "narrate", call_id: callId, ok: true, lane: "delivery", reason: "refusal_budget_fallback" });
-				return true;
-			} catch (error) {
-				// §143.11: dispatched on the refusal's `details.reason`, never its message.
-				const reason = isKernelError(error) ? asString(error.details?.reason) : undefined;
-				const resendAs = reason && !resent.has(reason) ? RESENT_ON_SECOND_DELIVERY.get(reason) : undefined;
-				void record({ tool: "narrate", call_id: callId, ok: false, lane: "delivery", reason: resendAs ?? "refusal_budget_fallback_refused",
-					code: isKernelError(error) ? error.code : "internal", ...(reason ? { kernel_reason: reason } : {}) });
-				if (!reason || !resendAs) return false;
-				resent.add(reason);
-			}
-		}
+		await record({lane: "delivery",turn:state.turn,ok:false,reason:"explicit_output_required"});
+		return false;
 	}
 
 	/**
@@ -7226,6 +7237,8 @@ export default function (pi: ExtensionAPI) {
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
 			state.interactionScope = undefined;
+			state.selectedWriting = false;
+            state.referenceReplies = new Set();
 			// §71: a hold belongs to the turn that was running when it arrived and never outlives it.
 			state.resend = undefined;
 			state.admission = new Map();
@@ -7418,7 +7431,7 @@ export default function (pi: ExtensionAPI) {
 				reason: 'The turn correction steer is spent and Jev rejected the narration. Stop this Keeper run; the host will report the unfinished turn.'};
 		}
 		if (state.forcedPlayerChoiceCueRepairSteered === state.turn) {
-			if (name !== 'narrate' || state.forcedPlayerChoiceCueRepairAttempted === state.turn) {
+			if (name !== 'output' || state.forcedPlayerChoiceCueRepairAttempted === state.turn) {
 				state.forcedPlayerChoiceCueRepairAttempted = state.turn;
 				await record({tool: name, started_at: new Date().toISOString(), ok: false, code: 'blocked',
 					reason: 'forced_choice_cue_repair_spent', turn: state.turn});
@@ -7439,7 +7452,7 @@ export default function (pi: ExtensionAPI) {
 		const hostRound = dispatcher.attemptRound(event.toolCallId);
 		if (hostRound !== undefined) state.callRounds.set(event.toolCallId, hostRound);
 		state.toolCallsThisTurn += 1;
-		if (name === "narrate" || name === "ask") state.deliveryTriedThisTurn = true;
+		if (name === "output" || name === "ask") state.deliveryTriedThisTurn = true;
 		// Contract §34.17: a delivery written in two halves, refused before either half lands. Both
 		// calls of the batch are refused, so nothing of a split delivery reaches the player in pieces.
 		if (state.splitDelivery?.has(event.toolCallId)) {
@@ -7503,7 +7516,7 @@ export default function (pi: ExtensionAPI) {
 			const delivered = state.deliveredTurn === state.turn;
 			// Contract §34.17: a *narrate* refused after close is the other half of a delivery that has
 			// already been published. The counter proved the host knew; now the player is told (agent_end).
-			const cutShort = name === "narrate" && delivered && state.cutShortToldTurn !== state.turn;
+			const cutShort = name === "output" && delivered && state.cutShortToldTurn !== state.turn;
 			if (cutShort) state.deliveryCutShort = true;
 			// Contract §78: an effect verb refused after close is the turn's own account arriving behind
 			// a door the delivery already shut. `t4` turn 103: nine turns of work went into one `apply`
@@ -7680,7 +7693,7 @@ export default function (pi: ExtensionAPI) {
 
 		// A session (combat, chase, sanity bout) is not a turn state: it leaves the turn in acting, so the
 		// ask that hands a pending defence back to the player takes the ordinary road and is not blocked here.
-		const openingNarrate = (name === "narrate" || name === "ask") && state.openingPending && state.state === "awaiting_player";
+		const openingNarrate = (name === "output" || name === "ask") && state.openingPending && state.state === "awaiting_player";
 		// §23 (2026-09-18): the Keeper pins an opening datetime the book left open, once, and the kernel accepts that `clock`
 		// in the opening (`allowOpening`). This door used to admit only the Mod kinds, so the pin the capsule's own
 		// `where.clock.pin` asks for was refused at the opening every time -- twice running on a fresh Blood Road table
@@ -7837,7 +7850,7 @@ export default function (pi: ExtensionAPI) {
 		// signal is the shape of the message, not anything about the words: no punctuation is read and
 		// no language is detected. Spent once per turn, so a Keeper that writes two halves again is not
 		// left unable to deliver at all -- the second time the first half lands and the player is told.
-		const narrates = blocks.filter((b) => b.type === "toolCall" && b.name === "narrate");
+		const narrates = blocks.filter((b) => b.type === "toolCall" && b.name === "output");
 		state.splitDelivery = narrates.length > 1 && !state.splitDeliveryRefused
 			? new Set(narrates.map((b) => String(b.id)))
 			: undefined;
@@ -7848,7 +7861,7 @@ export default function (pi: ExtensionAPI) {
 		// half is its mirror, an effect whose refusal arrives while the delivery behind it is already
 		// written. Neither reads a word of the prose.
 		const calls = blocks.filter((b) => b.type === "toolCall");
-		const delivery = calls.findIndex((b) => b.name === "narrate");
+		const delivery = calls.findIndex((b) => b.name === "output");
 		const effects = calls.map((b, index) => ({ name: String(b.name), index }))
 			.filter((call) => EFFECT_TOOLS.has(call.name));
 		// The shape is recorded whether or not the refusal is still available to spend: once spent, the
@@ -7885,10 +7898,22 @@ export default function (pi: ExtensionAPI) {
 			void prefetchAdmission(state, reviewedTool, { ...cloned, campaign: state.campaign }).catch(() => {});
 		}
 		if (hasToolCalls) {
+			// Explicit reply framing is a separate visible conversation channel, independent of scope scores.
+			const direct = blocks.filter(b=>b.type==='text')
+				.flatMap(b=>[...String(b.text??'').matchAll(/\{\{ooc\}\}([\s\S]*?)\{\{\/ooc\}\}/g)].map(m=>m[1].trim())).filter(Boolean).join('\n\n');
 			// An assistant message with tool calls keeps only the calls: the Keeper's process talk before a
 			// call ("let me check the clues first") is not a line, and player-visible text comes only from
 			// narrate and ask.
 			const withoutText = blocks.filter((b) => b.type !== "text");
+            if(direct) {
+                const seen=state.referenceReplies??=new Set<string>();
+                if(!seen.has(direct)) {
+                    pi.sendMessage({customType:'coc-delivery',content:direct,display:true,
+                        details:{coc_delivery:true,turn:state.turn,reference_reply:true}},{triggerTurn:false});
+                    seen.add(direct);
+                    void record({lane:'delivery',turn:state.turn,ok:true,reason:'direct_reference_reply',published:false});
+                }
+            }
 			if (withoutText.length !== blocks.length) {
 				// §135.11.1 (SL-50): the row waits for the calls' outcomes (it names the step and each call's kind and outcome).
 				besideDrop = { turn: state.turn, dropped: blocks.length - withoutText.length, step: inferStep ?? null,
@@ -7931,248 +7956,47 @@ export default function (pi: ExtensionAPI) {
 		}
 		let rendered = state.renderedText;
 		if (rendered === undefined) {
+			// A reference answer is direct conversation, never an automatic final-writing invocation.
+			if (!hasToolCalls && !failedLeg && !state.selectedWriting) {
+				const rawAnswer = blocks.filter(b => b.type === 'text').map(b => String(b.text ?? '')).join('');
+                const framed=rawAnswer.trim().match(/^\{\{ooc\}\}([\s\S]*?)\{\{\/ooc\}\}$/);
+                const answer=framed?framed[1].trim():rawAnswer;
+				if (answer.trim()&&!unselectedDeliveryPlan(answer)) {
+                    try {await guardTaskDelivery(event.message);await guardTaskDelivery(event.message,'committing');}
+                    catch {return dropText('task_delivery_blocked');}
+					const referenceCall = mintCallId(state);
+					const result = await state.kernel.call<Record<string, unknown>>('table.reference.answer', {
+						campaign:state.campaign, call_id:referenceCall, text:answer});
+					applyToolSuccess(state, 'narrate', referenceCall, result);
+                    pi.events.emit('coc:reference-answer',{campaign:state.campaign,turn:result.turn,commit:result.commit});
+                    state.renderedText=undefined;
+                    state.deliveryToolCallId=undefined;
+                    state.floorDraft=undefined;
+                    state.deliveryFix=undefined;
+					return {message:{...event.message, content:framed?[{type:'text',text:answer}]:blocks}};
+				}
+			}
+			if(state.selectedWriting)return dropText('selected_final_output_not_published');
 			if (state.reviewUnavailable) return dropText("review_unavailable");
-			// The Keeper wrote his lines but never called narrate: that prose is the narration. The host closes
-			// the turn for him, sending the prose verbatim through the play-language guard.
-			// A leg that died mid-stream contributes nothing of its own: half a sentence is not a delivery
-			// (§34.17, §34.18). The fallback below still stands -- a draft the host itself dropped and
-			// steered about is the Keeper's finished prose from an earlier leg, not this leg's remnant.
+			// Process text and unselected material never select a final writing task.
 			const written = failedLeg ? "" : blocks
 				.filter((b) => b.type === "text" && typeof b.text === "string")
 				.map((b) => String(b.text))
 				.join("")
 				.trim();
+			if(unselectedDeliveryPlan(written)) {
+				state.deliveryFix={kind:'text-tool-call',text:'The last response was a delivery argument object, not a tool invocation. Keep it private. Explicitly call narrate with that delivery plan. Do not repeat already settled effects. Out-of-fiction explanations stay in the direct reply channel.'};
+				return dropText('unselected_delivery_material_plan');
+			}
 			// The floor steer is additive: a second leg that brings nothing falls back to the draft it dropped.
 			const prose = written || (state.steeredThisTurn && state.floorDraft) || "";
-			const canClose = state.state === "open" || state.state === "acting"
-				|| (state.state === "awaiting_player" && state.openingPending);
-			// Nothing here can become a delivery: the turn is already closed, or handed to the player, or
-			// there is no prose at all. Returning bare left whatever the model wrote on screen as if the
-			// Keeper had said it -- the one path by which raw model output reached the player without
-			// passing through narrate or ask. It leaves with the message, like the drafts below it.
-			if (!prose || !canClose || state.closedThisRun) return dropText(failedLeg ? "failed_leg_not_delivered" : "text_not_a_delivery",
-				{has_prose: Boolean(prose), can_close: canClose, closed_this_run: state.closedThisRun, phase: state.state,
-					...(observationRequest !== undefined ? {observation_request: observationRequest} : {})});
-			try {
-				const defense = state.interactionScope !== undefined && state.interactionScope !== 'world' ? undefined : await recoverStandingDefense(state);
-				if (defense) {
-					state.deliveryFix = {kind: 'standing-defense', text: `The live attack settled under the player standing defense preference: ${JSON.stringify(defense)}. Continue from these receipts and deliver with narrate, not ask.`};
-					return dropText('standing_defense_settled');
-				}
-			} catch (error) {
-				state.deliveryFix = {kind: 'standing-defense', text: `Standing defense is unresolved: ${error instanceof Error ? error.message : String(error)}. Do not narrate an outcome or ask for defense. Report the settlement failure.`};
-				return dropText('standing_defense_unresolved');
-			}
-			const sourceWait = state.readingWait || state.sourceWait !== undefined;
-			// §135.11 addendum (2026-09-24, SL-23): the wait steers once, like the floor and speech steers below, and holds the
-			// draft it drops. The steered second leg is delivered by the implicit narrate below, which carries the wait; a leg
-			// that brings nothing, or one the kernel refuses, falls back to this draft. Dropping every leg for as long as the
-			// preparation ran stranded the long gate's turn 19 over prose the Keeper had written twice.
-			if (!SINGLE_PASS_NARRATION && state.preparationWait && !sourceWait && !state.steeredThisTurn) {
-				state.floorDraft = prose;
-				state.deliveryFix = { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state, state.preparationWait) };
-				return dropText("preparation_wait");
-			}
-			// §22.4.4 (SL-37): a turn whose pending action is a read still delivers fiction. The draft the Keeper wrote while
-			// the material is unread is the turn's delivery: it is kept and closed below like any other prose, and the pending
-			// read is the clerk's business (the note, §135.31.2), not the player's. This used to drop the draft once and steer
-			// the Keeper to narrate the wait: on SL-29A book A a player who declared a drive read only the host notice, four times,
-			// and long gate #3's t10 lost its first draft at 149 s. The host notice is the fallback when there is no draft.
-			if (sourceWait) void record({ lane: "delivery", turn: state.turn, ok: true, reason: "reading_wait_draft_kept",
-				...(state.sourceWait?.focus ? { name: state.sourceWait.focus } : {}) });
-			// The kernel left a pending choice for the player (a defence in combat) and the Keeper only wrote
-			// narration: the turn owes an ask, and the question belongs to the Keeper. The kernel's own prompt
-			// is English keeper-facing text (contract §16.1), so the host must not put it in front of the
-			// player: drop this draft and let agent_end steer once. If the Keeper writes prose without an ask
-			// a second time (the steer is spent), close with narrate rather than hang the turn — the pending
-			// survives in the capsule and the next turn owes it again.
-			const pending = state.pendingChoice;
-			const owesAsk = pending?.for === "player" && Array.isArray(pending.options) && pending.options.length >= 2;
-			const referenceAnswer = state.interactionScope !== undefined && state.interactionScope !== 'world';
-			if (!SINGLE_PASS_NARRATION && owesAsk && !state.steeredThisTurn && !referenceAnswer) return dropText("owes_ask");
-			// Turn floor (docs/specs/turn-floor.md D4): the Keeper wrote prose and called no tool at all this
-			// turn. Once, the host drops that draft and steers it back to the capsule; whatever the second leg
-			// brings is honoured, an explicit narrate or prose closed implicitly as before. The opening is
-			// exempt (it has its own instruction), and so is any turn in which a tool was tried, refused or not.
-			// §135.11's SL-80 addendum (2026-09-26): the same one steer also fires when the draft is nothing
-			// but a say span -- a voice with no world's answer, uptake or handoff around it (§34.2) -- even
-			// when the turn's clerk already settled a check or a move. Structural: `isSpeechOnlyDraft` reads
-			// span and marker syntax, never the words. Not a second floor: the same floorDraft/deliveryFix/
-			// steeredThisTurn machinery, the same FLOOR_STEER text, so the one-steer budget and the dropped-
-			// draft fallback of the gate #4 addendum apply exactly as they do to the no-tool-call case.
-			// §135.11.4.1 (SL-93, re-scoped at integration): the length floor is apply.narrate's alone; this
-			// path keeps SL-80's two conditions and no length check.
-			const opening = state.state === "awaiting_player" && state.openingPending;
-			const speechOnly = !opening && !state.steeredThisTurn && isSpeechOnlyDraft(prose);
-			if (!SINGLE_PASS_NARRATION && (state.toolCallsThisTurn === 0 || speechOnly) && !opening && !state.steeredThisTurn && !referenceAnswer) {
-				state.floorDraft = prose;
-				state.deliveryFix = { kind: "floor", text: FLOOR_STEER };
-				await record({ lane: "floor", turn: state.turn, steered: true, round_trips: state.roundTrips, ...(speechOnly ? { reason: "speech_only" } : {}) });
-				return dropText("floor_steer");
-			}
-			// The existing fictional speech repair applies only to world turns. Reference answers
-			// do not inherit dialogue obligations from NPCs still present in the paused scene.
-			const speechSteerOn = !SINGLE_PASS_NARRATION && !referenceAnswer && process.env.PI_COC_SPEECH_STEER?.trim() !== "0" && !state.deliveryFix && !state.deliveryTriedThisTurn && !state.steeredThisTurn;
-			const bareOfTokens = state.present.length > 0 && !opening && !/\{\{say:/.test(prose);
-			const unwrapped = speechSteerOn && !bareOfTokens ? unwrappedQuotes(prose, state.speechMarks) : [];
-			if (speechSteerOn && (bareOfTokens || unwrapped.length > 0)) {
-				state.floorDraft = prose;
-				state.deliveryFix = { kind: "speech", text: bareOfTokens ? SPEECH_STEER : unwrappedSpeechSteer(unwrapped) };
-				await record({ lane: "speech", turn: state.turn, steered: true, present: state.present.length,
-					reason: bareOfTokens ? "no_token" : "unwrapped_quote", ...(bareOfTokens ? {} : { unwrapped: unwrapped.length }) });
-				return dropText("speech_steer");
-			}
-			// §128.3: past this point the steer is spent, switched off, or had nothing to ask about. Passages
-			// still left outside every token go to the attribution family; the delivery waits at most its cap
-			// and, whatever it answers, goes out with the Keeper's words unchanged.
-			// A refused second leg after a spent floor or speech steer falls back to the draft that steer dropped
-			// (§135.11 addendum 2026-09-24), once. §143.11: with the steer spent, a refusal the kernel lets through on
-			// the same turn's next delivery of the same draft re-sends that draft, once per such reason (below). So a
-			// message costs at most the fallback plus one re-send per once-per-turn gate, and no model step.
-			let draft = prose;
-			let fallback = state.steeredThisTurn && state.floorDraft && state.floorDraft !== prose ? state.floorDraft : undefined;
-			const resent = new Set<string>();
-			let attributed: { text: string; hostAttributed?: number[] } | undefined, attributedDraft: string | undefined;
-			let repeats: Array<{ npc: string; ref: string }> = [];
-			for (;;) {
-				// §145.2: read at the same time as attribution; refusable only while the turn's one steer can still hand the
-				// kernel's fix back (§135.11). The opening is never read: keyed on the opening itself, not on `opening`, which
-				// also asks for awaiting_player -- an opening whose own Mod writes moved the turn to acting is still the opening
-				// (live table time-skip-a, turn 0).
-				const timeRead = state.openingPending || referenceAnswer ? undefined : readTimeSkip(state, draft, "implicit", !state.steeredThisTurn, state.lanes.signal, foregroundProviderBudget?.());
-				// The same draft sent again keeps the attribution it already has: no second Jev batch for the same words. The
-				// §143.24 purpose reading rides with it, read from the Keeper's own draft beside attribution, once per draft.
-				if (attributed === undefined || attributedDraft !== draft) {
-					const [wrapped, read] = referenceAnswer ? [{text: draft}, []] as const : await Promise.all([attributeUnwrappedSpeech(state, draft, state.lanes.signal, foregroundProviderBudget?.()),
-						purposeRepeats(state, draft, state.lanes.signal, foregroundProviderBudget?.())]);
-					attributed = wrapped;
-					repeats = read;
-					attributedDraft = draft;
-				}
-				const timeReading = await timeRead;
-				const tool = "narrate";
-				const callId = mintCallId(state);
-				const startedAt = new Date().toISOString();
-				const began = Date.now();
-				try {
-					const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: attributed.text, implicit: true,
-						...(referenceAnswer ? {_interaction_scope: state.interactionScope} : {}),
-						...(attributed.hostAttributed?.length ? { host_attributed: attributed.hostAttributed } : {}),
-						...(repeats.length ? { purpose_repeats: repeats } : {}),
-						...(state.preparationWait ? {preparation_wait: {kind: state.preparationWait.kind,
-							...(state.preparationWait.name ? {name: state.preparationWait.name} : {})}}
-							: state.sourceWait ? {preparation_wait: {kind: 'source',
-								...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})}} : {}),
-						...(state.rebindingRefused ? {rebinding_refused: {...state.rebindingRefused}} : {}) };
-					if(!referenceAnswer)params.quotes=await purchaseRecovery(state).offers(undefined,state.turn);
-					if(!referenceAnswer)params._cash_requests=await purchaseRecovery(state).requests(state.turn);
-					params.source_consultations=sourceConsultationsForAudit(state);
-					state.skillRun?.tool_names.push(tool);
-					await guardTaskDelivery(event.message);
-					const prepared = referenceAnswer || SINGLE_PASS_NARRATION ? undefined : await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());
-					// §91: the host's own closing delivery is reviewed on the same terms as an explicit one.
-					notePrepared(state, prepared);
-					await reviewForcedPlayerChoiceCue(state, String(params.text ?? ''), state.lanes.signal, 'implicit', ctx);
-          await guardRefusedDocumentDelivery(state,String(params.text??''),state.lanes.signal,foregroundProviderBudget?.());
-          await guardHeldActDelivery(state,String(params.text??''),state.lanes.signal,foregroundProviderBudget?.());
-					// §203.6: the implicit close skips the Mod hooks, not the establishing check.
-					const establishNote = referenceAnswer || state.openingPending ? undefined
-						: await guardEstablishDelivery(state, draft, 'implicit', state.lanes.signal, foregroundProviderBudget?.());
-					if (establishNote) params.establish_review = establishNote;
-					await guardTaskDelivery(event.message, 'committing');
-					// §135.31: the host's own close carries the turn's look/lookup calls to its record too (after the Mod hooks).
-					const reads = readsOfTurn(state);
-					if (reads.length) params.keeper_reads = reads;
-					// §190.3: and the moves admission refused this turn.
-					if (state.refusedMoves?.length) params.refused_moves = state.refusedMoves.map((move) => ({ ...move }));
-					// §200.4: and the recording the turn closes with unconfirmed.
-					await carryUnconfirmedRecordings(state, params);
-					if (timeReading) params.time_reading = timeReading;
-					const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
-					// `applyToolSuccess`'s own `narrate` case already projected the mechanics and noted the
-					// commit. Projecting again here wrote the `coc-mechanics` entry twice for every turn the
-					// host closed implicitly, and the frontend drew what the session held: the player saw the
-					// same "this turn's mechanics" block twice (campaign game-5779d0fd turn 3, two entries of
-					// identical bytes against one row in the turn record). An explicit `narrate` went through
-					// one path and was never affected, which is why only some cards doubled.
-					applyToolSuccess(state, tool, "implicit", result);
-					state.implicitClose = { call_id: callId, turn: typeof result.turn === "number" ? result.turn : state.turn };
-					await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
-					await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
-					afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
-					afterDeliveryFirstSight(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
-					afterDeliveryTold(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
-					afterDeliveryEstablish(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
-					rendered = asString(result.rendered_text);
-					break;
-				} catch (error) {
-					const detail = refusalDetail(error);
-					if (isKernelError(error) && [REFUSED_DOCUMENT_OUTCOME_REASON,'refused_document_outcome_stale'].includes(String(error.details?.reason))) {
-            state.floorDraft = undefined;
-            return dropText('refused_document_outcome', {code:error.code,reason:error.details?.reason});
-          }
-					if (isKernelError(error) && [HELD_ACT_OUTCOME_REASON,'held_act_outcome_stale'].includes(String(error.details?.reason))) {
-            state.floorDraft = undefined;
-            return dropText(HELD_ACT_OUTCOME_REASON, {code:error.code,reason:error.details?.reason});
-          }
-					// §203.6: the guard held this draft and set the one steer's fix; the turn close carries it to the Keeper.
-					if (isKernelError(error) && error.details?.reason === 'establish_thin')
-						return dropText('establish_thin', {missing: error.details?.missing ?? []});
-					// The kernel's own `reason` travels on this row as it does on an explicit verb's (§12.8):
-					// without it a continuity review that timed out and a Mod repair were both a bare `needs`.
-					const reason = asString((error as { details?: { reason?: unknown } })?.details?.reason);
-					await record({
-						tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: false, implicit: true,
-						code: isKernelError(error) ? error.code : "internal",
-						...(reason ? { reason } : {}),
-						...(detail ? { code_detail: detail } : {}),
-					});
-					// The draft does not stay on screen (contract §34.14). A refused delivery is a turn that did
-					// not happen, and its raw prose can contain machine tokens that only a successful narrate
-					// strips. Continuity review unavailability pauses the run; other review failures get one
-					// targeted repair steer. Both paths remove the rejected text before agent_end acts.
-					state.floorDraft = undefined;
-					const refusal = { code: isKernelError(error) ? error.code : "internal", ...(reason ? { kernel_reason: reason } : {}), call_id: callId };
-					if (isKernelError(error) && error.details?.reason === 'continuity_review_unavailable') {
-						pauseReview(state, error);
-						return dropText("review_paused", refusal);
-					}
-					// §143.11 (generalising §143.10): the kernel lets markup and an owed result through on the same turn's
-					// next delivery of the same draft, and with the turn's one steer spent that refusal's repair could never
-					// reach the Keeper. The same draft goes again, once per reason, and the kernel delivers it with its
-					// finding: such a check never costs the player the turn, and it costs no model step. Dispatched on
-					// `details.reason`, never the message; `repeated_line` is refused every time and is not re-sent.
-					const resendAs = reason && !resent.has(reason) ? RESENT_ON_SECOND_DELIVERY.get(reason) : undefined;
-					if (reason && resendAs && state.steeredThisTurn) {
-						resent.add(reason);
-						void record({ lane: "delivery", turn: state.turn, ok: false, reason: resendAs, ...refusal });
-						continue;
-					}
-					// §135.11 addendum (2026-09-24, live gate #4): the turn's one steer is spent, so the repair set
-					// below could never be handed back, and the draft that steer dropped is still held. It is the
-					// Keeper's finished prose: close the turn on it, once, rather than strand a turn written twice.
-					if (fallback !== undefined) {
-						void record({ lane: "delivery", turn: state.turn, ok: false, reason: "steered_leg_refused", fallback: "dropped_draft",
-							dropped: blocks.filter((block) => block.type === "text").length, ...refusal });
-						draft = fallback;
-						fallback = undefined;
-						continue;
-					}
-					// §143.10/§143.11: a draft refused by a gate the kernel lets through the second time is held like a floor or
-					// speech steer's dropped draft (never shown), so a steered leg that brings nothing, or one the kernel refuses,
-					// falls back to it and the spent gate lets it go. A `repeated_line` draft is not held: it would be refused again.
-					if (resendAs && !state.steeredThisTurn) state.floorDraft = draft;
-					if (!(reason === 'forced_player_choice_cue_review' && state.deliveryFix?.kind === 'forced-player-choice-cue'))
-						state.deliveryFix = {kind: "audit-repair", text: `This draft was not delivered. ${isKernelError(error) ? error.message : "Delivery preparation failed"}. ` +
-							`${isKernelError(error) ? error.fix ?? "" : ""} ${isKernelError(error) ? JSON.stringify(error.details ?? {}).slice(0, 8000) : detail ?? ""} Keep settled actions; repair with narrate, without rerolling or inventing a reconciliation.`,
-							...(reason ? { kernel_reason: reason } : {})};
-					return dropText("implicit_narrate_refused", refusal);
-				}
-			}
-			// The implicit narrate landed but the kernel rendered nothing to publish. The raw draft is not a
-			// substitute: only a rendered delivery strips the machine tokens (§34.14).
-			if (!rendered) return dropText("rendered_nothing");
+            if(prose) {
+                state.deliveryFix={kind:'text-tool-call',text:'Story prose is still a private draft. Select output explicitly to author and publish it, or keep an OOC reply in the direct assistant channel. Do not repeat settled effects.'};
+                return dropText('explicit_output_not_selected');
+            }
+			return dropText(failedLeg ? "failed_leg_not_delivered" : "text_not_a_delivery");
 		}
+
 		const next: Array<Record<string, unknown>> = [];
 		let placed = false;
 		for (const block of blocks) {

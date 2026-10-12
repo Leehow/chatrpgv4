@@ -113,7 +113,7 @@ test("§107.1 at the seam: the map published after the arrival is on the next tu
 	const table = await openTable({ realKernel: true, seedCampaign: false, prepareWorkspace: towerWithALateMap(true),
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
 		responses: [(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("look", { focus: "scene" })], { stopReason: "toolUse" }); },
-			(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("narrate", { text: "风从塔顶的小屋里穿过去。" })], { stopReason: "toolUse" }); }] });
+			(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("output", { text: "风从塔顶的小屋里穿过去。" })], { stopReason: "toolUse" }); }] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我上到塔顶四下看看。");
 
@@ -144,7 +144,7 @@ test("§107.1 at the seam: the map published after the arrival is on the next tu
 test("§22.4.5 at the seam: look focus=map on a map still being read answers map_preparing at once and never waits", async (t) => {
 	const table = await openTable({ realKernel: true, seedCampaign: false, prepareWorkspace: towerWithALateMap(false),
 		responses: [fauxAssistantMessage([fauxToolCall("look", { focus: "map", name: "Harbor chart" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你在塔下站了一会儿。" })], { stopReason: "toolUse" })] });
+			fauxAssistantMessage([fauxToolCall("output", { text: "你在塔下站了一会儿。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	const began = Date.now();
 	await table.session.prompt("有没有这一带的地图？");

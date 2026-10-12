@@ -9,6 +9,7 @@ import {test} from "node:test";
 import {fauxAssistantMessage,fauxProvider,fauxToolCall} from "@earendil-works/pi-ai";
 import {createAgentSession,DefaultResourceLoader,ModelRuntime,SessionManager,SettingsManager} from "./pi.mjs";
 import kernelExtension from "../../extensions/kernel/index.ts";
+import {ownedOutputProvider} from './fixtures/owned-output-provider.mjs';
 import {bindDecisionAnswers, ContractError} from "../../runtime/jev/contracts.ts";
 import {createOrdinaryApplyDomain} from "../../runtime/jev/ordinary-apply-domain.ts";
 import {createOrdinaryResolveDomain} from "../../runtime/jev/ordinary-resolve-domain.ts";
@@ -61,13 +62,13 @@ const replies=[];createInterface({input:child.stdout}).on("line",line=>replies.s
 let world="world-r1";const patch=value=>{if(!value||typeof value!=="object")return;if(value._context&&typeof value._context==="object")Object.assign(value._context,{world_revision:world,task_world_revision:world,source_revision:"source-r1",task_source_revision:"source-r1"});for(const child of Object.values(value))patch(child);};
 for await(const line of createInterface({input:process.stdin})){const request=JSON.parse(line);await appendFile(${JSON.stringify(proxyLog)},JSON.stringify({method:request.method,params:request.params})+"\\n");const response=await forward(request);if(request.method==="table.resolve"&&response.ok){const result=response.result;result.receipts??=[result.receipt];result._task_advance={campaign:"handoff-host",turn:1,worldline:"main",loop:0,operationId:request.params.call_id,receiptIds:result.receipts,before:"broad-r1",after:"broad-r2",task_before:"world-r1",task_after:"world-r2"};world="world-r2";}patch(response.result);process.stdout.write(JSON.stringify(response)+"\\n");}child.kill();`,"utf8");
 	const hidden=Object.fromEntries(Object.keys(process.env).filter(key=>/(_API_KEY|_TOKEN|_SECRET)$/.test(key)).map(key=>[key,undefined]));
-	const restore=setEnv({...hidden,PI_COC_KERNEL_CMD:JSON.stringify([process.execPath,proxy]),PI_COC_CAMPAIGN:"handoff-host",PI_COC_MODE:"play",PI_COC_MEMORY_BACKFILL:"0",PI_COC_MODS_WAIT_MS:"0",PI_COC_ADMISSION_MODEL:"admission/a1",PI_OFFLINE:"1",FAKE_KERNEL_LOG:requestLog,FAKE_KERNEL_WORKSPACE:"1"});
+	const restore=setEnv({...hidden,PI_COC_READER_CMD:JSON.stringify([process.execPath,join(import.meta.dirname,"fixtures/legacy-output-writer.mjs")]),PI_COC_KERNEL_CMD:JSON.stringify([process.execPath,proxy]),PI_COC_CAMPAIGN:"handoff-host",PI_COC_MODE:"play",PI_COC_MEMORY_BACKFILL:"0",PI_COC_MODS_WAIT_MS:"0",PI_COC_ADMISSION_MODEL:"admission/a1",PI_OFFLINE:"1",FAKE_KERNEL_LOG:requestLog,FAKE_KERNEL_WORKSPACE:"1"});
 	const keeper=fauxProvider({provider:"handoff-keeper",models:[{id:"keeper",reasoning:false}]});
 	const incumbentAction={actor:"托马斯·海耶斯",intent:"investigate",goal:"Search the desk",method:"carefully",skill:"Spot Hidden",decision:"core-check:ordinary-check",modifiers:{difficulty:"regular",bonus_dice:0,penalty_dice:0,reason:"careful search"}};
 	keeper.setResponses([
 		fauxAssistantMessage([fauxToolCall("submit_plan_packet",plan(["resolve"]))],{stopReason:"toolUse"}),
 		fauxAssistantMessage([fauxToolCall("resolve",{action:incumbentAction})],{stopReason:"toolUse"}),
-		fauxAssistantMessage([fauxToolCall("narrate",{text:"The existing owner settles the search once."})],{stopReason:"toolUse"}),
+		fauxAssistantMessage([fauxToolCall("output",{text:"The existing owner settles the search once."})],{stopReason:"toolUse"}),
 	]);
 	const admission=fauxProvider({provider:"admission",models:[{id:"a1",reasoning:false}]});admission.setResponses([fauxAssistantMessage(JSON.stringify({verdict:"authorized",grounds:"The player chose the search."}))]);
 	const modelRuntime=await ModelRuntime.create({authPath:join(cwd,"auth.json"),modelsPath:null,modelsStorePath:join(cwd,"models.json"),refreshOnCreate:false});modelRuntime.registerNativeProvider(keeper.provider);modelRuntime.registerNativeProvider(admission.provider);
@@ -80,7 +81,7 @@ for await(const line of createInterface({input:process.stdin})){const request=JS
 		pi.on("tool_result",event=>control.hooks.push(["result",event.toolName,event.toolCallId,event.isError]));
 		pi.on("session_start",()=>pi.events.emit("coc:mods-bridge",{async prepare(method){if(method==="resolve")control.mods.push("prepare");},async after(method){if(method==="resolve")control.mods.push("after");}}));
 	}};
-	const loader=new DefaultResourceLoader({cwd,agentDir:join(cwd,"agent"),settingsManager,extensionFactories:[probe,{name:"coc-kernel",factory:kernelExtension},{name:"task-host",factory:adapter.extension}]});await loader.reload();
+	const loader=new DefaultResourceLoader({cwd,agentDir:join(cwd,"agent"),settingsManager,extensionFactories:[probe,{name:"coc-kernel",factory:pi=>kernelExtension(pi,{capabilities:ownedOutputProvider})},{name:"task-host",factory:adapter.extension}]});await loader.reload();
 	const created=await createAgentSession({cwd,agentDir:join(cwd,"agent"),model:keeper.getModel("keeper"),modelRuntime,thinkingLevel:"off",noTools:"builtin",resourceLoader:loader,sessionManager,settingsManager});session=created.session;const errors=[...created.extensionsResult.errors];await session.bindExtensions({mode:"rpc",onError:error=>errors.push(error)});
 	t.after(async()=>{try{if(session._extensionRunner?.hasHandlers?.("session_shutdown"))await session._extensionRunner.emit({type:"session_shutdown",reason:"quit"});session.dispose();}finally{restore();await settle(30);await rm(cwd,{recursive:true,force:true,maxRetries:5,retryDelay:20});}});
 	return{session,adapter,control,errors,async requests(){return existsSync(proxyLog)?(await readFile(proxyLog,"utf8")).split("\n").filter(Boolean).map(JSON.parse):[];}};
@@ -114,7 +115,7 @@ test("the public SDK releases only the handed-off verb through the existing hook
 	assert.equal(record.status,"closed");assert.equal(record.reason,"delivered");
 	assert.ok(host.control.activeAtResolve.includes("resolve"),JSON.stringify({active:host.control.activeAtResolve,hooks:host.control.hooks,messages:host.session.messages,record}));assert.equal(host.control.activeAtResolve.includes("apply"),false);
 	const visible=host.session.messages.filter(message=>message.role==="assistant").flatMap(message=>message.content.filter(block=>block.type==="toolCall").map(block=>block.name));
-	assert.deepEqual(visible,["submit_plan_packet","resolve","narrate"]);
+	assert.deepEqual(visible,["submit_plan_packet","resolve","output"]);
 	assert.equal(requests.filter(row=>row.method==="table.resolve").length,1,JSON.stringify({requests,hooks:host.control.hooks,messages:host.session.messages,record}));assert.equal(requests.filter(row=>row.method==="table.apply").length,0);
 	assert.deepEqual(host.control.mods,["prepare","after"]);
 	const incumbent=record.observations.find(row=>row.proposal.operation==="resolve");assert.ok(incumbent,JSON.stringify(record));

@@ -8,7 +8,7 @@ import { TaskLease } from "../../runtime/jev/task-context.ts";
 import { operationCapability } from "../../extensions/kernel/canonical-operation-dispatcher.ts";
 import { openTable, waitForIdle } from "./harness.mjs";
 
-const SEVEN = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate"];
+const SEVEN = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate", "output"];
 const PRIVATE_TOOL = "owned_dispatch_test";
 const NO_BACKFILL = { PI_COC_MEMORY_BACKFILL: "0" };
 
@@ -18,7 +18,7 @@ function privateCall() {
 
 function closeTurn() {
 	return [
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "The owned-dispatch fixture closes." })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "The owned-dispatch fixture closes." })], { stopReason: "toolUse" }),
 		fauxAssistantMessage("discarded post-delivery tail"),
 	];
 }
@@ -171,7 +171,7 @@ test("owned validation and journal gates precede private read/publication execut
 		["owned-publish", "succeeded", null, []],
 		["owned-read-fail", "failed", "owned_operation_failed", []],
 		["owned-publish-fail", "pending", "owned_operation_failed", [{ code: "settlement_unknown" }]],
-		["owned-invalid", "failed", "owned_operation_failed", []],
+		["owned-invalid", "failed", "invalid_owned_arguments", []],
 	]);
 	assert.equal(readExecutions, 2);
 	assert.equal(publicationExecutions, 2);

@@ -78,7 +78,7 @@ function durableDecisionInput(value: unknown): void {
   throw new ContractError('invalid_decision_input');
 }
 function backgroundOperation(context: TaskContext, domain: string, step: Extract<TaskStep, {kind: 'operation'}>): boolean {
-  if (['resolve', 'apply', 'narrate', 'ask'].includes(step.operation)) return false;
+  if (['resolve', 'apply', 'narrate', 'output', 'ask'].includes(step.operation)) return false;
   if (BACKGROUND_READS.includes(step.capability)) return true;
   return context.owner === 'memory' && domain === 'memory-write' && step.capability === 'memory.write'
     && ['memory.job', 'memory.submit'].includes(step.operation);
@@ -424,7 +424,7 @@ export class TaskRuntime {
           // Domain policy maps missing/adverse answers; transport success never means goal success.
           continue;
         }
-        if (!entry.lease.context.capabilities.includes(step.capability) || !record.plan!.capabilities.includes(step.capability) || ['narrate', 'ask'].includes(step.operation)
+        if (!entry.lease.context.capabilities.includes(step.capability) || !record.plan!.capabilities.includes(step.capability) || ['narrate', 'output', 'ask'].includes(step.operation)
           || entry.lease.context.kind === 'committed_memory' && !backgroundOperation(entry.lease.context, record.domain.id, step))
           throw new ContractError('task_operation_out_of_scope');
         if (record.replans && ['resolve', 'apply'].includes(step.operation) && record.observations.some(row =>

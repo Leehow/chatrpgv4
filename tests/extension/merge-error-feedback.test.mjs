@@ -15,7 +15,7 @@ test('merge refusals expose actionable choices without copying complete snapshot
   ];
   const table = await openTable({responses:[
     fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'merge',name:'combined',lines:['archive','letter']}]})],{stopReason:'toolUse'}),
-    fauxAssistantMessage([fauxToolCall('narrate',{text:'The branches remain separate while the conflict is considered.'})],{stopReason:'toolUse'}),
+    fauxAssistantMessage([fauxToolCall("output",{text:'The branches remain separate while the conflict is considered.'})],{stopReason:'toolUse'}),
     fauxAssistantMessage('Done.'),
   ]});
   t.after(()=>table.dispose());

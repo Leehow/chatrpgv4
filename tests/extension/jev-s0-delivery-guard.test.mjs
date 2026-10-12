@@ -16,9 +16,9 @@ function delay(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function explicit(tool = "narrate") {
+function explicit(tool = "output") {
 	const args = tool === "ask"
-		? { kind: "mechanics", text: "Choose whether to continue.", options: ["accept", "flee"] }
+		? { kind: "mechanics", options: ["accept", "flee"] }
 		: { text: "The guarded delivery reaches the player." };
 	return [
 		fauxAssistantMessage([fauxToolCall(tool, args)], { stopReason: "toolUse" }),
@@ -35,7 +35,7 @@ function implicit() {
 }
 
 function deliveryRequests(table) {
-	return table.kernelRequests().filter((row) => row.method === "table.narrate" || row.method === "table.ask");
+	return table.kernelRequests().filter((row) => row.method === "table.narrate" || row.method === "table.ask" || row.method === "table.reference.answer");
 }
 
 function toolResults(table, name) {
@@ -56,7 +56,7 @@ function guardExtension(control) {
 				if (control.review) {
 					pi.events.emit("coc:mods-bridge", {
 						async prepare(method, payload) {
-							if (method === "narrate" || method === "ask") {
+							if (method === "output" || method === "ask") {
 								control.reviewCalls.push({ method, payload: structuredClone(payload) });
 								await control.review(method, payload);
 							}
@@ -103,12 +103,12 @@ function assertTaskGuardError(table, tool) {
 
 test("conformance: no installed task guard preserves explicit and implicit delivery", async (t) => {
 	await t.test("explicit narrate remains unchanged", async (t) => {
-		const table = await openTable({ responses: explicit("narrate"), env: NO_BACKFILL });
+		const table = await openTable({ responses: explicit("output"), env: NO_BACKFILL });
 		t.after(() => table.dispose());
 		await play(table);
 		assert.equal(deliveryRequests(table).filter((row) => row.method === "table.narrate").length, 1);
 		assert.equal(table.committed().length, 1);
-		assert.equal(toolResults(table, "narrate").at(-1)?.isError, false);
+		assert.equal(toolResults(table, "output").at(-1)?.isError, false);
 	});
 
 	await t.test("implicit narrate remains unchanged", async (t) => {
@@ -116,13 +116,13 @@ test("conformance: no installed task guard preserves explicit and implicit deliv
 		t.after(() => table.dispose());
 		await play(table);
 		const narrates = deliveryRequests(table).filter((row) => row.method === "table.narrate");
-		assert.equal(narrates.length, 1);
-		assert.equal(narrates[0].params.implicit, true);
-		assert.equal(table.committed().length, 1);
+		assert.equal(narrates.length, 0);
+        assert.equal(deliveryRequests(table).filter(row=>row.method==="table.reference.answer").length,1);
+        assert.equal(table.committed().length,0);
 	});
 });
 
-for (const tool of ["narrate", "ask"]) {
+for (const tool of ["output", "ask"]) {
 	test(`conformance: an immediate task guard blocks explicit ${tool} before review and kernel invocation`, async (t) => {
 		const { table, control } = await guardedTable(t, {
 			responses: explicit(tool),
@@ -141,7 +141,7 @@ for (const tool of ["narrate", "ask"]) {
 
 test("section 166: explicit delivery retains task guards without buying a semantic review", async (t) => {
 	let expired = false;
-	const {table, control} = await guardedTable(t, {responses: explicit("narrate"),
+	const {table, control} = await guardedTable(t, {responses: explicit("output"),
 		guard() {if (expired) throw Error("expired during an obsolete review");},
 		review: async () => {expired = true;}
 	});
@@ -152,7 +152,7 @@ test("section 166: explicit delivery retains task guards without buying a semant
 	assert.equal(table.committed().length, 1);
 });
 
-test("section 166: implicit delivery retains task guards without buying a semantic review", async (t) => {
+test("direct conversation retains task guards without buying a semantic review", async (t) => {
 	let expired = false;
 	const {table, control} = await guardedTable(t, {responses: implicit(),
 		guard() {if (expired) throw Error("expired during an obsolete review");},
@@ -162,7 +162,8 @@ test("section 166: implicit delivery retains task guards without buying a semant
 	assert.equal(control.reviewCalls.length, 0);
 	assert.equal(control.guardCalls.length, 2);
 	assert.equal(deliveryRequests(table).length, 1);
-	assert.equal(table.committed().length, 1);
+	assert.equal(table.committed().length, 0);
+	assert.equal(deliveryRequests(table)[0].method, "table.reference.answer");
 });
 
 test("conformance: a material retry rechecks the task guard immediately before its second kernel invocation", async (t) => {
@@ -175,7 +176,7 @@ test("conformance: a material retry rechecks the task guard immediately before i
 		},
 	};
 	const { table, control } = await guardedTable(t, {
-		responses: explicit("narrate"),
+		responses: explicit("output"),
 		guard() {
 			checks += 1;
 			if (checks === 3) throw new Error("S0 attempt expired before material retry");
@@ -192,5 +193,5 @@ test("conformance: a material retry rechecks the task guard immediately before i
 	assert.equal(deliveryRequests(table).filter((row) => row.method === "table.narrate").length, 1,
 		"the first invoke reached the faux kernel and the guarded retry did not");
 	assert.equal(table.committed().length, 0);
-	assert.match(assertTaskGuardError(table, "narrate").content[0].text, /expired before material retry/);
+	assert.match(assertTaskGuardError(table, "output").content[0].text, /expired before material retry/);
 });

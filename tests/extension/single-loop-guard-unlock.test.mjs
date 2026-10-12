@@ -229,7 +229,7 @@ test("§135.30.5 / §135.30.9.3 on the emitted kernel: gate #3 turn 1's sentence
 	const table = await openTable({ realKernel: true, prepareWorkspace: (at) => { workspace = at; kernelSteps(at, [
 		["table.open", {}], ["table.player_input", { text: "我听他说完。" }], ["table.narrate", { call_id: "t1-c1", text: "诺特把委托说了一遍。" }]]); },
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你接下委托，去了报馆。" })], { stopReason: "toolUse" })] });
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "你接下委托，去了报馆。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt(INPUT);
 
@@ -281,7 +281,7 @@ test("§135.30.7 on the emitted kernel: after the clerk's settlement and move, t
 		["table.open", {}], ["table.player_input", { text: "我听他说完。" }], ["table.narrate", { call_id: "t1-c1", text: "诺特把委托说了一遍。" }]]); },
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
 		responses: [fauxAssistantMessage([fauxToolCall("apply", { effects: accept })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你收下钥匙和预付，出门去了报馆。" })], { stopReason: "toolUse" })] });
+			fauxAssistantMessage([fauxToolCall("output", { text: "你收下钥匙和预付，出门去了报馆。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt(INPUT);
 

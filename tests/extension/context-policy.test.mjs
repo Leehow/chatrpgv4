@@ -510,7 +510,7 @@ test('full craft context supplements rather than duplicates current style fields
 
 function keeperTurn(text) {
     return [fauxAssistantMessage([fauxToolCall('look', {})], {stopReason: 'toolUse'}),
-        fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}), fauxAssistantMessage('Discarded post-delivery tail.')];
+        fauxAssistantMessage([fauxToolCall("output", {text})], {stopReason: 'toolUse'}), fauxAssistantMessage('Discarded post-delivery tail.')];
 }
 
 test('actual Pi outbound context has bounded canonical history and a stable brief while raw evidence remains', async t => {

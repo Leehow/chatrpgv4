@@ -22,12 +22,12 @@ function lookupResults(session) {
 
 test("module lookup resolves the exact handles the Keeper holds, several at once", async t => {
 	const table = await openTable({ realKernel: true, campaign: "starter-handles", responses: [
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "module", query: HANDLES })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "module", query: "knott-keys, knott-commission", expected_kind: "clue" })], { stopReason: "toolUse" }),
 		// A handle list with one word that is not a handle is ordinary search text, not a partial list.
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "module", query: "knott-keys house" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特翻开一叠租约。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "诺特翻开一叠租约。" })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
@@ -54,11 +54,11 @@ test("a source lookup on a module without an original document names the road th
 	const table = await openTable({ realKernel: true, campaign: "starter-no-source", seedCampaign: false,
 		prepareWorkspace: workspace => { createRealCampaign(workspace, "starter-no-source", { module: "voice-bench", pregen: "shen-zhiwei" }); },
 		responses: [
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", source_mode: "answer", query: "Steven Knott commission briefing",
 			question: "What does Steven Knott tell the investigators about the commission?" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Steven Knott", question: "His commission" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特翻开一叠租约。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "诺特翻开一叠租约。" })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await waitForIdle(table.session, { timeoutMs: 60_000 });

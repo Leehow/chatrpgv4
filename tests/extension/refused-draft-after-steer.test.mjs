@@ -72,7 +72,7 @@ const REPEAT = `诺特又敲了敲桌面。{{say:${KNOTT}}}${LINE}{{/say}}`;
 /** A first draft with Knott present and no say token: the §40 speech steer drops and holds it. */
 const BARE = "诺特没有答话，把椅子往后推了推，站到窗边去了。";
 
-const narrateRows = (table) => table.telemetry().filter((row) => row.tool === "narrate" && row.call_id && row.event === undefined);
+const narrateRows = (table) => table.telemetry().filter((row) => row.tool === "output" && row.call_id && row.event === undefined);
 const drops = (table) => table.telemetry().filter((row) => row.lane === "delivery" && row.ok === false);
 const closes = (table) => table.telemetry().filter((row) => row.lane === "turn" && row.event === "turn_close");
 const hostSteers = (table, kind) => customMessages(table.session, "coc-host").filter((message) => message.details?.kind === kind);

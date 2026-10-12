@@ -80,6 +80,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     const record = (row: Row): void => writeTelemetry({...(observedTurn === undefined ? {} : {turn: observedTurn}), ...row});
     let failedGeneration: number | undefined, inputPending = false;
     let call: KernelCall | undefined, campaign: string | undefined, capsule: Row | undefined, rawBinding: unknown;
+    let materialSources:((turn:number)=>Row[])|undefined;
     let sourceRuntime:PrescreenSourceRuntime|undefined,moduleId:string|undefined;
     let answering: string[] | undefined, inputEpoch: string | undefined, generation = 0, prepared: Prepared | undefined;
     let preparing: Promise<Prepared | undefined> | undefined, brief: Row | undefined, briefKey: string | undefined;
@@ -238,6 +239,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const nextCampaign = typeof value.campaign === 'string' ? value.campaign : undefined;
         const changed = call !== nextCall || campaign !== nextCampaign;
         call = nextCall; campaign = nextCampaign;
+        materialSources=typeof value.materialSources==='function'?value.materialSources:undefined;
         const runtime=object(value.runtime);
         // §191.6: the prescreen's consultation hands the pages it wanted and read natively to the transcript queue.
         sourceRuntime=typeof runtime.home==='string'&&typeof runtime.sourceInfo==='function'&&typeof runtime.sourceText==='function'
@@ -824,10 +826,16 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if(ticket!==generation||preparationSignal.aborted)return superseded();
         const initial=prescreen?project(messageBudget,{workspace,prescreen}):baseline;
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
-        const fits=(list:Row[])=>requestSize(list)+systemBytes<=ceiling&&Math.ceil((requestSize(list)+systemBytes)/BYTES_PER_TOKEN)<=available;
+        const names=(materialSources?.(snapshot.binding.turn)??[]).slice(-6);
+        const sourceHint:Row|undefined=names.length?{role:'custom',customType:'coc-material-source',display:false,timestamp:0,
+            content:JSON.stringify({sources:names,authority:'Current-input reference names only; not disclosure or world authorization.'}),
+            details:{coc_host:true,material_source:{campaign,turn:snapshot.binding.turn}}}:undefined;
+        const hintBytes=sourceHint?requestSize([sourceHint]):0;
+        const fits=(list:Row[])=>requestSize(list)+hintBytes+systemBytes<=ceiling&&Math.ceil((requestSize(list)+hintBytes+systemBytes)/BYTES_PER_TOKEN)<=available;
         // The request around `reserve` bytes that the caller appends after it (contract §209.13: required package
         // detail), with the one diagnostic it is due. `omission` names package detail left out of this request.
         const assemble=(reserve:number,omission?:string)=>{
+            reserve+=hintBytes;
             let fitted=reserve||omission?project(Math.max(0,messageBudget-reserve),{workspace,prescreen}):initial;
             const why=omission??fitted.degraded??(Math.ceil((requestSize(fitted.messages)+reserve+systemBytes)/BYTES_PER_TOKEN)>available?'request_window_estimate':undefined);
             const notice=why?diagnostic(why,...(omission?[PACKAGE_OMITTED_NOTE]:[])):undefined;
@@ -938,8 +946,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         }else if(sectionsMessage)record({lane:'mod-sections',event:'omitted',turn:snapshot.binding.turn,reason:'request_ceiling',bytes:requestSize([sectionsMessage])});
         const temporalMessage=await temporalWork;
         if(ticket!==generation||preparationSignal.aborted)return superseded();
-        if(temporalMessage&&requestSize([...outgoing,temporalMessage])+systemBytes<=ceiling
-            &&Math.ceil((requestSize([...outgoing,temporalMessage])+systemBytes)/BYTES_PER_TOKEN)<=available){
+        if(temporalMessage&&fits([...outgoing,temporalMessage])){
             outgoing.push(temporalMessage);pendingTemporal=temporalMessage;
         }else if(temporalMessage)record({lane:'temporal-context',event:'omitted',turn:snapshot.binding.turn,reason:'request_ceiling',bytes:requestSize([temporalMessage])});
         pendingExpression=undefined;
@@ -951,8 +958,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const projectedExpression=expression.project(expressionView,snapshot.binding);
         const expressionMessage=projectedExpression&&rename([projectedExpression])[0];
         if(ticket!==generation||preparationSignal.aborted)return superseded();
-        if(expressionMessage&&requestSize([...outgoing,expressionMessage])+systemBytes<=ceiling
-            &&Math.ceil((requestSize([...outgoing,expressionMessage])+systemBytes)/BYTES_PER_TOKEN)<=available){
+        if(expressionMessage&&fits([...outgoing,expressionMessage])){
             outgoing.push(expressionMessage);pendingExpression=expressionMessage;
         }
         if(discoveryMode()!=='full'){
@@ -981,6 +987,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 // §219.3: the same bounded degraded request as every other failure, with its `context/request` row.
                 return{messages:degradedRequest(requestMessages as unknown as Row[],ctx,reason) as typeof requestMessages};
             }
+        }
+        if(sourceHint) {
+            if(requestSize([...outgoing,sourceHint])+systemBytes<=ceiling
+                &&Math.ceil((requestSize([...outgoing,sourceHint])+systemBytes)/BYTES_PER_TOKEN)<=available)outgoing.push(sourceHint);
         }
         const bytes = requestSize(outgoing) + systemBytes, estimatedTokens = Math.ceil(bytes / BYTES_PER_TOKEN);
         const requestId=`prescreen:${snapshot.binding.turn}:${++providerSequence}`;
@@ -1047,12 +1057,22 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         }
         const temporalSent=pendingTemporal;pendingTemporal=undefined;
         if(temporalSent)temporalAdvice.delivered(temporalSent,(event as unknown as Row).payload,payloadContains);
+        if(temporalSent&&campaign&&payloadContains((event as unknown as Row).payload,String(temporalSent.content)))
+            pi.events.emit?.('coc:writing-guidance',{campaign,turn:temporalSent.details.temporal_advice.turn,kind:'temporal',content:JSON.parse(String(temporalSent.content))});
         const sectionsSent=pendingSections;pendingSections=undefined;
         if(sectionsSent)modSections.delivered(sectionsSent,(event as unknown as Row).payload,payloadContains);
+        if(sectionsSent&&campaign&&payloadContains((event as unknown as Row).payload,String(sectionsSent.content))) {
+            const supplied=object(JSON.parse(String(sectionsSent.content)));
+            pi.events.emit?.('coc:writing-guidance',{campaign,turn:sectionsSent.details.mod_sections.turn,kind:'sections',
+                revision:fingerprint(object(capsule).mods?.instructions??[]),content:{authority:supplied.authority,
+                    sections:(supplied.sections??[]).filter((section:Row)=>['narration-craft','zh-optimize','npc-voice'].includes(section.package))}});
+        }
         const advice=pendingExpression;pendingExpression=undefined;
         let replacement:unknown;
         if(advice&&!expression.delivered(advice,(event as unknown as Row).payload,payloadContains))
             replacement=removeExpressionPayload((event as unknown as Row).payload,String(advice.content));
+        else if(advice&&campaign)pi.events.emit?.('coc:writing-reference',{
+            campaign,turn:advice.details.expression.turn,revision:advice.details.expression.revision,content:String(advice.content)});
         const pending=pendingProvider;pendingProvider=undefined;if(!pending)return replacement;
         if(!pending.prepared)return replacement;
         const prepared=object(pending.prepared),meta=object(object(prepared.details).prescreen);

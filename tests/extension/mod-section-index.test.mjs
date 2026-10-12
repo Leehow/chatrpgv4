@@ -305,7 +305,7 @@ test("over the budget the Keeper's actual requests carry resident text in the br
 	const batches=fakeJev(t,{asks_question:.92,speaks_to_person:.88});
 	const{table,requests}=await forcedTable(t,{env:{EXT_JEV_APIKEY:"fixture-key"},responses:[
 		()=>fauxAssistantMessage([fauxToolCall("apply",{effects:[{kind:"cash",mode:"quote",quote:"a room for the night",items:[{name:"room",quantity:1,unit_price:2}],source:"price"}]})],{stopReason:"toolUse"}),
-		()=>fauxAssistantMessage([fauxToolCall("narrate",{text:"老板说楼上还有一间。"})],{stopReason:"toolUse"}),
+		()=>fauxAssistantMessage([fauxToolCall("output",{text:"老板说楼上还有一间。"})],{stopReason:"toolUse"}),
 	]});
 	await table.session.prompt("我问老板最近有没有陌生人住店。");
 	assert.equal(requests.length,2,JSON.stringify(table.extensionErrors));
@@ -341,7 +341,7 @@ test("over the budget the Keeper's actual requests carry resident text in the br
 
 test("with Jev unavailable every section whose gates hold and that names a topic loads, recorded as fallback (§183.5)",async t=>{
 	const{table,requests}=await forcedTable(t,{env:{EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined},responses:[
-		()=>fauxAssistantMessage([fauxToolCall("narrate",{text:"办公室里很安静。"})],{stopReason:"toolUse"}),
+		()=>fauxAssistantMessage([fauxToolCall("output",{text:"办公室里很安静。"})],{stopReason:"toolUse"}),
 	]});
 	await table.session.prompt("我环顾四周。");
 	const sent=sectionsOf(requests[0]);

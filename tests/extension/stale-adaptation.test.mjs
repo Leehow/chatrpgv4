@@ -132,7 +132,7 @@ test("a retained attempt already marked stale is re-prepared, never answered wit
 const PENDING_TURN = [
 	fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "north-end-pawnshop",
 		purpose: "new_destination", request: REQUEST, anchors: ["scene: commission-briefing"] })], { stopReason: "toolUse" }),
-	fauxAssistantMessage([fauxToolCall("narrate", { text: "铺子的事还在核对，这会儿你没有动身。" })], { stopReason: "toolUse" }),
+	fauxAssistantMessage([fauxToolCall("output", { text: "铺子的事还在核对，这会儿你没有动身。" })], { stopReason: "toolUse" }),
 ];
 
 test("a job that goes stale after the wait was captured is never reported as running, and the repeated action lands the same turn", async (t) => {
@@ -145,7 +145,7 @@ test("a job that goes stale after the wait was captured is never reported as run
 			// table never got to make.
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "walking to his own shop" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "walking to his own shop" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: delivered })], { stopReason: "toolUse" }),
 			fauxAssistantMessage(delivered),
 		],
 	});
@@ -187,7 +187,7 @@ test("the Keeper that asks a stale proposal for the destination gets the proposa
 			// Exactly what the shipped instruction asks for. Refusing it would make the instruction a loop.
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "north-end-pawnshop",
 				purpose: "new_destination", request: REQUEST, anchors: ["scene: commission-briefing"] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: delivered })], { stopReason: "toolUse" }),
 			fauxAssistantMessage(delivered),
 		],
 	});

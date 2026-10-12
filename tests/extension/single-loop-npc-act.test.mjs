@@ -456,7 +456,7 @@ async function actTable(t, { prepareWorkspace, npcAct, act, responses, extra = [
 	} } });
 	const table = await openTable({ realKernel: true, prepareWorkspace, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: "1" }, runDriver: engine.runDriver,
 		extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }, ...extra],
-		responses: responses ?? [fauxAssistantMessage([fauxToolCall("narrate", { text: "他朝楼下喊了一声。" })], { stopReason: "toolUse" })] });
+		responses: responses ?? [fauxAssistantMessage([fauxToolCall("output", { text: "他朝楼下喊了一声。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	return { table, decisions };
 }
@@ -625,7 +625,7 @@ test("§143.4 at the table: after the clerk carried out the declaration, the per
 	const engine = createHybridEngine({ env: {}, npcAct, decision: { decide: async (batch) => decide(batch) } });
 	const table = await openTable({ realKernel: true, prepareWorkspace: metArtyWithKnott, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: "4" },
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松了口。" })], { stopReason: "toolUse" })] });
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "编辑松了口。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我说明来意，请他帮忙调出科比特宅这些年的旧剪报。");
 	const telemetry = table.telemetry(CAMPAIGN);
@@ -739,7 +739,7 @@ async function seam(t, { npcAct, act, seed = "1", prepare, stakes }) {
 				const context = invocation('model');
 				return plan.ports.operations.execute({origin: 'model', operation, params, assistantMessage: {}, toolCall: {id: context.operationId}},
 					{...context, executeModelTool: async () => {
-						const result = await game.write(`table.${operation}`, params);
+						const result = await game.write(operation === "output" ? "table.narrate" : `table.${operation}`, params);
 						return {isError: false, details: result, content: [{type: 'text', text: JSON.stringify(result)}]};
 					}});
 			}};
@@ -786,7 +786,7 @@ test('JEV-OPEN-05: the real driver releases a prepared NPC first blow through th
 		env: {PI_COC_LOOP_ENGINE: 'hybrid-v1', COC_KERNEL_SEED: '4'}, runDriver: engine.runDriver,
 		extraExtensions: [{name: 'coc-hybrid-engine', factory: engine.extension}], responses: [
 			says('apply', {effects: [{kind: 'npc', name: 'Arty Wilmot', archetype: 'ordinary_adult', why: 'Prepare the held action without changing it.'}]}),
-			says('narrate', {text: 'The editor steps away from the door.'}),
+			says("output", {text: 'The editor steps away from the door.'}),
 		]});
 	t.after(() => table.dispose());
 	await table.session.prompt('I explain why I need the old clippings and persuade the editor to open the archive.');
@@ -830,7 +830,7 @@ test('JEV-OPEN-05: a null-profile NPC first blow resumes the exact act once afte
 
 for (const closing of ['delivery', 'cancel', 'agent_end', 'replacement']) test(`JEV-OPEN-05: ${closing} retires a pending NPC action before late completion`, async t => {
 	const {game, run, npcAct} = await unpreparedNpc(t);
-	if (closing === 'delivery') await run.model('narrate', {text: 'Knott stays by the desk.'});
+	if (closing === 'delivery') await run.model("output", {text: 'Knott stays by the desk.'});
 	else if (closing === 'cancel') run.controller.abort();
 	else if (closing === 'agent_end') game.agentEnd();
 	else await game.begin();
@@ -851,7 +851,7 @@ for (const closing of ['delivery', 'cancel', 'agent_end', 'replacement']) test(`
 	t.after(() => release.resolve());
 	const pending = prepareKnott(run);
 	await entered.promise;
-	if (closing === 'delivery') await run.model('narrate', {text: 'Knott stays by the desk.'});
+	if (closing === 'delivery') await run.model("output", {text: 'Knott stays by the desk.'});
 	else if (closing === 'cancel') run.controller.abort();
 	else if (closing === 'agent_end') game.agentEnd();
 	else await game.begin();
@@ -872,7 +872,7 @@ for (const closing of ['delivery', 'cancel', 'agent_end', 'replacement']) test(`
 	t.after(() => release.resolve());
 	const pending = run.execute(candidate);
 	await entered.promise;
-	if (closing === 'delivery') await run.model('narrate', {text: 'Knott stays by the desk.'});
+	if (closing === 'delivery') await run.model("output", {text: 'Knott stays by the desk.'});
 	else if (closing === 'cancel') run.controller.abort();
 	else if (closing === 'agent_end') game.agentEnd();
 	else await game.begin();
@@ -1382,7 +1382,7 @@ async function talkTable(t, { prepareWorkspace, npcAct, jev, responses }) {
 	const engine = createHybridEngine({ env: {}, npcAct, decision: { decide: async (batch) => jev(batch) } });
 	const table = await openTable({ realKernel: true, prepareWorkspace, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: "1" },
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: responses ?? [fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特没有马上回答。" })], { stopReason: "toolUse" })] });
+		responses: responses ?? [fauxAssistantMessage([fauxToolCall("output", { text: "诺特没有马上回答。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	return table;
 }
@@ -1655,7 +1655,7 @@ test('§159: unresolved model attack, defense and end calls create no blow or NP
   const npcAct = createFixtureNpcActPort({'steven-knott': 'He steps back.'});
   const table = await talkTable(t, {prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
     responses: [keeperSays(['resolve', {action: HIT}], ['resolve', {action: DODGE}], ['resolve', {action: PART}]),
-      keeperSays(['narrate', {text: 'The attack remains unresolved.'}])]});
+      keeperSays(["output", {text: 'The attack remains unresolved.'}])]});
   await table.session.prompt(PUNCH);
   const telemetry = table.telemetry(CAMPAIGN);
   assert.ok(!turnRecord(table, 2).receipts.some(receipt => receipt.kind === 'roll' && receipt.family === 'combat'));
@@ -1668,7 +1668,7 @@ test("§143.28 at the table: the Keeper does something else to him and never set
 	const npcAct = createFixtureNpcActPort({ "steven-knott": "他往后缩了一下。" });
 	const table = await talkTable(t, { prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
 		responses: [keeperSays(["resolve", { action: { intent: "social", goal: "逼他交出钥匙", method: "揪住衣领威吓", skill: "Intimidate", target: "Steven Knott" } }]),
-			keeperSays(["narrate", { text: "诺特僵在原地。" }])] });
+			keeperSays(["output", { text: "诺特僵在原地。" }])] });
 	await table.session.prompt(PUNCH);
 	const telemetry = table.telemetry(CAMPAIGN);
 	const receipts = turnRecord(table, 2).receipts;
@@ -1684,7 +1684,7 @@ test('§159: model damage cannot bypass an unresolved attack check', async t => 
   const npcAct = createFixtureNpcActPort({'steven-knott': 'He steps back.'});
   const table = await talkTable(t, {prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
     responses: [keeperSays(['apply', {effects: [{kind: 'damage', subject: 'Steven Knott', dice: '1D3', why: 'the punch lands'}]}]),
-      keeperSays(['narrate', {text: 'The attack remains unresolved.'}])]});
+      keeperSays(["output", {text: 'The attack remains unresolved.'}])]});
   await table.session.prompt(PUNCH);
   const telemetry = table.telemetry(CAMPAIGN);
   assert.ok(!turnRecord(table, 2).receipts.some(receipt => receipt.kind === 'delta' && receipt.resource === 'hp'));
@@ -1697,7 +1697,7 @@ test('§159: model damage cannot bypass an unresolved attack check', async t => 
 test('§159: an unselected model blow creates no forced defense or autonomous fight turn', async t => {
   const npcAct = createFixtureNpcActPort({'steven-knott': 'He reaches for an ashtray.'});
   const table = await talkTable(t, {prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
-    responses: [keeperSays(['resolve', {action: HIT}]), keeperSays(['narrate', {text: 'The attack remains unresolved.'}])]});
+    responses: [keeperSays(['resolve', {action: HIT}]), keeperSays(["output", {text: 'The attack remains unresolved.'}])]});
   await table.session.prompt(PUNCH);
   const telemetry = table.telemetry(CAMPAIGN);
   assert.equal(landedClerkSteps(telemetry).some(row => /defend/.test(row.candidate)), false);

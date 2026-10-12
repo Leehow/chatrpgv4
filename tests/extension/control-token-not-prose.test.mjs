@@ -53,7 +53,7 @@ test("a terminal delivery makes the resent-control-token path unreachable", asyn
 		settings: retrying,
 		env: { PI_COC_PROVIDER_NOTICE_MS: "1" },
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
 			dead(),
 			controlToken(),
 			fauxAssistantMessage("Should never be consumed."),
@@ -82,7 +82,7 @@ test("the delivery survives a dead leg that is never resent", async (t) => {
 	// Same first half, no resend: the host must not have spent the rendered text on the dead message.
 	const session = await openTable({
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
 			dead(),
 		],
 	});
@@ -100,7 +100,7 @@ test("half a sentence streamed before the line died is not published", async (t)
 		settings: retrying,
 		responses: [
 			fauxAssistantMessage([{ type: "text", text: "你压着嗓子说：" }], { stopReason: "error", errorMessage: "terminated" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你压着嗓子说：「四只画押了。」" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你压着嗓子说：「四只画押了。」" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("Should never be consumed."),
 		],
 	});
@@ -120,7 +120,7 @@ test("text written after the turn has closed is not published as a second delive
 	const session = await openTable({
 		settings: retrying,
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
 			dead(),
 			fauxAssistantMessage("Turn closed. No more prose."),
 			fauxAssistantMessage("Nor this."),
@@ -140,7 +140,7 @@ test("a delivery the kernel rendered as nothing does not fall back to the raw dr
 	// implicit narrate that comes back with nothing to publish leaves the player with the turn's own
 	// account, not with the Keeper's working text.
 	const session = await openTable({ settings: retrying, env: { FAKE_KERNEL_EMPTY_RENDER: "1" }, responses: [
-		fauxAssistantMessage("门厅里落满灰。"),
+		fauxAssistantMessage([fauxToolCall("output",{text:"门厅里落满灰。"})],{stopReason:"toolUse"}),
 		fauxAssistantMessage("{{say:看门人}}「谁啊。」"),
 		fauxAssistantMessage("Should never be consumed."),
 	] });
@@ -156,7 +156,7 @@ test("an ordinary turn is untouched", async (t) => {
 	const session = await openTable({
 		settings: retrying,
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("Should never be consumed."),
 		],
 	});
@@ -180,8 +180,8 @@ test("prose with no narrate still closes the turn implicitly", async (t) => {
 	await session.session.prompt("我推门进去。");
 	await waitForIdle(session.session);
 
-	const narrates = session.kernelRequests().filter((request) => request.method === "table.narrate");
+	const narrates = session.kernelRequests().filter((request) => request.method === "table.reference.answer");
 	assert.equal(narrates.length, 1, JSON.stringify(narrates.map((request) => request.params?.text)));
-	assert.equal(narrates[0].params.implicit, true);
+	assert.equal(narrates[0].params.implicit, undefined);
 	assert.ok(read(session).includes("门厅里落满灰。"), JSON.stringify(read(session)));
 });

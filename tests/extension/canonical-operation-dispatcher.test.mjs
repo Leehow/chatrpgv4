@@ -15,7 +15,7 @@ import { TaskLease } from "../../runtime/jev/task-context.ts";
 import { operationCapability } from "../../extensions/kernel/canonical-operation-dispatcher.ts";
 import { openTable, waitForIdle } from "./harness.mjs";
 
-const SEVEN = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate"];
+const SEVEN = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate", "output"];
 const NO_BACKFILL = { PI_COC_MEMORY_BACKFILL: "0" };
 
 function delay(ms) {
@@ -28,7 +28,7 @@ function dispatchCall() {
 
 function closeTurn(text = "The bounded dispatcher turn closes.") {
 	return [
-		fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" }),
 	];
 }
 
@@ -325,7 +325,7 @@ test("real TS kernel: mutation journal precedes apply, retry recovers the same r
 		campaign,
 		realKernel: true,
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "The opening closes before the mutation test." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "The opening closes before the mutation test." })], { stopReason: "toolUse" }),
 			dispatchCall(), dispatchCall(), dispatchCall(), ...closeTurn("The clock advances once."),
 		],
 		mods: { async prepare(method) { prepares.push(method); }, async after(method) { afters.push(method); } },
@@ -585,7 +585,7 @@ test("real TS kernel: the closed schema accepts npc mood (§161.5) and still ref
 		campaign,
 		realKernel: true,
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "The opening closes before the mood test." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "The opening closes before the mood test." })], { stopReason: "toolUse" }),
 			dispatchCall(), dispatchCall(), ...closeTurn("Knott wipes his neck."),
 		],
 	});

@@ -14,7 +14,7 @@ import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { COC_TOOLS, PLAIN_PROSE, withPlainProse } from "../../extensions/kernel/tools.ts";
 
 /** The prose parameters §162 names, as tool -> top-level parameter. */
-const PROSE_FIELDS = [["narrate", "text"], ["apply", "narrate"], ["ask", "text"]];
+const PROSE_FIELDS = [["narrate", "text"], ["output", "text"], ["apply", "narrate"], ["ask", "text"]];
 
 /** Every description string anywhere in a schema, with its path. */
 function descriptions(schema, path = "") {
@@ -40,7 +40,7 @@ test("§162: the static catalog ends each prose parameter with the sentence, and
 		assert.ok(parameter.description.endsWith(PLAIN_PROSE), `${tool}.${field}: ${parameter.description.slice(-120)}`);
 	}
 	const carriers = COC_TOOLS.flatMap((spec) => descriptions(spec.parameters, spec.name).filter(([, text]) => text.includes(PLAIN_PROSE)).map(([path]) => path));
-	assert.deepEqual(carriers.sort(), ["apply.properties.narrate", "ask.properties.text", "narrate.properties.text"]);
+	assert.deepEqual(carriers.sort(), ["apply.properties.narrate", "ask.properties.text", "narrate.properties.text", "output.properties.text"]);
 	for (const spec of COC_TOOLS) assert.equal(spec.description.includes(PLAIN_PROSE), false, `${spec.name}'s own description`);
 });
 
@@ -54,7 +54,7 @@ for (const engine of ["legacy", "hybrid-v1"]) {
 			extraExtensions: [...(hybrid ? [{ name: "coc-hybrid-engine", factory: hybrid.extension }] : []), probe],
 			...(hybrid ? { runDriver: hybrid.runDriver, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" } } : {}),
 			responses: [
-				fauxAssistantMessage([fauxToolCall("narrate", { text: "你推开门，屋里没有人。" })], { stopReason: "toolUse" }),
+				fauxAssistantMessage([fauxToolCall("output", { text: "你推开门，屋里没有人。" })], { stopReason: "toolUse" }),
 				fauxAssistantMessage("你推开门，屋里没有人。"),
 			],
 		});
@@ -69,7 +69,7 @@ for (const engine of ["legacy", "hybrid-v1"]) {
 				const description = declared.get(tool).parameters.properties[field].description;
 				assert.ok(description.endsWith(PLAIN_PROSE), `${engine} ${tool}.${field}: ${description.slice(-120)}`);
 			}
-			assert.ok(declared.has("narrate") && declared.has("apply"), `${engine}: the request declares narrate and apply`);
+			assert.ok(declared.has("output") && declared.has("apply"), `${engine}: the request declares narrate and apply`);
 			const carriers = [...declared.values()].flatMap((tool) => descriptions(tool.parameters, tool.name)
 				.filter(([, text]) => text.includes(PLAIN_PROSE)).map(([path]) => path));
 			const expected = PROSE_FIELDS.filter(([tool]) => declared.has(tool)).map(([tool, field]) => `${tool}.properties.${field}`);

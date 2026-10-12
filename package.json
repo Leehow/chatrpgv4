@@ -3,7 +3,7 @@
   "version": "2.0.0-alpha.0",
   "private": true,
   "type": "module",
-  "description": "COC Keeper for Pi: seven verbs over a deterministic kernel",
+  "description": "COC Keeper for Pi: eight verbs over a deterministic kernel",
   "keywords": [
     "pi-package",
     "coc",

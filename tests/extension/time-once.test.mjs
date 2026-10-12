@@ -68,7 +68,7 @@ async function turnTwo(t, costs, responses, measure) {
     return {rows, record};
 }
 const keeperTime = fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'time', minutes: 90, why: 'The whole register, page by page.'}]})], {stopReason: 'toolUse'});
-const narrate = fauxAssistantMessage([fauxToolCall('narrate', {text: 'You work down the register; the clerk watches the clock.'})], {stopReason: 'toolUse'});
+const narrate = fauxAssistantMessage([fauxToolCall("output", {text: 'You work down the register; the clerk watches the clock.'})], {stopReason: 'toolUse'});
 
 test('§218.2 after the clerk charged the declared time, the Keeper\'s second time is refused and nothing in that apply runs', async t => {
     const {rows, record} = await turnTwo(t, true, [keeperTime, narrate]);

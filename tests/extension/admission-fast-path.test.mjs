@@ -27,7 +27,7 @@ const slowVerdict = (row, ms) => async () => { await new Promise((resolve) => se
 const installJev = (t, lines) => installTypedEndpoint(t, lines);
 const turn = (effects) => [
 	fauxAssistantMessage([fauxToolCall("apply", { effects })], { stopReason: "toolUse" }),
-	fauxAssistantMessage([fauxToolCall("narrate", { text: "你走进了剪报室。" })], { stopReason: "toolUse" }),
+	fauxAssistantMessage([fauxToolCall("output", { text: "你走进了剪报室。" })], { stopReason: "toolUse" }),
 	fauxAssistantMessage("after"),
 ];
 const bookkeeping = [{ kind: "move", to: "newspaper-morgue", travel_minutes: 30 }, { kind: "clue", clue: "globe-unpublished-story" }];
@@ -117,7 +117,7 @@ test("a resolve on an investigator is not on the fast path: however confident th
 	const table = await openTable({ env: KEY,
 		responses: [
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "翻剪报", method: "用图书馆使用查旧闻" } })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你翻着剪报。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你翻着剪报。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
 		laneResponses: { admission: [slowVerdict({ verdict: "not_authorized", grounds: "the player only asked about clippings", missing: "which method" }, 300)] } });

@@ -110,7 +110,7 @@ function controlledReview() {
 test('single-pass delivery leaves the review watch empty and records no automatic review', async t => {
     let port;
     const table = await openTable({responses: [
-        fauxAssistantMessage([fauxToolCall('narrate', {text: 'You pull up at the gate.'})], {stopReason: 'toolUse'}),
+        fauxAssistantMessage([fauxToolCall("output", {text: 'You pull up at the gate.'})], {stopReason: 'toolUse'}),
         fauxAssistantMessage('Should never be consumed.')],
         extraExtensions: [{name: 'owed-port-probe', factory: pi => pi.events.on('coc:owed-review', value => { port = value; })}]});
     t.after(() => table.dispose());
@@ -173,7 +173,7 @@ async function turnThree(t, prepare, {extra = [], afterOpen} = {}) {
     const engine = createHybridEngine({env: process.env, record: row => rows.push(row), decision: stubJev(decisions)});
     const table = await openTable({realKernel: true, prepareWorkspace: prepare, env: {PI_COC_LOOP_ENGINE: 'hybrid-v1'}, runDriver: engine.runDriver,
         extraExtensions: [{name: 'coc-hybrid-engine', factory: engine.extension}, ...extra],
-        responses: [fauxAssistantMessage([fauxToolCall('narrate', {text: '你推开门，蹲在小径旁看那些脚印。'})], {stopReason: 'toolUse'})]});
+        responses: [fauxAssistantMessage([fauxToolCall("output", {text: '你推开门，蹲在小径旁看那些脚印。'})], {stopReason: 'toolUse'})]});
     t.after(() => table.dispose());
     await afterOpen?.(table);
     await table.session.prompt('我推开大门，蹲在小径旁看地上的脚印。');

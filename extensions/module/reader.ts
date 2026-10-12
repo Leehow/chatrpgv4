@@ -71,6 +71,8 @@ export interface ReaderRequest {
 	 * calls reading the packaged app, the build output and their own event log instead of the task.
 	 */
 	tools?: string;
+	/** Selected final-prose task: confine the existing four tools to its immutable packet and artifact. */
+	finalOutput?: boolean;
 	eventLog?: string;
 	source?: { pdf: string; cache: string; file_sha256?: string };
 	/** §186.1: the image-count budget of the child's context hook (`reading_images` for a reading's authors and reviewers). */
@@ -362,6 +364,11 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 		delete env.PI_COC_LAYOUT_SUBMISSIONS;
 	}
 	if(request.imageHistory)env.PI_COC_READER_IMAGE_HISTORY=String(request.imageHistory);else delete env.PI_COC_READER_IMAGE_HISTORY;
+	if (request.finalOutput) {
+		env.PI_COC_FINAL_OUTPUT = '1';
+		env.PI_COC_READER_CHECK = join(request.cwd, 'host-bin', 'coc-read-check');
+		env.PATH = join(request.cwd, 'host-bin') + ':' + (env.PATH ?? '');
+	} else delete env.PI_COC_FINAL_OUTPUT;
 	if (request.source) env.PI_COC_READER_SOURCE = JSON.stringify(request.source);
 	else delete env.PI_COC_READER_SOURCE;
 	// The subprocess is not a table: it must not think it should open one.

@@ -13,7 +13,7 @@ const quote={quote:'Water and cigarettes',category:'purchase',with:'Counter cler
 for(const mode of ['explicit','embedded'])test(`${mode} prose and priced drafts deliver in one Keeper call, then the original card receives its quote`,async t=>{
   let keeperCalls=0;
   const text='The clerk puts the goods on the counter. "Here is the bill."';
-  const response=fauxAssistantMessage([fauxToolCall(mode==='explicit'?'narrate':'apply',mode==='explicit'?{text,quotes:[quote]}:{effects:[{kind:'time',minutes:1}],narrate:text,quotes:[quote]})],{stopReason:'toolUse'});
+  const response=fauxAssistantMessage([fauxToolCall(mode==='explicit'?"output":'apply',mode==='explicit'?{text,quotes:[quote]}:{effects:[{kind:'time',minutes:1}],narrate:text,quotes:[quote]}), ...(mode==='embedded'?[fauxToolCall('output',{quotes:[quote]})]:[])],{stopReason:'toolUse'});
   const table=await openTable({realKernel:true,keeperProviderCallbacks:true,prepareWorkspace:async workspace=>{
     const root=resolve(import.meta.dirname,'../..'),kernel=new KernelClient({command:[process.execPath,join(root,'build/kernel/rpc.mjs'),'--workspace',workspace,'--content',join(root,'content')],cwd:root});
     try{await kernel.call('table.open',{campaign:'test-camp'});await kernel.call('table.narrate',{campaign:'test-camp',call_id:'t0-c1',text:'The investigation begins.'});}finally{await kernel.close();}

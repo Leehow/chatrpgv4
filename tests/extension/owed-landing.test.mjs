@@ -129,7 +129,7 @@ const toldNoMove = workspace => {
 test('on the real tool path: the Keeper\'s own owed write is admitted on told, and no review is asked whether the player chose it', async t => {
     const session = await openTable({realKernel: true, prepareWorkspace: toldNoMove, responses: [
         fauxAssistantMessage([fauxToolCall('apply', {effects: [{...ROW.effect, owed: ROW.name}]})], {stopReason: 'toolUse'}),
-        fauxAssistantMessage([fauxToolCall('narrate', {text: '你推开门，蹲在小径旁看那些脚印。'})], {stopReason: 'toolUse'})]});
+        fauxAssistantMessage([fauxToolCall("output", {text: '你推开门，蹲在小径旁看那些脚印。'})], {stopReason: 'toolUse'})]});
     t.after(() => session.dispose());
     await session.session.prompt('我推开大门，蹲在小径旁看地上的脚印。');
     const row = session.telemetry().find(entry => entry.lane === 'admission' && entry.verb === 'apply');
@@ -146,7 +146,7 @@ test('on the real tool path: the Keeper\'s own owed write is admitted on told, a
 test('on the real tool path: a forged owed name gets no told basis -- left out, the write is reviewed as ordinary and lands nothing', async t => {
     const session = await openTable({realKernel: true, prepareWorkspace: toldNoMove, responses: [
         fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'move', to: 'newspaper-morgue', via: 'Anywhere.', owed: ROW.name}]})], {stopReason: 'toolUse'}),
-        fauxAssistantMessage([fauxToolCall('narrate', {text: '你在门前停了一会儿。'})], {stopReason: 'toolUse'})],
+        fauxAssistantMessage([fauxToolCall("output", {text: '你在门前停了一会儿。'})], {stopReason: 'toolUse'})],
         laneResponses: {admission: [fauxAssistantMessage(JSON.stringify({verdict: 'not_authorized', grounds: 'The player opened the gate; nobody chose the newspaper morgue.', missing: 'a trip to the morgue'}))]}});
     t.after(() => session.dispose());
     await session.session.prompt('我推开大门。');
@@ -166,7 +166,7 @@ for (const refused of ['outage','review']) test(`FR-07: a mixed batch refused by
         responses:[
             fauxAssistantMessage([fauxToolCall('apply',{effects:[{...ROW.effect,owed:ROW.name},{kind:'clue',clue:'nailed-windows',how:'Found the windows.'}]})],{stopReason:'toolUse'}),
             fauxAssistantMessage([fauxToolCall('apply',{effects:[{...ROW.effect,owed:ROW.name}]})],{stopReason:'toolUse'}),
-            fauxAssistantMessage([fauxToolCall('narrate',{text:'You stand before the gate. The windows are dark.'})],{stopReason:'toolUse'})]});
+            fauxAssistantMessage([fauxToolCall("output",{text:'You stand before the gate. The windows are dark.'})],{stopReason:'toolUse'})]});
     t.after(()=>session.dispose());await session.session.prompt('I look at the gate.');
     const errors=session.session.messages.filter(m=>m.role==='toolResult'&&m.toolName==='apply'&&m.details?.coc_error).map(m=>m.details.coc_error);
     assert.ok(errors.length);assert.deepEqual(errors[0].details.owed_retry,[ROW.name]);

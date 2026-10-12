@@ -196,7 +196,7 @@ async function seam(t, { responses, layers = {} }) {
 	return { table, requests, ensures, extractions, land };
 }
 const placeOn = (name) => fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "npc", name, to: "here", why: "he comes down from the tower" }] })], { stopReason: "toolUse" });
-const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
+const narrate = (text) => fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" });
 
 test("§22.4.7.1 at the seam: the write lands on the book's text in one call, the note carries it once with a pending row naming the person, and the record lands once", async (t) => {
 	const { table, requests, ensures, extractions, land } = await seam(t, {

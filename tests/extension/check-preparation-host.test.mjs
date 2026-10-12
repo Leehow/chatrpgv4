@@ -8,7 +8,7 @@ async function fixture() {
     if (name === 'coc:check-selection-unresolved') notices.push(value);
     if (name === 'coc:model-step') announced.push(value);
     bus.get(name)?.(value);
-  }}, on: () => {}, registerTool: () => {}, getActiveTools: () => ['look','lookup','apply','resolve','narrate'], setActiveTools: () => {}};
+  }}, on: () => {}, registerTool: () => {}, getActiveTools: () => ['look','lookup','apply','resolve',"output"], setActiveTools: () => {}};
   const engine = createHybridEngine({npcAct: null, env: {COC_NARRATOR_ONLY: 'on'}, record: row => rows.push(row),
     decision: {decide: async () => {throw new Error('this fixture exercises preparation projection, not semantic decisions');}}});
   engine.extension(pi);
@@ -50,12 +50,12 @@ for (const resolved of [false, true]) test(`§163: preparation preserves agent t
   await f.execute('lookup');
   assert.equal(f.announced.at(-1).refuse, undefined, 'source preparation remains in the agent catalog');
   if (resolved) await f.project([]);
-  await f.execute('narrate', true);
+  await f.execute("output", true);
   assert.equal(f.forced().length, 0, 'a refused delivery is not terminal');
-  await f.execute('narrate');
+  await f.execute("output");
   assert.deepEqual(f.forced().map(({family, subject, uncertain, chosen, why}) => ({family, subject, uncertain, chosen, why})), resolved ? []
     : [{family: 'check-preparation', subject: 'Chase start', uncertain: ['check_arguments_unavailable:chase:start'], chosen: {outcome: 'no_roll'}, why: 'preparation_incomplete'}]);
-  await f.execute('narrate');
+  await f.execute("output");
   assert.equal(f.forced().length, resolved ? 0 : 1, 'recorded once');
   assert.equal(f.notices.length, 0, 'no unresolved-check notice exists any more');
 });

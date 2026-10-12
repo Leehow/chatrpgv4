@@ -84,7 +84,7 @@ test("§144.1 known boundary: a label followed by whitespace and then the value 
 
 test("§144.1: only a field that carries another tool's argument is read -- narrate.text and ask.text are not", () => {
 	const narrate = { text: recorded("#23", 6).narrate };
-	assert.equal(stripDialectPrefixes("narrate", narrate).args, narrate);
+	assert.equal(stripDialectPrefixes("output", narrate).args, narrate);
 	const ask = { kind: "mechanics", options: ["push", "accept"], text: recorded("#22", 5).narrate };
 	assert.equal(stripDialectPrefixes("ask", ask).args, ask);
 	// apply's other string fields are not read either.
@@ -132,7 +132,7 @@ const realHybridTable = ({ responses }) => {
 
 test("§144.1: gate #23 t6's value delivers from its first real sentence, and the strip is recorded", async (t) => {
 	const table = await realHybridTable({ responses: [
-		fauxAssistantMessage([fauxToolCall("apply", { effects: EFFECTS, narrate: recorded("#23", 6).narrate })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("apply", { effects: EFFECTS, narrate: recorded("#23", 6).narrate }), fauxToolCall("output", {})], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
@@ -145,14 +145,14 @@ test("§144.1: gate #23 t6's value delivers from its first real sentence, and th
 	assert.ok(record.rendered_text.endsWith("探视时间还剩一些。"), "the whole value was delivered, only the label is gone");
 	assert.equal(record.rendered_text.includes("intermediate"), false);
 	const applyResult = table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "apply");
-	assert.equal(JSON.parse(applyResult.content.map((block) => block.text ?? "").join("")).narrate_in_apply, true, "delivered on the first leg");
+	assert.equal(JSON.parse(applyResult.content.map((block) => block.text ?? "").join("")).narrate_in_apply, false, "material was checked; output owns publication");
 });
 
 for (const label of ["text", "text thriftily-placeholder"]) {
 		test(`§144.1: empty optional embedded narration is omitted while the admitted effects land (${JSON.stringify(label)})`, async (t) => {
 		const table = await realHybridTable({ responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: EFFECTS, narrate: label })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: LONG })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: LONG })], { stopReason: "toolUse" }),
 		] });
 		t.after(() => table.dispose());
 		await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
@@ -160,7 +160,7 @@ for (const label of ["text", "text thriftily-placeholder"]) {
 
 		assert.deepEqual(prefixRows(table), [{ event: "dialect_prefix_stripped", tool: "apply", field: "narrate", prefix: label }]);
 		assert.deepEqual(floorRows(table), [], "an empty transport argument is not a prose quality review");
-		assert.equal(table.telemetry().filter((entry) => entry.tool === "apply" && entry.ok === true).length, 1, "the effect landed");
+		assert.equal(table.telemetry().filter((entry) => entry.tool === "apply" && entry.ok === true).length, 1, "the effect landed: " + JSON.stringify(table.session.messages.filter(row=>row.role==="toolResult")));
 		const applyResult = table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "apply");
 		assert.equal(applyResult.isError, false);
 		assert.equal(JSON.parse(applyResult.content.map((block) => block.text ?? "").join("")).coc_error, undefined);
@@ -177,7 +177,7 @@ for (const label of ["text", "text thriftily-placeholder"]) {
 test("§144.1: an English narration that begins with the word 'Text' is delivered as written, with no row", async (t) => {
 	const english = "Text scrawled on the clipping's margin reads: ASK THE LANDLORD ABOUT 1880. You find the buried story at last.";
 	const table = await realHybridTable({ responses: [
-		fauxAssistantMessage([fauxToolCall("apply", { effects: EFFECTS, narrate: english })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("apply", { effects: EFFECTS, narrate: english }), fauxToolCall("output", {})], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");

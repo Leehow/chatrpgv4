@@ -162,7 +162,7 @@ async function seam(t, { pageTexts, responses, legacy = false }) {
 	return { table, requests, ensures, extractions, land, carriedText };
 }
 const move = (to) => fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to }] })], { stopReason: "toolUse" });
-const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
+const narrate = (text) => fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" });
 
 test("Section 150 at the hybrid seam: ordinary arrival needs no reading job or extra source round", async (t) => {
  const {table,ensures,extractions}=await seam(t,{pageTexts:PAGES,responses:[move("Tower"),narrate("The stair winds up.")]});

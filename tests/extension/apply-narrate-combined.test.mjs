@@ -1,13 +1,7 @@
 /**
- * SL-92 (contract §135.5.2, "apply carries the narration that closes the turn"): `apply` gains an optional
- * `narrate` field. When every effect of the call lands, the host runs that text through the exact same path an
- * explicit `narrate` call takes (rendering, marker resolution, the narration audit, delivery, turn close) --
- * recursively, on a synthetic call of its own -- so one model tool call can both settle a turn's writes and
- * close it. If any effect is refused, or the narration audit refuses the embedded text, nothing is delivered:
- * the Keeper reads the refusal exactly as an explicit narrate's own, and the effects that did land stand.
- *
- * The seam: the real `apply`/`narrate` tools, the real admission path, the emitted kernel, and the hybrid
- * single-loop engine (the batch/delivery bookkeeping this ticket also touches, §135.5.2's `modelStep` note).
+ * Apply-carried prose is checked private material. An explicit output selection subsequently
+ * publishes through the canonical kernel owner, with settled effects retained exactly once.
+ * Deterministic author fixtures at the real host/kernel seam are not live-play evidence.
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
@@ -50,34 +44,34 @@ test('serialized embedded narration is decoded at the argument boundary and deli
   const fragment=JSON.stringify('\\u0054he clipping is on the desk.\\nThe papers are dusty and the headline is now visible.')+'}';
   const prose='The clipping is on the desk.\nThe papers are dusty and the headline is now visible.';
   const table=await hybridTable({responses:[
-    fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'clue',clue:'globe-unpublished-story',why:'The player found the clipping.'}],narrate:fragment})],{stopReason:'toolUse'})]});
+    fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'clue',clue:'globe-unpublished-story',why:'The player found the clipping.'}],narrate:fragment}), fauxToolCall("output", {})],{stopReason:'toolUse'})]});
   t.after(()=>table.dispose());await table.session.prompt('I search the clippings for the old story.');await waitForIdle(table.session);
   assert.equal(table.telemetry().filter(row=>row.tool==='apply'&&row.ok===true).length,1);
   assert.deepEqual(table.telemetry().filter(row=>row.event==='json_string_decoded').map(row=>row.shapes),[['envelope','body']]);
   const record=turnRecord(table.workspace,2);
   assert.equal(record.rendered_text,prose);
   assert.equal(record.receipts.filter(receipt=>receipt.kind==='clue').length,1);
-  assert.deepEqual(deliveryRows(table).map(row=>row.ok),[true]);
+  assert.deepEqual(deliveryRows(table),[]);
 });
 
-test("apply {effects, narrate}: settles the effect, delivers the narrate and closes the turn in one model step", async (t) => {
+test("apply {effects, narrate}: checks material after settling, then a separate output call publishes once", async (t) => {
 	// SL-93 (§135.11.4.1): the embedded narrate now carries its own length floor too, so this fixture's
 	// prose clears it (45 code points once the marker is removed) -- unrelated to what this test is about.
 	const table = await hybridTable({ responses: [
 		fauxAssistantMessage([fauxToolCall("apply", {
 			effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }],
 			narrate: "你在剪报室里翻了十分钟，指尖沾了灰，纸页边缘已经发黄发脆，终于找到了那篇被压下的旧闻 {{clue:globe-unpublished-story}}。",
-		})], { stopReason: "toolUse" }),
+		}), fauxToolCall("output", {})], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
 	await waitForIdle(table.session);
 
 	assert.equal(table.telemetry().filter((entry) => entry.tool === "apply" && entry.ok === true).length, 1, "the effect landed");
-	assert.equal(table.telemetry().filter((entry) => entry.tool === "narrate" && entry.ok === true && entry.event === undefined).length, 1,
+	assert.equal(table.telemetry().filter((entry) => entry.tool === "output" && entry.ok === true && entry.event === undefined).length, 1,
 		"the embedded narrate landed too, through the same tool");
 	assert.equal(keeperCalls(table), 1, `one model call closed the whole turn (${keeperCalls(table)} provider calls)`);
-	assert.deepEqual(deliveryRows(table).map((row) => row.ok), [true]);
+	assert.deepEqual(deliveryRows(table), []);
 	assert.deepEqual(table.telemetry().filter(row => row.event === "read_failed"
 		&& ["table.apply.options", "table.resolve.options"].includes(row.method)), [],
 		"accepted delivery does not request preparation options on a closed turn");
@@ -93,8 +87,10 @@ test("apply {effects, narrate}: settles the effect, delivers the narrate and clo
 	const applyResult = table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "apply");
 	assert.ok(applyResult, "the apply call's own tool result carries the combined delivery");
 	const details = JSON.parse(applyResult.content.map((block) => block.text ?? "").join(""));
-	assert.equal(details.narrate_in_apply, true);
-	assert.ok(typeof details.rendered_text === "string" && details.rendered_text.length > 0);
+	assert.equal(details.narrate_in_apply, false);
+	assert.equal(details.material_check.published, false);
+	assert.equal(details.material_check.writer_started, false);
+	assert.equal(details.rendered_text, undefined);
 });
 
 test("a refused effect leaves nothing delivered; the run returns to the Keeper (§135.5 unaffected by the embedded text)", async (t) => {
@@ -105,8 +101,8 @@ test("a refused effect leaves nothing delivered; the run returns to the Keeper (
 		fauxAssistantMessage([fauxToolCall("apply", {
 			effects: [{ kind: "clue", clue: "no-such-clue-in-this-book", why: "found while going through the clippings" }],
 			narrate: "你翻了十分钟剪报，找到了那篇被压下的旧闻。",
-		})], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "你翻了大半天剪报，指尖都沾了灰，纸页边缘也磨得发毛，可翻来翻去，还是什么都没找到，一无所获。" })], { stopReason: "toolUse" }),
+		}), fauxToolCall("output", {})], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "你翻了大半天剪报，指尖都沾了灰，纸页边缘也磨得发毛，可翻来翻去，还是什么都没找到，一无所获。" })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
@@ -114,7 +110,7 @@ test("a refused effect leaves nothing delivered; the run returns to the Keeper (
 
 	assert.equal(table.telemetry().filter((entry) => entry.tool === "apply" && entry.ok === true).length, 0, "the refused effect never landed");
 	assert.equal(deliveryRows(table).length, 0, "the embedded narrate was never even attempted -- the apply itself was refused first");
-	assert.equal(table.telemetry().filter((entry) => entry.tool === "narrate" && entry.ok === true && entry.event === undefined).length, 1,
+	assert.equal(table.telemetry().filter((entry) => entry.tool === "output" && entry.ok === true && entry.event === undefined).length, 1,
 		"the turn closed on the Keeper's next, separate message");
 	const record = turnRecord(table.workspace, 2);
 	assert.ok(record.rendered_text.includes("什么都没找到"));
@@ -127,7 +123,7 @@ test("an apply with no narrate field behaves exactly as before: no embedded disp
 	// this test is actually about (no embedded dispatch when apply carries no narrate field).
 	const table = await hybridTable({ responses: [
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }] })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "你翻了十分钟剪报，指尖沾了灰，纸页边缘都磨得发毛了，才把角落里那几张慢慢理出个头绪来。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "你翻了十分钟剪报，指尖沾了灰，纸页边缘都磨得发毛了，才把角落里那几张慢慢理出个头绪来。" })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
@@ -135,7 +131,7 @@ test("an apply with no narrate field behaves exactly as before: no embedded disp
 
 	assert.equal(table.telemetry().filter((entry) => entry.tool === "apply" && entry.ok === true).length, 1);
 	assert.equal(deliveryRows(table).length, 0, "no embedded narrate was ever attempted");
-	assert.equal(table.telemetry().filter((entry) => entry.tool === "narrate" && entry.ok === true && entry.event === undefined).length, 1);
+	assert.equal(table.telemetry().filter((entry) => entry.tool === "output" && entry.ok === true && entry.event === undefined).length, 1);
 	assert.equal(keeperCalls(table), 2, "still two Keeper calls, exactly as before this ticket");
 	const applyResult = table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "apply");
 	const details = JSON.parse(applyResult.content.map((block) => block.text ?? "").join(""));

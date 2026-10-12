@@ -23,7 +23,7 @@ test("a narrate delivery leaves one speech row counting spans, people and labels
 	const table = await openTable({
 		env: { FAKE_KERNEL_SPEECH: SPEECH },
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "看门人挡在门口。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "看门人挡在门口。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("看门人挡在门口。"),
 		],
 	});
@@ -50,7 +50,7 @@ test("an ask delivery is a delivery too", async (t) => {
 	const table = await openTable({
 		env: { FAKE_KERNEL_SPEECH: JSON.stringify([{ who: { npc: "steven-knott", name: "看门人" }, text: "走还是留？" }]) },
 		responses: [
-			fauxAssistantMessage([fauxToolCall("ask", { prompt: "你怎么做？", options: ["留下", "离开"] })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", {text:"{{say:Gatekeeper}}Choose when ready.{{/say}}", choice:{kind:"mechanics",options:["accept","flee"]}})], { stopReason: "toolUse" }),
 			fauxAssistantMessage("你怎么做？"),
 		],
 	});
@@ -63,13 +63,13 @@ test("an ask delivery is a delivery too", async (t) => {
 test("a kernel that marks nothing leaves no row at all, rather than a row of zeros", async (t) => {
 	const table = await openTable({
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("门厅里落满灰。"),
 		],
 	});
 	t.after(() => table.dispose());
 	await table.session.prompt("我看看门厅");
-	await waitFor(() => table.telemetry().some(row => row.tool === "narrate"), { label: "the narrate call row" });
+	await waitFor(() => table.telemetry().some(row => row.tool === "output"), { label: "the narrate call row" });
 	// A zero row would read as "this model wrapped nothing"; an absent row reads as "this kernel has no say pass".
 	assert.deepEqual(speechRows(table), []);
 	// And a delivery with neither mechanics nor speech still appends nothing, as it always did.

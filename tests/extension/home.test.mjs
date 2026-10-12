@@ -71,7 +71,7 @@ test("PI_COC_HOME: a table's telemetry and evidence paths follow the home, not t
 		env: { PI_COC_HOME: "library" },
 		responses: [
 			fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("a sentence after the delivery"),
 		],
 	});

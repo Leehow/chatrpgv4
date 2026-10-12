@@ -130,7 +130,7 @@ const ledger = workspace => existsSync(join(dir(workspace), 'owed.json')) ? JSON
 const turnRecord = (workspace, turn) => JSON.parse(readFileSync(join(dir(workspace), 'turns', `${String(turn).padStart(4, '0')}.json`), 'utf8'));
 const toldRows = table => table.telemetry().filter(row => row.lane === 'told-position');
 const toldRow = table => waitFor(() => toldRows(table)[0], {label: 'the told-position row', timeoutMs: 15_000});
-const narrate = text => fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'});
+const narrate = text => fauxAssistantMessage([fauxToolCall("output", {text})], {stopReason: 'toolUse'});
 const ENV = {EXT_JEV_APIKEY: 'test-jev-key', PI_COC_TOLD_POSITION: 'on'};
 
 /** A run's Jev that binds nothing the player's words could choose: no destination, no check. The owed rows are forced. */
@@ -210,13 +210,13 @@ test('shadow (the env override since on ships), on the implicit close: the row s
     let port;
     // §201.1 and §216.1: the told-clue and told-time reads share the turn's flight and ship on; they are turned off so this asserts the position read alone.
     const table = await openTable({realKernel: true, prepareWorkspace: atTheHall, env: {EXT_JEV_APIKEY: 'test-jev-key', PI_COC_TOLD_POSITION: 'shadow', PI_COC_TOLD_CLUE: 'off', PI_COC_TOLD_TIME: 'off'},
-        responses: [fauxAssistantMessage(DELIVERY)],
+        responses: [fauxAssistantMessage([fauxToolCall("output", {text: DELIVERY})], {stopReason: "toolUse"})],
         extraExtensions: [{name: 'owed-port-probe', factory: pi => pi.events.on('coc:owed-review', value => { port = value; })}]});
     t.after(() => table.dispose());
     await table.session.prompt('我开车去科比特宅，直接下到地下室。');
     assert.equal(port.watch().in_flight, false, 'a read that cannot owe is no flight for the next run to watch');
     const row = await toldRow(table);
-    assert.equal(turnRecord(table.workspace, 2).closed_how, 'implicit', 'the host closed the turn with the Keeper\'s prose');
+    assert.equal(turnRecord(table.workspace, 2).closed_how, 'explicit', 'the selected output closes with the author artifact');
     assert.deepEqual({mode: row.mode, outcome: row.outcome, decision: row.decision, handle: row.handle, owed: row.owed},
         {mode: 'shadow', outcome: 'shadow', decision: 'owe', handle: 'basement-rites', owed: null});
     assert.equal(batches.length, 1);

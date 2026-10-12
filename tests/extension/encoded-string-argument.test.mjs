@@ -57,7 +57,7 @@ test("§160: each recorded apply.narrate decodes to the prose it encodes, once, 
 test("§160: a value serialized more than once is decoded until it is no longer a literal", () => {
 	const prose = "门开了。\n\n{{say:史蒂文·诺特}}「进来吧。」{{/say}}";
 	const twice = JSON.stringify(JSON.stringify(prose));
-	assert.deepEqual(decode("narrate", { text: twice }), { args: { text: prose }, decodes: [{ field: "text", layers: 2, shapes: ["literal", "literal"] }] });
+	assert.deepEqual(decode("output", { text: twice }), { args: { text: prose }, decodes: [{ field: "text", layers: 2, shapes: ["literal", "literal"] }] });
 	// ASCII-escaped and not, with whitespace around it.
 	const ascii = JSON.stringify(prose).replace(/[^\x00-\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
 	assert.equal(decodedStringLiteral(`  ${ascii}\n`), prose);
@@ -76,7 +76,7 @@ test("§160: prose is never read as a literal -- the same object comes back", ()
 		"",
 	]) {
 		const args = { text };
-		const result = decode("narrate", args);
+		const result = decode("output", args);
 		assert.equal(result.args, args, JSON.stringify(text));
 		assert.deepEqual(result.decodes, [], JSON.stringify(text));
 	}
@@ -86,19 +86,19 @@ test("§160 known boundary: a whole value that is one quoted line with no escape
 	for (const text of ["\"Who goes there?\"", "\"一九二〇年秋，波士顿。\"", "\"\""]) {
 		const args = { text };
 		assert.equal(decodedStringLiteral(text), undefined, text);
-		assert.equal(decode("narrate", args).args, args, text);
+		assert.equal(decode("output", args).args, args, text);
 	}
 });
 
 test("§160: every declared string parameter of every tool is read; an undeclared key or a non-string parameter is not", () => {
 	const literal = JSON.stringify("门没开。").replace("门", "\\u95e8");
-	assert.deepEqual(decode("narrate", { text: literal }).args, { text: "门没开。" });
+	assert.deepEqual(decode("output", { text: literal }).args, { text: "门没开。" });
 	assert.deepEqual(decode("ask", { kind: "mechanics", options: ["push", "accept"], text: literal }).args,
 		{ kind: "mechanics", options: ["push", "accept"], text: "门没开。" });
 	assert.deepEqual(decode("lookup", { kind: "support", query: literal }).decodes, [{ field: "query", layers: 1, shapes: ["literal"] }]);
 	// `workpad_patch` is declared, but not as a string; `extra` is not declared at all.
 	const untouched = { text: "门没开。", workpad_patch: literal, extra: literal };
-	assert.equal(decode("narrate", untouched).args, untouched);
+	assert.equal(decode("output", untouched).args, untouched);
 	// Nested strings are not read (the serialization that went wrong is per argument).
 	const nested = { effects: [{ kind: "person", who: literal }] };
 	assert.equal(decode("apply", nested).args, nested);
@@ -121,7 +121,7 @@ for (const engine of ["legacy", "hybrid-v1"]) {
 		const table = await openTable({
 			...(hybrid ? { runDriver: hybrid.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: hybrid.extension }], env: { PI_COC_LOOP_ENGINE: "hybrid-v1" } } : {}),
 			responses: [
-				fauxAssistantMessage([fauxToolCall("narrate", { text: CLERK.arguments.narrate })], { stopReason: "toolUse" }),
+				fauxAssistantMessage([fauxToolCall("output", { text: CLERK.arguments.narrate })], { stopReason: "toolUse" }),
 				fauxAssistantMessage("收尾"),
 			],
 		});
@@ -130,14 +130,14 @@ for (const engine of ["legacy", "hybrid-v1"]) {
 		const narrates = table.kernelRequests().filter((request) => request.method === "table.narrate");
 		assert.equal(narrates.length, 1);
 		assert.equal(narrates[0].params.text, meant(CLERK));
-		assert.deepEqual(decodeRows(table), [{ tool: "narrate", field: "text", layers: 1 }]);
+		assert.deepEqual(decodeRows(table), [{ tool: "output", field: "text", layers: 1 }]);
 	});
 }
 
 test("§160 runs after §144: a literal closed by the dialect's own tag is unwrapped first, then decoded", async (t) => {
 	const table = await openTable({
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: `${CLERK.arguments.narrate}\n</text>\n` })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: `${CLERK.arguments.narrate}\n</text>\n` })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("收尾"),
 		],
 	});
@@ -188,7 +188,7 @@ test("§160: the App's opening apply, on an ordinary turn, delivers its prose on
 	const engine = createHybridEngine({ env: process.env, decision: null });
 	const table = await openTable({ realKernel: true, prepareWorkspace: turnOneClosed, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" },
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("apply", OPENING.arguments)], { stopReason: "toolUse" })] });
+		responses: [fauxAssistantMessage([fauxToolCall("apply", OPENING.arguments), fauxToolCall("output", {})], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我说我是私家侦探，按天收钱，问他要我查什么。");
 	await waitForIdle(table.session);
@@ -200,20 +200,20 @@ test("§160: the App's opening apply, on an ordinary turn, delivers its prose on
 	assert.ok(delivered.length >= 1);
 	for (const row of delivered) assert.equal(escaped(row), false, JSON.stringify(row).slice(0, 120));
 	const applyResult = table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "apply");
-	assert.equal(JSON.parse(applyResult.content.map((block) => block.text ?? "").join("")).narrate_in_apply, true, "delivered on the first leg");
+	assert.equal(JSON.parse(applyResult.content.map((block) => block.text ?? "").join("")).narrate_in_apply, false, "material was checked; output owns publication");
 });
 
 test("§160: the App's literal on the opening turn itself -- where the floor does not run -- is delivered as its prose", async (t) => {
 	const engine = createHybridEngine({ env: process.env, decision: null });
 	const table = await openTable({ realKernel: true, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" },
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: OPENING.arguments.narrate })], { stopReason: "toolUse" })] });
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: OPENING.arguments.narrate })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await waitForIdle(table.session);
 
 	const record = turnRecord(table.workspace, 0);
 	assertDeliveredAsProse(record, "turn 0");
-	assert.deepEqual(decodeRows(table), [{ tool: "narrate", field: "text", layers: 1 }]);
+	assert.deepEqual(decodeRows(table), [{ tool: "output", field: "text", layers: 1 }]);
 });
 
 // ---------------------------------------------------------------------------------------------------------
@@ -255,7 +255,7 @@ test("§160.1: each recorded argument decodes to the prose its own shape spells,
 
 test("§160.1: the envelope's head names the field's own key or the parameter it carries, with or without the brace and spaces", () => {
 	for (const [tool, text] of [
-		["narrate", '{"text":"门没开。"}'], ["narrate", '{ "text" : "门没开。" }'], ["narrate", '"text": "门没开。"'], ["narrate", 'text":"门没开。"'],
+		["output", '{"text":"门没开。"}'], ["output", '{ "text" : "门没开。" }'], ["output", '"text": "门没开。"'], ["output", 'text":"门没开。"'],
 		["apply", '{"text": "门没开。"}'], ["apply", '{"narrate": "门没开。"}'], ["apply", 'narrate":"门没开。"'],
 	]) {
 		const field = tool === "apply" ? "narrate" : "text";
@@ -264,28 +264,28 @@ test("§160.1: the envelope's head names the field's own key or the parameter it
 		assert.deepEqual(result.decodes, [{ field, layers: 1, shapes: ["envelope"] }], text);
 	}
 	// A head on a key the field neither has nor carries is not its envelope.
-	for (const [tool, field, text] of [["apply", "narrate", '{"query": "门没开。"}'], ["narrate", "text", '{"narrate": "门没开。"}'], ["narrate", "text", 'query":"门没开。"']]) {
+	for (const [tool, field, text] of [["apply", "narrate", '{"query": "门没开。"}'], ["output", "text", '{"narrate": "门没开。"}'], ["output", "text", 'query":"门没开。"']]) {
 		const args = { [field]: text };
 		assert.equal(decode(tool, args).args, args, text);
 	}
 });
 
 test("§160.1: a closing brace alone needs an escape; a body needs an escape and no raw control character", () => {
-	assert.equal(decode("narrate", { text: '"门没开。"}' }).decodes.length, 0, "a quoted line and a brace, no escape");
-	assert.equal(decode("narrate", { text: '"门没开。"}}' }).decodes.length, 0, "a quoted line and two braces, no escape");
-	assert.deepEqual(decode("narrate", { text: '"门\\n没开。"}' }).args, { text: "门\n没开。" });
-	assert.deepEqual(decode("narrate", { text: '"门\\n没开。"} }\n}' }).args, { text: "门\n没开。" }, "a run of closers, spaced as JSON allows");
+	assert.equal(decode("output", { text: '"门没开。"}' }).decodes.length, 0, "a quoted line and a brace, no escape");
+	assert.equal(decode("output", { text: '"门没开。"}}' }).decodes.length, 0, "a quoted line and two braces, no escape");
+	assert.deepEqual(decode("output", { text: '"门\\n没开。"}' }).args, { text: "门\n没开。" });
+	assert.deepEqual(decode("output", { text: '"门\\n没开。"} }\n}' }).args, { text: "门\n没开。" }, "a run of closers, spaced as JSON allows");
 	assert.deepEqual(decode("apply", { narrate: '{"narrate": "门没开。"}}' }).args, { narrate: "门没开。" }, "a head and two closers");
-	assert.deepEqual(decode("narrate", { text: "门开了。\\n\\n他进来。" }), { args: { text: "门开了。\n\n他进来。" }, decodes: [{ field: "text", layers: 1, shapes: ["body"] }] });
-	assert.deepEqual(decode("narrate", { text: "门开了。\\\\n" }).decodes, [{ field: "text", layers: 2, shapes: ["body", "body"] }], "a body serialized twice");
+	assert.deepEqual(decode("output", { text: "门开了。\\n\\n他进来。" }), { args: { text: "门开了。\n\n他进来。" }, decodes: [{ field: "text", layers: 1, shapes: ["body"] }] });
+	assert.deepEqual(decode("output", { text: "门开了。\\\\n" }).decodes, [{ field: "text", layers: 2, shapes: ["body", "body"] }], "a body serialized twice");
 	for (const text of ["门开了。\n\n他说\\n是个字母。", "他说\"走\\n吧\"。", "门开了。\\x41", "门开了。\t\\n"]) {
 		const args = { text };
-		assert.equal(decode("narrate", args).args, args, JSON.stringify(text));
+		assert.equal(decode("output", args).args, args, JSON.stringify(text));
 	}
 });
 
 test("§160.1 known boundaries: single-line prose meaning a backslash before an escape letter is decoded; an envelope with a second key is not", () => {
-	assert.deepEqual(decode("narrate", { text: "The note reads C:\\temp." }).args, { text: "The note reads C:\temp." });
+	assert.deepEqual(decode("output", { text: "The note reads C:\\temp." }).args, { text: "The note reads C:\temp." });
 	const two = { narrate: '{"text": "门\\n没开。", "workpad_patch": {"focus": "door"}}' };
 	assert.equal(decode("apply", two).args, two);
 });
@@ -300,7 +300,7 @@ for (const engine of ["legacy", "hybrid-v1"]) {
 			const table = await openTable({
 				...(hybrid ? { runDriver: hybrid.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: hybrid.extension }], env: { PI_COC_LOOP_ENGINE: "hybrid-v1" } } : {}),
 				responses: [
-					fauxAssistantMessage([fauxToolCall(call.tool, call.arguments)], { stopReason: "toolUse" }),
+					fauxAssistantMessage([fauxToolCall(call.tool=== "narrate" ? "output" : call.tool, call.arguments), ...(call.tool=== "apply"?[fauxToolCall("output",{})]:[])], { stopReason: "toolUse" }),
 					fauxAssistantMessage("收尾"),
 				],
 			});
@@ -311,7 +311,7 @@ for (const engine of ["legacy", "hybrid-v1"]) {
 				const narrates = table.kernelRequests().filter((request) => request.method === "table.narrate");
 				assert.equal(narrates.length, 1, where);
 				assert.equal(narrates[0].params.text, SPELLED[call.shape](call.arguments[call.field]), where);
-				assert.deepEqual(fullRows(table), [{ tool: call.tool, field: call.field, layers: 1, shapes: [SHAPE[call.shape]] }], where);
+				assert.deepEqual(fullRows(table), [{ tool: call.tool=== "narrate" ? "output" : call.tool, field: call.field, layers: 1, shapes: [SHAPE[call.shape]] }], where);
 			} finally {
 				await table.dispose();
 			}
@@ -324,7 +324,7 @@ test("§160.1: B's recorded narrate on the emitted kernel and the hybrid engine 
 	const engine = createHybridEngine({ env: process.env, decision: null });
 	const table = await openTable({ realKernel: true, prepareWorkspace: turnOneClosed, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" },
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", call.arguments)], { stopReason: "toolUse" })] });
+		responses: [fauxAssistantMessage([fauxToolCall("output", call.arguments)], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我问他那栋房子到底出过什么事。");
 	await waitForIdle(table.session);
@@ -335,5 +335,5 @@ test("§160.1: B's recorded narrate on the emitted kernel and the hybrid engine 
 	assert.equal(record.rendered_text.includes("\\"), false, "no backslash reached the player");
 	assert.ok(record.rendered_text.includes("\n\n"), "the paragraph breaks are real");
 	for (const row of record.speech ?? []) assert.equal(leaves(row).some((text) => text.includes("\\")), false, JSON.stringify(row));
-	assert.deepEqual(fullRows(table), [{ tool: "narrate", field: "text", layers: 1, shapes: ["body"] }]);
+	assert.deepEqual(fullRows(table), [{ tool: "output", field: "text", layers: 1, shapes: ["body"] }]);
 });

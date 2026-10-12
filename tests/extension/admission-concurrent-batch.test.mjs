@@ -61,7 +61,7 @@ test("§32.12.4: two writes of one Keeper response have overlapping admission la
 			fauxAssistantMessage([
 				fauxToolCall("apply", { effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }] }),
 				fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }] }),
-				fauxToolCall("narrate", { text: "你翻了十分钟剪报，找到了那篇被压下的旧闻。" }),
+				fauxToolCall("output", { text: "你翻了十分钟剪报，找到了那篇被压下的旧闻。" }),
 			], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
@@ -106,9 +106,9 @@ test("§32.12.4: a prefetch a batch never reaches (an earlier write refused) is 
 			fauxAssistantMessage([
 				fauxToolCall("apply", { effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }] }),
 				fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }] }),
-				fauxToolCall("narrate", { text: "你翻了十分钟剪报，找到了那篇被压下的旧闻。" }),
+				fauxToolCall("output", { text: "你翻了十分钟剪报，找到了那篇被压下的旧闻。" }),
 			], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你想翻剪报，却什么都没找到。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你想翻剪报，却什么都没找到。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
 	});
@@ -121,7 +121,7 @@ test("§32.12.4: a prefetch a batch never reaches (an earlier write refused) is 
 	// (A landed narrate leaves two rows -- the call's own and a `event: "turn-closed"` companion, contract §38.11 --
 	// so the count is of the call rows only.)
 	assert.equal(table.telemetry().filter((entry) => entry.tool === "apply" && entry.ok === true).length, 0, "the refused write never landed");
-	assert.equal(table.telemetry().filter((entry) => entry.tool === "narrate" && entry.ok === true && entry.event === undefined).length, 1,
+	assert.equal(table.telemetry().filter((entry) => entry.tool === "output" && entry.ok === true && entry.event === undefined).length, 1,
 		"only the second message's narrate landed");
 	assert.ok(table.telemetry().some((entry) => entry.lane === "run" && entry.reason?.startsWith("batch_step_fell")),
 		"the batch's own steps after the refusal were answered as not executed, never sent to the kernel");

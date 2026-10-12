@@ -314,7 +314,7 @@ test('the made-up ref of live gate A T12 reaches the Keeper with where the refs 
  const table=await openTable({realKernel:true,prepareWorkspace:opening,responses:[
   // The exact batch of gate A T12: a new intention, and a placeholder where its ref would go.
   fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'npc',name:KNOTT,intends:STAY,outcome:'attempted'},{kind:'npc',name:KNOTT,intent_ref:'@intent-placeholder',intent_outcome:'done'}]})],{stopReason:'toolUse'}),
-  fauxAssistantMessage([fauxToolCall('narrate',{text:'他站在桌后没动。'})],{stopReason:'toolUse'}),
+  fauxAssistantMessage([fauxToolCall("output",{text:'他站在桌后没动。'})],{stopReason:'toolUse'}),
  ]});
  t.after(()=>table.dispose());
  await table.session.prompt('我转身就走。');

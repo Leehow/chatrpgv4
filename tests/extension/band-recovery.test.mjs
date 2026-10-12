@@ -61,7 +61,7 @@ const recoveryRows = (table) => table.telemetry().filter((row) => row.lane === "
 
 async function play(t, { responses, env = ENV, answer }) {
 	const requests = installJev(t, answer);
-	const table = await openTable({ responses: [...responses, fauxAssistantMessage([fauxToolCall("narrate", { text: "拳头落下。" })], { stopReason: "toolUse" }), fauxAssistantMessage("done")], env });
+	const table = await openTable({ responses: [...responses, fauxAssistantMessage([fauxToolCall("output", { text: "拳头落下。" })], { stopReason: "toolUse" }), fauxAssistantMessage("done")], env });
 	t.after(() => table.dispose());
 	await waitForIdle(table.session);
 	await table.session.prompt("我一拳打向诺特。");

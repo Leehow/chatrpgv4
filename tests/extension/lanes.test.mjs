@@ -27,8 +27,7 @@ const conversationalText = (messages) => messages
 
 function keeperTurn(text = "门框上有一道深深的抓痕。") {
 	return [
-		fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("守秘人在 narrate 之后又写的正文，应该被换掉"),
+		fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" }),
 	];
 }
 
@@ -422,7 +421,7 @@ test("补抽让位给桌子：回合开着不起新的，刚提交的回合插�
 			async () => {
 				keeperCalled = true;
 				await keeperHeld.promise;
-				return fauxAssistantMessage([fauxToolCall("narrate", { text: "门框上有一道深深的抓痕。" })], {
+				return fauxAssistantMessage([fauxToolCall("output", { text: "门框上有一道深深的抓痕。" })], {
 					stopReason: "toolUse",
 				});
 			},

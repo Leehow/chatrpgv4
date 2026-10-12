@@ -2,8 +2,19 @@ import { describe, expect, it } from "vitest";
 
 import { DELIVERY_PROSE_FIELDS, displayedProse, finishedProseField, LiveDeliveryProse, streamingStringField } from "../src/live-prose.js";
 
+it('current tool arguments never draw player prose before durable publication',()=>{
+  const live=new LiveDeliveryProse('current');
+  for(const tool of ['narrate','apply','ask','output']) {
+    live.startTurn();live.start(0,tool);
+    const args={text:'PRIVATE_DRAFT',narrate:'PRIVATE_DRAFT',delivery:{version:1,materials:[{name:'secret',text:'PRIVATE_DRAFT',visibility:'keeper'}]}};
+    expect(live.update(0,JSON.stringify(args))).toBeUndefined();
+    expect(live.end(0,args)).toBeUndefined();
+    expect(live.delivered()).toBeUndefined();
+  }
+});
+
 it('holds a carried argument label until real prose arrives and never draws a label-only placeholder',()=>{
-  const live=new LiveDeliveryProse('transport');live.startTurn();live.start(0,'apply');
+  const live=new LiveDeliveryProse('transport',{narrate:"text",ask:"text",apply:"narrate"});live.startTurn();live.start(0,'apply');
   expect(live.update(0,'{"narrate":"tex')).toBeUndefined();
   expect(live.update(0,'{"narrate":"text"}')).toBeUndefined();
   expect(live.end(0,{narrate:'text'})).toBeUndefined();
@@ -66,7 +77,7 @@ describe("the prose field read out of streaming JSON (§171.1)", () => {
   });
 
   it("names the three delivering calls and the field each carries", () => {
-    expect(DELIVERY_PROSE_FIELDS).toEqual({ narrate: "text", ask: "text", apply: "narrate" });
+    expect(DELIVERY_PROSE_FIELDS).toEqual({});
   });
 });
 
@@ -85,7 +96,7 @@ describe("what the screen holds through a turn (§171.2)", () => {
   const json = (text: string) => JSON.stringify({ text });
 
   it("draws the first delivery as it streams, once with first, and settles it at its end", () => {
-    const prose = new LiveDeliveryProse("draft");
+    const prose = new LiveDeliveryProse("draft",{narrate:"text",ask:"text",apply:"narrate"});
     prose.start(0, "narrate");
     expect(prose.update(0, "{\"text\":\"")).toBeUndefined();
     expect(prose.update(0, "{\"text\":\"The lamp")).toEqual({ id: "draft:1", text: "The lamp", first: true });
@@ -97,7 +108,7 @@ describe("what the screen holds through a turn (§171.2)", () => {
   });
 
   it("follows only the delivering calls", () => {
-    const prose = new LiveDeliveryProse("draft");
+    const prose = new LiveDeliveryProse("draft",{narrate:"text",ask:"text",apply:"narrate"});
     prose.start(0, "look");
     expect(prose.update(0, json("not prose"))).toBeUndefined();
     expect(prose.end(0, { text: "not prose" })).toBeUndefined();
@@ -109,7 +120,7 @@ describe("what the screen holds through a turn (§171.2)", () => {
   });
 
   it("keeps identical resent prose and replaces different prose in place, only once it is complete (owner, 2026-10-03)", () => {
-    const prose = new LiveDeliveryProse("draft");
+    const prose = new LiveDeliveryProse("draft",{narrate:"text",ask:"text",apply:"narrate"});
     prose.start(0, "narrate");
     prose.update(0, json("He nods."));
     prose.end(0, { text: "He nods." });
@@ -127,7 +138,7 @@ describe("what the screen holds through a turn (§171.2)", () => {
   });
 
   it('marks a changed resend as a replacement even when it only adds a suffix', () => {
-    const prose = new LiveDeliveryProse('draft');
+    const prose = new LiveDeliveryProse('draft',{narrate:"text",ask:"text",apply:"narrate"});
     prose.start(0, 'narrate');
     prose.end(0, { text: 'He nods.' });
     prose.messageEnded();
@@ -138,7 +149,7 @@ describe("what the screen holds through a turn (§171.2)", () => {
   });
 
   it("lets a later delivery fill a draft that never showed anything", () => {
-    const prose = new LiveDeliveryProse("draft");
+    const prose = new LiveDeliveryProse("draft",{narrate:"text",ask:"text",apply:"narrate"});
     prose.start(0, "narrate");
     prose.update(0, "{\"text\":\"");
     prose.messageEnded();
@@ -147,7 +158,7 @@ describe("what the screen holds through a turn (§171.2)", () => {
   });
 
   it("starts each player turn with no draft, so the next one is a new card", () => {
-    const prose = new LiveDeliveryProse("draft");
+    const prose = new LiveDeliveryProse("draft",{narrate:"text",ask:"text",apply:"narrate"});
     prose.start(0, "narrate");
     prose.update(0, json("Turn one."));
     prose.startTurn();

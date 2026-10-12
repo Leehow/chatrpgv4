@@ -76,15 +76,15 @@ const knott = () => ({ choice: "npc:1", confidence: 0.97 });
 const narrateTexts = (table) => table.kernelRequests().filter((entry) => entry.method === "table.narrate").map((entry) => entry.params.text);
 const speechRows = (table) => table.telemetry().filter((row) => row.lane === "speech" && !row.steered);
 const narrateResults = (table) => table.session.messages
-	.filter((message) => message.role === "toolResult" && message.toolName === "narrate").map((message) => message.details);
+	.filter((message) => message.role === "toolResult" && message.toolName === "output").map((message) => message.details);
 
 /** Turn 1 delivers a wrapped line; turn 2 is the live shape: a bare draft, the steer, then an explicit narrate. */
 function liveTurns(text = TURN2) {
 	return [
 		// A successful narrate terminates its run (no follow-up provider call), so no text follows it.
-		fauxAssistantMessage([fauxToolCall("narrate", { text: TURN1 })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: TURN1 })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "问先去哪儿", method: "交谈", skill: "Psychology" } })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" }),
 	];
 }
 
@@ -154,8 +154,8 @@ test("not_speech leaves a quoted title as written; a title nested inside a line 
 	const draft = "他桌上摊着一份『环球报』。诺特敲了敲它。「先去『环球报』的剪报室。」";
 	const requests = installJev(t, (passage) => passage.text.startsWith("『") ? { choice: "not_speech", confidence: 0.95 } : knott());
 	const table = await openTable({ env: ENV, responses: [
-		fauxAssistantMessage([fauxToolCall("narrate", { text: turn1 })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: draft })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: turn1 })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: draft })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我坐下");
@@ -231,7 +231,7 @@ test("the steer is still the first leg: an implicit draft is steered before any 
 	const requests = installJev(t, knott);
 	const table = await openTable({ env: ENV, responses: [
 		fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "看表", method: "侦查", skill: "Spot Hidden" } })], { stopReason: "toolUse" }),
-		fauxAssistantMessage(partial),
+		fauxAssistantMessage([fauxToolCall("output",{text:partial})],{stopReason:"toolUse"}),
 		fauxAssistantMessage(second),
 	] });
 	t.after(() => table.dispose());
@@ -252,7 +252,7 @@ test("with the steer switched off, an implicit draft goes straight to attributio
 	const requests = installJev(t, knott);
 	const table = await openTable({ env: { ...ENV, PI_COC_SPEECH_STEER: "0" }, responses: [
 		fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "看表", method: "侦查", skill: "Spot Hidden" } })], { stopReason: "toolUse" }),
-		fauxAssistantMessage(partial),
+		fauxAssistantMessage([fauxToolCall("output",{text:partial})],{stopReason:"toolUse"}),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我等他开口");
@@ -277,9 +277,9 @@ test("real kernel: a host-attributed line that repeats the same NPC is published
 	const table = await openTable({ realKernel: true, campaign, env: { EXT_JEV_APIKEY: "test-jev-key" }, responses: [
 		// The opening: the Keeper wraps Knott's line itself, which names him to the player and teaches 「」.
 		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: `诺特把钥匙推过来。{{say:Steven Knott}}${line}{{/say}}` })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: `诺特把钥匙推过来。{{say:Steven Knott}}${line}{{/say}}` })], { stopReason: "toolUse" }),
 		// The player's turn: the same words again, outside any token, in an explicit narrate.
-		fauxAssistantMessage([fauxToolCall("narrate", { text: `诺特又敲了敲桌面。${line}他没再抬头。` })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: `诺特又敲了敲桌面。${line}他没再抬头。` })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
@@ -287,7 +287,7 @@ test("real kernel: a host-attributed line that repeats the same NPC is published
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
 
 	assert.equal(requests.length, 1, "one attribution batch, for the player's turn");
-	const narrateRows = table.telemetry().filter((row) => row.tool === "narrate" && row.call_id);
+	const narrateRows = table.telemetry().filter((row) => row.tool === "output" && row.call_id);
 	assert.deepEqual(narrateRows.map((row) => row.ok), [true, true], "the attributed delivery landed first time, no refusal, no repair");
 	const result = narrateResults(table).at(-1);
 	assert.equal(result.rendered_text, `诺特又敲了敲桌面。${line}他没再抬头。`, "published, words untouched");
@@ -301,7 +301,7 @@ test("real kernel: a host-attributed line that repeats the same NPC is published
 	assert.ok(finding, "the repeat is recorded on the delivery as a finding");
 	assert.equal(finding.lane, "speech");
 	assert.equal(finding.quote, line);
-	assert.ok(!table.telemetry().some((row) => row.tool === "narrate" && row.ok === false), "no refused narrate");
+	assert.ok(!table.telemetry().some((row) => row.tool === "output" && row.ok === false), "no refused narrate");
 	const row = speechRows(table).at(-1);
 	assert.deepEqual([row.attributed, row.repeated], [1, 1]);
 });
@@ -312,8 +312,8 @@ test("real kernel: the Keeper's own repeated line is still §113 D's, and a Keep
 	installJev(t, knott);
 	const table = await openTable({ realKernel: true, campaign, env: { EXT_JEV_APIKEY: "test-jev-key" }, responses: [
 		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: `诺特把钥匙推过来。{{say:Steven Knott}}${line}{{/say}}` })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: `诺特又说。{{say:Steven Knott}}${line}{{/say}}`, host_attributed: [0] })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: `诺特把钥匙推过来。{{say:Steven Knott}}${line}{{/say}}` })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: `诺特又说。{{say:Steven Knott}}${line}{{/say}}`, host_attributed: [0] })], { stopReason: "toolUse" }),
 		fauxAssistantMessage("诺特摆摆手，不再多说。"),
 	] });
 	t.after(() => table.dispose());
@@ -321,7 +321,7 @@ test("real kernel: the Keeper's own repeated line is still §113 D's, and a Keep
 	await table.session.prompt("那我先去哪儿？");
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
 	// Had the Keeper's `host_attributed` reached the kernel, this repeat would have been exempt and delivered.
-	assert.ok(!table.telemetry().some((row) => row.tool === "narrate" && row.ok === false && row.code === "needs"),
+	assert.ok(!table.telemetry().some((row) => row.tool === "output" && row.ok === false && row.code === "needs"),
 		"the first repeated line is published without a rewrite");
 });
 
@@ -340,10 +340,10 @@ test("real kernel, legacy: a steered second leg refused as a repeat falls back t
 	installJev(t, knott);
 	const table = await openTable({ realKernel: true, campaign, env: { EXT_JEV_APIKEY: "test-jev-key" }, responses: [
 		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: `诺特把钥匙推过来。{{say:Steven Knott}}${line}{{/say}}` })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: `诺特把钥匙推过来。{{say:Steven Knott}}${line}{{/say}}` })], { stopReason: "toolUse" }),
 		// The player's turn: a read, then the line again with no token (the speech steer), then the steered leg wrapping it.
 		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-		fauxAssistantMessage(bare),
+		fauxAssistantMessage([fauxToolCall("output",{text:bare})],{stopReason:"toolUse"}),
 		fauxAssistantMessage(`诺特又敲了敲桌面。{{say:Steven Knott}}${line}{{/say}}他没再抬头。`),
 	] });
 	t.after(() => table.dispose());
@@ -352,7 +352,7 @@ test("real kernel, legacy: a steered second leg refused as a repeat falls back t
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
 
 	assert.equal(customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech").length, 0, "the first draft was not steered");
-	const narrateRows = table.telemetry().filter((row) => row.tool === "narrate" && row.call_id);
+	const narrateRows = table.telemetry().filter((row) => row.tool === "output" && row.call_id);
 	assert.deepEqual(narrateRows.map((row) => [row.ok, row.reason ?? null]), [[true, null], [true, null]],
 		"the opening, the steered leg refused by §113 D, then the dropped draft delivered");
 	const drop = table.telemetry().find((row) => row.lane === "delivery" && row.reason === "steered_leg_refused");
@@ -361,5 +361,6 @@ test("real kernel, legacy: a steered second leg refused as a repeat falls back t
 	assert.equal(record.closed_by, "narrate");
 	const shown = (table.session.messages.filter((message) => message.role === "assistant").at(-1)?.content ?? [])
 		.filter((block) => block.type === "text").map((block) => block.text).join("");
-	assert.equal(shown, bare, "the player reads the first draft, words untouched");
+	const published=shown || customMessages(table.session,"coc-delivery").filter(m=>!m.details?.turn_unfinished&&!m.details?.reference_reply).at(-1)?.content;
+	assert.equal(published, bare, "the accepted artifact reaches the visible host delivery");
 });

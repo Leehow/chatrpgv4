@@ -123,7 +123,9 @@ const workspaceContext = () => ({
 	loop: 0,
 	turn,
 	source_revision: WORKSPACE_REVISION,
-	workspace_settings: {mode: "on", workspace_bytes: 24576},
+    task_source_revision:WORKSPACE_REVISION,
+    task_world_revision:createHash('sha256').update(JSON.stringify({turn,cash,turnMechanics})).digest('hex'),
+	workspace_settings: {mode: WORKSPACE_ON ? "on" : "off", workspace_bytes: 24576},
 	memory_coverage: { committed: turn, completed: turn, gaps: 0, recent: [], older: { gaps: 0 } },
 });
 const workspaceRef = (locator, kind) => ({
@@ -388,9 +390,7 @@ function capsule(playerText, params = {}) {
 			: [],
 		warnings: [],
 		truncated: [],
-		...(WORKSPACE_ON ? {
-			_context: workspaceContext(),
-		} : {}),
+        _context: workspaceContext(),
 	};
 }
 
@@ -972,6 +972,8 @@ function handle(method, params) {
 		}
 		case "table.capsule":
 			return { ok: true, result: capsule(null, params) };
+        case "table.delivery.check":
+            return {ok:true,result:{checked:true,turn,state,published:false}};
 		case "table.workspace.read": {
 			if (!WORKSPACE_ON) return { ok: false, error: { code: "unknown_method", message: `fake kernel does not know ${method}` } };
 			return {
@@ -1216,6 +1218,11 @@ function handle(method, params) {
 				},
 			};
 		}
+        case "table.reference.answer": {
+            const response=handle('table.narrate',{...params,_interaction_scope:'reference'});
+            if(response.ok){response.result.interaction_scope='reference';response.result.speech=[];delete response.result.facts;delete response.result.extraction;}
+            return response;
+        }
 		case "table.narrate": {
 			// Contract §145.3: FAKE_KERNEL_TIME_REFUSE=1 refuses the turn's first refusable reading, as the real
 			// reconciliation does for a gap; the fixture has no clock movement to compare, so every reading is a gap.

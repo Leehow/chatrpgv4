@@ -77,7 +77,7 @@ test("a resend of the words the running turn is already working on does not open
 	const session = await openTable({
 		retainAt: directory,
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "窗口那位盖了收件章，副联撕给她。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "窗口那位盖了收件章，副联撕给她。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("Delivered."),
 			// Nothing after this is scripted: a second turn would run dry, and that is the point.
 		],
@@ -115,9 +115,9 @@ test("a resend held by a turn that then delivers nothing is sent as that turn's 
 	const session = await openTable({
 		retainAt: directory,
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "A draft the review never approved." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "A draft the review never approved." })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("Should never be consumed."),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "窗口那位盖了收件章。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "窗口那位盖了收件章。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("Delivered."),
 		],
 	});
@@ -142,9 +142,9 @@ test("a message that is not byte-identical is an ordinary queued turn, not a res
 	const session = await openTable({
 		retainAt: directory,
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "窗口那位盖了收件章。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "窗口那位盖了收件章。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("Delivered."),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "他把副联往台沿上挪半寸。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "他把副联往台沿上挪半寸。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("Delivered again."),
 		],
 	});

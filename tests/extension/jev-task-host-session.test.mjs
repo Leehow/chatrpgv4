@@ -14,6 +14,7 @@ import {
 	SettingsManager,
 } from "./pi.mjs";
 import kernelExtension from "../../extensions/kernel/index.ts";
+import {ownedOutputProvider} from "./fixtures/owned-output-provider.mjs";
 import { createTaskHostAdapter } from "../../runtime/jev/task-host-session.ts";
 import { FAKE_KERNEL, waitForIdle } from "./harness.mjs";
 
@@ -98,7 +99,7 @@ function kernelProbe(control) {
 				value.call = async (method, params) => {
 					const result = await original(method, params);
 					const context = result?._context ?? result?.capsule?._context;
-					if (context && typeof context === "object") result._context = { ...structuredClone(context), world_revision: control.worldRevision };
+					if (context && typeof context === "object") result._context = { ...structuredClone(context), world_revision: control.worldRevision, task_world_revision: control.worldRevision };
 					return result;
 				};
 			});
@@ -106,7 +107,7 @@ function kernelProbe(control) {
 			pi.events.on("coc:task-receipt-tracking", value => control.receiptTracking.push(value));
 			pi.events.on("coc:capsule", value => {
 				const context = value?.context ?? value?.capsule?._context;
-				if (context && typeof context === "object") value.context = { ...structuredClone(context), world_revision: control.worldRevision };
+				if (context && typeof context === "object") value.context = { ...structuredClone(context), world_revision: control.worldRevision, task_world_revision: control.worldRevision };
 				control.capsules.push(structuredClone(value));
 			});
 			pi.on("tool_call", event => control.hooks.push({ type: "tool_call", id: event.toolCallId, name: event.toolName }));
@@ -155,7 +156,7 @@ async function createKernelHost(t, { responses, decide, deadlineMs = 30_000, cam
 		cwd,
 		agentDir: join(cwd, "agent"),
 		settingsManager,
-		extensionFactories: [kernelProbe(control), { name: "coc-kernel", factory: kernelExtension },
+		extensionFactories: [kernelProbe(control), { name: "coc-kernel", factory: pi => kernelExtension(pi, {capabilities: ownedOutputProvider}) },
 			{ name: "jev-task-private-role", factory: adapter.extension }],
 	});
 	await loader.reload();
@@ -209,7 +210,7 @@ test("private plan executes one real guarded look before the dependent decision 
 	const table = await createKernelHost(t, {
 		responses: [
 			fauxAssistantMessage([fauxToolCall("submit_plan_packet", plan)], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "The investigator record supports the answer." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "The investigator record supports the answer." })], { stopReason: "toolUse" }),
 		],
 		async decide(batch, lease) {
 			batches.push({ batch: structuredClone(batch), aborted: lease.signal.aborted });
@@ -226,7 +227,7 @@ test("private plan executes one real guarded look before the dependent decision 
 		capsules: table.control.capsules, messages: table.session.messages }));
 	assert.equal(status.task.status, "closed");
 	assert.equal(status.task.phase, "terminal");
-	assert.equal(status.task.reason, "delivered");
+	assert.equal(status.task.reason, "delivered", JSON.stringify({task:status.task,messages:table.session.messages,errors:table.extensionErrors}));
 	assert.equal(batches.length, 2);
 	assert.ok(batches.every(row => row.batch.familyVersion === "2"));
 	assert.ok(batches.every(row => row.batch.questions.slice(1).every(question => question.type === "choice"
@@ -241,7 +242,7 @@ test("private plan executes one real guarded look before the dependent decision 
 	assert.deepEqual(table.control.hooks.filter(row => row.id === status.task.observations[0].proposal.id).map(row => row.type), ["tool_call", "tool_result"]);
 	const visibleCalls = table.session.messages.filter(message => message.role === "assistant")
 		.flatMap(message => message.content.filter(block => block.type === "toolCall").map(block => block.name));
-	assert.deepEqual(visibleCalls, ["submit_plan_packet", "narrate"]);
+	assert.deepEqual(visibleCalls, ["submit_plan_packet", "output"]);
 	assert.deepEqual(table.extensionErrors, []);
 });
 
@@ -249,7 +250,7 @@ for (const delivery of ["explicit", "implicit"]) {
 	test(`ordinary ${delivery} direct draft reaches the guarded writer with zero Jev calls`, async t => {
 		let decisions = 0;
 		const response = delivery === "explicit"
-			? fauxAssistantMessage([fauxToolCall("narrate", { text: "The current capsule already answers this." })], { stopReason: "toolUse" })
+			? fauxAssistantMessage([fauxToolCall("output", { text: "The current capsule already answers this." })], { stopReason: "toolUse" })
 			: fauxAssistantMessage("The current capsule already answers this without a tool call.");
 		const table = await createKernelHost(t, {
 			responses: [response],
@@ -264,10 +265,10 @@ for (const delivery of ["explicit", "implicit"]) {
 		assert.equal(decisions, 0);
 		assert.equal(status.task.status, "closed");
 		assert.equal(status.task.phase, "terminal");
-		assert.equal(status.task.reason, "delivered");
+		assert.equal(status.task.reason, "delivered", JSON.stringify({task:status.task,messages:table.session.messages,errors:table.extensionErrors}));
 		assert.equal(status.task.decisions.length, 0);
 		assert.equal(status.task.observations.length, 0);
-		assert.equal(requests.filter(row => row.method === "table.narrate").length, 1);
+		assert.equal(requests.filter(row => row.method === (delivery==="explicit"?"table.narrate":"table.reference.answer")).length, 1);
 		assert.ok(table.control.receiptTracking.includes(true));
 		assert.deepEqual(table.extensionErrors, []);
 	});
@@ -295,7 +296,7 @@ function deferredRegistration(variant) {
 	return control => ({
 		async after() {},
 		async prepare(method) {
-			if (method !== "narrate") return;
+			if (method !== "output") return;
 			const before = control.worldRevision;
 			const callId = control.bridge.mintCallId();
 			const applied = await control.bridge.call("table.apply", {

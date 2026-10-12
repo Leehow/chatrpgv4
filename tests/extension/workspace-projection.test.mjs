@@ -490,7 +490,7 @@ test('current material precedes the workspace: ceiling pressure omits it instead
 
 function keeperTurn(text) {
   return [fauxAssistantMessage([fauxToolCall('look', {})], {stopReason: 'toolUse'}),
-    fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}), fauxAssistantMessage('Discarded post-delivery tail.')];
+    fauxAssistantMessage([fauxToolCall("output", {text})], {stopReason: 'toolUse'}), fauxAssistantMessage('Discarded post-delivery tail.')];
 }
 
 test('a live table with the host workspace on injects one advisory workspace and never persists or leaks it', async t => {

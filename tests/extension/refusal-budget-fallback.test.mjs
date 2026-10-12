@@ -1,101 +1,20 @@
-/**
- * Contract §135.11.3 (SL-63). The refusal budget's runaway abort (`ctx.abort()` once `blockedAfterExhausted` reaches
- * `RUNAWAY_ABORT_AT`) ends the Keeper's attempts, not the turn: the run ends `aborted_during_operate` with no
- * further model step, and before it is judged undelivered, one fallback narrate is tried carrying what already
- * landed and the Keeper's own last draft if any. The drop that led there is recorded `reason: "refusal_budget"`;
- * the stranded record is never written for a run this fallback delivers.
- *
- * Evidence: long gate #10 t4 -- three `unknown_entity` refusals of one class tripped the class limit and the
- * refusal budget; the run aborted and the turn stranded, although the compile's move had already landed and the
- * Keeper had material to narrate.
- */
-import { strict as assert } from "node:assert";
-import { test } from "node:test";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { openTable, waitForIdle } from "./harness.mjs";
-
-/**
- * A `resolve` this fixture always refuses `needs` for the same reason (no weapon for a combat intent), each call's
- * own words kept different so the identical-resend guard (§67, two exact repeats) never intercepts it before the
- * refusal budget does. Contract §34.12: eight refusals of any class shut `resolve` (among others) for the rest of
- * the turn; six more blocked calls past that trip the runaway abort (`RUNAWAY_ABORT_AT`), and the extra two calls
- * beyond that are what let the run-driver actually observe the aborted signal (it only registers on a later
- * proposal in the same operate step, once the one that called `ctx.abort()` has already returned its own outcome).
- */
-const noWeapon = (n) => fauxToolCall("resolve", { action: { intent: "combat", goal: `打倒他 ${n}`, method: "抓起手边的东西打过去" } }, { id: `r${n}` });
-const barrage = fauxAssistantMessage(Array.from({ length: 16 }, (_, i) => noWeapon(i + 1)), { stopReason: "toolUse" });
-const narrateCalls = (table) => table.kernelRequests().filter((row) => row.method === "table.narrate");
-const releaseCalls = (table) => table.kernelRequests().filter((row) => row.method === "table.release");
-
-test("§135.11.3: the refusal budget's runaway abort delivers the fallback narrate, not a stranded turn", async (t) => {
-	const table = await openTable({ responses: [barrage] });
-	t.after(() => table.dispose());
-	await table.session.prompt("我拔枪就打，什么都不管了");
-	await waitForIdle(table.session);
-
-	const rows = table.telemetry();
-	const runaway = rows.filter((row) => row.lane === "runaway");
-	assert.ok(runaway.some((row) => row.after === "refusal_budget" && row.aborted === true), `the runaway abort fired: ${JSON.stringify(runaway)}`);
-
-	const drop = rows.filter((row) => row.lane === "delivery" && row.reason === "refusal_budget");
-	assert.equal(drop.length, 1, `the abort is one drop, not a verdict: ${JSON.stringify(drop)}`);
-
-	const fallback = rows.filter((row) => row.event === undefined && row.tool === "narrate" && row.lane === "delivery");
-	assert.deepEqual(fallback.map((row) => [row.ok, row.reason]), [[true, "refusal_budget_fallback"]], `the fallback narrate landed: ${JSON.stringify(fallback)}`);
-
-	// The kernel actually received one real narrate call (a delivered turn, never a bare host notice) and no
-	// `table.release {release: "stranded"}` call: the stranded record this fallback delivers is never written.
-	assert.equal(narrateCalls(table).length, 1, `one narrate call reached the kernel: ${JSON.stringify(table.kernelRequests())}`);
-	assert.equal(releaseCalls(table).some((row) => row.params?.release === "stranded"), false, "no stranded release ran");
-	assert.equal(rows.some((row) => row.event === "released" && row.lane === "turn"), false, "no stranded release telemetry either");
+/** Runaway aborts preserve settled effects without silently selecting a final writer. */
+import {strict as assert} from 'node:assert';
+import {test} from 'node:test';
+import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
+import {openTable,waitForIdle} from './harness.mjs';
+const barrage=fauxAssistantMessage(Array.from({length:16},(_,i)=>fauxToolCall('resolve',{
+  action:{intent:'combat',goal:`Stop the attacker ${i}`,method:'Strike without a weapon'}
+},{id:`r${i}`})),{stopReason:'toolUse'});
+for(const reason of [undefined,'intent_result_owed','repeated_line']) test(`runaway abort never selects an automatic output (${reason??'no publication error'})`,async t=>{
+  const table=await openTable({legacyDeliveryFixtures:false,responses:[barrage],env:reason?{
+    FAKE_KERNEL_ERRORS:JSON.stringify({'table.narrate':{code:'needs',message:`Refused ${reason}`,details:{reason}}}),FAKE_KERNEL_ERRORS_ONCE:'1'
+  }:{}});
+  t.after(()=>table.dispose());await table.session.prompt('I attack without choosing a weapon.');await waitForIdle(table.session);
+  assert.ok(table.telemetry().some(row=>row.lane==='runaway'&&row.after==='refusal_budget'&&row.aborted));
+  assert.equal(table.telemetry().filter(row=>row.lane==='delivery'&&row.reason==='refusal_budget').length,1);
+  assert.equal(table.kernelRequests().filter(row=>row.method==='table.narrate').length,0);
+  assert.equal(table.telemetry().filter(row=>row.lane==='final-output'&&row.event==='start').length,0);
+  assert.equal(table.committed().length,0);
+  assert.ok(table.kernelRequests().some(row=>row.method==='table.release'&&row.params.release==='stranded'));
 });
-
-/**
- * On the legacy engine the floor steer's own pre-existing recovery already delivers a held draft once the run
- * settles (unrelated to SL-63: `agent_end`'s steer, not `agent_settled`'s new check), so this scenario reaches
- * `agent_settled` with `closedThisRun` already true and this section's fallback correctly does not fire a second
- * time -- `deliverRefusalBudgetFallback`'s own preference for `floorDraft` over the notice line is the same
- * shape as that existing recovery, but is exercised for real only on the hybrid engine, where SL-63 lives and
- * where no such earlier recovery runs before the abort (the gate #10 t4 replay is that path's own test). What
- * this test guards here is composition: the new check must not double-deliver over an already-closed run.
- */
-
-
-/**
- * §143.11: the fallback narrate is dispatched on the kernel refusal's `details.reason`. A refusal the kernel lets through
- * on the same turn's next delivery of the same text -- §142.7's owed result, like §143.10's markup -- sends the same text
- * again, once, and it lands; §113 D's `repeated_line` is refused every time, so it is never sent again and the ordinary
- * undelivered path stands. Both refusals carry the kernel's reason on the row.
- */
-const kernelRefusal = (reason) => ({ code: "needs", message: `refused for ${reason}`, fix: "deliver again", details: { reason } });
-const fallbackRows = (table) => table.telemetry().filter((row) => row.event === undefined && row.tool === "narrate" && row.lane === "delivery");
-
-test("§135.11.3 + §143.11: a fallback narrate refused intent_result_owed is sent again once, and lands", async (t) => {
-	const table = await openTable({ env: { FAKE_KERNEL_ERRORS: JSON.stringify({ "table.narrate": kernelRefusal("intent_result_owed") }), FAKE_KERNEL_ERRORS_ONCE: "1" },
-		responses: [barrage] });
-	t.after(() => table.dispose());
-	await table.session.prompt("我拔枪就打，什么都不管了");
-	await waitForIdle(table.session);
-
-	assert.deepEqual(fallbackRows(table).map((row) => [row.ok, row.reason, row.kernel_reason ?? null]),
-		[[false, "intent_result_owed_resent", "intent_result_owed"], [true, "refusal_budget_fallback", null]], JSON.stringify(fallbackRows(table)));
-	const calls = narrateCalls(table);
-	assert.equal(calls.length, 2, "the refused fallback and its one re-send");
-	assert.equal(calls[1].params.text, calls[0].params.text, "the same text, sent again");
-	assert.notEqual(calls[1].params.call_id, calls[0].params.call_id, "under a call id of its own");
-	assert.equal(releaseCalls(table).some((row) => row.params?.release === "stranded"), false, "delivered, never stranded");
-});
-
-test("§135.11.3 + §143.11: a fallback narrate refused repeated_line is not sent again", async (t) => {
-	const table = await openTable({ env: { FAKE_KERNEL_ERRORS: JSON.stringify({ "table.narrate": kernelRefusal("repeated_line") }), FAKE_KERNEL_ERRORS_ONCE: "1" },
-		responses: [barrage] });
-	t.after(() => table.dispose());
-	await table.session.prompt("我拔枪就打，什么都不管了");
-	await waitForIdle(table.session);
-
-	assert.deepEqual(fallbackRows(table).map((row) => [row.ok, row.reason, row.kernel_reason ?? null]),
-		[[false, "refusal_budget_fallback_refused", "repeated_line"]], JSON.stringify(fallbackRows(table)));
-	assert.equal(narrateCalls(table).length, 1, "one fallback narrate, not re-sent");
-});
-
-// Section 166 retires prose-repair retries. Single-pass delivery and real task guards have current coverage in single-pass-narration.test.mjs and jev-s0-delivery-guard.test.mjs.

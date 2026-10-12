@@ -93,7 +93,7 @@ test("§32.12 (a), §32.12.2: a lane review that streams past its soft cap is co
 		env: { PI_COC_ADMISSION_MODEL: "trickle/trickle-1" },
 		responses: [
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "social", skill: "Persuade", target: "Ruth Blake", goal: "请她调出旧剪报", method: "说明来意" } })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你说明了来意。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你说明了来意。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
 	});
@@ -120,7 +120,7 @@ test("§32.12 (a), §32.12.2: a lane review that streams past its soft cap is co
 	assert.equal(table.kernelRequests().filter((entry) => entry.method === "table.resolve").length, 0, "nothing was rolled");
 	const refused = table.telemetry().find((entry) => entry.tool === "resolve" && entry.ok === false);
 	assert.equal(refused?.reason, REVIEW_TIMEOUT, "the Keeper sees only the terminal timeout");
-	assert.ok(table.telemetry().some((entry) => entry.tool === "narrate" && entry.ok), "the run went on to the delivery");
+	assert.ok(table.telemetry().some((entry) => entry.tool === "output" && entry.ok), "the run went on to the delivery");
 	assert.equal(table.entries("coc-admission-status").length, 0, "not an outage");
 });
 
@@ -130,7 +130,7 @@ test("§32.12, §32.12.2: pending returns and timeouts are not an outage -- a re
 	const table = await openTable({
 		env: { PI_COC_ADMISSION_MODEL: "trickle/trickle-1", PI_COC_ADMISSION_TIMEOUT_MS: "1500" },
 		responses: [resolve("Ruth Blake"), resolve("Arty Wilmot"), resolve("Arty Wilmot"),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你说明了来意。" })], { stopReason: "toolUse" }), fauxAssistantMessage("after")],
+			fauxAssistantMessage([fauxToolCall("output", { text: "你说明了来意。" })], { stopReason: "toolUse" }), fauxAssistantMessage("after")],
 	});
 	t.after(() => table.dispose());
 	table.session.modelRuntime.registerProvider("trickle", { baseUrl: `http://127.0.0.1:${provider.port}/v1`, api: "openai-completions", apiKey: "unused",
@@ -159,7 +159,7 @@ test("§32.12: a timeout between two unavailable reviews does not end the outage
 	const table = await openTable({
 		env: { PI_COC_ADMISSION_MODEL: "trickle/trickle-1", PI_COC_ADMISSION_TIMEOUT_MS: "1500" },
 		responses: [resolve("Ruth Blake"), resolve("Arty Wilmot"), resolve("Mrs. Macario"),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你说明了来意。" })], { stopReason: "toolUse" }), fauxAssistantMessage("after")],
+			fauxAssistantMessage([fauxToolCall("output", { text: "你说明了来意。" })], { stopReason: "toolUse" }), fauxAssistantMessage("after")],
 	});
 	t.after(() => table.dispose());
 	table.session.modelRuntime.registerProvider("trickle", { baseUrl: `http://127.0.0.1:${provider.port}/v1`, api: "openai-completions", apiKey: "unused",
@@ -353,7 +353,7 @@ async function hybrid(t, { prepare, compile, responses, env = {}, engine: engine
 	t.after(() => table.dispose());
 	return table;
 }
-const narrateOnly = (text) => [fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" })];
+const narrateOnly = (text) => [fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" })];
 
 test("§177.15: the typed-call count leaves out only the untold-name places, never an admission review", () => {
 	const names = nameSpanBatch([{ name: "Ruth Blake", text: "\u27e6Ruth Blake\u27e7 at the desk" }, { name: "Arty Wilmot", text: "ask \u27e6Arty Wilmot\u27e7" }]);
@@ -413,7 +413,7 @@ test("§32.12 (c): the check whose fired-on ask record is under the gate, or who
 test("§159: a model-origin check cannot reuse the clerk's same-turn authority or reach admission", async (t) => {
 	const table = await hybrid(t, { prepare: metArty, compile: askArty(clearedArty), responses: [
 		fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "social", skill: "Persuade", target: "Ruth Blake", goal: "请她调出旧剪报", method: "下楼后说明要查的街道" } })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松了口。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "编辑松了口。" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage("after"),
 	] });
 	await table.session.prompt("我说明来意，请他帮忙调出科比特宅这些年的旧剪报。");

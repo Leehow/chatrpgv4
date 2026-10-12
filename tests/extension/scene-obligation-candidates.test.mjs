@@ -462,7 +462,7 @@ async function hybrid({ responses, admission, seed = PASS, reviewed = false }) {
 }
 
 test("the clerk rolls the gatekeeper's check with its claim through the gateway; the Keeper's note names the obligation step, receipt and page", async (t) => {
-	const { table, requests } = await hybrid({ responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松了口，放你下楼。" })], { stopReason: "toolUse" })] });
+	const { table, requests } = await hybrid({ responses: [fauxAssistantMessage([fauxToolCall("output", { text: "编辑松了口，放你下楼。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我请编辑看在老同行的面子上放我进剪报室");
 	const telemetry = table.telemetry("test-camp");
@@ -488,7 +488,7 @@ test("a clerk refusal stays off the Keeper's refusal budget: recorded on the cle
 		// The clerk's check is reviewed only without the compile's evidence (§32.12).
 		reviewed: true,
 		admission: [refuse, refuse, refuse],
-		responses: [attempt("请他通融一下"), attempt("换个说法再请他通融"), fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑摇头。" })], { stopReason: "toolUse" })],
+		responses: [attempt("请他通融一下"), attempt("换个说法再请他通融"), fauxAssistantMessage([fauxToolCall("output", { text: "编辑摇头。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.session.prompt("我请编辑看在老同行的面子上放我进剪报室");
@@ -501,7 +501,7 @@ test("a clerk refusal stays off the Keeper's refusal budget: recorded on the cle
 	assert.deepEqual(telemetry.filter((entry) => entry.lane === "refusals" && entry.reason === "class_limit"), [],
 		"two Keeper strikes of the class: the clerk's refusal is not the third");
 	assert.ok(!telemetry.some((entry) => entry.code === "blocked" && entry.reason === "refusal_budget"));
-	const narrate = telemetry.find((entry) => entry.tool === "narrate");
+	const narrate = telemetry.find((entry) => entry.tool === "output");
 	assert.equal(narrate?.ok, true);
 });
 
@@ -571,7 +571,7 @@ async function arrival({ fact, compile, responses, firstExit = "finish", bind = 
 const factQuestions = (decisions) => decisions.filter((batch) => batch.family === ROUTE_FAMILY).flatMap((batch) => batch.questions.filter((question) => question.criteria.seeks));
 
 test("the compile's ask at arrival: the meeting is carried directly under the table's label, the check is bound and rolled with its claim, and no LLM step is spent on them", async (t) => {
-	const { table, decisions, calls } = await arrival({ fact: "seeks", compile: "demand", responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
+	const { table, decisions, calls } = await arrival({ fact: "seeks", compile: "demand", responses: [fauxAssistantMessage([fauxToolCall("output", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
 	const clerk = calls.filter((value) => value.id.startsWith("clerk:"));
@@ -591,7 +591,7 @@ test("the compile's ask at arrival: the meeting is carried directly under the ta
 });
 
 test("§176: with the epithet lane's word for Arty the compile's ask carries his meeting under it directly again, and no LLM step is spent", async (t) => {
-	const { table, calls } = await arrival({ fact: "seeks", compile: "demand", label: "graph", responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
+	const { table, calls } = await arrival({ fact: "seeks", compile: "demand", label: "graph", responses: [fauxAssistantMessage([fauxToolCall("output", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
 	const clerk = calls.filter((value) => value.id.startsWith("clerk:"));
@@ -601,18 +601,18 @@ test("§176: with the epithet lane's word for Arty the compile's ask carries his
 });
 
 test("§103.8: with no label for Arty the compile's ask stages nobody -- no meeting under his book name, no check, no refused clerk step", async (t) => {
-	const { table, calls } = await arrival({ fact: "seeks", compile: "demand", label: false, responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑抬了抬眼。" })], { stopReason: "toolUse" })] });
+	const { table, calls } = await arrival({ fact: "seeks", compile: "demand", label: false, responses: [fauxAssistantMessage([fauxToolCall("output", { text: "编辑抬了抬眼。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
 	assert.deepEqual(calls.filter((value) => value.id.startsWith("clerk:") && (value.input.action?.obligation || value.input.effects?.some((effect) => effect.who === "Arty Wilmot"))), [],
 		"the meeting and the check are the Keeper's");
 	assert.ok(!table.telemetry("test-camp").some((row) => row.origin === "policy" && row.ok === false), "no clerk step was refused");
-	assert.ok(table.session.messages.some((message) => message.role === "toolResult" && message.toolName === "narrate"), "the Keeper's prose delivered the turn");
+	assert.ok(table.session.messages.some((message) => message.role === "toolResult" && message.toolName === "output"), "the Keeper's prose delivered the turn");
 });
 
 test("§135.30 addendum: seeks at arrival without the compile's ask -- the fact question is asked and recorded, selects nothing, and the check is the Keeper's", async (t) => {
 	// The owner's ruling (2026-09-24, gate #4 turn 1): an obligation check is selected only by the compile's predicates.
-	const { table, decisions, calls } = await arrival({ fact: "seeks", responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑抬了抬眼。" })], { stopReason: "toolUse" })] });
+	const { table, decisions, calls } = await arrival({ fact: "seeks", responses: [fauxAssistantMessage([fauxToolCall("output", { text: "编辑抬了抬眼。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
 	assert.ok(!calls.some((value) => value.id.startsWith("clerk:") && (value.input.action?.obligation || value.input.effects?.some((effect) => effect.who === "Arty Wilmot"))),
@@ -626,7 +626,7 @@ test("§135.30 addendum: seeks at arrival without the compile's ask -- the fact 
 
 test("§159/§163: an unknown approach is a recorded no-roll the Keeper narrates, never the investigator's highest skill and never a notice", async (t) => {
 	const { table, calls, requests } = await arrival({ fact: "seeks", compile: "demand", bind: { skill: "unknown", bonus: "none", penalty: "none", intent: "social" },
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
 	const roll = calls.find((value) => value.id.startsWith("clerk:") && value.input.action?.obligation === ACCESS);
@@ -640,14 +640,14 @@ test("§159/§163: an unknown approach is a recorded no-roll the Keeper narrates
 	assert.equal(forced.length, 1, JSON.stringify(forced));
 	assert.deepEqual({family: forced[0].family, chosen: forced[0].chosen}, {family: "check-binding", chosen: {outcome: "no_roll"}});
 	assert.ok(forced[0].uncertain.some(value => value === "skill" || value.startsWith("skill ")), "the unbound approach is named");
-	assert.ok(table.session.messages.some((message) => message.customType === "coc-mechanics" || message.role === "toolResult" && message.toolName === "narrate"), "the Keeper's prose was delivered");
+	assert.ok(table.session.messages.some((message) => message.customType === "coc-mechanics" || message.role === "toolResult" && message.toolName === "output"), "the Keeper's prose was delivered");
 	assert.equal(requests.length, 1, "one model request, the compose: none for the approach");
 	assert.ok(!telemetry.some((entry) => entry.event === "llm_bound"), "no LLM bind");
 });
 
 test("§163.10: a declared act read below the former confidence gate binds without a guessed player choice", async t => {
   const {table,calls} = await arrival({fact:'seeks',compile:'demand',bindConfidence:.5,
-    responses:[fauxAssistantMessage([fauxToolCall("narrate",{text:"编辑松口了。"})],{stopReason:"toolUse"})]});
+    responses:[fauxAssistantMessage([fauxToolCall("output",{text:"编辑松口了。"})],{stopReason:"toolUse"})]});
   t.after(()=>table.dispose());
   await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
   const roll = calls.find(value=>value.id.startsWith('clerk:') && value.input.action?.obligation===ACCESS);
@@ -660,7 +660,7 @@ test("§163.10: a declared act read below the former confidence gate binds witho
 
 test("not at arrival: the obligation issues nothing and is not asked again this run", async (t) => {
 	// The first route asks for more material, so a second route follows on the same run.
-	const { table, decisions, calls } = await arrival({ fact: "not", firstExit: "read_more", responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你在报馆里转了一圈。" })], { stopReason: "toolUse" })] });
+	const { table, decisions, calls } = await arrival({ fact: "not", firstExit: "read_more", responses: [fauxAssistantMessage([fauxToolCall("output", { text: "你在报馆里转了一圈。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我在报馆里随便看看");
 	assert.ok(!calls.some((value) => value.id.startsWith("clerk:") && (value.input.action?.obligation || value.input.effects?.some((effect) => effect.who === "Arty Wilmot"))),

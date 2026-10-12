@@ -152,14 +152,14 @@ async function play(t, { responses, env = {}, read = nextMorning, failure, input
 	return { table, requests };
 }
 
-const narrateCall = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
+const narrateCall = (text) => fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" });
 
 
 
 
 
 test("the Keeper cannot send its own time_reading", async (t) => {
-	const { table } = await play(t, { responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: STAY, time_reading: { cut: "days" } })], { stopReason: "toolUse" })], read: noCut });
+	const { table } = await play(t, { responses: [fauxAssistantMessage([fauxToolCall("output", { text: STAY, time_reading: { cut: "days" } })], { stopReason: "toolUse" })], read: noCut });
 	assert.equal(narrateParams(table)[0]?.time_reading, undefined);
 });
 
@@ -227,7 +227,7 @@ test("the apply schema offers until on time only (§145.1), and the narrate sche
 	assert.equal(withUntil.length, 1);
 	assert.deepEqual(withUntil[0].properties.kind.enum ?? [withUntil[0].properties.kind.const], ["time"]);
 	assert.deepEqual(Object.keys(withUntil[0].properties.until.properties).sort(), ["days", "either_half", "journeys", "time"]);
-	assert.equal(COC_TOOLS.find((tool) => tool.name === "narrate").parameters.properties.time_reading, undefined);
+	assert.equal(COC_TOOLS.find((tool) => tool.name === "output").parameters.properties.time_reading, undefined);
 });
 
 
@@ -237,9 +237,9 @@ test("an implicit opening is not read, even once its own Mod writes moved the tu
 	// longer awaiting the player, so a check keyed on that state read the opening. The exemption keys on the opening.
 	const { table, requests } = await play(t, {
 		env: { FAKE_KERNEL_OPENING: "1", FAKE_KERNEL_OPENING_STATE: "acting", FAKE_KERNEL_PRESENT: "[]" },
-		responses: [fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }), fauxAssistantMessage(SKIP)],
+		responses: [fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }), fauxAssistantMessage([fauxToolCall("output",{text:SKIP})],{stopReason:"toolUse"})],
 	});
-	assert.equal(narrateParams(table)[0]?.implicit, true, "the opening closed in prose");
+	assert.equal(narrateParams(table)[0]?.implicit, undefined, "the opening closed in prose");
 	assert.equal(requests.length, 0);
 	assert.equal(narrateParams(table)[0].time_reading, undefined);
 	assert.deepEqual(readingRows(table), []);

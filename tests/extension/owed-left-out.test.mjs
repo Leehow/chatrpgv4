@@ -69,7 +69,7 @@ const PROSE = '你在门前站了五分钟，盯着小径上那串新鲜的泥�
 
 test('on the real tool path: the turn-3 shape -- an unrecorded line sent as owed is left out, the write lands and its narration is delivered', async t => {
   const session = await openTable({realKernel: true, prepareWorkspace: toldNoMove, responses: [
-    fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'time', minutes: 5, why: 'The investigator waits at the door.', owed: UNRECORDED}], narrate: PROSE})], {stopReason: 'toolUse'})],
+    fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'time', minutes: 5, why: 'The investigator waits at the door.', owed: UNRECORDED}], narrate: PROSE}), fauxToolCall("output", {})], {stopReason: 'toolUse'})],
     laneResponses: {admission: [verdict({verdict: 'authorized', grounds: 'The player waits at the door.'})]}});
   t.after(() => session.dispose());
   await session.session.prompt('我在门口等一会儿，看看小径上的脚印。');
@@ -86,7 +86,7 @@ test('on the real tool path: the turn-3 shape -- an unrecorded line sent as owed
 
 test('on the real tool path: an open row the effect does not land is left out after the kernel refuses it, and the write is reviewed as ordinary', async t => {
   const session = await openTable({realKernel: true, prepareWorkspace: toldNoMove, responses: [
-    fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'time', minutes: 5, why: 'The investigator waits.', owed: ROW.name}], narrate: PROSE})], {stopReason: 'toolUse'})],
+    fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'time', minutes: 5, why: 'The investigator waits.', owed: ROW.name}], narrate: PROSE}), fauxToolCall("output", {})], {stopReason: 'toolUse'})],
     laneResponses: {admission: [verdict({verdict: 'authorized', grounds: 'The player waits at the door.'})]}});
   t.after(() => session.dispose());
   await session.session.prompt('我在门口等一会儿。');

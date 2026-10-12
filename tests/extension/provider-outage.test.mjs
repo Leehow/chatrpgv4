@@ -36,7 +36,7 @@ const directory = mkdtempSync(join(tmpdir(), "coc-provider-outage-"));
 const dead = () => fauxAssistantMessage([], { stopReason: "error", errorMessage: "Provider 500: connection reset" });
 /** A Keeper turn that lands, and the assistant message the delivery replacement needs after it. */
 const delivered = (text) => [
-	fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" }),
+	fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" }),
 	fauxAssistantMessage("Should never be consumed."),
 ];
 

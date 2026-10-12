@@ -68,7 +68,7 @@ test('preparation writes resume the retained attack before dependent prose, with
   const resumed=view.pending[0];
   assert.equal(resumed.candidate.bound.weapon,'Pen');assert.equal(resumed.candidate.bound.target,'Knott');
   assert.deepEqual(resumed.candidate.basis.preparation_bindings,[binding]);
-  assert.equal(view.pending.some(item=>item.call?.method==='narrate'),false,'pre-preparation prose cannot close the attack');
+  assert.equal(view.pending.some(item=>item.call?.method==="output"),false,'pre-preparation prose cannot close the attack');
   assert.equal(view.unresolvedChecks.length,0);
   view.pending.shift();
   settleExecute(view,4,resumed,{ok:true,summary:{}},fresh(row([],[])),1);

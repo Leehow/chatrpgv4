@@ -318,10 +318,10 @@ test("the seam: the host marks a name the turn carried, strips a model-sent _pas
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [npc(NEWCOMER), { kind: "person", who: NEWCOMER, name: "露丝", why: "named" }] })], { stopReason: "toolUse" }),
 		// A name the carried text does not hold, with a `_passage` the model made up: the host strips it.
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [npc("Walter Corbitts", { _passage: { scene: "x", page: 1, sentence: "Walter Corbitts is here." } })] })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "柜台后面站着两个人。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "柜台后面站着两个人。" })], { stopReason: "toolUse" }),
 		// The next turn: the page was the last turn's, not this one's.
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [npc("Kim Debrunner")] })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "他没抬头。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "他没抬头。" })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	table.emit("coc:carried-text", { campaign: "test-camp", turn: 2, run: "r1", passages: [{ scene: "newspaper-morgue", page: 17, text: page }] });
@@ -360,7 +360,7 @@ test("the typed reviewer is shown the turn's carried passages at the seam, and n
 	};
 	t.after(() => { globalThis.fetch = original; });
 	const turn = () => [fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "newspaper-morgue", travel_minutes: 30 }] })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "你走进了剪报室。" })], { stopReason: "toolUse" })];
+		fauxAssistantMessage([fauxToolCall("output", { text: "你走进了剪报室。" })], { stopReason: "toolUse" })];
 	const table = await openTable({ responses: [...turn(), ...turn()], env: { PI_COC_ADMISSION_REVIEWER: "jev", EXT_JEV_APIKEY: "test-jev-key" } });
 	t.after(() => table.dispose());
 	table.emit("coc:carried-text", { campaign: "test-camp", turn: 1, run: "r1", passages: [{ scene: "newspaper-morgue", page: 17, text: "Ruth Blakemore sorts the clippings." }] });

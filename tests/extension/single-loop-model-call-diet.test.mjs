@@ -170,7 +170,7 @@ for (const engine of ["legacy", "hybrid-v1"]) {
 			responses: [
 				fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why }] })], { stopReason: "toolUse" }),
 				fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "They waited." }] })], { stopReason: "toolUse" }),
-				fauxAssistantMessage([fauxToolCall("narrate", { text: "时间过去了。" })], { stopReason: "toolUse" }),
+				fauxAssistantMessage([fauxToolCall("output", { text: "时间过去了。" })], { stopReason: "toolUse" }),
 				fauxAssistantMessage("时间过去了。"),
 			],
 		});
@@ -209,7 +209,7 @@ test("§135.21 for a policy-origin call: the canonical dispatcher refuses the ov
 		pi.on("session_start", () => pi.setActiveTools([...pi.getActiveTools(), "host_dispatch_test"]));
 	} };
 	const table = await openTable({ extraExtensions: [probe], responses: [fauxAssistantMessage([fauxToolCall("host_dispatch_test", {})], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "好。" })], { stopReason: "toolUse" }), fauxAssistantMessage("好。")] });
+		fauxAssistantMessage([fauxToolCall("output", { text: "好。" })], { stopReason: "toolUse" }), fauxAssistantMessage("好。")] });
 	t.after(() => table.dispose());
 	await table.session.prompt("好");
 	assert.equal(observation.status, "refused");
@@ -252,8 +252,8 @@ test("§135.23: on the single-loop engine a run's second call reads the first ca
 		responses: [
 			// Turn 2: a write, then the delivery; turn 3: the delivery.
 			reply(fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "clue", clue: "knott-research-leads", how: "He says where to dig." }] })], { stopReason: "toolUse" })),
-			reply(fauxAssistantMessage([fauxToolCall("narrate", { text: "他说先去报馆。" })], { stopReason: "toolUse" })),
-			reply(fauxAssistantMessage([fauxToolCall("narrate", { text: "你点头。" })], { stopReason: "toolUse" })),
+			reply(fauxAssistantMessage([fauxToolCall("output", { text: "他说先去报馆。" })], { stopReason: "toolUse" })),
+			reply(fauxAssistantMessage([fauxToolCall("output", { text: "你点头。" })], { stopReason: "toolUse" })),
 		],
 	});
 	t.after(() => table.dispose());
@@ -290,7 +290,9 @@ test("§135.23: on the single-loop engine a run's second call reads the first ca
 	// and inside that section (mods and known are ordered too) every key ahead of the first one it changed.
 	const changed = Object.keys(after).find((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
 	const shared = sharedPrefix(previous, next);
-	assert.ok(changed && Object.keys(after).indexOf(changed) > 0, `a section after the head changed: ${changed}`);
+	assert.ok(changed, "a changed section is identified");
+    if(changed === "head") assert.ok(before.head.startsWith(after.head), "the first full capsule drops its one-time module annotation");
+    else assert.ok(Object.keys(after).indexOf(changed)>0, "an unchanged head is shared");
 	assert.ok(shared >= sectionOffset(after, changed), `the capsules share ${shared} characters, through every section before ${changed}`);
 	const inner = after[changed] && typeof after[changed] === "object" && !Array.isArray(after[changed])
 		? Object.keys(after[changed]).find((key) => JSON.stringify(before[changed]?.[key]) !== JSON.stringify(after[changed][key])) : undefined;
@@ -312,29 +314,38 @@ test("§184.2: when a turn wrote nothing to a stable section, the next turn's fi
 		realKernel: true, prepareWorkspace, runDriver: hybrid.runDriver, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", PI_COC_JEV_PRESELECT: "1", EXT_JEV_APIKEY: "test-key" },
 		extraExtensions: [{ name: "coc-hybrid-engine", factory: hybrid.extension }],
 		// Two turns that only deliver: nothing but the turn's own record changes between them.
-		responses: [reply(fauxAssistantMessage([fauxToolCall("narrate", { text: "他说先去报馆。" })], { stopReason: "toolUse" })),
-			reply(fauxAssistantMessage([fauxToolCall("narrate", { text: "你点头。" })], { stopReason: "toolUse" }))],
+		responses: [reply(fauxAssistantMessage([fauxToolCall("output", {text:"Knott waits."})],{stopReason:"toolUse"})), reply(fauxAssistantMessage([fauxToolCall("output", { text: "他说先去报馆。" })], { stopReason: "toolUse" })),
+			reply(fauxAssistantMessage([fauxToolCall("output", { text: "你点头。" })], { stopReason: "toolUse" }))],
 	});
 	t.after(() => table.dispose());
+	await table.session.prompt("I wait in the office.");
 	await table.session.prompt("该去哪儿查？");
 	await table.session.prompt("我点头。");
-	assert.equal(requests.length, 2);
-	const [, nextTurn] = table.session.messages.filter((message) => message.role === "assistant" && message.usage).map((message) => message.usage);
+	assert.equal(requests.length, 3);
+	const [,, nextTurn] = table.session.messages.filter((message) => message.role === "assistant" && message.usage).map((message) => message.usage);
 	const briefAt = (context) => context.messages.findIndex((message) => messageText(message).includes('"kind":"context_brief"'));
-	const index = briefAt(requests[1]);
-	assert.ok(index > 0 && index === briefAt(requests[0]));
-	for (const [context, player] of [[requests[0], "该去哪儿查？"], [requests[1], "我点头。"]]) {
+	const index = briefAt(requests[2]);
+	assert.ok(index > 0 && index === briefAt(requests[1]));
+	for (const [context, player] of [[requests[1], "该去哪儿查？"], [requests[2], "我点头。"]]) {
 		assert.match(messageText(context.messages[index + 1]), CAPSULE_HEAD, "the capsule follows the brief");
 		assert.match(messageText(context.messages[index + 2]), /"kind":"historical_quotations"/, "then the history");
 		assert.equal(messageText(context.messages[index + 3]), player, "then the player's words");
 	}
-	const previous = messageText(requests[0].messages[index + 1]), next = messageText(requests[1].messages[index + 1]);
+	const previous = messageText(requests[1].messages[index + 1]), next = messageText(requests[2].messages[index + 1]);
 	const after = JSON.parse(next), shared = sharedPrefix(previous, next);
 	const volatile = Object.keys(after).find((key) => CAPSULE_VOLATILE_SECTIONS.includes(key));
 	assert.ok(sectionOffset(after, volatile) > sectionOffset(after, "style"), "style sits ahead of the volatile sections");
-	assert.ok(shared >= sectionOffset(after, volatile),
-		`the capsules share ${shared} characters, past style and up to the first volatile section (${volatile} at ${sectionOffset(after, volatile)})`);
-	const cached = `${promptText(requests[1].messages.slice(0, index + 1))}\n\nuser:${next.slice(0, shared)}`;
+	const before = JSON.parse(previous);
+    const changed = Object.keys(after).find(key => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
+    const boundary = changed && Object.keys(after).indexOf(changed) < Object.keys(after).indexOf(volatile) ? changed : volatile;
+    assert.ok(shared >= sectionOffset(after, boundary), "all unchanged stable sections are shared past style");
+    if(boundary === "own") {
+        assert.deepEqual(before.own.card, after.own.card, "the investigator card did not change");
+        assert.notDeepEqual(before.own.said, after.own.said, "canonical dialogue coverage legitimately changes the old player statements projection");
+        assert.ok(shared >= sectionOffset(after,"own") + JSON.stringify("own").length + 1 + sectionOffset(after.own,"said"),
+            "the stable card prefix remains shared up to the changed dialogue coverage");
+    }
+	const cached = `${promptText(requests[2].messages.slice(0, index + 1))}\n\nuser:${next.slice(0, shared)}`;
 	assert.ok(nextTurn.cacheRead >= Math.ceil(cached.length / 4),
 		`the next turn's first call reads the system prompt, the brief and the capsule's head from cache (${nextTurn.cacheRead} >= ${Math.ceil(cached.length / 4)})`);
 	t.diagnostic(`capsule ${next.length} chars; shared with the previous turn's ${shared} chars (~${Math.ceil(shared / 4)} tokens); cacheRead ${nextTurn.cacheRead}`);
@@ -372,7 +383,7 @@ for (const engine of ["hybrid-v1", "legacy"]) {
 			// resets the brief before turn 2.
 			responses: [reply(fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "They waited." }] })], { stopReason: "toolUse" })),
 				reply(fauxAssistantMessage("时间过去了。")),
-				reply(fauxAssistantMessage([fauxToolCall("narrate", { text: "你还在等。" })], { stopReason: "toolUse" })), ...tail],
+				reply(fauxAssistantMessage([fauxToolCall("output", { text: "你还在等。" })], { stopReason: "toolUse" })), ...tail],
 		});
 		t.after(() => table.dispose());
 		await table.session.prompt("我等着");

@@ -40,7 +40,7 @@ function directorStatuses(table) {
 }
 
 const CLOSE_THE_TURN = [
-	fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
+	fauxAssistantMessage([fauxToolCall("output", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
 	fauxAssistantMessage("收尾"),
 ];
 

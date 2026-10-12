@@ -240,7 +240,7 @@ export function keeperCallCapMs(env: Readonly<NodeJS.ProcessEnv>): number {
 }
 
 /** The Keeper verbs whose committed result is the turn's delivery (contract: real `narrate` / `ask` only). */
-const DELIVERY_VERBS: Readonly<Record<string, 'accepted' | 'awaiting_player'>> = Object.freeze({narrate: 'accepted', ask: 'awaiting_player'});
+const DELIVERY_VERBS: Readonly<Record<string, 'accepted' | 'awaiting_player'>> = Object.freeze({output: 'accepted', ask: 'awaiting_player'});
 /** Verbs whose success changes the table, so the run re-reads its state after them. */
 const WRITE_VERBS = new Set(['apply', 'resolve']);
 /** The prescreen packet's byte ceiling (the same cap the context hook's own prescreen used). */
@@ -2184,6 +2184,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (run.interactionScope && bridge?.campaign && run.turn !== undefined) {
       api?.events?.emit?.('coc:interaction-scope', {campaign: bridge.campaign, turn: run.turn, run: run.runId,
         player_text: run.rawInput, mode: run.interactionScope.mode,
+        systemRequest:run.interactionScope.systemRequest,
         ...(run.interactionScope.documentRecording === undefined ? {} : {documentRecording:run.interactionScope.documentRecording})});
       if (run.interactionScope.mode === 'reference') Object.assign(content, {interaction_scope: 'reference', interaction_scope_note: REFERENCE_SCOPE_NOTE});
       const knowledgeDelivery=run.publicKnowledge?digest([run.publicKnowledge.signature,run.publicKnowledge.packet]):undefined;

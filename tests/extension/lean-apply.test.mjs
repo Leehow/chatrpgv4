@@ -99,7 +99,7 @@ async function hostTable(t, env) {
 	let pi;
 	const table = await openTable({ env, extraExtensions: [{ name: "lean-probe", factory: (api) => { pi = api; } }], responses: [
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10 }] })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "Ten minutes pass in the quiet office while you think it over." })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "Ten minutes pass in the quiet office while you think it over." })], { stopReason: "toolUse" }),
 		fauxAssistantMessage("Ten minutes pass in the quiet office while you think it over."),
 	] });
 	t.after(() => table.dispose());
@@ -131,7 +131,7 @@ test("host, flag off: Pi offers today's apply and no request carries _lean", asy
 test("host: a model-sent _lean never reaches the kernel", async (t) => {
 	const table = await openTable({ env: { [LEAN_APPLY_ENV]: "0" }, responses: [
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 5 }], _lean: true })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "Five minutes go by while you watch the street below." })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "Five minutes go by while you watch the street below." })], { stopReason: "toolUse" }),
 		fauxAssistantMessage("Five minutes go by while you watch the street below."),
 	] });
 	t.after(() => table.dispose());

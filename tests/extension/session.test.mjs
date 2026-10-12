@@ -74,7 +74,7 @@ test("pending_turn：注入恢复消息，玩家原文与欠的步骤都在里�
 	const table = await openTable({
 		env: { FAKE_KERNEL_PENDING: "1" },
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你摸到墙上的开关。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你摸到墙上的开关。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("收尾"),
 		],
 	});
@@ -85,7 +85,7 @@ test("pending_turn：注入恢复消息，玩家原文与欠的步骤都在里�
 	const [host] = customMessages(table.session, "coc-host");
 	assert.ok(host, "pending_turn 时应该注入宿主恢复消息");
 	assert.match(String(host.content), /我下地窖/);
-	assert.match(String(host.content), /narrate/);
+	assert.match(String(host.content), /narrate|output/);
 
 	const methods = table.kernelRequests().map((entry) => entry.method);
 	assert.ok(!methods.includes("table.player_input"), "恢复消息不是玩家输入");
@@ -111,7 +111,7 @@ test("内核报错：模型拿到 code: message 与 fix，结果标成错误", a
 				[fauxToolCall("resolve", { action: { intent: "investigate", goal: "找线索", method: "翻箱倒柜" } })],
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你翻了一遍抽屉。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你翻了一遍抽屉。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("收尾"),
 		],
 	});
@@ -159,7 +159,7 @@ test("造物代理超时：批量太大这件事要到守秘人手上，遥测�
 				[fauxToolCall("apply", { effects: [{ kind: "define", name: "火柴", category: "item", description: "一盒火柴" }] })],
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你摸了摸口袋。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你摸了摸口袋。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("收尾"),
 		],
 	});
@@ -197,7 +197,7 @@ test("审计代理超时：说的是审计，不是叫守秘人去删 define 效
 			}),
 		},
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "她把手套拧得更紧。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "她把手套拧得更紧。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("收尾"),
 		],
 	});
@@ -206,7 +206,7 @@ test("审计代理超时：说的是审计，不是叫守秘人去删 define 效
 	await table.session.prompt("我再问她一次");
 
 	const [failed] = table.session.messages.filter(
-		(message) => message.role === "toolResult" && message.toolName === "narrate",
+		(message) => message.role === "toolResult" && message.toolName === "output",
 	);
 	assert.equal(failed.isError, true);
 	assert.match(resultText(failed), /the audit agent ran out of time/);
@@ -233,7 +233,7 @@ test("回合没关时催一次，且只催一次", async (t) => {
 		(message) => message.details?.kind === "steer",
 	);
 	assert.equal(steers.length, 1, "回合没关只催一次");
-	assert.match(String(steers[0].content), /narrate/);
+	assert.match(String(steers[0].content), /output/);
 });
 
 test("内核意外退出后重新拉起并重开桌", async (t) => {

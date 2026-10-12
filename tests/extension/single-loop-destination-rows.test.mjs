@@ -155,7 +155,7 @@ test("§135.30.4 on the emitted kernel: heading for the house before the keys, t
 		extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
 		// Two model steps (a look, then the prose), so a note repeated on the second step would show.
 		responses: [(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("look", { focus: "scene" })], { stopReason: "toolUse" }); },
-			(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("narrate", { text: "门锁着，钥匙还在诺特那里。" })], { stopReason: "toolUse" }); }] });
+			(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("output", { text: "门锁着，钥匙还在诺特那里。" })], { stopReason: "toolUse" }); }] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我去科比特宅。");
 

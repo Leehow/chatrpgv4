@@ -68,7 +68,7 @@ test('plain investigator item identity and delivery do not await the definition 
     payload={campaign:'test-campaign',effects:[{kind:'clue',clue:'keys'},define,object,{kind:'move',to:'archive'}]};
   await h.bridge.prepare('apply',payload);await started.promise;
   assert.equal(typeof define._queued,'string','the define is queued, not generated inside the call');assert.equal(define._definition,undefined);
-  let delivered=false;await h.bridge.prepare('narrate',{campaign:'test-campaign',text:'The investigator pockets the key and leaves.'}).then(()=>{delivered=true;});
+  let delivered=false;await h.bridge.prepare("output",{campaign:'test-campaign',text:'The investigator pockets the key and leaves.'}).then(()=>{delivered=true;});
   assert.equal(delivered,true,'narration preparation must not join the held creator');
   assert(!h.operations.includes('mods.identity.plan'),'§126.3 identity planning is not the path for this batch');
   assert.equal(h.operations.filter(value=>value==='run').length,1);
@@ -285,7 +285,7 @@ test('pure define/adopt retains background deferral but adding a held usage forc
 });
 
 test('the same seven tools expose usage selection, an object alias, staged usage and optional define category', () => {
-  assert.deepEqual(COC_TOOL_NAMES, ['look', 'lookup', 'recall', 'resolve', 'apply', 'ask', 'narrate']);
+  assert.deepEqual(COC_TOOL_NAMES, ['look', 'lookup', 'recall', 'resolve', 'apply', 'ask', 'narrate', "output"]);
   const effects = COC_TOOLS.find(tool => tool.name === 'apply').parameters.properties.effects.items.anyOf;
   const byKind = kind => effects.find(effect => effect.properties.kind.enum?.includes(kind));
   assert.deepEqual(byKind('usage').required, ['kind', 'object', 'name', 'description']);

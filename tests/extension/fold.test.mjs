@@ -30,7 +30,7 @@ const COMPACTION = { compaction: { enabled: false, reserveTokens: 16384, keepRec
 /** The opening turn: a `look` to load the table, a `narrate` that closes turn 0, then a tail. */
 const OPENING = [
 	fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-	fauxAssistantMessage([fauxToolCall("narrate", { text: "开场。" })], { stopReason: "toolUse" }),
+	fauxAssistantMessage([fauxToolCall("output", { text: "开场。" })], { stopReason: "toolUse" }),
 ];
 
 /**
@@ -52,7 +52,7 @@ function playedTurn(n) {
 			[fauxToolCall("apply", { effects: [{ kind: "clue", clue: CLUES[(n - 1) % CLUES.length], how: `turn ${n}` }] })],
 			{ stopReason: "toolUse" },
 		),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: `第 ${n} 回合的交付。` })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: `第 ${n} 回合的交付。` })], { stopReason: "toolUse" }),
 	];
 }
 

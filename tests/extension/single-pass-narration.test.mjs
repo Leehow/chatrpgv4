@@ -19,13 +19,13 @@ const draft = 'The editor pauses. "How will you convince me?"';
 
 for (const [path, response] of [
   ['implicit', fauxAssistantMessage(draft)],
-  ['explicit', fauxAssistantMessage([fauxToolCall('narrate', {text: draft})], {stopReason: 'toolUse'})],
-  ['embedded', fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'time', minutes: 1}], narrate: 'A pause.'})], {stopReason: 'toolUse'})],
+  ['explicit', fauxAssistantMessage([fauxToolCall("output", {text: draft})], {stopReason: 'toolUse'})],
+  ['embedded', fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'time', minutes: 1}], narrate: 'A pause.'}), fauxToolCall("output", {})], {stopReason: 'toolUse'})],
   ['ask', fauxAssistantMessage([fauxToolCall('ask', {kind: 'mechanics', options: ['accept', 'push'], text: draft})], {stopReason: 'toolUse'})],
 ]) test(`section 166: ${path} delivers once despite a rejecting choice reviewer`, async t => {
   let reviews = 0, keeperCalls = 0, verifierCalls = 0;
   const table = await openTable({responses: [() => {keeperCalls++; return response;}], keeperProviderCallbacks: true, laneResponses: {verifier: [() => {verifierCalls++; return fauxAssistantMessage("[]");}]}, env: {PI_COC_CONTINUITY_GATE: 'pre', PI_COC_SPEECH_STEER: '1'},
-    extraExtensions: [{name: 'mods-spy', factory(pi) {pi.events.emit('coc:mods-bridge', {async after() {}, async prepare(method) {if (method === 'narrate' || method === 'ask') throw Error('no delivery reviewer');}});}}, {name: 'speech-edit', factory: speechEdit},
+    extraExtensions: [{name: 'mods-spy', factory(pi) {pi.events.emit('coc:mods-bridge', {async after() {}, async prepare(method) {if (method === "output" || method === 'ask') throw Error('no delivery reviewer');}});}}, {name: 'speech-edit', factory: speechEdit},
       {name: 'withheld-choice', factory(pi) {pi.on('before_agent_start', () => {
         pi.events.emit('coc:forced-player-choice-cue', {campaign: 'test-camp', turn: 1, run: 'withheld-choice',
           choices: [{family: 'check-binding', subject: 'The editor social approach', uncertain: ['skill is the player choice']}],
@@ -51,7 +51,9 @@ for (const prose of ['A pause.', '{{say:Gatekeeper}}"No."{{/say}}', 'The editor 
     t.after(() => table.dispose());
     await table.session.prompt('I wait for the editor.');
     assert.equal(keeperCalls, 1);
-    assert.equal(table.kernelRequests().filter(request => request.method === 'table.narrate').length, 1);
+    assert.equal(table.kernelRequests().filter(request => request.method === 'table.narrate').length, 0);
+    assert.equal(table.kernelRequests().filter(request => request.method === 'table.reference.answer').length, 1);
+    assert.equal(table.committed().length, 0);
     assert.equal(table.telemetry().filter(row => ['floor', 'speech'].includes(row.lane) && row.steered).length, 0);
     assert.ok(finalText(table), 'the player received prose');
   });
@@ -67,7 +69,7 @@ test('section 166: a legacy pre/post audit setting cannot start a foreground or 
       pi.events.on('coc:mods-bridge', value => bridge = value);
       modsExtension(pi);
       pi.events.emit('coc:kernel-bridge', {call: async method => {calls.push(method); return {};}});
-      assert.equal(await bridge.prepare('narrate', {campaign: 'c1', text: draft}), undefined);
+      assert.equal(await bridge.prepare("output", {campaign: 'c1', text: draft}), undefined);
       assert.equal(await bridge.prepare('ask', {campaign: 'c1', text: draft}), undefined);
       assert.deepEqual(await bridge.reviewStatus('c1'), {paused: false});
       assert.ok(calls.every(method => method === 'mods.queued'), 'only existing definition bookkeeping is read');

@@ -1,5 +1,5 @@
 /**
- * The seven verbs the Keeper sees. Parameters mirror docs/kernel-rpc.md §5,
+ * The Keeper verbs. Preparation and final output have separate owners (§233.10).
  * except `campaign` and `call_id`, which the extension fills in: the model
  * neither sees nor writes them.
  */
@@ -7,11 +7,11 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import { type TSchema, Type } from "typebox";
 
-export const COC_TOOL_NAMES = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate"] as const;
+export const COC_TOOL_NAMES = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate", "output"] as const;
 export type CocToolName = (typeof COC_TOOL_NAMES)[number];
 
 /** State-changing calls: they mint a `call_id`, and they are refused once the turn is closed. */
-export const WRITE_TOOLS: ReadonlySet<string> = new Set(["resolve", "apply", "ask", "narrate"]);
+export const WRITE_TOOLS: ReadonlySet<string> = new Set(["resolve", "apply", "ask", "output"]);
 
 /** A malformed document edit is an argument correction, not an unmade player choice. */
 export function documentWriteRefusal(tool: string, args: Record<string, unknown>) {
@@ -169,6 +169,16 @@ const IntentResult = {
  */
 export const PLAIN_PROSE = "Write the prose itself: not a quoted or JSON-encoded string, no \\n or \\u escapes";
 /** Contract §162: a prose parameter's description, ending with `PLAIN_PROSE` as one more sentence. */
+const Delivery = Type.Object({
+  version: Type.Literal(1),
+  materials: Type.Optional(Type.Array(Type.Object({name: Type.String({maxLength:120}), text:Type.String({maxLength:4000,description:'Permitted fictional proposition only. OOC rules or system explanations are direct Keeper replies, never story materials.'}), kind:StringEnum(['fact','description','context'] as const), visibility:StringEnum(['player','keeper'] as const), required:Type.Optional(Type.Boolean()), source:Type.Optional(Type.String())}),{maxItems:48})),
+  utterances: Type.Optional(Type.Array(Type.Object({speaker:Type.String(),audience:Type.Array(Type.String(),{maxItems:16}),meaning:Type.String({maxLength:4000}),stance:Type.Optional(Type.String()),source:Type.Optional(Type.String())}),{maxItems:48})),
+  sources:Type.Optional(Type.Array(Type.String(),{maxItems:48})),
+  required:Type.Optional(Type.Array(Type.String(),{maxItems:48})),
+  presentation:Type.Optional(Type.String({maxLength:2000})),
+},{description:'Permitted fictional materials and NPC intentions. Keeper-only rows are excluded. Sources name current-input host aliases; receipts names canonical settled results. No OOC explanations. Checking this plan never settles effects or publishes prose.'});
+
+const CarriedDelivery = Type.Object({version:Type.Literal(1)},{additionalProperties:true,description:'The same material plan as narrate. Only the separate output tool selects the final author.'});
 export const withPlainProse = (description: string): string =>
 	`${description}${description.endsWith(".") ? " " : ". "}${PLAIN_PROSE}`;
 
@@ -177,8 +187,8 @@ export const INTENT_RESULT_EXPLAINED = "Any effect may carry intent_ref when it 
 
 const EndingEffect = Type.Object({
     kind: StringEnum(["ending"] as const),
-    scope: StringEnum(["chapter", "campaign"] as const, { description: "chapter leaves the same campaign playable; campaign is only the final end of the entire adventure, never a pause or a chapter boundary. For an incorrectly completed legacy chapter, scope chapter reclassifies the existing ending without repeating its accounting; narrate commits the correction before continuing" }),
-    summary: Type.String({ description: "the ending reached; read source rewards and resolve development:end-session first. An already-accounted legacy correction retains the original summary, turn and rewards. Narrate commits this effect" }),
+    scope: StringEnum(["chapter", "campaign"] as const, { description: "chapter leaves the same campaign playable; campaign is only the final end of the entire adventure, never a pause or a chapter boundary. For an incorrectly completed legacy chapter, scope chapter reclassifies the existing ending without repeating its accounting; output commits the correction before continuing" }),
+    summary: Type.String({ description: "the ending reached; read source rewards and resolve development:end-session first. An already-accounted legacy correction retains the original summary, turn and rewards. Output commits this effect" }),
 });
 const AdaptationEffect = Type.Object({
     kind: StringEnum(['adaptation'] as const),
@@ -560,14 +570,14 @@ const PersonEffect = Type.Object({
 	...IntentResult,
 	kind: StringEnum(["person"] as const, { description: "record what this table calls someone: the name it uses for them, or what they are called to their face" }),
 	who: Type.String({ description: "the person this is about: an investigator at the table or an NPC, by the name you already use for them" }),
-	name: Type.Optional(Type.String({ description: "what this table calls this NPC in the player's language \u2014 the transliteration or rendering you have been writing. Say it once, the first turn you write it, and every card, capsule and later turn uses that same word instead of re-inventing it; refused for an investigator, whose name is the player's own and already on the sheet. Someone the player has not been told the name of already has this table's word, the name present[] gives them: leave it, and set a different one only when the fiction gives them one (a nickname the player or the people there use), built from the one visible thing only this person has here \u2014 something they carry or wear, a mark, a habit, the job they are doing \u2014 never age, height, build or sex alone; a word someone else already carries is refused. It needs no result: write it in the same response as the narrate, apply first" })),
+	name: Type.Optional(Type.String({ description: "what this table calls this NPC in the player's language \u2014 the transliteration or rendering you have been writing. Say it once, the first turn you write it, and every card, capsule and later turn uses that same word instead of re-inventing it; refused for an investigator, whose name is the player's own and already on the sheet. Someone the player has not been told the name of already has this table's word, the name present[] gives them: leave it, and set a different one only when the fiction gives them one (a nickname the player or the people there use), built from the one visible thing only this person has here \u2014 something they carry or wear, a mark, a habit, the job they are doing \u2014 never age, height, build or sex alone; a word someone else already carries is refused. It needs no result: write it in the same response as output, apply first" })),
 	address: Type.Optional(Type.String({ description: "what this person is called to their face, when the table has established one \u2014 the player corrected a form of address and you accepted it in the fiction, or someone earned a title in play. Record what was said and accepted, not your reading of what suits them. Everyone at the table then owes it, including someone who walks in later and has never been corrected" })),
 	why: Type.Optional(Sentence("where this word came from \u2014 who said it, and on what turn it was accepted")),
 });
 
 /**
  * The world's line of history changing (contract §15.3, #23). None of the three happens
- * during the batch: the kernel performs it after this turn's narrate commits, so the
+ * during the batch: the kernel performs it after this turn's output publication commits, so the
  * narration of the change is delivered first and the player's next line lands on the new
  * line. One per turn, last in the batch, and never with ask.
  */
@@ -953,7 +963,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Apply",
 		method: "table.apply",
 		description:
-			"Land this turn's changes to the world: move walks to another scene, clue gives the investigator a clue, time advances the clock, clock pins the opening datetime once when the book gives no full date, damage hurts, item and cash change possessions, handout delivers a document, and map reveals only named source-backed regions the investigators learned. Use look focus map to inspect semantic map and region names; map why states what established that knowledge. The whole batch is validated before anything is written, and one bad effect writes none of them. What happens in narration without an apply did not happen. Viewing an already delivered map is a UI action and changes nothing. fork, switch and merge take effect after narrate commits; at most one may be last in a batch. threat moves one authored threat clock. Its landing is fixed by the arguments you give it, not by anything else this turn still owes you: when nothing you have called still needs a result you have not seen, put this call and the narrate that follows it in one message, writes first, narrate last (contract §135.5); or put the closing prose here, in narrate, when nothing you are waiting on changes it — it delivers only once every line above lands, exactly as calling narrate would. " + INTENT_RESULT_EXPLAINED,
+			"Land this turn's changes to the world: move walks to another scene, clue gives the investigator a clue, time advances the clock, clock pins the opening datetime once when the book gives no full date, damage hurts, item and cash change possessions, handout delivers a document, and map reveals only named source-backed regions the investigators learned. Use look focus map to inspect semantic map and region names; map why states what established that knowledge. The whole batch is validated before anything is written, and one bad effect writes none of them. What happens in narration without an apply did not happen. Viewing an already delivered map is a UI action and changes nothing. Worldline changes take effect after the canonical publication commit. Optional delivery or legacy narrate prepares and checks material only after all effects land; neither starts an author nor publishes prose. Select output separately when ready to publish the checked material. " + INTENT_RESULT_EXPLAINED,
 		promptSnippet: "Land this turn's world changes: move, clue, time, handout, map, item, cash; apply clock pins the opening datetime once when the book gives no full date",
 		parameters: Type.Object({
 			using_skill: UsingSkill,
@@ -961,7 +971,8 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, ClockEffect,SceneEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, DossierEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
-			narrate: Type.Optional(Type.String({ description: withPlainProse("this turn's complete closing prose, delivered only once every effect above lands (same rules as the narrate tool's text: play_language, {{marker}}/{{kind:handle}} placement, {{say:Name}}…{{/say}} spans); omit it when you will narrate separately instead — a short stand-in here is refused as under the floor; if any effect is refused, or this text is refused on delivery, nothing here is shown to the player and the effects above still stand — call narrate on your next step instead") })),
+			delivery: Type.Optional(CarriedDelivery),
+			narrate: Type.Optional(Type.String({ description: withPlainProse("Legacy untrusted draft material to prepare/check after effects land; never published by apply. Use output explicitly to author and publish the checked material. If an effect is refused, already settled effects still stand") })),
 			quotes: EmbeddedQuotationDrafts,
 		}),
 	},
@@ -970,9 +981,10 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Ask",
 		method: "table.ask",
 		description:
-			"Close with a structured interaction only for a required mechanical decision. Ordinary story questions belong in narrate prose and await free input. kind mechanics forbids a prompt and uses only closed action identifiers: push, spend_luck, accept, flee. Investigator combat defense is automatic under the campaign standing preference, never an ask; an NPC's defense is a resolve with its pending_defense.standing. Never automatically ask how to handle a failed check; normally narrate its fictional consequence. Questions and options are JSON for frontend controls, never part of rendered prose. text contains fiction only, and takes the same {{marker}} placement and {{say:Name}}…{{/say}} wrapping of spoken lines narrate does. After the call write no more prose.",
+			"Close with a structured interaction only for a required mechanical decision. Ordinary story questions belong in output prose and await free input. kind mechanics forbids a prompt and uses only closed action identifiers: push, spend_luck, accept, flee. Investigator combat defense is automatic under the campaign standing preference, never an ask; an NPC's defense is a resolve with its pending_defense.standing. Never automatically ask how to handle a failed check; normally select output for its fictional consequence. Questions and options are JSON for frontend controls, never part of rendered prose. Optional text or delivery prepares/checks private material only; no author or prose publication runs here. Select output with choice for an authored preface and the same canonical mechanical choice. After closing a mechanical choice write no more story prose.",
 		promptSnippet: "Hand one choice back to the player, and close the turn with it",
 		parameters: Type.Object({
+            delivery: Type.Optional(CarriedDelivery),
 			using_skill: UsingSkill,
 			text: Type.Optional(
 				Type.String({
@@ -990,17 +1002,18 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		}),
 	},
 	{
-		name: "narrate",
-		label: "Narrate",
-		method: "table.narrate",
-		description:
-			"Deliver story text and close the turn. When presenting prices, supply quotes in this same call even for a price-only question; no payment acceptance is needed to offer a price. Describe fiction and observable consequences only. Roll values, targets, grades, resource accounting, elapsed time as a figure (minutes, hours) and rule options are exclusively mechanics JSON rendered by the frontend and its clock. Do not repeat them in text or ask how to handle a failed check. Use the campaign play_language. A no_roll caused by player_choice settles only that no check is made; it does not settle success or failure. Do not imply a hit or miss, harm, injury, condition change, incapacitation, forced movement or another consequence that depends on that check. Narrate only settled events before the consequence, then end with a present person or immediate situation returning the player's choice in character; do not leave the declared action hanging or ask out of fiction. Likewise, a host refusal saying an outcome cannot land constrains the story text. Mark where each mechanic happened: resolve and apply hand back markers (the `markers` list in their result — copy a name exactly), and writing {{that-marker}} at the point in the sentence where it happened lets the frontend draw the roll or the change there instead of after everything. Place only markers this turn handed back, each at most once; leaving one out is fine and simply groups it at the end. A marker naming nothing this turn is dropped from the delivery and reported in dropped_markers — the prose still goes out, but that mechanic never landed, so do not write it as done. When this call shares a message with the non-blocking writes it describes, you have not seen their own markers yet: name the effect instead, {{kind:handle}} (its receipt kind and the handle you gave it, such as {{clue:globe-fire-cutoff}} or {{move:newspaper-morgue}}) — it resolves to that write's receipt the same way, and an effect key naming nothing this turn is dropped exactly like an unknown marker. Wrap every spoken line as {{say:Name}}…{{/say}} with Name exactly as present[].name gives it (a label for anyone not present), keeping the play language's own quotation marks inside the token; the kernel strips the tokens and the frontend colours each speaker. After delivery write no more prose.",
-		promptSnippet: "Deliver this turn's narration and close the turn",
-		parameters: Type.Object({
-			using_skill: UsingSkill,
-			text: Type.String({ description: withPlainProse("this turn's narration, delivered to the player verbatim, with each mechanic's {{marker}} at the point it happened, every spoken line inside {{say:Name}}…{{/say}}, and {{name:<who>}} where the narration says the name of someone untold (the delivery puts in the book's name; inside a line someone other than the investigator speaks, the name may stand as written)") }),
-			quotes: QuotationDrafts,
-			workpad_patch: WorkpadPatch,
-		}),
-	},
+        name: "narrate", label: "Check materials", method: "table.delivery.check",
+        description: "Validate and prepare a fictional material plan. You may check and revise it repeatedly. No prose author, player publication, turn close, Git commit or memory promotion runs here. Call output explicitly if you want final story text. Only in-fiction events, scene/character portrayal and NPC speech belong in delivery. Exclude rules explanations, tool/process commentary and OOC answers from every material and presentation preference. For mixed input, place the direct OOC reply in a closed {{ooc}}...{{/ooc}} span beside the tool call; only story material goes to output.",
+        promptSnippet: "Check materials privately; never publish",
+        parameters: Type.Object({delivery: Type.Optional(Delivery), text: Type.Optional(Type.String({deprecated:true,description:withPlainProse("Legacy draft to check as untrusted material; never published here.")})), using_skill: UsingSkill},
+            {anyOf:[{type:"object",required:["delivery"]},{type:"object",required:["text"]}]}),
+    },
+    {
+        name: "output", label: "Final output", method: "table.narrate",
+        description: "OPTIONAL: explicitly author and publish this turn's story once from prepared materials. Supply delivery or reuse the last checked plan for this input. No preceding check call is required. Only this tool starts the final author. Legacy text is untrusted material and always goes through that author. This artifact contains in-fiction story only. OOC replies, rules explanations and system commentary stay in direct assistant text, never in delivery materials or presentation. On mixed input emit a closed {{ooc}}...{{/ooc}} span beside this call for the direct explanation. Supplied choice preserves existing mechanics options. After successful publication write no more story prose.",
+        promptSnippet: "Optionally author and publish one final story artifact",
+        parameters: Type.Object({delivery:Type.Optional(CarriedDelivery), text:Type.Optional(Type.String({maxLength:32000,deprecated:true,description:withPlainProse("Legacy untrusted draft material, never directly published.")})),
+            choice:Type.Optional(Type.Object({kind:Type.Literal("mechanics"),options:Type.Array(Type.String(),{minItems:2}),binds:Type.Optional(Type.String())})),
+            quotes:QuotationDrafts,workpad_patch:WorkpadPatch,using_skill:UsingSkill}),
+    },
 ];

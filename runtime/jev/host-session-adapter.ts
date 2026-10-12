@@ -79,7 +79,7 @@ export function createS0HostAdapter(getSession: () => AgentSession, decide: S0De
       }, deadlineMs);
       current.timer.unref();
       pending = undefined;
-      pi.setActiveTools(['submit_plan_packet', 'recall', 'narrate', 'ask']);
+      pi.setActiveTools(['submit_plan_packet', 'recall', 'narrate', 'output', 'ask']);
       trace({ kind: 'phase', phase: 'planning' });
       return { systemPrompt: event.systemPrompt + PROTOCOL };
     });
@@ -90,11 +90,12 @@ export function createS0HostAdapter(getSession: () => AgentSession, decide: S0De
       if (!modelCurrent()) { cancel(); return { block: true, terminate: true, reason: 'S0 Keeper model changed; rebind the task' }; }
       if (event.toolName === 'recall' && !nested.has(event.toolCallId))
         return { block: true, reason: 'Use submit_plan_packet; the S0 host owns the bounded reads' };
-      if (['narrate', 'ask'].includes(event.toolName) && attempt.phase !== 'composing')
+      if (['output', 'ask'].includes(event.toolName) && attempt.phase !== 'composing')
         return { block: true, terminate: attempt.phase === 'cancelled', reason: 'The S0 read task has not supplied a current result' };
     });
+    pi.events.on('coc:reference-answer',()=>{if(attempt?.phase==='composing')delivered();});
     pi.on('tool_result', event => {
-      if (attempt && ['narrate', 'ask'].includes(event.toolName) && !event.isError) {
+      if (attempt && ['output', 'ask'].includes(event.toolName) && !event.isError) {
         delivered();
       }
     });

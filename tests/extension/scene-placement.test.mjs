@@ -70,7 +70,7 @@ async function play(t, { mode, target = "Boston Globe offices", same = 0.05, ins
 	const table = await openTable({ realKernel: true, prepareWorkspace: turnOneClosed,
 		env: { EXT_JEV_APIKEY: "test-jev-key", PI_COC_SCENE_PLACEMENT: mode },
 		responses: [fauxAssistantMessage([fauxToolCall("apply", { effects: [MOVE] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "You go round to the back of the building, where a narrow stair climbs into the dark behind the offices." })], { stopReason: "toolUse" })] });
+			fauxAssistantMessage([fauxToolCall("output", { text: "You go round to the back of the building, where a narrow stair climbs into the dark behind the offices." })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt("I go round to the back stair of the Globe building.");
 	await waitForIdle(table.session);

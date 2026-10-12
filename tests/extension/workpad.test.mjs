@@ -240,7 +240,7 @@ function payloadsOf(context, kind) {
   }));
 }
 const keeperTurn = (text, patch) => [fauxAssistantMessage(
-  [fauxToolCall('narrate', {text, ...(patch ? {workpad_patch: patch} : {})})], {stopReason: 'toolUse'})];
+  [fauxToolCall("output", {text, ...(patch ? {workpad_patch: patch} : {})})], {stopReason: 'toolUse'})];
 const LETTER_PATCH = {focus: 'the letter on the desk',
   upserts: [{id: 'q1', kind: 'open_question', text: 'Who else has a key to the desk?',
     status: 'tentative', evidence: ['npc:gardener']},
@@ -342,8 +342,8 @@ test('a split delivery is refused whole and never binds or publishes', async t =
     campaign: 'workpad-split', realKernel: false, retainAt: directory,
     env: {FAKE_KERNEL_WORKSPACE: '1'},
     responses: [fauxAssistantMessage([
-      fauxToolCall('narrate', {text: 'First half.', workpad_patch: LETTER_PATCH}),
-      fauxToolCall('narrate', {text: 'Second half.', workpad_patch: LETTER_PATCH}),
+      fauxToolCall("output", {text: 'First half.', workpad_patch: LETTER_PATCH}),
+      fauxToolCall("output", {text: 'Second half.', workpad_patch: LETTER_PATCH}),
     ], {stopReason: 'toolUse'}), fauxAssistantMessage('Understood; one delivery, then.')],
   });
   t.after(() => table.dispose());

@@ -86,7 +86,7 @@ function taskStoreFiles(root) {
 test("SL-01 gate: a policy-origin read and a Jev decision run before one real model output; the trace is complete and nothing is fabricated", async (t) => {
 	const table = await hybridTable({
 		decide: (batch) => answered(batch, "finish"),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "地窖门吱呀一声开了。" })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "地窖门吱呀一声开了。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	const before = kernelMethods(table.table).length;
@@ -218,7 +218,7 @@ test("without a Jev key the hybrid engine degrades every decision to the Keeper 
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" },
 		runDriver: engine.runDriver,
 		extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [(context) => { log.push("provider"); return fauxAssistantMessage([fauxToolCall("narrate", { text: "门开了。" })], { stopReason: "toolUse" }); }],
+		responses: [(context) => { log.push("provider"); return fauxAssistantMessage([fauxToolCall("output", { text: "门开了。" })], { stopReason: "toolUse" }); }],
 	});
 	t.after(() => table.dispose());
 	const events = [];
@@ -232,7 +232,7 @@ test("without a Jev key the hybrid engine degrades every decision to the Keeper 
 });
 
 test("PI_COC_LOOP_ENGINE unset: the session runs the legacy loop and reports it", async (t) => {
-	const table = await openTable({ responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "门开了。" })], { stopReason: "toolUse" }), fauxAssistantMessage("门开了。")] });
+	const table = await openTable({ responses: [fauxAssistantMessage([fauxToolCall("output", { text: "门开了。" })], { stopReason: "toolUse" }), fauxAssistantMessage("门开了。")] });
 	t.after(() => table.dispose());
 	const events = [];
 	table.session.subscribe((event) => events.push(event));

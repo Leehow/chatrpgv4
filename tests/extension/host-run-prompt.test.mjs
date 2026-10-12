@@ -30,7 +30,7 @@ test("the opening's first request carries the Keeper prompt, not the setup guide
 		systemPrompt: KEEPER,
 		priorSystemPrompt: SETUP,
 		responses: [
-			seeing(seen, fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特抬起头。" })], { stopReason: "toolUse" })),
+			seeing(seen, fauxAssistantMessage([fauxToolCall("output", { text: "诺特抬起头。" })], { stopReason: "toolUse" })),
 			seeing(seen, fauxAssistantMessage("诺特抬起头。")),
 		],
 	});
@@ -53,7 +53,7 @@ test("a transcript that already records the session's prompt is left as Pi proje
 		systemPrompt: KEEPER,
 		priorSystemPrompt: KEEPER,
 		responses: [
-			seeing(seen, fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特抬起头。" })], { stopReason: "toolUse" })),
+			seeing(seen, fauxAssistantMessage([fauxToolCall("output", { text: "诺特抬起头。" })], { stopReason: "toolUse" })),
 			seeing(seen, fauxAssistantMessage("诺特抬起头。")),
 		],
 	});

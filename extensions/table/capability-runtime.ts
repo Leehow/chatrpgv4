@@ -9,7 +9,7 @@ type Row=Record<string,any>;
 /** One observed selection epoch: the bound input, source and situation a decision is asked against. */
 type Epoch={key:string;input:string;binding:Row;capsule:Row;task:Row;signal:AbortSignal};
 const hash=(v:unknown)=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
-const MANDATORY=['look','ask','narrate'];
+const MANDATORY=['look','ask','narrate','output'];
 export function createCapabilityRuntime(deps:{
     tools:()=>readonly CapabilityTool[];
     decision:()=>DecisionPort|undefined;

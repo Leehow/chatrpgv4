@@ -68,7 +68,7 @@ async function play(t, port) {
     prepareWorkspace: workspace => rpc(workspace, [['table.open', {}], ['table.player_input', {text: 'I am ready.'}],
       ['table.narrate', {call_id: 't1-c1', text: 'You wait in the office.'}]]),
     extraExtensions: [{name: 'forced-resolution-engine', factory: engine.extension}],
-    responses: [context => { requests.push(context); return fauxAssistantMessage([fauxToolCall('narrate', {text: PROSE})], {stopReason: 'toolUse'}); }]});
+    responses: [context => { requests.push(context); return fauxAssistantMessage([fauxToolCall("output", {text: PROSE})], {stopReason: 'toolUse'}); }]});
   t.after(() => table.dispose());
   await table.session.prompt('I listen carefully by the office door.');
   const telemetry = table.telemetry();
@@ -229,7 +229,7 @@ test('§163, the turn-9 shape on the emitted kernel: a social influence judged n
     prepareWorkspace: workspace => rpc(workspace, [['table.open', {}], ['table.player_input', {text: 'I am ready.'}],
       ['table.narrate', {call_id: 't1-c1', text: 'Steven Knott waits behind his desk.'}]]),
     extraExtensions: [{name: 'forced-resolution-engine', factory: engine.extension}],
-    responses: [context => { requests.push(context); return fauxAssistantMessage([fauxToolCall('narrate', {text: PROSE})], {stopReason: 'toolUse'}); }]});
+    responses: [context => { requests.push(context); return fauxAssistantMessage([fauxToolCall("output", {text: PROSE})], {stopReason: 'toolUse'}); }]});
   t.after(() => table.dispose());
   await table.session.prompt('我跟诺特说我是替房东来查这栋空房子的，想请教几句，请他把知道的都告诉我。');
   const telemetry = table.telemetry();
@@ -294,7 +294,7 @@ async function atTheGlobe(t, port, text) {
     prepareWorkspace: workspace => rpc(workspace, [['table.open', {}], ['table.player_input', {text: '我去报馆'}],
       ['table.apply', {call_id: 't1-c1', effects: [{kind: 'move', to: 'newspaper-morgue'}]}], ['table.narrate', {call_id: 't1-c2', text: '你到了报馆。'}]]),
     extraExtensions: [{name: 'forced-resolution-engine', factory: engine.extension}],
-    responses: [context => { requests.push(context); return fauxAssistantMessage([fauxToolCall('narrate', {text: PROSE})], {stopReason: 'toolUse'}); }]});
+    responses: [context => { requests.push(context); return fauxAssistantMessage([fauxToolCall("output", {text: PROSE})], {stopReason: 'toolUse'}); }]});
   t.after(() => table.dispose());
   await table.session.prompt(text);
   const telemetry = table.telemetry();

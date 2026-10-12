@@ -40,14 +40,14 @@ function newspaperTurn() {
 			{ kind: "move", to: "newspaper-morgue", travel_minutes: 30 },
 			{ kind: "clue", clue: "globe-unpublished-story" },
 		] })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "你走进了剪报室。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "你走进了剪报室。" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage("after"),
 	];
 }
 
 const applyTurn = (effects) => [
 	fauxAssistantMessage([fauxToolCall("apply", { effects })], { stopReason: "toolUse" }),
-	fauxAssistantMessage([fauxToolCall("narrate", { text: "你翻着剪报。" })], { stopReason: "toolUse" }),
+	fauxAssistantMessage([fauxToolCall("output", { text: "你翻着剪报。" })], { stopReason: "toolUse" }),
 	fauxAssistantMessage("after"),
 ];
 
@@ -136,7 +136,7 @@ test("with both reviewers down the review still refuses as unavailable, and a re
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [TIME] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ ...TIME, minutes: 45 }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "暂时没法结算。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "暂时没法结算。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
 		env: KEY,
@@ -175,7 +175,7 @@ test("a batch carrying cash is the lane's to decide: a confident typed answer ne
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "cash", delta: -5, source: "quote", with: "Clerk" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "加满了。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "加满了。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
 		env: JEV_ENV,
@@ -198,7 +198,7 @@ test("a typed verdict is reused for the same proposal within the turn, with no s
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [TIME] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ ...TIME, why: "again" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "剪报翻完了。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "剪报翻完了。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
 		env: KEY,

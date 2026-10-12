@@ -53,7 +53,7 @@ for (const engine of ['legacy', 'hybrid-v1']) test(`craft guidance follows activ
     },
     responses: Array.from({length: 5}, () => context => {
       requests.push(context);
-      return fauxAssistantMessage([fauxToolCall('narrate', {text: 'The office remains quiet.'})], {stopReason: 'toolUse'});
+      return fauxAssistantMessage([fauxToolCall("output", {text: 'The office remains quiet.'})], {stopReason: 'toolUse'});
     }),
     extraExtensions: [
       ...(hybrid ? [{name: 'coc-hybrid-engine', factory: hybrid.extension}] : []),

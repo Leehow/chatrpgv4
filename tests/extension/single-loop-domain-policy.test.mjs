@@ -119,7 +119,7 @@ test("the run reads first, Jev binds the declared host-issued destination, the c
 			? Object.entries(question.criteria).find(([, row]) => row?.handle === "newspaper-morgue")?.[0] : undefined)
 			: batch.family !== ROUTE_FAMILY ? answered(batch)
 				: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你到了报馆。" })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "你到了报馆。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("我去《环球报》报馆。");
@@ -151,7 +151,7 @@ test("the run reads first, Jev binds the declared host-issued destination, the c
 	assert.deepEqual(modHooks.filter((hook) => hook[2] === "t2-c1"), [["prepare", "apply", "t2-c1"], ["after", "apply", "t2-c1"]],
 		"the Mod hooks ran for the clerk's apply, on its minted call id");
 	// The Keeper's later narrate took the next ordinal: one mint for host and model.
-	assert.equal(telemetry.find((entry) => entry.tool === "narrate" && entry.ok)?.call_id, "t2-c2");
+	assert.equal(telemetry.find((entry) => entry.tool === "output" && entry.ok)?.call_id, "t2-c2");
 
 	// The scene changed, so a read ran again before the next route; the morgue's read issues candidates no compile of the
 	// run was asked over (its gate's check, the way back), so the compile comes first (§135.30 addendum, 2026-09-24).
@@ -198,7 +198,7 @@ test("SL-07: an NPC's pending defence with a standing is a direct clerk step -- 
 			? answered(batch, (question) => question.key === "decision" ? "combat:attack" : question.key === "disposition" ? "fights_to_the_end" : "unknown")
 			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
 		// The Keeper's one step: the prose close (the player's defence is settled by §11.5.1's standing preference).
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "他的拳头朝你脸上砸来，你侧身闪开。" })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "他的拳头朝你脸上砸来，你侧身闪开。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("继续揍他");
@@ -224,7 +224,7 @@ test("SL-07: an NPC's pending defence with a standing is a direct clerk step -- 
 	// so the round closes on one LLM step: the compose.
 	assert.deepEqual(infers.map((event) => event.purpose), ["compose"]);
 	assert.ok(telemetry.some((entry) => entry.lane === "standing-defense" && entry.ok === true), "the player's defence settled by §11.5.1");
-	const delivered = calls.find((call) => call.phase === "result" && call.tool === "narrate");
+	const delivered = calls.find((call) => call.phase === "result" && call.tool === "output");
 	assert.equal(delivered.isError, false);
 });
 
@@ -247,7 +247,7 @@ test("§143.4 (replaces SL-08's standing attack): his turn is his own act -- gen
 		// Jev: his act binds to the attack; every other bind is unknown; every route finishes.
 		decide: (batch) => batch.family === NPC_ACT_BIND_FAMILY ? attackAnswer(batch) : batch.family === BIND_FAMILY ? answered(batch, () => "unknown")
 			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "他反手一拳砸来，你侧身闪开。" })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "他反手一拳砸来，你侧身闪开。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("继续揍他");
@@ -276,7 +276,7 @@ test("§143.4 (was SL-08's standing hold): when the table settles no act on his 
 		prepareWorkspace: knottFight(campaign, [{ kind: "npc", name: "Steven Knott", disposition: "fights_to_the_end", why: "test fixture" },
 			{ kind: "npc", name: "Steven Knott", action: "hold", why: "He stares at the blood on his knuckles." }]),
 		decide: (batch) => batch.family === BIND_FAMILY ? answered(batch, () => "unknown") : answered(batch, (question) => question.key === "exit" ? "ask_llm" : undefined),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "他僵在原地，没有还手。" })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "他僵在原地，没有还手。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("继续揍他");
@@ -292,7 +292,7 @@ test("§143.4 (was SL-08's standing hold): when the table settles no act on his 
 	assert.equal(note.npc_turn.npc, "steven-knott");
 	assert.deepEqual(note.npc_turn.standing_action, { action: "hold", basis: "keeper", disposition: { disposition: "fights_to_the_end", basis: "keeper" } });
 	assert.deepEqual(note.npc_turn.act.status, "unavailable", "the harness's npc-act lane answers no act: nothing was written for him");
-	assert.equal(calls.find((call) => call.phase === "result" && call.tool === "narrate").isError, false);
+	assert.equal(calls.find((call) => call.phase === "result" && call.tool === "output").isError, false);
 });
 
 test("SL-08: without a disposition, Jev infers one once from his own parameters and the clerk writes it (basis inferred); then his own act runs (§143.4)", async (t) => {
@@ -302,7 +302,7 @@ test("SL-08: without a disposition, Jev infers one once from his own parameters 
 		decide: (batch) => batch.family === NPC_ACT_BIND_FAMILY ? attackAnswer(batch)
 			: batch.family === BIND_FAMILY ? answered(batch, (question) => question.key === "disposition" ? "fights_to_the_end" : "unknown")
 			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "他红着眼扑上来，你侧身闪开。" })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "他红着眼扑上来，你侧身闪开。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("继续揍他");
@@ -337,7 +337,7 @@ test("SL-19: the card's stated tactic is the disposition's rules default -- Jev 
 		// The Keeper wrote his tactic on turn 1 (he ducks rather than hits back); nothing says how he fights.
 		prepareWorkspace: knottFight(campaign, [{ kind: "npc", name: "Steven Knott", defense: "dodge", why: "He ducks behind the desk." }]),
 		decide: (batch) => batch.family === BIND_FAMILY ? answered(batch, () => "unknown") : answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "他缩到桌后，不还手。" })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "他缩到桌后，不还手。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("继续揍他");
@@ -379,7 +379,7 @@ test("SL-19: the first blow outside a fight is the clerk's when the compile read
 				: question.key === "target" ? alias(question, (value) => JSON.stringify(value).includes("史蒂文") || JSON.stringify(value).includes("Steven Knott")) : "unclear")
 			: batch.family === BIND_FAMILY ? answered(batch, (question) => question.key === "weapon" ? "unarmed" : "unknown")
 				: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你一拳打在他脸上。" })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "你一拳打在他脸上。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("我揪住他的领子一拳打过去");
@@ -455,7 +455,7 @@ test("§143.16 (C4 T8 replay): the demand in a fight, read as no fight action (a
 		// The live compile row: act none 0.91 (none 0.93 / unclear 0.07), target none 0.55; the route's exit ask_llm 0.69.
 		decide: fightTurnPort({ act: ["none", 0.91, { none: 0.93, unclear: 0.07 }], target: ["none", 0.55, { none: 0.7, unclear: 0.13 }],
 			attackNeed: ["now", 0.92], exit: ["ask_llm", 0.69, { ask_llm: 0.76, continue: 0.16, finish: 0.07, read_more: 0.01 }] }),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: HANDS_UP })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: HANDS_UP })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt(DEMAND);
@@ -469,7 +469,7 @@ test("§143.16 (C4 T8 replay): the demand in a fight, read as no fight action (a
 	assert.equal(attackBinds(telemetry).length, 0, "no bind row for the investigator's attack");
 	const infers = events.filter((event) => event.type === "step_end" && event.kind === "infer");
 	assert.deepEqual(infers.map((event) => event.reason), ["ask_llm"], "the turn is the Keeper's");
-	assert.equal(calls.find((call) => call.phase === "result" && call.tool === "narrate")?.isError, false);
+	assert.equal(calls.find((call) => call.phase === "result" && call.tool === "output")?.isError, false);
 });
 
 test("§143.16: the demand whose act does not clear (none 0.50 / attack 0.30) -- the route's now on the attack selects nothing, the turn is the Keeper's", async (t) => {
@@ -479,7 +479,7 @@ test("§143.16: the demand whose act does not clear (none 0.50 / attack 0.30) --
 		// Below the gate and the margin (0.50 < 0.6; 0.50 < 1.8 x 0.30): the attack falls through to the route, whose need says now.
 		decide: fightTurnPort({ act: ["none", 0.5, { none: 0.5, act_1: 0.3, unclear: 0.2 }], target: ["unclear", 0.5],
 			attackNeed: ["now", 0.92], exit: ["ask_llm", 0.76] }),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: HANDS_UP })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: HANDS_UP })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt(DEMAND);
@@ -509,7 +509,7 @@ test("§143.16 (C4 T7/T10 replay): \"我又是一拳\" -- act combat:attack clea
 		realKernel: true, prepareWorkspace: hayesTurn(campaign),
 		// The live rows: act combat:attack 1.0, target unclear 0.41; the route's need now 0.96 on the attack, exit continue.
 		decide: fightTurnPort({ act: ["combat:attack", 1], target: ["unclear", 0.41], attackNeed: ["now", 0.96], exit: ["continue", 0.58] }),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你又是一拳砸过去。" })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "你又是一拳砸过去。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("我又是一拳。");
@@ -537,7 +537,7 @@ test("SL-08: a model's apply cannot carry the host-only inference marker: the Ke
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "npc", name: "Steven Knott", disposition: "surrenders", why: "A landlord, not a brawler.",
 				_inferred: { read: ["agenda"] } }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "他举起双手。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "他举起双手。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -559,7 +559,7 @@ test("a Keeper batch whose step fails returns to the Keeper at once: the rest is
 			// The batch: a check the kernel refuses (it cannot tell which rule applies), then a clue that depends on it.
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "歧义的一眼", method: "看门框" } }),
 				fauxToolCall("apply", { effects: [{ kind: "clue", clue: "地窖的抓痕" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你什么也没拿到。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你什么也没拿到。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -568,7 +568,7 @@ test("a Keeper batch whose step fails returns to the Keeper at once: the rest is
 	assert.equal(calls.some(call => call.tool === 'resolve'), false, 'model resolve is refused before the kernel tool pipeline');
 	assert.equal(calls.some((call) => call.tool === "apply"), false, "the second step never reached the tool pipeline");
 	const results = table.table.session.messages.filter((message) => message.role === "toolResult");
-	assert.deepEqual(results.map((message) => [message.toolName, message.isError]), [["resolve", true], ["apply", true], ["narrate", false]],
+	assert.deepEqual(results.map((message) => [message.toolName, message.isError]), [["resolve", true], ["apply", true], ["output", false]],
 		"every real call is answered once, the skipped one explicitly");
 	assert.ok(!table.table.kernelRequests().some((request) => request.method === "table.apply" && JSON.stringify(request.params).includes("地窖的抓痕")),
 		"the clue never reached the kernel");
@@ -591,13 +591,13 @@ test("no plan tool on the hybrid engine: submit_plan_packet is taken off the act
 	let active;
 	const probe = { name: "active-probe", factory(pi) { pi.on("before_agent_start", () => { active = pi.getActiveTools(); }); } };
 	const hybrid = await hybridTable({ decide: (batch) => answered(batch, (question) => question.key === "exit" ? "finish" : undefined), extra: [plan, probe],
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "好。" })], { stopReason: "toolUse" })] });
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "好。" })], { stopReason: "toolUse" })] });
 	t.after(() => hybrid.dispose());
 	await hybrid.table.session.prompt("好");
-	assert.ok(active.includes("narrate"));
+	assert.ok(active.includes("output"));
 	assert.equal(active.includes("submit_plan_packet"), false);
 	assert.equal(hybrid.table.activeTools().includes("submit_plan_packet"), false);
-	const legacy = await openTable({ extraExtensions: [plan], responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "好。" })], { stopReason: "toolUse" }), fauxAssistantMessage("好。")] });
+	const legacy = await openTable({ extraExtensions: [plan], responses: [fauxAssistantMessage([fauxToolCall("output", { text: "好。" })], { stopReason: "toolUse" }), fauxAssistantMessage("好。")] });
 	t.after(() => legacy.dispose());
 	assert.equal(legacy.activeTools().includes("submit_plan_packet"), true, "the guard is the hybrid engine's alone");
 });
@@ -639,11 +639,11 @@ test("on the hybrid engine the context hook injects the run's own prescreen pack
 	const packet = { schema_version: 1, kind: "keeper_support", request: "我推门", materials: [{ alias: "material_1", kind: "note", label: "run-read-marker", content: "from the run" }] };
 	const table = await openTable({
 		env: { FAKE_KERNEL_WORKSPACE: "1", PI_COC_JEV_PRESELECT: "1", EXT_JEV_APIKEY: "test-key" },
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "门开了。" })], { stopReason: "toolUse" }), fauxAssistantMessage("门开了。")],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "门开了。" })], { stopReason: "toolUse" }), fauxAssistantMessage("门开了。")],
 	});
 	t.after(() => table.dispose());
 	const seen = [];
-	table.faux.setResponses([(context) => { seen.push(requestText(context)); return fauxAssistantMessage([fauxToolCall("narrate", { text: "门开了。" })], { stopReason: "toolUse" }); },
+	table.faux.setResponses([(context) => { seen.push(requestText(context)); return fauxAssistantMessage([fauxToolCall("output", { text: "门开了。" })], { stopReason: "toolUse" }); },
 		fauxAssistantMessage("门开了。")]);
 	table.emit("coc:loop-engine", { engine: "hybrid-v1", prescreen: "run" });
 	table.emit("coc:run-prescreen", { campaign: "test-camp", turn: 1, run: "run-x", message: customMessage(PRESCREEN_TYPE, packet) });

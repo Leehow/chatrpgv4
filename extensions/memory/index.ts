@@ -71,6 +71,7 @@ interface JobPacket {
 	player_text?: string;
 	keeper_text?: string;
 	committed_facts?: unknown[];
+	delivery_evidence?: {materials?:unknown[];coverage?:unknown[];artifact_text?:string};
 	known_entities?: Array<{ name?: string; kind?: string }>;
 	prior?: Array<Record<string, unknown>>;
 	budget?: { max_candidates?: number; max_statement_chars?: number };
@@ -167,6 +168,9 @@ function userInput(packet: JobPacket): string {
 		"",
 		"[Committed facts]",
 		lines(packet.committed_facts),
+		...(packet.delivery_evidence ? ["", "[Delivered material evidence]",
+			"Coverage declares text spans, not semantic verification or a knowledge grant. Materials marked keeper_proposal or attributed_intention are not canonical world facts. Use the actual delivered exchange for speech, belief and promise attribution; use committed facts for settled effects.",
+			JSON.stringify({materials:packet.delivery_evidence.materials,coverage:packet.delivery_evidence.coverage,artifact_text:packet.delivery_evidence.artifact_text})] : []),
 		"",
 		"[Existing candidates: do not restate these]",
 		lines(packet.prior),

@@ -69,7 +69,8 @@ const VERBS: Readonly<Record<string, string>> = {
     recall: 'Read actual past dialogue, events or attributed memories.',
     resolve: 'Request a permitted canonical rules adjudication; the hybrid engine owns its normal route.',
     ask: 'Return a genuine decision boundary to the player.',
-    narrate: 'Deliver the actual outcome in the player language and close the current turn.',
+    narrate: 'Privately check and prepare story materials; may repeat without publication.',
+    output: 'Optionally author one final story artifact and publish it through the canonical terminal owner.',
 };
 const clone = <T>(value: T): T => {
     if (!value || typeof value !== 'object') return value;

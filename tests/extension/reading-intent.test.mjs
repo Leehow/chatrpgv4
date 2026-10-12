@@ -44,7 +44,7 @@ test("a reading timeout shows the Keeper the focus and question its fix tells it
 		env: { FAKE_KERNEL_MATERIAL_PENDING: "1", FAKE_KERNEL_READING: "1", PI_COC_READ_WAIT_MS: "5000" },
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "farm", travel_minutes: 10 }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "The road to the farm is still being prepared." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "The road to the farm is still being prepared." })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -194,9 +194,9 @@ test("a kernel refusal that points at details.clues_here shows the clues that ar
 		realKernel: true,
 		campaign: "clues-here-seam",
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特律师把文件放在桌上，等你开口。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "诺特律师把文件放在桌上，等你开口。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "clue", clue: "clue-corbitt-diaries" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "这里没有什么日记。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "这里没有什么日记。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());

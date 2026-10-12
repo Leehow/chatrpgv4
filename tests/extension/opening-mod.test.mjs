@@ -31,7 +31,7 @@ test("a first-contact roll whose decision hangs off the call is hoisted into act
 					decision: "natural-npc:first-impression",
 				}),
 			], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特打量着你。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "诺特打量着你。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
 	});
@@ -57,7 +57,7 @@ test("with no bridge announced the opening Mod call waits, then refuses with a r
 			fauxAssistantMessage([
 				fauxToolCall("resolve", { action: { intent: "social", goal: "打量", method: "第一印象" }, decision: "natural-npc:first-impression" }),
 			], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特打量着你。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "诺特打量着你。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
 	});
@@ -80,7 +80,7 @@ test("§23 at the opening: a clock pin passes the host's door with no Mod layer,
 		env: { FAKE_KERNEL_OPENING: "1", PI_COC_MODS_WAIT_MS: "50" },
 		responses: [
 			fauxAssistantMessage([
-				fauxToolCall("apply", { effects: [{ kind: "clock", local_datetime: "1975-07-15T09:00", why: "书只写了七月" }], narrate: "七月的公路上，你握着方向盘。" }),
+				fauxToolCall("apply", { effects: [{ kind: "clock", local_datetime: "1975-07-15T09:00", why: "书只写了七月" }], narrate: "七月的公路上，你握着方向盘。" }), fauxToolCall("output", {}),
 			], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],

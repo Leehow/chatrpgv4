@@ -9,6 +9,7 @@ import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "./pi.mjs";
 import kernelExtension from "../../extensions/kernel/index.ts";
+import {ownedOutputProvider} from "./fixtures/owned-output-provider.mjs";
 import { bindDecisionAnswers } from "../../runtime/jev/contracts.ts";
 import { createTaskHostAdapter } from "../../runtime/jev/task-host-session.ts";
 import { FAKE_KERNEL } from "./harness.mjs";
@@ -153,7 +154,7 @@ child.kill();`, "utf8");
 		pi.on("session_shutdown", () => controller.abort());
 	} };
 	const loader = new DefaultResourceLoader({ cwd, agentDir: join(cwd, "agent"), settingsManager,
-		extensionFactories: [probe, { name: "coc-kernel", factory: kernelExtension }, { name: "resolve-task-host", factory: adapter.extension }] });
+		extensionFactories: [probe, { name: "coc-kernel", factory: pi => kernelExtension(pi, {capabilities: ownedOutputProvider}) }, { name: "resolve-task-host", factory: adapter.extension }] });
 	await loader.reload();
 	const created = await createAgentSession({ cwd, agentDir: join(cwd, "agent"), model: keeper.getModel("keeper"), modelRuntime,
 		thinkingLevel: "off", noTools: "builtin", resourceLoader: loader, sessionManager, settingsManager });
@@ -171,7 +172,7 @@ child.kill();`, "utf8");
 
 const responses = text => [
 	fauxAssistantMessage([fauxToolCall("submit_plan_packet", plan)], { stopReason: "toolUse" }),
-	fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" }),
+	fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" }),
 ];
 
 test("public plan settles one guarded ordinary resolve with the issued profile and canonical roll", async t => {

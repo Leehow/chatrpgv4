@@ -105,23 +105,23 @@ test("§135.11: a text-only last model step is delivered by the implicit narrate
 	t.after(() => table.dispose());
 	await table.table.session.prompt("I look at the cellar door.");
 
-	const narrates = kernel(table.table, "table.narrate");
+	const narrates = kernel(table.table, "table.reference.answer");
 	assert.equal(narrates.length, 1, "one narrate: the implicit one");
-	assert.equal(narrates[0].params.implicit, true);
+	assert.equal(narrates[0].params.implicit, undefined);
 	assert.equal(narrates[0].params.text, prose, "the Keeper's prose is what the kernel delivered");
 	assert.equal(lastAssistantText(table.table.session), prose, "the player reads the rendered prose");
 
 	const end = runEnd(table.events);
 	assert.equal(end.status, "delivered");
-	assert.equal(end.reason, "implicit_narrate");
-	assert.equal(turnCloses(table.events).length, 1, "the run asked the turn close once");
+	assert.equal(end.reason, "delivery_accepted");
+	assert.equal(turnCloses(table.events).length, 1, "the run observed one closed reference frame");
 	const accepted = table.events.find((event) => event.type === "delivery_accepted");
 	assert.equal(accepted?.delivery, "accepted", "the delivery evidence is the turn close's");
 	assert.match(accepted.operationId, /\/op1$/);
 	const row = table.table.telemetry().find((entry) => entry.lane === "turn" && entry.event === "turn_close");
 	assert.equal(row.status, "delivered");
-	assert.equal(row.implicit, true);
-	assert.equal(row.call_id, narrates[0].params.call_id, "the evidence names the implicit narrate's own call");
+	assert.equal(narrates[0].params.text, prose, "the reference owner records the actual direct answer");
+	assert.equal(kernel(table.table, "table.narrate").length, 0, "no fiction publication");
 	assert.equal(table.requests.length, 2, "no extra model step");
 	assert.equal(hostSteers(table.table.session).length, 0, "nothing was steered");
 	assert.equal(unfinished(table.table.session).length, 0, "no 'no result' notice over a delivered turn");
@@ -132,7 +132,7 @@ test("§135.11: a step that called narrate itself is unchanged: its own result i
 	// it -- the point here is unrelated to length (no turn close is asked when narrate already delivered).
 	const table = await hybridTable({
 		decide: (batch) => answered(batch, "finish"),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "The cellar door creaks open on rusted hinges, and the cold from below climbs the stairs." })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "The cellar door creaks open on rusted hinges, and the cold from below climbs the stairs." })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("I push the cellar door.");
@@ -154,7 +154,7 @@ test("§135.11: a thinking-only step after a failed check is steered once, and t
 		responses: [
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "the door frame", method: "look closely", skill: "Spot Hidden" } })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([{ type: "thinking", thinking: "The check failed. Do not offer a push." }], { stopReason: "stop" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "The frame tells you nothing you can use." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "The frame tells you nothing you can use." })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -263,10 +263,10 @@ test("§135.11 SL-80: a reply with prose beside the say span is not speech-only 
 	await table.table.session.prompt("I explain why I am here and ask for the clippings.");
 
 	assert.equal(table.requests.length, 2, "no floor steer at all: the first leg already carried prose beside the say span");
-	const narrates = kernel(table.table, "table.narrate");
+	const narrates = kernel(table.table, "table.reference.answer");
 	assert.equal(narrates.length, 1);
 	assert.equal(narrates[0].params.text, sayWithProse);
-	assert.equal(runEnd(table.events).reason, "implicit_narrate");
+	assert.equal(runEnd(table.events).reason, "delivery_accepted");
 	assert.equal(unfinished(table.table.session).length, 0);
 });
 
@@ -281,7 +281,7 @@ const sayOnlyLongEnough = '{{say:Gatekeeper}}"No, sir. Not today, and not tomorr
 test("§135.11 SL-80: an explicit narrate of the same say-only shape is unchanged -- this check never runs on that path", async (t) => {
 	const table = await hybridTable({
 		decide: (batch) => answered(batch, "finish"),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: sayOnlyLongEnough })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: sayOnlyLongEnough })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("I explain why I am here and ask for the clippings.");
@@ -306,8 +306,8 @@ for (const [shape, draft] of [
 	t.after(() => table.dispose());
 	await table.table.session.prompt("I wait for the gatekeeper.");
 	assert.equal(table.requests.length, 1);
-	assert.equal(kernel(table.table, "table.narrate").length, 1);
-	assert.equal(kernel(table.table, "table.narrate")[0].params.text, draft);
+	assert.equal(kernel(table.table, "table.reference.answer").length, 1);
+	assert.equal(kernel(table.table, "table.reference.answer")[0].params.text, draft);
 	assert.equal(hostSteers(table.table.session).length, 0);
 	assert.equal(runEnd(table.events).status, "delivered");
 	assert.equal(unfinished(table.table.session).length, 0);

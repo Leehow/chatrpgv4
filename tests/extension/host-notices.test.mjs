@@ -24,7 +24,7 @@ function recording(seen) {
 	return [
 		(context) => {
 			seen.push(JSON.stringify(context.messages));
-			return fauxAssistantMessage([fauxToolCall("narrate", { text: "The hallway is quiet." })], { stopReason: "toolUse" });
+			return fauxAssistantMessage([fauxToolCall("output", { text: "The hallway is quiet." })], { stopReason: "toolUse" });
 		},
 		fauxAssistantMessage("Should never be consumed."),
 	];

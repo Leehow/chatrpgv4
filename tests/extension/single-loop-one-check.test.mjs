@@ -221,7 +221,7 @@ async function turnTwo(t, jev) {
 	const table = await openTable({
 		realKernel: true, prepareWorkspace: metArty, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: PASS },
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松了口，把你领下楼。" })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "编辑松了口，把你领下楼。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.session.prompt(INPUT);

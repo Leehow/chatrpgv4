@@ -20,7 +20,7 @@ for (const mode of ['pre', 'post']) test('section 166: legacy '+mode+' settings 
     modsExtension(pi);
     pi.events.emit('coc:kernel-bridge', {call: async method => {calls.push(method); return {};},
         runtime: {runTask: async () => {children++; throw Error('no automatic review');}}});
-    assert.equal(await bridge.prepare('narrate', {campaign: 'c1', text: 'The lamp swings.'}), undefined);
+    assert.equal(await bridge.prepare("output", {campaign: 'c1', text: 'The lamp swings.'}), undefined);
     assert.equal(await bridge.prepare('ask', {campaign: 'c1', text: 'What do you do?'}), undefined);
     assert.equal(children, 0);
     assert.ok(calls.every(method => method === 'mods.queued'), 'only existing definition bookkeeping remains');
@@ -32,11 +32,11 @@ for (const implicit of [false, true]) for (const rejects of [false, true])
     const prose = 'The lamp swings over the empty desk.';
     let keeperCalls = 0, prepares = 0, reviews = 0;
     const response = implicit ? fauxAssistantMessage(prose)
-        : fauxAssistantMessage([fauxToolCall('narrate', {text: prose})], {stopReason: 'toolUse'});
+        : fauxAssistantMessage([fauxToolCall("output", {text: prose})], {stopReason: 'toolUse'});
     const table = await openTable({responses: [() => {keeperCalls++; return response;}]});
     t.after(() => table.dispose());
     table.emit('coc:mods-bridge', {async after() {}, async prepare(method) {
-        if (method !== 'narrate') return;
+        if (method !== "output") return;
         prepares++;
         if (rejects) throw Error('This prose would have been refused.');
         return {mode: 'post', deferred: {mode: 'post', job: 'a'.repeat(64), jobMs: 0,
@@ -46,9 +46,10 @@ for (const implicit of [false, true]) for (const rejects of [false, true])
     assert.equal(keeperCalls, 1);
     assert.equal(prepares, 0);
     assert.equal(reviews, 0);
-    const narrated = table.kernelRequests().filter(request => request.method === 'table.narrate');
+    const narrated = table.kernelRequests().filter(request => request.method === (implicit?'table.reference.answer':'table.narrate'));
     assert.equal(narrated.length, 1);
-    assert.equal(narrated[0].params.implicit === true, implicit);
+    assert.equal(narrated[0].params.implicit, undefined);
+    assert.equal(table.committed().length, implicit?0:1);
     assert.equal(narrated[0].params.text, prose);
     assert.equal(table.kernelRequests().filter(request => request.method === 'table.warn' && request.params.lane === 'continuity-review').length, 0);
     assert.equal(customMessages(table.session, 'coc-delivery').filter(message => message.details?.turn_unfinished).length, 0);

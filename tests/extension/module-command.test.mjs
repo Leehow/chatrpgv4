@@ -34,7 +34,7 @@ const LIBRARY = [
 function keeperTurn(text) {
 	return [
 		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" }),
 		fauxAssistantMessage("a sentence after the delivery"),
 	];
 }

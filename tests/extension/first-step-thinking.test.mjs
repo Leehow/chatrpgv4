@@ -184,13 +184,13 @@ test("with the flag: a call before the turn's first write keeps thinking, a call
 				results.push(await table.session._extensionRunner.emitBeforeProviderRequest(enabledDeepseekPayload()));
 			});
 		}],
-		responses: [call("look", {}), write(), fauxAssistantMessage("The room is still.")],
+		responses: [call("look", {}), write(), call("output",{text:"The room is still."})],
 	});
 	t.after(() => table.dispose());
 
 	await table.session.prompt("I inspect the room.");
 
-	assert.equal(results.length, 3, "three provider rounds: the look, the write, then the implicit delivery");
+	assert.equal(results.length, 3, "three provider rounds: the look, the write, then explicit output");
 	assert.equal(results[0].thinking.type, "enabled", "first call of the turn keeps thinking");
 	// §175.1: a read wrote nothing, so the step after it still decides what lands (table 20, 2026-10-03).
 	assert.equal(results[1].thinking.type, "enabled", "the call after a read keeps thinking");
@@ -212,7 +212,7 @@ test("without the flag: every call keeps thinking, and the row gains neither fie
 				results.push(await table.session._extensionRunner.emitBeforeProviderRequest(enabledDeepseekPayload()));
 			});
 		}],
-		responses: [call("look", {}), fauxAssistantMessage("The room is still.")],
+		responses: [call("look", {}), call("output",{text:"The room is still."})],
 	});
 	t.after(() => table.dispose());
 
@@ -241,8 +241,8 @@ test("the counter resets on player input: a second player turn's first call keep
 			});
 		}],
 		responses: [
-			write(), fauxAssistantMessage("The room is still."),
-			write(), fauxAssistantMessage("Nothing new."),
+			write(), call("output",{text:"The room is still."}),
+			write(), call("output",{text:"Nothing new."}),
 		],
 	});
 	t.after(() => table.dispose());
@@ -273,7 +273,7 @@ test("an unmapped format is left untouched and reported unsupported_format", asy
 				results.push(await table.session._extensionRunner.emitBeforeProviderRequest({ model: "xai/grok-4.6", instructions: "be a keeper" }));
 			});
 		}],
-		responses: [write(), fauxAssistantMessage("The room is still.")],
+		responses: [write(), call("output",{text:"The room is still."})],
 	});
 	t.after(() => table.dispose());
 

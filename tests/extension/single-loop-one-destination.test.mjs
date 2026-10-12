@@ -237,7 +237,7 @@ test("§135.30.10 on the emitted kernel: live turn 2's sentence with a bound end
 	const table = await openTable({ realKernel: true, prepareWorkspace: (at) => { workspace = at; kernelSteps(at, [
 		["table.open", {}], ["table.player_input", { text: "我听他说完。" }], ["table.narrate", { call_id: "t1-c1", text: "诺特把委托说了一遍。" }]]); },
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你收下钥匙，来到科比特宅前，站在街边看着它。" })], { stopReason: "toolUse" })] });
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "你收下钥匙，来到科比特宅前，站在街边看着它。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt(INPUT);
 
@@ -278,7 +278,7 @@ test("§135.30.10 on the emitted kernel, the route alone: at the house the need 
 			{ kind: "clue", clue: "knott-keys", how: "诺特把钥匙和地址交给你。", label: "钥匙和地址" }] }],
 		["table.narrate", { call_id: "t1-c2", text: "诺特把要查的地方一一列给你。" }]]); },
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你来到科比特宅前，站在街边看着它。" })], { stopReason: "toolUse" })] });
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "你来到科比特宅前，站在街边看着它。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt(INPUT);
 

@@ -28,7 +28,7 @@ function answered(batch, exit) {
 	return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
 }
 const APPLY = fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }] });
-const NARRATE = fauxToolCall("narrate", { text: "地窖门吱呀一声开了，霉味扑面而来，台阶向下没入黑暗。" });
+const NARRATE = fauxToolCall("output", { text: "地窖门吱呀一声开了，霉味扑面而来，台阶向下没入黑暗。" });
 
 async function narratorTable(t, env) {
 	const engine = createHybridEngine({ env, decision: { decide: async (batch) => answered(batch, "finish") } });
@@ -49,7 +49,7 @@ test("§151.5 kernel gate: on a narrowed compose the Keeper's apply is refused w
 	assert.ok(table.activeTools().includes("propose"), "propose is on the Keeper's surface with the setting on");
 	await table.session.prompt("我推开地窖门");
 	const results = table.session.messages.filter((message) => message.role === "toolResult");
-	assert.deepEqual(results.map((result) => [result.toolName, result.isError]), [["apply", true], ["narrate", false]]);
+	assert.deepEqual(results.map((result) => [result.toolName, result.isError]), [["apply", true], ["output", false]]);
 	assert.match(textOf(results[0]), /apply is not in this narrator-only compose step's catalog \(narrate, ask, propose\)/);
 	assert.ok(!methods(table).includes("table.apply"), "the refused apply never reached the kernel");
 	assert.ok(methods(table).includes("table.narrate"), "the compose after the refusal delivered");

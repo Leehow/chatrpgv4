@@ -68,7 +68,7 @@ function fixtureTools(log) {
 				},
 			});
 			pi.registerTool({
-				name: "narrate",
+				name: "output",
 				label: "Narrate",
 				description: "Fixture writer route.",
 				parameters: Type.Object({ text: Type.String() }),
@@ -137,7 +137,7 @@ test("S0 uses real public hooks and wrapped recall inside a real planner/writer 
 		decide,
 		responses: [
 			fauxAssistantMessage([fauxToolCall("submit_plan_packet", submission)], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "The record is bounded." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "The record is bounded." })], { stopReason: "toolUse" }),
 		],
 	});
 	assert.equal(table.adapter.status().phase, "passthrough");
@@ -155,7 +155,7 @@ test("S0 uses real public hooks and wrapped recall inside a real planner/writer 
 	const assistantCalls = table.session.messages
 		.filter(message => message.role === "assistant")
 		.flatMap(message => message.content.filter(block => block.type === "toolCall").map(block => ({ name: block.name, id: block.id })));
-	assert.deepEqual(assistantCalls.map(call => call.name), ["submit_plan_packet", "narrate"]);
+	assert.deepEqual(assistantCalls.map(call => call.name), ["submit_plan_packet", "output"]);
 	assert.equal(assistantCalls.some(call => call.id.startsWith("jev-read-")), false);
 	const visible = JSON.stringify(table.session.messages);
 	assert.equal(visible.includes("jev-read-"), false);
@@ -210,7 +210,7 @@ test("S0 deadline aborts a delayed faux writer after bounded reads without late 
 			fauxAssistantMessage([fauxToolCall("submit_plan_packet", submission)], { stopReason: "toolUse" }),
 			async () => {
 				await new Promise(resolve => setTimeout(resolve, 250));
-				return fauxAssistantMessage([fauxToolCall("narrate", { text: "too late" })], { stopReason: "toolUse" });
+				return fauxAssistantMessage([fauxToolCall("output", { text: "too late" })], { stopReason: "toolUse" });
 			},
 		],
 	});
@@ -260,7 +260,7 @@ test("a mismatched actual assistant identity blocks the tool path while the sele
 	});
 	const wrong = {
 		role: "assistant",
-		content: [{ type: "toolCall", id: "wrong-call", name: "narrate", arguments: { text: "forged" } }],
+		content: [{ type: "toolCall", id: "wrong-call", name: "output", arguments: { text: "forged" } }],
 		provider: "wrong-provider",
 		model: "wrong-model",
 		api: "fixture",

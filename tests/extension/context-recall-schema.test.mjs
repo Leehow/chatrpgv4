@@ -9,8 +9,8 @@ const properties = schema.properties;
 const sections = ["cards", "timeline", "events", "diff", "hits"];
 
 // Public schema checks only: RPC pagination and live continuity have separate acceptance seams.
-test("bounded recall keeps the seven verbs and existing query filters, exposing promise", () => {
-	assert.equal(COC_TOOL_NAMES.length, 7);
+test("bounded recall keeps the eight verbs and existing query filters, exposing promise", () => {
+	assert.equal(COC_TOOL_NAMES.length, 8);
 	assert.equal(recall.method, "table.recall");
 	assert.deepEqual(schema.required, ["what"]);
 	assert.deepEqual(properties.what.enum, ["transcript", "memory", "history"]);

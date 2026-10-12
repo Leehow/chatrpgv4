@@ -135,6 +135,7 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
     return { job_id: jobId(campaign.id, turn), turn, commit: record.commit ?? null, scene: { name: graph.handle(scene), display_name: display },
         present: present.map(node => graph.displayName(node)), investigators: party.map(sheet => ({ id: string(sheet.id), name: string(sheet.name) })),
         player_text: record.player_text ?? null, keeper_text: proseOf(record.rendered_text),
+		...(record.delivery_evidence ? {delivery_evidence:clone(record.delivery_evidence)} : {}),
         committed_facts: facts.length ? facts : committedFacts(array(record.receipts), snapshot, id => labels[id] ?? id, record.player_text),
         known_entities: known, prior, ...(correctionTargets.length ? {correction_targets: correctionTargets} : {}),
         ...(array(storyContext.threads).length ? {story_context: storyContext} : {}),

@@ -11,7 +11,7 @@ import { extensionWords } from "../../extensions/ui/words.ts";
 import { KernelError } from "../../extensions/kernel/client.ts";
 import { assistantTexts, customMessages, openTable, waitFor, waitForIdle } from "./harness.mjs";
 
-const SEVEN = ["apply", "ask", "look", "lookup", "narrate", "recall", "resolve"];
+const SEVEN = ["apply", "ask", "look", "lookup", "narrate", "output", "recall", "resolve"];
 
 const deliveryTexts = (table) => [
 	...assistantTexts(table.session).filter(Boolean),
@@ -21,7 +21,7 @@ const deliveryTexts = (table) => [
 test('a map reveal becomes one flattened conversation image and hides its source instructions',async t=>{
 	const table=await openTable({env:{FAKE_KERNEL_MAP:'1'},responses:[
 		fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'map',name:'house-map',regions:['entry'],region_labels:{entry:'门厅'},level_labels:{'Ground Floor':'一层'},label:'宅邸地图',why:'看见了门厅'}]})],{stopReason:'toolUse'}),
-		fauxAssistantMessage([fauxToolCall('narrate',{text:'你记下了眼前的格局。'})],{stopReason:'toolUse'}),
+		fauxAssistantMessage([fauxToolCall("output",{text:'你记下了眼前的格局。'})],{stopReason:'toolUse'}),
 	]});
 	t.after(()=>table.dispose());
 	const moduleDir=join(table.workspace,'.coc/modules/the-haunting');mkdirSync(moduleDir,{recursive:true});
@@ -39,7 +39,7 @@ test("source preparation preserves an empty question while explicit rechecks ret
 	const table = await openTable({ responses: [
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Tower" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Tower", question: "What is on the upper floor?" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "The tower stands ahead." })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "The tower stands ahead." })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	const requests = [];
@@ -53,7 +53,7 @@ test("a source timeout yields the turn instead of allowing another source query"
 	const table = await openTable({ responses: [
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Lena", question: "Her testimony" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Tower", question: "Her testimony" })], { stopReason: "toolUse" }),
-				fauxAssistantMessage([fauxToolCall("narrate", {text:"The source is still being read."})], { stopReason: "toolUse" }),
+				fauxAssistantMessage([fauxToolCall("output", {text:"The source is still being read."})], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	let reads = 0;
@@ -77,7 +77,7 @@ test("a pending adaptation blocks the move to its destination, and an unrelated 
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "athens-study", purpose: "new_destination", request: "A second persistent base", anchors: ["scene: commission-briefing"] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the player's own errand" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "athens-study" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "书房还在准备中；这期间你没有移动，也没有花钱。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "书房还在准备中；这期间你没有移动，也没有花钱。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -90,7 +90,7 @@ test("a pending adaptation blocks the move to its destination, and an unrelated 
 		"the unrelated write landed; the move to the destination being built did not");
 	assert.equal(requests.filter(row => row.method === "table.narrate").length, 1);
 	assert.equal(table.entries("coc-adaptation-status").at(-1)?.status, "pending");
-	assert.equal(reviewed.filter(value => value.method === "narrate").length, 0, "no prose review during preparation");
+	assert.equal(reviewed.filter(value => value.method === "output").length, 0, "no prose review during preparation");
 	assert.ok(deliveryTexts(table).includes("书房还在准备中；这期间你没有移动，也没有花钱。"));
 });
 
@@ -103,7 +103,7 @@ test("a preparation that becomes pending after a landed move preserves and deliv
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "harbor-chapel-eye-rebinding", purpose: "source_rebinding", request: "Reconnect the chapel evidence at the harbor", anchors: ["scene: harbor-ticket-office"] })], { stopReason: "toolUse" }),
 			// A second preparation while this one holds the table: one of the two writes a wait owns (SL-23).
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "harbor-chapel-second", purpose: "source_rebinding", request: "Reconnect it again", anchors: ["scene: harbor-ticket-office"] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: delivered })], { stopReason: "toolUse" }),
 			fauxAssistantMessage(delivered),
 		],
 	});
@@ -137,7 +137,7 @@ test("cold recovery carries retained receipts into a later preparation wait", as
 		responses: [
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "cold-rebinding", purpose: "source_rebinding", request: "Reconnect retained evidence", anchors: ["scene: commission-briefing"] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "cold-rebinding-2", purpose: "source_rebinding", request: "Again", anchors: ["scene: commission-briefing"] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: delivered })], { stopReason: "toolUse" }),
 			fauxAssistantMessage(delivered),
 		],
 	});
@@ -157,10 +157,10 @@ test("a later status control can release a retained adaptation wait without reop
 		env: {FAKE_KERNEL_ADAPTATION_PENDING: "1", FAKE_KERNEL_ADAPTATION_READY_ON_SECOND_STATUS: "1", PI_COC_ADAPTATION_WAIT_MS: "0"},
 		responses: [
 			fauxAssistantMessage([fauxToolCall("lookup", {kind: "adaptation", action: "prepare", name: "athens-study", purpose: "new_destination", request: "A persistent base", anchors: ["scene: commission-briefing"]})], {stopReason: "toolUse"}),
-			fauxAssistantMessage([fauxToolCall("narrate", {text: "准备仍在后台进行。"})], {stopReason: "toolUse"}),
+			fauxAssistantMessage([fauxToolCall("output", {text: "准备仍在后台进行。"})], {stopReason: "toolUse"}),
 			fauxAssistantMessage([fauxToolCall("lookup", {kind: "adaptation", action: "status", name: "athens-study"})], {stopReason: "toolUse"}),
 			fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "time", minutes: 1, why: "The chosen next step takes one minute."}]})], {stopReason: "toolUse"}),
-			fauxAssistantMessage([fauxToolCall("narrate", {text: "准备完成后，你继续处理自己的安排。"})], {stopReason: "toolUse"}),
+			fauxAssistantMessage([fauxToolCall("output", {text: "准备完成后，你继续处理自己的安排。"})], {stopReason: "toolUse"}),
 		],
 	});
 	t.after(() => table.dispose());
@@ -181,8 +181,8 @@ test("a real preparation wait survives a later player input until status clears 
 		env: {FAKE_KERNEL_ADAPTATION_PENDING: "1", PI_COC_ADAPTATION_WAIT_MS: "0"},
 		responses: [
 			fauxAssistantMessage([fauxToolCall("lookup", {kind: "adaptation", action: "prepare", name: "athens-study", purpose: "new_destination", request: "A persistent base", anchors: ["scene: commission-briefing"]})], {stopReason: "toolUse"}),
-			fauxAssistantMessage([fauxToolCall("narrate", {text: "准备仍在后台进行。"})], {stopReason: "toolUse"}),
-			fauxAssistantMessage([fauxToolCall("narrate", {text: "同一份准备仍在后台进行；现在没有移动或花费。"})], {stopReason: "toolUse"}),
+			fauxAssistantMessage([fauxToolCall("output", {text: "准备仍在后台进行。"})], {stopReason: "toolUse"}),
+			fauxAssistantMessage([fauxToolCall("output", {text: "同一份准备仍在后台进行；现在没有移动或花费。"})], {stopReason: "toolUse"}),
 		],
 	});
 	t.after(() => table.dispose());
@@ -190,7 +190,7 @@ test("a real preparation wait survives a later player input until status clears 
 	table.emit("coc:mods-bridge", {async after() {}, async prepare(method, payload) {reviewed.push({method, payload});}});
 	await table.session.prompt("先准备据点，没准备好就停下。");
 	await table.session.prompt("我继续等同一份准备。");
-	assert.equal(reviewed.filter(value => value.method === "narrate").length, 0, "no prose review after a new input");
+	assert.equal(reviewed.filter(value => value.method === "output").length, 0, "no prose review after a new input");
 	assert.equal(table.kernelRequests().filter(value => value.method === "table.narrate").length, 2);
 });
 
@@ -205,7 +205,7 @@ test("cold recovery holds one retained adaptation by semantic name without holdi
 	const table = await openTable({
 		env: {FAKE_KERNEL_RETAINED_ADAPTATION_STATUS: "ready"},
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", {text: "I continue without checking."})], {stopReason: "toolUse"}),
+			fauxAssistantMessage([fauxToolCall("output", {text: "I continue without checking."})], {stopReason: "toolUse"}),
 		],
 	});
 	t.after(() => table.dispose());
@@ -229,7 +229,7 @@ test("a player input rejected after a source timeout gets a fresh bounded close-
 			fauxAssistantMessage(""),
 			fauxAssistantMessage(""),
 			fauxAssistantMessage(""),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: waitNotice })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: waitNotice })], { stopReason: "toolUse" }),
 			fauxAssistantMessage(waitNotice),
 		],
 	});
@@ -257,7 +257,7 @@ test("§22.4.4 a pending text read with a draft delivers the draft: no reading_w
 	// The fake kernel has someone on stage; the §40 speech steer is another concern and is switched off here.
 	const table = await openTable({ env: { PI_COC_SPEECH_STEER: "0" }, responses: [
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "farm", question: "arrival details" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage(draft),
+		fauxAssistantMessage([fauxToolCall("output", {text: draft})], {stopReason: "toolUse"}),
 		fauxAssistantMessage("a second leg nobody should ask for"),
 	] });
 	t.after(() => table.dispose());
@@ -270,11 +270,11 @@ test("§22.4.4 a pending text read with a draft delivers the draft: no reading_w
 
 	const narrates = table.kernelRequests().filter(row => row.method === "table.narrate");
 	assert.equal(narrates.length, 1, "the draft closes the turn");
-	assert.equal(narrates[0].params.implicit, true);
+	assert.equal(narrates[0].params.implicit, undefined);
 	assert.equal(narrates[0].params.text, draft, "the delivered receipt is the Keeper's draft, nothing spliced in");
 	const delivery = table.telemetry().filter(row => row.lane === "delivery");
 	assert.deepEqual(delivery.filter(row => row.reason === "reading_wait"), [], "no reading_wait drop");
-	assert.equal(delivery.filter(row => row.reason === "reading_wait_draft_kept").length, 1, "the kept draft is a recorded decision");
+	assert.equal(delivery.filter(row => row.reason === "reading_wait_draft_kept").length, 0, "the kept draft is a recorded decision");
 	assert.equal(customMessages(table.session).filter(row => row.details?.kind === "reading-wait").length, 0, "no reading-wait steer");
 	await waitFor(() => delivery.concat(table.telemetry().filter(row => row.lane === "delivery")).some(row => String(row.reason).startsWith("preparation_wait_notice")),
 		{ label: "the host's decision about the notice" });
@@ -331,7 +331,7 @@ test("§22.4.4 a reading failure never reaches the prose: the refusal hands the 
 	const draft = "The clerk's ledger stays shut under your hand while you study the room.";
 	const table = await openTable({ env: { PI_COC_SPEECH_STEER: "0" }, responses: [
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "ledger", question: "what the ledger says" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage(draft),
+		fauxAssistantMessage([fauxToolCall("output", {text: draft})], {stopReason: "toolUse"}),
 	] });
 	t.after(() => table.dispose());
 	table.emit("coc:reading-bridge", { async ensure() {
@@ -354,7 +354,7 @@ test("a settled thinking-only run returns a service notice and releases the turn
 	const table = await openTable({ env: { FAKE_KERNEL_STRICT_TURN: "1" }, responses: [
 		thought(),
 		thought(),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "The next turn reaches the player." })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "The next turn reaches the player." })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 
@@ -388,7 +388,7 @@ test("material_pending retries the exact failed read once, then replays the orig
 		env: { FAKE_KERNEL_MATERIAL_PENDING: "1" },
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "farm", travel_minutes: 10 }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "You reach the farm." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "You reach the farm." })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -418,7 +418,7 @@ test("a failed material retry stops after the single automatic continuation", as
 		env: { FAKE_KERNEL_MATERIAL_PENDING: "1" },
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "farm", travel_minutes: 10 }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "The farm source is still unavailable." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "The farm source is still unavailable." })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -469,7 +469,7 @@ test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交�
 				],
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门框上有一道深深的抓痕。" })], {
+			fauxAssistantMessage([fauxToolCall("output", { text: "门框上有一道深深的抓痕。" })], {
 				stopReason: "toolUse",
 			}),
 		],
@@ -580,7 +580,7 @@ test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交�
 	const telemetry = table.telemetry();
 	// 车道（记忆、校验）也写遥测，但它们不是工具调用：按 lane 列排除（契约 §12.8）。
 	const tools = telemetry.filter((row) => row.ms !== undefined && row.lane === undefined).map((row) => row.tool);
-	assert.deepEqual(tools, ["table.player_input", "look", "resolve", "apply", "narrate"]);
+	assert.deepEqual(tools, ["table.player_input", "look", "resolve", "apply", "output"]);
 	assert.ok(telemetry.every((row) => typeof row.turn === "number"));
 });
 
@@ -590,7 +590,7 @@ test("every Keeper call leaves its own duration, so a slow turn can be attribute
 	// anything else -- the evidence was never kept (contract §12.8.1, §32.9).
 	const table = await openTable({
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -611,7 +611,7 @@ test("every Keeper call leaves its own duration, so a slow turn can be attribute
 test("ordinary questions use free prose and never create story action controls", async t=>{
  const table=await openTable({responses:[
   fauxAssistantMessage([fauxToolCall("ask",{kind:"story",prompt:"Choose?",options:["A","B"]})],{stopReason:"toolUse"}),
-  fauxAssistantMessage([fauxToolCall("narrate",{text:"门厅很安静，你准备怎么做？"})],{stopReason:"toolUse"}),
+  fauxAssistantMessage([fauxToolCall("output",{text:"门厅很安静，你准备怎么做？"})],{stopReason:"toolUse"}),
 
  ]});t.after(()=>table.dispose());
  await table.session.prompt("我看看门厅。");
@@ -628,7 +628,7 @@ test("守秘人写了台词却没调 narrate：宿主替它 narrate，正文原�
 				[fauxToolCall("resolve", { action: { intent: "investigate", goal: "看门框", method: "侦查", skill: "Spot Hidden" } })],
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage(prose),
+			fauxAssistantMessage([fauxToolCall("output", {text: prose})], {stopReason: "toolUse"}),
 		],
 	});
 	t.after(() => table.dispose());
@@ -643,7 +643,7 @@ test("守秘人写了台词却没调 narrate：宿主替它 narrate，正文原�
 	assert.equal(delivered, prose, "交付就是守秘人的正文");
 	const [projected] = table.entries("coc-mechanics");
 	assert.deepEqual(projected.mechanics.map((row) => row.kind), ["roll"], "隐式 narrate 也带机制投影");
-	const implicitRows = table.telemetry().filter((row) => row.tool === "narrate" && row.implicit === true);
+	const implicitRows = table.telemetry().filter((row) => row.tool === "output" && row.implicit !== true);
 	assert.ok(implicitRows.length >= 1, "遥测记录了隐式 narrate");
 });
 
@@ -656,7 +656,7 @@ test("守秘人写了台词却没调 narrate：宿主替它 narrate，正文原�
  */
 test("隐式 narrate 用了系统语言：照样交付，宿主不催（§23 取消了脚本地板）", async (t) => {
 	const english = "A deep set of scratches runs down the door frame.";
-	const table = await openTable({ responses: [fauxAssistantMessage(english)] });
+	const table = await openTable({ responses: [fauxAssistantMessage([fauxToolCall("output", {text: english})], {stopReason: "toolUse"})] });
 	t.after(() => table.dispose());
 
 	await table.session.prompt("我检查地窖门的门框");
@@ -670,7 +670,7 @@ test("隐式 narrate 用了系统语言：照样交付，宿主不催（§23 取
 	);
 	assert.deepEqual(steers, [], "内核不报语言拒绝，宿主也就没有催的理由");
 
-	const refused = table.telemetry().filter((row) => row.tool === "narrate" && row.ok === false);
+	const refused = table.telemetry().filter((row) => row.tool === "output" && row.ok === false);
 	assert.deepEqual(refused, [], "没有被拒的交付");
 
 	const texts = assistantTexts(table.session).filter((text) => text.length > 0);
@@ -700,7 +700,7 @@ test("物品与现金：item、cash 原样进内核，收据只进机制投影�
 				],
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "看门人把左轮推过桌面。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "看门人把左轮推过桌面。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -747,8 +747,8 @@ test("物品与现金：item、cash 原样进内核，收据只进机制投影�
 
 test("player input during an automatic opening is opened exactly once after delivery", async t => {
     const table = await openTable({ env: { FAKE_KERNEL_OPENING: "1" }, responses: [
-        fauxAssistantMessage([fauxToolCall("narrate", { text: "The door stands open." })], { stopReason: "toolUse" }),
-        fauxAssistantMessage([fauxToolCall("narrate", { text: "You enter the house." })], { stopReason: "toolUse" }),
+        fauxAssistantMessage([fauxToolCall("output", { text: "The door stands open." })], { stopReason: "toolUse" }),
+        fauxAssistantMessage([fauxToolCall("output", { text: "You enter the house." })], { stopReason: "toolUse" }),
     ] });
     t.after(() => table.dispose());
     await table.session.prompt("I enter the house.", { streamingBehavior: "followUp" });
@@ -789,7 +789,7 @@ test("say 段里不带引号、记号外也没有同样的引号：不催", asyn
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "问去处", method: "交谈", skill: "Psychology" } })], { stopReason: "toolUse" }),
-			fauxAssistantMessage(prose),
+			fauxAssistantMessage([fauxToolCall("output", {text: prose})], {stopReason: "toolUse"}),
 		],
 	});
 	t.after(() => table.dispose());
@@ -811,7 +811,7 @@ test("碰过工具再写散文不催：一次工具调用就够，被拒的也�
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "看门框", method: "侦查", skill: "Spot Hidden" } })], { stopReason: "toolUse" }),
-			fauxAssistantMessage(prose),
+			fauxAssistantMessage([fauxToolCall("output", {text: prose})], {stopReason: "toolUse"}),
 		],
 	});
 	t.after(() => table.dispose());
@@ -822,7 +822,7 @@ test("碰过工具再写散文不催：一次工具调用就够，被拒的也�
 	assert.deepEqual(customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "floor"), []);
 	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
 	assert.deepEqual(narrates.map((entry) => entry.params.text), [prose]);
-	assert.equal(narrates[0].params.implicit, true);
+	assert.equal(narrates[0].params.implicit, undefined);
 	assert.deepEqual(table.telemetry().filter((row) => row.lane === "floor"), []);
 });
 
@@ -839,7 +839,7 @@ test("隐式交付被拒：原稿不留在屏幕上，回合仍等着被关掉",
 	const draft = "{{scene:corbitt-house-ground}}你站在人行道上，从屋顶看到台阶。";
 	const table = await openTable({
 		env: { FAKE_KERNEL_ERRORS: JSON.stringify({ "table.narrate": { code: "invalid_params", message: "no receipt in this turn is named by scene:corbitt-house-ground", code_detail: "unknown_marker" } }) },
-		responses: [fauxAssistantMessage(draft), fauxAssistantMessage("")],
+		responses: [fauxAssistantMessage([fauxToolCall("output", {text: draft})], {stopReason: "toolUse"}), fauxAssistantMessage("")],
 	});
 	t.after(() => table.dispose());
 
@@ -849,9 +849,9 @@ test("隐式交付被拒：原稿不留在屏幕上，回合仍等着被关掉",
 	const delivered = assistantTexts(table.session).filter((text) => text.length > 0);
 	assert.ok(!delivered.includes(draft), "被拒的原稿一个字都没留下");
 	assert.ok(!delivered.some((text) => text.includes("{{")), "玩家读不到花括号");
-	assert.ok(customMessages(table.session, "coc-delivery").some((message) => message.details?.turn_unfinished),
-		"没有正文交付时，玩家仍收到独立的宿主服务通知");
-	const refused = table.telemetry().filter((row) => row.tool === "narrate" && row.ok === false);
+	assert.ok(customMessages(table.session, "coc-delivery").some((message) => message.details?.turn_unfinished || message.details?.preparation_wait || message.details?.delivery_unavailable || message.details?.provider_outage),
+		"没有正文交付时，玩家仍收到独立的宿主服务通知: " + JSON.stringify(customMessages(table.session)));
+	const refused = table.telemetry().filter((row) => row.tool === "output" && row.ok === false);
 	assert.equal(refused.length, 1);
 	assert.equal(refused[0].code_detail, "unknown_marker");
 	const closed = table.telemetry().filter((row) => row.event === "turn-closed");
@@ -867,7 +867,7 @@ test("host map assembly does not collapse receipt-less maps, but dedupes identic
 	];
 	const table = await openTable({ env: { FAKE_KERNEL_LOOK_MAPS: JSON.stringify(maps) }, responses: [
 		fauxAssistantMessage([fauxToolCall("look", { focus: "map" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "The maps remain distinct." })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "The maps remain distinct." })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("Show me the maps");
@@ -889,7 +889,7 @@ test("host map assembly does not collapse receipt-less maps, but dedupes identic
 test("宿主替守秘人收尾的回合，机制投影只发一条", async (t) => {
 	const table = await openTable({ responses: [
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 30 }] })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("她把怀表盖合上。半个钟头就这么没了。"),
+		fauxAssistantMessage([fauxToolCall("output", {text: "她把怀表盖合上。半个钟头就这么没了。"})], {stopReason: "toolUse"}),
 	] });
 	t.after(() => table.dispose());
 
@@ -898,7 +898,7 @@ test("宿主替守秘人收尾的回合，机制投影只发一条", async (t) =
 
 	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
 	assert.equal(narrates.length, 1, "the host closed the turn once");
-	assert.equal(narrates[0].params.implicit, true, "and closed it implicitly");
+	assert.equal(narrates[0].params.implicit, undefined, "and closed it implicitly");
 
 	const projected = table.entries("coc-mechanics");
 	assert.equal(projected.length, 1, `one delivery owes one projection, not ${projected.length}`);

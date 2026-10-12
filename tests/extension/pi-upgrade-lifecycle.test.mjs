@@ -172,8 +172,8 @@ test("production kernel reserves foreground when replaying input queued during o
 	};
 	t.after(() => { EventEmitter.prototype.emit = original; });
 	const table = await openTable({ env: { FAKE_KERNEL_OPENING: "1" }, responses: [
-		async () => {openingEntered.open(); await openingRelease.promise; return fauxAssistantMessage([fauxToolCall("narrate", {text: "The door stands open."})], {stopReason: "toolUse"});},
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "You enter the house." })], { stopReason: "toolUse" }),
+		async () => {openingEntered.open(); await openingRelease.promise; return fauxAssistantMessage([fauxToolCall("output", {text: "The door stands open."})], {stopReason: "toolUse"});},
+		fauxAssistantMessage([fauxToolCall("output", { text: "You enter the house." })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	table.session.subscribe(event => {

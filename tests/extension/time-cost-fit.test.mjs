@@ -179,7 +179,7 @@ async function declare(t, { scene, unlock, input, band }) {
 	const engine = createHybridEngine({ env: process.env, decision: { decide } });
 	const table = await openTable({ realKernel: true, prepareWorkspace: (at) => { workspace = at; arrive(scene, unlock)(at); },
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你照着做了。" })], { stopReason: "toolUse" })] });
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "你照着做了。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt(input);
 	const record = JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/turns/0002.json"), "utf8"));

@@ -35,12 +35,12 @@ const FILED = "职员把那一行夹进正联。";
 
 /** The live shape: the delivery, and behind it the effect that can no longer land. */
 const deliveryThenEffect = () =>
-	fauxAssistantMessage([fauxToolCall("narrate", { text: FILED }), fauxToolCall("apply", { effects: NOTE })],
+	fauxAssistantMessage([fauxToolCall("output", { text: FILED }), fauxToolCall("apply", { effects: NOTE })],
 		{ stopReason: "toolUse" });
 
 /** Its mirror: the effect first, and behind it a delivery written before the answer existed. */
 const effectThenDelivery = () =>
-	fauxAssistantMessage([fauxToolCall("apply", { effects: NOTE }), fauxToolCall("narrate", { text: FILED })],
+	fauxAssistantMessage([fauxToolCall("apply", { effects: NOTE }), fauxToolCall("output", { text: FILED })],
 		{ stopReason: "toolUse" });
 
 const refusingReview = {
@@ -54,13 +54,13 @@ const visibleTexts = (session) => [
 	...customMessages(session.session, "coc-delivery").map((message) => message.content),
 ];
 const applies = (session) => session.kernelRequests().filter((entry) => entry.method === "table.apply").length;
-const closed = (rows) => rows.some((row) => row.tool === "narrate" && row.event === "turn-closed");
+const closed = (rows) => rows.some((row) => row.tool === "output" && row.event === "turn-closed");
 
 // The terminal ask is a closed option that still exists. A combat-defence ask does not: §11.5.1
 // "The combat choice buttons are retired for new player defenses", and the host refuses one as stale
 // before it can deliver (§11.5: investigator defence is settled by the standing preference, never `ask`).
 for (const [tool, input] of [
-	["narrate", { text: FILED }],
+	["output", { text: FILED }],
 	["ask", { kind: "mechanics", text: "职员摇头，说这一行找不到了。", options: ["push", "accept"] }],
 ]) {
 	test(`a successful terminal ${tool} delivery ends the batch before a post-close provider call`, async (t) => {
@@ -89,7 +89,7 @@ test("a delivery written ahead of an effect is refused whole, so the effect is a
 		responses: [
 			deliveryThenEffect(),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: NOTE })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: FILED })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: FILED })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("Should never be consumed."),
 		],
 	});
@@ -149,7 +149,7 @@ test("a successful delivery does not request a separate post-close effect messag
 	// weaken the same-message ordering gate tested above and below.
 	const session = await openTable({
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: FILED })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: FILED })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: NOTE })], { stopReason: "toolUse" }),
 		],
 	});
@@ -172,7 +172,7 @@ test("a delivery behind an effect the action review refused is refused too, and 
 	const session = await openTable({
 		responses: [
 			effectThenDelivery(),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "职员把本子推回来。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "职员把本子推回来。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("Should never be consumed."),
 		],
 		laneResponses: refusingReview,
@@ -187,7 +187,7 @@ test("a delivery behind an effect the action review refused is refused too, and 
 	assert.equal(applies(session), 0);
 	const held = rows.filter((row) => row.code === "blocked" && row.reason === "delivery_behind_refused_effect");
 	assert.equal(held.length, 1, JSON.stringify(rows.filter((row) => row.code === "blocked")));
-	assert.equal(held[0].tool, "narrate");
+	assert.equal(held[0].tool, "output");
 
 	// The turn still closes, on the delivery written with the answer in hand: §32 is not relaxed,
 	// a refusal is still not a stop, and the player reads one turn rather than a notice.
@@ -238,7 +238,7 @@ test("an effect the review refused a round trip before the delivery says nothing
 	const session = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: NOTE })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: FILED })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: FILED })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("Should never be consumed."),
 		],
 		laneResponses: refusingReview,
@@ -263,7 +263,7 @@ test("a read blocked after close still says nothing: nothing the player was told
 	// either, because there is nothing behind that door for it to lose.
 	const session = await openTable({
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅里落满灰。" }), fauxToolCall("look", { kind: "scene" })],
+			fauxAssistantMessage([fauxToolCall("output", { text: "门厅里落满灰。" }), fauxToolCall("look", { kind: "scene" })],
 				{ stopReason: "toolUse" }),
 			fauxAssistantMessage("Should never be consumed."),
 		],

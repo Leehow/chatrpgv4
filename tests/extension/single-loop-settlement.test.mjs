@@ -283,7 +283,7 @@ test("§135.11 SL-20 at the table: the compile-selected first blow settles the d
 		extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }, { name: "sl20-call-probe", factory(pi) {
 			pi.on("tool_call", (event) => { calls.push({ id: event.toolCallId, tool: event.toolName, input: structuredClone(event.input) }); });
 		} }],
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你一拳打在他脸上。" })], { stopReason: "toolUse" })] });
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "你一拳打在他脸上。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	table.session.subscribe((event) => { if (isRunEvent(event)) events.push(event); });
 	await table.session.prompt("我揪住他的领子一拳打过去");

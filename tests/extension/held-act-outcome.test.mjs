@@ -36,7 +36,7 @@ const BEGUN = "你从口袋里摸出一枚一角的硬币，朝他摊开的掌�
 const HELD_DIME = { kind: "cash", delta: -0.1, source: "quote", with: "Mr. Dooley", why: "a dime for the story" };
 
 const toolCall = (name, args) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
-const narrate = (text) => toolCall("narrate", { text });
+const narrate = (text) => toolCall("output", { text });
 const reply = (answers) => new Response(JSON.stringify({ model: "jev-1.13.0", answers, usage: { input_tokens: 600, output_tokens: 20 } }), { status: 200 });
 
 /** The held-result Noul is `outcome(draft)` ("unavailable" fails it); every other typed request is unavailable. */
@@ -93,7 +93,7 @@ test("turn 26's shape: after an unavailable review, the draft that pays the dime
 		outcome: (draft) => draft.includes("车子顺着街开走") ? 0.95 : 0.05 });
 	assert.equal(keeperCalls(), 3, "the refused apply, the claiming narrate and the corrected one");
 	assert.deepEqual(refusals(table, "apply").map((error) => [error.details?.reason, error.details?.cause]), [["admission_unavailable", "model_unavailable"]]);
-	assert.deepEqual(refusals(table, "narrate").map((error) => [error.details?.reason, error.details?.outcome]), [["held_act_outcome", "steer"]]);
+	assert.deepEqual(refusals(table, "output").map((error) => [error.details?.reason, error.details?.outcome]), [["held_act_outcome", "steer"]]);
 	assert.equal(steers(table).length, 1, "one correction, through the turn-close steer");
 	assert.equal(steers(table)[0].kind, "held_act_outcome");
 	assert.deepEqual(heldRows(table), [["steer", "false_completion", 0.95], ["clean", "no_false_completion", 0.05]]);
@@ -114,7 +114,7 @@ for (const [name, answer, reason] of [["a gray answer", 0.5, "outcome_uncertain"
 		const { table, keeperCalls } = await turn26(t, { calls: [toolCall("apply", { effects: [HELD_DIME] }), narrate(DELIVERED)], outcome: () => answer });
 		assert.equal(keeperCalls(), 2);
 		assert.deepEqual(heldRows(table).map(([status, why]) => [status, why]), [["unclear", reason]]);
-		assert.deepEqual(refusals(table, "narrate"), []);
+		assert.deepEqual(refusals(table, "output"), []);
 		assert.deepEqual(narrated(table), [DELIVERED]);
 	});
 

@@ -259,7 +259,7 @@ async function hybridTable({ port, responses, prepareWorkspace = toldWhereToDig,
 	return { table, events, rows, dispose: () => table.dispose() };
 }
 const runRows = (table, event) => table.telemetry("test-camp").filter((row) => row.lane === "run" && row.event === event);
-const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
+const narrate = (text) => fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" });
 
 test("gate #7's shape: a prescreen that spends the whole allowance leaves the decisions theirs -- compile and route asked, the clerk moves, no jev_budget", async (t) => {
 	// The allowance is 3 s and the prescreen holds every batch to its deadline (at least 1 s, asserted below); the first

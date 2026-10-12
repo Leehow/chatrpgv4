@@ -1095,3 +1095,23 @@ def test_phase_timings_are_additive_and_persisted_without_replacing_wall_time(tm
     assert result["summary"]["timings"] == timings
     assert isinstance(saved["wall_seconds"], (int, float))
     assert saved["settle_class"] == "settled"
+
+
+def test_mixed_reference_reply_survives_later_story_and_duplicate_custom_projection():
+    reply = {"role": "custom", "customType": "coc-delivery", "display": True,
+             "content": "That is the NPC's guess, not an established fact.",
+             "details": {"coc_delivery": True, "reference_reply": True, "turn": 1}}
+    result = replay_turn([
+        (0, {"type": "agent_start"}),
+        (.1, {"type": "message_end", "message": reply}),
+        (.2, {"type": "entry_appended", "entry": reply}),
+        (.3, {"type": "tool_execution_start", "toolCallId": "output1", "toolName": "output", "args": {}}),
+        (.4, {"type": "tool_execution_end", "toolCallId": "output1", "toolName": "output", "isError": False,
+              "result": {"content": [{"type": "text", "text": json.dumps({"rendered_text": "Knott answers your question.", "mechanics": []})}]}}),
+        (.5, {"type": "agent_end"}),
+        (.6, {"type": "agent_settled"}),
+    ])
+    assert result["final_text"] == reply["content"] + "\n\nKnott answers your question."
+    assert result["delivery"]["rendered_text"] == "Knott answers your question."
+    assert result["reference_replies"] == [reply["content"]]
+    assert not result.get("notices")

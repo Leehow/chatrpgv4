@@ -227,7 +227,7 @@ test("§32.12.3.1 with §32.12.4: a response's batch whose line is already known
 	const table = await openTable({
 		responses: [call("apply", { effects: [TIME, DIARIES] }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [TIME, DIARIES] }), fauxToolCall("apply", { effects: [MOVE] }),
-				fauxToolCall("narrate", { text: "你把查到的事说给诺特听。" })], { stopReason: "toolUse" }), fauxAssistantMessage("after")],
+				fauxToolCall("output", { text: "你把查到的事说给诺特听。" })], { stopReason: "toolUse" }), fauxAssistantMessage("after")],
 		laneResponses: { admission: Array.from({ length: 8 }, () => step) } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
@@ -481,7 +481,7 @@ test("§32.12.3.1 with §32.12.4: a batch the Keeper's response carries beside a
 	// §32.12.4 starts the reviews of a response's writes together when it carries more than one.
 	const table = await openTable({
 		responses: [fauxAssistantMessage([fauxToolCall("apply", { effects: [TIME, DIARIES] }), fauxToolCall("apply", { effects: [COMMISSION] }),
-			fauxToolCall("narrate", { text: "你把查到的事说给诺特听。" })], { stopReason: "toolUse" }), fauxAssistantMessage("after")],
+			fauxToolCall("output", { text: "你把查到的事说给诺特听。" })], { stopReason: "toolUse" }), fauxAssistantMessage("after")],
 		laneResponses: { admission: laneByLine([[/apply (time|clue)/, ok("reporting back"), 100]]) } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);

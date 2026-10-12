@@ -51,7 +51,7 @@ function installJev(t, answer) {
 
 const ENV = { EXT_JEV_APIKEY: "test-jev-key", FAKE_KERNEL_PRESENT: JSON.stringify([{ name: CLERK }]) };
 const place = (name) => fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "npc", name, to: "here", why: "他站在窗口后" }] })], { stopReason: "toolUse" });
-const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
+const narrate = (text) => fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" });
 const writes = (table) => table.telemetry().filter((row) => row.tool === "apply" && !row.event);
 const resolutions = (table) => table.telemetry().filter((row) => row.event === "name_resolution");
 

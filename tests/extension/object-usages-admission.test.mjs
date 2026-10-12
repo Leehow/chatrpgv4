@@ -10,7 +10,7 @@ const prepare={kind:'usage',object:'Chair',name:'swing',description:'Take the ch
 const verdict=verdict=>fauxAssistantMessage(JSON.stringify({verdict,grounds:'Controlled admission response for this transport test.'}));
 const responses=effects=>[
   fauxAssistantMessage([fauxToolCall('apply',{effects})],{stopReason:'toolUse'}),
-  fauxAssistantMessage([fauxToolCall('narrate',{text:'The proposed action has been considered. The investigator remains attentive to the room.'})],{stopReason:'toolUse'}),
+  fauxAssistantMessage([fauxToolCall("output",{text:'The proposed action has been considered. The investigator remains attentive to the room.'})],{stopReason:'toolUse'}),
   fauxAssistantMessage('after'),
 ];
 

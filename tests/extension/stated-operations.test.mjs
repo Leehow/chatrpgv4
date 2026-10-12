@@ -36,7 +36,7 @@ test("the tools carry rule, step and stated to the kernel, and the kernel's answ
         fauxAssistantMessage([fauxToolCall("resolve", {action: {...ACTION, rule: "chapel-floor", step: 1}})], {stopReason: "toolUse"}),
         fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "damage", stated: "chapel-floor", dice: "2D6"}]})], {stopReason: "toolUse"}),
         fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "damage", stated: "chapel-floor"}]})], {stopReason: "toolUse"}),
-        fauxAssistantMessage([fauxToolCall("narrate", {text: "The boards give."})], {stopReason: "toolUse"}),
+        fauxAssistantMessage([fauxToolCall("output", {text: "The boards give."})], {stopReason: "toolUse"}),
         fauxAssistantMessage("done"),
     ], env: {FAKE_KERNEL_CHECK_FAILS: "1"}});
     t.after(() => table.dispose());

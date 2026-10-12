@@ -65,7 +65,7 @@ test("一个关掉的回合只有一道闸门：换一轮再来，还是同一�
 
 	await table.session.prompt("我推开门。");
 	await waitForIdle(table.session);
-	const delivered = table.telemetry().filter((row) => row.tool === "narrate" && row.event === "turn-closed");
+	const delivered = table.telemetry().filter((row) => row.tool === "output" && row.event === "turn-closed");
 	assert.equal(delivered.length, 1, "先要有一条真的交付，否则后面谈的不是同一件事");
 	assert.deepEqual(table.telemetry().filter((row) => row.blocked_after_close), [], "交付那一轮自己没有被拒的调用");
 

@@ -26,7 +26,7 @@ import { CONSEQUENCE_FAMILY } from "../../runtime/jev/consequence-route.ts";
 import { createStepPolicy, NARRATOR_FALLEN, PROPOSED_REASON } from "../../runtime/jev/step-policy.ts";
 
 const CONTEXT = { version: 1, campaign: "c", worldline: "main", loop: 0, turn: 2, source_revision: "a".repeat(64) };
-const SEVEN = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate"];
+const SEVEN = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate", "output"];
 const clueRow = (clue, summary = "x") => ({ effect: { kind: "clue", clue }, description: { summary } });
 /** Every question answered no: nothing any route asks clears, so only what a test does runs. */
 const nothing = (batch) => {
@@ -112,7 +112,7 @@ test('unsettled declared time projects clarification and refuses a model replace
 		assert.equal(h.announced.at(-1).refuse_code,'declared_time_unresolved');
 	}
 	assert.equal((await h.model('s3','apply',{effects:[{kind:'time',minutes:5,owed:'prior-told-time'}]})).status,'ok');
-	assert.equal((await h.model('s4','narrate')).status,'ok');
+	assert.equal((await h.model('s4',"output")).status,'ok');
 	const later=harness({env:{COC_NARRATOR_ONLY:'off'}});await later.project('s1','compose','finished');
 	assert.equal((await later.model('s2','apply',{effects:[{kind:'time',minutes:5}]})).status,'ok','a fresh run does not inherit the earlier hold');
 });
@@ -216,11 +216,11 @@ test("§151.5 on: the compose step's catalog is narrate/ask/propose with say as 
 	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
 	await h.read("s1");
 	const compose = await h.project("s2", "compose", "settled");
-	assert.deepEqual(compose.catalog, ["narrate", "ask", "propose"]);
+	assert.deepEqual(compose.catalog, ["narrate", "output", "ask", "propose"]);
 	assert.match(compose.catalog_note, /\{\{say:Name\}\}/, "a person's words are say spans inside the narrate or ask text");
 	assert.deepEqual(compose.offered.map((row) => row.key), ["apply:clue:globe-story"]);
 	const row = h.rows.find((value) => value.event === "catalog");
-	assert.deepEqual([row.purpose, row.catalog, row.source, row.offered], ["compose", ["narrate", "ask", "propose"], "env", ["apply:clue:globe-story"]]);
+	assert.deepEqual([row.purpose, row.catalog, row.source, row.offered], ["compose", ["narrate", "output", "ask", "propose"], "env", ["apply:clue:globe-story"]]);
 	for (const operation of ["apply", "resolve", "look", "lookup", "recall"]) {
 		const outcome = await h.model("s3", operation);
 		assert.equal(outcome.status, "refused", `${operation} is refused on the compose step`);
@@ -234,7 +234,7 @@ test("§151.5 on: the compose step's catalog is narrate/ask/propose with say as 
 		assert.equal(outcome.artifact.fell, operation === "resolve" ? "check_selection_owned" : "narrator_catalog");
 		assert.equal(outcome.artifact.narrator, true);
 	}
-	for (const operation of ["narrate", "ask"]) {
+	for (const operation of ["output", "ask"]) {
 		const outcome = await h.model("s4", operation);
 		assert.equal(outcome.status, "ok", `${operation} is in the compose catalog`);
 		assert.equal(Object.hasOwn(h.announced.at(-1), "refuse"), false);
@@ -307,7 +307,7 @@ test("§151.5 per-turn cap (data, shipped 2): the third accepted propose of a tu
 	const first = await h.model("s3", "propose", { key: "apply:clue:a" }, response);
 	assert.equal(first.status, "ok");
 	// The same response goes on with a narrate: the proposed step has not run, so it is refused before it runs.
-	const behind = await h.model("s3", "narrate", { text: "..." }, response);
+	const behind = await h.model("s3", "output", { text: "..." }, response);
 	assert.equal(behind.status, "refused");
 	assert.equal(h.announced.at(-1).refuse_code, "propose_pending");
 	await h.project("s4", "compose", PROPOSED_REASON);
@@ -351,9 +351,9 @@ function policyRun() {
 test("§151.5 policy: an accepted propose is one more clerk step through the policy's own items, then the compose -- not a fall", () => {
 	const run = policyRun();
 	const proposed = { ...CANDIDATE, basis: { proposed: { by: "keeper" } } };
-	run.compose([["propose", { key: CANDIDATE.key }], ["narrate", { text: "x" }]],
+	run.compose([["propose", { key: CANDIDATE.key }], ["output", { text: "x" }]],
 		[{ status: "ok", artifact: { kind: "execute", executed: { ok: true, summary: { tool: "propose" } }, narrator: true, proposed } },
-			{ status: "refused", artifact: { kind: "execute", executed: { ok: false, summary: { tool: "narrate" } }, narrator: true, fell: "propose_pending" } }]);
+			{ status: "refused", artifact: { kind: "execute", executed: { ok: false, summary: { tool: "output" } }, narrator: true, fell: "propose_pending" } }]);
 	const step = run.next();
 	assert.equal(step.kind, "operate");
 	assert.deepEqual(step.proposals.map((value) => [value.origin, value.operation, value.params.candidate.key]), [["policy", "execute", CANDIDATE.key]]);
@@ -389,7 +389,7 @@ test("§151.5 a settled run delivers prose with zero Keeper tool calls: the comp
 	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
 	await h.read("s1");
 	const note = await h.project("s2", "compose", "settled");
-	assert.deepEqual(note.catalog, ["narrate", "ask", "propose"]);
+	assert.deepEqual(note.catalog, ["narrate", "output", "ask", "propose"]);
 	const run = policyRun();
 	run.compose([], []);
 	const close = run.next();

@@ -10,7 +10,7 @@ const tool=(name,args)=>fauxAssistantMessage([fauxToolCall(name,args)],{stopReas
 // settling when the player speaks, so the table holds the input and replays it after the settle (the kernel extension's
 // `input` hook), and a short idle poll returned before that turn had begun. The support allowance is not this test's
 // subject: it runs at the most the product accepts (`PRESELECT_ALLOWANCE_MAX_MS`), not the 12 s default a loaded box outlasts.
-const delivered=(session,text)=>session.messages.some(message=>message.role==='toolResult'&&message.toolName==='narrate'
+const delivered=(session,text)=>session.messages.some(message=>message.role==='toolResult'&&message.toolName==="output"
   &&(message.content??[]).some(block=>block.text?.includes(text)));
 
 test('Keeper explicitly requests support with preload off, receives the fixed packet, then uses ordinary lookup and recall',async t=>{
@@ -19,12 +19,12 @@ test('Keeper explicitly requests support with preload off, receives the fixed pa
     return Response.json(supportWire(body,candidate=>candidate.kind==='graph_entity'&&candidate.label.startsWith("Knott's Office")?'necessary':'skip'));};
   t.after(()=>{globalThis.fetch=fetch;});
   const table=await openTable({realKernel:true,campaign:'support-lookup-host',env:{EXT_JEV_APIKEY:'mechanical-support-key',PI_COC_JEV_PRESELECT:'0',
-    PI_COC_JEV_PRESELECT_ALLOWANCE_MS:'30000'},responses:[tool('narrate',{text:'Knott waits in his office.'})]});
+    PI_COC_JEV_PRESELECT_ALLOWANCE_MS:'30000'},responses:[tool("output",{text:'Knott waits in his office.'})]});
   t.after(()=>table.dispose());
   await waitFor(()=>delivered(table.session,'Knott waits in his office.'),{timeoutMs:120_000,label:'the opening delivery'});
   const query='Connect the office scene conditions with its authored exits.',player='I ask Knott where I can begin my inquiries.';
   table.faux.setResponses([tool('lookup',{kind:'support',query}),tool('lookup',{kind:'module',query:"Knott's Office"}),
-    tool('recall',{what:'transcript'}),tool('narrate',{text:'Knott explains the available research leads.'})]
+    tool('recall',{what:'transcript'}),tool("output",{text:'Knott explains the available research leads.'})]
     .map(response=>(context)=>{payloads.push(JSON.stringify(context));return response;}));
   await table.session.prompt(player);
   await waitFor(()=>delivered(table.session,'Knott explains the available research leads.'),{timeoutMs:120_000,label:'the support turn\'s delivery'});

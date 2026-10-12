@@ -22,7 +22,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable, waitFor } from "./harness.mjs";
 import { reviewUnavailable } from "../../extensions/mods/audit-budget.ts";
 
-const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
+const narrate = (text) => fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" });
 const look = () => fauxAssistantMessage([fauxToolCall("look", { focus: "scene" })], { stopReason: "toolUse" });
 
 /** The review refuses this table's every delivery, which is §38.3's predicate arriving by its commonest road. */
@@ -42,7 +42,7 @@ const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
  */
 function narrated(session, text) {
 	const call = session.messages.flatMap((message) => message.role === "assistant" && Array.isArray(message.content) ? message.content : [])
-		.find((block) => block.type === "toolCall" && block.name === "narrate" && block.arguments?.text === text);
+		.find((block) => block.type === "toolCall" && block.name === "output" && block.arguments?.text === text);
 	return call && session.messages.find((message) => message.role === "toolResult" && message.toolCallId === call.id);
 }
 

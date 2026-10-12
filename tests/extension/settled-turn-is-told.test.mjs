@@ -36,7 +36,7 @@ const reviewUnavailable = () =>
 /** One turn that settles a public check and then cannot publish: the retained turn-8 shape. */
 const settledThenUndelivered = () => [
 	fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "time", minutes: 2}]})], { stopReason: "toolUse" }),
-	fauxAssistantMessage([fauxToolCall("narrate", { text: "A draft the review never approved." })], { stopReason: "toolUse" }),
+	fauxAssistantMessage([fauxToolCall("output", { text: "A draft the review never approved." })], { stopReason: "toolUse" }),
 	fauxAssistantMessage("Should never be consumed."),
 ];
 
@@ -76,14 +76,14 @@ test("a turn that settled and could not be delivered still tells the player what
 	assert.equal(told[0].rows, rows.length);
 
 	// Nothing here narrates or commits: the turn is still the undelivered one §38 strands.
-	assert.equal(session.telemetry().filter((row) => row.tool === "narrate" && row.ok === true).length, 0);
+	assert.equal(session.telemetry().filter((row) => row.tool === "output" && row.ok === true).length, 0);
 });
 
 test("a turn with nothing projectable is not given an empty card, and still says so once", async (t) => {
 	const session = await openTable({
 		retainAt: directory,
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "A draft the review never approved." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "A draft the review never approved." })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("Should never be consumed."),
 		],
 	});
@@ -133,7 +133,7 @@ test("the card is the settled turn's even when the next input was queued during 
 		retainAt: directory,
 		responses: [
 			...settledThenUndelivered(),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "The turn after it." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "The turn after it." })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("Delivered."),
 		],
 	});

@@ -95,7 +95,7 @@ test("§138.10.1 through the hybrid engine: the band question offers momentary a
 	const table = await openTable({ realKernel: true, prepareWorkspace: (at) => { workspace = at; kernelRun(at, [["table.open"],
 		["table.player_input", { text: "我听他说完。" }], ["table.narrate", { call_id: "t1-c1", text: "诺特把委托说了一遍。" }]].map(([method, params = {}]) => [method, { ...params, campaign: "test-camp" }])); },
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你在街边站了一会儿，只听见远处的车声。" })], { stopReason: "toolUse" })] });
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "你在街边站了一会儿，只听见远处的车声。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt(INPUT);
 

@@ -45,7 +45,7 @@ function turnOneClosed(workspace) {
 /** One assistant message: prose, then the calls (the shape all 46 live drops had). */
 const beside = (prose, ...calls) => fauxAssistantMessage([fauxText(prose), ...calls], { stopReason: "toolUse" });
 const drops = (table) => table.telemetry().filter((row) => row.lane === "delivery" && row.reason === "text_beside_tool_calls");
-const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
+const narrate = (text) => fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" });
 const turnRecord = (workspace, turn) => JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/turns", `${String(turn).padStart(4, "0")}.json`), "utf8"));
 
 test("legacy: prose beside an admitted apply and beside a refused one each leave one row naming the call and its outcome", async (t) => {
@@ -77,13 +77,13 @@ test("legacy: prose beside an admitted apply and beside a refused one each leave
 test("legacy: calls a gate blocked never answer, and the row names them not_run", async (t) => {
 	const table = await openTable({ realKernel: true, prepareWorkspace: turnOneClosed, responses: [
 		// Two deliveries in one message: §34.17 refuses both before either runs.
-		beside("先说一半。", fauxToolCall("narrate", { text: "第一半。" }), fauxToolCall("narrate", { text: "第二半。" })),
+		beside("先说一半。", fauxToolCall("output", { text: "第一半。" }), fauxToolCall("output", { text: "第二半。" })),
 		narrate("你翻了十分钟剪报。"),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报。");
 	await waitForIdle(table.session);
-	assert.deepEqual(drops(table).map((row) => row.calls), [[{ tool: "narrate", outcome: "not_run" }, { tool: "narrate", outcome: "not_run" }]]);
+	assert.deepEqual(drops(table).map((row) => row.calls), [[{ tool: "output", outcome: "not_run" }, { tool: "output", outcome: "not_run" }]]);
 	assert.equal(turnRecord(table.workspace, 2).closed_by, "narrate");
 });
 
@@ -137,7 +137,7 @@ test("the drop's steer rides on the first answering call and carries the kinds t
 		["resolve", null],                 // once per message
 		["apply", null],                   // no prose beside it
 		["apply", ["apply"]],              // a refused call carries it too
-		["narrate", null],
+		["output", null],
 	]);
 	for (const row of results.filter((entry) => entry.prose_dropped))
 		assert.equal(row.prose_dropped.steer, besideSteer(row.prose_dropped.beside), "the steer is the rule over those kinds");
@@ -158,11 +158,11 @@ test("the drop's steer rides on the first answering call and carries the kinds t
 
 test("a message whose only call is a delivery is not steered", async (t) => {
 	const table = await openTable({ realKernel: true, prepareWorkspace: turnOneClosed, responses: [
-		beside("先说一句。", fauxToolCall("narrate", { text: "你翻了十分钟剪报。" })),
+		beside("先说一句。", fauxToolCall("output", { text: "你翻了十分钟剪报。" })),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报。");
 	await waitForIdle(table.session);
-	assert.deepEqual(steers(table).map((row) => [row.tool, row.prose_dropped]), [["narrate", null]]);
+	assert.deepEqual(steers(table).map((row) => [row.tool, row.prose_dropped]), [["output", null]]);
 	assert.deepEqual(drops(table).map((row) => row.steered), [null]);
 });

@@ -43,7 +43,7 @@ test("the tool carries band to the kernel untouched, and the kernel's refusals r
         fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "time", band: "single_room_search", why: "the drawers"}]})], {stopReason: "toolUse"}),
         fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "time", band: "single_room_search", minutes: 5}]})], {stopReason: "toolUse"}),
         fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "cash", band: "single_room_search", delta: 5, source: "found"}]})], {stopReason: "toolUse"}),
-        fauxAssistantMessage([fauxToolCall("narrate", {text: "The drawers yield nothing."})], {stopReason: "toolUse"}),
+        fauxAssistantMessage([fauxToolCall("output", {text: "The drawers yield nothing."})], {stopReason: "toolUse"}),
         fauxAssistantMessage("done"),
     ]});
     t.after(() => table.dispose());

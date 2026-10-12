@@ -46,7 +46,7 @@ test("section 166: committed NPC and stranger speech stays in its first version 
 		env: {EXT_JEV_APIKEY: "test-jev-key", PI_COC_TIME_READING: "0", PI_COC_PURPOSE_GATE: "0", PI_COC_SPEECH_EDIT_MODEL: undefined},
 		extraExtensions: [{name: "speech-edit", factory: speechEdit}],
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", {text: `诺特把钥匙推过来，没起身。{{say:Steven Knott}}${LINE}{{/say}}`
+			fauxAssistantMessage([fauxToolCall("output", {text: `诺特把钥匙推过来，没起身。{{say:Steven Knott}}${LINE}{{/say}}`
 				+ `门口有人探头。{{say:${STRANGER}}}${STRANGER_LINE}{{/say}}他又低头看账本。`})], {stopReason: "toolUse"}),
 			// The next completion on the table's model is the lane's: narrate closed the Keeper's run.
 			fauxAssistantMessage(JSON.stringify({lines: [EDITED, STRANGER_EDITED]})),

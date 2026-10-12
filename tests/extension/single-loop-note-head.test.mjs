@@ -56,9 +56,9 @@ test("§135.11.2 the run's first clerk note carries the head right after kind; l
 			// Run 1: the Keeper files the leads and moves to the morgue, then writes the turn.
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "clue", clue: "knott-research-leads", how: "诺特列出该去查的地方。" },
 				{ kind: "move", to: "newspaper-morgue" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你去了报馆。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你去了报馆。" })], { stopReason: "toolUse" }),
 			// Run 2: one step.
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你四下看了看。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你四下看了看。" })], { stopReason: "toolUse" }),
 		].map((response) => (context) => { requests.push(context); return response; }) });
 	t.after(() => table.dispose());
 	await table.session.prompt("我接。先去《环球报》剪报室。");
@@ -93,8 +93,8 @@ test("§135.11.2.1 an open quote: the run's first note carries the commerce poli
 		["table.apply", { call_id: "t1-c1", effects: [{ kind: "cash", mode: "quote", quote: "a room for the night", items: [{ name: "room", quantity: 1, unit_price: "2" }], source: "quote", category: "purchase", with: "Steven Knott" }] }],
 		["table.narrate", { call_id: "t1-c2", text: "诺特报了价。" }]]),
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你考虑了一下。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你又看了看。" })], { stopReason: "toolUse" })]
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "你考虑了一下。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你又看了看。" })], { stopReason: "toolUse" })]
 			.map((response) => (context) => { requests.push(context); return response; }) });
 	t.after(() => table.dispose());
 	await table.session.prompt("我再想想。");

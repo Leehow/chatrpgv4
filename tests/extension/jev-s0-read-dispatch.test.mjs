@@ -13,12 +13,12 @@ import { Type } from "typebox";
 import { createS0ReadDispatcher } from "../../runtime/jev/s0-read-dispatch.ts";
 import { openTable, waitForIdle } from "./harness.mjs";
 
-const SEVEN = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate"];
+const SEVEN = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate", "output"];
 const READ_ARGS = Object.freeze({ what: "transcript", turns: Object.freeze([0, 0]) });
 
 function delivered(text = "The bounded test turn closes.") {
 	return [
-		fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" }),
 		fauxAssistantMessage("discarded post-delivery tail"),
 	];
 }
@@ -168,7 +168,7 @@ test("conformance: nested recall uses the real Pi hooks and wrapped executor wit
 	assert.deepEqual(run.observation.result.details, regular.details, "nested and ordinary recall return the same wrapped details");
 	assert.equal(childMessages(table.session, run.observation.operationId).length, 0,
 		"no child assistant completion or child tool-result event is inserted into the transcript");
-	assert.equal(table.kernelRequests().filter((row) => row.method === "table.recall").length, 2);
+	assert.equal(table.kernelRequests().filter((row) => row.method === "table.recall" && !row.params._context_read).length, 2);
 });
 
 test("conformance: executed failures reach tool_result bookkeeping and the normal repeated-refusal guard blocks before execute", async (t) => {
@@ -188,7 +188,7 @@ test("conformance: executed failures reach tool_result bookkeeping and the norma
 	assert.ok(control.runs.every((run) => run.observation?.isError === true));
 	assert.match(resultText(control.runs[0].observation), /forced recall failure/);
 	assert.match(resultText(control.runs[2].observation), /refused these parameters 2 times/);
-	assert.equal(table.kernelRequests().filter((row) => row.method === "table.recall").length, 2,
+	assert.equal(table.kernelRequests().filter((row) => row.method === "table.recall" && !row.params._context_read).length, 2,
 		"the third attempt is blocked before the executor reaches the faux kernel");
 	assert.deepEqual(control.hooks.map((row) => row.type),
 		["tool_call", "tool_result", "tool_call", "tool_result"],
@@ -212,14 +212,14 @@ test("conformance: a closed turn has no read door and the before block does not 
 		enter: () => () => undefined,
 		trace: (event) => trace.push(event),
 	});
-	const recallsBefore = table.kernelRequests().filter((row) => row.method === "table.recall").length;
+	const recallsBefore = table.kernelRequests().filter((row) => row.method === "table.recall" && !row.params._context_read).length;
 	const hookCount = control.hooks.length;
 	const observation = await dispatcher(structuredClone(READ_ARGS), parent, new AbortController().signal);
 
 	assert.equal(observation.isError, true);
 	assert.match(resultText(observation), /turn is closed, waiting for the player/);
 	assert.deepEqual(trace.map((event) => event.phase), ["prepare", "end"]);
-	assert.equal(table.kernelRequests().filter((row) => row.method === "table.recall").length, recallsBefore);
+	assert.equal(table.kernelRequests().filter((row) => row.method === "table.recall" && !row.params._context_read).length, recallsBefore);
 	assert.deepEqual(control.hooks.slice(hookCount), [],
 		"the earlier kernel handler blocks before later probe handlers and emits no child tool_result hook");
 	assert.deepEqual(childMessages(table.session, observation.operationId), []);
@@ -237,7 +237,7 @@ test("conformance: cancellation before and during the public before hook never r
 	assert.match(resultText(mid.observation), /stale or cancelled/);
 	assert.deepEqual(phases(mid), ["prepare", "end"]);
 	assert.deepEqual(control.hooks.map((row) => row.type), ["tool_call"]);
-	assert.equal(table.kernelRequests().some((row) => row.method === "table.recall"), false);
+	assert.equal(table.kernelRequests().some((row) => row.method === "table.recall" && !row.params._context_read), false);
 
 	const trace = [];
 	const dispatcher = createS0ReadDispatcher(table.session, {
@@ -269,7 +269,7 @@ test("conformance: stale ownership and replaced Pi hooks are rejected before any
 		assert.equal(run.parentStored, true);
 	}
 	assert.deepEqual(control.hooks, []);
-	assert.equal(table.kernelRequests().some((row) => row.method === "table.recall"), false);
+	assert.equal(table.kernelRequests().some((row) => row.method === "table.recall" && !row.params._context_read), false);
 });
 
 test("conformance: an unknown recall field is rejected before public hooks", async (t) => {
@@ -290,7 +290,7 @@ test("conformance: an unknown recall field is rejected before public hooks", asy
 		assert.deepEqual(run.childMessages, []);
 	}
 	assert.deepEqual(control.hooks, [], "schema failures happen before beforeToolCall/tool_call");
-	assert.equal(table.kernelRequests().some((row) => row.method === "table.recall"), false);
+	assert.equal(table.kernelRequests().some((row) => row.method === "table.recall" && !row.params._context_read), false);
 });
 
 test("conformance: malformed recall parameters fail schema validation before public hooks", async (t) => {
@@ -307,5 +307,5 @@ test("conformance: malformed recall parameters fail schema validation before pub
 	assert.match(resultText(run.observation), /Validation failed|allowed values/i);
 	assert.deepEqual(run.childMessages, []);
 	assert.deepEqual(control.hooks, []);
-	assert.equal(table.kernelRequests().some((row) => row.method === "table.recall"), false);
+	assert.equal(table.kernelRequests().some((row) => row.method === "table.recall" && !row.params._context_read), false);
 });

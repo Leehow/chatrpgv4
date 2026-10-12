@@ -119,7 +119,7 @@ for (const scenario of [
   const {table, calls} = await fightTable(t, {
     decide: fightTurnPort(scenario),
     responses: [...scenario.actions.map(action => keeper(fauxToolCall('resolve', {action}))),
-      keeper(fauxToolCall('narrate', {text: HANDS_UP}))],
+      keeper(fauxToolCall("output", {text: HANDS_UP}))],
   });
   await table.session.prompt(scenario.words);
   const results = table.session.messages.filter(message => message.role === 'toolResult' && message.toolName === 'resolve');

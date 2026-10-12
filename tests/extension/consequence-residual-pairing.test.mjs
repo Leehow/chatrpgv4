@@ -102,7 +102,7 @@ test("SL-85: a turn delivered by the Keeper's own narrate (turn_close never prop
 	await h.read("s1");
 	await h.clerkExecute("s2", seedCandidate);
 	const decisionsBeforeDelivery = h.decisions.filter((batch) => batch.family === CONSEQUENCE_FAMILY).length;
-	const delivered = await h.modelExecute("s3", "narrate", { isError: false });
+	const delivered = await h.modelExecute("s3", "output", { isError: false });
 	assert.equal(delivered.delivery, "accepted");
 	assert.equal(residualRows(h).length, 1, "the bypass path (no turn_close proposal at all) still wrote its one residual row");
 	assert.ok(consequenceRows(h).some((row) => row.class === "clue_follow_up"), "the pairing rows were written too, off whatever this run's own writes already routed -- no extra Jev call needed");
@@ -115,7 +115,7 @@ test("SL-85: a turn delivered directly a second time in the same run (defensive)
 	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
 	await h.read("s1");
 	await h.clerkExecute("s2", seedCandidate);
-	await h.modelExecute("s3", "narrate", { isError: false });
+	await h.modelExecute("s3", "output", { isError: false });
 	await h.turnClose("s4"); // a defensive, out-of-order call: should never happen on a real table, must still not double-write
 	assert.equal(residualRows(h).length, 1);
 });

@@ -635,7 +635,7 @@ test('a single review can never outspend its own cap', async () => {
  * at the lever that exists (Lane model / Lane thinking, read on the next review — §37.10) instead of
  * at a dead end.
  */
-const undelivered = text => [fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}),
+const undelivered = text => [fauxAssistantMessage([fauxToolCall("output", {text})], {stopReason: 'toolUse'}),
     fauxAssistantMessage('Should never be consumed.')];
 const playerNotices = session => customMessages(session.session, 'coc-delivery').filter(m => m.details?.review_unavailable);
 /** The captions the table's own play language carries -- no tag is named, §23 settles it from the data. */

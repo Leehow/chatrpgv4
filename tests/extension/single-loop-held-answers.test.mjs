@@ -254,7 +254,7 @@ async function hybridTable({ route, compile = answered, responses, env = {}, pro
 	table.emit("coc:task-provider-budget", () => turnBudget);
 	return { table, requests, dispose: () => table.dispose() };
 }
-const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
+const narrate = (text) => fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" });
 const look = (focus) => fauxAssistantMessage([fauxToolCall("look", { focus })], { stopReason: "toolUse" });
 const consult = (query, question, extra = {}) => fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", source_mode: "answer", query, question, ...extra })], { stopReason: "toolUse" });
 const stay = (batch) => answered(batch, (question) => question.key === "exit" ? "ask_llm" : undefined);

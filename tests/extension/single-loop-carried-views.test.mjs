@@ -122,7 +122,7 @@ test("§135.31 after a clerk move: the scene the run moved into and the people t
 		decide: (batch) => batch.family === COMPILE_FAMILY ? answered(batch, (question) => question.key === "destination"
 			? Object.entries(question.criteria).find(([, value]) => value?.handle === "newspaper-morgue")?.[0] : undefined)
 			: answered(batch, (question) => batch.family === ROUTE_FAMILY && question.key === "exit" ? "finish" : undefined),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "你到了报馆。" })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "你到了报馆。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("我去《环球报》报馆。");
@@ -181,7 +181,7 @@ test("§135.31 at a pending defence: the defender's card and the session view, b
 		decide: (batch) => batch.family === BIND_FAMILY
 			? answered(batch, (question) => question.key === "disposition" ? "fights_to_the_end" : "unknown")
 			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "他的拳头朝你脸上砸来，你侧身闪开。" })], { stopReason: "toolUse" })],
+		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "他的拳头朝你脸上砸来，你侧身闪开。" })], { stopReason: "toolUse" })],
 	});
 	t.after(() => table.dispose());
 	await table.table.session.prompt("继续揍他");
@@ -221,7 +221,7 @@ test("§159 with a session active: refused model resolve leaves the carried view
 			// Round 2 is the investigator's: the Keeper resolves his punch (the session changes); then it looks anyway; then prose.
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "combat", decision: "combat:attack", goal: "hit him again", method: "fists", target: "Steven Knott", weapon: "unarmed" } })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("look", { focus: "session" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你们扭打在一起。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你们扭打在一起。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -255,7 +255,7 @@ test("§135.31 on the legacy engine: a look row keeps its arguments (no run step
 		realKernel: true, prepareWorkspace: toldWhereToDig,
 		responses: [
 			fauxAssistantMessage([fauxToolCall("look", { focus: "npc", name: "Steven Knott" }), fauxToolCall("lookup", { kind: "module", query: "x".repeat(260) })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特点了点头。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "诺特点了点头。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());

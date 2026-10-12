@@ -34,19 +34,19 @@ const ORDINARY = `诺特站起来——又坐下。{{say:${KNOTT}}}“行……�
 	`他看了看表 - 十一点差五分 - 然后把手按在桌上。 The ledger reads 3 < 5, a well-kept note, room #4 * two.\n\n` +
 	`…窗外起风了。{{say:${KNOTT}}}“你还站着干什么？”{{/say}}`;
 
-const narrateRows = (table) => table.telemetry().filter((row) => row.tool === "narrate" && row.call_id);
+const narrateRows = (table) => table.telemetry().filter((row) => row.tool === "output" && row.call_id);
 const markupRows = (table) => table.telemetry().filter((row) => row.lane === "delivery" && row.reason === "markup_in_prose");
 const turnRecord = (table, campaign, turn) =>
 	JSON.parse(readFileSync(join(table.workspace, `.coc/campaigns/${campaign}/turns/${String(turn).padStart(4, "0")}.json`), "utf8"));
 const refusedNarrates = (table) => table.session.messages
-	.filter((message) => message.role === "toolResult" && message.toolName === "narrate" && message.details?.coc_error)
+	.filter((message) => message.role === "toolResult" && message.toolName === "output" && message.details?.coc_error)
 	.map((message) => message.details.coc_error);
 const shownText = (table) => (table.session.messages.filter((message) => message.role === "assistant").at(-1)?.content ?? [])
 	.filter((block) => block.type === "text").map((block) => block.text).join("");
 const schema = (name) => COC_TOOLS.find((tool) => tool.name === name).parameters;
 /** What §144 hands on from a narrate `text`: the same string when it leaves it as written. */
 const pastTheBoundary = (text) => {
-	const result = unwrapArgumentMarkup("narrate", schema("narrate"), { text });
+	const result = unwrapArgumentMarkup("output", schema("output"), { text });
 	assert.equal(result.ok, true, `§144 refused ${JSON.stringify(text)}`);
 	return result.args.text;
 };
@@ -54,7 +54,7 @@ const pastTheBoundary = (text) => {
 async function playTurn(t, campaign, turnResponses) {
 	const table = await openTable({ realKernel: true, campaign, responses: [
 		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: OPENING })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: OPENING })], { stopReason: "toolUse" }),
 		...turnResponses,
 	] });
 	t.after(() => table.dispose());
@@ -75,13 +75,13 @@ test("real kernel, §144 before §143.10: an explicit narrate ending in </text> 
 	const campaign = "markup-unwrapped";
 	assert.equal(pastTheBoundary(TAGGED), REWRITTEN, "§144 takes the tag off");
 	const table = await playTurn(t, campaign, [
-		fauxAssistantMessage([fauxToolCall("narrate", { text: TAGGED })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: TAGGED })], { stopReason: "toolUse" }),
 	]);
 	assert.deepEqual(narrateRows(table).map((row) => [row.ok, row.reason ?? null]), [[true, null], [true, null]], "the opening, then the turn: no refusal");
 	assert.deepEqual(refusedNarrates(table), []);
 	assert.deepEqual(markupRows(table), [], "the gate never met it");
 	assert.deepEqual(table.telemetry().filter((row) => row.lane === "tool_arguments").map((row) => [row.event, row.tool, row.repairs]),
-		[["markup_unwrapped", "narrate", [{ field: "text", recovered: [], kept: [] }]]], "the repair is §144's");
+		[["markup_unwrapped", "output", [{ field: "text", recovered: [], kept: [] }]]], "the repair is §144's");
 	const record = turnRecord(table, campaign, 1);
 	assert.equal(record.closed_by, "narrate");
 	assert.equal(record.text, REWRITTEN);
@@ -93,7 +93,7 @@ test("real kernel, §144 before §143.10: an explicit narrate ending in </text> 
 test("real kernel: ordinary prose with say tokens, dashes, quotes, ellipses and a lone hyphen is delivered first time", async (t) => {
 	const campaign = "markup-ordinary";
 	const table = await playTurn(t, campaign, [
-		fauxAssistantMessage([fauxToolCall("narrate", { text: ORDINARY })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: ORDINARY })], { stopReason: "toolUse" }),
 	]);
 	assert.deepEqual(narrateRows(table).map((row) => row.ok), [true, true], "no refusal");
 	assert.deepEqual(refusedNarrates(table), []);
@@ -155,7 +155,7 @@ const INNER = `他咽了一口，<b>喉咙</b>响得比刚才更清楚。\n\n{{s
  * keep testing the gate if the tag set of either section changes.
  */
 test("§144 and §143.10 divide the markup: the tags naming a narrate parameter are §144's, everything this file sends the gate passes the boundary as written", () => {
-	assert.ok(!Object.hasOwn(schema("narrate").properties, FRAME), `${FRAME} is not a narrate parameter`);
+	assert.ok(!Object.hasOwn(schema("output").properties, FRAME), `${FRAME} is not a narrate parameter`);
 	assert.equal(pastTheBoundary(TAGGED), REWRITTEN);
 	const unpaired = pastTheBoundary(PAIRED);
 	assert.ok(!/<\/?text>/.test(unpaired) && unpaired.trim() === REWRITTEN, `the pair comes off: ${JSON.stringify(unpaired.slice(0, 20))}`);
@@ -171,7 +171,7 @@ for (const [shape, text, implicit] of [
 	["implicit list lines", LISTED, true],
 ]) test(`section 166: ${shape} delivers on the first attempt`, async (t) => {
 	const campaign = "markup-first-" + shape.replaceAll(" ", "-");
-	const response = implicit ? fauxAssistantMessage(text) : fauxAssistantMessage([fauxToolCall("narrate", {text})], {stopReason: "toolUse"});
+	const response = fauxAssistantMessage([fauxToolCall("output", {text})], {stopReason: "toolUse"});
 	const table = await playTurn(t, campaign, [response]);
 	assert.equal(refusedNarrates(table).length, 0);
 	assert.equal(narrateRows(table).filter(row => row.ok === false).length, 0);

@@ -41,7 +41,7 @@ test("two batches in one turn that differ only in band are both reviewed: the ve
 			applyCall([{ kind: "time", band: "speak_briefly", why: "a word with the clerk" }]),
 			// The same line with another band: a different time cost, so a different proposal.
 			applyCall([{ kind: "time", band: "sleep_night", why: "a word with the clerk" }]),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "职员点点头，把登记簿推了过来。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "职员点点头，把登记簿推了过来。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
 		laneResponses: {
@@ -77,7 +77,7 @@ test("a batch that differs only in why reuses the verdict: the rationale is outs
 			applyCall([{ kind: "time", band: "library_research", why: "the stacks" }]),
 			// The same time cost with its rationale rewritten: the same proposal, answered from the kept verdict.
 			applyCall([{ kind: "time", band: "library_research", why: "an afternoon among the bound newspapers" }]),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你还没决定要不要在这里耗上一下午。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你还没决定要不要在这里耗上一下午。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
 		laneResponses: {
@@ -189,7 +189,7 @@ test("a roll that differs only in the evidence put on the table is reviewed agai
 			resolveCall(ask),
 			// The same roll with a discovered clue laid on the table: a disclosure the player has to have chosen (§32.4.2).
 			resolveCall({ ...ask, support: "globe-unpublished-story" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "看门人犹豫了一下。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "看门人犹豫了一下。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
 		laneResponses: {
@@ -220,7 +220,7 @@ test("a roll that differs only in its stakes and its dice reuses the verdict: ra
 		responses: [
 			resolveCall(ask),
 			resolveCall({ ...ask, stakes: "the hinge gives and he falls through", modifiers: { penalty_dice: 1, reason: "the door is swollen shut" } }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门还关着。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "门还关着。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("after"),
 		],
 		laneResponses: {

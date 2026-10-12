@@ -38,7 +38,7 @@ test("回合关了还在连番调工具：第三次起回一句「停」，第�
 	const look = () => fauxAssistantMessage([fauxToolCall("look", { focus: "scene" })], { stopReason: "toolUse" });
 	const table = await openTable({
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门在你身后合上，销栓落下的声响在寂静的走廊里回荡了很久，冷意顺着门缝钻了进来，让你打了个哆嗦。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "门在你身后合上，销栓落下的声响在寂静的走廊里回荡了很久，冷意顺着门缝钻了进来，让你打了个哆嗦。" })], { stopReason: "toolUse" }),
 			look(), look(), look(), look(), look(), look(), look(), look(),
 			fauxAssistantMessage("这条不该出现"),
 		],
@@ -85,7 +85,7 @@ test("look 预算：第九次 look 被主机截胡，不再到内核；apply/res
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 5 }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", skill: "Spot Hidden", goal: "search the desk" } })], { stopReason: "toolUse" }),
 			look(),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你把刚才看到的东西记在本子上，字迹因为手抖有点歪斜，但好歹算是把每一个细节都记全了，不会漏掉。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你把刚才看到的东西记在本子上，字迹因为手抖有点歪斜，但好歹算是把每一个细节都记全了，不会漏掉。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -139,9 +139,9 @@ test("look 预算随下一次玩家输入清零", async (t) => {
 	const table = await openTable({
 		responses: [
 			look(), look(), look(), look(), look(), look(), look(), look(),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "第一回合写完了，桌上的灯还亮着，你把笔记本合上，准备起身离开这间安静又有些闷热的办公室。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "第一回合写完了，桌上的灯还亮着，你把笔记本合上，准备起身离开这间安静又有些闷热的办公室。" })], { stopReason: "toolUse" }),
 			look(),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "第二回合也写完了，窗外的天色已经暗下来，走廊里没有别的声音，只有钟摆走动的滴答声响。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "第二回合也写完了，窗外的天色已经暗下来，走廊里没有别的声音，只有钟摆走动的滴答声响。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -178,7 +178,7 @@ test("look 预算：反复查阅同一个仍在读的来源只算一次", async 
 			lookupSource(), lookupSource(), lookupSource(),
 			look(), look(), look(), look(), look(), look(), look(),
 			look(),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你把刚才查到的线索仔细记在本子上，纸角已经被反复摩挲得卷了起来，字迹也有些模糊难辨。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你把刚才查到的线索仔细记在本子上，纸角已经被反复摩挲得卷了起来，字迹也有些模糊难辨。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -208,7 +208,7 @@ test("narrate 之后，同一批次余下的调用被拒", async (t) => {
 		responses: [
 			fauxAssistantMessage(
 				[
-					fauxToolCall("narrate", { text: "门在你身后合上，销栓落下的声响在寂静的走廊里回荡了很久，冷意顺着门缝钻了进来，让你打了个哆嗦。" }),
+					fauxToolCall("output", { text: "门在你身后合上，销栓落下的声响在寂静的走廊里回荡了很久，冷意顺着门缝钻了进来，让你打了个哆嗦。" }),
 					fauxToolCall("look", { focus: "scene" }),
 				],
 				{ stopReason: "toolUse" },
@@ -258,7 +258,7 @@ test("开桌回合：awaiting_player 拒写，但 narrate 放行", async (t) => 
 				],
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "一九二五年的波士顿，雨还没停。" })], {
+			fauxAssistantMessage([fauxToolCall("output", { text: "一九二五年的波士顿，雨还没停。" })], {
 				stopReason: "toolUse",
 			}),
 			fauxAssistantMessage("开场之后又多写的一段"),
@@ -306,7 +306,7 @@ test("同名同参连发：被内核拒过两次之后第三次拦下，改了�
 			fauxAssistantMessage([fauxToolCall("resolve", same)], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("resolve", same)], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "social", goal: "压价", method: "摊牌" } })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "他没有松口，双手依旧撑在桌面上，眼睛盯着你没有挪开过，屋里的空气因此有些凝滞压抑。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "他没有松口，双手依旧撑在桌面上，眼睛盯着你没有挪开过，屋里的空气因此有些凝滞压抑。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("收尾"),
 		],
 	});
@@ -351,7 +351,7 @@ test("一条消息里的三次同类拒绝只算一次：模型没看见回答�
 			fauxAssistantMessage([impression("Augustus Larkin"), impression("Luis de Mendoza"), impression("Jackson Elias")], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "npc", name: "Augustus Larkin", to: "here", why: "他起身迎过来" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([impression("Augustus Larkin")], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "拉金绕过桌角，脚步声在木地板上格外清晰，朝你伸出了手，脸上带着一副十分职业的笑容。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "拉金绕过桌角，脚步声在木地板上格外清晰，朝你伸出了手，脸上带着一副十分职业的笑容。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("收尾"),
 		],
 	});
@@ -390,7 +390,7 @@ test("同类拒绝三次：第四次换了措辞也拦下，只剩 narrate 收�
 			attempt("越过写字台打他"),
 			attempt("趁他后退追上去打"),
 			attempt("再来一拳"),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "拳头停在半空，你能感觉到诺特的呼吸就在耳边，谁都没有先动，时间仿佛因此静止了一样。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "拳头停在半空，你能感觉到诺特的呼吸就在耳边，谁都没有先动，时间仿佛因此静止了一样。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("收尾"),
 		],
 	});
@@ -433,7 +433,7 @@ test("宿主自己发的 awaiting_player 拒绝也计入预算：第三次之后
 			attempt("换个说法再掷"),
 			attempt("还是想掷"),
 			attempt("第四次想掷"),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "一九二五年的波士顿，雨还没停。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "一九二五年的波士顿，雨还没停。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("收尾"),
 		],
 	});
@@ -504,7 +504,7 @@ test("预算耗尽后还在调用：第三次说得更硬，第六次切断这�
  * classes are per *turn*, which is why the budget is the lever that holds.
  */
 test("回合已经关掉之后，narrate 也要计入拒绝预算", async (t) => {
-	const attempt = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
+	const attempt = (text) => fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" });
 	const table = await openTable({
 		env: {
 			FAKE_KERNEL_ERRORS: JSON.stringify({
@@ -519,7 +519,7 @@ test("回合已经关掉之后，narrate 也要计入拒绝预算", async (t) =>
 	await table.session.prompt("我推开门。").catch(() => undefined);
 	await waitForIdle(table.session);
 
-	const texts = toolResults(table.session, "narrate").map(resultText);
+	const texts = toolResults(table.session, "output").map(resultText);
 	assert.ok(texts.length >= 3, `narrate 至少被拒三次，实际 ${texts.length}`);
 	// §86: this turn has no door, and since the gates were unified that is the sentence it gets --
 	// one condition, one answer. It used to get the opening's sentence ("the turn state is
@@ -530,7 +530,7 @@ test("回合已经关掉之后，narrate 也要计入拒绝预算", async (t) =>
 	assert.ok(texts.some((text) => /Call no tool and write nothing more/.test(text)),
 		`回合关掉之后 narrate 不再豁免，第三次要说得更硬：${JSON.stringify(texts)}`);
 	const rows = table.telemetry().filter((row) => row.lane === "refusals" && row.reason === "class_limit");
-	assert.ok(rows.some((row) => row.tool === "narrate"), `refusals 车道要记下 narrate 这一类：${JSON.stringify(table.telemetry().filter((r) => r.lane === "refusals"))}`);
+	assert.ok(rows.some((row) => row.tool === "output"), `refusals 车道要记下 narrate 这一类：${JSON.stringify(table.telemetry().filter((r) => r.lane === "refusals"))}`);
 	// The turn budget leaves its own row on this road too. It used to be written only where a
 	// refusal came back from the kernel, so a turn spent entirely on host-issued blocks left the
 	// `refusals` lane empty while the run burned 48 steps.

@@ -9,7 +9,7 @@ import { customMessages, openTable, waitFor } from "./harness.mjs";
 const cards = JSON.parse(readFileSync(new URL("../../content/skills/draft.json", import.meta.url), "utf8"));
 const names = ["ordinary-check-with-consequence", "direct-authorized-change", "repair-named-gap"];
 const call = (name, args) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
-const finish = () => [call("narrate", { text: "The room is still." }), fauxAssistantMessage("")];
+const finish = () => [call("output", { text: "The room is still." }), fauxAssistantMessage("")];
 const rows = (table) => table.entries("coc-telemetry").filter((row) => row.lane === "skills");
 // Independent context/memory extensions own their rows; they are not joined by campaign/turn.
 const kernelEvidence = (table, turn) => table.entries("coc-telemetry").filter((entry) => entry.turn === turn
@@ -83,7 +83,7 @@ test("first offered selection wins; every annotation is stripped before admissio
 		call("look", { focus: "time", using_skill: "not-offered" }),
 		call("apply", { effects: [{ kind: "time", minutes: 1, why: "Watch the room" }], using_skill: names[1] }),
 		call("look", { focus: "time", using_skill: names[0] }),
-		call("narrate", { text: "The room is still.", using_skill: "also-not-offered" }), fauxAssistantMessage(""),
+		call("output", { text: "The room is still.", using_skill: "also-not-offered" }), fauxAssistantMessage(""),
 	] });
 	t.after(() => table.dispose());
 	table.emit("coc:mods-bridge", { prepare: async (tool, input) => {
@@ -95,7 +95,7 @@ test("first offered selection wins; every annotation is stripped before admissio
 	const row = rows(table)[0];
 	assert.equal(row.selected, names[1]);
 	assert.equal(row.invalid_selection, "not-offered");
-	assert.deepEqual(row.tool_names, ["look", "apply", "look", "narrate"]);
+	assert.deepEqual(row.tool_names, ["look", "apply", "look", "output"]);
 	assert.equal(row.delivered, true);
 	assert.equal(row.fallback, false);
 	assert.deepEqual(row.refusal_classes, []);
@@ -163,7 +163,7 @@ test("refused then repaired delivery records fallback and resets across player r
 	assert.notEqual(rows(table)[0].run_id, rows(table)[1].run_id);
 	assert.equal(rows(table)[1].selected, null);
 	assert.deepEqual(rows(table)[1].refusal_classes, []);
-	assert.deepEqual(rows(table)[1].tool_names, ["narrate"]);
+	assert.deepEqual(rows(table)[1].tool_names, ["output"]);
 	assert.equal(rows(table)[1].fallback, false);
 	assert.equal(capsule(table).skills.selected, undefined);
 	assert.deepEqual(table.extensionErrors, []);
@@ -188,7 +188,7 @@ test("provider retry attempts share one settled ledger", async (t) => {
 	assert.equal(rows(table).length, 1);
 	assert.equal(rows(table)[0].selected, names[0]);
 	assert.equal(rows(table)[0].delivered, true);
-	assert.deepEqual(rows(table)[0].tool_names, ["look", "narrate"]);
+	assert.deepEqual(rows(table)[0].tool_names, ["look", "output"]);
 	assert.equal(rows(table)[0].provider_rounds, table.entries("coc-telemetry").filter((entry) => entry.lane === "provider-call").length);
 	assert.deepEqual(table.extensionErrors, []);
 });
@@ -205,7 +205,7 @@ test("queued host continuations keep selection and settle exactly once", async (
 	assert.equal(rows(table).length, 1);
 	assert.equal(rows(table)[0].selected, names[0]);
 	assert.equal(rows(table)[0].delivered, true);
-	assert.deepEqual(rows(table)[0].tool_names, ["look", "narrate"]);
+	assert.deepEqual(rows(table)[0].tool_names, ["look", "output"]);
 	assert.deepEqual(table.extensionErrors, []);
 });
 
@@ -217,7 +217,7 @@ test("queued host continuations keep selection and settle exactly once", async (
 test("an active session is divergence even when delivery succeeds", async (t) => {
 	const table = await openTable({ env: { PI_COC_SKILLS: "1" }, responses: [
 		call("resolve", { action: { actor: "Thomas Hayes", goal: "Attack", method: "Punch", intent: "combat", target: "Corbitt", weapon: "unarmed" }, using_skill: names[0] }),
-		call("narrate", { text: "Corbitt reels back." }), fauxAssistantMessage(""),
+		call("output", { text: "Corbitt reels back." }), fauxAssistantMessage(""),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("I attack Corbitt with my bare hands.");
@@ -228,7 +228,7 @@ test("an active session is divergence even when delivery succeeds", async (t) =>
 	assert.equal(rows(table)[0].delivered, true);
 	assert.equal(rows(table)[0].fallback, true);
 	assert.deepEqual(rows(table)[0].refusal_classes, []);
-	assert.deepEqual(rows(table)[0].tool_names, ["resolve", "narrate"]);
+	assert.deepEqual(rows(table)[0].tool_names, ["resolve", "output"]);
 	assert.deepEqual(table.extensionErrors, []);
 });
 
@@ -244,7 +244,7 @@ test("a required choice is divergence even when delivery succeeds", async (t) =>
 	assert.equal(rows(table)[0].delivered, true);
 	assert.equal(rows(table)[0].fallback, true);
 	assert.deepEqual(rows(table)[0].refusal_classes, []);
-	assert.deepEqual(rows(table)[0].tool_names, ["resolve", "ask"]);
+	assert.deepEqual(rows(table)[0].tool_names, ["resolve", "output"]);
 	assert.deepEqual(table.extensionErrors, []);
 });
 
@@ -275,7 +275,7 @@ test("session rebinding discards the prior run and its selection", async (t) => 
 	assert.notEqual(rows(table)[0].run_id, rows(table)[1].run_id);
 	assert.equal(rows(table)[1].selected, null);
 	assert.equal(rows(table)[1].invalid_selection, null);
-	assert.deepEqual(rows(table)[1].tool_names, ["narrate"]);
+	assert.deepEqual(rows(table)[1].tool_names, ["output"]);
 	assert.deepEqual(table.extensionErrors, []);
 });
 
@@ -285,7 +285,7 @@ test("implicit delivery and request-hook rounds retain one private run identity 
 		pi.on("turn_start", async () => table.session._extensionRunner.emit({
 			type: "before_provider_request", payload: { model: "transport-model" },
 		}));
-	}], responses: [call("look", { using_skill: names[0] }), fauxAssistantMessage("The room is still.")] });
+	}], responses: [call("look", { using_skill: names[0] }), call("output", {text:"The room is still."})] });
 	t.after(() => table.dispose());
 	await table.session.prompt("I inspect the room.");
 	const [row] = rows(table);
@@ -296,7 +296,7 @@ test("implicit delivery and request-hook rounds retain one private run identity 
 	assert.equal(row.provider_models[0].rounds, 2);
 	assert.equal(row.mixed_provider_model, false);
 	assert.ok(evidence.some((entry) => entry.lane === "provider-request"));
-	assert.ok(evidence.some((entry) => entry.tool === "narrate" && entry.implicit));
+	assert.ok(evidence.some((entry) => entry.tool === "output" && !entry.implicit));
 	assert.ok(evidence.every((entry) => entry.run_id === row.run_id));
 	assert.deepEqual(table.extensionErrors, []);
 });

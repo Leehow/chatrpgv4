@@ -32,7 +32,7 @@ const MECHANICS = JSON.parse(readFileSync(join(REPO, "content/ui/zh-Hans/mechani
 const claw = (damage) => fauxAssistantMessage(
 	[fauxToolCall("apply", { effects: [{ kind: "damage", dice: `${damage}D1`, why: "the claws" }] })],
 	{ stopReason: "toolUse" });
-const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
+const narrate = (text) => fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" });
 
 const standingNotices = (table) =>
 	customMessages(table.session, "coc-delivery").filter((message) => Array.isArray(message.details?.standing_conditions));

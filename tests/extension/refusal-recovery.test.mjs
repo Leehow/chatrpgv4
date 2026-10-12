@@ -216,7 +216,7 @@ test("§197.1 with §32.12.4: a response that resends the admitted lines beside 
 	const table = await openTable({
 		responses: [call("apply", { effects: [STOP, MORGUE] }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [MORGUE] }), fauxToolCall("apply", { effects: [{ kind: "time", minutes: 30, why: "reading the clippings" }] }),
-				fauxToolCall("narrate", { text: "你在剪报室翻了半个钟头。" })], { stopReason: "toolUse" }), fauxAssistantMessage("after")],
+				fauxToolCall("output", { text: "你在剪报室翻了半个钟头。" })], { stopReason: "toolUse" }), fauxAssistantMessage("after")],
 		laneResponses: { admission: laneByLine([[/to="corbitt-house-ground"/, ADDED], [/to="newspaper-morgue"/, CHOSEN, 50], [/apply time/, CHOSEN, 50]]) } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);

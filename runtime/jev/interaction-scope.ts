@@ -43,7 +43,7 @@ export function interactionScopeBatch(message: string, previous: Json, scope: Sc
       criteria: {true: 'The user authorizes an in-fiction action or NPC conversation now.',
         false: 'The user only requests out-of-fiction information, explicitly pauses fiction, or declares no world action.'}},
     {key: 'system_request', target: 'an out-of-fiction request to the assistant', type: 'noul',
-      instructions: 'Is the user asking the Keeper or system as an information assistant, rather than speaking or acting as the investigator toward fictional characters? '
+      instructions: 'Does this input contain an out-of-fiction request to the Keeper or system as an information assistant? Judge this independently of world_action: a mixed input may contain both. '
         + 'A request to explain, consult sources or discuss the game without advancing fiction is addressed to the assistant even when an NPC is present.',
       criteria: {true: 'An out-of-fiction answer or reference lookup is requested.', false: 'This is only an in-fiction action or speech.'}},
     {key: 'physical_document_recording', target: 'a current physical recording by the player-controlled investigator', type: 'noul',
@@ -86,4 +86,4 @@ export function forcedScope(scope: InteractionScope | undefined, message: string
 
 export const REFERENCE_SCOPE_NOTE = 'This message is an out-of-fiction request to the assistant. Answer it directly in the play language, using relevant reference reads when needed. '
   + 'Do not narrate an investigator action, spend fictional time, roll checks, move anyone, invent NPC dialogue, or record the answer as something a character learned. '
-  + 'Use narrate only as the delivery channel for this reference answer; the host marks it outside the fiction.';
+  + 'Answer directly in the assistant text channel. Do not invoke the final prose author merely to explain rules; the host records this answer outside the fiction.';

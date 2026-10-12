@@ -728,6 +728,18 @@
       ]
     },
     {
+      "file": "extensions/kernel/final-output.ts",
+      "symbol": "write",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "selected final-output host owner",
+      "path": "app-play-gated",
+      "role": "driver",
+      "trace": "explicit optional output -> frozen portrayal packet -> guarded reader runtime -> canonical publication; narrate prepares/checks only; never OOC or automatic loop-end invocation",
+      "note": "One bounded tool-enabled Pi author task may make multiple internal tool/provider steps, only on explicitly selected delivery. Shared final-output host owner for story realization; not a new loop engine, not an OOC classifier, and not an automatic end-of-turn writer."
+    },
+    {
       "file": "extensions/kernel/admission.ts",
       "symbol": "reviewAdmission",
       "kind": "lane",

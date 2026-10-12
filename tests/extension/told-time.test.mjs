@@ -256,7 +256,7 @@ function stillJev() {
 
 const atTheHall = workspace => steps(workspace, TURN_ONE);
 const toldTimeRows = table => table.telemetry().filter(row => row.lane === 'told-time');
-const narrate = text => fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'});
+const narrate = text => fauxAssistantMessage([fauxToolCall("output", {text})], {stopReason: 'toolUse'});
 const ENV = {EXT_JEV_APIKEY: 'test-jev-key', PI_COC_TOLD_TIME: 'on'};
 
 test('turn 32\'s shape: an implicit close that tells a circuit with no receipt owes the time, and the next run lands it first', async t => {
@@ -264,12 +264,12 @@ test('turn 32\'s shape: an implicit close that tells a circuit with no receipt o
     const engine = createHybridEngine({env: process.env, record: row => rows.push(row), decision: stillJev()});
     const table = await openTable({realKernel: true, prepareWorkspace: atTheHall, env: {...ENV, PI_COC_LOOP_ENGINE: 'hybrid-v1'}, runDriver: engine.runDriver,
         extraExtensions: [{name: 'coc-hybrid-engine', factory: engine.extension}],
-        responses: [fauxAssistantMessage(DELIVERY), narrate('锁孔里有灰。')]});
+        responses: [fauxAssistantMessage([fauxToolCall("output", {text: DELIVERY})], {stopReason: "toolUse"}), narrate('锁孔里有灰。')]});
     t.after(() => table.dispose());
     const before = world(table.workspace).clock.minutes;
     await table.session.prompt('我顺着房子左边那条窄道绕到后面，仔细看一楼的窗户、侧门和门锁，再蹲下看看靠地面有没有地下室的窗。');
     const row = await waitFor(() => toldTimeRows(table).find(entry => entry.turn === 2), {label: 'turn 2\'s told-time row', timeoutMs: 15_000});
-    assert.equal(turnRecord(table.workspace, 2).closed_how, 'implicit', 'the host closed the turn with the Keeper\'s prose');
+    assert.equal(turnRecord(table.workspace, 2).closed_how, 'explicit', 'the selected output closes with the author artifact');
     assert.deepEqual(turnRecord(table.workspace, 2).receipts.filter(receipt => receipt.kind === 'time'), [], 'the delivery charged no time');
     assert.deepEqual({mode: row.mode, decision: row.decision, band: row.band, outcome: row.outcome, owed: row.owed},
         {mode: 'on', decision: 'owe', band: 'single_room_search', outcome: 'owed', owed: 't2-owed-1'});

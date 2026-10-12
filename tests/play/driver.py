@@ -143,7 +143,7 @@ def extract_host_delivery(message: dict) -> dict | None:
             or not isinstance(message.get("content"), str)
             or not isinstance(details, dict) or details.get("coc_delivery") is not True):
         return None
-    kind = "notice" if NOTICE_DETAIL_KEYS.intersection(details) else "narrate"
+    kind = "reference" if details.get("reference_reply") is True else "notice" if NOTICE_DETAIL_KEYS.intersection(details) else "narrate"
     return {"kind": kind, "rendered_text": message["content"], "mechanics": [],
             "pending_choice": None, "details": deepcopy(details)}
 
@@ -694,11 +694,16 @@ class Daemon:
             # Story text the setup host showed before the guide's reply; one message can arrive as both
             # its message_end and its entry_appended.
             setup_openings: list[str] = []
+            reference_replies: list[str] = []
             rejected_delivery = False
             implicit_narration_confirmed = False
 
             def capture_host_delivery(host: dict) -> None:
                 nonlocal delivered, delivery, rejected_delivery
+                if host["kind"] == "reference":
+                    if host["rendered_text"] not in reference_replies:
+                        reference_replies.append(host["rendered_text"])
+                    return
                 rejected_delivery = False
                 if host["kind"] == "notice":
                     notices.append({"content": host["rendered_text"], "details": deepcopy(host["details"])})
@@ -801,13 +806,13 @@ class Daemon:
                                                        TOOL_RESULT_TRUNCATE_BYTES),
                         "ms": ms, "is_error": event.get("isError", False),
                     })
-                    if rec["name"] in ("narrate", "ask") and event.get("isError", False):
+                    if rec["name"] in ("narrate", "output", "ask") and event.get("isError", False):
                         rejected_delivery = True
                     raw_result = event.get("result")
                     result_details = raw_result.get("details") if isinstance(raw_result, dict) else {}
                     embedded_narrate = (rec["name"] == "apply" and isinstance(result_details, dict)
                                         and result_details.get("narrate_in_apply") is True)
-                    if (rec["name"] in ("narrate", "ask") or embedded_narrate) and not event.get("isError", False):
+                    if (rec["name"] in ("narrate", "output", "ask") or embedded_narrate) and not event.get("isError", False):
                         try:
                             body = json.loads(extract_result_text(event.get("result")) or "{}")
                         except (ValueError, TypeError):
@@ -877,6 +882,8 @@ class Daemon:
             if not final_text and not rejected_delivery:
                 final_text = "".join(text_parts).strip()
             tool_records = [tools[t] for t in tool_order if t in tools]
+            if reference_replies:
+                final_text = "\n\n".join([*reference_replies, *([final_text] if final_text else [])])
 
             if projected_mechanics is not None or projected_choice is not None:
                 if delivery is None:
@@ -904,6 +911,7 @@ class Daemon:
                                         stale_settles=stale_settles, delivery=delivery, timings=timings,
                                         **({"public_clock": public_clock} if public_clock is not None else {}),
                                         **({"notices": notices} if notices else {}),
+                                        **({"reference_replies": reference_replies} if reference_replies else {}),
                                         **({"setup_opening": "\n\n".join(setup_openings)} if setup_openings else {}))
         finally:
             self.pi.end_turn()
@@ -912,6 +920,7 @@ class Daemon:
                         tool_records: list[dict], final_text: str,
                         settle_class: str, stop_reason: str | None, stale_settles: int = 0,
                         delivery: dict | None = None, notices: list[dict] | None = None,
+                        reference_replies: list[str] | None = None,
                         setup_opening: str | None = None, public_clock: dict | None = None,
                         timings: dict | None = None) -> dict:
         player_view = None
@@ -939,6 +948,7 @@ class Daemon:
             # The player-visible kernel delivery (§16.2) or terminal host notice (§13.11).
             **({"delivery": delivery} if delivery else {}),
             **({"notices": notices} if notices else {}),
+                                        **({"reference_replies": reference_replies} if reference_replies else {}),
             # The story the setup host showed before the guide's reply (§14.18); final_text stays the reply.
             **({"setup_opening": setup_opening} if setup_opening else {}),
             **({"player_view": player_view} if player_view is not None else {}),

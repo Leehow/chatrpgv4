@@ -9,6 +9,7 @@ import { test } from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "./pi.mjs";
 import kernelExtension from "../../extensions/kernel/index.ts";
+import {ownedOutputProvider} from "./fixtures/owned-output-provider.mjs";
 import { bindDecisionAnswers } from "../../runtime/jev/contracts.ts";
 import { createTaskHostAdapter } from "../../runtime/jev/task-host-session.ts";
 import { FAKE_KERNEL } from "./harness.mjs";
@@ -58,7 +59,7 @@ else{response=await forward(request);if(["table.resolve","table.apply"].includes
 	const restore = setEnv({ ...hidden, PI_COC_KERNEL_CMD: JSON.stringify([process.execPath, proxy]), APPLY_PROXY_LOST: lostApply ? "1" : undefined,
 		PI_COC_CAMPAIGN: "apply-host", PI_COC_MODE: "play", PI_COC_MEMORY_BACKFILL: "0", PI_COC_MODS_WAIT_MS: "0", PI_COC_ADMISSION_MODEL: "admission/a1", PI_OFFLINE: "1", FAKE_KERNEL_LOG: requestLog, FAKE_KERNEL_WORKSPACE: "1" });
 	const keeper = fauxProvider({ provider: "apply-host-provider", models: [{ id: "keeper", reasoning: false }] });
-	keeper.setResponses([fauxAssistantMessage([fauxToolCall("submit_plan_packet", plan)], { stopReason: "toolUse" }), fauxAssistantMessage([fauxToolCall("narrate", { text: "The selected outcome is now visible." })], { stopReason: "toolUse" })]);
+	keeper.setResponses([fauxAssistantMessage([fauxToolCall("submit_plan_packet", plan)], { stopReason: "toolUse" }), fauxAssistantMessage([fauxToolCall("output", { text: "The selected outcome is now visible." })], { stopReason: "toolUse" })]);
 	const admission = fauxProvider({ provider: "admission", models: [{ id: "a1", reasoning: false }] });admission.setResponses(Array.from({ length: 8 }, () => fauxAssistantMessage(JSON.stringify({ verdict: "authorized", grounds: "The player explicitly chose this batch." }))));
 	const order = [], wrap = provider => ({ ...provider, stream(...args) { order.push("admission"); return provider.stream(...args); }, streamSimple(...args) { order.push("admission"); return provider.streamSimple(...args); } });
 	const modelRuntime = await ModelRuntime.create({ authPath: join(cwd, "auth.json"), modelsPath: null, modelsStorePath: join(cwd, "models.json"), refreshOnCreate: false });modelRuntime.registerNativeProvider(keeper.provider);modelRuntime.registerNativeProvider(wrap(admission.provider));
@@ -70,7 +71,7 @@ else{response=await forward(request);if(["table.resolve","table.apply"].includes
 		value.context = { campaign: "apply-host", worldline: "main", loop: 0, turn: value.turn ?? 1,
 			source_revision: "source-r1", task_source_revision: "source-r1", world_revision: "world-r1", task_world_revision: "world-r1", ...structuredClone(context) };
 	});pi.on("session_start", () => pi.events.emit("coc:mods-bridge", mods));pi.on("tool_call", e => hooks.push({ type: "tool_call", id: e.toolCallId, name: e.toolName }));pi.on("tool_result", e => hooks.push({ type: "tool_result", id: e.toolCallId, name: e.toolName })); } };
-	const loader = new DefaultResourceLoader({ cwd, agentDir: join(cwd, "agent"), settingsManager, extensionFactories: [probe, { name: "kernel", factory: kernelExtension }, { name: "task-host", factory: adapter.extension }] });await loader.reload();
+	const loader = new DefaultResourceLoader({ cwd, agentDir: join(cwd, "agent"), settingsManager, extensionFactories: [probe, { name: "kernel", factory: pi => kernelExtension(pi, {capabilities: ownedOutputProvider}) }, { name: "task-host", factory: adapter.extension }] });await loader.reload();
 	const created = await createAgentSession({ cwd, agentDir: join(cwd, "agent"), model: keeper.getModel("keeper"), modelRuntime, thinkingLevel: "off", noTools: "builtin", resourceLoader: loader, sessionManager, settingsManager });session = created.session;const errors = [...created.extensionsResult.errors];await session.bindExtensions({ mode: "rpc", onError: e => errors.push(e) });
 	t.after(async () => { try { if (session._extensionRunner?.hasHandlers?.("session_shutdown")) await session._extensionRunner.emit({ type: "session_shutdown", reason: "quit" });session.dispose(); } finally { restore();await settle(50);await rm(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); } });
 	return { session, adapter, store, batches, order, hooks, mods, errors, async proxyCalls() { return existsSync(proxyLog) ? (await readFile(proxyLog, "utf8")).split("\n").filter(Boolean).map(JSON.parse) : []; } };

@@ -195,8 +195,8 @@ test("at the extension seam a move compiled after 45 s is still executed: the bu
 		realKernel: true, prepareWorkspace, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver,
 		extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }, probe],
 		responses: [
-			(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("narrate", { text: "你走进报馆。" })], { stopReason: "toolUse" }); },
-			(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("narrate", { text: "你想了想。" })], { stopReason: "toolUse" }); },
+			(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("output", { text: "你走进报馆。" })], { stopReason: "toolUse" }); },
+			(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("output", { text: "你想了想。" })], { stopReason: "toolUse" }); },
 		],
 	});
 	t.after(() => table.dispose());

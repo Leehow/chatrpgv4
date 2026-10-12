@@ -127,7 +127,7 @@ test("a proposal whose pinned world moved is staled on disk and retired from the
 const PREPARE_TURN = [
 	fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "roxbury-sanatorium",
 		purpose: "new_destination", request: REQUEST, anchors: ["scene: commission-briefing"] })], { stopReason: "toolUse" }),
-	fauxAssistantMessage([fauxToolCall("narrate", { text: "你把出院单折好，先没动身。" })], { stopReason: "toolUse" }),
+	fauxAssistantMessage([fauxToolCall("output", { text: "你把出院单折好，先没动身。" })], { stopReason: "toolUse" }),
 ];
 
 test("a proposal that failed is told once with its cause and holds nothing back", async (t) => {
@@ -140,7 +140,7 @@ test("a proposal that failed is told once with its cause and holds nothing back"
 			// call and every one after it was refused, `narrate` included.
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the walk to the sanatorium" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the walk to the sanatorium" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: delivered })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: delivered })], { stopReason: "toolUse" }),
 			fauxAssistantMessage(delivered),
 		],
 	});
@@ -184,9 +184,9 @@ test("a dead proposal is not re-armed at the next turn boundary", async (t) => {
 			...PREPARE_TURN,
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the walk" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the walk" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "铁门在你身后合上。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "铁门在你身后合上。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 5, why: "reading the register" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "登记簿上有一行被划掉了。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "登记簿上有一行被划掉了。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -212,7 +212,7 @@ test("cold recovery hands back live work and never a corpse", async (t) => {
 		env: { FAKE_KERNEL_RETAINED_ADAPTATION_STATUS: "failed" },
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 5, why: "drawing the bolt" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "插销拔开了。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "插销拔开了。" })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());

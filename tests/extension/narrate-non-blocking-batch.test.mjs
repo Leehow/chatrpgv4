@@ -51,7 +51,7 @@ test("§135.5.1: a batch of non-blocking writes and their narrate settle both wr
 		fauxAssistantMessage([
 			fauxToolCall("apply", { effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }] }),
 			fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }] }),
-			fauxToolCall("narrate", { text: "你在剪报室里翻了十分钟，指尖沾了灰，纸页边缘已经发黄发脆，终于找到了那篇被压下的旧闻 {{clue:globe-unpublished-story}}。" }),
+			fauxToolCall("output", { text: "你在剪报室里翻了十分钟，指尖沾了灰，纸页边缘已经发黄发脆，终于找到了那篇被压下的旧闻 {{clue:globe-unpublished-story}}。" }),
 		], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
@@ -59,7 +59,7 @@ test("§135.5.1: a batch of non-blocking writes and their narrate settle both wr
 	await waitForIdle(table.session);
 
 	assert.equal(table.telemetry().filter((entry) => entry.tool === "apply" && entry.ok === true).length, 2, "both non-blocking writes landed");
-	assert.equal(table.telemetry().filter((entry) => entry.tool === "narrate" && entry.ok === true && entry.event === undefined).length, 1);
+	assert.equal(table.telemetry().filter((entry) => entry.tool === "output" && entry.ok === true && entry.event === undefined).length, 1);
 	// One model call carried the whole batch: no second Keeper call was needed to write the narrate alone.
 	assert.equal(keeperCalls(table), 1, `the batch delivered in the Keeper's one call (${keeperCalls(table)} provider calls)`);
 
@@ -80,9 +80,9 @@ test("§135.5: a refused first write leaves the narrate of the same message unex
 			// An unknown clue: the kernel refuses this write outright (unknown_entity), before admission even matters.
 			fauxToolCall("apply", { effects: [{ kind: "clue", clue: "no-such-clue-in-this-book", why: "found while going through the clippings" }] }),
 			fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }] }),
-			fauxToolCall("narrate", { text: "你翻了十分钟剪报，找到了那篇被压下的旧闻。" }),
+			fauxToolCall("output", { text: "你翻了十分钟剪报，找到了那篇被压下的旧闻。" }),
 		], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "你翻了大半天剪报，指尖都沾了灰，纸页边缘也磨得发毛，可翻来翻去，还是什么都没找到，一无所获。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "你翻了大半天剪报，指尖都沾了灰，纸页边缘也磨得发毛，可翻来翻去，还是什么都没找到，一无所获。" })], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
@@ -94,7 +94,7 @@ test("§135.5: a refused first write leaves the narrate of the same message unex
 		"the batch's remaining steps -- the second write and that message's own narrate -- were answered as not executed (§135.5)");
 	assert.ok(table.telemetry().some((entry) => entry.lane === "run" && entry.reason === "batch_fallen" && entry.kind === "infer"),
 		"the run's next step asked the Keeper again, no route question in between");
-	assert.equal(table.telemetry().filter((entry) => entry.tool === "narrate" && entry.ok === true && entry.event === undefined).length, 1,
+	assert.equal(table.telemetry().filter((entry) => entry.tool === "output" && entry.ok === true && entry.event === undefined).length, 1,
 		"the turn still closed, on the Keeper's next message");
 	const record = turnRecord(table.workspace, 2);
 	assert.ok(record.rendered_text.includes("什么都没找到"), "delivered from the Keeper's second message, not the fallen batch's draft");
@@ -105,16 +105,16 @@ test("§159: model resolve blocks the dependent narration in its batch; a later 
 	const table = await hybridTable({ responses: [
 		fauxAssistantMessage([
 			fauxToolCall("resolve", { action: { intent: "investigate", skill: "Library Use", goal: "find the file", method: "search the clippings" } }),
-			fauxToolCall("narrate", { text: "你查了一下剪报索引，指尖沾了灰，纸页边缘也磨得发毛，才把这条线索的年份和版面大致理出来。" }),
+			fauxToolCall("output", { text: "你查了一下剪报索引，指尖沾了灰，纸页边缘也磨得发毛，才把这条线索的年份和版面大致理出来。" }),
 		], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall('narrate', {text: 'The search remains unresolved. The papers lie where you left them, and no finding has been established.'})], {stopReason: 'toolUse'}),
+		fauxAssistantMessage([fauxToolCall("output", {text: 'The search remains unresolved. The papers lie where you left them, and no finding has been established.'})], {stopReason: 'toolUse'}),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报索引。");
 	await waitForIdle(table.session);
 
 	assert.ok(!table.telemetry().some((entry) => entry.tool === "resolve" && entry.ok === true), "the model cannot execute its own selected check");
-	assert.equal(table.telemetry().filter((entry) => entry.tool === "narrate" && entry.ok === true && entry.event === undefined).length, 1,
+	assert.equal(table.telemetry().filter((entry) => entry.tool === "output" && entry.ok === true && entry.event === undefined).length, 1,
 		"only the later narration closes the turn");
 	assert.equal(turnRecord(table.workspace, 2).closed_by, "narrate");
 });

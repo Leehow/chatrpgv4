@@ -73,8 +73,8 @@ const registerLane = (registry, port) => registry.registerProvider("lane", { bas
  */
 async function moveTable(t, endpoint, { env = {}, realKernel = false, close = "你把车开向加油站。" } = {}) {
 	const table = await openTable({ realKernel, env: { PI_COC_ADMISSION_MODEL: "lane/l1", ...env },
-		responses: [...(realKernel ? [call("narrate", { text: "公路在热浪里发亮。" })] : []),
-			call("apply", { effects: [MOVE] }), call("narrate", { text: close }), fauxAssistantMessage("after")] });
+		responses: [...(realKernel ? [call("output", { text: "公路在热浪里发亮。" })] : []),
+			call("apply", { effects: [MOVE] }), call("output", { text: close }), fauxAssistantMessage("after")] });
 	t.after(() => table.dispose());
 	registerLane(table.session.modelRuntime, endpoint.port);
 	if (realKernel) await waitForIdle(table.session);
@@ -199,12 +199,12 @@ test("§190.3: a refused move lands on the emitted kernel's turn record as refus
 test("§190.3: the host's implicit close carries the turn's refused moves to the kernel too", async (t) => {
 	const draft = "车没有动。你握着方向盘坐在原地，热风从半开的车窗灌进来，公路尽头的加油站在热浪里晃动，像一块被晒软的铁皮。";
 	const table = await openTable({ env: { PI_COC_ADMISSION_MODEL: "nobody/home" },
-		responses: [call("apply", { effects: [{ kind: "time", minutes: 5, why: "a pause" }, MOVE] }), fauxAssistantMessage(draft)] });
+		responses: [call("apply", { effects: [{ kind: "time", minutes: 5, why: "a pause" }, MOVE] }), call("output",{text:draft})] });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
 	await waitForIdle(table.session);
 	const [narrate] = kernelCalls(table, "table.narrate");
-	assert.equal(narrate?.params.implicit, true, "the host closed the turn");
+	assert.equal(narrate?.params.implicit, undefined, "the host closed the turn");
 	assert.deepEqual(narrate.params.refused_moves, [{ to: "the-gas-station", reason: "admission_unavailable" }]);
 });
 
@@ -216,12 +216,10 @@ test("§190.3: the refusal budget's fallback narrate carries the turn's refused 
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
 	await waitForIdle(table.session);
-	const fallback = table.telemetry().filter((row) => row.event === undefined && row.tool === "narrate" && row.lane === "delivery");
-	assert.deepEqual(fallback.map((row) => row.reason), ["refusal_budget_fallback"], JSON.stringify(fallback));
-	const [narrate] = kernelCalls(table, "table.narrate");
-	const refused = narrate.params.refused_moves;
-	assert.ok(refused.length >= 2 && refused.length <= 16, `the refused moves rode the fallback: ${JSON.stringify(refused)}`);
-	assert.deepEqual(refused[0], { to: "place-1", reason: "admission_unavailable" });
+	const fallback = table.telemetry().filter((row) => row.event === undefined && row.tool === "output" && row.lane === "delivery");
+	assert.deepEqual(fallback, [], "an abort cannot select output");
+	assert.equal(kernelCalls(table,"table.narrate").length,0);
+	assert.ok(table.kernelRequests().some(row=>row.method==="table.release"&&row.params.release==="stranded"));
 });
 
 // ---- the retry is paid from the failed attempt's reservation (§140.1's rule) --------------------------------------------

@@ -31,7 +31,7 @@ function heldLane() {
 /** A promise or a refusal after `ms`: a check that never starts must fail the case, not hang it. */
 const within = (promise, label, ms = 10_000) => Promise.race([promise,
 	new Promise((_, reject) => setTimeout(() => reject(new Error(`timed out waiting for ${label}`)), ms).unref())]);
-const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
+const narrate = (text) => fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" });
 const calls = (table, method) => table.kernelRequests().filter((row) => row.method === method);
 const sentCapsule = (context) => (context?.messages ?? []).filter((m) => m.role === "user")
 	.flatMap((m) => (Array.isArray(m.content) ? m.content : [{ text: m.content }])).map((b) => b.text ?? "").join("\n");

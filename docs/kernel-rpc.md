@@ -45118,3 +45118,340 @@ all639 extension files have5651 passing tests and one skip, alongside pytest2142
 The skipped historical-source probe requires `COC_HISTORICAL_WEAKNESS_GRAPH`; no historical source was restored.
 Only contract ordering and this validation record changed after the earlier selected run; implementation bytes
 remained identical. No push, packaging or installed App acceptance is included.
+
+
+## 233. Optional final-output materials delivery (implementation in progress, 2026-10-12; `docs/specs/final-output-materials.md`; amends §163 reference delivery, §166 single-pass story prose direction, narrate/apply/ask terminal family)
+
+Status: **implementation in progress** in the owned task worktree. Design commitments remain approved; validation results and known failures below do not establish completion or prose-quality improvement.
+
+### 233.1 Optional selection; legacy text; OOC direct lane
+
+- Final-output is an **agent-selected tool** when story materials need realization. It is **not** a mandatory end-of-loop stage, not an unconditional output middleware, and not a rewrite of every assistant utterance.
+- Model-selected shapes (when chosen):
+  - `narrate({ delivery })`
+  - `ask({ ..., delivery })` for explicit story preface on the existing durable choice/pending path
+  - `apply` may **carry** `delivery` and invoke the shared terminal owner **only after** real effects succeed and only when delivery was explicitly selected
+- **Legacy compatibility under the same owner:** plain finished `text` remains accepted on the legacy path. **Explicit `delivery` selects the new writer path. `text` alone NEVER selects the writer.**
+- **Pure reference / OOC direct assistant response must not be consumed by `message_end` implicit narrative closure.** Host must not swallow a direct OOC answer into draft storage or auto-`table.narrate`.
+- Existing reference-scope semantics, receipts, pending choices, and world authority persist. **No new classifier and no keyword/regex routing logic.**
+- Evolve §163 reference prompt guidance: reference/OOC answers **may be delivered as direct assistant responses**; they are no longer required to pass through `narrate` solely to answer rules/play/system/clarification questions.
+- **Mixed input** follows actual authority: the OOC explanation stays a separate direct visible reply; authorized fiction continues under existing action semantics; only an explicitly selected story portion may use final-output. No forced extra confirmation round solely because input was mixed.
+- **No automatic writer at loop end**, finish, or `message_end`.
+- In-world fiction still obeys existing receipts and authority. An OOC label does not launder unexecuted effects or secret knowledge.
+
+### 233.2 DeliveryPlan version 1
+
+Caller-authored `delivery` is a **proposal plan**, not a receipt and not a source fact. Host stamps authority, hidden ids, revisions, and materializes required canonical receipts/forbiddances independently of model claims.
+
+Concrete shape (omit unused fields; no empty placeholders required):
+
+```
+DeliveryPlan v1 {
+  version: 1,
+  materials?: Array<{           // bounded
+    name: string,              // semantic local alias
+    text: string,              // authored portrayal proposal
+    kind: "fact" | "description" | "context",
+    visibility: "player" | "keeper",
+    required?: boolean,
+    source?: string            // exact name of a current-turn issued owner material, or unbound
+  }>,
+  utterances?: Array<{         // bounded
+    speaker: string,
+    audience: string[],
+    meaning: string,           // proposition / intent
+    stance?: string,
+    source?: string
+  }>,
+  sources?: string[],          // optional names of existing issued current-turn material records
+  required?: string[],         // optional semantic material names that must appear in final prose
+  presentation?: string        // optional expression preference only; cannot change facts or authority
+}
+```
+
+Binding rules:
+
+- **Caller-authored rows remain proposals.** Host stamps authority/revisions. They are not receipts or source facts by presence alone.
+- **Keeper-only rows (`visibility: "keeper"`) are NEVER included in writer realization input.**
+- `source` may bind **only exact names** of **current issued owner materials** for this turn. Unbound, mismatched, or expired references **fail**; there is **no caller promotion** of free text into issued source status.
+- A proposition asserted by a speaker remains a **report** ("X said P"), not world fact P.
+- Descriptive proposals stay **provisional** unless current content/establishment authority accepted them. Persistent world actions occur only via `resolve` / `apply`.
+- Canonical receipts and current facts are materialized by the **host** independently of model claims.
+- Material retrieval does **not** itself grant disclosure to the player.
+- Runtime acceptance **cannot** prove semantic no-addition via regex or self-reported coverage. Coverage is structural evidence only.
+
+### 233.3 Delivery Material Host packet and public projection
+
+When final-output is selected:
+
+- Host assembles a bounded frozen realization packet from current receipts, scene/NPC read owners, real retrieval results, current player input, and exact relevant already-delivered exchange.
+- The **host source inventory** supplies **stable semantic local aliases** for successfully issued `look` / `lookup` / `recall` (and equivalent) results, retained per turn and **not** clipped required strings.
+- Purpose-specific selections are made by the front Keeper. The **raw full capsule is never passed to the writer**.
+- **Public snapshot projection** for the writer includes: current scene/observable state, existing committed facts, and exact recent delivered exchange. **Secrets and motives are excluded.**
+- Material and Mod instructions stay tagged **reference/advice vs accepted fact**. Advice examples are never source truth. Decision-class guidance stays in preparation; expression-class guidance may reach the writer when the current binding is valid.
+- Required current events and selected answers must not be silently dropped. Packet budget must not silently demote required rows to optional. No automatic budget raise.
+- Optional missing material may be omitted with diagnosis. Required missing material returns a focused preparation need to the front owner; the writer must not improvise the gap.
+- After dependencies complete, host **freezes**. Stale publish is refused. Late optional results must not patch already delivered text.
+- Row dimensions remain independent: provenance/authority; semantic statement; audience/perceivability/knowers; delivery_role (required / optional / excluded).
+- Allowed ≠ delivered; delivered ≠ true; mentioned entity ≠ hearer. An accepted state receipt keeps authority even if prose omits it; omission is marked as delivery omission, never a silent receipt revoke.
+
+### 233.4 One bounded tool-enabled Pi writer
+
+- One foreground writer owner per **selected** delivery attempt. Shared runtime model: **Grok 4.5 low** (implementation must report the actual model string; Astra is not authorized by this contract).
+- Uses the existing child-runner / realpath and immutable-input guard pattern. Tools are exactly: `read`, `write`, `edit`, `bash`.
+- Read only the approved realization packet and style inputs. Outputs are separate writable artifact paths.
+- **Bash** may run only the host-immutable artifact-validator command; never arbitrary shell.
+- Provider registration plus explicit confinement. **No nested kernel.** No campaign/secret/network/world-side-effect tools inside the writer.
+- Existing owner provider budgets and cancellation apply. **No new unlimited lease and no budget increase.**
+- One author task may contain multiple tool/provider steps but submits **one final artifact** only.
+- Optional expression reference preparation is reused where the current binding remains valid; otherwise bounded fallback under existing selector rules. No chain style optimizer and no revived general speech-edit rewrite loop.
+- Guard escape checks (symlink, parent-path escape, checker rewrite, command injection, read leak) are required negative acceptance concepts, narrow-adapted from existing reader guards—not a claim that reader guards are already the final-writer feature.
+
+### 233.5 Artifact version 1, validation, evidence, retry
+
+```
+Artifact v1 {
+  text: string,
+  coverage: Array<{ name: string, start: number, end: number }>  // exact UTF-16 text spans
+}
+```
+
+- Coverage spans bind known material aliases and required declarations with **exact UTF-16** offsets into `text`. Structured speech continues to use existing say markers; this contract does not invent a second speech channel.
+- Host validates **bounded shape**, source binding, and span validity. Validation is **not** a semantic no-addition guarantee.
+- **Only final artifact `text` reaches existing `table.narrate` / `table.ask`.** Drafts, tool chatter, and invalid artifacts stay private.
+- Host attaches delivery evidence (packet binding, selected-source provenance, coverage) to the **exact** turn or choice record. `memory.job` exposes that evidence alongside existing `committed_facts` / `keeper_text` and **preserves attribution authority**. No self-reported mapping becomes knowledge.
+- Failed generation: **no publication**, **no world-effect replay**. Already settled effects from earlier apply/resolve remain; they are not re-executed because writing failed.
+- Persist a valid artifact keyed by the **frozen packet digest** outside canonical world records for exact retry after commit failure. Re-check canonical current snapshot binding immediately before publication; cancellation or an altered snapshot stales the attempt.
+- Existing commit/journal owner is unchanged. The caller cannot inject trusted delivery metadata.
+- If a valid artifact already exists and only commit failed, reuse that exact artifact; regenerate only when no valid artifact exists.
+
+### 233.6 Publication, memory, and authority boundaries
+
+- Story path after validation: existing terminal write lifecycle → turn/choice record + player UI. `narrate` waits on existing Git commit. `ask` with explicit story preface uses existing durable choice/pending records and does **not** create a new Git commit per ask.
+- Facts path consumes canonical receipts and accepted established material. Propagation path consumes actually delivered text/spans and attributed reports.
+- Memory does not depend on literary paraphrase to maintain already typed facts; relationship/belief/promise still need existing attribution owners.
+- Final artifact must not call resolve/apply; must not alter mechanics JSON, handout body, exact document quotes, prices, names, or choice sets under existing color/convention rules.
+- Disabled Mods stay disabled. Locks, voice source ownership, and open `play_language` behavior remain. Default-off Mods remain off.
+- No automatic enablement of Jev clerk semantics or narrator-only full replacement of front decisions. Optional narrator-only compose is not this isolated writer.
+
+### 233.7 Implementation acceptance (design gate; not run in this task)
+
+Highest real seam (owner-confirmed):
+
+**real Pi host → real TS kernel → durable published record → UI / transcript / memory seam**, plus **OOC direct bypass under the same host**.
+
+Must cover, when implemented later:
+
+- all explicitly selected entry variants (`narrate({delivery})`, apply-carried delivery after effects, ask story preface when selected, opening/hybrid/legacy only when explicitly selected)
+- secret omission / least-privilege projection
+- valid and invalid source references
+- budget, cancel, stale, commit-retry, restart
+- guard escape checks
+- truth vs statement vs knowledge
+- disabled Mods
+- pure OOC zero writer/packet/artifact/job; mixed input partition; continuous real-table mid-play OOC return
+
+**No live test now.** Final heavy focused/all tests on LAN after code is available; code review; canonical real driver root is the sole natural one-utterance player with actual Grok 4.5 low. No synthetic acceptance. Quality and latency are assessed separately and must not be claimed improved by this contract alone.
+
+### 233.8 Non-claims
+
+This section does not claim implementation, tests, packaging, push, installed-app readiness, prose-quality improvement, or net latency savings. It is the prospective system contract for the approved `final-output-materials` design.
+
+### 233.9 Implementation decisions (active worktree `codex/final-output-materials-20261012` from `afc44ce14`; design status remains ready-for-agent; implementation in progress — not complete)
+
+Source implications observed while wiring the selected host owner (documentation record only; no semantic-proof claim):
+
+- **Private `table.reference.answer`** continues under existing reference-record authority and **does not** invoke the final writer.
+- **Host-call source metadata** exposes the **semantic name only**; no content hashes in that surface.
+- **Packet `play_language`** is taken from the **actual campaign projection**, not a caller free string.
+- **Expression Mods:** explicit Mod adapter for `narration-craft` / `zh-optimize` / `npc-voice`; **active revisions and disabled behavior stay unchanged**.
+- **Serialized v7 advice** is forwarded only on **verified inclusion** and is **discarded after world mutation**.
+- **Memory extension** may **consume delivery evidence** but **cannot promote** it to knowledge or authority.
+- **Structural coverage** uses **UTF-16 writer-artifact-text coordinates**; **exact artifact text is retained** because existing marker/name rendering may change player-facing offsets. Coverage remains structural evidence only — **no semantic proof**.
+
+Further narrow decisions (same worktree; still not tested/complete):
+
+- **Private `table.reference.answer`** records the direct reference exchange via the existing reference-record owner and **never** calls the final writer.
+- **Existing pending choice survives** reference publication and subsequent player input; answered rules do **not** select push/accept.
+- **Final artifact coverage** is over original `artifact_text`; normal host marker/attribution normalization may supply separately bound `input_text`; **actual rendered text remains canonical** for memory attribution.
+- **Source inventory** only auto-materializes already public transcript text, publicly marked text, and public knowledge text; restricted Keeper views need **front-curated permitted propositions**, not raw capsule forwarding.
+- **Local source aliases** are exposed **without revision hashes**.
+- **Frozen writer retries** normalize open/acting as the same active writing phase, **preserving a valid cached artifact** after failed Git commit; source/material/Mod/epoch changes still stale the attempt.
+- A selected writer's **failed/unpublished draft cannot leak** through implicit legacy closure.
+- **Enabled narration/Chinese/voice guidance** and confirmed selected Mod/temporal/expression advice are reused with **revision checks**; native search provides only **genuinely retrieved bibliography metadata** tied to the original run — never raw hidden reasoning or another search.
+- Mixed-input OOC uses closed transport framing `{{ooc}}...{{/ooc}}` on the front Keeper direct explanation; host surfaces that span only when existing independent `system_request` score is >=.8; materials submitted to the story writer exclude that OOC explanation.
+
+
+---
+
+## Documentation append (2026-10-12) — status, gates, OOC partition (does not replace §233 design body)
+
+**Implementation in progress.** Not complete. No final task success. No merge/package/push/commit. Main overlapping dirty checkout remains untouched and unabsorbed.
+
+### Preserved historical failures
+
+- LAN **all1** and **all2** **failed** and are **retained**.
+- LAN **all3** **transfer disconnected** (retained).
+- **probe none**; user requested **Mac**.
+- Initial **pytest default Node failed**; **Node24** run is the correct path (underway/recorded).
+- Earlier ask-red from outdated Mac emitted bundle remains historical evidence; do not rewrite prior red rows as green.
+- **Turn6**: attention/gaze added beyond materials = **fidelity failure** (retained).
+- **Mixed8**: OOC mistakenly included in materials = **failed partition evidence** (retained).
+- Prior LAN focused snapshot failures (including the recorded 7 failures in 5 files) stay on record.
+
+### Verified current progress (worktree / Mac only)
+
+- **Selected ask passes after rebuild**.
+- **Focused Mac 59/59**.
+- **Restarted cache/stale tests 2/2**.
+- **Kernel typecheck passed**.
+- **Full ext/Python still running** (not finished; no pre-emptive all-green).
+- Real **G45low** driver `final-output-live-20261012`: **selected writer** published turns **5, 6, 8, 9** with **canonical Git**.
+- **Pure OOC7**: **zero tools/writer**, clock **unchanged**.
+- **Turn9** required-material comparison: **no substantive added proposition**.
+- Same-material **A/B** two cases generated; **no quality-improvement claim**.
+- Budgeted **source alias** context leaves **tool returns unchanged**; **receipts alias canonical**.
+
+### Binding clarifications (append-only)
+
+- Story tool remains **optional**. New story submission uses **delivery semantic materials/intentions**; **legacy text** is **compatibility only**.
+- **Pure OOC**: **direct** (no final writer / no story-materials path).
+- **Mixed OOC**: frame as `{{ooc}}...{{/ooc}}` **beside** tool calls; **never** include OOC in **story materials**.
+- Writer instructions must **exclude accidental OOC material**, or **stop** if required material cannot be satisfied without it.
+- Stricter writer: **disallow minor invented behavior** beyond materials (turn6-class fidelity failure).
+- **No** new classifier; **no** forced stage.
+- Private / reference paths and host assembly rules in §233 stand; this append does not expand scope.
+
+### Remaining gates
+
+1. Finish full ext/Python and record outcomes honestly.
+2. Reconcile remaining failures; run focused/all only as needed without greenwashing LAN all* history.
+3. Independent code review.
+4. Further canonical driver play + same-material evidence without quality claims.
+5. Scoped task-branch commit follows the implement skill; safe mainline integration still requires ownership resolution; packaging/push/main absorption **not** authorized now.
+
+Supersedes the older “design only / not implemented” one-liner for **status reporting** in this append stream only; core shape commitments remain those already in §233 and the approved spec.
+
+
+### 233.10 Owner superseding decision: separate repeatable checking and optional output
+
+Optional final-output materials delivery — narrate/output split (implementation in progress, 2026-10-12; `docs/specs/final-output-materials.md`; supersedes earlier narrate-as-writer terminal design; amends §163 reference delivery, §166 single-pass story prose direction, narrate/apply/ask family).
+
+Status: **implementation in progress** in the owned task worktree. Design commitments below are approved by owner superseding decision; validation is incomplete; **no all-green**; **no prose-quality or naturalness improvement claim**. Previous narrate-writer / apply-writer / ask-writer specs and evidence are **HISTORICAL** and invalid for current split acceptance. Same real-Pi-host / real-TS-kernel / highest seam already approved — do not re-ask. Main dirty untouched; no push/package.
+
+### Public tool surface (eight verbs)
+
+`look` | `lookup` | `recall` | `resolve` | `apply` | `ask` | `narrate` | `output`
+
+Do not preserve a seven-verb surface by overloading narrate as writer/publish.
+
+### narrate({ delivery }) — repeatable material prepare/check only
+
+- Validates and prepares the current material plan for story realization.
+- MAY be called repeatedly; the latest checked plan may be revised.
+- Does **not** write player prose, publish, close a turn, Git commit, promote memory, or launch the final writer.
+- apply-path delivery / legacy narrate: prepare/check **only AFTER effects**; **NEVER** auto-launch writer or publish.
+
+### output({ delivery?, text?, choice?, quotes?, workpad_patch? }) — optional explicit final writer
+
+- **Alone** explicitly selects the bounded tool-enabled final writer and durable publication path.
+- Optional: omit `delivery` to use the last checked plan for the current input; explicit `delivery` may run through internal check (no mandatory check sequence).
+- `text`: legacy **untrusted** material ONLY; **always** goes through writer; **never** direct-publish.
+- `choice`: may carry existing closed mechanics `{kind:mechanics, options, binds?}` into the existing durable ask owner; **no** prompt/story choice menus.
+- Produces **one** accepted artifact and publishes **once** per successful selection; on writer failure/retry, reuse the valid artifact. Many checks ≠ many public prose publications.
+- **NEVER** auto-called on finish / message_end / implicit prose fallback. Host must not invent an automatic final stage.
+- Pure world-assistant prose must **not** auto-publish without `output`.
+
+### OOC / direct visibility
+
+- Pure OOC: directly visible; zero writer; no implicit story publication; **NO** `direct_reply` tool argument; no new classifier.
+- Mixed OOC: directly visible beside tool calls (existing explicit `{{ooc}}...{{/ooc}}` framing acceptable; **NO** special tool argument). Only selected story uses `output`. OOC spans are excluded from writer materials.
+- Internal materials and tool chatter remain private.
+
+### Canonical private owners (unchanged)
+
+- `table.narrate` / `table.ask` remain canonical publication, Git, choice, and memory owners.
+- `resolve` / `apply` arithmetic and transactions unchanged.
+- ask may expose existing mechanics controls; any carried text is prepared material, not player prose.
+- Single-writer / one-artifact constraint applies **within one selected output task**, not every assistant reply in the session.
+
+### Acceptance focus (tests; not yet green)
+
+Repeated checks with zero effects/publication then one `output`; optional no-check `output`; pure OOC; mixed OOC beside calls; failed writer reuse of valid artifact; canonical memory path. Protocol JSON draft must not pass old implicit prose fallback.
+
+### External comparison (record only)
+
+- Anthropic Building effective agents: supports focused tool boundaries; no proof of quality for this design.
+- xAI function calling: permits multiple calls; host must own one durable publication.
+- Same-model A/B two cases: did **not** show new-author naturalness superiority.
+- **No improvement claim.**
+
+Material/provenance/privacy/confinement/artifact/canonical ownership requirements in §§233.2–233.9 remain binding. Their earlier narrate/apply/ask writer routing is superseded. No direct_reply argument is added.
+
+
+### 233.11 Direct conversation and private previews
+
+
+Implementation in progress; not complete; do not claim completion or prose-quality improvement.
+
+Existing split remains: public narrate repeats private prepare/check; output is the separate OPTIONAL bounded tool-enabled final author; no automatic output; no direct_reply. Internal table.narrate/table.ask remain publication owners; numeric resolve and transactions apply untouched.
+
+User-facing OOC is normal direct conversation with zero author. Current code exposes standalone intentional assistant answers through private table.reference.answer; records the reference frame without promoting world facts/NPC knowledge; remains visible even when optional Jev scope score is unconfigured. Existing task guard applies; coc:reference-answer closes the existing read-task lifecycle.
+
+Mixed OOC beside tool calls uses explicit closed {{ooc}}...{{/ooc}} transport span, exposed WITHOUT any system_request score threshold. Independent optional Jev scores remain advisory; no new classifier or direct_reply. Front must exclude OOC from story material.
+
+Authoritative live-prose rule: Electron live-prose default has no argument previews, so narrate/apply/ask/output private text fields never stream as player prose; only an accepted output artifact or an intentional assistant direct response is visible. Grammar utility retains explicit opt-in legacy fields for unit tests; no production bypass.
+
+Validation in progress (not all-green): native feature16passed, core49passed, UI15passed; earlier Linux all3 Python2140pass2skip and loop12pass; extension158fail out5669 primarily obsolete terminal fixtures needing migration and actual guard verification. Same-model 2-case A/B did not show prose superiority. Retain old failures as invalid-for-current-split acceptance. Real G45low split check/output story selected once and direct pureOOC zero tools were observed; duplicate-backstop fix awaits latest live verification. No deployment/package/push/main integration yet; dirty primary checkout preserved.
+
+
+### 233.12 Writer partition failure and prompt repair
+
+The current real mixed-input run (campaign final-output-live-20261012, turn 16) failed partition acceptance: front material included an optional OOC confirmation and the accepted artifact retained it. This is preserved failure evidence, not a passed mixed-input case. Tool descriptions and the existing final-author instruction now put the fiction-only boundary first, exclude OOC even from optional materials, and make proposal wording nonbinding so realization can rewrite notes into natural speech without adding propositions. No direct_reply, classifier, semantic shortcut or mandatory output stage is added. A fresh real-host validation remains required.
+
+
+Optional final-output materials delivery (implementation in progress, 2026-10-12; amends approved narrate/output split only).
+
+Status: implementation in progress. Do not mark ready/completed or claim prose, naturalness, or mixed-separation success.
+
+Split unchanged: public narrate({delivery}) remains repeatable private prepare/check only; output({delivery?,text?,choice?,quotes?,workpad_patch?}) remains the separate OPTIONAL bounded tool-enabled final author and one-artifact publication path; pure OOC stays direct and visible; no direct_reply; no new classifier.
+
+Real-host acceptance evidence (final-output-live-20261012): turn15 pure OOC zero tools, no author, clock53 unchanged, displayed once — accepted. turn16 mixed FAILED: optional material ooc_confirm reached the writer and was retained in the artifact. Repeated output attempts include absent-artifact/error cases and must be counted separately from the single canonical publication body. turn17 real movement settled two scene transitions including 30min and an NPC Knott reply; canonical speech/receipt inspection still pending. Do not claim mixed separation or naturalness succeeded. Earlier same-material 2-case diagnostic preferred baseline; no superiority claim.
+
+Validation snapshot: Core72pass and UI15pass; TS typecheck/buildpass; Linux all4 interrupted with logs preserved because the old controlled writer/budget override fixture was unsupported. New deterministic test providers use the existing runtime adapter and reserve/settle budget; never live evidence. All5 running, not all green; primary remains dirty and unintegrated. Source empty optional embedded material logging had an out-of-scope publicName reference; fixed to the registered tool name; targeted retest pending.
+
+Pure-fiction boundary first (tool and author instructions): every delivery row and presentation excludes rules, OOC, and tool/process explanation; mixed replies emit closed {{ooc}}...{{/ooc}} beside calls. If optional OOC material slips through, the author omits it/coverage; if required, stop without artifact. Presentation/expression guidance may not override this. Full player input is reference context, not an instruction to answer OOC inside the artifact. Proposal wording is nonbinding: the author rewrites notes into natural narrative/spoken sentences preserving assertions, uncertainty, speaker, audience, and stance; combine/split/rephrase allowed; adding gestures/actions/emotions/facts remains forbidden without supplied material.
+
+Narrow correction only: no new stages, interface arguments, semantic regex/gates, or extra worker/LLM lane. Failure evidence retained; fresh validation required.
+
+### 233.13 Mixed direct reply transport
+
+A framed OOC reply may occur on an earlier assistant step than the accepted story. It is not overwritten by later tool steps. The extension sends that explicit span through the existing visible coc-delivery channel with host-owned reference_reply:true metadata and triggerTurn:false, then removes text from the tool-call message to avoid duplicate display. It does not invoke a writer, close a fictional turn, emit a world commit, or enter the story artifact/memory job. Pure direct answers retain their existing path. The driver collects reference replies separately, deduplicates the two projections of a custom entry, and presents them before the accepted story while keeping delivery.rendered_text fiction-only. Existing Electron host-delivered custom-message projection displays this channel independently. No new public tool parameter or semantic classifier is introduced.
+
+### 233.14 Private result boundaries and writer-policy cache binding
+
+The author's canonical facts use the existing public mechanics projection, not raw receipts. Keeper-only results stay private, and a concealed roll must not supply its hidden grade or die values to the prose author. Only bounded public scalar labels/state fields enter that packet; existing hidden-name projection applies to names. The deterministic cache identity also binds the author's policy and the frozen host constraints so an artifact accepted under an earlier policy/constraint set is not reused as though it were a current one. Canonical receipts and memory authority are unchanged.
+
+
+### 233.15 Current validation checkpoint
+
+Optional final-output materials delivery (implementation in progress, 2026-10-12; docs/specs/final-output-materials.md; amends §163 reference delivery, §166 single-pass story prose direction, narrate/apply/ask terminal family).
+
+Status: implementation in progress in owned task worktree final-output-materials-20261012 (base afc44ce14; main 0.9.7 a8adf66266 dirty/unintegrated). Design commitments remain approved. Do not claim completion, ready, prose/naturalness improvement, or scenario ending complete.
+
+Architecture (unchanged): public narrate = repeatable private material validate/prepare; output = independent OPTIONAL bounded tool-enabled final author/publication; OOC direct; no direct_reply parameter, classifier, or automatic writer. table.narrate / table.ask remain publication owners; numeric resolve and transactions unchanged.
+
+Native seam: real Pi public hooks and real TS kernel with explicitly deterministic author/provider substitutes (not gameplay). feature18 coverage includes repeated checks, one canonical output, OOCnoJev, pendingchoice, mixed reply transport, privacy, source aliases, invalid/stale/failedGit/restart. UI15 pass; source guards9 pass; foundation/reader31 pass; TS typecheck/build pass.
+
+Linux evidence (not one pristine all-green full snapshot): all6 log 5671 extension tests, 5667 pass, 3 fail + 1 skipped — failures single-loop-looks-first-visit, markup-in-prose, provider-empty-responses. Those three corrected and rerun together: 27 pass 0 fail. Paths: .coc/playtests/final-output-validation-20261012/linux-split-all-6.log, linux-corrected-three.log, linux-driver-final.log; live dirs under final-output-live-20261012. Preserve all4 interrupted originals; all5 had 40 fails; all6 had 3. Python 2141 pass 2 skip; routing 12 pass; driver 96 pass after current source upload.
+
+Adapter: existing trusted runtime adapter for final author; reserve/settle budget if owned; other readers keep original behavior and extension order. Runtime writer confines exactly read/write/edit/bash to approved packet/draft/checker; expectedG45low validated. Fact input uses existing public mechanics projection; hidden die/grade withheld; names masked; cache binds writer policy and constraints. Structural coverage is not semantic proof.
+
+Live: turn15 pure OOC zero tools/writer, clock 53 unchanged; turn16 mixed failed OOC-in-artifact retained; turn18 front-separated OOC with driver-lost earlier reply fixed via existing visible coc-delivery reference_reply:true host metadata (no tool argument or world promotion); turn19 reply displayed separately, recorded artifact excludes OOC; Keeper repeated confirmation in two framed steps. Prompt tighten only: one complete OOC answer after needed reads, no repeats on retries; overlapping material claims may share one sentence/coverage quote. Real play: two settled scene transitions to Knott's office then asylum (registration/permission); latest NPC conversation in progress — not complete. KP chose only NPC/time effects for incidental registry writing — front Keeper logic/provenance gap, not object-document settlement. Same-model 2-case A/B favored baseline; no superiority/naturalness claim.
+
+Remaining: real-play natural ending/trueblock; review+commit owned changes; latest main integration when ownership safe; final lifecycle audit/classification. No main integration, push, or package yet. No new spec scope or permissions. Do not mix implementation status into game prompts.
+
+
+### 233.16 Final integration and validation record
+
+Integration checkpoint (latest supersedes older pending continuous-play notes; retain negative evidence). Approved split implemented in owned commit d8f6581a5 and merged latest main relay at cccada1dc; feature patch integrated in primary 0.9.7a by this integration commit, preserving all 39 original dirty/untracked files and manual conflicting tool descriptions. Public narrate prepares/checks privately and may repeat; optional output selects one tool-enabled G45low author and one accepted publication; OOC directly visible; no direct_reply; no automatic writer. Canonical private table.narrate/table.ask own publication/Git/memory. native18 checks include repeat checks, single publish, optional output, OOC/mixed transport, source/privacy, failedGit/restart/stale. UI15 and source guards9 pass. Linux final full all7 against cccada1dc passed: extension 5673 pass / 1 skip / 0 fail; Python 2141 pass / 2 skip; routing 12 pass; all three exit=0, wall=1215s. Primary working-tree compatibility is checked separately; unrelated uncommitted work is excluded from this commit. Preserve earlier all5 40fails, all6 3fails1skip; corrected3files rerun27pass; driver96pass. Real G45low sequential continuous session naturally completed one asylum visit episode through turns20-23 (registration/permission, female patient interview with NPC/time/clue receipts; player explicitly ended visit and returned). Whole Haunting campaign remains playable and has not ended. OOC zero writer previously validated; mixed direct channel visible separate from accepted story. FrontKeeper chose only NPC/time effects for registry writing, so object-document settlement is not established; keep as limitation, do not change adjacent system. Outbound time360minutes versus return30 is frontKeeper parameter continuity oddity; arithmetic correct, not evidence of author arithmetic changes. Same-material2case A/B favored old baseline; no naturalness superiority evidence. Structural material coverage is not semantic fidelity proof. No push/package. Evidence: .coc/playtests/final-output-validation-20261012/linux-integrated-all-7.log and live run final-output-continuous-20261012.

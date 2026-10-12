@@ -8,7 +8,7 @@ and ZIP packages use the same loader; save locks preserve the package bytes and
 accepted game results across application updates. See kernel contract section 26
 and `docs/specs/mods-execution.md` for the interface and verification record.
 
-COC Keeper for Pi：一个 Pi 包加一个编译后的 TypeScript 内核子进程。守秘人只见七个动词：`look`、`lookup`、`recall`、`resolve`、`apply`、`ask`、`narrate`。
+COC Keeper for Pi：一个 Pi 包加一个编译后的 TypeScript 内核子进程。守秘人只见八个动词：`look`、`lookup`、`recall`、`resolve`、`apply`、`ask`、`narrate`、`output`。`narrate` 可重复检查私有素材；`output` 是独立、可选的最终写出工具，超游可直接回复。
 
 - 架构规格：GitHub issue #12。切片票：#13 到 #18。
 - 扩展与内核之间的契约：`docs/kernel-rpc.md`。改契约先于改代码。系统语言英文、玩家语言由守秘人模型按 `play_language` 产出、机制走 JSON 投影：见 `Agents.md`。
@@ -19,7 +19,7 @@ COC Keeper for Pi：一个 Pi 包加一个编译后的 TypeScript 内核子进�
 ## 布局
 
 ```
-extensions/   Pi 扩展：kernel（七个工具、回合事务、行动准入、校验车道）、table（状态行）、memory（记忆抽取车道）、
+extensions/   Pi 扩展：kernel（八个工具、回合事务、行动准入、校验车道）、table（状态行）、memory（记忆抽取车道）、
               module（无人值守构建与按需深读，读者是子 pi 进程）、onboarding（建卡进程的 setup 工具）、lanes（共用）、
               deepseek（DeepSeek Extended provider，`openai-responses` + hosted web_search，从 PipiUI 上游移植）
 kernel-ts/    TypeScript 内核，编译为 build/kernel/rpc.mjs，默认由统一运行时启动

@@ -33,7 +33,7 @@ const directory = mkdtempSync(join(tmpdir(), "coc-abandoned-run-"));
 const abandoned = () => fauxAssistantMessage([], { stopReason: "aborted" });
 /** A Keeper turn that lands, and the assistant message the delivery replacement needs after it. */
 const delivered = (text) => [
-	fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" }),
+	fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" }),
 	fauxAssistantMessage("Should never be consumed."),
 ];
 const steers = (session) => customMessages(session.session, "coc-host").filter((message) => message.details.kind === "steer");

@@ -14,7 +14,7 @@ const fenced = '```json\n'+envelope+'\n```';
 const captured=JSON.parse(readFileSync(join(import.meta.dirname,'fixtures','delivery-recovery-20261006.json'),'utf8'));
 test('captured recipient-name wrapper is a validated call, and a bare offered identifier is never prose',()=>{
     const found=readTextToolCalls(captured.wrapper,COC_TOOLS);
-    assert.equal(found.kind,'calls');assert.equal(found.calls[0].name,'narrate');
+    assert.equal(found.kind,'calls');assert.equal(found.calls[0].name,"narrate");
     assert.ok(found.calls[0].arguments.text.includes('一块'));
     assert.equal(readTextToolCalls(captured.bare,COC_TOOLS).kind,'unroutable');
     for(const value of [{tool_uses:[]},{tool_uses:[{recipient_name:'narrate',parameters:{text:prose},extra:true}]},
@@ -25,7 +25,7 @@ test('captured recipient-name wrapper is a validated call, and a bare offered id
 test('native captured wrapper commits its contained prose instead of the JSON transport',async t=>{
     const table=await openTable({realKernel:true,campaign:'captured-wrapper',responses:[
         fauxAssistantMessage([fauxToolCall('look',{})],{stopReason:'toolUse'}),
-        fauxAssistantMessage([fauxToolCall('narrate',{text:prose})],{stopReason:'toolUse'}),fauxAssistantMessage(captured.wrapper)]});
+        fauxAssistantMessage([fauxToolCall("output",{text:prose})],{stopReason:'toolUse'}),fauxAssistantMessage(captured.wrapper)]});
     t.after(()=>table.dispose());await waitForIdle(table.session);await table.session.prompt('I ask for a discount.');await waitForIdle(table.session);
     const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/captured-wrapper/turns/0001.json')));
     assert.equal(record.rendered_text.includes('tool_uses'),false);assert.equal(record.rendered_text.includes('recipient_name'),false);
@@ -34,9 +34,9 @@ test('native captured wrapper commits its contained prose instead of the JSON tr
 for(const engine of ['legacy','hybrid-v1'])test(`bare final identifier is repaired once through an actual delivery on ${engine}`,async t=>{
     const hybrid=engine==='hybrid-v1'?createHybridEngine({env:process.env,decision:null}):undefined;
     const table=await openTable({...(hybrid?{runDriver:hybrid.runDriver,extraExtensions:[{name:'coc-hybrid-engine',factory:hybrid.extension}],env:{PI_COC_LOOP_ENGINE:engine}}:{}),
-        responses:[fauxAssistantMessage(captured.bare),fauxAssistantMessage([fauxToolCall('narrate',{text:prose})],{stopReason:'toolUse'})]});
+        responses:[fauxAssistantMessage(captured.bare),fauxAssistantMessage([fauxToolCall("output",{text:prose})],{stopReason:'toolUse'})]});
     t.after(()=>table.dispose());await table.session.prompt('I ask the clerk to continue.');await waitForIdle(table.session);
-    assert.ok(shown(table).includes('The clerk slides'));assert.equal(assistantTexts(table.session).includes('narrate'),false);
+    assert.ok(shown(table).includes('The clerk slides'));assert.equal(assistantTexts(table.session).includes("output"),false);
     assert.ok(table.telemetry().some(x=>x.reason==='text_tool_call_unroutable'));
 });
 test('only a complete, schema-valid, single registered call is routed', () => {
@@ -51,7 +51,7 @@ for (const spent of [false,true]) test(`real message_end routes fenced narrate w
     const campaign=spent?'text-call-spent':'text-call';
     const table=await openTable({realKernel:true,campaign,env:{PI_COC_SPEECH_STEER:'0',...(spent?{PI_COC_ADMISSION_MODEL:'nobody/home'}:{})},responses:[
         fauxAssistantMessage([fauxToolCall('look',{})],{stopReason:'toolUse'}),
-        fauxAssistantMessage([fauxToolCall('narrate',{text:'The room is quiet. The clerk waits by the counter.'})],{stopReason:'toolUse'}),
+        fauxAssistantMessage([fauxToolCall("output",{text:'The room is quiet. The clerk waits by the counter.'})],{stopReason:'toolUse'}),
         ...(spent ? [fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'move',to:'newspaper-morgue',via:'Cross the street.'}]})],{stopReason:'toolUse'}),fauxAssistantMessage([{type:'thinking',thinking:'Nothing else.'}])] : []),
         fauxAssistantMessage(fenced),
     ]});t.after(()=>table.dispose());assert.deepEqual(table.extensionsResult.errors,[]);await waitForIdle(table.session,{timeoutMs:60000});
@@ -59,7 +59,7 @@ for (const spent of [false,true]) test(`real message_end routes fenced narrate w
     const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns',campaign,'turns/0001.json'),'utf8'));
     assert.equal(record.text,prose);assert.equal(record.rendered_text.includes('```'),false);
     assert.equal(table.telemetry().filter(row=>row.reason==='text_tool_call_routed').length,1);
-    assert.ok(table.session.messages.some(message=>message.role==='toolResult' && message.toolName==='narrate'));
+    assert.ok(table.session.messages.some(message=>message.role==='toolResult' && message.toolName==="output"));
     if(spent)assert.equal(customMessages(table.session,'coc-host').filter(m=>m.details?.kind==='steer').length,1);
 });
 
@@ -82,7 +82,7 @@ test('§160.2: {name, arguments} is an envelope, bare or fenced, and a body of f
 
 test('§160.2: the recorded body routes as apply and then narrate, the narration with real line breaks', () => {
     const calls=textToolCalls(RECORDED,COC_TOOLS);
-    assert.deepEqual(calls?.map(call=>call.name),['apply','narrate']);
+    assert.deepEqual(calls?.map(call=>call.name),['apply',"narrate"]);
     assert.deepEqual(calls[0].arguments.effects.map(effect=>effect.clue),['catholic-wards','nailed-windows']);
     assert.ok(calls[1].arguments.text.startsWith('你把肩抵上后墙那扇门'));
     assert.ok(calls[1].arguments.text.includes('\n\n'));
@@ -115,7 +115,7 @@ for (const engine of ['legacy','hybrid-v1']) test(`§160.2 on the ${engine} engi
     const narrate=table.kernelRequests().find(request=>request.method==='table.narrate');
     assert.ok(narrate.params.text.startsWith('你把肩抵上后墙那扇门'));
     assert.equal(/```|"name"|\\n/.test(narrate.params.text),false);
-    assert.deepEqual(table.telemetry().filter(row=>row.reason==='text_tool_call_routed').map(row=>row.tool),['apply','narrate']);
+    assert.deepEqual(table.telemetry().filter(row=>row.reason==='text_tool_call_routed').map(row=>row.tool),['apply',"output"]);
 });
 
 // ---------------------------------------------------------------------------------------------------------
@@ -140,15 +140,15 @@ test('§160.4: the recorded message routes as its two lookups, in order, with th
 
 test('§160.4: a label, an array and `parameters` each route alone and together, bare and fenced', () => {
     const one=[{name:'look',arguments:look}];
-    const two=[{name:'look',arguments:look},{name:'narrate',arguments:{text:prose}}];
+    const two=[{name:'look',arguments:look},{name:'output',arguments:{text:prose}}];
     const cases=[
         [named2('look',look,'parameters'),one],
         ['tool_calls: '+named2('look',look),one],
         ['functions.call:\n'+named2('look',look),one],
-        ['['+named2('look',look)+','+named2('narrate',{text:prose})+']',two],
-        ['['+JSON.stringify({look})+','+named2('narrate',{text:prose},'parameters')+']',two],
-        ['calls:'+fence('['+named2('look',look,'parameters')+','+named2('narrate',{text:prose},'parameters')+']'),two],
-        [fence('['+named2('look',look)+']')+'\n'+fence(named2('narrate',{text:prose},'parameters')),two],
+        ['['+named2('look',look)+','+named2("output",{text:prose})+']',two],
+        ['['+JSON.stringify({look})+','+named2("output",{text:prose},'parameters')+']',two],
+        ['calls:'+fence('['+named2('look',look,'parameters')+','+named2("output",{text:prose},'parameters')+']'),two],
+        [fence('['+named2('look',look)+']')+'\n'+fence(named2("output",{text:prose},'parameters')),two],
     ];
     for (const [value,calls] of cases) assert.deepEqual(textToolCalls(value,COC_TOOLS),calls,value);
     assert.deepEqual(readTextToolCalls('x:'+fence(named2('look',look)),COC_TOOLS)?.forms,[{label:'x',array:false,key:'arguments'}]);
@@ -181,8 +181,8 @@ test('§160.4: a list naming a tool not offered, a wrong type, an extra key or s
         ['['+named2('look',look)+','+named2('setup',{step:'start'})+']',['look','setup'],[false,true]],
         [named2('lookup',{kind:'nope'},'parameters'),['lookup'],[true]],
         ['mon_calls:['+named2('look',{...look,extra:1})+']',['look'],[true]],
-        [fence(named2('narrate',JSON.stringify({text:prose}))),['narrate'],[true]],
-        [JSON.stringify({narrate:{text:12}}),['narrate'],[true]],
+        [fence(named2("output",JSON.stringify({text:prose}))),["output"],[true]],
+        [JSON.stringify({narrate:{text:12}}),["narrate"],[true]],
         [JSON.stringify({unknown:{text:prose}}),['unknown'],[true]],
     ];
     for (const [value,tools,failed] of cases) {
@@ -209,7 +209,7 @@ const delivered = '你把一块二搁在桌上。瘦削的老板瞥了一眼硬�
 
 for (const engine of ['legacy','hybrid-v1']) test(`§160.4 on the ${engine} engine: the recorded message runs both lookups, and the player reads the narration that follows them`,async t=>{
     const options=engineOptions(engine);
-    const table=await openTable({...options,responses:[recordedMessage(),fauxAssistantMessage([fauxToolCall('narrate',{text:delivered})],{stopReason:'toolUse'})]});
+    const table=await openTable({...options,responses:[recordedMessage(),fauxAssistantMessage([fauxToolCall("output",{text:delivered})],{stopReason:'toolUse'})]});
     t.after(()=>table.dispose());
     await table.session.prompt(LIST.player_text);await waitForIdle(table.session,{timeoutMs:60000});
     // The message Pi runs is the calls the text spelled, with the arguments it wrote, and nothing of the text.
@@ -236,9 +236,9 @@ test('§160.4 with the emitted kernel: the turn record holds the narration, not 
     const campaign='text-call-list';
     const table=await openTable({realKernel:true,campaign,env:{PI_COC_SPEECH_STEER:'0'},responses:[
         fauxAssistantMessage([fauxToolCall('look',{})],{stopReason:'toolUse'}),
-        fauxAssistantMessage([fauxToolCall('narrate',{text:'The room is quiet. The clerk waits by the counter.'})],{stopReason:'toolUse'}),
+        fauxAssistantMessage([fauxToolCall("output",{text:'The room is quiet. The clerk waits by the counter.'})],{stopReason:'toolUse'}),
         recordedMessage(),
-        fauxAssistantMessage([fauxToolCall('narrate',{text:delivered})],{stopReason:'toolUse'}),
+        fauxAssistantMessage([fauxToolCall("output",{text:delivered})],{stopReason:'toolUse'}),
     ]});
     t.after(()=>table.dispose());assert.deepEqual(table.extensionsResult.errors,[]);await waitForIdle(table.session,{timeoutMs:60000});
     await table.session.prompt(LIST.player_text);await waitForIdle(table.session,{timeoutMs:60000});
@@ -253,7 +253,7 @@ const UNROUTABLE = 'mon_calls:['+named2('lookup',{kind:'nope',query:'The Last St
 
 for (const engine of ['legacy','hybrid-v1']) test(`§160.4 on the ${engine} engine: an unroutable list is never shown, its fix reaches the Keeper once, and the next message delivers`,async t=>{
     const options=engineOptions(engine);
-    const table=await openTable({...options,responses:[fauxAssistantMessage(UNROUTABLE),fauxAssistantMessage([fauxToolCall('narrate',{text:delivered})],{stopReason:'toolUse'})]});
+    const table=await openTable({...options,responses:[fauxAssistantMessage(UNROUTABLE),fauxAssistantMessage([fauxToolCall("output",{text:delivered})],{stopReason:'toolUse'})]});
     t.after(()=>table.dispose());
     await table.session.prompt(LIST.player_text);await waitForIdle(table.session,{timeoutMs:60000});
     assert.equal(table.kernelRequests().some(request=>request.method==='table.lookup'),false);

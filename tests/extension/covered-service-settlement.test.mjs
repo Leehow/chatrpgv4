@@ -23,7 +23,7 @@ async function ready(workspace,prior=0){
 for(const category of ['purchase','living'])test(`${category}: filling the chosen full quantity needs no price-confirmation turn when cash delta is zero`,async t=>{
   const text='The attendant fills the tank and points you toward the diner.';
   const table=await openTable({realKernel:true,prepareWorkspace:ready,responses:[
-    fauxAssistantMessage([fauxToolCall('apply',{effects:[expense(category),{kind:'flag',name:'tank-filled',value:true}],narrate:text})],{stopReason:'toolUse'}),
+    fauxAssistantMessage([fauxToolCall('apply',{effects:[expense(category),{kind:'flag',name:'tank-filled',value:true}],narrate:text}), fauxToolCall("output", {})],{stopReason:'toolUse'}),
   ],laneResponses:{admission:[async context=>{
     const material=admissionProposes(context.messages.filter(message=>message.role==='user').flatMap(message=>message.content.map(block=>block.text??'')).join(''));
     assert.match(material,/registered_cash_context=/);
@@ -47,7 +47,7 @@ for(const category of ['purchase','living'])test(`${category}: filling the chose
 test('a nominally small fill-up that exceeds the daily aggregate still needs acceptance of its actual debit',async t=>{
   const table=await openTable({realKernel:true,prepareWorkspace:workspace=>ready(workspace,1),responses:[
     fauxAssistantMessage([fauxToolCall('apply',{effects:[expense('purchase'),{kind:'flag',name:'tank-filled',value:true}]})],{stopReason:'toolUse'}),
-    fauxAssistantMessage([fauxToolCall('narrate',{text:'The attendant quotes the full bill and waits for your answer.'})],{stopReason:'toolUse'}),
+    fauxAssistantMessage([fauxToolCall("output",{text:'The attendant quotes the full bill and waits for your answer.'})],{stopReason:'toolUse'}),
   ],laneResponses:{admission:[async context=>{
     const material=context.messages.filter(message=>message.role==='user').flatMap(message=>message.content.map(block=>block.text??'')).join('');
     assert.match(material,/"delta":-2.71/);
@@ -67,7 +67,7 @@ test('a mistaken synchronous quote for a chosen covered service is corrected, th
   const review=fauxAssistantMessage(JSON.stringify({verdict:'entailed',grounds:'The player already chose this complete covered fill-up'}));
   const table=await openTable({realKernel:true,prepareWorkspace:ready,responses:[
     fauxAssistantMessage([fauxToolCall('apply',{effects:[{...bill,mode:'quote',quote:'Fill-up'}]})],{stopReason:'toolUse'}),
-    fauxAssistantMessage([fauxToolCall('apply',{effects:[bill,{kind:'flag',name:'tank-filled',value:true}],narrate:text})],{stopReason:'toolUse'}),
+    fauxAssistantMessage([fauxToolCall('apply',{effects:[bill,{kind:'flag',name:'tank-filled',value:true}],narrate:text}), fauxToolCall("output", {})],{stopReason:'toolUse'}),
   ],laneResponses:{admission:[review,review]}});
   t.after(()=>table.dispose());
   await table.session.prompt('Fill the tank; it needs three gallons.');
@@ -84,7 +84,7 @@ test('repeated zero merchandise input stays out of the kernel and corrected nomi
   const good={...expense('living'),bill:'Fill-up'},bad={...good,items:[{name:'Gasoline',quantity:3,unit_price:0}]};
   const text='The attendant fills the tank. "Per gallon {{price:Fill-up:unit}}, total {{price:Fill-up:total}}."';
   const table=await openTable({realKernel:true,prepareWorkspace:ready,responses:[bad,bad,bad,bad,good].map(e=>fauxAssistantMessage([
-    fauxToolCall('apply',{effects:[e],...(e===good?{narrate:text}:{})})],{stopReason:'toolUse'})),
+    fauxToolCall('apply',{effects:[e],...(e===good?{narrate:text}:{})})],{stopReason:'toolUse'})).concat(fauxAssistantMessage([fauxToolCall('output',{})],{stopReason:'toolUse'})),
     laneResponses:{admission:[fauxAssistantMessage(JSON.stringify({verdict:'entailed',grounds:'The full service was chosen; its actual cash debit is zero'}))]}});
   t.after(()=>table.dispose());await table.session.prompt('Fill the tank; it needs three gallons.');
   await waitFor(()=>assistantTexts(table.session).some(s=>s.includes('total 1.71')),{label:'corrected nominal bill'});
@@ -100,7 +100,7 @@ test('a price-only question remains an offer and cannot complete or charge a cov
   const bill={...expense('purchase'),mode:'quote',quote:'Fill-up'};
   const text='The attendant offers gas at {{price:Fill-up:unit}} per gallon. The pump stays off.';
   const table=await openTable({realKernel:true,prepareWorkspace:ready,responses:[fauxAssistantMessage([
-    fauxToolCall('apply',{effects:[bill],narrate:text})],{stopReason:'toolUse'})],
+    fauxToolCall('apply',{effects:[bill],narrate:text}), fauxToolCall("output", {})],{stopReason:'toolUse'})],
     laneResponses:{admission:[fauxAssistantMessage(JSON.stringify({verdict:'not_authorized',grounds:'The player asked only the price and chose no purchase',missing:'choose the service'}))]}});
   t.after(()=>table.dispose());await table.session.prompt('What would three gallons cost?');
   await waitFor(()=>assistantTexts(table.session).some(s=>s.includes('0.57 per gallon')),{label:'bound price-only offer'});
@@ -113,7 +113,7 @@ test('decimal-string unit prices survive native tools, exact kernel settlement a
   const bill={...expense('purchase'),bill:'Fill-up',items:[{name:'Gasoline',quantity:3,unit_price:'0.57'}]};
   const text='The attendant fills the tank. "Per gallon {{price:Fill-up:unit}}, total {{price:Fill-up:total}}."';
   const table=await openTable({realKernel:true,prepareWorkspace:ready,responses:[fauxAssistantMessage([
-    fauxToolCall('apply',{effects:[bill],narrate:text})],{stopReason:'toolUse'})],
+    fauxToolCall('apply',{effects:[bill],narrate:text}), fauxToolCall("output", {})],{stopReason:'toolUse'})],
     laneResponses:{admission:[fauxAssistantMessage(JSON.stringify({verdict:'entailed',grounds:'The complete covered service was chosen'}))]}});
   t.after(()=>table.dispose());await table.session.prompt('Fill the tank; it needs three gallons.');
   await waitFor(()=>assistantTexts(table.session).some(s=>s.includes('total 1.71')),{label:'decimal-string bill'});

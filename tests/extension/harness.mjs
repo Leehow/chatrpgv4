@@ -21,6 +21,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxProvider, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
+import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
+import {readTextToolCalls} from '../../extensions/kernel/text-tool-call.ts';
 import {
 	createAgentSession,
 	DefaultResourceLoader,
@@ -57,6 +59,9 @@ export function createRealCampaign(workspace, campaign, { module = "the-haunting
 }
 
 function setEnv(values) {
+    // Manually composed unit hosts also use a bounded deterministic author, never real provider credentials.
+    if(Object.hasOwn(values,'PI_COC_KERNEL_CMD')&&!Object.hasOwn(values,'PI_COC_READER_CMD'))
+        values={PI_COC_READER_CMD:JSON.stringify([process.execPath,join(HERE,'fixtures/legacy-output-writer.mjs')]),...values};
 	const previous = new Map();
 	for (const [key, value] of Object.entries(values)) {
 		previous.set(key, process.env[key]);
@@ -215,6 +220,8 @@ function withDefaultResponse(handle, fallback) {
  */
 export async function openTable({
 	responses = [],
+    /** Old terminal fixtures are explicitly migrated to output; native split tests disable this adapter. */
+    legacyDeliveryFixtures = true,
 	campaign = "test-camp",
 	env = {},
 	ui = createFakeUI(),
@@ -308,7 +315,24 @@ export async function openTable({
 	if (realKernel && prepareWorkspace) await prepareWorkspace(workspace);
 
 	const faux = keeperProviderCallbacks ? withProviderCallbacks(fauxProvider()) : fauxProvider();
-	faux.setResponses(responses);
+    const migrate=message=>{
+        if(!legacyDeliveryFixtures||!message?.content)return message;
+        const output=COC_TOOLS.find(tool=>tool.name==='output');
+        const legacyTools=COC_TOOLS.map(tool=>tool.name==='narrate'?{...output,name:'narrate'}:tool);
+        return {...message,content:message.content.map(block=>{
+            // Transport fixtures keep their original grammar; only the explicitly named terminal is migrated.
+            if(block.type==='text'&&readTextToolCalls(block.text,legacyTools)?.kind==='calls')
+                return {...block,text:block.text.replaceAll('"narrate"','"output"')};
+            if(block.type==='toolCall'&&block.name==='narrate'&&block.arguments?.text!==undefined&&block.arguments?.delivery===undefined)
+                return {...block,name:'output'};
+            if(block.type==='toolCall'&&block.name==='ask'&&block.arguments?.text){
+                const {text,kind,options,binds,...other}=block.arguments;
+                return {...block,name:'output',arguments:{...other,text,choice:{kind,options,...(binds?{binds}:{})}}};
+            }
+            return block;
+        })};
+    };
+	faux.setResponses(responses.map(response=>typeof response==='function'?context=>migrate(response(context)):migrate(response)));
 	const verifierFaux = withProviderCallbacks(fauxProvider({ api: "openai-completions", provider: "verifier", models: [{ id: "v1" }] }));
 	const memoryFaux = withProviderCallbacks(fauxProvider({ api: "openai-completions", provider: "memory", models: [{ id: "m1" }] }));
 	const admissionFaux = withDefaultResponse(
@@ -378,7 +402,7 @@ export async function openTable({
 		settingsManager,
 		...(systemPrompt !== undefined ? { systemPrompt } : {}),
 		additionalExtensionPaths: [
-			join(REPO, "extensions", "kernel"),
+			legacyDeliveryFixtures ? join(HERE, "fixtures", "kernel-fixture.mjs") : join(REPO, "extensions", "kernel"),
 			join(REPO, "extensions", "onboarding"),
 			join(REPO, "extensions", "module"),
 			join(REPO, "extensions", "memory"),

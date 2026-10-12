@@ -25,6 +25,11 @@ function helperOptions(context: RuntimeContext) {
 }
 
 async function readerContext(context: RuntimeContext, request: ReaderRequest, signal: AbortSignal): Promise<RuntimeContext> {
+	if (request.finalOutput) return Object.freeze({...context, env:Object.freeze({...context.env,
+		PI_GROK_BUILD_IMAGE_TOOLS:'0',
+		PI_COC_FINAL_OUTPUT:'1', PI_COC_READER_CHECK:join(request.cwd,'host-bin','coc-read-check'),
+		PATH:join(request.cwd,'host-bin')+delimiter+(context.env.PATH??''),
+		...(request.maxRequests ? {PI_COC_READER_MAX_REQUESTS:String(request.maxRequests)} : {})})});
   ensureActive(signal);
   const bin = join(request.cwd, "host-bin");
   await mkdir(bin, { recursive: true });

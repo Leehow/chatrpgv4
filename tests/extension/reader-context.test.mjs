@@ -13,6 +13,29 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 
+test('final writing tools expose only the approved packet and draft, including command and symlink guards', async t => {
+  const fixture=await confinementFixture(t);
+  const env={...fixture.env,PI_COC_FINAL_OUTPUT:'1'};
+  delete env.PI_COC_READER_SOURCE;
+  const guard=createReaderToolGuard(fixture.cwd,env);
+  for(const toolName of ['pdf','image_gen','web_search','resolve','apply'])
+    assert.ok(guard({toolName,input:{}})?.block,'the author cannot invoke '+toolName);
+  assert.equal(guard({toolName:'read',input:{path:'task.json'}}),undefined);
+  assert.equal(guard({toolName:'write',input:{path:'draft.json'}}),undefined);
+  for(const path of ['check.mjs','accepted.json','.pi/settings.json','host-bin/coc-read-check','../secret.txt'])
+    assert.ok(guard({toolName:'write',input:{path}})?.block,path);
+  for(const path of ['check.mjs','events.jsonl','accepted.json',join(fixture.outside,'secret.txt')])
+    assert.ok(guard({toolName:'read',input:{path}})?.block,path);
+  await rm(join(fixture.cwd,'draft.json'));
+  await symlink(join(fixture.outside,'secret.txt'),join(fixture.cwd,'draft.json'));
+  assert.ok(guard({toolName:'read',input:{path:'draft.json'}})?.block);
+  assert.ok(guard({toolName:'edit',input:{path:'draft.json'}})?.block);
+  assert.ok(guard({toolName:'bash',input:{command:fixture.checker+'; cat ../secret.txt'}})?.block);
+  assert.equal(guard({toolName:'bash',input:{command:fixture.checker}}),undefined);
+  await writeFile(fixture.wrapper,'#!/bin/sh\necho changed\n');
+  assert.ok(guard({toolName:'bash',input:{command:fixture.checker}})?.block);
+});
+
 test('host original images keep stable identity when Pi moves the projection within later context',()=>{
  const host={role:'custom',details:{kind:'host_source_pages',source_sha256:'a'.repeat(64)},
   content:Array.from({length:6},(_,i)=>({type:'image',data:Buffer.from('original-page-'+i).toString('base64')}))};

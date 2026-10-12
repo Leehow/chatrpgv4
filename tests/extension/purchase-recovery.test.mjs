@@ -104,7 +104,7 @@ test('native atomic repricing cancels the held old offer and fulfills the covere
   const priceVerdict={...approved,cash_limits:[{index:0,amount:1,basis:'price',evidence:'one-dollar bill'}]};
   const revised={...bill,bill:'Negotiated counter bill',items:[{name:'Cola',quantity:2,unit_price:'0.40'}]},goods={...item,to:'thomas-hayes'};
   const table=await openTable({realKernel:true,prepareWorkspace:async workspace=>{await ready(workspace);const p=join(workspace,'.coc/campaigns/test-camp/party/thomas-hayes.json'),c=JSON.parse(await readFile(p));c.finance.daily_spending.total=1.1;await writeFile(p,JSON.stringify(c));},responses:[
-    response('apply',{effects:[bill,goods]}),response('narrate',{text:'The one-dollar bill still needs separate cash authority.'}),
+    response('apply',{effects:[bill,goods]}),response("output",{text:'The one-dollar bill still needs separate cash authority.'}),
     response('apply',{effects:[{kind:'cash',mode:'cancel',bill:bill.bill},revised,goods],narrate:'The new eighty-cent agreement is paid and the two colas are handed over.'})
   ],laneResponses:{admission:Array.from({length:12},()=>input=>{const body=input.messages.filter(m=>m.role==='user').flatMap(m=>m.content.map(c=>c.text??'')).join('\n');return fauxAssistantMessage(JSON.stringify(body.includes('[Cash authority table:')&&body.includes('one-dollar bill')?priceVerdict:approved));})}});
   t.after(()=>table.dispose());await table.session.prompt('Buy the one-dollar bill.');await waitFor(()=>assistantTexts(table.session).some(x=>x.includes('separate cash authority')));
@@ -133,9 +133,9 @@ const response=(name,args)=>fauxAssistantMessage([fauxToolCall(name,args)],{stop
 test('native review caps a false approval, preserves rates on retry, then accepted catch-up settles once',async t=>{
   const goods={...item,to:'thomas-hayes'},priceVerdict={...approved,cash_limits:[{index:0,amount:3,basis:'price',evidence:'one-dollar bill'}]},cashVerdict={...approved,cash_limits:[{index:0,amount:3,basis:'input',evidence:'full three-dollar cash debit'}]};
   const table=await openTable({realKernel:true,prepareWorkspace:ready,responses:[
-    response('apply',{effects:[bill,goods]}),response('narrate',{text:'The original one-dollar goods wait. Their cash requirement is separate.'}),
+    response('apply',{effects:[bill,goods]}),response("output",{text:'The original one-dollar goods wait. Their cash requirement is separate.'}),
     response('apply',{effects:[{...bill,items:[{name:'Cola',quantity:2,unit_price:'1.5'}]},goods]}),
-    response('apply',{effects:[bill,goods],narrate:'The original goods are paid and handed over.'}),
+    response('apply',{effects:[bill,goods],narrate:'The original goods are paid and handed over.'}),response('output',{}),
   ],laneResponses:{admission:Array.from({length:12},()=>input=>{
     const body=input.messages.filter(m=>m.role==='user').flatMap(m=>m.content.map(c=>c.text??'')).join('\n');
     return fauxAssistantMessage(JSON.stringify(body.includes('[Cash authority table:')?(body.includes('I accept the full three-dollar cash debit')?cashVerdict:priceVerdict):approved));
@@ -153,7 +153,7 @@ test('native review caps a false approval, preserves rates on retry, then accept
 });
 test('native affordability refusal cannot be bypassed by issuing purchased inventory alone',async t=>{
   const table=await openTable({realKernel:true,prepareWorkspace:async workspace=>{await ready(workspace);const p=join(workspace,'.coc/campaigns/test-camp/party/thomas-hayes.json'),card=JSON.parse(await readFile(p,'utf8'));card.finance.cash.amount=2;await writeFile(p,JSON.stringify(card));},responses:[
-    response('apply',{effects:[bill,{...item,to:'thomas-hayes'}]}),response('apply',{effects:[{...item,to:'thomas-hayes'}]}),response('narrate',{text:'The purchase remains unpaid and the goods stay at the counter.'}),
+    response('apply',{effects:[bill,{...item,to:'thomas-hayes'}]}),response('apply',{effects:[{...item,to:'thomas-hayes'}]}),response("output",{text:'The purchase remains unpaid and the goods stay at the counter.'}),
   ]});t.after(()=>table.dispose());await table.session.prompt('Buy the one-dollar bill.');await waitFor(()=>assistantTexts(table.session).some(x=>x.includes('remains unpaid')));
   const record=JSON.parse(await readFile(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));assert.equal(record.receipts.length,0);
   const card=JSON.parse(await readFile(join(table.workspace,'.coc/campaigns/test-camp/party/thomas-hayes.json'),'utf8'));assert.equal(card.finance.cash.amount,2);assert.equal(card.finance.daily_spending.total,2);

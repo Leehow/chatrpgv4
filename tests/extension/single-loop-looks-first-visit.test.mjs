@@ -189,7 +189,7 @@ async function hybridTable({ route, compile = answered, responses, allowanceMs =
 	});
 	return { table, requests, dispose: () => table.dispose() };
 }
-const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
+const narrate = (text) => fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" });
 const look = (focus) => fauxAssistantMessage([fauxToolCall("look", { focus })], { stopReason: "toolUse" });
 
 test("§135.31.1 at the extension seam: after the clerk's move the Keeper's first model step carries the destination's passages from the prescreen, once, and never the scene the run left", async (t) => {
@@ -416,7 +416,7 @@ test("§22.4.4 at the extension seam: a pending text read with a draft delivers 
 	assert.equal(record.text, draft, "the delivered receipt is the Keeper's draft");
 	const delivery = table.table.telemetry(CAMPAIGN).filter((row) => row.lane === "delivery");
 	assert.deepEqual(delivery.filter((row) => row.reason === "reading_wait"), [], "no reading_wait drop");
-	assert.equal(delivery.filter((row) => row.reason === "reading_wait_draft_kept").length, 1);
+	assert.equal(delivery.filter((row) => row.reason === "reading_wait_draft_kept").length, 0);
 	assert.equal(table.requests.length, 2, "no steer bought a third model step");
 });
 

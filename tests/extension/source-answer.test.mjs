@@ -9,7 +9,7 @@ const answer={status:'answered',answer:'The source describes a harbor worker.',l
 test('the actual lookup returns pending while its original-excerpt stage is still running', async t => {
  const table=await openTable({env:{PI_COC_SOURCE_ANSWER_ALLOWANCE_MS:'20'},responses:[
   fauxAssistantMessage([fauxToolCall('lookup',{kind:'source',source_mode:'answer',query:'Lena',question:'Her work?'})],{stopReason:'toolUse'}),
-  fauxAssistantMessage([fauxToolCall('narrate',{text:'The conversation continues at the harbor.'})],{stopReason:'toolUse'}),
+  fauxAssistantMessage([fauxToolCall("output",{text:'The conversation continues at the harbor.'})],{stopReason:'toolUse'}),
   fauxAssistantMessage('The conversation continues at the harbor.')
  ]});t.after(()=>table.dispose());let finish, references=0, fallback=0;
  table.emit('coc:reading-bridge',{reference:async()=>{references++;return new Promise(resolve=>{finish=resolve;});},
@@ -27,7 +27,7 @@ test('the actual lookup returns pending while its original-excerpt stage is stil
 test('source answer mode returns checked evidence directly instead of a graph lookup',async t=>{
  const table=await openTable({responses:[
   fauxAssistantMessage([fauxToolCall('lookup',{kind:'source',source_mode:'answer',query:'Lena',question:'What does the book say about her work?'})],{stopReason:'toolUse'}),
-  fauxAssistantMessage([fauxToolCall('narrate',{text:'She works at the harbor.'})],{stopReason:'toolUse'}),fauxAssistantMessage('She works at the harbor.'),
+  fauxAssistantMessage([fauxToolCall("output",{text:'She works at the harbor.'})],{stopReason:'toolUse'}),fauxAssistantMessage('She works at the harbor.'),
  ]});t.after(()=>table.dispose());const requests=[];
  table.emit('coc:reading-bridge',{async ensure(mid,params){requests.push(params);return{state:'ready',source_answer:answer};}});
  await table.session.prompt('Check her work in the source.');
@@ -40,7 +40,7 @@ test('source answer mode returns checked evidence directly instead of a graph lo
 test('source answer mode requires a question before starting any reader',async t=>{
  const table=await openTable({responses:[
   fauxAssistantMessage([fauxToolCall('lookup',{kind:'source',source_mode:'answer',query:'Lena'})],{stopReason:'toolUse'}),
-  fauxAssistantMessage([fauxToolCall('narrate',{text:'The question remains open.'})],{stopReason:'toolUse'}),fauxAssistantMessage('The question remains open.'),
+  fauxAssistantMessage([fauxToolCall("output",{text:'The question remains open.'})],{stopReason:'toolUse'}),fauxAssistantMessage('The question remains open.'),
  ]});t.after(()=>table.dispose());let calls=0;
  table.emit('coc:reading-bridge',{async ensure(){calls++;return{state:'ready',source_answer:answer};}});
  await table.session.prompt('Clarify the source.');assert.equal(calls,0);
@@ -50,7 +50,7 @@ test('source answer mode requires a question before starting any reader',async t
 test('source answer timeout tells the Keeper to preserve answer mode on a later retry',async t=>{
  const table=await openTable({responses:[
   fauxAssistantMessage([fauxToolCall('lookup',{kind:'source',source_mode:'answer',query:'Lena',question:'Her work?'})],{stopReason:'toolUse'}),
-  fauxAssistantMessage([fauxToolCall('narrate',{text:'The conversation continues here.'})],{stopReason:'toolUse'}),fauxAssistantMessage('The conversation continues here.'),
+  fauxAssistantMessage([fauxToolCall("output",{text:'The conversation continues here.'})],{stopReason:'toolUse'}),fauxAssistantMessage('The conversation continues here.'),
  ]});t.after(()=>table.dispose());
  table.emit('coc:reading-bridge',{async ensure(){throw new KernelError({code:'needs',message:'The source is still being read',details:{reason:'reading_timeout'}});}});
  await table.session.prompt('Check the source.');
@@ -62,7 +62,7 @@ test('source answer timeout tells the Keeper to preserve answer mode on a later 
 test('an unresolved consultation is returned explicitly and never prepared implicitly',async t=>{
  const table=await openTable({responses:[
   fauxAssistantMessage([fauxToolCall('lookup',{kind:'source',source_mode:'answer',query:'Lena',question:'What is unknown?'})],{stopReason:'toolUse'}),
-  fauxAssistantMessage([fauxToolCall('narrate',{text:'That detail remains unknown.'})],{stopReason:'toolUse'}),fauxAssistantMessage('That detail remains unknown.'),
+  fauxAssistantMessage([fauxToolCall("output",{text:'That detail remains unknown.'})],{stopReason:'toolUse'}),fauxAssistantMessage('That detail remains unknown.'),
  ]});t.after(()=>table.dispose());const purposes=[];
  table.emit('coc:reading-bridge',{async ensure(mid,params){purposes.push(params.purpose);return{state:'ready',source_answer:{...answer,status:'unresolved',answer:'The inspected page does not establish it.',limitations:'Only the cited passage was checked.',supported:false}};}});
  await table.session.prompt('Consult the source without changing the setting.');
@@ -74,7 +74,7 @@ test('actual source retry keeps consultation memo only on answer, never on detai
  for(const mode of ['prepare','answer']){
   const table=await openTable({responses:[
    fauxAssistantMessage([fauxToolCall('lookup',{kind:'source',source_mode:mode,retry:true,query:'Lena',question:'Her work?'})],{stopReason:'toolUse'}),
-   fauxAssistantMessage([fauxToolCall('narrate',{text:'The source request remains explicit.'})],{stopReason:'toolUse'}),
+   fauxAssistantMessage([fauxToolCall("output",{text:'The source request remains explicit.'})],{stopReason:'toolUse'}),
    fauxAssistantMessage('The source request remains explicit.')
   ]});t.after(()=>table.dispose());const requests=[];
   table.emit('coc:reading-bridge',{async ensure(_mid,params){

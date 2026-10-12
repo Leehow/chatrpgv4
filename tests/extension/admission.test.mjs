@@ -46,7 +46,7 @@ function newspaperTurn() {
 			],
 			{ stopReason: "toolUse" },
 		),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "报纸的事，你还没说要去哪里查。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: "报纸的事，你还没说要去哪里查。" })], { stopReason: "toolUse" }),
 	];
 }
 
@@ -145,7 +145,7 @@ test('different map regions are different admission proposals',async t=>{
 	const table=await openTable({responses:[
 		fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'map',name:'house-map',regions:['entry'],region_labels:{entry:'门厅'},level_labels:{'Ground Floor':'一层'},label:'宅邸地图',why:'seen'}]})],{stopReason:'toolUse'}),
 		fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'map',name:'house-map',regions:['cellar'],region_labels:{cellar:'地窖'},level_labels:{Basement:'地下室'},label:'宅邸地图',why:'seen later'}]})],{stopReason:'toolUse'}),
-		fauxAssistantMessage([fauxToolCall('narrate',{text:'你记下了两处格局。'})],{stopReason:'toolUse'}),
+		fauxAssistantMessage([fauxToolCall("output",{text:'你记下了两处格局。'})],{stopReason:'toolUse'}),
 	],laneResponses:{admission:[verdict({verdict:'authorized',grounds:'entry seen'}),verdict({verdict:'authorized',grounds:'cellar seen'})]}});
 	t.after(()=>table.dispose());
 	await table.session.prompt('我依次查看门厅和地窖');
@@ -162,7 +162,7 @@ test("a rewording of a refused action within the turn is still refused; the same
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "newspaper-morgue", why: "the player wants the papers" }] })], { stopReason: "toolUse" }),
 			// A different proposal: reviewed afresh, with the earlier refusal in its context.
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "central-library" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你还没说要去哪里。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你还没说要去哪里。" })], { stopReason: "toolUse" }),
 		],
 		laneResponses: {
 			admission: [
@@ -190,9 +190,9 @@ test("a new player input is a new context: the verdict cache does not outlive th
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "newspaper-morgue" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "去哪里查？" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "去哪里查？" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "newspaper-morgue" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你到了剪报室。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你到了剪报室。" })], { stopReason: "toolUse" }),
 		],
 		laneResponses: {
 			admission: [
@@ -218,7 +218,7 @@ test("an unavailable review refuses with a service status; the Keeper is not tol
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "翻剪报", method: "用图书馆使用查旧闻" } })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "桌子暂时没法结算这个动作。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "桌子暂时没法结算这个动作。" })], { stopReason: "toolUse" }),
 		],
 		// No provider by that name: the lane cannot resolve its model.
 		env: { PI_COC_ADMISSION_MODEL: "nobody/home" },
@@ -254,7 +254,7 @@ test("bookkeeping, NPC actors and sanity checks bypass admission while a display
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "corbitt-house", label: "科比特老宅" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { actor: "看门人", intent: "social", goal: "把人赶走", method: "恐吓" } })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "看见了那东西", method: "目睹", decision: "sanity:check", san_loss: "0/1D6", involuntary: "freeze" } })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "看门人走了。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "看门人走了。" })], { stopReason: "toolUse" }),
 		],
 		laneResponses: { admission: [verdict({ verdict: "not_player_action", grounds: "the label presents the same registered scene" })] },
 	});
@@ -273,7 +273,7 @@ test("a recovered turn is reviewed against the words the broken turn was answeri
 		env: { FAKE_KERNEL_PENDING: "1" },
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "cellar" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你摸到墙上的开关。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你摸到墙上的开关。" })], { stopReason: "toolUse" }),
 		],
 		laneResponses: { admission: [verdict({ verdict: "authorized", grounds: "the player said they go down to the cellar" })] },
 	});
@@ -292,7 +292,7 @@ test("a continuation is reviewed beside the immediately preceding stranded decla
 		env: { FAKE_KERNEL_INTERRUPTED_PLAYER_TEXT: "我骑车去镇里的酒馆。" },
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "last-stop" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "你沿主街骑到酒馆门前。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "你沿主街骑到酒馆门前。" })], { stopReason: "toolUse" }),
 		],
 		laneResponses: { admission: [verdict({ verdict: "authorized", grounds: "continue resumes the immediately preceding unfinished ride to the bar" })] },
 	});
@@ -309,7 +309,7 @@ test("an uncertain verdict refuses too, naming what is unclear", async (t) => {
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "撬开柜子", method: "用力量撬", skill: "STR" } })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "柜子钉死了。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "柜子钉死了。" })], { stopReason: "toolUse" }),
 		],
 		laneResponses: { admission: [verdict({ verdict: "uncertain", grounds: "looking at a cupboard is not prying it", missing: "whether to force the nailed cupboard open" })] },
 	});
@@ -328,7 +328,7 @@ test("a malformed verdict is no verdict: the action is refused as unavailable, n
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 60 }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "时间没有过去。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "时间没有过去。" })], { stopReason: "toolUse" }),
 		],
 		laneResponses: { admission: [fauxAssistantMessage(JSON.stringify({ verdict: "sure, go ahead" })), fauxAssistantMessage(JSON.stringify({ verdict: "sure, go ahead" }))] },
 	});
@@ -355,7 +355,7 @@ test("the player's answer to an ask is not a new proposal: the resolve that sett
 			fauxAssistantMessage([fauxToolCall("ask", { kind: "mechanics", text: "抽屉里什么也没有。", options: ["push", "accept"] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "再翻一遍抽屉", method: "把抽屉整个倒出来", push: true } })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "combat", goal: "夺下那把刀", method: "扑上去抢", target: "看门人", weapon: "unarmed" } })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "抽屉底下压着一张纸。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "抽屉底下压着一张纸。" })], { stopReason: "toolUse" }),
 		],
 		laneResponses: { admission: [verdict({ verdict: "authorized", grounds: "the player said they lunge for the knife" })] },
 	});
@@ -391,7 +391,7 @@ test("a kernel-required authored encounter move stays inside the player's admitt
 				effects: [{ kind: "move", to: "corbitt-confrontation", via: "the chosen attack reaches the authored encounter" }],
 			})], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("resolve", { action: attack })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "撬棍落下。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "撬棍落下。" })], { stopReason: "toolUse" }),
 		],
 		env: {
 			FAKE_KERNEL_ERRORS: JSON.stringify({
@@ -448,9 +448,9 @@ test("a repeated outage stops promising a resend and notifies the operator once 
 			// Turn 1: two gated calls, and the lane cannot resolve its model for either.
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "翻剪报", method: "用图书馆使用查旧闻" } })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 30 }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "桌子暂时没法结算。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "桌子暂时没法结算。" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "翻剪报", method: "再翻一次旧闻" } })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "还是结算不了。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "还是结算不了。" })], { stopReason: "toolUse" }),
 		],
 		// No provider by that name: every review fails before it starts.
 		env: { PI_COC_ADMISSION_MODEL: "nobody/home" },
@@ -490,7 +490,7 @@ test("a live verdict resets the outage streak: the next failure reads as transie
 	const badVerdict = () => fauxAssistantMessage(JSON.stringify({ verdict: "sure, go ahead" }));
 	const moveTurn = (to, narration) => [
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to }] })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: narration })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("output", { text: narration })], { stopReason: "toolUse" }),
 	];
 	const table = await openTable({
 		responses: [
@@ -543,7 +543,7 @@ const PUNCH_WORDS = "我不拉闩。我走过去，照他脸上就是一拳。";
 /** The Keeper's own punch (origin model), as C3's Keeper proposed it, then its delivery. */
 const keeperPunch = () => [
 	fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "combat", goal: "一拳打在他脸上", method: "走近后挥拳击中面部", actor: "托马斯·海耶斯", target: "看门人", weapon: "unarmed" } })], { stopReason: "toolUse" }),
-	fauxAssistantMessage([fauxToolCall("narrate", { text: "你一拳挥了过去。" })], { stopReason: "toolUse" }),
+	fauxAssistantMessage([fauxToolCall("output", { text: "你一拳挥了过去。" })], { stopReason: "toolUse" }),
 ];
 const RETRY_LINE = /Your previous answer was not valid JSON for this review \(JSON parse failed: Expected ',' or '\}' after property value in JSON at position 36/;
 
@@ -629,9 +629,9 @@ test("the review reads the setup prologue the player was shown, and not its Keep
 		},
 		responses: [
 			// The opening turn the host starts on its own (§128).
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "Knott waits for your answer." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "Knott waits for your answer." })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "corbitt-house" }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "You set out for Corbitt Street." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("output", { text: "You set out for Corbitt Street." })], { stopReason: "toolUse" }),
 		],
 	});
 	t.after(() => table.dispose());
@@ -652,7 +652,7 @@ test("a proposed representation can be corrected without asking the player to ch
  const table = await openTable({responses: [
   fauxAssistantMessage([fauxToolCall("apply", {effects: [misplaced]})]),
   fauxAssistantMessage([fauxToolCall("apply", {effects: [placed]})]),
-  fauxAssistantMessage([fauxToolCall("narrate", {text: "You leave the key on the desk."})]),
+  fauxAssistantMessage([fauxToolCall("output", {text: "You leave the key on the desk."})]),
  ], laneResponses: {admission: [
   verdict({verdict: "not_authorized", recovery: "correct_proposal", grounds: "The player chose desk placement; the proposed recipient differs."}),
   verdict({verdict: "authorized", grounds: "The player chose this exact desk placement."}),
@@ -674,7 +674,7 @@ test("a failed correction cannot start another state-changing correction in the 
   fauxAssistantMessage([fauxToolCall("apply",{effects:[effect("Another person")]})]),
   fauxAssistantMessage([fauxToolCall("apply",{effects:[effect("Another room")]})]),
   fauxAssistantMessage([fauxToolCall("apply",{effects:[effect("Knott's office")]})]),
-  fauxAssistantMessage([fauxToolCall("narrate",{text:"The return remains unsettled."})]),
+  fauxAssistantMessage([fauxToolCall("output",{text:"The return remains unsettled."})]),
  ],laneResponses:{admission:[
   verdict({verdict:"not_authorized",recovery:"correct_proposal",grounds:"The player chose desk placement."}),
   verdict({verdict:"not_authorized",recovery:"correct_proposal",grounds:"The corrected location still differs."}),
@@ -693,7 +693,7 @@ test("genuine NPC information remains admissible after investigator correction r
   fauxAssistantMessage([fauxToolCall("apply",{effects:[wrong("Another person")]})]),
   fauxAssistantMessage([fauxToolCall("apply",{effects:[wrong("Another room")]})]),
   fauxAssistantMessage([fauxToolCall("apply",{effects:[information]})]),
-  fauxAssistantMessage([fauxToolCall("narrate",{text:"Knott repeats the address."})]),
+  fauxAssistantMessage([fauxToolCall("output",{text:"Knott repeats the address."})]),
  ],laneResponses:{admission:[
   verdict({verdict:"not_authorized",recovery:"correct_proposal",grounds:"The player chose desk placement."}),
   verdict({verdict:"not_authorized",recovery:"correct_proposal",grounds:"The corrected location still differs."}),

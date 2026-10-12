@@ -14,8 +14,8 @@
 import {bindPriceText,priceRows} from '../../../../shared/cash-prose.js';
 import {EMBEDDED_ARGUMENTS,stripDialectPrefixes} from '../../../../shared/dialect-prefix.js';
 
-/** The delivering tools and the argument that carries their prose. */
-export const DELIVERY_PROSE_FIELDS: Readonly<Record<string, string>> = { narrate: "text", ask: "text", apply: "narrate" };
+/** Selected final output publishes only after commit; every current tool argument is private material. */
+export const DELIVERY_PROSE_FIELDS: Readonly<Record<string, string>> = Object.freeze({});
 
 function transportedProse(tool:string,field:string,value:string,complete:boolean):string|undefined{
   const parameter=EMBEDDED_ARGUMENTS[tool]?.[field];
@@ -166,7 +166,7 @@ export class LiveDeliveryProse {
   private readonly calls = new Map<number, { tool: string; field: string; live: boolean }>();
   private drafts = 0;
 
-  constructor(private readonly prefix: string) {}
+  constructor(private readonly prefix: string, private readonly fields:Readonly<Record<string,string>>=DELIVERY_PROSE_FIELDS) {}
 
   /** A new turn: the previous turn's draft, delivered or not, is no longer this host's to change. */
   startTurn(): void {
@@ -181,7 +181,7 @@ export class LiveDeliveryProse {
 
   /** A tool call began streaming; only a delivering one is followed. */
   start(index: number, toolName: unknown): void {
-    const field = typeof toolName === "string" ? DELIVERY_PROSE_FIELDS[toolName] : undefined;
+    const field = typeof toolName === "string" ? this.fields[toolName] : undefined;
     if (!field) {
       this.calls.delete(index);
       return;

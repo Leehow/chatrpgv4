@@ -228,7 +228,7 @@ function stubJevForConsequence(clue) {
 		})));
 	} };
 }
-const narrateOnly = (text) => [fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" })];
+const narrateOnly = (text) => [fauxAssistantMessage([fauxToolCall("output", { text })], { stopReason: "toolUse" })];
 const admissionRows = (table) => table.telemetry("test-camp").filter((row) => row.lane === "admission");
 
 test("SL-90 (extension seam): an executed clue_follow_up write is admitted path 'consequence', and the scripted admission lane is never asked", async (t) => {

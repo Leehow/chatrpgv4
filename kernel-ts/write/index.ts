@@ -1,5 +1,7 @@
 import {readSourceMetadata} from '../modules/source-state.js';
 import { SINGLE_PASS_NARRATION } from '../runtime/narration-policy.ts';
+import {validateDeliveryArtifact} from '../../runtime/final-output-artifact.js';
+import {sourceRevision,taskWorldRevision} from '../read/context.js';
 /** Static campaign and turn handlers. Other domains contribute through named seams. */
 import { mkdir, readFile, rm, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -1153,7 +1155,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             });
         if (!stranded && !['awaiting_player', 'asked'].includes(turn.state))
             throw turnStateError(turn, 'table.player_input', 'finish the current turn with narrate or ask first');
-        let next = number(turn.turn), pending = null;
+        let next = number(turn.turn), pending = clone(turn.pending_choice ?? null);
         // §73 closes a stranded turn the moment the host declares it, so this path is the fallback for the
         // case that made it necessary: a kernel that could not be reached then. It writes the same record.
         if (stranded) next = await strandTurn(campaign, snapshot, module);
@@ -1299,6 +1301,31 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             { opening: number(turn.turn) === 0, look: row(review).look === true, receipts: array(turn.receipts) }), review);
         return record ? { establish: record } : {};
     }
+    async function validateFinalEvidence(params:Row,snapshot:CampaignSnapshot,module:LoadedModule):Promise<void> {
+		if (params._delivery_evidence !== undefined) {
+			const evidence = row(params._delivery_evidence);
+			try {
+				if (evidence.version !== 1 || !Array.isArray(evidence.materials) || !Array.isArray(evidence.required)
+					|| !/^[a-f0-9]{64}$/.test(evidence.packet) || !/^[a-f0-9]{64}$/.test(evidence.binding)
+					|| (evidence.input_text??evidence.artifact_text)!==params.text || Buffer.byteLength(JSON.stringify(evidence),'utf8') > 128000) throw Error('Invalid delivery evidence');
+				validateDeliveryArtifact({version:1,text:evidence.artifact_text,coverage:evidence.coverage}, evidence.materials.map((m:Row)=>m.name), evidence.required);
+			} catch {throw new RpcError('invalid_params','Invalid host final-output evidence');}
+			const expected=row(evidence.context),active=await activeMods(context,snapshot.world);
+			const source=await sourceRevision(snapshot,module,{mods:{active:active.map(mod=>({id:mod.id}))}});
+			if(expected.campaign!==snapshot.id||expected.turn!==snapshot.turn.turn
+				|| expected.worldline!==(snapshot.meta.active_worldline??'main')
+				|| expected.loop!==number(row(row(snapshot.meta.worldlines)[expected.worldline]).loop)
+				|| expected.world_revision!==taskWorldRevision(snapshot.world,snapshot.party,snapshot.turn.receipts,snapshot.turn.pending_choice)
+				|| expected.source_revision!==source.task_source_revision)
+				throw new RpcError('revision_conflict','The selected final writing no longer matches the publication owner');
+		}
+    }
+    async function checkDelivery(params:Row):Promise<Row> {
+        const {snapshot}=await load(params);
+        preflightCampaign(snapshot.meta,snapshot.world,snapshot.turn,snapshot.party);
+        await validateMods(snapshot.world);
+        return {checked:true,turn:snapshot.turn.turn,state:snapshot.turn.state,published:false};
+    }
     async function ask(params: Row): Promise<Row> {
         // §135.31: the turn's Keeper reads ride on the delivery for its record; they are not part of the call's digest.
         // §190.3: nor are the moves admission refused this turn.
@@ -1312,6 +1339,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         });
         if (started.kind === 'replay')
             return started.result;
+        await validateFinalEvidence(params,snapshot,module);
         preflightCampaign(snapshot.meta, snapshot.world, turn, snapshot.party);
         await validateMods(snapshot.world);
         const kind = params.kind ?? 'story';
@@ -1376,6 +1404,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         rememberCall(turn, started.callId, params, result);
         const world = tableSnapshot(snapshot, module.graph), record = {
             ...deliveryRecord(turn, text, receipts, result, world),
+			...(params._delivery_evidence ? {delivery_evidence:clone(params._delivery_evidence)} : {}),
             closed_by: 'ask',
             ...(quoteDrafts.length?{quote_drafts:quoteDrafts,quote_scope:quotationScope(snapshot.meta)}:{}),
             ...(askPrices.bound.length||askPrices.unresolved.length?{price_template:text,price_bindings:askPrices.bound,unresolved_prices:askPrices.unresolved}:{}),
@@ -1447,6 +1476,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         });
         if (started.kind === 'replay')
             return started.result;
+        await validateFinalEvidence(params,snapshot,module);
         // Progress stages follow the contract §5 closed enum; each fires once at the real boundary.
         report?.('load');
         preflightCampaign(snapshot.meta, snapshot.world, turn, snapshot.party);
@@ -1564,7 +1594,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             turn: n,
             receipt,
             commit: null,
-            ...(reference ? {interaction_scope: interactionScope} : {facts: factLists, extraction: {
+            ...(reference ? {interaction_scope: interactionScope, pending_choice:clone(turn.pending_choice??null)} : {facts: factLists, extraction: {
                 job_id: `extract:${campaign.id}:t${n}`
             }}),
             ...(naming.unresolved.length ? { unresolved_names: naming.unresolved } : {}),
@@ -1587,6 +1617,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         rememberCall(turn, started.callId, params, result);
         const record: Row = {
             ...deliveryRecord(turn, text, receipts, result, world),
+			...(params._delivery_evidence ? {delivery_evidence:clone(params._delivery_evidence)} : {}),
             ...(quoteDrafts.length?{quote_drafts:quoteDrafts,quote_scope:quotationScope(snapshot.meta)}:{}),
             ...(priceBinding.bound.length||priceBinding.unresolved.length?{price_template:priceTemplate,price_bindings:priceBinding.bound,unresolved_prices:priceBinding.unresolved}:{}),
             ...(delivery.marked_text ? { marked_text: delivery.marked_text } : {}),
@@ -1649,7 +1680,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             },
             receipt
         }, started.callId);
-        await campaign.writeTurn(freshTurn(n + 1));
+        await campaign.writeTurn(freshTurn(n + 1,'awaiting_player',reference ? turn.pending_choice : null));
         const priorMeta = await campaign.readCampaign();
         if (truth(snapshot.world.ending))
             await campaign.writeCampaign({
@@ -1742,6 +1773,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             'table.call_status': callStatus,
             'table.ask': ask,
             'table.narrate': narrate,
+			'table.delivery.check': checkDelivery,
+			'table.reference.answer': params => narrate({...params,_interaction_scope:'reference'}),
             'table.untold_spans': untoldSpans
         }),
         async transaction(params, options = {}) { const { campaign, snapshot } = await load(params, options); return createTurnTransaction(campaign, snapshot.world, snapshot.turn); }

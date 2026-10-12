@@ -75,7 +75,7 @@ const call = (name, args) => fauxAssistantMessage([fauxToolCall(name, args)], { 
 
 async function play(t, { keeper, env = ENV, pick = () => ({ choice: "unknown", confidence: 0.9 }), hold, onTable }) {
 	const requests = installJev(t, { pick, hold });
-	const table = await openTable({ responses: [...keeper, call("narrate", { text: "抽屉一格格空了。" }), ], env });
+	const table = await openTable({ responses: [...keeper, call("output", { text: "抽屉一格格空了。" }), ], env });
 	t.after(() => table.dispose());
 	onTable?.(table);
 	// The fake kernel owes no opening, so nothing runs before the player speaks.
@@ -179,7 +179,7 @@ test("the turn never waits for the answer: the tool result and the delivery land
 		},
 	});
 	assert.deepEqual(shadowRows(played.table), [], "the turn returned with no shadow row: it did not wait for Jev");
-	assert.ok(played.table.telemetry().some((row) => row.tool === "narrate" && row.ok === true), "the turn was delivered");
+	assert.ok(played.table.telemetry().some((row) => row.tool === "output" && row.ok === true), "the turn was delivered");
 	const [request] = await waitFor(() => played.requests.length === 1 && played.requests, { label: "the held Jev request" });
 	release();
 	const [row] = await waitFor(() => shadowRows(played.table).length === 1 && shadowRows(played.table), { label: "the shadow row after the answer" });
@@ -208,14 +208,14 @@ test("a kernel that cannot list the rows leaves a row saying so, and the turn is
 	const rows = await waitFor(() => shadowRows(table).length === 1 && shadowRows(table), { label: "the rows_unavailable row" });
 	assert.deepEqual(rows.map((row) => [row.ok, row.reason]), [[false, "rows_unavailable"]]);
 	assert.equal(requests.length, 0);
-	assert.ok(table.telemetry().some((row) => row.tool === "narrate" && row.ok === true));
+	assert.ok(table.telemetry().some((row) => row.tool === "output" && row.ok === true));
 });
 
 /** A turn record without what differs between any two runs: wall-clock stamps and the commit that stored it. */
 function settled(record) {
 	if (Array.isArray(record)) return record.map(settled);
 	if (!record || typeof record !== "object") return record;
-	return Object.fromEntries(Object.entries(record).filter(([key]) => !["at", "opened_at", "closed_at", "commit"].includes(key))
+	return Object.fromEntries(Object.entries(record).filter(([key]) => !["at", "opened_at", "closed_at", "commit", "params_sha256", "delivery_evidence"].includes(key))
 		.map(([key, value]) => [key, settled(value)]));
 }
 
@@ -224,9 +224,9 @@ test("over the real kernel: the shadow reads the kernel's own rows, and the turn
 	const CAMPAIGN = "shadow-seam";
 	async function turn(env) {
 		const table = await openTable({ realKernel: true, campaign: CAMPAIGN, env, responses: [
-			call("narrate", { text: "诺特把钥匙推过桌面，等你开口。" }),
+			call("output", { text: "诺特把钥匙推过桌面，等你开口。" }),
 			call("apply", { effects: [{ kind: "time", minutes: 25, why: WHY }] }),
-			call("narrate", { text: "抽屉一格格空了。" }),
+			call("output", { text: "抽屉一格格空了。" }),
 		] });
 		// Disposed before the next table opens: the harness restores the environment (the key) only on dispose.
 		try {
@@ -245,7 +245,13 @@ test("over the real kernel: the shadow reads the kernel's own rows, and the turn
 	assert.equal(requests[0].body.questions.time_cost.criteria.careful_house_search, `careful house search, 60 to 360 minutes: ${COVERS.careful_house_search.covers}`);
 	assert.deepEqual([asking.row.ok, asking.row.band, asking.row.range, asking.row.inside, asking.row.call_id], [true, "single_room_search", { min: 10, max: 45 }, true, "t1-c1"]);
 	assert.deepEqual([silent.row.ok, silent.row.skipped, silent.row.reason], [true, "unconfigured", undefined]);
-	// The Keeper's time landed as the Keeper's, and nothing in the turn differs because a question was asked beside it.
+	// Binding digests differ across independent repositories; compare all settled story/state fields.
+	for (const run of [asking, silent]) {
+		assert.deepEqual(run.record.delivery_evidence.required, ["legacy draft:1"]);
+		assert.equal(run.record.delivery_evidence.artifact_text, run.record.rendered_text);
+		assert.match(run.record.delivery_evidence.binding, /^[a-f0-9]{64}$/);
+	}
+	// The Keeper's time still lands once in either run.
 	const time = asking.record.receipts.find((receipt) => receipt.kind === "time");
 	assert.deepEqual([time.minutes, time.basis ?? "keeper", time.band], [25, "keeper", undefined]);
 	assert.deepEqual(settled(asking.record), settled(silent.record));
