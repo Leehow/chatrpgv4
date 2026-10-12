@@ -83,7 +83,7 @@ test('the guard: a failed review delivers; a rich draft passes; a thin one carri
   assert.deepEqual(outcome.missing, ['space', 'senses']);
   assert.deepEqual(outcome.note, {status: 'thin', look: true, missing: ['space', 'senses']});
   assert.match(outcome.fix, /does not yet establish: space: the space; senses: two senses\./);
-  assert.match(outcome.fix, /keep the player's act, every settled result and every line already spoken/);
+  assert.match(outcome.fix, /keep the player's act, every settled result and every line already spoken/i);
   assert.deepEqual(thin.rows.filter(row => row.lane).map(row => row.event), ['due', 'judged']);
   assert.deepEqual(thin.rows[0].viewed, {look: true}, 'the look is asked of the view');
 });

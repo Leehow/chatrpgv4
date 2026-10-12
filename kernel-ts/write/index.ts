@@ -1154,7 +1154,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 details: { turn: turn.turn, state: turn.state }
             });
         if (!stranded && !['awaiting_player', 'asked'].includes(turn.state))
-            throw turnStateError(turn, 'table.player_input', 'finish the current turn with narrate or ask first');
+            throw turnStateError(turn, 'table.player_input', 'finish the current canonical publication or mechanical ask first');
         let next = number(turn.turn), pending = clone(turn.pending_choice ?? null);
         // §73 closes a stranded turn the moment the host declares it, so this path is the fallback for the
         // case that made it necessary: a kernel that could not be reached then. It writes the same record.
@@ -1357,8 +1357,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             throw new RpcError('invalid_params', 'unknown mechanics choice option');
         const binds = required(params, 'binds', true), text = required(params, 'text', true), ending = row(snapshot.world.ending);
         if (truth(ending) && ((ending.scope || 'campaign') === 'campaign' && snapshot.meta.status !== 'completed' || ending.scope === 'chapter' && snapshot.meta.status === 'completed'))
-            throw new RpcError('invalid_params', 'a campaign ending must be delivered with narrate, not ask');
-        if(truth(turn.worldline))throw new RpcError('invalid_params','a turn that forks or switches the worldline cannot be closed by ask',{fix:"close this turn with narrate; ask on the new line's first turn",details:{worldline:row(turn.worldline).operation??null}});
+            throw new RpcError('invalid_params', 'a campaign ending requires canonical story publication without a mechanical choice');
+        if(truth(turn.worldline))throw new RpcError('invalid_params','a turn that forks or switches the worldline cannot be closed by ask',{fix:"finish this turn with canonical story publication; ask on the new line's first turn",details:{worldline:row(turn.worldline).operation??null}});
         const receipts = [...array(turn.receipts)];
         const askSpeakers = speakerResolver(module.graph, snapshot.world, snapshot.party, await untoldAt(snapshot, module.graph));
         const askPrices=bindPriceText(text??'',priceRows(receipts,params.quotes));

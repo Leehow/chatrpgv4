@@ -215,7 +215,7 @@ const recoveryText = open => {
   const pending = open.pending_turn, oneLine = typeof open.resume?.one_line === 'string' ? open.resume.one_line : '';
   return 'The last session broke mid-turn and this turn was never delivered. ' + (oneLine ? `The last commit stopped at: ${oneLine}. ` : '')
     + `The player said: ${pending.player_text ?? '(nothing)'}. Receipts already landed: ${JSON.stringify(pending.receipts ?? [])}. `
-    + `Still owed: ${(pending.owed ?? []).join(', ') || 'narrate'}. Use look to see the scene as it stands, finish this turn, then deliver it with narrate.`;
+    + `Still owed: ${(pending.owed ?? []).join(', ') || 'narrate'}. Use look to see the scene as it stands, finish this turn, then deliver it with output.`;
 };
 
 /** The request the installed context hook assembles for this turn: the capsule the input published, the brief, the history, and the turn's calls. */

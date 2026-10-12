@@ -121,7 +121,7 @@ export function createBranchHandlers(context: KernelContext, writer: WriteRuntim
 
     // A turn that is still open owns the table; branching underneath it would strand its receipts.
     const turn = await readableTurn(campaign);
-    if (turn && turn.state !== "awaiting_player") throw new RpcError("operation_in_progress", `turn ${number(turn.turn)} is ${string(turn.state)}; finish it with narrate or ask before branching`, {
+    if (turn && turn.state !== "awaiting_player") throw new RpcError("operation_in_progress", `turn ${number(turn.turn)} is ${string(turn.state)}; finish its canonical publication or mechanical ask before branching`, {
       fix: "close the open turn first, then branch",
       details: { turn: number(turn.turn), state: string(turn.state) },
     });

@@ -189,7 +189,7 @@ def test_forking_moves_the_table_and_leaves_the_line_it_came_from_whole(kernel):
     play_to_turn(kernel, 2)
     staged = fork(kernel, 3, "side")
     assert staged["worldline"] == {"operation": "fork", "line": "side", "mode": "if", "loop": 0,
-                                   "when": "after this turn's narrate commits"}
+                                   "when": "after this turn's publication commits"}
     workspace = kernel.workspace
     assert head_ref(workspace) == "refs/heads/wl/side"
     assert branches(workspace) == ["refs/heads/wl/main", "refs/heads/wl/side"]

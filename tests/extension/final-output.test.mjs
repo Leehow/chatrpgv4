@@ -198,6 +198,7 @@ test('a failed Git commit retries the exact accepted artifact without another wr
 });
 
 test('mixed input displays the framed OOC reply separately from the selected story artifact', async t => {
+  let visibilityRemembered=false;
   const decision={async decide(batch){return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(q=>q.type==='noul'
     ?[q.key,{status:'answered',type:'noul',noul:['system_request','world_action'].includes(q.key)?.99:.01}]
     :[q.key,{status:'answered',type:'choice',choice:'finish',confidence:1,probabilities:{finish:1}}])),{inputTokens:1,outputTokens:1,costUsd:0});}};
@@ -206,15 +207,20 @@ test('mixed input displays the framed OOC reply separately from the selected sto
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,env:{PI_COC_LOOP_ENGINE:'hybrid-v1',
     PI_COC_READER_CMD:JSON.stringify([process.execPath,join(root,'tests/extension/fixtures/final-output-writer.mjs')])},
     runDriver:engine.runDriver,extraExtensions:[{name:'scope-engine',factory:engine.extension}],
-    responses:[fauxAssistantMessage([{type:'text',text:`{{ooc}}${explanation}{{/ooc}}`},fauxToolCall('output',{delivery:plan})],{stopReason:'toolUse'})]});
+    responses:[fauxAssistantMessage([{type:'text',text:`{{ooc}}${explanation}{{/ooc}}`},fauxToolCall('narrate',{delivery:plan})],{stopReason:'toolUse'}),context=>{
+      visibilityRemembered=context.messages.some(message=>(typeof message.content==='string'?message.content:JSON.stringify(message.content)).includes('already queued for display'));
+      return fauxAssistantMessage([fauxToolCall('output',{})],{stopReason:'toolUse'});
+    }]});
   t.after(()=>table.dispose());
   await table.session.prompt('Explain bonus dice to me, then I look around without touching anything.');
   assert.deepEqual(table.extensionErrors,[]);
   assert.equal(table.session.messages.filter(m=>m.customType==='coc-delivery'&&m.details?.reference_reply&&m.content===explanation).length,1);
+  assert.equal(visibilityRemembered,true,'the next Keeper step knows the direct reply is queued for display');
   assert.ok(!table.session.messages.some(m=>m.role==='assistant'&&m.content?.some(c=>c.type==='text'&&c.text===explanation)));
   const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
   assert.equal(record.rendered_text,'The room is chilly.');
   assert.ok(!record.text.includes(explanation));
+  assert.ok(!JSON.stringify(record.delivery_evidence).includes('already queued for display'),'private reply status is never writer material');
   assert.equal(table.telemetry().filter(r=>r.lane==='final-output'&&r.event==='start').length,1);
 });
 

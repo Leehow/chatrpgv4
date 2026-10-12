@@ -68,7 +68,7 @@ test('pending is an honest status and explicit cancellation aborts retained prep
         assert.equal(result.status, 'pending'); assert.match(result.service_status, /No fictional event/);
         // §47: the payload says what the Keeper does, never what it says to the player; the
         // sentence it used to hand over is pinned in host-state-not-fiction.test.mjs.
-        assert.match(result.service_status, /close the turn with narrate/);
+        assert.match(result.service_status, /close the turn with output/);
         const began = Date.now(), status = await f.service.lookup({campaign: 'c1', action: 'status', name: 'New route'});
         assert.equal(status.status, 'pending'); assert.ok(Date.now() - began < 100, 'status must not open another foreground wait');
         assert.equal((await f.service.lookup({campaign: 'c1', action: 'cancel', name: 'New route'})).status, 'cancelled');

@@ -50,7 +50,7 @@ test("a refused player input tells the player the table refused it, not to repea
 	assert.ok(note, "the Keeper is still told the call failed");
 	assert.match(note.content, /no turn opened/);
 	assert.match(note.content, /do not tell them\s+to say it again/);
-	assert.match(note.content, /narrate and ask will be refused/);
+	assert.match(note.content, /output and ask will be refused/);
 	assert.match(note.content, /end this run without output/);
 	assert.equal(note.details.deliverable, false);
 });

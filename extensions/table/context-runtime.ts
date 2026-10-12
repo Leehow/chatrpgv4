@@ -81,6 +81,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let failedGeneration: number | undefined, inputPending = false;
     let call: KernelCall | undefined, campaign: string | undefined, capsule: Row | undefined, rawBinding: unknown;
     let materialSources:((turn:number)=>Row[])|undefined;
+    let referenceReplyStatus:(()=>{campaign:string;turn:number;queued:boolean}|undefined)|undefined;
     let sourceRuntime:PrescreenSourceRuntime|undefined,moduleId:string|undefined;
     let answering: string[] | undefined, inputEpoch: string | undefined, generation = 0, prepared: Prepared | undefined;
     let preparing: Promise<Prepared | undefined> | undefined, brief: Row | undefined, briefKey: string | undefined;
@@ -240,6 +241,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const changed = call !== nextCall || campaign !== nextCampaign;
         call = nextCall; campaign = nextCampaign;
         materialSources=typeof value.materialSources==='function'?value.materialSources:undefined;
+        referenceReplyStatus=typeof value.referenceReplyStatus==='function'?value.referenceReplyStatus:undefined;
         const runtime=object(value.runtime);
         // §191.6: the prescreen's consultation hands the pages it wanted and read natively to the transcript queue.
         sourceRuntime=typeof runtime.home==='string'&&typeof runtime.sourceInfo==='function'&&typeof runtime.sourceText==='function'
@@ -719,6 +721,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         let seen = false;
         // §103.5: the capsule the Keeper is sent is this copy, not the persisted message; it carries the Keeper's untold view.
         const view = untoldView(structuredClone(snapshot.capsule)).capsule;
+        // Current-request visibility is a procedural instruction, never canonical state or writer material.
+        const reply=referenceReplyStatus?.();
+        if(reply?.queued&&reply.campaign===snapshot.binding.campaign&&reply.turn===snapshot.binding.turn)
+            view.head=String(view.head??'')+'\nThe direct OOC reply for this input is already queued for display. Do not repeat that answer while checking materials or retrying output. If new evidence requires correction, give only the correction in the direct channel. This queue status is not story material or a world fact.';
         // The immutable full briefing already has these fields; retain the turn-specific craft selection.
         delete view.module;
         if (view.mods) {view.mods = {...view.mods}; delete view.mods.instructions; delete view.mods.topics;}

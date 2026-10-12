@@ -143,7 +143,7 @@ export function textToolCallFix(envelopes: Array<{tool: string; error?: string}>
         ? `- ${tool}: ${error.length > 800 ? `${error.slice(0, 800)}...` : error}`
         : `- ${tool}: valid, but not run, because a list runs only when every call in it can`);
     return 'Your last message wrote tool calls as JSON text instead of calling the tools, so none of them ran and the player '
-        + `was shown nothing:\n${lines.join('\n')}\nMake each call you still need as a real tool call, then deliver the turn with narrate.`;
+        + `was shown nothing:\n${lines.join('\n')}\nMake each call you still need as a real tool call, then select output for the final story publication.`;
 }
 
 type Block = {type: string; text?: string; [key: string]: unknown};

@@ -85,7 +85,10 @@ test('§201.3: T7\'s apply -- closing prose put in an effect -- is refused with 
     const refusal = effectShapeRefusal('apply', APPLY, RUN3.t7.refused_apply);
     assert.deepEqual({code: refusal.code, detail: refusal.code_detail, next: refusal.next, field: refusal.details.field, kind: refusal.details.kind},
         {code: 'invalid_params', detail: 'effect_kind_unknown', next: 'change_input', field: 'effects[0].kind', kind: 'narrate'});
-    assert.match(refusal.fix, /^Closing prose is not an effect: put it in this apply's own narrate field beside effects/);
+    assert.match(refusal.fix, /^Closing prose is material, not an effect:/);
+    assert.match(refusal.fix, /only prepares\/checks/);
+    assert.match(refusal.fix, /Select output separately to author and publish/);
+    assert.doesNotMatch(refusal.fix, /it is delivered once/);
     assert.match(refusal.fix, /a clue the book has is \{kind: "clue", clue: <its name/);
     assert.ok(refusal.details.kinds.includes('clue') && refusal.details.kinds.includes('handout') && !refusal.details.kinds.includes("output"), 'the kinds are read off the schema');
     assert.match(effectShapeRefusal('apply', APPLY, {effects: [{kind: 'resolve'}]}).fix, /^resolve is a tool of its own, not an effect of apply/);
@@ -218,7 +221,8 @@ test('T7: the prose-in-an-effect apply is refused with its fix, and the morgue\'
     const text = refused.content.map(block => block.text ?? '').join('');
     assert.equal(refused.isError, true);
     assert.match(text, /^invalid_params: apply: effects\[0\]\.kind is "narrate", which is not an effect kind/);
-    assert.match(text, /Closing prose is not an effect: put it in this apply's own narrate field beside effects/);
+    assert.match(text, /Closing prose is material, not an effect:/);
+    assert.match(text, /Select output separately to author and publish/);
     assert.match(text, /a clue the book has is \{kind: "clue", clue: <its name/);
     assert.ok(!/must have required properties/.test(text), 'not the schema\'s union dump');
     assert.ok(table.telemetry().some(row => row.lane === 'arguments' && row.event === 'effect_shape_refused' && row.reason === 'effect_kind_unknown'));

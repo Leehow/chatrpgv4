@@ -537,7 +537,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             }
             if(mapViews.length)result.map_views=mapViews;
             if(already.length){result.already_discovered=already;if(!receipts.length)result.replayed=true;}
-            if(stagedWorldline){turn.worldline=stagedWorldline;result.worldline={operation:stagedWorldline.operation,line:stagedWorldline.line,mode:stagedWorldline.mode??null,loop:number(stagedWorldline.loop),when:"after this turn's narrate commits"};}
+            if(stagedWorldline){turn.worldline=stagedWorldline;result.worldline={operation:stagedWorldline.operation,line:stagedWorldline.line,mode:stagedWorldline.mode??null,loop:number(stagedWorldline.loop),when:"after this turn's publication commits"};}
             if (beforeTaskRevision !== undefined) {
                 const meta = await campaign.readCampaign(), worldline = string(meta.active_worldline || 'main');
                 result._task_advance = { campaign: campaign.id, turn: number(turn.turn), worldline,

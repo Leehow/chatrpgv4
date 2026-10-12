@@ -50,7 +50,7 @@ test("§151.5 kernel gate: on a narrowed compose the Keeper's apply is refused w
 	await table.session.prompt("我推开地窖门");
 	const results = table.session.messages.filter((message) => message.role === "toolResult");
 	assert.deepEqual(results.map((result) => [result.toolName, result.isError]), [["apply", true], ["output", false]]);
-	assert.match(textOf(results[0]), /apply is not in this narrator-only compose step's catalog \(narrate, ask, propose\)/);
+	assert.match(textOf(results[0]), /apply is not in this narrator-only compose step's catalog \(narrate, output, ask, propose\)/);
 	assert.ok(!methods(table).includes("table.apply"), "the refused apply never reached the kernel");
 	assert.ok(methods(table).includes("table.narrate"), "the compose after the refusal delivered");
 	assert.ok(table.telemetry().some((row) => row.tool === "apply" && row.code === "blocked" && row.reason === "narrator_catalog"));

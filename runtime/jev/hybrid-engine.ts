@@ -99,13 +99,13 @@ const CLERK_PROVIDER_OUTPUT_BUDGET = 168_000;
  * non-blocking apply goes out with its narrate in one call instead of costing a whole extra model step. Keeper-only,
  * system language.
  */
-export const CLERK_NOTE_HEAD = IMPROVISATION_GUIDANCE+' Use apply move with establish:{summary} and via for a new place, apply clue with establish:{summary} and how for new evidence, and apply npc walk_on for a newcomer. On compose steps, write the final response from supplied source and committed receipts. Do not repeat supplied lookups, restage recorded people, or add optional bookkeeping just to fill fields. Genuine unresolved requirements retain their ordinary operations. '
+export const CLERK_NOTE_HEAD = IMPROVISATION_GUIDANCE+' Use apply move with establish:{summary} and via for a new place, apply clue with establish:{summary} and how for new evidence, and apply npc walk_on for a newcomer. On compose steps, prepare selected story materials from supplied source and committed receipts; optional output alone selects the final author/publication. OOC replies remain direct. Do not repeat supplied lookups, restage recorded people, or add optional bookkeeping just to fill fields. Genuine unresolved requirements retain their ordinary operations. '
   + 'Check selection belongs to Jev and the host. Never call resolve or choose a check, including after an unavailable decision, ambiguous binding, refused operation or spent budget. '
   + 'A check the host left without a roll (decided_under_uncertainty) is narrated by your own judgement; never stage it as pending or ask the player to repeat it. '
   + 'Writes are silent: write no prose beside apply, resolve or lookup calls (it is dropped and never shown). '
-  + 'An apply whose landing is fixed by its own arguments is non-blocking: put it and the narrate that follows in the same response, '
-  + 'writes first, narrate last; resolve, look, lookup and recall are blocking -- the prose needs a result you do not have yet -- so '
-  + 'wait for their result before you narrate.';
+  + 'An apply whose landing is fixed by its own arguments is non-blocking: you may put it and explicitly selected output in the same response, '
+  + 'writes first, output last; resolve, look, lookup and recall are blocking -- the prose needs a result you do not have yet -- so '
+  + 'wait for their result before selecting output. narrate privately prepares/checks materials and publishes nothing.';
 /**
  * §135.30.6 (SL-40): what the Keeper is told with a held destination. The guard is a pacing condition: the place and its
  * entrance exist (the guard's `exists`), so the Keeper narrates the entrance as the book has it and what is missing, never

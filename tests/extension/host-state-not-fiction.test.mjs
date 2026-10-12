@@ -113,7 +113,7 @@ test("the pending adaptation payload no longer tells the Keeper to tell the play
 		assert.equal(result.status, "pending");
 		// The operational half survives: a Keeper that does not know it must close the turn hangs it.
 		assert.match(result.service_status, /No fictional event or player action has happened/);
-		assert.match(result.service_status, /close the turn with narrate on what the player actually said/);
+		assert.match(result.service_status, /close the turn with output on what the player actually said/);
 		assert.match(result.service_status, /lookup kind=adaptation action=status/);
 		// The half that produced the live defect, verbatim from the retained session log.
 		assert.doesNotMatch(result.service_status, /tell the player/i,

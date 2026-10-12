@@ -120,7 +120,7 @@ export function effectShapeRefusal(tool: string, parameters: TSchema, args: unkn
 			const shown = typeof kind === "string" ? JSON.stringify(kind) : "missing";
 			const toolName = typeof kind === "string" && (COC_TOOL_NAMES as readonly string[]).includes(kind);
 			const prose = kind === "narrate"
-				? `Closing prose is not an effect: put it in this apply's own narrate field beside effects (it is delivered once every effect lands), or call narrate after this apply. `
+				? `Closing prose is material, not an effect: this apply's legacy narrate field only prepares/checks it after effects. Select output separately to author and publish. `
 				: toolName ? `${kind} is a tool of its own, not an effect of apply: call it separately. ` : "";
 			return { code: "invalid_params", code_detail: "effect_kind_unknown", retryable: false, next: "change_input",
 				message: `apply: ${field}.kind is ${shown}, which is not an effect kind`,
@@ -171,12 +171,12 @@ export const PLAIN_PROSE = "Write the prose itself: not a quoted or JSON-encoded
 /** Contract §162: a prose parameter's description, ending with `PLAIN_PROSE` as one more sentence. */
 const Delivery = Type.Object({
   version: Type.Literal(1),
-  materials: Type.Optional(Type.Array(Type.Object({name: Type.String({maxLength:120}), text:Type.String({maxLength:4000,description:'Permitted fictional proposition only. OOC rules or system explanations are direct Keeper replies, never story materials.'}), kind:StringEnum(['fact','description','context'] as const), visibility:StringEnum(['player','keeper'] as const), required:Type.Optional(Type.Boolean()), source:Type.Optional(Type.String())}),{maxItems:48})),
-  utterances: Type.Optional(Type.Array(Type.Object({speaker:Type.String(),audience:Type.Array(Type.String(),{maxItems:16}),meaning:Type.String({maxLength:4000}),stance:Type.Optional(Type.String()),source:Type.Optional(Type.String())}),{maxItems:48})),
+  materials: Type.Optional(Type.Array(Type.Object({name: Type.String({maxLength:120}), text:Type.String({maxLength:4000,description:'Permitted fictional proposition only. Keeper-authored rows are plain event or description notes, not finished narration. OOC rules or system explanations are direct Keeper replies, never story materials.'}), kind:StringEnum(['fact','description','context'] as const), visibility:StringEnum(['player','keeper'] as const), required:Type.Optional(Type.Boolean()), source:Type.Optional(Type.String())}),{maxItems:48})),
+  utterances: Type.Optional(Type.Array(Type.Object({speaker:Type.String(),audience:Type.Array(Type.String(),{maxItems:16}),meaning:Type.String({maxLength:4000,description:'The propositions this NPC intends to communicate, in note form, including what they know, what they only heard, and what they cannot answer. This is a semantic brief, not finished dialogue; the final author chooses the spoken wording.'}),stance:Type.Optional(Type.String()),source:Type.Optional(Type.String())}),{maxItems:48})),
   sources:Type.Optional(Type.Array(Type.String(),{maxItems:48})),
   required:Type.Optional(Type.Array(Type.String(),{maxItems:48})),
   presentation:Type.Optional(Type.String({maxLength:2000})),
-},{description:'Permitted fictional materials and NPC intentions. Keeper-only rows are excluded. Sources name current-input host aliases; receipts names canonical settled results. No OOC explanations. Checking this plan never settles effects or publishes prose.'});
+},{description:'Permitted fictional materials and NPC intentions. Keeper-only rows are excluded. Sources use only aliases issued by look, lookup or recall in this input, or the literal receipts alias for canonical settled results. Omit source references for your own propositions; never invent a source name or copy a receipt ID. No OOC explanations. Checking this plan never settles effects or publishes prose.'});
 
 const CarriedDelivery = Type.Object({version:Type.Literal(1)},{additionalProperties:true,description:'The same material plan as narrate. Only the separate output tool selects the final author.'});
 export const withPlainProse = (description: string): string =>
@@ -555,7 +555,7 @@ const NpcEffect = Type.Object({
 	})),
 	mood: Type.Optional(Type.String({
 		maxLength: MOOD_MAX,
-		description: `what this person feels right now, in the fiction, as you would put it: one short line in play_language, at most ${MOOD_MAX} characters, no line break (the heat, the hour, what just happened, what was just said or done to them, what is on their mind besides you). Their card's present[].now shows it from the next turn; write it when it is missing or no longer true, before they speak: it needs no result, so this apply goes in the same response as the narrate that carries their words, apply first and narrate last, never a step of its own. A new line replaces the old. This variant stands alone in one npc effect: moving or re-standing them is a second effect of the same batch`,
+		description: `what this person feels right now, in the fiction, as you would put it: one short line in play_language, at most ${MOOD_MAX} characters, no line break (the heat, the hour, what just happened, what was just said or done to them, what is on their mind besides you). Their card's present[].now shows it from the next turn; write it when it is missing or no longer true, before they speak: it needs no result, so this apply may share a response with selected output, apply first and output last; narrate only checks materials, never a step of its own. A new line replaces the old. This variant stands alone in one npc effect: moving or re-standing them is a second effect of the same batch`,
 	})),
 	why: Type.Optional(Sentence("required with activity: what caused the activity change (§208.1); otherwise why they moved, why they now stand there, how they died, what changed how they defend, or why they attack, hold back or fight the way they do")),
 	owed: OwedRef,

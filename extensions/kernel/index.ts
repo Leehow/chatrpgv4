@@ -411,7 +411,7 @@ interface TableState {
 	session: SessionSummary | null;
 	/** The pending choice left by the most recent resolve; when `for` is player the Keeper should hand it back with ask. */
 	pendingChoice: PendingChoice | null;
-	/** Whether this agent run has already closed the turn with narrate/ask. */
+	/** Whether this agent run has already closed the turn with output/ask. */
 	closedThisRun: boolean;
 	/** §135.11: the implicit narrate that closed this run, so a driven run's `turn_close` can cite its call. */
 	implicitClose?: { call_id: string; turn: number };
@@ -839,7 +839,7 @@ function strikeRefusalClass(
 	const count = (previous?.count ?? 0) + (batched ? 0 : 1);
 	state.refusalClasses.set(cls, { count, last, round });
 	state.refusalsThisTurn += 1;
-	const closing = "Nothing refused has happened. Stop trying it: close the turn with narrate on what landed with a receipt, or hand the player the pending choice with ask.";
+	const closing = "Nothing refused has happened. Stop trying it: close the turn with output on what landed with a receipt, or hand the player the pending choice with ask.";
 	let tripped = false;
 	const isDoor = !closed && ["narrate", "output", "ask"].includes(tool);
 	if (count >= REFUSAL_CLASS_LIMIT && !state.exhausted.has(tool) && !isDoor) {
@@ -973,8 +973,8 @@ const FLOOR_STEER =
  */
 export function besideSteer(kinds: readonly string[]): string {
 	return `Your prose beside these calls (${kinds.join(", ")}) was dropped and the player never saw it: writes are silent. `
-		+ "Write no prose beside apply, resolve or lookup calls. The turn's prose goes through narrate, or is the text of your final step, "
-		+ "in the same response as the writes whenever none of them needs its result first.";
+		+ "Write no story prose beside apply, resolve or lookup calls. Only optional output publishes story prose; narrate checks materials privately. "
+		+ "Ready writes and selected output may share a response when none needs its result first. Direct OOC replies stay outside story materials.";
 }
 /** The rule the speech steer restates: how a line is wrapped and whose name it carries. */
 const SPEECH_RULE =
@@ -988,7 +988,7 @@ const SPEECH_RULE =
 /** The one host steer of §40 (user ruling 2026-09-15): people are on stage and the draft wraps no spoken line. */
 const SPEECH_STEER =
 	`People are present and this draft wraps no spoken line. ${SPEECH_RULE} Rewrite ` +
-	"the same turn with every spoken line wrapped, and close with narrate. The braces never reach the player.";
+	"the same turn with every spoken line wrapped, and close with output. The braces never reach the player.";
 /**
  * §128.2: the draft wraps lines, and passages in the same quotation marks sit outside every token. The
  * passages are quoted back so the Keeper can find them; whether each one is a spoken line is theirs.
@@ -999,7 +999,7 @@ function unwrappedSpeechSteer(passages: string[]): string {
 	return `This draft leaves ${passages.length} passage${passages.length === 1 ? "" : "s"} in the quotation marks its spoken ` +
 		`lines are written in outside every say token: ${shown}${more}. ${SPEECH_RULE} A quoted word, name, title, sign or ` +
 		"document text is not a line: leave it as it is. Rewrite the same turn with every spoken line wrapped and nothing " +
-		"else changed, and close with narrate. The braces never reach the player.";
+		"else changed, and close with output. The braces never reach the player.";
 }
 
 /** §128.3: how many delivered lines the attribution family is shown as material. */
@@ -2905,8 +2905,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 						? 'Stop making narration attempts in this response. The host will give one targeted correction steer; keep already accepted effects as settled.'
 						: 'Stop making narration attempts. The one correction steer was already used; do not choose the withheld outcome or repeat any accepted effects.'
 					: path === 'embedded'
-						? 'The apply effects already landed and stand as settled receipts. Do not repeat them. Use narrate to revise only the prose: state settled events, do not decide the withheld outcome, and end with a present person or immediate situation returning the choice in character.'
-						: 'Use narrate with a revised draft: state settled events, do not decide the withheld outcome, and end with a present person or immediate situation returning the choice in character. Keep accepted receipts and do not reroll.',
+						? 'The apply effects already landed and stand as settled receipts. Do not repeat them. Revise only the delivery materials, then select output: state settled events, do not decide the withheld outcome, and end with a present person or immediate situation returning the choice in character.'
+						: 'Use narrate with revised materials: state settled events, do not decide the withheld outcome, and end with a present person or immediate situation returning the choice in character. Keep accepted receipts and do not reroll.',
 				details: {reason: 'forced_player_choice_cue_review', path, cue_scores: review.cueScores, outcome_scores: review.outcomeScores,
 				choice_count: pending.choices.length, delivery_executed: false, reject_count: rejectCount, repair_steer: repairSteer,
 				...(stopRun ? {forced_choice_cue_stop: true} : {})}});
@@ -3268,7 +3268,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
     state.deliveryFix = {kind: REFUSED_DOCUMENT_OUTCOME_REASON,
       text: (basis.kind==='selected_no_write' ? 'The player selected a physical recording, but no writing receipt confirms it; no canonical refusal is claimed. '
         : 'The document recording was refused before any writing landed. ')
-        + 'Correct only the claim that this recording was completed; preserve every settled event and the original player declaration. Do not invent text, a new carrier, a new authorization or another operation to reconcile it. Deliver a truthful outcome once with narrate or ask.'};
+        + 'Correct only the claim that this recording was completed; preserve every settled event and the original player declaration. Do not invent text, a new carrier, a new authorization or another operation to reconcile it. Deliver a truthful outcome once with output or ask.'};
     throw new KernelError({code: 'needs', message: 'The draft tells the unconfirmed document recording as completed',
       fix: 'The existing turn-close steer owns the one targeted correction; do not retry this draft.',
       details: {reason: REFUSED_DOCUMENT_OUTCOME_REASON, outcome: result.status}});
@@ -3335,7 +3335,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
     if (result.status !== 'steer') return;
     state.deliveryFix = {kind: HELD_ACT_OUTCOME_REASON, text: 'The action review was unavailable this turn, so what the player declared and no receipt carries was held: it did not happen this turn. '
       + 'Correct only the claim of its result (an arrival, a departure, a payment, a thing changing hands): narrate the investigator beginning it, never its result. '
-      + "Preserve every settled event, what landed and the player's own words. Do not put the review or the service into the fiction, and do not tell a result for the ledger to catch up later. Deliver once with narrate or ask."};
+      + "Preserve every settled event, what landed and the player's own words. Do not put the review or the service into the fiction, and do not tell a result for the ledger to catch up later. Deliver once with output or ask."};
     throw new KernelError({code: 'needs', message: 'The draft tells the result of an act the unavailable review held',
       fix: 'The existing turn-close steer owns the one targeted correction; do not retry this draft.',
       details: {reason: HELD_ACT_OUTCOME_REASON, outcome: result.status}});
@@ -4989,14 +4989,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				+ ` Before moving there, use lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ''}, then follow that result. Do not invent or restart it under another name.`
 				+ ` Never tell the player this is still being prepared, still being checked, or still pending — it is not, and the host has already told them whatever they needed to know out of fiction.`;
 		if (state.landed.length > 0) {
-			return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running, but this turn already settled: ${state.landed.join("; ")}. Use narrate to deliver exactly those settled consequences. Do not erase, repeat, or extend the settled effects, and do not introduce any fact the pending preparation has not supplied.${HOST_SAYS_THE_WAIT} Then return control without a story menu.`;
+			return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running, but this turn already settled: ${state.landed.join("; ")}. Use output for those settled consequences from permitted materials. Do not erase, repeat, or extend the settled effects, and do not introduce any fact the pending preparation has not supplied.${HOST_SAYS_THE_WAIT} Then return control without a story menu.`;
 		}
 		// "Inspect the same proposal after new player input" named no call, and on campaign
 		// game-ef7545c5 the Keeper answered it by repeating `lookup kind=module` and being blocked
 		// twice. The verb that reports on a proposal is named here in full; the host re-reads the
 		// status at every turn boundary anyway, so this is for a Keeper that wants to look, not a poll
 		// it owes.
-		return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running. Only a move to that destination waits for it; everything else the player chose settles as usual. Use narrate to take up what the player actually said and close the turn on it, without moving there or introducing the destination.${HOST_SAYS_THE_WAIT}`
+		return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running. Only a move to that destination waits for it; everything else the player chose settles as usual. Use output on permitted materials that take up what the player actually said, without moving there or introducing the destination.${HOST_SAYS_THE_WAIT}`
 			+ ` The only call that reports on it is lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ""}; no module or source lookup can say anything about it.`;
 	}
 
@@ -5713,7 +5713,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					details: {reason: 'standing_defense_settled', operation_executed: false, automatic_defense: recoveredDefense}});
 			}
 			if (spec.name === 'ask' && isDefenseChoice(params)) throw new KernelError({code: 'stale_choice',
-				message: 'Combat defense uses the campaign standing preference, not ask. Continue with narrate after the defense result.'});
+				message: 'Combat defense uses the campaign standing preference, not ask. Continue with output after the defense result.'});
 			if (spec.name === "recall") {
 				if (params.query !== undefined && (params.what !== 'memory' || typeof params.query !== 'string' || !params.query.trim()
 					|| params.query.length > 2048 || params.read != null || params.detail != null || Number((params.page as any)?.offset ?? 0) > 0))
@@ -6717,6 +6717,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				moduleId: readingModule,
 				call: bridgeCall(kernel),
 				materialSources:(turn:number)=>finalOutput.inventory(campaign,turn),
+                referenceReplyStatus:()=>table?.referenceReplies?.size?{campaign:table.campaign,turn:table.turn,queued:true}:undefined,
 				runtime,
 				// The call ordinal lives here, so anything that has to write on the Keeper's behalf mints its
 				// id here too instead of inventing one the kernel refuses -- and never reuses a live ordinal,
@@ -6869,7 +6870,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 						(oneLine ? `The last commit stopped at: ${oneLine}. ` : "") +
 						`The player said: ${pending.player_text ?? "(nothing)"}. ` +
 						`Receipts already landed: ${JSON.stringify(pending.receipts ?? [])}. Still owed: ${owed}. ` +
-						`Use look to see the scene as it stands, finish this turn, then deliver it with narrate.`,
+						`Use look to see the scene as it stands, finish this turn, then deliver it with output.`,
 					"recovery",
 				);
 			} else {
@@ -7149,7 +7150,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				message: {
 					customType: "coc-host",
 					content: "That player message carried no text, so no turn was opened and there is nothing to deliver. "
-						+ "The player has been asked to say what they want to do. Do not call narrate or ask: the turn state "
+						+ "The player has been asked to say what they want to do. Do not call narrate, output or ask: the turn state "
 						+ "is unchanged and a delivery would be refused. End this run without output.",
 					display: false,
 					details: { coc_host: true, kind: "player-input-empty", scope: "turn", campaign: state.campaign, turn: state.turn },
@@ -7315,7 +7316,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				state.floorDraft = undefined;
 				state.deliveryFix = {
 					kind: "reading-wait",
-					text: "The previous player turn is still open after source preparation paused. Close that existing turn now with narrate: briefly explain that the source is not ready, do not imply the pending action happened, and await free player input.",
+					text: "The previous player turn is still open after source preparation paused. Give any source-availability explanation as a direct OOC reply, never story material. For the existing turn, prepare only permitted settled events and select output if story publication is needed; do not imply the pending action happened. Await free player input.",
 				};
 			}
 			await record({
@@ -7344,9 +7345,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 						+ "This is not the player's wording -- the host checked the only field they write -- so do not tell them "
 						+ "to say it again.\n"
 						+ (deliverable
-							? "The previous turn is still open: close that turn with narrate, and say that the new input has not "
+							? "The previous turn is still open: prepare its permitted settled materials and select output if story publication is needed. In a direct OOC reply, say that the new input has not "
 								+ "been taken up yet."
-							: "There is no open turn, so narrate and ask will be refused `turn_state`. The player has already been "
+							: "There is no open turn, so output and ask will be refused `turn_state`. The player has already been "
 								+ "told the table refused the input; end this run without output."),
 					display: false,
 					details: { coc_host: true, kind: "player-input-failed", scope: "turn", campaign: state.campaign, turn: state.turn,
@@ -7438,7 +7439,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				state.runCut = true;
 				try { ctx.abort(); } catch { /* agent_settled still reports the unfinished turn */ }
 				return {block: true, terminate: true,
-					reason: 'The one forced-choice narration repair allows one narrate only. Stop this response; do not issue another operation.'};
+					reason: 'The one forced-choice narration repair allows one output only. Stop this response; do not issue another operation.'};
 			}
 			state.forcedPlayerChoiceCueRepairAttempted = state.turn;
 		}
@@ -7640,7 +7641,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const shut = state.exhausted.get(name);
 		if (shut) {
 			// §70: the same escalation §34.16 gives a closed turn, for a turn that never
-			// opened. The budget already told the Keeper to close with narrate; if it keeps
+			// opened. The budget already told the Keeper to close with output; if it keeps
 			// calling anyway, the third block says so harder and the sixth cuts the run.
 			// Without this the refusals were bounded but the turn was not: a Keeper burned
 			// five minutes of blocked calls on a table that could not move.
@@ -7715,7 +7716,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				? "the Mod layer has not announced itself yet, so this opening Mod call cannot be judged: retry the same call; the opening's Mod checks become available as soon as it does"
 				// Only the opening reaches this line (§86). The generic "use only look, lookup and recall" had the installed App's
 				// Keeper (Blood Road, 2026-10-02) try to pin the book's start hour twice, 20 s of round trips before the prose.
-				: `the turn state is ${state.state} and this is the table's opening: until the player first speaks only narrate, ask, apply clock (pinning an opening datetime the book left open) and the opening's Mod definitions are accepted; the scene and everything else stay as the table opened them, so put whatever you meant to change into the prose and close with narrate`;
+				: `the turn state is ${state.state} and this is the table's opening: until the player first speaks only narrate (private check), output, ask, apply clock (pinning an opening datetime the book left open) and the opening's Mod definitions are accepted; the scene and everything else stay as the table opened them, so put whatever you meant to change into the prose and close with output`;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason, ...(bridgePending ? { cause: "mods_bridge_pending" } : {}) });
 			// A refusal the host issued is still a refusal (§67). Without this the
 			// Keeper could be told "wait for the player" forever inside its own turn.
@@ -7985,7 +7986,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				.join("")
 				.trim();
 			if(unselectedDeliveryPlan(written)) {
-				state.deliveryFix={kind:'text-tool-call',text:'The last response was a delivery argument object, not a tool invocation. Keep it private. Explicitly call narrate with that delivery plan. Do not repeat already settled effects. Out-of-fiction explanations stay in the direct reply channel.'};
+				state.deliveryFix={kind:'text-tool-call',text:'The last response was a delivery argument object, not a tool invocation. Keep it private. Call narrate to check that plan, or explicitly select output for final story publication. Do not repeat already settled effects. Out-of-fiction explanations stay in the direct reply channel.'};
 				return dropText('unselected_delivery_material_plan');
 			}
 			// The floor steer is additive: a second leg that brings nothing falls back to the draft it dropped.

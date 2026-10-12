@@ -58,7 +58,7 @@ export class KernelError extends Error {
 
 	/** Recovery lines are unconditional: details projection must not depend on fix wording. */
 	toToolText(): string {
-		const lines = [`${this.code}: ${this.message}`, `retryable: ${this.retryable}`, `next: ${this.next}`];
+		const lines = [`${this.code}: ${this.message}`, `retryable: ${this.retryable}`, `next: ${this.next === 'narrate' ? 'output' : this.next}`];
 		if (this.fix) lines.push(`fix: ${this.fix}`);
 		return lines.join("\n");
 	}

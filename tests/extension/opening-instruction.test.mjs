@@ -20,7 +20,7 @@ test('neither form of the opening rations description, sentences or names', () =
     assert.equal(CAP.test(text), false, text);
     assert.ok(text.includes("the active prose package's opening and first-sight rules"), 'how to open is the prose package\'s');
     assert.ok(text.includes('play_language=zh-Hans'));
-    assert.ok(text.includes('Close with narrate'));
+    assert.ok(text.includes('Select output for the opening story'));
   }
 });
 

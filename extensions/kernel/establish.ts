@@ -67,10 +67,10 @@ export function establishFix(item: EstablishItem, missing: readonly string[]): s
   const why = item.why.includes('look') && item.why.length === 1 ? 'the investigator is looking it over'
     : item.why.includes('opening') ? 'it opens the table' : 'the investigator has just come into it and it has not been established';
   return `This reply was not delivered yet. It is at ${item.place.name}, and ${why}, so it establishes the place (mods.establish). `
-    + `The draft does not yet establish: ${lines.join('; ')}. Write the whole reply again in the play language: keep the player's act, `
-    + 'every settled result and every line already spoken as they are, and establish the place along the eye\'s path before the '
-    + 'turn\'s business, as the prose package\'s Establishing a place says. Invent nothing that changes the books. Deliver it once with narrate '
-    + '(or ask, for a pending choice).';
+    + `The draft does not yet establish: ${lines.join('; ')}. Revise the permitted descriptive materials for these missing dimensions. Keep the player's act, `
+    + 'every settled result and every line already spoken unchanged. Include the available environmental and character enrichment, then select output '
+    + 'for the final author to establish the place along the eye\'s path before the turn\'s business, as the prose package\'s Establishing a place says. '
+    + 'Invent nothing that changes the books; do not repeat settled effects. narrate only checks the revised plan. Use output choice when a mechanical decision is pending.';
 }
 
 /**

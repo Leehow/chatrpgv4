@@ -403,7 +403,7 @@ test("同类拒绝三次：第四次换了措辞也拦下，只剩 narrate 收�
 	assert.equal(results.length, 4);
 	for (const index of [0, 1, 2]) assert.match(resultText(results[index]), /turn_state/, `第 ${index + 1} 次到了内核，被拒`);
 	assert.match(resultText(results[3]), /refused 3 times this turn for the same reason/, "第四次换了措辞照样拦下");
-	assert.match(resultText(results[3]), /close the turn with narrate/, "拦下时说清只剩收回合");
+	assert.match(resultText(results[3]), /close the turn with output/, "拦下时说清只剩收回合");
 	const sent = table.kernelRequests().filter((entry) => entry.method === "table.resolve");
 	assert.equal(sent.length, 3, "三次到内核，第四次没出扩展");
 	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
@@ -448,7 +448,7 @@ test("宿主自己发的 awaiting_player 拒绝也计入预算：第三次之后
 	assert.match(texts[0], /awaiting_player/, "头两次是普通的 turn_state 拒绝");
 	assert.ok(texts.some((text) => /refused 3 times this turn for the same reason/.test(text)),
 		"第三次之后要说清同类已经耗尽，而不是原样再拒一次");
-	assert.ok(texts.some((text) => /close the turn with narrate/.test(text)), "拦下时要给出路");
+	assert.ok(texts.some((text) => /close the turn with output/.test(text)), "拦下时要给出路");
 	const rows = table.telemetry().filter((row) => row.lane === "refusals" && row.reason === "class_limit");
 	assert.equal(rows.length, 1, "记一条同类耗尽");
 	assert.equal(rows[0].tool, "resolve");

@@ -53,7 +53,7 @@ test("a thin establishing draft is steered once; the rewrite is delivered withou
 	const [refusal] = toolErrors(table.session);
 	assert.match(refusal, /establish_thin|does not yet establish/);
 	assert.match(refusal, /space: the space itself/, "the fix names the package's own lines for what was missing");
-	assert.match(refusal, /keep the player's act, every settled result and every line already spoken/);
+	assert.match(refusal, /keep the player's act, every settled result and every line already spoken/i);
 
 	const asked = table.lanes.establish.requests();
 	assert.equal(JSON.parse(asked[0]).prose, THIN, "the review read the draft");

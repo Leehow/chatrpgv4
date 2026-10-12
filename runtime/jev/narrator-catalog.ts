@@ -121,8 +121,8 @@ export function proposeRefusal(input: {key: unknown; offered: readonly Candidate
 
 /** The refusal of a model call outside a narrowed compose step's catalog (announced to the kernel's tool gate). */
 export function catalogRefusal(operation: string, offered: readonly Candidate[]): string {
-  return `${operation} is not in this narrator-only compose step's catalog (narrate, ask, propose); nothing was executed. `
-    + `Write the turn with narrate (or ask for a pending choice) from what landed and what the run carried, or call propose with one offered key. Offered keys: ${keyList(offered)}.`;
+  return `${operation} is not in this narrator-only compose step's catalog (narrate, output, ask, propose); nothing was executed. `
+    + `Prepare permitted materials from what landed and what the run carried; select output for story publication (with its choice when a mechanical decision is pending), or call propose with one offered key. Offered keys: ${keyList(offered)}.`;
 }
 /** The refusal of a call written after an accepted `propose` in the same response: the proposed step has not run yet. */
 export const PROPOSE_PENDING_REFUSAL = 'A step you proposed in this response has not run yet: the clerk carries it out before your next step, '
