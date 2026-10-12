@@ -49,3 +49,14 @@ For an opening, finish by calling submit_reading alone with the review object (o
 For a source_unit background fragment, unfinished source_read/uncertain needs may be published explicitly while their affected entities remain outside ready_nodes. Preserve the missing question and source relation; do not require a complete biography, voice, statistics or the next fragment merely to publish the current supported facts. Review this partial contract: unresolved context is not a completeness claim, but every included identity, assertion and causal link must still be supported. The background queue follows these retained needs.
 
 For task.material pregens, /coverage is the book's printed investigator inventory. Independently compare the original pages with the candidate: every investigator printed for a player to take must have a template and sheet. A stat block printed as a raster picture counts; use a zoomed box if needed. An empty candidate asserts that the book prints none and needs the same source check. If the pages print any omitted sheet or the book points to an unexamined pregen section, report it in missing with its pages and impact logic; never treat it as a presentation or parameter difference. This check is about source inventory, not whether a card is a plausible or complete newly generated investigator.
+# Optional NPC character profiles
+
+Review an assigned `properties/character_profile` separately as derived interpretation. Its
+words need not appear verbatim on the page. Judge source support, compatible tradeoffs, knowledge
+ownership, flexible expression and absence of invented biography, possessions or relationships.
+Record supported, contested or unsupported at the exact character_profile pointer with original
+page references. Any profile issue or missing optional profile is scoped to that pointer, never
+a reason by itself to refuse the containing source NPC, its summary or the whole reading.
+Identity, source statements and knowledge facts outside that pointer retain their existing gates.
+Do not classify an ordinary in-character denial or evasion as erased knowledge. Avoid prescribed
+self-explanation, permanent distrust, automatic rage/refusal or repeated occupational slogans.

@@ -93,3 +93,25 @@ Numbers go in as numbers: characteristics, HP, MP, MOV and Build as integers, an
 The current runtime uses classic Call of Cthulhu 7th edition. Identify the source edition from the book, not from a numeric threshold. Do not put earlier-edition or Pulp-only values into a classic 7th-edition mechanics.profile as if the scales and rules were interchangeable. Preserve incompatible source numbers in source_mechanics with the author's edition and leave an explicit dependency when the current playable scope requires those mechanics. Do not invent a conversion or silently mark that mechanical scope ready.
 
 For opening or detail, call submit_reading alone after writing the draft (or supply the small draft directly to it); this runs the same checker, checks viewed pages, and ends the phase on success. A separate bash check followed by submission is unnecessary. Only for a read task without submit_reading, run task.commands.check through bash after writing the draft. Correct structural errors using the original pages. It returns required_view_pages: view every listed physical page in this reading phase before finishing, even if the last task saw it. It also returns required_review paths for the verification phase. Do not compact your output to one message; the file is the deliverable. If the source is unclear, leave an explicit dependency rather than guessing.
+# Compact NPC character interpretation
+
+After establishing an NPC's identity and available directed relationships, prepare
+`properties.character_profile` in the same draft. Reuse an existing compatible profile; do not
+reroll people or read the whole book to fill gaps. This is optional derived guidance, never a
+source fact or a stat. Omit unsupported profiles and unknown sections; an absent profile never prevents a playable contact.
+
+Use `schema_version:1`, `profile` and `basis`. The profile has only `priorities` (at most two
+short English strings), `tendencies` (at most three objects with English `context`, `inclination`
+and optional `exception`), and optional English `expression`. Serialized profile content is at
+most 1200 Unicode code points, a ceiling rather than a target. Each populated section needs one
+basis entry with `field` naming that section, `derivation:source_paraphrase|interpretation`, and
+`source_refs:[{page:<physical page>}]` citing original pages you actually viewed. The host mints
+revisions and provenance; never supply hashes, job ids or a generated origin marker yourself.
+
+Capture a few tradeoffs and flexible expression, not overlapping labels, scripts or compulsory
+reactions. Initial stranger status is not permanent distrust. Current emotion, played trust,
+promises and campaign events do not belong here. Do not invent biography, relationships, assets,
+skills or secrets. Do not insert another person's private knowledge or a future plot event into
+a tendency. Source voice, explicit silence and knowledge boundaries remain authoritative.
+Motives guide actions; they need not be said aloud. No required catchphrase, length, refusal,
+anger, honesty, cooperation or self-explanation. Do not generate profiles for creatures or pregens.

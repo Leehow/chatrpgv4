@@ -11,7 +11,7 @@ import { isTold, tableWord } from "./person-words.js";
 import { bookCast, isPublicFigure, knownNamePieces, tellGuard, untoldUnread, type CastPerson } from "./cast.js";
 import { nameToken } from "../write/names.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
-import {personalityView} from '../npc/material.js';
+import {personalityView,sourceRelationships} from '../npc/material.js';
 import { intentsView, shownIntentRef } from '../npc/intents.js';
 import { moodNow } from '../npc/mood.js';
 import {npcRelationships,npcRecentSpeech,npcCommitments} from '../npc/perspective.js';
@@ -836,7 +836,8 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
         // the next line sounds.
         ...(now ? {now} : {}),
         ...dossier(graph, world, node, seat),
-        ...(personalityView(graph, world, node) ? {personality: personalityView(graph, world, node)} : {})
+        ...(personalityView(graph, world, node) ? {personality: personalityView(graph, world, node)} : {}),
+        ...(sourceRelationships(graph, node).length ? {source_relationships: sourceRelationships(graph, node)} : {})
     },
         discovered = new Set(array(world.discovered_clues));
     const knows = graph.npcKnows(node).map(item => ({
@@ -966,7 +967,8 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
         visibility: node.visibility ?? null,
         ...(npcState(graph, world, node) ? {state: npcState(graph, world, node)} : {}),
         ...dossier(graph, world, node),
-        ...(personalityView(graph, world, node) ? {personality: personalityView(graph, world, node)} : {})
+        ...(personalityView(graph, world, node) ? {personality: personalityView(graph, world, node)} : {}),
+        ...(sourceRelationships(graph, node).length ? {source_relationships: sourceRelationships(graph, node)} : {})
     };
     const knows = graph.npcKnows(node).map(entry => ({
         clue: entry.handle,
@@ -1211,20 +1213,22 @@ export function knownSection(graph: ModuleGraph, world: Row, scene: Row, party: 
     if(quotes.length)section.cash_quotes=quotes.map(value=>({quote:value.name,subject:value.subject,with:value.with,with_id:value.with_id??null,purchase_amount:value.purchase_amount,cash_debit:value.cash_debit??null,origin_turn:value.origin_turn??null,items:value.items,currency:value.currency,category:value.category,purpose:value.why}));
     return section;
 }
-function lists(value: any): any[][] {
+export type BudgetPolicy = {atomic?: ReadonlySet<any[]>; minimum?: ReadonlyMap<any[], number>};
+function lists(value: any, policy: BudgetPolicy = {}): any[][] {
     if (Array.isArray(value))
-        return [value, ...value.flatMap(lists)];
+        return policy.atomic?.has(value) ? [value] : [value, ...value.flatMap(item => lists(item, policy))];
     if (value && typeof value === "object")
-        return values(value).flatMap(lists);
+        return values(value).flatMap(item => lists(item, policy));
     return [];
 }
-export function fitBudget(section: any, budget: number, drop: "oldest" | "last" = "oldest"): boolean {
+export function fitBudget(section: any, budget: number, drop: "oldest" | "last" = "oldest", policy: BudgetPolicy = {}): boolean {
     let cut = false;
     while (jsonSize(section) > budget) {
-        const candidates = lists(section).filter(values => values.length);
+        const removable = (value: any[]): boolean => value.length > (policy.minimum?.get(value) ?? 0);
+        const candidates = lists(section, policy).filter(removable);
         if (!candidates.length)
             break;
-        const leaves = candidates.filter(values => !values.some(item => lists(item).some(nested => nested.length))),
+        const leaves = candidates.filter(values => policy.atomic?.has(values) || !values.some(item => lists(item, policy).some(removable))),
             pool = leaves.length ? leaves : candidates;
         let victim = pool[0];
         for (const values of pool.slice(1))

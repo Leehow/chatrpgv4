@@ -12,6 +12,7 @@ import { personRecord, APPEARANCE_CHARS } from '../read/capsule.js';
 import { FAILURE_REASONS, committedRecords } from '../memory/jobs.js';
 import { array, chars, clone, entries, integer, number, repr, row, string, truth, type Row } from '../read/values.js';
 import { EXPRESSION_MOD, isUnifiedExpression } from '../mods/voice-consolidation.js';
+import {personalityView, sourceRelationships} from '../npc/material.js';
 import {MOD, MASK_KEY, EXCHANGES_KEY, KEYS, LEGACY_KEY, LABELS, SILENT_REASON} from './fields.js';
 export {MOD, MASK_KEY, EXCHANGES_KEY, KEYS, LABELS, SILENT_REASON} from './fields.js';
 /** The 1.0.x word; a record of it is deleted the moment the person is re-established under the two words. */
@@ -192,6 +193,12 @@ export function buildPacket(campaign: CampaignWriter, graph: ModuleGraph, world:
         bytes += take.length;
     }
     const npc: Row = { handle, name: graph.displayName(node) };
+    const personality = personalityView(graph, world, node);
+    if (personality) npc.personality = personality;
+    const ties = sourceRelationships(graph, node);
+    if (ties.length) npc.source_relationships = ties;
+    if (dossier.relationships) npc.relationships = clone(dossier.relationships);
+    if (dossier.commitments?.length) npc.commitments = clone(dossier.commitments);
     for (const key of ['role', 'wants', 'fears', 'hides', 'voice', 'speaks'])
         if (truth(dossier[key]))
             npc[key] = dossier[key];

@@ -176,7 +176,7 @@ def submit(client, job_id, candidates):
 def test_promise_is_accepted_shown_as_an_obligation_and_closed_by_its_successor(kernel):
     open_turn(kernel, "我和诺特谈报酬。")
     job_id = narrate(kernel, "t1-c1", "诺特答应了。")["extraction"]["job_id"]
-    landed = submit(kernel, job_id, [{"kind": "promise", "subject": "Steven Knott", "entities": [INVESTIGATOR],
+    landed = submit(kernel, job_id, [{"kind": "promise", "subject": "Steven Knott", "entities": [INVESTIGATOR], "knowers": ["Steven Knott", INVESTIGATOR],
                                       "statement": "三天内付清报酬，条件是交出书面报告。"}])
     assert landed["ok"], landed
     first_id = landed["result"]["written"][0]
@@ -186,7 +186,7 @@ def test_promise_is_accepted_shown_as_an_obligation_and_closed_by_its_successor(
                        "cue": INVESTIGATOR, "authority": "conversation_report",
                        "fulfillment": {"status": "open", "terms": []}}
     job_id = narrate(kernel, "t2-c1", "他改口了。")["extraction"]["job_id"]
-    landed = submit(kernel, job_id, [{"kind": "promise", "subject": "Steven Knott", "entities": [INVESTIGATOR],
+    landed = submit(kernel, job_id, [{"kind": "promise", "subject": "Steven Knott", "entities": [INVESTIGATOR], "knowers": ["Steven Knott", INVESTIGATOR],
                                       "statement": "一周内付清报酬。"}])
     assert landed["ok"] and landed["result"]["superseded"] == [first_id]
     rows = {r["id"]: r for r in read_jsonl(campaign_dir(kernel.workspace) / "memory" / "candidates.jsonl")}

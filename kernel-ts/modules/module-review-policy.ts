@@ -1,5 +1,6 @@
 /** Closed review outcomes; the reviewer owns the semantic impact judgment. */
 import {REVIEW_VERDICTS} from './review-verdicts.ts';
+import {characterProfilePath} from './character-profile-shape.ts';
 export const MODULE_LOGIC_REVIEW='module-logic-v1';
 export const MODULE_REVIEW_IMPACTS=['logic','presentation','parameter'] as const;
 type Row=Record<string,any>;
@@ -17,8 +18,8 @@ export function reviewClassificationFields(fields:unknown,packet:Row):unknown{
  if(!moduleLogicReview(packet)||!fields||typeof fields!=='object'||Array.isArray(fields))return fields;
  return {...fields,law:'These are implementation classifications, not independent source evidence. Under module-logic-v1, presentation and valid parameter differences are advisory; missing or contradictory logic refuses, even at a classification pointer. Identity and statements reviewed as written remain strict. Preserve every authored applicability condition.'};
 }
-export const blockingModuleFindings=(findings:unknown[],packet:Row):unknown[]=>moduleLogicReview(packet)
- ?findings.filter(finding=>!advisoryModuleFinding(finding)):findings;
+export const blockingModuleFindings=(findings:unknown[],packet:Row):unknown[]=>findings.filter(finding=>
+ !characterProfilePath((finding as Row)?.path) && (!moduleLogicReview(packet)||!advisoryModuleFinding(finding)));
 /** Structural record roots preserve causal review without obliging a transcription of each leaf. */
 export function moduleReviewRoot(path:string):string{
  const match=/^\/(nodes|claims)\/\d+(?=\/|$)/.exec(path);return match?.[0]??path;

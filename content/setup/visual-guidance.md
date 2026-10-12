@@ -178,3 +178,24 @@ identities, future plot, clue solutions and internal diagnostics.
 The independent review's guidance approval also covers public_fields: check
 their original references, source fidelity, spoiler safety and play_language.
 Reject a misleading public value with a guidance issue. Never edit the fields.
+# Compact NPC character interpretation
+
+When extracting an NPC whose source description supports a useful tradeoff or expression principle,
+prepare optional `properties.character_profile` alongside the source material. This guidance reading
+is also a module extraction path; do not defer reusable character interpretation merely because this
+is not an opening/detail task. Unknown or unsupported sections remain absent, and missing enrichment
+never blocks preparation. Keep source identity, knowledge and directed relationships in their own records.
+
+Use `schema_version:1`, `profile` and `basis`. The profile has only `priorities` (at most two short
+English strings), `tendencies` (at most three objects with English `context`, `inclination` and optional
+`exception`), and optional English `expression`. Serialized profile content is at most 1200 Unicode
+code points, a ceiling rather than a target. Each populated section has one basis entry with `field`
+naming that section, `derivation:source_paraphrase|interpretation`, and `source_refs:[{page:<physical
+page>}]` citing original pages actually viewed. The host mints provenance and revisions; do not invent them.
+
+Retain a few flexible tradeoffs, not overlapping labels or compulsory reactions. Do not add biography,
+relationships, assets, abilities, secrets, current emotion, played trust or future plot events. Another
+person's private knowledge never becomes a tendency. Source voice and explicit silence govern. Initial
+stranger status is not permanent distrust. Motives guide actions without needing to be spoken aloud;
+no required catchphrase, refusal, rage, honesty, cooperation, fixed length or recurring self-explanation.
+Creatures and pregenerated investigators never receive NPC character profiles.

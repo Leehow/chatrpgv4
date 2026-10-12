@@ -10,6 +10,7 @@ import { sceneLabel } from '../read/capsule.js';
 import { EntityIndex, queryCandidates } from '../read/memory.js';
 import { storyAssessmentContext } from '../read/story.js';
 import {validateCorrectionRefs, bindCorrectionRefs, applyCorrectionLinks} from './corrections.js';
+import {MEMORY_ATTRIBUTION_INSTRUCTION, MEMORY_ATTRIBUTION_POLICY} from './attribution.js';
 import { array, row, clone, string, number, integer, numeric, truth, repr, sorted, length, type Row } from '../read/values.js';
 export const CANDIDATE_KINDS = ['world_event', 'knowledge', 'belief', 'relationship', 'player_assertion', 'player_preference', 'keeper_correction', 'promise'];
 const FIELDS = ['kind', 'subject', 'knowers', 'statement', 'entities', 'privacy', 'state', 'confidence', 'corrects'];
@@ -20,7 +21,7 @@ const STORY_STATUSES = ['aligned', 'unclear', 'misframed', 'detached'];
 export const episodeId = (turn: number) => `ep:t${turn}`;
 export const jobId = (campaign: string, turn: number) => `extract:${campaign}:t${turn}`;
 export const proseOf = (value: any): string => truth(value) ? string(value).replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '') : '';
-const instruction = (language: string) => 'Write only what is new this turn: facts, knowledge, beliefs, relationships, player assertions. ' +
+const instruction = (language: string) => 'Write only what is new this turn: facts, knowledge, beliefs, relationships, promises, player assertions. ' +
     'For subject use a name from known_entities, or one of the reserved subjects world, party, keeper, player, ' +
     'as the kind allows: a world_event uses subject world; a player_assertion or player_preference uses subject ' +
     'player. For knowers use known NPC or investigator names, or party, keeper or player. For entities use only ' +
@@ -39,6 +40,7 @@ const instruction = (language: string) => 'Write only what is new this turn: fac
     'knowledge or belief whose knowers include them, or a promise whose subject is them -- that is what puts it ' +
     'on their account, and the keeper reads it back the next time they are in the room. ' +
     'For an explicit correction or retraction, use keeper_correction and corrects: copy the exact subject and statement of each earlier claim it withdraws from correction_targets. Use [] when none applies. Do not repeat the withdrawn claim as new knowledge. A report of what someone said is not verified module truth. ' +
+    MEMORY_ATTRIBUTION_INSTRUCTION + ' ' +
     `Write every statement in the campaign's play language (${language}): the keeper reads it back and the player ` +
     'may see it through recall. Never write ids, turn numbers, receipts or any machine key.';
 export async function logs(campaign: CampaignWriter, path: string): Promise<Row[]> {
@@ -137,6 +139,7 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
         known_entities: known, prior, ...(correctionTargets.length ? {correction_targets: correctionTargets} : {}),
         ...(array(storyContext.threads).length ? {story_context: storyContext} : {}),
         budget: { max_candidates: 12, max_statement_chars: 400 }, instruction: instruction(language),
+        attribution_policy: MEMORY_ATTRIBUTION_POLICY,
         _worldline: worldline, _allowed: allowed, _receipts: array(record.receipts).map(receipt => receipt.id) };
 }
 
@@ -224,7 +227,7 @@ function resolveName(index: EntityIndex, position: number, field: string, name: 
     const described = found.map(key => index.describe(key));
     return reject(position, `candidates[${position}].${field}: ${repr(name)} names ${found.length} entities`, 'say which one by id: ' + described.map(value => `${value.id} (${value.kind} ${value.name})`).join(', '), { field, name, candidates: described });
 }
-export function validateCandidates(index: EntityIndex, candidates: any, referenced = false): Row[] {
+export function validateCandidates(index: EntityIndex, candidates: any, referenced = false, attributed = false): Row[] {
     if (!Array.isArray(candidates))
         throw new RpcError('invalid_params', 'params.candidates must be a list');
     if (candidates.length > 12)
@@ -249,6 +252,9 @@ export function validateCandidates(index: EntityIndex, candidates: any, referenc
         if (kind === 'world_event' && subject !== 'reserved:world')
             return reject(i, `candidates[${i}]: a world_event's subject must be world`, 'set subject to world, or choose knowledge/belief for what someone knows');
         const knowers = candidate.knowers ?? [], entities = candidate.entities ?? [];
+        if (attributed && kind === 'promise' && (!Object.hasOwn(candidate, 'knowers') || !Array.isArray(knowers) || !knowers.length))
+            return reject(i, `candidates[${i}]: a promise needs an explicit nonempty knowers list`,
+                'name the supported speaker and actual hearers; do not infer hearing from presence or an absent intended recipient');
         if (!Array.isArray(knowers))
             return reject(i, `candidates[${i}].knowers must be a list of names`, 'list investigators, NPCs, party, keeper or player');
         if (!Array.isArray(entities))
@@ -333,7 +339,7 @@ export async function submit(campaign: CampaignWriter, graph: ModuleGraph, party
     let validated: Row[];
     let assessed: Row | null;
     try {
-        validated = validateCandidates(index, candidates);
+        validated = validateCandidates(index, candidates, false, row(job.packet).attribution_policy === MEMORY_ATTRIBUTION_POLICY);
         assessed = validateStory(job, story);
     }
     catch (error) {

@@ -44843,6 +44843,58 @@ canonical rule text, and the canonical validator still refuses a malformed effec
 `clerk-write-readiness.test.mjs`, `discovery-sqlite-binding.test.mjs`, `context-request-capacity.test.mjs` updated
 to the fixed list, the ledger and attachment instead of the narrowed list and the hold.
 
+## 229. Module-derived NPC character profiles (#113, 2026-10-11)
+
+Binding specification: [module-npc-character-profiles.md](specs/module-npc-character-profiles.md).
+The user authorized implementation after the source-mode prototype and specification. This amends §§22, 123.1,
+143.1 and 170, preserving source authority, campaign continuity, limited knowledge and canonical effects.
+
+An NPC may carry optional `properties.character_profile` in a source draft: `schema_version:1`, `profile` containing
+at most two `priorities`, three `tendencies` (`context`, `inclination`, optional `exception`), and optional `expression`.
+Serialized profile content is at most 1200 Unicode code points. `basis` associates each populated section with
+`source_refs` and `derivation:source_paraphrase|interpretation`. Empty/malformed/unreviewed/unsupported optional
+profiles are omitted; otherwise valid source reading still publishes. Identity and knowledge findings remain blocking.
+The existing tool-enabled Pi reader generates this material. The existing independent source reviewer judges
+support and compatibility, not whether interpretive prose appears verbatim. No extra author or foreground wait.
+
+The ModuleGraph publisher alone mints `origin:module_derived`, `source_revision`, `content_revision`, `policy_version`
+and author provenance after review. Dependencies cover the person's source fields and directed relationship evidence,
+not the complete graph generation. Profile interpretation never becomes an authored-fact claim or knowledge grant.
+Existing canonical identity merging and original source evidence remain authoritative.
+
+`npc.job` adopts a ready compatible graph profile through its existing publication owner and returns `job_id:null`
+with `adopted:true`; no model authorship is required. Accepted core `world.npc_character` stores the profile and its
+source binding. A legacy accepted personality wins over new enrichment; reload/reunion never rerolls it. Reads are
+pure and may project a compatible unadopted graph profile while adoption is pending. Later graph interpretations do
+not silently replace accepted campaign material. A stale binding is explicit, not a source fact override.
+
+The existing `personality` projection retains optional source/legacy `description`, adds the same compact `profile`
+and `origin:module_derived`, and is shared by look/capsule, limited perspective, NPC situation and voice preparation.
+Initial directed source relationships and actual campaign evidence are separate; actor views retain epistemic ownership.
+Current emotion, commitments and played trust never enter shared graph profiles. Priorities guide choices, not repeated
+spoken explanations, obligatory refusal, fixed phrasing or outcome authority. Creatures and investigator templates are excluded.
+
+### Kernel decisions and implementation record
+
+Source implemented; profile diagnostics complete and full relationship acceptance open. The optional profile is reviewed at its own pointer and never broadens authority of the
+containing NPC record. The source publication path filters only optional profile findings; all other findings keep
+their existing gates. Core adoption is idempotent and performed only under the existing campaign writer lock.
+Optional interpretation is cut before immediate facts when an actor packet exceeds its budget. Initial relation
+views preserve direction, truth status and explicit knowledge ownership. The NPC observer records only compact
+profile digests observed after Pi serialization, never private prose or an authority grant.
+Scoped LAN regressions and runtime build passed. Broader combined-worktree failures remain recorded separately.
+Voice preparation reads the campaign's actual memory candidates and committed records under its existing writer
+snapshot, applies canonical promise fulfillment, and passes the active worldline/loop to the same NPC relationship
+projection. A packet-builder test alone cannot establish that this production caller supplies played evidence.
+Real PDF profile generation/review/publication, campaign adoption and serialized provider inclusion are observed;
+Grok 4.5/low completed genuine NPC dialogue and reload/reunion after the user authorized the fallback on 2026-10-11.
+Global defaults and earlier evidence were not changed. One 105-response tool-enabled diagnostic found feasibility
+and local tradeoffs, not stable superiority over concise personality. In genuine play, Knott's accepted content
+survived reload, but the existing memory extractor omitted the promise's hearer and recorded only the player-to-NPC
+relationship direction. Thus narrative acknowledgement is not persisted NPC relationship improvement or canonical promise fulfillment.
+At that checkpoint the producer gap remained open outside the profile publication/projection change.
+The user subsequently authorized the scoped repair in §231; do not reverse ties or infer trust.
+
 ## 230. Pushed Roll Mod: one declaration, one risk draw, one final attempt (2026-10-11)
 
 **Status: 1.0.4 packaged with scoped live acceptance on Grok 4.5 / low; no full-suite green claim.** The full binding design, original weighted
@@ -44941,3 +44993,128 @@ and continued play. Existing user campaign locks remain unchanged; only the
 isolated test campaign was explicitly upgraded. See the specification's execution
 record for evidence and the remaining time-suite failures; no broad green gate
 is claimed.
+
+## 231. Heard promise participants and directed relationship extraction (2026-10-11)
+
+The user authorized repair of the existing memory extraction gap found in §229. The existing committed-turn
+extractor writes candidates; NPC commitments/relationships and voice preparation read them; the Keeper uses
+the attributed evidence on reunion. This does not add a trust score, automatically reverse a relation, execute
+a promise, or settle a non-material promise from dialogue alone.
+
+New ordinary `memory.job` packets carry host-owned `attribution_policy:"heard-participants-v1"`. The kernel
+instruction and extension prompt share one English attribution passage. A conditional undertaking addressed
+to another actor is a `promise`, even when a separate player assertion also describes it. Its subject is the
+promisor, entities identify the recipient/topic, and knowers include the speaker and participants actually
+shown hearing/receiving it. Mere presence or an intended but absent addressee is not evidence of hearing.
+The listener of an investigator's pledge must remain in knowers so their existing commitment view can read it.
+Relationships remain directed at the other person and require a concrete shared event or explicit change;
+cooperation is not automatically friendship, courtesy is not trust, and no reverse feeling is inferred.
+
+For that policy only, ordinary promise candidates must explicitly supply a nonempty list of valid knower
+names. The extension shape gate and canonical kernel submit gate reject omissions/empty/malformed lists,
+using the existing bounded retry and feedback. They never fill missing people, classify prose or infer hearing.
+The model still judges semantic attribution; the guard prevents the observed entirely unattributed promise,
+not every possible semantic omission. Existing completed jobs/candidates and packets without this policy keep
+their old shape contract. Referenced-memory publication retains its existing source-bound protocol.
+
+### Kernel decisions and validation
+
+Live 4.5 extraction then reproduced the reversed direction despite corrected instructions: Knott's explicit
+trust was attributed to the investigator. New ordinary policy jobs therefore use an independent short attribution
+verdict within the existing memory validation owner before submit. It checks all candidates against the public
+delivered exchange, including omitted pledges, hearers and direction. Findings use issued ordinal candidate aliases
+and exact source quotes, not model-minted identities. Code checks only shape, aliases and quote containment.
+One repair verdict re-extracts through the existing retry; persistent disagreement/unavailability leaves the job
+in the existing backlog rather than publishing unsupported attribution. No automatic actor/relationship rewrite.
+
+This adds one validation call after each ordinary extraction under the new policy, at most two extraction/review
+pairs through the existing retry. Structured verdict issues and the candidate reports they assess are retained in
+the existing private lane telemetry, not injected into later model context or promoted to memory. It runs after
+delivery without holding narration. The standing approved exception
+for memory extraction and validation applies: output is a short closed verdict, not a text/biography author. No new
+lane, scheduler, migration or historical-record rewrite. The original source run and its wrong row remain evidence.
+The existing NPC adapter observer also records receiver-scoped promise/relationship digests from actual serialized
+JSON, including compact history.promises separately from full commitments (no invented omitted subject/entities),
+with NPC names and hashes but no private statement content. It is read-only measurement, never fed back as
+an obligation or knowledge grant. Component projections alone cannot establish delivery to the Keeper.
+The retained original failure packet was independently replayed by a tool-enabled 4.5/low agent and rejected with
+four exact-quote issues. Final scoped LAN validation passed 44/44, the latest local profile/memory set 23/23,
+compact-history observer 7/7, inventory 4/4 and runtime build passed. Earlier combined-worktree failures remain
+recorded; no full-green or installed-App claim. In genuine play with both extraction/review and Keeper explicitly
+pinned to 4.5/low, jobs 42-46 completed. A clerk pledge retained speaker/listener and continued on reunion.
+Knott-to-investigator cooperation was recorded on 45 and updated on 46. After restart, two actual serialized
+Keeper requests carried the heard reporting promise and the exact current directed relationship digest.
+A prior run used the configured Luna/off memory lane despite its 4.5 Keeper; malformed review output prevented
+publication. Preserve that failed job and the original wrong row. Local continuity/withdrawal evidence does not
+establish comparative persona superiority or canonical promise fulfillment.
+External comparisons: [LangMem typed extraction](https://langchain-ai.github.io/langmem/guides/extract_semantic_memories/)
+supports per-type rules; [Graphiti edge extraction](https://github.com/getzep/graphiti/blob/main/graphiti_core/prompts/extract_edges.py)
+binds direction to episode participants and stated relationships. Those systems do not grant hearing to every
+mentioned actor; neither supplies this game's knowledge ownership or canonical fulfillment authority.
+
+
+## 232. NPC relationship evidence survives present-card budgeting (2026-10-11)
+
+The user authorized repair of relationships whose target survived while all causal evidence was removed, and
+real repeated-contact/reunion acceptance. Memory extraction/submission writes the directed reports (§231);
+`npcRelationships` reads current same-scope reports newest first; the present card supplies the Keeper with
+why this NPC is wary. Narration styling and the semantic decision to become annoyed remain unchanged.
+
+Under the existing 3072-byte present allowance, relationship target and evidence are an atomic unit. When
+pressure requires a cut, older reports give way first. Every retained full NPC card with played relationships
+keeps at least its most recent relationship target and one complete report, including uncertainty and attribution.
+Other target groups may be removed as whole units; no emitted group has empty evidence or a severed attribution.
+The order is the existing newest-first projection, not a semantic relevance heuristic or a trust score.
+Omitted target/report counts are explicit in coverage. A whole NPC reduced to the existing identity stub is
+marked truncated and records the relationship omission; ordinary full NPC reads retain the original evidence.
+No budget increase, source/profile rewrite, automatic inverse feeling, new model call or forced lookup obligation.
+
+### Kernel decisions and acceptance
+
+`fitBudget` accepts an optional structural policy for atomic arrays and a minimum retained length. Only
+`fitPresent` supplies the NPC relationship policy; other callers retain their existing behavior. Older relationship
+reports may be removed before the generic dossier cut. Latest evidence is retained whole; canonical memory and
+NPC personality remain untouched. Actor kind, untold-name identity and temporal activity keep their existing rules.
+
+Regression checks cover pressure, multiple targets, complete attributed reports, explicit stubs, unchanged generic
+callers, exact retained real-campaign packets and serialized-adapter relationship digests. Real acceptance uses
+Grok Build 4.5/low, one natural player input per turn, followed by absence/process restart and reunion. The NPC
+must remember the concrete ignored boundary; a cold tone or an unchanged personality hash alone does not pass.
+
+External comparison: [LangChain short-term memory](https://docs.langchain.com/oss/javascript/langchain/short-term-memory)
+requires structurally valid histories when trimming (for example, paired tool calls/results);
+[LlamaIndex memory](https://developers.llamaindex.ai/python/examples/memory/memory/) supports prioritizing blocks.
+These validate dependency-aware trimming and priorities, not this game's attribution authority. This repair uses
+existing exact reports and byte budgets, without summaries or a new memory framework.
+
+
+§232 implementation checkpoint: 59 local scoped tests passed (relationship/profile/inventory26, mood10,
+identity/kind23), kernel type check and diff check passed. The retained failed source packet kept its complete
+report in3052/3072 budgeted bytes, plus existing exempt temporal/name metadata. LAN runtime build completed;
+fetched bundle hash matched. Focused testing was queued behind another owner, then interrupted by LAN SSH
+outage (exit255); completed suite totals remain unverified, not green.
+
+Genuine 4.5/low play completed five repeated-contact turns and three further cold-reunion turns. In the first
+return, the player supplied a topic reminder; that run establishes actual serialized report delivery and the
+NPC's refusal/withdrawal on renewed repetition. After a further process restart, neutral player input supplied
+no old-topic or apology details. The NPC independently recalled repeated attempts to attribute hearsay to him,
+yesterday's apology, and why he now restricts contact to business. Actual adapter hooks matched complete
+current reports before those replies (telemetry21408/21551, source91; next update21726, source93). Accepted
+persona content/time remained unchanged across97 world snapshots. No debug memory rewrite or narration-style
+change. Detailed checkpoint: `.pi/npc-relationship-budget-20261011/summary.json`.
+
+Local regression continuation (2026-10-11): the user required pytest on the Mac; neither LAN box was available.
+Local pytest passed2142/2142 (two workers), the selected381 extension files passed3792/3792 (file concurrency2),
+and single-loop routing passed12/12. All three processes exited0; no skipped or cancelled tests. Pytest and the
+extension suite ran sequentially. Final diff check passed. These results complete the selected regression gate;
+the interrupted LAN logs remain preserved and are not reclassified as successful. No further source repair,
+model call, packaging or installed App acceptance was performed in this continuation.
+
+Pre-commit full regression coverage (2026-10-11): the remaining258 extension files ran locally after the
+selected381 files. They reported1858 passes, one failure and one optional skip. The failure was this task's
+section229 appended after section230; moving section229 before230 left all section contents and references
+unchanged, and the contract-number file then passed3/3. The original failing log remains preserved. Together,
+all639 extension files have5651 passing tests and one skip, alongside pytest2142/2142 and routing12/12.
+The skipped historical-source probe requires `COC_HISTORICAL_WEAKNESS_GRAPH`; no historical source was restored.
+Only contract ordering and this validation record changed after the earlier selected run; implementation bytes
+remained identical. No push, packaging or installed App acceptance is included.

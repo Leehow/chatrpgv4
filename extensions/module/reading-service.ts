@@ -1871,6 +1871,7 @@ export class ReadingService implements ReadingBridge {
 					}
 					publishing = true;
 					const finishing: Row = { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
+						author_model: model.id,
 						outcome: "completed", draft_path: join(cwd, "draft.json"), review_path: join(cwd, "review.json"), assets,
 						...(travel?.entries.length ? { travel: travel.entries } : {}) };
 					let published: Row | undefined;

@@ -22,6 +22,8 @@ import { checkMapScope, checkMapScopeDraft, publishedNodes } from './map-scope.j
 import { checkPregensScope, checkSheets, PREGENS_MATERIAL } from './pregens.js';
 import { sheetReviewPaths } from './sheet-review.js';
 import { pregenInventoryPath } from './pregens-material.js';
+import {checkedCharacterProfile, characterProfilePath} from './character-profile-shape.js';
+import {publishCharacterProfiles} from '../npc/profile.js';
 import type { SourceNeed } from './source-needs.js';
 const object = (value: any): boolean => isJsonObject(value);
 /** The refusal `reject` throws, built without throwing so the staged draft check can collect it (§186.3). */
@@ -345,6 +347,12 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     // Stage 2, the records: per node and per claim, identifiers, kinds, vocabulary fields, references to defined nodes,
     // source refs, predicates and endpoints, and the record-local laws.
     const filled: Row = clone(draft), nodes = filled.nodes as Row[], existing = new Set(array(packet.known_nodes).map(n => n.node_id)), defined = new Set<string>();
+    const profiles = new Map<number, Row>();
+    for (const [i, node] of nodes.entries()) {
+        const candidate = node?.node_kind === 'npc' ? checkedCharacterProfile(row(node.properties).character_profile, packet.source.page_count, seen, false) : null;
+        if (candidate) profiles.set(i, candidate);
+        if (object(node?.properties)) delete node.properties.character_profile;
+    }
     const knownKinds = new Map<any, any>(array(packet.known_nodes).map(n => [n.node_id, n.node_kind]));
     if (packet.visual_scan) filled.visual_candidates = candidates;
     if (moduleLogicReview(packet)) filled.review_policy = packet.review_policy;
@@ -675,6 +683,10 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     if(!moduleLogicReview(packet))for (const [i, node] of nodes.entries())
         for (const path of shapeReviewPaths(node, `/nodes/${i}`))
             required.add(path);
+    for (const [i, profile] of profiles) {
+        nodes[i].properties.character_profile = profile;
+        required.add(`/nodes/${i}/properties/character_profile`);
+    }
     filled.required_review = sorted(required);
     return filled;
 }
@@ -956,7 +968,7 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
     claims?: ClaimEvidence): ReviewJudgement {
     if (!object(review) || !Array.isArray(review.missing) || !Array.isArray(review.checked))
         reject('review must contain checked facts and an empty missing list');
-    if (blockingModuleFindings(review.missing,filled).length)
+    if (blockingModuleFindings(review.missing.filter((item: Row) => !characterProfilePath(item?.path)),filled).length)
         reject('the independent review found missing or incorrect material: ' + canonicalJson(review.missing), '/review/missing');
     const supported = new Set<string>(), reviewed = new Set<string>(), contested: Row[] = [];
     // §151.3: a Jev-checked row is judged first, against every path a vision row did not support.
@@ -981,6 +993,10 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
         const refs = references(item.source_refs, count, seen);
         for (const path of paths) {
             reviewed.add(path);
+            if (characterProfilePath(path)) {
+                if (item.verdict === 'supported') supported.add(path);
+                continue;
+            }
             if (item.verdict === 'supported') {
                 supported.add(path);
                 continue;
@@ -996,12 +1012,20 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
             });
         }
     }
-    const missing = array(filled.required_review).filter(path => !reviewed.has(path));
+    const missing = array(filled.required_review).filter(path => !characterProfilePath(path) && !reviewed.has(path));
     if (missing.length)
         throw new RpcError('invalid_params', `visual review omitted required fields: ${repr(sorted(missing))}`, {
             fix: 'review the omitted source fields against their original pages; preserve the completed author draft',
             details: {reason:'reading_failed',path:'/',rule:'review_incomplete',required_review:sorted(missing)},
         });
+    for (const [i, node] of array(filled.nodes).entries()) {
+        const at = `/nodes/${i}/properties/character_profile`;
+        const negative = review.checked.some((item: Row) => item.verdict !== 'supported' &&
+            array(Object.hasOwn(item, 'paths') ? item.paths : [item.path]).some(path => characterProfilePath(path) && (path === at || path.startsWith(at + '/'))));
+        if (!supported.has(at) || negative || review.missing.some((item: Row) => characterProfilePath(item?.path) && item.path.startsWith(at)))
+            delete row(node.properties).character_profile;
+    }
+    filled.character_profile_supported = array(filled.nodes).filter(node => row(node.properties).character_profile).map(node => node.node_id);
     return { supported, contested };
 }
 /**
@@ -1071,6 +1095,7 @@ export function assembleVisual(previous: Row | null, filled: Row, meta: Row, con
         const merged = new Map(array(graph[collection]).map(item => [item[key], item]));
         for (const [i, raw] of (filled[collection] as Row[]).entries()) {
             const value = clone(raw);
+            if (collection === 'nodes') delete row(value.properties).character_profile;
             value.source_refs = raw.source_refs.map((ref: Row) => ({ source_id: `pdf:${meta.id}`, pdf_index: typeof ref.page === 'bigint' ? ref.page - 1n : ref.page - 1, ...(Object.hasOwn(ref, 'box') ? { box: ref.box } : {}) }));
             const id = value[key], base = `/${collection}/${id}`, before = merged.get(id);
             if (collection === 'nodes' && id === `module-${meta.id}` && previous === null) {
@@ -1148,6 +1173,7 @@ export function assembleVisual(previous: Row | null, filled: Row, meta: Row, con
     }
     graph.nodes = [...nodes.values()];
     graph.relations = [...relations.values()];
+    publishCharacterProfiles(graph, array(filled.nodes).filter(node => array(filled.character_profile_supported).includes(node.node_id)), row(filled.character_profile_author));
     const declaration = row(graph.nodes.find((node: Row) => node.node_kind === 'module')?.properties);
     for (const key of ['entry_scene_ids', 'ending_scene_ids'])
         if (Object.hasOwn(declaration, key))

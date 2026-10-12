@@ -174,7 +174,11 @@ Tables are generated from `inventory-SL-00.json` (lines are at `0b729e8fb`, info
 | `Electron/packages/pi-backend/src/session-title.ts` | `generateModelSessionTitle.sendPrompt` | 143 | `{type: prompt}` | pipiui session titles | no-caller | n/a | Would start a separate Pi child run for a title; no caller in pi-backend (startAutomaticSessionTitle uses a provisional title: "this product never starts another Keeper for it"). |
 | `extensions/table/prescreen-loop.ts` | `runPrescreenLoop` | 8 | `runEvidenceAgent` | table ext | no-caller | n/a | Exported wrapper with no caller. |
 
-#### Leaves (model-involving) — app-play (17 sites)
+#### Leaves (model-involving) — app-play (17 sites at SL-00)
+
+Section 231 adds one bounded memory-attribution validation call beside the existing extraction call,
+within the same after-commit owner and fixed retry. The two call sites are classified together below;
+the historical SL-00 aggregate counts above are unchanged.
 
 | file | symbol | line(s) | call | owner | path | trace | note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -186,7 +190,7 @@ Tables are generated from `inventory-SL-00.json` (lines are at `0b729e8fb`, info
 | `extensions/kernel/verifier.ts` | `incumbent` | 324 | `runLane` | kernel ext: post-delivery verifier | app-play | observed: 4 verifier rows | Advisory verifier lane after delivery; fast model. |
 | `extensions/lanes/subsession.ts` | `runLaneAttempt` | 428 | `modelRegistry.complete` | lanes (shared) | app-play | observed: 22 lane-call rounds | The single provider call of every zero-tool lane (verifier, admission, memory, journal, voice). Outside the Keeper's streamFn: no before/after_provider_request hooks. |
 | `extensions/lanes/subsession.ts` | `observedFetch.observing` | - | `globalThis.fetch` | lanes (shared) | app-play | tests: admission-transient-retry | Contract §190.3: the fetch the admission lane hands its adapter (only with observeTransport, only for the wire APIs in OBSERVED_FETCH_APIS); passes the adapter's own one HTTP request through unchanged and records its status or that the transport ended. Starts no request of its own. |
-| `extensions/memory/index.ts` | `attempt` | 280 | `runLane` | memory ext: extraction | app-play | observed: 4 memory rows | Committed-turn extraction; background root, runs after commit. |
+| `extensions/memory/index.ts` | `attempt` | 286, 302 | `runLane` (2 sites) | memory ext: extraction and attribution validation | app-play | original extraction observed: 4 memory rows; validation covered by contracts and real-model replay | Committed-turn extraction plus independent short participant/direction verdict for new attribution-policy jobs (§231). Both run after commit, within the existing two-attempt retry; code never repairs statements or actor direction. |
 | `extensions/mods/index.ts` | `warm` | 738 | `presentDocument` | mods ext: document presentation warmup | app-play | not observed | Background warmup when a paper is acquired; outlives the tool call; not awaited. |
 | `extensions/mods/index.ts` | `warm.runner` | 739 | `owner.runTask` | mods ext: document presentation warmup | app-play | not observed | Runner handed to presentDocument (child kind mod). |
 | `extensions/npc-journal/index.ts` | `attempt` | 240 | `runLane` | npc-journal ext | app-play | observed: 4 journal rows | Background journal lane after commit. |

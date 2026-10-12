@@ -8,6 +8,7 @@ import { RpcError } from '../errors.js';
 import { CampaignSnapshot, loadCampaignModule } from '../read/campaign.js';
 import { playLanguageOf } from '../read/languages.js';
 import { npcView } from '../read/capsule.js';
+import {canonicalMemoryReceipts, withPromiseFulfillment} from '../read/memory.js';
 import { sameNode } from '../read/module-graph.js';
 import { array, number, repr, row, string, type Row } from '../read/values.js';
 import { createWriteRuntime } from '../write/index.js';
@@ -74,8 +75,15 @@ export function createVoiceHandlers(context: KernelContext, writer: ReturnType<t
             const node = await nextPerson(campaign, graph, snapshot.world, owner, params.backfill === true, excluded);
             if (!node)
                 return { job_id: null };
-            const ledger = await readNpcLedger(campaign), dossier = npcView(graph, snapshot.world, node, ledger);
-            const said = (await campaign.records()).flatMap((record: Row) => array(record.speech).filter(line => sameNode(graph, row(row(line).who).npc, node)).map(line => string(row(line).text)));
+            const records = await campaign.records(), turn = await campaign.readTurn(), ledger = await readNpcLedger(campaign);
+            const memoryPath = campaign.path('memory/candidates.jsonl');
+            const candidates = await context.snapshots.isFile(memoryPath) ? (await context.snapshots.readJsonl(memoryPath)).map(row) : [];
+            const memory = withPromiseFulfillment(candidates, {campaign: campaign.id, world: snapshot.world,
+                receipts: canonicalMemoryReceipts(records, array(turn.receipts))});
+            const worldline = string(snapshot.meta.active_worldline || 'main');
+            const scope = {worldline, loop: number(row(row(snapshot.meta.worldlines)[worldline]).loop)};
+            const dossier = npcView(graph, snapshot.world, node, ledger, {}, records, memory, scope);
+            const said = records.flatMap((record: Row) => array(record.speech).filter(line => sameNode(graph, row(row(line).who).npc, node)).map(line => string(row(line).text)));
             const packet = buildPacket(campaign, graph, snapshot.world, owner, node, await playLanguageOf(context, snapshot.meta), dossier, await laneInstruction(context, owner, snapshot.world, catalog), said, await investigatorIdentity(campaign, snapshot.world));
             return openJob(campaign, owner, graph.handle(node), packet);
         },

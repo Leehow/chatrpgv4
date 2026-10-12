@@ -3,7 +3,7 @@ import {jsonDigest} from '../json.js';
 import type {ModuleGraph} from '../read/module-graph.js';
 import {memoryEvidenceView} from '../read/memory.js';
 import {array,normalize,number,row,string,type Row} from '../read/values.js';
-import {personalityView,personalitySourceRevision} from './material.js';
+import {personalityView,personalitySourceRevision,sourceRelationships} from './material.js';
 import {reunionView} from './reunion.js';
 import {observedDocuments} from '../mods/document-visibility.js';
 
@@ -61,6 +61,7 @@ export function npcPerspective(graph:ModuleGraph,world:Row,node:Row,memory:Row[]
         ...(documents.length?{observed_documents:documents}:{}),
         commitments:commitments.slice(0,12),
         coverage:{knowledge_reports_omitted:Math.max(0,reports.length-12),commitments_omitted:Math.max(0,commitments.length-12),relationship_view:'bounded; use ordinary recall for older evidence',speech_view:'last six committed own utterances'},
+        ...(sourceRelationships(graph,node).length ? {source_relationships:sourceRelationships(graph,node)} : {}),
         relationships:npcRelationships(graph,node,memory,scope),recent_speech:npcRecentSpeech(graph,node,records,scope),
         reunion:reunionView(graph,world,node,records,scope),
         note:'Only this person\'s authored material and explicitly attributed reports are supplied. A report or prior utterance is not established world truth. Missing information remains unknown.'};

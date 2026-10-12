@@ -393,6 +393,12 @@ function constraintsOf(graph: ModuleGraph, world: Row, party: Row[], me: Person,
 export function fitSituation(packet: Row, maxBytes: number, declared: boolean): void {
     const truncated: string[] = packet.truncated, over = () => jsonSize(packet) > maxBytes;
     const cut = (name: string) => { if (!truncated.includes(name)) truncated.push(name); };
+    if (over() && packet.who?.personality?.origin === 'module_derived' && packet.who.personality.profile) {
+        const personality = {...packet.who.personality}; delete personality.profile;
+        if (personality.description) packet.who.personality = personality;
+        else delete packet.who.personality;
+        cut('who.personality.profile');
+    }
     for (const key of ['objects', 'exits', 'table_brought_out', 'brought_out', 'holdings', 'present','open_documents']) {
         const list = key === 'table_brought_out' ? packet.table_brought_out : packet.at_hand[key];
         while (over() && Array.isArray(list) && list.length) { list.pop(); cut(key === 'table_brought_out' ? key : 'at_hand'); }
@@ -401,7 +407,7 @@ export function fitSituation(packet: Row, maxBytes: number, declared: boolean): 
     while (over() && packet.recent_speech.length) { packet.recent_speech.shift(); cut('recent_speech'); }
     while(over()&&Array.isArray(packet.observed_documents)&&packet.observed_documents.length){packet.observed_documents.shift();cut('observed_documents');}
     while (over() && packet.happened.length > (declared ? 1 : 0)) { packet.happened.shift(); cut('happened'); }
-    for (const key of ['relationships', 'commitments'])
+    for (const key of ['source_relationships', 'relationships', 'commitments'])
         while (over() && Array.isArray(packet.who[key]) && packet.who[key].length) { packet.who[key].pop(); cut('who'); }
     for (const key of ['scene', 'previous_narration']) {
         while (over() && typeof packet.canonical_context?.[key] === 'string' && packet.canonical_context[key].length > 80) {
@@ -511,7 +517,8 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
                 // §180.3: the act author's material -- a person's personality and the rest of their perspective; for a
                 // creature, what the book says it is, its habits and the Keeper's note.
                 who: person ? {personality: view.personality ?? null, goals: view.goals ?? null, fears: view.fears ?? null,
-                    commitments: view.commitments ?? [], relationships: view.relationships ?? []} : creatureMaterial(graph, world, node),
+                    commitments: view.commitments ?? [], relationships: view.relationships ?? [],
+                    ...(array(view.source_relationships).length ? {source_relationships: view.source_relationships} : {})} : creatureMaterial(graph, world, node),
                 happened,
                 state: stateOf(graph, world, me, session, stanceNow(graph, ledger, table, turn, me.handle)),
                 at_hand: {...hand, ...(brought.length ? {brought_out: brought} : {})},

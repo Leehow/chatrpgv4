@@ -10,6 +10,7 @@ import type {HostRuntime} from '../../runtime/host.ts';
 import {cocMode} from '../lanes/host.ts';
 import {createLaneQueue,type LaneJob} from '../lanes/queue.ts';
 import {resolveLaneModel} from '../lanes/subsession.ts';
+import {profilePayloadDigests, npcMemoryPayloadDigests} from './profile-observation.ts';
 import {createLaneTelemetry} from '../lanes/telemetry.ts';
 import {authorNpc} from './writer.ts';
 
@@ -21,6 +22,15 @@ export default function npcExtension(pi:ExtensionAPI):void {
     pi.events.on('coc:kernel-bridge',data=>{runtime=(data as {runtime?:HostRuntime}|undefined)?.runtime;});
     pi.on('session_start',async()=>{attempted.clear();});
     const {record}=createLaneTelemetry(pi,{lane:'npc',modelEnv:'PI_COC_NPC_MODEL',cwd:()=>scheduler.ctx?.cwd});
+    pi.on('before_provider_request', async event => {
+        const digests = profilePayloadDigests(event.payload);
+        const campaign = scheduler.bridge?.campaign;
+        if (campaign && digests.length) await record(campaign,{event:'profile_provider_projection',profile_digests:digests,
+            profile_count:digests.length,measurement:'adapter_payload_after_pi_serialization'});
+        const memory = npcMemoryPayloadDigests(event.payload);
+        if (campaign && memory.length) await record(campaign,{event:'npc_memory_provider_projection',npcs:memory,
+            measurement:'adapter_payload_after_pi_serialization'});
+    });
     const scheduler=createLaneQueue(pi,{backfillEnv:'PI_COC_NPC_BACKFILL',backfillDefault:1,runJob,onError:async(job)=>{
         await record(job.campaign,{ok:false,reason:'npc_preparation_unavailable'});
     }});
@@ -43,6 +53,7 @@ export default function npcExtension(pi:ExtensionAPI):void {
                 let id:string|undefined,claim:string|undefined;
                 try {
                     const packet=object(await bridge.call('npc.job',{campaign:job.campaign,name}));
+                    if (packet.adopted === true) await record(job.campaign,{ok:true,kind:'module_profile',npc:name});
                     id=typeof packet.job_id==='string'?packet.job_id:undefined;
                     claim=typeof packet.claim==='string'?packet.claim:undefined;
                     const attempt=JSON.stringify([id,claim]);

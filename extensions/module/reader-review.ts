@@ -13,6 +13,7 @@ import { answerReviewShapeError } from "../../kernel-ts/modules/answer-review-sh
 import { PERSON_STATEMENTS, REVIEW_VERDICTS, classificationMatcher, personStatementPath, sheetReviewPath, statementReviewPath } from "../../kernel-ts/modules/review-verdicts.ts";
 import { sheetReviewPaths } from "../../kernel-ts/modules/sheet-review.ts";
 import { pregenInventoryPath } from '../../kernel-ts/modules/pregens-material.ts';
+import {checkedCharacterProfile, characterProfilePath} from '../../kernel-ts/modules/character-profile-shape.ts';
 import {validatePublicGuidance} from '../../kernel-ts/modules/public-guidance.ts';
 import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings,moduleGuidanceApproved,moduleReviewOutcome,reviewClassificationFields} from '../../kernel-ts/modules/module-review-policy.ts';
 import {READING_REVIEW_FALLBACK,readingReviewBudget} from '../../runtime/jev/host-budgets.ts';
@@ -32,6 +33,7 @@ export const SHEET_REVIEW = "For properties/sheet pointers (a pregenerated inves
 	+ "or a value the sheet does not print, is unsupported with impact logic; a number the sheet prints that the draft leaves out is missing with "
 	+ "impact logic. The rules' name for a printed skill (Fighting (Brawl) for Brawl) is not a difference. Answer every assigned sheet pointer.";
 function numeric(value: any, path: string): string[] {
+    if (characterProfilePath(path)) return [];
 	if (typeof value === "number") return [path];
 	if (Array.isArray(value)) return value.flatMap((v, i) => numeric(v, `${path}/${i}`));
 	if (value && typeof value === "object") return Object.entries(value).flatMap(([k, v]) =>
@@ -71,6 +73,7 @@ function reviewGroups(draft: Row, requiredPaths: string[], logicReview: boolean)
 		const path = `/${collection}/${i}`;
 		const pointers = new Set([path, ...(collection === "nodes" && !logicReview ? numeric(Object.fromEntries(
 			Object.entries(row.properties ?? {}).filter(([k]) => k !== "image_sources")), path + "/properties") : [])]);
+        if (collection === 'nodes' && row.node_kind === 'npc' && checkedCharacterProfile(row.properties?.character_profile)) pointers.add(path + '/properties/character_profile');
 		if (collection === "nodes" && Array.isArray(row.properties?.map_regions) && row.properties.map_regions.length)
 			pointers.add(`${path}/properties/map_regions`);
 		// Contract §39.4: a map's kind is checked against the original page, like its regions.
@@ -92,7 +95,7 @@ function reviewGroups(draft: Row, requiredPaths: string[], logicReview: boolean)
 	for (const rawPath of [...(draft.critical ?? []),...requiredPaths]) {
         // §192.1, §199.2: a distinct_from and a person's statements stay their own pointers under module-logic-v1 too; the gate
         // judges them as written.
-        const path=logicReview&&!statementReviewPath(draft,rawPath)?moduleReviewRoot(rawPath):rawPath;
+        const path=logicReview&&!statementReviewPath(draft,rawPath)&&!characterProfilePath(rawPath)?moduleReviewRoot(rawPath):rawPath;
 		if(['/interaction_scene','/source_needs'].includes(path)&&draft.ready_nodes?.length)continue;
 		const parent = [...groups.keys()].find(p => path === p || path.startsWith(p + "/"));
 		if (parent) groups.get(parent)!.add(path);
@@ -257,7 +260,7 @@ export function carriedReviewUnits(draft: Row, requiredPaths: string[] = [], bud
 export function gateRefusal(task: Row, draft?: Row): (row: Row, path: string) => boolean {
 	const classifies = classificationMatcher(task?.vocabulary?.classification_fields?.node);
 	// §199.2: `draft` says which pointers are a person's statements; without it only §192.1's distinct_from is one.
-	return (row, path) => moduleReviewOutcome(row,task??{},{asWritten:statementReviewPath(draft,path)||pregenInventoryPath(task??{},path),classification:classifies(path)})==='refused';
+	return (row, path) => !characterProfilePath(path) && moduleReviewOutcome(row,task??{},{asWritten:statementReviewPath(draft,path)||pregenInventoryPath(task??{},path),classification:classifies(path)})==='refused';
 }
 
 /**

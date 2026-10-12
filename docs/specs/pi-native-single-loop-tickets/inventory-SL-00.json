@@ -1028,12 +1028,12 @@
       "symbol": "attempt",
       "kind": "lane",
       "callee": "runLane",
-      "count": 1,
-      "owner": "memory ext: extraction",
+      "count": 2,
+      "owner": "memory ext: extraction and attribution validation",
       "path": "app-play",
       "role": "leaf",
       "trace": "observed: 4 memory rows",
-      "note": "Committed-turn extraction; background root, runs after commit.",
+      "note": "Committed-turn extraction plus independent short participant/direction verdict for new attribution-policy jobs (§231); both background after commit, within the existing two-attempt retry. No statement/actor repair by code.",
       "lines_at_0b729e8fb": [
         280
       ]

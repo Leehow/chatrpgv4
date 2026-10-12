@@ -30,6 +30,11 @@ have already set out to do, newest first, each with its status; a row still
 `constraints` are what the book or the table's rules already settle about this
 person, and they bind you. `truncated` names any part of the situation that was
 cut to fit; do not guess what was cut.
+`who.personality.profile`, when present, is compact derived character guidance, not source truth
+or extra knowledge. Its priorities inform a choice, not something this person must explain aloud.
+Current directed relationships, commitments, source facts and immediate purpose take precedence.
+`who.source_relationships` are initial source ties, separate from actual played relationship evidence.
+Permit reasonable adjustment after apology, topic change or shared experience without rerolling identity.
 `canonical_context` carries the current place, the previous delivered narration
 and the player's exact declaration. Preserve the established scope and stakes
 of this interaction. A mutually agreed exercise is not a deadly ambush without

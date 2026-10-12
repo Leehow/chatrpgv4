@@ -48,7 +48,8 @@ def test_job_packet_is_names_only(kernel):
     assert narrated["extraction"] == {"job_id": "extract:c1:t1"}
     packet = job(kernel)
     assert set(packet) == {"job_id", "turn", "commit", "scene", "present", "investigators", "player_text",
-                           "keeper_text", "committed_facts", "known_entities", "prior", "story_context", "budget", "instruction"}
+                           "keeper_text", "committed_facts", "known_entities", "prior", "story_context", "budget", "instruction", "attribution_policy"}
+    assert packet["attribution_policy"] == "heard-participants-v1"
     assert packet["job_id"] == "extract:c1:t1" and packet["turn"] == 1 and packet["commit"] == narrated["commit"]
     assert packet["scene"] == {"name": "commission-briefing", "display_name": "Knott's Office"}
     assert packet["present"] == [KNOTT]
@@ -370,7 +371,7 @@ def test_recall_memory_ranks_by_kind_after_overlap_and_before_recency(kernel):
         {"kind": "player_assertion", "subject": INV, "entities": [KNOTT], "statement": "a2"},
         {"kind": "belief", "subject": INV, "entities": [KNOTT], "statement": "b2"},
         {"kind": "world_event", "subject": "world", "statement": "w2"},
-        {"kind": "promise", "subject": KNOTT, "entities": [INV], "statement": "p2"},
+        {"kind": "promise", "subject": KNOTT, "entities": [INV], "knowers": [KNOTT, INV], "statement": "p2"},
     ])
     hits = kernel.table("recall", what="memory")["hits"]
     assert [(h["kind"], h["turn"]) for h in hits] == [

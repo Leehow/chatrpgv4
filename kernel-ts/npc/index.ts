@@ -13,6 +13,7 @@ import {isJsonObject,jsonDigest} from '../json.js';
 import {array,clone,number,row,string,type Row} from '../read/values.js';
 import {readNpcLedger} from '../write/contributions.js';
 import {personalitySources,personalitySourceRevision,personalityView} from './material.js';
+import {moduleCharacterProfile} from './profile.js';
 import {npcViews} from './read.js';
 import {createSituationHandlers} from './situation.js';
 import {createStakesHandlers} from './stakes.js';
@@ -72,8 +73,20 @@ export function createNpcHandlers(context:KernelContext,writer:ReturnType<typeof
             // §180.3: a personality is a person's, the same selection `npc.submit` accepts; a creature present is never
             // offered, or its job would stay open forever.
             const nodes=params.name!=null?[npcNode(graph,world,required(params,'name')!)]:npcsPresent(graph,world,graph.scene(world.active_scene)).filter(node=>graph.isPerson(node));
+            let adopted = false;
+            for (const person of nodes) {
+                const saved = row(row(world.npc_character)[string(person.node_id)]);
+                if (Object.keys(row(saved.personality)).length) continue;
+                const profile = moduleCharacterProfile(graph, person);
+                if (!profile) continue;
+                const characters = (world.npc_character ??= {});
+                characters[string(person.node_id)] = {...saved, personality: {...profile, scope,
+                    accepted_at: nowIso(), accepted_turn: number(row(await campaign.readTurn()).turn)}};
+                adopted = true;
+            }
+            if (adopted) await campaign.writeWorld(world);
             const node=nodes.find(node=>!personalityView(graph,world,node));
-            if(!node)return {job_id:null};
+            if(!node)return {job_id:null,...(adopted ? {adopted:true} : {})};
             const source_revision=personalitySourceRevision(graph,node),id=jsonDigest({campaign:campaign.id,npc:node.node_id,scope,source_revision});
             const path=jobPath(id),existing=await context.snapshots.isFile(campaign.path(path))?await campaign.read(path):null;
             if(existing&&existing.status==='open')return clone(row(existing.packet));

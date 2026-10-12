@@ -2185,6 +2185,7 @@ export class Reading {
                     ? claimEvidence(await this.store.context.snapshots.readJson(await this.contained(work, evidencePath)), string(meta.source_document.file_sha256)) : undefined;
                 // §22.3.2: a disputed classification is published with its mark; only an unsupported fact refuses.
                 const judged = checkReview(row(draft), filled, review, number(meta.page_count), new Set(array(observations.review_pages)), classificationFields(contract), claims);
+                filled.character_profile_author = {job_id: job.job_id, model: typeof params.author_model === 'string' ? params.author_model : null};
                 // §152.4: a drafted visual is judged against the generation it lands on (read inside this lock), never the
                 // snapshot its reader was claimed with, so two readings of one page cannot both publish a new node.
                 const landing = await this.store.readGraph(mid);

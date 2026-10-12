@@ -380,6 +380,44 @@ export function fitPresent(rows: Row[], budget: number): boolean {
     // `fitBudget` takes whole rows only from the end, so the people cut are the ones past what is left. By position:
     // two people the book gives one name (book-4's two Robert Taylor nodes) made a cut one look kept by name, and it vanished.
     const all = [...rows];
+    // A target without its causal report is not a relationship view (§232).
+    const before = new Map(rows.map(entry => [entry, {
+        targets: array(entry.relationships).length,
+        reports: array(entry.relationships).reduce((n, tie) => n + array(row(tie).evidence).length, 0),
+        targetsOmitted: number(row(entry.coverage).relationship_targets_omitted),
+        reportsOmitted: number(row(entry.coverage).relationship_reports_omitted)
+    }]));
+    const atomic = new Set<any[]>(), minimum = new Map<any[], number>();
+    let relationshipCut = false;
+    for (const entry of rows) {
+        if (!Array.isArray(entry.relationships)) continue;
+        const complete = entry.relationships.filter(tie => array(row(tie).evidence).length);
+        if (complete.length !== entry.relationships.length) relationshipCut = true;
+        if (!complete.length) { delete entry.relationships; continue; }
+        entry.relationships = complete;
+        atomic.add(complete); minimum.set(complete, 1);
+    }
+    // Reports are already newest first. Remove older reports before considering whole target groups.
+    while (jsonSize(rows) > budget) {
+        const older = rows.flatMap(entry => array(entry.relationships).map(tie => array(row(tie).evidence)))
+            .filter(evidence => evidence.length > 1);
+        if (!older.length) break;
+        older.sort((a, b) => jsonSize(b) - jsonSize(a));
+        older[0].pop(); relationshipCut = true;
+    }
+    const coverage = (): void => {
+        for (const entry of rows) {
+            const original = before.get(entry)!;
+            const targets = array(entry.relationships).length;
+            const reports = array(entry.relationships).reduce((n, tie) => n + array(row(tie).evidence).length, 0);
+            if (original.targets > targets || original.reports > reports) {
+                const prior = row(entry.coverage);
+                entry.coverage = {...prior,
+                    relationship_targets_omitted: original.targetsOmitted + original.targets - targets,
+                    relationship_reports_omitted: original.reportsOmitted + original.reports - reports};
+            }
+        }
+    };
     // §176.8: the name path rides outside the budget. Rows are fitted as they were before it -- the untold block without
     // its token, a stub as its name -- and the tokens and the stubs' blocks are put back after. Counted, they cost the
     // nine-person bench its fourth dossier.
@@ -392,9 +430,14 @@ export function fitPresent(rows: Row[], budget: number): boolean {
         if (untold && typeof untold === "object" && "say_name" in untold) { tokens.set(entry, untold.say_name); delete untold.say_name; }
         if (Object.hasOwn(entry, "kind")) { kinds.set(entry, entry.kind); delete entry.kind; }
     }
-    const cut = fitBudget(rows, budget);
+    const policy = {atomic, minimum};
+    let cut = fitBudget(rows, budget, "oldest", policy) || relationshipCut;
+    coverage();
+    // Omission metadata is part of the same byte allowance.
+    cut = fitBudget(rows, budget, "oldest", policy) || cut;
+    coverage();
     const stubbed: Row[] = cut ? all.slice(rows.length) : [];
-    const bare = (entry: Row): Row => ({ name: string(entry.name), truncated: true });
+    const bare = (entry: Row): Row => ({ name: string(entry.name), truncated: true, ...stubRelationships(entry) });
     while (cut && rows.length && utf8Bytes(pythonJsonDumps([...rows, ...stubbed.map(bare)])).length > budget)
         stubbed.unshift(rows.pop()!);
     for (const [entry, token] of tokens) entry.untold.say_name = token;
@@ -435,10 +478,17 @@ function fitWhere(where: Row, budget: number): boolean {
  * token that has their name said, is the next step for them, not payload: the replay of game-24bb66cb (2026-10-04)
  * cut the navy veteran to `{name, truncated}` on every turn, and asked his name, three of four Keepers made one up.
  */
+function stubRelationships(entry: Row): Row {
+    const prior = row(entry.coverage), ties = array(entry.relationships);
+    const targets = number(prior.relationship_targets_omitted) + ties.length;
+    const reports = number(prior.relationship_reports_omitted) + ties.reduce((n, tie) => n + array(row(tie).evidence).length, 0);
+    return targets || reports ? {coverage: {relationship_targets_omitted: targets, relationship_reports_omitted: reports}} : {};
+}
 function presentStub(entry: Row): Row {
     const { use: _line, ...untold } = row(entry.untold);
     // §180.4: a stub keeps what the row was, a person or a creature, so a cut creature never reads to the host as a person.
-    return { name: string(entry.name), ...(typeof entry.kind === "string" ? { kind: entry.kind } : {}), truncated: true, ...(Object.keys(untold).length ? { untold } : {}) };
+    return { name: string(entry.name), ...(typeof entry.kind === "string" ? { kind: entry.kind } : {}), truncated: true,
+        ...stubRelationships(entry), ...(Object.keys(untold).length ? { untold } : {}) };
 }
 export function evidenceAnchors(graph: ModuleGraph, world: Row, records: Row[], limit = 4): string[] {
     return [...graph.kind("clue"), ...graph.kind("handout")]

@@ -24,6 +24,8 @@ import { cocMode } from "../lanes/host.ts";
 import { resolveLaneModel, runLane } from "../lanes/subsession.ts";
 import { createLaneQueue, type KernelCall, type LaneJob } from "../lanes/queue.ts";
 import { createLaneTelemetry } from "../lanes/telemetry.ts";
+import {MEMORY_ATTRIBUTION_INSTRUCTION, MEMORY_ATTRIBUTION_POLICY} from '../../kernel-ts/memory/attribution.ts';
+import {ATTRIBUTION_REVIEW_INSTRUCTION, attributionReviewInput, shapeAttributionReview, type AttributionReview} from './attribution-review.ts';
 
 /** The closed fields and closed enums of a candidate assertion (contract §12.3). No extra field is ever sent to the kernel. */
 const CANDIDATE_KINDS: ReadonlySet<string> = new Set([
@@ -59,6 +61,7 @@ interface Candidate {
 
 /** The job packet from `memory.job`; only the fields it lists are read, and nothing else reaches the prompt. */
 interface JobPacket {
+    attribution_policy?: string;
 	job_id?: string | null;
 	turn?: number;
 	commit?: string;
@@ -113,7 +116,7 @@ function systemPrompt(packet: JobPacket): string {
 		// The instruction is the passage the kernel writes in play_language (contract §12.3); the lane
 		// passes it on verbatim, rewriting nothing and adding nothing.
 		packet.instruction ??
-			"Write only the facts, knowledge, beliefs, relationships and player assertions new to this turn, in the campaign's play_language; write no numbers and no die faces.",
+			"Write only the facts, knowledge, beliefs, relationships, promises and player assertions new to this turn, in the campaign's play_language; write no numbers and no die faces.",
 		"",
 		"Answer with one JSON object only, no code fence and no explanation:",
 		packet.story_context?.threads?.length
@@ -124,7 +127,8 @@ function systemPrompt(packet: JobPacket): string {
 		`- kind is one of: ${[...CANDIDATE_KINDS].join(", ")}.`,
 		"- privacy is player_safe or keeper_only; state is accurate, uncertain or distorted; confidence is a decimal from 0 to 1.",
 		"- subject is a name from the available names below, or one of the reserved subjects world, party, keeper, player, as the candidate kind allows; world_event must use subject world; player_assertion and player_preference must use subject player; relationship must have exactly one entity.",
-		"- knowers is optional; its names must be known NPC or investigator names from the available names below, or party, keeper or player.",
+		"- knowers names must be known NPC or investigator names from the available names below, or party, keeper or player. It is optional except for a promise under the supplied attribution policy.",
+        ...(packet.instruction?.includes(MEMORY_ATTRIBUTION_INSTRUCTION) ? [] : [MEMORY_ATTRIBUTION_INSTRUCTION]),
 		"- entities is optional; its names must be actual semantic names supplied in the available names below, for the people, clues, scenes or other entities the statement is about. Never put the reserved words world, party, keeper or player in entities; do not put player in entities.",
 		"- only keeper_correction may include corrects: an array of at most 12 exact {subject,statement} pairs from correction_targets. Use [] if the correction has no matching earlier target. Do not restate withdrawn claims as knowledge; memory reports are not proof of module truth.",
 		'Correction shape: {"kind":"keeper_correction","subject":"keeper","statement":"the correction","corrects":[{"subject":"exact supplied subject","statement":"exact earlier statement"}]}',
@@ -171,7 +175,7 @@ function userInput(packet: JobPacket): string {
 		lines(packet.correction_targets),
 		...(packet.story_context?.threads?.length ? ["", "[Keeper-only story context: assess only against these supplied unresolved threads and evidence]", JSON.stringify(packet.story_context)] : []),
 		...(packet.correction ? ["", "[Existing correction to link; copy unchanged]", JSON.stringify(packet.correction)] : []),
-		...(packet.validation_feedback ? ["", "[Previous attempt failed: fix only the reported output, format or reference problem; preserve the intended facts and story assessment]", packet.validation_feedback] : []),
+        ...(packet.validation_feedback ? ["", "[Previous attempt failed: fix the reported shape, reference or attribution problem; retain supported facts and story assessment without inventing participants]", packet.validation_feedback] : []),
 	].join("\n");
 }
 
@@ -188,6 +192,8 @@ function shapeCandidates(parsed: unknown, packet: JobPacket): Candidate[] | unde
 		if (typeof row.kind !== "string" || !CANDIDATE_KINDS.has(row.kind)) continue;
 		if (typeof row.subject !== "string" || row.subject.trim().length === 0) continue;
 		if (typeof row.statement !== "string" || row.statement.trim().length === 0) continue;
+        if (packet.attribution_policy === MEMORY_ATTRIBUTION_POLICY && row.kind === 'promise'
+            && (!Array.isArray(row.knowers) || !row.knowers.length || row.knowers.some(n => typeof n !== 'string' || !n.trim()))) return undefined;
 		const knowers = Array.isArray(row.knowers) ? row.knowers.filter((n): n is string => typeof n === "string") : undefined;
 		const entities = Array.isArray(row.entities) ? row.entities.filter((n): n is string => typeof n === "string") : undefined;
 		if (Object.hasOwn(row, 'corrects') && (row.kind !== 'keeper_correction' || !Array.isArray(row.corrects) || row.corrects.length > 12
@@ -292,6 +298,17 @@ export default function (pi: ExtensionAPI) {
 		if (!lane.ok) {
 			return { ok: false, reason: lane.reason === "model_unavailable" ? "lane_error" : "model_error", detail: lane.detail };
 		}
+        if (packet.task !== 'reconcile_correction' && packet.attribution_policy === MEMORY_ATTRIBUTION_POLICY) {
+            const review = await runLane<AttributionReview>({ctx: scheduler.ctx as ExtensionContext, envName: 'PI_COC_MEMORY_MODEL',
+                lane: 'memory', record: row => note({turn: packet.turn, job_id: jobId, task: 'attribution_review', ...row}),
+                systemPrompt: ATTRIBUTION_REVIEW_INSTRUCTION, input: attributionReviewInput(packet, lane.value.candidates),
+                signal: scheduler.signal, shape: value => shapeAttributionReview(value, packet, lane.value.candidates.length)});
+            if (!review.ok) return {ok: false, reason: review.reason === 'model_unavailable' ? 'lane_error' : 'model_error', detail: review.detail};
+            await note({turn: packet.turn, job_id: jobId, event: 'attribution_review', verdict: review.value.verdict,
+                issues: review.value.issues.length, attribution_issues: review.value.issues, candidate_reports: lane.value.candidates});
+            if (review.value.verdict === 'repair') return {ok: false, reason: 'invalid', detail: JSON.stringify({
+                attribution_issues: review.value.issues, previous_candidates: lane.value.candidates})};
+        }
 		try {
 			await call("memory.submit", { campaign, job_id: jobId, candidates: lane.value.candidates,
 				...(lane.value.story ? {story: lane.value.story} : {}) });
