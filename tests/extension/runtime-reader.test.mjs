@@ -338,7 +338,7 @@ test("lane children mount the provider extensions, and a lane model is never re-
     const args = JSON.parse(await readFile(captured, "utf8"));
     return args[args.indexOf("--model") + 1];
   };
-  for (const model of ["grok-build/grok-4.6", "deepseek-extended/deepseek-flash", "xai/grok-4.6", "mine/special"]) {
+  for (const model of ["codex-relay/gpt-6-luna", "grok-build/grok-4.6", "deepseek-extended/deepseek-flash", "xai/grok-4.6", "mine/special"]) {
     assert.equal(await launch(model), model);
   }
   // The child mounts every provider extension by the same list the session launcher reads.
@@ -378,7 +378,7 @@ test("every provider extension in the tree is discovered, and registers the id i
   // renamed inside an extension cannot leave it mounted under one name and judged under another.
   const found = providerExtensionManifests(ROOT);
   assert.ok(found.length >= 2, `discovery found ${found.length} provider extensions`);
-  assert.deepEqual(found.map(entry => entry.name).sort(), ["deepseek", "flapcode", "grok-build-oauth"]);
+  assert.deepEqual(found.map(entry => entry.name).sort(), ["codex-relay", "deepseek", "flapcode", "grok-build-oauth"]);
   for (const { name, providers, entry } of found) {
     const manifest = JSON.parse(await readFile(join(ROOT, "extensions", name, "pipiui-extension.json"), "utf8"));
     assert.deepEqual([...providers], [manifest.auth.provider.id]);
