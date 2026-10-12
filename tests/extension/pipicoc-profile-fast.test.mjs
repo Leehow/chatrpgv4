@@ -25,10 +25,10 @@ test('compiled profile installation mounts Fast App assets and agent without cha
   assert.match(realHost.outputFiles[0].text,/export \{[^}]*agentExtensionManifests/s);
   await cp(join(source,'pipicoc'),join(root,'pipicoc'),{recursive:true});
   await cp(join(source,'pipiui-extension.json'),join(root,'pipiui-extension.json'));
-  for(const name of ['deepseek','grok-build-oauth','image-gen','rerank','jev','remote-control','openai-fast'])
+  for(const name of ['deepseek','grok-build-oauth','image-gen','rerank','jev','remote-control','openai-fast','codex-relay'])
    await cp(join(source,'extensions',name),join(root,'extensions',name),{recursive:true});
   const entries=runtimeEntrypoints(root,'compiled');
-  for(const path of [entries.agent,entries.deepseek,entries.grokBuild,entries.imageGen,entries.rerank,entries.jev,join(root,'build/extensions/openai-fast/agent/index.mjs')]){
+  for(const path of [entries.agent,entries.deepseek,entries.grokBuild,entries.imageGen,entries.rerank,entries.jev,join(root,'build/extensions/openai-fast/agent/index.mjs'),join(root,'build/extensions/codex-relay/agent/index.mjs')]){
    await mkdir(join(path,'..'),{recursive:true});await writeFile(path,'// retained compiled test artifact: '+path+'\n');
   }
   const protectedFiles=['settings.json','auth.json','extensions.json'];
@@ -44,6 +44,12 @@ test('compiled profile installation mounts Fast App assets and agent without cha
    assert.deepEqual(manifest.app,JSON.parse(await readFile(join(source,'extensions/openai-fast/pipiui-extension.json'))).app);
    for(const file of ['app/control.js','shared/policy.js'])assert.deepEqual(await readFile(join(dest,file)),await readFile(join(source,'extensions/openai-fast',file)));
    assert.deepEqual(await readFile(join(dest,'agent/index.mjs')),await readFile(join(root,'build/extensions/openai-fast/agent/index.mjs')));
+   const relay=join(profile,'extensions/codex-relay');
+   const relayManifest=JSON.parse(await readFile(join(relay,'pipiui-extension.json')));
+   assert.equal(relayManifest.agent.extension,'agent/index.mjs');
+   assert.deepEqual(relayManifest.auth.provider.models.map(model=>model.id),['gpt-6-luna']);
+   assert.deepEqual(await readFile(join(relay,'agent/index.mjs')),await readFile(join(root,'build/extensions/codex-relay/agent/index.mjs')));
+   assert.deepEqual(await readFile(join(relay,'agent/provider.js')),await readFile(join(source,'extensions/codex-relay/agent/provider.js')));
    for(let i=0;i<protectedFiles.length;i++)assert.deepEqual(await readFile(join(profile,protectedFiles[i])),before[i]);
   }
  } finally {await rm(root,{recursive:true,force:true});}

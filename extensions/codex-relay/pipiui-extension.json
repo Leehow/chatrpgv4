@@ -1,0 +1,90 @@
+{
+  "id": "codex-relay",
+  "name": "Codex Relay",
+  "version": "0.1.0",
+  "category": "integration",
+  "description": "GPT-6 Luna through the local coding relay using relay-owned Codex authentication.",
+  "defaultEnabled": true,
+  "capabilities": [
+    "settings.read",
+    "settings.write"
+  ],
+  "auth": {
+    "provider": {
+      "id": "codex-relay",
+      "name": "Codex Relay",
+      "api": "openai-responses",
+      "oauth": false,
+      "models": [
+        {
+          "id": "gpt-6-luna",
+          "name": "GPT-6 Luna (Codex Relay)",
+          "api": "openai-responses",
+          "reasoning": true,
+          "input": [
+            "text",
+            "image"
+          ],
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cacheRead": 0.01,
+            "cacheWrite": 0
+          },
+          "contextWindow": 1050000,
+          "maxTokens": 128000,
+          "thinkingLevelMap": {
+            "off": "none",
+            "minimal": "low",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "compat": {
+            "supportsLongCacheRetention": false,
+            "supportsStrictMode": true,
+            "supportsMaxOutputTokens": false
+          }
+        }
+      ]
+    }
+  },
+  "agent": {
+    "extension": "agent/index.js"
+  },
+  "host": {
+    "entry": "agent/host.js",
+    "description": "Shared provider factory for host and agent."
+  },
+  "app": {
+    "settings": {
+      "scope": "app",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "ext.codex-relay.baseUrl": {
+            "type": "string",
+            "default": "http://127.0.0.1:18890/v1",
+            "title": "Base URL",
+            "description": "Local coding relay endpoint. Codex login and renewal are managed by the relay."
+          }
+        }
+      }
+    },
+    "ui": {
+      "settingsSections": [
+        {
+          "id": "codex-relay",
+          "title": "Codex Relay"
+        }
+      ]
+    }
+  },
+  "settingsVersion": 1,
+  "migrations": [],
+  "lifecycle": {
+    "onDisable": "dispose-app-immediate; unmount-agent-on-next-session"
+  }
+}

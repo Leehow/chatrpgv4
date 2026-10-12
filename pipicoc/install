@@ -26,7 +26,9 @@ const context=composeRuntimeContext({owner:'preparation',home:process.env.PI_COC
   agentHome:compiled?process.env.PI_CODING_AGENT_DIR:join(root,'.pi/coc-agent')});
 const fast=agentExtensionManifests(root).find(({name})=>name==='openai-fast');
 if(!fast)throw new Error('The OpenAI Fast profile extension is missing.');
-for(const path of [context.entrypoints.agent,context.entrypoints.deepseek,context.entrypoints.grokBuild,context.entrypoints.imageGen,context.entrypoints.rerank,context.entrypoints.jev,fast.entry])accessSync(path,constants.R_OK);
+const codexRelay=agentExtensionManifests(root).find(({name})=>name==='codex-relay');
+if(!codexRelay)throw new Error('The Codex Relay profile extension is missing.');
+for(const path of [context.entrypoints.agent,context.entrypoints.deepseek,context.entrypoints.grokBuild,context.entrypoints.imageGen,context.entrypoints.rerank,context.entrypoints.jev,fast.entry,codexRelay.entry])accessSync(path,constants.R_OK);
 function generatedDirectory(path){
   if(existsSync(path)&&lstatSync(path).isSymbolicLink())throw new Error(`Generated asset directory must not be a symbolic link: ${path}`);
   mkdirSync(path,{recursive:true});chmodSync(path,0o755);
@@ -69,7 +71,7 @@ copyGeneratedFile(context.entrypoints.deepseek,join(provider,'agent/provider.js'
 const providerManifest=JSON.parse(readFileSync(join(provider,'pipiui-extension.json'),'utf8'));
 providerManifest.agent.extension='agent/index.mjs';
 writeGeneratedManifest(join(provider,'pipiui-extension.json'),providerManifest);
-for(const [name,entrypoint] of [['grok-build-oauth',context.entrypoints.grokBuild],['image-gen',context.entrypoints.imageGen],['rerank',context.entrypoints.rerank],['jev',context.entrypoints.jev],['openai-fast',fast.entry]]){
+for(const [name,entrypoint] of [['grok-build-oauth',context.entrypoints.grokBuild],['image-gen',context.entrypoints.imageGen],['rerank',context.entrypoints.rerank],['jev',context.entrypoints.jev],['openai-fast',fast.entry],['codex-relay',codexRelay.entry]]){
   const dest=join(context.agentHome,'extensions',name);
   copyGeneratedTree(join(root,'extensions',name),dest);
   copyGeneratedFile(entrypoint,join(dest,'agent/index.mjs'));
