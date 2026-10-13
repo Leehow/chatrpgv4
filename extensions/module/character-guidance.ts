@@ -133,13 +133,14 @@ export async function acceptedPublicGuidance(home:string,moduleId:string,key:str
    throw coded('guidance_not_ready','Public guidance source binding changed');
  return validatePublicGuidance(saved.fields,meta.page_count);
 }
-function text(value:unknown, empty=false):string {
-  if(typeof value !== 'string' || (!empty && !value.trim()) || value.length>4000) throw coded('guidance_unavailable','Invalid character guidance text');
+const GUIDANCE_SHAPE='Expected opening, advice, scene and handoff as nonempty strings, and guide as a string that may be empty; each field is limited to 4000 characters.';
+function text(value:unknown, empty=false,field='text'):string {
+  if(typeof value !== 'string' || (!empty && !value.trim()) || value.length>4000) throw coded('guidance_unavailable',`Invalid character guidance field: ${field}. ${GUIDANCE_SHAPE}`);
   return value;
 }
 export function validateGuidance(value:Row, _occupations?:Options['occupations']):Guidance {
-  if(!value || typeof value!=='object')throw coded('guidance_unavailable','Invalid character guidance');
-  return {opening:text(value.opening),advice:text(value.advice),scene:text(value.scene),guide:text(value.guide,true),handoff:text(value.handoff)};
+  if(!value || typeof value!=='object')throw coded('guidance_unavailable',`Invalid character guidance object. ${GUIDANCE_SHAPE}`);
+  return {opening:text(value.opening,false,'opening'),advice:text(value.advice,false,'advice'),scene:text(value.scene,false,'scene'),guide:text(value.guide,true,'guide'),handoff:text(value.handoff,false,'handoff')};
 }
 export function validateGuidanceReference(value:Row,scene:string,guides:GuideSource[]):Guidance {
   if(!value||typeof value!=='object'||Array.isArray(value)||value.protocol!==SETUP_GUIDANCE_REFERENCE_PROTOCOL||

@@ -8,6 +8,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {Agent} from './pi-agent-core.mjs';
 import {createAssistantMessageEventStream} from '@earendil-works/pi-ai';
+import {Check} from 'typebox/value';
 import readerSubmit from '../../extensions/module/reader-submit.ts';
 import {normalizeSourceDraft} from '../../extensions/module/reader-normalize.ts';
 import {readerInput,readerCommand,nativeSourceReaderEnabled} from '../../extensions/module/reader.ts';
@@ -70,6 +71,32 @@ test('guidance submission issues the closed top-level draft and review fields be
  const author=await setup(t,false,'guidance');
  assert.ok(author.tool.parameters.properties.draft.required.includes('node_refs'));
  assert.ok(author.tool.parameters.properties.draft.required.includes('coverage'));
+ assert.equal(Check(author.tool.parameters,{guidance:{summary:'A different object'}}),false);
+ assert.equal(Check(author.tool.parameters,{guidance}),true);
+ assert.equal(Check(author.tool.parameters,{guidance:{...guidance,guide:'Source meeting person'}}),true);
+ assert.equal(Check(author.tool.parameters,{guidance:{needs_choice:true}}),true);
+});
+
+for(const written of [false,true])test(`a malformed ${written?'written':'inline'} guidance submission is corrected in the same Pi process`,async t=>{
+ const {tool,see,dir}=await setup(t);see();
+ const malformed={summary:'Public premise.',questions_to_resolve:[],source_limits:'Keep secrets private.'};
+ if(written)await json(join(dir,'guidance.json'),malformed);
+ let requests=0;const model={id:'fixture',provider:'fixture',api:'openai-completions'};
+ const agent=new Agent({initialState:{model,tools:[tool]},streamFn(){
+  const stream=createAssistantMessageEventStream(),first=requests++===0;
+  const message={role:'assistant',model:'fixture',provider:'fixture',api:'openai-completions',timestamp:Date.now(),
+   usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},stopReason:'toolUse',
+   content:[{type:'toolCall',id:`guidance-${requests}`,name:'submit_reading',arguments:first?(written?{}:{draft,guidance:malformed}):{draft,guidance}}]};
+  queueMicrotask(()=>{stream.push({type:'done',reason:'toolUse',message});stream.end();});return stream;
+ }});
+ await agent.prompt('Save the character guidance artifacts.');
+ assert.equal(requests,2,'only the corrected submission terminates the actual Pi tool loop');
+ const results=agent.state.messages.filter(message=>message.role==='toolResult');
+ assert.equal(results[0].isError,true);
+ for(const field of ['opening','advice','scene','guide','handoff'])assert.match(results[0].content[0].text,new RegExp(field));
+ if(written)assert.match(results[0].content[0].text,/string.*empty|empty.*string/);
+ assert.equal(results[1].isError,false);
+ assert.deepEqual(JSON.parse(await readFile(join(dir,'guidance.json'),'utf8')),guidance);
 });
 
 test('selected guidance submits only prose and refuses changes to the reviewed scene shard',async t=>{

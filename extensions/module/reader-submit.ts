@@ -100,6 +100,9 @@ export default async function readerSubmit(pi: any) {
 	const publicSchema=Type.Object(Object.fromEntries(PUBLIC_GUIDANCE_FIELDS.map(field=>[field,Type.Object({
 		status:Type.Union(['value','needs_choice','unavailable'].map(value=>Type.Literal(value))),text:Type.String({maxLength:1000}),
 		source_refs:Type.Array(Type.Object({page:Type.Integer({minimum:1})},{additionalProperties:false}),{maxItems:12})},{additionalProperties:false})])),{additionalProperties:false});
+	const guidanceSchema=Type.Object({opening:Type.String({minLength:1,maxLength:4000}),advice:Type.String({minLength:1,maxLength:4000}),
+		scene:Type.String({minLength:1,maxLength:4000}),guide:guidanceProjection?Type.Literal(''):Type.String({maxLength:4000,description:'The source meeting person name, or an empty string when none is needed.'}),
+		handoff:Type.String({minLength:1,maxLength:4000})},{additionalProperties:false});
 	pi.registerTool({
 		name: "submit_reading", label: "Submit source artifacts",
 		executionMode: "sequential",
@@ -109,15 +112,15 @@ export default async function readerSubmit(pi: any) {
 			? "Save and check review.json, then finish without another model reply. Supply review or omit it if already written. Never modify the candidate files. Call alone after viewing the original cited pages."
 			: answerTask ? "Save and check the scoped source answer in draft.json, then finish without another model reply. Supply draft or omit it if already written. Use only status, answer, source_refs and limitations; no graph fields. Call alone after viewing every cited original page."
 			: guidanceProjection ? "Save and check guidance.json and public_fields for the already reviewed selected entrance. The host owns the unchanged draft.json; do not edit or submit it. Call alone after viewing assigned original pages."
-			: guidanceTask ? "Save and check draft.json and guidance.json, then finish without another model reply. Supply both small objects, or omit them if already written with write/edit/bash. Failure returns findings for repair. Call alone after viewing the required original pages."
+			: guidanceTask ? "Save and check draft.json and guidance.json, then finish without another model reply. Supply both small objects, or omit them if already written with write/edit. Failure returns findings for repair. Call alone after viewing the required original pages."
 			: task.purpose === 'detail' ? "Save and check the scoped detail delta in draft.json, then finish without a closing reply. Prepare only task.focus/question and necessary dependencies; preserve accepted fields and leave unrelated material unprepared. Supply draft or omit it if already written. A failed check returns concrete findings for repair. Call alone after viewing the required original pages."
 			: "Save and check the first opening batch in draft.json, then finish without a closing reply. Under opening_scope first_interaction, declare interaction_scene and prepare the selected entry plus its first substantive interaction and immediate dependencies. Defer future encounters. Supply draft or omit it if already written. Failure returns findings for repair. Call alone after viewing the required original pages.",
 		parameters: reviewing ? Type.Object({review:Type.Optional(moduleLogicReview(task)?logicReviewSchema:guidanceTask?guidanceReview:Type.Any())})
-			: guidanceProjection ? Type.Object({guidance:Type.Optional(Type.Object({opening:Type.String(),advice:Type.String(),scene:Type.String(),guide:Type.Literal(''),handoff:Type.String()},{additionalProperties:false})),public_fields:Type.Optional(publicSchema)},{additionalProperties:false})
+			: guidanceProjection ? Type.Object({guidance:Type.Optional(guidanceSchema),public_fields:Type.Optional(publicSchema)},{additionalProperties:false})
 			: Type.Object({draft:Type.Optional(indexTask?Type.Object({sections:Type.Array(Type.Any(),{description:'Navigation rows with name, physical page ranges in pages and observed source_refs.'})},{additionalProperties:true}):guidanceTask?Type.Object({nodes:Type.Array(Type.Any()),claims:Type.Array(Type.Any()),
 				node_refs:Type.Array(Type.Any()),coverage:Type.Object({},{additionalProperties:Type.Any()}),dependencies:Type.Array(Type.Any()),
 				critical:Type.Array(Type.String()),ready_nodes:Type.Array(Type.String())},{additionalProperties:true}):Type.Any()),
-				...(guidanceTask?{guidance:Type.Optional(Type.Any()),public_fields:Type.Optional(publicSchema)}:{})}),
+				...(guidanceTask?{guidance:Type.Optional(Type.Union([guidanceSchema,Type.Object({needs_choice:Type.Literal(true)},{additionalProperties:false})])),public_fields:Type.Optional(publicSchema)}:{})}),
 		async execute(_id: string, params: any, signal?: AbortSignal) {
 			if (signal?.aborted) throw new Error("Source submission cancelled");
 			if (indexTask) {
