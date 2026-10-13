@@ -450,6 +450,67 @@ export async function currentDraft(binding?:CocBinding):Promise<Record<string,un
     return draft&&typeof draft==='object'&&!Array.isArray(draft)?draft as Record<string,unknown>:undefined;
   } catch {return undefined;}
 }
+
+/** Display-only recovery of accepted say boundaries; the original turn and transcript remain evidence. */
+export async function historySpeech(binding:CocBinding|undefined, cards:readonly any[], repo?:string):Promise<Map<string,CocCardPatch>> {
+  const found=new Map<string,CocCardPatch>();
+  if(!binding||!repo||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(binding.campaign))return found;
+  const wanted=cards.filter(card=>card?.type==='custom'&&card.customType==='coc-mechanics'&&typeof card.id==='string'
+    &&Number.isSafeInteger(card.data?.turn)&&card.data.turn>=0&&typeof card.data.marked_text==='string'&&Array.isArray(card.data.speech)&&card.data.speech.length>0
+    &&typeof card.data.final_stream_id==='string'&&card.data.final_stream_id.trim()
+    &&(!card.data.campaign||card.data.campaign===binding.campaign));
+  if(!wanted.length)return found;
+  let parser:any;
+  try {parser=await import(pathToFileURL(resolve(repo,'build/runtime/host.mjs')).href);} catch {return found;}
+  if(typeof parser.speechPass!=='function'||!(parser.SAY_TOKENS instanceof RegExp))return found;
+  const grammar=new RegExp(`${parser.SAY_TOKENS.source}|\\{\\{[a-z0-9][a-z0-9:_-]*\\}\\}`,'g');
+  const layout=(text:string)=>{
+    let plain='',at=0;const tokens:{at:number;text:string;say:boolean}[]=[];
+    for(const match of text.matchAll(grammar)) {
+      plain+=text.slice(at,match.index);
+      tokens.push({at:plain.length,text:match[0],say:match[0].startsWith('{{say:')||match[0]==='{{/say}}'});
+      at=match.index+match[0].length;
+    }
+    return {plain:plain+text.slice(at),tokens};
+  };
+  const records=new Map<number,Promise<any>>();
+  await Promise.all(wanted.map(async card=>{
+    const turn=card.data.turn;
+    let pending=records.get(turn);
+    if(!pending) {
+      pending=readFile(join(binding.home,'.coc/campaigns',binding.campaign,'turns',`${String(turn).padStart(4,'0')}.json`),'utf8')
+        .then(JSON.parse).catch(()=>undefined);records.set(turn,pending);
+    }
+    const record=await pending,evidence=record?.delivery_evidence;
+    if(record?.turn!==turn||record.closed_by!=='narrate'||typeof record.commit!=='string'||!record.commit
+      ||typeof record.closed_at!=='string'||record.marked_text!==card.data.marked_text
+      ||JSON.stringify(record.speech)!==JSON.stringify(card.data.speech)
+      ||evidence?.context?.campaign!==binding.campaign||evidence.context.turn!==turn
+      ||typeof evidence.artifact_text!=='string'||typeof evidence.publication?.call_id!=='string'
+      ||!Object.hasOwn(record.calls??{},evidence.publication.call_id)
+      ||card.data.final_stream_id!==evidence.stream?.delivery_id)return;
+    const prior=record.speech;
+    if(!prior.length||prior.some((span:any)=>!isDetailsRecord(span?.who)||typeof span.text!=='string'))return;
+    let ordinal=0;
+    const derived=parser.speechPass(evidence.artifact_text,()=>prior[ordinal++]?.who??{label:''});
+    if(ordinal!==prior.length||derived.speech.length!==prior.length
+      ||derived.speech.some((span:any,index:number)=>!span.text.startsWith(prior[index].text)))return;
+    const old=layout(record.marked_text),next=layout(derived.text);
+    if(old.plain.trimEnd()!==next.plain.trimEnd())return;
+    const opens=(tokens:typeof old.tokens)=>tokens.filter(token=>token.text.startsWith('{{say:'));
+    if(JSON.stringify(opens(old.tokens))!==JSON.stringify(opens(next.tokens)))return;
+    // Reinsert only new say boundaries around the unchanged old public characters and mechanics.
+    const tokens=[...next.tokens.filter(token=>token.say),...old.tokens.filter(token=>!token.say)].sort((a,b)=>a.at-b.at);
+    let marked='',at=0;
+    for(const token of tokens){marked+=old.plain.slice(at,token.at)+token.text;at=token.at;}
+    marked+=old.plain.slice(at);
+    const stripSay=(text:string)=>text.replace(new RegExp(parser.SAY_TOKENS.source,'g'),'');
+    if(stripSay(marked)!==stripSay(record.marked_text)||marked===record.marked_text)return;
+    found.set(card.id,{card:{id:card.id},source:'historical-speech',patch:{marked_text:marked,
+      speech:prior.map((span:any,index:number)=>({...span,text:derived.speech[index].text}))}});
+  }));
+  return found;
+}
 /**
  * The saved text projection of every draft revision in this campaign, by revision.
  *

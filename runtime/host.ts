@@ -461,3 +461,5 @@ export async function applyProviderModelCorrections(agentHome: string, correctio
   await writeFile(modelsPath, body, "utf8");
   return { status: "written" };
 }
+
+export {speechPass, SAY_TOKENS} from '../kernel-ts/write/speech-pass.ts';

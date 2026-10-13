@@ -2,7 +2,7 @@ import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } f
 import { timelineAnchors, transcriptPrefix } from './coc-timeline.js';
 import {readDefensePreference, writeDefensePreference, isDefenseChoice} from './coc-defense.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
-import { readCocBinding, cocBindingOfRow, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, currentDraft, laneWords, laneProjection, laneLabels,
+import { readCocBinding, cocBindingOfRow, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, currentDraft, historySpeech, laneWords, laneProjection, laneLabels,
   laneLabelsLoaded, reloadLaneLabels, deliveryWords, handoutTitles, CocCardLedger, type CocCardPatch,
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
@@ -1762,9 +1762,12 @@ async function readHistoryFallback(
     finalStreams.accept(entry);
     if (wanted.has(entry?.id)) wantedRows.push(entry);
   }
+  const speech=await historySpeech(cocBinding,wantedRows,cocHost?.repo);
   for (const entry of wantedRows) {
     const secrets = vaultDir && sessionId ? revealRedactionSecrets(vaultDir, sessionId) : [];
-    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft, cocCards.patchesFor(entry?.id),cocBinding);
+    const recovered=speech.get(entry?.id);
+    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft,
+      [...(recovered?[recovered]:[]),...cocCards.patchesFor(entry?.id)],cocBinding);
     if (!mapped) continue;
     const sentAt = mapped.role === "user" && entry?.type === "message" ? sentTimes.get(entry.message?.timestamp) : undefined;
     if (sentAt !== undefined) mapped.sentAt = sentAt;
@@ -3953,7 +3956,7 @@ export class PiHostBackend implements HostBackend {
     const session = this.sessionById.get(sessionId);
     if (!session) throw new Error(`unknown session ${sessionId}`);
     const started = Date.now();
-    const history = await readHistory(session.path, 0, Number.MAX_SAFE_INTEGER, this.vaultDir, sessionId);
+    const history = await readHistory(session.path, 0, Number.MAX_SAFE_INTEGER, this.vaultDir, sessionId, this.cocHostPaths());
     this.startCocCluePresentation(sessionId, history);
     this.startCocDetailsRecovery(sessionId, session.path, history);
     this.startCocReferenceRecovery(sessionId, session.path);

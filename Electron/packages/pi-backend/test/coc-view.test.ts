@@ -60,6 +60,118 @@ it('draws a card for a delivery that only spoke',()=>{
   expect(mechanicsEntry({...row,data:{...row.data,marked_text:''}},'zh-Hans')).toBeUndefined();
 });
 
+async function historicalSpeechFixture() {
+  const {cp,appendFile}=await import('node:fs/promises');
+  const {createPiHostBackend}=await import('../src/index.js');
+  const repo=resolve(import.meta.dirname,'../../../..'),home=await mkdtemp(join(tmpdir(),'historical-speech-display-'));
+  const profile=join(home,'profile'),pack=join(profile,'extensions/coc-keeper');await mkdir(pack,{recursive:true});
+  await cp(join(repo,'pipiui-extension.json'),join(pack,'pipiui-extension.json'));await cp(join(repo,'pipicoc'),join(pack,'pipicoc'),{recursive:true});
+  const backend=createPiHostBackend({agentDir:profile,sessionsRoot:join(home,'sessions'),runtimeRoot:join(home,'runtime'),defaultPack:'coc-keeper',
+    managedNodeModulesRoot:join(repo,'node_modules'),env:{...process.env,PI_COC_HOME:home},spawn:()=>{throw Error('History must not start Pi');}});
+  await backend.handle('addProject',[home]);const projects=await backend.handle('listProjects',[]) as any[];
+  const session=await backend.handle('newSession',[projects[0].id]) as any;
+  const {path}=await (backend as any).locate(session.id);
+  const binding={campaign:'historical-speech',home,play_language:'en'};
+  await writeFile(path+'.coc.json',JSON.stringify(binding));
+  const artifact='Before.\n\n{{say:Woman}}One.\n\nTwo.\n\nThree.{{/say}}\n\nAfter.';
+  const marked='Before.\n\n{{say:Woman}}One.{{/say}}\n\n{{time}}Two.\n\nThree.\n\nAfter.';
+  const speech=[{who:{npc:'historical-woman',name:'Historical Name',shown:'Woman'},text:'One.'}];
+  const card={type:'custom',customType:'coc-mechanics',id:'historical-card',timestamp:'2026-10-13T12:00:00Z',
+    data:{turn:9,marked_text:marked,speech,mechanics:[{kind:'time',marker:'time',minutes:5}],labels:{time:'Elapsed'},final_stream_id:'accepted-9'}};
+  const record={turn:9,closed_by:'narrate',closed_at:card.timestamp,commit:'fixture-commit',marked_text:marked,speech,
+    calls:{'t9-c2':{}},delivery_evidence:{context:{campaign:binding.campaign,turn:9},publication:{call_id:'t9-c2'},stream:{delivery_id:'accepted-9'},artifact_text:artifact},
+    private_state:{unrevealed:'This must never reach history'}};
+  const file=join(home,'.coc/campaigns',binding.campaign,'turns/0009.json');await mkdir(dirname(file),{recursive:true});await writeFile(file,JSON.stringify(record));
+  await appendFile(path,JSON.stringify(card)+'\n');
+  return {backend,session,path,file,record,card,artifact,appendFile};
+}
+
+it('restored history repairs paired speech paragraphs while retaining public characters, identities and mechanic positions',async()=>{
+  const fixture=await historicalSpeechFixture();
+  const before=await Promise.all([fixture.file,fixture.path].map(path=>readFile(path,'utf8')));
+  try {
+    const entries=await fixture.backend.handle('getSessionHistory',[fixture.session.id,0,50]) as any[];
+    const card=entries.find(entry=>entry.id===fixture.card.id),details=card.presentation.details;
+    expect(details.marked_text).toBe('Before.\n\n{{say:Woman}}One.\n\n{{time}}Two.\n\nThree.{{/say}}\n\nAfter.');
+    expect(details.speech).toEqual([{who:fixture.card.data.speech[0].who,text:'One.\n\nTwo.\n\nThree.'}]);
+    expect(details.mechanics).toEqual(fixture.card.data.mechanics);
+    expect(details.labels.time).toBe('Elapsed');
+    expect(JSON.stringify(entries)).not.toContain('This must never reach history');
+    expect(await Promise.all([fixture.file,fixture.path].map(path=>readFile(path,'utf8')))).toEqual(before);
+  } finally {await fixture.backend.close();}
+},30000);
+
+it('restored history keeps an accepted speech edit above its recovered display boundaries',async()=>{
+  const fixture=await historicalSpeechFixture();
+  const {speechEditPatch}=await import('../../../../extensions/speech-edit/lines.ts');
+  const patch=speechEditPatch(fixture.card.data.marked_text,fixture.card.data.speech,new Map([[0,'First.']]))!;
+  await fixture.appendFile(fixture.path,JSON.stringify({type:'custom',customType:'coc-card-patch',id:'accepted-edit',parentId:fixture.card.id,
+    timestamp:'2026-10-13T12:00:15Z',data:{campaign:'historical-speech',card:{turn:9},source:'speech-edit',patch}})+'\n');
+  const before=await Promise.all([fixture.file,fixture.path].map(path=>readFile(path,'utf8')));
+  try {
+    const entries=await fixture.backend.handle('getSessionHistory',[fixture.session.id,0,50]) as any[];
+    const details=entries.find(entry=>entry.id===fixture.card.id).presentation.details;
+    expect(details.marked_text).toBe(fixture.card.data.marked_text.replace('One.','First.'));
+    expect(details.speech[0].text).toBe('First.');
+    expect(details.speech_original.marked_text).toBe(fixture.card.data.marked_text);
+    expect(await Promise.all([fixture.file,fixture.path].map(path=>readFile(path,'utf8')))).toEqual(before);
+  } finally {await fixture.backend.close();}
+},30000);
+
+it('history draws a non-speech mechanic card without reading its turn for speech recovery',async()=>{
+  const fixture=await historicalSpeechFixture();
+  const marked='Before.\n\nOne.\n\n{{time}}Two.\n\nThree.\n\nAfter.';
+  fixture.card.data.marked_text=marked;fixture.card.data.speech=[];
+  fixture.record.marked_text=marked;fixture.record.speech=[];
+  await writeFile(fixture.file,JSON.stringify(fixture.record));
+  const saved=await readFile(fixture.path,'utf8');
+  const lines=saved.trimEnd().split('\n').map(line=>{const row=JSON.parse(line);return row.id===fixture.card.id?JSON.stringify(fixture.card):line;});
+  await writeFile(fixture.path,lines.join('\n')+'\n');
+  const files=await import('node:fs/promises'),{syncBuiltinESMExports}=await import('node:module');
+  const reads=vi.spyOn(files.default,'readFile');syncBuiltinESMExports();
+  try {
+    const entries=await fixture.backend.handle('getSessionHistory',[fixture.session.id,0,50]) as any[];
+    const details=entries.find(entry=>entry.id===fixture.card.id).presentation.details;
+    expect(details.marked_text).toBe(marked);expect(details.mechanics).toEqual(fixture.card.data.mechanics);
+    expect(reads.mock.calls.filter(args=>args[0]===fixture.file)).toHaveLength(0);
+  } finally {reads.mockRestore();syncBuiltinESMExports();await fixture.backend.close();}
+},30000);
+
+it.each([
+  ['different public characters',(record:any)=>{record.delivery_evidence.artifact_text=record.delivery_evidence.artifact_text.replace('Two.','Private thought.');}],
+  ['different historical identities',(record:any)=>{record.speech=[{...record.speech[0],who:{npc:'another-person',name:'Another Person'}}];}],
+  ['different campaign',(record:any)=>{record.delivery_evidence.context.campaign='another-campaign';}],
+  ['different delivery',(record:any)=>{record.delivery_evidence.stream.delivery_id='another-delivery';}],
+  ['unpublished turn',(record:any)=>{record.commit=null;}],
+])('restored speech leaves the original display for %s',async(_name,change)=>{
+  const fixture=await historicalSpeechFixture();change(fixture.record);await writeFile(fixture.file,JSON.stringify(fixture.record));
+  try {
+    const entries=await fixture.backend.handle('getSessionHistory',[fixture.session.id,0,50]) as any[];
+    const details=entries.find(entry=>entry.id===fixture.card.id).presentation.details;
+    expect(details.marked_text).toBe(fixture.card.data.marked_text);
+    expect(details.speech).toEqual(fixture.card.data.speech);
+    expect(JSON.stringify(entries)).not.toContain('Private thought.');
+  } finally {await fixture.backend.close();}
+},30000);
+
+it.each(['missing','wrong'])('history keeps an unlinked %s-ID card when another loop has the same public text and speakers',async kind=>{
+  const fixture=await historicalSpeechFixture();
+  Object.assign(fixture.record.delivery_evidence.context,{worldline:'another-line',loop:1});
+  fixture.record.delivery_evidence.stream.delivery_id='another-loop-delivery';
+  if(kind==='missing')Reflect.deleteProperty(fixture.card.data,'final_stream_id');
+  else fixture.card.data.final_stream_id='old-unlinked-delivery';
+  await writeFile(fixture.file,JSON.stringify(fixture.record));
+  const saved=await readFile(fixture.path,'utf8');
+  const lines=saved.trimEnd().split('\n').map(line=>{const row=JSON.parse(line);return row.id===fixture.card.id?JSON.stringify(fixture.card):line;});
+  await writeFile(fixture.path,lines.join('\n')+'\n');
+  try {
+    const entries=await fixture.backend.handle('getSessionHistory',[fixture.session.id,0,50]) as any[];
+    const details=entries.find(entry=>entry.id===fixture.card.id).presentation.details;
+    expect(details.marked_text).toBe(fixture.card.data.marked_text);
+    expect(details.speech).toEqual(fixture.card.data.speech);
+  } finally {await fixture.backend.close();}
+},30000);
+
 it('missing binding stays missing and a recorded binding wins over a legacy sidecar',async()=>{
   const root=await mkdtemp(join(tmpdir(),'coc-binding-'));const file=join(root,'session.jsonl');await writeFile(file,'');
   expect(await readCocBinding(file)).toBeUndefined();
