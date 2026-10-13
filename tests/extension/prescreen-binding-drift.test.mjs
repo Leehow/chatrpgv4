@@ -199,26 +199,3 @@ test('the owner names the stale keys a change reaches (§124.11)', async t => {
   const all = await table.call('table.workspace.read', {query: SENTENCE, binding: catalog.binding, preselect: {version: 2, mode: 'check'}});
   assert.deepEqual(all.materials.check.stale_keys, [], 'a keyless check compares everything and names no material');
 });
-
-test('the run\'s read row names the key and counts the calls a discarded prescreen spent (§135.6)', async t => {
-  const {createHybridEngine} = await import('../../runtime/jev/hybrid-engine.ts');
-  const table = await openTable(t), rows = [], handlers = new Map();
-  const move = async () => { await table.call('table.apply', {call_id: 't1-c1', effects: [{kind: 'move', to: 'newspaper-morgue', why: 'test'}]}); };
-  const engine = createHybridEngine({env: {PI_COC_JEV_PRESELECT: '1', EXT_JEV_APIKEY: 'mechanical-test-key'},
-    decision: scripted([graphRead, 'finish'], {1: move}), record: row => rows.push(row)});
-  const bus = {on: (name, handler) => handlers.set(name, handler), emit: (name, value) => handlers.get(name)?.(value)};
-  engine.extension({events: bus, on: () => {}, getActiveTools: () => [], setActiveTools: () => {}});
-  bus.emit('coc:kernel-bridge', {campaign: 'c1', call: (method, params) => table.call(method, params)});
-  const plan = await engine.runDriver.prepare({runId: 'run-1', inputRevision: 'rev', rawInput: SENTENCE, session: {}});
-  const read = await plan.ports.read.read({origin: 'policy', operation: 'read', readOnly: true},
-    {runId: 'run-1', stepId: 's1', operationId: 's1/op1', origin: 'policy', inputRevision: 'rev', scopeId: 'root', signal: new AbortController().signal});
-  const row = rows.find(entry => entry.lane === 'run' && entry.event === 'read'),
-    fallback = rows.find(entry => entry.lane === 'prescreen' && entry.event === 'fallback');
-  assert.ok(fallback, 'the prescreen fell back');
-  assert.equal(row.prescreen.status, 'fallback');
-  assert.equal(row.prescreen.fallback, 'binding_changed');
-  assert.equal(row.prescreen.key, 'scene');
-  assert.ok(fallback.jev_calls > 0);
-  assert.equal(row.prescreen.jev_calls, fallback.jev_calls, 'the read row counts what the discarded prescreen spent');
-  assert.equal(read.artifact.read.calls, fallback.jev_calls, 'and so does the read artifact (reported only: the decision budget does not charge a read, §135.6 SL-22)');
-});

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import './waiting-placeholder.css'
+import type {RunProgressFrame} from '@pipi/host-api'
+import {transcriptWord,useTranscriptWords} from './transcript-words'
 
 /**
  * Waiting phase for the transcript-tail status row.
@@ -83,6 +85,7 @@ export function formatElapsed(seconds: number): string {
 }
 
 export interface WaitingPlaceholderProps {
+  progress?:RunProgressFrame
   phase: WaitingPhase
   /** Turn-start wall clock (Date or epoch ms); drives the live elapsed readout. */
   startedAt: Date | number
@@ -113,7 +116,8 @@ function toEpochMs(startedAt: Date | number): number {
  * a `[subagent-*]` injection uses `followup`. This component makes no
  * global-streaming decisions itself.
  */
-export function WaitingPlaceholder({ phase, startedAt, detail, onStop, reduceMotion = false }: WaitingPlaceholderProps) {
+export function WaitingPlaceholder({ phase, startedAt, detail, onStop, reduceMotion = false, progress }: WaitingPlaceholderProps) {
+  const words=useTranscriptWords()
   const startMs = useMemo(() => toEpochMs(startedAt), [startedAt])
   const [elapsed, setElapsed] = useState(() => Math.max(0, (Date.now() - startMs) / 1000))
 
@@ -124,12 +128,14 @@ export function WaitingPlaceholder({ phase, startedAt, detail, onStop, reduceMot
     return () => window.clearInterval(id)
   }, [startMs])
 
-  const copy = waitingCopy(phase, elapsed)
+  const stages={reading:transcriptWord(words,'reading_context'),checking:transcriptWord(words,'checking_action'),
+    settling:transcriptWord(words,'settling_action'),thinking:transcriptWord(words,'preparing_reply'),writing:transcriptWord(words,'writing_reply')}
+  const copy = progress?stages[progress.phase]:waitingCopy(phase, elapsed)
   const showElapsed = elapsed >= WAITING_CONNECTED_SECONDS
   const className = reduceMotion ? 'waiting-placeholder is-reduce-motion' : 'waiting-placeholder'
 
   return (
-    <div className={className} role="status" aria-live="polite" data-phase={phase} data-testid="waiting-placeholder">
+    <div className={className} role="status" aria-live="polite" data-phase={phase} data-run-phase={progress?.phase} data-testid="waiting-placeholder">
       <span className="waiting-placeholder__bars" aria-hidden="true">
         <span className="waiting-placeholder__bar waiting-placeholder__bar--1" />
         <span className="waiting-placeholder__bar waiting-placeholder__bar--2" />

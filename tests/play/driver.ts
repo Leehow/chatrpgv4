@@ -285,6 +285,7 @@ export class Daemon {
             if (!ack.success)
                 return this._finalize_turn(n, text, stamp, started, [], '', 'empty', 'prompt rejected: ' + ack.error, { timings });
             const tools = new Map<any, Row>(), order: any[] = [], text_parts: string[] = [];
+            const publicStreams=new Map<string,{attempt:string;sequence:number;text:string}>();
             let final_parts: string[] = [], delivered = '', delivery: Row | null = null, projected_mechanics: any[] = null as any, projected_choice: Row | null = null, public_clock: Row | null = null, rejected = false, confirmed = false, reason: string | null = null, settle_deadline: number | null = null, stale_deadline: number | null = null, saw_work = false, stale_settles = 0;
             const notices: Row[] = [], setup_openings: string[] = [], reference_replies: string[] = [], deadline = started + timeout;
             const capture = (host: Row) => { if (host.kind === 'reference') {
@@ -397,7 +398,18 @@ export class Daemon {
                 }
                 else if (type === 'entry_appended') {
                     const e = event.entry || {}, data = e.data || {}, host = extract_host_delivery(e), opening = extract_setup_opening(e);
-                    if (e.customType === 'coc-mechanics' && data && typeof data === 'object') {
+                    if(e.customType==='coc-final-delivery'&&data.version===1){
+                        if(data.event==='start')publicStreams.set(data.delivery_id,{attempt:data.attempt_id,sequence:data.sequence,text:''});
+                        else{
+                            const stream=publicStreams.get(data.delivery_id);
+                            if(stream&&stream.attempt===data.attempt_id&&data.sequence===stream.sequence+1){
+                                stream.sequence=data.sequence;
+                                if(data.event==='delta')stream.text+=data.delta??'';
+                                if(data.event==='end'&&data.status==='completed')capture({kind:'narrate',rendered_text:stream.text,mechanics:[],pending_choice:null});
+                            }
+                        }
+                    }
+                    else if (e.customType === 'coc-mechanics' && data && typeof data === 'object') {
                         if (data.player_clock && typeof data.player_clock === 'object')
                             public_clock = player_table_view({ clock: data.player_clock }).clock;
                         if (Array.isArray(data.mechanics))

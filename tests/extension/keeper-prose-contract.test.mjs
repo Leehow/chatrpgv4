@@ -5,7 +5,7 @@ import {test} from 'node:test';
 test('compressed context supplies facts but never the player-facing sentence pattern', async () => {
   const prompt = await readFile(new URL('../../prompts/keeper.md', import.meta.url), 'utf8');
   assert.ok(prompt.includes('facts, never prose samples'));
-  assert.ok(prompt.includes('Retained delivered prose is continuity evidence too, not a style or voice authority'));
+  assert.ok(prompt.includes('Retained delivered prose is continuity evidence, not a compulsory voice or sentence pattern'));
   // docs/specs/prose-mod.md §6: the craft sentences left the base for the prose package.
   const craft = await readFile(new URL('../../mods/narration-craft/agent.md', import.meta.url), 'utf8');
   assert.equal(prompt.includes('Write natural, complete sentences in `play_language`'), false);
@@ -50,12 +50,12 @@ test('compressed context supplies facts but never the player-facing sentence pat
     assert.doesNotMatch(text, /\banswers?\b[^.;\n]*\b(?:first|what was (?:actually )?said)\b/i, `§40.9: the ${surface} still ranks answering what was said first`);
   }
   assert.equal(craft.includes('as a writer writes'), false);
-  assert.ok(prompt.includes('Address every player-controlled investigator in the second person'));
-  assert.ok(prompt.includes('Words the player directly spoke are already their part of the conversation'));
-  assert.ok(prompt.includes('intended actions still need ordinary adjudication and settlement'));
-  assert.ok(prompt.includes('Do not add an unchosen action, promise or payment'));
-  assert.ok(prompt.includes('Detail used to answer an investigative question is evidence, not atmospheric filler'));
-  assert.ok(prompt.includes('your memory of another telling of this scenario is not this campaign\'s source'));
+  assert.ok(prompt.includes('Address the investigator as you'));
+  assert.ok(prompt.includes('The player\'s spoken words already happened'));
+  assert.ok(prompt.includes('adjudicate intended actions'));
+  assert.ok(prompt.includes('without adding an unchosen action, promise or payment'));
+  assert.ok(prompt.includes('show the relevant particulars themselves'));
+  assert.ok(prompt.includes('another telling of a scenario is not this campaign\'s source'));
   assert.equal(prompt.includes('a speakable line is rendered as the investigator\'s line with its meaning kept'), false);
 });
 
@@ -140,36 +140,24 @@ test('both post-delivery checkers share one player_agency definition: filling in
   }
 });
 
-test('§158.6: the Keeper is told the delivered turn is canon, the ledger follows it, and only the player\'s dispute reverses it', async () => {
+test('minor discrepancies can be clarified later while settled effects are preserved', async () => {
   const prompt = await readFile(new URL('../../prompts/keeper.md', import.meta.url), 'utf8');
-  const laws = prompt.slice(prompt.indexOf('Four laws:'), prompt.indexOf('Your tools:'));
-  // Law 2 names the owed rows and how they land; law 3 says who wins about the past and the one exception.
-  assert.match(laws, /owed state \(the capsule's `owed` rows\)/);
-  assert.match(laws, /effect carries `owed`/);
-  assert.match(laws, /the delivered turn is canon and the ledger is brought forward to it/);
-  assert.match(laws, /never tell the player the table made a mistake or that a service failed, never apologise and never narrate a correction/);
-  assert.match(laws, /when they explicitly dispute what happened and ask for it to be otherwise, follow them/);
-  assert.doesNotMatch(laws, /without an `apply` did not happen/, 'told prose without a receipt is owed, not unhappened');
-  // Turn 23 of the installed table followed the old line and told the player the table could not settle.
-  assert.doesNotMatch(prompt, /say so plainly to the player as a service notice/);
-  assert.doesNotMatch(prompt, /say that the table cannot settle actions/);
-  assert.match(prompt, /keep the review, the service and its failure out of the fiction and the prose/);
-  // §213.1 (live 9e7 turn 26): an outage held one batch; the Keeper then told the cab ride home it never proposed, as owed state.
-  assert.match(prompt, /It holds the refused lines, not the rest of the turn/);
-  assert.match(prompt, /narrate the investigator beginning it, never its result/);
-  assert.match(prompt, /owed state is what an earlier delivery already told, not a way to deliver what a refusal held/);
+  assert.match(prompt, /Minor mistakes need not interrupt play: clarify naturally in later conversation/);
+  assert.match(prompt, /Do not repeat effects already settled/);
+  assert.match(prompt, /Tool errors are not fictional obstacles/);
+  assert.match(prompt, /Do not force apologies, restart a turn or hold an answer for semantic review/);
 });
 
 test('§179.1: consulting what the investigator carries is the base\'s; the answer an asker wants is Natural NPC\'s', async () => {
   // App table game-8e41c325 (2026-10-04): turn 6 opened the notes and wrote the room; turn 3 gave a place's name and no
   // way to know it. Owner: consulting items belongs to the base system, reading an asker's intent to the NPC package.
   const prompt = await readFile(new URL('../../prompts/keeper.md', import.meta.url), 'utf8');
-  assert.match(prompt, /When the investigator reads, checks or calls to mind what they carry or already know/);
-  assert.match(prompt, /the turn shows what is there, not only the gesture of looking/);
+  assert.match(prompt, /When reading the investigator's own objects or memories/);
+  assert.match(prompt, /not just the gesture of looking/);
   // Arm C of the replay: three of four named the notes' headings with a particular inside them, not the contents.
-  assert.match(prompt, /the particulars themselves, as written or remembered, not a list of the kinds of things the page holds/);
-  assert.match(prompt, /`own` holds what their card says and the player's own earlier words/);
-  assert.match(prompt, /never against what the player has said/);
+  assert.match(prompt, /show the relevant particulars themselves/);
+  assert.match(prompt, /Use their card and actual earlier words/);
+  assert.match(prompt, /adjudicate intended actions without adding an unchosen action/);
   const npc = await readFile(new URL('../../mods/natural-npc/agent.md', import.meta.url), 'utf8');
   const at = npc.indexOf('\n## What the asker is after\n');
   assert.ok(at >= 0, 'Natural NPC carries the section');

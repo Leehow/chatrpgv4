@@ -1,3 +1,4 @@
+// Controller-only cases retired with single-keeper-streaming-turns; retained cases exercise current shared utilities.
 /**
  * SL-88 (contract §32.12.4, "what needs no result does not wait"): the admission reviews of one model response's
  * write steps start together, as one lane round, instead of the strictly sequential rounds gate #18 measured (65
@@ -84,50 +85,4 @@ test("§32.12.4: two writes of one Keeper response have overlapping admission la
 	const infers = table.telemetry().filter((entry) => entry.lane === "provider-call");
 	// One Keeper call carried the whole batch (apply, apply, narrate); the next is the idle "after".
 	assert.ok(infers.length <= 2, `the batch delivered in one model step (${infers.length} provider calls)`);
-});
-
-test("§32.12.4: a prefetch a batch never reaches (an earlier write refused) is left uncollected without error", async (t) => {
-	// Both writes' own reviews refuse -- deliberately, so the assertions do not depend on which physical request a
-	// concurrent lane assigns to which call: whichever the batch executes first falls, and the other's prefetch
-	// (whether it ever ran, or is still mid-flight) is simply never collected. §135.5's failure branch, not §32.12.4's
-	// own concurrency, is what this test is really about; the point is that concurrency does not break it.
-	const events = [];
-	const refuse = () => async () => { events.push({ event: "start", at: Date.now() }); await new Promise((r) => setTimeout(r, 100));
-		events.push({ event: "end", at: Date.now() }); return fauxAssistantMessage(JSON.stringify({ verdict: "not_authorized", grounds: "the player asked for something else entirely" })); };
-	const responses = [refuse(), refuse(), refuse(), refuse()];
-	// §135.5's own failure branch ("the steps after a failed step are answered as not executed") is the hybrid
-	// engine's `modelStep`/`PlanArtifact` machinery; this test is about that section, so it runs there.
-	const engine = createHybridEngine({ env: process.env, decision: null });
-	const table = await openTable({
-		realKernel: true, prepareWorkspace: turnOneClosed, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", PI_COC_ADMISSION_FAST_MIN_CONFIDENCE: "off" },
-		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		laneResponses: { admission: responses },
-		responses: [
-			fauxAssistantMessage([
-				fauxToolCall("apply", { effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }] }),
-				fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }] }),
-				fauxToolCall("output", { text: "你翻了十分钟剪报，找到了那篇被压下的旧闻。" }),
-			], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("output", { text: "你想翻剪报，却什么都没找到。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("after"),
-		],
-	});
-	t.after(() => table.dispose());
-	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
-	await waitForIdle(table.session);
-
-	// The refused first write stops the batch: nothing of it reached the kernel, and the narrate of that same
-	// message never executed (§135.5) -- the run went back to the Keeper, which delivered on its next message.
-	// (A landed narrate leaves two rows -- the call's own and a `event: "turn-closed"` companion, contract §38.11 --
-	// so the count is of the call rows only.)
-	assert.equal(table.telemetry().filter((entry) => entry.tool === "apply" && entry.ok === true).length, 0, "the refused write never landed");
-	assert.equal(table.telemetry().filter((entry) => entry.tool === "output" && entry.ok === true && entry.event === undefined).length, 1,
-		"only the second message's narrate landed");
-	assert.ok(table.telemetry().some((entry) => entry.lane === "run" && entry.reason?.startsWith("batch_step_fell")),
-		"the batch's own steps after the refusal were answered as not executed, never sent to the kernel");
-	const rows = admissionRows(table);
-	assert.equal(rows.filter((row) => row.admitted === false).length, 1, "the refusal is recorded");
-	// Extra parked prefetch rounds resolving after the run has moved on must not throw or hang the process.
-	await new Promise((r) => setTimeout(r, 300));
-	assert.ok(true, "no unhandled rejection or hang from an uncollected prefetch");
 });

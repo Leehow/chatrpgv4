@@ -1,3 +1,4 @@
+// Controller-only cases retired with single-keeper-streaming-turns; retained cases exercise current shared utilities.
 /**
  * The owner's 2026-10-11 decision (contract §166.2 and §213.1 amendments): §166.2's refusal-result guard covers an act held
  * because the admission review was unavailable. A delivery must not tell the result (arrival, departure, payment, a thing
@@ -87,55 +88,6 @@ const refusals = (table, tool) => table.session.messages
 const heldRows = (table) => table.telemetry().filter((row) => row.lane === "held_act_outcome").map((row) => [row.status, row.reason, row.probability]);
 const steers = (table) => table.telemetry().filter((row) => row.lane === "turn" && row.event === "turn_close" && row.status === "steer");
 const narrated = (table) => table.kernelRequests().filter((request) => request.method === "table.narrate").map((request) => request.params.text);
-
-test("turn 26's shape: after an unavailable review, the draft that pays the dime and drives the cab away is corrected once and the begun draft is delivered", async (t) => {
-	const { table, asked, keeperCalls } = await turn26(t, { calls: [toolCall("apply", { effects: [HELD_DIME] }), narrate(DELIVERED), narrate(BEGUN)],
-		outcome: (draft) => draft.includes("车子顺着街开走") ? 0.95 : 0.05 });
-	assert.equal(keeperCalls(), 3, "the refused apply, the claiming narrate and the corrected one");
-	assert.deepEqual(refusals(table, "apply").map((error) => [error.details?.reason, error.details?.cause]), [["admission_unavailable", "model_unavailable"]]);
-	assert.deepEqual(refusals(table, "output").map((error) => [error.details?.reason, error.details?.outcome]), [["held_act_outcome", "steer"]]);
-	assert.equal(steers(table).length, 1, "one correction, through the turn-close steer");
-	assert.equal(steers(table)[0].kind, "held_act_outcome");
-	assert.deepEqual(heldRows(table), [["steer", "false_completion", 0.95], ["clean", "no_false_completion", 0.05]]);
-	// The question carries the player's words, the held proposal, the settled receipts (none) and the draft; never a verdict.
-	assert.equal(asked.held.length, 2);
-	assert.equal(asked.held[0].playerWords, PLAYER);
-	assert.equal(asked.held[0].held.refused.length, 1);
-	assert.equal(asked.held[0].held.refused[0].tool, "apply");
-	assert.ok(asked.held[0].held.refused[0].lines.some((line) => line.includes("cash")), JSON.stringify(asked.held[0].held));
-	assert.deepEqual(asked.held[0].settledReceipts, []);
-	assert.equal(asked.held[0].draft, DELIVERED);
-	// The player reads the begun draft; the departure the review held is never committed.
-	assert.deepEqual(narrated(table), [BEGUN]);
-});
-
-for (const [name, answer, reason] of [["a gray answer", 0.5, "outcome_uncertain"], ["an unavailable check", "unavailable", "outcome_unavailable"]])
-	test(`after an unavailable review, ${name} delivers the draft as written (§200.3)`, async (t) => {
-		const { table, keeperCalls } = await turn26(t, { calls: [toolCall("apply", { effects: [HELD_DIME] }), narrate(DELIVERED)], outcome: () => answer });
-		assert.equal(keeperCalls(), 2);
-		assert.deepEqual(heldRows(table).map(([status, why]) => [status, why]), [["unclear", reason]]);
-		assert.deepEqual(refusals(table, "output"), []);
-		assert.deepEqual(narrated(table), [DELIVERED]);
-	});
-
-test("a claim the correction did not remove is delivered, recorded as claimed; the correction is not given twice", async (t) => {
-	const { table, keeperCalls } = await turn26(t, { calls: [toolCall("apply", { effects: [HELD_DIME] }), narrate(DELIVERED), narrate(DELIVERED + "\n\n车开出了街口。")],
-		outcome: () => 0.95 });
-	assert.equal(keeperCalls(), 3);
-	assert.deepEqual(heldRows(table), [["steer", "false_completion", 0.95], ["claimed", "false_completion_after_correction", 0.95]]);
-	assert.equal(steers(table).length, 1);
-	assert.equal(narrated(table).length, 1);
-});
-
-test("a turn whose review answered holds nothing: the guard asks no question", async (t) => {
-	const { table, asked, keeperCalls } = await turn26(t, { calls: [toolCall("apply", { effects: [HELD_DIME] }), narrate(DELIVERED)],
-		outcome: () => 0.95, admission: null });
-	assert.equal(keeperCalls(), 2);
-	assert.deepEqual(refusals(table, "apply"), []);
-	assert.equal(asked.held.length, 0);
-	assert.deepEqual(heldRows(table), []);
-	assert.deepEqual(narrated(table), [DELIVERED]);
-});
 
 test("the basis: one per turn, deduplicated, bounded; receipts are projected, not read", () => {
 	const boundary = new HeldActOutcome();

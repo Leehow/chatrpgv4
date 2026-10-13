@@ -560,7 +560,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 							lastProviderError = providerError;
 						}
 						request.onEvent?.(event);
-					} catch (error) { eventError = `unreadable reader event: ${String(error)}`; }
+					} catch (error) { eventError = `unreadable reader event: ${String(error)}`; if(request.finalOutput)kill(); }
 				}
 			});
 		}

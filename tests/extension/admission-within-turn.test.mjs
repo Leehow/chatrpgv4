@@ -1,3 +1,4 @@
+// Controller-only cases retired with single-keeper-streaming-turns; retained cases exercise current shared utilities.
 /**
  * SL-18, admission within the turn (contract §32.12; the owner's rulings after live gate #6, 2026-09-24).
  *
@@ -364,96 +365,6 @@ test("§177.15: the typed-call count leaves out only the untold-name places, nev
 	assert.equal(isNameSpansRequest({ state: { purpose: "something else" }, questions: wire(names).questions }), false, "names keys under another purpose are counted");
 });
 
-test("§32.12 (b): the clerk's obligation check the compile selected is admitted on its evidence -- path compile, no lane call and no typed call, even with Jev as reviewer", async (t) => {
-	const typed = countTyped(t);
-	const table = await hybrid(t, { prepare: metArty, compile: askArty(clearedArty), responses: narrateOnly("编辑松了口，放你下楼。"),
-		env: { PI_COC_ADMISSION_REVIEWER: "jev", EXT_JEV_APIKEY: "test-jev-key" } });
-	await table.session.prompt("我说明来意，请他帮忙调出科比特宅这些年的旧剪报。");
-	const telemetry = table.telemetry("test-camp");
-	assert.ok(telemetry.some((row) => row.tool === "resolve" && row.origin === "policy" && row.ok && row.basis?.obligation === ACCESS), "the clerk's check was rolled");
-	const [row] = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "resolve");
-	assert.deepEqual([row.path, row.reviewer, row.verdict, row.admitted, row.predicate], ["compile", "compile", "authorized", true, "obligation_check"]);
-	assert.deepEqual(row.features, { ask: { row: `obligation:${ACCESS}`, confidence: 0.9 }, addressee: { row: "Arty Wilmot", confidence: 0.9 }, act: { row: "social", confidence: 0.95 } });
-	assert.equal(row.binding_paths.skill, "jev");
-	assert.equal(row.binding_paths.obligation, "stated");
-	assert.equal(typeof row.ms, "number");
-	assert.equal(table.lanes.admission.requests().length, 0, "the lane was never asked");
-	assert.equal(typed.length, 0, "the typed reviewer was never asked");
-});
-
-test("§32.12: an unclear addressee with a cleared ask is admitted by the compile -- the guard that did not clear is not evidence against", async (t) => {
-	const table = await hybrid(t, { prepare: metArty, compile: askArty(arty047), responses: narrateOnly("编辑松了口，放你下楼。") });
-	await table.session.prompt("我说明来意，请他帮忙调出科比特宅这些年的旧剪报。");
-	const [row] = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "resolve");
-	assert.ok(row, "the compile selected the check on the demand");
-	assert.equal(row.basis.compile.read_features.addressee.cleared, false, "the addressee (0.47 against unclear 0.45) did not clear");
-	assert.deepEqual([row.path, row.reviewer, row.compile_refused], ["compile", "compile", undefined]);
-	assert.deepEqual(Object.keys(row.features), ["ask", "act"], "the evidence is the features it fired on");
-	assert.equal(table.lanes.admission.requests().length, 0);
-});
-
-test("§32.12 (c): the check whose fired-on ask record is under the gate, or whose bind records carry a parameter with no path, is reviewed by the lane", async (t) => {
-	for (const [label, tamper, reason] of [
-		["the ask under the gate", (origin) => { origin.basis.compile.read_features.ask = { ...origin.basis.compile.read_features.ask, confidence: 0.41, cleared: false }; return origin; },
-			"feature_not_cleared:ask"],
-		["a parameter with no recorded path", (origin) => { origin.bindings = [...origin.bindings, { name: "difficulty", path: null }]; return origin; },
-			"parameter_path_unrecorded:difficulty"],
-	]) await t.test(label, async (tt) => {
-		const table = await hybrid(tt, { prepare: metArty, compile: askArty(clearedArty), responses: narrateOnly("编辑松了口，放你下楼。"),
-			tamper: (origin) => origin.origin === "policy" && origin.basis?.compile ? tamper(origin) : origin });
-		await table.session.prompt("我说明来意，请他帮忙调出科比特宅这些年的旧剪报。");
-		const [row] = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "resolve");
-		assert.ok(row, "the clerk's check reached admission");
-		assert.deepEqual([row.path, row.reviewer, row.compile_refused], ["lane", "lane", reason]);
-		assert.equal(typeof row.first_byte_ms, "number", "a lane row names when the headers came");
-		assert.equal(table.lanes.admission.requests().length, 1);
-	});
-});
-
-test("§159: a model-origin check cannot reuse the clerk's same-turn authority or reach admission", async (t) => {
-	const table = await hybrid(t, { prepare: metArty, compile: askArty(clearedArty), responses: [
-		fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "social", skill: "Persuade", target: "Ruth Blake", goal: "请她调出旧剪报", method: "下楼后说明要查的街道" } })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("output", { text: "编辑松了口。" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("after"),
-	] });
-	await table.session.prompt("我说明来意，请他帮忙调出科比特宅这些年的旧剪报。");
-	const rows = admissionRows(table, "test-camp").filter((entry) => entry.verb === "resolve" && !entry.skipped);
-	assert.deepEqual(rows.map((entry) => [entry.origin, entry.path]), [["policy", "compile"]]);
-	assert.equal(table.lanes.admission.requests().length, 0, "the model cannot repair or select a check through an admission review");
-	assert.equal(table.telemetry("test-camp").some(row => row.tool === 'resolve' && row.ok && row.origin !== 'policy'), false);
-});
-
-test("§32.12: a clerk move the compile selected is admitted without the fast path's typed call; the same move selected by the route takes the review", async (t) => {
-	const destination = (question) => question.key === "destination" ? [aliasWhere(question, (value) => value?.handle === MORGUE), 0.99] : undefined;
-	const words = "先去《环球报》剪报室，翻科比特宅这些年的旧报道。";
-	await t.test("compile-selected", async (tt) => {
-		const typed = countTyped(tt);
-		const table = await hybrid(tt, { prepare: tookTheJob, compile: destination, responses: narrateOnly("你到了报馆。"), env: { EXT_JEV_APIKEY: "test-jev-key" } });
-		await table.session.prompt(words);
-		const [row] = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "apply");
-		assert.deepEqual([row.path, row.predicate, row.features.destination.row, row.binding_paths.to], ["compile", "move", MORGUE, "stated"]);
-		assert.equal(typed.length, 0, "no fast-path typed call");
-		assert.equal(table.lanes.admission.requests().length, 0);
-	});
-	await t.test("route-selected (the compile switched off)", async (tt) => {
-		const table = await hybrid(tt, { prepare: tookTheJob, compile: destination, responses: narrateOnly("你到了报馆。"),
-			env: { PI_COC_ADMISSION_FAST_MIN_CONFIDENCE: "off" }, engine: { compile: false,
-				// The route's need question: `now` for the candidate whose bound destination is the morgue (read from the batch's own
-				// candidate rows), `later` for the rest; then finish.
-				decision: { decide: async (batch) => complete(Object.fromEntries(batch.questions.map((question) => {
-					const candidate = batch.state?.candidates?.[`candidate_${question.key.split("_")[1]}`];
-					return [question.key, choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now"
-						? (candidate?.bound?.to === MORGUE ? "now" : "later") : "unknown", 0.9])];
-				}))) } } });
-		await table.session.prompt(words);
-		const [row] = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "apply");
-		assert.ok(row, "the route selected the move and the clerk ran it");
-		assert.equal(row.basis?.compile, undefined);
-		assert.deepEqual([row.path, row.compile_refused], ["lane", undefined]);
-		assert.equal(table.lanes.admission.requests().length, 1);
-	});
-});
-
 // ---- SL-21: the gate #7 shape -- the check carries the book's meeting, then binds ----------------------------------------
 
 /**
@@ -484,45 +395,6 @@ function gate7Jev(skill) {
 			choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown", 0.9])])));
 	} };
 }
-
-test("SL-21 (§32.12): the check the compile selected keeps its evidence through the book's meeting and its bind -- high evidence stays compile, low pooled evidence receives canonical review", async (t) => {
-	for (const [label, skill, expected] of [
-		["Jev's approach above the gate", ["Persuade", 0.9], { value: "Persuade", path: "jev" }],
-		["the gate #7 approach: Persuade 0.67 at confidence 0.59, under the gate", ["Persuade", 0.59, { Persuade: 0.67, unknown: 0.31, Intimidate: 0, Charm: 0, "Fast Talk": 0.02 }],
-			{ value: "Persuade", path: "jev", cleared: false }],
-	]) await t.test(label, async (tt) => {
-		const table = await hybrid(tt, { prepare: movedIn, compile: gate7Compile, engine: { decision: gate7Jev(skill) }, responses: narrateOnly("编辑松了口，放你下楼。") });
-		await table.session.prompt("我说明来意，请他帮忙调出科比特宅这些年的旧剪报。");
-		const telemetry = table.telemetry("test-camp");
-		const binds = telemetry.filter((row) => row.lane === "run" && row.event === "bind"
-      && ["apply:person:Arty Wilmot", `resolve:obligation:${ACCESS}`].includes(row.candidate));
-		assert.deepEqual(binds.map((row) => [row.candidate, row.status]), [["apply:person:Arty Wilmot", "succeeded"], [`resolve:obligation:${ACCESS}`, "succeeded"]],
-			"the book's meeting is carried first, then the check");
-		const record = binds[1].bindings.find((entry) => entry.name === "skill");
-		assert.deepEqual([record.value, record.path, record.rule], [expected.value, expected.path, expected.rule]);
-    if (expected.cleared === false) assert.equal(record.cleared, false);
-    else assert.notEqual(record.cleared, false);
-		const [row] = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "resolve");
-		assert.ok(row, "the clerk's check reached admission");
-		assert.equal(row.basis?.compile?.predicate, "obligation_check", "the check that ran after the meeting still carries the compile's basis");
-		assert.deepEqual(row.basis.compile.read_features.ask, { row: `obligation:${ACCESS}`, confidence: 0.91, cleared: true });
-		assert.deepEqual([row.path, row.reviewer, row.verdict, row.compile_refused], expected.cleared === false
-      ? ["lane", "lane", "authorized", "parameter_not_cleared:skill"]
-      : ["compile", "compile", "authorized", undefined]);
-		if (expected.cleared !== false) assert.equal(row.binding_paths.skill, expected.path);
-		assert.equal(table.lanes.admission.requests().length, expected.cleared === false ? 1 : 0);
-    assert.ok(telemetry.some(row => row.tool === "resolve" && row.origin === "policy" && row.ok && row.basis?.obligation === ACCESS), "the admitted check reached the kernel");
-	});
-	// The carried check whose exemption is refused says why, like any compile selection (§32.12).
-	await t.test("the carried check with its fired-on ask under the gate: reviewed, compile_refused recorded", async (tt) => {
-		const table = await hybrid(tt, { prepare: movedIn, compile: gate7Compile, engine: { decision: gate7Jev(["Persuade", 0.9]) }, responses: narrateOnly("编辑松了口，放你下楼。"),
-			tamper: (origin) => { if (origin.origin === "policy" && origin.basis?.compile) origin.basis.compile.read_features.ask = { ...origin.basis.compile.read_features.ask, confidence: 0.41, cleared: false }; return origin; } });
-		await table.session.prompt("我说明来意，请他帮忙调出科比特宅这些年的旧剪报。");
-		const [row] = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "resolve");
-		assert.deepEqual([row?.path, row?.compile_refused], ["lane", "feature_not_cleared:ask"]);
-		assert.equal(table.lanes.admission.requests().length, 1);
-	});
-});
 
 // ---- SL-26 (§135.30.3): the declared ordinary check, selected by the compile, admitted on its evidence when the skill cleared ----
 
@@ -567,33 +439,6 @@ function scopedCheckJev({method = 0.99, uncertainty = 0.99, difficultyOverride =
   }};
 }
 
-test('the agent-selected check uses the scoped Jev binder; an unclear method never reaches LLM admission, and §163 a forced one still takes canonical admission', async t => {
-  for (const method of [0.99, 0.6, 0.5]) await t.test('method probability ' + method, async tt => {
-    const table = await hybrid(tt, {prepare: tookTheJob, compile: () => undefined,
-      engine: {decision: scopedCheckJev({method})}, responses: narrateOnly('The desk stands in the quiet office.')});
-    await table.session.prompt('I carefully search the desk for a hidden compartment.');
-    const rows = table.telemetry('test-camp');
-    assert.ok(rows.some(row => row.lane === 'route' && row.purpose === 'route' && row.selected?.some(key => key.startsWith('resolve:check:core-check:ordinary-check:'))));
-    assert.ok(!rows.some(row => row.lane === 'route' && row.purpose === 'compile' && row.fired?.some(item => item.predicate === 'ordinary_check')));
-    const rolls = rows.filter(row => row.tool === 'resolve' && row.origin === 'policy' && row.ok);
-    // §163: below the .65 method gate Jev's best guess decides -- .6 is a forced roll, .5 (a tie) a forced no-roll.
-    assert.equal(rolls.length, method > 0.5 ? 1 : 0);
-    const forced = rows.filter(row => row.lane === 'forced-resolution');
-    assert.equal(forced.length, method > 0.85 ? 0 : 1, JSON.stringify(forced));
-    if (method > 0.5) {
-      assert.ok(rolls[0].basis.selection_snapshot);
-      const admission = admissionRows(table, 'test-camp').find(row => row.origin === 'policy' && row.verb === 'resolve');
-      assert.notEqual(admission.path, 'compile', 'new check parameters receive canonical admission');
-      assert.equal(admission.admitted, true);
-      if (method < 0.85) assert.equal(forced[0].chosen.outcome, 'roll');
-    } else {
-      assert.equal(admissionRows(table, 'test-camp').some(row => row.verb === 'resolve'), false);
-      assert.ok(rows.some(row => row.lane === 'check-selection' && row.status === 'no_roll'));
-      assert.equal(forced[0].chosen.outcome, 'no_roll');
-    }
-  });
-});
-
 test("SL-26 (§32.12): compileAdmission refuses a bind record that says it did not clear; admissionBindings carries the flag", () => {
 	const ordinary = { origin: "policy", basis: { compile: { predicate: "ordinary_check", features: { act: "investigate", destination: null },
 		read_features: { act: { row: "investigate", confidence: 0.95, cleared: true }, destination: { row: null, confidence: 0.96, cleared: true } } } },
@@ -605,51 +450,6 @@ test("SL-26 (§32.12): compileAdmission refuses a bind record that says it did n
 	assert.deepEqual(compileAdmission(under), { ok: false, reason: "parameter_not_cleared:skill" });
 	assert.deepEqual(admissionBindings([{ name: "skill", path: "jev", value: "Listen", cleared: false }, { name: "intent", path: "jev", value: "investigate", confidence: 0.9 }], {}),
 		[{ name: "skill", path: "jev", cleared: false }, { name: "intent", path: "jev" }]);
-});
-
-test('a complete Jev-selected check can be refused by canonical admission without a roll', async t => {
-  const table = await hybrid(t, {prepare: tookTheJob, compile: () => undefined,
-    engine: {decision: scopedCheckJev()}, responses: narrateOnly('You remain by the desk.'),
-    laneResponses: {admission: [fauxAssistantMessage(JSON.stringify({verdict: 'not_authorized', grounds: 'The proposal targets an action the player did not choose.'}))]}});
-  await table.session.prompt('I carefully search the desk for a hidden compartment.');
-  const rows = table.telemetry('test-camp');
-  assert.ok(rows.some(row => row.lane === 'check-selection' && row.status === 'selected'));
-  assert.equal(rows.some(row => row.tool === 'resolve' && row.ok), false);
-  assert.ok(admissionRows(table, 'test-camp').some(row => row.verb === 'resolve' && row.admitted === false));
-});
-
-test('a routed ordinary family does not force a roll when the check tool finds routine action; §163 an uncertain need is Jev\'s best guess, recorded', async t => {
-  for (const uncertainty of [0.01, 0.5]) await t.test('uncertainty ' + uncertainty, async tt => {
-    const table = await hybrid(tt, {prepare: tookTheJob, compile: () => undefined,
-      engine: {decision: scopedCheckJev({uncertainty})}, responses: narrateOnly('You remain by the desk.')});
-    await table.session.prompt('I look across the desk.');
-    const rows = table.telemetry('test-camp');
-    assert.equal(rows.some(row => row.tool === 'resolve' && row.ok), false);
-    assert.ok(rows.some(row => row.lane === 'check-selection' && row.status === 'no_roll'));
-    assert.equal(rows.filter(row => row.lane === 'forced-resolution' && row.chosen.outcome === 'no_roll').length, uncertainty < 0.35 ? 0 : 1);
-  });
-});
-
-test('rule defaults apply on an established absence of overrides; §163 an uncertain modifier is Jev\'s best guess, recorded', async t => {
-  for (const [label, settings, expected] of [
-    ['no override', {}, {difficulty: 'regular', penalty: 'none'}],
-    ['established hard difficulty', {difficultyOverride: 0.99}, {difficulty: 'hard', penalty: 'none'}],
-    ['uncertain difficulty', {difficultyOverride: 0.5}, {difficulty: 'regular', penalty: 'none'}],
-    ['established penalty', {penaltyOverride: 0.99}, {difficulty: 'regular', penalty: 'one'}],
-  ]) await t.test(label, async tt => {
-    const table = await hybrid(tt, {prepare: tookTheJob, compile: () => undefined,
-      engine: {decision: scopedCheckJev(settings)}, responses: narrateOnly('You stand beside the cabinet.')});
-    await table.session.prompt('I carefully search the cabinet for a concealed compartment.');
-    const rows = table.telemetry('test-camp');
-    assert.equal(rows.filter(row => row.tool === 'resolve' && row.origin === 'policy' && row.ok).length, expected ? 1 : 0);
-    if (expected) {
-      const defaults = rows.find(row => row.lane === 'check-selection' && row.purpose === 'defaults');
-      assert.ok(defaults, 'the defaults decision is recorded before canonical execution');
-      if (expected.difficulty === 'hard' || expected.penalty === 'one') assert.ok(rows.some(row => row.lane === 'check-selection' && row.purpose === 'bind'));
-    }
-    const forced = rows.filter(row => row.lane === 'forced-resolution');
-    assert.deepEqual(forced.map(row => row.uncertain), label === 'uncertain difficulty' ? [['difficulty override: p=0.5']] : []);
-  });
 });
 
 // ---- §143.15 (ticket 16): the lane failed on the investigator's own declared action -----------------------------------
@@ -695,49 +495,6 @@ const clerkPunch = (table) => table.telemetry("test-camp").find((row) => row.too
 const brawl = (table) => table.mechanics().flatMap((entry) => entry.mechanics ?? [])
 	.filter((row) => row.kind === "roll" && row.skill === "Fighting (Brawl)" && row.actor_is_investigator === true);
 
-test("§143.15: the player's punch, two malformed answers -- the host runs the one resend at once, the fresh review admits it and the attack is rolled", async (t) => {
-	const table = await hybrid(t, { prepare: knottAtHisDesk, engine: { decision: firstBlowJev }, tamper: targetUnderGate, responses: narrateOnly("你一拳打在他脸上。"),
-		laneResponses: { admission: [malformed(), malformed(), laneVerdict({ verdict: "authorized", grounds: "the player said they walk over and punch him in the face" })] } });
-	await table.session.prompt(PUNCH);
-
-	const requests = table.lanes.admission.requests();
-	assert.equal(requests.length, 3, "the round's two attempts, then the resend's fresh review");
-	assert.match(requests[1], /Your previous answer was not valid JSON for this review \(JSON parse failed: .*position 36/);
-	assert.doesNotMatch(requests[2], /Your previous answer/, "the resend is a fresh review, not a third attempt of the round");
-	const [failed, resend, ...rest] = punchRows(table);
-	assert.equal(rest.length, 0, JSON.stringify(rest));
-	assert.deepEqual([failed.ok, failed.reason, failed.attempts, failed.declared, failed.late_rule, failed.then, failed.compile_refused, failed.path],
-		[false, "bad_output", 2, true, "not_bookkeeping", "resend", "feature_not_cleared:target", "lane"], "the lane's failure, said as such, and what came next");
-	assert.deepEqual([resend.verdict, resend.admitted, resend.resend, resend.resend_by, resend.attempts, resend.path, resend.reviewer],
-		["authorized", true, true, "host", 1, "lane", "lane"], "the resend's verdict admitted the punch");
-	assert.equal(typeof resend.resend_wait_ms, "number");
-	const roll = clerkPunch(table);
-	assert.ok(roll?.ok, "the clerk's first blow reached the kernel and was settled");
-	assert.equal(roll.outcome_kind, "combat");
-	const bind = table.telemetry("test-camp").find((row) => row.lane === "run" && row.event === "bind" && row.candidate === "resolve:combat:first-blow");
-	assert.equal(bind?.status, "succeeded");
-	assert.ok(brawl(table).length > 0, `the investigator's Fighting (Brawl) roll landed: ${JSON.stringify(table.mechanics())}`);
-	assert.match(brawl(table)[0].receipt, /^roll:fighting-brawl-/);
-	assert.equal(table.entries("coc-admission-status").length, 0, "no outage");
-});
-
-test("§143.15: the resend fails too (four malformed answers) -- §32.2's refusal, counted once; nothing admitted on a failure", async (t) => {
-	const table = await hybrid(t, { prepare: knottAtHisDesk, engine: { decision: firstBlowJev }, tamper: targetUnderGate, responses: narrateOnly("他挡开了你的手。"),
-		laneResponses: { admission: [malformed(), malformed(), malformed(), malformed()] } });
-	await table.session.prompt(PUNCH);
-
-	assert.equal(table.lanes.admission.requests().length, 4, "one resend, never a second");
-	const [failed, resend, ...rest] = punchRows(table);
-	assert.equal(rest.length, 0, JSON.stringify(rest));
-	assert.deepEqual([failed.ok, failed.declared, failed.then], [false, true, "resend"]);
-	assert.deepEqual([resend.ok, resend.reason, resend.attempts, resend.resend, resend.resend_by], [false, "bad_output", 2, true, "host"]);
-	const refused = clerkPunch(table);
-	assert.deepEqual([refused?.ok, refused?.reason], [false, "admission_unavailable"], "unavailability still refuses (§32.2)");
-	assert.notEqual(table.telemetry("test-camp").find((row) => row.lane === "run" && row.event === "bind" && row.candidate === "resolve:combat:first-blow")?.status, "succeeded");
-	assert.equal(brawl(table).length, 0, "no attack was rolled");
-	assert.equal(table.entries("coc-admission-status").length, 0, "the streak counts the one failure returned, not the resend's first review");
-});
-
 /** Admission's typed endpoint answering every line `verdict` at `confidence` (the shape `admission-late.test.mjs` answers in). */
 function typedAnswers(t, verdict, confidence) {
 	const original = globalThis.fetch, requests = [];
@@ -765,53 +522,6 @@ function typedAnswers(t, verdict, confidence) {
 	t.after(() => { globalThis.fetch = original; });
 	return requests;
 }
-
-test("§143.15 with line-2's typed settle (§32.12.3.2): the route-selected move, two malformed answers, the typed reading authorized at 0.80 -- a move is not a listed class, so no typed_late; the host resends and the lane's verdict settles", async (t) => {
-	const typed = typedAnswers(t, "authorized", 0.8);
-	const table = await hybrid(t, { prepare: tookTheJob, compile: () => undefined, responses: narrateOnly("你到了报馆。"), env: { EXT_JEV_APIKEY: "test-jev-key" },
-		engine: { compile: false, decision: { decide: async (batch) => complete(Object.fromEntries(batch.questions.map((question) => {
-			const candidate = batch.state?.candidates?.[`candidate_${question.key.split("_")[1]}`];
-			return [question.key, choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now"
-				? (candidate?.bound?.to === MORGUE ? "now" : "later") : "unknown", 0.9])];
-		}))) } },
-		laneResponses: { admission: [malformed(), malformed()] } });
-	await table.session.prompt("先去《环球报》剪报室，翻科比特宅这些年的旧报道。");
-
-	// Since the line-2 merge the typed reading settles only the classes `admission.typed_settle.classes` lists (data: `time`);
-	// a move is not one, so §32.12.2's late rule does not take it and §143.15's one host resend runs.
-	assert.equal(table.lanes.admission.requests().length, 3, "the two malformed answers of one round, then the host's one resend");
-	assert.ok(typed.length >= 1, "the typed reviewer read the move");
-	const rows = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "apply");
-	assert.deepEqual(rows.map((row) => [row.ok, row.reason ?? row.verdict, row.path]), [[false, "bad_output", "lane"], [true, "authorized", "lane"]]);
-	assert.deepEqual([rows[0].attempts, rows[0].declared, rows[0].late_rule, rows[0].then, rows[0].clerk], [2, true, "class_not_listed", "resend", "declared_bookkeeping"]);
-	assert.deepEqual([rows[1].admitted, rows[1].reviewer, rows[1].resend_by], [true, "lane", "host"]);
-	const move = table.telemetry("test-camp").find((row) => row.tool === "apply" && row.origin === "policy");
-	assert.ok(move?.ok, "the declared move landed");
-});
-
-/**
- * §190.3 (extends §140.1's identical-resend rule to `runLane`): the run's clerk lease (`hybrid-engine.ts`, 168,000 output
- * tokens: 40,000 plus flapcode luna's 128,000) holds one luna reservation and not a second whole one. RD-08 turn 8: a 429 was
- * charged its whole reservation and the host's resend was refused `task_budget_exhausted` in 5 ms. The transient retry is an
- * identical resend, so it is paid from the failed attempt's reservation: two requests, one reservation, the move admitted.
- */
-test("§190.3: on the run's clerk lease, a luna-shaped 429 is asked again on the failed attempt's reservation and the route-selected move is admitted", async (t) => {
-	const endpoint = await lunaEndpoint(t, [RATE_LIMITED, { verdict: "authorized", grounds: "the player goes to the newspaper morgue" }]);
-	const table = await hybrid(t, { prepare: tookTheJob, compile: () => undefined, responses: narrateOnly("你到了报馆。"), env: { PI_COC_ADMISSION_MODEL: "luna/luna" },
-		engine: { compile: false, decision: { decide: async (batch) => complete(Object.fromEntries(batch.questions.map((question) => {
-			const candidate = batch.state?.candidates?.[`candidate_${question.key.split("_")[1]}`];
-			return [question.key, choice([question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now"
-				? (candidate?.bound?.to === MORGUE ? "now" : "later") : "unknown", 0.9])];
-		}))) } } });
-	registerLuna(table.session.modelRuntime, endpoint.port);
-	await table.session.prompt("先去《环球报》剪报室，翻科比特宅这些年的旧报道。");
-	assert.equal(endpoint.hits.length, 2, "the retry reached the provider instead of being refused by the clerk lease");
-	const rows = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "apply");
-	assert.deepEqual(rows.map((row) => [row.ok, row.verdict ?? row.reason, row.attempts, row.transient_retry?.provider_status]), [[true, "authorized", 2, 429]]);
-	assert.equal(rows[0].clerk, "declared_bookkeeping");
-	const move = table.telemetry("test-camp").find((row) => row.tool === "apply" && row.origin === "policy");
-	assert.ok(move?.ok, "the declared move landed");
-});
 
 test("§143.15: declaredAction reads the host origin's clerk authority only -- the declared clerks, never a consequence, a person's act, a Keeper or a host call", () => {
 	for (const clerk of ["declared_bookkeeping", "declared_check", "stated_obligation", "first_blow", "session_step", "mod_contact"])

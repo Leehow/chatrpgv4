@@ -511,3 +511,20 @@ describe('one draft card per campaign', () => {
     expect(view.container.querySelector('.coc-draft-superseded')).toBeNull()
   })
 })
+
+it('keeps deliberate history navigation detached across layout false-to-true notifications',async()=>{
+  const first=makeMessages(3,0);
+  const view=render(<Transcript active messages={first} {...handlers}/>);
+  await flushPin();
+  fireEvent.wheel(view.container.querySelector('.transcript-area')!,{deltaY:-20});
+  act(()=>virtuosoInstances[0]!.atBottomStateChange?.(false));
+  act(()=>virtuosoInstances[0]!.atBottomStateChange?.(true));
+  expect(virtuosoInstances[0]!.followOutput?.(true)).toBe(false);
+  virtuosoInstances[0]!.scrollToIndex.mockClear();
+  view.rerender(<Transcript active messages={[...first,{id:'new',role:'assistant',content:'Growing response',timestamp:10,streaming:true}]} {...handlers}/>);
+  await flushPin();
+  expect(virtuosoInstances[0]!.scrollToIndex).not.toHaveBeenCalled();
+  fireEvent.wheel(view.container.querySelector('.transcript-area')!,{deltaY:20});
+  act(()=>virtuosoInstances[0]!.atBottomStateChange?.(true));
+  expect(virtuosoInstances[0]!.followOutput?.(true)).toBe('auto');
+});

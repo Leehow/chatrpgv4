@@ -2,5 +2,10 @@
   "loading": "正在加载机制面板…",
   "keeper_working": "守秘人正在工作…",
   "provider_recovered": "连接已恢复。自动重试成功，回复已完成。",
-  "provider_failed": "模型请求失败。回复未能完成。"
+  "provider_failed": "模型请求失败。回复未能完成。",
+  "checking_action": "正在核对已声明的行动与适用规则…",
+  "preparing_reply": "正在准备守秘人的回应…",
+  "reading_context": "正在阅读场景与相关记录…",
+  "settling_action": "正在结算行动并记录其后果…",
+  "writing_reply": "正在撰写回复…"
 }

@@ -239,33 +239,6 @@ test('§195.1 a supplied page whose PDF changed falls back with the actual reaso
   await result.hooks.get('session_shutdown')();
 });
 
-test('the actual hybrid read port receives original PDF evidence before any Keeper inference',async t=>{
- const f=await fixture(t),events=[],bus=new Map();let nativeReads=0;
- const engine=api.createHybridEngine({env:{PI_COC_JEV_PRESELECT:'1',EXT_JEV_APIKEY:'fixture'},npcAct:null,record:row=>events.push(row),
-  decision:api.createDecisionAdapter({apiKey:'fixture',fetcher:deterministicFetch()})});
- engine.extension({on(){},events:{on:(name,handler)=>bus.set(name,handler),emit(){}},getActiveTools:()=>[]});
- bus.get('coc:kernel-bridge')({campaign:'c1',moduleId:f.mid,call:f.call,runtime:{...f.source,sourceText:async(...args)=>{nativeReads++;return f.source.sourceText(...args);}}});
- const prepared=await engine.runDriver.prepare({runId:'source-before-keeper',inputRevision:'fixture-v1',rawInput:f.capsule.turn.player_text,session:{}});
- const read=await prepared.ports.read.read({operation:'read',origin:'policy'},{signal:AbortSignal.timeout(20000),stepId:'read-original'});
- assert(nativeReads>0,'hybrid must pass its source runtime to the evidence owner');
- assert.match(JSON.stringify(read.artifact.read.materials),/ORIGINAL NOTICE: The harbor bell rings at midnight/);
- assert(events.some(row=>row.event==='source_catalog'&&row.candidates>0));
-});
-
-test('a missing destination does not start a mandatory source preparation before Keeper inference',async t=>{
- const f=await fixture(t),events=[],bus=new Map(),questions=[];
- const adapter=api.createDecisionAdapter({apiKey:'fixture',fetcher:deterministicFetch()});
- const engine=api.createHybridEngine({env:{PI_COC_JEV_PRESELECT:'0',EXT_JEV_APIKEY:'fixture'},npcAct:null,record:row=>events.push(row),
-  decision:{decide:(batch,lease)=>{questions.push(batch.family);return adapter.decide(batch,lease);}}});
- engine.extension({on(){},events:{on:(name,handler)=>bus.set(name,handler),emit(){}},getActiveTools:()=>[]});
- bus.get('coc:kernel-bridge')({campaign:'c1',moduleId:f.mid,call:f.call,runtime:f.source});
- const prepared=await engine.runDriver.prepare({runId:'unlisted-destination',inputRevision:'fixture-v1',rawInput:'I visit a photographic shop.',session:{}});
- const read=await prepared.ports.read.read({operation:'read',origin:'policy'},{signal:AbortSignal.timeout(20000),stepId:'first'});
- assert(read.artifact);
- assert(!questions.includes('source-destination-intake'));
- assert(!events.some(row=>row.event==='destination_preflight'));
-});
-
 test('a bound PDF accepts an ordinary off-book place, person and clue without a source job',async t=>{
  const f=await fixture(t),base={campaign:'c1'};
  const before=await f.call('module.status',{module_id:f.mid,campaign:'c1'});

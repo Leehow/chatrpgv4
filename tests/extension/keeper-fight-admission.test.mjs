@@ -1,3 +1,4 @@
+// Controller-only cases retired with single-keeper-streaming-turns; retained cases exercise current shared utilities.
 /**
  * Contract §143.18 (docs/specs/npc-acts-first-tickets/19-keeper-turns-a-demand-into-a-blow.md): the Keeper's own fight
  * action for the investigator goes through action admission, against the player's own words.
@@ -110,27 +111,6 @@ const investigatorBlows = (table) => table.mechanics().filter((payload) => paylo
 /** The kernel calls of the turn that settled a fight action. */
 const combatSettled = (table) => table.telemetry(CAMPAIGN).filter((row) => row.turn === 2 && row.tool === "resolve" && row.ok === true && row.outcome_kind === "combat");
 const refusalReason = (result) => result?.details?.coc_error?.details?.reason;
-
-for (const scenario of [
-  {name: 'a demand with a cleared no-fight act', act: ['none', 0.91, {none: 0.93, unclear: 0.07}], target: ['none', 0.55], words: DEMAND, actions: [MANEUVER, ATTACK]},
-  {name: 'a demand with an ambiguous act', act: ['none', 0.5, {none: 0.5, act_1: 0.3, unclear: 0.2}], target: ['unclear', 0.5], words: DEMAND, actions: [ATTACK]},
-  {name: 'a declared punch the host has not selected to execute', act: ['combat:attack', 1], target: ['unclear', 0.41], words: 'I punch him again.', actions: [ATTACK]},
-]) test('§159: the model cannot select a fight check for ' + scenario.name, async t => {
-  const {table, calls} = await fightTable(t, {
-    decide: fightTurnPort(scenario),
-    responses: [...scenario.actions.map(action => keeper(fauxToolCall('resolve', {action}))),
-      keeper(fauxToolCall("output", {text: HANDS_UP}))],
-  });
-  await table.session.prompt(scenario.words);
-  const results = table.session.messages.filter(message => message.role === 'toolResult' && message.toolName === 'resolve');
-  assert.equal(results.length, scenario.actions.length);
-  assert.ok(results.every(result => result.isError));
-  assert.deepEqual(keeperResolves(calls), [], 'model checks stop before the canonical tool pipeline');
-  assert.equal(admissionRows(table).filter(row => row.origin === 'model').length, 0);
-  assert.equal(table.lanes.admission.requests().length, 0, 'no LLM review replaces Jev selection');
-  assert.deepEqual(combatSettled(table), []);
-  assert.deepEqual(investigatorBlows(table), [], 'an unresolved declaration has no attack receipt');
-});
 
 test("§143.18 pure: the fight act a resolve proposes, the compile's act record, and the refusal on it", () => {
 	assert.equal(proposedFightAct("resolve", { action: { decision: "combat:attack" } }, false), "combat:attack");

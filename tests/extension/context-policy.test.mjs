@@ -600,3 +600,16 @@ test('context reconstruction uses readonly recall and leaves the newly opened tu
     assert.ok(api.bindingOf(projected.find(message => message.customType === 'coc-capsule').details.context));
     assert.equal(await readFile(path, 'utf8'), before);
 });
+
+test('previous native Keeper snapshots expire while current and unrelated context survive', () => {
+    const oldContext = {role: 'custom', customType: 'coc-keeper-context', content: 'Expired native snapshot'};
+    const oldInstruction = {role: 'custom', customType: 'coc-keeper-instruction', content: 'Expired native instruction'};
+    const currentContext = {...oldContext, content: 'Current native snapshot'};
+    const unknown = {role: 'custom', customType: 'external-context', content: 'Unrelated context'};
+    const messages = [...group(1), oldContext, oldInstruction, unknown, ...group(2), currentContext];
+    const result = api.projectedMessages({messages, binding: binding(2), history: api.historyView(binding(2), [])});
+    assert.ok(!JSON.stringify(result.messages).includes('Expired native'));
+    assert.ok(result.messages.includes(currentContext));
+    assert.ok(result.messages.includes(unknown));
+    assert.deepEqual(messages.slice(4, 6), [oldContext, oldInstruction], 'saved history remains unchanged');
+});

@@ -98,7 +98,7 @@ test("hybrid: the row names the model step the message answered", async (t) => {
 	await table.session.prompt("我翻一翻剪报。");
 	await waitForIdle(table.session);
 	const [row] = drops(table);
-	assert.deepEqual(row?.calls, [{ tool: "apply", outcome: "landed", admission: "authorized" }]);
+	assert.deepEqual(row?.calls, [{ tool: "apply", outcome: "landed" }]);
 	const infers = table.telemetry().filter((entry) => entry.lane === "run" && entry.type === "step_end" && entry.kind === "infer");
 	assert.ok(infers.length >= 2, "the run took its model steps");
 	assert.equal(row.step, infers[0].stepId, "the step whose answer carried the prose");

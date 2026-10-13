@@ -23,13 +23,15 @@ export type LoopEngine = typeof LOOP_ENGINES[number];
 export const LOOP_PROTOCOLS: Readonly<Record<LoopEngine, string>> = Object.freeze({legacy: 'legacy', 'hybrid-v1': 'hybrid-v1/events-1'});
 
 export function selectLoopEngine(env: Readonly<NodeJS.ProcessEnv>, mode: 'play' | 'setup'): LoopEngine {
+  if(env.PI_COC_LOOP_ENGINE&&!LOOP_ENGINES.includes(env.PI_COC_LOOP_ENGINE.trim() as LoopEngine))
+    throw new Error(`PI_COC_LOOP_ENGINE must be one of ${LOOP_ENGINES.join(', ')}; got ${env.PI_COC_LOOP_ENGINE}`);
+  if(mode==='play')return'hybrid-v1';
   const privateLegacy=env.PI_COC_JEV_S0==='1'||env.PI_COC_TASK_RUNTIME==='1';
   const jev=!!readJevApiKey(env);
   // Normal play keeps the check owner even without credentials; unavailability is not LLM authority (§159).
-  const requested = env.PI_COC_LOOP_ENGINE?.trim() || (!privateLegacy&&(mode==='play'||jev)?'hybrid-v1':'legacy');
+  const requested = env.PI_COC_LOOP_ENGINE?.trim() || (!privateLegacy&&jev?'hybrid-v1':'legacy');
   if (!(LOOP_ENGINES as readonly string[]).includes(requested))
     throw new Error(`PI_COC_LOOP_ENGINE must be one of ${LOOP_ENGINES.join(', ')}; got ${requested}`);
-  if (mode === 'play') return requested as LoopEngine;
   // §151.6: a setup session is driven with Jev available and no explicit legacy switch; otherwise legacy as before.
   return requested === 'hybrid-v1' && jev && !privateLegacy ? 'hybrid-v1' : 'legacy';
 }

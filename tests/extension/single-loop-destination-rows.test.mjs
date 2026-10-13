@@ -1,3 +1,4 @@
+// Controller-only cases retired with single-keeper-streaming-turns; retained cases exercise current shared utilities.
 /**
  * SL-25 (spec pi-native-single-loop, Ruling "A place the kernel offers must be recognisable from what the player says";
  * contract §135.30.4).
@@ -133,51 +134,6 @@ const clerkNotes = (context) => context.messages.flatMap((message) => {
 	const text = typeof message.content === "string" ? message.content : (message.content ?? []).map((block) => block.text ?? "").join("");
 	const start = text.indexOf('{"kind":"single_loop_step"');
 	return start < 0 ? [] : [JSON.parse(text.slice(start, text.lastIndexOf("}") + 1))];
-});
-
-test("§135.30.4 on the emitted kernel: heading for the house before the keys, the compile row and the Keeper's note carry the keys clue in the book's words", async (t) => {
-	const decisions = [], requests = [], rows = [];
-	const graph = JSON.parse(readFileSync(join(REPO, "content/starters/the-haunting/module-graph.json"), "utf8"));
-	const node = (id) => graph.nodes.find((entry) => entry.node_id === id);
-	const office = node("scene-commission-briefing").properties.runtime_projection.record;
-	const keysCues = office.affordances.filter((aff) => aff.clue_id === "clue-knott-keys").map((aff) => aff.cue);
-	const engine = createHybridEngine({ env: process.env, record: (row) => rows.push(row), decision: { decide: async (batch) => {
-		decisions.push(batch);
-		// The compile: the destination is the row whose handle is the house; everything else unclear. The route: finish.
-		const pick = (question) => batch.family === COMPILE_FAMILY
-			? (question.key === "destination" ? Object.entries(question.criteria).find(([, words]) => words?.handle === "corbitt-house-ground")?.[0] : "unclear")
-			: question.key === "exit" ? "finish" : Object.keys(question.criteria)[0] === "now" ? "later" : "unknown";
-		const answers = Object.fromEntries(batch.questions.map((question) => { const choice = pick(question);
-			return [question.key, { status: "answered", type: "choice", choice, confidence: 0.95, probabilities: { [choice]: 0.95 } }]; }));
-		return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
-	} } });
-	const table = await openTable({ realKernel: true, prepareWorkspace: leadsNoKeys, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver,
-		extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		// Two model steps (a look, then the prose), so a note repeated on the second step would show.
-		responses: [(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("look", { focus: "scene" })], { stopReason: "toolUse" }); },
-			(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("output", { text: "门锁着，钥匙还在诺特那里。" })], { stopReason: "toolUse" }); }] });
-	t.after(() => table.dispose());
-	await table.session.prompt("我去科比特宅。");
-
-	const destination = decisions.find((batch) => batch.family === COMPILE_FAMILY)?.questions.find((question) => question.key === "destination");
-	assert.ok(destination, "the compile was asked (the research exits are reachable)");
-	const house = Object.values(destination.criteria).find((words) => words?.handle === "corbitt-house-ground");
-	assert.equal(house.place, "The Corbitt House", "the house by the name the book gives it, not its file name");
-	// §135.30.6 (SL-40): the guard also says the place and its entrance exist, from the office the party is in.
-	const guard = { condition: "clue_discovered: knott-keys", clue: { clue: "knott-keys", says: node("clue-knott-keys").summary,
-		found_at: [{ scene: "commission-briefing", display_name: "Knott's Office", cues: keysCues }] },
-		exists: { place: true, entrance: true, from: "commission-briefing", from_place: "Knott's Office" } };
-	assert.ok(keysCues.length, "the book grants the keys at the office");
-	const compiled = rows.find((row) => row.lane === "route" && row.purpose === "compile");
-	assert.deepEqual(compiled.guarded, [{ to: "corbitt-house-ground", place: "The Corbitt House", guard }], "the compile row reports the guard");
-	assert.deepEqual(compiled.selected, []);
-	assert.equal(requests.length, 2, "two model steps");
-	// A note is one message: the second request carries the first one again in its history; count distinct notes.
-	const notes = [...new Map(requests.flatMap(clerkNotes).filter((note) => note.guarded).map((note) => [JSON.stringify(note), note])).values()];
-	assert.equal(notes.length, 1, "the Keeper is told once");
-	assert.ok(clerkNotes(requests[0]).some((note) => note.guarded), "before the first model step");
-	assert.deepEqual(notes[0].guarded, compiled.guarded, "the note carries the kernel's guard (no prescreen here: no entrance passages)");
-	assert.equal(notes[0].guarded_note, GUARDED_NOTE, "with the §135.30.6 guidance");
 });
 
 // ---------------------------------------------------------------------------------------------------

@@ -20,7 +20,7 @@ test('neither form of the opening rations description, sentences or names', () =
     assert.equal(CAP.test(text), false, text);
     assert.ok(text.includes("the active prose package's opening and first-sight rules"), 'how to open is the prose package\'s');
     assert.ok(text.includes('play_language=zh-Hans'));
-    assert.ok(text.includes('Select output for the opening story'));
+    assert.ok(text.includes('Write the opening yourself in the public response beginning with {{public}}'));
   }
 });
 
@@ -30,6 +30,8 @@ test('after a setup meeting the visitor is not asked for again and the card is n
   assert.ok(text.includes('do not repeat its sentences'));
   // Turn 0 told the player 「这趟路上没有人交给你一项必须完成的差事」 while the card bound her to deliver to El Paso.
   assert.ok(text.includes("never state that either of them lacks something"));
+  assert.ok(text.includes('Record actual changes through the existing effects and event fields'));
+  assert.ok(text.includes("ordinary speech needs no attempted intention"));
   assert.ok(text.endsWith('the only opening writes are ask, narrate and apply clock, when the capsule\'s clock asks for its opening datetime to be pinned.'));
   assert.ok(text.includes(JSON.stringify({...prologue, guide: 'Steven Knott'})));
 });

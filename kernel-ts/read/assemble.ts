@@ -42,10 +42,9 @@ import { HEAD_ESTABLISH } from "./establish.js";
  * non-blocking apply goes out with its narrate in one call instead of costing a whole extra model step (gate #18: 2.8
  * calls/turn, apply p50 4.9s, none of it needed once the arguments already fix what lands).
  */
-export const SILENT_WRITES = "Writes are silent: write no prose beside apply, resolve or lookup calls (it is dropped and never " +
-    "shown). An apply whose landing is fixed by its own arguments is non-blocking: you may put it and explicitly selected output in " +
-    "the same response, writes first, output last; resolve, look, lookup and recall are blocking -- the prose needs a " +
-    "result you do not have yet -- so wait for their result before selecting output. narrate privately prepares/checks materials and publishes nothing.";
+export const SILENT_WRITES = "Writes are silent: text beside apply, resolve or lookup calls is private and is never shown. " +
+    "Read actual tool results before claiming their consequences, then write the final public response yourself. " +
+    "No separate prose author, material check or output handoff is needed.";
 export const HEAD = "Everything at the start of this turn: the clock, the undiscovered clues here and their gates, the secrets " +
     "and agendas of those present, the way back and the exits, pressures and obligations, the rule-layer " +
     "situations, the Director's suggested beat, related memory and the style contract. " +
@@ -88,9 +87,8 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "Let their actual knowledge, current situation and shared history shape what they offer or refuse; " +
     "do not wait for optional character preparation to answer an ordinary question. " +
     // Contract §161.3: the interface; what to do with it is the prose package's (§161.7).
-    "present[].now is what that person feels right now and carries their next line more than any fact does; when it " +
-    "is missing or no longer true, write it with apply npc mood (one short line in the play language) before they " +
-    "speak: it needs no result, so that apply goes in the same response as the narrate carrying their words, apply first. " +
+    "present[].now is the person's recorded mood, interpreted with the current exchange and their own knowledge. " +
+    "A meaningful mood change may be recorded with apply npc mood; ordinary speech requires no mood write first. " +
     "Their relationships retain specific people and evidence; recent_speech is what that person actually said, " +
     "available even before memory extraction finishes. Reports are attributed, not new world truth. " +
     "Return at a genuine unselected decision or the completion of the selected goal; never choose " +

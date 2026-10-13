@@ -355,67 +355,6 @@ test('CK-F2 follow-up: the first-blow row lists every target a fight cannot read
   assert.deepEqual(ready.preparation.completions, {[PORTER]: 'archetype', [WARDEN]: 'archetype'});
 });
 
-test('CK-F2 follow-up: the real first-blow path -- check_preparation retains the attack on the familiar, the completion readies the row, the attack replays', async t => {
-  const game = await table(t, 'mystery-house');
-  await game.apply({kind: 'npc', name: 'Chapel familiar', to: 'here', why: 'it drops from the rafters'});
-  const INPUT = 'I punch the chapel familiar.', TARGET = 'Chapel familiar';
-  const handlers = new Map(), dispatched = [], trace = [];
-  const pi = {events: {on: (name, fn) => handlers.set(name, fn), emit: (name, value) => handlers.get(name)?.(value)}, on: () => {}, registerTool: () => {}};
-  const engine = createHybridEngine({npcAct: null, decision: null, env: process.env});
-  engine.extension(pi);
-  pi.events.emit('coc:kernel-bridge', {campaign: 'c1', call: (method, args) => game.call(method, args)});
-  // The gateway's stand-in: the clerk's write goes to the real kernel under a minted call id.
-  pi.events.emit('coc:operation-dispatcher', {dispatch: async operation => {
-    dispatched.push(structuredClone(operation.args));
-    const result = await game.call(`table.${operation.operation}`, {...operation.args, call_id: game.id()});
-    return {status: 'succeeded', receipts: result.receipts ?? [], result};
-  }});
-  const plan = engine.runDriver.prepare({runId: 'blow', inputRevision: 'input', rawInput: INPUT, session: {}});
-  const signal = new AbortController().signal;
-  const invocation = step => ({runId: 'blow', stepId: step, operationId: step, origin: 'policy', inputRevision: 'input', scopeId: 'root', signal});
-  const read = (step) => plan.ports.read.read({origin: 'policy', operation: 'read', readOnly: true}, invocation(step));
-  const first = (await read('read')).artifact.fresh;
-  const candidate = first.candidates.find(item => item.clerk === 'first_blow');
-  assert.ok(candidate, 'the first blow is offered');
-  assert.deepEqual(candidate.basis.row.preparation.completions[TARGET], 'creature');
-  // 1. The selected attack is refused for preparation before any dispatch.
-  const refused = await plan.ports.operations.execute({origin: 'policy', operation: 'execute', params: {candidate, extra: {target: TARGET, weapon: 'unarmed'}}}, invocation('blow'));
-  const summary = refused.artifact.executed.summary;
-  trace.push({step: 'execute', refusal: summary.refusal, needs: summary.preparation.needs, action: summary.action});
-  assert.equal(summary.refusal, 'check_preparation');
-  assert.equal(dispatched.length, 0, 'the unprepared attack never reached combat dispatch');
-  assert.deepEqual(summary.preparation.needs, [`Prepare ${TARGET}'s combat profile through apply npc {name: "${TARGET}", creature: <a rules-catalog creature from lookup kind=catalog kinds=["creature"]>}; the catalog completes only what its stat block lacks.`]);
-  // 2. The step policy retains it with the chosen target, method and weapon.
-  const view = initialView({runId: 'blow', rawInput: INPUT, context: first.context, candidates: first.candidates});
-  settleExecute(view, 1, {kind: 'direct', purpose: 'execute', candidate}, refused.artifact.executed, refused.artifact.fresh, 1);
-  assert.equal(view.preparingAttacks.length, 1);
-  const kept = view.preparingAttacks[0].bound;
-  trace.push({step: 'retained', target: kept.target, method: kept.method, weapon: kept.weapon});
-  assert.deepEqual([kept.target, kept.method, kept.weapon], [TARGET, INPUT, 'unarmed']);
-  // 3. The completion the need names, then the refreshed row is ready.
-  const completion = {kind: 'npc', name: TARGET, creature: 'Dog', why: 'the familiar is the size and temper of a dog'};
-  await game.apply(completion);
-  const fresh = (await read('reread')).artifact.fresh;
-  const row = fresh.candidates.find(item => item.clerk === 'first_blow').basis.row;
-  trace.push({step: 'refreshed', preparation_targets: row.preparation.targets});
-  assert.equal(row.preparation.targets.includes(TARGET), false);
-  settleExecute(view, 2, {kind: 'direct', purpose: 'execute', call: {method: 'apply', params: {effects: [completion]}}}, {ok: true, summary: {}}, fresh, 1);
-  assert.equal(view.preparingAttacks.length, 0, 'released by the ready row');
-  const resumed = view.pending[0];
-  assert.equal(resumed.reason, 'attack_prepared');
-  assert.deepEqual([resumed.candidate.bound.target, resumed.candidate.bound.method, resumed.candidate.bound.weapon], [TARGET, INPUT, 'unarmed']);
-  // 4. The replay resolves the same attack and opens the fight.
-  const replayed = await plan.ports.operations.execute({origin: 'policy', operation: 'execute', params: {candidate: resumed.candidate, extra: {}}}, invocation('replay'));
-  assert.equal(replayed.artifact.executed.ok, true, JSON.stringify(replayed.artifact.executed.summary));
-  assert.equal(dispatched.length, 1);
-  const action = dispatched[0].action;
-  trace.push({step: 'replayed', target: action.target, method: action.method, weapon: action.weapon, decision: action.decision});
-  assert.deepEqual([action.target, action.method, action.weapon, action.decision], [TARGET, INPUT, 'unarmed', 'combat:attack']);
-  const fighter = (await game.saved('combat.json')).participants.find(entry => entry.actor_id === 'chapel-familiar');
-  assert.deepEqual([fighter.combat_skill, fighter.dodge_skill, fighter.hp_max], [50, 40, BEASTS.Dog.hp]);
-  t.diagnostic(`retained-attack trace: ${JSON.stringify(trace)}`);
-});
-
 // ---------------------------------------------------------------------------------------------------
 // CK-F2 review follow-up 2: a runner on foot reads its own MOV; a driver and a passenger do not.
 // ---------------------------------------------------------------------------------------------------

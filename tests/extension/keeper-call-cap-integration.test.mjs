@@ -27,44 +27,6 @@ configureHttpDispatcher(IDLE_MS);
 
 const assistantEnds = (events) => events.filter((event) => event.type === "message_end" && event.message.role === "assistant").map((event) => event.message);
 
-test("§135.29's SL-69 addendum, 0005: a Keeper call that never answers is capped and re-sent once, and the re-send is not capped: answering past the cap, it completes", async (t) => {
-	const provider = await silentThenLateProvider(t, { lateMs: LATE_MS, prose: PROSE });
-	const capRows = [];
-	const hybrid = createHybridEngine({ env: process.env, record: (row) => capRows.push(row) });
-	const table = await openTable({
-		env: { PI_COC_LOOP_ENGINE: "hybrid-v1", FAKE_KERNEL_WORKSPACE: "1", FAKE_KERNEL_PRESENT: "[]" },
-		runDriver: hybrid.runDriver,
-		extraExtensions: [{ name: "coc-hybrid-engine", factory: hybrid.extension }],
-		settings: { httpIdleTimeoutMs: IDLE_MS, retry: RETRY },
-		keeperCallCapMs: CAP_MS,
-		onKeeperCallCap: hybrid.onKeeperCallCap,
-	});
-	t.after(() => table.dispose());
-	const runtime = table.session.modelRuntime;
-	runtime.registerProvider("stallbox", { baseUrl: `http://127.0.0.1:${provider.port}/v1`, api: "openai-completions", apiKey: "unused",
-		models: [{ id: "stall-1", name: "stall", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 4096 }] });
-	await table.session.setModel(runtime.getModel("stallbox", "stall-1"));
-	const events = [];
-	table.session.subscribe((event) => events.push(event));
-
-	const prompt = table.session.prompt("I ask him to pull the old clippings on the Corbitt house.").then(() => "ended");
-	const outcome = await Promise.race([prompt, new Promise((resolve) => setTimeout(() => resolve("hung"), BOUND_MS))]);
-	if (outcome === "hung") { await table.session.abort(); await prompt.catch(() => {}); }
-	assert.equal(outcome, "ended", `the run was still waiting after ${BOUND_MS} ms`);
-
-	assert.equal(provider.requests(), 2, "the capped original and its one re-send");
-	const ends = assistantEnds(events);
-	assert.match(ends[0].errorMessage, /timed? out|timeout/i, "the overrun is worded to be retried");
-	assert.equal(ends[0].stopReason, "error");
-	const answered = ends.find((message) => message.stopReason === "stop");
-	assert.ok(answered, `the late re-send completed: ${JSON.stringify(ends.map((message) => [message.stopReason, message.errorMessage]))}`);
-	assert.ok(JSON.stringify(answered.content).includes(PROSE));
-	assert.ok(!ends.some((message) => /second time/.test(message.errorMessage ?? "")), "no overrun ends the step any more");
-	assert.equal(events.filter((event) => event.type === "auto_retry_start").length, 1, "exactly one automatic retry");
-	const caps = capRows.filter((row) => row.event === "keeper_call_cap");
-	assert.deepEqual(caps.map((row) => [row.phase, row.cap_ms]), [["first_byte", CAP_MS]], "one overrun, before the first byte; the re-send is never capped");
-});
-
 test("keeperCallCapMs(env): a named default derived from the turn budget, never below its own floor", () => {
 	const short = computeKeeperCallCapMs({ PI_COC_TURN_BUDGET_MS: "10000" });
 	assert.equal(short, 20_000, "half of a 10s turn budget (5s) is under the floor, so the floor wins");

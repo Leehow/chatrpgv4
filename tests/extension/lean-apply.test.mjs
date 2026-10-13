@@ -277,3 +277,13 @@ test("kernel: _lean must be a boolean", async (t) => {
 	await assert.rejects(game.call("table.apply", { call_id: game.next(), _lean: "yes", effects: [{ kind: "time", minutes: 1 }] }),
 		(error) => error.code === "invalid_params" && /_lean must be boolean/.test(error.message));
 });
+
+test('single Keeper field guidance has no obligatory mood or retired handoff',()=>{
+ for(const lean of ['0','1']){
+  const offered=offeredTools(COC_TOOLS,{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_LEAN_APPLY:lean});
+  assert.doesNotMatch(variant(offered,'npc').properties.mood.description,/before they speak|handoff/);
+  assert.doesNotMatch(variant(offered,'person').properties.name.description,/handoff|output/i);
+  assert.match(variant(offered,'npc').properties.intends.description,/Ordinary dialogue needs no intention/);
+  assert.deepEqual(markers(variant(offered,'npc')),markers(variant(COC_TOOLS,'npc')));
+ }
+});

@@ -1,6 +1,6 @@
 # RunDriver-owned streaming final output
 
-Status: ready-for-agent specification; implementation has not started.
+Status: implementation in progress; focused acceptance passed, full regression and live acceptance pending.
 Date: 2026-10-13.
 Tracker label: ready-for-agent.
 
@@ -449,3 +449,85 @@ document in a local commit. Preserve the already dirty mainline contract, source
 and test files; no remote issue or push is required. At drafting, the active/latest
 branch is 0.9.7a at 2f7303c33, with unrelated local changes and remote divergence.
 This status describes specification readiness, not implemented or tested behavior.
+
+### Implementation progress (2026-10-13)
+
+The owner approved implementation with “可以”. Work proceeds on current mainline,
+starting at a45b22c5f. Existing uncommitted image-item, context and native-test changes
+are preserved; a before-image of relevant sources is retained under
+.tmp/run-driver-streaming-output/baseline. Contract amendments are sections 236 and
+the corresponding Pi host note. The implementation uses the confirmed host/driver,
+public-delivery and App seams. Focused acceptance is recorded below; incomplete
+full-suite and live runs are not counted as passed.
+
+Ready sequence: (1) real-host handoff and incremental author delivery, (2) durable
+recovery and next-input context, (3) App stream/speaker/mechanics reconciliation,
+(4) focused and complete regression checks, (5) code review and real driver/App
+acceptance, (6) scoped commit. This is the task's durable execution plan.
+
+Implementation checkpoint:
+- The handoff now returns before the same RunDriver schedules final expression. Its
+  current tool surface excludes output; legacy-engine compatibility remains inside
+  the same final-output owner. The control-flow inventory names both mutually
+  exclusive author protocol sites, never two authors in one attempt.
+- The author receives public input initially; JSON text decoding emits real deltas,
+  retaining the exact prefix in the existing attempt directory before emission.
+  Canonical publication still validates completed coverage. A failed Git commit
+  retries the cached artifact; persistent failure keeps the publication slot, and
+  recovery commits it before a new player input. No author runs for this recovery.
+- The App receives versioned final-delivery events, renders incremental speaker
+  spans, replaces the same entry with its canonical mechanics card, and reconstructs
+  an interrupted prefix on reload. The next Keeper request sees interrupted exposure
+  separately from accepted knowledge. Existing secret redaction also covers the new
+  transport.
+- Current focused evidence: parser protocol cases; real Pi/TS handoff, interruption,
+  next-request recovery and failed-publication cases; App reducer/speech/cold-history
+  checks. Fast suite: 130 passed. Kernel, host-API and backend typechecking passed.
+  Broad UI/standalone runtime typechecking still reports existing unrelated source
+  and test diagnostics; no full-suite or GUI success is claimed from these checks.
+- Full LAN validation, actual-author driver play, canonical App acceptance, final
+  code review and scoped commit remain. Initial source and task-only differences
+  are retained under .tmp/run-driver-streaming-output/ for ownership isolation.
+
+Acceptance checkpoint (2026-10-13, still in progress):
+- The latest focused kernel/author/stream group passed 31 tests. Electron completed
+  its baseline check on retry: 194 existing failures, no new regression. The first
+  Electron run ended with an unrelated asynchronous lease-file teardown error and
+  is retained as a failed run.
+- Live Luna attempts returned explicit upstream concurrency saturation (the first
+  also exposed a stale compiled low-effort hook). Those attempts remain separate
+  evidence. The subsequent driver and App acceptance use the permitted Grok 4.5/low
+  fallback; actual author telemetry confirms one request per successful artifact.
+- Driver evidence is under .coc/playtests/run-driver-streaming-20261013T112743*,
+  with isolated campaign state under that base run's home. A canonical-speech
+  mismatch initially passed preparation but failed before authoring. The check now
+  validates the same speech binding before accepting a handoff; its regression
+  tests cover changed meaning, speaker and audience. Settled keys/cash survived the
+  failure and a restarted real driver continued the conversation without replaying
+  those effects. Later successful author durations include 9.6 seconds; these are
+  author durations, not whole-turn latency promises.
+- The canonical App was installed with the stable PipiUI Dev signature. Its first
+  observed stream painted 23 ms after the host's first public delta and 12.5 seconds
+  before canonical completion. That run exposed repeated speech borders at chunk
+  boundaries, so it is timing evidence only. The renderer now extends one speech
+  span across chunks; its red/green test and 16 passing renderer/backend checks are
+  retained. A fresh package and visual recheck are required before GUI completion.
+- The first LAN all-suite snapshot predates the final fixture migrations and live
+  repairs. Its failures remain evidence, not a passing final gate. A complete run
+  of the final source, current-package GUI checks, final review and scoped commit
+  are still required. Task-only commit candidates preserve concurrent changes;
+  no other owner's files or unrelated source changes are to be absorbed.
+
+### Owner-requested visible-delivery repairs (2026-10-13)
+
+The first App inspection did not satisfy the user's experience: mounted offscreen
+text was incorrectly counted as visible first paint. The observed DeepSeek run
+spent about 17 seconds in hidden host work before an 18-second Keeper inference,
+then hit one invalid NPC task completion and two material-selection refusals.
+The owner explicitly requested repairing all three seams, retaining DeepSeek as
+the fast lane and reusing the existing kernel/output owners. Section 236.1 is the
+binding correction: truthful closed progress events, immediate non-mechanical NPC
+response binding, source-only canonical speech selection, public-only selection
+inventory, final-phase step collapse, and viewport-intersection-based evidence.
+Acceptance must show multiple visibly different partial paragraphs on screen
+before canonical completion, plus preserved speaker/mechanics/reload behavior.

@@ -132,65 +132,6 @@ test('a wounded NPC is a bound patient before necessity, and an out-of-session p
   assert.ok(!after.selection.options.some(row => row.action.decision === 'healing:first-aid-ordinary' && row.action.target === 'Porter'));
 });
 
-for (const skills of [['Listen'], ['Listen', 'Spot Hidden']]) test(`the agent commits ${skills.join(' then ')} through the canonical gateway without a model resolve`, async t => {
-  const decision = {async decide(batch) {
-    const settled = new Set(batch.state.context?.current_receipts?.filter(receipt => receipt.kind === 'roll').map(receipt => receipt.skill));
-    const answers = Object.fromEntries(batch.questions.map(rawQuestion => {
-        const question = {...rawQuestion, key: rawQuestion.key.replace(/__semantic_(facts|execution)$/, '')};
-      if (question.type === 'noul') {
-        let p = 0;
-        if (batch.family === 'check-selection-profiles' && question.key === 'remaining') p = skills.some(skill => !settled.has(skill)) ? 1 : 0;
-
-        if (batch.family === 'check-selection-need' && !question.key.endsWith('_blocked')) {
-          const check = batch.state.checks[question.key.replace(/_(uncertain|unsettled|selected)$/, '')];
-          p = skills.includes(check?.action?.skill) && !settled.has(check.action.skill) && check.action.actor === batch.state.context.conditions[0].actor ? 1 : 0;
-        }
-        if (batch.family === 'check-selection-need' && question.key.endsWith('_blocked')) {
-          const check = batch.state.checks[question.key.replace(/_blocked$/, '')];
-          p = check?.action?.skill === 'Spot Hidden' && !settled.has('Listen') ? 1 : 0;
-        }
-        if (batch.family === 'check-selection-authority') p = 1;
-        return [rawQuestion.key, {status: 'answered', type: 'noul', noul: p}];
-      }
-      let selected;
-      if (batch.family === 'single-loop-route' && question.key.startsWith('need_')) {
-        const candidate = batch.state.candidates[question.key.replace('need_', 'candidate_')];
-        if (candidate?.bound?.decision === 'core-check:ordinary-check') selected = 'now';
-      }
-      if (batch.family === 'check-selection-profiles') selected = Object.entries(question.criteria)
-        .find(([, value]) => skills.includes(value?.skill) && !settled.has(value.skill) && value.actor === batch.state.context.conditions[0].actor)?.[0];
-      if (batch.family === 'check-selection-bind') selected = Object.entries(question.criteria).find(([, label]) => ['investigate', 'regular', 'none'].includes(label))?.[0];
-      selected ??= question.key === 'exit' ? 'finish' : 'unknown' in question.criteria ? 'unknown' : 'later' in question.criteria ? 'later' : Object.keys(question.criteria)[0];
-      return [rawQuestion.key, {status: 'answered', type: 'choice', choice: selected, confidence: 1,
-        probabilities: Object.fromEntries(Object.keys(question.criteria).map(key => [key, key === selected ? 1 : 0]))}];
-    }));
-    return bindDecisionAnswers(batch, answers, {inputTokens: 1, outputTokens: 1, costUsd: 0});
-  }};
-  const engine = createHybridEngine({env: {...process.env, PI_COC_JEV_PRESELECT: '0', COC_JEV_STEPS: 'off'}, decision, compile: false, npcAct: null});
-  const table = await openTable({realKernel: true, env: {PI_COC_LOOP_ENGINE: 'hybrid-v1'}, runDriver: engine.runDriver,
-    prepareWorkspace: async workspace => {
-      const context = await api.createKernelContext({workspace, content: join(root, 'content'), seed: 'catalog-play', locks: api.nativeAdvisoryLocks()});
-      const kernel = api.createKernelRuntime(context);
-      try {
-        await kernel.handlers['table.open']({campaign: 'test-camp'});
-        await kernel.handlers['table.player_input']({campaign: 'test-camp', text: 'I am ready.'});
-        await kernel.handlers['table.narrate']({campaign: 'test-camp', call_id: 't1-c1', text: 'You wait in the office.'});
-      } finally { await kernel.close(); }
-    },
-    extraExtensions: [{name: 'check-selection-engine', factory: engine.extension}],
-    responses: [fauxAssistantMessage([fauxToolCall("output", {text: 'You pause near the door and listen carefully before deciding where to go next.'})], {stopReason: 'toolUse'})]});
-  t.after(() => table.dispose());
-  await table.session.prompt(skills.length === 1 ? 'I listen carefully by the office door.' : 'I listen carefully by the office door, then inspect the floor for traces.');
-  const telemetry = table.telemetry();
-  const checks = telemetry.filter(row => row.tool === 'resolve' && row.ok && row.origin === 'policy' && row.basis?.selection_snapshot);
-  assert.equal(checks.length, skills.length, JSON.stringify(telemetry.filter(row => row.lane === 'check-selection' || row.tool === 'resolve')
-    .map(row => ({lane: row.lane, purpose: row.purpose, status: row.status, needs: row.needs, ok: row.ok, code: row.code, reason: row.reason}))));
-  assert.ok(telemetry.some(row => row.lane === 'check-selection' && row.status === 'selected'));
-  assert.ok(telemetry.some(row => row.lane === 'check-selection' && row.status === 'no_roll'));
-  assert.ok(!table.activeTools().includes('resolve'));
-  assert.equal(table.session.lastDrivenRun.status, 'delivered');
-});
-
 test('a source NPC SAN receipt covers the same exposure after the turn commits', async t => {
   const home = await mkdtemp(join(bundle, 'exposure-'));
   const context = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed: 'san-exposure', locks: api.nativeAdvisoryLocks()});

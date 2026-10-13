@@ -16,7 +16,8 @@ export const ownedOutputProvider={
       const text=rows.map(row=>row.text).join('');let start=0;
       const coverage=rows.map(row=>{const span={name:row.name,start,end:start+row.text.length};start=span.end;return span;});
       await writeFile(join(request.cwd,'draft.json'),JSON.stringify({version:1,text,coverage}));
-      request.onEvent?.({type:'message_end',message:{role:'assistant',provider:'grok-build',model:'grok-4.5',usage,stopReason:'stop',content:[]}});
+      request.onEvent?.({type:'message_end',message:{role:'assistant',provider:'grok-build',model:'grok-4.5',usage,stopReason:'stop',
+        content:packet.commands?[]:[{type:'text',text:JSON.stringify({version:1,text,coverage})}]}});
       charge?.settle(usage);
       return {ok:true,code:0,timedOut:false,ms:1,stderr:'',command:[],usage:{inputTokens:10,outputTokens:20,costUsd:0,actions:1,unknownCalls:0}};
     }finally{charge?.release();}

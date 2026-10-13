@@ -38,10 +38,10 @@ test('malformed apply and silent-write recovery never describe checks as publish
   const apply=COC_TOOLS.find(tool=>tool.name==='apply');
   const refusal=effectShapeRefusal('apply',apply.parameters,{effects:[{kind:'narrate',text:'A draft.'}]});
   assert.match(refusal.fix,/prepare|check/);
-  assert.match(refusal.fix,/output/);
+  assert.match(refusal.fix,/handoff/);
   assert.doesNotMatch(refusal.fix,/it is delivered once/);
   for(const guidance of [besideSteer(['apply']),CLERK_NOTE_HEAD]) {
-    assert.match(guidance,/output/);
+    assert.match(guidance,/handoff|output/);
     assert.doesNotMatch(guidance,/narrate last|prose goes through narrate/);
   }
 });

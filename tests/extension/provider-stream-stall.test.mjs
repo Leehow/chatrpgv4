@@ -129,7 +129,7 @@ test("§135.29: a driven infer whose stream keeps the socket alive but produces 
 	assert.ok(ms >= ATTEMPTS * IDLE_MS, `every attempt waited its idle allowance (${ms} ms)`);
 
 	const end = run.at(-1);
-	assert.deepEqual([end.type, end.status], ["run_end", "undelivered"]);
+	assert.deepEqual([end.type, end.status], ["run_end", "failed"]);
 	assert.equal(run.find((event) => event.type === "step_end" && event.kind === "infer").status, "unavailable");
 	// §38.7: a turn whose provider failed terminally tells the player so, instead of §38's generic line.
 	await waitFor(() => outageNotices(table.session).length === 1, { label: "the §38.7 terminal provider notice" });
@@ -153,5 +153,5 @@ test("§135.29: a stream that goes byte-silent after its headers ends the same w
 	assert.equal(outcome, "ended");
 	assert.equal(provider.requests(), ATTEMPTS);
 	for (const message of assistantEnds(events)) assert.match(`${message.stopReason} ${message.errorMessage}`, /^error .*(terminated|timed? out|timeout)/i);
-	assert.equal(events.filter(isRunEvent).at(-1).status, "undelivered");
+	assert.equal(events.filter(isRunEvent).at(-1).status, "failed");
 });

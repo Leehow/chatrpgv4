@@ -1,4 +1,5 @@
 import { GameClock, type GameClockData } from './GameClock'
+import {CocStreamingProse,type StreamingProseDetails} from './CocStreamingProse'
 import {CocCharacterDraft} from './CocCharacterDraft'
 import {getToolRenderer,useToolRenderers,type RendererInvoke} from './ui-registries'
 import { forwardRef, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -94,7 +95,7 @@ export function Transcript({ clockData, stateKey, messages: rawMessages, transcr
   messages: ChatMessage[]
   /** Optional bridge used by the active transcript to expose its handle. */
   transcriptRef?: React.RefObject<VirtuosoHandle>
-  waiting?: { startedAt: number; phase: WaitingPhase; detail?: string; onStop?: () => void }
+  waiting?: { startedAt: number; phase: WaitingPhase; detail?: string; onStop?: () => void; progress?:import('@pipi/host-api').RunProgressFrame }
   active?: boolean
   onLoadOlder?: () => void
 } & DocumentOpenProps & SubagentOpenProps & RendererInvokeProps & PresentationActionProps & MessageActionHandlers) {
@@ -106,6 +107,7 @@ export function Transcript({ clockData, stateKey, messages: rawMessages, transcr
   const followIntentRef = useRef(true)
   const userDetachedRef = useRef(false)
   const userDetachedSawAwayRef = useRef(false)
+  const userReturningRef = useRef(false)
   const pendingPinRef = useRef(false)
   const pinGenerationRef = useRef(0)
   const pinIssuedGenerationRef = useRef(-1)
@@ -149,6 +151,7 @@ export function Transcript({ clockData, stateKey, messages: rawMessages, transcr
     if (!activeRef.current) return
     followIntentRef.current = false
     userDetachedRef.current = true
+    userReturningRef.current = false
     userDetachedSawAwayRef.current = !atBottomRef.current
     pendingPinRef.current = false
     clearPinFrame()
@@ -226,7 +229,7 @@ export function Transcript({ clockData, stateKey, messages: rawMessages, transcr
     if (pendingPinRef.current && pinIssuedGenerationRef.current !== pinGenerationRef.current) return
     // Ignore a stale true delivered between the upward gesture and Virtuoso's
     // first measured-away callback. A later false→true is a real return.
-    if (userDetachedRef.current && !userDetachedSawAwayRef.current) return
+    if (userDetachedRef.current && (!userDetachedSawAwayRef.current || !userReturningRef.current)) return
     userDetachedRef.current = false
     userDetachedSawAwayRef.current = false
     setAtBottom(true)
@@ -262,6 +265,7 @@ export function Transcript({ clockData, stateKey, messages: rawMessages, transcr
   }
   const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
     if (event.deltaY < 0) cancelFollow()
+    else if (event.deltaY > 0) userReturningRef.current = true
   }
   const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
     const touch = event.touches[0]
@@ -274,12 +278,13 @@ export function Transcript({ clockData, stateKey, messages: rawMessages, transcr
     const deltaX = touch.clientX - start.x
     const deltaY = touch.clientY - start.y
     if (deltaY >= 5 && deltaY > Math.abs(deltaX)) cancelFollow()
+    else if (deltaY <= -5 && -deltaY > Math.abs(deltaX)) userReturningRef.current = true
   }
   return <div className={`transcript-area${waiting ? ' is-waiting' : ''}`} ref={containerRef} onWheelCapture={handleWheel} onTouchStartCapture={handleTouchStart} onTouchMoveCapture={handleTouchMove}>
     {clockData && stateKey && <GameClock data={clockData} messages={messages} sessionId={stateKey} containerRef={containerRef} atBottom={atBottom} />}
     <PromptRail prompts={prompts} activeId={activeId} onJump={jump} />
     <MessageList trackGameClock={Boolean(clockData?.clock_mod?.enabled)} ref={setVirtuosoHandle} stateKey={stateKey} messages={messages} active={active} shouldFollow={() => followIntentRef.current} onAtBottom={handleAtBottom} onListHeightChanged={requestPin} onLoadOlder={onLoadOlder} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} onOpenSubagents={onOpenSubagents} onInvokeExtension={onInvokeExtension} collectionWritable={collectionWritable} onChoose={onChoose} onDraftOverride={onDraftOverride} onDraftConfirm={onDraftConfirm} onDraftSpread={onDraftSpread} onDraftReroll={onDraftReroll} onDraftCatalog={onDraftCatalog} onOpenPanel={onOpenPanel} onBranch={onBranch} branchMessageIds={branchMessageIds} branchDisabled={branchDisabled} onIllustrate={onIllustrate} illustrateDisabled={illustrateDisabled} illustrations={illustrations} actionWords={actionWords} onCopy={onCopy} onResend={onResend} resendDisabled={resendDisabled} copiedId={copiedId} onJump={jump} />
-    {waiting && <WaitingPlaceholder phase={waiting.phase} startedAt={waiting.startedAt} detail={waiting.detail} onStop={waiting.onStop} />}
+    {waiting && <WaitingPlaceholder phase={waiting.phase} startedAt={waiting.startedAt} detail={waiting.detail} onStop={waiting.onStop} progress={waiting.progress} />}
     {active && !atBottom && messages.length > 0 && <button className="return-latest" aria-label="回到最新" title="回到最新" onClick={returnLatest}><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg></button>}
   </div>
 }
@@ -416,6 +421,7 @@ function PresentationEntry({message,illustration,draftSuperseded,onInvokeExtensi
   const prose = data.details as { marked_text?: string; rendered_text?: string; draft?: unknown } | undefined
   // §171.2: a draft is the delivery still arriving, so its playback follows it as it grows.
   const typewriter = useNarrationTypewriter(render ? message.typewriter : undefined, withoutMechanicsMarkers(prose?.marked_text || prose?.rendered_text || ''), 'prose', prose?.draft === true)
+  if(data.renderer==='coc-stream')return <article className="message assistant-message"><CocStreamingProse details={data.details as StreamingProseDetails}/></article>
   // §98: one card per campaign, updated in place. A row the revision has moved past is a line
   // saying which draft it was -- kept rather than dropped, so the player sees the card moved.
   if(data.renderer==='coc-character-draft'&&draftSuperseded)return <article className="message assistant-message"><p className="coc-draft-superseded">{draftWord(data.details,'Earlier draft')} · {String((data.details as {revision?:unknown})?.revision??'')}</p></article>

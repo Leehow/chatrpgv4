@@ -107,40 +107,6 @@ const clerkNotes = (context) => context.messages.flatMap((message) => {
 });
 const everything = (context) => JSON.stringify(context.messages);
 
-test("§107.1 at the seam: the map published after the arrival is on the next turn's delivery, and the clerk's note says so once", async (t) => {
-	const engine = createHybridEngine({ env: process.env, decision: null });
-	const requests = [];
-	const table = await openTable({ realKernel: true, seedCampaign: false, prepareWorkspace: towerWithALateMap(true),
-		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("look", { focus: "scene" })], { stopReason: "toolUse" }); },
-			(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("output", { text: "风从塔顶的小屋里穿过去。" })], { stopReason: "toolUse" }); }] });
-	t.after(() => table.dispose());
-	await table.session.prompt("我上到塔顶四下看看。");
-
-	const turn = JSON.parse(readFileSync(join(table.workspace, ".coc/campaigns", CAMPAIGN, "turns/0002.json"), "utf8"));
-	const [receipt] = turn.receipts.filter((row) => row.kind === "map");
-	assert.ok(receipt, "the late first-arrival card was minted on this turn");
-	const plan = handleOf(table.workspace, "Tower plan"), tower = handleOf(table.workspace, "Tower");
-	assert.deepEqual([receipt.map, receipt.late, receipt.scene, receipt.why], [plan, true, tower, "arrival"]);
-
-	// The host's map hop rendered the derivative, and the card rode this turn's delivery beside the prose.
-	const delivered = table.entries("coc-mechanics").find((entry) => entry.turn === 2);
-	const card = delivered?.mechanics.find((row) => row.kind === "map" && row.receipt === receipt.id);
-	assert.ok(card, `the map row is in turn 2's mechanics entry: ${JSON.stringify(delivered)}`);
-	assert.notEqual(card.view_id, "unavailable", "the flattened derivative was rendered");
-
-	// The Keeper is told once, before its first step, and never sees a private path.
-	const notes = [...new Map(requests.flatMap(clerkNotes).filter((note) => note.map_arrived).map((note) => [JSON.stringify(note), note])).values()];
-	assert.equal(notes.length, 1, "the note says the map arrived exactly once");
-	assert.ok(clerkNotes(requests[0]).some((note) => note.map_arrived), "on the first model step");
-	assert.deepEqual(notes[0].map_arrived, [{ map: plan, scene: tower, receipt: receipt.id }]);
-	assert.match(notes[0].map_arrived_note, /Do not mention a map/);
-	for (const context of requests) {
-		assert.ok(!everything(context).includes("tower-plate.png"), "no source path reaches the Keeper");
-		assert.ok(!everything(context).includes("map_views"), "the host-only payload never reaches the Keeper");
-	}
-});
-
 test("§22.4.5 at the seam: look focus=map on a map still being read answers map_preparing at once and never waits", async (t) => {
 	const table = await openTable({ realKernel: true, seedCampaign: false, prepareWorkspace: towerWithALateMap(false),
 		responses: [fauxAssistantMessage([fauxToolCall("look", { focus: "map", name: "Harbor chart" })], { stopReason: "toolUse" }),

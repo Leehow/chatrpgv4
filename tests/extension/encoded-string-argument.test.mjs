@@ -115,7 +115,7 @@ test("§160: every declared string parameter of every tool is read; an undeclare
 const decodeRows = (table) => table.telemetry().filter((row) => row.lane === "tool_arguments" && row.event === "json_string_decoded")
 	.map(({ tool, field, layers }) => ({ tool, field, layers }));
 
-for (const engine of ["legacy", "hybrid-v1"]) {
+for (const engine of ["legacy"]) {
 	test(`§160 on the ${engine} engine: a narrate whose text is a literal reaches the kernel as the prose, and the decode is recorded`, async (t) => {
 		const hybrid = engine === "hybrid-v1" ? createHybridEngine({ env: process.env, decision: null }) : undefined;
 		const table = await openTable({
@@ -183,38 +183,6 @@ function assertDeliveredAsProse(record, label) {
 		assert.ok(row.text.startsWith("「私家侦探"), `${label}: ${row.text}`);
 	}
 }
-
-test("§160: the App's opening apply, on an ordinary turn, delivers its prose on the first leg -- the record, the transcript and the speech rows hold no escape", async (t) => {
-	const engine = createHybridEngine({ env: process.env, decision: null });
-	const table = await openTable({ realKernel: true, prepareWorkspace: turnOneClosed, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" },
-		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("apply", OPENING.arguments), fauxToolCall("output", {})], { stopReason: "toolUse" })] });
-	t.after(() => table.dispose());
-	await table.session.prompt("我说我是私家侦探，按天收钱，问他要我查什么。");
-	await waitForIdle(table.session);
-
-	const record = turnRecord(table.workspace, 2);
-	assertDeliveredAsProse(record, "turn 2");
-	assert.deepEqual(decodeRows(table), [{ tool: "apply", field: "narrate", layers: 1 }]);
-	const delivered = transcript(table.workspace).filter((row) => row.turn === 2);
-	assert.ok(delivered.length >= 1);
-	for (const row of delivered) assert.equal(escaped(row), false, JSON.stringify(row).slice(0, 120));
-	const applyResult = table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "apply");
-	assert.equal(JSON.parse(applyResult.content.map((block) => block.text ?? "").join("")).narrate_in_apply, false, "material was checked; output owns publication");
-});
-
-test("§160: the App's literal on the opening turn itself -- where the floor does not run -- is delivered as its prose", async (t) => {
-	const engine = createHybridEngine({ env: process.env, decision: null });
-	const table = await openTable({ realKernel: true, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" },
-		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("output", { text: OPENING.arguments.narrate })], { stopReason: "toolUse" })] });
-	t.after(() => table.dispose());
-	await waitForIdle(table.session);
-
-	const record = turnRecord(table.workspace, 0);
-	assertDeliveredAsProse(record, "turn 0");
-	assert.deepEqual(decodeRows(table), [{ tool: "output", field: "text", layers: 1 }]);
-});
 
 // ---------------------------------------------------------------------------------------------------------
 // §160.1: a fragment of the argument's own serialization -- the literal's body without quotes (B), the carried tool's
@@ -293,7 +261,7 @@ test("§160.1 known boundaries: single-line prose meaning a backslash before an 
 const fullRows = (table) => table.telemetry().filter((row) => row.lane === "tool_arguments" && row.event === "json_string_decoded")
 	.map(({ tool, field, layers, shapes }) => ({ tool, field, layers, shapes }));
 
-for (const engine of ["legacy", "hybrid-v1"]) {
+for (const engine of ["legacy"]) {
 	test(`§160.1 on the ${engine} engine: every recorded call reaches the kernel as its prose, with its row`, async (t) => {
 		for (const call of SERIALIZED) {
 			const hybrid = engine === "hybrid-v1" ? createHybridEngine({ env: process.env, decision: null }) : undefined;
@@ -318,22 +286,3 @@ for (const engine of ["legacy", "hybrid-v1"]) {
 		}
 	});
 }
-
-test("§160.1: B's recorded narrate on the emitted kernel and the hybrid engine delivers with real line breaks and no backslash", async (t) => {
-	const [call] = SERIALIZED;
-	const engine = createHybridEngine({ env: process.env, decision: null });
-	const table = await openTable({ realKernel: true, prepareWorkspace: turnOneClosed, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" },
-		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("output", call.arguments)], { stopReason: "toolUse" })] });
-	t.after(() => table.dispose());
-	await table.session.prompt("我问他那栋房子到底出过什么事。");
-	await waitForIdle(table.session);
-
-	const record = turnRecord(table.workspace, 2);
-	assert.equal(record.closed_by, "narrate");
-	assert.ok(record.rendered_text.startsWith("你在窗边那张桌前坐下"), record.rendered_text.slice(0, 40));
-	assert.equal(record.rendered_text.includes("\\"), false, "no backslash reached the player");
-	assert.ok(record.rendered_text.includes("\n\n"), "the paragraph breaks are real");
-	for (const row of record.speech ?? []) assert.equal(leaves(row).some((text) => text.includes("\\")), false, JSON.stringify(row));
-	assert.deepEqual(fullRows(table), [{ tool: "output", field: "text", layers: 1, shapes: ["body"] }]);
-});

@@ -144,39 +144,6 @@ function stillJev() {
     }};
 }
 
-test('RD-08\'s shape: a delivery that tells the party into a place with no move owes it, and the next run lands it first', async t => {
-    const batches = installJev(t, {moved: state => Object.values(state.told).includes(TOLD) ? 0.95 : 0.1}), rows = [];
-    const engine = createHybridEngine({env: process.env, record: row => rows.push(row), decision: stillJev()});
-    const table = await openTable({realKernel: true, prepareWorkspace: atTheHall, env: {...ENV, PI_COC_LOOP_ENGINE: 'hybrid-v1'}, runDriver: engine.runDriver,
-        extraExtensions: [{name: 'coc-hybrid-engine', factory: engine.extension}],
-        responses: [narrate(DELIVERY), narrate('你蹲在台阶下，看那些湿脚印。')]});
-    t.after(() => table.dispose());
-    await table.session.prompt('我开车去科比特宅，直接下到地下室。');
-    const row = await toldRow(table);
-    assert.deepEqual({outcome: row.outcome, decision: row.decision, handle: row.handle, owed: row.owed, mode: row.mode},
-        {outcome: 'owed', decision: 'owe', handle: 'basement-rites', owed: 't2-owed-1', mode: 'on'});
-    assert.ok(row.distribution['basement-rites'] >= 0.9 && row.moved === 0.95 && row.sentence.key === 's1');
-    assert.deepEqual(row.sentences, {total: 2, offered: 2});
-    assert.ok(row.candidates.includes('basement-rites') && !row.candidates.includes('hall-of-records'));
-    assert.equal(batches.length, 1, 'one request for the delivery');
-    assert.deepEqual(turnRecord(table.workspace, 2).receipts.filter(receipt => receipt.kind === 'move'), [], 'the delivery landed no move');
-    const [owed] = ledger(table.workspace).open;
-    assert.deepEqual({name: owed.name, to: owed.effect.to, quote: owed.quote, source: owed.source}, {name: 't2-owed-1', to: 'basement-rites', quote: TOLD, source: 'told-position'});
-
-    await table.session.prompt('我蹲下来看台阶上的脚印。');
-    const record = turnRecord(table.workspace, 3);
-    assert.deepEqual({kind: record.receipts[0].kind, to: record.receipts[0].to, owed: record.receipts[0].owed, told_turn: record.receipts[0].told_turn},
-        {kind: 'move', to: 'basement-rites', owed: 't2-owed-1', told_turn: 2}, 'the told arrival is the first receipt of the next turn');
-    const bind = rows.find(entry => entry.lane === 'run' && entry.event === 'bind' && entry.candidate === 'apply:owed:t2-owed-1');
-    assert.equal(bind?.clerk, 'told_bookkeeping');
-    assert.deepEqual(ledger(table.workspace).open, []);
-    assert.deepEqual(ledger(table.workspace).closed.map(entry => [entry.name, entry.how]), [['t2-owed-1', 'landed']]);
-    // The owed landing is turn 2's position, not turn 3's own move: turn 3's delivery is still read (and stays, in the basement).
-    const third = await waitFor(() => toldRows(table).find(entry => entry.turn === 3), {label: 'turn 3\'s told-position row', timeoutMs: 15_000});
-    assert.deepEqual({skipped: third.skipped, decision: third.decision, why: third.why}, {skipped: undefined, decision: 'stay', why: 'not_moved'});
-    assert.equal(batches.length, 2);
-});
-
 test('a delivery whose turn landed a move is not read and owes nothing', async t => {
     const batches = installJev(t);
     const table = await openTable({realKernel: true, prepareWorkspace: atTheHall, env: ENV,

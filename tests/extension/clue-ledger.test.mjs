@@ -81,27 +81,6 @@ test('the bars decide in order; a landed clue at or under untold_max is counted,
     assert.deepEqual(toldClueDecisions({status: 'failed', reason: 'timeout', elapsedMs: 1, usage: {}}, bars, INPUT).stay.map(entry => entry.why), ['timeout', 'timeout']);
 });
 
-test('§201.3: T7\'s apply -- closing prose put in an effect -- is refused with where prose goes and how a clue is written', () => {
-    const refusal = effectShapeRefusal('apply', APPLY, RUN3.t7.refused_apply);
-    assert.deepEqual({code: refusal.code, detail: refusal.code_detail, next: refusal.next, field: refusal.details.field, kind: refusal.details.kind},
-        {code: 'invalid_params', detail: 'effect_kind_unknown', next: 'change_input', field: 'effects[0].kind', kind: 'narrate'});
-    assert.match(refusal.fix, /^Closing prose is material, not an effect:/);
-    assert.match(refusal.fix, /only prepares\/checks/);
-    assert.match(refusal.fix, /Select output separately to author and publish/);
-    assert.doesNotMatch(refusal.fix, /it is delivered once/);
-    assert.match(refusal.fix, /a clue the book has is \{kind: "clue", clue: <its name/);
-    assert.ok(refusal.details.kinds.includes('clue') && refusal.details.kinds.includes('handout') && !refusal.details.kinds.includes("output"), 'the kinds are read off the schema');
-    assert.match(effectShapeRefusal('apply', APPLY, {effects: [{kind: 'resolve'}]}).fix, /^resolve is a tool of its own, not an effect of apply/);
-    assert.equal(effectShapeRefusal('apply', APPLY, {effects: [{clue: 'x'}]}).details.kind, null, 'a missing kind is refused too');
-    const missing = effectShapeRefusal('apply', APPLY, {effects: [{kind: 'time', minutes: 5}, {kind: 'clue', how: 'found it'}]});
-    assert.deepEqual({detail: missing.code_detail, field: missing.details.field, missing: missing.details.missing}, {detail: 'effect_field_missing', field: 'effects[1]', missing: ['clue']});
-    assert.match(missing.fix, /For a clue: a clue the book has is \{kind: "clue"/);
-    // What the schema takes is left alone, a null included (Pi's coercion may accept it), and so is every other tool.
-    for (const args of [RUN3.t9.refused_apply, {effects: [{kind: 'clue', clue: 'x'}], narrate: 'prose'}, {effects: [{kind: 'clue', clue: null}]}, {effects: 'x'}, {}])
-        assert.equal(effectShapeRefusal('apply', APPLY, args), undefined);
-    assert.equal(effectShapeRefusal("output", APPLY, {effects: [{kind: 'narrate'}]}), undefined);
-});
-
 test('§201.2: the clerk is not offered a clue the book finds by a check this turn has not passed; its compile ask row stays', () => {
     const row = (clue, check) => ({effect: {kind: 'clue', clue}, description: {kind: 'clue', name: clue, summary: SUMMARY[clue],
         delivery_kind: check ? 'skill_check' : 'obvious', ...(check ? {check} : {})}});
@@ -209,94 +188,6 @@ async function hybridTable(t, {prepareWorkspace, responses, finds, laneResponses
     t.after(() => table.dispose());
     return {table, rows};
 }
-
-test('T7: the prose-in-an-effect apply is refused with its fix, and the morgue\'s story told at the library is owed, then landed there first', async t => {
-    const batches = installJev(t, {told: {'globe-unpublished-story': 0.95, 'macario-tragedy': 0.84},
-        markers: {'globe-unpublished-story': '内部稿', 'macario-tragedy': '马卡里奥'}});
-    const {table, rows} = await hybridTable(t, {prepareWorkspace: atTheLibrary, responses: [
-        fauxAssistantMessage([fauxToolCall('apply', RUN3.t7.refused_apply)], {stopReason: 'toolUse'}), narrate(RUN3.t7.delivered),
-        narrate('你把抄下的内容又核对了一遍。')]});
-    await table.session.prompt(RUN3.t7.player);
-    const refused = table.session.messages.find(message => message.role === 'toolResult' && message.toolName === 'apply');
-    const text = refused.content.map(block => block.text ?? '').join('');
-    assert.equal(refused.isError, true);
-    assert.match(text, /^invalid_params: apply: effects\[0\]\.kind is "narrate", which is not an effect kind/);
-    assert.match(text, /Closing prose is material, not an effect:/);
-    assert.match(text, /Select output separately to author and publish/);
-    assert.match(text, /a clue the book has is \{kind: "clue", clue: <its name/);
-    assert.ok(!/must have required properties/.test(text), 'not the schema\'s union dump');
-    assert.ok(table.telemetry().some(row => row.lane === 'arguments' && row.event === 'effect_shape_refused' && row.reason === 'effect_kind_unknown'));
-    assert.equal(table.kernelRequests().filter(request => request.method === 'table.apply' && request.params?.call_id?.startsWith('t3')).length, 0, 'it never reached the kernel');
-
-    const row = await clueRow(table, 3);
-    assert.deepEqual({outcome: row.outcome, owe: row.owe, owed: row.owed.map(entry => entry.clue), mode: row.mode},
-        {outcome: 'owed', owe: ['globe-unpublished-story', 'macario-tragedy'], owed: ['globe-unpublished-story', 'macario-tragedy'], mode: 'on'});
-    assert.ok(row.candidates.includes('globe-unpublished-story') && row.candidates.indexOf('neighbor-lawsuit-1852') < row.candidates.indexOf('globe-unpublished-story'),
-        'the library\'s own clues first, then the morgue on the trail');
-    assert.deepEqual(row.check_skipped, []);
-    assert.equal(batches.filter(batch => Object.keys(batch.body.questions).some(key => key.startsWith('sentence_'))).length, 1, 'one sentence request');
-    const {open} = ledger(table.workspace);
-    assert.deepEqual(open.map(entry => [entry.kind, entry.effect.clue, entry.source]), [['clue', 'globe-unpublished-story', 'told-clue'], ['clue', 'macario-tragedy', 'told-clue']]);
-    assert.ok(open.every(entry => RUN3.t7.delivered.includes(entry.quote)), 'each quote is the delivered text\'s own sentence');
-    assert.deepEqual(turnRecord(table.workspace, 3).receipts.filter(receipt => receipt.kind === 'clue'), [], 'the delivery landed no clue');
-
-    await table.session.prompt('我把这些都抄在本子上。');
-    const landed = turnRecord(table.workspace, 4).receipts.filter(receipt => receipt.kind === 'clue');
-    assert.deepEqual(landed.map(receipt => [receipt.clue, receipt.owed, receipt.told_turn, receipt.scene]),
-        [['globe-unpublished-story', 't3-owed-1', 3, 'central-library'], ['macario-tragedy', 't3-owed-2', 3, 'central-library']],
-        'the clerk lands the told clues first, at the library, though the book has them at the morgue');
-    assert.ok(rows.some(entry => entry.lane === 'run' && entry.event === 'bind' && entry.candidate === 'apply:owed:t3-owed-1' && entry.clerk === 'told_bookkeeping'));
-    assert.deepEqual(ledger(table.workspace).open, []);
-});
-
-test('T10: after T9\'s refused apply, the implicit close tells the executor and the closing; both are owed and landed, the skipped Library Use said', async t => {
-    installJev(t, {told: {'will-executor-chapel': 0.95, 'chapel-closed-1912': 0.97}, markers: {'will-executor-chapel': '执行人', 'chapel-closed-1912': '一九一二年'}});
-    const {table} = await hybridTable(t, {prepareWorkspace: atTheHall,
-        laneResponses: {admission: [fauxAssistantMessage(JSON.stringify({verdict: 'not_authorized', grounds: 'the earlier plan named the municipal archive, not this clerk',
-            missing: 'Choosing to ask this clerk to retrieve the records.'}))]},
-        // Run 3's T9 apply without its time line: there the host had already charged the declared time (receipt t9-c1),
-        // and this replay's run Jev binds no time band, so the engine would block the Keeper's own before admission saw it.
-        responses: [fauxAssistantMessage([fauxToolCall('apply', {...RUN3.t9.refused_apply, effects: RUN3.t9.refused_apply.effects.filter(effect => effect.kind !== 'time')})],
-            {stopReason: 'toolUse'}), narrate(RUN3.t9.delivered),
-            narrate(RUN3.t10.delivered), narrate('你谢过职员，记下牧师的名字。')]});
-    await table.session.prompt(RUN3.t9.player);
-    assert.ok(table.telemetry().some(row => row.tool === 'apply' && row.reason === 'action_not_authorized'), 'admission refused T9\'s apply');
-    const nine = await clueRow(table, 2);
-    assert.deepEqual({outcome: nine.outcome, owed: nine.owed}, {outcome: 'stay', owed: []}, 'T9\'s prose gave nothing');
-
-    await table.session.prompt(RUN3.t10.player);
-    assert.equal(turnRecord(table.workspace, 3).closed_how, 'explicit', 'the selected output closes with the author artifact');
-    const row = await clueRow(table, 3);
-    assert.deepEqual(row.owed.map(entry => [entry.clue, entry.check_skipped === true]), [['will-executor-chapel', true], ['chapel-closed-1912', false]]);
-    assert.deepEqual(row.check_skipped, ['will-executor-chapel']);
-    const {open} = ledger(table.workspace);
-    assert.deepEqual(open.map(entry => [entry.effect.clue, entry.check?.skill ?? null, entry.check_skipped ?? false]),
-        [['will-executor-chapel', 'Library Use', true], ['chapel-closed-1912', null, false]]);
-
-    await table.session.prompt('谢过职员，我去那座已经关闭的沉思礼拜堂看看。');
-    const landed = turnRecord(table.workspace, 4).receipts.filter(receipt => receipt.kind === 'clue');
-    assert.deepEqual(landed.map(receipt => [receipt.clue, receipt.owed]), [['will-executor-chapel', 't3-owed-1'], ['chapel-closed-1912', 't3-owed-2']],
-        'landed first, the told executor not held for the roll the prose skipped');
-    assert.deepEqual(ledger(table.workspace).closed.map(entry => [entry.name, entry.how]), [['t3-owed-1', 'landed'], ['t3-owed-2', 'landed']]);
-});
-
-test('T18: the body\'s row asks whether the search finds it (§135.30.9.4): the boards are filed, the body behind them is not', async t => {
-    installJev(t, {landed: {'hollow-boards': 0.5}});
-    // Jev answers yes on the boards' row ("a cursory check reveals hollow spaces") and no on the body's: the search does not
-    // tear away the boards, the book's one cue for it.
-    const {table, rows} = await hybridTable(t, {prepareWorkspace: inTheBasement, finds: ['cursory check'], responses: [narrate(RUN3.t18.delivered), narrate('你蹲下来。')]});
-    await table.session.prompt(RUN3.t18.player);
-    const compile = rows.find(entry => entry.lane === 'route' && entry.purpose === 'compile' && entry.features?.ask);
-    const asked = Object.fromEntries(Object.entries(compile.features.ask.rows).map(([alias, id]) => [id, compile.features.ask.answers[alias].choice]));
-    assert.deepEqual([asked['clue:hollow-boards'], asked['clue:corbitt-body-found']], ['yes', 'no']);
-    assert.deepEqual(compile.fired.map(fired => [fired.predicate, fired.candidate]), [['ask_clue', 'apply:clue:hollow-boards']]);
-    const filed = turnRecord(table.workspace, 3).receipts.filter(receipt => receipt.kind === 'clue').map(receipt => receipt.clue);
-    assert.deepEqual(filed, ['hollow-boards'], 'the body is the Keeper\'s to land when the boards come away');
-    const row = await clueRow(table, 3);
-    assert.deepEqual({landed: row.landed, landed_untold: row.landed_untold, outcome: row.outcome, owed: row.owed},
-        {landed: ['hollow-boards'], landed_untold: [], outcome: 'stay', owed: []});
-    assert.equal(ledger(table.workspace), null);
-});
 
 test('off: the read is not run, and nothing registers a flight for it', async t => {
     const batches = installJev(t, {told: {'will-executor-chapel': 0.95}});

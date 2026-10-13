@@ -55,6 +55,20 @@ function fixture({ mode = "play", initial = "high", minimum = "minimal" } = {}) 
 	};
 }
 
+test('the explicit live-test profile restores its effort after model selection and keeps it through writes',async t=>{
+  const prior=process.env.PI_COC_TEST_MODEL;
+  t.after(()=>{if(prior===undefined)delete process.env.PI_COC_TEST_MODEL;else process.env.PI_COC_TEST_MODEL=prior;});
+  process.env.PI_COC_TEST_MODEL='codex-relay/gpt-6-luna';
+  const runtime=fixture({initial:'low'});
+  await runtime.emit('before_agent_start');
+  assert.equal(runtime.level(),'high');
+  if(runtime.hooks.has('turn_end'))await toolBatch(runtime,['apply']);
+  assert.equal(runtime.level(),'high');
+  const setup=fixture({mode:'setup',initial:'low'});
+  await setup.emit('before_agent_start');
+  assert.equal(setup.level(),'high');
+});
+
 async function toolBatch(runtime, names) {
 	await runtime.emit("turn_end", {
 		message: { content: names.map((name) => ({ type: "toolCall", name })) },

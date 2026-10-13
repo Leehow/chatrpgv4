@@ -7,6 +7,7 @@ import {decimalSpelling} from '../../shared/cash-decimal.js';
 import {preparePriceArguments} from './price-arguments.ts';
 import {patchCard} from "../table/card-patch.ts";
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
+import {ArtifactTextStream} from '../../runtime/final-output-stream.ts';
 import {documentEditInput} from '../../runtime/document-edit-input.ts';
 import {DocumentReadCoverage} from './document-read-coverage.ts';
 import {writingDigest,canonicalWritingResult,matchWritingResult,completesRefusedAddition,type WritingMatch,type WritingCompletion} from '../../runtime/jev/document-completion.ts';
@@ -43,7 +44,7 @@ import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
 import { argumentLimitRefusal, documentWriteRefusal, effectShapeRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { unwrapArgumentMarkup } from "./tool-argument-markup.ts";
-import { leanApplyEnabled, offeredTools } from "./lean-apply.ts";
+import { finalDeliveryAction, leanApplyEnabled, offeredTools } from "./lean-apply.ts";
 import { stripDialectPrefixes, omitEmptyEmbeddedArguments } from "./dialect-prefix.ts";
 import { decodeSerializedStrings } from "./encoded-string-argument.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
@@ -1485,8 +1486,18 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		return { message: restored.message };
 	});
 	let runtime: HostRuntime | undefined;
+	let singleKeeper=false;
+	let keeperRun:{runId:string;inputRevision:string;signal?:AbortSignal}|undefined;
+	let keeperReply:{decoder:ArtifactTextStream;stream?:Awaited<ReturnType<typeof finalOutput.openStream>>;work:Promise<void>;error?:unknown;evidence?:Record<string,any>;run:string;raw:string}|undefined;
+	let finalHandoff: {campaign:string;turn:number;run:string;params:Record<string,unknown>} | undefined;
+	let activeFinalStream:{id:string;turn:number}|undefined;
 	const finalOutput = createFinalOutputOwner({runtime: () => runtime,
 		call: (method, params) => {if (!table) throw Error('The table is unavailable'); return table.kernel.call(method, params);}, record,
+        stream:frame=>{
+            if(frame.event==='start')activeFinalStream={id:frame.delivery_id,turn:frame.turn};
+            pi.appendEntry('coc-final-delivery',frame);pi.events.emit('coc:final-delivery',frame);
+            if(frame.event==='end'&&['completed','interrupted'].includes(frame.status??''))activeFinalStream=undefined;
+        },
 		reference:(capsule)=>{let value:Record<string,any>|undefined|Promise<Record<string,any>|undefined>;
 			pi.events.emit('coc:writing-reference-request',{campaign:table?.campaign,capsule,accept:(ready:typeof value)=>{value=ready;}});
 			return value;},
@@ -1497,6 +1508,37 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				refused_recording:refused?.turn===table.turn,selected_recording:(table.documentRecording??0)>=DOCUMENT_RECORDING_INTENT_MIN,
 				note:'A held or previously refused act is not a completed result. Only matching canonical settled facts establish completion; intentions and proposals do not.'};
 		}});
+	pi.events.on('coc:keeper-run',(value:any)=>{keeperRun=value;});
+	pi.on('message_start',event=>{
+		if(!singleKeeper||event.message.role!=='assistant'||!table||!keeperRun)return;
+		const reply={decoder:undefined as unknown as ArtifactTextStream,work:Promise.resolve(),run:keeperRun.runId,raw:''} as NonNullable<typeof keeperReply>;
+		const enqueue=(job:()=>Promise<void>)=>{reply.work=reply.work.then(async()=>{if(!reply.error)await job();}).catch(error=>{reply.error=error;});};
+		reply.decoder=new ArtifactTextStream(record=>enqueue(async()=>{
+			if(!table)throw Error('The table is unavailable');
+			if(record.scope==='reference')table.interactionScope='reference';
+			if(record.event!==undefined||Array.isArray(record.effects)&&record.effects.length){
+				const result=await runTool(COC_TOOLS.find(tool=>tool.name==='apply')!,`keeper:${reply.run}:record`,
+					{effects:record.effects??[],...(record.event!==undefined?{event:record.event}:{})},keeperRun?.signal,undefined,'explicit',sessionCtx);
+				if(result.details.coc_error)throw new Error(String((result.details.coc_error as any).message));
+			}
+		}));
+		keeperReply=reply;
+	});
+	pi.on('message_update',async event=>{
+		const reply=keeperReply,delta=event.assistantMessageEvent;
+		if(!singleKeeper||!reply||delta.type!=='text_delta')return;
+		try{
+			reply.raw+=delta.delta;
+			const text=reply.decoder.push(delta.delta);
+			if(text)reply.work=reply.work.then(async()=>{
+				if(reply.error||!table)return;
+				if(keeperRun?.signal?.aborted)throw Error('The Keeper response was cancelled');
+				reply.stream??=await finalOutput.openStream(table.campaign,table.turn,reply.run);
+				reply.stream.push(text);
+			}).catch(error=>{reply.error=error;});
+			await reply.work;
+		}catch(error){reply.error=error;}
+	});
 
 	pi.events.on('coc:writing-reference', (value) => {
 		const reference=value as {campaign:string;turn:number;content:string;revision:string};
@@ -1580,6 +1622,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	pi.events.on("coc:loop-engine", (value) => {
 		const engine = value && typeof value === "object" ? (value as { engine?: unknown }).engine : undefined;
 		drivenEngine = typeof engine === "string" && engine !== "legacy";
+		singleKeeper=(value as any)?.singleKeeper===true;
 	});
     pi.events.on('coc:knowledge-context',(value:any)=>{
         if(!table||value?.campaign!==table.campaign||value.turn!==table.turn||value.player_text!==table.playerText)return;
@@ -1695,7 +1738,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		if (!held || held.steered || tool === "narrate" || tool === "ask" || !held.calls.some((entry) => entry.id === toolCallId)) return undefined;
 		held.steered = tool;
 		const beside = [...new Set(held.calls.map((entry) => entry.tool))];
-		return { beside, steer: besideSteer(beside) };
+		return { beside, steer: singleKeeper?'Tool-side prose is private. Continue from these results, then begin the final public response with {{public}}. No output tool or JSON wrapper is needed.':besideSteer(beside) };
 	}
 	async function flushBeside(): Promise<void> {
 		const held = besideDrop;
@@ -1894,7 +1937,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				`The kernel is waiting for the player to choose: ${pending.prompt ?? pending.name ?? "the pending choice from the last adjudication"}. ` +
 					`Use ask kind=mechanics with the available option identifiers and no prompt. The frontend renders the controls.` };
 		}
-		return { kind: "steer", text: "This turn is not closed yet: select output to publish it once, or hand the choice back with one ask." };
+		return { kind: "steer", text: `This turn is not closed yet: ${finalDeliveryAction()} to publish it once, or hand the choice back with one ask.` };
 	}
 
 	/**
@@ -2463,11 +2506,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// §40.2: a delivery may mark say spans and no mechanics at all, and that turn still owes the
 		// host an entry -- the card colours its speakers from this one.
 		const spoken = Array.isArray(speech) && speech.length > 0 ? speech : undefined;
-		if (mechanics.length === 0 && !spoken && !extra?.player_clock) return;
+		if (mechanics.length === 0 && !spoken && !extra?.player_clock && activeFinalStream?.turn!==turn) return;
 		// §16.6: `marked_text` rides here rather than in the assistant message, because that message
 		// is also what a terminal reader sees and raw `{{...}}` is not prose. A frontend that has it
 		// draws each marked row where the Keeper put it; one that does not reads the message as before.
-		const entry = { turn, mechanics, ...(labels ? { labels } : {}), play_language: state.playLanguage, ...(markedText ? { marked_text: markedText } : {}), ...(spoken ? { speech: spoken } : {}), ...(extra ?? {}) };
+		const entry = { turn, mechanics, ...(labels ? { labels } : {}), play_language: state.playLanguage, ...(markedText ? { marked_text: markedText } : {}), ...(spoken ? { speech: spoken } : {}), ...(extra ?? {}),
+            ...(activeFinalStream?.turn===turn?{final_stream_id:activeFinalStream.id}:{}) };
 		try {
 			pi.appendEntry("coc-mechanics", entry);
 		} catch {
@@ -2912,7 +2956,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 						? 'Stop making narration attempts in this response. The host will give one targeted correction steer; keep already accepted effects as settled.'
 						: 'Stop making narration attempts. The one correction steer was already used; do not choose the withheld outcome or repeat any accepted effects.'
 					: path === 'embedded'
-						? 'The apply effects already landed and stand as settled receipts. Do not repeat them. Revise only the delivery materials, then select output: state settled events, do not decide the withheld outcome, and end with a present person or immediate situation returning the choice in character.'
+						? `The apply effects already landed and stand as settled receipts. Do not repeat them. Revise only the delivery materials, then ${finalDeliveryAction()}: state settled events, do not decide the withheld outcome, and end with a present person or immediate situation returning the choice in character.`
 						: 'Use narrate with revised materials: state settled events, do not decide the withheld outcome, and end with a present person or immediate situation returning the choice in character. Keep accepted receipts and do not reroll.',
 				details: {reason: 'forced_player_choice_cue_review', path, cue_scores: review.cueScores, outcome_scores: review.outcomeScores,
 				choice_count: pending.choices.length, delivery_executed: false, reject_count: rejectCount, repair_steer: repairSteer,
@@ -3553,6 +3597,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	 */
 	async function admitAction(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, signal?: AbortSignal, providerBudget?: TaskProviderBudget,
 		origin: Record<string, unknown> = {}, evidence: ClerkEvidence & { label?: string; run?: string; onVerdict?: (verdict: string) => void } = {}): Promise<AdmissionPartial | undefined> {
+		if(singleKeeper){
+			const malformed=documentWriteRefusal(tool,payload);
+			if(malformed)throw new KernelError(malformed);
+			return;
+		}
 		try {
 			return await admitActionReviewed(state, tool, payload, signal, providerBudget, origin, evidence);
 		} catch (error) {
@@ -3754,7 +3803,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const watchLate = (lane: Promise<AdmissionOutcome> | undefined, answered: string, entry?: AdmissionPendingEntry) => {
 				void lane?.then(async (value) => {
 					if (entry?.collected) return;
-					await record({ lane: "admission-late", verb: tool, key: digest, answered, ms: value.ms, ...(value.model ? { model: value.model } : {}),
+					await record({ lane: "admission-late", verb: tool, key: digest, answered, ms: value.ms, ...('model' in value&&value.model ? { model: value.model } : {}),
 						...(value.ok === true ? { verdict: value.verdict.verdict, grounds: value.verdict.grounds.slice(0, 200) } : value.ok === false ? { reason: value.reason } : {}),
 						// §143.15: how many completions the round sent (a malformed first answer is asked once more).
 						...(value.ok !== "late" && value.ok !== "split" && typeof value.meta?.attempts === "number" ? { attempts: value.meta.attempts } : {}),
@@ -4996,14 +5045,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				+ ` Before moving there, use lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ''}, then follow that result. Do not invent or restart it under another name.`
 				+ ` Never tell the player this is still being prepared, still being checked, or still pending — it is not, and the host has already told them whatever they needed to know out of fiction.`;
 		if (state.landed.length > 0) {
-			return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running, but this turn already settled: ${state.landed.join("; ")}. Use output for those settled consequences from permitted materials. Do not erase, repeat, or extend the settled effects, and do not introduce any fact the pending preparation has not supplied.${HOST_SAYS_THE_WAIT} Then return control without a story menu.`;
+			return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running, but this turn already settled: ${state.landed.join("; ")}. For those settled consequences from permitted materials, ${finalDeliveryAction()}. Do not erase, repeat, or extend the settled effects, and do not introduce any fact the pending preparation has not supplied.${HOST_SAYS_THE_WAIT} Then return control without a story menu.`;
 		}
 		// "Inspect the same proposal after new player input" named no call, and on campaign
 		// game-ef7545c5 the Keeper answered it by repeating `lookup kind=module` and being blocked
 		// twice. The verb that reports on a proposal is named here in full; the host re-reads the
 		// status at every turn boundary anyway, so this is for a Keeper that wants to look, not a poll
 		// it owes.
-		return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running. Only a move to that destination waits for it; everything else the player chose settles as usual. Use output on permitted materials that take up what the player actually said, without moving there or introducing the destination.${HOST_SAYS_THE_WAIT}`
+		return `Adaptation preparation${wait.name ? ` for ${wait.name}` : ""} is still running. Only a move to that destination waits for it; everything else the player chose settles as usual. With permitted materials that take up what the player actually said, ${finalDeliveryAction()}, without moving there or introducing the destination.${HOST_SAYS_THE_WAIT}`
 			+ ` The only call that reports on it is lookup kind=adaptation action=status${wait.name ? ` name=${JSON.stringify(wait.name)}` : ""}; no module or source lookup can say anything about it.`;
 	}
 
@@ -5473,9 +5522,20 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		narratePath: "explicit" | "embedded" = "explicit",
 		ctx?: ExtensionContext,
 		finalRun?: string,
+		recoveredOutput?:{text:string;evidence:Record<string,any>},
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
         const publicName=spec.name;
         const finalSelection=publicName==='output';
+        if(singleKeeper&&finalSelection&&!recoveredOutput)
+            throw new KernelError({code:'invalid_params',message:'The Keeper authors the public response directly; an independent output author is unavailable.'});
+        if(singleKeeper&&!finalSelection){
+            params={...params};
+            delete params.handoff;
+            if(spec.name==='apply'){delete params.delivery;delete params.narrate;delete params.quotes;}
+            if(spec.name==='ask')delete params.delivery;
+        }
+        if(finalHandoff&&['apply','resolve','ask','narrate'].includes(publicName)&&!finalSelection)
+            throw new KernelError({code:'needs',message:'World operations and material revisions must finish before the final material handoff; this operation was not executed.'});
         if(finalSelection) {
             const choice=params.choice as Record<string,unknown>|undefined;
             if(params.text!==undefined&&params.delivery!==undefined)throw new KernelError({code:'invalid_params',message:'Supply delivery or legacy text, not both.'});
@@ -5492,12 +5552,20 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		delete params._standing_defense;
 		delete params._delivery_evidence;
 		const state = table;
-        if(!finalSelection&&spec.name==='narrate') {
+        if(!finalSelection&&(spec.name==='narrate'||spec.name==='ask'&&params.handoff===true)) {
             if(!state)throw new KernelError({code:'needs',message:'The table is unavailable'});
             try {
-                const checked=await finalOutput.check(state.campaign,state.turn,params.delivery??legacyDeliveryPlan(params.text));
+                const checked=await finalOutput.check(state.campaign,state.turn,params.delivery??(params.text!==undefined?legacyDeliveryPlan(params.text):undefined));
+                if(params.handoff===true){
+                    const run=modelSteps.get(toolCallId)?.run??finalRun;
+                    if(!run)throw new KernelError({code:'needs',message:'Final handoff requires the current RunDriver run'});
+                    const {handoff,kind,options,binds,...material}=params;
+                    if(spec.name==='ask')material.choice={kind,options,...(binds?{binds}:{})};
+                    finalHandoff={campaign:state.campaign,turn:state.turn,run,params:structuredClone(material)};
+                    Object.assign(checked,{prepared:true,handoff_requested:true});
+                }
                 modelSteps.delete(toolCallId);
-                await record({tool:'narrate',turn:state.turn,ok:true,checked:true,published:false});
+                await record({tool:spec.name,turn:state.turn,ok:true,checked:true,published:false});
                 return {content:[{type:'text',text:JSON.stringify(checked)}],details:checked};
             } catch(error) {return {content:[{type:'text',text:errorText(error)}],details:{coc_error:{code:isKernelError(error)?error.code:'invalid_params',message:error instanceof Error?error.message:String(error)}}};}
         }
@@ -5612,7 +5680,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		if (spec.name === "apply" && leanApply) payload._lean = true;
         if (dispatcher.tracksMutation(toolCallId)) payload._task_read_set = true;
 		if (WRITE_TOOLS.has(spec.name) || finalSelection) {
-			payload.call_id = takeCallId(state, toolCallId);
+			payload.call_id = recoveredOutput?.evidence.publication?.call_id??takeCallId(state, toolCallId);
 			await dispatcher.bindKernelCallId(toolCallId, payload.call_id);
 		}
 		const startedAt = new Date().toISOString();
@@ -5626,6 +5694,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const onProgress = onUpdate ? (frame: KernelProgressFrame) => onUpdate(progressPartial(frame)) : undefined;
 		let timeReading: Record<string, unknown> | undefined;
         let writingMatches:WritingMatch[]=[];
+        let streamEvidence:Record<string,any>|undefined;
         let documentContinuation=false;
 		const invokeOperation = async () => {
 			if ((spec.name === 'narrate' || spec.name === 'ask') && typeof payload.text === 'string') {
@@ -5636,12 +5705,12 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				await reviewForcedPlayerChoiceCue(state, payload.text, signal, narratePath, ctx);
 			}
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery(undefined, 'committing');
-      if (spec.name === 'narrate' || spec.name === 'ask') await guardRefusedDocumentDelivery(state,
+      if (!singleKeeper && (spec.name === 'narrate' || spec.name === 'ask')) await guardRefusedDocumentDelivery(state,
         [payload.text, payload.prompt].filter(value=>typeof value==='string').join('\n'), signal, providerBudget);
-      if (spec.name === 'narrate' || spec.name === 'ask') await guardHeldActDelivery(state,
+      if (!singleKeeper && (spec.name === 'narrate' || spec.name === 'ask')) await guardHeldActDelivery(state,
         [payload.text, payload.prompt].filter(value=>typeof value==='string').join('\n'), signal, providerBudget);
       // §203.6: an establishing turn's draft is judged once before it commits; the record keeps the verdict (host-only).
-      if (spec.name === 'narrate' || spec.name === 'ask') {
+      if (!singleKeeper && (spec.name === 'narrate' || spec.name === 'ask')) {
         delete payload.establish_review;
         const establishNote = closesOpening ? undefined : await guardEstablishDelivery(state,
           [payload.text, payload.prompt].filter(value=>typeof value==='string').join('\n'), narratePath, signal, providerBudget);
@@ -5694,17 +5763,21 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
       return result;
 		};
 			try {
-            if(spec.name==='ask'&&!finalSelection)await guardTaskDelivery();
+			if(!singleKeeper&&spec.name==='ask'&&!finalSelection)await guardTaskDelivery();
 			if (finalSelection) {
 				if (referenceScope) throw new KernelError({code:'invalid_params',message:'Answer out-of-fiction questions directly; a final writing task is not needed.'});
 				state.selectedWriting=true;
-				await guardTaskDelivery();
-				const written = await finalOutput.write(state.campaign, state.turn, payload.delivery, signal, providerBudget,fromStep?.run??finalRun);
+				if(!singleKeeper)await guardTaskDelivery();
+				if(recoveredOutput&&!singleKeeper)finalOutput.restoreStream(recoveredOutput.evidence);
+                const publication=Object.fromEntries(['call_id','kind','options','binds','quotes'].filter(key=>payload[key]!==undefined).map(key=>[key,payload[key]]));
+                if(workpadRaw!==undefined)publication.workpad_patch=workpadRaw;
+				const written = recoveredOutput??await finalOutput.write(state.campaign, state.turn, payload.delivery, signal, providerBudget,fromStep?.run??finalRun,finalRun!==undefined,finalRun?publication:undefined);
+				streamEvidence=written.evidence;
 				delete payload.delivery;
 				payload.text = written.text;
 				payload._delivery_evidence = written.evidence;
 			}
-            else if(spec.name==='ask'&&(payload.delivery!==undefined||payload.text!==undefined)) {
+            else if(!singleKeeper&&spec.name==='ask'&&(payload.delivery!==undefined||payload.text!==undefined)) {
                 await finalOutput.check(state.campaign,state.turn,payload.delivery??legacyDeliveryPlan(payload.text));
                 delete payload.delivery;delete payload.text;
             }
@@ -5940,7 +6013,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// §143.24: `purpose_repeats` is the host's reading of the Keeper's lines; the Keeper never supplies it.
 			delete payload.purpose_repeats;
 			if (spec.name === "ask") state.speechAttribution = undefined;
-			if (spec.name === "narrate" && typeof payload.text === "string" && !referenceDelivery) {
+			if (!singleKeeper && spec.name === "narrate" && typeof payload.text === "string" && !referenceDelivery) {
 				// The purpose reading takes the Keeper's own text (its tokens are all the Keeper's), beside attribution; §145.2's
 				// time skip is read at the same time too (attribution only adds say tokens, which the reading strips) and rides
 				// on the call after the Mod hooks.
@@ -5987,11 +6060,11 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				}
 				// §138.6: a `needs` for a band field (archetype, weapon) is the host's to answer before it is the Keeper's.
 				const band = (spec.name === "resolve" || spec.name === "apply") && isKernelError(failure) ? bandNeeds(failure) : undefined;
-				const recovered = band ? await recoverBandNeeds(state, spec.name, payload, band, { signal, providerBudget, origin, tracked: dispatcher.tracksMutation(toolCallId) }) : undefined;
+				const recovered = band&&(spec.name==='resolve'||spec.name==='apply') ? await recoverBandNeeds(state, spec.name, payload, band, { signal, providerBudget, origin, tracked: dispatcher.tracksMutation(toolCallId) }) : undefined;
 				if (recovered) {
 					if (band!.field === "weapon") (payload.effects as Array<Record<string, unknown>>)[band!.index!].weapon = recovered.band;
 					// The same identity, retried once; admission and the Mod gates run again, as after a source preparation.
-					await admitAction(state, spec.name, payload, signal, providerBudget, origin);
+					if(spec.name==='resolve'||spec.name==='apply')await admitAction(state, spec.name, payload, signal, providerBudget, origin);
 					if (mods && !(SINGLE_PASS_NARRATION && (spec.name === "narrate" || spec.name === "ask"))) await mods.prepare(spec.name, payload, signal, providerBudget);
 					try { result = (await invokeOperation()) ?? {}; }
 					catch (again) {
@@ -6265,6 +6338,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				const prepared = { ...result,material_check:embedded.details,narrate_in_apply:false };
 				return { content: [{ type: "text", text: JSON.stringify(prepared) }], details: prepared };
 			}
+			if(streamEvidence)finalOutput.finishStream(streamEvidence,'completed');
 			return {
 				content: [{ type: "text", text: JSON.stringify(result) }],
 				details: result,
@@ -6274,6 +6348,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				...(spec.name === "narrate" || spec.name === "ask" ? { terminate: true } : {}),
 			};
 		} catch (error) {
+			if(streamEvidence)finalOutput.finishStream(streamEvidence,'publication_pending');
 			if(spec.name==='apply'&&!host)error=await purchaseRecovery(state).failure(payload,error,state.turn);
 			if (spec.name === "resolve") noteCombatSceneRequired(state, error);
 			if (spec.name === "apply" && isKernelError(error)
@@ -6719,7 +6794,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			void record(startupRecord(runtime.resourceRoot, process.env) as unknown as Record<string, unknown>);
 			// The tool surface is fixed: these seven and no reshaping afterwards (§151.5: with the narrator-only setting on, the
 			// hybrid engine adds its `propose` once, after this; nothing is ever removed).
-			pi.setActiveTools([...COC_TOOL_NAMES]);
+			pi.setActiveTools(offeredTools(COC_TOOLS,process.env).map(tool=>tool.name));
 			// One Pi session, one kernel subprocess (contract §1), so there is only this one kernel RPC.
 			// The memory extension's lane needs `memory.job` / `submit` / `fail`; it goes over this bridge
 			// on the bus rather than starting a second process.
@@ -6770,6 +6845,22 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				campaign,
 				verdict: () => operationGate.open ? turnCloseVerdict() : { status: 'none', reason: 'no_table' },
 			}));
+            pi.events.emit('coc:final-output',Object.freeze({
+                campaign,
+                pending:(run:string)=>!!finalHandoff&&finalHandoff.run===run&&finalHandoff.campaign===table?.campaign&&finalHandoff.turn===table?.turn,
+                cancel:(run:string)=>{if(finalHandoff?.run===run)finalHandoff=undefined;},
+                publish:async(run:string,signal:AbortSignal)=>{
+                    const ready=finalHandoff;
+                    if(!operationGate.open||!ready||ready.run!==run||ready.campaign!==table?.campaign||ready.turn!==table?.turn)
+                        throw new Error('The final handoff is unavailable or stale');
+                    finalHandoff=undefined;
+                    const spec=COC_TOOLS.find(tool=>tool.name==='output')!;
+                    let result=await runTool(spec,`final:${run}`,ready.params,signal,undefined,'explicit',sessionCtx,run);
+                    if(!signal.aborted&&(result.details.coc_error as any)?.code==='commit_failed')
+                        result=await runTool(spec,`final:${run}`,ready.params,signal,undefined,'explicit',sessionCtx,run);
+                    return result;
+                },
+            }));
 			// §158.4: the next run's first read watches the previous delivery's post review still running: it may name what
 			// the ledger owes, and a review that lands during the read is read before any candidate is built. Nothing waits.
 			pi.events.emit('coc:owed-review', Object.freeze({ campaign, watch: () =>
@@ -6881,7 +6972,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 						(oneLine ? `The last commit stopped at: ${oneLine}. ` : "") +
 						`The player said: ${pending.player_text ?? "(nothing)"}. ` +
 						`Receipts already landed: ${JSON.stringify(pending.receipts ?? [])}. Still owed: ${owed}. ` +
-						`Use look to see the scene as it stands, finish this turn, then deliver it with output.`,
+						`Use look to see the scene as it stands, finish this turn, then ${finalDeliveryAction()}.`,
 					"recovery",
 				);
 			} else {
@@ -7098,6 +7189,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	async function releaseStrandedTurn(state: TableState): Promise<void> {
 		const turn = state.turn;
 		if (state.strandedTurn !== true || !(state.state === "open" || state.state === "acting")) return;
+		// A validated, exposed artifact still owns this publication slot after a Git outage.
+		if(await finalOutput.pendingPublication(state.campaign))return;
 		try {
 			// The same completion barrier §38.3 puts in front of the input-carried release: the marker must
 			// name this kernel turn durably before the turn is closed, or a failed replacement could strand
@@ -7120,6 +7213,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	// ---- Turns ------------------------------------------------------------
 
 	pi.on("before_agent_start", async (event) => {
+		finalHandoff=undefined;
 		const state = table;
 		if (!state) return;
 		state.skillRun = newSkillRun();
@@ -7150,7 +7244,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// Contract §38: the previous run left this turn open with nothing delivered, so it is stranded and
 		// can no longer be finished by anyone. Release it so the player can act again. This is the host's
 		// own run state — not prose, not a verdict — and it neither narrates nor commits anything.
-		const strandedTurn = state.strandedTurn === true && (state.state === "open" || state.state === "acting");
+		let strandedTurn = state.strandedTurn === true && (state.state === "open" || state.state === "acting");
 		// Contract 41.1: `text` is the only part of this call the player writes, and its only rule is that it
 		// is not blank. Checking it here is what makes the refusal path honest: after this line, anything the
 		// kernel refuses is a fault at the table, and no rewording reaches it.
@@ -7182,6 +7276,26 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					fix: "retry after the session storage becomes writable",
 				});
 			}
+            const pending=await finalOutput.pendingPublication(state.campaign);
+            if(pending){
+                if(pending.evidence.publication?.interaction_scope==='reference'){
+                    finalOutput.restoreStream(pending.evidence);
+                    const delivered=await state.kernel.call<Record<string,unknown>>('table.reference.answer',{
+                        campaign:state.campaign,call_id:pending.evidence.publication.call_id,text:pending.text});
+                    applyToolSuccess(state,'narrate',pending.evidence.publication.call_id,delivered);
+                    finalOutput.finishStream(pending.evidence,'completed');
+                }else{
+                const {call_id: _callId,kind,options,binds,...metadata}=pending.evidence.publication??{};
+                const params={...metadata,...(kind?{choice:{kind,options,...(binds?{binds}:{})}}:{})};
+                const result=await runTool(COC_TOOLS.find(tool=>tool.name==='output')!,`recovery:${pending.evidence.packet}`,
+                    params,runtime?.signal,undefined,'explicit',sessionCtx,`recovery:${pending.evidence.packet}`,pending);
+                if(result.details.coc_error){
+                    endInput(state,'pending_publication_failed',sessionCtx);
+                    return {message:{customType:'coc-host',content:'The previous accepted reply could not be committed. Its exact text and settled effects are preserved. No new player action was executed.',display:false}};
+                }
+                }
+                state.strandedTurn=false;strandedTurn=false;
+            }
 			const result = await state.kernel.call<{ turn?: number; state?: TurnState; capsule?: unknown; _context?: unknown }>(
 				"table.player_input",
 				{ campaign: state.campaign, text, ...(strandedTurn ? { release: "stranded" } : {}) },
@@ -7282,6 +7396,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// §13.11: append host guidance to a fresh view; the raw kernel capsule is never changed.
 			// §168.5: the one exception, first-sight items whose check is still running, is the view's own.
 			let capsule = firstSightView(state, result.capsule ?? {}, state.turn);
+            const deliveryRecovery=await finalOutput.recoveries(state.campaign);
+            if(deliveryRecovery.length)capsule={...(capsule as Record<string,unknown>),delivery_recovery:deliveryRecovery};
 			// Host workspace preferences use private context metadata (contract §19.2);
 			// bind a Workpad patch only when the host layer is enabled.
 			const workspaceSettings = workspaceSettingsOf(result._context);
@@ -7327,7 +7443,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				state.floorDraft = undefined;
 				state.deliveryFix = {
 					kind: "reading-wait",
-					text: "The previous player turn is still open after source preparation paused. Give any source-availability explanation as a direct OOC reply, never story material. For the existing turn, prepare only permitted settled events and select output if story publication is needed; do not imply the pending action happened. Await free player input.",
+					text: `The previous player turn is still open after source preparation paused. Give any source-availability explanation as a direct OOC reply, never story material. For the existing turn, prepare only permitted settled events and ${finalDeliveryAction()} if story publication is needed; do not imply the pending action happened. Await free player input.`,
 				};
 			}
 			await record({
@@ -7356,7 +7472,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 						+ "This is not the player's wording -- the host checked the only field they write -- so do not tell them "
 						+ "to say it again.\n"
 						+ (deliverable
-							? "The previous turn is still open: prepare its permitted settled materials and select output if story publication is needed. In a direct OOC reply, say that the new input has not "
+							? `The previous turn is still open: prepare its permitted settled materials and ${finalDeliveryAction()} if story publication is needed. In a direct OOC reply, say that the new input has not `
 								+ "been taken up yet."
 							: "There is no open turn, so output and ask will be refused `turn_state`. The player has already been "
 								+ "told the table refused the input; end this run without output."),
@@ -7577,7 +7693,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			await record({tool: name, ok: false, code: 'blocked', reason: 'interaction_scope'});
 			return {block: true, reason: 'This message does not authorize fictional progression. Answer the reference question or clarify it; do not alter the world.'};
 		}
-		if (drivenEngine && name === "resolve" && dispatcher.hostOrigin(event.toolCallId)?.origin !== "policy") {
+		if (drivenEngine && !singleKeeper && name === "resolve" && dispatcher.hostOrigin(event.toolCallId)?.origin !== "policy") {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: "check_selection_owned" });
 			return { block: true, reason: "Jev and the host own check selection. No model-origin resolve was executed. Narrate committed receipts, and narrate any attempt the host left without a roll by your own judgement." };
 		}
@@ -7727,7 +7843,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				? "the Mod layer has not announced itself yet, so this opening Mod call cannot be judged: retry the same call; the opening's Mod checks become available as soon as it does"
 				// Only the opening reaches this line (§86). The generic "use only look, lookup and recall" had the installed App's
 				// Keeper (Blood Road, 2026-10-02) try to pin the book's start hour twice, 20 s of round trips before the prose.
-				: `the turn state is ${state.state} and this is the table's opening: until the player first speaks only narrate (private check), output, ask, apply clock (pinning an opening datetime the book left open) and the opening's Mod definitions are accepted; the scene and everything else stay as the table opened them, so put whatever you meant to change into the prose and close with output`;
+				: `the turn state is ${state.state} and this is the table's opening: until the player first speaks only narrate, the active final-delivery surface, ask, apply clock (pinning an opening datetime the book left open) and the opening's Mod definitions are accepted; the scene and everything else stay as the table opened them, so put whatever you meant to change into the prose and ${finalDeliveryAction()}`;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason, ...(bridgePending ? { cause: "mods_bridge_pending" } : {}) });
 			// A refusal the host issued is still a refusal (§67). Without this the
 			// Keeper could be told "wait for the player" forever inside its own turn.
@@ -7828,6 +7944,54 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		await flushBeside();
 		let blocks = (event.message.content ?? []) as Array<Record<string, unknown>>;
 		let hasToolCalls = blocks.some((b) => b.type === "toolCall");
+		if(singleKeeper&&hasToolCalls&&keeperReply){
+			keeperReply.stream?.interrupt();
+			keeperReply=undefined;
+		}
+		if(singleKeeper&&!hasToolCalls&&keeperReply){
+			const reply=keeperReply;keeperReply=undefined;
+			try{
+				const body=blocks.filter(b=>b.type==='text').map(b=>String(b.text??'')).join('');
+				if(!body.startsWith(reply.raw))throw Error('The completed response differs from its stream');
+				if(body.length>reply.raw.length){
+					const delta=reply.decoder.push(body.slice(reply.raw.length));
+					await reply.work;
+					if(delta){reply.stream??=await finalOutput.openStream(state.campaign,state.turn,reply.run);reply.stream.push(delta);}
+				}
+				await reply.work;
+				if(reply.error)throw reply.error;
+				if(keeperRun?.signal?.aborted)throw Error('The Keeper response was cancelled');
+				if(['error','aborted','length'].includes(String(event.message.stopReason)))throw Error('The Keeper response was interrupted');
+				const result=reply.decoder.finish();
+				if(!reply.stream)throw Error('The Keeper produced no public text');
+				const choice=result.record?.choice as Record<string,unknown>|undefined;
+				const publication={call_id:mintCallId(state),...(choice??{})};
+				const written=await reply.stream.finish(`${event.message.provider}/${event.message.model}`,pi.getThinkingLevel?.(),
+                    {...publication,...(result.record?.scope==='reference'?{interaction_scope:'reference'}:{})});
+                reply.evidence=written.evidence;
+				if(result.record?.scope==='reference'){
+					const delivered=await state.kernel.call<Record<string,unknown>>('table.reference.answer',{campaign:state.campaign,...publication,text:result.text});
+					applyToolSuccess(state,'narrate',String(publication.call_id),delivered);
+					finalOutput.finishStream(written.evidence,'completed');
+				}else{
+					const spec=COC_TOOLS.find(tool=>tool.name==='output')!;
+					const params=choice?{choice:publication}:publication;
+					let delivered=await runTool(spec,`keeper:${reply.run}:publish`,params,keeperRun?.signal,undefined,'explicit',ctx,reply.run,written);
+					if((delivered.details.coc_error as any)?.code==='commit_failed'&&!keeperRun?.signal?.aborted)
+						delivered=await runTool(spec,`keeper:${reply.run}:publish`,params,keeperRun?.signal,undefined,'explicit',ctx,reply.run,written);
+					if(delivered.details.coc_error)throw new Error(String((delivered.details.coc_error as any).message));
+				}
+				state.renderedText=undefined;
+				return{message:{...event.message,content:blocks.filter(b=>b.type!=='text')}};
+			}catch(error){
+				if(reply.evidence)finalOutput.finishStream(reply.evidence,'publication_pending');
+                else reply.stream?.interrupt();
+				await record({lane:'keeper-delivery',turn:state.turn,ok:false,reason:String(error)});
+				if(!reply.stream)state.deliveryFix={kind:'result_protocol',text:'Start the final response with {{public}} and write public prose directly, or {{reference}} for a pure OOC answer. No JSON wrapper or output tool is needed. Keep settled effects; do not repeat them.'};
+				else state.runAbandoned=true;
+				return{message:{...event.message,content:blocks.filter(b=>b.type!=='text')}};
+			}
+		}
 		let routedMessage: typeof event.message | undefined;
 		// §158.7: Pi executes the recovered call through all normal hooks and admission. §160.2: a body of several fenced
 		// envelopes is the calls in their written order, and `{name, arguments}` is an envelope too. §160.4: a label, an
@@ -7901,7 +8065,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// gains no saving from starting its review one hook earlier, and every existing single-call admission
 		// timing (§32.12.2's cap/hard-cap/pending/resend ladder) stays exactly the shape it already is.
 		const reviewedCalls = calls.filter((call) => call.name === "apply" || call.name === "resolve");
-		if (reviewedCalls.length > 1) for (const call of reviewedCalls) {
+		if (!singleKeeper && reviewedCalls.length > 1) for (const call of reviewedCalls) {
 			const reviewedTool = call.name as "apply" | "resolve";
 			let cloned: Record<string, unknown> | undefined;
 			try { cloned = JSON.parse(JSON.stringify(call.arguments ?? {})) as Record<string, unknown>; } catch { cloned = undefined; }
@@ -7997,13 +8161,13 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				.join("")
 				.trim();
 			if(unselectedDeliveryPlan(written)) {
-				state.deliveryFix={kind:'text-tool-call',text:'The last response was a delivery argument object, not a tool invocation. Keep it private. Call narrate to check that plan, or explicitly select output for final story publication. Do not repeat already settled effects. Out-of-fiction explanations stay in the direct reply channel.'};
+				state.deliveryFix={kind:'text-tool-call',text:`The last response was a delivery argument object, not a tool invocation. Keep it private. Call narrate to check that plan, or ${finalDeliveryAction()} for final story publication. Do not repeat already settled effects. Out-of-fiction explanations stay in the direct reply channel.`};
 				return dropText('unselected_delivery_material_plan');
 			}
 			// The floor steer is additive: a second leg that brings nothing falls back to the draft it dropped.
 			const prose = written || (state.steeredThisTurn && state.floorDraft) || "";
             if(prose) {
-                state.deliveryFix={kind:'text-tool-call',text:'Story prose is still a private draft. Select output explicitly to author and publish it, or keep an OOC reply in the direct assistant channel. Do not repeat settled effects.'};
+                state.deliveryFix={kind:'text-tool-call',text:`Story prose is still a private draft. To author and publish it, ${finalDeliveryAction()}, or keep an OOC reply in the direct assistant channel. Do not repeat settled effects.`};
                 return dropText('explicit_output_not_selected');
             }
 			return dropText(failedLeg ? "failed_leg_not_delivered" : "text_not_a_delivery");

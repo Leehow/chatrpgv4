@@ -1,3 +1,4 @@
+// Controller-only cases retired with single-keeper-streaming-turns; retained cases exercise current shared utilities.
 /**
  * §151.5 (ticket `docs/specs/jev-decides-llm-writes-tickets/06-narrator-only-setting.md`; SL-79 behind a setting; design
  * `docs/specs/jev-driven-steps.md` D5): the narrator-only compose catalog.
@@ -26,7 +27,7 @@ import { CONSEQUENCE_FAMILY } from "../../runtime/jev/consequence-route.ts";
 import { createStepPolicy, NARRATOR_FALLEN, PROPOSED_REASON } from "../../runtime/jev/step-policy.ts";
 
 const CONTEXT = { version: 1, campaign: "c", worldline: "main", loop: 0, turn: 2, source_revision: "a".repeat(64) };
-const SEVEN = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate", "output"];
+const SEVEN = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate"];
 const clueRow = (clue, summary = "x") => ({ effect: { kind: "clue", clue }, description: { summary } });
 /** Every question answered no: nothing any route asks clears, so only what a test does runs. */
 const nothing = (batch) => {
@@ -103,30 +104,6 @@ function harness({ env, decide = nothing }) {
 }
 const text = (outcome) => outcome.toolResult?.content?.map((part) => part.text).join("") ?? "";
 
-test('unsettled declared time projects clarification and refuses a model replacement while preserving owed state',async()=>{
-	const h=harness({env:{COC_NARRATOR_ONLY:'off'}});
-	const note=await h.project('s1','compose','declared_time_unresolved',[],{declared_time_unresolved:{cause:'jev_unavailable',unresolved:['band']}});
-	assert.equal(note.unsettled_time.cause,'jev_unavailable');assert.match(note.unsettled_time_note,/Do not choose minutes or a band/);
-	for(const effect of [{kind:'time',minutes:230},{kind:'time',band:'short_rest'}]){
-		const outcome=await h.model('s2','apply',{effects:[effect]});assert.equal(outcome.status,'refused');
-		assert.equal(h.announced.at(-1).refuse_code,'declared_time_unresolved');
-	}
-	assert.equal((await h.model('s3','apply',{effects:[{kind:'time',minutes:5,owed:'prior-told-time'}]})).status,'ok');
-	assert.equal((await h.model('s4',"output")).status,'ok');
-	const later=harness({env:{COC_NARRATOR_ONLY:'off'}});await later.project('s1','compose','finished');
-	assert.equal((await later.model('s2','apply',{effects:[{kind:'time',minutes:5}]})).status,'ok','a fresh run does not inherit the earlier hold');
-});
-
-test('§218.9 a held stated time projects ask_in_fiction with what the host heard, and the replacement refusal says to ask',async()=>{
-	const h=harness({env:{COC_NARRATOR_ONLY:'off'}});
-	const heard={end:{hour:{choice:'h9',p:.71}},reading:'9:30 am'};
-	const note=await h.project('s1','compose','declared_time_unresolved',[],{declared_time_unresolved:{cause:'stated_measure_uncertain',unresolved:['band'],ask_in_fiction:true,heard}});
-	assert.equal(note.unsettled_time.ask_in_fiction,true);assert.deepEqual(note.unsettled_time.heard,heard);
-	assert.match(note.unsettled_time_note,/asking in fiction/);assert.equal(/Narrate settled facts or ask/.test(note.unsettled_time_note),false);
-	const outcome=await h.model('s2','apply',{effects:[{kind:'time',until:{time:'09:30'}}]});assert.equal(outcome.status,'refused');
-	assert.equal(h.announced.at(-1).refuse_code,'declared_time_unresolved');assert.match(h.announced.at(-1).refuse,/asking in fiction/);
-});
-
 // ---------------------------------------------------------------------------------------------------------------------
 // The setting.
 
@@ -184,139 +161,6 @@ test("§151.5 proposedCandidate: the Keeper's request rides on the basis; a comp
 		basis: { read: "table.apply.options", row: { clue: "a" }, compile: { predicate: "declared_clue" }, consequence: { class: "clue_follow_up" } } };
 	assert.deepEqual(proposedCandidate(candidate, { run: "r", step: "s3" }).basis,
 		{ read: "table.apply.options", row: { clue: "a" }, proposed: { by: "keeper", run: "r", step: "s3" } });
-});
-
-// ---------------------------------------------------------------------------------------------------------------------
-// The engine.
-
-test("§159 with narrator mode off: resolve still belongs to Jev; other tools keep their behavior", async () => {
-	const h = harness({ env: {} });
-	await h.sessionStart();
-	assert.equal(h.registered.length, 0, "nothing is registered with the setting off");
-	assert.deepEqual(h.active(), SEVEN.filter(name => name !== "resolve"), "resolve is host-owned regardless of narrator mode");
-	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
-	await h.read("s1");
-	const note = await h.project("s2", "compose", "settled");
-	for (const key of ["catalog", "catalog_note", "offered", "propose_note"]) assert.equal(Object.hasOwn(note, key), false, `no ${key}`);
-	assert.ok(!h.rows.some((row) => row.event === "catalog"));
-	for (const operation of ["apply", "look", "lookup", "recall"]) {
-		const outcome = await h.model("s3", operation);
-		assert.equal(outcome.status, "ok", `${operation} runs as before`);
-	}
-	assert.ok(h.announced.every((row) => !Object.hasOwn(row, "refuse")), "no call is announced with a refusal");
-	assert.equal((await h.model("s4", "resolve")).status, "refused");
-	assert.equal(h.announced.at(-1).refuse_code, "check_selection_owned");
-});
-
-test("§151.5 on: the compose step's catalog is narrate/ask/propose with say as spans; adjudicate keeps the whole loadout and gains propose; bind keeps exactly its own", async () => {
-	const h = harness({ env: { COC_NARRATOR_ONLY: "on" } });
-	await h.sessionStart();
-	assert.deepEqual(h.registered.map((tool) => tool.name), ["propose"]);
-	assert.deepEqual(h.active(), [...SEVEN.filter(name => name !== "resolve"), "propose"], "propose does not restore model-owned resolve");
-	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
-	await h.read("s1");
-	const compose = await h.project("s2", "compose", "settled");
-	assert.deepEqual(compose.catalog, ["narrate", "output", "ask", "propose"]);
-	assert.match(compose.catalog_note, /\{\{say:Name\}\}/, "a person's words are say spans inside the narrate or ask text");
-	assert.deepEqual(compose.offered.map((row) => row.key), ["apply:clue:globe-story"]);
-	const row = h.rows.find((value) => value.event === "catalog");
-	assert.deepEqual([row.purpose, row.catalog, row.source, row.offered], ["compose", ["narrate", "output", "ask", "propose"], "env", ["apply:clue:globe-story"]]);
-	for (const operation of ["apply", "resolve", "look", "lookup", "recall"]) {
-		const outcome = await h.model("s3", operation);
-		assert.equal(outcome.status, "refused", `${operation} is refused on the compose step`);
-		const announced = h.announced.at(-1);
-		assert.equal(announced.refuse_code, operation === "resolve" ? "check_selection_owned" : "narrator_catalog");
-		if (operation === "resolve") assert.match(announced.refuse, /Jev and the host own check selection/);
-		else {
-			assert.match(announced.refuse, new RegExp(`^${operation} is not in this narrator-only compose step's catalog`));
-			assert.match(announced.refuse, /Offered keys: apply:clue:globe-story/);
-		}
-		assert.equal(outcome.artifact.fell, operation === "resolve" ? "check_selection_owned" : "narrator_catalog");
-		assert.equal(outcome.artifact.narrator, true);
-	}
-	for (const operation of ["output", "ask"]) {
-		const outcome = await h.model("s4", operation);
-		assert.equal(outcome.status, "ok", `${operation} is in the compose catalog`);
-		assert.equal(Object.hasOwn(h.announced.at(-1), "refuse"), false);
-	}
-	const adjudicate = await h.project("s5", "adjudicate", "ask_llm");
-	assert.equal(Object.hasOwn(adjudicate, "catalog"), false, "the adjudicate step keeps the whole loadout");
-	assert.deepEqual(adjudicate.offered.map((value) => value.key), ["apply:clue:globe-story"]);
-	assert.equal((await h.model("s6", "apply")).status, "ok", "apply runs on an adjudicate step");
-	assert.equal((await h.model("s6b", "resolve")).status, "refused", "adjudication never restores LLM check selection");
-	const bind = await h.project("s7", "bind", "open_parameters");
-	assert.equal(Object.hasOwn(bind, "catalog") || Object.hasOwn(bind, "offered"), false, "the bind step's note is as before");
-	const proposed = await h.model("s8", "propose", { key: "apply:clue:globe-story" });
-	assert.equal(proposed.status, "refused", "a bind step does not admit propose");
-	assert.match(text(proposed), /not in this bind step's catalog/);
-});
-
-test("§151.5 propose on an offered key: queued as one more clerk step, then run through the gateway with the Keeper's request on its basis", async () => {
-	const h = harness({ env: { COC_NARRATOR_ONLY: "on" } });
-	await h.sessionStart();
-	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
-	await h.read("s1");
-	await h.project("s2", "compose", "settled");
-	const outcome = await h.model("s3", "propose", { key: "apply:clue:globe-story" });
-	assert.equal(outcome.status, "ok");
-	assert.match(text(outcome), /^Queued: the clerk carries out apply:clue:globe-story/);
-	assert.equal(outcome.artifact.proposed.key, "apply:clue:globe-story");
-	assert.deepEqual(outcome.artifact.proposed.basis.proposed, { by: "keeper", run: "run-1", step: "s3" });
-	assert.equal(h.dispatches.length, 0, "nothing ran inside the model call: the policy runs the queued step next");
-	assert.ok(h.rows.some((row) => row.event === "propose" && row.status === "queued" && row.key === "apply:clue:globe-story"));
-	// The queued step as the policy runs it (see the policy test below): the clerk's execute, the one gateway.
-	const done = await h.clerkExecute("s4", outcome.artifact.proposed);
-	assert.equal(done.status, "ok");
-	assert.equal(h.dispatches.length, 1);
-	const [{ operation, origin }] = h.dispatches;
-	assert.deepEqual(operation.args.effects, [{ kind: "clue", clue: "globe-story" }]);
-	assert.equal(origin.origin, "policy");
-	assert.equal(origin.clerk, "declared_bookkeeping");
-	assert.deepEqual(origin.basis.proposed, { by: "keeper", run: "run-1", step: "s3" }, "admission reads the Keeper's request on the basis");
-	assert.equal(Object.hasOwn(origin.basis, "compile"), false, "no compile evidence rides on a Keeper's proposal");
-	// Proposed once: the next step's offered list no longer names it, and a second propose is refused.
-	const next = await h.project("s5", "compose", PROPOSED_REASON);
-	assert.deepEqual(next.offered, []);
-	assert.match(next.proposed_note, /ran the steps you proposed/);
-});
-
-test("§151.5 propose on a free handle: refused with the offered keys; nothing is queued or dispatched", async () => {
-	const h = harness({ env: { COC_NARRATOR_ONLY: "on" } });
-	await h.sessionStart();
-	h.state.applyOptions = { candidates: [clueRow("globe-story"), clueRow("cutoff")] };
-	await h.read("s1");
-	await h.project("s2", "compose", "settled");
-	for (const key of ["globe-story", "the Globe story", ""]) {
-		const outcome = await h.model("s3", "propose", { key });
-		assert.equal(outcome.status, "refused", `${JSON.stringify(key)} is not a key`);
-		assert.match(text(outcome), /is not one of them, so nothing was carried out\. Offered keys: apply:clue:globe-story, apply:clue:cutoff\./);
-		assert.equal(outcome.artifact.proposed, undefined);
-		assert.equal(outcome.artifact.fell, "propose_refused");
-	}
-	assert.equal(h.dispatches.length, 0);
-	assert.equal(h.rows.filter((row) => row.event === "propose" && row.status === "refused" && row.reason === "not_offered").length, 3);
-});
-
-test("§151.5 per-turn cap (data, shipped 2): the third accepted propose of a turn is refused; after an accepted propose the rest of its response is held", async () => {
-	const h = harness({ env: { COC_NARRATOR_ONLY: "on" } });
-	await h.sessionStart();
-	h.state.applyOptions = { candidates: [clueRow("a"), clueRow("b"), clueRow("c")] };
-	await h.read("s1");
-	await h.project("s2", "compose", "settled");
-	const response = { response: 1 };
-	const first = await h.model("s3", "propose", { key: "apply:clue:a" }, response);
-	assert.equal(first.status, "ok");
-	// The same response goes on with a narrate: the proposed step has not run, so it is refused before it runs.
-	const behind = await h.model("s3", "output", { text: "..." }, response);
-	assert.equal(behind.status, "refused");
-	assert.equal(h.announced.at(-1).refuse_code, "propose_pending");
-	await h.project("s4", "compose", PROPOSED_REASON);
-	assert.equal((await h.model("s5", "propose", { key: "apply:clue:b" }, { response: 2 })).status, "ok");
-	await h.project("s6", "compose", PROPOSED_REASON);
-	const third = await h.model("s7", "propose", { key: "apply:clue:c" }, { response: 3 });
-	assert.equal(third.status, "refused");
-	assert.match(text(third), /limited to 2 per turn and this turn has used 2/);
-	assert.ok(h.rows.some((row) => row.event === "propose" && row.status === "refused" && row.reason === "turn_cap"));
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -381,45 +225,4 @@ test("§151.5 policy: a narrowed compose's fallen batch returns to the compose o
 	plain.compose([["apply", { effects: [] }]], [{ status: "refused", artifact: { kind: "execute", executed: { ok: false, summary: { tool: "apply" } }, fell: "apply_refused" } }]);
 	const adjudicate = plain.next();
 	assert.deepEqual([adjudicate.kind, adjudicate.purpose, adjudicate.reason], ["infer", "adjudicate", "batch_fallen"]);
-});
-
-test("§151.5 a settled run delivers prose with zero Keeper tool calls: the compose's prose finishes on the turn close, which reports it delivered", async () => {
-	const h = harness({ env: { COC_NARRATOR_ONLY: "on", COC_JEV_STEPS: "on" } });
-	await h.sessionStart();
-	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
-	await h.read("s1");
-	const note = await h.project("s2", "compose", "settled");
-	assert.deepEqual(note.catalog, ["narrate", "output", "ask", "propose"]);
-	const run = policyRun();
-	run.compose([], []);
-	const close = run.next();
-	assert.deepEqual([close.kind, close.proposals?.[0]?.operation], ["operate", "turn_close"]);
-	const closed = await h.plan.ports.operations.execute(close.proposals[0], h.invocation("s3"));
-	assert.equal(closed.delivery, "accepted");
-	run.fold({ kind: "operate", origin: "policy", status: "ok", sequence: 5, ms: 1, outcomes: [closed] });
-	assert.deepEqual([run.next().kind, run.next().outcome], ["finish", "delivered"]);
-	const residual = h.rows.find((row) => row.lane === "residual");
-	assert.deepEqual(residual.keeper_calls, { apply: 0, resolve: 0, look: 0, lookup: 0, recall: 0 });
-	assert.equal(residual.propose_calls, 0);
-	assert.equal(h.dispatches.length, 0);
-});
-
-test("§151.5 a proposed key is the policy's to run: the consequence route never executes it a second time", async () => {
-	const clearing = (batch) => {
-		const answers = {};
-		for (const question of batch.questions) answers[question.key] = { status: "answered", type: "noul", noul: batch.family === CONSEQUENCE_FAMILY ? 0.95 : 0.05 };
-		return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
-	};
-	const h = harness({ env: { COC_NARRATOR_ONLY: "on", COC_JEV_STEPS: "on" }, decide: clearing });
-	await h.sessionStart();
-	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
-	await h.read("s1");
-	// The policy's own list already took the issued clue (consumed), so the consequence route's candidate is the one offered.
-	const note = await h.project("s2", "compose", "settled", []);
-	assert.deepEqual(note.offered.map((row) => row.key), ["consequence:clue_follow_up:globe-story"]);
-	assert.equal((await h.model("s3", "propose", { key: "consequence:clue_follow_up:globe-story" })).status, "ok");
-	// A settled clerk write re-routes the listed classes; the proposed clue clears again and must not run from there.
-	const seed = { key: "apply:clue:seed", verb: "apply", family: "clue", label: "Reveal the seed clue", source: "t", bound: { kind: "clue", clue: "seed" }, unbound: [], clerk: "declared_bookkeeping" };
-	await h.clerkExecute("s4", seed);
-	assert.deepEqual(h.dispatches.map(({ operation }) => operation.args.effects[0].clue), ["seed"], "only the declared write ran; the proposed key waits for the policy");
 });

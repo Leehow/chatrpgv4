@@ -689,6 +689,24 @@ function mergeHostedCodeInterpreterInput(previousInput: string | undefined, even
 }
 
 export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamEvent, { type: 'status' }>): ChatMessage[] {
+  if(event.type==='final_delivery'){
+    const frame=event.frame,id=`coc-final:${frame.delivery_id}`;
+    if(frame.version!==1||!Number.isSafeInteger(frame.sequence))return previous;
+    if(previous.some(item=>(item.presentation?.details as {final_stream_id?:string})?.final_stream_id===frame.delivery_id))return previous;
+    if(frame.event==='start')previous=previous.map(item=>item.role==='assistant'&&item.streaming?{...item,streaming:false}:item);
+    const at=previous.findIndex(item=>item.id===id);
+    const prior=at<0?undefined:previous[at];
+    const data=prior?.presentation?.details as Record<string,any>|undefined;
+    if(data&&(data.attempt_id!==frame.attempt_id||frame.sequence<=data.sequence))return previous;
+    if(!data&&frame.event!=='start')return [...previous,{id,role:'assistant',content:'',timestamp:frame.timestamp,
+      presentation:{renderer:'coc-stream',details:{...frame,sequence:0,chunks:[],needsReplay:true}}}];
+    if(data&&frame.sequence!==data.sequence+1)return previous.map((item,index)=>index===at?{...item,presentation:{...item.presentation!,details:{...data,needsReplay:true}}}:item);
+    const details={...(data??{}),...frame,chunks:frame.delta?[...(data?.chunks??[]),frame.delta]:data?.chunks??[],
+      speakers:frame.speakers??data?.speakers??[]};
+    const next:ChatMessage={id,role:'assistant',content:'',timestamp:frame.timestamp,streaming:frame.status!=='completed'&&frame.status!=='interrupted',
+      presentation:{renderer:'coc-stream',details}};
+    return at<0?[...previous,next]:previous.map((item,index)=>index===at?next:item);
+  }
   if (event.type === 'presentation') {
     // A plain-text entry that opens an empty transcript is the session's opening narration:
     // flag it so the renderer reveals it progressively, the way a streamed turn arrives.
@@ -706,11 +724,12 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
       : Boolean(event.entry.content))
     // §171.3: a delivery takes the draft's place in the same update. Initial growth retains playback;
     // revised prose drops it, so the update appears immediately and never starts another animation (§167).
-    const replaces = event.replacesDraft
+    const finalId=(event.entry.presentation?.details as {final_stream_id?:string})?.final_stream_id;
+    const replaces = event.replacesDraft??(finalId?`coc-final:${finalId}`:undefined)
     const draftAt = replaces ? previous.findIndex(item => item.id === replaces) : -1
     const message:ChatMessage={id:event.entry.id,role:event.entry.role??'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(event.entry.providerNotice?{providerNotice:event.entry.providerNotice}:{}),...(opening?{opening:true}:{}),...(event.entry.help?{help:event.entry.help}:{})};
     const prior = at >= 0 ? previous[at] : draftAt >= 0 ? previous[draftAt] : undefined
-    const typewriter = prior ? playbackForRedraw(prior, message) : liveProse ? {} : undefined
+    const typewriter = prior?.presentation?.renderer==='coc-stream'?undefined:prior ? playbackForRedraw(prior, message) : liveProse ? {} : undefined
     if (typewriter) message.typewriter = typewriter
     if (draftAt >= 0) return at >= 0
       ? previous.filter((_, i) => i !== draftAt).map(item => item.id === entryId ? message : item)

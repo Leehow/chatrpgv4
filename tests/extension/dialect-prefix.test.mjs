@@ -124,14 +124,13 @@ const turnRecord = (workspace, turn) => JSON.parse(readFileSync(join(workspace, 
 const prefixRows = (table) => table.telemetry().filter((entry) => entry.lane === "arguments" && entry.event === "dialect_prefix_stripped").map(({ event, tool, field, prefix }) => ({ event, tool, field, prefix }));
 const floorRows = (table) => table.telemetry().filter((entry) => entry.lane === "floor").map(({ reason, path, chars }) => ({ reason, path, chars }));
 const LONG = "你在剪报室里翻了十分钟，指尖沾了灰，纸页边缘已经发黄发脆，终于找到了那篇被压下的旧闻 {{clue:globe-unpublished-story}}。";
-const realHybridTable = ({ responses }) => {
-	const engine = createHybridEngine({ env: process.env, decision: null });
-	return openTable({ realKernel: true, prepareWorkspace: turnOneClosed, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" },
-		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }], responses });
+const legacyArgumentTable = ({ responses }) => {
+	// Compatibility-only argument normalization; native Keeper prose has no embedded narrate field.
+	return openTable({realKernel:true,prepareWorkspace:turnOneClosed,responses});
 };
 
 test("§144.1: gate #23 t6's value delivers from its first real sentence, and the strip is recorded", async (t) => {
-	const table = await realHybridTable({ responses: [
+	const table = await legacyArgumentTable({ responses: [
 		fauxAssistantMessage([fauxToolCall("apply", { effects: EFFECTS, narrate: recorded("#23", 6).narrate }), fauxToolCall("output", {})], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());
@@ -150,7 +149,7 @@ test("§144.1: gate #23 t6's value delivers from its first real sentence, and th
 
 for (const label of ["text", "text thriftily-placeholder"]) {
 		test(`§144.1: empty optional embedded narration is omitted while the admitted effects land (${JSON.stringify(label)})`, async (t) => {
-		const table = await realHybridTable({ responses: [
+		const table = await legacyArgumentTable({ responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: EFFECTS, narrate: label })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("output", { text: LONG })], { stopReason: "toolUse" }),
 		] });
@@ -176,7 +175,7 @@ for (const label of ["text", "text thriftily-placeholder"]) {
 
 test("§144.1: an English narration that begins with the word 'Text' is delivered as written, with no row", async (t) => {
 	const english = "Text scrawled on the clipping's margin reads: ASK THE LANDLORD ABOUT 1880. You find the buried story at last.";
-	const table = await realHybridTable({ responses: [
+	const table = await legacyArgumentTable({ responses: [
 		fauxAssistantMessage([fauxToolCall("apply", { effects: EFFECTS, narrate: english }), fauxToolCall("output", {})], { stopReason: "toolUse" }),
 	] });
 	t.after(() => table.dispose());

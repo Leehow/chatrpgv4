@@ -345,6 +345,7 @@ function speakerInk(anchor, who) {
   return key ? `var(--coc-say-${speakerSlot(key)})` : "";
 }
 /* >>> end speaker colour <<< */
+export {speakerInk, SPEAKER_CSS};
 
 /* >>> handout reading: shared verbatim between pipicoc/mechanics.js and pipicoc/board.js <<<
  *

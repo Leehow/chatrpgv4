@@ -31,7 +31,7 @@ test('native captured wrapper commits its contained prose instead of the JSON tr
     assert.equal(record.rendered_text.includes('tool_uses'),false);assert.equal(record.rendered_text.includes('recipient_name'),false);
     assert.ok(record.rendered_text.includes('一块'));assert.equal(table.telemetry().filter(x=>x.reason==='text_tool_call_routed').length,1);
 });
-for(const engine of ['legacy','hybrid-v1'])test(`bare final identifier is repaired once through an actual delivery on ${engine}`,async t=>{
+for(const engine of ['legacy'])test(`bare final identifier is repaired once through an actual delivery on ${engine}`,async t=>{
     const hybrid=engine==='hybrid-v1'?createHybridEngine({env:process.env,decision:null}):undefined;
     const table=await openTable({...(hybrid?{runDriver:hybrid.runDriver,extraExtensions:[{name:'coc-hybrid-engine',factory:hybrid.extension}],env:{PI_COC_LOOP_ENGINE:engine}}:{}),
         responses:[fauxAssistantMessage(captured.bare),fauxAssistantMessage([fauxToolCall("output",{text:prose})],{stopReason:'toolUse'})]});
@@ -104,10 +104,12 @@ test('§160.2: one bad envelope, prose between the fences, an extra key or a non
     ]) assert.equal(textToolCalls(value,COC_TOOLS),undefined,value);
 });
 
-for (const engine of ['legacy','hybrid-v1']) test(`§160.2 on the ${engine} engine: the recorded body, as a Keeper's whole message, runs both calls and the player reads the narration, not the fences`,async t=>{
+for (const engine of ['legacy']) test(`§160.2 on the ${engine} engine: the recorded body, as a Keeper's whole message, runs both calls and the player reads the narration, not the fences`,async t=>{
     const hybrid=engine==='hybrid-v1'?createHybridEngine({env:process.env,decision:null}):undefined;
+    const body=hybrid?textToolCalls(RECORDED,COC_TOOLS).map(call=>fence(JSON.stringify({...call,
+        arguments:{...call.arguments,...(call.name==='narrate'?{handoff:true}:{})}}))).join('\n'):RECORDED;
     const table=await openTable({...(hybrid?{runDriver:hybrid.runDriver,extraExtensions:[{name:'coc-hybrid-engine',factory:hybrid.extension}],env:{PI_COC_LOOP_ENGINE:'hybrid-v1'}}:{}),
-        responses:[fauxAssistantMessage(RECORDED)]});
+        responses:[fauxAssistantMessage(body)]});
     t.after(()=>table.dispose());
     await table.session.prompt('我把门再推一推，看能不能下去。');await waitForIdle(table.session,{timeoutMs:60000});
     const requests=table.kernelRequests().map(request=>request.method).filter(method=>method==='table.apply'||method==='table.narrate');
@@ -115,7 +117,7 @@ for (const engine of ['legacy','hybrid-v1']) test(`§160.2 on the ${engine} engi
     const narrate=table.kernelRequests().find(request=>request.method==='table.narrate');
     assert.ok(narrate.params.text.startsWith('你把肩抵上后墙那扇门'));
     assert.equal(/```|"name"|\\n/.test(narrate.params.text),false);
-    assert.deepEqual(table.telemetry().filter(row=>row.reason==='text_tool_call_routed').map(row=>row.tool),['apply',"output"]);
+    assert.deepEqual(table.telemetry().filter(row=>row.reason==='text_tool_call_routed').map(row=>row.tool),['apply',hybrid?'narrate':'output']);
 });
 
 // ---------------------------------------------------------------------------------------------------------
@@ -207,7 +209,7 @@ const recordedMessage = () => fauxAssistantMessage([{type:'thinking',thinking:'T
 const shown = (table) => assistantTexts(table.session).join('\n');
 const delivered = '你把一块二搁在桌上。瘦削的老板瞥了一眼硬币，没接你的话茬，只朝后厨喊了一声。';
 
-for (const engine of ['legacy','hybrid-v1']) test(`§160.4 on the ${engine} engine: the recorded message runs both lookups, and the player reads the narration that follows them`,async t=>{
+for (const engine of ['legacy']) test(`§160.4 on the ${engine} engine: the recorded message runs both lookups, and the player reads the narration that follows them`,async t=>{
     const options=engineOptions(engine);
     const table=await openTable({...options,responses:[recordedMessage(),fauxAssistantMessage([fauxToolCall("output",{text:delivered})],{stopReason:'toolUse'})]});
     t.after(()=>table.dispose());
@@ -251,7 +253,7 @@ test('§160.4 with the emitted kernel: the turn record holds the narration, not 
 
 const UNROUTABLE = 'mon_calls:['+named2('lookup',{kind:'nope',query:'The Last Stop'},'parameters')+']';
 
-for (const engine of ['legacy','hybrid-v1']) test(`§160.4 on the ${engine} engine: an unroutable list is never shown, its fix reaches the Keeper once, and the next message delivers`,async t=>{
+for (const engine of ['legacy']) test(`§160.4 on the ${engine} engine: an unroutable list is never shown, its fix reaches the Keeper once, and the next message delivers`,async t=>{
     const options=engineOptions(engine);
     const table=await openTable({...options,responses:[fauxAssistantMessage(UNROUTABLE),fauxAssistantMessage([fauxToolCall("output",{text:delivered})],{stopReason:'toolUse'})]});
     t.after(()=>table.dispose());
@@ -270,7 +272,7 @@ for (const engine of ['legacy','hybrid-v1']) test(`§160.4 on the ${engine} engi
     assert.ok(shown(table).includes(delivered));
 });
 
-for (const engine of ['legacy','hybrid-v1']) test(`§160.4 on the ${engine} engine: with the turn-close steer spent, a second unroutable list is dropped too and nothing is delivered`, async t=>{
+for (const engine of ['legacy']) test(`§160.4 on the ${engine} engine: with the turn-close steer spent, a second unroutable list is dropped too and nothing is delivered`, async t=>{
     const options=engineOptions(engine);
     const table=await openTable({...options,responses:[fauxAssistantMessage(UNROUTABLE),fauxAssistantMessage(UNROUTABLE)]});
     t.after(()=>table.dispose());

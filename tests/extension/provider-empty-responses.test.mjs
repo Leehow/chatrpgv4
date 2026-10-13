@@ -16,6 +16,7 @@ const PROSE = 'The clock advances while you wait beside the closed office door.'
 const message = (text, refusal = false) => ({id: 'msg-controlled', type: 'message', role: 'assistant', status: 'completed',
   content: refusal ? [{type: 'refusal', refusal: text}] : [{type: 'output_text', text, annotations: []}]});
 function textEvents(shape, text = PROSE, refusal = false) {
+  if(shape==='normal'&&!text.startsWith('to='))text='{{public}}'+text;
   const item = message(text, refusal);
   const events = [{type: 'response.output_item.added', output_index: 0, item: {...item, status: 'in_progress', content: []}}];
   if (shape === 'normal') events.push({type: refusal ? 'response.refusal.delta' : 'response.output_text.delta', output_index: 0, content_index: 0, delta: text});
@@ -66,7 +67,7 @@ async function controlledTable(t, responses, options = {}) {
   table.session.modelRuntime.registerProvider('controlled-responses', {api: 'openai-responses', baseUrl: 'https://controlled.invalid/v1', apiKey: 'unused',
     models: [modelSpec], streamSimple: (model, context, options) => streamSimple(model, context, {...options,
       fetch: async () => {
-        const events = responses[requests++];
+        let events = responses[requests++];
         if (!events) throw new Error('Controlled Responses fixture exhausted');
         return sse(events);
       }})});
@@ -92,7 +93,7 @@ for (const shape of ['terminal-only', 'empty-item-done']) test(`host classifies 
   assert.equal(requests(), 2, 'the normalization failure must not buy retries or a compose repair');
   assert.equal(applies(table).length, 1, 'the earlier canonical effect executes once');
   assert.equal(table.kernelRequests().filter(row => row.method === 'table.narrate').length, 0);
-  assert.equal(runEnd(events).status, 'undelivered');
+  assert.equal(runEnd(events).status, 'failed');
   const failed = table.session.messages.findLast(row => row.role === 'assistant');
   assert.equal(failed.stopReason, 'error');
   assert.match(failed.errorMessage, /^responses_terminal_text_missing:/);
@@ -143,7 +144,7 @@ test('missing terminal remains a parser error rather than an observed empty comp
   const {table, events, requests} = await controlledTable(t, [timeEvents(), ...Array.from({length: 3}, () => textEvents('missing-terminal'))]);
   await table.session.prompt('I wait beside the office door for two minutes.');
   await waitForIdle(table.session);
-  assert.equal(runEnd(events).status, 'undelivered');
+  assert.equal(runEnd(events).status, 'failed');
   assert.equal(applies(table).length, 1);
   const summary = table.telemetry().findLast(row => row.lane === 'provider-stream-summary');
   assert.equal(summary.terminal_observed, false);
@@ -158,7 +159,7 @@ test('a missing terminal refusal is classified without logging or publishing its
   await table.session.prompt('I look along the doorway.');
   await waitForIdle(table.session);
   assert.equal(requests(), 1);
-  assert.equal(runEnd(events).status, 'undelivered');
+  assert.equal(runEnd(events).status, 'failed');
   const summary = table.telemetry().findLast(row => row.lane === 'provider-stream-summary');
   assert.equal(summary.terminal_messages.refusal_bytes, Buffer.byteLength(PROSE));
   assert.equal(summary.normalization_failure, 'responses_terminal_text_missing');
@@ -175,7 +176,7 @@ test('an inconsistent completion cannot execute its normalized tool proposals', 
   await table.session.prompt('I wait beside the office door for two minutes.');
   await waitForIdle(table.session);
   assert.equal(requests(), 1);
-  assert.equal(runEnd(events).status, 'undelivered');
+  assert.equal(runEnd(events).status, 'failed');
   assert.equal(applies(table).length, 0);
   assert.equal(table.session.messages.findLast(row => row.role === 'assistant').stopReason, 'error');
   assert.equal(table.extensionErrors.length, 0);
@@ -188,8 +189,8 @@ test('normal streamed text reaches canonical delivery once without normalization
   assert.equal(requests(), 2);
   assert.equal(runEnd(events).status, 'delivered');
   assert.equal(applies(table).length, 1);
-  assert.equal(table.kernelRequests().filter(row => row.method === 'table.reference.answer').length, 1);
-  assert.equal(table.session.messages.findLast(row => row.role === 'assistant').content.find(row => row.type === 'text').text, PROSE);
+  assert.equal(table.kernelRequests().filter(row => row.method === 'table.narrate').length, 1);
+  assert.equal(table.entries('coc-final-delivery').filter(r=>r.event==='delta').map(r=>r.delta).join(''),PROSE);
   assert.equal(table.telemetry().filter(row => row.lane === 'provider-normalization').length, 0);
 });
 
@@ -201,7 +202,7 @@ test('normally normalized Responses text tool calls survive restoration and exec
   assert.equal(applies(table).length, 1, 'the existing restoration must preserve the valid tool proposal');
   assert.equal(requests(), 2);
   assert.equal(runEnd(events).status, 'delivered');
-  assert.equal(table.kernelRequests().filter(row => row.method === 'table.reference.answer').length, 1);
+  assert.equal(table.kernelRequests().filter(row => row.method === 'table.narrate').length, 1);
   assert.equal(table.telemetry().filter(row => row.lane === 'provider-normalization').length, 0);
   assert.deepEqual(table.telemetry().filter(row => row.lane === 'model-output' && row.event === 'textual_tool_calls')
     .flatMap(row => row.restored), ['apply']);
@@ -236,7 +237,7 @@ test('production TS kernel retains the settled receipt on the stranded record wi
   await table.session.prompt('I wait beside the office door for two minutes.');
   await waitForIdle(table.session);
   assert.equal(requests(), 2);
-  assert.equal(runEnd(events).status, 'undelivered');
+  assert.equal(runEnd(events).status, 'failed');
   const cards = table.entries('coc-mechanics').filter(row => row.undelivered && row.turn === 2);
   assert.equal(cards.length, 1);
   assert.equal(cards[0].mechanics.filter(row => row.kind === 'time' && row.minutes === 2).length, 1);

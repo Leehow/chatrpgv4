@@ -397,43 +397,6 @@ test("§197.1 on the emitted kernel: the library the player named lands with its
 	assert.equal(rows.at(-1).recovered_from, rows[0].batch_key);
 });
 
-test("§197.1 on the App's run engine (hybrid-v1): the refused batch returns the run to the Keeper with the admitted effects in hand, and its exact resend lands with no second review", async (t) => {
-	// The installed App plays on the driven loop (`runtime/loop-engine.ts`: play defaults to hybrid-v1), where a Keeper batch
-	// step that falls returns the run to the Keeper (§135.5) with the run's note on the refused write (`model_refused`).
-	const LIBRARY = { kind: "move", to: "central-library" };
-	const RECORDS = { kind: "move", to: "hall-of-records", via: "顺路先去档案馆" };
-	let resent;
-	const resend = async (context) => { resent = context; return call("apply", { effects: [LIBRARY] }); };
-	const engine = createHybridEngine({ env: process.env, decision: null });
-	const table = await openTable({ realKernel: true, prepareWorkspace: turnOneClosed, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" },
-		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [call("apply", { effects: [LIBRARY, RECORDS] }), resend, ...close("你走进了中央图书馆。")],
-		laneResponses: { admission: laneByLine([[/to="hall-of-records"/, { verdict: "not_authorized", grounds: "the player named the library only",
-			missing: "a stop at the hall of records the player did not name", open_choice: "keeper_added" }], [/to="central-library"/, CHOSEN, 100]]) } });
-	t.after(() => table.dispose());
-	await table.session.prompt("我去中央图书馆查科比特宅的旧档案。");
-	await waitForIdle(table.session);
-	assert.ok(resent, "the run went back to the Keeper after the refusal");
-	// What the Keeper had in hand for its next step: the refusal's admitted effects, in the tool result it got back and in the
-	// run's note on the refused write (§197.7: every key the fix names reaches the Keeper).
-	const texts = (message) => (Array.isArray(message.content) ? message.content : []).map((block) => block?.text ?? "").join("");
-	const returned = (resent.messages ?? []).filter((message) => message.role === "toolResult" && message.toolName === "apply").map(texts);
-	assert.equal(returned.length, 1);
-	assert.match(returned[0], new RegExp(`^admitted: ${JSON.stringify([LIBRARY]).replace(/[[\]{}]/g, "\\$&")}$`, "m"), "the tool result names the admitted effect");
-	const notes = (resent.messages ?? []).filter((message) => message.role === "user").map(texts).flatMap((text) => {
-		try { return [JSON.parse(text)]; } catch { return []; }
-	}).filter((note) => note.kind === "single_loop_step" && note.model_refused);
-	assert.equal(notes.length, 1, "the run's note on the refused write");
-	assert.deepEqual(notes[0].model_refused[0].coc_error?.details?.admitted, [LIBRARY], "it carries the refusal whole, admitted effects included");
-	const [first, second] = toolResults(table.session, "apply");
-	assert.deepEqual(refusalOf(first).details.admitted, [LIBRARY]);
-	assert.equal(second.isError, false, second.text.slice(0, 400));
-	assert.ok((second.details.receipts ?? []).some((id) => String(id).startsWith("move:central-library")), JSON.stringify(second.details.receipts));
-	assert.equal(table.lanes.admission.requests().length, 2, "the resend was not reviewed again");
-	const rows = admissionRows(table);
-	assert.equal(rows.at(-1).recovered_from, rows[0].batch_key);
-});
-
 // ---- §197.4: speech is not execution, and the player's own narration is (ab81805b2 read one direction only) ----------------
 
 /** The live probe's round-3 answer for a line, as the lane would send it (its verdict fields; the grounds say where it came from). */

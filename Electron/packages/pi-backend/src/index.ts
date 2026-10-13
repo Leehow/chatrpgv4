@@ -16,6 +16,8 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
+import {FinalDeliveryHistory} from './final-delivery-history.js';
+import {projectRunProgress} from './run-progress.js';
 import { pipeline } from "node:stream/promises";
 
 import {
@@ -938,6 +940,7 @@ type Live = {
   /** Concatenated redacted `thinking_delta` for the in-flight assistant message; diffed against the final blocks at message_end. */
   streamedAssistantThinking?: string;
   streamRedactors?: { text: Map<number, StreamRedactor>; thinking: Map<number, StreamRedactor>; tool: Map<number, StreamRedactor> };
+  finalStreamRedactors?: Map<string,{redactor:StreamRedactor;sequence:number}>;
   /** Turn already projected terminal to renderers; suppresses late duplicate settle evidence. */
   terminalEpoch?: number;
   /** Exact final assistant awaiting the last real subagent terminal event. */
@@ -1565,7 +1568,16 @@ function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], languag
   current?: Record<string, unknown>, patches?: readonly CocCardPatch[], binding?:CocBinding): HistoryEntry | undefined {
   const mechanics = mechanicsEntry(entry, language, presentations, words, current, patches,binding);
   if (mechanics) return mechanics;
-  if (entry?.type === "message") return redactHistoryEntry(historyEntryFromMessage(entry), secrets);
+  if (entry?.type === "message") {
+    const projected=redactHistoryEntry(historyEntryFromMessage(entry),secrets);
+    if(projected&&binding?.mode==='play'&&(projected.role==='assistant'||projected.role==='tool')) {
+      projected.content='';delete projected.thinking;delete projected.details;delete projected.images;
+      if(projected.tools)projected.tools=projected.tools.map(tool=>({...tool,input:''}));
+      if(projected.activities)projected.activities=projected.activities.filter(item=>item.type==='tool')
+        .map(item=>({...item,tool:{...(item as any).tool,input:''}}));
+    }
+    return projected;
+  }
   if (isVisibleCustomMessage(entry)) {
     const content = text(entry.content);
     if (!content) return undefined;
@@ -1587,7 +1599,7 @@ function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], languag
     return {
       id: entry.id,
       role: "compaction",
-      content: redactText(typeof entry.summary === "string" ? entry.summary : "", secrets),
+      content: binding?.mode==='play'?'':redactText(typeof entry.summary === "string" ? entry.summary : "", secrets),
       timestamp: asTime(entry.timestamp),
     };
   }
@@ -1655,11 +1667,13 @@ function jsonlSnapshotStream(path: string, byteEnd?: number) {
 async function activeVisibleIds(path: string, byteEnd?: number): Promise<string[]> {
   if (byteEnd !== undefined && byteEnd < 0) return [];
   const ordered: ContextEntrySummary[] = [];
+  const raw=new Map<string,any>();
   const lines = createInterface({ input: jsonlSnapshotStream(path, byteEnd), crlfDelay: Infinity });
   for await (const line of lines) {
     let entry: any;
     try { entry = JSON.parse(line); } catch { continue; }
     if (entry?.type === "session" || typeof entry?.id !== "string") continue;
+    if(entry.customType==='coc-final-delivery'||entry.customType==='coc-mechanics')raw.set(entry.id,entry);
     ordered.push({
       id: entry.id,
       parentId: typeof entry.parentId === "string" ? entry.parentId : null,
@@ -1669,7 +1683,13 @@ async function activeVisibleIds(path: string, byteEnd?: number): Promise<string[
         || entry.type === "compaction",
     });
   }
-  return visibleIdsFromFileOrder(ordered);
+  const branch=leafBranchFromFileOrder(ordered),streams=new FinalDeliveryHistory(),seen=new Set<string>();
+  for(const entry of branch)streams.accept(raw.get(entry.id));
+  return branch.flatMap(entry=>{
+    const row=raw.get(entry.id),id=row?.customType==='coc-final-delivery'?row.data?.delivery_id:undefined;
+    if(typeof id==='string'&&streams.entry(id)&&!seen.has(id)){seen.add(id);return [`coc-final:${id}`];}
+    return entry.visible?[entry.id]:[];
+  });
 }
 
 function historyPage(entries: HistoryEntry[], before: number | string, limit: number): HistoryEntry[] {
@@ -1727,6 +1747,7 @@ async function readHistoryFallback(
   // ledger first and the page is drawn after, the same card a live redraw would have drawn.
   const cocCards = new CocCardLedger(cocBinding?.campaign);
   const wantedRows: any[] = [];
+  const finalStreams=new FinalDeliveryHistory();
   for await (const line of lines) {
     let entry: any;
     try {
@@ -1735,6 +1756,7 @@ async function readHistoryFallback(
       continue;
     }
     cocCards.note(entry);
+    finalStreams.accept(entry);
     if (wanted.has(entry?.id)) wantedRows.push(entry);
   }
   for (const entry of wantedRows) {
@@ -1744,6 +1766,15 @@ async function readHistoryFallback(
     const sentAt = mapped.role === "user" && entry?.type === "message" ? sentTimes.get(entry.message?.timestamp) : undefined;
     if (sentAt !== undefined) mapped.sentAt = sentAt;
     mappedById.set(mapped.id, mapped);
+  }
+  for(const id of pageIds)if(id.startsWith('coc-final:')){
+    const entry=finalStreams.entry(id.slice('coc-final:'.length));
+    if(entry){
+      const secrets=vaultDir&&sessionId?revealRedactionSecrets(vaultDir,sessionId):[];
+      const details=entry.presentation!.details as {chunks:string[]};
+      if(secrets.length)details.chunks=[redactText(details.chunks.join(''),secrets)];
+      mappedById.set(id,entry);
+    }
   }
   return pageIds.flatMap(id => {
     const entry = mappedById.get(id);
@@ -6665,7 +6696,28 @@ export class PiHostBackend implements HostBackend {
     // the lifecycle identity it was born under; absence or mismatch rejects
     // every late event before it can touch queue, telemetry, or projections.
     if (!this.sessionRuntimeTokenIsCurrent(live.session.id, live.runtimeToken)) return;
+    const privatePlay=this.cocSessionBindings.get(live.session.id)?.mode==='play';
     if (e.type === "entry_appended") {
+      const progress=projectRunProgress(e.entry);
+      if(progress&&this.cocSessionBindings.has(live.session.id))
+        this.stream({type:'run_progress',sessionId:live.session.id,progress},e.entry);
+      if(e.entry?.customType==='coc-final-delivery'){
+        let frame=e.entry.data;
+        const binding=this.cocSessionBindings.get(live.session.id);
+        if(frame?.version===1&&frame.campaign===binding?.campaign&&Number.isSafeInteger(frame.sequence)){
+          const redactors=live.finalStreamRedactors??=new Map();
+          if(frame.event==='start'&&!redactors.has(frame.delivery_id))redactors.set(frame.delivery_id,{redactor:new StreamRedactor(this.sessionSecrets(live.session.id)),sequence:0});
+          const state=redactors.get(frame.delivery_id);
+          if(state&&frame.sequence<=state.sequence)return;
+          if(state&&frame.sequence===state.sequence+1){
+            state.sequence=frame.sequence;
+            if(frame.event==='delta')frame={...frame,delta:state.redactor.push(frame.delta??'')};
+            if(frame.event==='end'){frame={...frame,delta:state.redactor.flush()};redactors.delete(frame.delivery_id);}
+          }else if(frame.delta)frame={...frame,delta:''};
+          this.stream({type:'final_delivery',sessionId:live.session.id,frame},e.entry);
+        }
+        return;
+      }
       if (e.entry?.customType === "coc-delivery") this.cocWatchdogPresentationOffsets.delete(live.path);
       if(e.entry?.customType==='coc-setup-exit')live.cocSetupHandoffPending=true;
       // §171.1: setup hands off to play inside the same child, recording a new `coc-session` row; the binding read at
@@ -7006,7 +7058,7 @@ export class PiHostBackend implements HostBackend {
         bag.set(index, created);
         return created;
       };
-      if (d.type === "text_delta") {
+      if (d.type === "text_delta" && !privatePlay) {
         const delta = redactor("text", d.contentIndex ?? 0).push(d.delta ?? "");
         live.streamedAssistantText = (live.streamedAssistantText ?? "") + delta;
         this.stream({
@@ -7017,7 +7069,7 @@ export class PiHostBackend implements HostBackend {
           delta,
         });
       }
-      if (d.type === "thinking_delta") {
+      if (d.type === "thinking_delta" && !privatePlay) {
         const delta = redactor("thinking", d.contentIndex ?? 0).push(d.delta ?? "");
         live.streamedAssistantThinking = (live.streamedAssistantThinking ?? "") + delta;
         // Thinking arriving is the only evidence that the dial was ever consulted. A route
@@ -7043,7 +7095,7 @@ export class PiHostBackend implements HostBackend {
         const index = d.contentIndex ?? 0;
         if (!live.toolArgs.has(index)) live.toolArgs.set(index, "");
         // §171.1: Pi's start event names the tool (`toolName`); a delivering one is drawn as it streams.
-        this.liveProseFor(live)?.start(index, d.toolName);
+        if(!privatePlay)this.liveProseFor(live)?.start(index, d.toolName);
         this.stream({
           type: "tool_call",
           sessionId: id,
@@ -7055,9 +7107,9 @@ export class PiHostBackend implements HostBackend {
         });
       } else if (d.type === "toolcall_delta") {
         const index = d.contentIndex ?? 0;
-        const delta = redactor("tool", index).push(d.delta ?? "");
+        const delta = privatePlay?'':redactor("tool", index).push(d.delta ?? "");
         live.toolArgs.set(index, (live.toolArgs.get(index) ?? "") + delta);
-        this.drawLiveProse(live, live.liveProse?.update(index, live.toolArgs.get(index) ?? ""));
+        if(!privatePlay)this.drawLiveProse(live, live.liveProse?.update(index, live.toolArgs.get(index) ?? ""));
         this.stream({
           type: "tool_call",
           sessionId: id,
@@ -7081,7 +7133,7 @@ export class PiHostBackend implements HostBackend {
               ? redactText(call.arguments, secrets)
               : buffered;
         // §171.2: the finished arguments settle the draft at once, before the tool runs and its delivery replaces it.
-        this.drawLiveProse(live, live.liveProse?.end(index, call.arguments ?? buffered), true);
+        if(!privatePlay)this.drawLiveProse(live, live.liveProse?.end(index, call.arguments ?? buffered), true);
         this.stream({
           type: "tool_call",
           sessionId: id,
@@ -7089,10 +7141,10 @@ export class PiHostBackend implements HostBackend {
           segment: live.messageEpoch,
           toolCallId: call.id ?? `content-${index}`,
           name: call.name ?? "tool",
-          delta: args,
+          delta: privatePlay?'':args,
         });
       }
-      if (isHostedAssistantEvent(d)) {
+      if (!privatePlay && isHostedAssistantEvent(d)) {
         for (const event of projectHostedAssistantEvent(id, d, live.messageEpoch)) {
           this.stream(event);
         }
@@ -7129,7 +7181,7 @@ export class PiHostBackend implements HostBackend {
           }
         });
         live.streamRedactors?.thinking.clear();
-        const fullText = redactText(assistantVisibleText(endedMessage.content), secrets);
+        const fullText = privatePlay?'':redactText(assistantVisibleText(endedMessage.content), secrets);
         const already = (live.streamedAssistantText ?? "") + flushed;
         if (already && !fullText.startsWith(already)) {
           this.stream({type:"text", sessionId:id, contentIndex:0, segment:endingEpoch, delta:fullText, replace:true});
@@ -7158,7 +7210,7 @@ export class PiHostBackend implements HostBackend {
         // thinking_delta (kimi k3 silent thinking) left the live turn without its
         // thinking card until a history reload. Diff the final blocks the same way;
         // redacted blocks read "[Reasoning redacted]", matching history rendering.
-        const thinkingBlocks = (Array.isArray(endedMessage.content) ? (endedMessage.content as { type?: string; thinking?: string; index?: number }[]) : [])
+        const thinkingBlocks = (!privatePlay&&Array.isArray(endedMessage.content) ? (endedMessage.content as { type?: string; thinking?: string; index?: number }[]) : [])
           .map((part, contentIndex) =>
             part?.type === "thinking"
               ? { index: typeof part.index === "number" ? part.index : contentIndex, text: part.thinking ?? "" }
@@ -7278,10 +7330,10 @@ export class PiHostBackend implements HostBackend {
         type: "tool_result",
         sessionId: id,
         toolCallId: e.toolCallId,
-        content: resultText,
-        images: images.length > 0 ? images : undefined,
+        content: privatePlay?'':resultText,
+        images: !privatePlay&&images.length > 0 ? images : undefined,
         isError: e.isError,
-        ...toolResultDetailsField(e.result),
+        ...(!privatePlay?toolResultDetailsField(e.result):{}),
       });
       // A successful `context_manage` fold (deterministic message rewrite, no
       // summarizer) is a fold, not a compaction: pi emits no compaction

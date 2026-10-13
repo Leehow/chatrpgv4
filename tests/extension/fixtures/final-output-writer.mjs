@@ -13,8 +13,9 @@ const badOnce=process.env.PI_COC_TEST_BAD_ONCE==='1'&&!existsSync('fixture-once'
 if(badOnce)writeFileSync('fixture-once','attempted');
 const bad=process.env.PI_COC_TEST_BAD_COVERAGE==='1'||badOnce;
 writeFileSync('draft.json', JSON.stringify({version: 1, text, coverage: [{name: bad?'unissued material':material.name, quote: text}]}));
-if(!bad) {
+if(!bad&&packet.commands?.check) {
   const checked=spawnSync(packet.commands.check,{shell:true,encoding:'utf8'});
   if(checked.status!==0)throw Error(checked.stderr);
 }
-process.stdout.write(JSON.stringify({type: 'message_end', message: {role: 'assistant', provider: 'grok-build', model: 'grok-4.5', stopReason: 'stop', content: []}}) + '\n');
+process.stdout.write(JSON.stringify({type: 'message_end', message: {role: 'assistant', provider: 'grok-build', model: 'grok-4.5', stopReason: 'stop',
+  content:packet.commands?.check?[]:[{type:'text',text:readFileSync('draft.json','utf8')}]}}) + '\n');

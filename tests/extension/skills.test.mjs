@@ -46,9 +46,9 @@ test("draft projection validates shape, preserves exactly three semantic cards, 
 		assert.equal(spec.parameters.properties.run_id, undefined);
 	}
 	const prompt = readFileSync(new URL("../../prompts/keeper.md", import.meta.url), "utf8");
-	assert.match(prompt, /nine kernel sections/);
+	assert.match(prompt, /Host capability suggestions are optional/);
 	assert.match(prompt, /ignoring them creates no debt/);
-	assert.match(prompt, /Never mention skills in player text/);
+	assert.match(prompt, /their names do not belong in player prose/);
 });
 
 for (const enabled of [undefined, "0", "true", "1"]) {

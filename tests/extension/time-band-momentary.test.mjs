@@ -1,3 +1,4 @@
+// Controller-only cases retired with single-keeper-streaming-turns; retained cases exercise current shared utilities.
 /**
  * The `momentary` time-cost row (contract §138.10.1; coordinator decision 2026-10-04, option a of the environment
  * acceptance's turn-4 finding).
@@ -70,41 +71,3 @@ function issuedChoice(question, value, confidence = 0.9) {
 }
 const choice = ([value, confidence], question) => issuedChoice(question, value, confidence);
 const complete = (out) => ({ batchId: "b", status: "complete", answers: out, issues: [], coverage: { required: Object.keys(out), answered: Object.keys(out), unknown: [] } });
-
-test("§138.10.1 through the hybrid engine: the band question offers momentary among the kernel's rows, and naming it charges 0 or 1 minute", async (t) => {
-	const bands = [];
-	let workspace;
-	const decide = async (batch) => {
-		if (batch.family === BIND_FAMILY) {
-			bands.push(batch);
-			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice(baseQuestion(question).key === "band" ? ["momentary", 0.9] : ["unknown", 0.9], question)])));
-		}
-		if (batch.family === COMPILE_FAMILY || batch.family === REASK_FAMILY)
-			return complete(Object.fromEntries(batch.questions.map((question) => [question.key, choice([Object.hasOwn(question.criteria, "no") ? "no" : UNCLEAR, 0.9], question)])));
-		const candidates = batch.state?.candidates ?? {};
-		return complete(Object.fromEntries(batch.questions.map((question) => {
-			if (question.key === "exit") return [question.key, choice(["finish", 0.9], question)];
-			const index = baseQuestion(question).key.slice("need_".length), candidate = candidates[`candidate_${index}`];
-			// The time candidate is asked by its own fact (§138.10): the declaration costs table time.
-			if (batch.family === ROUTE_FAMILY && Object.hasOwn(question.criteria, "costs")) return [question.key, choice(["costs", 0.9], question)];
-			const keys = Object.keys(question.criteria);
-			return [question.key, choice([keys[0] === "now" ? "later" : question.criteria.seeks ? "not" : keys.includes("unknown") ? "unknown" : keys[0], 0.9], question)];
-		})));
-	};
-	const engine = createHybridEngine({ env: process.env, decision: { decide } });
-	const table = await openTable({ realKernel: true, prepareWorkspace: (at) => { workspace = at; kernelRun(at, [["table.open"],
-		["table.player_input", { text: "我听他说完。" }], ["table.narrate", { call_id: "t1-c1", text: "诺特把委托说了一遍。" }]].map(([method, params = {}]) => [method, { ...params, campaign: "test-camp" }])); },
-		env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "你在街边站了一会儿，只听见远处的车声。" })], { stopReason: "toolUse" })] });
-	t.after(() => table.dispose());
-	await table.session.prompt(INPUT);
-
-	const band = bands.flatMap((batch) => batch.questions).find((question) => question.key === "band");
-	assert.ok(band, "the clerk's band question was asked");
-	assert.ok(Object.hasOwn(band.criteria, "momentary") && Object.hasOwn(band.criteria, "quick_observation"), "momentary is one of the kernel's rows, beside the others");
-	const record = JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/turns/0002.json"), "utf8"));
-	const time = record.receipts.filter((receipt) => receipt.kind === "time");
-	assert.equal(time.length, 1, "time is charged once");
-	assert.deepEqual([time[0].basis, time[0].band, time[0].band_roll?.min, time[0].band_roll?.max], ["banded", "momentary", 0, 1]);
-	assert.ok([0, 1].includes(time[0].minutes), `0 or 1 whole minute, not 30 seconds: ${time[0].minutes}`);
-});

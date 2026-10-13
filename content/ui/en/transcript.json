@@ -2,5 +2,10 @@
   "loading": "Loading the mechanics panel…",
   "keeper_working": "The Keeper is working…",
   "provider_recovered": "Connection restored. Automatic retry succeeded and the reply is complete.",
-  "provider_failed": "The model request failed. The reply could not be completed."
+  "provider_failed": "The model request failed. The reply could not be completed.",
+  "reading_context": "Reading the scene and relevant records…",
+  "checking_action": "Checking the declared action and applicable rules…",
+  "settling_action": "Resolving the action and recording its consequences…",
+  "preparing_reply": "Preparing the Keeper's response…",
+  "writing_reply": "Writing the response…"
 }

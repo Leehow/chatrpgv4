@@ -80,12 +80,12 @@ test('a direct OOC answer never starts the final writer or changes fictional sta
   let world;
   const table = await openTable({legacyDeliveryFixtures:false,realKernel:true,env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},runDriver:engine.runDriver,
     extraExtensions:[{name:'scope-engine',factory:engine.extension}],prepareWorkspace:workspace=>{seedOpening(workspace);world=readFileSync(join(workspace,'.coc/campaigns/test-camp/world.json'),'utf8');},
-    responses:[fauxAssistantMessage(answer)]});
+    responses:[fauxAssistantMessage('{{reference}}'+answer)]});
   t.after(()=>table.dispose());
   await table.session.prompt('Pause the fiction. Explain bonus dice to me as the player.');
   assert.deepEqual(table.extensionErrors,[]);
   assert.equal(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8'),world);
-  assert.ok(table.session.messages.some(m=>m.role==='assistant'&&m.content?.some(c=>c.type==='text'&&c.text===answer)));
+  assert.equal(table.entries('coc-final-delivery').filter(r=>r.event==='delta').map(r=>r.delta).join(''),answer);
   assert.equal(customMessages(table.session,'coc-delivery').filter(m=>m.display===true&&m.content===answer).length,0,
     'the direct answer is not repeated by the pending story-delivery backstop');
   assert.equal(table.telemetry().filter(row=>row.lane==='final-output').length,0);
@@ -103,11 +103,11 @@ test('an ordinary direct answer stays visible when optional Jev is unconfigured'
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,
     prepareWorkspace:workspace=>{seedOpening(workspace);world=readFileSync(join(workspace,'.coc/campaigns/test-camp/world.json'),'utf8');},
     env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},runDriver:engine.runDriver,extraExtensions:[{name:'unconfigured-scope',factory:engine.extension}],
-    responses:[fauxAssistantMessage(answer)]});
+    responses:[fauxAssistantMessage('{{reference}}'+answer)]});
   t.after(()=>table.dispose());
   await table.session.prompt('Pause the game. Explain when hearing calls for a check.');
   assert.deepEqual(table.extensionErrors,[]);
-  assert.ok(table.session.messages.some(m=>m.role==='assistant'&&m.content?.some(c=>c.type==='text'&&c.text===answer)));
+  assert.equal(table.entries('coc-final-delivery').filter(r=>r.event==='delta').map(r=>r.delta).join(''),answer);
   assert.equal(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/world.json'),'utf8'),world);
   assert.equal(table.telemetry().filter(row=>row.lane==='final-output').length,0);
   const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
@@ -153,7 +153,7 @@ test('an OOC explanation preserves an already pending choice for the next player
   const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision,npcAct:null});
   const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:workspace=>seedOpening(workspace,true),
     env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},runDriver:engine.runDriver,extraExtensions:[{name:'scope-engine',factory:engine.extension}],
-    responses:[fauxAssistantMessage('Pushing attempts the task again and carries greater consequences on failure. You have not chosen yet.')]});
+    responses:[fauxAssistantMessage('{{reference}}Pushing attempts the task again and carries greater consequences on failure. You have not chosen yet.')]});
   t.after(()=>table.dispose());
   const bridge=table.runtimeBridges().at(-1);
   const before=await bridge.call('table.status',{campaign:'test-camp'});
@@ -196,33 +196,21 @@ test('a failed Git commit retries the exact accepted artifact without another wr
   assert.ok(record.commit);
   assert.equal(table.telemetry().filter(r=>r.lane==='final-output'&&r.event==='start').length,1);
 });
-
-test('mixed input displays the framed OOC reply separately from the selected story artifact', async t => {
-  let visibilityRemembered=false;
-  const decision={async decide(batch){return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(q=>q.type==='noul'
-    ?[q.key,{status:'answered',type:'noul',noul:['system_request','world_action'].includes(q.key)?.99:.01}]
-    :[q.key,{status:'answered',type:'choice',choice:'finish',confidence:1,probabilities:{finish:1}}])),{inputTokens:1,outputTokens:1,costUsd:0});}};
-  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision,npcAct:null});
-  const explanation='Bonus dice change which tens digit is selected.';
-  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,env:{PI_COC_LOOP_ENGINE:'hybrid-v1',
-    PI_COC_READER_CMD:JSON.stringify([process.execPath,join(root,'tests/extension/fixtures/final-output-writer.mjs')])},
-    runDriver:engine.runDriver,extraExtensions:[{name:'scope-engine',factory:engine.extension}],
-    responses:[fauxAssistantMessage([{type:'text',text:`{{ooc}}${explanation}{{/ooc}}`},fauxToolCall('narrate',{delivery:plan})],{stopReason:'toolUse'}),context=>{
-      visibilityRemembered=context.messages.some(message=>(typeof message.content==='string'?message.content:JSON.stringify(message.content)).includes('already queued for display'));
-      return fauxAssistantMessage([fauxToolCall('output',{})],{stopReason:'toolUse'});
-    }]});
-  t.after(()=>table.dispose());
-  await table.session.prompt('Explain bonus dice to me, then I look around without touching anything.');
-  assert.deepEqual(table.extensionErrors,[]);
-  assert.equal(table.session.messages.filter(m=>m.customType==='coc-delivery'&&m.details?.reference_reply&&m.content===explanation).length,1);
-  assert.equal(visibilityRemembered,true,'the next Keeper step knows the direct reply is queued for display');
-  assert.ok(!table.session.messages.some(m=>m.role==='assistant'&&m.content?.some(c=>c.type==='text'&&c.text===explanation)));
-  const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
-  assert.equal(record.rendered_text,'The room is chilly.');
-  assert.ok(!record.text.includes(explanation));
-  assert.ok(!JSON.stringify(record.delivery_evidence).includes('already queued for display'),'private reply status is never writer material');
-  assert.equal(table.telemetry().filter(r=>r.lane==='final-output'&&r.event==='start').length,1);
+test('mixed input keeps the OOC explanation separate from native Keeper prose',async t=>{
+ const engine=createHybridEngine({env:process.env,decision:null});
+ const explanation='Bonus dice change which tens digit is selected.';
+ const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
+  runDriver:engine.runDriver,env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},extraExtensions:[{name:'driver',factory:engine.extension}],
+  responses:[fauxAssistantMessage([{type:'text',text:'{{ooc}}'+explanation+'{{/ooc}}'},fauxToolCall('look',{focus:'scene'})],{stopReason:'toolUse'}),
+   fauxAssistantMessage('{{public}}The room is chilly.')]});t.after(()=>table.dispose());
+ await table.session.prompt('Explain bonus dice, then I look around.');
+ assert.deepEqual(table.extensionErrors,[]);
+ assert.equal(table.session.messages.filter(m=>m.customType==='coc-delivery'&&m.details?.reference_reply&&m.content===explanation).length,1);
+ const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+ assert.equal(record.rendered_text,'The room is chilly.');assert.ok(!record.text.includes(explanation));
+ assert.equal(table.telemetry().filter(r=>r.lane==='final-output'&&r.event==='start').length,0);
 });
+
 
 test('an issued public transcript source is materialized without the Keeper retyping its text', async t => {
   let observed;
@@ -330,4 +318,18 @@ test('Keeper continuity receipts remain canonical but never enter the player aut
   const record=JSON.parse(readFileSync(path,'utf8'));
   assert.equal(record.rendered_text,'The room is chilly.');
   assert.ok(record.receipts.some(r=>r.kind==='note'),'private continuity remains in canonical state');
+});
+
+test('material checking refuses changed canonical speech before accepting a final handoff',async()=>{
+  const binding={campaign:'c',turn:1,worldline:'main',loop:0,task_world_revision:'world',task_source_revision:'source'};
+  const canonical={name:'speech-source',text:'The key is yours.',kind:'speech',visibility:'player',revision:'revision',event_material:'speech-source',speaker:'Clerk',audience:['Investigator']};
+  let accepted=0;
+  const owner=createFinalOutputOwner({runtime:()=>({home:'/unused'}),call:async method=>method==='table.capsule'?{_context:binding,present:[]}
+    :method==='table.status'?{outcome:{version:1,public_materials:[canonical]}}:{},record:async()=>{accepted++;}});
+  const utterance={speaker:'Clerk',audience:['Investigator'],meaning:canonical.text,source:canonical.name};
+  for(const change of [{meaning:'The key is not yours.'},{speaker:'Someone else'},{audience:['Bystander']}])
+    await assert.rejects(owner.check('c',1,{version:1,utterances:[{...utterance,...change}]}),/canonical speech reference/);
+  assert.equal(accepted,0);
+  await owner.check('c',1,{version:1,utterances:[utterance]});
+  assert.equal(accepted,1);
 });

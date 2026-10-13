@@ -21,6 +21,10 @@ import { SENTENCE_MAX } from "./tools.ts";
 
 export const LEAN_APPLY_ENV = "PI_COC_LEAN_APPLY";
 
+export function finalDeliveryAction(env:Readonly<Record<string,string|undefined>>=process.env):string {
+  return env.PI_COC_LOOP_ENGINE==='hybrid-v1'?'return your public response beginning with {{public}}':'select output';
+}
+
 /**
  * Whether this process runs with lean `apply` arguments. On by default since 2026-09-29 (user: merge
  * to the mainline, on by default): only an explicit `0` turns it off, kept as the operator's escape hatch.
@@ -46,6 +50,8 @@ export const LEAN_FIELD_DESCRIPTIONS: Readonly<Record<string, Readonly<Record<st
 	},
 	npc: {
 		why: sentence("required with activity, defense, action or disposition (an activity change is refused without its cause, §208.1); keep it with stance, skill, conditions, dead, walk_on or intent_outcome abandoned (you and their own next act read it back); leave it out when the effect only moves them (to), reports a done result or writes a mood (the line is its own reason)"),
+    intends: 'A real future undertaking with outcome planned, or a completed nonmechanical act with outcome done when intention tracking is useful. Reuse an existing intention\'s exact text here to update it without copying a hashed reference. Ordinary dialogue needs no intention. Do not add attempted and done rows solely to narrate a routine completed act.',
+		outcome: 'planned has not begun; attempted is genuinely under way; done, failed and abandoned are settled outcomes. Use only the state that actually holds now.',
 	},
 	object: {
 		definition: "Accepted definition name when first placing the instance; leave it out when it is the same as name (the kernel reads name)",
@@ -120,5 +126,26 @@ export function leanTools(tools: readonly CocToolSpec[]): readonly CocToolSpec[]
 
 /** The tools this process offers the Keeper. */
 export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record<string, string | undefined>> = process.env): readonly CocToolSpec[] {
-	return leanApplyEnabled(env) ? leanTools(tools) : tools;
+	const current=env.PI_COC_LOOP_ENGINE==='hybrid-v1'?tools.filter(tool=>!['output','narrate'].includes(tool.name)).map(spec=>{
+    if(!['apply','ask'].includes(spec.name))return spec;
+    const parameters=cloneSchema(spec.parameters) as Record<string,any>;
+    for(const field of ['delivery','narrate','handoff','quotes'])delete parameters.properties[field];
+    if(spec.name==='apply')for(const variant of parameters.properties.effects.items.anyOf){
+      const kind=variantKind(variant),fields=variant.properties;
+      if(kind==='npc'){
+        fields.mood.description='Optional changed emotional state, one short line in play_language. Record it when useful for later play; ordinary speech does not require a mood write. This variant stands alone in an NPC effect.';
+        fields.intends.description=LEAN_FIELD_DESCRIPTIONS.npc.intends;
+        fields.outcome.description=LEAN_FIELD_DESCRIPTIONS.npc.outcome;
+      }
+      if(kind==='person')fields.name.description='The established public name or distinctive epithet this table uses for an NPC, in play_language. Record a new name when the fiction establishes it; reuse existing names. An investigator keeps the player-selected name. Unrevealed identities stay private.';
+      if(kind==='ending')fields.summary.description='The ending reached. Read source rewards and resolve development:end-session first. An already-accounted legacy correction retains the original summary, turn and rewards. Final publication commits this effect.';
+    }
+    return {...spec,parameters,description:spec.name==='apply'
+      ?'Apply authoritative world changes and canonical event records. Include only actual changes; future NPC intentions use planned. Effects and event use the existing schema. This tool never writes or publishes prose. After reading its result, write your own final reply beginning with {{public}}. '
+        +INTENT_APPLY_NOTE
+      :'Publish a required mechanical choice using its issued options and binding. Ordinary dialogue belongs in the final {{public}} reply. Use text only for an optional public preface; no other author is called.'};
+  }):tools;
+	return leanApplyEnabled(env) ? leanTools(current) : current;
 }
+
+const INTENT_APPLY_NOTE='Record actor-specific knowledge and directed relationships separately. Heard knowledge must name its actual source and audience; bind prospective speech to its event material so it activates only after delivery. Empty effects are valid when recording a meaningful event. Never repeat a settled effect.';

@@ -92,11 +92,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let providerSequence=0,pendingProvider:{requestId:string;prepared?:Row;outgoingDigest:string}|undefined;
     // Contract §135.6: on the single-loop engine the run's own read step is the prescreen. It announces itself, and
     // hands over the packet it prepared for the current turn; this hook then injects that packet and runs none of its own.
-    let runOwnsPrescreen=false,runPrescreen:{campaign:string;turn:number;message:Row}|undefined;
+    let runOwnsPrescreen=false,singleKeeper=false,runPrescreen:{campaign:string;turn:number;message:Row}|undefined;
     // Contract §135.23: the turn's first capsule and first run packet, as the first request of the input sent them.
     // §184.2: `sent` is that capsule as the Keeper is sent it (stable sections first); `capsule` keeps the kernel's own copy.
     let turnMaterial:{epoch:string;capsule:Row;sent:Row;packet?:Row}|undefined;
-    pi.events.on('coc:loop-engine',value=>{runOwnsPrescreen=object(value).prescreen==='run';});
+    pi.events.on('coc:loop-engine',value=>{runOwnsPrescreen=object(value).prescreen==='run';singleKeeper=object(value).singleKeeper===true;});
     pi.events.on('coc:run-prescreen',value=>{const packet=object(value);
         runPrescreen=typeof packet.campaign==='string'&&Number.isSafeInteger(packet.turn)&&packet.message?{campaign:packet.campaign,turn:packet.turn,message:object(packet.message)}:undefined;});
     let sessionEnv={...process.env},sharedAdapter:DecisionPort|undefined,sharedBudget:ReturnType<typeof preparationBudget>|undefined;
@@ -118,11 +118,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         record({lane:'prescreen',owner:'keeper-preparation',event:'allowance_started',allowance_ms:readJevPreselectAllowanceMs(sessionEnv),
             effective_ms:Math.max(0,prescreenDeadlineAt-Date.now())});
     };
-    const expression=createExpressionPreparation({read:async(method,params)=>call?call(method,params):undefined,decision,record});
+    const expression=createExpressionPreparation({read:async(method,params)=>call?call(method,params):undefined,decision:()=>singleKeeper?undefined:decision(),record});
     let pendingExpression:Row|undefined;
     // Contract §183.5: the indexed packages' sections this turn needs; the calls so far this turn are what triggers read.
-    const modSections=createModSections({read:async(method,params)=>call?call(method,params):undefined,decision,record});
-    const discoveryMode=()=>['selective','shadow'].includes(sessionEnv.COC_TURN_DISCOVERY??'')?sessionEnv.COC_TURN_DISCOVERY!:'full';
+    const modSections=createModSections({read:async(method,params)=>call?call(method,params):undefined,decision:()=>singleKeeper?undefined:decision(),record});
+    const discoveryMode=()=>singleKeeper?'full':['selective','shadow'].includes(sessionEnv.COC_TURN_DISCOVERY??'')?sessionEnv.COC_TURN_DISCOVERY!:'full';
     // Both discovery stages reserve from the same preparation owner and its foreground parent.
     // A missing owner is a full-view fallback, never an independent provider allowance.
     const visibilityMode=()=>fallbackForInput?'full':discoveryMode();
@@ -347,6 +347,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         await observeResult(event);
         return attached;
     });
+    pi.events.on('coc:final-delivery',(frame:any)=>{
+        if(frame?.event==='end'&&frame.status==='completed'){inputLifetime.abort();expression.reset();}
+    });
     const observeResult=async(event:ToolResultEvent)=>{
         const read = reads.get(event.toolCallId); reads.delete(event.toolCallId);
         let captured = false;
@@ -364,7 +367,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (event.toolName === 'resolve' && !event.isError) noteCall(turnCalls, 'resolve', object(event.input), object(event.details));
         const stateChanged = stateCalls.delete(event.toolCallId);
         const sourceChanged = sourceCalls.delete(event.toolCallId);
-        const deliveredTurn=stateChanged&&(['narrate','ask'].includes(event.toolName)||object(event.details).narrate_in_apply===true);
+        const deliveredTurn=stateChanged&&!event.isError&&object(event.details).checked!==true
+            &&(['narrate','ask','output'].includes(event.toolName)||object(event.details).narrate_in_apply===true);
         if(deliveredTurn){inputLifetime.abort();expression.reset();}
         // A failed transport can hide a committed mutation. Re-read the actual kernel state;
         // never infer arrival or settlement from the requested effect or an error flag.
@@ -855,7 +859,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // Contract §183.5: package sections this turn needs, at the end; nothing on a table whose instructions all go whole.
         pendingSections=undefined;
         pendingTemporal=undefined;
-        const temporalWork=temporalAdvice.message(snapshot.capsule,snapshot.binding,preparationSignal,requestMessages as unknown as Row[]);
+        const temporalWork=singleKeeper?Promise.resolve(undefined):temporalAdvice.message(snapshot.capsule,snapshot.binding,preparationSignal,requestMessages as unknown as Row[]);
         modSections.observe(snapshot.capsule,snapshot.binding,inputLifetime.signal);
         await modSections.waitForFirst(preparationSignal);
         if(ticket!==generation||preparationSignal.aborted)return superseded();

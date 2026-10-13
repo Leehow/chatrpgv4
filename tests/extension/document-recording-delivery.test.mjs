@@ -1,3 +1,4 @@
+// Controller-only cases retired with single-keeper-streaming-turns; retained cases exercise current shared utilities.
 /**
  * Contract §200 (docs/specs/document-recording-delivery.md): a recording the host could not bind never blocks the turn's
  * delivery; §200.6: an input the host has ended runs nothing more.
@@ -180,127 +181,6 @@ const outcomeRows = (table) => table.telemetry().filter((row) => row.lane === "r
 const unfinishedNotices = (table) => customMessages(table.session, "coc-delivery").filter((message) => message.details?.turn_unfinished);
 const steers = (table) => table.telemetry().filter((row) => row.lane === "turn" && row.event === "turn_close" && row.status === "steer");
 
-test("§200.3, turn 8 calls with an unresolved carrier: the binding fails twice, the first narrate is delivered, and none of the ten later calls is asked", async (t) => {
-	const { table, asked, keeperCalls } = await turn8(t, { calls: TURN8.calls.map(toolCall), outcome: () => TURN8.jev.outcome_probability });
-	assert.equal(keeperCalls(), 3, "two appends and the first narrate; the run ends on that delivery");
-	const applies = refusals(table, "apply");
-	assert.deepEqual(applies.map((error) => [error.details?.reason, error.details?.cause]),
-		[["document_binding_unresolved", "no_target"], ["document_binding_unresolved", "no_target"]]);
-	// §200.5: the refusal names what happened, and its fix sends the batch's other effects back without the addition.
-	assert.ok(applies.every((error) => !/unambiguous/.test(error.message)), JSON.stringify(applies.map((error) => error.message)));
-	assert.equal(asked.binding.length, 2, "one binding question per append, no execution question after a refused content");
-	assert.equal(asked.outcome.length, 1, "the guard asks once");
-	assert.deepEqual(outcomeRows(table), [["unclear", "outcome_uncertain", 0.12]]);
-	assert.deepEqual(refusals(table, "output"), [], "no narrate is refused");
-	assert.deepEqual(unfinishedNotices(table), [], "the player is never told the turn ended without a result");
-	assert.equal(table.telemetry().filter((row) => row.event === "input_ended").length, 0);
-	// §200.4 writer: the delivery carries the recording to the turn record, with its reason.
-	const record = turnRecord(table, 1);
-	assert.equal(record.closed_by, "narrate");
-	assert.equal(record.player_text, TURN8.player_text);
-	assert.ok(String(record.rendered_text ?? record.text).includes("市政档案馆"), "the delivered prose is the Keeper's draft");
-	assert.deepEqual(record.unconfirmed_recordings, [{ document: "笔记本", reason: "binding_unresolved", cause: "no_target" }]);
-	assert.deepEqual(table.telemetry().filter((row) => row.lane === "document_recording").map((row) => [row.status, row.reason, row.cause]),
-		[["unconfirmed", "binding_unresolved", "no_target"]]);
-
-	// §200.4 reader: the next input's capsule tells the Keeper the recording is unconfirmed, without the text.
-	table.faux.setResponses([narrate("档案职员把产权登记册推到你面前。")]);
-	await table.session.prompt("我请档案职员调出科比特房子的产权登记。");
-	await waitForIdle(table.session, { timeoutMs: 60_000 });
-	const capsule = JSON.parse(customMessages(table.session, "coc-capsule").at(-1).content);
-	assert.equal(capsule.turn.number, 2);
-	assert.deepEqual(capsule.unconfirmed_recordings, [{ turn: 1, document: "笔记本", reason: "binding_unresolved", line: api.UNCONFIRMED_RECORDING_LINE }]);
-	assert.ok(!JSON.stringify(capsule.unconfirmed_recordings).includes(NOTE), "the refused text is not handed back as if written");
-});
-
-test("§227.5: the ordinarily admitted append settles without an after-draft semantic review, and public materials preceded the draft", async (t) => {
-    const {table}=await turn8(t,{calls:[toolCall(SECOND_APPLY),narrate(KEPT_IN_MIND)],outcome:()=>.05,binding:TURN8.jev.binding[0]});
-    assert.deepEqual(refusals(table,"apply"),[]);
-    const view=await inProcess(table.workspace,call=>call("mods.document.view",{name:"笔记本"}));
-    assert.equal(view.text,NOTE,"canonical text, not a prose claim");
-    const result=table.session.messages.find(message=>message.role==="toolResult"&&message.toolName==="apply");
-    assert.equal(result.details?.document_reviews,undefined);
-    const handoff=table.session.messages.find(message=>message.role==="custom"&&typeof message.content==="string"&&message.content.includes('"document_recording_context"'));
-    assert.ok(handoff,"KP receives public materials before its first draft: "+JSON.stringify(table.telemetry().filter(row=>row.lane==='document_knowledge')));
-    const offered=JSON.parse(handoff.content).document_recording_context;
-    assert.ok(offered.entries.some(entry=>entry.kind==='transcript'&&TURN8.just_told.startsWith(entry.preview)));
-    assert.ok(offered.entries.every(entry=>entry.read?.focus==='knowledge'));
-    assert.ok(Buffer.byteLength(JSON.stringify(offered))<=4096);
-    assert.ok(!JSON.stringify(offered.owned_documents).includes("version"),"no opaque revision echo required from KP");
-});
-
-test("§227.5: advisory binding cannot bypass ordinary admission for reading-only or deferred writing", async (t) => {
-    for(const playerText of ["I only read my notebook; I do not write anything.","After I return from the archives I will write this. First I go there."]){
-        const {table}=await turn8(t,{playerText,documentRecording:.1,denyWriting:true,binding:TURN8.jev.binding[0],outcome:()=>.05,
-            calls:[toolCall(SECOND_APPLY),narrate(KEPT_IN_MIND)]});
-        const view=await inProcess(table.workspace,call=>call("mods.document.view",{name:"笔记本"}));
-        assert.equal(view.text,"","the carrier and semantic advice establish no execution permission");
-        assert.ok(refusals(table,"apply").some(error=>error.details?.reason==="action_not_authorized"));
-    }
-});
-
-test("§227.5: low recording hints do not hide materials or lose completion of ordinarily admitted writing", async(t)=>{
-    const {table}=await turn8(t,{documentRecording:.1,binding:TURN8.jev.binding[0],outcome:()=>.05,
-        calls:[toolCall(SECOND_APPLY),narrate(KEPT_IN_MIND)]});
-    assert.equal((await inProcess(table.workspace,call=>call("mods.document.view",{name:"笔记本"}))).text,NOTE);
-    assert.equal(turnRecord(table,1).unconfirmed_recordings,undefined);
-    const rows=table.telemetry().filter(row=>row.lane==='document_completion');
-    assert.ok(rows.some(row=>row.status==='committed'),JSON.stringify(rows));
-});
-
-test("§227.5: reference questions receive the public catalogue without a recording threshold",async(t)=>{
-    const {table}=await turn8(t,{mode:'reference',documentRecording:0,outcome:()=>.05,calls:[narrate('The earlier public terms remain in the account.')]});
-    const handoff=table.session.messages.find(message=>message.role==='custom'&&typeof message.content==='string'&&message.content.includes('"document_recording_context"'));
-    assert.ok(handoff);const offered=JSON.parse(handoff.content).document_recording_context;
-    assert.ok(offered.entries.some(entry=>entry.kind==='transcript'));assert.equal(offered.recording_hint,0);
-    assert.equal((await inProcess(table.workspace,call=>call("mods.document.view",{name:"笔记本"}))).text,'');
-});
-
-test("§200.3: a draft that claims the unconfirmed recording is corrected once, through the turn-close steer, and the correction is delivered", async (t) => {
-	const { table, asked, keeperCalls } = await turn8(t, { calls: [toolCall(SECOND_APPLY), narrate(CLAIM), narrate(KEPT_IN_MIND)],
-		outcome: (draft) => draft.includes("记进笔记本") ? 0.95 : 0.05 });
-	assert.equal(keeperCalls(), 3);
-	assert.deepEqual(refusals(table, "output").map((error) => [error.details?.reason, error.details?.outcome]), [["refused_document_outcome", "steer"]]);
-	assert.equal(steers(table).length, 1, "one correction");
-	assert.equal(steers(table)[0].kind, "refused_document_outcome");
-	assert.deepEqual(asked.outcome, [CLAIM, KEPT_IN_MIND]);
-	assert.deepEqual(outcomeRows(table), [["steer", "false_completion", 0.95], ["clean", "no_false_completion", 0.05]]);
-	assert.deepEqual(unfinishedNotices(table), []);
-	const record = turnRecord(table, 1);
-	assert.equal(record.closed_by, "narrate");
-	assert.ok(String(record.rendered_text ?? record.text).includes("记在心里"), "the corrected draft is what the player reads");
-	assert.deepEqual(record.unconfirmed_recordings, [{ document: "笔记本", reason: "binding_unresolved", cause: "no_target" }]);
-});
-
-test("§200.3: a claim the correction did not remove is still delivered, recorded as claimed; the turn never ends empty for this", async (t) => {
-	const { table, keeperCalls } = await turn8(t, { calls: [toolCall(SECOND_APPLY), narrate(CLAIM), narrate(CLAIM_AGAIN)], outcome: () => 0.95 });
-	assert.equal(keeperCalls(), 3);
-	assert.deepEqual(outcomeRows(table), [["steer", "false_completion", 0.95], ["claimed", "false_completion_after_correction", 0.95]]);
-	assert.equal(steers(table).length, 1, "the correction is not given twice");
-	assert.deepEqual(unfinishedNotices(table), []);
-	assert.equal(turnRecord(table, 1).closed_by, "narrate");
-});
-
-for (const [name, answer, reason] of [["a gray answer", 0.5, "outcome_uncertain"], ["an unavailable check", "unavailable", "outcome_unavailable"]])
-	test(`§200.3: ${name} delivers the draft as written`, async (t) => {
-		const { table, keeperCalls } = await turn8(t, { calls: [toolCall(SECOND_APPLY), narrate(KEPT_IN_MIND)], outcome: () => answer });
-		assert.equal(keeperCalls(), 2);
-		assert.deepEqual(outcomeRows(table).map(([status, why]) => [status, why]), [["unclear", reason]]);
-		assert.deepEqual(refusals(table, "output"), []);
-		assert.deepEqual(unfinishedNotices(table), []);
-		assert.equal(turnRecord(table, 1).closed_by, "narrate");
-	});
-
-test("§200.4: a recording the player chose and no call attempted is delivered past and recorded not_written", async (t) => {
-	const { table, keeperCalls } = await turn8(t, { calls: [narrate(KEPT_IN_MIND)], outcome: () => TURN8.jev.outcome_probability });
-	assert.equal(keeperCalls(), 1);
-	assert.ok(table.telemetry().some((row) => row.lane === "document_recording_intent" && row.status === "selected_no_write"));
-	assert.deepEqual(outcomeRows(table), [["unclear", "outcome_uncertain", 0.12]]);
-	const record = turnRecord(table, 1);
-	assert.equal(record.closed_by, "narrate");
-	assert.deepEqual(record.unconfirmed_recordings, [{ reason: "not_written" }]);
-});
-
 // ---------------------------------------------------------------------------------------------------
 // §200.6: an input the host has ended runs nothing more.
 // ---------------------------------------------------------------------------------------------------
@@ -308,25 +188,6 @@ test("§200.4: a recording the player chose and no call attempted is delivered p
 /** §38.11's refusal: the history store cannot write. The second one of the same cause ends the input. */
 const COMMIT_FAILED = { code: "commit_failed", message: "git commit failed; the turn stays open: git add failed (69)", fix: "retry narrate with the same text",
 	details: { turn: 1, git: { step: "add", code: 69, output: "xcrun: error: unable to find utility" } } };
-
-test("§200.6: once the host ends the input, the single-loop run asks the Keeper nothing more and runs none of its calls", async (t) => {
-	const engine = createHybridEngine({ env: {}, decision: { decide: async (batch) => engineAnswer(batch) } });
-	let keeperCalls = 0;
-	const table = await openTable({ env: { PI_COC_LOOP_ENGINE: "hybrid-v1", FAKE_KERNEL_WORKSPACE: "1", FAKE_KERNEL_PRESENT: "[]",
-		FAKE_KERNEL_ERRORS: JSON.stringify({ "table.narrate": COMMIT_FAILED }) }, runDriver: engine.runDriver,
-		extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: Array.from({ length: 8 }, (_, index) => () => { keeperCalls++; return narrate(`attempt ${index + 1}`); }) });
-	t.after(() => table.dispose());
-	await table.session.prompt("I write it down.");
-	await waitForIdle(table.session, { timeoutMs: 60_000 });
-	assert.equal(keeperCalls, 2, "the second failure ends the input; no third model step");
-	const ended = table.telemetry().filter((row) => row.lane === "turn" && row.event === "input_ended");
-	assert.deepEqual(ended.map((row) => row.cause), ["commit_unavailable"]);
-	assert.equal(table.kernelRequests().filter((request) => request.method === "table.narrate").length, 2, "nothing reaches the kernel after the end");
-	assert.equal(table.telemetry().filter((row) => row.code === "blocked").length, 0, "no call is even proposed after it");
-	assert.equal(customMessages(table.session, "coc-delivery").filter((message) => message.details?.commit_unavailable).length, 1);
-	assert.deepEqual(unfinishedNotices(table), [], "the history-store notice, not the generic line");
-});
 
 // ---------------------------------------------------------------------------------------------------
 // The kernel's side of §200.4, through its own handlers.

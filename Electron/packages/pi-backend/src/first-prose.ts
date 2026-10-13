@@ -47,6 +47,7 @@ export function isServiceNoticeRow(row: unknown): boolean {
  */
 export function proseArrival(event: unknown, row?: unknown): ProseArrival | undefined {
   if (!isRecord(event)) return undefined;
+  if(event.type==='final_delivery'&&isRecord(event.frame))return nonBlank(event.frame.delta)?{kind:'prose',via:'draft'}:undefined;
   if (event.type === "text") {
     if (event.replace === true) return { kind: "text_replace", prose: nonBlank(event.delta) };
     return nonBlank(event.delta) ? { kind: "text" } : undefined;

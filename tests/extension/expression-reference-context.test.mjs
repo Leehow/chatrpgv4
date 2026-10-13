@@ -33,3 +33,22 @@ for(const closePath of ['narrate','embedded'])test(`actual provider content and 
  await hooks.get('session_shutdown')();
  }finally{globalThis.fetch=originalFetch;if(originalKey===undefined)delete process.env.EXT_JEV_APIKEY;else process.env.EXT_JEV_APIKEY=originalKey;}
 });
+
+test('single Keeper never starts the retired expression selector even when its Mod is enabled',async()=>{
+ const priorKey=process.env.EXT_JEV_APIKEY,priorFetch=globalThis.fetch;
+ process.env.EXT_JEV_APIKEY='fixture-key';let fetched=0;
+ globalThis.fetch=async()=>{fetched++;throw Error('Retired selector must not run');};
+ const hooks=new Map(),bus=new Map(),reads=[];
+ const binding={version:1,campaign:'c',worldline:'main',loop:0,turn:0,source_revision:'a'.repeat(64),memory_coverage:{committed:0,completed:0,gaps:0,recent:[],older:{gaps:0}}};
+ const cap={turn:{number:0,player_text:'Hello'},recent:[],present:[{name:'Clerk',voice:'Polite.'}],where:{name:'Office'},known:{investigator:{name:'Visitor'}},mods:{active:[],expression_reference:{enabled:true,revision:'r1',play_language:'en'},instructions:[]},module:{title:'Book'},style:{floor:[]}};
+ try{
+  api.installContextPolicy({on:(n,f)=>hooks.set(n,f),events:{on:(n,f)=>bus.set(n,f)},sendMessage(){}},()=>{});
+  bus.get('coc:loop-engine')({singleKeeper:true,prescreen:'run'});
+  bus.get('coc:kernel-bridge')({campaign:'c',call:async method=>{reads.push(method);return {...structuredClone(cap),_context:binding};}});
+  bus.get('coc:capsule')({epoch:'single',capsule:cap,context:binding});
+  await hooks.get('context')({messages:[{role:'user',content:[{type:'text',text:'Hello'}]},{role:'custom',customType:'coc-capsule',content:JSON.stringify(cap),details:{epoch:'single',context:binding}}]},
+   {model:{contextWindow:100000},getContextUsage:()=>({percent:1}),sessionManager:{getBranch:()=>[]}});
+  assert.equal(reads.includes('mods.expression'),false);assert.equal(fetched,0);
+  await hooks.get('session_shutdown')();
+ }finally{globalThis.fetch=priorFetch;if(priorKey===undefined)delete process.env.EXT_JEV_APIKEY;else process.env.EXT_JEV_APIKEY=priorKey;}
+});

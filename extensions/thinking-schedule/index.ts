@@ -14,6 +14,13 @@ const FOLLOW_UP_LEVEL: ThinkingLevel = "off";
  * true off level.
  */
 export default function thinkingSchedule(pi: ExtensionAPI): void {
+    const testProfile=process.env.PI_COC_TEST_MODEL;
+    const testLevel=testProfile==='codex-relay/gpt-6-luna'?'high':testProfile==='grok-build/grok-4.5'?'low':undefined;
+    if(testLevel){
+        // The live-test profile is per process; a same-model RPC switch must not downgrade it.
+        pi.on('before_agent_start',()=>{pi.setThinkingLevel(testLevel);});
+        return;
+    }
 	if (cocMode() !== "play") return;
 
 	let tableLevel: ThinkingLevel | undefined;

@@ -887,7 +887,21 @@ export type UserMcpServer = {
   summary: string;
 };
 
+export interface RunProgressFrame {
+  run:string;sequence:number;turn:number;timestamp:number;
+  phase:'reading'|'checking'|'settling'|'thinking'|'writing';
+}
+export interface FinalDeliveryFrame {
+  version:1;campaign:string;turn:number;worldline:string;loop:number;run:string;input_revision:string;
+  delivery_id:string;attempt_id:string;sequence:number;timestamp:number;
+  event:'start'|'delta'|'end'|'error';delta?:string;
+  error?:{code:'generation_failed'};
+  status?:'streaming'|'finalizing'|'completed'|'interrupted'|'publication_pending';
+  speakers?:Array<{name:string;who:Record<string,unknown>}>;
+}
 export type StreamEvent =
+  | {type:'run_progress';sessionId:string;progress:RunProgressFrame}
+  | {type:'final_delivery';sessionId:string;frame:FinalDeliveryFrame}
   /** `sentAt`: the host clock when it began working on this message (contract §164); absent for one it never dispatched. */
   | { type: "user_message"; sessionId: string; content: string; id?: string; sentAt?: number }
   /**

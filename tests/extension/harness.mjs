@@ -319,7 +319,7 @@ export async function openTable({
         if(!legacyDeliveryFixtures||!message?.content)return message;
         const output=COC_TOOLS.find(tool=>tool.name==='output');
         const legacyTools=COC_TOOLS.map(tool=>tool.name==='narrate'?{...output,name:'narrate'}:tool);
-        return {...message,content:message.content.map(block=>{
+        const migrated = {...message,content:message.content.map(block=>{
             // Transport fixtures keep their original grammar; only the explicitly named terminal is migrated.
             if(block.type==='text'&&readTextToolCalls(block.text,legacyTools)?.kind==='calls')
                 return {...block,text:block.text.replaceAll('"narrate"','"output"')};
@@ -331,8 +331,22 @@ export async function openTable({
             }
             return block;
         })};
+        if (mode === 'play' && runDriver?.engine === 'hybrid-v1') {
+            // Retained deterministic fixtures cross the current public-text seam. This adapter
+            // translates only their closed legacy envelope; it performs no world adjudication.
+            const calls=migrated.content.filter(block=>block.type==='toolCall');
+            if(calls.length===1&&calls[0].name==='output'&&typeof calls[0].arguments?.text==='string'){
+                const {text,choice}=calls[0].arguments;
+                migrated.content=[{type:'text',text:choice?JSON.stringify({version:1,record:{choice},text}):'{{public}}'+text}];
+                migrated.stopReason='stop';
+            }else if(!calls.length)migrated.content=migrated.content.map(block=>block.type==='text'&&!block.text.trimStart().startsWith('{')
+                ?{...block,text:'{{public}}'+block.text}:block);
+        }
+        return migrated;
     };
-	faux.setResponses(responses.map(response=>typeof response==='function'?context=>migrate(response(context)):migrate(response)));
+	const setResponses=faux.setResponses.bind(faux);
+    faux.setResponses=values=>setResponses(values.map(response=>typeof response==='function'?context=>migrate(response(context)):migrate(response)));
+    faux.setResponses(responses);
 	const verifierFaux = withProviderCallbacks(fauxProvider({ api: "openai-completions", provider: "verifier", models: [{ id: "v1" }] }));
 	const memoryFaux = withProviderCallbacks(fauxProvider({ api: "openai-completions", provider: "memory", models: [{ id: "m1" }] }));
 	const admissionFaux = withDefaultResponse(

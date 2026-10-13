@@ -86,24 +86,6 @@ const diaries = () => fauxAssistantMessage([{ type: "text", text: "I'll register
 const FIRST = "You gather the three closed diaries into your coat. The front door is still at the end of the hall.";
 const SECOND = "You press the diaries under your coat and push yourself up. The hall runs to the front door.";
 
-
-
-test("An explicit output can publish current material during an unrelated preparation wait", async (t) => {
-	const table = await hybridTable({
-		env: { FAKE_KERNEL_ADAPTATION_PENDING: "1" },
-		responses: [prepare(), fauxAssistantMessage([fauxToolCall("output", {text:FIRST})],{stopReason:"toolUse"}), fauxAssistantMessage([{ type: "thinking", thinking: "Nothing to add." }], { stopReason: "stop" })],
-	});
-	t.after(() => table.dispose());
-	await table.table.session.prompt("I pack what I found and leave the house.");
-
-	const narrates = kernel(table.table, "table.narrate");
-	assert.deepEqual(narrates.map((request) => request.params.text), [FIRST]);
-	assert.equal(kernel(table.table, "adaptation.prepare").length, 1);
-	assert.equal(table.table.telemetry().filter(row=>row.lane==="final-output"&&row.event==="start").length, 1);
-	assert.equal(runEnds(table.events).at(-1).status, "delivered");
-	assert.equal(unfinished(table.table.session).length, 0);
-});
-
 const REPEATED = { code: "needs", message: "This line was already said at this table.",
 	fix: "Rewrite only that line and deliver again; everything else stands.", details: { reason: "repeated_line" } };
 
@@ -144,103 +126,6 @@ function kernelSteps(workspace, campaign, requests) {
 	for (const frame of frames) if (!frame.ok) throw new Error(`fixture step ${frame.id} failed: ${JSON.stringify(frame.error)}`);
 	return frames;
 }
-
-test("SL-23 (turn 20): the next turn's clerk move to an existing scene is not blocked by a preparation still held from the last turn", async (t) => {
-	const campaign = "test-camp";
-	// The lead clue landed on turn 1, so the kernel issues the Globe as a move (as in single-loop-domain-policy.test.mjs).
-	const prepareWorkspace = (workspace) => kernelSteps(workspace, campaign, [
-		["table.open", {}], ["table.player_input", { text: "我听着" }],
-		["table.apply", { call_id: "t1-c1", effects: [{ kind: "clue", clue: "knott-research-leads", how: "he said so" }] }],
-		["table.narrate", { call_id: "t1-c2", text: "他递给你一张写着地方的纸。" }],
-	]);
-	let turn = 0;
-	const table = await hybridTable({
-		realKernel: true, prepareWorkspace,
-		// The adaptation creator is a child that never answers, so the job is still held when the next turn opens.
-		env: { PI_COC_READER_CMD: JSON.stringify([process.execPath, "-e", "setTimeout(() => {}, 600000)"]) },
-		decide: (batch) => batch.family === COMPILE_FAMILY && turn === 2 ? answered(batch, (question) => question.key === "destination"
-			? Object.entries(question.criteria).find(([, value]) => value?.handle === "newspaper-morgue")?.[0] : undefined)
-			: batch.family !== ROUTE_FAMILY ? answered(batch)
-			: turn === 1 ? keeperAlways(batch)
-				: answered(batch, (question) => question.key === "exit" ? "continue" : /Boston Globe offices/.test(question.target ?? "") ? "now" : undefined),
-		responses: [
-			// Turn 2 (the first prompt): the Keeper prepares a place the book does not have, and says what the player did.
-			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", purpose: "new_destination", name: "harbor-flat",
-				anchors: ["scene: commission-briefing"], request: "A rented flat by the harbor the investigator chose to take." })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("output", { text: "你把地址记在本子上。" })], { stopReason: "toolUse" }),
-			// Turn 3: after the clerk's move, the Keeper closes.
-			fauxAssistantMessage([fauxToolCall("output", { text: "你到了报馆。" })], { stopReason: "toolUse" }),
-		],
-	});
-	t.after(() => table.dispose());
-	turn = 1;
-	await table.table.session.prompt("我要在港口租一间屋子住下。");
-	const held = table.table.telemetry(campaign).filter((entry) => entry.lane === "adaptation" && entry.held === true);
-	turn = 2;
-	await table.table.session.prompt("我去《环球报》报馆。");
-
-	const telemetry = table.table.telemetry(campaign);
-	assert.ok(telemetry.some((entry) => entry.lane === "adaptation" && entry.held === true && entry.proposal === "harbor-flat"),
-		`the next turn's boundary still held the preparation (${JSON.stringify(held)})`);
-	const refused = telemetry.filter((entry) => entry.code === "blocked" && entry.reason === "preparation_wait");
-	assert.deepEqual(refused, [], "nothing on the next turn was blocked for the held preparation");
-	const move = table.calls.find((call) => call.phase === "call" && call.tool === "apply" && call.id.startsWith("clerk:"));
-	assert.deepEqual(move?.input.effects, [{ kind: "move", to: "newspaper-morgue" }], "the clerk selected the declared move");
-	const moved = table.calls.find((call) => call.phase === "result" && call.id === move.id);
-	assert.equal(moved.isError, false, `the clerk's move landed: ${moved.text}`);
-	assert.equal(runEnds(table.events).at(-1).status, "delivered");
-});
-
-test("SL-23: a proposal the clerk's move staled is told to the Keeper once, on the Keeper's own call, never by refusing the clerk's next write", async (t) => {
-	const campaign = "test-camp";
-	const prepareWorkspace = (workspace) => kernelSteps(workspace, campaign, [
-		["table.open", {}], ["table.player_input", { text: "我听着" }],
-		["table.apply", { call_id: "t1-c1", effects: [{ kind: "clue", clue: "knott-research-leads", how: "he said so" }] }],
-		["table.narrate", { call_id: "t1-c2", text: "他递给你一张写着地方的纸。" }],
-	]);
-	let turn = 0;
-	const want = { 2: /Boston Globe offices/, 3: /Knott/ };
-	const destinations = { 2: "newspaper-morgue", 3: "commission-briefing" };
-	const table = await hybridTable({
-		realKernel: true, prepareWorkspace,
-		env: { PI_COC_READER_CMD: JSON.stringify([process.execPath, "-e", "setTimeout(() => {}, 600000)"]) },
-		decide: (batch) => batch.family === COMPILE_FAMILY && destinations[turn] ? answered(batch, (question) => question.key === "destination"
-			? Object.entries(question.criteria).find(([, value]) => value?.handle === destinations[turn])?.[0] : undefined)
-			: batch.family !== ROUTE_FAMILY ? answered(batch)
-			: turn === 1 ? keeperAlways(batch)
-				: answered(batch, (question) => question.key === "exit" ? "continue" : want[turn].test(question.target ?? "") ? "now" : undefined),
-		responses: [
-			fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", purpose: "new_destination", name: "harbor-flat",
-				anchors: ["scene: commission-briefing"], request: "A rented flat by the harbor the investigator chose to take." })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("output", { text: "你把地址记在本子上。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("output", { text: "你到了报馆。" })], { stopReason: "toolUse" }),
-			// Turn 3: the Keeper's first own call reads the notice; its second is taken.
-			fauxAssistantMessage([fauxToolCall("output", { text: "你回到了诺特的办公室。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("output", { text: "你回到了诺特的办公室。" })], { stopReason: "toolUse" }),
-		],
-	});
-	t.after(() => table.dispose());
-	turn = 1; await table.table.session.prompt("我要在港口租一间屋子住下。");
-	turn = 2; await table.table.session.prompt("我去《环球报》报馆。");
-	turn = 3; await table.table.session.prompt("我回诺特的办公室。");
-
-	const telemetry = table.table.telemetry(campaign);
-	assert.ok(telemetry.some((entry) => entry.lane === "adaptation" && entry.status === "stale" && entry.proposal === "harbor-flat"),
-		"the clerk's move staled the held proposal, and the next boundary read it");
-	// The stub answers `now` to every candidate naming Knott, so back in his office the clerk also reveals what the book
-	// puts there; the moves are the subject, and no clerk write is refused.
-	const clerkWrites = table.calls.filter((call) => call.phase === "call" && call.tool === "apply" && call.id.startsWith("clerk:"));
-	const clerkMoves = clerkWrites.filter((call) => call.input.effects[0].kind === "move");
-	assert.deepEqual(clerkMoves.map((call) => call.input.effects[0].to), ["newspaper-morgue", "commission-briefing"]);
-	for (const write of clerkWrites) {
-		const result = table.calls.find((call) => call.phase === "result" && call.id === write.id);
-		assert.equal(result?.isError, false, `the clerk's ${write.input.effects[0].kind} landed: ${result?.text}`);
-	}
-	const notice = telemetry.filter((entry) => entry.code === "blocked" && entry.reason === "adaptation_stale");
-	assert.equal(notice.length, 1, "said once");
-	assert.equal(notice[0].tool, "output", "on the Keeper's own call");
-	assert.equal(runEnds(table.events).at(-1).status, "delivered");
-});
 
 test("SL-23: a retained ready proposal blocks neither reads nor unrelated writes; a move there is refused with the ready instruction", async (t) => {
 	const table = await hybridTable({

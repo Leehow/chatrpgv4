@@ -247,7 +247,7 @@ test('the kernel declares npc.mood.v1 and the shipped narration-craft, which req
 	const capsule = (await capsuleOf(client));
 	const craftRow = capsule.mods.instructions.find(row => row.mod === 'narration-craft');
 	assert.ok(craftRow?.instruction.includes('`now`'), 'its instruction reaches the capsule and names the card field');
-	assert.ok(capsule.head.includes('present[].now is what that person feels right now'), 'the base states the interface in the head');
+	assert.ok(capsule.head.includes('present[].now'), 'the base states the interface in the head');
 	assert.ok(capsule.head.includes('apply npc mood'));
 });
 

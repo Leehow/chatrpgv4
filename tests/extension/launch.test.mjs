@@ -366,7 +366,7 @@ test("bin/pi-coc：没装 pi 时报清楚", (t) => {
 		() => execFileSync(join(root, "bin", "pi-coc"), ["--campaign", "camp-a"], { encoding: "utf8", stdio: "pipe", env: {...process.env, PI_COC_LOOP_ENGINE: 'legacy'} }),
 		(error) => {
 			assert.equal(error.status, 1);
-			assert.match(error.stderr, /ENOENT/);
+			assert.match(error.stderr, /ENOENT|ERR_MODULE_NOT_FOUND/);
 			assert.ok(error.stderr.includes(join(root, VENDORED_PI)));
 			return true;
 		},
@@ -420,7 +420,7 @@ fs.writeFileSync(process.env.PI_STUB_LOG, ['entry=pi-hybrid','engine='+(process.
 	return root;
 }
 
-test("PI_COC_LOOP_ENGINE: normal play starts hybrid even without a key; explicit legacy retains the same arguments", (t) => {
+test("PI_COC_LOOP_ENGINE: normal play starts hybrid even without a key; old legacy settings cannot bypass the play driver", (t) => {
 	const root = withHybridEntry(fakeRepo());
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	const legacy = runLauncher(root, ["--campaign", "camp-e"]);
@@ -428,7 +428,7 @@ test("PI_COC_LOOP_ENGINE: normal play starts hybrid even without a key; explicit
 	const hybrid = runLauncher(root, ["--campaign", "camp-e"], { PI_COC_LOOP_ENGINE: "hybrid-v1" });
 	assert.equal(legacy.value("entry"), "pi-hybrid");
 	assert.equal(legacy.value("engine"), "hybrid-v1");
-	assert.equal(explicit.value("entry"), "pi");
+	assert.equal(explicit.value("entry"), "pi-hybrid");
 	assert.equal(hybrid.value("entry"), "pi-hybrid");
 	assert.equal(hybrid.value("engine"), "hybrid-v1");
 	assert.deepEqual(hybrid.args, legacy.args, "the engine changes the entry, not a single Pi argument");

@@ -160,8 +160,7 @@ test("§22.4.7.1 on the emitted kernel: a table person is not held; a book perso
 
 const clerkNotes = (context) => context.messages.flatMap((message) => {
 	const text = typeof message.content === "string" ? message.content : (message.content ?? []).map((block) => block.text ?? "").join("");
-	const start = text.indexOf('{"kind":"single_loop_step"');
-	return start < 0 ? [] : [JSON.parse(text.slice(start, text.lastIndexOf("}") + 1))];
+	try {const row=JSON.parse(text);return row.sources?.views?[{carried:row.sources}]:[];} catch {return [];}
 });
 function distinctNotes(requests) {
 	const seen = new Set(), out = [];
@@ -216,7 +215,7 @@ test("§22.4.7.1 at the seam: the write lands on the book's text in one call, th
 	// text as written: her name is the Keeper's to know; the delivery gate keeps it from the player.
 	assert.deepEqual(Object.values(texts[0].view.view), PAGES);
 	const note = clerkNotes(requests[1]).at(-1);
-	assert.ok(note.carried.head.includes(CARRIED_PERSON_TEXT_HEAD));
+	assert.ok(note.carried.head?.includes(CARRIED_PERSON_TEXT_HEAD), JSON.stringify(note));
 	assert.deepEqual(note.carried.pending.map((row) => [row.focus, row.person, row.purpose]), [["Silas Marsh", "Silas Marsh", "detail"]], "the pending row names the person");
 	assert.ok(note.carried.head.includes(CARRIED_PENDING_PERSON_HEAD));
 	const registered = JSON.parse(readFileSync(join(table.workspace, ".coc/campaigns", CAMPAIGN, "world.json"), "utf8")).table_people.find((row) => row.name === "Silas Marsh");

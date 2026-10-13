@@ -238,7 +238,7 @@ function closedNoise(message: Row): boolean {
     if (message.role !== 'custom') return false;
     // A coc-workspace from an older binding is regenerated for the current request or omitted;
     // keeping one would let stale evidence ride every later turn as unclassified material.
-    if (['coc-capsule', HISTORY_TYPE, BRIEF_TYPE, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, NPC_ADVICE_TYPE, CLERK_TYPE, CAPSULE_UPDATE_TYPE].includes(message.customType)) return true;
+    if (['coc-capsule', 'coc-keeper-context', 'coc-keeper-instruction', HISTORY_TYPE, BRIEF_TYPE, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, NPC_ADVICE_TYPE, CLERK_TYPE, CAPSULE_UPDATE_TYPE].includes(message.customType)) return true;
     // The setup process shares the session file and is over once play runs. Its step notes are orders to the setup guide
     // ("ask for what missing lists, and nothing else"): retained as unclassified material they rode every play request,
     // and on a fresh Blood Road table (2026-10-02, turn 9) the Keeper answered the player by asking for an occupation.

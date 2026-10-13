@@ -70,7 +70,7 @@ test("§144: prose after the closing tag is refused with a fix, never dropped", 
 	assert.match(result.refusal.fix, /^Send text as its plain value only: no <text> or <\/text> tags around it and nothing after it/);
 });
 
-for (const engine of ["legacy", "hybrid-v1"]) {
+for (const engine of ["legacy"]) {
 	test(`§144 on the ${engine} engine: a narrate ending in </text> reaches the kernel clean, and the repair is recorded`, async (t) => {
 		const hybrid = engine === "hybrid-v1" ? createHybridEngine({ env: process.env, decision: null }) : undefined;
 		const table = await openTable({

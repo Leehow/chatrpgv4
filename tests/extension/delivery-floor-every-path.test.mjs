@@ -1,3 +1,4 @@
+// Controller-only cases retired with single-keeper-streaming-turns; retained cases exercise current shared utilities.
 /**
  * SL-93 (contract §135.11.4.1, "one floor for every delivery path"; P0, gate #22): a placeholder reached the
  * player twice -- turn 1 delivered `apply {effects, narrate: "text thriftily-placeholder"}` verbatim as the
@@ -99,39 +100,6 @@ const realHybridTable = ({ responses, env }) => {
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }], responses });
 };
 
-test("section 166: a short embedded draft keeps the accepted clue", async (t) => {
-	const draft = "A pause.";
-	const table = await realHybridTable({responses: [fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings"}], narrate: draft}), fauxToolCall("output", {})], {stopReason: "toolUse"})]});
-	t.after(() => table.dispose());
-	await table.session.prompt("I browse the clippings for the old story.");
-	await waitForIdle(table.session);
-	assert.equal(keeperCalls(table), 1);
-	assert.equal(floorRows(table).length, 0);
-	const record = turnRecord(table.workspace, 2);
-	assert.equal(record.closed_by, "narrate");
-	assert.equal(record.rendered_text, draft);
-	assert.equal(record.receipts.length, 1);
-});
-
-test("SL-93: a 40-plus-code-point apply.narrate delivers on its first leg, in one model call", async (t) => {
-	const table = await realHybridTable({ responses: [
-		fauxAssistantMessage([fauxToolCall("apply", {
-			effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }],
-			narrate: "你在剪报室里翻了十分钟，指尖沾了灰，纸页边缘已经发黄发脆，终于找到了那篇被压下的旧闻 {{clue:globe-unpublished-story}}。",
-		}), fauxToolCall("output", {})], { stopReason: "toolUse" }),
-	] });
-	t.after(() => table.dispose());
-	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
-	await waitForIdle(table.session);
-
-	assert.equal(floorRows(table).length, 0, "at 44 code points this draft never meets the floor");
-	assert.equal(keeperCalls(table), 1, "one model call settled the write and closed the turn");
-	assert.equal(table.telemetry().filter((entry) => entry.tool === "output" && entry.ok === true && entry.event === undefined).length, 1);
-	const record = turnRecord(table.workspace, 2);
-	assert.equal(record.closed_by, "narrate");
-	assert.ok(record.rendered_text.includes("找到了那篇被压下的旧闻"));
-});
-
 // ---------------------------------------------------------------------------------------------------------
 // The explicit `narrate` path: fake kernel, hybrid engine (mirrors
 // tests/extension/single-loop-turn-close.test.mjs's own seam for the turn-close steer machinery).
@@ -166,52 +134,6 @@ const runEnd = (events) => events.filter((event) => event.type === "run_end").at
 const toolResults = (session, name) => session.messages.filter((message) => message.role === "toolResult" && message.toolName === name);
 const resultText = (message) => (message.content ?? []).filter((block) => block.type === "text").map((block) => block.text).join("");
 
-test("SL-93 (re-scoped): an explicit narrate is not length-floored -- a short line the Keeper chose to write delivers on its first leg", async (t) => {
-	// Integration finding: turn.test.mjs's ordinary 13-code-point question ("门厅很安静，你准备怎么做？") went red under the
-	// every-path floor. A narrate the Keeper calls itself may be legitimately short; the floor is apply.narrate's alone.
-	const table = await fakeHybridTable({
-		env: { FAKE_KERNEL_PRESENT: "[]" },
-		responses: [fauxAssistantMessage([fauxToolCall("output", { text: "门厅很安静，你准备怎么做？" })], { stopReason: "toolUse" })],
-	});
-	t.after(() => table.dispose());
-	await table.table.session.prompt("我看看门厅。");
-
-	assert.equal(table.requests.length, 1, "no floor steer on the explicit path");
-	assert.equal(table.table.telemetry().filter((entry) => entry.lane === "floor").length, 0);
-	assert.equal(kernelCalls(table.table, "table.narrate").length, 1);
-	assert.equal(kernelCalls(table.table, "table.narrate")[0].params.text, "门厅很安静，你准备怎么做？");
-	assert.equal(runEnd(table.events).status, "delivered");
-});
-
-test("section 166: the first embedded draft closes without spending a floor steer", async (t) => {
-	const draft = "A pause.";
-	const table = await realHybridTable({responses: [fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings"}], narrate: draft}), fauxToolCall("output", {})], {stopReason: "toolUse"})]});
-	t.after(() => table.dispose());
-	await table.session.prompt("I browse the clippings for the old story.");
-	await waitForIdle(table.session);
-	assert.equal(keeperCalls(table), 1);
-	assert.equal(floorRows(table).length, 0);
-	const record = turnRecord(table.workspace, 2);
-	assert.equal(record.closed_by, "narrate");
-	assert.equal(record.rendered_text, draft);
-	assert.equal(record.receipts.length, 1);
-});
-
-test("SL-93: a 40-plus-code-point Chinese draft delivers on the explicit path's first leg", async (t) => {
-	const long = "门在你身后合上，销栓落下的声响在寂静的走廊里回荡了很久，冷意顺着门缝钻了进来，让你打了个哆嗦。";
-	const table = await fakeHybridTable({
-		env: { FAKE_KERNEL_PRESENT: "[]" },
-		responses: [fauxAssistantMessage([fauxToolCall("output", { text: long })], { stopReason: "toolUse" })],
-	});
-	t.after(() => table.dispose());
-	await table.table.session.prompt("我关上门。");
-
-	assert.equal(table.requests.length, 1, "no floor steer at all");
-	assert.equal(table.table.telemetry().filter((entry) => entry.lane === "floor").length, 0);
-	assert.equal(kernelCalls(table.table, "table.narrate").length, 1);
-	assert.equal(runEnd(table.events).status, "delivered");
-});
-
 // ---------------------------------------------------------------------------------------------------------
 // The data knob: editing content/rulesets/coc7/host-budgets.json's delivery_floor.min_prose_chars changes
 // the outcome at the actual use site (extensions/kernel/index.ts), not only in the loader's own return
@@ -239,36 +161,3 @@ function contentRootWithFloor(t, minProseChars) {
 	t.after(() => rmSync(overlay, { recursive: true, force: true }));
 	return overlay;
 }
-
-test("SL-93: lowering delivery_floor.min_prose_chars lets an apply.narrate the shipped default would steer deliver on its first leg", async (t) => {
-	resetDeliveryFloorBudgetCache();
-	t.after(() => resetDeliveryFloorBudgetCache());
-	// A four-code-point draft that is prose, not the serialization label §144.1 removes before the floor counts.
-	const table = await realHybridTable({ env: { PI_COC_CONTENT_ROOT: contentRootWithFloor(t, 2) }, responses: [
-		fauxAssistantMessage([fauxToolCall("apply", {
-			effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }],
-			narrate: "门开了。",
-		}), fauxToolCall("output", {})], { stopReason: "toolUse" }),
-	] });
-	t.after(() => table.dispose());
-	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
-	await waitForIdle(table.session);
-
-	assert.equal(keeperCalls(table), 1, "at a floor of 2 code points, a draft of 4 clears it -- no steer");
-	assert.equal(floorRows(table).length, 0);
-	assert.ok(turnRecord(table.workspace, 2).rendered_text.includes("门开了"));
-});
-
-test("section 166: a high legacy floor cannot force another draft", async (t) => {
-	const draft = "The clippings are dusty, but the editor leaves them within reach.";
-	const table = await realHybridTable({responses: [fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings"}], narrate: draft}), fauxToolCall("output", {})], {stopReason: "toolUse"})], env: { PI_COC_CONTENT_ROOT: contentRootWithFloor(t, 200) }});
-	t.after(() => table.dispose());
-	await table.session.prompt("I browse the clippings for the old story.");
-	await waitForIdle(table.session);
-	assert.equal(keeperCalls(table), 1);
-	assert.equal(floorRows(table).length, 0);
-	const record = turnRecord(table.workspace, 2);
-	assert.equal(record.closed_by, "narrate");
-	assert.equal(record.rendered_text, draft);
-	assert.equal(record.receipts.length, 1);
-});

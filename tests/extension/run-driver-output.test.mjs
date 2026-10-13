@@ -1,0 +1,213 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync,readdirSync,writeFileSync,chmodSync} from 'node:fs';
+import {join,resolve} from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
+import {openTable} from './harness.mjs';
+import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
+import {createFinalOutputOwner} from '../../extensions/kernel/final-output.ts';
+
+const root=resolve(import.meta.dirname,'../..');
+const plan={version:1,materials:[
+  {name:'cold room',text:'The room is cold.',kind:'description',visibility:'player',required:true},
+  {name:'secret',text:'PRIVATE_STREAM_SECRET',kind:'context',visibility:'keeper'},
+]};
+function seedOpening(workspace){
+  const lines=[['table.open',{}],['table.narrate',{call_id:'t0-c1',text:'You wait in the office.'}]];
+  const run=spawnSync(process.execPath,[join(root,'build/kernel/rpc.mjs'),'--workspace',workspace,'--content',join(root,'content')],{
+    cwd:root,encoding:'utf8',input:lines.map(([method,params],id)=>JSON.stringify({id:String(id),method,params:{campaign:'test-camp',...params}})).join('\n')+'\n'});
+  assert.equal(run.status,0,run.stderr);
+  for(const line of run.stdout.trim().split('\n')){const frame=JSON.parse(line);if(!frame.progress)assert.equal(frame.ok,true,JSON.stringify(frame));}
+}
+
+test('one Keeper response records its event and delivers its own prose without a second author',async t=>{
+  const seen=[];
+  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null,npcAct:null});
+  let calls=0;
+  const text='The clerk nods. {{say:Steven Knott}}I only heard the family left.{{/say}}';
+  const response={version:1,record:{event:{name:'clerk-reply',summary:'The clerk answers the visitor.',
+    materials:[{name:'reply',text:'I only heard the family left.',kind:'speech',visibility:'player',speaker:'Steven Knott',audience:['Thomas Hayes']}],
+    knowledge:[{actor:'Thomas Hayes',statement:'Knott says the family left.',mode:'heard',state:'uncertain',source:'Steven Knott',material:'reply'}]}},text};
+  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
+    runDriver:engine.runDriver,env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},
+    extraExtensions:[{name:'capture-stream',factory:pi=>pi.events.on('coc:final-delivery',frame=>seen.push(frame))},{name:'driver',factory:engine.extension}],
+    responses:[()=>{calls++;return fauxAssistantMessage(JSON.stringify(response));}]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('What happened to the family?');
+  assert.equal(calls,1);
+  assert.deepEqual(table.extensionErrors,[]);
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text);
+  assert.equal(seen.at(-1)?.status,'completed');
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit);
+  assert.ok(turn.receipts.some(row=>row.kind==='event'));
+  assert.equal(table.telemetry().filter(row=>row.lane==='final-output'&&row.event==='start').length,0);
+  const memory=await table.runtimeBridges().at(-1).call('table.recall',{campaign:'test-camp',what:'memory',about:['Thomas Hayes']});
+  assert.ok(memory.hits.some(row=>row.statement==='Knott says the family left.'&&row.authority==='canonical_event'));
+});
+
+test('the same Keeper receives a real rule result and then writes the public response',async t=>{
+  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null});
+  let sawRoll=false;
+  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
+    runDriver:engine.runDriver,env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},extraExtensions:[{name:'driver',factory:engine.extension}],
+    responses:[fauxAssistantMessage([fauxToolCall('resolve',{action:{actor:'Thomas Hayes',intent:'investigate',
+      goal:'Notice signs of entry',method:'Inspect the lock carefully',skill:'Spot Hidden',decision:'core-check:ordinary-check',
+      modifiers:{difficulty:'regular',bonus_dice:0,penalty_dice:0}}})],{stopReason:'toolUse'}),
+      context=>{sawRoll=context.messages.some(message=>message.role==='toolResult'&&JSON.stringify(message.content).includes('roll'));
+        return fauxAssistantMessage(JSON.stringify({version:1,text:'You finish inspecting the lock.'}));}]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I inspect the lock carefully for signs of entry.');
+  assert.ok(sawRoll);
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.receipts.some(receipt=>receipt.kind==='roll'));
+  assert.ok(turn.commit);
+  assert.equal(table.telemetry().filter(row=>row.lane==='run'&&row.type==='step_start'&&row.kind==='decide').length,0);
+});
+
+
+function directTable(responses,extra={}) {
+  const {onFrame,extraExtensions=[],...options}=extra;
+  const seen=[];
+  const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:null});
+  return openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
+    runDriver:engine.runDriver,env:{PI_COC_LOOP_ENGINE:'hybrid-v1'},
+    extraExtensions:[{name:'capture-stream',factory:pi=>pi.events.on('coc:final-delivery',frame=>{seen.push(frame);onFrame?.(frame);})},{name:'driver',factory:engine.extension},...extraExtensions],
+    responses,...options}).then(table=>({table,seen}));
+}
+
+test('Keeper stream appears before its final message completes and contains no private record',async t=>{
+  const {table,seen}=await directTable([fauxAssistantMessage(JSON.stringify({version:1,record:{event:{name:'quiet-reply',summary:'PRIVATE_CAUSAL_ACCOUNT'}},
+    text:'The office remains quiet. You can continue asking the clerk about the house.'}))]);
+  t.after(()=>table.dispose());
+  let beforeEnd=false;
+  table.session.subscribe(event=>{if(event.type==='message_end'&&event.message?.role==='assistant')beforeEnd=seen.some(frame=>frame.event==='delta');});
+  await table.session.prompt('I wait for the clerk to answer.');
+  assert.ok(beforeEnd);
+  assert.ok(seen.filter(frame=>frame.event==='delta').length>1);
+  assert.ok(!JSON.stringify(seen).includes('PRIVATE_CAUSAL_ACCOUNT'));
+  assert.equal(seen.at(-1).status,'completed');
+});
+
+test('ordinary native prose uses one Keeper request and no JSON repair',async t=>{
+  const text='The clerk answers directly. {{say:Steven Knott}}The father is at the sanitarium.{{/say}}';
+  const {table,seen}=await directTable([fauxAssistantMessage('{{public}}'+text)]);
+  t.after(()=>table.dispose());
+  await table.session.prompt('Where is the father now?');
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text);
+  assert.equal(seen.at(-1).status,'completed');
+  assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,1);
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
+test('completed source consultations reach the same Keeper without another classifier or waiting stage',async t=>{
+  let received=false;
+  const {table,seen}=await directTable([context=>{
+    received=JSON.stringify(context.messages).includes('PRIVATE_SOURCE_ANSWER');
+    return fauxAssistantMessage('{{public}}The clerk gives the publicly known answer.');
+  }],{extraExtensions:[{name:'ready-source',factory:pi=>pi.on('session_start',()=>pi.events.emit('coc:source-answers',{
+    campaign:'test-camp',take:()=>({pending:[],landed:[{focus:'office',question:'What is recorded?',since_turn:0,
+      answer:{status:'answered',answer:'PRIVATE_SOURCE_ANSWER',source_refs:[],authority:'source-consultation',supported:true}}]})
+  }))}]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('What was recorded?');
+  assert.ok(received);
+  assert.ok(!JSON.stringify(seen).includes('PRIVATE_SOURCE_ANSWER'));
+});
+
+test('interrupted Keeper output retains its prefix without completing a disclosure',async t=>{
+  let active,stopped=false;
+  const {table,seen}=await directTable([fauxAssistantMessage(JSON.stringify({version:1,text:'The office is quiet. '.repeat(100)}))],{
+    onFrame:frame=>{if(!stopped&&frame.event==='delta'){stopped=true;void active.session.abort();}},
+  });active=table;
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait.');
+  assert.ok(seen.some(frame=>frame.event==='delta'));
+  assert.ok(!seen.some(frame=>frame.status==='completed'));
+  const owner=createFinalOutputOwner({runtime:()=>({home:table.workspace}),call:async()=>({}),record:async()=>{}});
+  const recovery=await owner.recoveries('test-camp');
+  assert.equal(recovery.at(-1).status,'interrupted');
+  assert.ok(recovery.at(-1).text.length>0);
+});
+
+test('publication retries the same Keeper bytes without another author or state application',async t=>{
+  const response=JSON.stringify({version:1,record:{event:{name:'quiet-office',summary:'The visitor waits in the office.'}},text:'The office remains quiet.'});
+  const {table,seen}=await directTable([fauxAssistantMessage(response)],{prepareWorkspace:workspace=>{
+    seedOpening(workspace);
+    const hook=join(workspace,'.coc/repos/test-camp.git/hooks/pre-commit');
+    writeFileSync(hook,'#!/bin/sh\nmarker="$(git rev-parse --git-dir)/commit-once"\nif test -e "$marker"; then exit 0; fi\ntouch "$marker"\nexit 1\n');chmodSync(hook,0o700);
+  }});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait.');
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit);
+  assert.equal(turn.receipts.filter(row=>row.kind==='event').length,1);
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),'The office remains quiet.');
+  assert.equal(seen.at(-1).status,'completed');
+  assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,1);
+});
+
+test('a planned intent survives the next response without becoming an attempted task',async t=>{
+  const {table}=await directTable([fauxAssistantMessage(JSON.stringify({version:1,
+    record:{effects:[{kind:'npc',name:'Steven Knott',intends:'Visit the house tomorrow.',outcome:'planned'}]},text:'The clerk leaves the decision with you.'})),
+    fauxAssistantMessage(JSON.stringify({version:1,text:'The clerk waits for your answer.'}))]);
+  t.after(()=>table.dispose());
+  await table.session.prompt('Can we go to the house tomorrow?');
+  await table.session.prompt('I consider that plan before answering.');
+  const view=await table.runtimeBridges().at(-1).call('table.look',{campaign:'test-camp',focus:'npc',name:'Steven Knott'});
+  assert.ok(JSON.stringify(view).includes('planned'));
+  const first=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(first.receipts.filter(row=>row.kind==='time'||row.kind==='move').length,0);
+});
+
+test('an unspoken material stays pending even when the same NPC speaks',async t=>{
+  const {table}=await directTable([fauxAssistantMessage(JSON.stringify({version:1,record:{event:{name:'limited-reply',summary:'The clerk offers one fact.',
+    materials:[{name:'spoken',text:'The father left.',kind:'speech',visibility:'player',speaker:'Steven Knott',audience:['Thomas Hayes']},
+      {name:'omitted',text:'He went to a secret address.',kind:'speech',visibility:'player',speaker:'Steven Knott',audience:['Thomas Hayes']}],
+    knowledge:[{actor:'Thomas Hayes',statement:'The father left.',mode:'heard',state:'uncertain',source:'Steven Knott',material:'spoken'},
+      {actor:'Thomas Hayes',statement:'He went to a secret address.',mode:'heard',state:'uncertain',source:'Steven Knott',material:'omitted'}]}},
+    text:'{{say:Steven Knott}}The father left.{{/say}}'}))]);
+  t.after(()=>table.dispose());
+  await table.session.prompt('What do you know?');
+  const memory=await table.runtimeBridges().at(-1).call('table.recall',{campaign:'test-camp',what:'memory',about:['Thomas Hayes']});
+  assert.ok(memory.hits.some(row=>row.statement==='The father left.'&&row.authority==='canonical_event'));
+  assert.ok(!memory.hits.some(row=>row.statement==='He went to a secret address.'&&row.authority==='canonical_event'));
+});
+
+test('a direct mechanical choice remains pending across an OOC response',async t=>{
+  const {table}=await directTable([
+    fauxAssistantMessage(JSON.stringify({version:1,record:{choice:{kind:'mechanics',options:['accept','push']}},text:'You pause before taking the risk.'})),
+    fauxAssistantMessage(JSON.stringify({version:1,record:{scope:'reference'},text:'This is a rules explanation, not another action.'}))]);
+  t.after(()=>table.dispose());
+  await table.session.prompt('I pause before taking the risk.');
+  const first=await table.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp'});
+  assert.equal(first.state,'asked');
+  await table.session.prompt('OOC: explain the options without choosing.');
+  const later=await table.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp'});
+  assert.equal(later.state,'awaiting_player');
+  assert.deepEqual(later.pending,first.pending);
+  assert.deepEqual(table.extensionErrors,[]);
+});
+
+test('a failed reference publication recovers its exact text without turning into a world event',async t=>{
+  const answer='The rule explanation changes no fictional state.';
+  const {table,seen}=await directTable([fauxAssistantMessage('{{reference}}'+answer),fauxAssistantMessage('{{public}}The room remains quiet.')],{
+    prepareWorkspace:workspace=>{
+      seedOpening(workspace);
+      const hook=join(workspace,'.coc/repos/test-camp.git/hooks/pre-commit');
+      writeFileSync(hook,'#!/bin/sh\nexit 1\n');chmodSync(hook,0o700);
+    },
+  });
+  t.after(()=>table.dispose());
+  await table.session.prompt('OOC: explain the rule.');
+  assert.equal(seen.at(-1).status,'publication_pending');
+  writeFileSync(join(table.workspace,'.coc/repos/test-camp.git/hooks/pre-commit'),'#!/bin/sh\nexit 0\n');
+  await table.session.prompt('I wait quietly.');
+  const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(record.interaction_scope,'reference');
+  assert.equal(record.rendered_text,answer);
+  assert.ok(record.commit);
+  assert.equal(record.receipts.length,0);
+  assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,2,JSON.stringify(table.telemetry().filter(row=>['provider-call','keeper-delivery','turn'].includes(row.lane))));
+});

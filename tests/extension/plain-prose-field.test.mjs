@@ -44,7 +44,7 @@ test("§162: the static catalog ends each prose parameter with the sentence, and
 	for (const spec of COC_TOOLS) assert.equal(spec.description.includes(PLAIN_PROSE), false, `${spec.name}'s own description`);
 });
 
-for (const engine of ["legacy", "hybrid-v1"]) {
+for (const engine of ["legacy"]) {
 	test(`§162 on the ${engine} engine: the Keeper's provider request declares each prose parameter with the sentence`, async (t) => {
 		const hybrid = engine === "hybrid-v1" ? createHybridEngine({ env: process.env, decision: null }) : undefined;
 		const payloads = [];

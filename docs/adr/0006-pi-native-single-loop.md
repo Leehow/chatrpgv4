@@ -32,6 +32,8 @@ Two facts decide how the source is held:
 
 ## Decision
 
+Owner amendment (2026-10-13, single-keeper-streaming-turns): keep the native RunDriver and one runtime authority. Its production policy now lets one Keeper judge and author the turn with normal tool-result continuations. Mandatory conversational Jev compile/route and NPC-first authoring are superseded; the final-output owner only streams and publishes the Keeper's text. This changes product orchestration, not the vendor/runtime ownership decision below.
+
 1. **One build authority: `vendor/pi/`**, a reviewable source snapshot of `earendil-works/pi` at `v0.87.0`
    (`16787ad5…`), holding the packages the product loads (`packages/agent`, `packages/coding-agent`, `packages/ai` and
    the workspace pieces their build needs), with `UPSTREAM.md` (repository, tag, commit, date, license, the list of

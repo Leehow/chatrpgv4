@@ -1,3 +1,4 @@
+// Controller-only cases retired with single-keeper-streaming-turns; retained cases exercise current shared utilities.
 /**
  * Contract §202: a time cost fits the act.
  *
@@ -186,31 +187,3 @@ async function declare(t, { scene, unlock, input, band }) {
 	assert.equal(record.player_text, input, "the turn under test is the declared line");
 	return { question: bindQuestions.find((question) => question.key === "band"), time: record.receipts.filter((receipt) => receipt.kind === "time") };
 }
-
-test("§202 run 3 turn 16 through the hybrid engine: a walk down a corridor to a door is a few minutes, not a house search", async (t) => {
-	const { question, time } = await declare(t, { scene: "corbitt-house-ground", unlock: "knott-keys", input: T16, band: "brief_activity" });
-	assert.ok(question, "the clerk asked the band question");
-	assert.equal(question.criteria.brief_activity, `brief activity, 2 to 10 minutes: ${SHIPPED.brief_activity.covers}`, "the row is offered by what it covers");
-	assert.equal(question.criteria.careful_house_search, `careful house search, 60 to 360 minutes: ${SHIPPED.careful_house_search.covers}`);
-	assert.equal(time.length, 1, "time is charged once");
-	assert.deepEqual([time[0].basis, time[0].band, time[0].band_roll.min, time[0].band_roll.max], ["banded", "brief_activity", 2, 10]);
-	assert.ok(time[0].minutes <= 10, `in proportion to a corridor and a look down the stairs: ${time[0].minutes} minutes (run 3 charged 245)`);
-});
-
-test("§202 run 3 turn 9 through the hybrid engine: a clerk fetching one register is one record's time, not hours of research", async (t) => {
-	const { question, time } = await declare(t, { scene: "hall-of-records", unlock: "knott-research-leads", input: T9, band: "record_lookup" });
-	assert.equal(question.criteria.record_lookup, `record lookup, 10 to 45 minutes: ${SHIPPED.record_lookup.covers}`);
-	assert.equal(time.length, 1);
-	assert.deepEqual([time[0].band, time[0].band_roll.min, time[0].band_roll.max], ["record_lookup", 10, 45]);
-	assert.ok(time[0].minutes <= 45, `one record brought to hand: ${time[0].minutes} minutes (run 3 charged 401)`);
-});
-
-test("§202 long acts through the hybrid engine still take hours: a whole house searched room by room, an afternoon in the library", async (t) => {
-	for (const [scene, unlock, input, band] of [["corbitt-house-ground", "knott-keys", WHOLE_HOUSE, "careful_house_search"],
-		["central-library", "knott-research-leads", LIBRARY_AFTERNOON, "library_research"]]) {
-		const { time } = await declare(t, { scene, unlock, input, band });
-		assert.equal(time.length, 1, `${band}: time is charged once`);
-		assert.equal(time[0].band, band);
-		assert.ok(time[0].minutes >= 60, `${band} takes at least an hour: ${time[0].minutes}`);
-	}
-});

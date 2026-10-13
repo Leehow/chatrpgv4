@@ -7,4 +7,5 @@ const text=rows.map(row=>row.text).join('');
 let start=0;
 const coverage=rows.map(row=>{const span={name:row.name,start,end:start+row.text.length};start=span.end;return span;});
 writeFileSync('draft.json',JSON.stringify({version:1,text,coverage}));
-process.stdout.write(JSON.stringify({type:'message_end',message:{role:'assistant',provider:'grok-build',model:'grok-4.5',stopReason:'stop',content:[]}})+'\n');
+process.stdout.write(JSON.stringify({type:'message_end',message:{role:'assistant',provider:'grok-build',model:'grok-4.5',stopReason:'stop',
+  content:packet.commands?[]:[{type:'text',text:JSON.stringify({version:1,text,coverage})}]}})+'\n');

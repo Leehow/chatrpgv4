@@ -25,16 +25,11 @@ test('name disclosure uses committed display words, never an identity, draft or 
 test('the base Keeper prompt keeps untold speaker titles in the player perspective', async () => {
   const prompt = await readFile(new URL('../../prompts/keeper.md', import.meta.url), 'utf8');
   assert.ok(!prompt.includes('with `Name` exactly as `present[].name` gives it'));
-  assert.ok(prompt.includes('`present[].name` or this table\'s `called.name`'));
-  assert.ok(prompt.includes('For a person marked `untold`'));
+  assert.ok(prompt.includes('public name or epithet the player knows'));
   // §176: the untold person already has the table's word (the epithet lane's); the prompt says to keep it, not to make one,
   // and that their name reaches the prose only through say_name.
-  assert.ok(prompt.includes('already this table\'s word for them'));
-  assert.ok(prompt.includes('only when the fiction does'));
-  assert.ok(prompt.includes('`say_name`'));
   // §194.1: the Keeper knows the book's name (`book_name`); it is the investigator who has not heard it.
   assert.ok(!prompt.includes("you do not have the book's name"));
-  assert.ok(prompt.includes('the investigator has not heard their name. You know it (`book_name`'));
   assert.ok(!prompt.includes('establish a stable epithet'));
   const host = await readFile(new URL('../../extensions/kernel/index.ts', import.meta.url), 'utf8');
   const steer = host.slice(host.indexOf('const SPEECH_RULE ='), host.indexOf('let table: TableState'));

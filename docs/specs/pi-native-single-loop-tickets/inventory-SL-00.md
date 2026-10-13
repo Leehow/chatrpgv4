@@ -493,3 +493,12 @@ The Exa network/selection calls and history-query lane are retired. `runtime/nat
 ### Selected final-output host owner (§233, 2026-10-12)
 
 One app-play-gated reader-task driver, `extensions/kernel/final-output.ts` `write` → `runtime.runTask`. This inventory key classifies the **selected** story-realization owner only: when narrate/ask carries an explicit `delivery`, or apply carries delivery after real effects, the host freezes a portrayal packet and runs one bounded tool-enabled Pi author task (multiple internal tool/provider steps allowed) that submits a single artifact into the existing publication path. It is **not** a waiver to treat every assistant utterance as final-output, **not** a new control-flow / loop engine beside RunDriver, and **not** an OOC or loop-end auto-invocation classifier—pure OOC stays on the direct lane with zero writer. Gate: explicit delivery selection by the front owner; path remains app-play-gated while the feature is under active implementation.
+
+### RunDriver final-expression handoff (section 236, 2026-10-13)
+
+The same final-output write owner now contains two mutually exclusive guarded Pi dispatch sites: the current RunDriver streams its assistant artifact, while the legacy-engine compatibility path accepts its file artifact. A selected attempt invokes exactly one site. The current driver schedules final expression only after explicit material handoff, outside the preparation tool. OOC and check-only calls invoke neither. Recovery republishes the accepted artifact without another author; no new agent engine or semantic review loop is introduced.
+
+
+## Single Keeper ablation (2026-10-13)
+
+The play RunDriver no longer constructs a Jev decision adapter or schedules mandatory compile/route/NPC-generation steps. Its policy runs the Keeper, existing tool operations and canonical turn closure. Optional evidence retrieval retains its own inventoried owner. Opening the public delivery journal is transport only and starts no task or model. The final-output child sites remain historical compatibility code during this implementation checkpoint; production single-Keeper publication supplies the already-authored artifact and invokes neither site.

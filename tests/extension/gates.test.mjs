@@ -270,7 +270,7 @@ test("开桌回合：awaiting_player 拒写，但 narrate 放行", async (t) => 
 
 	const hostMessages = customMessages(table.session, "coc-host");
 	assert.ok(hostMessages.length >= 1, "opening_needed 时应该注入一条宿主消息");
-	assert.match(String(hostMessages[0].content), /Use look to see the opening scene/);
+	assert.match(String(hostMessages[0].content), /Use look only if the opening scene is not already supplied/);
 	assert.equal(hostMessages[0].display, false);
 	assert.equal(hostMessages[0].details.coc_host, true);
 

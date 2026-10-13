@@ -15,7 +15,7 @@ import type {Json} from './contracts.ts';
 import {bindingOf, CLERK_AUTHORITY, type Candidate} from './step-policy.ts';
 
 /** The narrator-only compose step's tool catalog. `say` rides inside `narrate`/`ask` text as spans (module comment). */
-export const NARRATOR_CATALOG = ['narrate', 'output', 'ask', 'propose'] as const;
+export const NARRATOR_CATALOG = ['narrate', 'ask', 'propose'] as const;
 /** The Keeper verb that names an offered candidate key (never a handle). */
 export const PROPOSE_VERB = 'propose';
 /** The env switch; `on` and `off` are explicit, anything else (absent, empty, another word) leaves the data default. */
@@ -121,8 +121,8 @@ export function proposeRefusal(input: {key: unknown; offered: readonly Candidate
 
 /** The refusal of a model call outside a narrowed compose step's catalog (announced to the kernel's tool gate). */
 export function catalogRefusal(operation: string, offered: readonly Candidate[]): string {
-  return `${operation} is not in this narrator-only compose step's catalog (narrate, output, ask, propose); nothing was executed. `
-    + `Prepare permitted materials from what landed and what the run carried; select output for story publication (with its choice when a mechanical decision is pending), or call propose with one offered key. Offered keys: ${keyList(offered)}.`;
+  return `${operation} is not in this narrator-only compose step's catalog (narrate, ask, propose); nothing was executed. `
+    + `Prepare permitted materials from what landed and what the run carried; submit narrate handoff:true for story publication (with its choice when a mechanical decision is pending), or call propose with one offered key. Offered keys: ${keyList(offered)}.`;
 }
 /** The refusal of a call written after an accepted `propose` in the same response: the proposed step has not run yet. */
 export const PROPOSE_PENDING_REFUSAL = 'A step you proposed in this response has not run yet: the clerk carries it out before your next step, '
@@ -135,7 +135,7 @@ export function proposeQueuedText(candidate: Candidate): string {
 }
 
 /** The compose note's line on a narrowed step (Keeper-only, system language). */
-export const NARRATOR_NOTE = 'Narrator-only step: this compose step\'s catalog is narrate, output, ask and propose. Privately check materials with narrate as needed, explicitly output the story once, or ask for a '
+export const NARRATOR_NOTE = 'Narrator-only step: this compose step\'s catalog is narrate, ask and propose. Privately check materials with narrate as needed, hand off the final material with narrate handoff:true, or ask for a '
   + 'pending choice; a person\'s spoken words go in {{say:Name}}...{{/say}} spans of that text. apply, resolve, look, lookup and recall are not '
   + 'in this step\'s catalog: the clerk settled what the run could settle (clerk_did), and what the run read is carried in this note. '
   + 'Narrate only what landed with a receipt. To have one more step carried out, call propose with one key from offered, copied exactly, '

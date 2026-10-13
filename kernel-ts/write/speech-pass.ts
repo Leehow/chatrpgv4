@@ -7,12 +7,13 @@ type Row = Record<string, any>;
 export type Speaker = { npc: string; name: string; shown?: string } | { investigator: string; name: string } | { label: string };
 export type SpeakerResolver = (name: string) => Speaker;
 
-const TOKEN = /\{\{say:([^}\n]*)\}\}|\{\{\/say\}\}/g;
+const TOKEN = /\{\{say:(\{\{name:[^{}\n]*\}\}|[^{}\n]*)\}\}|\{\{\/say\}\}/g;
 const MECHANIC = /\{\{([a-z0-9][a-z0-9:_-]*)\}\}/g;
 const PARAGRAPH = /\n[ \t]*\n/;
 export const NAME_LIMIT = 60;
 /** Every say token, open or close; what `stripMarkers` removes beside the mechanics markers. */
-export const SAY_TOKENS = /\{\{say:[^}\n]*\}\}|\{\{\/say\}\}/g;
+export const SAY_TOKENS = new RegExp(TOKEN.source, 'g');
+const speakerName = (name:string):string => name.startsWith('{{name:')&&name.endsWith('}}')?name.slice(7,-2).trim():name.trim();
 export const isSayMarker = (marker: string): boolean => marker.startsWith('say:');
 
 /** Repair the tokens and lift the spans out (§40.1). Returns the text with normalised tokens and the
@@ -60,7 +61,7 @@ export function speechPass(text: string, resolve: SpeakerResolver): { text: stri
         content(text.slice(last, match.index));
         last = match.index + match[0].length;
         if (match[1] === undefined) { close(); continue; }
-        const name = match[1].trim();
+        const name = speakerName(match[1]);
         close();
         if (!name || name.length > NAME_LIMIT) continue;
         open = { name, words: [], moved: [] };
@@ -97,7 +98,7 @@ export function sayRanges(text: string, resolve: SpeakerResolver): SaySpan[] {
         last = match.index + match[0].length;
         close(match.index);
         if (match[1] === undefined) continue;
-        const name = match[1].trim();
+        const name = speakerName(match[1]);
         if (name && name.length <= NAME_LIMIT) open = { start: last, name };
     }
     content(last, text.length);

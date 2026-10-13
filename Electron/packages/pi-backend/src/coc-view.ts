@@ -543,7 +543,7 @@ export function mechanicsEntry(row:any, language?:string, presentations?:Readonl
   const said=patches instanceof Map?(patches.size?[{card:{},patch:detailsPatch(patches),source:'object-details'}]:[]):(patches??[]) as readonly CocCardPatch[];
   return {id:row.id,role:'assistant',content:'',timestamp:Date.parse(row.timestamp)||0,
     presentation:{renderer:'coc-mechanics',details:patchedDetails({turn:row.data.turn,mechanics,labels:{...lanes,...wordTable(row.data.labels)},
-      ...marked,...speech,...(tag?{play_language:tag}:{}),...chrome},said)}};
+      ...marked,...speech,...(typeof row.data.final_stream_id==='string'?{final_stream_id:row.data.final_stream_id}:{}),...(tag?{play_language:tag}:{}),...chrome},said)}};
 }
 export async function readColdSheet(repo:string, context:CocBinding, previewRevision?:number, env:NodeJS.ProcessEnv=process.env, runtimeOptions:CocColdRuntimeOptions={}):Promise<unknown> {
   // A displayed draft is the host's own fact (contract §98): the card entry in the transcript is

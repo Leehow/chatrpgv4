@@ -562,6 +562,8 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   const [waitingStartedAt, setWaitingStartedAt] = useState<number | null>(null)
   const [waitingVisible, setWaitingVisible] = useState(false)
   const [waitingPhase, setWaitingPhase] = useState<WaitingPhase>('awaiting')
+  const [runProgress,setRunProgress]=useState<import('@pipi/host-api').RunProgressFrame>()
+  const runProgressRef=useRef<import('@pipi/host-api').RunProgressFrame>()
   const [waitingDetail, setWaitingDetail] = useState<string | undefined>(undefined)
   const [modsProgress, setModsProgress] = useState<{role: 'define' | 'usage'; objects: string[]; done: number; total: number} | undefined>(undefined)
   const [stoppingSessionId, setStoppingSessionId] = useState<string | null>(null)
@@ -1390,6 +1392,8 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     if (knownNewEmptySession) skippedInitialEmptyHistoryRef.current.add(selectedSession)
     if (contextChanged) {
       activeUserTurnRef.current = false
+      runProgressRef.current=undefined
+      setRunProgress(undefined)
       mainTurnOpenRef.current = false
       mainTurnEpochRef.current += 1
       turnJustSettledRef.current = false
@@ -1921,15 +1925,24 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
         observedSessionStatusesRef.current[event.sessionId] === 'completed'
         || observedSessionStatusesRef.current[event.sessionId] === 'interrupted'
       )
+      if(event.type==='run_progress'){
+        if(turnClosed)return
+        const prior=runProgressRef.current,next=event.progress
+        if(prior&&(next.timestamp<prior.timestamp||next.run===prior.run&&next.sequence<=prior.sequence))return
+        runProgressRef.current=next;setRunProgress(next);setWaitingVisible(true)
+        return
+      }
       if (turnClosed) {
         // Do not drop late live events after settle — they would otherwise wait
         // for the 250ms history reconcile and appear as "stuck then flood".
         // Apply them to the live transcript only. Reloading JSONL on every
         // thinking/text delta stacked overlapping full-file scans on large
         // sessions and froze the main process.
-        const isLiveContent = event.type === 'presentation' || event.type === 'text' || event.type === 'thinking' || event.type === 'tool_call' || event.type === 'tool_result' || event.type === 'hosted_search' || event.type === 'hosted_code_interpreter' || event.type === 'citations' || event.type === 'input_file_sources' || event.type === 'error'
+        const isLiveContent = event.type === 'final_delivery' || event.type === 'presentation' || event.type === 'text' || event.type === 'thinking' || event.type === 'tool_call' || event.type === 'tool_result' || event.type === 'hosted_search' || event.type === 'hosted_code_interpreter' || event.type === 'citations' || event.type === 'input_file_sources' || event.type === 'error'
         if (isLiveContent) {
           const lateNext = applyStreamEvent(messagesRef.current, event)
+          if(event.type==='final_delivery'&&lateNext.some(message=>(message.presentation?.details as any)?.needsReplay)
+            &&!messagesRef.current.some(message=>(message.presentation?.details as any)?.needsReplay))setHistoryRefreshKey(key=>key+1)
           if (lateNext !== messagesRef.current) {
             transcriptLiveRevisionRef.current += 1
             messagesRef.current = lateNext
@@ -1945,12 +1958,16 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
         return
       }
       const next = applyStreamEvent(messagesRef.current, event)
+      if(event.type==='final_delivery'&&next.some(message=>(message.presentation?.details as any)?.needsReplay)
+        &&!messagesRef.current.some(message=>(message.presentation?.details as any)?.needsReplay))setHistoryRefreshKey(key=>key+1)
       if (next !== messagesRef.current) {
         transcriptLiveRevisionRef.current += 1
         messagesRef.current = next
         setMessages(next)
       }
-      if (event.type === 'text') {
+      if(event.type==='final_delivery'){
+        if(event.frame.delta?.trim())setWaitingVisible(false)
+      } else if (event.type === 'text') {
         if (event.delta.trim()) setWaitingVisible(false)
       } else if (event.type === 'thinking') {
         setWaitingVisible(true)
@@ -2182,6 +2199,8 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     }
     if (!canWriteLease) return false
     const beginDirectTurn = () => {
+      runProgressRef.current=undefined
+      setRunProgress(undefined)
       const localUserId = crypto.randomUUID()
       pendingLocalUserRef.current = { id: localUserId, content: prompt }
       mutateLocalTranscript(items => [...items, { id: localUserId, role: 'user', content: prompt, images: attachments?.length ? attachments.map(attachment => ({ data: attachment.url, mimeType: attachment.mimeType })) : undefined, timestamp: Date.now() }])
@@ -2945,7 +2964,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     ? waitingDetail ? `${waitingDetail} · ${modsProgressLine}` : modsProgressLine
     : waitingDetail
   const firstResponseWaiting = waitingVisible && waitingStartedAt !== null
-    ? { startedAt: waitingStartedAt, phase: waitingPhase, detail: waitingDetailShown, onStop: stopSelectedSession }
+    ? { startedAt: waitingStartedAt, phase: waitingPhase, detail: waitingDetailShown, onStop: stopSelectedSession, progress:runProgress }
     : undefined
   const subagentWaiting = !firstResponseWaiting && subagentsRunningCount > 0 && subagentWaitingStartedAt !== null
     ? { startedAt: subagentWaitingStartedAt, phase: 'tool' as const, detail: `${subagentsRunningCount} 个子任务执行中` }
