@@ -149,7 +149,7 @@ test('a contact check pends beside the presence one, and neither is rolled by th
 test('a package that declares a presence check must require checks.presence.v1', async () => {
   const files = new Map([['mod.json', await readFile(join(root, 'mods/natural-npc/mod.json'))]]);
   for (const name of JSON.parse(files.get('mod.json').toString('utf8')).package_files) files.set(name, await readFile(join(root, 'mods/natural-npc', name)));
-  assert.equal(api.manifestFrom(files).version, '1.6.2');
+  assert.equal(api.manifestFrom(files).version, '1.6.3');
   const manifest = JSON.parse(files.get('mod.json').toString('utf8'));
   manifest.requires = manifest.requires.filter(value => value !== 'checks.presence.v1');
   files.set('mod.json', Buffer.from(JSON.stringify(manifest)));

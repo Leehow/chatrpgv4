@@ -2,15 +2,14 @@
 
 ## First impression
 
-You decide whether the impression matters this turn: a request, social approach, access, hostility or suspicion.
-When it matters, call `resolve` with `action.decision: "natural-npc:first-impression"`, the investigator as
-`action.actor` and person as `action.target`. The kernel makes the public Regular check against the higher of
-Appearance and Credit Rating and stores one result per pair; another resolve reuses it.
+Decide whether the initial impression matters to this approach. If it does, call `resolve` with
+`action.decision: "natural-npc:first-impression"`, investigator as `action.actor` and person as `action.target`.
+The kernel makes the public Regular check against the higher of Appearance and Credit Rating, once per pair.
+Reuse its result from the receipt or `mods.relationships`; `since_turn` equal to this turn marks it as new.
 
-Pending contacts are opportunities, not obligations. Ordinary greetings do not automatically demand a roll;
-never pre-roll anyone. Without a roll, use their disposition and your judgement; resolve later when it matters.
-Respect authored reactions requiring no roll. Read the result in the receipt and `mods.relationships`;
-`since_turn` equal to this turn marks it as new. Show it in the person's manner.
+This establishes attitude, not success at a specific persuasion or access goal. It does not replace Charm,
+Fast Talk, Intimidate or Persuade. Pending contacts are optional; greetings need no roll. Never pre-roll.
+Without a roll, use their disposition and your judgement. Respect authored no-roll reactions.
 
 ## The impression in play
 
@@ -28,9 +27,13 @@ NPC ledger and apply npc for subsequent developments, with a reason when needed.
 
 ## Asking for something
 
-A request this person might grant is uncertain, so it is rolled: a modest discount, a small favour, a door opened a little early. Use the social skill the player's approach suggests, and give the check the motive it deserves: the more the ask cuts against what this person wants, and the less they like the investigator, the stronger the opposing motive. The dice choose where inside the plausible range this person lands; a failure is a refusal in their words, a success is what was asked or close to it.
+If already willing to grant this request, let them agree without a roll (Keeper Rulebook p.93). Friendliness
+alone is not consent to another goal. For an uncertain consequential request, resolve the social skill the
+player's approach supports. Use the actual opposition: strong resistance raises difficulty, a substantive
+case can lower it. Respect duties and knowledge; success never grants a fact the person does not know.
 
-A request nobody in this person's position would grant, goods, labour or a secret handed over for nothing with no reason they could accept, is not uncertain: no roll. They refuse outright, in their own register, with the offence the ask deserves. A reason the fiction supports (a debt owed, a real threat, something of value in trade) makes it a request again and puts it back in the range the dice decide.
+An impossible request has no roll. A supported reason, such as a debt, threat or fair trade, may make it
+attainable; judge that changed situation normally. Ordinary willing answers need no artificial die toll.
 
 ## What the asker is after
 

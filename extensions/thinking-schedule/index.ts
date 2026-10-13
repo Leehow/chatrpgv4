@@ -7,8 +7,9 @@ const DELIVERY_TOOLS = new Set(["narrate", "ask"]);
 const FOLLOW_UP_LEVEL: ThinkingLevel = "off";
 
 /**
- * Keep the table's chosen thinking level until the Keeper's first writing tool batch, then ask Pi
- * for the lowest supported level. A batch of reads only (contract §175.1) buys no lower level: the
+ * A single Keeper keeps the chosen level while judging after tools. The legacy split path keeps
+ * that level until its first writing tool batch, then asks Pi for the lowest supported level.
+ * A batch of reads only (contract §175.1) buys no lower level: the
  * step after it is usually the one that writes the epithets, the moods and the prose (§175). Pi owns
  * capability clamping: requesting `off` becomes `minimal` or `low` when a model's catalog exposes no
  * true off level.
@@ -26,6 +27,7 @@ export default function thinkingSchedule(pi: ExtensionAPI): void {
 	let tableLevel: ThinkingLevel | undefined;
 	let scheduledLevel: ThinkingLevel | undefined;
 	let scheduleAttempted = false;
+	let singleKeeper = false;
 
 	const restoreTableLevel = (): void => {
 		if (tableLevel !== undefined && scheduledLevel !== undefined && pi.getThinkingLevel() === scheduledLevel) {
@@ -36,6 +38,11 @@ export default function thinkingSchedule(pi: ExtensionAPI): void {
 		scheduleAttempted = false;
 	};
 
+	pi.events?.on("coc:loop-engine", (binding) => {
+		singleKeeper = (binding as {singleKeeper?: unknown} | undefined)?.singleKeeper === true;
+		if (singleKeeper) restoreTableLevel();
+	});
+
 	pi.on("before_agent_start", () => {
 		// Defensive recovery for a host that starts another prompt without settling the previous one.
 		restoreTableLevel();
@@ -45,7 +52,7 @@ export default function thinkingSchedule(pi: ExtensionAPI): void {
 	// `turn_end` sees the complete assistant tool batch after every result (including blocked,
 	// invalid, truncated, and aborted calls) and still runs before the next `prepareNextTurn`.
 	pi.on("turn_end", (event) => {
-		if (scheduleAttempted) return;
+		if (singleKeeper || scheduleAttempted) return;
 		const toolNames = event.message.content
 			.filter((block) => block.type === "toolCall")
 			.map((block) => block.name);

@@ -1,5 +1,8 @@
 # Natural NPC
 
+## 1.6.3
+- Separates optional first impressions from uncertain consequential requests. A willing person's ordinary assistance and obvious information need no roll; actual influence or contested access uses the existing social resolver. Keeper judgement, public max(APP, Credit Rating), once-per-pair reuse and frozen results remain unchanged. This is guidance only; state_version stays 1 and no state migration is needed. Existing package locks remain immutable.
+
 ## 1.6.2
 - Shortens the first-impression instructions to keep default package guidance within the existing 65,536-byte budget. Keeper judgement, public Regular max(APP, Credit Rating), once-per-pair reuse, optional contacts, greeting and authored no-roll behavior are unchanged. The new version preserves frozen 1.6.1 packages; no state migration is needed.
 

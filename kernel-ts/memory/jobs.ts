@@ -96,13 +96,28 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
     if (!record)
         throw new RpcError('invalid_params', `turn ${turn} has no committed record`, { fix: 'only turns closed by narrate have extraction jobs', details: { turn, committed_turns: [...committed.keys()].sort((a, b) => a - b) } });
     const snapshot = row(record.world), scene = graph.scene(string(row(snapshot.scene).name || world.active_scene));
+    const names = new EntityIndex(graph, party, row(world.scene_labels), null, world);
+    const participants = array(record.receipts).filter(receipt => receipt.kind === 'event').flatMap(receipt => {
+        const event = row(receipt.event);
+        return [
+            ...array(event.materials).flatMap(material => [material.speaker, ...array(material.audience)]),
+            ...array(event.knowledge).flatMap(item => [item.actor, item.source]),
+            ...array(event.relationships).flatMap(item => [item.actor, item.toward]),
+        ].filter(value => row(value).kind === 'npc').flatMap(value => {
+            const actor = row(value), options = {kinds: ['npc'], investigators: false, reserved: []};
+            const identified = names.matches(string(actor.id), options);
+            const matches = identified.length ? identified : names.matches(string(actor.name), options);
+            const node = matches.length === 1 ? graph.nodes.get(matches[0].slice('npc:'.length)) : undefined;
+            return node ? [node] : [];
+        });
+    });
     const present = [...new Map([
         ...array(row(record.capsule).present).map(value => graph.find(string(row(value).name || value), ['npc'])).filter(truth) as Row[],
-        ...array(snapshot.present).map(name => graph.find(string(name), ['npc'])).filter(truth) as Row[]
+        ...array(snapshot.present).map(name => graph.find(string(name), ['npc'])).filter(truth) as Row[],
     ].map(node => [node.node_id, node])).values()];
     const display = sceneLabel(graph, world, scene);
     const known: Row[] = party.map(sheet => ({ name: string(sheet.name), kind: 'investigator' })), allowed: string[] = [];
-    for (const node of present) {
+    for (const node of new Map([...present, ...participants].map(node => [node.node_id, node])).values()) {
         known.push({ name: graph.displayName(node), kind: 'npc' });
         allowed.push(node.node_id);
     }

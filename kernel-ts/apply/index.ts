@@ -191,9 +191,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const receipts: Row[] = [], events: DomainEvent[] = [], ids: string[] = [];
             const effectReceipts = new Map<number, Row[]>();
             const stagedSheets=new Map<string,Row>(),stagedNotes:Row[]=[],stagedRulings:Row[]=[],attachments:Row[]=[],mapViews:Row[]=[],already:string[]=[];
-            const buffered=params.event===undefined?undefined:new StagedCampaignWriter(kernel,campaign.id),effectCampaign=buffered??campaign;
+            const buffered=new StagedCampaignWriter(kernel,campaign.id),effectCampaign=buffered;
             const context: ApplyContext = { kernel, transaction:{...transaction,campaign:effectCampaign}, campaign:effectCampaign, world: staged, turn, graph, module, callId: started.callId, ordinal: started.ordinal,
-                ...(buffered?{stageText:(path:string,text:string)=>buffered.stageText(path,text)}:{}),
+                stageText:(path:string,text:string)=>buffered.stageText(path,text),
                 ...(params._lean === true ? { lean: true } : {}),
                 staged: () => receipts,
                 mint(base) { let id = base, next = 2; while (taken.has(id))
@@ -477,7 +477,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             // §129.4: a definition that replaced a placeholder changed what instances already on a sheet read.
             if(effects.some(effect=>isJsonObject(effect)&&['object','usage'].includes(string(effect.kind)))||receipts.some(receipt=>receipt.replaced_placeholder===true))
                 await contributions.mods!.projectInventory(effectCampaign as CampaignWriter,staged);
-            await buffered?.commit();
+            await buffered.commit();
             await campaign.writeWorld(staged);
             await settleOwed(kernel, campaign.id, graph, staged, receipts, nowIso(), await campaign.party());
             for(const note of stagedNotes)await appendJsonl(join(campaign.directory,'notes.jsonl'),note);
