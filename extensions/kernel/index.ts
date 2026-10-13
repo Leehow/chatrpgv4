@@ -6565,7 +6565,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		if (state && tool) {
 			const inner = (details.coc_error as { details?: Record<string, unknown> }).details ?? {};
 			const needs = (inner.needs as { field?: unknown } | undefined)?.field;
-			const facet = [inner.turn_of, needs, inner.reason, inner.field].find((v) => typeof v === "string" && v) ?? "";
+			const facet = [inner.turn_of, needs, inner.reason, inner.field].find((v) => typeof v === "string" && v) ?? String(details.coc_error.message ?? "");
 			const cls = `${tool}\u0000${String(details.coc_error.code ?? "error")}\u0000${String(facet)}`;
 			// A strike is an attempt, not a call. Calls a Keeper issued in one message are answered
 			// after it wrote them, so the second and third of a batch are not it ignoring the first

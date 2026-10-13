@@ -375,8 +375,6 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const resolved=await resolveIntent(context,node,{intends:effect.intends,intent_ref:effect.intent_ref},'npc');
         if(outcome==='planned'&&(effect.spend_turn!=null||resolved.status==='attempted'))
             throw new RpcError('invalid_params','A plan spends no turn and cannot undo an attempted action');
-        if(resolved.status==='planned'&&['done','failed'].includes(outcome as string))
-            throw new RpcError('invalid_params','A planned action requires ordinary execution before a result; it may be abandoned');
         await refuseSettled(context,node,resolved,'npc');
         refuseRepeat(context,node,resolved,outcome as string,'npc');
         // §143.3: the host's `_generated` marks the table's own act of this person (host-only; `true` or absent).
