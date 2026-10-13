@@ -139,21 +139,8 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                     offer: 'declined', offered_to: owner.id, offered_to_label: ownerLabel(world, owner)},
                 event: {type: 'item-transferred', data: {name, to: source!.name, from: null, offer: 'declined'}}};
         }
-        // Its definition is still queued, so the adoption is queued with it and the two are replayed
-        // together. The sheet row stays exactly where it is, which is the shape the world already had.
-        if (Object.hasOwn(effect, 'adopt') && !prior) {
-            const waiting = queuedDefinition(world, truth(effect.definition) ? effect.definition : name);
-            if (waiting) {
-                if (typeof effect.adopt !== 'string' || !effect.adopt.trim() || source || owner.kind !== 'investigator')
-                    throw new RpcError('invalid_params', 'Adopt needs an existing investigator equipment name, without from or an existing instance');
-                if (!queueAdoption(world, string(waiting.name), string(waiting.category), {...effect}))
-                    throw new RpcError('invalid_params', 'The queued definition for this adoption is no longer registered');
-                // §129: the definition its job is producing is what the card waiting on this row is opened by.
-                return {receipt: {id: mint(`definition:queued-adopt-${callId}`), kind: 'definition', name, category: waiting.category,
-                    queued: true, adopted: effect.adopt, definition_name: string(waiting.name), subject: owner.id, visibility: 'keeper', call_id: callId},
-                    event: {type: 'definition-queued', data: {name: string(waiting.name), category: string(waiting.category)}}};
-            }
-        }
+        // Adoption changes representation now. moveObject can use the existing queued placeholder;
+        // enrichment later replaces only its definition, keeping ownership and document edits intact.
         if(effect._identity_defer===true&&!prior&&!Object.hasOwn(effect,'adopt')){
             const waiting=queuedDefinition(world,truth(effect.definition)?effect.definition:name);
             if(!waiting||waiting.optional_identity!==true||owner.kind!=='investigator'||division||Object.hasOwn(effect,'document')||Object.hasOwn(effect,'condition'))

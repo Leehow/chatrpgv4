@@ -160,7 +160,7 @@ test('kernel glossary labels are context for the model, never a question put to 
  assert.equal(result.texts['Language (Other: Latin)'],'其他语言（拉丁语）');
 });
 
-test('possession words are localized once, grow with the kit, and never include what the Keeper wrote',async()=>{
+test('possession names and fields are projected once without document bodies or private material',async()=>{
  const {preparePossessionPresentation,possessionTexts}=await import('../../extensions/module/character-presentation.ts');
  const home=await mkdtemp(join(tmpdir(),'possession-presentation-'));
  const camera={name:'林岚的相机',category:'item',description:'一台木壳折叠相机。',parameters:{description:'一台木壳折叠相机。'},
@@ -169,10 +169,10 @@ test('possession words are localized once, grow with the kit, and never include 
  const view={play_language:'zh-Hans',turn:2,investigators:[{...sheet,objects:[camera]}]};
  const original=JSON.stringify(view);let calls=0;
  const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
-  for(const hidden of ['林岚的相机','一台木壳折叠相机。','林岚的背包','22'])assert.ok(!inputTexts(input).includes(hidden),hidden);
+  for(const hidden of ['一台木壳折叠相机。','林岚的背包','22'])assert.ok(!inputTexts(input).includes(hidden),hidden);
   await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(input)));return {ok:true}};
  const options={home,campaign:'c1',play_language:'zh-Hans',view,runner};
- assert.deepEqual(possessionTexts(view),['12 exposures','capacity','cm','condition','intact','length','mahogany, leather bellows','material']);
+ assert.deepEqual(possessionTexts(view),['12 exposures','Camera','capacity','cm','condition','intact','length','mahogany, leather bellows','material','林岚的相机']);
  const first=await preparePossessionPresentation(options);
  assert.equal(first.texts.intact,'zh-Hans:intact');assert.equal(first.texts['mahogany, leather bellows'],'zh-Hans:mahogany, leather bellows');assert.equal(calls,1);
  assert.deepEqual(JSON.parse(await readFile(join(home,'.coc/campaigns/c1/setup/presentations/possessions-zh-Hans.json'),'utf8')),first);
@@ -183,6 +183,20 @@ test('possession words are localized once, grow with the kit, and never include 
  assert.equal(JSON.stringify(view),original);
  await assert.rejects(preparePossessionPresentation({...options,view:{...view,play_language:'en'}}),/language/);
  assert.deepEqual(possessionTexts({investigators:[{objects:[{traits:[{name:'重量',value:2.4,unit:'公斤'}],state:{condition:'intact'}}]}]}),['condition','intact','公斤','重量']);
+});
+
+test('existing English equipment and public transfer names share possession presentation',async()=>{
+ const {preparePossessionPresentation,possessionTexts}=await import('../../extensions/module/character-presentation.ts');
+ const home=await mkdtemp(join(tmpdir(),'existing-equipment-presentation-'));
+ const view={play_language:'zh-Hans',investigators:[{equipment:['notebook and stub pencil',{name:'flashlight'}],weapons:[{name:'.38 Revolver'}],objects:[]}],
+  mechanics:[{kind:'item',name:'Corbitt House key',definition_name:'House key definition'},
+   {kind:'item',name:'PRIVATE NAME',visibility:'keeper'}]};
+ assert.deepEqual(possessionTexts(view),['.38 Revolver','Corbitt House key','House key definition','flashlight','notebook and stub pencil']);
+ const original=JSON.stringify(view);
+ const runner=async request=>{const packet=JSON.parse(await readFile(join(request.cwd,'texts.json'),'utf8'));
+  await writeFile(join(request.cwd,'presentation.json'),JSON.stringify(presentation(packet,{translate:text=>text==='notebook and stub pencil'?'随身本子与短铅笔':`Projected ${text}`})));return {ok:true};};
+ const result=await preparePossessionPresentation({home,campaign:'c1',play_language:view.play_language,view,runner});
+ assert.equal(result.texts['notebook and stub pencil'],'随身本子与短铅笔');assert.ok(!Object.hasOwn(result.texts,'PRIVATE NAME'));assert.equal(JSON.stringify(view),original);
 });
 
 test('journal words are the names and stamped scenes, never the lane\'s own prose',async()=>{

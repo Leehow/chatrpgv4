@@ -1599,7 +1599,7 @@ export function createComponent(React) {
     /** A fold's caption: its family's word, or a heading for its kind. Belongings that only arrived
      *  (no row took anything away) are the ones gained; a fold that lost one is plain belongings. */
     const foldCaption = (fold) => fold.family ? t(`family.${fold.family}`, term(fold.family))
-      : fold.kind === "item" ? t(fold.rows.some(row => (num(row.quantity) ?? 0) < 0) ? "fold.items" : "fold.itemsGained")
+      : fold.kind === "item" ? t(fold.rows.some(row => typeof row.adopted === "string" || (num(row.quantity) ?? 0) < 0) ? "fold.items" : "fold.itemsGained")
       : t(`fold.${fold.kind}`);
     /** The trailing folds, each drawing its rows with `draw` once opened. */
     const folds = (rows, draw) => foldsOf(rows).map(fold => h(MechList, {

@@ -2,7 +2,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {join} from 'node:path';
-import {kernel,CAMPAIGN,campaignDir,readJson,writeJson,openTurn,type Row,type RpcClient} from './support.ts';
+import {kernel,RpcClient,CAMPAIGN,campaignDir,readJson,writeJson,openTurn,type Row} from './support.ts';
 import {weapon} from './mod-fixtures.ts';
 const queued=(k:RpcClient,args:Row={})=>k.ok('mods.queued',{campaign:CAMPAIGN,...args});
 const context=(k:RpcClient)=>k.ok('mods.context',{campaign:CAMPAIGN});
@@ -14,16 +14,38 @@ const defineQueued=(draft:Row,job:Row)=>({kind:'define',...draft,_queued:job.job
 const narrate=(k:RpcClient,call_id:string,text:string)=>k.table('narrate',{call_id,text});
 const plain=(draft:Row,description:string)=>({...draft,category:'item',basis:'Ordinary item fixture.',parameters:{charges:null,effects:[]},player_view:{description,fields:[]}});
 
+test('an existing notebook is writable before enrichment and later enrichment preserves its notes',async t=>{
+  const k=await kernel(t);await openTurn(k);
+  const target=(await context(k)).unregistered_equipment.find((entry:Row)=>entry.name==='notebook and stub pencil').name;
+  const draft={name:'Notebook definition',category:'item',description:'The carried notebook and short pencil.'};
+  const job=await k.ok('mods.job',{campaign:CAMPAIGN,role:'create',input:draft});
+  await k.table('apply',{call_id:'t1-c1',effects:[defineQueued(draft,job),{kind:'object',name:'Hayes notebook',definition:draft.name,to:'Thomas Hayes',adopt:target,document:{text:'Children safe in Baltimore.\n',presentation:'notebook'},why:'Record the player-chosen note in the carried notebook.'}]});
+  const initial=await look(k,'Hayes notebook');assert.equal(initial.instance.document.text,'Children safe in Baltimore.\n');
+  const inventory=sheet(k).equipment;assert.equal(inventory.filter((entry:Row|string)=>typeof entry==='string'?entry===target:entry.name==='Hayes notebook').length,1);
+  const identity=inventory.find((entry:Row)=>entry.name==='Hayes notebook').object_id;assert.ok(identity);
+  await k.table('apply',{call_id:'t1-c2',effects:[{kind:'object',name:'Hayes notebook',from:'Thomas Hayes',to:'Thomas Hayes',document:{action:'append',text:'Address withheld.\n'},why:'Append the second chosen note.'}]});
+  await finish(k,job,{...plain(draft,'A carried notebook.'),document:{text:'Creator seed must not overwrite notes.',presentation:'notebook'}});
+  await narrate(k,'t1-c3','The notes are written.');await k.table('player_input',{text:'I read my notebook.'});
+  const ready=await queued(k);assert.deepEqual(ready.effects.map((entry:Row)=>entry.kind),['define']);
+  await k.table('apply',{call_id:'t2-c1',effects:ready.effects});
+  const completed=await look(k,'Hayes notebook');
+  assert.equal(completed.instance.document.text,'Children safe in Baltimore.\nAddress withheld.\n');
+  assert.equal(sheet(k).equipment.filter((entry:Row)=>entry.object_id===identity).length,1);
+  await k.close();const restarted=new RpcClient(k.workspace);t.after(()=>restarted.close());
+  const reopened=await restarted.ok('mods.document.view',{campaign:CAMPAIGN,actor:'Thomas Hayes',name:'Hayes notebook'});
+  assert.equal(reopened.text,'Children safe in Baltimore.\nAddress withheld.\n');
+});
+
 test('test_registration_can_be_queued_past_delivery_and_completed_afterwards',async t=>{
   const k=await kernel(t);await openTurn(k);const rows=(await context(k)).unregistered_equipment.map((entry:Row)=>entry.name);assert.ok(rows.length);const target=rows[0];
   const draft={name:'Queued fixture kit',category:'item',description:'Fixture gear for a deferred registration.'};
   const job=await k.ok('mods.job',{campaign:CAMPAIGN,role:'create',input:draft});
   await k.table('apply',{call_id:'t1-c1',effects:[defineQueued(draft,job),{kind:'object',name:draft.name,to:'Thomas Hayes',adopt:target,definition:draft.name,why:'Fixture adoption.'}]});
-  assert.equal(Object.keys(world(k).objects?.definitions??{}).length,0);assert.ok(!(await context(k)).unregistered_equipment.some((row:Row)=>row.name===target));
+  assert.equal(Object.keys(world(k).objects?.definitions??{}).length,1);assert.ok(!(await context(k)).unregistered_equipment.some((row:Row)=>row.name===target));
   await finish(k,job,{...plain(draft,'一套夹具装备。'),basis:'Fixture basis for the deferred kit.'});assert.deepEqual(await queued(k),{effects:[],unfinished:[]});
   const delivered=await narrate(k,'t1-c3','诺特把条件说完，等你开口。'),waiting=delivered.mechanics.filter((row:Row)=>row.adopted===target);
   assert.deepEqual(waiting,[{kind:'item',receipt:waiting[0].receipt,name:draft.name,adopted:target,definition:'pending',definition_name:draft.name,call:'t1-c1'}]);
-  await k.table('player_input',{text:'我接下这单。'});const ready=await queued(k);assert.deepEqual(ready.effects.map((row:Row)=>row.kind),['define','object']);assert.deepEqual(ready.unfinished,[]);
+  await k.table('player_input',{text:'我接下这单。'});const ready=await queued(k);assert.deepEqual(ready.effects.map((row:Row)=>row.kind),['define']);assert.deepEqual(ready.unfinished,[]);
   await k.table('apply',{call_id:'t2-c1',effects:ready.effects});assert.deepEqual((await k.table('status')).mechanics.filter((row:Row)=>row.adopted),[]);
   assert.equal((await look(k,draft.name)).definition.name,draft.name);assert.deepEqual(await queued(k),{effects:[],unfinished:[]});
   assert.ok(!(await context(k)).unregistered_equipment.some((row:Row)=>row.name===target));
@@ -81,7 +103,7 @@ test('test_a_usage_batch_can_take_the_registration_behind_a_placeholder_in_the_s
 test('test_a_queued_registration_answers_look_instead_of_reading_as_unknown',async t=>{
   const k=await kernel(t);await openTurn(k);const target=(await context(k)).unregistered_equipment[0].name,draft={name:'Queued field kit',category:'item',description:'Fixture gear for a deferred registration.'};
   const job=await k.ok('mods.job',{campaign:CAMPAIGN,role:'create',input:draft});await k.table('apply',{call_id:'t1-c1',effects:[defineQueued(draft,job),{kind:'object',name:draft.name,to:'Thomas Hayes',adopt:target,definition:draft.name,why:'Fixture adoption.'}]});
-  const refused=await k.tableErr('look',{focus:'object',name:draft.name});assert.equal(refused.code,'needs');assert.ok(refused.message.includes(draft.name));assert.ok(refused.fix.includes('do not define or place it again'));
-  const registered=(await context(k)).objects.queued_registrations;assert.deepEqual(registered.map((row:Row)=>row.name),[draft.name]);assert.equal(registered[0].adopted,target);
+  const pending=await look(k,draft.name);assert.ok(pending.pending.includes(draft.name));assert.equal(pending.instance.name,draft.name);
+  const registered=(await context(k)).objects.queued_registrations;assert.deepEqual(registered.map((row:Row)=>row.name),[draft.name]);
   assert.equal((await k.tableErr('look',{focus:'object',name:'Nothing named this'})).code,'unknown_entity');
 });

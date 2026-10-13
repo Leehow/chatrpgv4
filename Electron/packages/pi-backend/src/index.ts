@@ -7,6 +7,7 @@ import { readCocBinding, cocBindingOfRow, readColdSheet, callColdKernel, mechani
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
 import {withHandoutImages,withDocumentImage} from './coc-handout-images.js';
+import {publicPlayToolResult} from './coc-public-tool-details.js';
 import {withMapImages} from './coc-map-images.js';
 import {handoutReadingAnswer} from './coc-handout-reading.js';
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
@@ -1571,7 +1572,9 @@ function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], languag
   if (entry?.type === "message") {
     const projected=redactHistoryEntry(historyEntryFromMessage(entry),secrets);
     if(projected&&binding?.mode==='play'&&(projected.role==='assistant'||projected.role==='tool')) {
-      projected.content='';delete projected.thinking;delete projected.details;delete projected.images;
+      projected.content=projected.role==='tool'
+        ?publicPlayToolResult(entry.message?.toolName,{details:entry.message?.details},entry.message?.isError).content:'';
+      delete projected.thinking;delete projected.details;delete projected.images;
       if(projected.tools)projected.tools=projected.tools.map(tool=>({...tool,input:''}));
       if(projected.activities)projected.activities=projected.activities.filter(item=>item.type==='tool')
         .map(item=>({...item,tool:{...(item as any).tool,input:''}}));
@@ -6586,14 +6589,14 @@ export class PiHostBackend implements HostBackend {
    * the held answer. The lanes run one after another rather than together — a turn that both
    * reveals a clue and hands over a document is rare, and they share the vocabulary file.
    */
-  /** Loaded public clue accounts use the delivery lane even when no Keeper is running. */
+  /** Loaded public clues and item names use the delivery lanes even when no Keeper is running. */
   private startCocCluePresentation(sessionId: string, history: HistoryEntry[]): void {
     if (this.closed || this.sidebarArchivedCache.has(sessionId)) return;
     for (const card of history) {
       const details = card.presentation?.details as any;
       if (card.presentation?.renderer !== 'coc-mechanics' || !Array.isArray(details?.mechanics)
-        || !details.mechanics.some((row: any) => row.kind === 'clue' && row.visibility !== 'keeper'
-          && typeof row.how === 'string' && row.how.trim())) continue;
+        || !details.mechanics.some((row: any) => row.visibility !== 'keeper' &&
+          (row.kind === 'item' || row.kind === 'clue' && typeof row.how === 'string' && row.how.trim()))) continue;
       this.startDeliveryPresentation(sessionId, {type: 'custom', customType: 'coc-mechanics',
         id: card.id, timestamp: new Date(card.timestamp).toISOString(), data: details});
     }
@@ -6627,7 +6630,7 @@ export class PiHostBackend implements HostBackend {
           const titles = lane === "handouts" ? handoutTitles((Array.isArray(raw?.data?.mechanics) ? raw.data.mechanics : [])
             .filter((row: any) => row?.kind === "handout" && row.visibility !== "keeper")).filter(title => missing.includes(title)) : [];
           await host.presentation({campaign: binding.campaign, play_language: binding.play_language, [lane]: true,
-            ...(lane === "rules" || lane === "clues" ? {mechanics: raw.data.mechanics} : {}),
+            ...(lane === "rules" || lane === "clues" || lane === "possessions" ? {mechanics: raw.data.mechanics} : {}),
             ...(titles.length ? {handout_names: titles} : {}),
             ...await this.cocFastLane(state)});
           this.cocLaneJobs.delete(key);
@@ -7342,11 +7345,12 @@ export class PiHostBackend implements HostBackend {
     } else if (e.type === "tool_execution_end") {
       this.touchTurnActivity(live);
       const { text: resultText, images } = extractResult(e.result?.content)
+      const toolName = live.toolNames.get(e.toolCallId) ?? e.toolName;
       this.stream({
         type: "tool_result",
         sessionId: id,
         toolCallId: e.toolCallId,
-        content: privatePlay?'':resultText,
+        content: privatePlay?publicPlayToolResult(toolName,e.result,e.isError).content:resultText,
         images: !privatePlay&&images.length > 0 ? images : undefined,
         isError: e.isError,
         ...(!privatePlay?toolResultDetailsField(e.result):{}),
@@ -7358,7 +7362,6 @@ export class PiHostBackend implements HostBackend {
       // `tool_execution_start` (`toolCallId` → `context_manage`); the result's
       // own `details` fingerprint (`{ status: "ok", foldedIds, llm: false }`)
       // only says this execution really folded blocks.
-      const toolName = live.toolNames.get(e.toolCallId);
       live.toolNames.delete(e.toolCallId);
       const details = e.result && typeof e.result === "object" ? (e.result as { details?: unknown }).details : undefined;
       if (

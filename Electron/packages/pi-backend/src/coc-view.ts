@@ -385,16 +385,17 @@ export async function reloadLaneLabels(context?:CocBinding):Promise<Record<strin
  */
 export function deliveryWords(entry:any):Record<string,string[]> {
   const rows=Array.isArray(entry?.data?.mechanics)?entry.data.mechanics:[];
-  const wanted:Record<string,Set<string>>={clues:new Set(),handouts:new Set(),rules:new Set()};
-  const keys:Record<string,string[]>={clues:['label','how'],handouts:['name','text']};
+  const wanted:Record<string,Set<string>>={clues:new Set(),handouts:new Set(),rules:new Set(),possessions:new Set()};
+  const keys:Record<string,string[]>={clues:['label','how'],handouts:['name','text'],possessions:['name','label','definition_name']};
   for(const row of rows) {
     if(!row||typeof row!=='object'||row.visibility==='keeper')continue;
     if(row.kind==='roll'&&typeof row.skill==='string'&&row.skill.trim()&&typeof entry?.data?.labels?.[row.skill]!=='string')
       wanted.rules.add(row.skill);
-    const lane=row.kind==='clue'?'clues':row.kind==='handout'?'handouts':null;
+    const lane=row.kind==='clue'?'clues':row.kind==='handout'?'handouts':row.kind==='item'?'possessions':null;
     if(!lane)continue;
     for(const key of keys[lane])
       if(typeof row[key]==='string'&&row[key].trim())wanted[lane].add(row[key]);
+    if(lane==='possessions'&&typeof row.object?.name==='string'&&row.object.name.trim())wanted[lane].add(row.object.name);
   }
   return Object.fromEntries(Object.entries(wanted).filter(([,set])=>set.size).map(([lane,set])=>[lane,[...set].sort()]));
 }

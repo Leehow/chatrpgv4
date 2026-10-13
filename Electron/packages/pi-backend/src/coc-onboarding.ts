@@ -750,7 +750,10 @@ export class CocOnboardingHost {
     const clues=data.clues===true&&Array.isArray(data.mechanics)
       ? [...new Set(data.mechanics.filter((row:any)=>row?.kind==='clue'&&row.visibility!=='keeper')
         .flatMap((row:any)=>[row.label,row.how]).filter((text:unknown)=>typeof text==='string'&&text.trim()))].sort() : [];
-    return JSON.stringify([data.campaign,data.revision,data.play_language,CocOnboardingHost.laneFlags(data),skills,titles,clues]);
+    const possessions=data.possessions===true&&Array.isArray(data.mechanics)
+      ? [...new Set(data.mechanics.filter((row:any)=>row?.kind==='item'&&row.visibility!=='keeper')
+        .flatMap((row:any)=>[row.name,row.label,row.definition_name,row.object?.name]).filter((text:unknown)=>typeof text==='string'&&text.trim()))].sort() : [];
+    return JSON.stringify([data.campaign,data.revision,data.play_language,CocOnboardingHost.laneFlags(data),skills,titles,clues,possessions]);
   }
   /** Different deliveries must not join a run that never saw their terms, nor overwrite its cache.
    *  Each growing lane reads its missing words again after its predecessor has saved them. */

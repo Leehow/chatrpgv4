@@ -402,7 +402,7 @@ it('lane words come from the built presenter, and each saved projection says wha
   const view={play_language:'zh-Hans',investigators:[{id:'inv-1',objects:[{name:'相机',description:'一台相机。',traits:[{name:'length',value:22,unit:'cm'},{name:'material',value:'mahogany'}],state:{condition:'intact',ammo:null}}]}],
     clues:{discovered:[{clue:'blood-pool-manifest',label:'血泊',summary}]}};
   const words=await laneWords(repo,'possessions',view);
-  expect(words).toEqual(['cm','condition','intact','length','mahogany','material']);
+  expect(words).toEqual(['cm','condition','intact','length','mahogany','material','相机']);
   const clueWords=await laneWords(repo,'clues',view);
   // §79: the source summary is Keeper-only. The player-facing lane projects only the earned label.
   expect(clueWords).toEqual(['血泊']);
@@ -418,7 +418,7 @@ it('lane words come from the built presenter, and each saved projection says wha
   const context={campaign:'c1',home,play_language:'zh-Hans'};
   expect(await laneProjection(context,'possessions',words)).toEqual({texts:{},missing:words});
   const folder=join(home,'.coc/campaigns/c1/setup/presentations');await mkdir(folder,{recursive:true});
-  const texts={cm:'厘米',condition:'状态',intact:'完好',length:'长度',material:'材质'};
+  const texts={cm:'厘米',condition:'状态',intact:'完好',length:'长度',material:'材质','相机':'相机'};
   await writeFile(join(folder,'possessions-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts}));
   expect(await laneProjection(context,'possessions',words)).toEqual({texts,missing:['mahogany']});
   // Each lane reads its own file: the possession words say nothing about the clues.
@@ -532,7 +532,8 @@ it('a bound sheet read merges every lane\'s saved words under the kernel glossar
     await writeFile(join(folder,`${lane}-zh-Hans.json`),JSON.stringify({play_language:'zh-Hans',texts:Object.fromEntries(wanted.map(word=>[word,word]))}));
   }
   // The projection may not outrank the glossary: the kernel's word for a skill stays the kernel's.
-  await writeFile(join(folder,'possessions-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{intact:'完好','Spot Hidden':'不是这个'}}));
+  const possessionCache=JSON.parse(await readFile(join(folder,'possessions-zh-Hans.json'),'utf8'));
+  await writeFile(join(folder,'possessions-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{...possessionCache.texts,intact:'完好','Spot Hidden':'不是这个'}}));
   const summary='Corbitt can form pools of blood on floor, ceiling, or walls to frighten intruders away from his secret.';
   await writeFile(join(folder,'clues-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{[summary]:'科比特能让地板、天花板或墙上渗出血泊，把闯入者吓离他的秘密。'}}));
   const profile=join(root,'profile'),pack=join(profile,'extensions/coc-keeper');await mkdir(pack,{recursive:true});
@@ -695,6 +696,8 @@ it('a live delivery draws a found clue in the play language, not the language th
   expect(deliveryWords({data:{mechanics:[{kind:'roll',skill:'Spot Hidden'}]}})).toEqual({rules:['Spot Hidden']});
   expect(deliveryWords({data:{labels:{'Spot Hidden':'Known term'},mechanics:[{kind:'roll',skill:'Spot Hidden'}]}})).toEqual({});
   expect(deliveryWords(undefined)).toEqual({});
+  expect(deliveryWords({data:{mechanics:[{kind:'item',name:'Corbitt House key',definition_name:'House key definition',object:{name:'Iron key'}},
+    {kind:'item',name:'Private name',visibility:'keeper'}]}})).toEqual({possessions:['Corbitt House key','House key definition','Iron key']});
 
   // The synchronous reader answers with nothing before a read has landed -- and asking starts one,
   // so it is the next card that has the words, never a card drawn in another language.

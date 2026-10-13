@@ -23,7 +23,7 @@ export const isSayMarker = (marker: string): boolean => marker.startsWith('say:'
  *  words is unwrapped. */
 export function speechPass(text: string, resolve: SpeakerResolver): { text: string; speech: Row[] } {
     const out: string[] = [], speech: Row[] = [];
-    let open: { name: string; words: string[]; moved: string[] } | null = null;
+    let open: { name: string; words: string[]; moved: string[]; paired: boolean } | null = null;
     const close = () => {
         if (!open) return;
         const words = open.words.join('').trim();
@@ -40,8 +40,8 @@ export function speechPass(text: string, resolve: SpeakerResolver): { text: stri
     };
     const content = (chunk: string) => {
         if (!open) { out.push(chunk); return; }
-        // A paragraph break ends the line whatever the Keeper forgot.
-        const gap = PARAGRAPH.exec(chunk);
+        // Recover a missing close at the paragraph gap; a paired span may contain several paragraphs.
+        const gap = open.paired ? null : PARAGRAPH.exec(chunk);
         if (gap) {
             content(chunk.slice(0, gap.index));
             close();
@@ -57,14 +57,16 @@ export function speechPass(text: string, resolve: SpeakerResolver): { text: stri
         open.words.push(kept);
     };
     let last = 0;
-    for (let match = TOKEN.exec(text); match; match = TOKEN.exec(text)) {
+    const tokens = [...text.matchAll(new RegExp(TOKEN.source, 'g'))];
+    for (const [index, match] of tokens.entries()) {
         content(text.slice(last, match.index));
         last = match.index + match[0].length;
         if (match[1] === undefined) { close(); continue; }
         const name = speakerName(match[1]);
         close();
         if (!name || name.length > NAME_LIMIT) continue;
-        open = { name, words: [], moved: [] };
+        const next = tokens[index + 1];
+        open = { name, words: [], moved: [], paired: !!next && next[1] === undefined };
         out.push(`{{say:${name}}}`);
     }
     content(text.slice(last));
@@ -81,25 +83,26 @@ export interface SaySpan { start: number; end: number; who: Speaker }
  * place found in the same text is inside a span when it lies within one.
  */
 export function sayRanges(text: string, resolve: SpeakerResolver): SaySpan[] {
-    const spans: SaySpan[] = [], tokens = new RegExp(TOKEN.source, 'g');
-    let open: { start: number; name: string } | null = null;
+    const spans: SaySpan[] = [], tokens = [...text.matchAll(new RegExp(TOKEN.source, 'g'))];
+    let open: { start: number; name: string; paired: boolean } | null = null;
     const close = (end: number) => {
         if (open && end > open.start) spans.push({ start: open.start, end, who: resolve(open.name) });
         open = null;
     };
-    // A paragraph break ends the line whatever the Keeper forgot.
+    // Use the same missing-close recovery as speechPass; explicit paired spans keep their paragraphs.
     const content = (from: number, to: number) => {
-        const gap = open ? PARAGRAPH.exec(text.slice(from, to)) : null;
+        const gap = open && !open.paired ? PARAGRAPH.exec(text.slice(from, to)) : null;
         if (gap) close(from + gap.index);
     };
     let last = 0;
-    for (let match = tokens.exec(text); match; match = tokens.exec(text)) {
+    for (const [index, match] of tokens.entries()) {
         content(last, match.index);
         last = match.index + match[0].length;
         close(match.index);
         if (match[1] === undefined) continue;
         const name = speakerName(match[1]);
-        if (name && name.length <= NAME_LIMIT) open = { start: last, name };
+        const next = tokens[index + 1];
+        if (name && name.length <= NAME_LIMIT) open = { start: last, name, paired: !!next && next[1] === undefined };
     }
     content(last, text.length);
     close(text.length);

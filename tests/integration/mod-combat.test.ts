@@ -24,6 +24,28 @@ test('test_first_impression_uses_higher_value_and_reuses_pair',async t=>{
   assert.equal((await k.table('status')).receipts.filter((row:Row)=>row.mod).length,1);await close(k,'t1-c3','诺特审视了我一眼，拉开椅子。');await k.table('open');await k.table('player_input',{text:'我继续和诺特交谈。'});
   const again=await k.table('resolve',{call_id:'t2-c1',action});assert.deepEqual(again.outcome,first.outcome);assert.equal(again.reused,true);
 });
+test('the current first-impression instructions let the Keeper choose a meaningful contact and reuse its public result',async t=>{
+  const k=await seeded(t);await openTurn(k,'I ask Knott for access to the house.');
+  const instructions=(await k.ok('mods.context',{campaign:CAMPAIGN})).instructions.find((row:Row)=>row.mod==='natural-npc').instruction;
+  const impression=instructions.split('## First impression')[1].split('## The impression in play')[0];
+  assert.doesNotMatch(impression,/Never resolve\s+natural-npc:first-impression yourself/);
+  assert.match(impression,/You decide whether the impression matters this turn/);
+  assert.match(impression,/call `resolve` with `action\.decision: "natural-npc:first-impression"`/);
+  assert.match(impression,/Pending contacts are opportunities, not obligations/);
+  assert.match(impression,/Ordinary greetings do not automatically demand a roll/);
+  assert.equal((await k.table('status')).receipts.filter((row:Row)=>row.kind==='roll').length,0,'sharing the opening scene creates no automatic roll');
+  const action={intent:'social',decision:'natural-npc:first-impression',actor:'Thomas Hayes',target:'Steven Knott',goal:'Seek access to the house'};
+  const first=await k.table('resolve',{call_id:'t1-c1',action});
+  assert.equal(first.outcome.target,50,'the fixture has Appearance 50 and Credit Rating 25');
+  assert.ok(Number.isInteger(first.outcome.roll),'the current first impression has a public die result');
+  assert.ok(first.outcome.impression.reaction);
+  const second=await k.table('resolve',{call_id:'t1-c2',action});
+  assert.equal(second.reused,true);assert.deepEqual(second.outcome,first.outcome);
+  assert.equal((await k.table('status')).receipts.filter((row:Row)=>row.decision==='natural-npc:first-impression').length,1);
+  await close(k,'t1-c3');await k.table('open');await k.table('player_input',{text:'I continue discussing access with Knott.'});
+  const again=await k.table('resolve',{call_id:'t2-c1',action});
+  assert.equal(again.reused,true);assert.deepEqual(again.outcome,first.outcome);
+});
 test('test_pending_contact_carries_the_handle_the_first_impression_receipt_carries',async t=>{
   const k=await seeded(t);await contactTurn(k);const pending=(await k.table('capsule')).mods.pending_contacts.filter((row:Row)=>row.decision==='natural-npc:first-impression'),knott=pending.find((row:Row)=>row.target==='Steven Knott');
   assert.equal(knott.handle,'steven-knott');assert.ok(pending.every((row:Row)=>row.handle&&row.handle!==row.target));

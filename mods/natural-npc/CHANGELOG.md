@@ -1,5 +1,8 @@
 # Natural NPC
 
+## 1.6.1
+- The same Keeper decides when a first impression matters and calls the existing resolver. The retired host/Jev contact route is no longer its execution owner. Pending contacts remain optional; the kernel still owns the public dice, higher characteristic and once-per-pair result. No state migration or new agent is introduced.
+
 ## 1.6.0
 - The first impression is rolled only when it matters (contract §224.3, user ruling 2026-10-10, per the Keeper Rulebook: Credit Rating gauges first impressions, p.60; a roll needs tension and something at stake, pp.82-83). The kernel no longer rolls it the moment people share a scene: the host offers it as a check option and Jev selects it when the investigator seeks something from the person, approaches them socially, must get past them, or the person is hostile or suspicious. Otherwise no roll is made and the person is played from their own disposition.
 - Only the "First impression" section of `agent.md` and the manifest description change. The trigger stays `presence`, the requirements, settings and `sections.json` are unchanged.

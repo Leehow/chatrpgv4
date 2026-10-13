@@ -39,9 +39,23 @@ assert.ok(pyBool(pyEqual(pyAt(pyAt(result,"unresolved_speakers"),"names"),["穿�
 assert.ok(pyBool(!pyContains(pyAt(result,"rendered_text"),"{{")),"tests/kernel/test_speech.py:51 assert \"{{\" not in result[\"rendered_text\"]");
 }
 if(process.argv[1]===import.meta.filename)for(const [index,row] of ([{}]).entries())test("test_the_investigator_and_a_stranger_resolve_their_own_way"+(([{}]).length>1?' ['+index+']':''),async(t)=>{const temporary=temporaryPath(t);await test_the_investigator_and_a_stranger_resolve_their_own_way(await kernel(t,{}));});
+test('published NPC speech keeps its speaker across paragraphs and leaves intervening narration outside',async t=>{
+    const client=await kernel(t,{});
+    await open_turn(client);
+    const first='"I woke in the night. It was beside the bed.\n\n"When it was angry, the dishes flew.\n\n"It hated my husband most."';
+    const last='"Please do not ask everything at once."';
+    const marked=`{{say:${KNOTT}}}${first}{{/say}}\n\nHe turns toward the window.\n\n{{say:${KNOTT}}}${last}{{/say}}`;
+    const result=await narrate(client,'t1-c1',marked);
+    assert.equal(result.marked_text,marked,'explicit paired speech markers preserve every spoken paragraph');
+    assert.deepEqual(result.speech,[
+        {who:{npc:KNOTT_HANDLE,name:KNOTT},text:first},
+        {who:{npc:KNOTT_HANDLE,name:KNOTT},text:last},
+    ]);
+    assert.equal(result.rendered_text,`${first}\n\nHe turns toward the window.\n\n${last}`);
+});
 export async function test_the_shape_is_repaired_never_refused(kernel:any){
 (await open_turn(kernel));
-let text:any=(`{{say:${KNOTT}}}「先听我说。」{{say:${INV}}}「说。」{{/say}}{{/say}}\n\n`+`{{say:${KNOTT}}}「房子锁了二十年。」\n\n他站起来。{{/say}}`);
+let text:any=(`{{say:${KNOTT}}}「先听我说。」{{say:${INV}}}「说。」{{/say}}{{/say}}\n\n`+`{{say:${KNOTT}}}「房子锁了二十年。」\n\n他站起来。`);
 let result:any=(await narrate(kernel,"t1-c1",text));
 assert.ok(pyBool(pyEqual((await (async()=>{const __rows:any[]=[];for(const line of pyIterable(pyAt(result,"speech"))){if(pyBool(true))__rows.push(pyAt(line,"text"));}return __rows;})()),["「先听我说。」","「说。」","「房子锁了二十年。」"])),"tests/kernel/test_speech.py:61 assert [line[\"text\"] for line in result[\"speech\"]] == [\"「先听我说。」\", \"「说。」\", \"「房子锁了二十年。」\"]");
 assert.ok(pyBool(pyEqual(pyAt(result,"marked_text"),(`{{say:${KNOTT}}}「先听我说。」{{/say}}{{say:${INV}}}「说。」{{/say}}\n\n`+`{{say:${KNOTT}}}「房子锁了二十年。」{{/say}}\n\n他站起来。`))),"tests/kernel/test_speech.py:62 assert result[\"marked_text\"] == (f\"{{{{say:{KNOTT}}}}}「先听我说。」{{{{/say}}}}{{{{say:{INV}}}}}「说。」{{{{/say}}}}\\n\\n\"\n                                     f\"{{{{say:{KNOTT}}}}}「房子锁了二十年。」{{{{/say}}}}\\n\\n他站起来。\")");

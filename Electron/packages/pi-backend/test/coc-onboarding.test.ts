@@ -427,6 +427,20 @@ it('every campaign lane is its own job, so a journal projection is never answere
  expect(run).toHaveBeenCalledTimes(5);
 });
 
+it('item deliveries with different visible names each reach the existing presenter',async()=>{
+ const {host}=await service();
+ const requests:any[]=[];
+ let release!:(value:any)=>void;
+ const held=new Promise(resolve=>release=resolve);
+ vi.spyOn(host as any,'run').mockImplementation((_action:any,data:any)=>{requests.push(data);return requests.length===1?held:Promise.resolve({texts:{}});});
+ const base={campaign:'c1',play_language:'fr',possessions:true};
+ const first=host.presentation({...base,mechanics:[{kind:'item',name:'First key'}]});
+ const second=host.presentation({...base,mechanics:[{kind:'item',name:'Second key'}]});
+ await new Promise(resolve=>setTimeout(resolve,0));release({texts:{}});
+ await Promise.all([first,second]);
+ expect(requests.map(request=>request.mechanics[0].name)).toEqual(['First key','Second key']);
+});
+
 it('a clues request with other public accounts waits for its predecessor instead of sharing the wrong job',async()=>{
  const {host}=await service();let release:()=>void=()=>{};
  const gate=new Promise<void>(done=>{release=done;});

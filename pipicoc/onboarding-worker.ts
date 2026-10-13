@@ -144,7 +144,7 @@ async function main() {
       const itemFields=Object.fromEntries(Object.entries(sheetWords)
         .filter(([key])=>key.startsWith('item.')).map(([key,value])=>[key.slice('item.'.length),value]));
       const known_labels={...(view.labels||{}),...itemFields};
-      return preparePossessionPresentation({...input,contentRoot:context.contentRoot,view,known_labels,signal:guidanceAbort.signal,runner:runTask});
+      return preparePossessionPresentation({...input,contentRoot:context.contentRoot,view:{...view,mechanics:input.mechanics},known_labels,signal:guidanceAbort.signal,runner:runTask});
     }
     if(input.languages) {
       // Only the language's own name. The number beside it is the kernel's, and `Own`/`Other` is

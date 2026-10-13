@@ -111,18 +111,26 @@ export function prepareStandingPresentation(options:TextOptions&{campaign:string
 /**
  * The words an acquired object brings onto the sheet in the language its definition was written
  * in: trait names, units and string values, the state keys the kernel keeps and its closed state
- * words. Names, descriptions and containers are the Keeper's own prose in the play language and
- * stay out; numbers are the kernel's.
+ * words and visible possession names. Existing equipment can originate in another language;
+ * descriptions, document bodies and private material stay out; numbers are the kernel's.
  */
 export function possessionTexts(view:Row):string[] {
   const texts=new Set<string>();
   const add=(value:unknown)=>{if(typeof value==='string'&&value.trim())texts.add(value)};
-  for(const sheet of Array.isArray(view?.investigators)?view.investigators:[])
+  for(const sheet of Array.isArray(view?.investigators)?view.investigators:[]) {
+    for(const item of Array.isArray(sheet?.equipment)?sheet.equipment:[]){add(typeof item==='string'?item:item?.name);add(item?.label);}
+    for(const weapon of Array.isArray(sheet?.weapons)?sheet.weapons:[]){add(weapon?.name);add(weapon?.label);add(weapon?.profile);}
     for(const object of Array.isArray(sheet?.objects)?sheet.objects:[]) {
+      add(object?.name);add(object?.equipment_name);
       for(const trait of Array.isArray(object?.traits)?object.traits:[]){add(trait?.name);add(trait?.unit);add(trait?.value);}
       const state=object?.state&&typeof object.state==='object'&&!Array.isArray(object.state)?object.state:{};
       for(const [key,value] of Object.entries(state)){if(value===null||value===undefined)continue;add(key);add(value);}
     }
+  }
+  for(const item of Array.isArray(view?.mechanics)?view.mechanics:[]) {
+    if(item?.kind!=='item'||item.visibility==='keeper')continue;
+    add(item.name);add(item.label);add(item.definition_name);add(item.object?.name);
+  }
   return [...texts].sort();
 }
 export function preparePossessionPresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {
