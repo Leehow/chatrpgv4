@@ -211,3 +211,21 @@ test('a failed reference publication recovers its exact text without turning int
   assert.equal(record.receipts.length,0);
   assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,2,JSON.stringify(table.telemetry().filter(row=>['provider-call','keeper-delivery','turn'].includes(row.lane))));
 });
+
+test('the final provider request retains current prepended Keeper instructions and actor context',async t=>{
+ let request;
+ const {table}=await directTable([context=>{request=context;return fauxAssistantMessage('{{public}}The clerk answers.');}]);
+ t.after(()=>table.dispose());
+ await table.session.prompt('I ask the clerk what happened.');
+ const text=JSON.stringify(request.messages);
+ assert.match(text,/You are the sole Keeper and author/);
+ assert.match(text,/Keeper-only current state and actor perspectives/);
+});
+
+test('a rejected reply remains private and preserves its original bytes for diagnosis',async t=>{
+ const rejected='UNMARKED_PRIVATE_DIAGNOSTIC';
+ const {table,seen}=await directTable([fauxAssistantMessage(rejected),fauxAssistantMessage(rejected)]);
+ t.after(()=>table.dispose());await table.session.prompt('I wait for the answer.');
+ assert.equal(seen.length,0);
+ assert.ok(table.telemetry().some(row=>row.lane==='keeper-delivery'&&row.private_reply===rejected));
+});

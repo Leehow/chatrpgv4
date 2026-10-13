@@ -7986,7 +7986,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			}catch(error){
 				if(reply.evidence)finalOutput.finishStream(reply.evidence,'publication_pending');
                 else reply.stream?.interrupt();
-				await record({lane:'keeper-delivery',turn:state.turn,ok:false,reason:String(error)});
+				await record({lane:'keeper-delivery',turn:state.turn,ok:false,reason:String(error),
+                    private_reply:reply.raw,model:`${event.message.provider}/${event.message.model}`,stop_reason:event.message.stopReason});
 				if(!reply.stream)state.deliveryFix={kind:'result_protocol',text:'Start the final response with {{public}} and write public prose directly, or {{reference}} for a pure OOC answer. No JSON wrapper or output tool is needed. Keep settled effects; do not repeat them.'};
 				else state.runAbandoned=true;
 				return{message:{...event.message,content:blocks.filter(b=>b.type!=='text')}};
