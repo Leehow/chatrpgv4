@@ -2183,7 +2183,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     run.interactionScope = view.policyState.view.interactionScope ?? run.interactionScope;
     if (run.interactionScope && bridge?.campaign && run.turn !== undefined) {
       api?.events?.emit?.('coc:interaction-scope', {campaign: bridge.campaign, turn: run.turn, run: run.runId,
-        player_text: run.rawInput, mode: run.interactionScope.mode,
+        player_text: run.rawInput, mode: run.interactionScope.mode, reason: run.interactionScope.reason,
         systemRequest:run.interactionScope.systemRequest,
         ...(run.interactionScope.documentRecording === undefined ? {} : {documentRecording:run.interactionScope.documentRecording})});
       if (run.interactionScope.mode === 'reference') Object.assign(content, {interaction_scope: 'reference', interaction_scope_note: REFERENCE_SCOPE_NOTE});
