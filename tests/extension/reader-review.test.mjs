@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile,rm,mkdir,chmod} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {reviewCandidate,reviewUnits,checkReviewEvidence,detailReviewInput,readReviewPlan,REVIEW_PLAN_FILE,gateRefusal} from '../../extensions/module/reader-review.ts';
@@ -8,8 +8,45 @@ import {moduleReviewOutcome} from '../../kernel-ts/modules/module-review-policy.
 import {createRuntime} from '../../runtime/host.ts';
 import {reviewOfCandidate} from '../../extensions/module/targeted-repair.ts';
 import {assignedReviewPages} from '../../runtime/jev/source-reader-driver.ts';
+import {createReaderToolGuard} from '../../extensions/module/reader-context.ts';
 // The pre-§187.8 grouping (one page per unit, up to 8 records): tests whose subject is not grouping keep their units with it.
 const PAGE_UNITS={images:1,maxRecords:8};
+
+test('each review unit receives the checker command its confined tools permit',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'reviewer-check-command-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const module=join(home,'.coc/modules/book'),cwd=join(module,'work/source'),cache=join(module,'cache/pages');
+ await mkdir(cwd,{recursive:true});await mkdir(cache,{recursive:true});await writeFile(join(module,'source.pdf'),'%PDF synthetic transport');
+ const quote=value=>"'"+value.replaceAll("'","'\\''")+"'";
+ const authorCheck=`coc-read-check --packet ${quote(join(cwd,'task.json'))} --draft ${quote(join(cwd,'draft.json'))}`;
+ const draft={nodes:[{node_id:'scene-entry',source_refs:[{page:1}],properties:{}}],claims:[]};
+ let runs=0;
+ await reviewCandidate({cwd,task:{purpose:'opening',commands:{check:authorCheck},source:{page_count:1}},draft,
+  instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:join(module,'source.pdf'),cache},
+  signal:new AbortController().signal,record(){},progress(){},async run(request){
+   runs++;const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));
+   const bin=join(request.cwd,'host-bin'),wrapper=join(bin,'coc-read-check');await mkdir(bin);await writeFile(wrapper,'#!/bin/sh\nexit 0\n');await chmod(wrapper,0o755);
+   const guard=createReaderToolGuard(request.cwd,{PI_COC_HOME:home,PI_COC_READER_SOURCE:JSON.stringify({pdf:join(module,'source.pdf'),cache}),
+    PI_COC_READER_CHECK:wrapper,PATH:bin});
+   assert.equal(guard({toolName:'bash',input:{command:task.commands.check}}),undefined,'the offered command is executable within this exact unit');
+   assert.equal(guard({toolName:'bash',input:{command:authorCheck}})?.block,true,'the author command remains outside the unit');
+   assert.equal(guard({toolName:'bash',input:{command:'cat draft.json'}})?.block,true,'general shell execution remains refused');
+   assert.equal(guard({toolName:'read',input:{path:join(cwd,'draft.json')}})?.block,true,'parent artifacts remain outside the unit');
+   request.onEvent({type:'tool_execution_end',toolCallId:'page',isError:false,result:{details:{kind:'source_pages',observations:[{page:1}]}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['page']})+'\n');
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:task.required_review,verdict:'supported',source_refs:[{page:1}]}],missing:[]}));
+   return{ok:true,ms:1,stderr:''};
+  }});
+ assert.equal(runs,1);
+});
+
+test('omission feedback explains how to answer issued pointers without replacing negative findings',()=>{
+ const review={checked:[],missing:[{reason:'The original source contradicts this candidate.',impact:'logic'}]};
+ const before=JSON.stringify(review);
+ assert.throws(()=>checkReviewEvidence(review,['/coverage','/interaction_scene'],new Set([1])),error=>
+  error.message.includes('checked')&&error.message.includes('missing does not answer')&&
+  error.message.includes('["/coverage","/interaction_scene"]'));
+ assert.equal(JSON.stringify(review),before);
+});
 
 test('opening review retains kernel-issued retranscription pointers and reviews the interaction choice once',()=>{
  const draft={nodes:[{node_id:'scene-entry',source_refs:[{page:1}],properties:{}}],claims:[],ready_nodes:['scene-entry'],

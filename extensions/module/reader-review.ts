@@ -19,6 +19,7 @@ import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleF
 import {READING_REVIEW_FALLBACK,readingReviewBudget} from '../../runtime/jev/host-budgets.ts';
 
 type Row = Record<string, any>;
+const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 /** Contract §39.4: what a reviewer checks of a map's kind, in the words the reader was told. */
 export const MAP_SCOPE_REVIEW = "For properties/map_scope, open the map's original page and check the kind against the picture itself, not its title or labels: "
 	+ "\"area\" is a town, village, district, city, region or other outdoor map that players are handed or see as a whole; "
@@ -405,7 +406,7 @@ export function checkReviewEvidence(review: Row, paths: string[], pages: Set<num
 		}
 	}
 	const omitted = paths.filter(path => !checked.has(path));
-	if (omitted.length) throw new Error(`review omitted assigned fields: ${JSON.stringify(omitted)}`);
+	if (omitted.length) throw new Error(`review omitted assigned fields: ${JSON.stringify(omitted)}. Add checked entries answering these exact rooted pointers in paths; missing does not answer an assigned pointer. Choose each verdict from the original evidence and preserve negative findings. Candidate fields belong in the unchanged draft, not at the review root.`);
 	if (requiredPages.some(page => !pages.has(page))) throw new Error('scope review did not view every assigned source page');
 }
 
@@ -605,7 +606,7 @@ const REVIEW_ANSWER = " Independently review the complete source answer, status 
 const REVIEW_UNIT = " Independently review only task.required_review against original images. The host delivered the cited original pages into this context; they are the evidence. Call pdf only for a page that was not delivered or for a closer view of a region. For module-logic-v1, review identity, causal conditions, clue targets, knowledge boundaries and the current use. Do not retranscribe numerical leaves or polish wording. Label every negative finding with impact logic, presentation or parameter. Presentation and valid parameter differences are advisory; keep them in the review without requesting another generation. Only missing or contradictory logic blocks. Established campaign values take priority; source differences are mappings, never silent retcons.  The complete graph context is retained in the candidate file. Produce checked paths, verdict (supported, contested or unsupported), source_refs and reason, plus missing (only necessary current material). Name the deepest pointer you dispute, not the record's root, unless the record itself is not in the book; a field matching task.classification_fields that you would classify differently is contested, not unsupported. Under module-logic-v1, contested still refuses when its impact is logic. Compare every authored applicability condition, including conditions stated beside a rule; a summary does not constrain an unconditional executable trigger. Never edit the draft. ";
 const REVIEW_COVERAGE = "For /coverage, view every review_scope_pages page as evidence, not as a whole-range extraction assignment. State the requested use from task.purpose/focus/question in your reason. An empty detail question requests the focused entity's current use and necessary dependencies, not its whole chapter. Compare that use to the candidate for omitted discoverable facts and investigation connections, including when no clue or conclusion was proposed. Every missing item must identify its source and explain which requested use or immediate dependency would fail without it; appearing on a viewed page or map is insufficient. ";
 const REVIEW_SUBMIT_GUIDANCE = "Also review guidance.json and any public_fields under the Independent review instructions and include guidance:{approved,issues} in the same review. Approval covers source support, spoiler safety and play_language of every public value too. Never modify either artifact. Pass this small review object directly to submit_reading as your sole final tool call; a separate write followed by submit would waste another model request. ";
-const REVIEW_SUBMIT_DIRECT = "Pass the review directly to submit_reading as your sole final tool call; no separate write or final prose is needed. ";
+const REVIEW_SUBMIT_DIRECT = "Pass the review directly to submit_reading as your sole final tool call; no separate write or final prose is needed. Explicitly answer every task.required_review pointer in checked entries with paths, verdict, source_refs and reason. Copy the original rooted pointers, including the leading /. A missing finding does not replace a checked answer; preserve negative findings and their source-based verdicts. Candidate fields such as nodes or coverage stay in draft.json, not at the review root. ";
 const REVIEW_RETRY = "Your previous attempt at this same unit was rejected; failure.json holds the reason. Read it and answer for the assigned pointers exactly as task.required_review spells them. ";
 const REVIEW_DETAIL_INPUT = " review_records is keyed by ORIGINAL draft pointers, not a replacement graph. Full task.json and draft.json remain available for omitted context. Read them when a cross-reference or conflict requires it; do not automatically reload the full files. Never renumber the assigned pointers.";
 
@@ -795,7 +796,9 @@ export async function reviewCandidate(options: {
 			// Observed navigation/context pages belong to coverage, not every fact unit.
 			// §186.2: the unit's own fields come last, after every field this round's units share.
 			const {review_scope_pages: _scopePages, visual_previews: _authorPreviews, required_review: _wholeReview, ...taskContext} = options.task;
-			const unitTask = { ...taskContext, required_review: ask, ...(requiredPages.length ? {review_scope_pages: requiredPages} : {}) };
+			const unitTask: Row = { ...taskContext, required_review: ask, ...(requiredPages.length ? {review_scope_pages: requiredPages} : {}) };
+			if (unitTask.commands?.check !== undefined) unitTask.commands = { ...unitTask.commands,
+				check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
 			const mapPreviews=options.task.visual_asset?await mapReviewPreviews({draft:options.draft,paths:ask,cwd,source:options.source}):[];
 			await writeFile(join(cwd, "task.json"), JSON.stringify(unitTask, null, 2) + "\n");
 			let detailInput: string | undefined;
