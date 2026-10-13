@@ -1288,10 +1288,14 @@ export class ReadingService implements ReadingBridge {
 		const model = this.deps.model();
 		const cwd = job.work_dir;
 		const key = JSON.stringify([campaign, job.module_id, job.job_id]);
+		const childActivity = (event: Row) => {
+			if (!signal.aborted && !this.stopped && ['message_update','tool_execution_start','tool_execution_update','tool_execution_end'].includes(event.type)) this.beat(key);
+		};
 		// This job's one owner of independent reviewer children (inventory SL-00, `ReadingService.runJob.run`): the source
 		// review's units and the §152.4 identity reviewer both run through it, on the job's provider owner and priority.
 		let reviewLease: StageBudget | undefined;
 		const reviewers = { run: (request: ReaderRequest, prompt?: ReaderRequest["prompt"]) => this.runtime().runTask({ kind: "reader", request: { ...request, providerBudget,
+			onEvent: event => { childActivity(event); request.onEvent?.(event); },
 			beforeProviderRequest: (signal: AbortSignal) => this.waitForPriority(job, key, signal, campaign),
 			...(reviewLease ? { readingLease: reviewLease } : {}),
 			priority: () => job.foreground === false ? "background" : "foreground",
@@ -1690,6 +1694,7 @@ export class ReadingService implements ReadingBridge {
 								: guidanceProjection ? `${readerInput({task})} The selected entrance and public module facts are already source-reviewed. The host wrote an unchanged scene shard to draft.json; do not rewrite it. Use the original page images supplied in context, and pdf only for a missing or newly needed original page. Write the five guidance fields for task.focus in the player's language where requested. If a necessary public fact is absent, request its source instead of inventing it. Submit guidance and the required public_fields with submit_reading as your sole final tool call. ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`
 								: `${readerInput({task})} Your phase is ${phase}. ${job.repair === "way_on" ? WAY_ON_ASK + " " : ""}Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${job.purpose === 'index' ? "Use submit_reading as your sole final tool call to save this navigation draft and finish without a closing reply. The host validates index completion." : ["guidance","opening","detail","answer"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}${job.resumed?.reread === true ? " The published material on this focus changed since the retained draft was written: check it against the current task and the pages, and repair what no longer holds." : ""}${job.review_retry ? ` ${REVIEW_RETRY_ASK}` : ""}${Array.isArray(job.carried_needs) && job.carried_needs.length ? ` ${CARRIED_NEEDS_ASK}` : ""}`,
 							onEvent(event) {
+								childActivity(event);
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
 								if (event.type === "tool_execution_end" && !event.isError && event.result?.content?.some((c: Row) => c.type === "image")) {
 									if(event.result?.details?.kind==='source_overview')overviewCalls.set(event.toolCallId,

@@ -868,6 +868,76 @@ test("a job that keeps reporting is left alone: the heartbeat is what it said, n
 	assert.equal(finishes.filter(row => row.outcome === "failed").length, 0);
 });
 
+async function childActivityFixture(t, phase = 'read') {
+ const home=await mkdtemp(join(tmpdir(),'reading-child-heartbeat-')),
+  module=join(home,'.coc/modules/book'),work=join(module,'work/read-1/attempt-1'),cache=join(module,'cache/pages');
+ await mkdir(work,{recursive:true});await mkdir(cache,{recursive:true});
+ const rows=[],finishes=[];let child,queued=true,waitTimer;
+ const runtime={contentRoot:join(ROOT,'content'),async check(){return {ok:true,required_review:['/nodes/0']};},
+  async runTask({request},signal){
+   if(request.prompt.phase==='read'&&phase==='verify'){
+    await writeFile(join(work,'draft.json'),JSON.stringify(openingDraft())+'\n');
+    const image=join(cache,'page-4.png'),call='author-page';
+    await appendFile(join(cache,'requests.jsonl'),JSON.stringify({file_sha256:'source-sha',path:image,page:4,box:[0,0,1,1]})+'\n');
+    request.onEvent({type:'tool_execution_end',toolCallId:call,isError:false,result:{content:[{type:'image'}],details:{kind:'source_pages',observations:[{path:image,page:4}]}}});
+    await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:[call]})+'\n');
+    return {ok:true,code:0,ms:1,stderr:'',timedOut:false,command:[]};
+   }
+   child={request,signal};
+   return new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(Error('Reader child cancelled')),{once:true}));
+  }};
+ const service=new ReadingService({home,runtime,model:()=>({id:'fixture/vision',vision:true,thinking:'high'}),
+  progress(){},record(row){rows.push(row);},waitTimer(callback){waitTimer=callback;return ()=>{};},
+  async call(method,params){
+   if(method==='module.read.claim'){if(!queued)return {job_id:null};queued=false;return {job_id:'read-1',module_id:'book',purpose:'opening',focus:'Opening',foreground:true,
+    concurrency:1,lease:'lease-1',work_dir:work,source:{path:join(module,'source.pdf'),page_count:8,file_sha256:'source-sha'},known_nodes:[],known_claims:[],vocabulary:{},coverage_domains:[]};}
+   if(method==='module.read.finish'){finishes.push(params);return {state:params.outcome};}
+   if(method==='module.read.request')return {state:'reading',job_id:'read-1'};
+   if(method==='module.read.unwait')return {job_id:'read-1',foreground:false};
+   throw Error(`Unexpected source operation: ${method}`);
+  }});
+ const pump=service.prefetch('book');
+ t.after(async()=>{await service.close();await pump;await rm(home,{recursive:true,force:true});});
+ await until(()=>child!==undefined);
+ return {service,child,rows,finishes,pump,expireWait:()=>waitTimer?.()};
+}
+
+for(const phase of ['read','verify'])test(`real ${phase} child stream and tool activity keep a long phase alive without preventing cancellation`,async t=>{
+ const f=await childActivityFixture(t,phase);
+ t.mock.timers.enable({apis:['Date'],now:Date.now()});
+ for(const event of [{type:'message_update',assistantMessageEvent:{type:'thinking_delta',delta:'Source work'}},
+  {type:'tool_execution_start',toolName:'pdf',toolCallId:'page'},
+  {type:'tool_execution_update',toolName:'pdf',toolCallId:'page'},
+  {type:'tool_execution_end',toolName:'pdf',toolCallId:'page',isError:true}]){
+  t.mock.timers.tick(200_000);f.child.request.onEvent(event);f.service.checkStalls();
+  assert.equal(f.child.signal.aborted,false,'actual child activity renews the claimed job before the phase completes');
+ }
+ assert.equal(f.rows.some(row=>row.event==='stalled'),false);
+ await f.service.close();await f.pump;
+ assert.equal(f.child.signal.aborted,true);
+ assert.equal(f.finishes.at(-1).outcome,'cancelled');assert.equal(f.finishes.at(-1).lease,'lease-1');
+});
+
+test('a real silent phase still stops, and child session notices do not count as progress',async t=>{
+ const f=await childActivityFixture(t);
+ t.mock.timers.enable({apis:['Date'],now:Date.now()});
+ t.mock.timers.tick(400_000);f.child.request.onEvent({type:'session',status:'working'});
+ t.mock.timers.tick(200_001);f.service.checkStalls();await f.pump;
+ assert.equal(f.child.signal.aborted,true);assert.equal(f.finishes.at(-1).outcome,'failed');
+ assert.match(f.finishes.at(-1).detail,/reported nothing/);
+});
+
+test('foreground waiter departure is a host note and cannot extend a silent child heartbeat',async t=>{
+ const f=await childActivityFixture(t);
+ t.mock.timers.enable({apis:['Date'],now:Date.now()});t.mock.timers.tick(400_000);
+ const waiting=f.service.ensure('book',{purpose:'opening',focus:'Opening',foreground:true},undefined,{allowanceMs:1});
+ await until(()=>f.service.foregroundWaiting());await new Promise(resolve=>setImmediate(resolve));
+ f.expireWait();assert.equal((await waiting).state,'pending');
+ await until(()=>f.rows.some(row=>row.event==='unwaited'));
+ t.mock.timers.tick(200_001);f.service.checkStalls();await f.pump;
+ assert.equal(f.child.signal.aborted,true);assert.equal(f.finishes.at(-1).outcome,'failed');
+});
+
 async function freshSkeletonFixture(t, navigation) {
 	const home = await mkdtemp(join(tmpdir(), "coc-fresh-navigation-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
