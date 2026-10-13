@@ -150,9 +150,9 @@ export class ModuleStore {
     async queue(id: string): Promise<Row[]> {return (await sourceState(this.context.stateRoot).snapshot(this.moduleDir(id), this.context.locks)).jobs;}
     async writeQueue(id: string, queue: Row[]): Promise<void> {await sourceState(this.context.stateRoot).update(this.moduleDir(id), {jobs:queue}, this.context.locks);}
     async appendBuildLog(id: string, item: Row): Promise<void> { await appendJsonl(join(this.moduleDir(id), 'build.jsonl'), { at: nowIso(), ...item }); }
-    async opening(graph: Row): Promise<Row> {
+    async opening(graph: Row, scope?: 'first_interaction'): Promise<Row> {
         const contract = await this.contract(), dossier = row(contract.graph.actor_dossier);
-        return openingReport(graph, new ModuleGraph(string(graph.module_id || ''), graph, '', dossier), contract.template, dossier);
+        return openingReport(graph, new ModuleGraph(string(graph.module_id || ''), graph, '', dossier), contract.template, dossier, scope);
     }
     async candidates(graph: Row): Promise<Row[]> { return startSceneCandidates(graph, row((await this.contract()).graph.actor_dossier)); }
 }

@@ -404,7 +404,8 @@ export function checkReviewEvidence(review: Row, paths: string[], pages: Set<num
 			checked.add(path);
 		}
 	}
-	if (paths.some(path => !checked.has(path))) throw new Error("review omitted assigned fields");
+	const omitted = paths.filter(path => !checked.has(path));
+	if (omitted.length) throw new Error(`review omitted assigned fields: ${JSON.stringify(omitted)}`);
 	if (requiredPages.some(page => !pages.has(page))) throw new Error('scope review did not view every assigned source page');
 }
 

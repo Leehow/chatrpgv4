@@ -17552,6 +17552,11 @@ for **an opening with no exit at all.**
 - It cannot revoke an opening in play: merging a reading only ever adds
   relations, so a graph that had a way on keeps it.
 
+Section 237.6 narrows this requirement for the existing `first_interaction`
+reading scope. A reviewed current interaction does not need an authored onward
+route before publication. The full-opening accounting above still applies to
+other scopes; unresolved declared exits remain errors in every scope.
+
 Without this, the entrance's `sceneExits` is empty, so §49's route rows have
 nothing to report — not a locked way, not an unread way, no way — and the table
 sits in the first scene with no receipt that says why.
@@ -45798,3 +45803,17 @@ Live acceptance follows the original raw-PDF setup and actual Pi/RPC driver. The
 The new raw-PDF trial exposed two successful index child exits without the required draft.json. Index work remains navigation, not NPC conversation preparation or graph publication. Put its phase and artifact contract first, and scope conversational reference guidance to actual reading/review work.
 
 Reuse the existing private submit_reading operation for index authors and the existing index completeness pass. Submission saves the navigation draft and ends that child; it does not publish a graph, select an entrance, advance fiction or claim index acceptance. Preserve the existing index-audit and finishIndex validation/publication owners. Existing source image, tool confinement and file permissions remain authoritative. A process exit without the expected artifact is retained as failure; an arbitrary Markdown file is never parsed as a substitute. No new agent, reviewer, retry layer, store, or gameplay gate is introduced.
+
+### 237.6 Publish verified current interactions without an invented future route
+
+The raw-PDF opening trial reached supported current interaction material but failed solely because section 90 required an onward route. For the existing first_interaction scope, absence of a declared route beyond that interaction is a navigation/background-reading gap, not a publication failure. Apply this only after the existing opening batch validates the entrance, current interaction, their connecting route when they differ, current people and clues, mechanics, source citations and original-page review. An explicitly declared exit that resolves to nothing remains refused. Do not invent a destination, mark the entrance final, or exempt other opening scopes.
+
+Reuse the existing reading scope and prepared opening snapshot so publication, table readiness and restart consume the same result. Missing future navigation can use the existing read-ahead/source request owner. No new entity, reviewer, retry loop or mandatory gameplay step is added; the KP remains free to enact plausible choices through existing state tools.
+
+The existing source reviewer still must answer its assigned pointers. A protocol omission reports the exact omitted pointers, so a corrected response can satisfy that same check. This does not add review work, turn a protocol error into a source finding or erase the failed attempt. Preserve the original opening/index failures and prove a real source-owner retry, publication and subsequent play.
+
+### 237.7 Back off unchanged source waits through the existing reading service
+
+Real App T21 waited on one source answer while fulfil repeated the same request and pump repeated an empty claim about every 348 milliseconds: 618 requests and 619 claims for one job. These calls are scheduling polls, not new source work. Reuse the existing fulfil/pump owners and running promise; unchanged queued/reading progress uses a bounded delay from the current 300 milliseconds up to 3 seconds, resetting on actual job/state/generation/foreground progress. New requests and existing explicit wake paths still wake the owner. Completed and blocked results return when observed; foreground allowance, waiter departure, child leases/slots, failure evidence and publication authority remain unchanged.
+
+No new agent, semantic review, approval gate or retry owner is introduced. Verify both reduced repeated calls for an unchanged running job and prompt progress/new-job wake with the real scheduling seam; compare later live telemetry rather than treating a timer unit test as acceptance.

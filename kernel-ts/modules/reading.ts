@@ -1709,12 +1709,19 @@ export class Reading {
                     return { ...result, state: 'settled', job_id: existing.job_id, disposition: row(row(existing.result).source_need).disposition };
                 if (existing.state === 'completed' && !settled) {
                     if (purpose === 'answer') throw new RpcError('needs', 'the completed source answer has no accepted evidence', { details: { reason: 'source_answer_integrity' } });
-                    // A refusal names what is missing (§46.1); a completed reading that still answers
-                    // nothing is the snapshot's own list, and an empty one is not a refusal at all.
-                    const missing = array(row(meta.opening).missing);
-                    if (!missing.length)
-                        return { ...result, state: 'ready' };
-                    return { ...result, state: 'blocked', missing, opening: meta.opening ?? null, fix: 'choose an authored opening, then request preparation again' };
+                    if (purpose === 'opening' && existing.opening_scope === 'first_interaction') {
+                        const graph = await this.store.readGraph(mid) || {}, chosen = resolveStartScene(graph, focus || string(row(meta.opening).start_scene), await this.store.contract());
+                        const scoped = chosen === null ? row(meta.opening) : row(row(meta.prepared_openings)[chosen]);
+                        if (!truth(params.retry)) return { ...result, state: 'blocked', missing: array(scoped.missing), opening: scoped,
+                            fix: 'request the same scoped opening preparation with retry: true' };
+                    } else {
+                        // A refusal names what is missing (§46.1); a completed reading that still answers
+                        // nothing is the snapshot's own list, and an empty one is not a refusal at all.
+                        const missing = array(row(meta.opening).missing);
+                        if (!missing.length)
+                            return { ...result, state: 'ready' };
+                        return { ...result, state: 'blocked', missing, opening: meta.opening ?? null, fix: 'choose an authored opening, then request preparation again' };
+                    }
                 }
                 if (!settled && !truth(params.retry))
                     return { ...result, state: 'blocked', missing: [existing.detail ?? 'reading failed'], ...(existing.refusal ? { refusal: existing.refusal } : {}), job_state: existing.state, failed_job: existing.job_id, fix: 'request the same reading with retry: true' };
@@ -2268,7 +2275,8 @@ export class Reading {
                     checkedGraph = clone(graph);
                     applyOpeningChoice(checkedGraph, chosen, contract);
                 }
-                opening = await this.store.opening(checkedGraph);
+                const firstInteraction = job.purpose === 'opening' && job.opening_scope === 'first_interaction';
+                opening = await this.store.opening(checkedGraph, firstInteraction ? 'first_interaction' : undefined);
                 const prepared = new Set(array(meta.reading.materials).flatMap(material => array(material.node_ids)));
                 for (const id of filled.ready_nodes)
                     prepared.add(id);
@@ -2294,8 +2302,26 @@ export class Reading {
                     meta.prepared_openings ??= {};
                     meta.prepared_openings[opening.start_scene] = opening;
                 }
-                const defaultOpening = await this.store.opening(graph);
-                defaultOpening.opening_ready = truth(defaultOpening.opening_ready) && prepared.has(defaultOpening.start_scene);
+                for (const [scene, previous] of Object.entries(row(meta.prepared_openings))) {
+                    const snapshot = row(previous);
+                    if (!truth(snapshot.interaction_scene)) continue;
+                    const scopedGraph = clone(graph);
+                    if (!applyOpeningChoice(scopedGraph, scene, contract)) continue;
+                    const refreshed = await this.store.opening(scopedGraph, 'first_interaction');
+                    refreshed.interaction_scene = snapshot.interaction_scene;
+                    refreshed.opening_ready = truth(refreshed.opening_ready) && prepared.has(scene) && prepared.has(snapshot.interaction_scene);
+                    meta.prepared_openings[scene] = refreshed;
+                }
+                // Section 237.6: only the default entrance's prepared interaction supplies its scope.
+                // Recompute declared structural gaps; another entrance's snapshot cannot replace this one.
+                let defaultOpening = await this.store.opening(graph);
+                const preparedOpening = row(row(meta.prepared_openings)[defaultOpening.start_scene]);
+                if (truth(preparedOpening.interaction_scene) && truth(preparedOpening.opening_ready)) {
+                    defaultOpening = await this.store.opening(graph, 'first_interaction');
+                    defaultOpening.interaction_scene = preparedOpening.interaction_scene;
+                }
+                defaultOpening.opening_ready = truth(defaultOpening.opening_ready) && prepared.has(defaultOpening.start_scene)
+                    && (!truth(defaultOpening.interaction_scene) || prepared.has(defaultOpening.interaction_scene));
                 meta.opening = defaultOpening;
                 meta.opening_ready = defaultOpening.opening_ready;
                 meta.reading.state = meta.opening_ready ? 'ready' : meta.source_reference || ['skeleton', 'guidance'].includes(job.purpose) ? 'preparing' : 'blocked';

@@ -1140,9 +1140,11 @@ export class ReadingService implements ReadingBridge {
 	private async fulfil(mid: string, params: Row, request: PendingReading, campaign: string | undefined): Promise<Row> {
 		let retry = params.retry === true;
 		let answerGeneration: number | undefined;
+		let progress: string | undefined, waitMs = 300;
+		const scope = JSON.stringify([campaign, mid]);
 		while (!this.stopped && !request.cancelled) {
-			// `request.foreground`, never `params.foreground`: this loop polls every 300 ms, and the
-			// original params would re-promote a job the last waiter has already let go (§61).
+			// `request.foreground`, never `params.foreground`: unchanged progress backs off below;
+			// the original params would re-promote a job the last waiter has already let go (§61).
 			const response = await this.bindBeforeClaim(mid, campaign, async () => {
 				const response = await this.call("module.read.request", { ...params, foreground: request.foreground, module_id: mid, retry,
 					...(params.purpose === 'answer' && answerGeneration !== undefined ? {context_generation: answerGeneration} : {}) }, campaign);
@@ -1184,8 +1186,15 @@ export class ReadingService implements ReadingBridge {
 				if (response.refusal?.message) throw refusedReading(params, response.refusal, response.fix ?? "retry explicitly");
 				throw error("reading_failed", (response.missing ?? []).join("; ") || "the reading could not prepare this material", response.fix ?? "retry explicitly");
 			}
-			await Promise.race([this.pump(mid, campaign), delay(150)]);
-			await delay(150);
+			const next = JSON.stringify([response.job_id, response.state, response.generation, request.foreground]);
+			const changed = next !== progress;
+			waitMs = changed ? 300 : Math.min(waitMs * 2, 3000);
+			progress = next;
+			const running = this.pumps.get(scope);
+			// Polling the same job is not a queue wake. Existing explicit wakes still reach the pump,
+			// and a running owner completing can return this waiter before its next polling delay.
+			if (changed) void this.pump(mid, campaign);
+			await Promise.race([...(running ? [running] : []), delay(waitMs)]);
 		}
 		throw error("reading_failed", request.cancelled ? "reading was cancelled" : "the reader host shut down",
 			request.cancelled ? "retry explicitly when ready" : "resume in a new session");

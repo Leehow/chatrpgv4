@@ -213,7 +213,7 @@ export function playability(graph: Row, view: ModuleGraph, template: Row, dossie
         measures
     };
 }
-export function openingReport(graph: Row, view: ModuleGraph, template: Row, dossier: Row): Row {
+export function openingReport(graph: Row, view: ModuleGraph, template: Row, dossier: Row, scope?: 'first_interaction'): Row {
     const starts = entrances(graph, view), missing: string[] = [];
     if (!view.moduleNode)
         missing.push('module_node');
@@ -270,7 +270,9 @@ export function openingReport(graph: Row, view: ModuleGraph, template: Row, doss
     // stops here, and either answer passes. What is behind the exit, and whether its pages have been
     // read, stay out of readiness (section 46; an unread neighbour is the normal published shape,
     // redeemed by `apply move`'s own material gate).
-    if (!waysOn && !endings(graph).ids.includes(start))
+    // Section 237.6: a checked current interaction need not publish its future navigation.
+    // Declared exits above still have to resolve; the opening batch validates the current route.
+    if (!waysOn && !endings(graph).ids.includes(start) && scope !== 'first_interaction')
         missing.push('way_on');
     for (const kind of ['present-in', 'discoverable-at'])
         for (const rel of array(graph.relations))
