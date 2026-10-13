@@ -1,5 +1,8 @@
 # Natural NPC
 
+## 1.6.4
+- Removes the obsolete language-script rejection claim while preserving foreign-speech guidance. Guidance only; state_version stays 1, no state migration is needed, and existing package locks remain immutable.
+
 ## 1.6.3
 - Separates optional first impressions from uncertain consequential requests. A willing person's ordinary assistance and obvious information need no roll; actual influence or contested access uses the existing social resolver. Keeper judgement, public max(APP, Credit Rating), once-per-pair reuse and frozen results remain unchanged. This is guidance only; state_version stays 1 and no state migration is needed. Existing package locks remain immutable.
 
