@@ -1,8 +1,21 @@
 /** Navigation ranges are structural; only a vision reader classifies their contents. */
 import {isJsonObject} from '../json.ts';
 /** The existing index publication shape, also checked before a reader's successful submission. */
-export function checkIndexDraftShape(draft:any):void {
+export function checkIndexDraftShape(draft:any,pageCount?:number):void {
     if(!isJsonObject(draft)||!Array.isArray(draft.sections))throw new Error('index draft needs a sections array');
+    for(const [sectionIndex,section] of draft.sections.entries()){
+        const path=`index sections[${sectionIndex}]`;
+        if(!isJsonObject(section)||typeof section.name!=='string')throw new Error(`${path}.name must be a string`);
+        if(!Array.isArray(section.pages)||!section.pages.length)throw new Error(`${path}.pages must be a nonempty nested array of [start,end] physical page pairs`);
+        for(const [rangeIndex,pair] of section.pages.entries()){
+            const range=`${path}.pages[${rangeIndex}]`;
+            if(!Array.isArray(pair)||pair.length!==2||pair.some(value=>typeof value!=='bigint'&&!(typeof value==='number'&&Number.isInteger(value))))
+                throw new Error(`${range} must be a two-integer [start,end] pair; pages uses the nested shape [[start,end],...]`);
+            const start=Number(pair[0]),end=Number(pair[1]);
+            if(!(1<=start&&start<=end)||pageCount!==undefined&&end>pageCount)
+                throw new Error(`${range} must satisfy 1 <= start <= end${pageCount===undefined?'':` <= original page_count (${pageCount})`}`);
+        }
+    }
 }
 export type VisualScan = {first:number; last:number};
 export type VisualCandidate = {page:number;kind:'map'|'handout'|'illustration'|'uncertain';label:string};

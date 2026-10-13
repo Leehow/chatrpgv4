@@ -2673,7 +2673,7 @@ export class Reading {
         return guidance;
     }
     private async finishIndex(mid: string, meta: Row, job: Row, draft: any, seen: Set<number>): Promise<void> {
-        try {checkIndexDraftShape(draft);} catch(error) {reject((error as Error).message);}
+        try {checkIndexDraftShape(draft,number(meta.page_count));} catch(error) {reject((error as Error).message);}
         if (Object.hasOwn(draft, 'map_candidates')) {
             if (!Array.isArray(draft.map_candidates)) reject('map_candidates must be a list');
             for (const candidate of draft.map_candidates) {
@@ -2687,12 +2687,8 @@ export class Reading {
         const sections = truth(meta.index_file) ? await this.store.indexRows(mid, meta) : [], unreferenced: string[] = [];
         for (const raw of draft.sections) {
             const item = clone(raw);
-            if (!object(item) || typeof item.name !== 'string' || !Array.isArray(item.pages) || !item.pages.length)
-                reject('index sections need name and physical page ranges');
             const ranges: number[][] = [];
             for (const pair of item.pages) {
-                if (!Array.isArray(pair) || pair.length !== 2 || pair.some(v => !integer(v)) || !(1 <= number(pair[0]) && number(pair[0]) <= number(pair[1]) && number(pair[1]) <= number(meta.page_count)))
-                    reject('index page ranges must lie in the original PDF');
                 const evidence = array(item.source_refs).map(ref => ref.page ?? null);
                 if (evidence.length) {
                     if (evidence.some(page => page === null || !seen.has(number(page))))

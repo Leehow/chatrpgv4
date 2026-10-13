@@ -7,6 +7,7 @@ import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {createAssistantMessageEventStream} from '@earendil-works/pi-ai';
+import {Check} from 'typebox/value';
 import {Agent} from './pi-agent-core.mjs';
 import {playtestScratch} from './playtest-scratch.mjs';
 import readerSubmit from '../../extensions/module/reader-submit.ts';
@@ -15,7 +16,7 @@ import {readerInstructionText} from '../../runtime/reader-instructions.ts';
 import {nativeSourceReaderEnabled} from '../../extensions/module/reader.ts';
 
 const ROOT=resolve(import.meta.dirname,'../..'),CONTENT=join(ROOT,'content');
-const draft={title:'Navigation fixture',language:'en',sections:[{name:'Opening',pages:[[1,1]],source_refs:[{page:1}],topics:['First contact']}],map_candidates:[]};
+const draft={title:'Navigation fixture',language:'en',sections:[{name:'Opening',pages:[[1,1]],source_refs:[{page:1}],topics:['First contact'],navigation_note:'Retained index metadata.'}],map_candidates:[]};
 const save=(file,value)=>writeFile(file,JSON.stringify(value)+'\n');
 let api;
 
@@ -39,6 +40,45 @@ for(const written of [false,true])test(`a malformed ${written?'written':'inline'
  assert.equal(results[1].isError,false);assert.match(results[1].content[0].text,/saved/i);
  assert.deepEqual(JSON.parse(await readFile(join(home,'draft.json'),'utf8')),draft);
  assert.equal(checks,0,'navigation keeps the existing index publication owner');
+});
+
+for(const written of [false,true])test(`flat ranges in an ${written?'already written':'inline'} index are corrected as nested pairs in the same Pi tool loop`,async t=>{
+ const home=await mkdtemp(join(playtestScratch('index-submit'),'ranges-')),cwd=process.cwd();
+ t.after(async()=>{process.chdir(cwd);await rm(home,{recursive:true,force:true});});
+ await save(join(home,'task.json'),{purpose:'index',source:{page_count:41}});process.chdir(home);
+ const valid={...draft,sections:[{...draft.sections[0],pages:[[1,41]],navigation_note:'Keep the existing row extras.'}]};
+ const invalid={...valid,sections:[{...valid.sections[0],pages:[1,41]}]};
+ if(written)await save(join(home,'draft.json'),invalid);
+ let tool;await readerSubmit({on(){},registerTool(value){tool=value},async exec(){throw Error('Index submission must not run another checker');}});
+ let requests=0;const model={id:'fixture',provider:'fixture',api:'openai-completions'};
+ const agent=new Agent({initialState:{model,tools:[tool]},streamFn(){requests++;const stream=createAssistantMessageEventStream();
+  const message={role:'assistant',provider:'fixture',model:'fixture',api:'openai-completions',timestamp:Date.now(),stopReason:'toolUse',
+   usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},
+   content:[{type:'toolCall',id:`ranges-${requests}`,name:'submit_reading',arguments:requests===1?(written?{}:{draft:invalid}):{draft:valid}}]};
+  queueMicrotask(()=>{stream.push({type:'done',reason:'toolUse',message});stream.end();});return stream;}});
+ await agent.prompt('Submit physical source page ranges as nested pairs.');
+ assert.equal(requests,2,'a flat page range cannot end the source reader');
+ const results=agent.state.messages.filter(message=>message.role==='toolResult');
+ assert.equal(results[0].isError,true);assert.match(results[0].content[0].text,/sections[\s\S]*pages/);
+ assert.equal(results[1].isError,false);
+ assert.deepEqual(JSON.parse(await readFile(join(home,'draft.json'),'utf8')),valid,'the tool corrects only the submitted artifact and retains extra navigation fields');
+ assert.equal(Check(tool.parameters,{draft:invalid}),false,'the actual issued schema explains the nested row shape');
+ assert.equal(Check(tool.parameters,{draft:valid}),true);
+});
+
+test('written index ranges are bounded by the original physical source and empty sections remain structural-valid',async t=>{
+ const home=await mkdtemp(join(playtestScratch('index-submit'),'bounds-')),cwd=process.cwd();
+ t.after(async()=>{process.chdir(cwd);await rm(home,{recursive:true,force:true});});
+ await save(join(home,'task.json'),{purpose:'index',source:{page_count:41}});process.chdir(home);
+ let tool;await readerSubmit({on(){},registerTool(value){tool=value}});
+ for(const pages of [[],[[0,1]],[[2,1]],[[1,42]],[[1,1.5]],[[1,2,3]]]){
+  const invalid={...draft,sections:[{...draft.sections[0],pages}]};await save(join(home,'draft.json'),invalid);
+  await assert.rejects(tool.execute('bound-index',{}),/sections\[0\].*pages/);
+  assert.deepEqual(JSON.parse(await readFile(join(home,'draft.json'),'utf8')),invalid,'a rejected written draft stays intact for correction');
+ }
+ await assert.rejects(tool.execute('bad-name',{draft:{sections:[{name:3,pages:[[1,1]]}]}}),/sections\[0\].*name/);
+ const empty={...draft,sections:[]};const result=await tool.execute('empty-sections',{draft:empty});
+ assert.equal(result.terminate,true);assert.deepEqual(JSON.parse(await readFile(join(home,'draft.json'),'utf8')),empty);
 });
 async function nativeApi(dir){
  if(!api){const file=join(dir,'native.mjs');await build({stdin:{contents:[
@@ -78,6 +118,9 @@ test('Pi index submission saves its navigation draft and leaves source acceptanc
  assert.match(result.content[0].text,/saved/i);assert.doesNotMatch(result.content[0].text,/checked|accepted/i);
  await save(join(job.work_dir,'observations.json'),{file_sha256:sha,read_pages:[1],full_pages:[],review_pages:[]});
  const publish={module_id:mid,job_id:job.job_id,lease:job.lease,outcome:'completed',draft_path:join(job.work_dir,'draft.json')};
+ await save(join(job.work_dir,'draft.json'),{...draft,sections:[{...draft.sections[0],pages:[[1,2]]}]});
+ await assert.rejects(call('module.read.finish',publish),/sections\[0\].pages\[0\].*original page_count \(1\)/,'the native consumer uses the same original source bounds');
+ await save(join(job.work_dir,'draft.json'),draft);
  await assert.rejects(call('module.read.finish',publish),/index pages were not viewed/,'the original publication owner still requires full-page evidence');
  await save(join(job.work_dir,'observations.json'),{file_sha256:sha,read_pages:[1],full_pages:[1],review_pages:[]});
  const accepted=await call('module.read.finish',publish);assert.equal(accepted.state,'preparing');
@@ -85,6 +128,7 @@ test('Pi index submission saves its navigation draft and leaves source acceptanc
  assert.equal(meta.reading.index_complete,true);
  const index=JSON.parse(await readFile(join(home,'.coc/modules',mid,meta.index_file),'utf8'));
  assert.equal(index[0].name,'Opening');assert.deepEqual(index[0].pages,[[0,0]]);
+ assert.equal(index[0].navigation_note,draft.sections[0].navigation_note,'existing extra navigation fields survive publication');
 });
 
 test('index authors and completeness passes mount the same draft submission without switching source drivers',async t=>{

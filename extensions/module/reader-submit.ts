@@ -107,7 +107,7 @@ export default async function readerSubmit(pi: any) {
 		name: "submit_reading", label: "Submit source artifacts",
 		executionMode: "sequential",
 		description: indexTask
-			? "Save a navigation index with a required sections array in draft.json, then finish without another model reply. Use sections, not entries. Supply draft or omit it if already written. A shape error requires correction and resubmission in this child. Existing host completeness and source publication still decide acceptance. Call alone."
+			? "Save a navigation index with a required sections array in draft.json, then finish without another model reply. Each section has name and pages as nested physical page pairs [[start,end],...], never a flat [start,end]. Use sections, not entries. Supply draft or omit it if already written. A shape error requires correction and resubmission in this child. Existing host completeness and source publication still decide acceptance. Call alone."
 			: reviewing
 			? "Save and check review.json, then finish without another model reply. Supply review or omit it if already written. Never modify the candidate files. Call alone after viewing the original cited pages."
 			: answerTask ? "Save and check the scoped source answer in draft.json, then finish without another model reply. Supply draft or omit it if already written. Use only status, answer, source_refs and limitations; no graph fields. Call alone after viewing every cited original page."
@@ -117,7 +117,9 @@ export default async function readerSubmit(pi: any) {
 			: "Save and check the first opening batch in draft.json, then finish without a closing reply. Under opening_scope first_interaction, declare interaction_scene and prepare the selected entry plus its first substantive interaction and immediate dependencies. Defer future encounters. Supply draft or omit it if already written. Failure returns findings for repair. Call alone after viewing the required original pages.",
 		parameters: reviewing ? Type.Object({review:Type.Optional(moduleLogicReview(task)?logicReviewSchema:guidanceTask?guidanceReview:Type.Any())})
 			: guidanceProjection ? Type.Object({guidance:Type.Optional(guidanceSchema),public_fields:Type.Optional(publicSchema)},{additionalProperties:false})
-			: Type.Object({draft:Type.Optional(indexTask?Type.Object({sections:Type.Array(Type.Any(),{description:'Navigation rows with name, physical page ranges in pages and observed source_refs.'})},{additionalProperties:true}):guidanceTask?Type.Object({nodes:Type.Array(Type.Any()),claims:Type.Array(Type.Any()),
+			: Type.Object({draft:Type.Optional(indexTask?Type.Object({sections:Type.Array(Type.Object({name:Type.String(),
+                pages:Type.Array(Type.Tuple([Type.Integer({minimum:1}),Type.Integer({minimum:1})]),{minItems:1,description:'Nested physical page ranges [[start,end],...], bounded by the original PDF.'})
+            },{additionalProperties:true}),{description:'Navigation rows with name, nested physical page ranges in pages and observed source_refs.'})},{additionalProperties:true}):guidanceTask?Type.Object({nodes:Type.Array(Type.Any()),claims:Type.Array(Type.Any()),
 				node_refs:Type.Array(Type.Any()),coverage:Type.Object({},{additionalProperties:Type.Any()}),dependencies:Type.Array(Type.Any()),
 				critical:Type.Array(Type.String()),ready_nodes:Type.Array(Type.String())},{additionalProperties:true}):Type.Any()),
 				...(guidanceTask?{guidance:Type.Optional(Type.Union([guidanceSchema,Type.Object({needs_choice:Type.Literal(true)},{additionalProperties:false})])),public_fields:Type.Optional(publicSchema)}:{})}),
@@ -125,7 +127,7 @@ export default async function readerSubmit(pi: any) {
 			if (signal?.aborted) throw new Error("Source submission cancelled");
 			if (indexTask) {
 				const draft=params.draft===undefined?JSON.parse(await readFile(join(cwd,'draft.json'),'utf8')):params.draft;
-				checkIndexDraftShape(draft);
+				checkIndexDraftShape(draft,task.source?.page_count);
 				if (params.draft !== undefined) {
 					await writeFile(join(cwd, 'draft.json'), JSON.stringify(draft) + '\n');
 				}
