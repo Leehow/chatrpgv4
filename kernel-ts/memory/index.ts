@@ -360,7 +360,7 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
                 unsupported('what', what, ['history', 'memory', 'transcript'], `unknown recall kind ${repr(what)}`);
             if (!contextRead) await writer.read.touchActing!(snapshot);
             const campaign = await writer.campaign(params), current = number(snapshot.turn.turn);
-            return what === 'transcript' ? transcript(campaign, current, params) : what === 'history' ? history(campaign, current, params) : recallMemory(campaign, module.graph, snapshot.world, params);
+            return what === 'transcript' ? transcript(campaign, current, params) : what === 'history' ? history(campaign, current, params, module.graph) : recallMemory(campaign, module.graph, snapshot.world, params);
         }
     });
 }

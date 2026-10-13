@@ -9,6 +9,7 @@ import type { KernelContext } from '../context.js';
 import type { HandlerGroup, ProgressReporter } from '../handlers.js';
 import type { TurnTransaction } from '../transactions.js';
 import { RpcError, internalError } from '../errors.js';
+import {eventDisclosures,eventOutcome} from '../turn-events.js';
 import { sha256Text,isJsonObject } from '../json.js';
 import { appendJsonl, fileSize, truncateFile, writeJsonAtomic } from '../fileio.js';
 import { CampaignSnapshot, loadModule, loadCampaignModule, replayTrail, type LoadedModule } from '../read/campaign.js';
@@ -676,6 +677,15 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     }> {
         if (typeof params.campaign === 'string') await recoverInterruptedNarrate(params.campaign);
         const snapshot = requireTurn ? await CampaignSnapshot.open(context, params.campaign) : await recoverySnapshot(params);
+        // The asked cursor is the existing durable boundary. A record written before it grants no disclosure.
+        if(snapshot.turn.state==='asked'){
+            const campaign=writer(snapshot.id),record=await campaign.readTurnRecord(number(snapshot.turn.turn));
+            if(record?.closed_by==='ask'&&Array.isArray(record.pending_disclosures)
+                &&row(row(row(snapshot.turn.calls)[string(record.disclosure_call)]).result).state==='asked'){
+                record.disclosures=clone(record.pending_disclosures);delete record.pending_disclosures;delete record.disclosure_call;
+                record.outcome=eventOutcome(array(record.receipts),array(record.disclosures));await campaign.writeTurnRecord(record);
+            }
+        }
         snapshot.meta = clone(snapshot.meta);
         snapshot.world = clone(snapshot.world);
         snapshot.turn = clone(snapshot.turn);
@@ -1222,7 +1232,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             await campaign.appendEvent(next, { type: 'map-revealed', data: row(item.event.data), receipt: string(item.receipt.id) });
         snapshot.turn = cursor;
         snapshot.jsonFiles.set('turn.json', cursor);
-        snapshot.records = await campaign.records();
+        snapshot.records = await snapshot.files('turns');
         const resume = resumes.get(campaign.id);
         resumes.delete(campaign.id);
         const view = await capsule(snapshot, module, {
@@ -1399,11 +1409,14 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             turn: n,
             state: 'asked'
         };
+        result.disclosures=eventDisclosures(receipts,row(params._delivery_evidence),array(delivery.speech),askSpeakers);
+        turn.disclosures=clone(result.disclosures);
         turn.pending_choice = pending;
         turn.state = 'asked';
         rememberCall(turn, started.callId, params, result);
         const world = tableSnapshot(snapshot, module.graph), record = {
             ...deliveryRecord(turn, text, receipts, result, world),
+            ...(array(result.disclosures).length?{disclosures:[],outcome:eventOutcome(receipts),pending_disclosures:clone(result.disclosures),disclosure_call:started.callId}:{}),
 			...(params._delivery_evidence ? {delivery_evidence:clone(params._delivery_evidence)} : {}),
             closed_by: 'ask',
             ...(quoteDrafts.length?{quote_drafts:quoteDrafts,quote_scope:quotationScope(snapshot.meta)}:{}),
@@ -1420,6 +1433,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         await campaign.writeTurnRecord(record);
         await updateNpcLedger(campaign, module.graph, record);
         await campaign.writeTurn(turn);
+        if(array(result.disclosures).length){
+            const owned=record as Row;owned.disclosures=clone(result.disclosures);delete owned.pending_disclosures;delete owned.disclosure_call;
+            owned.outcome=eventOutcome(receipts,array(result.disclosures));await campaign.writeTurnRecord(owned);
+        }
         // §194.3 with §103.8: a graph person a document told is called by the book's name from now on, as at an introduction.
         if (askDocuments.introduced.length) await callByBookName(campaign, module.graph, askDocuments.introduced);
         if (askDocuments.places) await documentTelemetry(campaign, n, started.callId, askDocuments);
@@ -1603,6 +1620,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 note: 'the host wrapped these lines (§128.3) and they repeat what the same person already said; delivered, not refused, and recorded as a finding for the next turn'
             } } : {})
         };
+        if(!reference)result.disclosures=eventDisclosures(receipts,row(params._delivery_evidence),array(delivery.speech),speakers);
         const before = clone(turn), transcriptSize = await fileSize(campaign.path('transcript.jsonl')), eventsSize = await fileSize(campaign.path('events.jsonl'));
         const recordPath = campaign.path(campaign.recordName(n)), hadRecord = await context.snapshots.pathExists(recordPath);
         // §141: what a rollback needs, on disk before the first write below.

@@ -9,11 +9,12 @@ import {npcPerspective} from './perspective.js';
 import {intentsView} from './intents.js';
 import {documentEditInput} from '../../runtime/document-edit-input.ts';
 import {npcActivityView,actuallyAsleep} from '../read/temporal.js';
+import {eventScope} from '../turn-events.js';
 
 export async function npcViews(input:{campaign:string;graph:ModuleGraph;world:Row;meta:Row;turn:Row;memory:Row[];records:Row[];ledger:Row;
     name?:string}):Promise<Row[]> {
     const {graph,world,turn,records,ledger}=input,worldline=string(input.meta.active_worldline||'main');
-    const scope={worldline,loop:number(row(row(input.meta.worldlines)[worldline]).loop)};
+    const scope:Row={...eventScope(input.meta,input.campaign,number(turn.turn)),current_receipts:array(turn.receipts)};
     // §180.3: a perspective (personality, goals, fears, knowledge reports, commitments) is a person's. Unnamed, the
     // present actors less the creatures among them; named, the person junction, which never answers a creature.
     const nodes=input.name?[npcNode(graph,world,input.name)]:npcsPresent(graph,world,graph.scene(world.active_scene)).filter(node=>graph.isPerson(node));
@@ -33,6 +34,6 @@ export async function npcViews(input:{campaign:string;graph:ModuleGraph;world:Ro
         const activity=npcActivityView(graph,world,handle);
         const availability={present,can_act:present&&!dead&&!actuallyAsleep(activity)&&!incapacitatedBy(Array.isArray(conditions)?conditions.map(string):[]).length,
             ...(activity?{activity}:{})};
-        return {...projected.view,...(tried.length?{tried}:{}),input:currentInput,scope:{...scope,campaign:input.campaign},availability,view_revision:jsonDigest({view:projected.revision,tried,input:currentInput,availability,contextRevision})};
+        return {...projected.view,...(tried.length?{tried}:{}),input:currentInput,scope:{campaign:input.campaign,worldline,loop:scope.loop},availability,view_revision:jsonDigest({view:projected.revision,tried,input:currentInput,availability,contextRevision})};
     }));
 }

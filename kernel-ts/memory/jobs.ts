@@ -7,6 +7,7 @@ import { CampaignWriter, nowIso } from '../write/store.js';
 import { committedFacts } from '../write/text.js';
 import { ModuleGraph } from '../read/module-graph.js';
 import { sceneLabel } from '../read/capsule.js';
+import {eventOutcome} from '../turn-events.js';
 import { EntityIndex, queryCandidates } from '../read/memory.js';
 import { storyAssessmentContext } from '../read/story.js';
 import {validateCorrectionRefs, bindCorrectionRefs, applyCorrectionLinks} from './corrections.js';
@@ -30,6 +31,7 @@ const instruction = (language: string) => 'Write only what is new this turn: fac
     'no numbers or dice; do not repeat what prior already holds. Each candidate has kind (one of world_event, ' +
     'knowledge, belief, relationship, player_assertion, player_preference, keeper_correction, promise), subject and ' +
     "statement; a world_event's subject must be world; a relationship names exactly one entity in entities. " +
+    'Canonical_outcome is already established by its receipt owner: do not duplicate it or strengthen its authority. Any new report from the same delivery is correlated evidence, never independent confirmation. ' +
     'A relationship is directed: subject is the person whose view of the other person changed, and entities ' +
     'contains that other person alone. Preserve the concrete shared event or explicit statement that supports ' +
     'trust, distrust, gratitude, resentment or changed cooperation. Do not infer a lasting change from courtesy ' +
@@ -136,6 +138,11 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
         present: present.map(node => graph.displayName(node)), investigators: party.map(sheet => ({ id: string(sheet.id), name: string(sheet.name) })),
         player_text: record.player_text ?? null, keeper_text: proseOf(record.rendered_text),
 		...(record.delivery_evidence ? {delivery_evidence:clone(record.delivery_evidence)} : {}),
+        ...(array(record.receipts).some(receipt=>receipt.kind==='event')?{
+          canonical_outcome:{events:eventOutcome(array(record.receipts),array(record.disclosures)).events.map((event:Row)=>({name:event.name,summary:event.summary,
+            knowledge:array(event.knowledge).map(item=>({actor:row(item.actor).name,statement:item.statement,mode:item.mode,state:item.state,status:item.status,...(item.source?{source:row(item.source).name}:{})})),
+            relationships:array(event.relationships).map(item=>({actor:row(item.actor).name,toward:row(item.toward).name,statement:item.statement,status:item.status}))}))},
+          _canonical_events:array(record.receipts).filter(receipt=>receipt.kind==='event').map(receipt=>({ref:receipt.event.ref,scope:receipt.event.scope}))}:{}),
         committed_facts: facts.length ? facts : committedFacts(array(record.receipts), snapshot, id => labels[id] ?? id, record.player_text),
         known_entities: known, prior, ...(correctionTargets.length ? {correction_targets: correctionTargets} : {}),
         ...(array(storyContext.threads).length ? {story_context: storyContext} : {}),
@@ -203,15 +210,15 @@ export async function correctionJob(campaign: CampaignWriter, graph: ModuleGraph
     return null;
 }
 export async function openJob(campaign: CampaignWriter, packet: Row): Promise<Row> {
-    const allowed = packet._allowed, receipts = packet._receipts, correction = packet._correction, worldline = packet._worldline;
+    const allowed = packet._allowed, receipts = packet._receipts, correction = packet._correction, worldline = packet._worldline,canonicalEvents=packet._canonical_events;
     delete packet._allowed;
     delete packet._receipts;
-    delete packet._correction; delete packet._worldline;
+    delete packet._correction; delete packet._worldline;delete packet._canonical_events;
     const existing = await readJob(campaign, packet.job_id);
     if (existing && packet.task === 'reconcile_correction') return existing.packet;
     if (!existing || !['done', 'failed'].includes(existing.status))
         await writeJob(campaign, { job_id: packet.job_id, turn: packet.turn, commit: packet.commit, status: 'open', opened_at: nowIso(), packet, allowed, receipts,
-            ...(worldline != null ? {worldline} : {}), ...(correction ? {correction} : {}) });
+            ...(worldline != null ? {worldline} : {}), ...(correction ? {correction} : {}),...(canonicalEvents?{canonical_events:canonicalEvents}:{}) });
     return packet;
 }
 function reject(index: number, message: string, fix: string, details: Row = {}): never {
@@ -375,7 +382,9 @@ export async function submit(campaign: CampaignWriter, graph: ModuleGraph, party
                     superseded.push(string(old.id));
                 }
             }
-        const landed = { id: newId, ...value, status: 'candidate', source: { turn, commit: job.commit ?? null, episode_id: episodeId(turn), receipts: [...array(job.receipts)] }, worldline: line, loop, valid_from_turn: turn, job_id: id, at: nowIso() };
+        const canonicalEvents=array(job.canonical_events);
+        const landed = { id: newId, ...value, status: 'candidate', source: { turn, commit: job.commit ?? null, episode_id: episodeId(turn), receipts: [...array(job.receipts)],
+            ...(canonicalEvents.length?{canonical_events:canonicalEvents,corroboration:'same_delivery'}:{}) }, worldline: line, loop, valid_from_turn: turn, job_id: id, at: nowIso() };
         existing.push(landed);
         written.push(landed);
     }

@@ -1,5 +1,6 @@
 /** Assemble the existing capsule from read-only snapshots and validated content. */
 import { CampaignSnapshot, loadModule, type LoadedModule } from "./campaign.js";
+import {eventOutcome,eventScope,canonicalEvents,actorEventView} from '../turn-events.js';
 import { DirectorGraph, TextGraph, Ontology } from "./content.js";
 import { RuleObservations } from "./rule-facts.js";
 import { SessionView } from "./session-view.js";
@@ -385,11 +386,18 @@ export function fitPresent(rows: Row[], budget: number): boolean {
         targets: array(entry.relationships).length,
         reports: array(entry.relationships).reduce((n, tie) => n + array(row(tie).evidence).length, 0),
         targetsOmitted: number(row(entry.coverage).relationship_targets_omitted),
-        reportsOmitted: number(row(entry.coverage).relationship_reports_omitted)
+        reportsOmitted: number(row(entry.coverage).relationship_reports_omitted),
+        cognition: array(entry.cognition).length,
+        cognitionOmitted: number(row(entry.semantic_coverage).cognition_omitted),
+        canonicalRelationships: array(entry.relationships).filter(tie=>array(row(tie).evidence).some(report=>report.authority==='canonical_event')).length,
+        canonicalRelationshipsOmitted: number(row(entry.semantic_coverage).relationships_omitted)
     }]));
     const atomic = new Set<any[]>(), minimum = new Map<any[], number>();
     let relationshipCut = false;
     for (const entry of rows) {
+        if (array(entry.cognition).length) {
+            atomic.add(entry.cognition); minimum.set(entry.cognition, 1);
+        }
         if (!Array.isArray(entry.relationships)) continue;
         const complete = entry.relationships.filter(tie => array(row(tie).evidence).length);
         if (complete.length !== entry.relationships.length) relationshipCut = true;
@@ -410,6 +418,11 @@ export function fitPresent(rows: Row[], budget: number): boolean {
             const original = before.get(entry)!;
             const targets = array(entry.relationships).length;
             const reports = array(entry.relationships).reduce((n, tie) => n + array(row(tie).evidence).length, 0);
+            const cognitionOmitted = original.cognitionOmitted + original.cognition - array(entry.cognition).length;
+            const relationshipsOmitted=original.canonicalRelationshipsOmitted+original.canonicalRelationships
+                -array(entry.relationships).filter(tie=>array(row(tie).evidence).some(report=>report.authority==='canonical_event')).length;
+            if (cognitionOmitted||relationshipsOmitted) entry.semantic_coverage = {...row(entry.semantic_coverage),
+                cognition_omitted: cognitionOmitted, relationships_omitted:relationshipsOmitted,read: {what: 'memory', about: [string(entry.name)]}};
             if (original.targets > targets || original.reports > reports) {
                 const prior = row(entry.coverage);
                 entry.coverage = {...prior,
@@ -482,7 +495,10 @@ function stubRelationships(entry: Row): Row {
     const prior = row(entry.coverage), ties = array(entry.relationships);
     const targets = number(prior.relationship_targets_omitted) + ties.length;
     const reports = number(prior.relationship_reports_omitted) + ties.reduce((n, tie) => n + array(row(tie).evidence).length, 0);
-    return targets || reports ? {coverage: {relationship_targets_omitted: targets, relationship_reports_omitted: reports}} : {};
+    const semantic = row(entry.semantic_coverage), cognition = number(semantic.cognition_omitted) + array(entry.cognition).length;
+    const relationships=number(semantic.relationships_omitted)+ties.filter(tie=>array(row(tie).evidence).some(report=>report.authority==='canonical_event')).length;
+    return {...(targets || reports ? {coverage: {relationship_targets_omitted: targets, relationship_reports_omitted: reports}} : {}),
+        ...(cognition||relationships ? {semantic_coverage: {...semantic, cognition_omitted: cognition,relationships_omitted:relationships, read: {what: 'memory', about: [string(entry.name)]}}} : {})};
 }
 function presentStub(entry: Row): Row {
     const { use: _line, ...untold } = row(entry.untold);
@@ -592,7 +608,10 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     const director = directorSection(dg, ontology, graph, world, scene, sig, memory, present),
         full = options.styleFull ?? true;
     const warningRecord = [...campaign.records].sort((a, b) => number(b.turn) - number(a.turn)).find(record => number(record.turn) < number(turn.turn) && record.closed_by === "narrate");
-    const npcScope={worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)};
+    const npcScope={...eventScope(campaign.meta,campaign.id,number(turn.turn)),current_receipts:array(turn.receipts)};
+    const semanticEvents=canonicalEvents(campaign.records,array(turn.receipts),npcScope);
+    const perceptions=party.map(sheet=>actorEventView(semanticEvents,[string(sheet.id),string(sheet.name)],npcScope)),playerCognition=perceptions.flatMap(view=>array(view.cognition))
+        .sort((a,b)=>number(a.turn)-number(b.turn));
     // The turns before this one that said or told anything; `recent` carries the last two, `own` the player's words of the rest.
     const told = campaign.records.filter(record => number(record.turn) < number(turn.turn) && (truth(record.player_text) || truth(record.rendered_text))),
         shown = told.slice(-2);
@@ -600,6 +619,9 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         memory, records: campaign.records, scope: npcScope, journal: row(campaign.jsonFiles.get('npc-journal.json')), party});
     const sections: Row = clone({
         where,
+        outcome:graph.shownIds({...eventOutcome(array(turn.receipts),array(turn.disclosures)),
+            history:[...semanticEvents].sort((a,b)=>number(row(a.scope).turn)-number(row(b.scope).turn)).slice(-4).map(event=>({ref:event.ref,name:event.name,summary:chars(event.summary??'',300),scope:event.scope,status:event.status})),
+            coverage:{history_omitted:Math.max(0,semanticEvents.length-4),read:{what:'history',page:{section:'events'}}}}),
         historical_setting: await historicalSetting(campaign, module),
         // §168.5: before present, so the material for a first sight is read before the dossiers.
         ...(firstSight ? { first_sight: firstSight } : {}),
@@ -645,13 +667,22 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         // §200.4: a recording a recent turn closed with unconfirmed; only when there is one, so other capsules are unchanged.
         ...(() => { const rows = unconfirmedRecordings(shown); return rows.length ? { unconfirmed_recordings: rows } : {}; })(),
         // §194.2: the player's ledger beside the book's truth; it fits its own budget (PLAYER_KNOWS_BUDGET), newest first.
-        player_knows: playerKnowsSection(graph, world, row(campaign.jsonFiles.get("npc-journal.json")), campaign.records, number(turn.turn),
-            campaign.jsonFiles.get("first-sight.json"))
+        player_knows:{...playerKnowsSection(graph,world,row(campaign.jsonFiles.get('npc-journal.json')),campaign.records,number(turn.turn),campaign.jsonFiles.get('first-sight.json')),
+            cognition:playerCognition.slice(-8),cognition_coverage:{omitted:Math.max(0,playerCognition.length-8)+perceptions.reduce((sum,view)=>sum+number(view.coverage.cognition_omitted),0),read:{what:'memory',about:party.map(sheet=>sheet.name)}}}
     });
     // Contract §183.3: the gates read the turn as assembled, before any section budget below cuts it.
     const gateTurn: TurnState = { opening: number(turn.turn) === 0, present: clone(array(sections.present)), stalled_turns: number(sig.stalled_turns),
         stall_threshold: number(dg.threshold("pressure-stalled-turns")), beat: string(director.beat), repeat_input: truth(sig.repeat_input) };
     const truncated: string[] = [];
+    // Canonical perception has its own bounded supplement; never cut a statement into partial evidence.
+    const playerPerception=sections.player_knows;
+    while(array(playerPerception.cognition).length&&jsonSize({cognition:playerPerception.cognition,cognition_coverage:playerPerception.cognition_coverage})>2048){
+        playerPerception.cognition.shift();playerPerception.cognition_coverage.omitted++;
+    }
+    if(playerPerception.cognition_coverage.omitted)truncated.push('player_knows.cognition');
+    if(fitBudget(sections.outcome,4096,'last')){
+        sections.outcome.coverage={truncated:true,read:{what:'history',page:{section:'timeline'}}};truncated.push('outcome');
+    }
     const deferredCoverage = row(row(sections.deferred_npcs).coverage);
     if (number(deferredCoverage.people_omitted) || number(deferredCoverage.undertakings_omitted)
         || number(deferredCoverage.commitments_omitted)) truncated.push('deferred_npcs');

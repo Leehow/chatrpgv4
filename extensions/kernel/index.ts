@@ -3508,8 +3508,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			if (leaveOutUnknownOwed(effects, state.owed).length) payload = { ...payload, effects };
 		}
 		// §158.5: an owed write is admitted on what was told; there is no review to start early.
-		if (toldAdmission(tool, payload, undefined, state.owed ?? [])?.ok) return;
-		if (tool === "apply" && combatSceneMove(state, payload)) return;
+		if (payload.event===undefined&&toldAdmission(tool,payload,undefined,state.owed??[])?.ok)return;
+		if (payload.event===undefined&&tool==='apply'&&combatSceneMove(state,payload))return;
 		const scopeFor = await admissionScopeBuilder(state, tool, payload);
 		const effects = Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : [];
 		const proposal = admissionRequest(tool, payload, scopeFor(effects));
@@ -3574,7 +3574,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const malformedDocument = documentWriteRefusal(tool, payload);
 		if (malformedDocument) throw new KernelError(malformedDocument);
 		const internalCombatMove = tool === "apply" ? combatSceneMove(state, payload) : undefined;
-		if (internalCombatMove) {
+		if (internalCombatMove&&payload.event===undefined) {
 			await record({ lane: "admission", verb: tool, ok: true, skipped: "combat_scene_required", destination: internalCombatMove, path: "none", ms: 0, ...origin, ...who });
 			return;
 		}
@@ -3606,7 +3606,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const digest = keyDigest(proposal.key);
 		// Lane rows name the verb as `verb`: `tool` is the tool-call row's own column, and readers
 		// (kpi.py, the tests) find a verb's call row by it.
-		if (!state.playerText) {
+		if (!state.playerText&&!proposal.atomicEvent) {
 			await record({ lane: "admission", verb: tool, ok: true, skipped: "no_player_text", key: digest, path: "none", ms: 0, ...origin, ...who });
 			return alreadyLanded ? { landed: [], alreadyLanded } : undefined;
 		}
@@ -3629,7 +3629,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		}
 		// §32.12: a clerk write the compile selected is admitted on the compile's evidence -- no lane call, no typed call.
 		// Not kept for the turn: it is this call's evidence, so a Keeper's identical proposal is reviewed.
-		const compiled = compileAdmission(evidence);
+		const compiled = proposal.atomicEvent?undefined:compileAdmission(evidence);
 		const refusedCompile = compiled && !compiled.ok ? { compile_refused: compiled.reason } : {};
 		// §143.18: the Keeper's own attack or manoeuvre for the investigator, against what this run's compile read the player's
 		// words as. When a compile of the run asked over this very act and cleared on `none`, the question the review would ask
@@ -3641,10 +3641,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// this costs nothing beyond the first admission of the table's life; `execute` is the same data
 		// `hybrid-engine.ts`'s `routeConsequencesAfterWrite` read when it decided whether to execute this candidate
 		// at all, so a class the table stopped listing falls back to the lane on its own, fail closed.
-		const consequenced = consequenceAdmission(evidence, (await jevStepsBudget()).execute);
+		const consequenced = proposal.atomicEvent?undefined:consequenceAdmission(evidence,(await jevStepsBudget()).execute);
 		const refusedConsequence = consequenced && !consequenced.ok ? { consequence_refused: consequenced.reason } : {};
 		// §158.5: a write that lands only owed rows is admitted on what was told; the kernel checks the rows themselves.
-		const told = toldAdmission(tool, payload, evidence, state.owed ?? []);
+		const told = proposal.atomicEvent?undefined:toldAdmission(tool,payload,evidence,state.owed??[]);
 		const refusedTold = told && !told.ok ? { told_refused: told.reason } : {};
 		const ctx = sessionCtx;
 		const context = (): AdmissionContext => admissionContextFor(state);
@@ -3672,9 +3672,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				// §135.11.1 (SL-50): the verdict of this call's review, for the drop row of the step the call came from.
 				evidence.onVerdict?.(verdict.verdict);
 				const admitted = ADMITTING_VERDICTS.has(verdict.verdict);
-                if(['authorized','entailed'].includes(verdict.verdict)&&proposal.signatures){
+                if(['authorized','entailed'].includes(verdict.verdict)&&(proposal.signatures||proposal.eventEffectSignatures)){
                     let selected=writingAuthorities.get(state);if(!selected){selected=new Set();writingAuthorities.set(state,selected);}
-                    for(const signature of proposal.signatures)selected.add(signature);
+                    for(const signature of proposal.eventEffectSignatures??proposal.signatures??[])selected.add(signature);
                 }
 				const timedOut = verdict.verdict === REVIEW_TIMEOUT;
 				const correctable = verdict.recovery === "correct_proposal";
@@ -4102,7 +4102,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		// Only §32.12.3's split lands part of a batch: every other outcome is one status for all of the proposal's lines.
 		const refusal = (statuses.find((status) => "error" in status) as { error: KernelError } | undefined)?.error
 			?? new KernelError({ code: "internal", message: "the batch's admission ended with no refusal to report" });
-		if (refused.length === statuses.length) {
+		if (proposal.atomicEvent||refused.length === statuses.length) {
 			// §197.1: a refusal that names admitted lines is one the Keeper recovers from by resending exactly them; keep their
 			// signatures and verdicts so that resend is recognised.
 			const named = refusal.details?.admitted;
@@ -5586,6 +5586,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		const closesOpening = spec.name === "narrate" && state.openingPending;
 		if(spec.name==='ask' && params.kind!=='mechanics')throw new Error('Use narrate for ordinary story questions and await free input; ask only accepts mechanics');
     const payload: Record<string, unknown> = { ...params, campaign: state.campaign };
+    if(spec.name==='apply'&&params.event!==undefined){
+        const event=params.event as Record<string,any>,names=[...(Array.isArray(event.causes)?event.causes:[]),event.corrects];
+        payload._event_sources=finalOutput.inventory(state.campaign,state.turn).filter(source=>names.includes(source.name));
+    }
 		const referenceScope = state.interactionScope !== undefined && state.interactionScope !== 'world';
 		const referenceDelivery = spec.name === 'narrate' && referenceScope;
 		delete payload._interaction_scope;
@@ -6176,7 +6180,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// A call that came back is proof the history store answered: the commit streak ends here
 			// (contract §38.11), not at a turn boundary.
 			state.commitOutage = undefined;
-			if ((READ_TOOLS.has(spec.name)||spec.name==='recall') && result && typeof result === 'object') {
+			if ((READ_TOOLS.has(spec.name)||spec.name==='recall'||spec.name==='apply') && result && typeof result === 'object') {
 				finalOutput.observe(state.campaign,state.turn,spec.name,params,result);
 			}
 

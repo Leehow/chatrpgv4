@@ -6,7 +6,7 @@ import type {HostRuntime} from '../../runtime/host.ts';
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {validateDeliveryArtifact, type DeliveryArtifact} from '../../runtime/final-output-artifact.ts';
 import {KernelError} from './client.ts';
-import {untoldView} from './untold-view.ts';
+import {untoldView,untoldPeople} from './untold-view.ts';
 import {acquireWritingCache,writeWritingCache} from '../../runtime/final-output-cache.ts';
 import {createWritingSupportNames,publicSupportText,writingSupportBinding} from '../../runtime/writing-support.ts';
 
@@ -16,6 +16,14 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
 const error = (message: string) => new KernelError({code: 'needs', message, fix: 'Prepare the missing material or retry the selected writing task. Already settled effects must not be repeated.', details: {reason: 'final_output'}});
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
 const sentence = (value: unknown, limit = 4000): value is string => typeof value === 'string' && !!value.trim() && value.length <= limit;
+const fields=(value:unknown,keys:string[])=>Object.fromEntries(keys.filter(key=>object(value)[key]!==undefined).map(key=>[key,object(value)[key]]));
+function expressionProjection(content:string,visibleName:(name:string)=>string):Row|undefined{
+  try {const packet=object(JSON.parse(content));
+    if(!Array.isArray(packet.people))return undefined;
+    return {authority:packet.authority,people:packet.people.map((person:Row)=>({name:visibleName(person.name),cards:(person.cards??[]).map((card:Row)=>({
+      ...fields(card,['name','kind','pattern']),examples:(card.examples??[]).map((example:Row)=>fields(example,['context','reply']))}))}))};
+  }catch{return undefined;}
+}
 /** The real-play driver selects the owner's test profile; ordinary product sessions retain their author. */
 export const finalAuthorProfile=(env:NodeJS.ProcessEnv=process.env)=>env.PI_COC_TEST_MODEL==='codex-relay/gpt-6-luna'
   ?{model:'codex-relay/gpt-6-luna',thinking:'high' as const}:{model:'grok-build/grok-4.5',thinking:'low' as const};
@@ -103,6 +111,14 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
     }
     return selected;
   }
+  function observeEvents(outcome:Row):void {
+    if(outcome.version!==1||!Array.isArray(outcome.public_materials))return;
+    for(const [name,source] of sources)if(source.tool==='canonical.event')sources.delete(name);
+    for(const material of outcome.public_materials??[]){
+      if(material.visibility!=='player'||!sentence(material.name,200)||!sentence(material.text)||!sentence(material.revision,64))continue;
+      sources.set(material.name,{name:material.name,revision:material.revision,tool:'canonical.event',material:structuredClone(material)});
+    }
+  }
   function observeSupport(binding:Row,materials:Row[]):void {
     if(!sentence(binding.campaign,200)||!Number.isSafeInteger(binding.turn))return;
     forTurn(binding.campaign,binding.turn);
@@ -117,14 +133,15 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
   }
   async function check(campaign:string,turn:number,raw:unknown) {
     forTurn(campaign,turn);
-    const plan=deliveryPlan(raw),snapshot=await deps.call('table.status',{campaign});
+    const plan=deliveryPlan(raw),snapshot=await deps.call('table.status',{campaign,_context_read:true});
     await deps.call('table.delivery.check',{campaign});
     const capsule=await deps.call('table.capsule',{campaign,_context_read:true});
+    observeEvents(object(snapshot.outcome));
     sources.set('receipts',{name:'receipts',revision:digest(snapshot.receipts??[]),tool:'canonical.receipts'});
-    resolveSources(plan,capsule);
+    const selected=resolveSources(plan,capsule);
     const visible=(plan.materials??[]).filter((m:Row)=>m.visibility==='player');
     const required=[...new Set([...(plan.required??[]),...(plan.materials??[]).filter((m:Row)=>m.required).map((m:Row)=>m.name)])];
-    if(required.some(name=>!visible.some((m:Row)=>m.name===name)))throw error('Required material is missing or private');
+    if(required.some(name=>!visible.some((m:Row)=>m.name===name)&&!selected.some(source=>source.material?.name===name)))throw error('Required material is missing or private');
     checked={campaign,turn,plan:deliveryPlan(raw),binding:digest(contextOf(campaign,turn,capsule))};
     await deps.record({lane:'final-output-check',turn,ok:true,materials:visible.length,required:required.length});
     return {checked:true,materials:visible.map((m:Row)=>m.name),required,writer_started:false,published:false};
@@ -134,6 +151,7 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
     const focus = String(params.focus ?? params.kind ?? params.what ?? 'table');
     const name = `${tool}:${focus.slice(0,120)} (${++sourceOrdinal})`;
     const value=object(result);
+    observeEvents(object(value.outcome));
     if(tool==='lookup'&&params.kind==='support'&&value.kind==='keeper_support'&&!value.materials?.every((m:Row)=>sources.has(m.alias))){
       const named=nameLookupSupport({content:JSON.stringify(value)},{campaign,turn});
       Object.assign(value,JSON.parse(named.content));
@@ -158,15 +176,16 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
     const author=finalAuthorProfile();
     const reusedTextNames=new Set((plan.materials??[]).filter((m:Row)=>m.text===undefined).map((m:Row)=>m.name));
     if(!runtime||signal?.aborted)throw error('Final-output runtime is unavailable or cancelled');
-    const snapshot=await deps.call('table.status',{campaign}),capsule=await deps.call('table.capsule',{campaign,_context_read:true});
+    const snapshot=await deps.call('table.status',{campaign,_context_read:true}),capsule=await deps.call('table.capsule',{campaign,_context_read:true});
     if(deps.reference)advice=await deps.reference(capsule) as typeof advice;
     await deps.call('table.delivery.check',{campaign});
     const primary=(view:Row):Row=>contextOf(campaign,turn,view);
     const context=primary(capsule),binding=digest(context);
+    observeEvents(object(snapshot.outcome));
     const selected=resolveSources(plan,capsule);
     if(saved&&saved.binding!==binding)throw error('The checked material plan is stale; check revised materials or supply an explicit delivery');
     sources.set('receipts',{name:'receipts',revision:digest(snapshot.receipts??[]),tool:'canonical.receipts'});
-    const constraints=structuredClone(deps.constraints?.()??{}),policy=digest(INSTRUCTION);
+    const constraints=structuredClone(deps.constraints?.()??{}),policy=digest({instruction:INSTRUCTION,author_projection:2});
     const key=digest({campaign,turn,binding,player_text:capsule.turn?.player_text,plan,constraints,policy,
       sources:selected.map(({name,revision})=>({name,revision})),expression:advice?.campaign===campaign&&advice.turn===turn?advice:undefined,author});
     if(running.has(key))return structuredClone(await running.get(key)!);
@@ -193,8 +212,13 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
           return {text:artifact.text,evidence:structuredClone(cached.evidence)};
         }
         const shown=untoldView(capsule);
+        for(const person of untoldPeople(await deps.call('table.untold',{campaign}))){
+          shown.names.byName.set(person.name,person.shown);if(person.id)shown.names.byId.set(person.id,person.shown);
+        }
+        const visibleName=(name:string)=>shown.names.byName.get(name)??shown.names.byId.get(name)??name;
     const publicMaterials: Row[] = (plan.materials ?? []).filter((m: Row) => m.visibility === 'player').map((m: Row) => ({
-      name: m.name, text: m.text, kind: m.kind, authority: reusedTextNames.has(m.name)?'reference_only':'keeper_proposal', ...(m.source ? {source: m.source} : {}),
+      name: m.name, text: m.text, kind: m.kind, authority: reusedTextNames.has(m.name)?'reference_only':'keeper_proposal', ...(m.source ? {source: m.source,
+        ...(sources.get(m.source)?.material?.event_material?{event_material:sources.get(m.source)!.material!.event_material}:{})} : {}),
     }));
     for(const source of selected) {
       if(source.material&&(plan.sources??[]).includes(source.name)&&!publicMaterials.some(m=>m.name===source.name))publicMaterials.push(structuredClone(source.material));
@@ -203,12 +227,26 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
         throw error(`Source "${source.name}" requires a permitted excerpt; its private view cannot enter the writer`);
     }
     const required = [...new Set([...(plan.required ?? []), ...(plan.materials ?? []).filter((m: Row) => m.required).map((m: Row) => m.name)])] as string[];
+    for(const [index,material] of publicMaterials.entries())if(material.event_material&&material.name===material.event_material){
+      const prior=material.name;material.name=`event material:${index+1}`;
+      for(let at=0;at<required.length;at++)if(required[at]===prior)required[at]=material.name;
+    }
+    for(const material of publicMaterials)if(material.kind==='speech'){
+      material.speaker=shown.names.byName.get(material.speaker)??shown.names.byId.get(material.speaker)??material.speaker;
+      material.audience=(material.audience??[]).map((name:string)=>shown.names.byName.get(name)??shown.names.byId.get(name)??name);
+    }
     if (required.some(name => !publicMaterials.some(m => m.name === name))) throw error('Required material is missing or private');
     for (const [index, utterance] of (plan.utterances ?? []).entries()) {
       const name = `speech:${index + 1}`;
       if (publicMaterials.some(m => m.name === name)) throw error('A material duplicates an issued speech alias');
       const visibleName=(value:string)=>shown.names.byName.get(value)??shown.names.byId.get(value)??value;
+      const canonical=utterance.source?sources.get(utterance.source)?.material:undefined;
+      if(canonical?.event_material&&(canonical.kind!=='speech'||canonical.text!==utterance.meaning
+        ||visibleName(canonical.speaker)!==visibleName(utterance.speaker)
+        ||JSON.stringify(canonical.audience.map(visibleName).sort())!==JSON.stringify(utterance.audience.map(visibleName).sort())))
+        throw error('A canonical speech reference requires its issued meaning, speaker and audience; record a changed event before selecting changed claims');
       publicMaterials.push({name, kind: 'speech', authority: 'attributed_intention', ...utterance,
+        ...(canonical?.event_material?{event_material:canonical.event_material,text:canonical.text}:{}),
         speaker:visibleName(utterance.speaker),audience:utterance.audience.map(visibleName)});
       required.push(name);
     }
@@ -217,19 +255,24 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
     const packet:Row = {version: 1, play_language: playLanguage,
       constraints,
       player_text: capsule.turn?.player_text ?? '', materials: publicMaterials, required,
-      scene: {clock:capsule.where?.clock,temporal:capsule.where?.temporal},
-      people: (shown.capsule.present ?? []).map((p: Row) => ({name: p.name,activity:p.activity})),
+      scene: {clock:fields(capsule.where?.clock,['minutes','elapsed','at','day','hh','mm','day_part'])},
+      people: (shown.capsule.present ?? []).map((p: Row) => ({name: p.name})),
       investigator:{name:capsule.known?.investigator?.name,occupation:capsule.known?.investigator?.occupation},
-      recent: capsule.recent ?? [], exchange:snapshot.last_exchange,
-      guidance: {style: capsule.style, voices: (capsule.voices??[]).filter((v:Row)=>!shown.names.byName.has(v.name)), establish:capsule.mods?.establish,
-        instructions:(capsule.mods?.instructions??[]).filter((row:Row)=>['narration-craft','zh-optimize','npc-voice'].includes(row.mod)),
-        sections:sections?.campaign===campaign&&sections.turn===turn&&sections.revision===digest(capsule.mods?.instructions??[])?sections.content:undefined,
-        temporal:temporal?.campaign===campaign&&temporal.turn===turn?temporal.content:undefined,
+      recent: (capsule.recent??[]).map((r:Row)=>({turn:r.turn,player:r.player,keeper:r.keeper})),
+      exchange:snapshot.last_exchange?{turn:snapshot.last_exchange.turn,player_text:snapshot.last_exchange.player_text,
+        speech:(snapshot.last_exchange.speech??[]).map((r:Row)=>({who:visibleName(r.who),line:r.line}))}:undefined,
+      guidance: {style:{...fields(capsule.style,['language','register','axes','floor']),directives:(capsule.style?.directives??[]).map((row:Row)=>fields(row,['id','line']))},
+        establish:capsule.mods?.establish?{place:fields(capsule.mods.establish.place,['name']),why:capsule.mods.establish.why,
+          owes:(capsule.mods.establish.owes??[]).map((row:Row)=>fields(row,['key','line']))}:undefined,
+        instructions:(capsule.mods?.instructions??[]).filter((row:Row)=>['narration-craft','zh-optimize','npc-voice'].includes(row.mod)).map((row:Row)=>fields(row,['mod','version','form','instruction'])),
+        sections:sections?.campaign===campaign&&sections.turn===turn&&sections.revision===digest(capsule.mods?.instructions??[])
+          ?{authority:sections.content.authority,sections:(sections.content.sections??[]).map((row:Row)=>fields(row,['package','section','text']))}:undefined,
         expression:advice?.campaign===campaign&&advice.turn===turn&&capsule.mods?.expression_reference?.enabled===true
-          && advice.revision===capsule.mods.expression_reference.revision?advice.content:undefined},
+          && advice.revision===capsule.mods.expression_reference.revision?expressionProjection(advice.content,visibleName):undefined},
       references:[...external.values()].filter(reference=>reference.run===run).map(({url,title})=>({url,title,authority:'untrusted_external_reference'})),
       presentation: plan.presentation,
-      facts: (snapshot.mechanics??[]).filter((r:Row)=>r.visibility!=='keeper').map((r:Row)=>Object.fromEntries(
+      facts: (snapshot.mechanics??[]).filter((r:Row)=>r.visibility==='public'||r.visibility===undefined
+        &&['scene','time','item','cash','change','clue','session','choice','worldline','clock'].includes(r.kind)).map((r:Row)=>Object.fromEntries(
         ['kind','visibility','name','label','subject_label','actor_label','target_label','from_label','to_label','outcome','level','passed','before','after','gained','lost','condition']
           .filter(k=>r[k]!==undefined && (r[k]===null || ['string','number','boolean'].includes(typeof r[k])))
           .map(k=>[k,typeof r[k]==='string'&&['name','label','subject_label','actor_label','target_label','from_label','to_label'].includes(k)?(shown.names.byName.get(r[k])??shown.names.byId.get(r[k])??r[k]):r[k]])))};
@@ -250,7 +293,9 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
       if (!artifact) {
         const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
         const command = `coc-read-check --packet ${quote(join(attempt, 'task.json'))} --draft ${quote(join(attempt, 'draft.json'))}`;
-        await writeFile(join(attempt, 'task.json'), JSON.stringify({...packet, commands: {check: command}}, null, 2));
+        const authorMaterials=publicMaterials.map(material=>Object.fromEntries(['name','text','kind','authority','meaning','speaker','audience','stance']
+          .filter(key=>material[key]!==undefined).map(key=>[key,material[key]])));
+        await writeFile(join(attempt, 'task.json'), JSON.stringify({...packet,materials:authorMaterials, commands: {check: command}}, null, 2));
         await mkdir(join(attempt, 'host-bin'), {recursive: true});
         const checker=join(attempt,'host-bin','coc-read-check');
         const checkerText='#!/bin/sh\nexec ' + quote(process.execPath) + ' ' + quote(join(attempt, 'check.mjs')) + '\n';
@@ -296,7 +341,7 @@ export function createFinalOutputOwner(deps: {runtime: () => HostRuntime | undef
   return {observe,observeSupport,check, write,
     prepareSupport:(binding:Row,packet:Row)=>{const named=nameLookupSupport({content:JSON.stringify(packet)},binding),result=JSON.parse(named.content);
       observeSupport(binding,result.materials);return result;},
-    inventory:(campaign:string,turn:number)=>epoch===campaign+':'+turn?[...sources.values()].map(({name,tool})=>({name,tool})):[],
+    inventory:(campaign:string,turn:number)=>epoch===campaign+':'+turn?[...sources.values()].map(({name,tool,revision})=>({name,tool,revision})):[],
     invalidateAdvice:()=>{advice=undefined;temporal=undefined;},
     sections:(value:typeof sections)=>{sections=value;}, temporal:(value:typeof temporal)=>{temporal=value;},
     external:(campaign:string,turn:number,run:string,items:Row[])=>{

@@ -1,10 +1,12 @@
 /** Structured recall over retained records, transcripts and candidate sources. */
 import { RpcError } from '../errors.js';
+import {eventOutcome,eventMemory,eventScope,canonicalEvents} from '../turn-events.js';
 import { isJsonObject, parsePythonJson, sha256Text } from '../json.js';
 import { CampaignWriter, EVENT_TYPES } from '../write/store.js';
 import { ModuleGraph } from '../read/module-graph.js';
 import { EntityIndex, queryCandidates, withPromiseFulfillment, canonicalMemoryReceipts, memoryOccurrenceKey } from '../read/memory.js';
-import {lineFulfillmentEvidence} from '../read/worldline.js';
+import {lineFulfillmentEvidence,canonicalAncestors} from '../read/worldline.js';
+import {CampaignSnapshot} from '../read/campaign.js';
 import { npcsPresent, personNode } from '../read/capsule.js';
 import { array, row, number, integer, string, truth, sorted, chars, length, words, repr, type Row } from '../read/values.js';
 import { CANDIDATE_KINDS, logs, records, proseOf } from './jobs.js';
@@ -49,13 +51,14 @@ export async function transcript(campaign: CampaignWriter, current: number, para
     const query = {...params, turns: span}, base = {what: 'transcript', turns: span, _snapshot: snapshot};
     return rowDetail(cards, query, 'cards', base) ?? rowsPage(cards, query, 'cards', base);
 }
-function timelineRow(record: Row): Row {
+function timelineRow(record: Row, graph?: ModuleGraph): Row {
     const world = row(record.world), counts = Object.fromEntries(RECEIPTS.map(kind => [kind, 0]));
     for (const receipt of array(record.receipts))
         if (RECEIPTS.includes(receipt.kind))
             counts[receipt.kind]++;
+    const outcome=eventOutcome(array(record.receipts),array(record.disclosures));
     return { turn: number(record.turn), commit: record.commit ?? null, scene: row(world.scene).name ?? null, clock: row(world.clock).minutes ?? null,
-        closed_by: record.closed_by ?? null, receipts: counts, head: chars(words(proseOf(record.rendered_text)), 60) };
+        closed_by: record.closed_by ?? null, receipts: counts, ...(array(record.receipts).some(receipt=>receipt.kind==='event')?{outcome:graph?.shownIds(outcome)??outcome}:{}),head: chars(words(proseOf(record.rendered_text)), 60) };
 }
 function historyDiff(all: Map<number, Row>, diff: any): Row {
     if (!Array.isArray(diff) || diff.length !== 2 || !diff.every(value => integer(value) && number(value) >= 0) || number(diff[0]) > number(diff[1]))
@@ -94,7 +97,7 @@ function worldlineTree(meta: Row): Row {
                 forked_from: truth(forked) ? { line: forked.line ?? null, turn: forked.turn ?? null, commit: forked.commit ?? null } : null, parents: truth(value.parents) ? value.parents : [], active: name === active };
         }) };
 }
-export async function history(campaign: CampaignWriter, current: number, params: Row): Promise<Row> {
+export async function history(campaign: CampaignWriter, current: number, params: Row, graph?: ModuleGraph): Promise<Row> {
     const span = parseSpan(params.turns, current, 20), types = params.types;
     if (types != null) {
         if (!Array.isArray(types) || !types.every(value => typeof value === 'string'))
@@ -109,7 +112,7 @@ export async function history(campaign: CampaignWriter, current: number, params:
     const snapshot = await recallSnapshot(campaign, params, [[...all], events, lines]);
     const requested = detailOptions(params)?.section ?? pageOptions(params, params.diff != null ? 'diff' : types != null ? 'events' : 'timeline').section;
     const query = {...params, turns: span}, base: Row = {what: 'history', turns: span, _snapshot: snapshot};
-    const timeline = [...all].sort(([a], [b]) => a - b).filter(([turn]) => span[0] <= turn && turn <= span[1]).map(([, value]) => timelineRow(value));
+    const timeline = [...all].sort(([a], [b]) => a - b).filter(([turn]) => span[0] <= turn && turn <= span[1]).map(([, value]) => timelineRow(value,graph));
     const largeLines = lines != null && recallBytes(lines) > 2048;
     if (lines) base.lines = largeLines ? {active: chars(string(lines.active), 80), truncated: true,
         read: {...publicRecall(query), page: {section: 'timeline', offset: timeline.length, limit: 1}}} : lines;
@@ -193,8 +196,26 @@ export async function recallMemory(campaign: CampaignWriter, graph: ModuleGraph,
     const limit = Object.hasOwn(params, 'limit') ? params.limit : 12;
     position(limit, 12, 'limit', true);
     const line = Object.hasOwn(params, 'line') ? params.line : 'current', rows = await candidatesFor(campaign, await campaign.readCampaign(), line);
-    const hits = queryCandidates(rows, index, about, {narrow, turns, kinds, includeSuperseded: truth(params.include_superseded), limit: rows.length});
-    const snapshot = await recallSnapshot(campaign, params, [rows, hits, line]);
+    const meta=await campaign.readCampaign(),cursor=await campaign.readTurn(),view=new CampaignSnapshot(campaign.context,campaign.id);
+    view.meta=meta;view.turn=cursor;const historyRows=await view.files('turns');
+    const scope=eventScope(meta,campaign.id,number(cursor.turn));
+    const canonical:Row[]=line==='current'||line===meta.active_worldline||line==='any'
+      ?eventMemory(canonicalEvents(historyRows,array(cursor.receipts),scope),scope):[];
+    const active=string(meta.active_worldline||'main');
+    for(const target of line==='any'?Object.keys(row(meta.worldlines)).filter(name=>name!==active)
+      :line!=='current'&&line!==active?[string(line)]:[]){
+      const evidence=await lineFulfillmentEvidence(campaign,target);
+      if(!evidence.available)throw new RpcError('revision_conflict','Canonical event history is unavailable for the requested line');
+      const historicalMeta={...meta,active_worldline:target},scoped=eventScope(historicalMeta,campaign.id);
+      const ancestors=await canonicalAncestors({id:campaign.id,context:campaign.context,meta:historicalMeta});
+      canonical.push(...eventMemory(canonicalEvents([...(evidence.records??[]),...ancestors],[],scoped),scoped));
+    }
+    const distinct=[...new Map(canonical.map(value=>[value.id,value])).values()];
+    const canonicalHits=queryCandidates(distinct,index,about,{narrow,turns,kinds,limit:distinct.length})
+      .map(hit=>{const original=distinct.find(value=>value.id===hit.id)!;
+        return {...hit,authority:'canonical_event',...(original.acquisition?{acquisition:original.acquisition}:{}),attributed_source:original.attributed_source??null};});
+    const hits = [...canonicalHits,...queryCandidates(rows,index,about,{narrow,turns,kinds,includeSuperseded:truth(params.include_superseded),limit:rows.length})];
+    const snapshot = await recallSnapshot(campaign, params, [rows,canonical,hits,line]);
     const query = {...params, page: {limit: number(limit), ...row(params.page)}};
     const base = {what: 'memory', about, line, _snapshot: snapshot};
     return rowDetail(hits, query, 'hits', base) ?? rowsPage(hits, query, 'hits', base);

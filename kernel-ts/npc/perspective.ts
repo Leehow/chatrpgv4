@@ -6,6 +6,8 @@ import {array,normalize,number,row,string,type Row} from '../read/values.js';
 import {personalityView,personalitySourceRevision,sourceRelationships} from './material.js';
 import {reunionView} from './reunion.js';
 import {observedDocuments} from '../mods/document-visibility.js';
+import {canonicalEvents,actorEventView} from '../turn-events.js';
+import {remembersAcrossLoops} from '../read/worldline.js';
 
 function namesOf(graph:ModuleGraph,node:Row):Set<string>{
     return new Set(graph.nameKeys(node).map(normalize));
@@ -52,6 +54,8 @@ export function npcPerspective(graph:ModuleGraph,world:Row,node:Row,memory:Row[]
         &&array(value.knowers).some(name=>names.has(normalize(string(name))))&&typeof value.statement==='string')
         .sort((a,b)=>number(b.valid_from_turn??b.turn)-number(a.valid_from_turn??a.turn)).map(report);
     const commitments=npcCommitments(graph,node,memory,scope);
+    const semantic=actorEventView(canonicalEvents(records,array(scope.current_receipts),scope),graph.nameKeys(node),
+        {...scope,across_loops:remembersAcrossLoops(graph,node)});
     const documents=observedDocuments(world,string(node.node_id));
     const view={name:graph.displayName(node),personality:personalityView(graph,world,node),
         goals:profile.agenda??null,fears:profile.fear??null,
@@ -60,10 +64,10 @@ export function npcPerspective(graph:ModuleGraph,world:Row,node:Row,memory:Row[]
         authored_beliefs:graph.npcBeliefs(node),knowledge_reports:reports.slice(0,12),
         ...(documents.length?{observed_documents:documents}:{}),
         commitments:commitments.slice(0,12),
-        coverage:{knowledge_reports_omitted:Math.max(0,reports.length-12),commitments_omitted:Math.max(0,commitments.length-12),relationship_view:'bounded; use ordinary recall for older evidence',speech_view:'last six committed own utterances'},
+        coverage:{...semantic.coverage,knowledge_reports_omitted:Math.max(0,reports.length-12),commitments_omitted:Math.max(0,commitments.length-12),relationship_view:'bounded; use ordinary recall for older evidence',speech_view:'last six committed own utterances'},
         ...(sourceRelationships(graph,node).length ? {source_relationships:sourceRelationships(graph,node)} : {}),
-        relationships:npcRelationships(graph,node,memory,scope),recent_speech:npcRecentSpeech(graph,node,records,scope),
-        reunion:reunionView(graph,world,node,records,scope),
+        cognition:semantic.cognition,relationships:[...array(semantic.relationships).reverse(),...npcRelationships(graph,node,memory,scope)],recent_speech:npcRecentSpeech(graph,node,records,scope),
+        reunion:reunionView(graph,world,node,records,{worldline:scope.worldline,loop:scope.loop}),
         note:'Only this person\'s authored material and explicitly attributed reports are supplied. A report or prior utterance is not established world truth. Missing information remains unknown.'};
     return {view,revision:jsonDigest({scope,source:personalitySourceRevision(graph,node),view})};
 }

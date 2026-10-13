@@ -14,8 +14,8 @@
 import {sha256Text} from '../json.js';
 import {array, normalizeText, number, row, string, type Row} from '../read/values.js';
 
-/** Where an intention stands. `attempted` is under way with no result yet; the other three are settled. */
-export const INTENT_OUTCOMES: readonly string[] = Object.freeze(['attempted', 'done', 'failed', 'abandoned']);
+/** A plan has not begun; attempted is under way; the final three states are settled. */
+export const INTENT_OUTCOMES: readonly string[] = Object.freeze(['planned', 'attempted', 'done', 'failed', 'abandoned']);
 export const SETTLED_OUTCOMES: readonly string[] = Object.freeze(['done', 'failed', 'abandoned']);
 /** How long an intention line may be. */
 export const INTENT_TEXT_LIMIT = 400;

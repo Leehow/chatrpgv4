@@ -17,6 +17,7 @@ import type {CampaignSnapshot} from '../read/campaign.js';
 import type {HandlerGroup} from '../handlers.js';
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
+import {eventScope} from '../turn-events.js';
 import {documentEditInput} from '../mods/document-requests.js';
 import {documentSurface} from '../mods/document-visibility.js';
 import {rootObjectOwner} from '../read/object-owner.js';
@@ -387,12 +388,18 @@ function constraintsOf(graph: ModuleGraph, world: Row, party: Row[], me: Person,
  * The budget (§143.1): while the packet is over `maxBytes`, cut in order -- at_hand's objects, exits;
  * the oldest of `table_brought_out` (§143.30); at_hand's brought_out (§143.29), holdings, present; the oldest `done` rows but never the newest (`history`); the oldest own utterances; the oldest
  * `happened` sentences but never the closing one (the player's declaration, or the arrival that stands in for it,
- * §143.21); who's relationships and commitments; canonical context excerpts; then constraints last. Each section cut
+ * §143.21); older canonical cognition, but never the newest complete row; who's relationships and commitments;
+ * canonical context excerpts; then constraints last. Each section cut
  * is named once in `truncated`. A packet that lost constraints cannot authorize an NPC act.
  */
 export function fitSituation(packet: Row, maxBytes: number, declared: boolean): void {
     const truncated: string[] = packet.truncated, over = () => jsonSize(packet) > maxBytes;
     const cut = (name: string) => { if (!truncated.includes(name)) truncated.push(name); };
+    const semanticOmission = (field: string): void => {
+        const coverage = row(packet.who.semantic_coverage);
+        packet.who.semantic_coverage = {...coverage, [field]: number(coverage[field]) + 1,
+            read: {what: 'memory', about: [string(packet.npc.name)]}};
+    };
     if (over() && packet.who?.personality?.origin === 'module_derived' && packet.who.personality.profile) {
         const personality = {...packet.who.personality}; delete personality.profile;
         if (personality.description) packet.who.personality = personality;
@@ -407,8 +414,22 @@ export function fitSituation(packet: Row, maxBytes: number, declared: boolean): 
     while (over() && packet.recent_speech.length) { packet.recent_speech.shift(); cut('recent_speech'); }
     while(over()&&Array.isArray(packet.observed_documents)&&packet.observed_documents.length){packet.observed_documents.shift();cut('observed_documents');}
     while (over() && packet.happened.length > (declared ? 1 : 0)) { packet.happened.shift(); cut('happened'); }
-    for (const key of ['source_relationships', 'relationships', 'commitments'])
-        while (over() && Array.isArray(packet.who[key]) && packet.who[key].length) { packet.who[key].pop(); cut('who'); }
+    const cognition = array(packet.who.cognition);
+    while (over() && cognition.length > 1) {
+        // The view may include retained ancestors. Pick by the recorded turn rather than assuming an array order.
+        let oldest = 0;
+        for (let index = 1; index < cognition.length; index++)
+            if (number(row(cognition[index]).turn) < number(row(cognition[oldest]).turn)) oldest = index;
+        cognition.splice(oldest, 1); semanticOmission('cognition_omitted'); cut('who.cognition');
+    }
+    for (const key of ['source_relationships', 'relationships', 'commitments']) {
+        while (over() && Array.isArray(packet.who[key]) && packet.who[key].length) {
+            const removed = packet.who[key].pop();
+            if (key === 'relationships' && array(row(removed).evidence).some(report => row(report).authority === 'canonical_event'))
+                semanticOmission('relationships_omitted');
+            cut('who');
+        }
+    }
     for (const key of ['scene', 'previous_narration']) {
         while (over() && typeof packet.canonical_context?.[key] === 'string' && packet.canonical_context[key].length > 80) {
             packet.canonical_context[key] = clip(packet.canonical_context[key], Math.floor(Array.from(packet.canonical_context[key]).length / 2));
@@ -492,7 +513,8 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
                 {campaign: campaign.id, world, receipts: canonicalMemoryReceipts(records, array(turn.receipts))});
             // §180.3: a person's perspective (personality, goals, fears, commitments, relationships, speech) is a person's;
             // a creature has none of it.
-            const view = person ? row(npcPerspective(graph, world, node, memory, records, scope).view) : {};
+            const view = person ? row(npcPerspective(graph,world,node,memory,campaign.records,
+                {...eventScope(campaign.meta,campaign.id,number(turn.turn)),current_receipts:array(turn.receipts)}).view) : {};
             const session = new SessionView(campaign, graph, party, world).activeSession();
             const {place, constraints} = await placedConstraints(context, campaign, graph, me);
             const happened = happenedSentences(me, world, party, turn, previous, heard);
@@ -518,6 +540,13 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
                 // creature, what the book says it is, its habits and the Keeper's note.
                 who: person ? {personality: view.personality ?? null, goals: view.goals ?? null, fears: view.fears ?? null,
                     commitments: view.commitments ?? [], relationships: view.relationships ?? [],
+                    ...(array(view.cognition).length ? {cognition: view.cognition} : {}),
+                    ...(array(view.cognition).length || number(row(view.coverage).cognition_omitted)
+                        || number(row(view.coverage).relationships_omitted)
+                        || array(view.relationships).some(tie => array(row(tie).evidence).some(report => row(report).authority === 'canonical_event'))
+                        ? {semantic_coverage: {cognition_omitted: number(row(view.coverage).cognition_omitted),
+                            relationships_omitted: number(row(view.coverage).relationships_omitted),
+                            read: {what: 'memory', about: [graph.displayName(node)]}}} : {}),
                     ...(array(view.source_relationships).length ? {source_relationships: view.source_relationships} : {})} : creatureMaterial(graph, world, node),
                 happened,
                 state: stateOf(graph, world, me, session, stanceNow(graph, ledger, table, turn, me.handle)),

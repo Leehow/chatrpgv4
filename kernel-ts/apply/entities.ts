@@ -372,6 +372,10 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const outcome=effect.outcome;
         if(typeof outcome!=='string'||!INTENT_OUTCOMES.includes(outcome))unsupported('npc.outcome',outcome,[...INTENT_OUTCOMES],`npc.outcome ${repr(outcome)} is not where an intention can stand`);
         const resolved=await resolveIntent(context,node,{intends:effect.intends,intent_ref:effect.intent_ref},'npc');
+        if(outcome==='planned'&&(effect.spend_turn!=null||resolved.status==='attempted'))
+            throw new RpcError('invalid_params','A plan spends no turn and cannot undo an attempted action');
+        if(resolved.status==='planned'&&['done','failed'].includes(outcome as string))
+            throw new RpcError('invalid_params','A planned action requires ordinary execution before a result; it may be abandoned');
         await refuseSettled(context,node,resolved,'npc');
         refuseRepeat(context,node,resolved,outcome as string,'npc');
         // §143.3: the host's `_generated` marks the table's own act of this person (host-only; `true` or absent).
@@ -570,7 +574,8 @@ export async function stageHandout(context:ApplyContext,effect:Row,asset:(module
     const attachment:Row={handout:handle,path:null,media_type:null,available:false};
     const text=typeof record.authored_text==='string'?record.authored_text:registered.authored_text;
     if(typeof text==='string'&&text.trim()){
-        const folder=join(context.campaign.directory,'handouts'),path=join(folder,`${handle}.md`);await mkdir(folder,{recursive:true});await writeFile(path,handoutFile(display,text),'utf8');
+        const folder=join(context.campaign.directory,'handouts'),path=join(folder,`${handle}.md`);
+        if(context.stageText)context.stageText(path,handoutFile(display,text));else{await mkdir(folder,{recursive:true});await writeFile(path,handoutFile(display,text),'utf8');}
         Object.assign(attachment,{path,media_type:'text/markdown',available:true});
     }else{
         const ref=registered.path||props.asset_ref||props.image_ref,media=registered.media_type||props.media_type||null;

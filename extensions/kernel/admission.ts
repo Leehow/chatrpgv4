@@ -266,6 +266,7 @@ export function lineClass(proposal: AdmissionProposal, index: number): string {
  * closed set whatever the list says (a hand-built policy naming `resolve` or `cash` still settles neither).
  */
 export function settleableLine(proposal: AdmissionProposal, index: number, policy: TypedSettlePolicy): boolean {
+	if(proposal.atomicEvent)return false;
 	const cls = lineClass(proposal, index);
 	return FAST_PATH_KINDS.has(cls) && policy.classes.includes(cls);
 }
@@ -283,6 +284,8 @@ export function typedSettles(proposal: AdmissionProposal, typed: AdmissionJevRes
 
 /** One proposal put to review: the tool, a host-owned reuse key, and the lines the reviewer reads. */
 export interface AdmissionProposal {
+	atomicEvent?:true;
+	eventEffectSignatures?:string[];
 	cash?: Record<string,any>;
 	tool: "resolve" | "apply";
 	/** Canonical form of what is proposed, for verdict reuse within a turn; never shown to a model. */
@@ -533,7 +536,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 			return true;
 		};
 		const shown = effects.flatMap((effect, index) => reviewed(effect) ? [index] : []);
-		if (!shown.length) return null;
+		if (!shown.length&&payload.event===undefined) return null;
 		const describe = (effect: Record<string, unknown>): string => {
 			const kind = text(effect.kind) ?? "?";
 			const fields = Object.entries(effect)
@@ -550,6 +553,10 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 					...(registered.person ? {person: registered.person} : {})})}` : ''}`;
 		};
 		const signatures = effects.map(effectSignature);
+		if(payload.event!==undefined)return {tool:'apply',atomicEvent:true,
+            key:canonical({tool,event:payload.event,effects:signatures,destinations:scope.destinations??[],cash:scope.cash??null}),
+            lines:[`apply event (one indivisible record; judge every claimed occurrence, actor cognition and dependency): ${canonical(payload.event)}; effects: ${effects.map(describe).join(' | ')}`],
+            kinds:['event'],eventEffectSignatures:signatures,...(scope.cash?{cash:scope.cash}:{})};
 		// Each line's own signature, taken before the sort below reorders `signatures` in place.
 		const lineSignatures = shown.map((index) => signatures[index]!);
 		const ordered = effects.some(effect => effect.kind === 'object' || effect.kind === 'usage');
@@ -1040,7 +1047,7 @@ export function remainderAttempt(attempt: TypedAttempt, keep: number[]): TypedAt
  * reviewed line: a `resolve` is one line, and a one-line batch is reviewed exactly as before.
  */
 export function reviewedPerLine(proposal: AdmissionProposal): boolean {
-	return proposal.tool === "apply" && proposal.lines.length > 1;
+	return !proposal.atomicEvent&&proposal.tool === "apply" && proposal.lines.length > 1;
 }
 /**
  * §32.12.3.1: line `index` of a batch as the lane reads it -- the batch's proposal with exactly that one line (and its
@@ -1483,6 +1490,7 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
  */
 export const LATE_KINDS: ReadonlySet<string> = new Set(["move", "clue", "handout", "time", "cash"]);
 export function lateEligibleBatch(proposal: AdmissionProposal): boolean {
+	if(proposal.atomicEvent)return false;
 	if (proposal.tool !== "apply" || !proposal.kinds?.length) return false;
 	const triggering = proposal.kinds.filter((kind) => TRIGGER_KINDS.has(kind));
 	return triggering.length > 0 && triggering.every((kind) => LATE_KINDS.has(kind));

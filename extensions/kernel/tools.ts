@@ -169,6 +169,22 @@ const IntentResult = {
  */
 export const PLAIN_PROSE = "Write the prose itself: not a quoted or JSON-encoded string, no \\n or \\u escapes";
 /** Contract §162: a prose parameter's description, ending with `PLAIN_PROSE` as one more sentence. */
+const TurnEvent = Type.Object({
+  name:Type.String({maxLength:120,description:'A distinct semantic name for this occurrence in the current turn.'}),
+  summary:Type.Optional(Type.String({maxLength:1200,description:'What actually occurred; keep hidden causes here. A future plan is not an executed action.'})),
+  causes:Type.Optional(Type.Array(Type.String(),{maxItems:16,description:'Optional exact issued event/source names, or receipts for earlier settled receipts of this turn. Omit if no reference was issued; batch effect links are automatic.'})),
+  corrects:Type.Optional(Type.String({description:'The issued event reference this new record corrects; never erase old evidence.'})),
+  material:Type.Optional(Type.String({description:'Local public material name if this occurrence awaits delivery; omit for an already established occurrence.'})),
+  materials:Type.Optional(Type.Array(Type.Object({name:Type.String({maxLength:120}),text:Type.String({maxLength:4000}),
+    kind:StringEnum(['fact','description','context','speech'] as const),visibility:StringEnum(['player','keeper'] as const),
+    speaker:Type.Optional(Type.String()),audience:Type.Optional(Type.Array(Type.String(),{maxItems:16}))}),{maxItems:24,
+    description:'Separate permitted statements from private causes. Speech requires speaker and actual proposed audience. Output can select the issued public aliases.'})),
+  knowledge:Type.Optional(Type.Array(Type.Object({actor:Type.String(),statement:Type.String({maxLength:1200}),
+    mode:StringEnum(['observed','heard','read','belief'] as const),source:Type.Optional(Type.String({description:'Actual speaker for heard claims; hearing is not truth or belief.'})),
+    state:StringEnum(['accurate','uncertain','distorted'] as const),material:Type.Optional(Type.String({description:'Local material for a prospective acquisition; for speech, actor/source must match its audience/speaker. Omit for knowledge already acquired from actual player input; never bind that NPC acquisition to their own reply.'}))}),{maxItems:24})),
+  relationships:Type.Optional(Type.Array(Type.Object({actor:Type.String(),toward:Type.String(),statement:Type.String({maxLength:1200}),
+    material:Type.Optional(Type.String())}),{maxItems:24,description:'Directed event-grounded attitudes; cooperation need not be reciprocal. Use ordinary npc effects for mood and numerical stance.'})),
+});
 const Delivery = Type.Object({
   version: Type.Literal(1),
   materials: Type.Optional(Type.Array(Type.Object({name: Type.String({maxLength:120}), text:Type.Optional(Type.String({maxLength:4000,description:'Permitted fictional notes, not finished narration. Omit only for exact reuse of explicitly player-safe text via source. Private sources require your permitted excerpt. OOC replies stay direct.'})), kind:StringEnum(['fact','description','context'] as const), visibility:StringEnum(['player','keeper'] as const), required:Type.Optional(Type.Boolean()), source:Type.Optional(Type.String())},{anyOf:[{required:['text']},{required:['source']}]}),{maxItems:48})),
@@ -550,8 +566,8 @@ const NpcEffect = Type.Object({
 	spend_turn: Type.Optional(Type.Literal(true, {
 		description: "in a fight, on this person's own turn: they spend the turn on what intends or intent_ref names instead of a fight action, and the initiative passes on. Without it a person who does something other than attack, manoeuvre, aim, reload or flee leaves the fight waiting on them. action: hold on their own turn passes it too",
 	})),
-	outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, {
-		description: "where that intention stands after this turn: attempted (under way, the world has not answered yet), done (it happened), failed (stopped, or it came to nothing), abandoned (given up for something else). What a person announces gets a result by their next turn, and a settled intention (done, failed, abandoned) is not tried again: what they do next is a new intention. A roll or another effect that carries intent_ref reports the result itself; write this only for a result nothing else records",
+	outcome: Type.Optional(StringEnum(["planned", "attempted", "done", "failed", "abandoned"] as const, {
+		description: "planned holds an intention without beginning it or spending time/resources/a combat turn. attempted means under way; done/failed/abandoned are settled. A plan is reassessed, never automatically executed or owed by the next turn. Execute it with the ordinary action owner and intent_ref, or abandon it. An attempted action cannot become planned. A roll or another effect reports its actual result; a settled intention is not tried again",
 	})),
 	mood: Type.Optional(Type.String({
 		maxLength: MOOD_MAX,
@@ -922,6 +938,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 							"turn-started",
 							"player-declared",
 							"roll-resolved",
+							"semantic-event",
 							"scene-moved",
 							"clue-discovered",
 							"time-advanced",
@@ -963,14 +980,15 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Apply",
 		method: "table.apply",
 		description:
-			"Land this turn's changes to the world: move walks to another scene, clue gives the investigator a clue, time advances the clock, clock pins the opening datetime once when the book gives no full date, damage hurts, item and cash change possessions, handout delivers a document, and map reveals only named source-backed regions the investigators learned. Use look focus map to inspect semantic map and region names; map why states what established that knowledge. The whole batch is validated before anything is written, and one bad effect writes none of them. What happens in narration without an apply did not happen. Viewing an already delivered map is a UI action and changes nothing. Worldline changes take effect after the canonical publication commit. Optional delivery or legacy narrate prepares and checks material only after all effects land; neither starts an author nor publishes prose. Select output separately when ready to publish the checked material. " + INTENT_RESULT_EXPLAINED,
-		promptSnippet: "Land this turn's world changes: move, clue, time, handout, map, item, cash; apply clock pins the opening datetime once when the book gives no full date",
+			"When this interaction establishes a nonnumeric occurrence, changes what someone knows or changes a directed relationship, include event in this same apply. Separate private summary and actual recipients from permitted materials. New heard knowledge bound to speech awaits accepted output; an unexecuted NPC intention uses outcome planned. The background memory lane extracts reports and cannot replace this canonical write. Unchanged atmosphere needs no event. Land this turn's changes to the world: move walks to another scene, clue gives the investigator a clue, time advances the clock, clock pins the opening datetime once when the book gives no full date, damage hurts, item and cash change possessions, handout delivers a document, and map reveals only named source-backed regions the investigators learned. Use look focus map to inspect semantic map and region names; map why states what established that knowledge. The whole batch is validated before anything is written, and one bad effect writes none of them. What happens in narration without an apply did not happen. Viewing an already delivered map is a UI action and changes nothing. Worldline changes take effect after the canonical publication commit. Optional delivery or legacy narrate prepares and checks material only after all effects land; neither starts an author nor publishes prose. Select output separately when ready to publish the checked material. " + INTENT_RESULT_EXPLAINED,
+		promptSnippet: "Record established semantic changes with event, actor-specific knowledge and directed relationships; keep unexecuted NPC intentions planned. Land this turn's world changes: move, clue, time, handout, map, item, cash; apply clock pins the opening datetime once when the book gives no full date",
 		parameters: Type.Object({
 			using_skill: UsingSkill,
 			effects: Type.Array(
 				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, ClockEffect,SceneEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, DossierEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
-				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
+				{ minItems: 0, description: "the changes to land this turn, in order; empty only for a meaningful semantic event" },
 			),
+			event:Type.Optional(TurnEvent),
 			delivery: Type.Optional(CarriedDelivery),
 			narrate: Type.Optional(Type.String({ description: withPlainProse("Legacy untrusted draft material to prepare/check after effects land; never published by apply. Use output explicitly to author and publish the checked material. If an effect is refused, already settled effects still stand") })),
 			quotes: EmbeddedQuotationDrafts,

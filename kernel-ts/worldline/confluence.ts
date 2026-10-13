@@ -154,12 +154,14 @@ export async function plan(context: WorldlineContext, graph: ModuleGraph, meta: 
         states.push(await lineState(context, line));
     const settled = settle(report(graph, states, into), parseDispositions(effect.dispositions));
     const parents: Row[] = [];
-    for (const line of chosen)
+    for (const line of chosen){
+        const cursor=row(parsePythonJson(await blob(context,`wl/${line}`,'turn.json')||'{}'));
         parents.push({
             line,
-            turn: Math.trunc(number(row(lines[line]).last_turn || 0)),
+            turn: Math.max(0,Math.trunc(number(cursor.turn))-(cursor.state==='awaiting_player'?1:0)),
             commit: await lineCommit(context, line)
         });
+    }
     return {
         operation: 'merge',
         line: name,

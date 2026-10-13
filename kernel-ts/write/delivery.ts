@@ -3,6 +3,7 @@ import { array, number, truth, type Row } from '../read/values.js';
 import { RpcError } from '../errors.js';
 import { isJsonObject, jsonDigest } from '../json.js';
 import { nowIso } from './store.js';
+import {eventOutcome} from '../turn-events.js';
 import { bindMarkers, droppedMarkers, placeUnplacedMechanics, stripMarkers } from './text.js';
 import { speechPass, unresolvedSpeakers, type SpeakerResolver } from './speech.js';
 
@@ -28,6 +29,8 @@ export function deliveryRecord(turn: Row, text: string | null, receipts: Row[], 
         turn: number(turn.turn),
         player_text: turn.player_text ?? null,
         receipts,
+        outcome:eventOutcome(receipts,array(delivery.disclosures)),
+        disclosures:array(delivery.disclosures),
         text: text || '',
         rendered_text: delivery.rendered_text,
         mechanics: delivery.mechanics,

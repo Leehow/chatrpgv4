@@ -11,6 +11,8 @@ import { isTold, tableWord } from "./person-words.js";
 import { bookCast, isPublicFigure, knownNamePieces, tellGuard, untoldUnread, type CastPerson } from "./cast.js";
 import { nameToken } from "../write/names.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
+import {canonicalEvents,actorEventView} from '../turn-events.js';
+import {remembersAcrossLoops} from './worldline.js';
 import {personalityView,sourceRelationships} from '../npc/material.js';
 import { intentsView, shownIntentRef } from '../npc/intents.js';
 import { moodNow } from '../npc/mood.js';
@@ -876,7 +878,10 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     const history = npcHistory(saved, graph.handle(node), memories, shownPromises);
     if (history)
         entry.history = history;
-    const relationships=npcRelationships(graph,node,[...memories.values()],scope),recent=npcRecentSpeech(graph,node,records,scope);
+    const semantic=actorEventView(canonicalEvents(records,array(scope.current_receipts),scope),graph.nameKeys(node),{...scope,across_loops:remembersAcrossLoops(graph,node)});
+    if(array(semantic.cognition).length)entry.cognition=[...semantic.cognition].reverse();
+    if(semantic.coverage.cognition_omitted||semantic.coverage.relationships_omitted)entry.semantic_coverage={...semantic.coverage,read:{what:'memory',about:[graph.displayName(node)]}};
+    const relationships=[...array(semantic.relationships).reverse(),...npcRelationships(graph,node,[...memories.values()],scope)],recent=npcRecentSpeech(graph,node,records,scope);
     if(relationships.length)entry.relationships=relationships;
     if(recent.length)entry.recent_speech=recent;
     // The same owned promise already occupies history.promises. Do not duplicate its bytes and
@@ -885,7 +890,7 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
         &&!shownPromises.has(memoryOccurrenceKey(value))),scope).sort(promiseOrder);
     if(commitments.length)entry.commitments=commitments.slice(0,4);
     if(commitments.length>4)entry.coverage={commitments_omitted:commitments.length-4};
-    const reunion=reunionView(graph,world,node,records,scope);
+    const reunion=reunionView(graph,world,node,records,{worldline:scope.worldline,loop:scope.loop});
     if(reunion)entry.reunion=reunion;
     const elsewhere = across(node);
     if (elsewhere.length)

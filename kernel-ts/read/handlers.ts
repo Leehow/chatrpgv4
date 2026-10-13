@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { KernelContext } from "../context.js";
 import type { HandlerGroup, KernelResult } from "../handlers.js";
 import { RpcError } from "../errors.js";
+import {eventOutcome,eventScope,canonicalEvents,actorEventView} from '../turn-events.js';
 import {turnRecordPath} from '../turn-record.js';
 import {parsePythonJson} from '../json.js';
 import { continuityView } from "./continuity.js";
@@ -25,7 +26,7 @@ import { containers, isPlace, personPlaces, placeRelation } from './places.js';
 import { tableWord } from './person-words.js';
 import { prepareNameHistory } from '../journal/name-history.js';
 import { incapacitatedBy } from "../healing/conditions.js";
-import { crossLineReader } from "./worldline.js";
+import { crossLineReader, remembersAcrossLoops } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
 import { publicSheet, objectLook, activeMods, effectiveMods } from "./mods.js";
 import { establishItem, establishProvider, HEAD_ESTABLISH } from "./establish.js";
@@ -412,6 +413,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 turn: turn.turn,
                 state: turn.state,
                 receipts,
+                outcome:params._context_read===true?eventOutcome(receipts,array(turn.disclosures)):module.graph.shownIds(eventOutcome(receipts,array(turn.disclosures))),
                 mechanics: mechanics(receipts, {}, await campaign.handoutTexts(receipts), campaign.world),
                 // §50: the same glossary a delivery hands its card (§16.2). A turn that could not be
                 // delivered is read back from here, and without the words it would be the one card in
@@ -499,8 +501,12 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 await campaign.preload("people");
                 if (!graph.isPerson(node))
                     return creatureView(graph, world, node, ledger, row(await campaign.optional("save/combat.json")), await dispositionTable(context), campaign.chainReads());
-                return npcView(graph, world, node, ledger, journal, await campaign.files("turns"), await campaign.log("memory/candidates.jsonl"), {worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)},
-                    row(await campaign.optional("save/combat.json")), await dispositionTable(context), campaign.chainReads());
+                const records=await campaign.files('turns'),scope=eventScope(campaign.meta,campaign.id,number(campaign.turn.turn));
+                const view=npcView(graph,world,node,ledger,journal,records,await campaign.log('memory/candidates.jsonl'),{worldline:scope.worldline,loop:scope.loop},
+                    row(await campaign.optional('save/combat.json')),await dispositionTable(context),campaign.chainReads());
+                const semantic=actorEventView(canonicalEvents(records,array(campaign.turn.receipts),scope),graph.nameKeys(node),{...scope,across_loops:remembersAcrossLoops(graph,node)});
+                return {...view,cognition:semantic.cognition,semantic_coverage:{...semantic.coverage,read:{what:'memory',about:[graph.displayName(node)]}},
+                    relationships:[...array(semantic.relationships).reverse(),...array(view.relationships)]};
             }
             if (focus === "investigator") {
                 campaign.party = await campaign.files("party");

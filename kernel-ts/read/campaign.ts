@@ -22,6 +22,8 @@ import type { ChainReads } from "./weaknesses.js";
 import { moduleSourceSha, readCastPublic, servedCast } from "./cast.js";
 import { installRenameUndo } from "./rename-undo.js";
 import { apartPairs } from "./survivors.js";
+import {publishedEventRecord} from '../turn-events.js';
+import {canonicalAncestors} from './worldline.js';
 export class CampaignSnapshot {
     readonly dir: string;
     readonly jsonFiles = new Map<string, any>();
@@ -54,7 +56,11 @@ export class CampaignSnapshot {
     }
     async files(directory: string): Promise<Row[]> {
         const names = await this.context.snapshots.sortedChildNames(join(this.dir, directory), path => this.context.snapshots.isFile(path));
-        return Promise.all(names.filter(name => name.endsWith(".json")).map(async (name) => row(await this.optional(join(directory, name)))));
+        const records=await Promise.all(names.filter(name => name.endsWith(".json")).map(async (name) => row(await this.optional(join(directory, name)))));
+        if(directory!=='turns')return records;
+        const projected=records.map(record=>publishedEventRecord(record,this.turn)),ancestors=await canonicalAncestors(this);
+        if(ancestors.length&&projected.length)projected[0]={...projected[0],semantic_ancestors:ancestors};
+        return projected;
     }
     /** This snapshot's full history, including an empty collection; never reused by another operation. */
     async turnRecords(): Promise<Row[]> {

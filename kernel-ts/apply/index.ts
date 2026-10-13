@@ -3,6 +3,8 @@ import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
 import type { CampaignWritePort, DomainEvent, TurnTransaction } from '../transactions.js';
 import { RpcError } from '../errors.js';
+import {stageEvent,eventOutcome} from '../turn-events.js';
+import {StagedCampaignWriter} from './staged-campaign.js';
 import { isJsonObject } from '../json.js';
 import { CampaignSnapshot, loadCampaignModule, type LoadedModule } from '../read/campaign.js';
 import { worldRevision, taskWorldRevision } from '../read/context.js';
@@ -62,6 +64,7 @@ export interface ApplyContext {
     settlement(subject?: any): Promise<SettleContext>;
     /** The receipts this call has staged so far, in order (§135.30.7: a move earlier in the same batch is a departure). */
     staged?(): Row[];
+    stageText?(path:string,text:string):void;
     /** §154 (prototype): the host runs lean `apply` arguments (`_lean`), so what a lean call leaves out and a reader needs is filled here. */
     readonly lean?: boolean;
 }
@@ -122,7 +125,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 ? worldRevision(transaction.world, await campaign.party() as Row[], turn.receipts, turn.pending_choice) : undefined;
             const beforeTaskCore = params._task_read_set === true
                 ? taskWorldRevision(transaction.world, await campaign.party() as Row[], turn.receipts, turn.pending_choice) : undefined;
-            if (!Array.isArray(effects) || !effects.length)
+            if (!Array.isArray(effects) || (!effects.length && params.event === undefined))
                 throw new RpcError('invalid_params', 'params.effects must be a non-empty list');
             if (effects.some(effect => isJsonObject(effect) && effect.kind === 'usage') && effects.some(effect => !isJsonObject(effect) || !['define','object','usage'].includes(string(effect.kind))))
                 throw new RpcError('invalid_params','A usage preparation batch contains only define, object and usage; apply other actions separately');
@@ -188,17 +191,19 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const receipts: Row[] = [], events: DomainEvent[] = [], ids: string[] = [];
             const effectReceipts = new Map<number, Row[]>();
             const stagedSheets=new Map<string,Row>(),stagedNotes:Row[]=[],stagedRulings:Row[]=[],attachments:Row[]=[],mapViews:Row[]=[],already:string[]=[];
-            const context: ApplyContext = { kernel, transaction, campaign, world: staged, turn, graph, module, callId: started.callId, ordinal: started.ordinal,
+            const buffered=params.event===undefined?undefined:new StagedCampaignWriter(kernel,campaign.id),effectCampaign=buffered??campaign;
+            const context: ApplyContext = { kernel, transaction:{...transaction,campaign:effectCampaign}, campaign:effectCampaign, world: staged, turn, graph, module, callId: started.callId, ordinal: started.ordinal,
+                ...(buffered?{stageText:(path:string,text:string)=>buffered.stageText(path,text)}:{}),
                 ...(params._lean === true ? { lean: true } : {}),
                 staged: () => receipts,
                 mint(base) { let id = base, next = 2; while (taken.has(id))
                     id = `${base}-${next++}`; taken.add(id); return id; },
                 async settlement(subject) {
                     const snapshot = new CampaignSnapshot(kernel, campaign.id);
-                    snapshot.meta = await campaign.readCampaign();
+                    snapshot.meta = await effectCampaign.readCampaign();
                     snapshot.world = staged;
                     snapshot.turn = turn;
-                    snapshot.party = await campaign.party() as Row[];
+                    snapshot.party = await effectCampaign.party() as Row[];
                     // An effect can be about someone who is not at the table (contract §66). The
                     // rules engines read a row, never a party membership, so the NPC's own numbers
                     // become the subject and an investigator stands in as the actor -- exactly the
@@ -215,7 +220,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         await requirePatientBlock(kernel, graph, staged, subject);
                     const patient = typeof subject === 'string' && snapshot.party.length ? npcPatient(graph, staged, subject) : null;
                     const sheet = patient ? snapshot.party[0] : selectActor(snapshot.party, subject);
-                    return new SettleContext(kernel, { ...transaction, world: staged }, snapshot, module, tables, await CheckArithmetic.create(tables), await RuleObservations.load(kernel), started.callId, started.ordinal, sheet, patient ?? sheet, {});
+                    return new SettleContext(kernel, { ...transaction, campaign:effectCampaign,world: staged }, snapshot, module, tables, await CheckArithmetic.create(tables), await RuleObservations.load(kernel), started.callId, started.ordinal, sheet, patient ?? sheet, {});
                 }
             };
             let timeEffects = 0, restMinutes = 0;
@@ -392,7 +397,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 && params._fulfillments === undefined && effects.filter(effect=>isJsonObject(effect)&&effect.kind==='note').length === 1
                 && isJsonObject(effects[refused[0].index]) && (effects[refused[0].index] as Row).kind === 'note'
                 && (effects[refused[0].index] as Row).intent_ref == null;
-            const isolatedRefusals = refused.length && receipts.length
+            const isolatedRefusals = params.event === undefined && refused.length && receipts.length
                 && (allPersonEffects && refused.every(isolable) || wrongNoteOwner) ? refused : [];
             if ((!refused.length || isolatedRefusals.length) && receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed) && contributions.asset) {
                 for (const item of await presentArrivalMaps(context, contributions.asset)) {
@@ -419,6 +424,15 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             }
             if (truth(staged.ending) && (row(staged.ending).scope ?? 'campaign') === 'campaign' && (stagedWorldline||truth(turn.worldline)))
                 throw new RpcError('invalid_params', 'a campaign ending cannot share a turn with a worldline transition');
+            if(params.event!==undefined){
+                const snapshot=new CampaignSnapshot(kernel,campaign.id);
+                snapshot.meta=await campaign.readCampaign();snapshot.turn=turn;
+                const receipt=stageEvent(params.event,{graph,world:staged,party:await effectCampaign.party() as Row[],meta:snapshot.meta,
+                    campaign:campaign.id,turn:number(turn.turn),id:context.mint(`${started.callId}-event`),receipts,
+                    prior:array(turn.receipts),records:await snapshot.files('turns'),sources:array(params._event_sources)});
+                receipts.push(receipt);ids.push(receipt.id);
+                events.push({type:'semantic-event',data:{name:receipt.event.name,event:receipt.event.ref},receipt:receipt.id});
+            }
             fulfillment?.attach(effectReceipts,staged);
             const recovery = contributions.resources ? await contributions.resources.recovery(context, restMinutes) : { receipts: [], events: [], recovered: [] };
             receipts.push(...recovery.receipts);
@@ -448,9 +462,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             if (landedHere.length)
                 staged.index_scenes = [...new Set([...array(staged.index_scenes).filter(value => typeof value === 'string'), ...landedHere.map(entry => entry.focus)])];
             await commitInventorySheets(context,stagedSheets);
-            await campaign.writeWorld(staged);
             // §158.5: the rows this batch landed close, and so do the rows the ledger now agrees with, whoever landed them.
-            await settleOwed(kernel, campaign.id, graph, staged, receipts, nowIso(), await campaign.party());
             // §142.5: a person who spent their own turn of the fight on this batch's hold or intention passes it, once the
             // whole batch has landed -- a refused batch passes nothing. The writer already checked it is their turn.
             // §143.3 (spec D9): a weapon a person in the running fight drew is in their hands there too.
@@ -464,7 +476,10 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 }
             // §129.4: a definition that replaced a placeholder changed what instances already on a sheet read.
             if(effects.some(effect=>isJsonObject(effect)&&['object','usage'].includes(string(effect.kind)))||receipts.some(receipt=>receipt.replaced_placeholder===true))
-                await contributions.mods!.projectInventory(campaign as CampaignWriter,staged);
+                await contributions.mods!.projectInventory(effectCampaign as CampaignWriter,staged);
+            await buffered?.commit();
+            await campaign.writeWorld(staged);
+            await settleOwed(kernel, campaign.id, graph, staged, receipts, nowIso(), await campaign.party());
             for(const note of stagedNotes)await appendJsonl(join(campaign.directory,'notes.jsonl'),note);
             for(const ruling of stagedRulings)await appendJsonl(join(campaign.directory,'rulings.jsonl'),ruling);
             // Contract §134.12: crossing an unsettled stated obligation's guard is information on the receipt
@@ -481,7 +496,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 }
             }
             const material = module.material(graph.scene(staged.active_scene).node_id);
+            for(const receipt of receipts)if(receipt.kind==='event')receipt.event.effects=receipts.filter(item=>item!==receipt).map(item=>item.id);
             const result: Row = { receipts: ids, markers: markersOf({ ...turn, receipts: [...array(turn.receipts), ...receipts] }, receipts), world: { active_scene: staged.active_scene, clock: staged.clock }, material_ready: material === 'ready', material };
+            if(params.event!==undefined)result.outcome=graph.shownIds(eventOutcome([...array(turn.receipts),...receipts]));
             const paidCash=receipts.filter(receipt=>receipt.kind==='cash'&&receipt.settlement!=='quote');
             if(paidCash.length)result._cash_settlements=paidCash;
             const cashQuotes=receipts.filter(receipt=>receipt.kind==='cash'&&receipt.settlement==='quote');

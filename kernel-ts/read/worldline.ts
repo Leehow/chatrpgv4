@@ -4,10 +4,12 @@ import { CampaignSnapshot } from "./campaign.js";
 import { ModuleGraph, recordOf, sameNode } from "./module-graph.js";
 import { EntityIndex, kindRank, fromOtherLines, memoryEvidenceView, withPromiseFulfillment, canonicalMemoryReceipts, memoryOccurrenceKey } from "./memory.js";
 import { array, row, truth, string, number, sorted, type Row } from "./values.js";
+import {RpcError} from '../errors.js';
 /** Pinned historical branch receipts in one batch; failed history reads never mean unpaid. */
-export async function lineFulfillmentEvidence(campaign:Pick<CampaignSnapshot,'id'|'context'>,line:string):Promise<{receipts:Row[];world:Row;available:boolean;memory?:Row[]}> {
+export async function lineFulfillmentEvidence(campaign:Pick<CampaignSnapshot,'id'|'context'>,line:string,pinned?:string):Promise<{receipts:Row[];world:Row;available:boolean;memory?:Row[];records?:Row[]}> {
     const failed={receipts:[],world:{},available:false};
-    const head=await campaign.context.git.run(campaign.id,['rev-parse','--verify',`wl/${line}^{commit}`]);
+    if(pinned!==undefined&&!/^[a-f0-9]{4,64}$/.test(pinned))return failed;
+    const head=await campaign.context.git.run(campaign.id,['rev-parse','--verify',`${pinned??`wl/${line}`}^{commit}`]);
     if(head.code||!/^[a-f0-9]{40,64}$/.test(head.stdout.trim())) return failed;
     const commit=head.stdout.trim(),listed=await campaign.context.git.run(campaign.id,['ls-tree','-r','--name-only',commit,'--','turns/']);
     if(listed.code) return failed;
@@ -27,7 +29,26 @@ export async function lineFulfillmentEvidence(campaign:Pick<CampaignSnapshot,'id
         } catch {return failed;}
         offset=start+length+1;
     }
-    return {receipts:canonicalMemoryReceipts(records),world,available:true,memory};
+    return {receipts:canonicalMemoryReceipts(records),world,available:true,memory,records};
+}
+/** The existing ours merge preserves ordinary state; read both immutable parent corpora for semantic occurrences. */
+export async function canonicalAncestors(campaign:Pick<CampaignSnapshot,'id'|'context'|'meta'>):Promise<Row[]>{
+    const lines=row(campaign.meta.worldlines),visited=new Set<string>(),sources=new Map<string,Row>();
+    const visit=(name:string)=>{
+        if(visited.has(name))return;visited.add(name);const entry=row(lines[name]);
+        for(const parent of array(entry.parents)){const origin=string(parent.line);if(origin)sources.set(`${origin}:${parent.commit}:${parent.turn}`,parent);visit(origin);}
+        if(row(entry.forked_from).line)visit(string(entry.forked_from.line));
+    };
+    visit(string(campaign.meta.active_worldline||'main'));
+    const result:Row[]=[];
+    for(const parent of sources.values()){
+        const line=string(parent.line);
+        const evidence=await lineFulfillmentEvidence(campaign,line,parent.commit??row(lines[line]).last_commit);
+        if(!evidence.available)throw new RpcError('needs','Canonical event ancestry could not be read',{details:{worldline:line}});
+        result.push(...array(evidence.records).filter(record=>number(record.turn)<=number(parent.turn)).map(record=>({
+            ...record,receipts:array(record.receipts).filter(receipt=>receipt.kind==='event')})));
+    }
+    return result;
 }
 export const activeName = (meta: Row): string => typeof meta.active_worldline === "string" && meta.active_worldline ? meta.active_worldline : "main";
 export const activeLine = (meta: Row): Row => row(meta.worldlines)[activeName(meta)] ?? {

@@ -233,6 +233,7 @@ export async function effectIntent(scope: IntentScope, effect: Row, field: strin
         throw new RpcError('invalid_params', `${field}.intent_ref ${JSON.stringify(effect.intent_ref)} names no person's intention`, {
             fix: `${REFS_ARE} (director.offer carries them too); or leave intent_ref out`, details: {field: `${field}.intent_ref`, options: await tableIntentOptions(scope)}});
     const outcome = effect.intent_outcome ?? 'done';
+    if(outcome==='planned')throw new RpcError('invalid_params','An executing effect cannot have a planned outcome');
     if (typeof outcome !== 'string' || !INTENT_OUTCOMES.includes(outcome))
         throw new RpcError('invalid_params', `${field}.intent_outcome ${JSON.stringify(outcome)} is not where an intention can stand`, {
             fix: 'one of details.options; leave it out when the effect is the intention done', details: {field: `${field}.intent_outcome`, options: [...INTENT_OUTCOMES]}});
@@ -262,6 +263,7 @@ export interface RollIntentPlan { stamp(receipts: Row[]): 'roll' | 'first' | 'no
 export async function planRollIntent(scope: IntentScope, action: Row): Promise<RollIntentPlan | null> {
     if (action.intent_ref == null) return null;
     const outcome = action.intent_outcome;
+    if(outcome==='planned')throw new RpcError('invalid_params','A rolled action cannot have a planned outcome');
     if (outcome != null && (typeof outcome !== 'string' || !INTENT_OUTCOMES.includes(outcome)))
         throw new RpcError('invalid_params', `action.intent_outcome ${JSON.stringify(outcome)} is not where an intention can stand`, {
             fix: 'one of details.options, or leave it out: a passed check is done, a failed one failed', details: {field: 'action.intent_outcome', options: [...INTENT_OUTCOMES]}});
