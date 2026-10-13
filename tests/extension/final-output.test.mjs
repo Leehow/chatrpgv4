@@ -278,7 +278,7 @@ test('a restarted writing owner reuses the accepted artifact before canonical pu
   t.after(()=>table.dispose());
   const bridge=table.runtimeBridges().at(-1),events=[];
   await bridge.call('table.player_input',{campaign:'test-camp',text:'I look around.'});
-  const deps={runtime:()=>bridge.runtime,call:bridge.call,record:async row=>events.push(row)};
+  const deps={runtime:()=>bridge.runtime,call:bridge.call,record:async row=>events.push(row),model:()=>({provider:'test',id:'writer'})};
   const first=await createFinalOutputOwner(deps).write('test-camp',1,plan);
   const recovered=await createFinalOutputOwner(deps).write('test-camp',1,plan);
   assert.deepEqual(recovered,first);
@@ -312,7 +312,7 @@ test('a settled change during inference rejects the frozen draft and preserves t
     await bridge.call('table.apply',{campaign:'test-camp',call_id:'t1-c1',effects:[{kind:'time',minutes:1}]});
     return outcome;
   }};
-  const owner=createFinalOutputOwner({runtime:()=>runtime,call:bridge.call,record:async()=>{}});
+  const owner=createFinalOutputOwner({runtime:()=>runtime,call:bridge.call,record:async()=>{},model:()=>({provider:'test',id:'writer'})});
   await assert.rejects(owner.write('test-camp',1,plan),/snapshot changed/);
   const status=await bridge.call('table.status',{campaign:'test-camp'});
   assert.equal(status.receipts.filter(row=>row.kind==='time').length,1);
@@ -399,4 +399,32 @@ test('an unframed direct answer is shown as the kernel recorded it, never with r
   const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
   assert.equal(record.interaction_scope,'reference');
   assert.deepEqual(record.receipts,[]);
+});
+
+test('the selected author runs on the Keeper model, not a fixed one', async t => {
+  let keeper;
+  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,env:writerEnv,
+    responses:[context=>fauxAssistantMessage([fauxToolCall('output',{delivery:plan})],{stopReason:'toolUse'})]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I look around without touching anything.');
+  assert.deepEqual(table.extensionErrors,[]);
+  keeper=`${table.session.model.provider}/${table.session.model.id}`;
+  assert.notEqual(keeper,'grok-build/grok-4.5');
+  const start=table.telemetry().find(row=>row.lane==='final-output'&&row.event==='start');
+  assert.equal(start.model,keeper);
+  const record=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.equal(record.rendered_text,'The room is chilly.');
+  assert.equal(record.delivery_evidence.model,keeper);
+});
+
+test('an author that ran on another model than the Keeper is refused', async t => {
+  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:seedOpening,
+    env:{...writerEnv,PI_COC_TEST_WRITER_ACTUAL:'grok-build/grok-4.5'},
+    responses:[fauxAssistantMessage([fauxToolCall('output',{delivery:plan})],{stopReason:'toolUse'})]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I look around without touching anything.');
+  assert.deepEqual(table.extensionErrors,[]);
+  assert.ok(table.session.messages.some(m=>m.role==='toolResult'&&m.content?.some(c=>c.type==='text'&&c.text.includes('did not verify the expected model'))));
+  const path=join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json');
+  if(existsSync(path))assert.ok(!JSON.parse(readFileSync(path,'utf8')).commit);
 });

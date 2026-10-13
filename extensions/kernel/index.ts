@@ -1492,7 +1492,14 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		return { message: restored.message };
 	});
 	let runtime: HostRuntime | undefined;
+	/** The Keeper's own model, read off the live context: the selected final author runs on it (owner, 2026-10-13). */
+	let keeperModel: {provider: string; id: string} | undefined;
+	const noteKeeperModel = (ctx?: {model?: {provider?: unknown; id?: unknown}}): void => {
+		const model = ctx?.model;
+		if (typeof model?.provider === 'string' && typeof model.id === 'string') keeperModel = {provider: model.provider, id: model.id};
+	};
 	const finalOutput = createFinalOutputOwner({runtime: () => runtime,
+		model: () => keeperModel && {...keeperModel, thinking: String(pi.getThinkingLevel?.() ?? '') || undefined},
 		call: (method, params) => {if (!table) throw Error('The table is unavailable'); return table.kernel.call(method, params);}, record,
 		constraints:()=>{
 			if(!table)return{};
@@ -5696,6 +5703,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				if (referenceScope) throw new KernelError({code:'invalid_params',message:'Answer out-of-fiction questions directly; a final writing task is not needed.'});
 				state.selectedWriting=true;
 				await guardTaskDelivery();
+				noteKeeperModel(ctx);
 				const written = await finalOutput.write(state.campaign, state.turn, payload.delivery, signal, providerBudget,fromStep?.run??finalRun);
 				delete payload.delivery;
 				payload.text = written.text;
@@ -8106,6 +8114,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			}
 		}
 
+		noteKeeperModel(ctx);
 		await record({lane: "provider-request", at: new Date().toISOString(), model: payload?.model, provider: ctx.model?.provider,
 			observation_request: providerObservation.observation_request,
 			reasoning_effort: payload?.reasoning?.effort ?? payload?.reasoning_effort ?? null,
