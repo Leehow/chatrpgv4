@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,readdirSync,writeFileSync,chmodSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable} from './harness.mjs';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
@@ -19,6 +20,18 @@ function seedOpening(workspace){
     cwd:root,encoding:'utf8',input:lines.map(([method,params],id)=>JSON.stringify({id:String(id),method,params:{campaign:'test-camp',...params}})).join('\n')+'\n'});
   assert.equal(run.status,0,run.stderr);
   for(const line of run.stdout.trim().split('\n')){const frame=JSON.parse(line);if(!frame.progress)assert.equal(frame.ok,true,JSON.stringify(frame));}
+}
+
+function seedPrintedNames(workspace,shared=false){
+  seedOpening(workspace);
+  const folder=join(workspace,'.coc/modules/the-haunting'),file=join(folder,'module.json');
+  const metadata=JSON.parse(readFileSync(file,'utf8'));
+  const sha=metadata.source_document?.file_sha256||metadata.file_sha256
+    ||createHash('sha256').update(readFileSync(join(folder,'module-graph.json'))).digest('hex');
+  writeFileSync(file,JSON.stringify({...metadata,file_sha256:sha}));
+  writeFileSync(join(folder,'cast.json'),JSON.stringify({version:5,state:'complete',source_sha256:sha,
+    people:[{id:'cast-dooley',book:['Mr. Dooley',...(shared?['Alex']:[])],play:['Mr. Dooley'],pages:[1]},
+      ...(shared?[{id:'cast-wilmot',book:['Arty Wilmot','Alex'],play:['Arty Wilmot'],pages:[1]}]:[])]}));
 }
 
 test('one Keeper response records its event and delivers its own prose without a second author',async t=>{
@@ -146,6 +159,60 @@ test('publication retries the same Keeper bytes without another author or state 
   assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),'The office remains quiet.');
   assert.equal(seen.at(-1).status,'completed');
   assert.equal(table.telemetry().filter(row=>row.lane==='provider-call').length,1);
+});
+
+test('native publication completes the existing protected-name replacement without another author or action',async t=>{
+  let authors=0;
+  const text='Mr. Dooley waits beside you.';
+  const response={version:1,record:{effects:[
+    {kind:'person',who:'Mr. Dooley',name:'the newspaper seller'},
+    {kind:'time',minutes:8},
+  ]},text};
+  const {table,seen}=await directTable([()=>{authors++;return fauxAssistantMessage(JSON.stringify(response));}],{
+    prepareWorkspace:seedPrintedNames,
+  });
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait beside the newspaper seller for eight minutes.');
+  assert.equal(authors,1,'the same completed author response is published');
+  const names=table.telemetry().filter(row=>row.lane==='delivery'&&row.reason==='untold_name');
+  assert.deepEqual(names.map(row=>row.outcome),['refused','replaced']);
+  const turn=JSON.parse(readFileSync(join(table.workspace,'.coc/campaigns/test-camp/turns/0001.json'),'utf8'));
+  assert.ok(turn.commit,'the current turn finishes without requiring another player input');
+  assert.equal(turn.rendered_text,'the newspaper seller waits beside you.');
+  assert.equal(turn.world.clock.minutes,8,'the settled time is not applied twice');
+  assert.equal(turn.receipts.filter(row=>row.kind==='time').length,1);
+  assert.equal(table.telemetry().filter(row=>row.tool==='apply'&&row.ok).length,1);
+  assert.equal(names[0].call_id,names[1].call_id,'the publication keeps its original identity');
+  assert.equal(turn.delivery_evidence.publication.call_id,names[0].call_id);
+  assert.equal(turn.delivery_evidence.artifact_text,text,'the sealed author artifact is unchanged');
+  assert.equal(seen.filter(frame=>frame.event==='start').length,1);
+  assert.equal(seen.filter(frame=>frame.event==='delta').map(frame=>frame.delta).join(''),text,
+    'raw stream exposure is retained evidence, not a semantic secrecy guarantee');
+  assert.equal(seen.at(-1).status,'completed');
+  assert.equal(table.telemetry().filter(row=>row.reason==='turn_unfinished_notice').length,0);
+  const untold=await table.runtimeBridges().at(-1).call('table.untold',{campaign:'test-camp'});
+  assert.ok(untold.people.some(person=>person.name==='Mr. Dooley'),'replacement does not introduce the private name');
+});
+
+test('native publication keeps an ambiguous protected name pending without retrying or re-inferring',async t=>{
+  let authors=0;
+  const response={version:1,record:{effects:[
+    {kind:'person',who:'Mr. Dooley',name:'the newspaper seller'},
+    {kind:'person',who:'Arty Wilmot',name:'the editor'},
+    {kind:'time',minutes:8},
+  ]},text:'Alex watches you.'};
+  const {table,seen}=await directTable([()=>{authors++;return fauxAssistantMessage(JSON.stringify(response));}],{
+    prepareWorkspace:workspace=>seedPrintedNames(workspace,true),
+  });
+  t.after(()=>table.dispose());
+  await table.session.prompt('I wait beside the two men for eight minutes.');
+  assert.equal(authors,1);
+  const names=table.telemetry().filter(row=>row.lane==='delivery'&&row.reason==='untold_name');
+  assert.deepEqual(names.map(row=>({outcome:row.outcome,shared:row.shared})),[{outcome:'refused',shared:1}]);
+  assert.equal(seen.at(-1).status,'publication_pending');
+  assert.equal(table.telemetry().filter(row=>row.tool==='apply'&&row.ok).length,1);
+  const status=await table.runtimeBridges().at(-1).call('table.status',{campaign:'test-camp'});
+  assert.equal(status.state,'acting');
 });
 
 test('a planned intent survives the next response without becoming an attempted task',async t=>{

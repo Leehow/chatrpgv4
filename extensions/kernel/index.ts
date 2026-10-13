@@ -7987,7 +7987,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 					const spec=COC_TOOLS.find(tool=>tool.name==='output')!;
 					const params=choice?{choice:publication}:publication;
 					let delivered=await runTool(spec,`keeper:${reply.run}:publish`,params,keeperRun?.signal,undefined,'explicit',ctx,reply.run,written);
-					if((delivered.details.coc_error as any)?.code==='commit_failed'&&!keeperRun?.signal?.aborted)
+					const refusal=delivered.details.coc_error as {code?:string;details?:{reason?:string;shared?:unknown;joined?:unknown}}|undefined;
+					const nameRecovery=refusal?.code==='invalid_params'&&refusal.details?.reason==='untold_name'
+						&&[refusal.details.shared,refusal.details.joined].every(value=>value===undefined||Array.isArray(value)&&value.length===0);
+					if((refusal?.code==='commit_failed'||nameRecovery)&&!keeperRun?.signal?.aborted)
 						delivered=await runTool(spec,`keeper:${reply.run}:publish`,params,keeperRun?.signal,undefined,'explicit',ctx,reply.run,written);
 					if(delivered.details.coc_error)throw new Error(String((delivered.details.coc_error as any).message));
 				}
