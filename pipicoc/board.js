@@ -690,11 +690,11 @@ export function createComponent(React) {
       row.how
         // The name stays on the line; how this table came by the clue is one tap away. The name
         // goes through the glossary -- the Keeper's own label comes back as itself, a graph name
-        // comes back in the play language once the clue lane has projected it. The account does
-        // not: the Keeper wrote it in the play language at the table, like the journal's own prose.
+        // comes back in the play language once the clue lane has projected it. The already-public
+        // account uses that same projection, including accounts filed before it was collected.
         ? h("details", { className: "coc-clue coc-clue-fold", key: `${row.name}:${index}` },
             h("summary", null, h("span", { className: "coc-clue-name" }, term(row.name))),
-            h("div", { className: "coc-clue-body" }, row.how))
+            h("div", { className: "coc-clue-body" }, term(row.how)))
         : h("div", { className: "coc-clue", key: `${row.name}:${index}` },
             h("span", { className: "coc-clue-name" }, term(row.name)))), ...documentRows]);
   }

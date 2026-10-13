@@ -386,7 +386,7 @@ export async function reloadLaneLabels(context?:CocBinding):Promise<Record<strin
 export function deliveryWords(entry:any):Record<string,string[]> {
   const rows=Array.isArray(entry?.data?.mechanics)?entry.data.mechanics:[];
   const wanted:Record<string,Set<string>>={clues:new Set(),handouts:new Set(),rules:new Set()};
-  const keys:Record<string,string[]>={clues:['label','summary'],handouts:['name','text']};
+  const keys:Record<string,string[]>={clues:['label','how'],handouts:['name','text']};
   for(const row of rows) {
     if(!row||typeof row!=='object'||row.visibility==='keeper')continue;
     if(row.kind==='roll'&&typeof row.skill==='string'&&row.skill.trim()&&typeof entry?.data?.labels?.[row.skill]!=='string')

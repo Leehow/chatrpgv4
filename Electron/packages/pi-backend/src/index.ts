@@ -3951,6 +3951,7 @@ export class PiHostBackend implements HostBackend {
     if (!session) throw new Error(`unknown session ${sessionId}`);
     const started = Date.now();
     const history = await readHistory(session.path, 0, Number.MAX_SAFE_INTEGER, this.vaultDir, sessionId);
+    this.startCocCluePresentation(sessionId, history);
     this.startCocDetailsRecovery(sessionId, session.path, history);
     this.startCocReferenceRecovery(sessionId, session.path);
     this.reconcileOrphanedNow(sessionId);
@@ -4875,6 +4876,7 @@ export class PiHostBackend implements HostBackend {
             limit,
             session.header.id,
           );
+          this.startCocCluePresentation(session.header.id, entries);
           this.startCocDetailsRecovery(session.header.id, session.path, entries);
           this.startCocReferenceRecovery(session.header.id, session.path);
           freezeProbeHistoryIpcEnd({ session: session.header.id, ms: Date.now() - started, rows: entries.length });
@@ -6584,6 +6586,18 @@ export class PiHostBackend implements HostBackend {
    * the held answer. The lanes run one after another rather than together — a turn that both
    * reveals a clue and hands over a document is rare, and they share the vocabulary file.
    */
+  /** Loaded public clue accounts use the delivery lane even when no Keeper is running. */
+  private startCocCluePresentation(sessionId: string, history: HistoryEntry[]): void {
+    if (this.closed || this.sidebarArchivedCache.has(sessionId)) return;
+    for (const card of history) {
+      const details = card.presentation?.details as any;
+      if (card.presentation?.renderer !== 'coc-mechanics' || !Array.isArray(details?.mechanics)
+        || !details.mechanics.some((row: any) => row.kind === 'clue' && row.visibility !== 'keeper'
+          && typeof row.how === 'string' && row.how.trim())) continue;
+      this.startDeliveryPresentation(sessionId, {type: 'custom', customType: 'coc-mechanics',
+        id: card.id, timestamp: new Date(card.timestamp).toISOString(), data: details});
+    }
+  }
   private startDeliveryPresentation(sessionId: string, raw: any, live?: Live): void {
     const wanted = deliveryWords(raw);
     if (!Object.keys(wanted).length || !this.managedNodeModulesRoot) return;
@@ -6613,7 +6627,7 @@ export class PiHostBackend implements HostBackend {
           const titles = lane === "handouts" ? handoutTitles((Array.isArray(raw?.data?.mechanics) ? raw.data.mechanics : [])
             .filter((row: any) => row?.kind === "handout" && row.visibility !== "keeper")).filter(title => missing.includes(title)) : [];
           await host.presentation({campaign: binding.campaign, play_language: binding.play_language, [lane]: true,
-            ...(lane === "rules" ? {mechanics: raw.data.mechanics} : {}),
+            ...(lane === "rules" || lane === "clues" ? {mechanics: raw.data.mechanics} : {}),
             ...(titles.length ? {handout_names: titles} : {}),
             ...await this.cocFastLane(state)});
           this.cocLaneJobs.delete(key);
@@ -6624,17 +6638,19 @@ export class PiHostBackend implements HostBackend {
         }
       }
       if (!landed) return;
-      await reloadLaneLabels(binding);
+      const lanes = await reloadLaneLabels(binding);
       // The history page is cached against the transcript's own size and mtime, which a
       // projection landing beside it does not change.
       this.historyCache.delete(path);
       // §132: a card that was patched meanwhile keeps its patches in this redraw.
       const owner = live ?? this.live.get(sessionId);
-      const entry = mechanicsEntry(raw, binding.play_language, undefined, this.cocLiveWords(sessionId), undefined, owner?.cocCards?.patchesFor(raw?.id),binding);
+      const entry = mechanicsEntry(raw, binding.play_language, undefined, {...this.cocLiveWords(sessionId), lanes}, undefined, owner?.cocCards?.patchesFor(raw?.id),binding);
       if (entry) {
         if (owner && typeof raw?.id === "string") owner.cocCardDrawn?.set(raw.id, JSON.stringify(entry.presentation));
         this.stream({type: "presentation", sessionId, entry});
       }
+      emitFrame(this.listeners, {protocolVersion: PIPI_HOST_PROTOCOL_VERSION, channel: 'ext.coc-keeper',
+        event: {type: 'sheet_changed', payload: {campaign: binding.campaign}}});
     })().catch(() => undefined);
   }
   /**

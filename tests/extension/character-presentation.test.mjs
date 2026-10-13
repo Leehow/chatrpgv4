@@ -246,12 +246,11 @@ test('identity words are the setup model\'s sex, never the player\'s prose, and 
  assert.deepEqual(identityTexts({investigators:[]}),[]);assert.deepEqual(identityTexts({}),[]);
 });
 
-test('clue words are the names the table filed, never the book\'s sentence, a handle or an unfound clue',async()=>{
+test('clue words include public accounts, never the book\'s sentence, a handle or an unfound clue',async()=>{
  const {prepareCluePresentation,clueTexts}=await import('../../extensions/module/character-presentation.ts');
  const home=await mkdtemp(join(tmpdir(),'clue-presentation-'));
  // §80: the module's own sentence about a clue is Keeper material and no longer reaches a player
- // row, so it is not a word this lane has to project. `how` does reach the row, and is still not
- // asked: the Keeper wrote it at this table in the play language, like the journal's own prose.
+ // row. Public accounts are projected too; accounts already in the play language can be kept.
  const summary='Corbitt can form pools of blood on floor, ceiling, or walls to frighten intruders away from his secret.';
  const how='她蹲下去看地板上那摊东西。';
  const view={play_language:'zh-Hans',turn:2,investigators:[sheet],clues:{
@@ -259,22 +258,46 @@ test('clue words are the names the table filed, never the book\'s sentence, a ha
   here:[{name:'hidden-villain',summary:'The villain is Corbitt.',discovered:false},{name:'blood-pool-manifest',label:'血泊',discovered:true}]}};
  const original=JSON.stringify(view);let calls=0;
  const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
-  for(const hidden of ['blood-pool-manifest','knott-commission','hidden-villain','The villain is Corbitt.',summary,how,'2'])assert.ok(!inputTexts(input).includes(hidden),hidden);
-  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(input,{keep:['血泊']})));return {ok:true}};
+  for(const hidden of ['blood-pool-manifest','knott-commission','hidden-villain','The villain is Corbitt.',summary,'2'])assert.ok(!inputTexts(input).includes(hidden),hidden);
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify(presentation(input,{keep:['血泊',how]})));return {ok:true}};
  const options={home,campaign:'c1',play_language:'zh-Hans',view,runner};
- assert.deepEqual(clueTexts(view),["Knott's commission",'血泊']);
+ assert.deepEqual(clueTexts(view),["Knott's commission",how,'血泊'].sort());
  const first=await prepareCluePresentation(options);
  assert.equal(first.texts["Knott's commission"],"zh-Hans:Knott's commission");assert.equal(first.texts['血泊'],'血泊');assert.equal(calls,1);
+ assert.equal(first.texts[how],how);
  assert.equal(first.texts[summary],undefined,'the book\'s sentence was never a word this lane had');
  assert.deepEqual(JSON.parse(await readFile(join(home,'.coc/campaigns/c1/setup/presentations/clues-zh-Hans.json'),'utf8')),first);
  assert.deepEqual(await prepareCluePresentation({...options,view:{...view,turn:3}}),first);assert.equal(calls,1);
  const found={clue:'knott-keys',label:'宅子钥匙',how:'诺特把钥匙放在桌上。'};
  const next=await prepareCluePresentation({...options,view:{...view,clues:{discovered:[...view.clues.discovered,found]}}});
  assert.equal(calls,2);assert.equal(next.texts["Knott's commission"],first.texts["Knott's commission"]);assert.equal(next.texts[found.label],`zh-Hans:${found.label}`);
- assert.equal(next.texts[found.how],undefined,'and the account it was found by is not asked either');
+ assert.equal(next.texts[found.how],`zh-Hans:${found.how}`);
  assert.equal(JSON.stringify(view),original);
  await assert.rejects(prepareCluePresentation({...options,view:{...view,play_language:'en'}}),/language/);
  assert.deepEqual(clueTexts({clues:{discovered:[]}}),[]);assert.deepEqual(clueTexts({}),[]);
+});
+test('an existing label-only clue cache acquires missing public accounts without rewriting its labels or source',async()=>{
+ const {prepareCluePresentation,clueTexts}=await import('../../extensions/module/character-presentation.ts');
+ const home=await mkdtemp(join(tmpdir(),'clue-backfill-'));
+ const folder=join(home,'.coc/campaigns/c1/setup/presentations');await mkdir(folder,{recursive:true});
+ const how='She described waking to find it leaning over her.';
+ const file=join(folder,'clues-zh-Hans.json');
+ await writeFile(file,JSON.stringify({play_language:'zh-Hans',texts:{Visitor:'夜访者'}}));
+ const view={play_language:'zh-Hans',clues:{discovered:[{clue:'visitor',label:'Visitor',how}],
+  here:[{clue:'unfound',label:'Secret',how:'Unheard account',discovered:false}]}};
+ const original=JSON.stringify(view);let calls=0;
+ const options={home,campaign:'c1',play_language:'zh-Hans',view,runner:async request=>{
+  calls++;const input=JSON.parse(await readFile(join(request.cwd,'texts.json'),'utf8'));
+  assert.deepEqual(inputTexts(input),[how]);
+  await writeFile(join(request.cwd,'presentation.json'),JSON.stringify(presentation(input,{translate:()=> '她说醒来时发现它俯在身上。'})));return {ok:true};
+ }};
+ try {
+  assert.deepEqual(clueTexts(view),['Visitor',how].sort());
+  const first=await prepareCluePresentation(options);
+  assert.equal(first.texts.Visitor,'夜访者');assert.equal(first.texts[how],'她说醒来时发现它俯在身上。');
+  assert.deepEqual(await prepareCluePresentation(options),first);assert.equal(calls,1);
+  assert.equal(JSON.stringify(view),original);
+ } finally {await rm(home,{recursive:true,force:true});}
 });
 test('a language name is asked once per language, and only the name is asked',async()=>{
  const {prepareLanguagePresentation,languageTexts}=await import('../../extensions/module/character-presentation.ts');

@@ -4958,6 +4958,25 @@ labels always used: a name is not a claim two lines can disagree about.
 
 ### Host decision: a clue's words reach the player in the play language (2026-09-09)
 
+**Amendment (2026-10-13, owner):** the clues presenter collects both `label` and
+the already-public `how` of discovered clues. `how` is not assumed to have been
+written in the play language. Both the delivery card and the case board resolve
+it through the same saved presentation, falling back to the filed account while
+the tool-enabled presenter is pending. The existing growing cache asks only for
+missing strings, including accounts in campaigns with an older label-only cache.
+Opening a history page also starts the existing clues presentation for its loaded
+public clue accounts and redraws those cards under their original entry ids when
+it lands; no Keeper turn is needed. Raw receipts, `world.clue_how`, transcript
+entries and module summaries remain unchanged. Unfound clues, handles and the
+module's Keeper-only `summary` never enter this presentation. The older exclusion
+of `how` below is superseded by this amendment.
+
+**Three ends (§31).** Writer: the existing tool-enabled clues presenter extends
+`setup/presentations/clues-<language>.json`. Readers: the board and mechanics card
+resolve `how` through `labels`; board and loaded-history reads discover missing
+accounts. Actor: the host starts the existing background lane, reloads its saved
+labels, invalidates the history cache and redraws the loaded card after completion.
+
 A zh-Hans table unfolded 血泊 into "Corbitt can form pools of blood on floor,
 ceiling, or walls to frighten intruders away from his secret." (§80 later removed
 that unfolding entirely: the summary is Keeper material, and the example below

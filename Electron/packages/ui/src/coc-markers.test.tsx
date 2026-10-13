@@ -162,13 +162,14 @@ describe('the card draws a marked delivery', () => {
     expect(container.querySelectorAll('div.coc-mech-row[data-kind="clue"]')).toHaveLength(1);
   })
 
-  it('renders the table-authored clue account verbatim instead of sending it through the glossary', () => {
-    const how = '第三级台阶的水线比涨潮线高出一掌。';
+  it('renders the public clue account through the presenter glossary', () => {
+    const how = 'The waterline stands above the high tide mark.';
+    const projected = '水线高过了涨潮线。';
     const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:6,
-      labels: { [how]: '不应替换这句桌上记录。' },
+      labels: { [how]: projected },
       mechanics:[{kind:'clue', receipt:'clue:tide-t6', clue:'tide-marks', label:'潮痕', how}]}} />);
     const body = container.querySelector('details.coc-mech-fold .coc-mech-fold-body');
-    expect(body?.textContent).toBe(how);
+    expect(body?.textContent).toBe(projected);
   })
 
   /**
@@ -177,8 +178,7 @@ describe('the card draws a marked delivery', () => {
    * The card printed a clue's name, an item's name, a scene's name, a currency and a die's caption
    * exactly as the receipt carried them, which is English wherever the kernel minted the word --
    * so a Chinese table read "Gold fragment", "USD" and "SAN Loss" beside its own prose. The lanes
-   * project those fields into `labels`; the Keeper-authored clue account is already in the play
-   * language and must stay verbatim.
+   * project those fields into `labels`, including public clue accounts filed in another language.
    */
   it('reads every content field through the campaign glossary, die captions included', () => {
     const labels = {

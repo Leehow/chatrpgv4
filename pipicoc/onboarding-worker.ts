@@ -155,7 +155,8 @@ async function main() {
     if(input.clues) {
       // Only what table.view already shows the player: discovered rows, never the scene's unfound offer.
       const view=await call('table.view',{campaign:input.campaign});
-      return prepareCluePresentation({...input,contentRoot:context.contentRoot,view,known_labels:view.labels||{},signal:guidanceAbort.signal,runner:runTask});
+      // Loaded delivery accounts can precede a later replacement of the table's filed account.
+      return prepareCluePresentation({...input,contentRoot:context.contentRoot,view:{...view,mechanics:input.mechanics},known_labels:view.labels||{},signal:guidanceAbort.signal,runner:runTask});
     }
     if(input.journal) {
       // Only what the journal already shows the player: the names it files people under and the

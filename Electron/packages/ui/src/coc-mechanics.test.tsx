@@ -9,6 +9,16 @@ import {ui} from './fixtures/coc-ui-words'
 
 const Card = createComponent(React)
 afterEach(cleanup)
+it('projects the public clue account and falls back while its presentation is pending',()=>{
+  const how='She described waking to find it leaning over her.';
+  const projected='她说醒来时发现它俯在身上。';
+  const clue={kind:'clue',clue:'visitor',label:'夜访者',how};
+  expect(draw([clue]).textContent).toContain(how);
+  cleanup();
+  const container=draw([clue],{[how]:projected});
+  expect(container.textContent).toContain(projected);
+  expect(container.textContent).not.toContain(how);
+});
 const row = {public_combat:true,visibility:'public',actor_is_investigator:false,actor_label:'Masked visitor',target_label:'Alice',call:'t1-c1',family:'combat'}
 const roll = {...row,kind:'roll',receipt:'r1',combat_action:'attack',skill:'Fighting',roll:31,target:60,threshold:60,difficulty:'regular',level:'regular',passed:true}
 function entry(mechanics:unknown[],labels={}) {

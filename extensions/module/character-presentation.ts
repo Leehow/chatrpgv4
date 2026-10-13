@@ -169,8 +169,8 @@ export function prepareLanguagePresentation(options:TextOptions&{campaign:string
  * otherwise the graph's display name; the row does not say which, so it is asked exactly as a
  * scene's name is, and a word already in the play language is selected with `keep` for the host.
  *
- * The row's `how` is not asked. Like the journal lane's own prose, the Keeper wrote it at this
- * table in the play language, so it has no leg to travel. The module's `summary` is not here
+ * The already-public `how` is asked too: a Keeper may file it in another language, including
+ * in an existing campaign with a label-only cache. The module's `summary` is not here
  * because it is not on the row any more: it is Keeper material and §80 stops it at the projection
  * boundary. The handle never enters, and a clue the scene offers but nobody has found stays the
  * Keeper's business.
@@ -180,8 +180,9 @@ export function clueTexts(view:Row):string[] {
   const add=(value:unknown)=>{if(typeof value==='string'&&value.trim())texts.add(value)};
   const clues=view?.clues&&typeof view.clues==='object'&&!Array.isArray(view.clues)?view.clues:{};
   const found=[...(Array.isArray(clues.here)?clues.here:[]).filter((row:unknown)=>(row as Row)?.discovered===true),
-    ...(Array.isArray(clues.discovered)?clues.discovered:[])];
-  for(const row of found){if(row&&typeof row==='object')add((row as Row).label);}
+    ...(Array.isArray(clues.discovered)?clues.discovered:[]),
+    ...(Array.isArray(view?.mechanics)?view.mechanics:[]).filter((row:Row)=>row?.kind==='clue'&&row.visibility!=='keeper')];
+  for(const row of found){if(row&&typeof row==='object'){add((row as Row).label);add((row as Row).how);}}
   return [...texts].sort();
 }
 export function prepareCluePresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {

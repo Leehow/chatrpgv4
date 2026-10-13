@@ -150,20 +150,20 @@ it('a re-read of the transcript draws the card with details that landed after it
 it('a redraw for words that land later keeps the details that already opened the card',async()=>{
   // Two redraws share one card: the clue lane's words (startDeliveryPresentation) and the object's
   // details. Whichever lands second must not draw the card back without the first.
-  const summary='Knott points them toward the Globe.';
+  const how='Knott points them toward the Globe.';
   let release:()=>void=()=>{};
   const held=new Promise<void>(resolve=>{release=resolve;});
   const {backend,session}=await backendWithSession('coc-details-lane-',(root:string)=>({get:()=>({presentation:async()=>{
     await held;
     const folder=join(root,'.coc/campaigns/c-details/setup/presentations');await mkdir(folder,{recursive:true});
-    await writeFile(join(folder,'clues-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{[summary]:'诺特指向环球报。'}}));
+    await writeFile(join(folder,'clues-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{[how]:'诺特指向环球报。'}}));
     return {texts:{}};
   }}),dispose(){},async close(){}}));
   try {
     const drawn:any[]=[];
     backend.subscribe((frame:any)=>{if(frame.channel==='stream'&&frame.event?.type==='presentation')drawn.push(frame.event);});
     const live={session:{id:session.id},runtimeToken:7,path:(await (backend as any).locate(session.id)).path};
-    const withClue={...card(),data:{...card().data,mechanics:[...card().data.mechanics,{kind:'clue',receipt:'clue:k-t0',clue:'k',label:'委托',summary}]}};
+    const withClue={...card(),data:{...card().data,mechanics:[...card().data.mechanics,{kind:'clue',receipt:'clue:k-t0',clue:'k',label:'委托',how}]}};
     (backend as any).rpcEvent(live,{type:'entry_appended',entry:withClue});
     (backend as any).rpcEvent(live,{type:'entry_appended',entry:details([{name:'旧皮腔相机',definition:'ready',object:OBJECT}])});
     expect(drawn.map(event=>event.entry.presentation.details.mechanics[1].definition)).toEqual(['pending','ready']);
@@ -171,7 +171,7 @@ it('a redraw for words that land later keeps the details that already opened the
     for(let i=0;i<200&&drawn.length<3;i++)await new Promise(r=>setTimeout(r,20));
     expect(drawn).toHaveLength(3);
     expect(drawn[2].entry.id).toBe('card-t0');
-    expect(drawn[2].entry.presentation.details.labels[summary]).toBe('诺特指向环球报。');
+    expect(drawn[2].entry.presentation.details.labels[how]).toBe('诺特指向环球报。');
     expect(drawn[2].entry.presentation.details.mechanics[1]).toMatchObject({definition:'ready',object:OBJECT});
   } finally {await backend.close();}
 },40000);

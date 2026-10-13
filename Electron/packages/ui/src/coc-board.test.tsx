@@ -116,23 +116,24 @@ describe('a known map is the picture already in hand', () => {
 describe('a found clue is named, and the account of how folds away', () => {
   it('renders the name, folds the account into a details, and keeps a bare clue a plain row', async () => {
     const how = 'Knott commissioned the party at Corbitt House in person.';
+    const projected = '诺特当面委托调查宅子。';
     const { container } = render(<Board api={host(ready({ view: {
       clues: { discovered: [
         { clue: 'knott-commission', label: "Knott's commission", how },
         { clue: 'bare-clue', label: 'A bare note' },
       ] },
-      // The account is the Keeper's own prose from the table; the glossary never rewrites it.
-      labels: { [how]: 'a glossary rewrite that must not happen' },
+      labels: { [how]: projected },
     } }))} />);
     await screen.findByRole('heading', { name: enBoard.clues });
     expect(screen.getByText("Knott's commission")).toBeTruthy();
     const folds = container.querySelectorAll('details.coc-clue-fold');
     expect(folds).toHaveLength(1);
     const fold = folds[0] as HTMLDetailsElement;
-    // The name stays on the line; the account is one tap away and arrives verbatim.
+    // The name stays on the line; the public account reads the presenter's saved projection.
     expect(fold.open).toBe(false);
     expect(fold.querySelector('summary')?.textContent).not.toContain('Corbitt House');
-    expect(fold.querySelector('.coc-clue-body')?.textContent).toBe(how);
+    expect(fold.querySelector('.coc-clue-body')?.textContent).toBe(projected);
+    expect(container.textContent).not.toContain(how);
     fireEvent.click(fold.querySelector('summary')!);
     expect(fold.open).toBe(true);
     // A clue under a bare name has nothing to open into.

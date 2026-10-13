@@ -427,6 +427,23 @@ it('every campaign lane is its own job, so a journal projection is never answere
  expect(run).toHaveBeenCalledTimes(5);
 });
 
+it('a clues request with other public accounts waits for its predecessor instead of sharing the wrong job',async()=>{
+ const {host}=await service();let release:()=>void=()=>{};
+ const gate=new Promise<void>(done=>{release=done;});
+ const run=vi.spyOn(host as any,'run').mockImplementation(async(_action:any,data:any)=>{
+  await gate;return {texts:Object.fromEntries(data.mechanics.filter((row:any)=>row.visibility!=='keeper').map((row:any)=>[row.how,`projected ${row.how}`]))};
+ });
+ const base={campaign:'c1',play_language:'fr',clues:true};
+ const first=host.presentation({...base,mechanics:[{kind:'clue',label:'Note',how:'First account'}]});
+ const same=host.presentation({...base,mechanics:[{kind:'clue',label:'Note',how:'First account'}]});
+ const other=host.presentation({...base,mechanics:[{kind:'clue',label:'Note',how:'Later account'}]});
+ release();
+ expect((await first).texts['First account']).toBe('projected First account');
+ expect((await same).texts['First account']).toBe('projected First account');
+ expect((await other).texts['Later account']).toBe('projected Later account');
+ expect(run).toHaveBeenCalledTimes(2);
+});
+
 it('a handouts request naming other titles never joins a run that was not given them',async()=>{
  // VT-01: the host hands the titles no handout file carries (a pictured handout's) to the lane as
  // input. A read that owes another title must reach a run that was given it, the way two deliveries'

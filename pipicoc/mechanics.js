@@ -1294,15 +1294,14 @@ export function createComponent(React) {
           num(row.minutes) ? h("span", { className: "coc-mech-faces" }, fill(t("minutes"), { n: row.minutes })) : null);
       case "clue": {
         const name = term(text(row.label || row.clue));
-        const account = text(row.how);
+        const account = term(text(row.how));
         if (!account || account === name) {
           // Nothing the player earned to open into beyond the name itself: the row stays a line.
           return h(Row, { key, kindKey: "clue", kindLabel, family },
             h("span", { className: "coc-mech-body" }, name));
         }
-        // What opens is the account the Keeper filed of how this table got the clue (§80), written
-        // at the table in the play language -- so it is drawn as it was written, not asked of the
-        // glossary. The module's own sentence about the clue is Keeper material and never rides here.
+        // What opens is the already-public account filed at this table (§80), projected by the
+        // clues presenter. The module's own sentence is Keeper material and never rides here.
         return h(FoldRow, { key, kindKey: "clue", kindLabel, body: account },
           h("span", { className: "coc-mech-body" }, name));
       }
