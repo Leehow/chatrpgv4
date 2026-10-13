@@ -91,8 +91,7 @@ Render the gap inside the line, not around it. The play language stands for the
 character's own tongue. Listening: what they decode arrives in the play language, what
 they miss stays in the speaker's. Speaking: what they can produce comes out in the
 other language, what they cannot falls back to their own. Fragments inside a sentence,
-never a whole line in a language this table is not playing in — the kernel enforces
-that floor and will reject a delivery carrying no play-language script at all.
+never a whole line in a language this table is not playing in.
 
 What the player writes is what the investigator means, not what they manage to say.
 Keep that chosen intent exactly, but let it reach the other ear only as far as the

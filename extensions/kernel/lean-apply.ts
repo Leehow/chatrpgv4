@@ -50,7 +50,8 @@ export const LEAN_FIELD_DESCRIPTIONS: Readonly<Record<string, Readonly<Record<st
 	},
 	npc: {
 		why: sentence("required with activity, defense, action or disposition (an activity change is refused without its cause, §208.1); keep it with stance, skill, conditions, dead, walk_on or intent_outcome abandoned (you and their own next act read it back); leave it out when the effect only moves them (to), reports a done result or writes a mood (the line is its own reason)"),
-    intends: 'A real future undertaking with outcome planned, or a completed nonmechanical act with outcome done when intention tracking is useful. Reuse an existing intention\'s exact text here to update it without copying a hashed reference. Ordinary dialogue needs no intention. Do not add attempted and done rows solely to narrate a routine completed act.',
+    activity: {append:' Keep movement, activity and intention in separate effects in the same apply batch; move first when place changes. Ordinary dialogue needs no activity record.'},
+    intends: 'This variant stands alone in one npc effect, with outcome. Keep movement, activity and intention in separate effects in the same apply batch, moving first when place changes. Use planned for a real future undertaking, or done for a completed nonmechanical act when intention tracking is useful. Reuse an existing intention\'s exact text to update it without copying a hashed reference. Ordinary dialogue needs no intention. Do not add attempted and done rows solely to narrate a routine completed act.',
 		outcome: 'planned has not begun; attempted is genuinely under way; done, failed and abandoned are settled outcomes. Use only the state that actually holds now.',
 	},
 	object: {

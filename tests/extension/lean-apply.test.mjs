@@ -279,11 +279,20 @@ test("kernel: _lean must be a boolean", async (t) => {
 });
 
 test('single Keeper field guidance has no obligatory mood or retired handoff',()=>{
+ const ordinary=offeredTools(COC_TOOLS,{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_LEAN_APPLY:'0'});
  for(const lean of ['0','1']){
   const offered=offeredTools(COC_TOOLS,{PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_LEAN_APPLY:lean});
   assert.doesNotMatch(variant(offered,'npc').properties.mood.description,/before they speak|handoff/);
   assert.doesNotMatch(variant(offered,'person').properties.name.description,/handoff|output/i);
   assert.match(variant(offered,'npc').properties.intends.description,/Ordinary dialogue needs no intention/);
+  assert.match(variant(offered,'npc').properties.intends.description,/stands alone in one npc effect, with outcome/);
+  assert.match(variant(offered,'npc').properties.intends.description,/same apply batch/);
+  assert.match(variant(offered,'npc').properties.intends.description,/mov(?:e|ing).*first/);
+  if(lean==='1'){
+   assert.match(variant(offered,'npc').properties.activity.description,/same apply batch/);
+   assert.match(variant(offered,'npc').properties.activity.description,/Ordinary dialogue needs no activity/);
+  }
+  assert.deepEqual(shape(applyOf(offered).parameters),shape(applyOf(ordinary).parameters));
   assert.deepEqual(markers(variant(offered,'npc')),markers(variant(COC_TOOLS,'npc')));
  }
 });
