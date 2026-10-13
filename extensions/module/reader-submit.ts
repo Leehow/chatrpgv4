@@ -11,7 +11,7 @@ import {successfulImageDeliveries} from './reader-image-delivery.ts';
 import {REVIEW_VERDICTS} from '../../kernel-ts/modules/review-verdicts.ts';
 import {PUBLIC_GUIDANCE_FIELDS,validatePublicGuidance} from '../../kernel-ts/modules/public-guidance.ts';
 import {retainSourceNeeds} from './source-needs.ts';
-import {requireVisualOverview} from '../../kernel-ts/modules/visual-discovery.ts';
+import {requireVisualOverview,checkIndexDraftShape} from '../../kernel-ts/modules/visual-discovery.ts';
 
 const quoted=(value:unknown)=>JSON.stringify(value);
 /** One line per finding of the draft check (§186.3): where, which law, what was written and, for a closed list, what is allowed. */
@@ -104,7 +104,7 @@ export default async function readerSubmit(pi: any) {
 		name: "submit_reading", label: "Submit source artifacts",
 		executionMode: "sequential",
 		description: indexTask
-			? "Save the navigation index in draft.json and finish without another model reply. Supply draft or omit it if already written. This saves an artifact only; the host's existing index completeness pass and source publication validate it. Call alone."
+			? "Save a navigation index with a required sections array in draft.json, then finish without another model reply. Use sections, not entries. Supply draft or omit it if already written. A shape error requires correction and resubmission in this child. Existing host completeness and source publication still decide acceptance. Call alone."
 			: reviewing
 			? "Save and check review.json, then finish without another model reply. Supply review or omit it if already written. Never modify the candidate files. Call alone after viewing the original cited pages."
 			: answerTask ? "Save and check the scoped source answer in draft.json, then finish without another model reply. Supply draft or omit it if already written. Use only status, answer, source_refs and limitations; no graph fields. Call alone after viewing every cited original page."
@@ -114,18 +114,18 @@ export default async function readerSubmit(pi: any) {
 			: "Save and check the first opening batch in draft.json, then finish without a closing reply. Under opening_scope first_interaction, declare interaction_scene and prepare the selected entry plus its first substantive interaction and immediate dependencies. Defer future encounters. Supply draft or omit it if already written. Failure returns findings for repair. Call alone after viewing the required original pages.",
 		parameters: reviewing ? Type.Object({review:Type.Optional(moduleLogicReview(task)?logicReviewSchema:guidanceTask?guidanceReview:Type.Any())})
 			: guidanceProjection ? Type.Object({guidance:Type.Optional(Type.Object({opening:Type.String(),advice:Type.String(),scene:Type.String(),guide:Type.Literal(''),handoff:Type.String()},{additionalProperties:false})),public_fields:Type.Optional(publicSchema)},{additionalProperties:false})
-			: Type.Object({draft:Type.Optional(guidanceTask?Type.Object({nodes:Type.Array(Type.Any()),claims:Type.Array(Type.Any()),
+			: Type.Object({draft:Type.Optional(indexTask?Type.Object({sections:Type.Array(Type.Any(),{description:'Navigation rows with name, physical page ranges in pages and observed source_refs.'})},{additionalProperties:true}):guidanceTask?Type.Object({nodes:Type.Array(Type.Any()),claims:Type.Array(Type.Any()),
 				node_refs:Type.Array(Type.Any()),coverage:Type.Object({},{additionalProperties:Type.Any()}),dependencies:Type.Array(Type.Any()),
 				critical:Type.Array(Type.String()),ready_nodes:Type.Array(Type.String())},{additionalProperties:true}):Type.Any()),
 				...(guidanceTask?{guidance:Type.Optional(Type.Any()),public_fields:Type.Optional(publicSchema)}:{})}),
 		async execute(_id: string, params: any, signal?: AbortSignal) {
 			if (signal?.aborted) throw new Error("Source submission cancelled");
 			if (indexTask) {
+				const draft=params.draft===undefined?JSON.parse(await readFile(join(cwd,'draft.json'),'utf8')):params.draft;
+				checkIndexDraftShape(draft);
 				if (params.draft !== undefined) {
-					if (!params.draft || typeof params.draft !== 'object' || Array.isArray(params.draft)) throw new Error('draft must be an object');
-					await writeFile(join(cwd, 'draft.json'), JSON.stringify(params.draft) + '\n');
+					await writeFile(join(cwd, 'draft.json'), JSON.stringify(draft) + '\n');
 				}
-				await readFile(join(cwd, 'draft.json'));
 				if (signal?.aborted) throw new Error('Source submission cancelled');
 				return {content:[{type:'text',text:'Navigation draft saved. The host will run the existing index completeness pass and source publication validation.'}],
 					details:{kind:'source_submission',phase:'index'},terminate:true};

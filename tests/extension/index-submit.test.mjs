@@ -18,6 +18,28 @@ const ROOT=resolve(import.meta.dirname,'../..'),CONTENT=join(ROOT,'content');
 const draft={title:'Navigation fixture',language:'en',sections:[{name:'Opening',pages:[[1,1]],source_refs:[{page:1}],topics:['First contact']}],map_candidates:[]};
 const save=(file,value)=>writeFile(file,JSON.stringify(value)+'\n');
 let api;
+
+for(const written of [false,true])test(`a malformed ${written?'written':'inline'} index submission is corrected in the same Pi process before successful termination`,async t=>{
+ const home=await mkdtemp(join(playtestScratch('index-submit'),'repair-')),cwd=process.cwd();
+ t.after(async()=>{process.chdir(cwd);await rm(home,{recursive:true,force:true});});
+ await save(join(home,'task.json'),{purpose:'index',source:{page_count:1}});process.chdir(home);
+ const invalid={title:'Navigation fixture',entries:[{name:'Opening',pages:[[1,1]]}]};
+ if(written)await save(join(home,'draft.json'),invalid);
+ let tool,checks=0;await readerSubmit({on(){},registerTool(value){tool=value},async exec(){checks++;throw Error('Index submission must not run the graph checker');}});
+ let requests=0;const model={id:'fixture',provider:'fixture',api:'openai-completions'};
+ const agent=new Agent({initialState:{model,tools:[tool]},streamFn(){requests++;const stream=createAssistantMessageEventStream();
+  const message={role:'assistant',provider:'fixture',model:'fixture',api:'openai-completions',timestamp:Date.now(),stopReason:'toolUse',
+   usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},
+   content:[{type:'toolCall',id:`index-${requests}`,name:'submit_reading',arguments:requests===1?(written?{}:{draft:invalid}):{draft}}]};
+  queueMicrotask(()=>{stream.push({type:'done',reason:'toolUse',message});stream.end();});return stream;}});
+ await agent.prompt('Submit the index navigation artifact.');
+ assert.equal(requests,2,'a bad navigation object must not end the same reader process');
+ const results=agent.state.messages.filter(message=>message.role==='toolResult');
+ assert.equal(results[0].isError,true);assert.match(results[0].content[0].text,/sections/i);
+ assert.equal(results[1].isError,false);assert.match(results[1].content[0].text,/saved/i);
+ assert.deepEqual(JSON.parse(await readFile(join(home,'draft.json'),'utf8')),draft);
+ assert.equal(checks,0,'navigation keeps the existing index publication owner');
+});
 async function nativeApi(dir){
  if(!api){const file=join(dir,'native.mjs');await build({stdin:{contents:[
   "export {createKernelContext} from './kernel-ts/context.ts';",

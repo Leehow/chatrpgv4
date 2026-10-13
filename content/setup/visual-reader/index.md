@@ -1,6 +1,6 @@
 ## Index phase
 
-Identify the authored structure from native navigation and selected contents, overview, and section-heading pages. Do not scan the whole document. This phase produces a navigation object, not conversational material or a Markdown report. Save draft.json with submit_reading as your sole final tool call; supply draft directly or omit it if already written. Submission saves the artifact and ends this child. It does not accept the index; the host's existing completeness pass and source publication validate it. Use this shape:
+Identify authored structure from native navigation and selected contents, overview, and heading pages; do not scan the whole document. Produce the navigation object below in draft.json, with sections as an array, not entries. Call submit_reading alone, supplying draft or omitting it if already written. A shape error leaves this child running: correct it and resubmit. A successful submission saves this artifact and ends the child; existing host completeness and publication checks still decide acceptance. Use this shape:
 
     {"title":"the actual title", "language":"en", "sections":[
       {"name":"a section or page topic", "pages":[[1,3]], "source_refs":[{"page":1}],

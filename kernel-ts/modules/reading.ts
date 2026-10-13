@@ -45,7 +45,7 @@ import {NODE_IDENTITY_FOCUS,NODE_IDENTITY_PROTOCOL,NODE_IDENTITY_QUESTION,nextId
 import {publishIdentitiesHeld} from './identity.js';
 import {readingFocus} from './reading-boundary.js';
 import {MERGE_INTERRUPTED,mergeForkReadings,ownAsks,refusedMerge} from './library-merge.js';
-import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,visualCandidates,type VisualScan} from './visual-discovery.js';
+import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,visualCandidates,checkIndexDraftShape,type VisualScan} from './visual-discovery.js';
 import {IDENTITY_FAILURES,IDENTITY_HOLDS,IDENTITY_QUESTION,draftIdentityPairs,identitySource,judgeDraftIdentity,publishedIdentityPairs,recordIdentityVerdicts,writeVariants,type IdentityPair} from './visual-identity.js';
 import {identityVerdicts} from './visual-identity-shape.js';
 import {MAP_SCOPE_FAILURES,MAP_SCOPE_QUESTION,mapScopeFocus,mapsLackingScope} from './map-scope.js';
@@ -2673,8 +2673,7 @@ export class Reading {
         return guidance;
     }
     private async finishIndex(mid: string, meta: Row, job: Row, draft: any, seen: Set<number>): Promise<void> {
-        if (!object(draft) || !Array.isArray(draft.sections))
-            reject('index draft needs a sections array');
+        try {checkIndexDraftShape(draft);} catch(error) {reject((error as Error).message);}
         if (Object.hasOwn(draft, 'map_candidates')) {
             if (!Array.isArray(draft.map_candidates)) reject('map_candidates must be a list');
             for (const candidate of draft.map_candidates) {

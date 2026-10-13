@@ -1,4 +1,9 @@
 /** Navigation ranges are structural; only a vision reader classifies their contents. */
+import {isJsonObject} from '../json.ts';
+/** The existing index publication shape, also checked before a reader's successful submission. */
+export function checkIndexDraftShape(draft:any):void {
+    if(!isJsonObject(draft)||!Array.isArray(draft.sections))throw new Error('index draft needs a sections array');
+}
 export type VisualScan = {first:number; last:number};
 export type VisualCandidate = {page:number;kind:'map'|'handout'|'illustration'|'uncertain';label:string};
 export const VISUAL_SCAN_PAGES = 20;
