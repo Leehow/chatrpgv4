@@ -47,9 +47,9 @@ export default async function readerSubmit(pi: any) {
 	const cwd = process.cwd();
 	const checker = process.env.PI_COC_READER_CHECK ?? join(resourceRootFrom(import.meta.url), "bin/coc-read-check");
 	const task = JSON.parse(await readFile(join(cwd, "task.json"), "utf8"));
-	const guidanceTask = task.purpose === "guidance", answerTask = task.purpose === "answer";
-	if (!guidanceTask && !answerTask && !['opening', 'detail'].includes(task.purpose)) throw new Error("Checked submission is only available for guidance, opening, detail and source answers");
-	const reviewing = Array.isArray(task.required_review);
+	const guidanceTask = task.purpose === "guidance", answerTask = task.purpose === "answer", indexTask = task.purpose === "index";
+	if (!guidanceTask && !answerTask && !indexTask && !['opening', 'detail'].includes(task.purpose)) throw new Error("Source submission is only available for index, guidance, opening, detail and source answers");
+	const reviewing = !indexTask && Array.isArray(task.required_review);
 	const guidanceProjection=guidanceTask&&!reviewing&&task.guidance_projection;
 	if(guidanceProjection&&(!Array.isArray(guidanceProjection.source_pages)||!guidanceProjection.source_pages.length||
 		guidanceProjection.source_pages.length>12||guidanceProjection.source_pages.some((page:unknown)=>!Number.isSafeInteger(page)||Number(page)<1||Number(page)>task.source?.page_count)))
@@ -101,9 +101,11 @@ export default async function readerSubmit(pi: any) {
 		status:Type.Union(['value','needs_choice','unavailable'].map(value=>Type.Literal(value))),text:Type.String({maxLength:1000}),
 		source_refs:Type.Array(Type.Object({page:Type.Integer({minimum:1})},{additionalProperties:false}),{maxItems:12})},{additionalProperties:false})])),{additionalProperties:false});
 	pi.registerTool({
-		name: "submit_reading", label: "Submit checked source artifacts",
+		name: "submit_reading", label: "Submit source artifacts",
 		executionMode: "sequential",
-		description: reviewing
+		description: indexTask
+			? "Save the navigation index in draft.json and finish without another model reply. Supply draft or omit it if already written. This saves an artifact only; the host's existing index completeness pass and source publication validate it. Call alone."
+			: reviewing
 			? "Save and check review.json, then finish without another model reply. Supply review or omit it if already written. Never modify the candidate files. Call alone after viewing the original cited pages."
 			: answerTask ? "Save and check the scoped source answer in draft.json, then finish without another model reply. Supply draft or omit it if already written. Use only status, answer, source_refs and limitations; no graph fields. Call alone after viewing every cited original page."
 			: guidanceProjection ? "Save and check guidance.json and public_fields for the already reviewed selected entrance. The host owns the unchanged draft.json; do not edit or submit it. Call alone after viewing assigned original pages."
@@ -118,6 +120,16 @@ export default async function readerSubmit(pi: any) {
 				...(guidanceTask?{guidance:Type.Optional(Type.Any()),public_fields:Type.Optional(publicSchema)}:{})}),
 		async execute(_id: string, params: any, signal?: AbortSignal) {
 			if (signal?.aborted) throw new Error("Source submission cancelled");
+			if (indexTask) {
+				if (params.draft !== undefined) {
+					if (!params.draft || typeof params.draft !== 'object' || Array.isArray(params.draft)) throw new Error('draft must be an object');
+					await writeFile(join(cwd, 'draft.json'), JSON.stringify(params.draft) + '\n');
+				}
+				await readFile(join(cwd, 'draft.json'));
+				if (signal?.aborted) throw new Error('Source submission cancelled');
+				return {content:[{type:'text',text:'Navigation draft saved. The host will run the existing index completeness pass and source publication validation.'}],
+					details:{kind:'source_submission',phase:'index'},terminate:true};
+			}
 			let receipt:Normalized[]=[];
 			const names = reviewing ? ["review"] : guidanceProjection?["guidance"]:["draft", ...(guidanceTask?["guidance"]:[])];
 			if(guidanceProjection){

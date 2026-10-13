@@ -88,7 +88,7 @@ export interface ReaderRequest {
 	 * file tool is shown its inputs this way (§191.2, §177.2). A relative path of plain names, never `..`.
 	 */
 	attachments?: string[];
-	/** Checked guidance/opening artifact submission ends the tool batch without final prose. */
+	/** Source artifact submission ends the tool batch; index submission saves navigation without graph checks. */
 	submission?: boolean;
 	/** A private audit session has its own checked submission and bounded call allowance. */
 	audit?: {control: string};

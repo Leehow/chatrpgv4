@@ -29,10 +29,10 @@ test('the current first-impression instructions let the Keeper choose a meaningf
   const instructions=(await k.ok('mods.context',{campaign:CAMPAIGN})).instructions.find((row:Row)=>row.mod==='natural-npc').instruction;
   const impression=instructions.split('## First impression')[1].split('## The impression in play')[0];
   assert.doesNotMatch(impression,/Never resolve\s+natural-npc:first-impression yourself/);
-  assert.match(impression,/You decide whether the impression matters this turn/);
-  assert.match(impression,/call `resolve` with `action\.decision: "natural-npc:first-impression"`/);
-  assert.match(impression,/Pending contacts are opportunities, not obligations/);
-  assert.match(impression,/Ordinary greetings do not automatically demand a roll/);
+  assert.match(impression,/Decide whether the initial impression matters to this approach/);
+  assert.match(impression,/call `resolve` with\s+`action\.decision: "natural-npc:first-impression"`/);
+  assert.match(impression,/Pending contacts are optional/);
+  assert.match(impression,/greetings need no roll/);
   assert.equal((await k.table('status')).receipts.filter((row:Row)=>row.kind==='roll').length,0,'sharing the opening scene creates no automatic roll');
   const action={intent:'social',decision:'natural-npc:first-impression',actor:'Thomas Hayes',target:'Steven Knott',goal:'Seek access to the house'};
   const first=await k.table('resolve',{call_id:'t1-c1',action});

@@ -1,6 +1,6 @@
 /**
  * Contract §187.5.3: a reader child's instructions, assembled per purpose. The source reader's instructions are the
- * directory `content/setup/visual-reader/`: `common.md` for every child, then the phase's own files -- `index.md` for the
+ * directory `content/setup/visual-reader/`: the phase's own files first, then `common.md` -- `index.md` for the
  * index author, `read.md` and the purpose's file (`skeleton.md`, `opening.md`, `detail.md`) for a reading author, then a
  * detail material's own file (`pregens.md`, §207.3), and `review.md` for a reviewer. Visual, guidance, answer and reference jobs keep their own single files.
  */
@@ -21,10 +21,10 @@ const READ_MATERIALS = ["pregens"];
 
 /** The `visual-reader/` files one source-reader child receives, in order. A read without a known purpose gets every purpose file. */
 export function visualReaderFiles(phase: ReaderPrompt["phase"], purpose?: string, material?: string): string[] {
-	if (phase === "index") return ["common.md", "index.md"];
-	if (phase === "verify") return ["common.md", "review.md"];
+	if (phase === "index") return ["index.md", "common.md"];
+	if (phase === "verify") return ["review.md", "common.md"];
 	const own = purpose && READ_PURPOSES.includes(purpose) ? [purpose] : READ_PURPOSES;
-	return ["common.md", "read.md", ...own.map(name => `${name}.md`), ...(material && READ_MATERIALS.includes(material) ? [`${material}.md`] : [])];
+	return ["read.md", ...own.map(name => `${name}.md`), ...(material && READ_MATERIALS.includes(material) ? [`${material}.md`] : []), "common.md"];
 }
 
 /** The instruction text of one reader child. */
@@ -36,6 +36,9 @@ export async function readerInstructionText(contentRoot: string, prompt: ReaderP
 	if (reference) return readFile(join(setup, "source-reference-guidance.md"), "utf8");
 	if (answer) return readFile(join(setup, "source-answer.md"), "utf8");
 	if (guidance) return readFile(join(setup, "visual-guidance.md"), "utf8");
-	const parts = await Promise.all(visualReaderFiles(phase, prompt.purpose, prompt.material).map(name => readFile(join(setup, VISUAL_READER_DIR, name), "utf8")));
+	const parts = await Promise.all(visualReaderFiles(phase, prompt.purpose, prompt.material).map(async name => {
+		const text = await readFile(join(setup, VISUAL_READER_DIR, name), "utf8");
+		return phase === 'index' && name === 'common.md' ? text.split('\n## Module reference policy: logic and campaign continuity\n')[0] : text;
+	}));
 	return parts.map(part => part.endsWith("\n") ? part : part + "\n").join("\n") + "\nComplete only this phase and then stop.\n";
 }

@@ -81219,7 +81219,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_first_impression_refusal_names_who_is_here_and_how_to_stage_the_target",
-            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
+            "sha256": "16f0ecc0f78807a06d77fcb17e299a758337bf01a3e89d1557caddcbb1715082"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -81325,7 +81325,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_first_impression_uses_higher_value_and_reuses_pair",
-            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
+            "sha256": "16f0ecc0f78807a06d77fcb17e299a758337bf01a3e89d1557caddcbb1715082"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -81423,7 +81423,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_pending_contact_carries_the_handle_the_first_impression_receipt_carries",
-            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
+            "sha256": "16f0ecc0f78807a06d77fcb17e299a758337bf01a3e89d1557caddcbb1715082"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -81971,7 +81971,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_npc_fires_generated_weapon_then_player_takes_remaining_ammo",
-            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
+            "sha256": "16f0ecc0f78807a06d77fcb17e299a758337bf01a3e89d1557caddcbb1715082"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82159,7 +82159,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_generated_spell_is_priced_and_npc_can_cast_it",
-            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
+            "sha256": "16f0ecc0f78807a06d77fcb17e299a758337bf01a3e89d1557caddcbb1715082"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82343,7 +82343,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_legacy_hidden_first_impression_is_reused_without_disclosing_or_rerolling",
-            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
+            "sha256": "16f0ecc0f78807a06d77fcb17e299a758337bf01a3e89d1557caddcbb1715082"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82437,7 +82437,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_player_learns_generated_spell_and_its_effect_reaches_the_sheet",
-            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
+            "sha256": "16f0ecc0f78807a06d77fcb17e299a758337bf01a3e89d1557caddcbb1715082"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82527,7 +82527,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_worldline_merge_requires_an_explicit_choice_for_different_object_owners",
-            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
+            "sha256": "16f0ecc0f78807a06d77fcb17e299a758337bf01a3e89d1557caddcbb1715082"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82629,7 +82629,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_container_transfer_and_condition_are_preserved",
-            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
+            "sha256": "16f0ecc0f78807a06d77fcb17e299a758337bf01a3e89d1557caddcbb1715082"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82719,7 +82719,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_mod_resolution_obeys_pending_defense_and_preserves_session_projection",
-            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
+            "sha256": "16f0ecc0f78807a06d77fcb17e299a758337bf01a3e89d1557caddcbb1715082"
           },
           "review": "statement-by-statement",
           "validation": {
@@ -82813,7 +82813,7 @@
           "counterpart": {
             "file": "tests/integration/mod-combat.test.ts",
             "name": "test_same_owner_damage_updates_instance_and_cannot_be_hidden_in_legacy_rows",
-            "sha256": "f0196e7d774afb8a85dc326994ab4d030f42cad471d90db686fd298e168f5c88"
+            "sha256": "16f0ecc0f78807a06d77fcb17e299a758337bf01a3e89d1557caddcbb1715082"
           },
           "review": "statement-by-statement",
           "validation": {
