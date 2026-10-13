@@ -692,7 +692,11 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
   if(event.type==='final_delivery'){
     const frame=event.frame,id=`coc-final:${frame.delivery_id}`;
     if(frame.version!==1||!Number.isSafeInteger(frame.sequence))return previous;
-    if(previous.some(item=>(item.presentation?.details as {final_stream_id?:string})?.final_stream_id===frame.delivery_id))return previous;
+    if(previous.some(item=>{
+      const body=item.presentation?.details as {final_stream_id?:string;marked_text?:unknown;rendered_text?:unknown}|undefined;
+      return item.presentation?.renderer==='coc-mechanics'&&body?.final_stream_id===frame.delivery_id
+        &&[body.marked_text,body.rendered_text].some(text=>typeof text==='string'&&text.trim());
+    }))return previous;
     if(frame.event==='start')previous=previous.map(item=>item.role==='assistant'&&item.streaming?{...item,streaming:false}:item);
     const at=previous.findIndex(item=>item.id===id);
     const prior=at<0?undefined:previous[at];
@@ -720,12 +724,12 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     // reading and the re-reading came to disagree about whose words a delivery was.
     const details = event.entry.presentation?.details as { marked_text?: string; rendered_text?: string } | undefined
     const liveProse = (event.entry.role ?? 'assistant') === 'assistant' && (event.entry.presentation
-      ? event.entry.presentation.renderer === 'coc-mechanics' && Boolean(details?.marked_text || details?.rendered_text)
+      ? event.entry.presentation.renderer === 'coc-mechanics' && [details?.marked_text,details?.rendered_text].some(text=>typeof text==='string'&&text.trim())
       : Boolean(event.entry.content))
     // §171.3: a delivery takes the draft's place in the same update. Initial growth retains playback;
     // revised prose drops it, so the update appears immediately and never starts another animation (§167).
     const finalId=(event.entry.presentation?.details as {final_stream_id?:string})?.final_stream_id;
-    const replaces = event.replacesDraft??(finalId?`coc-final:${finalId}`:undefined)
+    const replaces = finalId&&!liveProse?undefined:event.replacesDraft??(finalId?`coc-final:${finalId}`:undefined)
     const draftAt = replaces ? previous.findIndex(item => item.id === replaces) : -1
     const message:ChatMessage={id:event.entry.id,role:event.entry.role??'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(event.entry.providerNotice?{providerNotice:event.entry.providerNotice}:{}),...(opening?{opening:true}:{}),...(event.entry.help?{help:event.entry.help}:{})};
     const prior = at >= 0 ? previous[at] : draftAt >= 0 ? previous[draftAt] : undefined

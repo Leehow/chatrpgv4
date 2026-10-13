@@ -30,6 +30,41 @@ it('ignores replayed stream frames after the canonical card has replaced that de
   expect(rows).toEqual([canonical]);
 });
 
+for(const [name,mechanics] of [
+  ['dice-only',[{kind:'roll',visibility:'public',roll:17,target:40}]],
+  ['item-only',[{kind:'item',name:'Notebook',quantity:1}]],
+] as const)it(`keeps the completed public body beside a ${name} card until real prose replaces it`,()=>{
+  let rows=applyStreamEvent([],{type:'final_delivery',sessionId:'s',frame:{...base,sequence:1,event:'start',status:'streaming'}});
+  rows=applyStreamEvent(rows,{type:'final_delivery',sessionId:'s',frame:{...base,sequence:2,event:'delta',delta:'Public rules answer.'}});
+  const mounted=render(<CocStreamingProse details={rows[0].presentation!.details as any}/>);
+  expect(mounted.container.textContent).toBe('Public rules answer.');
+  rows=applyStreamEvent(rows,{type:'final_delivery',sessionId:'s',frame:{...base,sequence:3,event:'end',status:'finalizing'}});
+  rows=applyStreamEvent(rows,{type:'presentation',sessionId:'s',entry:{id:'mechanics',role:'assistant',content:'',timestamp:2,
+    presentation:{renderer:'coc-mechanics',details:{final_stream_id:'delivery',mechanics}}}});
+  rows=applyStreamEvent(rows,{type:'final_delivery',sessionId:'s',frame:{...base,sequence:4,event:'end',status:'completed'}});
+  const prose=rows.filter(row=>row.presentation?.renderer==='coc-stream');
+  expect(prose).toHaveLength(1);
+  expect(prose[0].streaming).toBe(false);
+  mounted.rerender(<CocStreamingProse details={prose[0].presentation!.details as any}/>);
+  expect(mounted.container.textContent).toBe('Public rules answer.');
+  expect(mounted.container.querySelector('[data-delivery-status="completed"]')).not.toBeNull();
+  expect(rows.filter(row=>row.id==='mechanics')).toHaveLength(1);
+  rows=applyStreamEvent(rows,{type:'presentation',sessionId:'s',entry:{id:'body',role:'assistant',content:'',timestamp:3,
+    presentation:{renderer:'coc-mechanics',details:{final_stream_id:'delivery',marked_text:'{{say:Clerk}}Public rules answer.{{/say}}',mechanics:[]}}}});
+  expect(rows.filter(row=>row.presentation?.renderer==='coc-stream')).toHaveLength(0);
+  expect(rows.filter(row=>row.id==='body')).toHaveLength(1);
+});
+
+it('retains a completed plain reference body when clock metadata produces no presentation card',()=>{
+  let rows=applyStreamEvent([],{type:'final_delivery',sessionId:'s',frame:{...base,sequence:1,event:'start'}});
+  rows=applyStreamEvent(rows,{type:'final_delivery',sessionId:'s',frame:{...base,sequence:2,event:'delta',delta:'Public rules answer.'}});
+  rows=applyStreamEvent(rows,{type:'final_delivery',sessionId:'s',frame:{...base,sequence:3,event:'end',status:'completed'}});
+  expect(rows).toHaveLength(1);
+  expect(rows[0].streaming).toBe(false);
+  const mounted=render(<CocStreamingProse details={rows[0].presentation!.details as any}/>);
+  expect(mounted.container.textContent).toBe('Public rules answer.');
+});
+
 it('requests history replay when reconnect first receives a later sequence',()=>{
   const rows=applyStreamEvent([],{type:'final_delivery',sessionId:'s',frame:{...base,sequence:4,event:'delta',delta:'tail'}});
   expect(rows).toHaveLength(1);

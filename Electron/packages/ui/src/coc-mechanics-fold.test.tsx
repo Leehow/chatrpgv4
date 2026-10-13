@@ -48,8 +48,8 @@ describe('the trailing mechanics slip', () => {
     const {container} = render(draw(delivery([ROLL, NOTEBOOK, PENDING])))
     const toggle = container.querySelector('.coc-mech-list button') as HTMLButtonElement
     expect(container.querySelectorAll('.coc-mech-list button[aria-controls]').length).toBe(1)
-    // The header says what the rows are: belongings that arrived.
-    expect(toggle.querySelector('.coc-mech-list-name')!.textContent).toBe(enMechanics['fold.itemsGained'])
+    // These rows adopt belongings already held; they are not new acquisitions.
+    expect(toggle.querySelector('.coc-mech-list-name')!.textContent).toBe(enMechanics['fold.items'])
     expect(toggle.getAttribute('type')).toBe('button')
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
     const body = container.querySelector(`[id="${toggle.getAttribute('aria-controls')}"]`) as HTMLElement
@@ -76,7 +76,7 @@ describe('the trailing mechanics slip', () => {
     const toggles = [...container.querySelectorAll<HTMLButtonElement>('.coc-mech-list button[aria-controls]')]
     expect(toggles.map(toggle => [toggle.querySelector('.coc-mech-list-name')!.textContent,
       toggle.querySelector('.coc-mech-list-count')!.textContent!.replace(/\D+/g, '')])).toEqual([
-      [enMechanics['fold.itemsGained'], '2'], [enMechanics['fold.clue'], '1']])
+      [enMechanics['fold.items'], '2'], [enMechanics['fold.clue'], '1']])
     expect(toggles.map(toggle => toggle.getAttribute('aria-expanded'))).toEqual(['false', 'false'])
     expect(toggles.map(toggle => within(toggle).queryAllByRole('status').length)).toEqual([1, 0])
     const ids = toggles.map(toggle => toggle.getAttribute('aria-controls'))
@@ -115,6 +115,17 @@ describe('the trailing mechanics slip', () => {
     expect(rows.length).toBe(2)
     expect(rows[1].nextElementSibling?.classList.contains('coc-mech-usages') ?? false).toBe(false)
     expect(rows[0].nextElementSibling?.classList.contains('coc-mech-usages')).toBe(true)
+  })
+
+  it('still captions actual acquisitions as items gained', () => {
+    const acquired = {kind: 'item', receipt: 'item:t4-c6', name: 'Notebook', quantity: 1,
+      to: 'investigator', to_label: 'Shen', call: 't4-c6'}
+    const {container} = render(draw(delivery([ROLL, acquired])))
+    const toggle = container.querySelector('.coc-mech-list button') as HTMLButtonElement
+    expect(toggle.querySelector('.coc-mech-list-name')!.textContent).toBe(enMechanics['fold.itemsGained'])
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(toggle)
+    expect(container.querySelectorAll('.coc-mech-list [data-kind="item"]')).toHaveLength(1)
   })
 
   it('stays open across the redraw that lands an object\'s details, and the row then opens as before', () => {
