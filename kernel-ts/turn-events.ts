@@ -2,13 +2,14 @@
 import {RpcError} from './errors.js';
 import {isJsonObject,jsonDigest} from './json.js';
 import type {ModuleGraph} from './read/module-graph.js';
-import {personNode} from './read/capsule.js';
+import {personNode,npcsPresent} from './read/capsule.js';
+import {tableWord} from './read/person-words.js';
 import {array,clone,normalize,number,row,string,type Row} from './read/values.js';
 import {sayRanges,type SpeakerResolver} from './write/speech-pass.js';
 
 const modes=['observed','heard','read','belief'],states=['accurate','uncertain','distorted'];
 const word=(value:unknown,max=1200):value is string=>typeof value==='string'&&!!value.trim()&&[...value].length<=max;
-function invalid(field:string,fix='Use the event contract; unknown actors, references or fields are not accepted'):never{throw new RpcError('invalid_params',`Invalid event ${field}`,{fix,details:{field:`event.${field}`}});}
+function invalid(field:string,fix='Use the event contract; unknown actors, references or fields are not accepted',details:Row={}):never{throw new RpcError('invalid_params',`Invalid event ${field}`,{fix,details:{...details,field:`event.${field}`}});}
 function shape(value:unknown,keys:string[],field:string):Row{
   if(!isJsonObject(value)||Object.keys(value).some(key=>!keys.includes(key)))invalid(field);
   return value;
@@ -82,7 +83,15 @@ export function stageEvent(raw:unknown,input:{graph:ModuleGraph;world:Row;party:
     const person=input.party.find(sheet=>[sheet.id,sheet.name].some(key=>normalize(string(key))===normalize(name)));
     if(person)return {kind:'investigator',id:person.id,name:person.name};
     const node=personNode(input.graph,input.world,name);
-    if(!node)invalid(`unknown actor ${name}`);
+    if(!node){
+      let present:Row[]=[];try{present=npcsPresent(input.graph,input.world,input.graph.scene(input.world.active_scene));}catch{present=[];}
+      const actors=[...input.party.map(sheet=>({name:sheet.name})),...present.map(node=>{
+        const shown=input.graph.displayName(node),called=tableWord(input.world,input.graph.handle(node));
+        return {name:shown,...(called&&called!==shown?{called}:{})};
+      })];
+      invalid(`unknown actor ${name}`,'Use an existing investigator or registered NPC name; details.actors lists current party and present actors, including registered called aliases. If a new persistent person is needed, complete details.walk_on with the actual npc effect variant, such as to: "here" only when that person is present, and put it in effects before this event in the same apply. An incidental description needs no actor registration: use summary or a non-speech material, omitting actor, speaker, audience and related cognition fields.',
+        {actors,walk_on:{kind:'npc',name:name.trim(),walk_on:true}});
+    }
     return {kind:'npc',id:input.graph.handle(node),name:input.graph.displayName(node)};
   };
   const materials=list(value.materials,'materials').map((raw,index)=>{

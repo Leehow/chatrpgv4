@@ -93,7 +93,10 @@ export function moveObject(world: Row, name: string, definitionName: string | nu
         if (definitionName !== null && data.definitions[prior.definition].name !== definitionName) throw new RpcError('invalid_params', 'Transfer cannot replace the instance definition');
         if (!equal(quantity, prior.quantity)) throw new RpcError('invalid_params', 'Transfer preserves the complete instance quantity');
         if (condition !== null && condition !== prior.state.condition) {
-            if (!equal(source, owner)) throw new RpcError('invalid_params', 'Transfer preserves condition; change physical state with the same from/to owner');
+            if (!equal(source, owner)) throw new RpcError('invalid_params', 'Transfer preserves condition; change physical state with the same from/to owner',
+                {fix:'For this complete instance, prepend details.condition_effect with the actual causal why to the same effects batch, then repeat the original transfer effect with condition omitted. Preserve its quantity and any handover, check, offer, document and why. Do not widen a partial transfer: divide with the existing part/quantity fields first, then change only the separated receiving instance with the same from/to owner and its causal why.',
+                 details:{field:'object.condition',condition_effect:{kind:'object',name:prior.name,from:source.name,to:source.name,
+                    quantity,condition}}});
             prior.state.condition = condition;
         }
         prior.owner = clone(owner); prior.changed_turn = options.turn; ownershipChanged(world); return prior;
