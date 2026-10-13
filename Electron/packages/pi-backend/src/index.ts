@@ -7,7 +7,7 @@ import { readCocBinding, cocBindingOfRow, readColdSheet, callColdKernel, mechani
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
 import {withHandoutImages,withDocumentImage} from './coc-handout-images.js';
-import {publicPlayToolResult} from './coc-public-tool-details.js';
+import {publicPlayToolResult,deliveredPlayToolResults} from './coc-public-tool-details.js';
 import {withMapImages} from './coc-map-images.js';
 import {handoutReadingAnswer} from './coc-handout-reading.js';
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
@@ -1667,8 +1667,8 @@ function jsonlSnapshotStream(path: string, byteEnd?: number) {
   );
 }
 
-async function activeVisibleIds(path: string, byteEnd?: number): Promise<string[]> {
-  if (byteEnd !== undefined && byteEnd < 0) return [];
+async function activeTranscriptProjection(path: string, byteEnd?: number):Promise<{visibleIds:string[];toolResults:ReturnType<typeof deliveredPlayToolResults>}> {
+  if (byteEnd !== undefined && byteEnd < 0) return {visibleIds:[],toolResults:new Map()};
   const ordered: ContextEntrySummary[] = [];
   const raw=new Map<string,any>();
   const lines = createInterface({ input: jsonlSnapshotStream(path, byteEnd), crlfDelay: Infinity });
@@ -1676,7 +1676,13 @@ async function activeVisibleIds(path: string, byteEnd?: number): Promise<string[
     let entry: any;
     try { entry = JSON.parse(line); } catch { continue; }
     if (entry?.type === "session" || typeof entry?.id !== "string") continue;
-    if(entry.customType==='coc-final-delivery'||entry.customType==='coc-mechanics')raw.set(entry.id,entry);
+    if(entry.customType==='coc-final-delivery'||entry.customType==='coc-mechanics'||entry.customType==='coc-session')raw.set(entry.id,entry);
+    if(entry.type==='message'&&['user','toolResult'].includes(entry.message?.role)){
+      const message=entry.message;
+      raw.set(entry.id,{type:entry.type,id:entry.id,message:{role:message.role,toolCallId:message.toolCallId,
+        toolName:message.toolName,isError:message.isError,details:{receipts:message.details?.receipts,
+          ...(message.details?.coc_error?{coc_error:{code:message.details.coc_error.code}}:{})}}});
+    }
     ordered.push({
       id: entry.id,
       parentId: typeof entry.parentId === "string" ? entry.parentId : null,
@@ -1688,11 +1694,12 @@ async function activeVisibleIds(path: string, byteEnd?: number): Promise<string[
   }
   const branch=leafBranchFromFileOrder(ordered),streams=new FinalDeliveryHistory(),seen=new Set<string>();
   for(const entry of branch)streams.accept(raw.get(entry.id));
-  return branch.flatMap(entry=>{
+  const visibleIds=branch.flatMap(entry=>{
     const row=raw.get(entry.id),id=row?.customType==='coc-final-delivery'?row.data?.delivery_id:undefined;
     if(typeof id==='string'&&streams.entry(id)&&!seen.has(id)){seen.add(id);return [`coc-final:${id}`];}
     return entry.visible?[entry.id]:[];
   });
+  return {visibleIds,toolResults:deliveredPlayToolResults(branch.map(entry=>raw.get(entry.id)))};
 }
 
 function historyPage(entries: HistoryEntry[], before: number | string, limit: number): HistoryEntry[] {
@@ -1718,7 +1725,7 @@ async function readHistoryFallback(
   cocHost?: CocHostPaths,
 ): Promise<HistoryEntry[]> {
   if (byteEnd !== undefined && byteEnd < 0) return [];
-  const visibleIds = await activeVisibleIds(path, byteEnd);
+  const {visibleIds,toolResults} = await activeTranscriptProjection(path, byteEnd);
   const end = typeof before === "string"
     ? visibleIds.indexOf(before)
     : Math.max(0, visibleIds.length - before);
@@ -1769,6 +1776,8 @@ async function readHistoryFallback(
     const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft,
       [...(recovered?[recovered]:[]),...cocCards.patchesFor(entry?.id)],cocBinding);
     if (!mapped) continue;
+    const publicSummary=toolResults.get(entry.id);
+    if(mapped.role==='tool'&&cocBinding?.mode==='play'&&publicSummary?.campaign===cocBinding.campaign)mapped.content=publicSummary.content;
     const sentAt = mapped.role === "user" && entry?.type === "message" ? sentTimes.get(entry.message?.timestamp) : undefined;
     if (sentAt !== undefined) mapped.sentAt = sentAt;
     mappedById.set(mapped.id, mapped);
@@ -6698,6 +6707,19 @@ export class PiHostBackend implements HostBackend {
       this.stream({type: "presentation", sessionId: live.session.id, entry});
     }
   }
+  /** The canonical delivered card updates its matching completed steps, without retaining private results. */
+  private async projectPublicToolResults(live:Live,cardId:string):Promise<void>{
+    const binding=this.cocSessionBindings.get(live.session.id),epoch=live.turnEpoch;
+    if(binding?.mode!=='play')return;
+    const stat=await fs.stat(live.path);
+    const {toolResults}=await activeTranscriptProjection(live.path,stat.size-1);
+    const current=this.cocSessionBindings.get(live.session.id);
+    if(this.closed||this.live.get(live.session.id)!==live||live.turnEpoch!==epoch
+      ||!this.sessionRuntimeTokenIsCurrent(live.session.id,live.runtimeToken)
+      ||current?.mode!=='play'||current.campaign!==binding.campaign||current.home!==binding.home)return;
+    for(const summary of toolResults.values())if(summary.campaign===binding.campaign&&summary.cardIds.includes(cardId))
+      this.stream({type:'tool_result',sessionId:live.session.id,toolCallId:summary.toolCallId,content:summary.content,isError:false});
+  }
   private lines(live: Live, chunk: string) {
     if (this.projectionDebugEnabled()) this.projectionDebugLine(`[stream-debug] stdout session=${this.projectionDebugSessionTag(live.session.id)} t=${Date.now()} bytes=${chunk.length}`, "log");
     live.buffer += chunk;
@@ -6760,6 +6782,9 @@ export class PiHostBackend implements HostBackend {
           if (presentationId && live.cocCardRows?.has(presentationId)) (live.cocCardDrawn ??= new Map()).set(presentationId, JSON.stringify(entry.presentation));
           this.stream({type:"presentation",sessionId:live.session.id,entry}, e.entry);
         }
+        if(privatePlay&&e.entry?.customType==='coc-mechanics'&&typeof e.entry.id==='string'
+          &&Array.isArray(e.entry.data?.mechanics)&&e.entry.data.mechanics.length)
+          void this.projectPublicToolResults(live,e.entry.id).catch(()=>undefined);
       }
     }
     // Contract §55: a notice the host places reaches the screen when it is placed.

@@ -776,9 +776,10 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     || event.type === 'citations'
     || event.type === 'input_file_sources'
     || event.type === 'server_side_usage'
-  // Late hosted code-interpreter events after settle still update the last
-  // assistant in place so the virtual card appears immediately.
-  const reuseSettled = (event.type === 'hosted_code_interpreter' || event.type === 'input_file_sources' || (event.type === 'text' && event.replace === true)) && index >= 0
+  // A delivered public summary updates its existing completed tool in place,
+  // as do late hosted results, without reopening the settled assistant.
+  const reuseSettled = (event.type === 'hosted_code_interpreter' || event.type === 'input_file_sources' || (event.type === 'text' && event.replace === true)
+    || (event.type === 'tool_result' && matchingToolAssistantIndex >= 0)) && index >= 0
   const canUpdate = index >= 0
     && (index === previous.length - 1 || mayCrossUserBoundary)
     && (previous[index].streaming || reuseSettled)
@@ -1080,7 +1081,7 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     if (toolIndex >= 0) {
       const nextTools = ownTools()
       const tool = nextTools[toolIndex]
-      const completed = { ...tool, result: event.content, error: event.isError, finishedAt: Date.now(), finished: true, dispatched: tool.name === 'subagent' && !event.isError && isBackgroundSubagentAck(event.content), images: event.images, details: event.details }
+      const completed = { ...tool, result: event.content, error: event.isError, finishedAt: tool.finishedAt ?? Date.now(), finished: true, dispatched: tool.name === 'subagent' && !event.isError && isBackgroundSubagentAck(event.content), images: event.images, details: event.details }
       nextTools[toolIndex] = completed
       changed = true
       const activityIndex = (activities ?? []).findIndex(activity => activity.type === 'tool' && activity.tool.id === event.toolCallId)
@@ -1089,7 +1090,7 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
         nextActivities[activityIndex] = { ...nextActivities[activityIndex], tool: completed } as TranscriptActivity
       }
     }
-    if (allToolsFinished(tools) && openPendingThinking(ownActivities())) changed = true
+    if (updated.streaming && allToolsFinished(tools) && openPendingThinking(ownActivities())) changed = true
   }
   if (!changed) return previous
   if (tools !== undefined) updated.tools = tools

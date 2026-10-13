@@ -161,6 +161,20 @@ describe('transcript model', () => {
       vi.setSystemTime(11_400)
       messages = applyStreamEvent(messages, { type: 'tool_result', sessionId: 's', toolCallId: 'read', content: 'ok' })
       expect(messages[0].tools?.[0]).toMatchObject({ finished: true, finishedAt: 11_400 })
+      messages = applyStreamEvent(messages, { type: 'presentation', sessionId: 's', entry: {
+        id: 'published', role: 'assistant', content: '', timestamp: 20_000,
+        presentation: { renderer: 'coc-mechanics', details: { turn: 1, mechanics: [{ kind: 'time', minutes: 3 }] } },
+      } })
+      messages = finishStreamingMessage(messages)
+      const originalIds = messages.map(message => message.id)
+      const settledActivities = messages[0].activities?.map(activity => activity.type)
+      vi.setSystemTime(50_000)
+      messages = applyStreamEvent(messages, { type: 'tool_result', sessionId: 's', toolCallId: 'read', content: 'public settlement' })
+      expect(messages.map(message => message.id)).toEqual(originalIds)
+      expect(messages[0].streaming).toBe(false)
+      expect(messages[0].activities?.map(activity => activity.type)).toEqual(settledActivities)
+      expect(messages[0].tools?.[0]).toMatchObject({ startedAt: 10_000, finishedAt: 11_400, result: 'public settlement' })
+      expect(messages[0].activities?.find(activity => activity.type === 'tool')).toMatchObject({ tool: { finishedAt: 11_400, result: 'public settlement' } })
       expect(finishStreamingMessage(messages)[0].streaming).toBe(false)
     } finally { vi.useRealTimers() }
   })

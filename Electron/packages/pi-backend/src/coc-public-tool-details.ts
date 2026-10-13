@@ -43,11 +43,54 @@ function mechanicsOf(value:unknown):Row[]{
 }
 
 /** No input, private result text, diagnostic message or arbitrary details crosses this boundary. */
-export function publicPlayToolResult(toolName:unknown,result:unknown,isError:unknown):{content:string}{
+export function publicPlayToolResult(toolName:unknown,result:unknown,isError:unknown,delivered?:unknown):{content:string}{
   const details=row(row(result).details),error=row(details.coc_error);
   const failed=isError===true||Object.keys(error).length>0;
   const code=typeof error.code==='string'&&ERROR_CODES.has(error.code)?error.code:'unknown';
-  const mechanics=mechanicsOf(details.mechanics);
+  const mechanics=mechanicsOf(delivered??details.mechanics);
   return {content:JSON.stringify({tool:typeof toolName==='string'&&PLAY_TOOLS.has(toolName)?toolName:'tool',
     status:failed?'failed':'completed',...(failed?{error_code:code}:{}),...(mechanics.length?{mechanics}:{})})};
+}
+
+type DeliveredToolResult={toolCallId:string;content:string;cardIds:string[];campaign:string};
+/** Derive summaries only from the selected parent chain and its already-delivered public cards. */
+export function deliveredPlayToolResults(selected:readonly any[]):Map<string,DeliveredToolResult>{
+  const summaries=new Map<string,DeliveredToolResult>();
+  let campaign:string|undefined,play=false;
+  let tools:any[]=[];
+  const starts=new Map<string,Row>();
+  const delivered=new Map<string,Map<string,unknown>>();
+  for(const entry of selected){
+    if(entry?.customType==='coc-session'){
+      campaign=typeof entry.data?.campaign==='string'?entry.data.campaign:undefined;
+      play=entry.data?.mode==='play';tools=[];starts.clear();delivered.clear();
+    }
+    if(entry?.type==='message'&&entry.message?.role==='user'){tools=[];starts.clear();delivered.clear();}
+    if(!play)continue;
+    const message=entry?.message,details=row(message?.details);
+    if(entry?.type==='message'&&message?.role==='toolResult'&&typeof entry.id==='string'
+      &&typeof message.toolCallId==='string'&&message.isError!==true&&!Object.keys(row(details.coc_error)).length
+      &&Array.isArray(details.receipts)&&details.receipts.every(id=>typeof id==='string'))tools.push(entry);
+    const frame=row(entry?.data);
+    if(campaign&&entry?.customType==='coc-final-delivery'&&frame.version===1&&frame.event==='start'
+      &&frame.campaign===campaign&&typeof frame.delivery_id==='string'&&frame.delivery_id
+      &&Number.isSafeInteger(frame.turn)&&typeof frame.worldline==='string'&&frame.worldline
+      &&Number.isSafeInteger(frame.loop))starts.set(frame.delivery_id,frame);
+    if(entry?.customType!=='coc-mechanics'||typeof entry.id!=='string'||!Array.isArray(frame.mechanics))continue;
+    const start=typeof frame.final_stream_id==='string'?starts.get(frame.final_stream_id):undefined;
+    if(!start||frame.turn!==start.turn)continue;
+    for(const tool of tools){
+      const receipts=new Set<string>(tool.message.details.receipts);
+      const matches=frame.mechanics.filter(value=>typeof row(value).receipt==='string'&&receipts.has(row(value).receipt as string));
+      if(!mechanicsOf(matches).length)continue;
+      const seen=delivered.get(tool.id)??new Map<string,unknown>();
+      for(const item of matches)seen.set(row(item).receipt as string,item);
+      delivered.set(tool.id,seen);
+      const previous=summaries.get(tool.id);
+      summaries.set(tool.id,{toolCallId:tool.message.toolCallId,campaign:campaign!,
+        content:publicPlayToolResult(tool.message.toolName,{details:tool.message.details},false,[...seen.values()]).content,
+        cardIds:[...new Set([...(previous?.cardIds??[]),entry.id])]});
+    }
+  }
+  return summaries;
 }
