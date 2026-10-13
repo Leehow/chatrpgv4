@@ -1193,7 +1193,7 @@ export class ReadingService implements ReadingBridge {
 			const running = this.pumps.get(scope);
 			// Polling the same job is not a queue wake. Existing explicit wakes still reach the pump,
 			// and a running owner completing can return this waiter before its next polling delay.
-			if (changed) void this.pump(mid, campaign);
+				if (changed || !running) void this.pump(mid, campaign);
 			await Promise.race([...(running ? [running] : []), delay(waitMs)]);
 		}
 		throw error("reading_failed", request.cancelled ? "reading was cancelled" : "the reader host shut down",
