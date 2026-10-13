@@ -1,4 +1,5 @@
 import {round,fixed} from './numeric.ts';
+import {withoutMechanicsMarkers} from '../../shared/delivery-markers.js';
 /** Native Pi RPC transport and durable live evidence. It performs no Keeper decisions. */
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, rmSync, readdirSync, openSync, closeSync, statSync, lstatSync, chmodSync } from 'node:fs';
@@ -285,28 +286,35 @@ export class Daemon {
             if (!ack.success)
                 return this._finalize_turn(n, text, stamp, started, [], '', 'empty', 'prompt rejected: ' + ack.error, { timings });
             const tools = new Map<any, Row>(), order: any[] = [], text_parts: string[] = [];
-            const publicStreams=new Map<string,{attempt:string;sequence:number;text:string}>();
+            const publicStreams=new Map<string,{attempt:string;sequence:number;text:string;turn:unknown;canonical?:string;completed?:boolean}>();
+            let deliveredStreamId:string|null=null;
             let final_parts: string[] = [], delivered = '', delivery: Row | null = null, projected_mechanics: any[] = null as any, projected_choice: Row | null = null, public_clock: Row | null = null, rejected = false, confirmed = false, reason: string | null = null, settle_deadline: number | null = null, stale_deadline: number | null = null, saw_work = false, stale_settles = 0;
             const notices: Row[] = [], setup_openings: string[] = [], reference_replies: string[] = [], deadline = started + timeout;
-            const capture = (host: Row) => { if (host.kind === 'reference') {
+            const capture = (host: Row):boolean => { if (host.kind === 'reference') {
                 if (!reference_replies.includes(host.rendered_text))
                     reference_replies.push(host.rendered_text);
-                return;
-            } rejected = false; if (host.kind === 'notice') {
+                return false;
+            } let accepted=false; rejected = false; if (host.kind === 'notice') {
                 notices.push({ content: host.rendered_text, details: structuredClone(host.details) });
                 if (!delivery && !confirmed) {
                     delivery = host;
                     delivered = host.rendered_text;
+                    deliveredStreamId=null;
+                    accepted=true;
                 }
             }
             else if (!delivery || delivery.kind === 'notice') {
                 delivery = host;
                 delivered = host.rendered_text;
+                deliveredStreamId=null;
+                accepted=true;
             }
             else if (!delivered) {
                 delivered = host.rendered_text;
                 delivery.rendered_text = delivered;
-            } };
+                deliveredStreamId=null;
+                accepted=true;
+            } return accepted; };
             while (true) {
                 const now = time.monotonic(), wake = Math.min(...[settle_deadline, stale_deadline, deadline].filter((x): x is number => x != null)), wait = wake - now;
                 if (wait <= 0) {
@@ -387,29 +395,49 @@ export class Daemon {
                         catch { }
                         if (body && typeof body === 'object' && !Array.isArray(body)) {
                             if (typeof body.rendered_text === 'string') {
-                                delivered = body.rendered_text;
+                                if(withoutMechanicsMarkers(body.rendered_text)){
+                                    delivered = body.rendered_text;
+                                    deliveredStreamId=null;
+                                }
                                 rejected = false;
                             }
                             if (body.player_clock && typeof body.player_clock === 'object')
                                 public_clock = player_table_view({ clock: body.player_clock }).clock;
-                            delivery = { kind: embedded ? 'narrate' : rec.name, rendered_text: body.rendered_text || '', mechanics: body.mechanics || [], pending_choice: body.pending_choice ?? null };
+                            delivery = { kind: embedded ? 'narrate' : rec.name, rendered_text: delivered, mechanics: body.mechanics || [], pending_choice: body.pending_choice ?? null };
                         }
                     }
                 }
                 else if (type === 'entry_appended') {
                     const e = event.entry || {}, data = e.data || {}, host = extract_host_delivery(e), opening = extract_setup_opening(e);
                     if(e.customType==='coc-final-delivery'&&data.version===1){
-                        if(data.event==='start')publicStreams.set(data.delivery_id,{attempt:data.attempt_id,sequence:data.sequence,text:''});
+                        if(data.event==='start')publicStreams.set(data.delivery_id,{attempt:data.attempt_id,sequence:data.sequence,text:'',turn:data.turn});
                         else{
                             const stream=publicStreams.get(data.delivery_id);
                             if(stream&&stream.attempt===data.attempt_id&&data.sequence===stream.sequence+1){
                                 stream.sequence=data.sequence;
                                 if(data.event==='delta')stream.text+=data.delta??'';
-                                if(data.event==='end'&&data.status==='completed')capture({kind:'narrate',rendered_text:stream.text,mechanics:[],pending_choice:null});
+                                if(data.event==='end'&&data.status==='completed'){
+                                    stream.completed=true;
+                                    const host={kind:'narrate',rendered_text:stream.canonical??stream.text,mechanics:[],pending_choice:null};
+                                    if(capture(host))deliveredStreamId=data.delivery_id;
+                                }
                             }
                         }
                     }
                     else if (e.customType === 'coc-mechanics' && data && typeof data === 'object') {
+                        const stream=typeof data.final_stream_id==='string'?publicStreams.get(data.final_stream_id):undefined;
+                        if(e.type==='custom'&&e.display!==false&&stream&&Number.isSafeInteger(data.turn)
+                          &&stream.turn===data.turn&&Array.isArray(data.mechanics)){
+                            const text=typeof data.marked_text==='string'&&data.marked_text?data.marked_text
+                              :typeof data.rendered_text==='string'?data.rendered_text:'';
+                            const body=withoutMechanicsMarkers(text);
+                            if(body){
+                                stream.canonical=body;
+                                if(stream.completed&&deliveredStreamId===data.final_stream_id&&delivery){
+                                    delivered=body;delivery.rendered_text=body;
+                                }
+                            }
+                        }
                         if (data.player_clock && typeof data.player_clock === 'object')
                             public_clock = player_table_view({ clock: data.player_clock }).clock;
                         if (Array.isArray(data.mechanics))
@@ -429,6 +457,7 @@ export class Daemon {
                         if (confirmed && delivery?.kind === 'notice') {
                             delivery = null;
                             delivered = '';
+                            deliveredStreamId=null;
                         }
                     }
                 }
