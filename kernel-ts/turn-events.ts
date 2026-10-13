@@ -9,7 +9,7 @@ import {sayRanges,type SpeakerResolver} from './write/speech-pass.js';
 
 const modes=['observed','heard','read','belief'],states=['accurate','uncertain','distorted'];
 const word=(value:unknown,max=1200):value is string=>typeof value==='string'&&!!value.trim()&&[...value].length<=max;
-function invalid(field:string,fix='Use the event contract; unknown actors, references or fields are not accepted',details:Row={}):never{throw new RpcError('invalid_params',`Invalid event ${field}`,{fix,details:{...details,field:`event.${field}`}});}
+function invalid(field:string,fix='Use the event contract; unknown actors, references or fields are not accepted',details:Row={}):never{throw new RpcError('invalid_params',`Invalid event ${field}`,{fix,details:{field:`event.${field}`,...details}});}
 function shape(value:unknown,keys:string[],field:string):Row{
   if(!isJsonObject(value)||Object.keys(value).some(key=>!keys.includes(key)))invalid(field);
   return value;
@@ -120,7 +120,13 @@ export function stageEvent(raw:unknown,input:{graph:ModuleGraph;world:Row;party:
     const who=actor(item.actor),source=item.source===undefined?undefined:actor(item.source);
     if(item.mode==='heard'&&!source)invalid('heard source');
     const binding=material(item.material),bound=materials.find(m=>m.name===binding);
-    if(bound?.kind==='speech'&&(item.mode!=='heard'||source?.id!==row(bound.speaker).id||!array(bound.audience).some(a=>a.id===who.id)))invalid('speech cognition must match actual speaker and audience','Bind heard cognition only for an audience member hearing this material speaker, with source equal to that speaker. Knowledge already acquired from the actual player input is independent: omit its material field, rather than binding it to the NPC reply.');
+    if(bound?.kind==='speech'&&(item.mode!=='heard'||source?.id!==row(bound.speaker).id||!array(bound.audience).some(a=>a.id===who.id))){
+      const audience=array(bound.audience);
+      invalid('speech cognition must match actual speaker and audience','This material is a future speech-delivery binding, not generic evidence. For a prospective hearing use the expected mode and speaker as source, with the acquiring actor in the actual audience. Do not rewrite the genuine speaker or audience to match earlier knowledge. For already acquired player-input knowledge, physical reading or observation, omit this knowledge row\'s material; retain the row independently. Valid prospective non-speech bindings remain allowed.',
+        {field:`event.knowledge[${index}].material`,knowledge_index:index,material_index:materials.indexOf(bound),
+          mismatches:[...(item.mode!=='heard'?['mode']:[]),...(source?.id!==row(bound.speaker).id?['source']:[]),...(!audience.some(a=>a.id===who.id)?['audience']:[])],
+          expected:{mode:'heard',source:row(bound.speaker).name,actor_in_audience:audience.map(a=>a.name)}});
+    }
     if(item.mode==='belief'&&who.kind==='investigator')invalid('player belief requires the existing player assertion owner');
     return {actor:who,statement:item.statement,mode:item.mode,state:item.state,...(source?{source}:{}),...(binding?{material:binding}:{})};
   });

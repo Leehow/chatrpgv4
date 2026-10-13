@@ -179,9 +179,9 @@ const TurnEvent = Type.Object({
     kind:StringEnum(['fact','description','context','speech'] as const),visibility:StringEnum(['player','keeper'] as const),
     speaker:Type.Optional(Type.String()),audience:Type.Optional(Type.Array(Type.String(),{maxItems:16}))}),{maxItems:24,
     description:'Separate permitted statements from private causes. Speech requires speaker and actual proposed audience. Output can select the issued public aliases.'})),
-  knowledge:Type.Optional(Type.Array(Type.Object({actor:Type.String(),statement:Type.String({maxLength:1200}),
-    mode:StringEnum(['observed','heard','read','belief'] as const),source:Type.Optional(Type.String({description:'Actual speaker for heard claims; hearing is not truth or belief.'})),
-    state:StringEnum(['accurate','uncertain','distorted'] as const),material:Type.Optional(Type.String({description:'Local material for a prospective acquisition; for speech, actor/source must match its audience/speaker. Omit for knowledge already acquired from actual player input; never bind that NPC acquisition to their own reply.'}))}),{maxItems:24})),
+  knowledge:Type.Optional(Type.Array(Type.Object({actor:Type.String({description:'The registered person acquiring this knowledge; for heard mode, the actual hearer, not merely the speaker.'}),statement:Type.String({maxLength:1200}),
+    mode:StringEnum(['observed','heard','read','belief'] as const),source:Type.Optional(Type.String({description:'For heard mode, the actual speaker this actor hears, not a document or material citation. Hearing is not truth or belief.'})),
+    state:StringEnum(['accurate','uncertain','distorted'] as const),material:Type.Optional(Type.String({description:'Optional local public material name for future delivery activation, not generic evidence or provenance. A speech binding requires heard mode, source equal to its speaker, and actor in its audience. Normally omit for already acquired player-input knowledge, physical reading or observation. A valid prospective non-speech acquisition may still bind its fact, description or context material.'}))}),{maxItems:24})),
   relationships:Type.Optional(Type.Array(Type.Object({actor:Type.String(),toward:Type.String(),statement:Type.String({maxLength:1200}),
     material:Type.Optional(Type.String())}),{maxItems:24,description:'Directed event-grounded attitudes; cooperation need not be reciprocal. Use ordinary npc effects for mood and numerical stance.'})),
 });
