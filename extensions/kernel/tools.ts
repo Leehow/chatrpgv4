@@ -171,14 +171,14 @@ export const PLAIN_PROSE = "Write the prose itself: not a quoted or JSON-encoded
 /** Contract §162: a prose parameter's description, ending with `PLAIN_PROSE` as one more sentence. */
 const Delivery = Type.Object({
   version: Type.Literal(1),
-  materials: Type.Optional(Type.Array(Type.Object({name: Type.String({maxLength:120}), text:Type.String({maxLength:4000,description:'Permitted fictional proposition only. Keeper-authored rows are plain event or description notes, not finished narration. OOC rules or system explanations are direct Keeper replies, never story materials.'}), kind:StringEnum(['fact','description','context'] as const), visibility:StringEnum(['player','keeper'] as const), required:Type.Optional(Type.Boolean()), source:Type.Optional(Type.String())}),{maxItems:48})),
+  materials: Type.Optional(Type.Array(Type.Object({name: Type.String({maxLength:120}), text:Type.Optional(Type.String({maxLength:4000,description:'Permitted fictional notes, not finished narration. Omit only for exact reuse of explicitly player-safe text via source. Private sources require your permitted excerpt. OOC replies stay direct.'})), kind:StringEnum(['fact','description','context'] as const), visibility:StringEnum(['player','keeper'] as const), required:Type.Optional(Type.Boolean()), source:Type.Optional(Type.String())},{anyOf:[{required:['text']},{required:['source']}]}),{maxItems:48})),
   utterances: Type.Optional(Type.Array(Type.Object({speaker:Type.String(),audience:Type.Array(Type.String(),{maxItems:16}),meaning:Type.String({maxLength:4000,description:'The propositions this NPC intends to communicate, in note form, including what they know, what they only heard, and what they cannot answer. This is a semantic brief, not finished dialogue; the final author chooses the spoken wording.'}),stance:Type.Optional(Type.String()),source:Type.Optional(Type.String())}),{maxItems:48})),
   sources:Type.Optional(Type.Array(Type.String(),{maxItems:48})),
   required:Type.Optional(Type.Array(Type.String(),{maxItems:48})),
   presentation:Type.Optional(Type.String({maxLength:2000})),
-},{description:'Permitted fictional materials and NPC intentions. Keeper-only rows are excluded. Sources use only aliases issued by look, lookup or recall in this input, or the literal receipts alias for canonical settled results. Omit source references for your own propositions; never invent a source name or copy a receipt ID. No OOC explanations. Checking this plan never settles effects or publishes prose.'});
+},{description:'Permitted fiction and NPC intentions; keeper-only rows excluded. Use sources issued by current keeper_support/look/lookup/recall, or receipts. Only explicitly player-safe text permits reuse without an excerpt. Private sources need a player material with text and source. Never invent source names or copy receipt IDs. Checking neither settles nor publishes. OOC replies stay direct.'});
 
-const CarriedDelivery = Type.Object({version:Type.Literal(1)},{additionalProperties:true,description:'The same material plan as narrate. Only the separate output tool selects the final author.'});
+const CarriedDelivery = Type.Object({version:Type.Literal(1)},{additionalProperties:true,description:'Same plan as narrate: materials need name, kind, visibility and text or source. Only player-safe sources allow omitted text; private sources need an excerpt. Output selects the author.'});
 export const withPlainProse = (description: string): string =>
 	`${description}${description.endsWith(".") ? " " : ". "}${PLAIN_PROSE}`;
 

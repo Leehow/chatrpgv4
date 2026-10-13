@@ -1487,6 +1487,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	let runtime: HostRuntime | undefined;
 	const finalOutput = createFinalOutputOwner({runtime: () => runtime,
 		call: (method, params) => {if (!table) throw Error('The table is unavailable'); return table.kernel.call(method, params);}, record,
+		reference:(capsule)=>{let value:Record<string,any>|undefined|Promise<Record<string,any>|undefined>;
+			pi.events.emit('coc:writing-reference-request',{campaign:table?.campaign,capsule,accept:(ready:typeof value)=>{value=ready;}});
+			return value;},
 		constraints:()=>{
 			if(!table)return{};
 			const held=heldActs.get(table)?.basis,refused=refusedDocuments.get(table)?.basis;
@@ -1498,6 +1501,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	pi.events.on('coc:writing-reference', (value) => {
 		const reference=value as {campaign:string;turn:number;content:string;revision:string};
 		if(table&&reference?.campaign===table.campaign&&reference.turn===table.turn&&typeof reference.content==='string')finalOutput.advice(reference);
+	});
+	pi.events.on('coc:writing-support',(value:any)=>{
+		if(table&&value?.binding?.campaign===table.campaign&&value.binding.turn===table.turn&&Array.isArray(value.materials))
+			finalOutput.observeSupport(value.binding,value.materials);
 	});
 	pi.events.on('coc:writing-guidance',(value:any)=>{
 		if(!table||value?.campaign!==table.campaign||value.turn!==table.turn)return;
